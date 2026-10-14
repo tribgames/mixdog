@@ -29,6 +29,7 @@ import {
 } from './provider-catalog-cache.mjs';
 import {
   modelsDevProviderId,
+  firstPartyModelsDevIds,
   providerCatalogEntry,
   providerMetadataCorrection,
   providerSeedRow,
@@ -60,35 +61,35 @@ const PRICING_CATALOG_RETRY_MS = 60_000;
 // name, so a provider-keyed lookup can find nothing and the route silently
 // prices at zero — indistinguishable from a genuinely free local model.
 
-// Which vendor actually served a relayed model, read off the model id. Only a
-// guess: its row fills capabilities and the effort ladder the route's own
-// sources left undeclared, and prices a model only when the provider-keyed
-// lookup found no rates, so a route with real catalog coverage is never
-// repriced by a name guess. Ids are matched on their leading family token
-// rather than a bare substring, so an unrelated model that merely mentions a
-// vendor is not adopted by it.
-const _RELAYED_MODEL_VENDORS = [
-  [/^claude[-.]/, 'anthropic'],
-  [/^(gpt|o[1-9]|codex)[-.]/, 'openai'],
-  [/^gemini[-.]/, 'google'],
-  [/^grok[-.]/, 'xai'],
-  [/^deepseek[-.]/, 'deepseek'],
-  [/^kimi[-.]/, 'moonshotai'],
-  [/^glm[-.]/, 'zai'],
-  [/^muse[-.]/, 'meta'],
-  [/^qwen(?:\d|[-.])/, 'alibaba'],
-  [/^minimax[-.]/, 'minimax'],
-  [/^mimo[-.]/, 'xiaomi'],
-  [/^longcat[-.]/, 'longcat'],
-];
-
-function _relayedModelVendor(id) {
-  const model = String(id || '').toLowerCase();
-  if (!model) return null;
-  for (const [pattern, vendor] of _RELAYED_MODEL_VENDORS) {
-    if (pattern.test(model)) return vendor;
+// Which vendor actually served a relayed model, read off the catalogs, in
+// order of provenance that does not depend on catalog entry order:
+//   1. the vendor LiteLLM lists the id under (fixed key order);
+//   2. registered first-party vendors that list it in models.dev (sorted);
+//   3. an unregistered models.dev provider, only when it is the sole such
+//      candidate — aggregators list many vendors' SKUs, so when several
+//      disagree there is no provenance and nothing is borrowed.
+// Only a guess: its row fills capabilities and the effort ladder the route's
+// own sources left undeclared, and prices a model only when the
+// provider-keyed lookup found no rates, so a route with real catalog coverage
+// is never repriced by it. A model no catalog lists has no vendor row to
+// lend, so there is nothing to guess and no id pattern is used.
+function _relayedModelVendors(id, catalog, modelsDevCatalog) {
+  // A vendor serves its own models: a relay or a user-defined provider listed
+  // in a catalog is never the vendor (and resolving it would guess again).
+  const isVendor = (vendor) =>
+    Boolean(vendor) && !String(vendor).startsWith('custom-') && !providerCatalogEntry(vendor)?.relay;
+  const vendors = new Set();
+  for (const key of [id, ..._CATALOG_SIMPLE_PREFIXES.map((prefix) => prefix + id)]) {
+    const vendor = modelsDevProviderId(catalog?.[key]?.litellm_provider);
+    if (isVendor(vendor)) vendors.add(vendor);
   }
-  return null;
+  const firstParty = new Set(firstPartyModelsDevIds());
+  for (const vendor of firstParty) if (modelsDevCatalog?.[vendor]?.models?.[id]) vendors.add(vendor);
+  const unregistered = Object.entries(modelsDevCatalog || {})
+    .filter(([vendor, entry]) => entry?.models?.[id] && !firstParty.has(vendor) && isVendor(vendor))
+    .map(([vendor]) => vendor);
+  if (unregistered.length === 1) vendors.add(unregistered[0]);
+  return vendors;
 }
 
 // Provider prefix variants used by the shared catalog resolver.
@@ -523,10 +524,15 @@ const effortEntry = (options) => (Array.isArray(options) ? options.find((o) => o
 // A vendor row is a first guess for a route it does not describe (relay,
 // same-vendor other endpoint, custom provider): it fills only the capabilities
 // and effort ladder the route's own sources left undeclared. Never limits.
-function withVendorGuess(meta, guess, { ladder = true } = {}) {
+// A relay serves the model through its own hosted tools, so the serving
+// vendor's web-search flag says nothing about the relay endpoint.
+function withVendorGuess(meta, guess, { ladder = true, relay = false } = {}) {
   if (!guess) return meta;
   const out = { ...(meta || _normalize({})) };
-  for (const key of GUESSED_FLAGS) out[key] ??= guess[key];
+  for (const key of GUESSED_FLAGS) {
+    if (relay && key === 'supportsWebSearch') continue;
+    out[key] ??= guess[key];
+  }
   const effort = effortEntry(guess.reasoningOptions);
   if (ladder && effort && out.supportsReasoning !== false && !effortEntry(out.reasoningOptions)) {
     out.reasoningOptions = [...(out.reasoningOptions || []), effort];
@@ -602,11 +608,16 @@ function catalogMetadata(id, mappedProvider, catalog, modelsDevCatalog) {
 
 // The row of the vendor serving a relayed or custom model id (no vendor: a
 // bare-id catalog lookup).
-function servingVendorMetadata(id, vendor, catalog, modelsDevCatalog) {
-  // Anthropic SKUs spell versions with hyphens (claude-opus-5-5); relays
-  // may list the same SKU with dots (claude-opus-5.5).
-  const vendorId = vendor === 'anthropic' ? id.replace(/(\d)\.(\d)/g, '$1-$2') : id;
-  return lookupModelMetadata(vendorId, vendor, catalog, modelsDevCatalog);
+function servingVendorMetadata(id, catalog, modelsDevCatalog) {
+  // Some vendors spell versions with hyphens (claude-opus-5-5) where relays
+  // list the same SKU with dots (claude-opus-5.5); the catalog decides which.
+  for (const candidate of new Set([id, id.replace(/(\d)\.(\d)/g, '$1-$2')])) {
+    for (const vendor of _relayedModelVendors(candidate, catalog, modelsDevCatalog)) {
+      const row = lookupModelMetadata(candidate, vendor, catalog, modelsDevCatalog);
+      if (row) return row;
+    }
+  }
+  return null;
 }
 
 // Both list enrichment and synchronous accounting use this exact resolver;
@@ -631,9 +642,9 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog, li
   const correction = source ? providerMetadataCorrection(provider, id) : null;
   if (meta && correction) meta = { ...meta, ...correction };
   let guess = null;
-  const relayVendor = source?.relay ? _relayedModelVendor(id) : null;
+  const relayGuess = source?.relay ? servingVendorMetadata(id, catalog, modelsDevCatalog) : null;
   if (custom) guess = customVendorMetadata(originalId, catalog, modelsDevCatalog);
-  else if (relayVendor) guess = servingVendorMetadata(id, relayVendor, catalog, modelsDevCatalog);
+  else if (relayGuess) guess = relayGuess;
   else if (source && !source.sameEndpoint) guess = mapped;
   if (source?.relay && !hasRates(meta) && hasRates(guess)) {
     meta = meta ? { ...meta, ...pricingFields(guess) } : pricingOnly(guess);
@@ -686,7 +697,10 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog, li
   const rosterLadders = [cached?.rawProviderModel, listedRow].filter(
     (row) => Array.isArray(row?.reasoningLevels) || Array.isArray(row?.reasoningOptions)
   );
-  meta = withVendorGuess(meta, guess, { ladder: !(source?.rosterLadderFinal && rosterLadders.length) });
+  meta = withVendorGuess(meta, guess, {
+    ladder: !(source?.rosterLadderFinal && rosterLadders.length),
+    relay: Boolean(relayGuess),
+  });
   return meta
     ? {
         ...meta,
@@ -706,8 +720,7 @@ function customVendorMetadata(originalId, catalog, modelsDevCatalog) {
   const listedId = String(originalId || '');
   for (const id of new Set([listedId, listedId.slice(listedId.lastIndexOf('/') + 1)])) {
     if (!id) continue;
-    const vendor = _relayedModelVendor(id) || modelsDevProviderId(catalog[id]?.litellm_provider);
-    const guess = servingVendorMetadata(id, vendor, catalog, modelsDevCatalog);
+    const guess = servingVendorMetadata(id, catalog, modelsDevCatalog);
     if (guess) return guess;
   }
   return null;

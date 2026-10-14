@@ -398,9 +398,9 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
     : [];
 
   // Elements: the active HTML tab read as an outline, interactive elements and
-  // layout findings; the findings count rides the toolbar button as a badge.
+  // layout findings; the findings count shows in the open view's heading.
   const [elementsOpen, setElementsOpen] = useState(false);
-  const inspection = useVisualizeInspection({ body, tab });
+  const inspection = useVisualizeInspection({ body, tab, enabled: elementsOpen });
   const hasHtml = Boolean(tab?.panes.some((pane) => pane.kind === 'html'));
   const elementsAction = hasHtml
     ? [
@@ -410,7 +410,6 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
           icon: ListTree,
           inline: true,
           checked: elementsOpen,
-          badge: inspection.findingCount || undefined,
           onSelect: () => {
             if (!elementsOpen) inspection.refresh();
             setElementsOpen(!elementsOpen);

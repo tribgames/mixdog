@@ -99,6 +99,7 @@ export async function consumeCompatResponsesStream(
         idleDeadlineAt: state.semanticIdleDeadlineAt,
         idleEnabled: sawFirstEvent && idleEnabled && state.semanticIdleDeadlineAt > 0,
         idleLabel: `${label} SSE idle`,
+        streamLabel: label,
         // Unsafe-to-retry once any tool call (native or recovered-leaked)
         // has been emitted this stream — avoid a double side-effect.
         emittedToolCall: () => state.emittedToolCall || leakedCalls.length > 0,
@@ -144,7 +145,7 @@ export async function consumeCompatResponsesStream(
     }
     throw stampOutcome(err);
   }
-  const unresolved = unresolvedSalvageError(state);
+  const unresolved = unresolvedSalvageError(state, label);
   if (unresolved) {
     attachPartialState(unresolved, state, leakedCalls);
     throw stampOutcome(unresolved);

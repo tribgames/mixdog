@@ -8,6 +8,8 @@ export function createBrowserPixelPresentation(host: {
   image: { current: HTMLElement | null };
   canvasId: string;
   texture?(id: string, canvasId: string): void;
+  /** The painted GPU canvas left the surface: its texture must paint again. */
+  textureRetired?(): void;
 }) {
   const prepared = new WeakMap<DesktopBrowserPageFrame, HTMLImageElement>();
   let current: DesktopBrowserPageFrame | null = null;
@@ -36,6 +38,8 @@ export function createBrowserPixelPresentation(host: {
       const container = host.container();
       if (!container) return;
       let changed = false;
+      // The surface holds a painted GPU canvas exactly while the current frame is one.
+      const retiring = Boolean(current?.textureId) && host.image.current !== null;
       if (frame.textureId && (frame.textureId !== current?.textureId || frame.documentId !== current?.documentId)) {
         if (!host.texture) throw new Error('Browser GPU display is unavailable.');
         const old = host.image.current;
@@ -61,9 +65,11 @@ export function createBrowserPixelPresentation(host: {
         container.replaceChildren(image);
         host.image.current = image;
         changed = true;
+        if (retiring) host.textureRetired?.();
       } else if (frame.documentId !== current?.documentId) {
         container.replaceChildren();
         host.image.current = null;
+        if (retiring) host.textureRetired?.();
       }
       current = frame;
       visibility();

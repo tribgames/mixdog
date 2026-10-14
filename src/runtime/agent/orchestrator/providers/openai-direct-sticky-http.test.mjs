@@ -180,3 +180,43 @@ test('sticky set is ignored when MIXDOG_OPENAI_HTTP_FALLBACK=0: send uses WS', a
   );
   assert.equal(wsCalls, 1);
 });
+
+test('WS→HTTP fallback: a transport failure falls back and a 401 there reloads the key once', async () => {
+  const { provider, reloads } = setup();
+  const httpKeys = [];
+  const result = await withEnv({ MIXDOG_OAI_TRANSPORT: undefined, MIXDOG_OPENAI_HTTP_FALLBACK: undefined, MIXDOG_QUIET_PROVIDER_LOG: '1' }, () =>
+    provider.send(messages, 'gpt-5.5', [], {
+      sessionId: 'fb',
+      _sendViaWebSocketFn: async () => {
+        throw Object.assign(new Error('ws closed'), { code: 'ECONNRESET' });
+      },
+      _sendViaHttpSseFn: async ({ auth }) => {
+        httpKeys.push(auth.apiKey);
+        if (auth.apiKey === 'old-key') throw Object.assign(new Error('unauthorized'), { httpStatus: 401 });
+        return RESULT;
+      },
+    })
+  );
+  assert.equal(result, RESULT);
+  assert.equal(reloads(), 1);
+  assert.deepEqual(httpKeys, ['old-key', 'fresh-key']);
+});
+
+test('WS→HTTP fallback: an unsafe 401 is rethrown without a key reload', async () => {
+  const { provider, reloads } = setup();
+  await assert.rejects(
+    withEnv({ MIXDOG_OAI_TRANSPORT: undefined, MIXDOG_OPENAI_HTTP_FALLBACK: undefined, MIXDOG_QUIET_PROVIDER_LOG: '1' }, () =>
+      provider.send(messages, 'gpt-5.5', [], {
+        sessionId: 'fb2',
+        _sendViaWebSocketFn: async () => {
+          throw Object.assign(new Error('ws closed'), { code: 'ECONNRESET' });
+        },
+        _sendViaHttpSseFn: async () => {
+          throw Object.assign(new Error('unauthorized'), { httpStatus: 401, liveTextEmitted: true });
+        },
+      })
+    ),
+    /unauthorized/
+  );
+  assert.equal(reloads(), 0);
+});

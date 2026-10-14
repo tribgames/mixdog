@@ -245,6 +245,36 @@ test('a usable re-check fires, and a busy session is re-checked without spending
   assert.equal(quotaResumeStore.quotaResumeEntry(SESSION), null);
 });
 
+test('a persisted resume entry of an agent-only session never fires', async (t) => {
+  isolateDataDir(t);
+  const fired = [];
+  let readings = 0;
+  const scheduler = createQuotaResumeScheduler({
+    store: quotaResumeStore,
+    materializeSession: async () => ({
+      session: { id: SESSION, visibility: 'agent-only', owner: 'agent', agent: 'worker' },
+      fireQuotaResume: (options) => fired.push(options),
+    }),
+    readQuotaUsable: async () => {
+      readings += 1;
+      return true;
+    },
+    setTimer: () => null,
+    clearTimer: () => {},
+  });
+  quotaResumeStore.scheduleQuotaResumeEntry({
+    sessionId: SESSION,
+    turnKey: 'turn:u1',
+    provider: 'openai-oauth',
+    model: 'gpt-x',
+    resetAt: PAST,
+  });
+  await scheduler.tick();
+  assert.deepEqual(fired, []);
+  assert.equal(readings, 0);
+  assert.equal(quotaResumeStore.quotaResumeEntry(SESSION), null, 'the agent entry is dropped');
+});
+
 test('a cancel landing during the usage reading prevents the fire', async (t) => {
   isolateDataDir(t);
   const storedSessions = new Map([[SESSION, storedTranscript(SESSION)]]);

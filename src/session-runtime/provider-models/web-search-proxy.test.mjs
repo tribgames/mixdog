@@ -10,6 +10,11 @@ import {
 import { _resetModelProxyProviderConfigForTest } from '../../runtime/agent/orchestrator/providers/model-proxy-provider.mjs';
 import { createProviderModels } from '../provider-models.mjs';
 import { createQuickModelRows } from '../quick-model-rows.mjs';
+import { providerModelCacheRow } from '../model-recency.mjs';
+import { makeWebSearchCapableFor } from '../../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
+import { webSearchProviderFamily } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+
+const webSearchCapableFor = makeWebSearchCapableFor(webSearchProviderFamily, () => null);
 
 for (const forceFirstRead of [false, true]) {
   test(`remote web-search uses desktop providers on ${forceFirstRead ? 'forced' : 'cold'} load and after provider/host changes`, async (t) => {
@@ -39,8 +44,10 @@ for (const forceFirstRead of [false, true]) {
             assert.equal(providers[payload.provider]?.enabled, true, 'only desktop-enabled providers may be queried');
             value = {
               models: [
-                { id: `${payload.provider}-search`, supportsWebSearch: true },
-                { id: `${payload.provider}-plain`, supportsWebSearch: false },
+                // Current catalogs can declare tools without a boolean flag.
+                { id: `${payload.provider}-search`, supportedTools: ['web_search'] },
+                { id: `${payload.provider}-plain`, supportsWebSearch: false, supportedTools: ['web_search'] },
+                { id: { openai: 'gpt-4-turbo', gemini: 'gemini-1.5-pro', anthropic: 'claude-3-opus' }[payload.provider] },
                 {
                   id: `${payload.provider}-hidden`,
                   supportsWebSearch: true,
@@ -73,9 +80,9 @@ for (const forceFirstRead of [false, true]) {
         providers: { openai: { enabled: false }, deepseek: { enabled: true } },
       }),
       getReg: () => registry,
-      webSearchCapableFor: (_name, model) => model.supportsWebSearch === true,
+      webSearchCapableFor,
       sortProviderModelsRaw: (models) => models,
-      providerModelCacheRowRaw: (provider, model) => ({ ...model, provider }),
+      providerModelCacheRowRaw: providerModelCacheRow,
       normalizeWebSearchProviderId: (name) => name,
       isWebSearchCapableProvider: () => true,
       ensureFullConfig() {},
@@ -99,7 +106,7 @@ for (const forceFirstRead of [false, true]) {
         normalizeWebSearchProviderId: (name) => name,
         normalizeWebSearchRouteConfig: () => null,
         isWebSearchCapableProvider: () => true,
-        webSearchCapableFor: (_name, model) => model.supportsWebSearch === true,
+        webSearchCapableFor,
         currentMainWebSearchModelMeta: () => null,
       })
     );

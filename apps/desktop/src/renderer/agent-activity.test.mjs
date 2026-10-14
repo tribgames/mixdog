@@ -27,7 +27,6 @@ import { agentActivitySessionIds } from './desktop-types.ts';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store.ts';
 import { shellJobsStatusEqual } from '../shared/shell-jobs-status.ts';
-import { shouldOfferSessionInheritance } from './session-inheritance.ts';
 import { DESKTOP_TOAST_EVENT } from './desktop-toasts.tsx';
 import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu } from './agent-group-visibility.tsx';
 import i18n from './i18n.ts';
@@ -43,6 +42,20 @@ function installDom() {
 test('missing liveness is unknown, and execution capacity waits are queued', () => {
   assert.equal(desktopAgentActivityState({ status: 'unknown', stage: 'unknown' }), 'unknown');
   assert.equal(desktopAgentActivityState({ status: 'running', stage: 'resource_wait' }), 'queued');
+});
+
+test('a working agent keeps its lifecycle while the runtime phase reads idle, done or error between steps', () => {
+  for (const stage of ['idle', 'done', 'error', 'connecting', 'streaming', 'tool_running']) {
+    assert.equal(desktopAgentActivityState({ status: 'running', stage }), 'running', stage);
+  }
+  // The status still ends the work: a settled agent is idle whatever stale phase it carries.
+  assert.equal(desktopAgentActivityState({ status: 'idle', stage: 'streaming' }), 'idle');
+  assert.equal(desktopAgentActivityState({ status: 'error', stage: 'running' }), 'idle');
+  // A cancel in either field is never work.
+  assert.equal(desktopAgentActivityState({ status: 'running', stage: 'cancelled' }), 'cancelled');
+  // A row with only a stage is judged by it.
+  assert.equal(desktopAgentActivityState({ stage: 'streaming' }), 'running');
+  assert.equal(desktopAgentActivityState({ stage: 'idle' }), 'idle');
 });
 
 test('background shell jobs never change an agent state or count as waiting', () => {
@@ -171,7 +184,7 @@ test('shell status equality includes detail fields that arrive after the task id
   );
 });
 
-test('the context card offers inheritance only after the selected model changes', async () => {
+test('the context card offers only compaction, also after the model changed', async () => {
   const changed = {
     sessionId: 'lead-inherit',
     provider: 'cursor',
@@ -180,105 +193,27 @@ test('the context card offers inheritance only after the selected model changes'
     stats: { currentEstimatedContextTokens: 50 },
     displayContextWindow: 100,
   };
-  assert.equal(shouldOfferSessionInheritance(changed), true);
-  assert.equal(
-    shouldOfferSessionInheritance({
-      ...changed,
-      items: [{ kind: 'assistant', provider: 'cursor', model: 'gpt-5.6', text: 'done' }],
-    }),
-    false
-  );
   const dom = installDom();
-  const inherited = [];
-  const preflights = [];
-  let verdict = { known: true, fits: true, used: 90, limit: 100, percent: 90, reason: '' };
+  const requests = [];
   window.mixdogDesktop = {
     invokeCapability: async (request) => {
-      preflights.push(request);
-      return { value: verdict };
+      requests.push(request);
     },
   };
   try {
     await act(async () => {
-      dom.root.render(
-        React.createElement(ContextUsageIndicator, {
-          snapshot: changed,
-          onInherit: async (sourceSessionId, route) => {
-            inherited.push({ sourceSessionId, route });
-          },
-        })
-      );
+      dom.root.render(React.createElement(ContextUsageIndicator, { snapshot: changed, open: true }));
     });
-    assert.ok(document.querySelector('.context-inherit'));
-    await act(async () => {
-      document.querySelector('.context-inherit').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-    });
-    // No dialog stands between the button and the handover: one click carries the source session on its own route.
-    assert.deepEqual(inherited, [
-      {
-        sourceSessionId: 'lead-inherit',
-        route: { provider: 'cursor', model: 'gpt-5.6' },
-      },
-    ]);
-    // The verdict belongs to the heir's route, so it is read from the runtime
-    // that would perform the carry — never from this card's own gauge, which
-    // measures the session's current provider against its current model.
-    assert.deepEqual(preflights, [
-      {
-        capability: 'inheritancePreflight',
-        args: ['lead-inherit', { provider: 'cursor', model: 'gpt-5.6' }],
-        sessionId: 'lead-inherit',
-      },
-    ]);
-
-    // A conversation the heir cannot hold is refused before any session is
-    // created, in the user's own words instead of an engine sentence.
-    verdict = { known: true, fits: false, used: 853_569, limit: 500_000, percent: 171, reason: '' };
-    const warnings = [];
-    window.addEventListener(DESKTOP_TOAST_EVENT, (event) => warnings.push(event.detail));
-    await act(async () => {
-      document.querySelector('.context-inherit').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-    });
-    assert.equal(preflights.length, 2);
-    assert.equal(inherited.length, 1);
-    assert.equal(warnings.at(-1)?.tone, 'warn');
-
-    const compacted = [];
-    window.mixdogDesktop = {
-      invokeCapability: async (request) => {
-        compacted.push(request);
-      },
-    };
-    await act(async () => {
-      dom.root.render(
-        React.createElement(ContextUsageIndicator, {
-          snapshot: {
-            ...changed,
-            sessionId: 'same-claude',
-            provider: 'anthropic-oauth',
-            model: 'claude-fable-5-1',
-            items: [
-              {
-                kind: 'assistant',
-                provider: 'anthropic-oauth',
-                model: 'Claude Fable 5.1',
-                text: 'done',
-              },
-            ],
-          },
-          onInherit: async (...args) => {
-            inherited.push(args);
-          },
-        })
-      );
-    });
+    // Forking a session lives in the session row's menu, not here.
     assert.equal(document.querySelector('.context-inherit'), null);
-    assert.ok(document.querySelector('.context-compact'));
+    assert.deepEqual(
+      [...document.querySelectorAll('.context-action')].map((button) => button.className),
+      ['context-action context-compact']
+    );
     await act(async () => {
       document.querySelector('.context-compact').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     });
-    assert.deepEqual(compacted, [{ capability: 'compact', sessionId: 'same-claude' }]);
-    assert.equal(inherited.length, 1);
+    assert.deepEqual(requests, [{ capability: 'compact', sessionId: 'lead-inherit' }]);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();

@@ -81,7 +81,7 @@ export interface BrowserGuestCdp {
   /** Push the current Fetch patterns to the root and every child session. */
   applyFetchPatterns(guest: WebContents, signal?: AbortSignal): Promise<void>;
   /** Drop the debugger for a guest whose bridge is going away. */
-  detach(guest: WebContents, options?: { uninstallScript?: string }): Promise<void>;
+  detach(guest: WebContents): Promise<void>;
 }
 
 export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCdp {

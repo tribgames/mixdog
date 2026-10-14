@@ -30,13 +30,13 @@ export function taskCompletionSummary({ surface = 'tool', id, tag, status, error
   return `${subject} ${outcome}${status === 'failed' && error ? `: ${error}` : ''}${detail ? ` (${detail})` : ''}`;
 }
 
-export function renderTaskCompletionEnvelope({ surface = 'tool', id, tag, status, result = '', error } = {}) {
+export function renderTaskCompletionEnvelope({ surface = 'tool', id, tag, status, result = '', error, detail } = {}) {
   return [
     '<task-notification>',
     field('task-id', id),
     tag ? field('tag', tag) : null,
     field('status', status),
-    field('summary', taskCompletionSummary({ surface, id, tag, status })),
+    field('summary', taskCompletionSummary({ surface, id, tag, status, detail })),
     result ? `<result>\n${result}\n</result>` : null,
     status === 'failed' && error ? field('error', error) : null,
     '</task-notification>',

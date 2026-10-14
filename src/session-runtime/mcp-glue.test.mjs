@@ -20,13 +20,15 @@ test('mcpStatus surfaces a live server that reports not alive as failed', () => 
   assert.equal(row.error, 'process exited');
 });
 
-test('startup and reconciliation stay noninteractive while explicit local reconnect opts in', async () => {
+test('only an explicit sign-in connect is interactive; startup, toggles and reconcile never are', async () => {
   const calls = [];
   const servers = { remote: { url: 'https://example.test/mcp' } };
+  const openBrowser = () => {};
   const { connectConfiguredMcp } = createMcpConnect({
     mcpClient: {
-      connectMcpServers: async (_servers, options) => calls.push(['all', options.interactive]),
-      reconnectSingleMcpServer: async (_scope, name, _cfg, options) => calls.push([name, options.interactive]),
+      connectMcpServers: async (_servers, options) => calls.push(['all', options.interactive === true]),
+      reconnectSingleMcpServer: async (_scope, name, _cfg, options) =>
+        calls.push([name, options.interactive === true, options.openBrowser === openBrowser]),
     },
     getMcpScopeId: () => 'test',
     state: { mcpConnectGeneration: 0, mcpFailures: [] },
@@ -34,11 +36,104 @@ test('startup and reconciliation stay noninteractive while explicit local reconn
     mcpStatus: () => ({}),
   });
   await connectConfiguredMcp();
-  await connectConfiguredMcp({ only: 'remote', interactive: true });
+  await connectConfiguredMcp({ only: 'remote', login: { openBrowser } });
   await connectConfiguredMcp({ only: 'remote' });
   servers.remote = { url: 'https://example.test/changed' };
-  await connectConfiguredMcp({ reconcile: true, interactive: true });
-  assert.deepEqual(calls, [['all', false], ['remote', true], ['remote', false], ['remote', false]]);
+  await connectConfiguredMcp({ reconcile: true });
+  assert.deepEqual(calls, [
+    ['all', false],
+    ['remote', true, true],
+    ['remote', false, false],
+    ['remote', false, false],
+  ]);
+});
+
+test('a connect that needs an OAuth sign-in is reported as sign-in required, not as a failure', async () => {
+  const state = { mcpConnectGeneration: 0, mcpFailures: [] };
+  const cfg = { type: 'http', url: 'https://example.test/mcp' };
+  const glue = createMcpGlue({
+    mcpClient: {
+      resolveMcpTransportKind: () => 'http',
+      getMcpServerStatus: () => [],
+      getMcpServerOAuthState: (server) => (server.url ? { signedIn: false } : null),
+      reconnectSingleMcpServer: async () => {
+        throw Object.assign(new Error('MCP OAuth reauthenticationRequired: sign in to connect'), {
+          authRequired: true,
+        });
+      },
+    },
+    getConfig: () => ({ mcpServers: { remote: cfg, broken: { command: 'node' } } }),
+    getCurrentCwd: () => process.cwd(),
+    getMcpScopeId: () => 'test',
+    state,
+  });
+  const status = await glue.connectConfiguredMcp({ only: 'remote' });
+  const remote = status.servers.find((row) => row.name === 'remote');
+  assert.equal(remote.status, 'sign-in required');
+  assert.equal(remote.authRequired, true);
+  assert.equal(remote.connected, false);
+  assert.equal(remote.enabled, true);
+  assert.equal(remote.error, null);
+  assert.deepEqual(remote.oauth, { signedIn: false, lastError: 'MCP OAuth reauthenticationRequired: sign in to connect' });
+  assert.equal(status.failedCount, 0);
+  const broken = status.servers.find((row) => row.name === 'broken');
+  assert.equal(broken.oauth, undefined);
+  assert.equal(broken.authRequired, undefined);
+});
+
+test('an explicit sign-in that did not complete keeps the server sign-in required, the reason under oauth', async () => {
+  for (const reason of ['MCP OAuth login failed, cancelled, or timed out', 'MCP server "remote" connect cancelled']) {
+    const state = { mcpConnectGeneration: 0, mcpFailures: [] };
+    const glue = createMcpGlue({
+      mcpClient: {
+        resolveMcpTransportKind: () => 'http',
+        getMcpServerStatus: () => [],
+        getMcpServerOAuthState: () => ({ signedIn: false }),
+        reconnectSingleMcpServer: async (_scope, _name, _cfg, options) => {
+          assert.equal(options.interactive, true);
+          throw Object.assign(new Error(reason), { authRequired: true });
+        },
+      },
+      getConfig: () => ({ mcpServers: { remote: { type: 'http', url: 'https://example.test/mcp' } } }),
+      getCurrentCwd: () => process.cwd(),
+      getMcpScopeId: () => 'test',
+      state,
+    });
+    const status = await glue.connectConfiguredMcp({ only: 'remote', login: { openBrowser: () => {} } });
+    const [row] = status.servers;
+    assert.equal(row.status, 'sign-in required');
+    assert.equal(row.authRequired, true);
+    assert.equal(row.connected, false);
+    assert.equal(row.error, null);
+    assert.deepEqual(row.oauth, { signedIn: false, lastError: reason });
+    assert.equal(status.failedCount, 0);
+  }
+});
+
+test('a server waiting for an interactive sign-in reports sign-in required until it connects', () => {
+  let pending = true;
+  let live = [];
+  const glue = createMcpGlue({
+    mcpClient: {
+      resolveMcpTransportKind: () => 'http',
+      getMcpServerStatus: () => live,
+      isMcpLoginPending: (name, scopeId) => pending && name === 'remote' && scopeId === 'test',
+      getMcpServerOAuthState: () => ({ signedIn: false }),
+    },
+    getConfig: () => ({ mcpServers: { remote: { type: 'http', url: 'https://example.test/mcp' } } }),
+    getCurrentCwd: () => process.cwd(),
+    getMcpScopeId: () => 'test',
+    state: { mcpConnectGeneration: 0, mcpFailures: [] },
+  });
+  const row = () => glue.mcpStatus().servers[0];
+  assert.equal(row().status, 'sign-in required');
+  assert.equal(row().authRequired, true);
+  assert.equal(row().connected, false);
+  assert.equal(row().error, null);
+  pending = false;
+  live = [{ name: 'remote', alive: true, toolCount: 1, tools: [] }];
+  assert.equal(row().status, 'connected');
+  assert.equal(row().authRequired, undefined);
 });
 
 test('a disable cancels the pending login of the connect it queues behind before waiting', async () => {
@@ -63,7 +158,7 @@ test('a disable cancels the pending login of the connect it queues behind before
     resolveEffectiveMcpServers: () => ({ servers: { remote: { url: 'https://example.test/mcp' } } }),
     mcpStatus: () => ({}),
   });
-  const enable = connectConfiguredMcp({ only: 'remote', interactive: true });
+  const enable = connectConfiguredMcp({ only: 'remote', login: { openBrowser: () => {} } });
   await new Promise((resolve) => setImmediate(resolve));
   await Promise.all([enable, connectConfiguredMcp({ only: 'remote', enabled: false })]);
   assert.deepEqual(calls, [

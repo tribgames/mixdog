@@ -338,6 +338,12 @@ html[data-window-material="mica"] .transcript-shell {
 .transcript-virtual-row-content[data-turn-end="true"] {
   padding-bottom: 0;
 }
+/* The live band under a reply part: the part's 8px step + this 8px + the
+   band's 24px = the 40px its completion footer takes below the same body
+   (.response-footer:has(.turn-status)), so settlement moves nothing. */
+.transcript-virtual-row-content[data-tag="Thinking"][data-under-part="true"] {
+  padding-top: 8px;
+}
 .transcript-turn-gap {
   height: 20px;
 }
@@ -581,11 +587,12 @@ html[data-window-material="mica"] .transcript-shell {
   line-height: var(--mx-line-ui);
   white-space: nowrap;
 }
-/* Completion replaces the live band: 16px thread row gap + the band's own
-   24px = 40px, and the footer restates that as 24px controls with a 16px
-   lead-in. Both states occupy exactly 40px below the response body, so
-   settlement cannot nudge the row. Verified against .live-activity below —
-   its three disagreeing heights are what made settlement jump. */
+/* Completion replaces the live band: the streaming part's 8px row step + the
+   band row's 8px lead-in + its own 24px = 40px, and the footer restates that
+   as 24px controls with a 16px lead-in on a turn-end row (no step). Both
+   states occupy exactly 40px below the response body, so settlement cannot
+   nudge the row. Verified against .live-activity below — its three
+   disagreeing heights are what made settlement jump. */
 .message.assistant .response-footer:has(.turn-status) {
   min-height: 24px;
   margin-top: 16px;

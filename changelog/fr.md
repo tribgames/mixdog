@@ -5,6 +5,39 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
+Ajout de la connexion OAuth MCP explicite, du changement de modèle sur place et d'une bannière de quota sur une seule ligne.
+
+### Nouvelles fonctionnalités
+
+- **Connexion MCP** — Ajout d'une connexion OAuth explicite pour les serveurs MCP avec état, boîte de dialogue partagée, collage à distance et commandes TUI (#74, thanks @oh1701).
+- **Changer de modèle sur place** — Ajout du changement de modèle d'un chat sans ouvrir de nouvelle session, et de l'option Bifurquer dans le menu de session (#73, #52, thanks @grapefruit0205).
+- **Bannière de quota** — Ajout d'une bannière d'une ligne au-dessus du compositeur lorsqu'une limite est atteinte ; Reprendre réserve la prochaine exécution pour l'heure de réinitialisation.
+- **Menu fichiers** — Ajout d'un compteur de fichiers sur l'îlot suivant les modifications de session non validées, avec Voir les modifications et Supprimer l'historique.
+- **Taille du texte du chat** — Ajout d'un réglage de taille de police du chat par appareil.
+
+### Modifications
+
+- Modification des nouvelles tentatives des fournisseurs pour respecter les limites et délais propres à chacun, en affichant l'attente restante avec possibilité d'annuler.
+- Modification des messages d'erreur pour indiquer la cause et l'étape suivante, et masquer Réessayer lorsqu'une nouvelle tentative ne peut pas aider.
+- Modification des commandes shell pour rester au premier plan pendant 10 secondes par défaut, jusqu'à 30 secondes, avant de passer en arrière-plan.
+- Ajustement de l'application de bureau, du raisonnement automatique et du service en arrière-plan pour réduire les requêtes périodiques, le rendu et la mémoire lors des longues sessions.
+
+### Corrections de bugs
+
+- Correction du gel d'une à deux secondes du service en arrière-plan toutes les 30 minutes.
+- Correction de la perte des notifications de fin des agents lors de l'annulation d'un tour ayant déjà produit une sortie.
+- Correction de l'îlot du compositeur affichant les agents en cours d'exécution comme inactifs ou terminés.
+- Correction du blocage lors du changement de session pendant l'attente de l'analyse des modifications d'autres sessions.
+- Correction des boîtes de dialogue du navigateur sortant du volet, de l'impossibilité de finaliser la confirmation de départ et de l'échec des raccourcis de copie du navigateur.
+- Correction de l'échec de mise en cache des invites chez les fournisseurs personnalisés Responses et des projets de session hérités ne correspondant pas à la barre latérale (#70, #75, thanks @sukjong2002).
+- Correction du scintillement des tableaux en streaming, des sauts de la transcription pendant l'exécution d'un tour et de la persistance de la carte de quota après un changement de fournisseur.
+
+### Divers
+
+- Suppression des helpers non utilisés (#67, thanks @22nsuk).
+
 ## v1.2.1 - 2026-10-14
 
 Ajout de l'importation de conversations depuis Codex et Claude Code, du fournisseur Command Code et des mentions de skills avec `$`, et correction de l'observation des entrées de Computer Use, des scripts de skills, du raisonnement automatique et de plusieurs problèmes de session.

@@ -11,6 +11,7 @@
 import {
   cancelQuotaResumeEntry,
   forgetQuotaSuspendedGoal,
+  isAgentOnlySession,
   noteQuotaSuspendedGoal,
   publicQuotaResume,
   quotaAutoResumeEnabled,
@@ -73,6 +74,20 @@ export function latestQuotaFailure(items) {
   return null;
 }
 
+/** The turn key of the failed turndone that ends the transcript, when no
+ *  later turn has begun; '' otherwise. */
+export function latestFailedTurnKey(items) {
+  const transcript = Array.isArray(items) ? items : [];
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    const item = transcript[index];
+    if (item?.kind === 'user' || item?.archived === true) return '';
+    if (item?.kind !== 'turndone') continue;
+    if (String(item.status || '').toLowerCase() !== 'failed') return '';
+    return transcriptTurnKeys(transcript)[index] || '';
+  }
+  return '';
+}
+
 /** What retrying the turn submits: its prompt when it produced no output, the
  *  continuation instruction when it did, null when the prompt carried no text
  *  (a media/attachment-only prompt cannot be replayed). */
@@ -125,6 +140,8 @@ export function createQuotaResumeLane(bag) {
     routeProvider: String(runtime.sessionProvider ?? runtime.provider ?? ''),
     routeModel: String(runtime.sessionModel ?? runtime.model ?? ''),
   });
+  // A delegated agent child never owns a resume: the Lead decides its retries.
+  const agentOnly = () => isAgentOnlySession({ id: currentId(), ...runtime.session });
   const queueResume = (sessionId, failure) =>
     scheduleQuotaResumeEntry({ sessionId, turnKey: failure.turnKey, ...failure.quota, ...sessionRoute() });
 
@@ -139,6 +156,21 @@ export function createQuotaResumeLane(bag) {
     cancelEpoch += 1;
     cancelQuotaResumeEntry(sessionId);
     forgetQuotaSuspendedGoal(sessionId);
+  };
+
+  // Anything running, settling, closing or queued owns the session first.
+  const retryBlocked = () => {
+    const state = getState();
+    return (
+      flags.disposed ||
+      settlement !== null ||
+      (flags.admission || 'open') !== 'open' ||
+      state.busy ||
+      state.commandBusy ||
+      flags.autoClearRunning ||
+      flags.draining ||
+      pending.length > 0
+    );
   };
 
   /** The one retry operation. `automatic` is the scheduler's resume: it
@@ -166,7 +198,7 @@ export function createQuotaResumeLane(bag) {
       settlement = null;
       if (!id || !failure) return null;
       settlement = { sessionId: id, turnKey: failure.turnKey, epoch: cancelEpoch };
-      if (failure.quota.resetAt === null || !quotaAutoResumeEnabled()) return null;
+      if (failure.quota.resetAt === null || !quotaAutoResumeEnabled() || agentOnly()) return null;
       return queueResume(id, failure);
     },
 
@@ -188,6 +220,7 @@ export function createQuotaResumeLane(bag) {
     /** Explicit request to auto-resume the latest quota-failed turn. */
     scheduleQuotaResume(sessionId) {
       requireAddressed(sessionId);
+      if (agentOnly()) throw new Error('agent sessions do not auto-resume; the Lead decides retries');
       const failure = latestQuotaFailure(getState().items);
       if (!failure || failure.quota.resetAt === null) {
         throw new Error('latest turn did not fail on exhausted provider quota with a known reset time');
@@ -207,9 +240,15 @@ export function createQuotaResumeLane(bag) {
       if (sessionId) cancelFor(String(sessionId));
     },
 
+    /** A deferred retry request (the desktop's switch-model flow): checked
+     *  against the session's own state when it arrives, so it runs only while
+     *  `turnKey` is still the latest failed turn and nothing is running,
+     *  settling or queued. False when refused. */
     async retryFailedTurn(sessionId, turnKey) {
       requireAddressed(sessionId);
-      return (await retryFailedTurn(String(turnKey || ''))) === true;
+      const key = String(turnKey || '');
+      if (!key || retryBlocked() || latestFailedTurnKey(getState().items) !== key) return false;
+      return (await retryFailedTurn(key)) === true;
     },
 
     /** Scheduler fire for the entry of `generation`, after a usable reading.
@@ -219,19 +258,12 @@ export function createQuotaResumeLane(bag) {
       const id = currentId();
       const entry = quotaResumeEntry(id);
       if (!id || !entry || entry.generation !== generation) return 'stale';
-      const state = getState();
-      if (
-        flags.disposed ||
-        settlement !== null ||
-        (flags.admission || 'open') !== 'open' ||
-        state.busy ||
-        state.commandBusy ||
-        flags.autoClearRunning ||
-        flags.draining ||
-        pending.length > 0
-      ) {
-        return 'busy';
+      if (agentOnly()) {
+        cancelQuotaResumeEntry(id, { generation });
+        return 'agent-session';
       }
+      const state = getState();
+      if (retryBlocked()) return 'busy';
       const failure = latestQuotaFailure(state.items);
       if (!failure || failure.turnKey !== entry.turnKey) {
         cancelQuotaResumeEntry(id, { generation });

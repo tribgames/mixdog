@@ -178,7 +178,7 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
     if (scope.detach) await settleDetached(withTeardownDeadline, stops);
     else await settleAll(withTeardownDeadline, stops);
     // The session went away (idle eviction included): free its save baselines.
-    if (scope.closingSessionId) forgetSessionSaveBaseline(scope.closingSessionId);
+    if (scope.closingSessionId) forgetSessionSaveBaseline(scope.closingSessionId, { releaseWriteControl: true });
     // Self-update stages in the background and swaps on the next clean launch
     // (see staged-update.mjs) — nothing installs at shutdown. On a real
     // process exit we just drop this session's live-refcount pid file so a

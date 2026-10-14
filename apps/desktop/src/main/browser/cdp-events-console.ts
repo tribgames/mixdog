@@ -6,27 +6,67 @@ import { type BrowserConsoleArgument, formatConsoleArguments, formatConsoleSourc
 import { type BrowserGuestStateStore, pushBounded } from './guest-state';
 import { explainNetworkFailure } from './network';
 import { redactBrowserUrl } from './redaction';
+import { isBrowserComponentAddress } from './request-scheme';
 
 type CdpParams = Record<string, unknown>;
 type CallFrame = { url?: string; lineNumber?: number };
 
-/** Resources Chromium's own bundled components ask for, such as the PDF
- *  viewer's stylesheet. This guest grants no extensions, so those failures
- *  belong to the browser rather than the page and nobody can act on them. */
-function isBrowserComponentUrl(url: unknown): boolean {
-  return typeof url === 'string' && url.startsWith('chrome-extension://');
+/* Diagnostics from Chromium's own bundled components (the PDF viewer, its
+ * resources) belong to the browser, not the page, and nobody can act on them.
+ * Console calls and exceptions name their execution context, whose origin
+ * says which component ran; log entries and failed requests name a URL. */
+
+const contextKey = (sessionId: string | undefined, contextId: unknown) => `${sessionId ?? ''}:${String(contextId)}`;
+
+export function onExecutionContextCreated(
+  state: BrowserGuestStateStore,
+  guest: WebContents,
+  params: CdpParams,
+  sessionId?: string
+): void {
+  const context = params.context as { id?: unknown; origin?: unknown } | undefined;
+  if (context && isBrowserComponentAddress(context.origin)) {
+    state.for(guest).browserComponentContexts.add(contextKey(sessionId, context.id));
+  }
 }
 
-export function onExceptionThrown(state: BrowserGuestStateStore, guest: WebContents, params: CdpParams): void {
+export function onExecutionContextDestroyed(
+  state: BrowserGuestStateStore,
+  guest: WebContents,
+  params: CdpParams,
+  sessionId?: string
+): void {
+  state.for(guest).browserComponentContexts.delete(contextKey(sessionId, params.executionContextId));
+}
+
+export function onExecutionContextsCleared(
+  state: BrowserGuestStateStore,
+  guest: WebContents,
+  sessionId?: string
+): void {
+  const contexts = state.for(guest).browserComponentContexts;
+  for (const key of contexts) {
+    if (key.startsWith(`${sessionId ?? ''}:`)) contexts.delete(key);
+  }
+}
+
+export function onExceptionThrown(
+  state: BrowserGuestStateStore,
+  guest: WebContents,
+  params: CdpParams,
+  sessionId?: string
+): void {
   const detail = params.exceptionDetails as
     | {
         text?: string;
         url?: string;
         lineNumber?: number;
+        executionContextId?: unknown;
         exception?: { description?: string };
         stackTrace?: { callFrames?: CallFrame[] };
       }
     | undefined;
+  if (state.for(guest).browserComponentContexts.has(contextKey(sessionId, detail?.executionContextId))) return;
   const described = detail?.exception?.description || detail?.text || 'page exception';
   const frame = detail?.stackTrace?.callFrames?.find((candidate) => candidate.url);
   const thrownUrl = frame?.url || detail?.url;
@@ -42,7 +82,13 @@ export function onExceptionThrown(state: BrowserGuestStateStore, guest: WebConte
     );
 }
 
-export function onConsoleApiCalled(state: BrowserGuestStateStore, guest: WebContents, params: CdpParams): void {
+export function onConsoleApiCalled(
+  state: BrowserGuestStateStore,
+  guest: WebContents,
+  params: CdpParams,
+  sessionId?: string
+): void {
+  if (state.for(guest).browserComponentContexts.has(contextKey(sessionId, params.executionContextId))) return;
   const type = String(params.type || '');
   const args = Array.isArray(params.args) ? (params.args as BrowserConsoleArgument[]) : [];
   // The first frame that names a script is the line a reader opens.
@@ -55,7 +101,7 @@ export function onConsoleApiCalled(state: BrowserGuestStateStore, guest: WebCont
 
 export function onLogEntryAdded(state: BrowserGuestStateStore, guest: WebContents, params: CdpParams): void {
   const entry = params.entry as { level?: string; text?: string; url?: string; lineNumber?: number } | undefined;
-  if (!entry || isBrowserComponentUrl(entry.url)) return;
+  if (!entry || isBrowserComponentAddress(entry.url)) return;
   const diagnostics = state.for(guest);
   const refusal = entry.url ? diagnostics.refusedRequests.get(entry.url) : undefined;
   diagnostics.console.record(
@@ -80,7 +126,7 @@ export function onLoadingFailed(
   // None of those is a fault of the page, so a cancelled request stays in
   // the network ledger but never joins the failures a reply volunteers — a
   // saved file is not a failed request.
-  if (request && !request.canceled && !isBrowserComponentUrl(request.url)) {
+  if (request && !request.canceled && !isBrowserComponentAddress(request.url)) {
     pushBounded(
       diagnostics.networkFailures,
       `${request.method} ${redactBrowserUrl(request.url)} — ${request.failure || 'failed'}`

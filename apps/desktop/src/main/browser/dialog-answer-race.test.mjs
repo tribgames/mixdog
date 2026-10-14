@@ -25,3 +25,31 @@ test('concurrent answers dispatch once and completion cannot erase a replacement
   assert.equal(sent, 1);
   assert.equal(record.pendingDialog, replacement);
 });
+
+test("a prompt keeps its full default only when a person accepted it untouched, never on equal text", async () => {
+  const bodies = [];
+  const record = {};
+  const service = createBrowserDialogReport({
+    diagnostics: () => record,
+    cdp: {
+      call: async (_guest, _method, params, _signal, options) => {
+        options.beforeDispatch();
+        bodies.push(JSON.parse(Buffer.from(String(params.body), 'base64').toString('utf8')));
+      },
+    },
+  });
+  const ask = () => {
+    record.pendingDialog = { type: 'prompt', defaultPrompt: 'x'.repeat(2_000), bridgeRequestId: 'r1' };
+  };
+  ask();
+  await service.handleDialog({}, true, 'x'.repeat(2_000), undefined, undefined, true);
+  ask();
+  // The same text sent deliberately (an agent's literal answer) stays literal.
+  await service.handleDialog({}, true, 'x'.repeat(2_000));
+  ask();
+  await service.handleDialog({}, false, '', undefined, undefined, true);
+  assert.deepEqual(
+    bodies.map((body) => body.keepDefault === true),
+    [true, false, false]
+  );
+});

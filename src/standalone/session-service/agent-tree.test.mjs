@@ -140,6 +140,23 @@ test('runAgentTurn drives the runtime, records the handoff and reports terminal 
   assert.equal(h.tree.agentDescriptor(session.id).status, 'cancelled');
 });
 
+test('runAgentTurn fails a rejected or unknown turn status with its reason, never an empty completion', async () => {
+  const h = createHarness();
+  const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  const terminal = [];
+  h.runtimeFor(session.id).reply = async () => ({ status: 'rejected', reason: 'session-closed', result: null });
+  await assert.rejects(
+    () => h.tree.runAgentTurn({ session, prompt: 'x', onTerminalResult: (r) => terminal.push(r) }),
+    /agent turn rejected: session-closed/
+  );
+  assert.equal(h.tree.agentDescriptor(session.id).status, 'error');
+  h.runtimeFor(session.id).reply = async () => ({ status: 'rejected', result: null, session: null });
+  await assert.rejects(() => h.tree.runAgentTurn({ session, prompt: 'x' }), /agent turn rejected/);
+  h.runtimeFor(session.id).reply = async () => ({ status: 'mystery' });
+  await assert.rejects(() => h.tree.runAgentTurn({ session, prompt: 'x' }), /agent turn mystery/);
+  assert.deepEqual(terminal, []);
+});
+
 test('a watchdog stop surfaces as its stall error with the turn partial output, not a user cancel', async () => {
   const h = createHarness();
   const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });

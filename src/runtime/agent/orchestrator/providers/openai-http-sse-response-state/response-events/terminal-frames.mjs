@@ -10,7 +10,8 @@ import {
   incompleteReasonFromEvent,
   isMaxOutputIncompleteReason,
 } from '../../lib/responses-terminal-fields.mjs';
-import { LABEL, toolInputPending } from '../response-state.mjs';
+import { applyErrorContract, markContentFilter } from '../../openai-error-contract.mjs';
+import { toolInputPending } from '../response-state.mjs';
 import { normalizeWsUsage } from '../../openai-ws-response-state/usage.mjs';
 
 // Typed status only — nothing is synthesized from text. The frame itself is
@@ -19,11 +20,14 @@ import { normalizeWsUsage } from '../../openai-ws-response-state/usage.mjs';
 function wireFailureError(message, event, detail, typedSources) {
   const err = new Error(message);
   err.responseFailed = event;
-  const typed = typedStatusFrom(...typedSources);
-  if (typed) err.httpStatus = typed;
   const code = detail?.code ?? detail?.type ?? null;
   if (typeof code === 'string' && code) err.providerErrorCode = code;
-  return err;
+  return applyErrorContract(err, {
+    status: typedStatusFrom(...typedSources),
+    code: typeof code === 'string' ? code : undefined,
+    error: detail,
+    event,
+  });
 }
 
 export function createTerminalFrameEvents({ state, items, text, outcome, meaningful }) {
@@ -89,7 +93,7 @@ export function createTerminalFrameEvents({ state, items, text, outcome, meaning
     absorbTerminalResponse(event.response || {});
     const reason = incompleteReasonFromEvent(event);
     if (!isMaxOutputIncompleteReason(reason)) {
-      const err = new Error(`${LABEL} ${frame}: ${reason}`);
+      const err = markContentFilter(new Error(`${state.label} ${frame}: ${reason}`), reason);
       // Still billed: the provider-boundary accounting records reported usage.
       if (state.usage) {
         err.partialUsage = state.usage;
@@ -98,7 +102,7 @@ export function createTerminalFrameEvents({ state, items, text, outcome, meaning
       throw err;
     }
     if (toolInputPending(state)) {
-      const err = outcome.stampToolSafety(new Error(`${LABEL} ${frame} (max_output_tokens) with tool call in flight`));
+      const err = outcome.stampToolSafety(new Error(`${state.label} ${frame} (max_output_tokens) with tool call in flight`));
       err.streamStalled = true;
       err.pendingToolUse = true;
       err.partialContent = state.content;
@@ -119,9 +123,12 @@ export function createTerminalFrameEvents({ state, items, text, outcome, meaning
       setEndTurn(event);
     } else if (event.response.status === 'failed') {
       const msg = event.response?.error?.message || 'response.done failed';
-      const err = new Error(`${LABEL} response.done failed: ${msg}`);
-      const typed = typedStatusFrom(event.response?.error, event.error, event);
-      if (typed) err.httpStatus = typed;
+      const err = new Error(`${state.label} response.done failed: ${msg}`);
+      applyErrorContract(err, {
+        status: typedStatusFrom(event.response?.error, event.error, event),
+        error: event.response?.error || event.error || null,
+        event,
+      });
       throw withFailedUsage(err, event);
     } else if (event.response.status === 'incomplete') {
       onIncomplete(event, 'response.done incomplete');
@@ -131,7 +138,7 @@ export function createTerminalFrameEvents({ state, items, text, outcome, meaning
   const failedFrameError = (event) =>
     withFailedUsage(
       wireFailureError(
-        `${LABEL} response.failed: ${event.response?.error?.message || event.error?.message || event.message || 'response.failed'}`,
+        `${state.label} response.failed: ${event.response?.error?.message || event.error?.message || event.message || 'response.failed'}`,
         event,
         event.response?.error || event.error || null,
         [event.response?.error, event.error, event]
@@ -142,7 +149,7 @@ export function createTerminalFrameEvents({ state, items, text, outcome, meaning
   // Same wire-error contract as response.failed.
   const errorFrameError = (event) =>
     wireFailureError(
-      `${LABEL} error: ${event.message || event.error?.message || 'unknown'}`,
+      `${state.label} error: ${event.message || event.error?.message || 'unknown'}`,
       event,
       { code: event.error?.code ?? event.error?.type ?? event.code ?? null },
       [event.error, event]

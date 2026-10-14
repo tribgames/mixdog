@@ -8,7 +8,12 @@
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { makeModelCache } from './model-cache.mjs';
-import { effortValuesForModel, setModelEffortCapabilities } from './anthropic-effort.mjs';
+import {
+  effortValuesForModel,
+  setModelEffortCapabilities,
+  thinkingTypesFromCapabilities,
+} from './anthropic-effort.mjs';
+import { getModelMetadataSync } from './model-catalog.mjs';
 
 // Disk-backed cache so repeated process starts (cron, tool calls) don't
 // hammer /v1/models. 24h TTL matches the upstream client cadence.
@@ -85,6 +90,7 @@ export function _normalizeAnthropicModel(raw) {
   const tier = modelTier(dated, versioned);
   const releaseDate = dated ? id.match(/-(\d{4})(\d{2})(\d{2})$/) : null;
   const effortValues = effortValuesForModel(raw?.capabilities, id);
+  const thinkingTypes = thinkingTypesFromCapabilities(raw?.capabilities);
   return {
     id,
     display: raw?.display_name || _prettyName(id, family),
@@ -98,6 +104,7 @@ export function _normalizeAnthropicModel(raw) {
     releaseDate: releaseDate ? `${releaseDate[1]}-${releaseDate[2]}-${releaseDate[3]}` : null,
     supportsReasoning: effortValues.length > 0 || _capabilitySupported(raw?.capabilities?.thinking),
     reasoningOptions: effortValues.length ? [{ type: 'effort', values: effortValues }] : [],
+    ...(thinkingTypes ? { thinkingTypes } : {}),
   };
 }
 
@@ -115,7 +122,12 @@ export function _prettyName(id, family) {
   return `${base} ${v[1]}${minor}`;
 }
 
+// Context window for a roster row that reports none: the shared model catalog
+// (cached roster / LiteLLM / models.dev) first, else the pre-catalog family
+// windows.
 export function _defaultContextForModel(id) {
+  const declared = Number(getModelMetadataSync(id, 'anthropic')?.contextWindow);
+  if (Number.isFinite(declared) && declared > 0) return declared;
   const text = String(id || '');
   const version = text.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i);
   if (Number(version?.[1] || 0) >= 5) return 1000000;

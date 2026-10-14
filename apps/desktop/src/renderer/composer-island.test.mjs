@@ -249,6 +249,44 @@ test('idle, finished and cancelled agents drop out; waiting parents stay; the Le
   );
 });
 
+test('a working agent stays listed through a transient idle/done phase and an unprovable lease, until it is idle', async (t) => {
+  const { root, document, publishPool } = mount(t);
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  const lead = poolAgent('island-session', {
+    agent: 'lead',
+    sessionId: 'island-session',
+    ownerSessionId: 'island-session',
+    stage: 'idle',
+    status: 'idle',
+  });
+  // The progress sweep copies the live runtime phase into the worker row: between
+  // turns/steps that phase reads idle/done/error while the worker is still running.
+  await publishPool([
+    lead,
+    poolAgent('between-a', { sessionId: 's-a', status: 'running', stage: 'idle' }),
+    poolAgent('between-b', { sessionId: 's-b', status: 'running', stage: 'done' }),
+    poolAgent('between-c', { sessionId: 's-c', status: 'running', stage: 'error' }),
+    poolAgent('lease-d', { sessionId: 's-d', status: 'unknown', stage: 'unknown' }),
+    poolAgent('settled-e', { sessionId: 's-e', status: 'idle', stage: 'idle' }),
+  ]);
+  assert.equal(document.querySelector('.composer-island-seg-agents').textContent.slice(0, 8), '4 agents');
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  assert.deepEqual(
+    [...document.querySelectorAll('.agent-pool-row')].map((row) => row.dataset.agentTag),
+    ['between-a', 'between-b', 'between-c', 'lease-d']
+  );
+  // Only an actual idle ends the listing.
+  await publishPool([
+    lead,
+    poolAgent('between-a', { sessionId: 's-a', status: 'idle', stage: 'idle' }),
+    poolAgent('between-b', { sessionId: 's-b', status: 'running', stage: 'streaming' }),
+  ]);
+  assert.deepEqual(
+    [...document.querySelectorAll('.agent-pool-row')].map((row) => row.dataset.agentTag),
+    ['between-b']
+  );
+});
+
 test('with no shells there is no shell segment, tab or row anywhere in the island', async (t) => {
   const { root, document, publishPool } = mount(t);
   await publish({ shellJobs: { count: 0, jobs: [], finished: [] } });
@@ -339,39 +377,6 @@ test('a pending approval takes over the island; a flash notice replaces any left
   );
   assert.equal(document.querySelector('.approval-card'), null);
   assert.equal(document.querySelector('.composer-island-flash').textContent, 'Resolved on another device');
-});
-
-test('a model mismatch segment offers revert and continue', async (t) => {
-  const { root, document } = mount(t);
-  const calls = [];
-  await act(async () =>
-    root.render(
-      React.createElement(ComposerDock, {
-        ...dockProps(),
-        modelMismatch: {
-          sessionModel: 'Claude',
-          selectedModel: 'Gemini',
-          onRevert: () => calls.push('revert'),
-          onContinue: () => calls.push('continue'),
-        },
-      })
-    )
-  );
-  const segment = document.querySelector('.composer-island-seg-model');
-  assert.equal(segment.textContent, translate('Continuing in {{model}}', { model: 'Claude' }));
-  // A dot marks the mismatch, not a warning glyph.
-  assert.ok(segment.querySelector('.composer-island-dot'));
-  assert.equal(segment.querySelector('svg'), null);
-  await act(async () => segment.click());
-  assert.equal(document.querySelector('.composer-island-model svg'), null, 'the panel header has no glyph');
-  const buttons = [...document.querySelectorAll('.composer-island-model button')];
-  assert.deepEqual(
-    buttons.map((button) => button.textContent),
-    [translate('Revert'), translate('Continue in {{model}}', { model: 'Gemini' })]
-  );
-  await act(async () => buttons[0].click());
-  await act(async () => buttons[1].click());
-  assert.deepEqual(calls, ['revert', 'continue']);
 });
 
 test('queued follow-up rows read icon, text, then Steer now, trash and a menu whose Edit edits', async (t) => {
@@ -480,6 +485,51 @@ test('the agent and shell segments expand the island panel inline', async (t) =>
   assert.equal(document.querySelector('.composer-island-jobs .composer-island-shell-command').textContent, 'npm test');
 });
 
+test('content shown by a child-only update holds the island slot open after it leaves', async (t) => {
+  const { root, document } = mount(t);
+  const { ComposerIsland } = await import('./ComposerIsland.tsx');
+  // The files segment renders from its own async read: the island itself
+  // never re-renders when it appears or disappears.
+  const control = { show: () => {} };
+  function LateFiles() {
+    const [shown, setShown] = React.useState(false);
+    control.show = setShown;
+    return shown ? React.createElement('button', { type: 'button', className: 'composer-island-seg' }, '1 file') : null;
+  }
+  let islandRenders = 0;
+  function CountedIsland(props) {
+    islandRenders += 1;
+    return React.createElement(ComposerIsland, props);
+  }
+  await act(async () =>
+    root.render(
+      React.createElement(CountedIsland, { sessionId: 'island-session', files: React.createElement(LateFiles) })
+    )
+  );
+  const slot = document.querySelector('.composer-island-slot');
+  const rendersBefore = islandRenders;
+  assert.equal(slot.dataset.held, undefined, 'an empty slot is not held yet');
+  await act(async () => control.show(true));
+  await act(async () => control.show(false));
+  assert.equal(islandRenders, rendersBefore, 'only the child re-rendered');
+  assert.equal(document.querySelector('.composer-island-seg'), null);
+  assert.equal(slot.dataset.held, 'true', 'the slot stays open instead of collapsing under the transcript');
+});
+
+test('content added and removed before the observer runs still holds the slot', async (t) => {
+  const { root, document } = mount(t);
+  const { ComposerIsland } = await import('./ComposerIsland.tsx');
+  await act(async () => root.render(React.createElement(ComposerIsland, { sessionId: 'island-session' })));
+  const slot = document.querySelector('.composer-island-slot');
+  const pill = slot.querySelector('.composer-island-pill');
+  const segment = document.createElement('span');
+  segment.className = 'composer-island-seg';
+  pill.append(segment);
+  segment.remove();
+  await act(async () => {});
+  assert.equal(slot.dataset.held, 'true');
+});
+
 test('the shared poll runs once for all subscribers, pauses while hidden and refreshes on becoming visible', async (t) => {
   const { subscribeSharedPoll } = await import('./shared-pool-poll.ts');
   const saved = { window: globalThis.window, document: globalThis.document };
@@ -515,4 +565,151 @@ test('the shared poll runs once for all subscribers, pauses while hidden and ref
   assert.equal(timers.size, 1, 'poll stays while a subscriber remains');
   off2();
   assert.equal(timers.size, 0);
+});
+
+test('the files segment opens a menu: View changes opens Changes, Delete history confirms first', async (t) => {
+  const { root, document, window } = mount(t);
+  window.mixdogDesktop.setTitleBarDimmed = () => {};
+  await import('./TurnReview');
+  const calls = [];
+  let cleared = false;
+  let refuse = '';
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    calls.push(request);
+    if (request.capability === 'clearSessionChangeHistory') {
+      if (refuse) throw new Error(refuse);
+      cleared = true;
+      return { value: { turns: 12 } };
+    }
+    if (request.capability !== 'getSessionReviewDiff') return { value: { supported: true, files: [], patch: '' } };
+    const files = cleared ? [] : [{ path: 'a.ts', status: 'M', additions: 3, deletions: 1 }];
+    return {
+      value: {
+        supported: true,
+        authoritative: true,
+        complete: true,
+        patch: '',
+        files,
+        uncommittedFiles: files,
+        historyTurns: cleared ? 0 : 12,
+      },
+    };
+  };
+  let opened = 0;
+  await act(async () =>
+    root.render(
+      React.createElement(
+        ComposerDock,
+        dockProps({ reviewSessionId: 'island-files', reviewCwd: 'C:/work', onOpenSessionDiff: () => opened++ })
+      )
+    )
+  );
+  const segment = () => document.querySelector('.turn-review-segment');
+  const menu = () => document.querySelector('.turn-review-files-menu');
+  const items = () => [...(menu()?.querySelectorAll('[role="menuitem"]') ?? [])];
+  const flush = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await flush();
+  assert.ok(segment(), 'the session has uncommitted files');
+  assert.equal(segment().getAttribute('aria-haspopup'), 'menu');
+
+  // Click opens the menu (no Changes yet): View changes, a separator, Delete history.
+  await act(async () => segment().click());
+  await flush();
+  assert.equal(opened, 0);
+  assert.equal(segment().getAttribute('aria-expanded'), 'true');
+  // Like the island's other tabs it expands the island upward in place: an
+  // island panel inside the island, not a popup portaled under it.
+  const island = document.querySelector('.composer-island');
+  assert.equal(island.dataset.expanded, 'files-menu');
+  assert.equal(island.dataset.mode, 'panel');
+  assert.ok(island.contains(menu()));
+  assert.ok(menu().closest('.composer-island-panel'));
+  assert.deepEqual(
+    items().map((item) => item.textContent),
+    ['View changes', 'Delete history']
+  );
+  assert.equal(menu().children[1].getAttribute('role'), 'separator');
+  assert.ok(items()[1].classList.contains('danger'));
+  assert.equal(document.activeElement, items()[0], 'keyboard focus lands on the first item');
+  await act(async () =>
+    menu().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+  );
+  assert.equal(document.activeElement, items()[1]);
+  await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+  assert.equal(menu(), null, 'Escape closes the menu');
+  assert.equal(island.dataset.expanded, undefined);
+  assert.equal(document.activeElement, segment(), 'focus returns to the segment');
+
+  // View changes does what the click used to do.
+  await act(async () => segment().click());
+  await act(async () => items()[0].click());
+  assert.equal(opened, 1);
+  assert.equal(menu(), null);
+
+  // Delete history asks first, with Cancel focused; Cancel changes nothing.
+  await act(async () => segment().click());
+  await act(async () => items()[1].click());
+  const dialog = () => document.querySelector('.settings-confirm-dialog');
+  assert.equal(dialog().querySelector('h3').textContent, "Delete this session's change history?");
+  assert.equal(
+    dialog().querySelector('p').textContent,
+    'Retained changes and Undo/Reapply for 12 turns will be permanently removed. Current files, conversation and Git history stay unchanged.'
+  );
+  const buttons = () => [...dialog().querySelectorAll('footer button')];
+  assert.deepEqual(
+    buttons().map((button) => button.textContent),
+    ['Cancel', 'Delete history']
+  );
+  assert.equal(document.activeElement, buttons()[0], 'Cancel is the default');
+  assert.equal(dialog().getAttribute('aria-modal'), 'true');
+  // A real modal: Tab and Shift+Tab cycle inside it.
+  const controls = () => [...dialog().querySelectorAll('button')];
+  const tab = (shiftKey = false) =>
+    act(async () =>
+      document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true }))
+    );
+  const [closeButton, , deleteButton] = controls();
+  await tab();
+  assert.equal(document.activeElement, deleteButton);
+  await tab();
+  assert.equal(document.activeElement, closeButton, 'Tab wraps inside the dialog');
+  await tab(true);
+  assert.equal(document.activeElement, deleteButton, 'Shift+Tab wraps back');
+  // Escape cancels and focus returns to the Files segment.
+  await act(async () => document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  assert.equal(dialog(), null);
+  assert.equal(document.activeElement, segment());
+  // So does Cancel.
+  await act(async () => segment().click());
+  await act(async () => items()[1].click());
+  await act(async () => buttons()[0].click());
+  assert.equal(dialog(), null);
+  assert.equal(document.activeElement, segment());
+  assert.equal(calls.filter((call) => call.capability === 'clearSessionChangeHistory').length, 0);
+
+  // A refusal (a running turn) shows its reason in the reopened menu.
+  refuse = 'Change history cannot be deleted while this session is running a turn';
+  await act(async () => segment().click());
+  await act(async () => items()[1].click());
+  await act(async () => buttons()[1].click());
+  await flush();
+  assert.match(menu().querySelector('.error-notice').textContent, /running a turn/);
+  assert.ok(segment(), 'nothing was deleted');
+  await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+
+  // Confirming deletes this session's history and the segment leaves.
+  refuse = '';
+  await act(async () => segment().click());
+  await act(async () => items()[1].click());
+  await act(async () => buttons()[1].click());
+  await flush();
+  const clears = calls.filter((call) => call.capability === 'clearSessionChangeHistory');
+  assert.deepEqual(
+    clears.map((call) => [call.sessionId, call.args]),
+    [
+      ['island-files', []],
+      ['island-files', []],
+    ]
+  );
+  assert.equal(segment(), null, 'an empty history hides the segment');
 });

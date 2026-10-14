@@ -82,6 +82,7 @@ export function createCompactionSettings({
       const next = { ...current };
       if (hasOwn(input, 'auto')) next.auto = input.auto !== false;
       if (hasOwn(input, 'enabled')) next.auto = input.enabled !== false;
+      if (hasOwn(input, 'onModelChange')) next.onModelChange = input.onModelChange !== false;
       // Legacy Compact type fields are intentionally ignored. There is one
       // fresh-context Compact contract for every session.
       // A new budget representation replaces the previous one. Otherwise a

@@ -236,6 +236,17 @@ export function forgetQuotaSuspendedGoal(sessionId) {
   return true;
 }
 
+/** Whether a session record belongs to a delegated agent child (declared
+ *  agent-only visibility, or a legacy non-Lead agent-owned child with a distinct
+ *  parent). Such a session never owns a quota resume: the Lead decides retries. */
+export function isAgentOnlySession(session) {
+  if (!session || typeof session !== 'object') return false;
+  const lower = (value) => text(value).toLowerCase();
+  if (lower(session.visibility) === 'agent-only') return true;
+  const parentId = text(session.parentSessionId || session.ownerSessionId);
+  return lower(session.owner) === 'agent' && lower(session.agent) !== 'lead' && parentId !== '' && parentId !== text(session.id);
+}
+
 /** Global setting, default on. */
 export function quotaAutoResumeEnabled() {
   return readSection(SETTING_SECTION)?.autoResume !== false;

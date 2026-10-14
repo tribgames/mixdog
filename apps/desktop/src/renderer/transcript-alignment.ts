@@ -5,22 +5,84 @@ const itemText = (item: TranscriptItem): string => {
   return item.text == null ? '' : String(item.text);
 };
 
+// Identity baselines keep only a clipped prefix of long texts, plus a
+// fingerprint (length + hash of the FULL text). Every match against a clipped
+// record is exact or declined: equal length needs an equal hash; a record
+// that is the shorter side (streaming growth) is proven a prefix by hashing
+// the incoming text's first `length` chars; a clipped record that is the
+// longer side has no proof and never aligns.
+type TextFingerprint = { length: number; hash: number };
+const clippedFingerprints = new WeakMap<object, TextFingerprint>();
+
+/** FNV-1a over the first `end` chars. */
+export function hashText(text: string, end = text.length): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < end; index += 1) hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0;
+  return hash;
+}
+
+export const fingerprintText = (text: string): TextFingerprint => ({ length: text.length, hash: hashText(text) });
+
+/** Marks `record` as carrying a clipped `text` whose full form is `fingerprint`. */
+export const markClippedText = (record: object, fingerprint: TextFingerprint): void => {
+  clippedFingerprints.set(record, fingerprint);
+};
+
+const hasClippedText = (item: TranscriptItem): boolean => clippedFingerprints.has(item);
+
+function sameText(a: TranscriptItem, b: TranscriptItem): boolean {
+  const fa = clippedFingerprints.get(a),
+    fb = clippedFingerprints.get(b);
+  if (!fa && !fb) return itemText(a) === itemText(b);
+  // A clipped record against full text: length then full-text hash.
+  const at = itemText(a),
+    bt = itemText(b);
+  const lengthA = fa ? fa.length : at.length,
+    lengthB = fb ? fb.length : bt.length;
+  if (lengthA !== lengthB) return false;
+  const hashA = fa ? fa.hash : hashText(at),
+    hashB = fb ? fb.hash : hashText(bt);
+  return hashA === hashB;
+}
+
+function compatibleText(a: TranscriptItem, b: TranscriptItem): boolean {
+  if (!hasClippedText(a) && !hasClippedText(b)) {
+    const at = itemText(a),
+      bt = itemText(b);
+    return at === bt || (at.length > 0 && bt.length > 0 && (at.startsWith(bt) || bt.startsWith(at)));
+  }
+  const fa = clippedFingerprints.get(a),
+    fb = clippedFingerprints.get(b);
+  const at = itemText(a),
+    bt = itemText(b);
+  const lengthA = fa ? fa.length : at.length,
+    lengthB = fb ? fb.length : bt.length;
+  if (lengthA === lengthB) return sameText(a, b);
+  if (lengthA === 0 || lengthB === 0) return false;
+  const [shorterFp, longerText, longerClipped, shorterText] =
+    lengthA < lengthB ? [fa, bt, !!fb, at] : [fb, at, !!fa, bt];
+  if (!shorterFp) {
+    // Shorter side is complete text; the longer side is a clipped record and
+    // proves the prefix only when its stored text covers the shorter one.
+    return longerText.length >= shorterText.length && longerText.startsWith(shorterText);
+  }
+  // Shorter side is a clipped record: exact only against a complete longer text.
+  if (longerClipped) return false;
+  return hashText(longerText, shorterFp.length) === shorterFp.hash;
+}
+
 export const hasOwnId = (item: TranscriptItem): boolean => item.id !== undefined && item.id !== null;
 export const sameRowId = (a: TranscriptItem, b: TranscriptItem): boolean =>
   hasOwnId(a) && hasOwnId(b) && String(a.id) === String(b.id);
 
 function sameRowContent(a: TranscriptItem, b: TranscriptItem): boolean {
-  return a.kind === b.kind && itemText(a) === itemText(b) && String(a.name ?? '') === String(b.name ?? '');
+  return a.kind === b.kind && sameText(a, b) && String(a.name ?? '') === String(b.name ?? '');
 }
 
 export function alignedRow(a: TranscriptItem, b: TranscriptItem): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === 'tool') return String(a.name ?? '') === String(b.name ?? '');
-  if (a.kind === 'user' || a.kind === 'assistant') {
-    const at = itemText(a),
-      bt = itemText(b);
-    return at === bt || (at.length > 0 && bt.length > 0 && (at.startsWith(bt) || bt.startsWith(at)));
-  }
+  if (a.kind === 'user' || a.kind === 'assistant') return compatibleText(a, b);
   return true;
 }
 

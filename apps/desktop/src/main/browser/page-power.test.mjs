@@ -63,7 +63,7 @@ test('an agent command unthrottles a hidden page for its duration only', () => {
   assert.deepEqual(page.log.slice(5), ['throttle:true', 'stop']);
 });
 
-test('idle user sessions unload; displayed, driven, busy and kept-alive ones do not', () => {
+test('idle user sessions unload; displayed, driven, busy, kept-alive and edited ones do not', () => {
   const sessions = new BrowserSessionRegistry();
   const displayed = new Set();
   const power = createBrowserPagePower({ isDisplayed: (g) => displayed.has(g) });
@@ -80,6 +80,7 @@ test('idle user sessions unload; displayed, driven, busy and kept-alive ones do 
   const driven = make('driven', 3);
   make('kept', 4);
   make('busy', 5);
+  const edited = make('edited', 8);
   displayed.add(shown);
   power.drive(driven);
   sessions.setBackgroundPage('kept', 'tab', {
@@ -96,6 +97,7 @@ test('idle user sessions unload; displayed, driven, busy and kept-alive ones do 
       sessions,
       power,
       isBackgroundBusy: (sessionId, name) => sessionId === 'busy' && name === 'work',
+      holdsUserInput: (page) => page === edited,
       unload: (sessionId) => unloaded.push(sessionId),
       now,
     });
@@ -122,6 +124,7 @@ test('a session holding an agent page waits for the agent idle threshold', () =>
       sessions,
       power,
       isBackgroundBusy: () => false,
+      holdsUserInput: () => false,
       unload: (sessionId) => unloaded.push(sessionId),
       now,
     });

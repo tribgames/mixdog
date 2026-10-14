@@ -10,6 +10,7 @@ import {
 } from './openai-compat-wire.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { consumeCompatChatCompletionStream } from './openai-compat-stream.mjs';
+import { retryAfterMsFromError } from './retry-classifier.mjs';
 import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import { cursorTokenExpiry, exchangeCursorToken, resolveCursorOAuthAccessToken } from './cursor-auth.mjs';
 import {
@@ -62,14 +63,24 @@ function toCursorToolChoice(toolChoice) {
 async function responseError(response, label) {
   const text = await response.text().catch(() => '');
   let message = text;
+  let code = '';
   try {
     const parsed = JSON.parse(text);
     message = parsed?.error?.message || parsed?.message || text;
+    code = String(parsed?.error?.code || parsed?.code || '').toLowerCase();
   } catch {
     /* plain text */
   }
   const error = new Error(`${label} request failed (${response.status})${message ? `: ${message}` : ''}`);
   error.status = response.status;
+  error.httpStatus = response.status;
+  if (code) error.code = code;
+  const headers = Object.fromEntries(response.headers?.entries?.() ?? []);
+  if (Object.keys(headers).length) {
+    error.headers = headers;
+    const retryAfterMs = retryAfterMsFromError(error);
+    if (Number.isFinite(retryAfterMs)) error.retryAfterMs = retryAfterMs;
+  }
   throw error;
 }
 
@@ -535,6 +546,9 @@ class CursorProviderBase {
   nativePdf = false;
 
   static inputExcludesCache = false;
+  // The in-place stream retry budget is the whole recovery: a spent budget
+  // surfaces instead of being re-run by the outer recovery cycles.
+  retryPolicy = Object.freeze({ recoveryCycles: false });
   name;
   config;
   _runtimeOverride;
@@ -622,7 +636,10 @@ class CursorProviderBase {
       sendOpts.onStageChange?.('requesting');
     } catch {}
     try {
-      const response = await runtime.handleChatCompletion(body, accessToken);
+      const response = await runtime.handleChatCompletion(body, accessToken, {
+        onStageChange: sendOpts.onStageChange,
+        getAccessToken: (options) => this._accessToken({ signal, ...options }),
+      });
       try {
         sendOpts.onStageChange?.('streaming');
       } catch {}

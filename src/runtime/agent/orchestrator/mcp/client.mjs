@@ -31,9 +31,15 @@ import {
   scrubMcpSecrets,
 } from './client-config.mjs';
 import { createLazyOutputValidator } from './lazy-output-validator.mjs';
-import { appendMcpStderrTail, createMcpTransport } from './client-transport.mjs';
-import { listAllMcpTools, runBoundedHandshake } from './client-handshake.mjs';
-import { clearMcpOAuth } from './oauth.mjs';
+import { appendMcpStderrTail, createMcpTransport, hasConfiguredMcpAuth } from './client-transport.mjs';
+import { listAllMcpTools, MCP_CONNECT_CANCELLED, runBoundedHandshake } from './client-handshake.mjs';
+import {
+  clearMcpOAuth,
+  hasStoredMcpOAuthTokens,
+  isMcpOAuthReauthenticationRequired,
+  MCP_OAUTH_CALLBACK_NOT_PENDING,
+} from './oauth.mjs';
+export { probeMcpServerAuth } from './oauth-probe.mjs';
 
 // Config interpretation (transport kind, URL policy, env expansion, headers,
 // timeouts, log scrubbing) lives in client-config.mjs; re-exported so every
@@ -165,14 +171,16 @@ export async function connectMcpServers(config, options = {}) {
   });
   // Connect all servers in PARALLEL: a slow/hung server (bounded by its
   // per-server startup timeout) must never delay the others' handshakes.
-  const settled = await Promise.allSettled(entries.map(([name, cfg]) => connectServer(name, cfg, scopeId, genAtStart, options)));
+  const settled = await Promise.allSettled(
+    entries.map(([name, cfg]) => connectServer(name, cfg, scopeId, genAtStart, options))
+  );
   settled.forEach((res, i) => {
     if (res.status !== 'rejected') return;
     const [name, cfg] = entries[i];
     const rawMessage = res.reason instanceof Error ? res.reason.message : String(res.reason);
     const msg = scrubMcpConnectionMessage(rawMessage, cfg);
     mcpLog(`[mcp-client] Failed to connect "${name}": ${msg}\n`);
-    failures.push({ name, msg });
+    failures.push({ name, msg, ...(res.reason?.authRequired ? { authRequired: true } : {}) });
   });
   if (failures.length > 0) {
     const detail = failures.map((f) => `${f.name}: ${f.msg}`).join('; ');
@@ -363,7 +371,9 @@ async function replaceServerConnection(scopeId, name, current, cfg, genAtStart, 
     await connectServer(name, cfg, scopeId, genAtStart, options);
   } catch (reason) {
     const rawMessage = reason instanceof Error ? reason.message : String(reason);
-    throw new Error(scrubMcpConnectionMessage(rawMessage, cfg));
+    const error = new Error(scrubMcpConnectionMessage(rawMessage, cfg));
+    if (reason?.authRequired) error.authRequired = true;
+    throw error;
   }
 }
 
@@ -373,6 +383,7 @@ async function replaceServerConnection(scopeId, name, current, cfg, genAtStart, 
 // connect per server is ever running (no doubly registered transports).
 async function runExclusiveServerOp(registryKey, task) {
   for (let pending = reconnects.wait(registryKey); pending; pending = reconnects.wait(registryKey)) {
+    // Only waiting for the reconnect to settle; its failure belongs to its caller.
     await pending.catch(() => {});
   }
   return reconnects.run(registryKey, task);
@@ -458,96 +469,98 @@ export async function executeMcpTool(name, args, options = {}) {
   let retryServer = null;
   const secrets = () => oauthSecrets(server.transport, retryServer?.transport);
   const gate = callAdmissionFor(server);
-  return gate.run(
-    options?.ownerKey || currentToolExecutionOwner(),
-    async () => {
-      // The gate stops forwarding the caller's abort once this task is
-      // admitted, so the task itself observes the signal for its whole run.
-      if (callSignal?.aborted) {
-        throw mcpAbortError(
-          callSignal,
-          `MCP tool call aborted before dispatch (server="${serverName}", tool="${toolName}")`
-        );
-      }
-      let result;
-      try {
-        result = await dispatch(server);
-      } catch (firstErr) {
-        const firstMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
-        if (isMcpCallAbortError(firstErr) || callSignal?.aborted) {
-          // A cancelled call is not a transport failure: reconnecting and
-          // replaying it would duplicate the side effect the caller just
-          // walked away from.
-          mcpLog(`[mcp-client] Tool call aborted by caller for "${serverName}/${toolName}".\n`);
-          throw firstErr;
-        }
-        if (isMcpToolCallTimeoutError(firstErr)) {
-          mcpLog(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
-          throw firstErr;
-        }
-        const serverDead = server.liveness?.alive === false;
-        if (!serverDead && isMcpServerResponseError(firstErr)) {
-          // The server answered (JSON-RPC error): it is alive — nothing to
-          // reconnect, and the call already ran its course.
-          throw firstErr;
-        }
-        // Only a failure that proves the request never left this process
-        // may be replayed; anything else may already have run server-side.
-        const undelivered = isMcpUndeliveredError(firstErr);
-        const deadTail = serverDead ? server.stderrTail?.() : '';
-        mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
-        try {
-          // The reconnect is SHARED (singleflight): the race only stops
-          // THIS caller from waiting on it — the reconnect keeps running
-          // for its other waiters. Without this, an abort mid-reconnect
-          // could not settle the call and the admission slot stayed held
-          // until the reconnect finished, or forever if it hung.
-          retryServer = await raceMcpAbort(
-            reconnectMcpServer(scopeId, serverName, server),
-            callSignal,
-            `MCP tool call aborted during reconnect (server="${serverName}", tool="${toolName}")`
-          );
-        } catch (reconnectErr) {
-          if (isMcpCallAbortError(reconnectErr) || callSignal?.aborted) throw reconnectErr;
-          const reconnectMsg = reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr);
-          throw new Error(
-            appendMcpStderrTail(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`, deadTail)
-          );
-        }
-        if (!undelivered) {
-          throw new Error(
-            appendMcpStderrTail(
-              `Tool call failed: ${firstMsg}; MCP server "${serverName}" was reconnected for the next call, but this call was not replayed because the request may already have reached the server`,
-              deadTail
-            )
-          );
-        }
-        // A reconnect that outlived the caller's abort must not dispatch the
-        // retry: that would run the side effect after cancellation.
+  return gate
+    .run(
+      options?.ownerKey || currentToolExecutionOwner(),
+      async () => {
+        // The gate stops forwarding the caller's abort once this task is
+        // admitted, so the task itself observes the signal for its whole run.
         if (callSignal?.aborted) {
           throw mcpAbortError(
             callSignal,
-            `MCP tool call aborted after reconnect (server="${serverName}", tool="${toolName}")`
+            `MCP tool call aborted before dispatch (server="${serverName}", tool="${toolName}")`
           );
         }
+        let result;
         try {
-          result = await dispatch(retryServer);
-        } catch (retryErr) {
-          if (isMcpCallAbortError(retryErr) || callSignal?.aborted) throw retryErr;
-          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          throw new Error(`Tool call failed: ${firstMsg}; retry after reconnect also failed: ${retryMsg}`);
+          result = await dispatch(server);
+        } catch (firstErr) {
+          const firstMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+          if (isMcpCallAbortError(firstErr) || callSignal?.aborted) {
+            // A cancelled call is not a transport failure: reconnecting and
+            // replaying it would duplicate the side effect the caller just
+            // walked away from.
+            mcpLog(`[mcp-client] Tool call aborted by caller for "${serverName}/${toolName}".\n`);
+            throw firstErr;
+          }
+          if (isMcpToolCallTimeoutError(firstErr)) {
+            mcpLog(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
+            throw firstErr;
+          }
+          const serverDead = server.liveness?.alive === false;
+          if (!serverDead && isMcpServerResponseError(firstErr)) {
+            // The server answered (JSON-RPC error): it is alive — nothing to
+            // reconnect, and the call already ran its course.
+            throw firstErr;
+          }
+          // Only a failure that proves the request never left this process
+          // may be replayed; anything else may already have run server-side.
+          const undelivered = isMcpUndeliveredError(firstErr);
+          const deadTail = serverDead ? server.stderrTail?.() : '';
+          mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
+          try {
+            // The reconnect is SHARED (singleflight): the race only stops
+            // THIS caller from waiting on it — the reconnect keeps running
+            // for its other waiters. Without this, an abort mid-reconnect
+            // could not settle the call and the admission slot stayed held
+            // until the reconnect finished, or forever if it hung.
+            retryServer = await raceMcpAbort(
+              reconnectMcpServer(scopeId, serverName, server),
+              callSignal,
+              `MCP tool call aborted during reconnect (server="${serverName}", tool="${toolName}")`
+            );
+          } catch (reconnectErr) {
+            if (isMcpCallAbortError(reconnectErr) || callSignal?.aborted) throw reconnectErr;
+            const reconnectMsg = reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr);
+            throw new Error(
+              appendMcpStderrTail(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`, deadTail)
+            );
+          }
+          if (!undelivered) {
+            throw new Error(
+              appendMcpStderrTail(
+                `Tool call failed: ${firstMsg}; MCP server "${serverName}" was reconnected for the next call, but this call was not replayed because the request may already have reached the server`,
+                deadTail
+              )
+            );
+          }
+          // A reconnect that outlived the caller's abort must not dispatch the
+          // retry: that would run the side effect after cancellation.
+          if (callSignal?.aborted) {
+            throw mcpAbortError(
+              callSignal,
+              `MCP tool call aborted after reconnect (server="${serverName}", tool="${toolName}")`
+            );
+          }
+          try {
+            result = await dispatch(retryServer);
+          } catch (retryErr) {
+            if (isMcpCallAbortError(retryErr) || callSignal?.aborted) throw retryErr;
+            const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            throw new Error(`Tool call failed: ${firstMsg}; retry after reconnect also failed: ${retryMsg}`);
+          }
         }
+        const normalized = normalizeToolEnvelope(await normalizeMcpToolResult(scrubMcpSecrets(result, secrets())));
+        const text = capMcpResult(normalized.result);
+        return normalized.explicitSuccess ? makeToolEnvelope(text, [], { explicitSuccess: true }) : text;
+      },
+      {
+        signal: callSignal,
       }
-      const normalized = normalizeToolEnvelope(await normalizeMcpToolResult(scrubMcpSecrets(result, secrets())));
-      const text = capMcpResult(normalized.result);
-      return normalized.explicitSuccess ? makeToolEnvelope(text, [], { explicitSuccess: true }) : text;
-    },
-    {
-      signal: callSignal,
-    }
-  ).catch((error) => {
-    throw scrubMcpOAuthError(error, server.cfg, secrets());
-  });
+    )
+    .catch((error) => {
+      throw scrubMcpOAuthError(error, server.cfg, secrets());
+    });
 }
 
 const MCP_FEATURE_REQUESTS = {
@@ -923,6 +936,7 @@ export function raceMcpAbort(promise, signal, message) {
   if (!signal) return promise;
   allowConcurrentAbortListeners(signal);
   if (signal.aborted) {
+    // The abort wins; the abandoned promise's late rejection must not go unhandled.
     void Promise.resolve(promise).catch(() => {});
     return Promise.reject(mcpAbortError(signal, message));
   }
@@ -1168,6 +1182,47 @@ export function cancelMcpLogin(name, options = {}) {
   }
 }
 /**
+ * Answer the interactive OAuth login of a connect of `name` still in its
+ * handshake with the redirect URL pasted from the browser (remote / headless
+ * sign-in); that connect then proceeds as after the loopback callback. Throws
+ * a fixed message, never the pasted URL, for an invalid paste (the login stays
+ * pending) or when no login is waiting.
+ */
+export function completeMcpLogin(name, callbackUrl, options = {}) {
+  const scopeId = normalizeMcpScopeId(options);
+  for (const entry of _pendingConnects) {
+    if (entry.scopeId === scopeId && entry.name === name && entry.transport.oauth?.loginStarted) {
+      entry.transport.oauth.completeCallback(callbackUrl);
+      return;
+    }
+  }
+  throw new Error(MCP_OAUTH_CALLBACK_NOT_PENDING);
+}
+/** Whether a connect of `name` still in its handshake is waiting for an
+ *  interactive (browser) OAuth login. */
+export function isMcpLoginPending(name, options = {}) {
+  const scopeId = normalizeMcpScopeId(options);
+  for (const entry of _pendingConnects) {
+    if (entry.scopeId === scopeId && entry.name === name && entry.transport.oauth?.loginStarted) return true;
+  }
+  return false;
+}
+/**
+ * Stored OAuth sign-in state of an HTTP/SSE server without configured
+ * authentication: `{ signedIn }` (tokens stored for its exact URL), or null
+ * for servers that never use MCP OAuth.
+ */
+export function getMcpServerOAuthState(cfg) {
+  let url;
+  try {
+    url = resolveMcpOAuthUrl(cfg);
+  } catch {
+    return null;
+  }
+  if (!url || hasConfiguredMcpAuth(cfg)) return null;
+  return { signedIn: hasStoredMcpOAuthTokens(url) };
+}
+/**
  * Log out of an HTTP/SSE server URL: delete the OAuth tokens and client
  * registration stored for it, shared by every server configured with that
  * exact URL, and drop them from live connections.
@@ -1234,7 +1289,12 @@ async function connectServer(
     sdk,
     log: mcpLog,
     strictEnv: cfg?._mixdogStrictEnv === true,
-    oauthOptions: { interactive: options.interactive === true },
+    // Only an explicit sign-in (beginMcpOAuthLogin) is interactive; it may
+    // supply its own browser launcher to capture the authorization URL.
+    oauthOptions: {
+      interactive: options.interactive === true,
+      ...(typeof options.openBrowser === 'function' ? { openBrowser: options.openBrowser } : {}),
+    },
   });
   const liveness = trackMcpLiveness(client, name, cfg, stderrTail, transport);
   const pending = { scopeId, name, client, transport };
@@ -1292,7 +1352,20 @@ async function connectServer(
     mcpLog(`[mcp] connected: ${tools.length} tools — ${tools.map((t) => t.name).join(', ')}\n`);
   } catch (error) {
     await _closeServer({ client, transport, liveness });
-    throw scrubMcpOAuthError(error, cfg, oauthSecrets(transport));
+    const scrubbed = scrubMcpOAuthError(error, cfg, oauthSecrets(transport));
+    // A server that only needs an OAuth sign-in is not a broken server: the
+    // sign-in was required, or an explicit one did not complete (cancelled,
+    // denied, timed out or a failed exchange after it started, or cancelled
+    // before it could). A failure after the sign-in obtained tokens is real.
+    const signInIncomplete =
+      transport.oauth &&
+      (isMcpOAuthReauthenticationRequired(error) ||
+        (transport.oauth.loginStarted && !transport.oauth.loginCompleted) ||
+        (transport.oauth.interactive && error?.code === MCP_CONNECT_CANCELLED));
+    if (signInIncomplete && scrubbed && typeof scrubbed === 'object') {
+      scrubbed.authRequired = true;
+    }
+    throw scrubbed;
   } finally {
     _pendingConnects.delete(pending);
   }
@@ -1376,6 +1449,7 @@ export function setMcpScopeRoot(scopeId, root) {
     if (server.cfg?._mixdogRootsFollowScope !== true) continue;
     Promise.resolve()
       .then(() => server.client?.sendRootsListChanged?.())
+      // A server that rejects the roots notification keeps its previous roots.
       .catch(() => {});
   }
 }

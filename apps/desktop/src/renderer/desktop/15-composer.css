@@ -32,7 +32,7 @@
    scrolling repaint the masked content. The measured dock height includes
    the floating island, so the fade ends at whichever sits on top. */
 .conversation {
-  --transcript-fade: 48px;
+  --transcript-fade: 24px;
 }
 .conversation > .transcript-shell::after {
   content: "";
@@ -65,19 +65,21 @@
    One island above a session's composer carries every status (Goal, jobs,
    changed files, model mismatch), expands upward in place, grows into the
    tool approval card and flashes short notices. Its slot reserves the
-   pill's 34px + 12px gap while something shows and collapses to 0 when empty;
-   everything taller overlays upward. */
+   pill's 34px + 12px gap once something has shown (it then stays held open,
+   see ComposerIsland) and is 0 before that; everything taller overlays
+   upward. The slot opens in one step: the island draws at its final place at
+   once, so an animated slot let the end-pinned transcript glide up under the
+   new segment for 180ms, the segment covering the last rows meanwhile. */
 .composer-island-slot {
   position: relative;
   z-index: 9;
   height: 46px;
   pointer-events: none;
-  transition: height 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-/* Nothing to carry: the slot collapses too. Same content test as the
+/* Nothing carried yet: the slot is collapsed. Same content test as the
    island's hidden rule below; :root outranks the mobile slot height. */
 :root
-.composer-island-slot:not(
+.composer-island-slot:not([data-held]):not(
   :has(
     .composer-island-seg,
     .session-goal-island,
@@ -88,24 +90,6 @@
   )
 ) {
   height: 0;
-  /* Grace period: the collapse waits 1.5s so one job ending and another
-     starting right after does not close and reopen the slot. The delay lives
-     on the collapsed state, so content returning in time cancels it, and
-     opening carries no delay. */
-  transition-delay: 1500ms;
-}
-@media (prefers-reduced-motion: reduce) {
-  /* No height animation, but the grace delay still applies. */
-  .composer-island-slot {
-    transition-duration: 0s;
-  }
-}
-/* A session entry still behind the reveal takes the island height at once.
-   Content that lands during entry (a late review read) otherwise opened the
-   slot over 180ms starting at the reveal frame, and the end-pinned
-   transcript visibly rode that animation. */
-.conversation[data-transcript-entering] .composer-island-slot {
-  transition: none;
 }
 .composer-island-stage {
   position: absolute;
@@ -274,16 +258,11 @@
   background: var(--composer-island-rule);
   transform: translateY(-50%);
 }
-/* Only text that can ellipsize gives way on a narrow island: the model label,
-   and the Goal while it still shows its title. Counts never shrink. */
-.composer-island-pill > .composer-island-seg:not(.composer-island-seg-model),
+/* Only text that can ellipsize gives way on a narrow island: the Goal while
+   it still shows its title. Counts never shrink. */
+.composer-island-pill > .composer-island-seg,
 .composer-island-pill:has(> .composer-island-seg ~ .composer-island-seg) > .session-goal-island {
   flex-shrink: 0;
-}
-/* Status reads as text, a dot and numbers, not coloured icons
-   (island-icons.html): only the dot carries the warning hue. */
-.composer-island-seg-model {
-  color: var(--mx-text-muted);
 }
 .composer-island-seg-warning svg {
   color: var(--mx-warning);
@@ -382,12 +361,7 @@
 .composer-island[data-measuring] > .composer-island-pill {
   width: max-content;
 }
-.composer-island[data-compact]
-  :is(
-    .composer-island-seg-word,
-    .composer-island-seg.turn-review-segment .diff-stats,
-    .composer-island-seg-model > .composer-island-seg-text
-  ) {
+.composer-island[data-compact] :is(.composer-island-seg-word, .composer-island-seg.turn-review-segment .diff-stats) {
   display: none;
 }
 .composer-island[data-compact] .composer-island-seg-num {
@@ -526,10 +500,6 @@ button.composer-island-tab {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.composer-island-row .agent-route-meta {
-  flex: none;
-  white-space: nowrap;
-}
 .composer-island-row .composer-island-shell-command {
   font-family: var(--mx-font-mono);
 }
@@ -636,13 +606,96 @@ button.composer-island-tab {
   flex: none;
   text-align: right;
 }
-.composer-island-model .composer-island-pbody,
 .composer-island-quota .composer-island-pbody {
   padding: 14px 16px 12px;
 }
 .composer-island-quota .composer-island-ptitle svg {
   color: var(--mx-warning);
   flex: none;
+}
+/* The quota banner: one pill line in the island's material at the
+   composer's width, between the island and the prompt input. Only the icon
+   carries the warning hue. */
+.composer-quota-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 5px 5px 5px 14px;
+  border-radius: 999px;
+  color: var(--mx-text);
+  background: var(--mx-island-frame);
+  box-shadow:
+    inset 0 0 0 0.5px var(--mx-border),
+    var(--mx-raised);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-label);
+  line-height: var(--mx-line-ui);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  transform-origin: 50% 100%;
+  animation: composer-island-pop 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.composer-quota-card-icon {
+  flex: none;
+  color: var(--mx-warning);
+}
+/* Title, reset and guidance never wrap. Title and reset keep their full
+   width (the text block cannot shrink below them); only the guidance takes
+   the remaining room, and when it runs out it is hidden (keeping its box, so
+   the overflow measurement stays stable). */
+.composer-quota-card-text {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.composer-quota-card-text > * {
+  flex: none;
+}
+/* `contain: inline-size` keeps the guidance's text out of the line's
+   minimum width, so it is the only part that gives way. */
+.composer-quota-card-text > .composer-quota-card-guide {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  contain: inline-size;
+}
+.composer-quota-card-title {
+  font-weight: var(--mx-weight-semibold);
+}
+.composer-quota-card-reset,
+.composer-quota-card-guide {
+  color: var(--mx-text-muted);
+}
+.composer-quota-card[data-guidance-hidden="true"] .composer-quota-card-guide {
+  visibility: hidden;
+}
+/* The island's primary button, as a pill: a still clock while off, a
+   spinning loader while the resume is reserved. */
+.composer-quota-card .composer-quota-card-resume {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px 0 10px;
+  border-radius: 999px;
+  font-weight: var(--mx-weight-semibold);
+}
+.composer-quota-card-resume-icon {
+  flex: none;
+}
+.composer-quota-card-resume[data-reserved="true"] .composer-quota-card-resume-icon {
+  animation: var(--mx-motion-spin);
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-quota-card,
+  .composer-quota-card-resume[data-reserved="true"] .composer-quota-card-resume-icon {
+    animation: none;
+  }
 }
 .composer-island-ptitle {
   display: flex;
@@ -675,9 +728,13 @@ button.composer-island-tab {
   font: inherit;
   cursor: pointer;
 }
-.composer-island-button:hover,
+.composer-island-button:hover:not(:disabled),
 .composer-island .session-goal-control:hover:not(:disabled) {
   background: var(--mx-hover);
+}
+.composer-island-button:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
 }
 .composer-island .session-goal-control:disabled {
   opacity: var(--mx-op-disabled);
@@ -765,7 +822,7 @@ html[data-mixdog-mobile-tabs] .composer-island-button {
 html[data-mixdog-mobile-tabs] .composer-island-pbody {
   padding: 10px 14px 12px;
 }
-html[data-mixdog-mobile-tabs] :is(.composer-island-model, .composer-island-quota) .composer-island-pbody {
+html[data-mixdog-mobile-tabs] .composer-island-quota .composer-island-pbody {
   padding: 14px 16px 12px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-pfoot {

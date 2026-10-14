@@ -27,16 +27,12 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   // Register the live session object for synchronous close snapshots.
   runtime.session = session;
   if (!provider) throw new Error(`Provider "${session.provider}" not available`);
-  const autoEffort = await resolveTurnAutoEffort({ sessionId, session, provider, input });
-  const turnEffort = autoEffort?.applied ? autoEffort.effort : session.effort || null;
-  const effortConfiguration = prepareTurnEffortConfiguration(
-    session,
-    provider,
-    autoEffort?.applied ? autoEffort.effort : undefined
-  );
-  // Auto effort also judges every tool-result step of the turn when the
-  // installed judge was trained on steps (session/loop/step-auto-effort.mjs).
-  const stepAutoEffort = turnStepAutoEffort(autoEffort, effortConfiguration);
+  // The turn-level judgment runs while the rest of the turn is prepared; it
+  // reads the session as the turn found it (synchronously, on this call).
+  // The first request still carries its decision: it is awaited below,
+  // together with the user turn, before the effort configuration is stamped.
+  const autoEffortPending = resolveTurnAutoEffort({ sessionId, session, provider, input });
+  autoEffortPending.catch(() => {});
   applyTurnContextMeta(session, provider);
   const effectiveCwd = cwdOverride || session.cwd;
   // A failed-turn retry resubmits the prompt the failure left unanswered;
@@ -46,25 +42,49 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   if (session.sessionStartMetaInjected !== true && !hasUserConversationMessage(session.messages)) {
     refreshSessionBp3Environment(session, effectiveCwd);
   }
+  // The prewarm only opens the transport (effort never shapes the socket), so
+  // it starts now instead of after the judgment.
   const startupProviderPrewarm = startProviderPrewarm({
     sessionId,
     session,
     provider,
-    turnEffort,
-    effortConfiguration,
+    turnEffort: session.effort || null,
+    effortConfiguration: null,
     codexTurnId,
     startedAtMs: startedAt,
   });
-  const userTurn = await buildUserTurn({
+  const [autoEffort, userTurn] = await Promise.all([
+    autoEffortPending,
+    buildUserTurn({
+      session,
+      prompt: input.prompt,
+      context: input.context,
+      explicitPrefetch: input.explicitPrefetch,
+      turnSignal,
+      transcriptMeta,
+      turnPromptSource: input.promptSource,
+      effortConfiguration: null,
+    }),
+  ]);
+  const turnEffort = autoEffort?.applied ? autoEffort.effort : session.effort || null;
+  const effortConfiguration = prepareTurnEffortConfiguration(
     session,
-    prompt: input.prompt,
-    context: input.context,
-    explicitPrefetch: input.explicitPrefetch,
-    turnSignal,
-    transcriptMeta,
-    turnPromptSource: input.promptSource,
-    effortConfiguration,
-  });
+    provider,
+    autoEffort?.applied ? autoEffort.effort : undefined
+  );
+  // Auto effort also judges every tool-result step of the turn when the
+  // installed judge was trained on steps (session/loop/step-auto-effort.mjs).
+  const stepAutoEffort = turnStepAutoEffort(autoEffort, effortConfiguration);
+  if (effortConfiguration) {
+    // Stamp the turn's effort on the user message (same meta order as when it
+    // was built with it: before the runtime-context provenance).
+    const { runtimeUserContext, ...meta } = userTurn.userTurnMessage.meta || {};
+    userTurn.userTurnMessage.meta = {
+      ...meta,
+      effortConfiguration,
+      ...(runtimeUserContext ? { runtimeUserContext } : {}),
+    };
+  }
   const { historyMessages, outgoing } = userTurn;
   turn.userTurnContent = userTurn.userTurnMessage.content;
   turn.outgoing = outgoing;

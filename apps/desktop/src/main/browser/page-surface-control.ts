@@ -6,59 +6,163 @@ import type { DesktopBrowserPageControl, DesktopBrowserTabControlResult } from '
 import { createBrowserInputDriver } from './input';
 import { controlSessionTab, isSessionTabControl } from './tabs-close-result';
 import { normalizePageUrl } from './url-policy';
-import { BROWSER_DIALOG_BLOCKING, browserInputRecovery } from '../../shared/browser-input-policy';
+import { BROWSER_DIALOG_BLOCKING, browserTypingInput } from '../../shared/browser-input-policy';
+import { browserDocumentId } from './guest-state';
 import type { BrowserPageSurfaceHost } from './page-surface';
 import type { PageSurfaceState } from './page-surface-state';
 
 /** Float noise from Chromium's zoom-level round trip, not a new zoom. */
 const ZOOM_EPSILON = 0.001;
 
+type LeaveHost = Pick<BrowserPageSurfaceHost, 'leave'>;
+
+/** Run a person's request that may leave the page; a page veto is asked
+ *  about, and leaving runs `repeat` (see leave-confirmation). */
+function requestLeave(
+  host: LeaveHost,
+  guest: WebContents,
+  run: () => boolean | Promise<boolean>,
+  repeat?: () => boolean | Promise<boolean>
+): void {
+  if (host.leave) host.leave.request(guest, run, repeat);
+  else run();
+}
+
+/** Step back (-1) or forward (1) in the page's history; false when there is
+ *  no entry that way, so nothing was started. */
+function goInHistory(guest: WebContents, step: -1 | 1): boolean {
+  const history = guest.navigationHistory;
+  if (step < 0 ? !history.canGoBack() : !history.canGoForward()) return false;
+  if (step < 0) history.goBack();
+  else history.goForward();
+  return true;
+}
+
+/** A person's toolbar navigation, from the pane or a paired client: an
+ *  admitted URL, history, reload or stop. Everything but stop may leave the
+ *  page, so each is a leave request. */
+export function navigatePage(
+  host: LeaveHost,
+  guest: WebContents,
+  action: { type: 'navigate'; url: string } | { type: 'back' | 'forward' | 'reload' | 'stop' }
+): void {
+  switch (action.type) {
+    case 'navigate': {
+      const { url } = action;
+      requestLeave(host, guest, () => {
+        void guest.loadURL(url).catch(() => {});
+        return true;
+      });
+      return;
+    }
+    case 'back':
+    case 'forward': {
+      const step = action.type === 'back' ? -1 : 1;
+      requestLeave(host, guest, () => goInHistory(guest, step));
+      return;
+    }
+    case 'reload':
+      requestLeave(host, guest, () => {
+        guest.reload();
+        return true;
+      });
+      return;
+    case 'stop':
+      guest.stop();
+  }
+}
+
 /** Human page input through CDP under the caller's document guard. Shared by
  *  the local pane and paired remote clients so both behave identically. */
 export function createPageInputDispatcher(
-  host: Pick<BrowserPageSurfaceHost, 'state' | 'cdp' | 'dispatchInput' | 'urlPolicy' | 'assertUrl'>
+  host: Pick<
+    BrowserPageSurfaceHost,
+    'state' | 'cdp' | 'dispatchInput' | 'urlPolicy' | 'assertUrl' | 'dialogOwner' | 'leave'
+  >
 ) {
+  /** Each page's last press: the first half of the click its release completes. */
+  const presses = new WeakMap<WebContents, Record<string, unknown>>();
   return async function dispatchPageInput(
     guest: WebContents,
     input: DesktopBrowserPageControl,
     assertCurrent: () => void,
     signal?: AbortSignal
   ): Promise<void> {
+    const assertUnblocked = () => {
+      if (host.state.for(guest).pendingDialog || host.dialogOwner?.(guest)) throw new Error(BROWSER_DIALOG_BLOCKING);
+    };
     const assertDispatch = () => {
       assertCurrent();
-      if (host.state.for(guest).pendingDialog) throw new Error(BROWSER_DIALOG_BLOCKING);
+      assertUnblocked();
     };
     await host.cdp.waitForIdle(guest, signal);
     assertDispatch();
     host.state.invalidateInteraction(guest);
-    const send = async (
-      target: WebContents,
-      method: string,
-      params: Record<string, unknown>,
-      inputSignal?: AbortSignal
-    ) => {
-      if (host.dispatchInput) return host.dispatchInput(target, method, params, inputSignal, assertDispatch);
-      const debuggerInstance = await host.cdp.guestDebugger(target);
-      assertDispatch();
-      // The CDP transport may itself wait for cleanup after initialization.
-      // Revalidate in that transport, with no await before the actual send.
-      return host.cdp.sendCdpInput(target, debuggerInstance, method, params, inputSignal, undefined, assertDispatch);
+    // A click or keystroke may leave state only this document holds (a half
+    // filled form), so the page is no longer safe to unload and restore.
+    if (browserTypingInput(input) || (input.type === 'pointer' && input.phase === 'mousePressed')) {
+      host.state.for(guest).userInput = true;
+    }
+    /** Input sent under `guard`, revalidated right before every event. */
+    const sender =
+      (guard: () => void) =>
+      async (target: WebContents, method: string, params: Record<string, unknown>, inputSignal?: AbortSignal) => {
+        if (host.dispatchInput) return host.dispatchInput(target, method, params, inputSignal, guard);
+        const debuggerInstance = await host.cdp.guestDebugger(target);
+        guard();
+        // The CDP transport may itself wait for cleanup after initialization.
+        // Revalidate in that transport, with no await before the actual send.
+        return host.cdp.sendCdpInput(target, debuggerInstance, method, params, inputSignal, undefined, guard);
+      };
+    type Send = ReturnType<typeof sender>;
+    const send = sender(assertDispatch);
+    const mouseWith = (through: Send) => (params: Record<string, unknown>, inputSignal?: AbortSignal) =>
+      through(guest, 'Input.dispatchMouseEvent', params, inputSignal);
+    const mouse = mouseWith(send);
+    /** A click or key press may make the page leave by itself (a link, a
+     *  submit button, Enter in a form), so it is a leave request like a
+     *  toolbar one; leaving past the page's veto repeats the whole gesture.
+     *  The repeat runs when the card is answered, which is checked against
+     *  the document shown then — a same-document move since the gesture
+     *  keeps the card — so it is bound to that document, not the gesture's. */
+    const gesture = async (dispatch: () => Promise<unknown>, repeat: (through: Send) => Promise<unknown>) => {
+      const started = (sending: Promise<unknown>) =>
+        sending.then(
+          () => true,
+          () => false
+        );
+      let sent: Promise<unknown> = Promise.resolve();
+      requestLeave(
+        host,
+        guest,
+        () => started((sent = dispatch())),
+        () => {
+          const documentId = browserDocumentId(host.state, guest);
+          return started(
+            repeat(
+              sender(() => {
+                if (guest.isDestroyed() || browserDocumentId(host.state, guest) !== documentId) {
+                  throw new Error('Browser page changed; input was not sent.');
+                }
+                assertUnblocked();
+              })
+            )
+          );
+        }
+      );
+      await sent;
     };
-    // Each key sequence retains its own document guard across every dispatch.
-    const keyboard = createBrowserInputDriver(send, { allowClipboard: true });
     switch (input.type) {
       case 'navigate': {
         const url = normalizePageUrl(input.url, host.urlPolicy);
         await host.assertUrl(url, true);
         assertCurrent();
-        void guest.loadURL(url).catch(() => {});
+        navigatePage(host, guest, { type: 'navigate', url });
         break;
       }
       case 'back':
-        if (guest.navigationHistory.canGoBack()) guest.navigationHistory.goBack();
-        break;
       case 'forward':
-        if (guest.navigationHistory.canGoForward()) guest.navigationHistory.goForward();
+        navigatePage(host, guest, input);
         break;
       case 'text':
         await send(guest, 'Input.insertText', { text: input.text }, signal);
@@ -90,25 +194,40 @@ export function createPageInputDispatcher(
           assertDispatch();
           guest.copy();
         } else {
-          await keyboard.pressKey(guest, input.key, signal);
+          await gesture(
+            // Each key sequence retains its own document guard across every dispatch.
+            () => createBrowserInputDriver(send, { allowClipboard: true }).pressKey(guest, input.key, signal),
+            (through) => createBrowserInputDriver(through, { allowClipboard: true }).pressKey(guest, input.key)
+          );
         }
         break;
-      case 'pointer':
-        await send(
-          guest,
-          'Input.dispatchMouseEvent',
-          {
-            type: input.phase,
-            x: input.x,
-            y: input.y,
-            button: input.button,
-            buttons: input.buttons,
-            modifiers: input.modifiers,
-            clickCount: input.clickCount,
-          },
-          signal
+      case 'pointer': {
+        const event = {
+          type: input.phase,
+          x: input.x,
+          y: input.y,
+          button: input.button,
+          buttons: input.buttons,
+          modifiers: input.modifiers,
+          clickCount: input.clickCount,
+        };
+        if (input.phase === 'mousePressed') presses.set(guest, event);
+        if (input.phase !== 'mouseReleased') {
+          await mouse(event, signal);
+          break;
+        }
+        const press = presses.get(guest);
+        presses.delete(guest);
+        await gesture(
+          () => mouse(event, signal),
+          async (through) => {
+            const replay = mouseWith(through);
+            if (press) await replay(press);
+            await replay(event);
+          }
         );
         break;
+      }
       case 'wheel':
         await send(
           guest,
@@ -163,8 +282,10 @@ export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: Pa
     assertCurrent();
     if (input.type === 'answer-dialog' || input.type === 'choose-files') {
       if (!host.prompts) throw new Error('Browser prompt controls are unavailable.');
+      // The prompts route a dialog answer to whichever page's dialog blocks
+      // this one (local-prompts).
       await host.prompts.answer(guest, input, assertCurrent, signal);
-      host.state.invalidateInteraction(guest);
+      host.state.invalidateInteraction(host.state.dialogOwner(guest) ?? guest);
       return;
     }
     if (input.type === 'resize') {
@@ -186,10 +307,9 @@ export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: Pa
     }
     // Native recovery releases a blocked execution; it must not wait for that
     // execution or be rejected by the dialog it is intended to escape.
-    if (browserInputRecovery(input)) {
+    if (input.type === 'reload' || input.type === 'stop') {
       host.state.invalidateInteraction(guest);
-      if (input.type === 'reload') guest.reload();
-      else guest.stop();
+      navigatePage(host, guest, input);
       return;
     }
     await dispatchPageInput(guest, input, assertCurrent, signal);

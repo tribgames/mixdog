@@ -29,6 +29,7 @@ export function useStatusLineText({
   model,
   effort,
   fast,
+  ultra,
   cwd,
   stats,
   contextWindow,
@@ -52,6 +53,7 @@ export function useStatusLineText({
           model,
           effort,
           fast,
+          ultra,
           stats,
           contextWindow,
           displayContextWindow,
@@ -83,6 +85,7 @@ export function useStatusLineText({
     model,
     effort,
     fast,
+    ultra,
     cwd,
     stats,
     contextWindow,
@@ -180,7 +183,8 @@ export function useStatusLineText({
       prevImmediate.provider !== args.provider ||
       prevImmediate.model !== args.model ||
       prevImmediate.effort !== args.effort ||
-      prevImmediate.fast !== args.fast;
+      prevImmediate.fast !== args.fast ||
+      prevImmediate.ultra !== args.ultra;
     // A theme switch must re-tone the footer immediately: the stored `line`
     // holds already-normalized ANSI with the OLD palette, so re-running
     // normalizeStatusLine on it is a no-op. Force a fresh local rebuild (new
@@ -218,6 +222,7 @@ export function useStatusLineText({
       model: args.model,
       effort: args.effort,
       fast: args.fast,
+      ultra: args.ultra,
       contextWindow: args.contextWindow,
       displayContextWindow: args.displayContextWindow,
       rawContextWindow: args.rawContextWindow,
@@ -299,6 +304,7 @@ export function useStatusLineText({
     model,
     effort,
     fast,
+    ultra,
     cwd,
     statsSignature,
     contextWindow,

@@ -7,19 +7,37 @@ import { webSearchRouteOrDefault } from '../../runtime/agent/orchestrator/runtim
 
 export function createWebSearchRouteCandidates({
   getRoute,
+  getReg,
   getWebSearchRoute,
   setWebSearchRoute,
   ensureFullConfig,
   awaitKeychainPrewarm,
+  ensureProvidersReady,
+  ensureProviderEnabled,
   normalizeWebSearchProviderId,
   isDefaultWebSearchRouteConfig,
   isWebSearchCapableProvider,
   webSearchCapableFor,
 }) {
-  function currentMainWebSearchModelMeta() {
+  function currentMainWebSearchModelMeta(loadedRow = null) {
     const route = getRoute();
     if (!route?.provider || !route?.model) return null;
-    return { ...route, id: route.model, display: route.model, name: route.model };
+    // Capability comes from the provider's catalog row (supportedTools etc.),
+    // not from the bare model id.
+    const catalogRow = getReg()?.getProvider(route.provider)?.getCachedModelInfo?.(route.model) || loadedRow;
+    return { ...catalogRow, ...route, id: route.model, display: route.model, name: route.model };
+  }
+
+  /** A cold catalog (fresh or model-proxy provider instance) is loaded once
+   *  before the capability check, so it never falls back to the bare id.
+   *  Returns the listed row, which carries the catalog fields even when the
+   *  provider keeps no per-model cache. */
+  async function loadMainCatalogRow(cfg, route) {
+    await ensureProvidersReady(ensureProviderEnabled(cfg, route.provider));
+    const provider = getReg().getProvider(route.provider);
+    if (provider?.getCachedModelInfo?.(route.model) || typeof provider?.listModels !== 'function') return null;
+    const models = await provider.listModels();
+    return (Array.isArray(models) ? models.find((m) => m?.id === route.model) : null) || null;
   }
 
   async function nativeWebSearchRoutes() {
@@ -33,7 +51,8 @@ export function createWebSearchRouteCandidates({
     const webSearchRoute = webSearchRouteOrDefault(cfg.webSearchRoute, getWebSearchRoute());
     setWebSearchRoute(webSearchRoute);
     if (isDefaultWebSearchRouteConfig(webSearchRoute)) {
-      const mainModel = currentMainWebSearchModelMeta();
+      const loadedRow = route?.provider && route?.model ? await loadMainCatalogRow(cfg, route) : null;
+      const mainModel = currentMainWebSearchModelMeta(loadedRow);
       if (!mainModel || !webSearchCapableFor(route.provider, mainModel)) return [];
       return [
         {

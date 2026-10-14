@@ -38,12 +38,13 @@ export function createBrowserDisplayTextures(host: {
       attached.add(guest);
       const paint = (event: Electron.Event & { texture?: OffscreenSharedTexture }) => {
         if (!event.texture) return;
-        clear(guest);
         const texture = event.texture;
+        // A popup widget's texture is not the page; keep the page's last frame.
         if (texture.textureInfo.widgetType !== 'frame') {
           texture.release();
           return;
         }
+        clear(guest);
         let references = 1;
         frames.set(guest, {
           id: `gpu_${guest.id}_${++serial}`,

@@ -9,6 +9,7 @@ import {
   setVisualizeNetwork,
   visualizeScriptsAllowed,
   hydrateVisualizeStates,
+  subscribe,
   markVisualizePanelHidden,
   markVisualizePanelShown,
   onVisualizeRevealRequested,
@@ -297,6 +298,72 @@ test('export sends the pane and returns where the file went', async () => {
     ]);
   } finally {
     globalThis.window = previous;
+  }
+});
+
+const richTab = (id, thumbnail) => ({
+  id,
+  label: id,
+  revision: 1,
+  panes: [{ kind: 'html', label: 'a.html', target: 'a.html', url: `http://x/${id}/a.html` }],
+  problems: [{ kind: 'exception', message: 'boom', source: 'a.html', line: 1, count: 1, pane: 0 }],
+  versions: [{ n: 1, at: 1 }],
+  ...(thumbnail ? { thumbnail } : {}),
+});
+// Fresh deep copies, as an event arriving over IPC would carry.
+const fresh = (value) => JSON.parse(JSON.stringify(value));
+
+test('an event that changes only another tab keeps every unchanged tab object', () => {
+  const first = { sessionId: 'share', tabs: [richTab('a', 'data:image/png;base64,AAAA'), richTab('b')], active: 'a' };
+  applyVisualizeEvent({ sessionId: 'share', state: fresh(first) });
+  const before = visualizeStateFor('share');
+  const next = fresh(first);
+  next.tabs[1].thumbnail = 'data:image/png;base64,BBBB';
+  applyVisualizeEvent({ sessionId: 'share', state: next });
+  const after = visualizeStateFor('share');
+  assert.notEqual(after, before);
+  assert.equal(after.tabs[0], before.tabs[0], 'the untouched tab keeps its identity');
+  assert.equal(after.tabs[0].panes, before.tabs[0].panes);
+  assert.notEqual(after.tabs[1], before.tabs[1]);
+  assert.equal(after.tabs[1].panes, before.tabs[1].panes, 'unchanged parts of the changed tab are reused too');
+  assert.equal(after.tabs[1].problems, before.tabs[1].problems);
+  assert.equal(after.tabs[1].thumbnail, 'data:image/png;base64,BBBB');
+
+  // Reordered tabs still match by id.
+  const reordered = fresh(next);
+  reordered.tabs.reverse();
+  applyVisualizeEvent({ sessionId: 'share', state: reordered });
+  assert.equal(visualizeStateFor('share').tabs[0], after.tabs[1]);
+  assert.equal(visualizeStateFor('share').tabs[1], after.tabs[0]);
+});
+
+test('an identical event or snapshot notifies nobody; a real change notifies once', () => {
+  const state = { sessionId: 'quiet', tabs: [richTab('a')], active: 'a', history: [{ id: 'h', label: 'a', kind: 'html', versions: 1, at: 1, open: true }] };
+  applyVisualizeEvent({ sessionId: 'quiet', state: fresh(state) });
+  // A snapshot of the host replaces every session: leave only this one.
+  resyncVisualizeStates([fresh(state)]);
+  let calls = 0;
+  const stop = subscribe(() => {
+    calls += 1;
+  });
+  try {
+    applyVisualizeEvent({ sessionId: 'quiet', state: fresh(state) });
+    resyncVisualizeStates([fresh(state)]);
+    hydrateVisualizeStates([fresh(state)]);
+    assert.equal(calls, 0);
+    const kept = visualizeStateFor('quiet');
+
+    applyVisualizeEvent({ sessionId: 'quiet', state: { ...fresh(state), active: null } });
+    assert.equal(calls, 1);
+    assert.equal(visualizeStateFor('quiet').tabs, kept.tabs);
+
+    // Closing the last tab of a session without history drops it, once.
+    applyVisualizeEvent({ sessionId: 'gone', state: { sessionId: 'gone', tabs: [], active: null } });
+    assert.equal(calls, 1, 'dropping a session that was never stored changes nothing');
+    applyVisualizeEvent({ sessionId: 'quiet', state: { sessionId: 'quiet', tabs: [], active: null } });
+    assert.equal(calls, 2);
+  } finally {
+    stop();
   }
 });
 

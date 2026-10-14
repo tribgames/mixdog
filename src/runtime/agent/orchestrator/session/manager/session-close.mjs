@@ -216,7 +216,7 @@ function releaseSessionReadCaches(id) {
     /* ignore */
   }
   try {
-    forgetSessionSaveBaseline(id);
+    forgetSessionSaveBaseline(id, { releaseWriteControl: true });
   } catch {
     /* ignore */
   }

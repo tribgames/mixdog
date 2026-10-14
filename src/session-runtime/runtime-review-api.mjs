@@ -1,6 +1,7 @@
 import { registerCacheInvalidationListener } from '../runtime/agent/orchestrator/tools/builtin/cache-layers.mjs';
 import { turnReviewReply } from '../runtime/shared/turn-review-reply.mjs';
 import {
+  clearSessionChangeHistory,
   getSessionReviewDiff,
   getTurnChanges,
   getTurnReviewDiff,
@@ -10,6 +11,17 @@ import {
   revertTurnReviewFile,
 } from '../runtime/shared/turn-snapshot.mjs';
 import { noteTurnWorktreeChange } from '../runtime/shared/turn-worktree-snapshot.mjs';
+import { forgetSessionChangeHistoryMarker } from '../runtime/shared/turn-snapshot-store.mjs';
+import { forgetSessionBaselines } from '../runtime/shared/session-baseline-store.mjs';
+import { registerSessionPurgeHook } from '../runtime/agent/orchestrator/session/store.mjs';
+
+// A deleted history stays deleted for as long as its session exists; the
+// session's own deletion takes the marker — and its stored first-seen file
+// contents — with it.
+registerSessionPurgeHook((sessionId) => {
+  void forgetSessionChangeHistoryMarker(sessionId);
+  void forgetSessionBaselines(sessionId);
+});
 
 // Tool writes (apply_patch, mutating shell commands, git, watcher events)
 // reach the live review snapshot as its change signal: a review poll right
@@ -31,5 +43,6 @@ export function createRuntimeReviewApi({ getCwd, getSessionId }) {
       revertTurnChanges(getSessionId(), checkpointId, file, revision),
     reapplyTurnChanges: (checkpointId, file, revision) =>
       reapplyTurnChanges(getSessionId(), checkpointId, file, revision),
+    clearSessionChangeHistory: () => clearSessionChangeHistory(getSessionId()),
   };
 }

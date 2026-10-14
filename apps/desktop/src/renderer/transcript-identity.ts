@@ -24,6 +24,8 @@ import {
   alignedRow,
   alignmentAnchored,
   findTranscriptAlignment,
+  fingerprintText,
+  markClippedText,
   findTranscriptPrependAlignment,
   hasOwnId,
   sameRowId,
@@ -39,12 +41,54 @@ interface SessionTranscriptIdentity {
   tail: TranscriptItem | null;
 }
 
+// Reconciliation reads only a row's id, kind, name and the short text-ish
+// fields below (alignedRow / sameRowContent / the strong-match signature).
+// The baseline therefore keeps a reduced record per row instead of the full
+// item (tool args/results, images, markdown bodies). Long strings are cut to
+// a prefix PLUS a fingerprint of the full text (length + hash), so two long
+// texts sharing the prefix never compare equal or prefix-compatible.
+const IDENTITY_TEXT_CAP = 512;
+const capText = (value: unknown): string | undefined => {
+  if (value === undefined || value === null) return undefined;
+  const text = String(value);
+  if (text.length <= IDENTITY_TEXT_CAP) return text;
+  const { length, hash } = fingerprintText(text);
+  return `${text.slice(0, IDENTITY_TEXT_CAP)}\u0002${length}:${hash}`;
+};
+const identityRecords = new WeakMap<object, TranscriptItem>();
+
+function identityRecord(item: TranscriptItem): TranscriptItem {
+  let record = identityRecords.get(item);
+  if (!record) {
+    const text = item.text === undefined || item.text === null ? undefined : String(item.text);
+    record = {
+      id: item.id,
+      kind: item.kind,
+      name: item.name,
+      text: text === undefined ? undefined : text.slice(0, IDENTITY_TEXT_CAP),
+      status: item.status,
+      label: capText(item.label),
+      tone: item.tone,
+      verb: item.verb,
+      count: item.count,
+      completedCount: item.completedCount,
+      detail: capText(item.detail),
+    };
+    if (text !== undefined && text.length > IDENTITY_TEXT_CAP) markClippedText(record, fingerprintText(text));
+    identityRecords.set(item, record);
+  }
+  return record;
+}
+
 export function adoptTranscriptIdentity(
   previous: SessionTranscriptIdentity | undefined,
   incomingItems: readonly TranscriptItem[] | undefined,
-  incomingTail: TranscriptItem | null
+  incomingTail: TranscriptItem | null,
+  // The incoming list is the very array the baseline was recorded from.
+  sameItems = false
 ): { items?: TranscriptItem[]; tail?: TranscriptItem; offset?: number } {
   const prevItems = previous?.items;
+  const identical = sameItems || incomingItems === prevItems;
   let adoptedItems: TranscriptItem[] | undefined;
   let consumed = 0;
   // Whether ANY offset candidate was accepted. Without one the incoming list
@@ -54,7 +98,7 @@ export function adoptTranscriptIdentity(
   // Index in `previous.items` the incoming window aligned at. > 0 means the
   // frame is a tail WINDOW of the transcript already displayed.
   let alignedOffset = 0;
-  if (incomingItems && prevItems && incomingItems.length > 0 && prevItems.length > 0 && incomingItems !== prevItems) {
+  if (incomingItems && prevItems && incomingItems.length > 0 && prevItems.length > 0 && !identical) {
     const found = findTranscriptAlignment(prevItems, incomingItems);
     // A lone weak match (one completion row against another) is not evidence:
     // adopting across it gave an older page's first row the newest row's id.
@@ -95,7 +139,7 @@ export function adoptTranscriptIdentity(
       }
     }
     adoptedItems = out ?? undefined;
-  } else if (incomingItems && prevItems && incomingItems === prevItems) {
+  } else if (incomingItems && prevItems && identical) {
     consumed = prevItems.length;
     acceptedAlignment = true;
   }
@@ -117,6 +161,13 @@ export function adoptTranscriptIdentity(
 
 interface TranscriptIdentityReconciler {
   reconcile(snapshot: Snapshot): Snapshot;
+  /** Drop one session's baseline (lane unmounted with nothing cached, or the session ended). */
+  forget(sessionId: string): void;
+}
+
+interface RecordedIdentity extends SessionTranscriptIdentity {
+  /** The displayed array the records came from; weak, so the baseline never pins a transcript. */
+  source?: WeakRef<readonly TranscriptItem[]>;
 }
 
 /** Per-session sticky adoption: the last DISPLAYED items are the baseline for
@@ -124,8 +175,11 @@ interface TranscriptIdentityReconciler {
  * on the first-seen ids instead of flapping. Bounded LRU, mirroring the
  * session snapshot cache. */
 export function createTranscriptIdentityReconciler(): TranscriptIdentityReconciler {
-  const sessions = new Map<string, SessionTranscriptIdentity>();
+  const sessions = new Map<string, RecordedIdentity>();
   return {
+    forget(sessionId: string): void {
+      sessions.delete(sessionId);
+    },
     reconcile(snapshot: Snapshot): Snapshot {
       const sessionId = String(snapshot?.sessionId || '');
       const items = Array.isArray(snapshot?.items) ? snapshot.items : undefined;
@@ -135,7 +189,8 @@ export function createTranscriptIdentityReconciler(): TranscriptIdentityReconcil
           ? (snapshot.streamingTail as TranscriptItem)
           : null;
       const previous = sessions.get(sessionId);
-      const adopted = adoptTranscriptIdentity(previous, items, tail);
+      const sameItems = previous?.source?.deref() === items;
+      const adopted = adoptTranscriptIdentity(previous, items, tail, sameItems);
       const nextItems = adopted.items ?? items;
       const nextTail = adopted.tail ?? tail;
       sessions.delete(sessionId);
@@ -148,12 +203,21 @@ export function createTranscriptIdentityReconciler(): TranscriptIdentityReconcil
       // baseline therefore keeps the aligned SUPERSET; a genuine rewrite
       // (clear, compaction, branch/fork resume) fails alignment on content
       // and replaces it untouched.
-      let baselineItems: readonly TranscriptItem[] = nextItems;
-      if (previous && previous.items.length > 0) {
-        if (nextItems.length === 0) baselineItems = previous.items;
-        else if ((adopted.offset || 0) > 0) baselineItems = [...previous.items.slice(0, adopted.offset), ...nextItems];
+      let baselineItems: readonly TranscriptItem[];
+      // Set only while the baseline is a 1:1 record of `nextItems`, so the
+      // same array arriving again skips the alignment walk entirely.
+      let source: WeakRef<readonly TranscriptItem[]> | undefined;
+      if (previous && previous.items.length > 0 && nextItems.length === 0) baselineItems = previous.items;
+      else if (previous && previous.items.length > 0 && (adopted.offset || 0) > 0)
+        baselineItems = [...previous.items.slice(0, adopted.offset), ...nextItems.map(identityRecord)];
+      else if (sameItems && previous) {
+        baselineItems = previous.items;
+        source = previous.source;
+      } else {
+        baselineItems = nextItems.map(identityRecord);
+        source = new WeakRef(nextItems);
       }
-      sessions.set(sessionId, { items: baselineItems, tail: nextTail });
+      sessions.set(sessionId, { items: baselineItems, tail: nextTail ? identityRecord(nextTail) : null, source });
       while (sessions.size > IDENTITY_SESSION_LIMIT) {
         const oldest = sessions.keys().next().value;
         if (oldest === undefined) break;

@@ -6,60 +6,7 @@ import test from 'node:test';
 
 import { createMcpGlue } from './mcp-glue.mjs';
 import { createResourceApi } from './resource-api.mjs';
-import { mergeMcpServerConfig, readProjectMcpServerConfig, saveProjectMcpServer } from '../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
-
-test('project MCP edits preserve document shape and unknown fields', () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'mixdog-mcp-standard-'));
-  try {
-    const path = join(cwd, '.mcp.json');
-    writeFileSync(
-      path,
-      `${JSON.stringify(
-        {
-          projectMetadata: { owner: 'test' },
-          mcpServers: {
-            demo: {
-              type: 'stdio',
-              command: 'old-command',
-              args: ['--old'],
-              vendorExtension: { keep: true },
-            },
-            sibling: { url: 'https://example.com/mcp', custom: 7 },
-          },
-        },
-        null,
-        2
-      )}\n`
-    );
-
-    saveProjectMcpServer(cwd, {
-      originalName: 'demo',
-      name: 'renamed',
-      config: {
-        type: 'http',
-        url: 'https://example.com/new-mcp',
-        headers: { Authorization: '${MCP_TOKEN}' },
-      },
-    });
-
-    const saved = JSON.parse(readFileSync(path, 'utf8'));
-    assert.deepEqual(saved.projectMetadata, { owner: 'test' });
-    assert.deepEqual(saved.mcpServers.sibling, {
-      url: 'https://example.com/mcp',
-      custom: 7,
-    });
-    assert.equal(saved.mcpServers.demo, undefined);
-    assert.deepEqual(saved.mcpServers.renamed, {
-      vendorExtension: { keep: true },
-      type: 'http',
-      url: 'https://example.com/new-mcp',
-      headers: { Authorization: '${MCP_TOKEN}' },
-    });
-    assert.deepEqual(readProjectMcpServerConfig(cwd, 'renamed')?.config, saved.mcpServers.renamed);
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
+import { mergeMcpServerConfig } from '../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
 
 test('MCP transport edits drop stale transport fields but retain extensions', () => {
   assert.deepEqual(

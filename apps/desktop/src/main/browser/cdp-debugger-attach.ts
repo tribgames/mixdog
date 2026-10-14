@@ -3,7 +3,7 @@
 import type { WebContents } from 'electron';
 
 import { bounded } from './cdp-bounded';
-import { CDP_REQUEST_TIMEOUT_MS, OPEN_SURFACE_TIMEOUT_MS } from './command';
+import { OPEN_SURFACE_TIMEOUT_MS } from './command';
 import type { BrowserGuestStateStore } from './guest-state';
 
 type CdpParams = Record<string, unknown>;
@@ -26,7 +26,6 @@ export function createGuestDebuggerAttachment(host: DebuggerAttachmentHost) {
   const debuggerAttached = new WeakMap<WebContents, Promise<Electron.Debugger>>();
   const debuggerListeners = new WeakMap<WebContents, (...args: unknown[]) => void>();
   const debuggerLifetime = new WeakMap<WebContents, AbortController>();
-  const detaching = new WeakSet<WebContents>();
 
   async function waitForInitialDocument(guest: WebContents): Promise<void> {
     if (guest.isDestroyed()) throw new Error('browser page is unavailable');
@@ -43,7 +42,8 @@ export function createGuestDebuggerAttachment(host: DebuggerAttachmentHost) {
   }
 
   /** The debugger detached (page gone or Chromium dropped it): forget every
-   *  per-guest record and leave the reason on the guest as its fault. */
+   *  per-guest record, settle the prompts it held, and leave the reason on
+   *  the guest as its fault. */
   function onDetached(guest: WebContents, cdp: Electron.Debugger, lifetime: AbortController, reason: string): void {
     if (debuggerLifetime.get(guest) !== lifetime) return;
     debuggerLifetime.delete(guest);
@@ -52,8 +52,8 @@ export function createGuestDebuggerAttachment(host: DebuggerAttachmentHost) {
     debuggerListeners.delete(guest);
     debuggerReady.delete(guest);
     debuggerAttached.delete(guest);
+    state.endTargetSession(guest);
     const record = state.for(guest);
-    record.cdpSessions.clear();
     record.performanceTrace?.resolveComplete();
     record.performanceTrace = undefined;
     record.fault = reason;
@@ -113,13 +113,15 @@ export function createGuestDebuggerAttachment(host: DebuggerAttachmentHost) {
     if (debuggerLifetime.get(guest) === lifetime) debuggerLifetime.delete(guest);
   }
 
-  /** The attached debugger for a guest, initialised once per document. */
+  /** The attached debugger for a guest, initialised once per document; an
+   *  answer to its open dialog waits for the attachment alone (see attach). */
   async function guestDebugger(guest: WebContents, answeringDialog = false): Promise<Electron.Debugger> {
-    if (guest.isDestroyed() || detaching.has(guest)) throw new Error('browser page is unavailable');
-    const existing = debuggerReady.get(guest);
-    if (existing) {
-      return answeringDialog && state.peek(guest)?.pendingDialog ? debuggerAttached.get(guest)! : existing;
-    }
+    if (guest.isDestroyed()) throw new Error('browser page is unavailable');
+    if (!debuggerReady.has(guest)) startAttachment(guest);
+    return answeringDialog ? debuggerAttached.get(guest)! : debuggerReady.get(guest)!;
+  }
+
+  function startAttachment(guest: WebContents): void {
     const lifetime = new AbortController();
     debuggerLifetime.set(guest, lifetime);
     const onDestroyed = () => lifetime.abort(new Error('browser page is unavailable'));
@@ -138,39 +140,18 @@ export function createGuestDebuggerAttachment(host: DebuggerAttachmentHost) {
       rejectAttached(error);
       abandonAttachment(guest, lifetime, ready, onDestroyed);
     });
-    return answeringDialog && state.peek(guest)?.pendingDialog ? attached : ready;
   }
 
   /** Drop the debugger for a guest whose bridge is going away. */
-  async function detach(guest: WebContents, options: { uninstallScript?: string } = {}): Promise<void> {
-    if (detaching.has(guest)) return;
-    detaching.add(guest);
+  async function detach(guest: WebContents): Promise<void> {
     debuggerLifetime.get(guest)?.abort(new Error('CDP detaching'));
     debuggerReady.delete(guest);
     debuggerAttached.delete(guest);
+    if (guest.isDestroyed() || !guest.debugger.isAttached()) return;
     try {
-      if (guest.isDestroyed() || !guest.debugger.isAttached()) return;
-      if (options.uninstallScript) {
-        try {
-          await bounded(
-            guest.debugger.sendCommand('Runtime.evaluate', {
-              expression: options.uninstallScript,
-              awaitPromise: true,
-            }),
-            CDP_REQUEST_TIMEOUT_MS,
-            'browser bridge uninstall'
-          );
-        } catch {
-          /* page may be gone or blocked by a native dialog */
-        }
-      }
-      try {
-        guest.debugger.detach();
-      } catch {
-        /* already detached */
-      }
-    } finally {
-      detaching.delete(guest);
+      guest.debugger.detach();
+    } catch {
+      /* already detached */
     }
   }
 

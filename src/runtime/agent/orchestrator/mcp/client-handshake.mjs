@@ -54,6 +54,15 @@ function startupTimeoutError(name, startupTimeoutMs) {
   return err;
 }
 
+const oauthLoginError = () => new Error('MCP OAuth login failed, cancelled, or timed out');
+
+/** Code of a connect cancelled (login cancel, disconnect, shutdown) before any
+ *  interactive login started. */
+export const MCP_CONNECT_CANCELLED = 'EMCPCONNECTCANCELLED';
+function connectCancelledError(name) {
+  return Object.assign(new Error(`MCP server "${name}" connect cancelled`), { code: MCP_CONNECT_CANCELLED });
+}
+
 /**
  * Bound the connect + listTools handshake so a slow/hung server can't stall
  * boot or the first turn. On expiry the pending transport/child is torn down
@@ -75,23 +84,40 @@ export async function runBoundedHandshake({
   const startupTimeoutMs = resolveMcpStartupTimeoutMs(cfg);
   const guard = { timer: null, timedOut: false };
   let rejectDeadline;
-  const armDeadline = (ms) => {
+  // True once an interactive login actually started (the server challenged
+  // and a browser sign-in was allowed).
+  let loginStarted = false;
+  const armDeadline = (ms, error = () => startupTimeoutError(name, ms)) => {
     if (guard.timer) clearTimeout(guard.timer);
     guard.timer = setTimeout(() => {
       guard.timedOut = true;
-      rejectDeadline(startupTimeoutError(name, ms));
+      rejectDeadline(error());
     }, ms);
   };
-  const deadline = new Promise((_, reject) => { rejectDeadline = reject; });
-  const cancelOAuth = () => rejectDeadline(new Error('MCP OAuth login failed, cancelled, or timed out'));
+  const deadline = new Promise((_, reject) => {
+    rejectDeadline = reject;
+  });
+  // A closed OAuth connection (login cancel, disconnect, shutdown) settles a
+  // handshake that would otherwise wait forever (an SSE stream closed while
+  // starting never settles). The SDK also closes the transport — and with it
+  // the OAuth connection — right before rethrowing a connect failure of its
+  // own (e.g. connection refused): deferring past the pending microtasks lets
+  // that real failure settle the race first.
+  const cancelOAuth = () =>
+    setImmediate(() => rejectDeadline(loginStarted ? oauthLoginError() : connectCancelledError(name)));
   transport.oauth?.signal.addEventListener('abort', cancelOAuth, { once: true });
   if (transport.oauth?.signal.aborted) cancelOAuth();
   if (startupTimeoutMs > 0) armDeadline(startupTimeoutMs);
   // Human authorization gets a separate, finite budget. The ordinary startup
   // budget still applies until the server actually challenges authentication.
-  if (transport.oauth) transport.oauth.onStart = () => armDeadline(MCP_OAUTH_TIMEOUT_MS);
+  if (transport.oauth) {
+    transport.oauth.onStart = () => {
+      loginStarted = true;
+      armDeadline(MCP_OAUTH_TIMEOUT_MS, oauthLoginError);
+    };
+  }
   const handshake = performHandshake(client, transport, {
-    timeout: transport.oauth ? MCP_MAX_TIMER_MS : startupTimeoutMs > 0 ? startupTimeoutMs : MCP_MAX_TIMER_MS,
+    timeout: !transport.oauth && startupTimeoutMs > 0 ? startupTimeoutMs : MCP_MAX_TIMER_MS,
   });
   try {
     return await Promise.race([handshake, deadline]);
@@ -110,7 +136,7 @@ export async function runBoundedHandshake({
       try {
         closeServer({ client, transport }).catch(() => {});
       } catch {
-        /* ignore */
+        // Teardown is best effort: the handshake failure below is what gets reported.
       }
       // Never let the late handshake settle into an unhandled rejection.
       handshake.catch(() => {});
@@ -122,7 +148,7 @@ export async function runBoundedHandshake({
     }
     throw tail ? new Error(appendMcpStderrTail(String(err), tail)) : err;
   } finally {
-    transport.oauth?.finishConnect?.();
+    transport.oauth?.finishConnect();
     if (guard.timer) clearTimeout(guard.timer);
     transport.oauth?.signal.removeEventListener('abort', cancelOAuth);
     if (transport.oauth) transport.oauth.onStart = () => {};

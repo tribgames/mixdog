@@ -28,6 +28,12 @@ export function createBusyTracker({ sessions, currentSessionId }) {
     // reaches a terminal state and its completion can be delivered back into
     // this session.
     if (sessionId && hasActiveBackgroundTasks({ callerSessionId: sessionId })) return true;
+    return sessionTurnBusy(entry);
+  }
+
+  // A turn is running (provider stream / tool call / queued input). Background
+  // tasks are deliberately not counted: they run outside the heap-churning turn.
+  function sessionTurnBusy(entry) {
     if (typeof entry?.busy === 'boolean') return entry.busy;
     try {
       return updateEntryBusy(entry, entry.runtime.getState?.() || {});
@@ -46,5 +52,13 @@ export function createBusyTracker({ sessions, currentSessionId }) {
     return count;
   }
 
-  return { stateBusy, updateEntryBusy, sessionBusy, liveBusyCount };
+  function liveTurnBusyCount() {
+    let count = 0;
+    for (const entry of sessions) {
+      if (sessionTurnBusy(entry)) count += 1;
+    }
+    return count;
+  }
+
+  return { stateBusy, updateEntryBusy, sessionBusy, liveBusyCount, liveTurnBusyCount };
 }

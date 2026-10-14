@@ -15,6 +15,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { withFileLock } from './atomic-file.mjs';
 import { cleanString as clean } from './clean.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
@@ -36,6 +37,12 @@ const MAX_RECORD_FILES = 512;
 let recordRootOverride = '';
 function recordRoot() {
   return recordRootOverride || join(resolvePluginData(), 'turn-snapshots');
+}
+
+/** The directory every turn-snapshot store lives under (follows the test
+ *  override and a runtime MIXDOG_DATA_DIR retarget). */
+export function turnSnapshotStoreRoot() {
+  return recordRoot();
 }
 // Per-session write chain. Two turns of one session never race their own file,
 // and a read never observes a partially written record (writes land by rename).
@@ -133,7 +140,7 @@ async function readRecordFile(path) {
 
 /** Oldest-first sweep of one record directory so a long-lived install cannot
  *  accumulate records. */
-async function sweepDirectory(directory, ttlMs, maxFiles) {
+export async function sweepDirectory(directory, ttlMs, maxFiles) {
   try {
     const names = await readdir(directory);
     const now = Date.now();
@@ -231,6 +238,7 @@ export async function saveTurnSnapshotRecord(sessionId, turn) {
           .map(serializeScope),
       };
       await writeJsonAtomically(path, payload);
+      await endClearedHistory(id);
       return true;
     } catch {
       return false;
@@ -257,6 +265,108 @@ export async function loadTurnSnapshotRecord(sessionId) {
   return null;
 }
 
+// ── Last computed review summary ────────────────────────────────────────────
+//
+// Rebuilding a recorded review rescans the whole worktree behind every other
+// capture of that repository. Entering a session reads the last computed
+// files and counts instead and lets the refreshing read follow. Keyed to the
+// turn record it was computed from, so a newer turn never shows an older one.
+
+let summarySweepDone = false;
+
+function summariesRoot() {
+  return join(recordRoot(), 'review-summaries');
+}
+
+/** Identity of the paths a record turn scopes its review to. */
+function summaryToolFilesKey(turn) {
+  return (Array.isArray(turn?.toolFiles) ? turn.toolFiles : []).map(rootKey).sort().join('\0');
+}
+
+function summaryPath(sessionId) {
+  const hash = createHash('sha256').update(sessionId).digest('hex').slice(0, 24);
+  return join(summariesRoot(), `${hash}.json`);
+}
+
+// Test hook: runs inside the summary critical section, between the cleared
+// check and the write.
+let summaryWriteHookForTest = null;
+export function _setSummaryWriteHookForTest(hook) {
+  summaryWriteHookForTest = typeof hook === 'function' ? hook : null;
+}
+
+const SUMMARY_LOCK_TIMEOUT_MS = 10_000;
+const withSummaryLock = (sessionId, task) =>
+  withFileLock(`${summaryPath(sessionId)}.lock`, task, { timeoutMs: SUMMARY_LOCK_TIMEOUT_MS });
+
+// Summary saves still running. Callers fire them and move on, so a test that
+// removes the store root settles them first instead of racing their writes.
+const pendingSummarySaves = new Set();
+export async function _settleSummarySavesForTest() {
+  while (pendingSummarySaves.size) await Promise.allSettled([...pendingSummarySaves]);
+}
+
+/** Keep the files and counts last computed for `turn` (a loaded record turn). */
+export function saveTurnReviewSummary(sessionId, turn, review) {
+  const saving = saveTurnReviewSummaryNow(sessionId, turn, review);
+  pendingSummarySaves.add(saving);
+  const done = () => pendingSummarySaves.delete(saving);
+  saving.then(done, done);
+  return saving;
+}
+
+async function saveTurnReviewSummaryNow(sessionId, turn, review) {
+  const id = clean(sessionId);
+  if (!id || !turn?.baselineTree || !Array.isArray(review?.files)) return false;
+  return await chain(`summary:${id}`, async () => {
+    try {
+      await mkdir(summariesRoot(), { recursive: true });
+      if (!summarySweepDone) {
+        summarySweepDone = true;
+        void sweepDirectory(summariesRoot(), RECORD_TTL_MS, MAX_RECORD_FILES);
+      }
+      return await withSummaryLock(id, async () => {
+        // Deleted history stays deleted: a summary computed before the delete
+        // must not bring it back (a newly recorded turn ends the marker). The
+        // check and the write are one step against a delete in any process.
+        if (await sessionChangeHistoryCleared(id)) return false;
+        await summaryWriteHookForTest?.(id);
+        await writeJsonAtomically(summaryPath(id), {
+          version: RECORD_VERSION,
+          sessionId: id,
+          generation: Number(turn.generation) || 0,
+          baselineTree: clean(turn.baselineTree),
+          checkpointId: clean(turn.checkpointId),
+          toolFilesKey: summaryToolFilesKey(turn),
+          files: review.files,
+          patchTruncated: review.patchTruncated === true,
+          savedAt: Date.now(),
+        });
+        return true;
+      });
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** The summary saved for exactly this record turn, else null. */
+export async function loadTurnReviewSummary(sessionId, turn) {
+  const id = clean(sessionId);
+  if (!id || !turn?.baselineTree) return null;
+  try {
+    const parsed = JSON.parse(await readFile(summaryPath(id), 'utf8'));
+    if (parsed?.version !== RECORD_VERSION || parsed.sessionId !== id || !Array.isArray(parsed.files)) return null;
+    if (parsed.baselineTree !== clean(turn.baselineTree)) return null;
+    if (parsed.generation !== (Number(turn.generation) || 0)) return null;
+    if (parsed.checkpointId !== clean(turn.checkpointId)) return null;
+    if (parsed.toolFilesKey !== summaryToolFilesKey(turn)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 /** Earliest retained baseline plus every path attributed to this session,
  * grouped by repository root. This is the durable source for the pane's
  * session-wide Diff and is intentionally separate from latest-turn Undo. */
@@ -266,6 +376,75 @@ export async function loadSessionSnapshotRecords(sessionId) {
   const record = await readRecordFile(recordPath(id));
   if (!record) return [];
   return sessionScopes(record).map(serializeScope);
+}
+
+/**
+ * Permanently delete one session's retained change history: its turn
+ * baselines and session scopes, and every per-turn change record (stored
+ * patches, file metadata, applied/reverted state). The baseline index keeps a
+ * `historyCleared` marker so the session review answers an authoritative
+ * empty set instead of falling back to older sources; the next recorded turn
+ * starts a fresh scope. Each half is serialized with the other writes of its
+ * file. Resolves to the number of turn change records deleted.
+ */
+export async function clearSessionChangeHistory(sessionId) {
+  const id = clean(sessionId);
+  if (!id) return 0;
+  await chain(id, async () => {
+    // The marker lands before the records go: a failure in between leaves
+    // the session answering empty, never resurrecting what was asked gone.
+    await mkdir(clearedRoot(), { recursive: true });
+    // Under the summary's file lock, shared with every process: a summary
+    // write that passed its marker check finishes before the marker lands (and
+    // is removed with it); one that starts later sees the marker and stays away.
+    await withSummaryLock(id, async () => {
+      await writeJsonAtomically(clearedPath(id), { version: RECORD_VERSION, sessionId: id, clearedAt: Date.now() });
+      await rm(summaryPath(id), { force: true });
+    });
+    await rm(recordPath(id), { force: true });
+  });
+  return await chain(`changes:${id}`, async () => {
+    const records = (await readChangesFile(id))?.records || [];
+    await rm(changesPath(id), { force: true });
+    changeRecordsCache.delete(id);
+    return records.length;
+  });
+}
+
+// "History deleted" markers live in their own directory: neither record
+// sweep (age or count) reaches it, so a deletion stays in force for as long
+// as the session exists. The next recorded turn ends it, and deleting the
+// session removes it (forgetSessionChangeHistoryMarker).
+function clearedRoot() {
+  return join(recordRoot(), 'cleared');
+}
+
+function clearedPath(sessionId) {
+  const hash = createHash('sha256').update(sessionId).digest('hex').slice(0, 24);
+  return join(clearedRoot(), `${hash}.json`);
+}
+
+/** End the cleared state: a new turn record of the session was written. */
+async function endClearedHistory(sessionId) {
+  await rm(clearedPath(sessionId), { force: true });
+}
+
+/** The session's history was deleted and no turn has been recorded since. */
+export async function sessionChangeHistoryCleared(sessionId) {
+  const id = clean(sessionId);
+  if (!id) return false;
+  try {
+    return JSON.parse(await readFile(clearedPath(id), 'utf8'))?.sessionId === id;
+  } catch {
+    return false;
+  }
+}
+
+/** The session itself was deleted: its history marker goes with it. */
+export async function forgetSessionChangeHistoryMarker(sessionId) {
+  const id = clean(sessionId);
+  if (!id) return;
+  await chain(id, () => rm(clearedPath(id), { force: true })).catch(() => {});
 }
 
 // Absolute, slash-normalized and (on Windows) case-folded: equal for every
@@ -520,6 +699,8 @@ export async function upsertTurnChangeRecord(sessionId, next) {
     else records.push(record);
     boundChangeRecords(records, checkpointId);
     await writeChangeRecords(id, records);
+    // Any new turn record (Git or not) starts the history again.
+    await endClearedHistory(id);
     return records.find((entry) => entry.checkpointId === checkpointId) || null;
   });
 }

@@ -7,10 +7,12 @@ export function BrowserPagePrompts({
   frame,
   control,
 }: {
-  frame: DesktopBrowserPageFrame;
+  frame: Pick<DesktopBrowserPageFrame, 'url' | 'dialog' | 'fileChooser'>;
   control(action: DesktopBrowserPageAction): Promise<unknown>;
 }) {
   const [text, setText] = useState(frame.dialog?.defaultPrompt ?? '');
+  // An untouched default is accepted as the page's own (possibly longer) value.
+  const [edited, setEdited] = useState(false);
   const [busy, setBusy] = useState(false);
   const answer = async (action: DesktopBrowserPageAction) => {
     if (busy) return;
@@ -26,15 +28,38 @@ export function BrowserPagePrompts({
   const dialog = frame.dialog;
   const chooser = frame.fileChooser;
   if (!dialog && !chooser) return null;
+  // Cards the browser words itself: a leave confirmation carries no page
+  // text, a dialog on another session's page is not this view's to show or
+  // answer, and a dialog dismissed unseen is a notice to acknowledge.
+  const leaving = dialog?.type === 'beforeunload';
+  const waiting = dialog?.type === 'blocked';
+  const notice = dialog?.type === 'dismissed';
+  const cancellable = !waiting && !notice && dialog?.type !== 'alert';
   // Like an ordinary browser's page dialog: an opaque card naming the site,
   // focused on arrival so Enter accepts and Escape dismisses it.
   const accept = () => {
-    if (dialog) void answer({ type: 'answer-dialog', requestId: dialog.id, accept: true, promptText: text });
+    if (dialog) {
+      void answer({
+        type: 'answer-dialog',
+        requestId: dialog.id,
+        accept: true,
+        promptText: text,
+        ...(dialog.type === 'prompt' && !edited ? { keepDefault: true } : {}),
+      });
+    }
   };
   const dismiss = () => {
-    if (dialog) void answer({ type: 'answer-dialog', requestId: dialog.id, accept: dialog.type === 'alert' });
-    else if (chooser) void answer({ type: 'choose-files', requestId: chooser.id, cancel: true });
+    if (dialog) {
+      if (!waiting) void answer({ type: 'answer-dialog', requestId: dialog.id, accept: !cancellable });
+    } else if (chooser) void answer({ type: 'choose-files', requestId: chooser.id, cancel: true });
   };
+  const body = leaving
+    ? t('Changes you made may not be saved.')
+    : waiting
+      ? t('This page is waiting for a dialog open on another page.')
+      : notice
+        ? t('This page tried to open a dialog, which was dismissed.')
+        : dialog?.message;
   return (
     <section
       className="browser-page-prompt mx-dialog"
@@ -48,15 +73,18 @@ export function BrowserPagePrompts({
       {dialog ? (
         <>
           <header>
-            <h3>{pageHost(frame.url)}</h3>
+            <h3>{leaving ? t('Leave site?') : pageHost(frame.url)}</h3>
           </header>
           <div className="mx-dialog-body">
-            <p>{dialog.message}</p>
+            <p>{body}</p>
             {dialog.type === 'prompt' && (
               <input
                 aria-label={t('Response')}
                 value={text}
-                onChange={(event) => setText(event.target.value)}
+                onChange={(event) => {
+                  setText(event.target.value);
+                  setEdited(true);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.nativeEvent.isComposing) accept();
                 }}
@@ -67,23 +95,25 @@ export function BrowserPagePrompts({
               />
             )}
           </div>
-          <footer>
-            {dialog.type !== 'alert' && (
-              <button type="button" disabled={busy} onClick={dismiss}>
-                {t('Cancel')}
+          {!waiting && (
+            <footer>
+              {cancellable && (
+                <button type="button" disabled={busy} onClick={dismiss}>
+                  {t('Cancel')}
+                </button>
+              )}
+              <button
+                type="button"
+                className="primary"
+                disabled={busy}
+                onClick={accept}
+                // biome-ignore lint/a11y/noAutofocus: a page dialog must put focus on its default action
+                autoFocus={dialog.type !== 'prompt'}
+              >
+                {leaving ? t('Leave') : t('OK')}
               </button>
-            )}
-            <button
-              type="button"
-              className="primary"
-              disabled={busy}
-              onClick={accept}
-              // biome-ignore lint/a11y/noAutofocus: a page dialog must put focus on its default action
-              autoFocus={dialog.type !== 'prompt'}
-            >
-              {t('OK')}
-            </button>
-          </footer>
+            </footer>
+          )}
         </>
       ) : (
         chooser && (

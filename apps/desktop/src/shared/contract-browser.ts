@@ -171,12 +171,30 @@ export interface DesktopBrowserPageFrame extends DesktopRemoteBrowserFrame {
   surfaceHeight?: number;
   fault?: string;
   tabs?: DesktopBrowserTab[];
-  dialog?: { id: string; type: string; message: string; defaultPrompt?: string };
+  dialog?: DesktopBrowserPageDialog;
   fileChooser?: { id: string; multiple: boolean };
 }
 
+/** A page dialog waiting for a person: alert, confirm, prompt, or a leave
+ *  confirmation (`beforeunload`, which carries no page text). An
+ *  `answer-dialog` names it by `id`. */
+export interface DesktopBrowserPageDialog {
+  id: string;
+  type: string;
+  message: string;
+  defaultPrompt?: string;
+}
+
 export type DesktopBrowserPageAction =
-  | { type: 'answer-dialog'; requestId: string; accept: boolean; promptText?: string }
+  | {
+      type: 'answer-dialog';
+      requestId: string;
+      accept: boolean;
+      promptText?: string;
+      /** The prompt's default was accepted untouched (it may be longer than
+       *  what the card showed and sent). */
+      keepDefault?: boolean;
+    }
   | { type: 'choose-files'; requestId: string; cancel?: boolean }
   | { type: 'new-tab' }
   | { type: 'select-tab' | 'close-tab'; tabId: string }
@@ -223,13 +241,17 @@ export interface DesktopRemoteBrowserStreamFrame extends DesktopRemoteBrowserFra
   /** The session's tab strip, as the local pane shows it. Present on a host
    *  advertising `browserSessionTabs`. */
   tabs?: DesktopBrowserTab[];
+  /** The page dialog the local pane offers; the client answers it with an
+   *  `answer-dialog` control for this frame's document. */
+  dialog?: DesktopBrowserPageDialog;
 }
 
-/** Human page input from a paired client: the local pane's own input set,
- * guarded by the document the client was showing when it was produced. */
+/** Human page input from a paired client: the local pane's own input set and
+ * dialog answers, guarded by the document the client was showing when it was
+ * produced. */
 export type DesktopRemoteBrowserPageInput = Extract<
   DesktopBrowserPageAction,
-  { type: 'pointer' | 'wheel' | 'text' | 'key' | 'composition' | 'composition-end' }
+  { type: 'pointer' | 'wheel' | 'text' | 'key' | 'composition' | 'composition-end' | 'answer-dialog' }
 > & { documentId: string };
 
 /** The phone pane's content box in CSS pixels and its device pixel ratio: a

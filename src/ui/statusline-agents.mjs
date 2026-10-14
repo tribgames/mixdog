@@ -25,8 +25,7 @@ let _hiddenStatuslineAgents = null;
 function normalizeAgentWorkerForStatusline(worker = {}) {
   const tag = String(worker.tag || worker.agent || worker.name || '').trim();
   if (!tag) return null;
-  const statuses = agentStatusValues(worker);
-  const status = isActiveAgentEntry(statuses) ? 'running' : 'idle';
+  const status = isActiveAgentEntry(lifecycleStatuses(worker)) ? 'running' : 'idle';
   return {
     tag,
     status,
@@ -63,11 +62,12 @@ function normalizeAgentJobForStatusline(job = {}) {
       model: job.model || null,
     };
   }
-  if (!isActiveAgentEntry(statuses)) return null;
+  const lifecycle = lifecycleStatuses(job);
+  if (!isActiveAgentEntry(lifecycle)) return null;
   return {
     tag,
     taskId,
-    status: isQueuedAgentEntry(statuses) ? 'queued' : 'running',
+    status: isQueuedAgentEntry(lifecycle) ? 'queued' : 'running',
     startedAtMs,
     agent: job.agent || null,
     stage: job.stage || job.workerStatus || job.status || null,
@@ -212,6 +212,17 @@ function agentStatusValues(value = {}) {
   return [value.stage, value.status]
     .map((status) => String(status || '').trim())
     .filter((status, index, values) => Boolean(status) && values.indexOf(status) === index);
+}
+
+/** The statuses that decide whether an entry is working. `status` is the
+ *  lifecycle; `stage` is the runtime phase copied in beside it, which can read
+ *  idle/done/error mid-work, so it decides only for an entry with no status. A
+ *  cancel in either field still counts (it keeps both in play). */
+function lifecycleStatuses(value = {}) {
+  const statuses = agentStatusValues(value);
+  if (statuses.some((status) => /cancel|killed/i.test(status))) return statuses;
+  const status = String(value.status || '').trim();
+  return status ? [status] : statuses;
 }
 
 function isTerminalAgentEntry(statuses = []) {

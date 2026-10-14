@@ -2,9 +2,8 @@ import type { DesktopModelSelection } from '../shared/contract';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { showDesktopToast } from './notifications';
+import { modelDisplayName } from './provider-display';
 import { record } from './record-utils';
-// @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
-import { displayModelName } from '../../../../src/ui/model-display.mjs';
 
 export type InheritanceFit = {
   known: boolean;
@@ -60,40 +59,6 @@ export function sessionModelSelection(snapshot: Snapshot): DesktopModelSelection
   };
 }
 
-function lastAssistantRoute(snapshot: Snapshot): { provider: string; model: string; modelId?: string } | null {
-  const items = Array.isArray(snapshot.items) ? snapshot.items : [];
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = record(items[index]);
-    if (String(item.kind || '') !== 'assistant' && !(item.kind === 'statusdone' && item.status === 'inherited'))
-      continue;
-    const model = String(item.model || '').trim();
-    const modelId = String(item.modelId || '').trim();
-    if (!model && !modelId) continue;
-    return {
-      provider: String(item.provider || '').trim(),
-      model,
-      ...(modelId ? { modelId } : {}),
-    };
-  }
-  return null;
-}
-
-export function shouldOfferSessionInheritance(snapshot: Snapshot): boolean {
-  const current = sessionModelSelection(snapshot);
-  const previous = lastAssistantRoute(snapshot);
-  if (!current || !previous) return false;
-  if (previous.provider && current.provider.toLowerCase() !== previous.provider.toLowerCase()) return true;
-  // New rows carry exact identity even when two IDs share a display name.
-  if (previous.modelId) return current.model.toLowerCase() !== previous.modelId.toLowerCase();
-  // Legacy rows stored either a raw ID or its display label. Reuse the
-  // original formatter, not punctuation-stripping or guessed model aliases.
-  const recordedModel = previous.model.toLowerCase();
-  return (
-    current.model.toLowerCase() !== recordedModel &&
-    displayModelName(current.model, current.provider).toLowerCase() !== recordedModel
-  );
-}
-
 /**
  * The heir's OWN reading of this conversation, answered by the runtime that
  * would perform the carry.
@@ -131,7 +96,9 @@ export async function inheritancePreflight(
  * session and the source stays untouched. A transcript the heir cannot hold
  * even after compaction is refused before any session is created; one that
  * must be compacted first is announced, since the handover then takes a
- * while. Resolves true once the heir exists.
+ * while. An explicit whole carry (`compact: false`) never turns into a
+ * summary: it is refused when the whole conversation does not fit. Resolves
+ * true once the heir exists.
  */
 export async function inheritSessionDirectly(
   sessionId: string,
@@ -141,6 +108,15 @@ export async function inheritSessionDirectly(
 ): Promise<boolean> {
   const fit = await inheritancePreflight(sessionId, route);
   if (fit?.known && !fit.fits) {
+    if (options?.compact === false) {
+      showDesktopToast(
+        t('This chat is long, so it can only be forked to {{model}} as a summary.', {
+          model: modelDisplayName(route.model, route.provider),
+        }),
+        'warn'
+      );
+      return false;
+    }
     if (!fit.willCompact) {
       showDesktopToast(t('This conversation no longer fits the model context. Run /compact first.'), 'warn');
       return false;

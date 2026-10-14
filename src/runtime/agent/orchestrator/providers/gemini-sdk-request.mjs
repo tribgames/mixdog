@@ -13,6 +13,7 @@ import {
   normalizeGeminiSdkError,
 } from './gemini-stream.mjs';
 import { geminiFailureUsage } from './gemini-response.mjs';
+import { geminiEndsWithFunctionResponse } from './gemini-retry-policy.mjs';
 
 export function geminiTextLeakGuardFor({ tools, callbacks }) {
   return createGeminiTextLeakGuard({
@@ -71,7 +72,7 @@ function linkSdkRequestController(attemptSignal) {
   return { controller, detachParent, clearConnectTimer };
 }
 
-export async function streamGeminiSdkAttempt(genModel, stream, attemptSignal) {
+export async function streamGeminiSdkAttempt(genModel, stream, attemptSignal, onConnected = null) {
   const { contents, callbacks } = stream;
   const link = linkSdkRequestController(attemptSignal);
   const { controller } = link;
@@ -89,6 +90,7 @@ export async function streamGeminiSdkAttempt(genModel, stream, attemptSignal) {
     // the parent link attached so a later abort during streaming still
     // reaches the request.
     link.clearConnectTimer();
+    onConnected?.();
     const textLeakGuard = geminiTextLeakGuardFor(stream);
     const response = await consumeGeminiSdkStream(streamResult, {
       signal: attemptSignal,
@@ -96,6 +98,7 @@ export async function streamGeminiSdkAttempt(genModel, stream, attemptSignal) {
       onTextDelta: callbacks.onTextDelta,
       textLeakGuard,
       label: 'Gemini SDK streamGenerateContent',
+      acceptEmptyNoFinish: geminiEndsWithFunctionResponse(contents),
       failureUsage: geminiFailureUsage(stream.opts, stream.cachedContent, stream.useModel),
       cancelGeneration: (reason) => {
         if (!controller.signal.aborted) controller.abort(reason);

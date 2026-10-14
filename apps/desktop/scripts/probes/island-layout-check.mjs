@@ -72,7 +72,7 @@ const HARNESS = `
           goalIsland={s.goal ? <SessionGoalIsland snapshot={s.goal} /> : null}
           approval={s.approval ? <ApprovalCard approval={{ id: 'a1', name: 'shell', args: { command: 'npm run migrate -- --env=staging' }, reason: '스테이징 DB에 마이그레이션을 적용합니다.' }} resolve={async () => true} /> : null}
           islandFlash={s.flash ? { key: 'f1', text: 'MacBook에서 허용했어요' } : null}
-          modelMismatch={s.mismatch ? { sessionModel: 'Claude Opus 5.5', selectedModel: 'Gemini Flash Lite Latest', onRevert() {}, onContinue() {} } : null}
+          quotaCard={s.mismatch ? { resetAt: Date.now() + 3_600_000, otherAccount: false, reserved: false, busy: false, onToggleResume() {} } : null}
           reviewItems={s.review ? reviewItems : []} reviewActive reviewBusy={false} reviewSessionId="s1" reviewCwd="C:/fixture"
           onOpenSessionDiff={() => {}}>
           <Composer queued={queued} />
@@ -90,7 +90,7 @@ const SCENARIOS = ['draft', 'empty', 'goalFiles', 'crowded', 'approval', 'flash'
 
 const MEASURE = () => {
   const box = (el) => {
-    if (!el || !el.getClientRects().length) return null;
+    if (!el?.getClientRects().length) return null;
     const r = el.getBoundingClientRect();
     return {
       l: +r.left.toFixed(1),
@@ -104,7 +104,6 @@ const MEASURE = () => {
   const dock = document.querySelector('.composer-region');
   const composer = document.querySelector('form.composer');
   const slot = document.querySelector('.composer-island-slot');
-  const island = document.querySelector('.composer-island');
   const visible = (sel) =>
     [...document.querySelectorAll(sel)].filter(
       (el) => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden'
@@ -265,7 +264,7 @@ for (const [vp, scenes] of Object.entries(report)) {
       continue;
     }
     console.log(
-      `${vp.padEnd(10)} ${name.padEnd(10)} dock=${m.dock?.h} slot=${m.slot?.h ?? '-'} pill=${m.pill ? m.pill.w + 'x' + m.pill.h : '-'} card=${m.card ? m.card.w + 'x' + m.card.h : '-'} tray=${m.tray ? m.tray.h : '-'} ${m.issues.length ? 'ISSUES: ' + m.issues.join(' | ') : 'ok'}`
+      `${vp.padEnd(10)} ${name.padEnd(10)} dock=${m.dock?.h} slot=${m.slot?.h ?? '-'} pill=${m.pill ? `${m.pill.w}x${m.pill.h}` : '-'} card=${m.card ? `${m.card.w}x${m.card.h}` : '-'} tray=${m.tray ? m.tray.h : '-'} ${m.issues.length ? `ISSUES: ${m.issues.join(' | ')}` : 'ok'}`
     );
   }
 }

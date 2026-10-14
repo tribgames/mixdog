@@ -60,6 +60,7 @@ export interface SessionHostLifecycleOwner {
   registeredProject(path: string): Promise<string>;
   touchProject(path: string): Promise<void>;
   resolveSessionWorkspace(projectPath?: string | null): Promise<SessionWorkspaceResolution>;
+  sessionProjectPath(session?: DesktopSessionSummary): Promise<string | null>;
   projectDirectory(projectPath: string): Promise<string>;
   openHints(sessionId: string): Record<string, unknown>;
   readSession(
@@ -163,7 +164,9 @@ export class SessionHostLifecycle {
   private async unsubscribeQuietly(sessionId: string): Promise<void> {
     try {
       await this.owner.client.unsubscribe({ sessionId }, this.owner.callOptions());
-    } catch {}
+    } catch {
+      // Best-effort: the subscription is abandoned either way.
+    }
   }
 
   async renameSession(sessionId: string, title: string): Promise<void> {
@@ -619,9 +622,8 @@ export class SessionHostLifecycle {
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
     const source = sessionIdOf(sourceSessionId);
     const rows = await this.owner.listSessions();
-    const { cwd, desktopSession } = await this.owner.resolveSessionWorkspace(
-      rows.find((entry) => entry.id === source)?.projectPath
-    );
+    const projectPath = await this.owner.sessionProjectPath(rows.find((entry) => entry.id === source));
+    const { cwd, desktopSession } = await this.owner.resolveSessionWorkspace(projectPath);
     const created = await this.owner.client.create(
       {
         cwd,

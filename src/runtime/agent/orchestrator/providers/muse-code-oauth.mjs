@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { fileMtimeMs } from './lib/oauth-token-utils.mjs';
 import { OpenAICompatProvider, preloadOpenAICompatRuntime } from './openai-compat.mjs';
+import { COMPAT_RETRY_POLICY } from './openai-compat-retry-profile.mjs';
 import { getModelMetadataSync } from './model-catalog.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { normalizeCacheKey } from '../agent-runtime/cache-strategy.mjs';
@@ -313,6 +314,8 @@ export class MuseCodeOAuthProvider {
   nativePdf = false;
   static inputExcludesCache = false;
   name = 'muse-code-oauth';
+  // The retry profile's limits are final: no loop-level recovery cycles on top.
+  retryPolicy = COMPAT_RETRY_POLICY;
   config;
   tokens = null;
   _inner = null;

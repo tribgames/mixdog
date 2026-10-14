@@ -139,11 +139,11 @@ export function createResponsesOutcomeStamper(state, leakedCalls) {
 }
 
 /** A streamed function_call whose id/name never arrived cannot be dispatched. */
-export function unresolvedSalvageError(state) {
+export function unresolvedSalvageError(state, label) {
   const unresolved = state.toolCalls.find((t) => t._pendingItemId);
   if (!unresolved) return null;
   return new Error(
-    `xAI Responses stream function_call salvage failed: missing call_id/name for item_id=${unresolved._pendingItemId || '?'}`
+    `${label || 'compat Responses'} stream function_call salvage failed: missing call_id/name for item_id=${unresolved._pendingItemId || '?'}`
   );
 }
 
@@ -169,5 +169,6 @@ export function finalizeResponsesStream(state, { leakedCalls, parseResponsesTool
     model: state.model || response.model || null,
     responseId: state.responseId || response.id || null,
     stopReason: state.stopReason || null,
+    reasoningEmitted: state.emittedReasoning === true,
   };
 }

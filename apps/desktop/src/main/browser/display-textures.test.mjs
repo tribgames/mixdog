@@ -69,3 +69,16 @@ test('navigation, dimensions and popup textures cannot lend stale page pixels', 
   assert.equal(f.frames.acquire(f.guest, 'p1:2', 600, 400), undefined);
   f.guest.emit('destroyed');
 });
+
+test('a popup widget paint keeps the page frame it does not replace', () => {
+  const f = fixture();
+  const page = f.paint();
+  const widget = f.paint(200, 'popup');
+  assert.equal(widget.releases, 1);
+  assert.equal(page.releases, 0);
+  const lease = f.frames.acquire(f.guest, 'p1:1', 600, 400);
+  assert.ok(lease);
+  lease.release();
+  f.guest.emit('destroyed');
+  assert.equal(page.releases, 1);
+});

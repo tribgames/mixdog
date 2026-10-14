@@ -8,7 +8,8 @@
 import type { WebContents } from 'electron';
 
 import { BrowserConsoleLedger } from './console';
-import type { PendingBrowserDialog } from './dialog-report';
+import { BRIDGED_DIALOG_TYPES } from './dialog-bridge';
+import type { DismissedBrowserDialog, PendingBrowserDialog } from './dialog-report';
 import type { BrowserDragData } from './input';
 import { BrowserNetworkLedger } from './network';
 import type { ActiveBrowserPerformanceTrace } from './performance';
@@ -25,7 +26,6 @@ interface CdpTargetSession {
   ready: Promise<void>;
 }
 
-
 /** A native file picker the page asked for. Chromium hands it to the host
  *  instead of showing it, and `upload` answers it with the approved paths. */
 export interface PendingFileChooser {
@@ -40,6 +40,8 @@ export interface PendingFileChooser {
  *  and which CDP child sessions currently belong to it. */
 interface BrowserDiagnostics {
   pendingDialog: PendingBrowserDialog | null;
+  /** The latest dialog this document opened that was dismissed unseen. */
+  dismissedDialog: DismissedBrowserDialog | null;
   pendingFileChooser: PendingFileChooser | null;
   console: BrowserConsoleLedger;
   networkFailures: string[];
@@ -51,6 +53,9 @@ interface BrowserDiagnostics {
   refusedRequests: Map<string, string>;
   network: BrowserNetworkLedger;
   cdpSessions: Map<string, CdpTargetSession>;
+  /** Execution contexts (`session:id`) running Chromium's own bundled
+   *  components, such as the PDF viewer. Whatever they log is not page content. */
+  browserComponentContexts: Set<string>;
   fault: string;
 }
 
@@ -67,6 +72,9 @@ interface BrowserGuestState extends BrowserDiagnostics {
   /** Renderer death leaves a live WebContents whose document is gone: CDP
    *  calls and every ref bound to that document fail until the page reloads. */
   crashed: boolean;
+  /** A person clicked or typed into this document. What they entered lives
+   *  only in the document, so it must not be unloaded to save memory. */
+  userInput: boolean;
   accessibilityRefs?: AccessibilityRefSnapshot;
   refSet?: BrowserRefSet;
   visualGrounding?: VisualGrounding;
@@ -98,6 +106,9 @@ export class BrowserGuestStateStore {
   private readonly states = new WeakMap<WebContents, BrowserGuestState>();
   private nextPageId = 0;
 
+  /** `rendererPeers`: the other live pages sharing a guest's renderer process. */
+  constructor(private readonly rendererPeers: (guest: WebContents) => WebContents[] = () => []) {}
+
   /** The record for a guest, created on first touch. */
   for(guest: WebContents): BrowserGuestState {
     const existing = this.states.get(guest);
@@ -112,7 +123,9 @@ export class BrowserGuestStateStore {
       downloadsReportedAt: Date.now(),
       openedPopups: [],
       crashed: false,
+      userInput: false,
       pendingDialog: null,
+      dismissedDialog: null,
       pendingFileChooser: null,
       console: new BrowserConsoleLedger((value) => this.redactText(guest, value)),
       networkFailures: [],
@@ -120,6 +133,7 @@ export class BrowserGuestStateStore {
       refusedRequests: new Map(),
       network: new BrowserNetworkLedger(),
       cdpSessions: new Map(),
+      browserComponentContexts: new Set(),
       fault: '',
     };
     this.states.set(guest, created);
@@ -163,7 +177,65 @@ export class BrowserGuestStateStore {
     const state = this.for(guest);
     state.fault = fault;
     state.crashed = true;
+    // The dead renderer's prompts went with it; answering them reaches nothing.
+    state.pendingDialog = null;
+    state.pendingFileChooser = null;
     this.invalidateInteraction(guest);
+  }
+
+  /** CDP sessions ended: one child target, or, with no id, the debugger and
+   *  every session under it. Nothing can answer the prompts they held any
+   *  more, so those prompts are settled as dismissed instead of left pending. */
+  endTargetSession(guest: WebContents, sessionId?: string): void {
+    const state = this.states.get(guest);
+    if (!state) return;
+    const ended = (owner: string | undefined) => sessionId === undefined || owner === sessionId;
+    if (sessionId === undefined) {
+      state.cdpSessions.clear();
+      state.browserComponentContexts.clear();
+    } else {
+      state.cdpSessions.delete(sessionId);
+      for (const key of state.browserComponentContexts) {
+        if (key.startsWith(`${sessionId}:`)) state.browserComponentContexts.delete(key);
+      }
+    }
+    if (state.pendingDialog && ended(state.pendingDialog.sessionId)) state.pendingDialog = null;
+    if (state.pendingFileChooser && ended(state.pendingFileChooser.sessionId)) state.pendingFileChooser = null;
+  }
+
+  /** Another page sharing this guest's renderer process whose dialog is open.
+   *  A JavaScript dialog pauses the whole process, so that dialog blocks
+   *  this page as well. */
+  dialogOwner(guest: WebContents): WebContents | null {
+    return this.rendererPeers(guest).find((peer) => this.states.get(peer)?.pendingDialog) ?? null;
+  }
+
+  /** The dialog holding a guest: its own, else a renderer peer's. */
+  blockingDialog(guest: WebContents): { owner: WebContents; dialog: PendingBrowserDialog } | null {
+    const own = this.states.get(guest)?.pendingDialog;
+    if (own) return { owner: guest, dialog: own };
+    const owner = this.dialogOwner(guest);
+    const dialog = owner && this.states.get(owner)?.pendingDialog;
+    return owner && dialog ? { owner, dialog } : null;
+  }
+
+  /** Chromium closed a native dialog. Guests disable the page's own dialogs,
+   *  so one that nobody here answered was dismissed by itself: it fired where
+   *  the bridge was not yet installed, and is kept as a notice. */
+  nativeDialogClosed(guest: WebContents, sessionId: string | undefined): void {
+    const state = this.states.get(guest);
+    const dialog = state?.pendingDialog;
+    if (!state || !dialog || dialog.bridgeRequestId || dialog.sessionId !== sessionId) return;
+    state.pendingDialog = null;
+    if (!dialog.answering && BRIDGED_DIALOG_TYPES.has(dialog.type)) this.noteDismissedDialog(guest, dialog, 'early');
+  }
+
+  noteDismissedDialog(
+    guest: WebContents,
+    dialog: { type: string; message: string },
+    reason: DismissedBrowserDialog['reason']
+  ): void {
+    this.for(guest).dismissedDialog = { type: dialog.type, message: dialog.message, reason };
   }
 
   /** Report and clear the crash flag in one step. */
@@ -205,6 +277,17 @@ export class BrowserGuestStateStore {
       state.reportedNetworkFailures.clear();
       state.console.clearDocument();
     }
+  }
+
+  /** A new document replaced the old one (a navigation that merely started may
+   *  still end as a download or be cancelled): the old document's dialogs and
+   *  whatever a person entered there are gone with it. */
+  commitDocument(guest: WebContents): void {
+    const state = this.states.get(guest);
+    if (!state) return;
+    state.pendingDialog = null;
+    state.dismissedDialog = null;
+    state.userInput = false;
   }
 
   /** Text bound for the caller, minus the page's known secrets. */

@@ -6,7 +6,6 @@ import {
   warmModelMetadataCatalogs,
   auditModelPricing,
 } from '../src/runtime/agent/orchestrator/providers/model-catalog.mjs';
-import { QUICK_WEB_SEARCH_MODELS } from '../src/session-runtime/quick-web-search-models.mjs';
 
 const args = new Set(process.argv.slice(2));
 const json = args.has('--json');
@@ -154,21 +153,8 @@ for (const [name, provider] of getAllProviders()) {
   });
 }
 
+// Quick web-search rows carry no static windows any more (they come from the catalogs).
 const quickRows = [];
-for (const [provider, models] of Object.entries(QUICK_WEB_SEARCH_MODELS)) {
-  for (const model of models) {
-    if (model?.contextWindow == null) continue;
-    const external = externalMeta(modelsDev, litellm, provider, model.id);
-    const externalContext = external.modelsDevContext ?? external.litellmContext;
-    quickRows.push({
-      provider,
-      id: model.id,
-      staticContext: n(model.contextWindow),
-      externalContext,
-      mismatch: n(model.contextWindow) != null && externalContext != null && n(model.contextWindow) !== externalContext,
-    });
-  }
-}
 
 const mismatches = providerResults.flatMap((p) => p.rows.filter((r) => r.contextMismatch || r.outputMismatch));
 const exactOneM = providerResults.flatMap((p) => p.rows.filter((r) => r.liveContext === 1_000_000));

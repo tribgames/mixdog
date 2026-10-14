@@ -1,12 +1,14 @@
 import {
   resolveAgentWatchdogPolicy,
   resolveHandoffMessageStartIndex,
+  turnPartialHandoff,
   watchdogPartialHandoffFromError,
   watchdogStoppedHandoff,
 } from '../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { clean, normalizeAgentName, resolvePrompt } from './helpers.mjs';
 import { abnormalEmptyFinishError, renderResult } from './render.mjs';
 import {
+  reconcileJobCancelled,
   reconcileJobFinally,
   reconcileJobStreamStalled,
   reconcileJobWatchdogPartial,
@@ -93,6 +95,18 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
       turnStartedAt: new Date().toISOString(),
     });
     let handoffMsgStart = 0;
+    // A cancelled turn reports the output it produced before it stopped.
+    const settleCancelled = (error, result = null) => {
+      finalStatus = 'cancelled';
+      reconcileJobCancelled(job, {
+        tag,
+        sessionId,
+        agent: session.agent || null,
+        provider: session.provider,
+        model: session.model,
+        content: turnPartialHandoff(error, mgr.getSession(sessionId), handoffMsgStart) || result?.content || '',
+      });
+    };
     try {
       handoffMsgStart = resolveHandoffMessageStartIndex(mgr.getSession(sessionId));
       const turnHooks = buildTurnHooks({ sessionId, notifyContext, job, turnReview, completionValue });
@@ -100,6 +114,10 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
       // Early preview no longer suppresses the canonical body notification;
       // notifyTaskCompletion fires once with output via resolve/reconcile.
       const finalValue = completionValue(result);
+      if (job?.status === 'cancelled') {
+        settleCancelled(null, result);
+        return finalValue;
+      }
       if (finalValue.error) {
         finalStatus = 'error';
         if (job) job._terminalResultValue = finalValue;
@@ -107,6 +125,10 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
       }
       return finalValue;
     } catch (error) {
+      if (job?.status === 'cancelled') {
+        settleCancelled(error);
+        throw error;
+      }
       const partial = watchdogPartialHandoffFromError(error, mgr.getSession(sessionId), handoffMsgStart);
       if (partial) {
         finalStatus = 'idle';
@@ -122,10 +144,6 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
         if (job) job._terminalResultValue = value;
         reconcileJobWatchdogPartial(job, value);
         return value;
-      }
-      if (job?.status === 'cancelled') {
-        finalStatus = 'cancelled';
-        throw error;
       }
       finalStatus = 'error';
       reconcileJobStreamStalled(job, error);

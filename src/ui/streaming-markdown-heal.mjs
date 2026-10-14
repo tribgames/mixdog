@@ -213,12 +213,43 @@ function healIncompleteLink(text, isPendingLocalPath) {
   return `${prefix}[${closeEmphasis(caption)}${']'.repeat(Math.max(0, depth - 1))}]()`;
 }
 
+const PIPE_ROW = /^ {0,3}\|/;
+const DELIMITER_ROW = /^ {0,3}\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+const PARTIAL_DELIMITER_ROW = /^ {0,3}\|?[\s:|-]*$/;
+
+function tableCells(line) {
+  const cells = line.trim().split(/(?<!\\)\|/);
+  if (cells[0].trim() === '') cells.shift();
+  if (cells.length && cells[cells.length - 1].trim() === '') cells.pop();
+  return cells.length;
+}
+
+// A table streams in as its header row, then its delimiter row a token at a
+// time. Until the delimiter is complete (and has the header's cell count) the
+// rows are a paragraph of raw pipes, which then re-laid out as a table of a
+// different height — the reply grew and shrank under a followed transcript.
+// Hold both rows back until the table can form in one step.
+function trimPendingTableHead(text) {
+  let offset = 0;
+  for (const blank of text.matchAll(/\n[ \t]*\r?\n/g)) offset = blank.index + blank[0].length;
+  const block = text.slice(offset);
+  const lines = block.split('\n').map((line) => line.replace(/\r$/, ''));
+  if (lines.length === 0 || lines.length > 2 || !PIPE_ROW.test(lines[0])) return text;
+  if (lines.length === 2) {
+    const delimiter = lines[1];
+    if (!PARTIAL_DELIMITER_ROW.test(delimiter)) return text;
+    if (DELIMITER_ROW.test(delimiter) && tableCells(delimiter) === tableCells(lines[0])) return text;
+  }
+  return text.slice(0, offset);
+}
+
 export function healStreamingMarkdownTail(text, isPendingLocalPath) {
-  const value = String(text ?? '');
+  const source = String(text ?? '');
+  const fence = source.includes('`') || source.includes('~') ? openFence(source) : null;
+  if (fence) return trimPartialClosingFence(source, fence);
+  const value = source.includes('|') ? trimPendingTableHead(source) : source;
   const hasSyntax = HEALABLE_MARKDOWN_SYNTAX.test(value);
   if (!value || (!hasSyntax && !isPendingLocalPath)) return value;
-  const fence = openFence(value);
-  if (fence) return trimPartialClosingFence(value, fence);
   const healed = hasSyntax
     ? closeEmphasis(healIncompleteLink(closeInlineCode(value, isPendingLocalPath), isPendingLocalPath))
     : value;

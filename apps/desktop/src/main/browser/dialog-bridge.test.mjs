@@ -7,6 +7,7 @@ import {
   DIALOG_BRIDGE_PATTERN,
   DIALOG_BRIDGE_SCRIPT,
   dialogBridgeFulfillParams,
+  parseDialogBridgeNotice,
   parseDialogBridgeRequest,
 } from './dialog-bridge.ts';
 
@@ -52,6 +53,7 @@ test('dialog bridge consumes a fulfilled JSON body when synchronous XHR reports 
     URL,
     URLSearchParams,
     XMLHttpRequest: FulfilledRequest,
+    console: { debug() {} },
     location: { href: 'http://127.0.0.1:8137/' },
     window: {
       alert() {},
@@ -67,4 +69,97 @@ test('dialog bridge consumes a fulfilled JSON body when synchronous XHR reports 
   runInNewContext(DIALOG_BRIDGE_SCRIPT, context);
 
   assert.equal(context.window.prompt('Harness prompt', 'default'), 'Accepted');
+});
+
+/** A page whose bridge request behaves as `send` says, with its own dialogs
+ *  and the bridge's console notices recorded. */
+function bridgedPage(send, responseText = '') {
+  const native = [];
+  const notices = [];
+  class Request {
+    status = 0;
+    responseText = responseText;
+    open() {}
+    send() {
+      send();
+    }
+  }
+  const context = {
+    URL,
+    URLSearchParams,
+    XMLHttpRequest: Request,
+    console: {
+      debug: (...args) => notices.push(args),
+    },
+    location: { href: 'https://example.test/' },
+    window: {
+      alert: (message) => native.push(['alert', message]),
+      confirm: (message) => native.push(['confirm', message]) > 0,
+      prompt: () => {
+        throw new Error('prompt() is not supported.');
+      },
+    },
+  };
+  runInNewContext(DIALOG_BRIDGE_SCRIPT, context);
+  // A page replacing console.debug afterwards must not silence the notice.
+  context.console.debug = () => {};
+  return { window: context.window, native, notices };
+}
+
+/** The `Runtime.consoleAPICalled` event a console call raises. */
+const consoleEvent = (type, args) => ({ type, args: args.map((value) => ({ type: 'string', value })) });
+
+test("a bridge request the page refuses (CSP) is dismissed and reported, never handed to the page's own (OS) dialog", () => {
+  const page = bridgedPage(() => {
+    throw new Error('Refused to connect: Content Security Policy');
+  });
+  page.window.alert('Saved');
+  assert.equal(page.window.confirm('Continue?'), false);
+  assert.equal(page.window.prompt('Name?', 'x'), null);
+  assert.deepEqual(page.native, [], 'no OS dialog box');
+  assert.deepEqual(
+    page.notices.map((args) => parseDialogBridgeNotice(consoleEvent('debug', args))),
+    [
+      { type: 'alert', message: 'Saved' },
+      { type: 'confirm', message: 'Continue?' },
+      { type: 'prompt', message: 'Name?' },
+    ]
+  );
+});
+
+test('a request that reached the network instead of the host is dismissed and reported; a host answer is not', () => {
+  const misrouted = bridgedPage(() => {}, '<!doctype html><title>Not Found</title>');
+  assert.equal(misrouted.window.confirm('Continue?'), false);
+  assert.equal(misrouted.notices.length, 1);
+  const refused = bridgedPage(() => {}, JSON.stringify({ accept: false, promptText: '' }));
+  assert.equal(refused.window.confirm('Continue?'), false);
+  assert.deepEqual(refused.notices, [], 'the host answered: nothing was dismissed unseen');
+});
+
+test('only the bridge notice parses as a dismissed dialog, bounded and typed like a request', () => {
+  const page = bridgedPage(() => {
+    throw new Error('refused');
+  });
+  page.window.alert('x'.repeat(5_000));
+  const parsed = parseDialogBridgeNotice(consoleEvent('debug', page.notices[0]));
+  assert.equal(parsed.type, 'alert');
+  assert.equal(parsed.message.length, 4_000);
+  assert.equal(parseDialogBridgeNotice(consoleEvent('log', page.notices[0])), null, 'another console level');
+  assert.equal(parseDialogBridgeNotice(consoleEvent('debug', ['page text', 'alert', 'x'])), null);
+  assert.equal(parseDialogBridgeNotice({ type: 'debug' }), null);
+  assert.deepEqual(parseDialogBridgeNotice(consoleEvent('debug', [page.notices[0][0], 'forged', 'm'])), {
+    type: 'dialog',
+    message: 'm',
+  });
+});
+
+test('accepting a prompt default unchanged keeps the full default, past the shown copy', () => {
+  const long = 'y'.repeat(3_000);
+  const kept = bridgedPage(() => {}, JSON.stringify({ accept: true, promptText: 'y'.repeat(2_000), keepDefault: true }));
+  assert.equal(kept.window.prompt('Value?', long), long);
+  const edited = bridgedPage(() => {}, JSON.stringify({ accept: true, promptText: 'edited' }));
+  assert.equal(edited.window.prompt('Value?', long), 'edited');
+  const body = (params) => JSON.parse(Buffer.from(String(params.body), 'base64').toString('utf8'));
+  assert.equal(body(dialogBridgeFulfillParams('r', true, 'a', true)).keepDefault, true);
+  assert.equal(body(dialogBridgeFulfillParams('r', true, 'a')).keepDefault, undefined);
 });

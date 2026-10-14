@@ -69,7 +69,7 @@ function sessionMenuItems(
     onSelect: afterMenu(() => actions.openSessionEditor(session, rowKey)),
   });
   if (onInheritSession && !archived) {
-    items.push({ id: 'inherit', label: t('Inherit session'), onSelect: () => onInheritSession(session.id) });
+    items.push({ id: 'inherit', label: t('Fork session'), onSelect: () => onInheritSession(session.id) });
   }
   if (archived) {
     items.push({

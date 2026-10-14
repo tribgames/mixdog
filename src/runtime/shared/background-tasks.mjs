@@ -18,6 +18,10 @@ export { TOOL_ASYNC_EXECUTION_CONTRACT, TOOL_MANUAL_CONTROL_CONTRACT, TOOL_SYNC_
 const TASK_TTL_MS = 30 * 60_000;
 const MAX_TASKS = 300;
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+// A `notifyOnCancel` task reports its cancellation to the owner once, after its
+// run settles, so the notification can carry what the run produced before it
+// stopped. A run that never settles still reports, header-only, after this grace.
+const CANCEL_NOTIFY_GRACE_MS = 10_000;
 const tasks = new Map();
 let seq = 0;
 
@@ -151,6 +155,7 @@ export function registerBackgroundTask({
   resultType,
   renderResult,
   cancel,
+  notifyOnCancel = false,
 } = {}) {
   pruneTasks();
   const explicitId = clean(taskId);
@@ -189,6 +194,7 @@ export function registerBackgroundTask({
     resultType: clean(resultType) || null,
     renderResult: typeof renderResult === 'function' ? renderResult : null,
     cancel: typeof cancel === 'function' ? cancel : null,
+    notifyOnCancel: notifyOnCancel === true,
   };
   tasks.set(id, task);
   return task;
@@ -200,10 +206,14 @@ export function startBackgroundTask(options = {}) {
     .then(() => options.run?.())
     .then((result) => {
       completeBackgroundTask(task.taskId, { status: 'completed', result, terminalReason: 'run-resolved' });
+      deliverCancelledNotification(task);
       return result;
     })
     .catch((error) => {
-      if (task.status === 'cancelled') return null;
+      if (task.status === 'cancelled') {
+        deliverCancelledNotification(task);
+        return null;
+      }
       completeBackgroundTask(task.taskId, {
         status: 'failed',
         error,
@@ -258,15 +268,62 @@ export function cleanupBackgroundTasks(options = {}) {
   return { removed: before - after, tasks: after };
 }
 
-export function cancelBackgroundTask(taskId, reason = 'cancelled') {
+// `notify`: true notifies immediately, false never notifies (owner teardown).
+// Left unset, a `notifyOnCancel` task defers its single `cancelled`
+// notification until its run settles (see settleCancelledBackgroundTask); any
+// other task stays silent.
+function cancelRunningTask(task, reason, notify) {
+  try {
+    task.cancel?.();
+  } catch {}
+  completeBackgroundTask(task.taskId, { status: 'cancelled', error: reason, notify: notify === true });
+  if (task.notifyOnCancel !== true || notify === true || task.status !== 'cancelled' || task.cancelNotify) return;
+  if (notify === false) {
+    task.cancelNotify = 'silent';
+    return;
+  }
+  task.cancelNotify = 'pending';
+  task.cancelNotifyTimer = setTimeout(() => deliverCancelledNotification(task), CANCEL_NOTIFY_GRACE_MS);
+  task.cancelNotifyTimer.unref?.();
+}
+
+// Owner teardown/delete (`notify: false`) also silences a cancellation that is
+// still waiting for its run to settle.
+function resolvePendingCancelNotify(task, next) {
+  if (task.cancelNotify !== 'pending') return false;
+  clearTimeout(task.cancelNotifyTimer);
+  task.cancelNotifyTimer = null;
+  task.cancelNotify = next;
+  return true;
+}
+
+function silenceCancelledNotification(task) {
+  resolvePendingCancelNotify(task, 'silent');
+}
+
+function deliverCancelledNotification(task) {
+  if (!resolvePendingCancelNotify(task, 'delivered')) return false;
+  if (tasks.get(task.taskId) !== task) return false;
+  task.meta = sanitizeTaskMeta(task.meta);
+  return notifyTaskCompletion(task, task.notificationInstruction);
+}
+
+export function cancelBackgroundTask(taskId, reason = 'cancelled', { notify } = {}) {
   const task = getBackgroundTask(taskId);
   if (!task) return null;
-  if (!TERMINAL_STATUSES.has(task.status)) {
-    try {
-      task.cancel?.();
-    } catch {}
-    completeBackgroundTask(task.taskId, { status: 'cancelled', error: reason, notify: false });
-  }
+  if (!TERMINAL_STATUSES.has(task.status)) cancelRunningTask(task, reason, notify);
+  else if (notify === false) silenceCancelledNotification(task);
+  return task;
+}
+
+/** The cancelled run has stopped: attach what it produced before stopping (if
+ *  any) and deliver the task's single deferred `cancelled` notification. A
+ *  no-op unless that notification is still pending. */
+export function settleCancelledBackgroundTask(taskId, { result } = {}) {
+  const task = getBackgroundTask(taskId);
+  if (task?.status !== 'cancelled' || task.cancelNotify !== 'pending') return null;
+  if (result !== undefined) task.result = result;
+  deliverCancelledNotification(task);
   return task;
 }
 
@@ -280,11 +337,11 @@ export function cancelBackgroundTasks(options = {}) {
     // visible/recoverable, but may not be claimed by whichever session happens
     // to close first.
     if (!taskMatchesScope(task, options, { includeUnattributed: false })) continue;
-    if (TERMINAL_STATUSES.has(task.status)) continue;
-    try {
-      task.cancel?.();
-    } catch {}
-    completeBackgroundTask(task.taskId, { status: 'cancelled', error: reason, notify: options.notify === true });
+    if (TERMINAL_STATUSES.has(task.status)) {
+      if (options.notify === false) silenceCancelledNotification(task);
+      continue;
+    }
+    cancelRunningTask(task, reason, options.notify);
     cancelled += 1;
   }
   return { cancelled };
@@ -358,10 +415,26 @@ export function completeBackgroundTask(
   return task;
 }
 
+// Surfaces whose later reads consume the structured result object itself:
+// shell `task read` re-reads output via result paths and renders exit_code /
+// timed_out / signal; agent job views return `job.result`. They keep it for the
+// TTL; every other surface keeps only resultText + metadata once delivered.
+const RESULT_KEPT_SURFACES = new Set(['shell', 'agent']);
+
+function releaseDeliveredResult(task, body) {
+  if (task.result === undefined || RESULT_KEPT_SURFACES.has(task.surface)) return;
+  // Pin the rendered body first so re-renders and retries stay identical.
+  if (!task.resultText) task.resultText = body;
+  task.result = undefined;
+}
+
 export function notifyTaskCompletion(task, instruction) {
   if (!task) return false;
   if (!TERMINAL_STATUSES.has(task.status)) return false;
   if (task.completionAcknowledged === true) return false;
+  // A deferred cancellation is delivered only by deliverCancelledNotification;
+  // a silent (owner-teardown) cancellation never notifies.
+  if (task.cancelNotify === 'pending' || task.cancelNotify === 'silent') return false;
   // `notified` tracks whether *any* completion notification was sent (e.g. an
   // early header-only preview from the agent surface). A later call that can
   // finally include the result body must still fire once, otherwise the owner
@@ -396,7 +469,10 @@ export function notifyTaskCompletion(task, instruction) {
   });
   if (sent) {
     task.notified = true;
-    if (hasBody) task.notifiedWithBody = true;
+    if (hasBody) {
+      task.notifiedWithBody = true;
+      releaseDeliveredResult(task, body);
+    }
   }
   return sent;
 }
@@ -457,6 +533,8 @@ export function renderBackgroundTaskNotification(task) {
     status: task.status,
     result,
     error: task.error,
+    // A cancelled Agent's header names the cancel reason.
+    detail: task.surface === 'agent' && task.status === 'cancelled' ? task.error : null,
   });
 }
 

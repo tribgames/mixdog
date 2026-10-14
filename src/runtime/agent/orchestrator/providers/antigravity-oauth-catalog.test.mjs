@@ -1,14 +1,26 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
+// Catalog rows by `${provider}:${model}`; an unlisted model has no catalog row.
+const catalogRows = new Map();
+const catalogUrl = new URL('../../../shared/llm/model-catalog.mjs', import.meta.url).href;
+const realCatalog = await import(catalogUrl);
+mock.module(catalogUrl, {
+  namedExports: {
+    ...realCatalog,
+    getModelMetadataSync: (id, provider) => catalogRows.get(`${provider}:${id}`) ?? null,
+  },
+});
+const effortRow = (...values) => ({ supportsReasoning: true, reasoningOptions: [{ type: 'effort', values }] });
+
+const {
   antigravityQuotaWindows,
   fetchAvailableModels,
   fetchUserQuotaSummary,
   normalizeAntigravityCatalog,
   resolveAntigravityWireModel,
-} from './antigravity-oauth-catalog.mjs';
-import { ANTIGRAVITY_MODELS, antigravityHeaders } from './antigravity-oauth-tokens.mjs';
+} = await import('./antigravity-oauth-catalog.mjs');
+const { ANTIGRAVITY_MODELS, antigravityHeaders } = await import('./antigravity-oauth-tokens.mjs');
 
 const RESET = '2026-09-14T21:34:37Z';
 const quota = (remainingFraction) => ({ quotaInfo: { remainingFraction, resetTime: RESET } });
@@ -60,6 +72,7 @@ const RAW = {
 };
 
 test('tiered wire ids collapse into one picker model per label', () => {
+  catalogRows.clear();
   const models = normalizeAntigravityCatalog(RAW);
   const byId = Object.fromEntries(models.map((m) => [m.id, m]));
   assert.deepEqual(Object.keys(byId).sort(), [
@@ -89,8 +102,9 @@ test('tiered wire ids collapse into one picker model per label', () => {
   // Duplicate labels keep the id that carries the labelled version.
   assert.deepEqual(byId['gemini-3.1-pro'].wire, { low: 'gemini-3.1-pro-low', high: 'gemini-3.1-pro-high' });
   assert.equal(byId['gemini-3.5-flash-lite'].wire, 'gemini-3.5-flash-lite');
-  assert.deepEqual(byId['gemini-3.5-flash-lite'].reasoningLevels, []);
-  // Bare Gemini 3 keeps the thinkingLevel surface.
+  // The gateway flags this fixture as thinking-capable, so a bare id keeps the
+  // thinkingLevel surface (no catalog ladder here); the gateway never takes `minimal`.
+  assert.deepEqual(byId['gemini-3.5-flash-lite'].reasoningLevels, ['low', 'medium', 'high']);
   assert.deepEqual(byId['gemini-3-flash'].reasoningLevels, ['low', 'medium', 'high']);
   assert.equal(byId['claude-opus-4-6-thinking'].display, 'Claude Opus 4.6 (Thinking)');
   assert.equal(byId['claude-opus-4-6-thinking'].family, undefined);
@@ -98,7 +112,58 @@ test('tiered wire ids collapse into one picker model per label', () => {
   assert.deepEqual(byId['gpt-oss-120b-medium'].reasoningLevels, []);
 });
 
+test('a bare Gemini id of any generation offers the levels its catalog row declares, nothing invented', () => {
+  catalogRows.clear();
+  catalogRows.set('gemini:gemini-4-flash', effortRow('low', 'medium', 'high', 'xhigh'));
+  catalogRows.set('gemini:gemini-9-hyper-pro', effortRow('minimal', 'low', 'high'));
+  catalogRows.set('gemini:gemini-2.5-pro', effortRow('low', 'high'));
+  const byId = Object.fromEntries(
+    normalizeAntigravityCatalog({
+      'gemini-4-flash': gemini('Gemini 4 Flash'),
+      'gemini-9-hyper-pro': gemini('Gemini 9 Hyper Pro'),
+      'gemini-4.2-pro': gemini('Gemini 4.2 Pro'),
+      'gemini-2.5-pro': gemini('Gemini 2.5 Pro'),
+      'gemini-4-lite': gemini('Gemini 4 Lite', { supportsThinking: false }),
+    }).map((m) => [m.id, m])
+  );
+  assert.deepEqual(byId['gemini-4-flash'].reasoningLevels, ['low', 'medium', 'high']);
+  assert.deepEqual(byId['gemini-9-hyper-pro'].reasoningLevels, ['low', 'high']);
+  assert.deepEqual(byId['gemini-2.5-pro'].reasoningLevels, ['low', 'high']);
+  // No catalog ladder at all: the gateway-accepted levels, value judged by the server.
+  assert.deepEqual(byId['gemini-4.2-pro'].reasoningLevels, ['low', 'medium', 'high']);
+  // A model the gateway does not flag as thinking-capable has none.
+  assert.deepEqual(byId['gemini-4-lite'].reasoningLevels, []);
+  const models = Object.values(byId);
+  assert.deepEqual(resolveAntigravityWireModel('gemini-4-flash', 'high', models), {
+    model: 'gemini-4-flash',
+    effort: 'high',
+  });
+  assert.deepEqual(resolveAntigravityWireModel('gemini-4.2-pro', 'medium', models), {
+    model: 'gemini-4.2-pro',
+    effort: 'medium',
+  });
+  assert.deepEqual(resolveAntigravityWireModel('gemini-4-lite', 'high', models), {
+    model: 'gemini-4-lite',
+    effort: null,
+  });
+});
+
+test('bare Gemini ids with no catalog row keep low/medium/high and pass the effort through', () => {
+  catalogRows.clear();
+  const models = normalizeAntigravityCatalog({
+    'gemini-3-flash': gemini('Gemini 3 Flash'),
+    'gemini-4-argon': gemini('Gemini 4 Argon'),
+  });
+  for (const model of models) {
+    assert.deepEqual(model.reasoningLevels, ['low', 'medium', 'high'], model.id);
+    assert.deepEqual(resolveAntigravityWireModel(model.id, 'high', models), { model: model.id, effort: 'high' }, model.id);
+  }
+});
+
+const byIdLevels = (models, id) => models.find((m) => m.id === id)?.reasoningLevels;
+
 test('wire resolution consumes the effort for tiered families only', () => {
+  catalogRows.clear();
   const models = normalizeAntigravityCatalog(RAW);
   assert.deepEqual(resolveAntigravityWireModel('gemini-3.8-flash', 'low', models), {
     model: 'gemini-3.8-flash-low',
@@ -116,9 +181,11 @@ test('wire resolution consumes the effort for tiered families only', () => {
     model: 'gemini-3-flash',
     effort: 'low',
   });
+  // A bare Claude thinking id keeps its effort for thinkingLevel.
+  assert.deepEqual(byIdLevels(models, 'claude-opus-4-6-thinking'), ['low', 'medium', 'high']);
   assert.deepEqual(resolveAntigravityWireModel('claude-opus-4-6-thinking', 'high', models), {
     model: 'claude-opus-4-6-thinking',
-    effort: null,
+    effort: 'high',
   });
   assert.deepEqual(resolveAntigravityWireModel('gemini-3.8-flash-medium', 'high', models), {
     model: 'gemini-3.8-flash-medium',

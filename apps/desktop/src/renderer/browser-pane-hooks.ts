@@ -120,6 +120,10 @@ export function useActiveGuestReport({
       try {
         const webContentsId = view.getWebContentsId();
         if (!Number.isSafeInteger(webContentsId) || webContentsId <= 0) return;
+        // A tab switch attaches another guest; the one shown before is no
+        // longer displayed by this pane.
+        if (reportedId && reportedId !== webContentsId)
+          void setGuestActive(sessionId, reportedId, false).catch(() => {});
         reportedId = webContentsId;
         void setGuestActive(sessionId, webContentsId, active).catch(() => {});
       } catch {

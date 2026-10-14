@@ -7,6 +7,9 @@ export const EFFORT_CONFIGURATION_BETA = 'mid-conversation-output-config-2026-07
 // first version checked on the wire (update accepted, prompt cache kept), and
 // every later version of that family. A model that turns out to reject the
 // update is switched off at runtime (markEffortConfigurationUnsupported).
+// The Anthropic catalogs publish no per-model flag for it, so a measured
+// floor is kept for the families already checked: below it the rejection is
+// certain, and every request would pay a failed attempt first.
 const ANTHROPIC_MIN_VERSION = Object.freeze({
   opus: [5, 0],
   sonnet: [5, 5],
@@ -14,6 +17,10 @@ const ANTHROPIC_MIN_VERSION = Object.freeze({
   fable: [5, 1],
   mythos: [5, 1],
 });
+// A family not measured yet starts at the earliest checked major, on the
+// routes that replay a rejected update (the rest cannot recover from one).
+const ANTHROPIC_FIRST_MAJOR = Math.min(...Object.values(ANTHROPIC_MIN_VERSION).map(([major]) => major));
+const ANTHROPIC_REPLAYING_PROVIDERS = new Set(['anthropic-oauth']);
 // https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation
 // — GPT-6 and later, standard single-agent mode. The public API publishes no
 // per-model flag, so the version is its whole answer; the OAuth backend's
@@ -25,14 +32,19 @@ function versionAtLeast([major, minor], [minMajor, minMinor]) {
   return major > minMajor || (major === minMajor && minor >= minMinor);
 }
 
-function anthropicVersionSupported(id) {
+function anthropicVersionSupported(provider, id) {
   const m = id.match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?$/);
-  const floor = m && ANTHROPIC_MIN_VERSION[m[1]];
-  return Boolean(floor) && versionAtLeast([Number(m[2]), Number(m[3] || 0)], floor);
+  if (!m) return false;
+  const version = [Number(m[2]), Number(m[3] || 0)];
+  const floor = ANTHROPIC_MIN_VERSION[m[1]];
+  if (floor) return versionAtLeast(version, floor);
+  return ANTHROPIC_REPLAYING_PROVIDERS.has(provider) && version[0] >= ANTHROPIC_FIRST_MAJOR;
 }
 
+// Any `gpt-<major>` id, whatever follows the major (tier names, minors,
+// snapshots), so a later naming scheme needs no edit.
 function openAiVersionSupported(id) {
-  const m = id.match(/^gpt-(\d+)(?:-\d+)?(?:-[a-z]+)?$/);
+  const m = id.match(/^gpt-(\d+)(?:-|$)/);
   return Boolean(m) && Number(m[1]) >= OPENAI_MIN_MAJOR;
 }
 
@@ -136,7 +148,7 @@ export function effortConfigurationMode(provider, model, opts = {}) {
   }
   if (
     ANTHROPIC_PROVIDERS.has(provider) &&
-    anthropicVersionSupported(id) &&
+    anthropicVersionSupported(provider, id) &&
     opts.disableBetaHeaders !== true &&
     (!opts.baseURL || /^https:\/\/api\.anthropic\.com(?:\/|$)/.test(opts.baseURL))
   )

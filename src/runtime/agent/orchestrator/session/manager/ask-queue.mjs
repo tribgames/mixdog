@@ -54,6 +54,12 @@ export function createAskPromptQueue({ sessionId, promptSource }) {
   // after each turn — keeps queued `agent type=send` messages in order.
   const tail = [];
   let initialPromptSource = initialPromptSourceFor(promptSource);
+  // Queue entries of the input nextTurn handed out that no turn owns yet.
+  // Once a turn starts, its failure path acks or releases them instead.
+  let unstartedEntries = [];
+  const release = (entries) => {
+    if (entries?.length > 0) releasePendingMessages(sessionId, entries);
+  };
 
   /** The next turn's input — prompt, caller context, consumed queue entries
    *  and provenance — or null when nothing model-visible is left to run. */
@@ -83,7 +89,26 @@ export function createAskPromptQueue({ sessionId, promptSource }) {
       tail.unshift(...groups.slice(1).map(tailTurnFor));
       input = queuedTurnInput(tailTurnFor(first));
     }
-    return hasModelVisiblePromptContent(input.prompt) ? input : null;
+    if (!hasModelVisiblePromptContent(input.prompt)) {
+      release(input.pendingEntries);
+      return null;
+    }
+    unstartedEntries = input.pendingEntries;
+    return input;
+  };
+
+  /** The turn for the last nextTurn input started: it now owns its entries. */
+  const markStarted = () => {
+    unstartedEntries = [];
+  };
+
+  /** Hands every drained entry no turn started back to the pending queue —
+   *  the waiting follow-up turns and an input whose turn never opened.
+   *  Called once when the ask unwinds; each entry is released once. */
+  const releaseUnstarted = () => {
+    const entries = [...unstartedEntries, ...tail.splice(0).flatMap((turn) => turn.entries || [])];
+    unstartedEntries = [];
+    release(entries);
   };
 
   /** Queues drained pending-message entries as follow-up turns; true when
@@ -101,5 +126,8 @@ export function createAskPromptQueue({ sessionId, promptSource }) {
     return true;
   };
 
-  return { nextTurn, pushDrained };
+  /** True while drained follow-up turns are still waiting to run. */
+  const hasQueuedTurns = () => tail.length > 0;
+
+  return { nextTurn, pushDrained, hasQueuedTurns, markStarted, releaseUnstarted };
 }

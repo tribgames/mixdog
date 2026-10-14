@@ -333,6 +333,9 @@ async function _postRefresh(tokens) {
         isTerminalRefresh,
         reauthRequired: isTerminalRefresh,
         oauthError: oauthError || null,
+        status: res.status,
+        headers: res.headers,
+        ...(oauthError ? { code: oauthError } : {}),
       });
     }
     const accessToken = json?.access_token;

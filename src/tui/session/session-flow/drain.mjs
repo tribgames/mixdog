@@ -248,6 +248,12 @@ export function createDrainLoop(
       while (pending.length > 0) {
         if (flags.drainEpoch !== drainEpoch) return;
         if (admission() !== 'open') return;
+        // Admission is rechecked before every batch: a command that took the
+        // lock while the previous turn settled (an in-place model switch and
+        // its pre-compaction, a reset) runs before the next turn starts. The
+        // finally below re-enters drain(), which waits on the same gate, and
+        // the commandBusy release re-kicks the queue.
+        if (flags.autoClearRunning || getState().commandBusy) return;
         // Drain one priority/mode bucket at a time (unified command queue):
         // prompt steering stays editable and task notifications stay
         // non-editable but model-visible.
@@ -267,7 +273,7 @@ export function createDrainLoop(
         // after a long idle is compacted first; the wake runs regardless.
         if (autoClearBeforeWake && batch.every((entry) => COMPLETION_WAKE_MODES.has(entry.mode))) {
           await autoClearBeforeWake();
-          if (flags.drainEpoch !== drainEpoch || admission() !== 'open') {
+          if (flags.drainEpoch !== drainEpoch || admission() !== 'open' || getState().commandBusy) {
             queue.requeueEntriesFront(batch);
             return;
           }

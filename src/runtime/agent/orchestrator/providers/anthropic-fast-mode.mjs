@@ -6,7 +6,7 @@
 // cache, because the retry after the wait carries a different speed anyway.
 // The reference client's rule: a SHORT server window is worth waiting for at
 // fast speed (the cache prefix survives), anything longer drops to standard
-// speed for a cooldown. An explicit "overage billing unavailable" header is
+// speed for a cooldown (reference thresholds: <20s keeps fast; otherwise\n// max(Retry-After ?? 30min, 10min)). An explicit "overage billing unavailable" header is
 // terminal for the process — no cooldown can make paid overage appear.
 //
 // State is process-wide because the capacity pool is per-account, not per
@@ -14,23 +14,28 @@
 // sessions hammering it.
 
 import { headerValue } from './retry-classification.mjs';
+import { retryAfterMsFromHeaders } from './anthropic-error-contract.mjs';
 
 // Server-declared reason header for a fast-mode rejection caused by missing
 // overage billing (matches the reference client's header name).
 const OVERAGE_DISABLED_HEADER = 'anthropic-ratelimit-unified-overage-disabled-reason';
-// Body-only form of the same rejection ("Usage credits are required for fast
-// mode."), sent as a 429 rate_limit_error without the header above.
-const CREDITS_REQUIRED_PATTERN = /usage credits are required for fast mode/i;
-const CREDITS_REQUIRED_REASON = 'usage_credits_required';
+// Reasons that mean the wallet is empty / capped for now rather than that
+// overage can never exist: the request drops to standard speed, but fast mode
+// is not switched off (the reference client keeps its setting for these).
+const TRANSIENT_OVERAGE_REASONS = new Set(['org_level_disabled_until', 'out_of_credits']);
+// A 400 from an account/endpoint that cannot serve fast mode at all. The same
+// request succeeds at standard speed, and no cooldown makes it succeed fast.
+const NOT_ENABLED_PATTERN = /fast mode is not enabled/i;
+const NOT_ENABLED_REASON = 'fast_mode_not_enabled';
 
 // A Retry-After under this bound is short enough that waiting keeps fast mode
 // (and its cache prefix) worthwhile.
-const SHORT_RETRY_THRESHOLD_MS = 10_000;
+const SHORT_RETRY_THRESHOLD_MS = 20_000;
 // Cooldown floor: without it a 1s window would flip fast mode on and off every
 // turn, which costs more in cache misses than the downgrade saves.
-const MIN_COOLDOWN_MS = 60_000;
+const MIN_COOLDOWN_MS = 600_000;
 // Applied when the server gives no window at all.
-const DEFAULT_COOLDOWN_MS = 300_000;
+const DEFAULT_COOLDOWN_MS = 1_800_000;
 
 let _cooldownUntilMs = 0;
 let _disabledReason = null;
@@ -62,28 +67,44 @@ export function fastModeDisabledReason() {
 export function noteFastModeCapacityError(err, { fast = false, now = Date.now() } = {}) {
   if (!fast) return 'ignored';
   const status = Number(err?.httpStatus || err?.status || err?.response?.status || 0);
+  if (status === 400 && NOT_ENABLED_PATTERN.test(String(err?.message || ''))) {
+    _disabledReason = NOT_ENABLED_REASON;
+    return 'disabled';
+  }
   if (status !== 429 && status !== 529) return 'ignored';
 
   const headers = err?.headers || err?.response?.headers || err?.data?.responseHeaders || null;
   const overageReason = headerValue(headers, OVERAGE_DISABLED_HEADER);
-  if (overageReason != null && String(overageReason) !== '') {
-    _disabledReason = String(overageReason);
-    return 'disabled';
-  }
-  // Same terminal condition reported only in the error body: the account has
-  // no usage credits for fast mode, so no cooldown can make it succeed.
-  if (CREDITS_REQUIRED_PATTERN.test(String(err?.message || ''))) {
-    _disabledReason = CREDITS_REQUIRED_REASON;
+  // The header's presence (even empty) is the signal, as in the reference client.
+  if (overageReason != null) {
+    if (TRANSIENT_OVERAGE_REASONS.has(String(overageReason))) return 'downgrade';
+    _disabledReason = String(overageReason) || 'overage_unavailable';
     return 'disabled';
   }
 
-  const retryAfterMs = Number(err?.retryAfterMs);
-  const hasWindow = Number.isFinite(retryAfterMs) && retryAfterMs >= 0;
+  const retryAfterMs = serverWindowMs(err);
+  const hasWindow = retryAfterMs != null;
   if (hasWindow && retryAfterMs < SHORT_RETRY_THRESHOLD_MS) return 'retry-fast';
 
   const cooldownMs = Math.max(hasWindow ? retryAfterMs : DEFAULT_COOLDOWN_MS, MIN_COOLDOWN_MS);
   _cooldownUntilMs = Math.max(_cooldownUntilMs, now + cooldownMs);
   return 'downgrade';
+}
+
+/** True when the decision means the caller must drop `speed` before replaying. */
+export function fastModeDowngraded(decision) {
+  return decision === 'downgrade' || decision === 'disabled';
+}
+
+// The server's Retry-After window: an explicit err.retryAfterMs, else the
+// Retry-After headers. The unified-reset header is deliberately not a window
+// here (the reference client reads Retry-After only). null when none.
+function serverWindowMs(err) {
+  const explicit = err?.retryAfterMs;
+  if (explicit != null && explicit !== '' && Number.isFinite(Number(explicit)) && Number(explicit) >= 0) {
+    return Number(explicit);
+  }
+  return retryAfterMsFromHeaders(err?.headers || err?.response?.headers || err?.data?.responseHeaders || null);
 }
 
 /** Manual re-enable (user action) and test seam. */

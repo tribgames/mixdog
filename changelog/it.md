@@ -4,6 +4,39 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
+Aggiunti l'accesso OAuth esplicito per MCP, il cambio modello sul posto e un banner di quota a riga singola.
+
+### Nuove funzionalità
+
+- **Accesso MCP** — Aggiunto l'accesso OAuth esplicito per i server MCP con stato, finestra di dialogo condivisa, incolla remoto e comandi TUI (#74, thanks @oh1701).
+- **Cambio modello sul posto** — Aggiunta la possibilità di cambiare il modello di una chat senza avviare una nuova sessione e Fork nel menu di sessione (#73, #52, thanks @grapefruit0205).
+- **Banner di quota** — Aggiunto un banner a riga singola sopra il compositore al raggiungimento di un limite; Riprendi riserva la prossima esecuzione all'orario di ripristino.
+- **Menu file** — Aggiunto un conteggio file sull'isola che tiene traccia delle modifiche di sessione non salvate, con Mostra modifiche ed Elimina cronologia.
+- **Dimensione testo della chat** — Aggiunta un'impostazione per dispositivo per la dimensione del testo della chat.
+
+### Modifiche
+
+- Modificati i tentativi dei provider affinché rispettino limiti e tempi di attesa specifici di ciascun provider, mostrando il tempo rimanente e l'opzione di annullamento.
+- Modificati i messaggi di errore per indicare la causa e il passaggio successivo, nascondendo Riprova quando riprovare non è utile.
+- Modificati i comandi della shell per rimanere in primo piano per 10 secondi per impostazione predefinita, fino a 30 secondi, prima di passare in background.
+- Regolati l'app desktop, il ragionamento automatico e il servizio in background per ridurre polling, rendering e memoria nelle sessioni lunghe.
+
+### Correzioni di bug
+
+- Corretto il blocco di uno o due secondi del servizio in background ogni 30 minutes.
+- Corretta la perdita delle notifiche di completamento degli agent quando veniva annullato un turno che aveva già prodotto output.
+- Corretta l'isola del compositore che mostrava gli agent in esecuzione come inattivi o completati.
+- Corretto il blocco del passaggio tra sessioni durante l'attesa della scansione delle modifiche di altre sessioni.
+- Corretta l'uscita delle finestre di dialogo della pagina del browser dal riquadro, il mancato completamento della conferma di uscita e il malfunzionamento delle scorciatoie di copia del browser.
+- Corretto il fallimento del caching dei prompt sui provider Responses personalizzati e la mancata corrispondenza dei progetti di sessione ereditati nella barra laterale (#70, #75, thanks @sukjong2002).
+- Corretto lo sfarfallio delle tabelle in streaming, il rimbalzo della trascrizione durante l'attività di un turno e la persistenza della scheda quota dopo il cambio di provider.
+
+### Altro
+
+- Rimossi gli helper non utilizzati (#67, thanks @22nsuk).
+
 ## v1.2.1 - 2026-10-14
 
 Aggiunta l'importazione di conversazioni da Codex e Claude Code, il provider Command Code e le menzioni di skill con `$`, e corretta l'osservazione dell'input di Computer Use, gli script di skill, il ragionamento automatico e diversi problemi di sessione.

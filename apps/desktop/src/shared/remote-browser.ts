@@ -18,12 +18,6 @@ export const REMOTE_BROWSER_OPEN_EVENT = 'browserOpenRequested';
 export const REMOTE_BROWSER_TABS_EVENT = 'browserRemoteTabs';
 /** Encrypted relay push carrying a DesktopBrowserImportProgress. */
 export const REMOTE_BROWSER_IMPORT_PROGRESS_EVENT = 'browserProfileImportProgress';
-/** Relay-handshake flag: the host takes the `viewport` remote browser control
- * and renders a streamed page at the phone pane's size as a mobile page. */
-export const REMOTE_BROWSER_DRIVE_FLAG = 'browserDrive';
-/** Relay-handshake flag: the host streams a conversation browser's tab strip
- * in its frames and takes the `new-tab`, `select-tab` and `close-tab` controls. */
-export const REMOTE_BROWSER_SESSION_TABS_FLAG = 'browserSessionTabs';
 
 /** Chrome on Android: the mobile identity of the host's own Chromium engine. */
 export const MOBILE_CHROME_USER_AGENT =
@@ -116,7 +110,8 @@ export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrow
     type === 'text' ||
     type === 'key' ||
     type === 'composition' ||
-    type === 'composition-end'
+    type === 'composition-end' ||
+    type === 'answer-dialog'
   ) {
     if (
       typeof input.documentId !== 'string' ||
@@ -131,8 +126,9 @@ export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrow
     ) {
       throw new TypeError('remote browser text is invalid.');
     }
-    // The local pane's validator owns phases, buttons, modifiers, click counts
-    // and bounded coordinates/deltas, so both surfaces admit the same input.
+    // The local pane's validator owns phases, buttons, modifiers, click counts,
+    // bounded coordinates/deltas and dialog answers, so both surfaces admit
+    // the same input.
     return normalizeBrowserPageControl(input) as DesktopRemoteBrowserPageInput;
   }
   throw new TypeError(`unknown remote browser control "${type || '(none)'}".`);

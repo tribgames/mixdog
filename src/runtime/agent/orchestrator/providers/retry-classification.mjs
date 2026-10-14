@@ -1,6 +1,30 @@
 // Structural error classification: typed status, transience, auth, context
 // overflow, retry-after and stream-close verdicts shared by every provider.
 import { readStreamOutcome } from './lib/stream-outcome.mjs';
+import {
+  BARE_FETCH_TRANSPORT_MESSAGE_RE,
+  DETERMINISTIC_KINDS,
+  QUOTA_KINDS,
+  REQUEST_SIZE_PATTERNS,
+  TLS_RECORD_FAILURE_RE,
+  TOKEN_CONTEXT_OVERFLOW_PATTERNS,
+  TRANSIENT_SDK_NAMES,
+  boundedCauseChain,
+  isTransientErrorCode,
+  providerErrorKind,
+  typedCodeKind,
+  typedErrorCode,
+} from './provider-error-kind.mjs';
+
+export {
+  boundedCauseChain,
+  errorHeaderValue,
+  headerValue,
+  isTransientErrorCode,
+  providerErrorKind,
+  retryAfterMsFromError,
+  typedErrorCode,
+} from './provider-error-kind.mjs';
 
 // HTTP statuses considered transient — safe to retry with backoff.
 //   408 — request timeout
@@ -15,22 +39,18 @@ export const TRANSIENT_STATUSES = new Set([408, 409, 425]);
 //   400/422 — bad request (deterministic)
 const AUTH_STATUSES = new Set([401, 403]);
 const PERMANENT_STATUSES = new Set([400, 404, 405, 410, 415, 422]);
-// Cloudflare origin-TLS pages never clear on retry (grok-build edge_client).
+// Cloudflare origin-TLS pages never clear on retry.
 export const TERMINAL_EDGE_STATUSES = new Set([525, 526]);
 const GEMINI_TRANSIENT_RPC_CODES = new Set(['UNAVAILABLE', 'DEADLINE_EXCEEDED', 'ABORTED', 'INTERNAL']);
 const PREVIOUS_RESPONSE_NOT_FOUND = 'previous_response_not_found';
 export const WEBSOCKET_CONNECTION_LIMIT = 'websocket_connection_limit_reached';
-const RATE_LIMIT_EXCEEDED = 'rate_limit_exceeded';
-const CONTEXT_OVERFLOW_CODES = new Set(['context_length_exceeded', 'context_window_exceeded', 'request_too_large']);
-const TRANSIENT_SDK_NAMES = new Set([
-  'APIConnectionError',
-  'APIConnectionTimeoutError',
-  'ConnectTimeoutError',
-  'HeadersTimeoutError',
-  'BodyTimeoutError',
+// Token-context codes only: a byte-size `request_too_large` is not cured by
+// compaction (see isContextOverflowError).
+const CONTEXT_OVERFLOW_CODES = new Set([
+  'context_length_exceeded',
+  'context_window_exceeded',
+  'model_context_window_exceeded',
 ]);
-const ANTHROPIC_RESET_HEADER = 'anthropic-ratelimit-unified-reset';
-const ANTHROPIC_RESET_CAP_MS = 300_000;
 
 // Structured status fields a provider error / wire event may carry. A value is
 // accepted only when it is a real numeric HTTP status; string codes
@@ -59,8 +79,11 @@ const statusOfError = (err) => Number(err?.httpStatus || err?.status || err?.res
 
 // The verdict a typed HTTP status (or a typed stream shape) gives, in
 // precedence order; null when the status decides nothing.
-function classifyByStatus(err, status) {
+function classifyByStatus(err, status, options = {}) {
   if (AUTH_STATUSES.has(status)) return 'auth';
+  // Opt-in: 499 "client closed request" from Google
+  // frontends is retried; others keep it a deterministic 4xx.
+  if (status === 499 && options.retry499 === true) return 'transient';
   // Stale previous_response_id is recoverable by dropping the chain and
   // re-issuing a full frame, which is the retryable path. A typed
   // 400 here is not a deterministic payload refusal.
@@ -90,7 +113,7 @@ function classifyByStatus(err, status) {
  *   'unknown'   — neither; default to permanent in safety-critical paths,
  *                 or retry once in best-effort paths.
  */
-export function classifyError(err) {
+export function classifyError(err, options = {}) {
   if (!err) return 'unknown';
   // Canonical stream-outcome contract owns replay safety: exposed
   // text/reasoning or a dispatched/ambiguous complete tool call makes
@@ -105,14 +128,34 @@ export function classifyError(err) {
   // across the bounded chain before considering stale connection causes.
   const chain = boundedCauseChain(err);
   if (chain.some(isExplicitUserAbortError)) return 'permanent';
-  // Current typed HTTP status outranks stale stream/connection annotations.
+  // A typed provider code outranks the HTTP status (429+server_is_overloaded
+  // is an overload, 403+cyber_policy a policy refusal, 5xx+insufficient_quota
+  // a billing refusal).
+  // Typed evidence only: message wording never synthesizes a verdict here.
+  const { kind } = providerErrorKind(err, { text: false });
   const status = statusOfError(err);
-  return classifyByStatus(err, status) || classifyByTransport(err, chain, status) || 'unknown';
+  // Opt-in: a status-only 499 "client closed request" is retried instead of
+  // read as a 4xx; a typed code on it decides as usual.
+  if (status === 499 && options.retry499 === true && kind === 'invalid_request' && !typedCodeKind(err)) {
+    return 'transient';
+  }
+  if (kind === 'auth' || kind === 'permission') return 'auth';
+  if (DETERMINISTIC_KINDS.has(kind)) return 'permanent';
+  // An origin-TLS edge failure is final whatever code accompanies it.
+  if (TERMINAL_EDGE_STATUSES.has(status)) return 'permanent';
+  // A deterministic wire code outranks a numeric 5xx on the same event.
+  if (classifyWireErrorEvent(err) === 'permanent') return 'permanent';
+  if (kind === 'overloaded') return 'transient';
+  // A typed transient kind decides whatever status accompanies it (401 +
+  // server_error is a server fault).
+  if (kind === 'transient') return 'transient';
+  // Current typed HTTP status outranks stale stream/connection annotations.
+  return classifyByStatus(err, status, options) || classifyByTransport(err, chain, status) || 'unknown';
 }
 
 // A turn that ended on a malformed or unexpected tool call produced no usable
-// call at all (the typed finish reason says so); the reference client re-asks
-// the same request, bounded, instead of failing the turn.
+// call at all (the typed finish reason says so); the same request is re-asked,
+// bounded, instead of failing the turn.
 const INVALID_TOOL_CALL_FINISH_REASONS = new Set(['MALFORMED_FUNCTION_CALL', 'UNEXPECTED_TOOL_CALL']);
 
 function isInvalidToolCallFinish(err) {
@@ -132,9 +175,9 @@ function classifyByTransport(err, chain, status) {
   // so without this it classified as 'unknown' and no loop-level replay was
   // ever attempted (observed live: pooled WS retired by the server between
   // turns → close 1000 before response.created → the whole turn failed).
-  // Reference behavior retries the same disconnect (codex `CodexErr::Stream`
-  // is_retryable, and a stream fallback/retry applies); the exposure deny above
-  // still fails closed for anything already relayed or dispatched.
+  // The same disconnect is retryable (a stream fallback/retry applies); the
+  // exposure deny above still fails closed for anything already relayed or
+  // dispatched.
   if (isNonTerminalStreamClose(err)) return 'transient';
 
   // Cursor's resumed tool-result stream cannot safely reopen the same wire
@@ -170,58 +213,6 @@ function classifyByTransport(err, chain, status) {
   // the top of this function already returned 'permanent' for any stream
   // that relayed output or dispatched a tool call.
   return classifyWireErrorEvent(err) || null;
-}
-
-const MAX_CAUSE_CHAIN_DEPTH = 8;
-// 'terminated' / 'other side closed' / 'socket hang up' are the body-read
-// forms of the same disconnect (undici aborts the response body when the peer
-// closes mid-stream and may not attach a cause).
-const BARE_FETCH_TRANSPORT_MESSAGE_RE =
-  /^(?:fetch failed|failed to fetch|couldn'?t fetch\.?|load failed|network error|terminated|other side closed|socket hang up)$/i;
-const TRANSIENT_ERROR_CODES = new Set([
-  'ECONNRESET',
-  'ETIMEDOUT',
-  'ESOCKETTIMEDOUT',
-  'EAI_AGAIN',
-  'ENOTFOUND',
-  'EAI_NODATA',
-  'ECONNREFUSED',
-  'ENETUNREACH',
-  'EHOSTUNREACH',
-  'EPIPE',
-  'EPROVIDERTIMEOUT',
-  'EGEMINITIMEOUT',
-  'ESTREAMSTALL',
-  'EWSACQUIRETIMEOUT',
-  'UND_ERR_SOCKET',
-  'UND_ERR_CONNECT_TIMEOUT',
-  'UND_ERR_HEADERS_TIMEOUT',
-  'UND_ERR_BODY_TIMEOUT',
-  'UND_ERR_CONNECT',
-  'EPROTO',
-  'UND_ERR_DESTROYED',
-  'UND_ERR_CLOSED',
-  'ECONNABORTED',
-  'ENETRESET',
-  'ERR_STREAM_DESTROYED',
-  'ERR_HTTP2_STREAM_ERROR',
-  'ERR_HTTP2_SESSION_ERROR',
-  'ERR_HTTP2_INVALID_SESSION',
-  'ERR_SOCKET_CONNECTION_TIMEOUT',
-  'ERR_SSL_WRONG_VERSION_NUMBER',
-  'ERR_STREAM_PREMATURE_CLOSE',
-]);
-
-// TLS record corruption on a flaky link or a meddling proxy. Node builds the
-// ERR_SSL_* code from the OpenSSL reason string, which differs across OpenSSL
-// versions (…SSLV3_ALERT_BAD_RECORD_MAC, …SSL/TLS_ALERT_BAD_RECORD_MAC,
-// …DECRYPTION_FAILED_OR_BAD_RECORD_MAC), so the stable suffix names the class.
-const TLS_RECORD_FAILURE_RE = /^ERR_SSL_[A-Z0-9_/]*BAD_RECORD_MAC$/i;
-
-/** True for a socket/TLS errno that describes a transient transport fault. */
-export function isTransientErrorCode(code) {
-  const value = String(code || '');
-  return TRANSIENT_ERROR_CODES.has(value) || TLS_RECORD_FAILURE_RE.test(value);
 }
 
 // Cursor's HTTP/2 bridge preserves provider-specific codes in `cursorCode`.
@@ -342,9 +333,8 @@ export function isToolInputCut(err) {
 // The provider was never reached: name resolution, routing, refusal or the
 // connect handshake failed, so nothing was sent or received. Only this class
 // is worth waiting out for minutes — the identical request succeeds once the
-// network is back (a lift, a sleeping laptop, a router reboot), and the
-// reference client keeps a sampling turn alive until such a connection
-// recovers. A stream that dropped mid-response is not this class: it keeps
+// network is back (a lift, a sleeping laptop, a router reboot), so a sampling
+// turn is kept alive until such a connection recovers. A stream that dropped mid-response is not this class: it keeps
 // the short, bounded retry budget.
 const CONNECT_FAILURE_CODES = new Set([
   'ENOTFOUND',
@@ -382,9 +372,14 @@ export function isServerUnavailable(err) {
   if (!err || (typeof err !== 'object' && typeof err !== 'function')) return false;
   const chain = boundedCauseChain(err);
   if (chain.some(isExplicitUserAbortError)) return false;
+  // Typed kind first: an overload (any status) is this class; quota, billing,
+  // policy, auth, request refusals and rate limits never are.
+  const { kind } = providerErrorKind(err);
+  if (kind === 'overloaded') return true;
+  if (kind !== 'transient' && kind !== 'unknown') return false;
   const status = statusOfError(err);
   if (status) return status === 408 || (status >= 500 && status < 600 && !TERMINAL_EDGE_STATUSES.has(status));
-  if (isRetryableWireErrorEvent(err)) return typedErrorCode(err) !== RATE_LIMIT_EXCEEDED;
+  if (isRetryableWireErrorEvent(err)) return true;
   return chain.some((item) => {
     const rpc = [item?.geminiStatus, item?.error?.status, typeof item?.status === 'string' ? item.status : ''];
     if (rpc.some((field) => GEMINI_TRANSIENT_RPC_CODES.has(String(field || '').toUpperCase()))) return true;
@@ -414,19 +409,9 @@ export function canFallbackNonStreaming(err, { signal } = {}) {
   // A cut mid tool-argument stream is replayed by the loop with a split-call
   // notice, never re-issued unchanged here.
   if (isToolInputCut(err)) return false;
+  // A provider-terminal verdict ends recovery; no re-issue of any shape.
+  if (boundedCauseChain(err).some((item) => item?.providerRecoveryTerminal === true)) return false;
   return classifyError(err) === 'transient' || outcome.stallObserved === true || outcome.truncatedStream === true;
-}
-
-export function boundedCauseChain(err) {
-  const chain = [];
-  const seen = new Set();
-  let cursor = err;
-  while (cursor && chain.length < MAX_CAUSE_CHAIN_DEPTH && !seen.has(cursor)) {
-    chain.push(cursor);
-    seen.add(cursor);
-    cursor = cursor?.cause;
-  }
-  return chain;
 }
 
 export function isExplicitUserAbortError(err) {
@@ -462,34 +447,10 @@ export function isCursorTransientTransportError(err) {
 // Patterns cover OpenAI ("maximum context length", "reduce the length"),
 // Anthropic ("prompt is too long"), and generic "input exceeds the context
 // window" phrasing. Match is case-insensitive over err.message.
-const CONTEXT_OVERFLOW_PATTERNS = [
-  /input (?:length|tokens?) exceeds? the context window/i,
-  /exceeds? the (?:maximum )?context (?:window|length)/i,
-  /maximum context length/i,
-  /context[_ ]length[_ ]exceeded/i,
-  /prompt is too long/i,
-  /reduce the length of (?:the )?(?:messages|input|prompt)/i,
-  // Wordings other backends use for the same refusal, each tied to a context
-  // or input-length noun so a tokens-per-minute rate limit never matches.
-  /prompt too long/i, // z.ai, Ollama
-  /prompt exceeds max length/i, // z.ai CN endpoint
-  /input is too long for requested model/i, // Amazon Bedrock
-  /input token count.*exceeds the maximum/i, // Google
-  /request payload size exceeds the limit/i, // Google (400, byte-size limit)
-  // A 413 re-wrapped by a proxy or aggregator without its status.
-  /request entity too large/i,
-  /request exceeds the maximum size/i,
-  /maximum prompt length is \d+/i, // xAI
-  /exceeds (?:the )?maximum allowed input length/i, // OpenRouter relays
-  /is longer than the model'?s context length/i, // Together AI
-  /exceeds the available context size/i, // llama.cpp server
-  /greater than the context length/i, // LM Studio
-  /context window exceeds limit/i, // MiniMax
-  /exceeded model token limit/i, // Kimi
-  /too large for model with \d+ maximum context length/i, // Mistral
-  /range of input length should be/i, // DashScope / Qwen
-  /model_context_window_exceeded/i, // z.ai finish reason surfaced as text
-];
+// Untyped byte-size wordings (no status, no code) keep routing here: an
+// unlabelled proxy refusal is most often an oversized history.
+const CONTEXT_OVERFLOW_PATTERNS = [...TOKEN_CONTEXT_OVERFLOW_PATTERNS, ...REQUEST_SIZE_PATTERNS];
+const REQUEST_TOO_LARGE_KIND = 'request_too_large';
 
 /**
  * True when `err` is a context-window-exceeded provider rejection. Walks
@@ -502,89 +463,33 @@ const CONTEXT_OVERFLOW_PATTERNS = [
  */
 export function isContextOverflowError(err, _depth = 0) {
   if (!err || _depth > 2) return false;
-  if (statusOfError(err) === 413) return true;
   const code = typedErrorCode(err);
   if (code && CONTEXT_OVERFLOW_CODES.has(code)) return true;
+  // A typed byte/media-size refusal (a size code, or HTTP 413 without a
+  // token-context code) is not a token-context overflow: compaction cannot
+  // shrink it, so only token-context wording may still qualify it.
+  const sizeTyped =
+    typeof err === 'object' &&
+    boundedCauseChain(err).some(
+      (item) => item && typeof item === 'object' && providerErrorKind(item, { text: false }).kind === REQUEST_TOO_LARGE_KIND
+    );
+  const patterns = sizeTyped ? TOKEN_CONTEXT_OVERFLOW_PATTERNS : CONTEXT_OVERFLOW_PATTERNS;
   const msg = (typeof err === 'string' ? err : err?.message) || '';
-  if (msg && CONTEXT_OVERFLOW_PATTERNS.some((re) => re.test(msg))) return true;
+  if (msg && patterns.some((re) => re.test(msg))) return true;
   if (err.cause != null && err.cause !== err) return isContextOverflowError(err.cause, _depth + 1);
   if (err.response?.data != null) return isContextOverflowError(err.response.data, _depth + 1);
   return false;
 }
 
-export function headerValue(headers, name) {
-  if (!headers) return null;
-  const lower = name.toLowerCase();
-  if (typeof headers.get === 'function') return headers.get(name) ?? headers.get(lower);
-  for (const [key, value] of Object.entries(headers)) {
-    if (String(key).toLowerCase() === lower) return Array.isArray(value) ? value[0] : value;
-  }
-  return null;
-}
-
-export function retryAfterMsFromError(err) {
-  const headers = err?.headers || err?.response?.headers || err?.data?.responseHeaders || null;
-  const retryAfterMs = headerValue(headers, 'retry-after-ms');
-  if (retryAfterMs != null && retryAfterMs !== '') {
-    const n = Number(retryAfterMs);
-    if (Number.isFinite(n) && n >= 0) return n;
-  }
-  const retryAfter = headerValue(headers, 'retry-after');
-  if (retryAfter != null && retryAfter !== '') {
-    const seconds = Number(retryAfter);
-    if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000);
-    const dateMs = Date.parse(String(retryAfter));
-    if (!Number.isNaN(dateMs)) return Math.max(0, dateMs - Date.now());
-  }
-  // Google RPC RetryInfo encodes retryDelay as a protobuf Duration. Preserve
-  // the same precedence as Retry-After: a server-provided retry window means
-  // RESOURCE_EXHAUSTED is request-local, not a permanent quota refusal.
-  const detailLists = [err?.details, err?.error?.details, err?.data?.error?.details];
-  for (const details of detailLists) {
-    if (!Array.isArray(details)) continue;
-    for (const detail of details) {
-      const delay = detail?.retryDelay;
-      if (typeof delay === 'string') {
-        const match = delay.trim().match(/^(\d+(?:\.\d+)?)s$/);
-        if (match) return Math.ceil(Number(match[1]) * 1000);
-      } else if (delay && typeof delay === 'object') {
-        const seconds = Number(delay.seconds || 0);
-        const nanos = Number(delay.nanos || 0);
-        const ms = seconds * 1000 + nanos / 1_000_000;
-        if (Number.isFinite(ms) && ms >= 0) return Math.ceil(ms);
-      }
-    }
-  }
-  const resetHeader = headerValue(headers, ANTHROPIC_RESET_HEADER);
-  if (resetHeader != null && resetHeader !== '') {
-    const resetUnixSec = Number(resetHeader);
-    if (Number.isFinite(resetUnixSec) && resetUnixSec > 0) {
-      const delayMs = Math.ceil(resetUnixSec * 1000 - Date.now());
-      if (delayMs > 0) return Math.min(delayMs, ANTHROPIC_RESET_CAP_MS);
-    }
-  }
-  // Codex parses the server-supplied window from a TYPED rate_limit_exceeded
-  // payload. Message text never decides whether to retry — only how long to
-  // wait after the typed code is already in hand. Headers / RetryInfo win.
-  if (typedErrorCode(err) === RATE_LIMIT_EXCEEDED) {
-    const delay = rateLimitRetryAfterMsFromMessage(err);
-    if (delay != null) return delay;
-  }
-  return null;
-}
-
+/**
+ * True for an explicit quota / plan / billing refusal (providerErrorKind
+ * quota_exhausted, entitlement or billing). No wait recovers it, so retry
+ * layers never replay it, even when the server attached a Retry-After.
+ * RESOURCE_EXHAUSTED with a 429, retry advice or a per-minute scope is a
+ * request-local rate limit instead.
+ */
 export function isPermanentQuotaError(err) {
-  const status = statusOfError(err);
-  // Gemini uses RESOURCE_EXHAUSTED for both daily quota and per-minute
-  // rate limits. A 429 is request-local (Google/LiteLLM retry); without a
-  // 429 the same code stays a deterministic quota refusal.
-  const permanentCodes = new Set(['insufficient_quota', 'quota_exceeded']);
-  if (status !== 429) permanentCodes.add('resource_exhausted');
-  for (const item of boundedCauseChain(err)) {
-    const codes = [item?.code, item?.error?.code];
-    if (codes.some((code) => permanentCodes.has(String(code || '').toLowerCase()))) return true;
-  }
-  return false;
+  return QUOTA_KINDS.has(providerErrorKind(err).kind);
 }
 
 // ── Wire error events: default-retry with a fatal-code deny-list ────────────
@@ -595,7 +500,7 @@ export function isPermanentQuotaError(err) {
 // server_error, server_is_overloaded, slow_down, or an event with no code at
 // all — is a server-side fault and is retried under the bounded budgets
 // (observed live 2026-08-11: two turns failed on typed `server_error`
-// response.failed events that every reference implementation retries).
+// response.failed events that are server-side faults).
 export const WIRE_ERROR_FATAL_CODES = new Set([
   'context_length_exceeded',
   'context_window_exceeded',
@@ -614,16 +519,25 @@ export const WIRE_ERROR_FATAL_CODES = new Set([
   'permission_error',
   'permission_denied',
   'billing_not_active',
+  // Billing / spend refusals.
+  'credit_balance_exhausted',
+  'organization_spend_limit_exceeded',
+  'project_spend_limit_exceeded',
+  'organization_usage_limit_exceeded',
+  'billing_hard_limit_reached',
+  'payment_required',
+  // Policy refusals.
+  'cyber_policy_violation',
+  'bio_policy_violation',
+  'misalignment_policy_violation',
+  'content_policy_violation',
+  'content_filter',
+  // Flex tier capacity: the same request at the same tier is refused again.
+  'flex_unavailable',
+  // Byte/media size and token context.
+  'request_too_large',
+  'model_context_window_exceeded',
 ]);
-
-export function typedErrorCode(err) {
-  const failed = err?.responseFailed;
-  const detail = failed?.response?.error || failed?.error || err?.providerError || failed || null;
-  for (const field of [detail?.code, detail?.type, err?.providerErrorCode, err?.code, err?.error?.code]) {
-    if (typeof field === 'string' && field.trim()) return field.trim().toLowerCase();
-  }
-  return '';
-}
 
 /**
  * True when the typed wire/SDK code is previous_response_not_found.
@@ -657,30 +571,15 @@ export function isStaleKeepAliveError(err) {
   });
 }
 
-const RATE_LIMIT_RETRY_AFTER_RE = /try again in\s*(\d+(?:\.\d+)?)\s*(ms|s|seconds?)\b/i;
-
-function rateLimitRetryAfterMsFromMessage(err) {
-  const failed = err?.responseFailed;
-  const detail = failed?.response?.error || failed?.error || err?.providerError || err?.error || null;
-  const messages = [detail?.message, err?.message];
-  for (const message of messages) {
-    if (typeof message !== 'string' || !message) continue;
-    const match = message.match(RATE_LIMIT_RETRY_AFTER_RE);
-    if (!match) continue;
-    const value = Number(match[1]);
-    if (!Number.isFinite(value) || value < 0) continue;
-    const unit = String(match[2] || '').toLowerCase();
-    return unit === 'ms' ? Math.ceil(value) : Math.ceil(value * 1000);
-  }
-  return null;
-}
-
 // 'transient' | 'permanent' for errors born from a provider wire error event;
 // null for everything else (no blanket retry for untyped local failures).
+// A fatal code or a deterministic kind (quota, billing, plan, policy, auth,
+// permission, context, size) outranks any numeric 5xx the event carries.
 function classifyWireErrorEvent(err) {
   if (!err || (err.responseFailed == null && err.providerWireError !== true)) return null;
   const code = typedErrorCode(err);
   if (code && WIRE_ERROR_FATAL_CODES.has(code)) return 'permanent';
+  if (DETERMINISTIC_KINDS.has(providerErrorKind(err, { text: false }).kind)) return 'permanent';
   return 'transient';
 }
 
@@ -696,7 +595,7 @@ export function isRetryableWireErrorEvent(err) {
 }
 
 /**
- * Grok Build StreamError: a mid-stream wire fault is retryable even when the
+ * Mid-stream wire error event: a mid-stream wire fault is retryable even when the
  * envelope type is invalid_request_error, unless a typed 4xx status or a
  * deterministic refusal code (quota/context/auth) is present.
  */

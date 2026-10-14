@@ -78,6 +78,55 @@ test('GPU reads transfer exact frame identities, including a newly attached clie
   assert.equal(releases, 2);
 });
 
+test('a popup whose opener shows a dialog is presented without asking its blocked renderer', async () => {
+  const record = { documentGeneration: 1, pendingDialog: null };
+  const guest = {
+    id: 8,
+    isDestroyed: () => false,
+    getURL: () => 'https://a/doc.pdf',
+    getTitle: () => 'Viewer',
+    isLoadingMainFrame: () => false,
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+  };
+  let blocked = true;
+  const opener = { id: 7 };
+  const surface = createBrowserPageSurface({
+    ensureGuest: async () => guest,
+    currentGuest: () => guest,
+    dialogOwner: () => (blocked ? opener : null),
+    // The prompts resolve the page's renderer peers themselves (local-prompts).
+    prompts: {
+      describe: (page) => {
+        assert.equal(page, guest, 'prompts are those of the page shown');
+        return {
+          ...(blocked ? { dialog: { id: 'prompt_1', type: 'alert', message: 'Saved' } } : {}),
+          fileChooser: { id: 'prompt_2', multiple: false },
+        };
+      },
+    },
+    state: { pageId: () => 'p2', for: () => record },
+    cdp: {
+      guestDebugger: async () => {
+        if (blocked) throw new Error('the blocked renderer must not be asked for layout metrics');
+        return { sendCommand: async () => ({ cssVisualViewport: { scale: 1 } }) };
+      },
+      bounded: async (work) => work,
+    },
+    viewport: () => ({ width: 800, height: 600, zoom: 1, pixels: { width: 800, height: 600 } }),
+    capture: async () => ({ width: 800, height: 600, data: 'png', mimeType: 'image/png', fullPage: false }),
+  });
+  const frame = await surface.frame('owner');
+  assert.equal(frame.url, 'https://a/doc.pdf');
+  assert.equal(frame.width, 800);
+  assert.deepEqual(frame.dialog, { id: 'prompt_1', type: 'alert', message: 'Saved' });
+  assert.deepEqual(frame.fileChooser, { id: 'prompt_2', multiple: false });
+  blocked = false;
+  const unblocked = await surface.frame('owner');
+  assert.equal(unblocked.image.data, 'png');
+  assert.equal(unblocked.dialog, undefined);
+  assert.deepEqual(unblocked.fileChooser, { id: 'prompt_2', multiple: false });
+});
+
 test('viewport changes discard old captures and cached images instead of stretching them into new geometry', async () => {
   const record = { documentGeneration: 1 };
   const guest = {

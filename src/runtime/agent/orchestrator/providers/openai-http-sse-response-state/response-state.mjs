@@ -8,10 +8,9 @@
 import { createActiveToolItemTracker } from '../tool-stream-state.mjs';
 import { createToolCallDedupe } from '../lib/leaked-toolcall.mjs';
 
-export const LABEL = 'OpenAI OAuth HTTP fallback';
-
-export function createResponseState() {
+export function createResponseState(label) {
   return {
+    label,
     content: '',
     model: '',
     responseId: '',

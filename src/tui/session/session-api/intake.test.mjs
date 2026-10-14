@@ -99,6 +99,84 @@ function createHarness({
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+// The in-flight restore exactly as runTurn records it from the drain's
+// options for a task-notification batch.
+async function notificationTurnRestore({ committed }) {
+  const { turnOptionsForBatch } = await import('../session-flow/drain.mjs');
+  const entry = { id: 'note-1', mode: 'task-notification', text: 'Agent completed', content: '<task-notification/>' };
+  const options = turnOptionsForBatch([entry], { commitSteeringQueueEntries: () => {} });
+  return {
+    entry,
+    restore: {
+      text: options.displayText,
+      restorable: options.restorable,
+      submittedIds: options.submittedIds,
+      committed,
+      requeueEntries: committed ? [] : options.requeueOnAbort.slice(),
+      discardExecutionPendingResumeKeys: options.discardExecutionPendingResumeKeys,
+    },
+  };
+}
+
+test('Esc on a notification turn that produced no output requeues the notification', async () => {
+  const { entry, restore } = await notificationTurnRestore({ committed: false });
+  const h = createHarness({ state: { busy: true }, flags: { activePromptRestore: restore } });
+  const result = h.api.abort();
+  assert.ok(h.calls.some((call) => Array.isArray(call) && call[0] === 'runtime.abort' && call[1] === 'user-cancel'));
+  const requeued = h.calls.find((call) => Array.isArray(call) && call[0] === 'requeueFront');
+  assert.deepEqual(requeued?.[1], [entry], 'the unconsumed notification goes back to the queue front');
+  assert.equal(result.restoreText, '', 'a notification is never handed to the draft');
+});
+
+test('Esc on a notification turn that already produced output does not requeue it', async () => {
+  const { restore } = await notificationTurnRestore({ committed: true });
+  const h = createHarness({ state: { busy: true }, flags: { activePromptRestore: restore } });
+  h.api.abort();
+  assert.equal(
+    h.calls.some((call) => Array.isArray(call) && call[0] === 'requeueFront'),
+    false
+  );
+});
+
+// Drives the real stream handlers (and the real commit) with one text delta,
+// then presses Esc on the notification turn.
+async function escAfterTextDelta(chunk) {
+  const { streamHandlers, commitPromptRestore } = await import('../turn.mjs');
+  const { createTurnStream } = await import('../turn-stream.mjs');
+  const { entry, restore } = await notificationTurnRestore({ committed: false });
+  const flags = { activePromptRestore: restore };
+  const turn = { promptCommitted: false };
+  let tuiState = { spinner: null };
+  const stream = createTurnStream({
+    getState: () => tuiState,
+    set: (patch) => {
+      tuiState = { ...tuiState, ...patch };
+    },
+    nextId: () => 'a1',
+    updateStreamingTail: () => true,
+    transcriptMeta: {},
+    isCurrentTurn: () => true,
+  });
+  streamHandlers({
+    isCurrentTurn: () => true,
+    stream,
+    markPromptCommitted: () => commitPromptRestore(flags, turn),
+  }).onTextDelta(chunk);
+  const h = createHarness({ state: { busy: true }, flags });
+  h.api.abort();
+  return { entry, requeued: h.calls.find((call) => Array.isArray(call) && call[0] === 'requeueFront') };
+}
+
+test('Esc after a whitespace-only first text delta requeues the notification, like the runtime rewind', async () => {
+  const { entry, requeued } = await escAfterTextDelta(' \n\t');
+  assert.deepEqual(requeued?.[1], [entry]);
+});
+
+test('Esc after a real text delta does not requeue the notification', async () => {
+  const { requeued } = await escAfterTextDelta('  hello');
+  assert.equal(requeued, undefined);
+});
+
 test('an idle submit still enqueues when auto-clear throws synchronously', async () => {
   const h = createHarness({
     bag: {

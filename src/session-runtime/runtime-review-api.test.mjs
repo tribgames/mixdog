@@ -111,3 +111,18 @@ test('a live turn review answers a matching tag with the unchanged reply', {
     ['a.txt', 'b.txt']
   );
 });
+
+test("deleting a session removes its Delete history marker; another session's stays", async () => {
+  const { _runSessionPurgeHooks } = await import('../runtime/agent/orchestrator/session/store/session-observers.mjs');
+  const { sessionChangeHistoryCleared } = await import('../runtime/shared/turn-snapshot-store.mjs');
+  for (const sessionId of ['purged', 'kept']) {
+    await createRuntimeReviewApi({ getCwd: () => root, getSessionId: () => sessionId }).clearSessionChangeHistory();
+    assert.equal(await sessionChangeHistoryCleared(sessionId), true);
+  }
+  _runSessionPurgeHooks('purged');
+  for (let tries = 0; tries < 100 && (await sessionChangeHistoryCleared('purged')); tries += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(await sessionChangeHistoryCleared('purged'), false);
+  assert.equal(await sessionChangeHistoryCleared('kept'), true);
+});

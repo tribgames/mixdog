@@ -48,3 +48,54 @@ test('turn review shows an agent tag verbatim in every UI language', async (t) =
   assert.notEqual(translate('Plan'), 'Plan');
   assert.deepEqual(labels, ['Plan']);
 });
+
+test('the files menu and its Delete history dialog read in Korean', async (t) => {
+  const { dom, restore } = installTestDom(null, { html: '<!doctype html><div id="root"></div>' });
+  const files = [{ path: 'a.ts', status: 'M', additions: 1, deletions: 0 }];
+  dom.window.mixdogDesktop = {
+    setTitleBarDimmed() {},
+    invokeCapability: async ({ capability }) => ({
+      value:
+        capability === 'getSessionReviewDiff'
+          ? { supported: true, authoritative: true, complete: true, patch: '', files, uncommittedFiles: files, historyTurns: 12 }
+          : { supported: true, files: [], patch: '', agents: [] },
+    }),
+  };
+  await i18n.changeLanguage('ko');
+  const root = createRoot(dom.window.document.getElementById('root'));
+  t.after(async () => {
+    await act(async () => root.unmount());
+    await i18n.changeLanguage('en');
+    restore();
+  });
+  await act(async () => {
+    root.render(
+      React.createElement(TurnReviewBar, {
+        variant: 'segment',
+        items: [],
+        sessionId: 'ko-files',
+        active: true,
+        onOpenChanges() {},
+      })
+    );
+  });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const document = dom.window.document;
+  await act(async () => document.querySelector('.turn-review-segment').click());
+  const items = [...document.querySelectorAll('.turn-review-files-menu [role="menuitem"]')];
+  assert.deepEqual(
+    items.map((item) => item.textContent),
+    ['변경 사항 보기', '기록 삭제']
+  );
+  await act(async () => items[1].click());
+  const dialog = document.querySelector('.settings-confirm-dialog');
+  assert.equal(dialog.querySelector('h3').textContent, '이 세션의 변경 기록을 삭제할까요?');
+  assert.equal(
+    dialog.querySelector('p').textContent,
+    '저장된 12개 턴의 변경 내역과 되돌리기·다시 적용이 영구 삭제됩니다. 현재 파일, 대화, Git 기록은 그대로입니다.'
+  );
+  assert.deepEqual(
+    [...dialog.querySelectorAll('footer button')].map((button) => button.textContent),
+    ['취소', '기록 삭제']
+  );
+});

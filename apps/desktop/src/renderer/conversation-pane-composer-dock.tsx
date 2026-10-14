@@ -173,8 +173,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
       goalSubmissionId={submission.goalSubmissionId}
       approval={island.approval}
       islandFlash={island.islandFlash}
-      modelMismatch={island.modelMismatch}
-      quotaExhausted={island.quotaExhausted}
+      quotaCard={island.quotaCard}
       quotaResume={island.quotaResume}
       onOpenSessionDiff={onOpenSessionDiff}
       onOpenAgentSession={onOpenAgentSession}

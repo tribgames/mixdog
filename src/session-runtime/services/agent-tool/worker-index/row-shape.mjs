@@ -2,7 +2,7 @@
 // The one row shape of the worker index: coercing whatever a stored file or a
 // caller hands in, and projecting a live session into a row.
 import { agentTagOf, clean, positiveInt } from '../helpers.mjs';
-import { isLeadPoolAgent } from '../worker-rows.mjs';
+import { isLeadPoolAgent, workerStageForStatus } from '../worker-rows.mjs';
 
 /** An explicit boolean wins; otherwise the session's own fast flag (true) or unknown. */
 function fastFlag(explicit, sessionFast) {
@@ -72,7 +72,7 @@ export function workerRowFromSession(session, fallbackTag = '', extra = {}, getS
   if (!tag || !sessionId) return null;
   const runtime = getSessionRuntime(sessionId);
   const status = clean(extra.status) || (session?.closed === true ? 'closed' : clean(session?.status) || 'idle');
-  const stage = clean(extra.stage) || clean(runtime?.stage) || status;
+  const stage = clean(extra.stage) || workerStageForStatus(status, runtime?.stage);
   const nowIso = new Date().toISOString();
   return {
     tag,

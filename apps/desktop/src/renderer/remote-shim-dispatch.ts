@@ -49,6 +49,12 @@ function readRemoteBrowserStreamFrame(value: unknown): DesktopRemoteBrowserStrea
     if (!image || (image.mimeType !== 'image/jpeg' && image.mimeType !== 'image/png')) return null;
     if (typeof image.data !== 'string') return null;
   }
+  if (frame.dialog !== undefined) {
+    const dialog = frame.dialog as { id?: unknown; type?: unknown; message?: unknown; defaultPrompt?: unknown };
+    if (!dialog || typeof dialog.id !== 'string' || typeof dialog.type !== 'string') return null;
+    if (typeof dialog.message !== 'string') return null;
+    if (dialog.defaultPrompt !== undefined && typeof dialog.defaultPrompt !== 'string') return null;
+  }
   return frame as DesktopRemoteBrowserStreamFrame;
 }
 

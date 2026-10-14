@@ -301,7 +301,10 @@ export class BrowserNetworkLedger {
     const requests = [...this.#requests.values()];
     for (let index = requests.length - 1; index >= 0; index -= 1) {
       const request = requests[index];
-      if (request.resourceType !== 'document' || request.status === undefined) continue;
+      // Only the page's own target: a viewer frame in a child target loads
+      // the same address again as its own document.
+      if (request.sessionId !== undefined || request.resourceType !== 'document' || request.status === undefined)
+        continue;
       if (withoutFragment(request.url) !== wanted) continue;
       return { status: request.status, statusText: request.statusText, mimeType: request.mimeType };
     }

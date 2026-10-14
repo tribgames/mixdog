@@ -11,6 +11,7 @@
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { fileMtimeMs, normalizeExpiresAtMs, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 import { OpenAICompatProvider, preloadOpenAICompatRuntime } from './openai-compat.mjs';
+import { COMPAT_RETRY_POLICY } from './openai-compat-retry-profile.mjs';
 import { listCompatModels } from './openai-compat-models.mjs';
 import { AnthropicProvider } from './anthropic.mjs';
 import { toInclusiveOpenCodeGoUsage as toInclusiveUsage } from './opencode-go.mjs';
@@ -242,6 +243,8 @@ export class CommandCodeOAuthProvider {
   // OpenAI-compatible usage: prompt_tokens includes cached. See registry.mjs.
   static inputExcludesCache = false;
   name = PROVIDER_ID;
+  // The retry profile's limits are final: no loop-level recovery cycles on top.
+  retryPolicy = COMPAT_RETRY_POLICY;
   config;
   tokens = null;
   _inner = null;

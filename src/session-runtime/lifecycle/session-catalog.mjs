@@ -93,6 +93,8 @@ function leadSessionRow(s, heartbeatMtimes) {
     // sessions under the sidebar Automations section instead of Recent.
     sourceType: sourceType || null,
     sourceName: clean(s.sourceName || '') || null,
+    createdAt: Number(s.createdAt) || 0,
+    inheritedFromSessionId: clean(s.inheritedFromSessionId || '') || null,
   };
 }
 

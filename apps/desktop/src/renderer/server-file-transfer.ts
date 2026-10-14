@@ -31,14 +31,6 @@ const MB = 1024 * 1024;
 
 export { serverUploadScope } from '../shared/server-files';
 
-/** Absolute server path of a project entry (servers use POSIX paths). */
-export function serverFilePath(projectPath: string, relPath: string): string {
-  const root = projectPath.replace(/\/+$/, '') || '/';
-  const rel = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
-  if (!rel || rel === '.') return root;
-  return root === '/' ? `/${rel}` : `${root}/${rel}`;
-}
-
 /** Why `file` cannot be uploaded, or '' when it can. */
 export function serverUploadRefusal(file: Pick<File, 'name' | 'size'>): string {
   const name = file.name || t('Pasted file');

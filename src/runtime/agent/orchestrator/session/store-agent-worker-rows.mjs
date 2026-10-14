@@ -106,13 +106,25 @@ function agentStatusValues(row) {
     .filter((status, index, values) => Boolean(status) && values.indexOf(status) === index);
 }
 
+/** The worker's lifecycle. `status` decides; `stage` is only the runtime phase
+ *  copied in by the progress sweep, so mid-work it may read idle/done/error
+ *  beside a worker that is still running. Only a row with no status falls
+ *  back to its stage. */
+function workerLifecycle(row) {
+  return cleanValue(row?.status) || cleanValue(row?.stage);
+}
+
 function activeAgentWorker(row) {
-  const statuses = agentStatusValues(row);
-  return (
-    statuses.length > 0 &&
-    !statuses.some((status) => DEAD_AGENT_STATUS.test(status)) &&
-    statuses.some((status) => LIVING_AGENT_STATUS.test(status))
-  );
+  // A cancel in either field ends the work (bare `cancelling` is still work).
+  if (
+    agentStatusValues(row).some(
+      (status) => CANCELLED_AGENT_STATUS.test(status) || CANCEL_UNCONFIRMED_AGENT_STATUS.test(status)
+    )
+  ) {
+    return false;
+  }
+  const lifecycle = workerLifecycle(row);
+  return Boolean(lifecycle) && !DEAD_AGENT_STATUS.test(lifecycle) && LIVING_AGENT_STATUS.test(lifecycle);
 }
 
 function stampMs(value) {
@@ -287,7 +299,7 @@ const withinPoolWindow = (at, now) => at > 0 && now - at <= AGENT_POOL_HEARTBEAT
  *  a working status whose own stamp is still inside the pool window. */
 function poolRowWorking(row, heartbeatMtimes, now) {
   if (withinPoolWindow(heartbeatMtimes.get(cleanValue(row?.sessionId)) || 0, now)) return true;
-  if (!WORKING_AGENT_STATUS.test(cleanValue(row?.stage || row?.status))) return false;
+  if (!WORKING_AGENT_STATUS.test(workerLifecycle(row))) return false;
   return withinPoolWindow(Date.parse(cleanValue(row?.updatedAt)) || 0, now);
 }
 
@@ -307,7 +319,7 @@ function projectChildWorkerRow(row, { now, heartbeatMtimes }) {
   const session = readWorkerSessionHeader(sessionId);
   const declaredStatus = cleanValue(row.status) || 'running';
   const declaredStage = cleanValue(row.stage || row.status) || 'running';
-  const declaredWorking = WORKING_AGENT_STATUS.test(declaredStatus) || WORKING_AGENT_STATUS.test(declaredStage);
+  const declaredWorking = WORKING_AGENT_STATUS.test(workerLifecycle(row) || 'running');
   const heartbeatFresh = withinPoolWindow(heartbeatMtimes.get(sessionId) || 0, now);
   const recentlyUpdated = withinPoolWindow(Date.parse(cleanValue(row.updatedAt)) || 0, now);
   const runtimePid = positiveNumber(row.runtimePid, 0);
@@ -414,7 +426,7 @@ function promoteHeartbeatSidecar(bySessionId, sessionId, heartbeatAt) {
     bySessionId.set(sessionId, sidecarWorkerRow(current, session, { ...identity, status: cancel.status }));
     return;
   }
-  const currentStatus = cleanValue(current.stage || current.status);
+  const currentStatus = workerLifecycle(current);
   if (currentStatus && !WORKING_AGENT_STATUS.test(currentStatus)) return;
   // The sidecar is the live lease. Durable child sessions are intentionally
   // detached/closed while their external owner runs.
@@ -452,7 +464,7 @@ function projectLeadWorkerRow(row, { now, heartbeatMtimes }) {
   const heartbeatAt = heartbeatMtimes.get(sessionId) || 0;
   const heartbeatFresh = withinPoolWindow(heartbeatAt, now);
   const recentlyUpdated = withinPoolWindow(Date.parse(cleanValue(row.updatedAt)) || 0, now);
-  const declaredStatus = cleanValue(row.stage || row.status) || 'idle';
+  const declaredStatus = workerLifecycle(row) || 'idle';
   const working = WORKING_AGENT_STATUS.test(declaredStatus) && (heartbeatFresh || recentlyUpdated);
   const reapAt = Date.parse(cleanValue(row.reapAt)) || 0;
   if (!heartbeatFresh && reapAt > 0 && now >= reapAt) return null;

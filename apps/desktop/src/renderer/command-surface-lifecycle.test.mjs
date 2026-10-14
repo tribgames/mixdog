@@ -580,7 +580,7 @@ test('inherit blocked reasons evaluate conditions in deterministic sequence', ()
 test('command surface titles match supported slash command surfaces', () => {
   assert.equal(commandSurfaceTitle('context'), t('Context'));
   assert.equal(commandSurfaceTitle('doctor'), t('Doctor'));
-  assert.equal(commandSurfaceTitle('inherit'), t('Inherit session'));
+  assert.equal(commandSurfaceTitle('inherit'), t('Fork session'));
   assert.equal(commandSurfaceTitle('stats'), t('Usage'));
 });
 

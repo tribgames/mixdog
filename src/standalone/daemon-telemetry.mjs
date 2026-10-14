@@ -93,6 +93,52 @@ export function collectDaemonTelemetry({
   };
 }
 
+/**
+ * Tracks the smallest heapUsed observed right after a major GC (mark-sweep-
+ * compact) — the retained-set size, which heapUsed at an arbitrary instant
+ * hides. Sampled per telemetry interval; no per-GC logging. Returns null when
+ * PerformanceObserver is unavailable.
+ */
+export function createPostGcHeapTracker({
+  heapUsed = () => v8.getHeapStatistics().used_heap_size,
+  observe = (onGc) => {
+    const obs = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) onGc(entry);
+    });
+    obs.observe({ entryTypes: ['gc'] });
+    return () => obs.disconnect();
+  },
+} = {}) {
+  let min = -1;
+  let disconnect = null;
+  try {
+    disconnect = observe((entry) => {
+      // NODE_PERFORMANCE_GC_MAJOR = 4 (older Node: entry.kind); newer: entry.detail.kind.
+      const kind = entry?.detail?.kind ?? entry?.kind;
+      if (kind !== 4) return;
+      const used = byteCount(heapUsed());
+      if (used >= 0 && (min < 0 || used < min)) min = used;
+    });
+  } catch {
+    return null;
+  }
+  return {
+    /** Min post-major-GC heap since the last take; -1 when none ran. */
+    take() {
+      const value = min;
+      min = -1;
+      return value;
+    },
+    stop() {
+      try {
+        disconnect?.();
+      } catch {
+        /* already gone */
+      }
+    },
+  };
+}
+
 export function formatDaemonTelemetry(record, reason = 'periodic') {
   const row = record && typeof record === 'object' ? record : collectDaemonTelemetry();
   return [
@@ -110,6 +156,8 @@ export function formatDaemonTelemetry(record, reason = 'periodic') {
     `queuedCalls=${row.queuedCalls}`,
     `busySessions=${row.busySessions}`,
     `busyMemoryAgents=${row.busyMemoryAgents}`,
+    // Present only when a major GC ran since the previous line.
+    ...(byteCount(row.postGcHeapMinBytes) >= 0 ? [`postGcHeapMinBytes=${row.postGcHeapMinBytes}`] : []),
   ].join(' ');
 }
 
@@ -123,8 +171,10 @@ export function createDaemonTelemetry({
   heapStatistics,
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
+  createGcTracker = createPostGcHeapTracker,
 } = {}) {
   let timer = null;
+  let gcTracker = null;
 
   function emit(reason = 'periodic') {
     try {
@@ -141,6 +191,8 @@ export function createDaemonTelemetry({
         heapStatistics,
         work,
       });
+      const postGc = gcTracker?.take() ?? -1;
+      if (postGc >= 0) record.postGcHeapMinBytes = postGc;
       log(formatDaemonTelemetry(record, reason));
       return record;
     } catch {
@@ -159,6 +211,7 @@ export function createDaemonTelemetry({
 
   function start(intervalMs = DAEMON_TELEMETRY_INTERVAL_MS) {
     if (timer) return timer;
+    gcTracker ??= createGcTracker();
     const delay = Number(intervalMs);
     const ms = Number.isFinite(delay) && delay > 0 ? delay : DAEMON_TELEMETRY_INTERVAL_MS;
     const handle = setIntervalFn(() => {
@@ -174,6 +227,8 @@ export function createDaemonTelemetry({
     if (!timer) return;
     clearIntervalFn(timer);
     timer = null;
+    gcTracker?.stop();
+    gcTracker = null;
   }
 
   return { emit, start, stop };

@@ -6,7 +6,7 @@
  * the shared runtime formatter so L2 matches TUI/desktop cards.
  */
 import { colorEnabled, rgb, rgbSgr } from './ansi.mjs';
-import { displayModelName, shortenModelName } from '../model-display.mjs';
+import { displayModelName, effortDisplayLabel, shortenModelName } from '../model-display.mjs';
 import { getModelMetadataSync } from '../llm/model-catalog.mjs';
 import { contextMeasurementLabel } from '../context-measurement.mjs';
 import { formatElapsed } from '../time-format.mjs';
@@ -44,14 +44,14 @@ export function modelContextWindow(provider, model, explicitContextWindow = 0) {
   return FALLBACK_CONTEXT_WINDOW;
 }
 
-export function formatModelSegment({ provider, model, effort, fast, cols }) {
+export function formatModelSegment({ provider, model, effort, fast, ultra, cols }) {
   const raw = String(model || '').trim();
   const meta = getModelMetadataSync(raw, provider) || {};
   const displayHint = String(meta.displayName || meta.display || meta.name || '').trim();
   const modelName = shortenModelName(displayModelName(raw, provider, displayHint), cols);
   const bits = [`${B}${modelName}${R}`];
-  if (effort) bits.push(`${B}${String(effort).toUpperCase()}${R}`);
-  if (fast === true) bits.push(`${B}FAST${R}`);
+  if (effort) bits.push(`${B}${effortDisplayLabel(effort)}${R}`);
+  if (fast === true) bits.push(`${B}${ultra === true ? 'Ultrafast' : 'Fast'}${R}`);
   return bits.join(` ${D}·${R} `);
 }
 

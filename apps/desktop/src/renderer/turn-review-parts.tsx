@@ -4,6 +4,7 @@ import { t } from './i18n';
 import { errorMessageText } from './ErrorNotice';
 import { GitDiffBody } from './ReviewPane';
 import { IslandSegLabel } from './ComposerIsland';
+import { TurnReviewFilesMenu } from './turn-review-files-menu';
 import { statusLabel, statusCode, type TurnReviewFileEntry, type TurnReviewSummary } from './turn-review-model';
 
 type HeadlineStats = { hasLineStats: boolean; additions: number; deletions: number };
@@ -99,28 +100,31 @@ export function turnReviewHead({
   );
 }
 
-/** The island's collapsed "Files N +a −b" segment. */
+/** The island's collapsed "Files N +a −b" segment: a menu of View changes
+ *  (the side dock's session diff, or the island tab's file list) and Delete
+ *  history. */
 export function turnReviewSegment({
   fileCount,
   headlineStats,
-  islandTab,
   onOpenChanges,
   setExpanded,
+  sessionId,
+  historyTurns,
 }: {
   fileCount: number;
   headlineStats: HeadlineStats;
-  islandTab: boolean;
   onOpenChanges: (() => void) | undefined;
   setExpanded: Dispatch<SetStateAction<boolean>>;
+  sessionId: string | undefined;
+  historyTurns: number;
 }) {
   return (
-    <button
-      type="button"
-      className="composer-island-seg turn-review-segment"
-      aria-label={t('Files changed this session')}
+    <TurnReviewFilesMenu
+      sessionId={sessionId}
+      historyTurns={historyTurns}
+      label={t('Files changed this session')}
       title={t('Files {{count}}', { count: fileCount })}
-      aria-expanded={islandTab ? false : undefined}
-      onClick={onOpenChanges ?? (() => setExpanded(true))}
+      onViewChanges={onOpenChanges ?? (() => setExpanded(true))}
     >
       <IslandSegLabel text={t('Island: {{count}} files', { count: fileCount })} count={fileCount} icon="file-diff" />
       {headlineStats.hasLineStats && (
@@ -130,7 +134,7 @@ export function turnReviewSegment({
           {headlineStats.deletions > 0 && <em>−{headlineStats.deletions}</em>}
         </span>
       )}
-    </button>
+    </TurnReviewFilesMenu>
   );
 }
 

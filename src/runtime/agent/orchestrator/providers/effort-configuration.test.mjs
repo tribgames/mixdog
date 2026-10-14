@@ -31,14 +31,26 @@ test('effort updates follow the verified first version of each family and every 
     'claude-sonnet-5-0',
     'claude-haiku-4-5',
     'claude-fable-5',
-    'claude-newfamily-9',
+    'claude-newfamily-4',
+    'claude-instant-1-2',
   ]) {
     assert.equal(anthropic(model), null, model);
   }
   const openai = (model) => effortConfigurationMode('openai', model);
-  for (const model of ['gpt-6-sol', 'gpt-6.1-sol', 'gpt-6.2-luna', 'gpt-7', 'gpt-7-astra'])
+  for (const model of ['gpt-6-sol', 'gpt-6.1-sol', 'gpt-6.2-luna', 'gpt-7', 'gpt-7-astra', 'gpt-8-nova-mini', 'gpt-12'])
     assert.equal(openai(model), 'responses', model);
-  for (const model of ['gpt-5.6-sol', 'gpt-5.5', 'o4-mini']) assert.equal(openai(model), null, model);
+  for (const model of ['gpt-5.6-sol', 'gpt-5.5', 'o4-mini', 'gpt-oss-120b']) assert.equal(openai(model), null, model);
+});
+
+test('a family no one has measured yet is tried on the route that replays a rejection, and only there', () => {
+  // No code names the family: from the earliest checked major on, the oauth
+  // route sends the update and the rejection replay switches it off if refused.
+  assert.equal(effortConfigurationMode('anthropic-oauth', 'claude-newfamily-9'), 'anthropic');
+  assert.equal(effortConfigurationMode('anthropic-oauth', 'claude-newfamily-5-3-20270101'), 'anthropic');
+  // The direct API cannot recover from a rejected update, so it stays off.
+  assert.equal(effortConfigurationMode('anthropic', 'claude-newfamily-9'), null);
+  // Known families keep their measured floor on both routes.
+  assert.equal(effortConfigurationMode('anthropic-oauth', 'claude-sonnet-5'), null);
 });
 
 test('a model that rejects the effort update is replayed once without it and switched off', async () => {

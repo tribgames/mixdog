@@ -9,6 +9,11 @@
 import { appendFileSync, chmodSync } from 'node:fs';
 import { errText } from '../../../shared/err-text.mjs';
 import { _cfCookieCapture, _formatRedactedHeaders } from './openai-ws-headers.mjs';
+import { httpResponseError } from './openai-error-contract.mjs';
+
+// Enough of the handshake body to parse a typed JSON error; diagnostics are
+// truncated separately by the error message.
+const HANDSHAKE_BODY_LIMIT = 16 * 1024;
 
 /** CF cookie jar refresh plus the opt-in upgrade-header dump. */
 export function captureHandshakeUpgrade(auth, res) {
@@ -85,7 +90,7 @@ export function attachHandshakeFailureHandlers({ socket, errLabel, openStart, is
     const status = res?.statusCode || 0;
     let body = '';
     res.on('data', (c) => {
-      if (body.length < 2048) body += c.toString('utf-8');
+      if (body.length < HANDSHAKE_BODY_LIMIT) body += c.toString('utf-8');
     });
     res.on('end', () => {
       if (process.env.MIXDOG_DEBUG_AGENT) {
@@ -96,13 +101,16 @@ export function attachHandshakeFailureHandlers({ socket, errLabel, openStart, is
       try {
         socket.terminate();
       } catch {}
-      settle(
-        false,
-        Object.assign(new Error(`${errLabel} handshake ${status}: ${body.slice(0, 200)}`), {
-          httpStatus: status,
-          httpBody: body,
-        })
-      );
+      // Status, headers and the parsed body ride on the error; only the
+      // message is truncated.
+      const err = httpResponseError({
+        label: `${errLabel} handshake`,
+        status,
+        headers: res.headers,
+        text: body,
+      });
+      err.httpBody = body;
+      settle(false, err);
     });
   });
 }

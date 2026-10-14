@@ -286,7 +286,9 @@ function mergeRestoredToolItems(items) {
 }
 
 function restoredMessageItemUpperBound(message) {
-  const boundaries = Array.isArray(message?.meta?.sessionInheritances) ? message.meta.sessionInheritances.length : 0;
+  const boundaries =
+    (Array.isArray(message?.meta?.sessionInheritances) ? message.meta.sessionInheritances.length : 0) +
+    (Array.isArray(message?.meta?.modelSwitches) ? message.meta.modelSwitches.length : 0);
   if (message?.role === 'user') return 1 + boundaries;
   if (message?.role !== 'assistant') return boundaries;
   const calls = restoredMessageToolCalls(message);
@@ -377,6 +379,19 @@ function restoredUserTranscriptItems(message, nextId) {
   return [restoredNotificationToolItem(synthetic, text, message, nextId, /^(failed|error|killed|cancelled)$/i)];
 }
 
+/** The transcript row of an in-place model switch (live and restored). */
+export function modelSwitchItem(id, boundary) {
+  return {
+    kind: 'statusdone',
+    id,
+    status: 'model-switched',
+    label: 'Model switched',
+    provider: boundary.provider,
+    modelId: boundary.modelId,
+    at: boundary.at,
+  };
+}
+
 function restoreTranscriptRange(messages, start, sessionId) {
   const items = [];
   const pendingToolCalls = new Map();
@@ -407,6 +422,10 @@ function restoreTranscriptRange(messages, start, sessionId) {
         modelId: boundary.modelId,
         at: boundary.at,
       });
+    }
+    for (const boundary of Array.isArray(message?.meta?.modelSwitches) ? message.meta.modelSwitches : []) {
+      if (!boundary?.provider || !boundary?.modelId) continue;
+      items.push(modelSwitchItem(restoredId(), boundary));
     }
   }
   return mergeRestoredToolItems(items);

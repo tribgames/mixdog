@@ -58,6 +58,38 @@ test('a completion queued during a turn drains even when no release edge reaches
   assert.equal(f.turns.length, 1, 'an empty queue stops the re-check');
 });
 
+test('a command that takes the lock while a turn settles runs before the next queued turn starts', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  assert.equal(f.flow.enqueue('first', { id: 'p1' }), true);
+  assert.equal(f.flow.enqueue('second', { id: 'p2' }), true);
+  // The first turn's settlement lets an in-place model switch take the lock
+  // (its pre-compaction is still pending when the turn returns).
+  const record = f.turns.push.bind(f.turns);
+  f.turns.push = (entry) => {
+    if (f.turns.length === 0) f.state.commandBusy = true;
+    return record(entry);
+  };
+  f.state.busy = false;
+  t.mock.timers.tick(2_000);
+  await tick();
+  await tick();
+  assert.equal(f.turns.length, 1);
+  assert.equal(String(f.turns[0].content), 'first');
+
+  t.mock.timers.tick(10_000);
+  await tick();
+  assert.equal(f.turns.length, 1, 'no turn starts while the switch holds the lock');
+  assert.equal(f.pending.length, 1);
+
+  f.state.commandBusy = false;
+  t.mock.timers.tick(10_000);
+  await tick();
+  await tick();
+  assert.equal(f.turns.length, 2);
+  assert.equal(String(f.turns[1].content), 'second');
+});
+
 test('a drained prompt row is attributed to the device that submitted it', async () => {
   const f = fixture({ busy: false });
   assert.equal(f.flow.enqueue('from the phone', { id: 'p1', transcriptMeta: { device: 'Pixel' } }), true);

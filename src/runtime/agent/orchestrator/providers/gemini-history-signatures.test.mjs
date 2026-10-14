@@ -59,10 +59,10 @@ test('native Gemini signatures and unsigned parallel siblings replay unchanged',
   );
 });
 
-test('signature repair does not change earlier turns or Gemini 2.5 history', () => {
+test('signature repair does not change earlier turns or non-Gemini histories', () => {
   const history = foreignHistory();
   for (const contents of [
-    toGeminiContents(history, 'gemini-2.5-pro'),
+    toGeminiContents(history, 'claude-opus-4-6-thinking'),
     toGeminiContents([...history, { role: 'user', content: 'New turn.' }], 'gemini-3.1-pro'),
     buildAntigravityRequest(
       [...history, { role: 'user', content: 'New turn.' }],
@@ -73,6 +73,16 @@ test('signature repair does not change earlier turns or Gemini 2.5 history', () 
     ).request.contents,
   ]) {
     assert.equal(contents.find((content) => content.role === 'model').parts[0].thoughtSignature, undefined);
+  }
+});
+
+test('the first foreign tool call is repaired for any Gemini id, including ones released later', () => {
+  for (const model of ['gemini-2.5-pro', 'gemini-4-argon', 'models/gemini-12-future']) {
+    const parts = toGeminiContents(foreignHistory(), model)
+      .find((content) => content.role === 'model')
+      .parts.filter((part) => part.functionCall);
+    assert.equal(parts[0].thoughtSignature, 'skip_thought_signature_validator', model);
+    assert.equal(parts[1].thoughtSignature, undefined, model);
   }
 });
 

@@ -786,9 +786,9 @@ function guardShell(a) {
   }
   // Over-max is an unambiguous "wait as long as allowed"; clamp like the other
   // saturating integer args instead of failing the call.
-  if (hasOwn(a, 'wait_ms') && Number.isInteger(a.wait_ms) && a.wait_ms > 120000) a.wait_ms = 120000;
+  if (hasOwn(a, 'wait_ms') && Number.isInteger(a.wait_ms) && a.wait_ms > 30000) a.wait_ms = 30000;
   if (hasOwn(a, 'wait_ms') && (!Number.isInteger(a.wait_ms) || a.wait_ms < 1000)) {
-    return `Error: shell arg "wait_ms" must be an integer from 15000 to 120000, e.g. wait_ms:30000 (got ${JSON.stringify(a.wait_ms)})`;
+    return `Error: shell arg "wait_ms" must be an integer from 10000 to 30000, e.g. wait_ms:20000 (got ${JSON.stringify(a.wait_ms)})`;
   }
   if (!hasOwn(a, 'command')) {
     return 'Error: shell requires "command"';

@@ -132,6 +132,17 @@ export function providerCatalogEntry(provider) {
   };
 }
 
+/** models.dev ids of the registered non-relay providers: vendors that serve their own models. */
+export function firstPartyModelsDevIds() {
+  return [
+    ...new Set(
+      Object.values(PROVIDER_CATALOGS)
+        .filter((entry) => entry.relay !== true && entry.modelsDev)
+        .map((entry) => entry.modelsDev)
+    ),
+  ].sort();
+}
+
 export function modelsDevProviderId(provider) {
   return providerCatalogEntry(provider)?.modelsDev || null;
 }

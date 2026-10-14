@@ -89,7 +89,7 @@ test('original inheritance is the default and passes { compact: false }', async 
   assert.equal(radios[0].checked, true);
   assert.equal(radios[0].disabled, false);
   const primary = host.querySelector('.inherit-surface-actions > button:not(.inherit-surface-cancel)');
-  assert.equal(primary.textContent, 'Continue session');
+  assert.equal(primary.textContent, 'Fork session');
   await act(async () => primary.click());
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], 'source');
@@ -103,7 +103,7 @@ test('choosing compact relabels the button and passes { compact: true }', async 
   const host = await mount(t, { onInherit: async (...args) => calls.push(args) });
   await act(async () => host.querySelectorAll('input[type="radio"]')[1].click());
   const primary = host.querySelector('.inherit-surface-actions > button:not(.inherit-surface-cancel)');
-  assert.equal(primary.textContent, 'Summarize and continue');
+  assert.equal(primary.textContent, 'Summarize and fork');
   await act(async () => primary.click());
   assert.deepEqual(calls[0][2], { compact: true });
 });
@@ -119,7 +119,7 @@ test('a conversation the model cannot hold disables original inheritance and sel
   assert.match(host.textContent, /does not fit this model/);
   assert.equal(host.querySelector('dd[data-tone="danger"]').textContent, '142%');
   const primary = host.querySelector('.inherit-surface-actions > button:not(.inherit-surface-cancel)');
-  assert.equal(primary.textContent, 'Summarize and continue');
+  assert.equal(primary.textContent, 'Summarize and fork');
   await act(async () => primary.click());
   assert.deepEqual(calls[0][2], { compact: true });
 });

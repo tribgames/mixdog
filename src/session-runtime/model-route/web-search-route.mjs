@@ -62,7 +62,7 @@ export function createWebSearchRouteApi(deps) {
     await awaitKeychainPrewarm();
     ensureFullConfig();
     await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
-    const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
+    const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model, { allowFetch: true });
     if (!webSearchCapableFor(selectedRoute.provider, modelMeta)) {
       throw new Error(`model "${selectedRoute.model}" is not marked as web-search capable`);
     }

@@ -221,6 +221,7 @@ export class SessionHost implements DesktopService {
         }
       },
       resolveSessionWorkspace: (path) => this.resolveSessionWorkspace(path),
+      sessionProjectPath: (session) => this.projects.sessionProjectPath(session),
       projectDirectory: (path) => this.projectDirectory(path),
       openHints: (sessionId) => this.openHints(sessionId),
       readSession: (sessionId, forceFull, publish, readTraceId, page) =>
@@ -788,7 +789,9 @@ export class SessionHost implements DesktopService {
       } finally {
         try {
           await this.sessionClient.close('service host disposed');
-        } catch {}
+        } catch {
+          // Best-effort close: disposal continues regardless.
+        }
         this.publication.clearProjections();
         this.visibleSessionIds.clear();
         this.visibleSessionSources.clear();

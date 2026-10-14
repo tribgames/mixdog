@@ -208,7 +208,8 @@ function _stalenessFamily(row, id) {
   const modelId = String(id || row?.id || row?.name || '')
     .trim()
     .toLowerCase();
-  const claude = modelId.match(/(?:^|\/)claude-(opus|sonnet|haiku|fable)(?:-|$)/);
+  // Claude ids name their family right after the brand (`claude-<family>-<version>`).
+  const claude = modelId.match(/(?:^|\/)claude-([a-z]+)(?:-|$)/);
   if (claude) return `claude-${claude[1]}`;
   const family = row && typeof row.family === 'string' ? row.family.trim().toLowerCase() : '';
   return family || null;

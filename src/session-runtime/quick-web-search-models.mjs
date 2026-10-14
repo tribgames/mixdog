@@ -1,41 +1,16 @@
-// Static quick-pick model ids surfaced during onboarding / web-search setup.
-// Limits are intentionally not hardcoded here: rows are hydrated from live
-// provider caches and provider-scoped metadata during catalog construction.
+// Offline quick-pick model rows for onboarding / web-search setup. No model id
+// is listed here: when a provider has no live roster yet, its newest rows come
+// from the provider-scoped public catalog, so a new release appears without a
+// code change. Rows are hydrated further during catalog construction.
+import { getModelsDevProviderModelsSync } from '../runtime/shared/llm/model-catalog.mjs';
 
 export const ONBOARDING_VERSION = 1;
 
-export const QUICK_WEB_SEARCH_MODELS = Object.freeze({
-  'openai-oauth': [
-    { id: 'gpt-6-sol', display: 'GPT-6 Sol', latest: true },
-    { id: 'gpt-6-luna', display: 'GPT-6 Luna', latest: true },
-    { id: 'gpt-5.6-sol', display: 'GPT-5.6 Sol' },
-    { id: 'gpt-5.6-terra', display: 'GPT-5.6 Terra' },
-    { id: 'gpt-5.6-luna', display: 'GPT-5.6 Luna' },
-  ],
-  openai: [
-    { id: 'gpt-5.5', display: 'GPT-5.5', latest: true },
-    { id: 'gpt-5.4', display: 'GPT-5.4', latest: true },
-    { id: 'gpt-5', display: 'GPT-5' },
-    { id: 'gpt-4.1', display: 'GPT-4.1' },
-    { id: 'gpt-4o', display: 'GPT-4o' },
-  ],
-  'grok-oauth': [{ id: 'grok-4.5', display: 'Grok 4.5', latest: true }],
-  xai: [{ id: 'grok-4.5', display: 'Grok 4.5', latest: true }],
-  gemini: [
-    { id: 'gemini-3.6-flash', display: 'Gemini 3.6 Flash', latest: true },
-    { id: 'gemini-3.5-flash-lite', display: 'Gemini 3.5 Flash Lite', latest: true },
-    { id: 'gemini-3.1-pro-preview', display: 'Gemini 3.1 Pro Preview' },
-  ],
-  'anthropic-oauth': [
-    { id: 'claude-opus-5-5', display: 'Claude Opus 5.5', latest: true },
-    { id: 'claude-sonnet-5', display: 'Claude Sonnet 5', latest: true },
-    { id: 'claude-fable-5', display: 'Claude Fable 5', latest: true },
-    { id: 'claude-haiku-4-5-20251001', display: 'Claude Haiku 4.5' },
-  ],
-  anthropic: [
-    { id: 'claude-opus-5-5', display: 'Claude Opus 5.5', latest: true },
-    { id: 'claude-sonnet-5', display: 'Claude Sonnet 5', latest: true },
-    { id: 'claude-fable-5', display: 'Claude Fable 5', latest: true },
-    { id: 'claude-haiku-4-5-20251001', display: 'Claude Haiku 4.5' },
-  ],
-});
+const QUICK_ROWS_PER_PROVIDER = 5;
+
+export function quickWebSearchModels(provider, models = getModelsDevProviderModelsSync(provider)) {
+  return Object.entries(models || {})
+    .map(([id, row]) => ({ id, display: row?.name || id, releaseDate: row?.release_date || null }))
+    .sort((a, b) => (Date.parse(b.releaseDate) || 0) - (Date.parse(a.releaseDate) || 0))
+    .slice(0, QUICK_ROWS_PER_PROVIDER);
+}

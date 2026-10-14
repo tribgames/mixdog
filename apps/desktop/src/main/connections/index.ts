@@ -41,18 +41,3 @@ export { createReattachReport } from './reattach-report';
 export { createServerNotifier, type ServerNotifier } from './server-notifier';
 export { createServerWindowRestore, type ServerWindowRestore } from './window-restore';
 export { forwardConnectionLink, registerConnectionLinkIpc } from './link-ipc';
-
-import type { ConnectionManager } from './contract';
-
-let installedManager: ConnectionManager | null = null;
-
-/** Main's wiring installs the process's one manager at startup. */
-export function installConnectionManager(manager: ConnectionManager): void {
-  installedManager = manager;
-}
-
-/** The process's connection manager (installed by main's startup wiring). */
-export function connectionManager(): ConnectionManager {
-  if (!installedManager) throw new Error('The connection manager is not installed yet.');
-  return installedManager;
-}

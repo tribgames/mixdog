@@ -5,6 +5,7 @@
  * touching the host that produced it.
  */
 import type { BrowserSnapshotElement, BrowserSnapshotPayload } from './accessibility';
+import { type DismissedBrowserDialog, describeDismissedDialog } from './dialog-report';
 import { pageFaultsFirst } from './network';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 import type { BrowserRefSet } from './ref-recovery';
@@ -14,6 +15,7 @@ export { diffSnapshotElements } from './snapshot-diff';
 /** Only what a snapshot report says about the page's live diagnostics. */
 export interface SnapshotDiagnosticsView {
   pendingDialog: { type: string; message: string } | null;
+  dismissedDialog?: DismissedBrowserDialog | null;
   pendingFileChooser?: { mode: string } | null;
   console: {
     recentErrors(limit: number): string[];
@@ -104,11 +106,12 @@ export function formatSnapshot(
     );
   }
   if (documentStatus?.mimeType === 'application/pdf') {
-    // The guest carries no PDF viewer, so the address commits but the page
-    // stays blank. Say what the document is instead of reporting an empty
-    // page the caller would try to click around in.
+    // The user sees the document in Chromium's built-in viewer, but the
+    // viewer is the browser's own component: the page itself has no text or
+    // controls. Say what the document is instead of reporting an empty page
+    // the caller would try to click around in.
     lines.push(
-      'This document is a PDF, which this browser cannot display: the page has no text or controls to act on. ' +
+      "This document is a PDF shown in the browser's built-in viewer: its text and controls are not part of the page. " +
         'Read the file from this URL with a tool that reads files, not the page.'
     );
   }
@@ -207,6 +210,12 @@ function diagnosticsLines(diagnostics: SnapshotDiagnosticsView | undefined, extr
       '',
       `Pending ${diagnostics.pendingDialog.type} dialog: ${JSON.stringify(redactBrowserText(diagnostics.pendingDialog.message))}`
     );
+  }
+  // Said once, like a console error: the page carried on without an answer.
+  const dismissed = diagnostics?.dismissedDialog;
+  if (dismissed && !dismissed.reported) {
+    dismissed.reported = true;
+    lines.push('', describeDismissedDialog(dismissed));
   }
   if (diagnostics?.pendingFileChooser) {
     const multiple = diagnostics.pendingFileChooser.mode === 'selectMultiple';

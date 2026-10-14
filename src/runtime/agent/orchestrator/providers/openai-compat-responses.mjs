@@ -7,6 +7,7 @@
 // turn tool loops keep the model's reasoning chain without server storage.
 
 import { markProviderRecoveryExhausted, withRetry } from './retry-classifier.mjs';
+import { compatRetryOptions, withCompatRetryProfile } from './openai-compat-retry-profile.mjs';
 import { consumeCompatResponsesStream } from './openai-compat-stream.mjs';
 import { getModelMetadataSync } from './model-catalog.mjs';
 import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, createPassthroughSignal } from '../stall-policy.mjs';
@@ -78,7 +79,10 @@ function customEffortProjection(provider, useModel, messages, opts) {
   for (const [message, effort] of projection.updates) {
     const value = wire(effort);
     if (!value) return null;
-    if (value !== current) updates.set(message, (current = value));
+    if (value !== current) {
+      current = value;
+      updates.set(message, value);
+    }
   }
   return { ...projection, initialEffort, effort: current, updates };
 }
@@ -93,7 +97,9 @@ function customEffortProjection(provider, useModel, messages, opts) {
 function customSessionCacheKey(provider, opts) {
   if (!isCustomProviderName(provider.name)) return '';
   const explicit = opts.promptCacheKey || opts.providerCacheKey || opts.session?.promptCacheKey;
-  return normalizeCacheKey(opts.promptCacheScope === 'shared' ? explicit || opts.sessionId : opts.sessionId || explicit);
+  return normalizeCacheKey(
+    opts.promptCacheScope === 'shared' ? explicit || opts.sessionId : opts.sessionId || explicit
+  );
 }
 
 /** The request body: lowered transcript plus the per-turn knobs (output cap,
@@ -135,7 +141,8 @@ function buildCompatResponsesParams({
   // Opt-in per-provider final shaping (a provider passes the hook in its config).
   const hook = provider.config?.responsesParamsHook;
   if (typeof hook === 'function') {
-    const modelInfo = (typeof provider.getCachedModelInfo === 'function' && provider.getCachedModelInfo(useModel)) || null;
+    const modelInfo =
+      (typeof provider.getCachedModelInfo === 'function' && provider.getCachedModelInfo(useModel)) || null;
     hook(params, { useModel, opts, modelInfo });
   }
   return params;
@@ -151,7 +158,7 @@ async function streamCompatResponses({ provider, params, label, signal, opts, he
   const totalSignal = createPassthroughSignal(signal);
   try {
     return await withRetry(
-      async ({ signal: attemptSignal }) => {
+      withCompatRetryProfile(provider.name, async ({ signal: attemptSignal }) => {
         const stream = await withRetry(
           ({ signal: openSignal }) =>
             provider.client.responses.create(params, {
@@ -187,11 +194,12 @@ async function streamCompatResponses({ provider, params, label, signal, opts, he
           }
           throw error;
         }
-      },
+      }),
       {
         signal: totalSignal.signal,
         onRetry: compatStreamRetryReporter(label, opts),
         retry529: opts.retry529,
+        ...compatRetryOptions(provider.name),
       }
     );
   } finally {
@@ -233,8 +241,7 @@ async function sendCompatResponsesOnce(provider, messages, useModel, tools, opts
     // Opt-in: system prompts travel as top-level `instructions`, not input items.
     includeSystem: provider.config?.responsesSystemAsInstructions !== true,
   });
-  const instructions =
-    provider.config?.responsesSystemAsInstructions === true ? xaiSystemInstructions(messages) : '';
+  const instructions = provider.config?.responsesSystemAsInstructions === true ? xaiSystemInstructions(messages) : '';
   const params = buildCompatResponsesParams({
     provider,
     useModel,

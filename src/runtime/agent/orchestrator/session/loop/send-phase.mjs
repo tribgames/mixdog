@@ -8,6 +8,7 @@ import { resolveLiveToolCwd } from './tool-exec.mjs';
 import { notifySkillsApplied, prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
 import { addUsage, usageDeltaEvent } from './usage.mjs';
 import { prepareProviderRequest } from './request-boundary.mjs';
+import { applyStepEffort } from './step-auto-effort.mjs';
 import { projectProviderRequest } from './request-projection.mjs';
 import { traceProviderSend, traceOutputTruncation } from './diagnostics.mjs';
 import { createEagerDispatcher } from '../eager-dispatch.mjs';
@@ -132,6 +133,9 @@ export async function sendProviderRequest(state, round) {
   const sendStartedAt = Date.now();
   const preSendMs = sendStartedAt - round.iterT0;
   const toolResumeMs = state.lastToolBatchEndedAt ? sendStartedAt - state.lastToolBatchEndedAt : null;
+  // The step judgment ran beside opening the iteration; wait for it only up to
+  // its grace, then it rides on this request or on the next.
+  await applyStepEffort(state);
   // Every attempt is built from the live transcript, so a compaction between
   // attempts reaches the provider; a pending image strip only filters it.
   const messageSource = state.imageStrip

@@ -1,4 +1,5 @@
 import { agentTagOf, clean, positiveInt, stampMs } from './helpers.mjs';
+import { ACTIVE_STAGES } from './tool-def.mjs';
 
 import { TAG_TOMBSTONE_TTL_MS, tagTombstoneKey } from '../../../runtime/shared/agent-reap-state.mjs';
 export { TAG_TOMBSTONE_TTL_MS, tagTombstoneKey };
@@ -25,6 +26,22 @@ export function isTerminalWorkerStatus(status) {
   return /^(idle|closed|complete|completed|done|success|fail|failed|error|cancelled|canceled|killed|timeout)$/i.test(
     clean(status)
   );
+}
+
+const WORKING_WORKER_STATUS =
+  /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
+const WORKING_WORKER_STAGES = new Set([...ACTIVE_STAGES, 'resource_wait']);
+
+/** The `stage` to store beside a worker `status`, from a stage read off the
+ *  live runtime. That stage is the runtime's own phase, so mid-work it can say
+ *  `idle`/`done`/`error` (a fresh or just-settled runtime entry) while the
+ *  worker is still running. Stored next to a working status it made a mixed
+ *  row that readers classified as finished, so a working status keeps a
+ *  working stage and falls back to the status itself. */
+export function workerStageForStatus(status, runtimeStage) {
+  const stage = clean(runtimeStage);
+  if (!WORKING_WORKER_STATUS.test(clean(status))) return stage || clean(status);
+  return WORKING_WORKER_STAGES.has(stage.toLowerCase()) ? stage : clean(status);
 }
 
 export function recoverTagTombstoneOwner(row, sessions) {

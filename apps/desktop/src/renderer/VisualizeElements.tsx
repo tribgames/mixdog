@@ -33,12 +33,22 @@ export type PaneReading =
 
 /** Reads the tab's HTML panes through their page scripts and keeps the latest
  *  reading per pane. A page's `ready` triggers a read (a reload or a remote
- *  Run), `refresh` reads again, `highlight` outlines an element. */
-export function useVisualizeInspection({ body, tab }: { body: HTMLElement | null; tab: VisualizeTabView | null }) {
+ *  Run) triggers a read only while `enabled` (the Elements view is open), so a
+ *  closed view costs the page nothing; `refresh` always reads, `highlight`
+ *  outlines an element. Closing the view drops the readings. */
+export function useVisualizeInspection({
+  body,
+  tab,
+  enabled = false,
+}: {
+  body: HTMLElement | null;
+  tab: VisualizeTabView | null;
+  enabled?: boolean;
+}) {
   const [readings, setReadings] = useState<Record<number, PaneReading>>({});
   const open = useRef(new Map<string, { pane: number; source: Window; timer: ReturnType<typeof setTimeout> }>());
-  const live = useRef({ body, tab });
-  live.current = { body, tab };
+  const live = useRef({ body, tab, enabled });
+  live.current = { body, tab, enabled };
   const tabKey = tab ? `${tab.id}:${tab.revision}:${tab.panes.length}` : '';
 
   const frameOf = useCallback((index: number): HTMLIFrameElement | null => {
@@ -91,9 +101,7 @@ export function useVisualizeInspection({ body, tab }: { body: HTMLElement | null
     });
   }, [read]);
 
-  // A different tab, or a reloaded one, starts over.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: tabKey is the reset trigger
-  useEffect(() => {
+  const reset = useCallback(() => {
     setReadings({});
     for (const request of open.current.values()) clearTimeout(request.timer);
     open.current.clear();
@@ -102,7 +110,16 @@ export function useVisualizeInspection({ body, tab }: { body: HTMLElement | null
     for (const timer of readyTimers.current.values()) clearTimeout(timer);
     readyTimers.current.clear();
     emptyRetries.current.clear();
-  }, [tabKey]);
+  }, []);
+
+  // A different tab, or a reloaded one, starts over.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tabKey is the reset trigger
+  useEffect(() => reset(), [tabKey, reset]);
+  // Closing the view cancels pending reads and drops the readings; opening it
+  // keeps the read its `refresh` just asked for.
+  useEffect(() => {
+    if (!enabled) reset();
+  }, [enabled, reset]);
 
   useEffect(() => {
     if (!body) return;
@@ -110,6 +127,7 @@ export function useVisualizeInspection({ body, tab }: { body: HTMLElement | null
       const message = visualizeFeedbackPageMessage(event.data);
       if (!message || !event.source) return;
       if (message.type === 'ready') {
+        if (!live.current.enabled) return;
         for (const cell of body.querySelectorAll<HTMLElement>('[data-visualize-pane]')) {
           if (cell.querySelector('iframe')?.contentWindow !== event.source) continue;
           const index = Number(cell.dataset.visualizePane);

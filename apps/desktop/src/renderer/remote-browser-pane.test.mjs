@@ -381,6 +381,59 @@ test('a document change applies metadata at once and drops input for the old doc
   }
 });
 
+test('after a resize input is refused, not mis-mapped, until pixels at the new size arrive; the old image stays', async () => {
+  const state = fakeApi();
+  const pane = await mount();
+  try {
+    const content = await showFrame(state);
+    const src = document.querySelector('.browser-remote-content img').getAttribute('src');
+    const click = () =>
+      act(async () => {
+        content.dispatchEvent(pointerEvent('pointerdown', { clientX: 50, clientY: 25, button: 0, buttons: 1 }));
+        content.dispatchEvent(pointerEvent('pointerup', { clientX: 50, clientY: 25, button: 0, buttons: 0 }));
+        content.dispatchEvent(
+          new window.WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: 50, clientY: 25, deltaY: 40 })
+        );
+      });
+    const pageInput = () =>
+      state.controls.map(({ input }) => input).filter((input) => input.type === 'pointer' || input.type === 'wheel');
+
+    // The host resized the page: its facts describe no picture yet (0×0).
+    await act(async () =>
+      state.listener(streamFrame({ seq: 2, image: undefined, width: 0, height: 0, viewportWidth: 0, viewportHeight: 0 }))
+    );
+    await flush();
+    assert.equal(document.querySelector('.browser-remote-content img').getAttribute('src'), src, 'the old image stays');
+    state.controls.length = 0;
+    await click();
+    await flush();
+    assert.deepEqual(pageInput(), [], 'no click or scroll is mapped through the old geometry');
+
+    // Facts that describe a picture of another size than the one shown refuse input too.
+    await act(async () => state.listener(streamFrame({ seq: 3, image: undefined, width: 120, height: 60 })));
+    await flush();
+    await click();
+    await flush();
+    assert.deepEqual(pageInput(), []);
+
+    // Pixels at the new size: 120×60 of a 240×120 viewport in the 200×100 box.
+    await act(async () =>
+      state.listener(streamFrame({ seq: 4, width: 120, height: 60, viewportWidth: 240, viewportHeight: 120 }))
+    );
+    await flush();
+    await click();
+    await flush();
+    const sent = pageInput();
+    assert.deepEqual(
+      sent.map((input) => input.type === 'wheel' ? 'wheel' : input.phase),
+      ['mousePressed', 'mouseReleased', 'wheel']
+    );
+    assert.deepEqual([sent[0].x, sent[0].y], [60, 30], 'mapped through the new picture');
+  } finally {
+    await pane.unmount();
+  }
+});
+
 test('a page-changed control error is not shown, and a reconnect restarts the stream', async () => {
   const state = fakeApi();
   window.mixdogDesktop.remoteBrowserControl = async () => {
@@ -881,6 +934,49 @@ test('a browserDrive host gets the content box on start and after a debounced re
     }
   } finally {
     window.HTMLElement.prototype.getBoundingClientRect = original;
+  }
+});
+
+test('a leave confirmation on the page is shown over it and answered for its document', async () => {
+  const state = fakeApi();
+  const pane = await mount();
+  try {
+    const content = await showFrame(state);
+    const leaving = { id: 'leave_1', type: 'beforeunload', message: '' };
+    await act(async () => state.listener(streamFrame({ seq: 2, image: undefined, dialog: leaving })));
+    await flush();
+    const card = document.querySelector('.browser-page-prompt');
+    assert.ok(card, 'the card is shown');
+    assert.match(card.textContent, /Leave site\?/);
+    assert.equal(content.contains(card), false, 'never inside the input surface, so a tap on it is not page input');
+
+    const buttons = () => [...document.querySelectorAll('.browser-page-prompt button')];
+    await act(async () => buttons().find((button) => button.textContent === 'Leave').click());
+    await flush();
+    const answers = () => state.controls.filter(({ input }) => input.type === 'answer-dialog');
+    assert.deepEqual(answers().at(-1), {
+      sessionId: 's',
+      input: { type: 'answer-dialog', requestId: 'leave_1', accept: true, promptText: '', documentId: 'd1' },
+    });
+    assert.equal(
+      state.controls.filter(({ input }) => input.type === 'pointer').length,
+      0,
+      'answering sent nothing to the page'
+    );
+
+    // A new question is a new card; staying answers it so.
+    await act(async () => state.listener(streamFrame({ seq: 3, image: undefined, dialog: { ...leaving, id: 'leave_2' } })));
+    await flush();
+    await act(async () => buttons().find((button) => button.textContent === 'Cancel').click());
+    await flush();
+    assert.deepEqual(answers().at(-1).input, { type: 'answer-dialog', requestId: 'leave_2', accept: false, documentId: 'd1' });
+
+    // Once the host stops offering it, the card goes.
+    await act(async () => state.listener(streamFrame({ seq: 4, image: undefined })));
+    await flush();
+    assert.equal(document.querySelector('.browser-page-prompt'), null);
+  } finally {
+    await pane.unmount();
   }
 });
 

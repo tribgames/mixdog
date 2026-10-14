@@ -6,7 +6,7 @@
  * displayModelName formatter.
  */
 import { theme } from '../theme.mjs';
-import { displayModelName } from '../../runtime/shared/model-display.mjs';
+import { displayModelName, effortDisplayLabel } from '../../runtime/shared/model-display.mjs';
 import { isRollingModelAlias } from '../../runtime/shared/model-alias.mjs';
 import { DAYBREAK_PROVIDER, daybreakBlueOn } from '../../runtime/shared/llm/openai-daybreak.mjs';
 
@@ -248,18 +248,7 @@ const PROVIDER_DISPLAY_RANKS = {
 
 export const providerDisplayRank = (provider) => PROVIDER_DISPLAY_RANKS[String(provider || '').toLowerCase()] ?? 900;
 
-const titleCaseOption = (value) =>
-  String(value || '')
-    .split(/([\s_-]+)/)
-    .map((part) => (/^[\s_-]+$/.test(part) ? part : `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`))
-    .join('');
-
-export const effortDisplayLabel = (value) => {
-  const text = String(value || '').trim();
-  if (!text) return '';
-  if (text.toLowerCase() === 'xhigh') return 'XHigh';
-  return titleCaseOption(text);
-};
+export { effortDisplayLabel };
 
 export const fastDisplayLabel = (enabled = true) => `Fast ${enabled ? 'On' : 'Off'}`;
 
@@ -330,9 +319,15 @@ export const buildProviderModelItems = (models, provider, currentRoute = null) =
   }));
 };
 
-// Model · Effort · Fast, dropping the empty parts.
+// The configured speed tier: Ultrafast when the fast route asks for it.
+const routeSpeedLabel = (route) => {
+  if (!route?.fast) return '';
+  return route.modelParameters?.serviceTier === 'ultrafast' ? 'Ultrafast' : 'Fast';
+};
+
+// Model · Effort · Fast/Ultrafast, dropping the empty parts.
 const routeModelDetails = (route) =>
-  [routeModelDisplayName(route), route.effort ? effortDisplayLabel(route.effort) : '', route.fast ? 'Fast' : '']
+  [routeModelDisplayName(route), route.effort ? effortDisplayLabel(route.effort) : '', routeSpeedLabel(route)]
     .filter(Boolean)
     .join(' · ');
 
@@ -348,7 +343,7 @@ export const agentModelProfile = (route) => (route?.model ? routeModelDetails(ro
 export const agentModelParts = (route) => [
   { text: route?.model ? routeModelDisplayName(route) : '', width: 17 },
   { text: route?.effort ? effortDisplayLabel(route.effort) : '', width: 6 },
-  { text: route?.fast ? 'Fast' : '', width: 4 },
+  { text: routeSpeedLabel(route), width: 9 },
 ];
 
 export const routeFromModel = (model, effort = null) => ({

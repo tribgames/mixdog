@@ -107,8 +107,13 @@ export function createBrowserPageClient(options: {
     const previous = metadata;
     metadata = frame;
     const {
-      image: _image, frameId: _frame, textureId: _texture,
-      width: _width, height: _height, viewportWidth: _viewportWidth, viewportHeight: _viewportHeight,
+      image: _image,
+      frameId: _frame,
+      textureId: _texture,
+      width: _width,
+      height: _height,
+      viewportWidth: _viewportWidth,
+      viewportHeight: _viewportHeight,
       ...facts
     } = frame;
     const key = JSON.stringify(facts);
@@ -154,7 +159,8 @@ export function createBrowserPageClient(options: {
   function pollMetadata(): Promise<void> {
     if (disposed || !options.api.browserPageMetadata) return Promise.resolve();
     if (pendingMetadata) return pendingMetadata;
-    pendingMetadata = options.api.browserPageMetadata(options.sessionId)
+    pendingMetadata = options.api
+      .browserPageMetadata(options.sessionId)
       .then((next) => {
         if (!disposed) acceptMetadata(next);
       })
@@ -200,7 +206,7 @@ export function createBrowserPageClient(options: {
     // Navigation and tab chrome can initialize without any compositor sample.
     // Page edits still require the exact frame the person actually saw.
     const needsPixels = action.type === 'pointer' || action.type === 'wheel' || browserTypingInput(action);
-    const page = needsPixels ? current : metadata ?? current;
+    const page = needsPixels ? current : (metadata ?? current);
     if (!disposed && !page && !needsPixels && options.api.browserPageMetadata) {
       return pollMetadata().then(() => control(action));
     }
@@ -294,7 +300,10 @@ export function createBrowserPageClient(options: {
           // pane's last frame may name a tab the host has since replaced).
           // Retry once only after the host proved it had not dispatched it.
           if (action.type === 'resize' || action.type === 'navigate') {
-            await options.api.browserPageControl!(options.sessionId, { ...action, documentId: (metadata ?? current)!.documentId });
+            await options.api.browserPageControl!(options.sessionId, {
+              ...action,
+              documentId: (metadata ?? current)!.documentId,
+            });
             return;
           }
         }

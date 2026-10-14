@@ -197,6 +197,7 @@ export async function renderStatusline({
   model = '',
   effort = '',
   fast = false,
+  ultra = false,
   cwd = '',
   stats,
   sessionId,
@@ -223,6 +224,7 @@ export async function renderStatusline({
       model,
       effort,
       fast,
+      ultra,
       cwd,
       stats,
       sessionId,
@@ -233,7 +235,7 @@ export async function renderStatusline({
       ...displayArgs,
     });
   } catch {
-    return fallbackLine({ provider, model, effort, fast, cwd, stats, ...displayArgs });
+    return fallbackLine({ provider, model, effort, fast, ultra, cwd, stats, ...displayArgs });
   }
 }
 
@@ -244,6 +246,7 @@ function renderNativeStatusline({
   model = '',
   effort = '',
   fast = false,
+  ultra = false,
   stats,
   sessionId,
   contextWindow = 0,
@@ -275,7 +278,7 @@ function renderNativeStatusline({
 
   const sep = ` ${D}│${R} `;
   const l1Parts = [
-    formatModelSegment({ provider, model, effort, fast, cols }),
+    formatModelSegment({ provider, model, effort, fast, ultra, cols }),
     formatContextSegment(ctxPct, cols, s.currentContextSource),
     ...quotaSegmentsFor({ provider, model, effort, fast, sessionId, clientHostPid, gatewayStatus, cols }),
   ].filter(Boolean);
@@ -664,6 +667,7 @@ function fallbackLine({
   model = '',
   effort = '',
   fast = false,
+  ultra = false,
   cwd: _cwd = '',
   stats,
   contextWindow = 0,
@@ -687,7 +691,7 @@ function fallbackLine({
   });
   const sep = ` ${D}│${R} `;
   const parts = [
-    formatModelSegment({ provider, model, effort, fast, cols }),
+    formatModelSegment({ provider, model, effort, fast, ultra, cols }),
     formatContextSegment(ctxPct, cols, s.currentContextSource),
   ].filter(Boolean);
   if (!parts.length) return statusSubtle('> mixdog');

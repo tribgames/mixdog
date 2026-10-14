@@ -32,6 +32,8 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
   const sourceType = row.sourceType === 'schedule' || row.sourceType === 'webhook' ? row.sourceType : undefined;
   const sourceName = text(row.sourceName, 1_024);
   const activityAt = finiteNumber(row.activityAt, Number.NaN);
+  const createdAt = finiteNumber(row.createdAt, Number.NaN);
+  const inheritedFrom = text(row.inheritedFromSessionId, 256);
 
   return {
     id,
@@ -50,6 +52,8 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
     ...(typeof row.projectAssignment === 'string' ? { projectAssignment: text(row.projectAssignment, 32_768) } : {}),
     ...(sourceType ? { sourceType } : {}),
     ...(sourceName ? { sourceName } : {}),
+    ...(Number.isFinite(createdAt) && createdAt > 0 ? { createdAt } : {}),
+    ...(inheritedFrom ? { inheritedFromSessionId: inheritedFrom } : {}),
   };
 }
 

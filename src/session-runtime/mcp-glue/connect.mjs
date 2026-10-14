@@ -26,11 +26,15 @@ export function createMcpConnect({
   const syncScopeRoot = () => mcpClient.setMcpScopeRoot?.(getMcpScopeId(), clean(getCurrentCwd?.()));
   // Abort the pending interactive OAuth login of one server's connect.
   const cancelMcpLogin = (name) => mcpClient.cancelMcpLogin?.(clean(name), scopeOptions());
+  // Answer it with the redirect URL pasted from the browser.
+  const completeMcpLogin = (name, callbackUrl) => mcpClient.completeMcpLogin(clean(name), callbackUrl, scopeOptions());
 
   // Connect/disconnect exactly one server in the live registry, leaving all
   // others untouched. Used by the enable/disable toggle so a single-server
-  // change never triggers a full disconnectAll()/reconnect freeze.
-  async function applyMcpServerConnection(name, enabled, servers = resolveEffectiveMcpServers().servers, interactive = false) {
+  // change never triggers a full disconnectAll()/reconnect freeze. Only an
+  // explicit sign-in passes `login` ({ openBrowser }): every other connect is
+  // non-interactive and reports a server that needs one as sign-in required.
+  async function applyMcpServerConnection(name, enabled, servers = resolveEffectiveMcpServers().servers, login = null) {
     const target = clean(name);
     if (!target) return;
     // Changing this server's state clears any stale failure record for it.
@@ -48,11 +52,16 @@ export function createMcpConnect({
     // between the close and the connect never resurrects the server.
     try {
       ensurePluginServerData(cfg);
-      await mcpClient.reconnectSingleMcpServer(getMcpScopeId(), target, cfg, { interactive });
+      await mcpClient.reconnectSingleMcpServer(
+        getMcpScopeId(),
+        target,
+        cfg,
+        login ? { interactive: true, openBrowser: login.openBrowser } : {}
+      );
     } catch (error) {
-      const failures = Array.isArray(error?.failures)
-        ? error.failures
-        : [{ name: target, msg: error?.message || String(error) }];
+      const failure = { name: target, msg: error?.message || String(error) };
+      if (error?.authRequired) failure.authRequired = true;
+      const failures = Array.isArray(error?.failures) ? error.failures : [failure];
       state.mcpFailures = [...(state.mcpFailures || []), ...failures];
     }
   }
@@ -74,7 +83,13 @@ export function createMcpConnect({
     ]);
   }
 
-  async function connectConfiguredMcp({ reset = false, only = null, enabled = true, reconcile = false, interactive = false } = {}) {
+  async function connectConfiguredMcp({
+    reset = false,
+    only = null,
+    enabled = true,
+    reconcile = false,
+    login = null,
+  } = {}) {
     if (envFlag('MIXDOG_DISABLE_MCP')) {
       ++state.mcpConnectGeneration;
       state.mcpFailures = [];
@@ -111,7 +126,7 @@ export function createMcpConnect({
         }
         if (gen !== state.mcpConnectGeneration) return;
         if (reconcile) await reconcileServers();
-        else await applyMcpServerConnection(only, enabled, undefined, interactive);
+        else await applyMcpServerConnection(only, enabled, undefined, login);
       })();
       state.mcpConnectInFlight = run;
       try {
@@ -152,7 +167,7 @@ export function createMcpConnect({
       if (Object.keys(servers).length === 0) return;
       try {
         for (const cfg of Object.values(servers)) if (cfg?.enabled !== false) ensurePluginServerData(cfg);
-        await mcpClient.connectMcpServers(servers, { ...scopeOptions(), interactive });
+        await mcpClient.connectMcpServers(servers, scopeOptions());
       } catch (error) {
         state.mcpFailures = Array.isArray(error?.failures)
           ? error.failures
@@ -212,5 +227,5 @@ export function createMcpConnect({
     }
   }
 
-  return { connectConfiguredMcp, awaitInitialMcpConnect, cancelMcpLogin };
+  return { connectConfiguredMcp, awaitInitialMcpConnect, cancelMcpLogin, completeMcpLogin };
 }

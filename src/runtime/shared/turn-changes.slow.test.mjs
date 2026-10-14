@@ -298,6 +298,25 @@ test('Undo/Reapply refreshes the sealed Git turn review and the session diff', {
   assert.deepEqual(readTree(repo, ['a.txt', 'b.txt']), { 'a.txt': 'A\n', 'b.txt': 'B\n' });
 });
 
+test('the session diff lists a worker’s edits made in its own session turn', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const repo = seedRepo({ 'lead.txt': 'a\n', 'worker.txt': 'a\n' });
+  const token = await beginTurnSnapshot(repo, 'own-turn-lead', { checkpointId: 'cp' });
+  const worker = beginAgentTurnReview('own-turn-lead', 'own-turn-worker', { agent: 'worker' });
+  // The worker's session turn opens its own tracker in the same worktree.
+  await beginTurnSnapshot(repo, 'own-turn-worker', { checkpointId: 'worker-cp' });
+  const edit = (sessionId, name) => {
+    writeTree(repo, { [name]: 'b\n' });
+    recordTurnDiffChanges(sessionId, [{ path: join(repo, name), displayPath: name, before: 'a\n', after: 'b\n' }]);
+  };
+  edit('own-turn-lead', 'lead.txt');
+  edit('own-turn-worker', 'worker.txt');
+  completeAgentTurnReview(worker);
+  await completeTurnSnapshot('own-turn-lead', token);
+  const files = (await getSessionReviewDiff(repo, 'own-turn-lead')).files.map((file) => file.path);
+  assert.deepEqual(files, ['lead.txt', 'worker.txt']);
+});
+
 /** Fails instead of hanging when a lock deadlocks. */
 function withinDeadline(promise, label, ms = 20_000) {
   let timer;

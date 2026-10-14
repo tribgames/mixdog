@@ -13,12 +13,13 @@ export const SERVER_SIDE_FALLBACK_BETA_HEADER = 'server-side-fallback-2026-07-01
 // `speed: "fast"` and Opus 4.6 silently runs at standard speed.
 const KNOWN_FAST_MODE_MODELS = /^claude-opus-(?:4-8|5)(?:$|[-@])/;
 
-// The id pattern is the offline floor. A model the pricing catalog declares
-// Fast-capable is accepted too, so a later release needs no edit here.
+// The catalog's declaration (true or false) decides; the id pattern is only
+// the offline floor for a model the catalog says nothing about.
 export function supportsAnthropicFastMode(model) {
   const id = normalizeClaudeModelId(model);
   if (!id) return false;
-  return KNOWN_FAST_MODE_MODELS.test(id) || getModelMetadataSync(id, 'anthropic')?.supportsFastMode === true;
+  const declared = getModelMetadataSync(id, 'anthropic')?.supportsFastMode;
+  return typeof declared === 'boolean' ? declared : KNOWN_FAST_MODE_MODELS.test(id);
 }
 
 export function buildAnthropicBetaHeaders({

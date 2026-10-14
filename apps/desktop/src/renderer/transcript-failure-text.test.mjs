@@ -23,7 +23,15 @@ test('fixed runtime failure sentences are localized and keep their diagnostic co
     '프로바이더를 일시적으로 사용할 수 없습니다 (503)'
   );
   assert.equal(localizedTurnFailureReason('Context too large.'), '컨텍스트가 너무 큽니다');
+  assert.equal(
+    localizedTurnFailureReason('Provider is rate-limited (retry in 90s).'),
+    '프로바이더가 요청을 제한 중 (90s 후 재시도)'
+  );
   await i18n.changeLanguage('en');
+  assert.equal(
+    localizedTurnFailureReason('Provider is rate-limited (retry in 90s).'),
+    'Provider is rate-limited (retry in 90s)'
+  );
   assert.equal(localizedTurnFailureReason('Could not reach the provider.'), 'Could not reach the provider');
 });
 

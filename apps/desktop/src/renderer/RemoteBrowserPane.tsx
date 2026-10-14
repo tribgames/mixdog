@@ -28,6 +28,7 @@ import type { DesktopBrowserTab, DesktopRemoteBrowserControl } from '../shared/c
 import { remoteBrowserImagePoint } from '../shared/remote-browser';
 import { useBrowserCredentials, useHistorySuggestions } from './browser-pane-hooks';
 import { BrowserImportDialog } from './BrowserImportDialog';
+import { BrowserPagePrompts } from './BrowserPagePrompts';
 import { BrowserTabStrip } from './BrowserTabStrip';
 import { DockHeaderRow, DockOverflowMenu, requestPaneDockClose, type DockAction } from './pane-dock-chrome';
 import { useMobileRemoteSurface } from './mobile-surface';
@@ -151,7 +152,7 @@ function useRemoteTouch({
       pageDelta: (dx, dy) => {
         const picture = frameRef.current;
         const bounds = imageRef.current?.getBoundingClientRect();
-        if (!picture || !bounds) return { x: 0, y: 0 };
+        if (!picture || !bounds || !(picture.width > 0) || !(picture.height > 0)) return { x: 0, y: 0 };
         const scale = Math.min(bounds.width / picture.width, bounds.height / picture.height);
         return {
           x: (dx * picture.viewportWidth) / (picture.width * scale),
@@ -1064,22 +1065,33 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
         onClose={() => setKeyboardOpen(false)}
         input={input}
       />
-      <RemoteBrowserContent
-        contentRef={contentRef}
-        imageRef={imageRef}
-        input={input}
-        touch={touch}
-        imageUrl={imageUrl}
-        title={frame?.title}
-        zoomLevel={zoomLevel}
-        pan={pan}
-        failure={failure}
-        actionFailure={actionFailure}
-        setActionFailure={setActionFailure}
-        touchDot={touchDot}
-        zoomPill={!phone}
-        changeZoomLevel={changeZoomLevel}
-      />
+      <div className="browser-remote-stage">
+        <RemoteBrowserContent
+          contentRef={contentRef}
+          imageRef={imageRef}
+          input={input}
+          touch={touch}
+          imageUrl={imageUrl}
+          title={frame?.title}
+          zoomLevel={zoomLevel}
+          pan={pan}
+          failure={failure}
+          actionFailure={actionFailure}
+          setActionFailure={setActionFailure}
+          touchDot={touchDot}
+          zoomPill={!phone}
+          changeZoomLevel={changeZoomLevel}
+        />
+        {frame?.dialog && (
+          <BrowserPagePrompts
+            key={`${frame.documentId}:${frame.dialog.id}`}
+            frame={frame}
+            control={async (action) => {
+              if (action.type === 'answer-dialog') await control({ ...action, documentId: frame.documentId });
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }

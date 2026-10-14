@@ -9,6 +9,7 @@
 import { traceAgentUsage } from '../agent-trace.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import { parseToolCalls, collectGeminiGroundingSources, parseGeminiTextPartMetadata } from './gemini-schema.mjs';
+import { geminiPolicyFinishCode } from './gemini-error-contract.mjs';
 
 // Pure usageMetadata normalization shared by the success path and a failed
 // stream's partialUsage.
@@ -82,7 +83,7 @@ export function finalizeAntigravityTurn({ response, collector, useModel, opts, o
   if (finishReason && normalizedFinish !== 'STOP') {
     throw Object.assign(new Error(`Antigravity response incomplete: finishReason=${finishReason}`), {
       name: 'ProviderIncompleteError',
-      code: 'PROVIDER_INCOMPLETE',
+      code: geminiPolicyFinishCode(finishReason) || 'PROVIDER_INCOMPLETE',
       providerIncomplete: true,
       finishReason,
       partialContent: content,

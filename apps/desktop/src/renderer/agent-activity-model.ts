@@ -531,6 +531,9 @@ const ISLAND_AGENT_STATES: ReadonlySet<DesktopAgentActivityState> = new Set([
   'needs-user',
   'waiting',
   'cancel-unconfirmed',
+  // The pool could not prove a worker that still claims work is alive; that
+  // is not idle, so the row stays until the pool settles it.
+  'unknown',
 ]);
 
 /** The agents the composer island lists for one session: its group in the

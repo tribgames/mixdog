@@ -126,8 +126,8 @@ export function InheritBody({
   let tone: 'danger' | 'warn' | undefined;
   if (percent != null && percent > 100) tone = 'danger';
   else if (percent != null && percent > 80) tone = 'warn';
-  let actionLabel = mode === 'compact' ? t('Summarize and continue') : t('Continue session');
-  if (running) actionLabel = t('Inheriting…');
+  let actionLabel = mode === 'compact' ? t('Summarize and fork') : t('Fork session');
+  if (running) actionLabel = t('Forking…');
   return (
     <div className="inherit-surface">
       <div className="inherit-surface-body">
@@ -143,7 +143,7 @@ export function InheritBody({
                   models={models}
                   value={route}
                   disabled={running}
-                  ariaLabel={t('Inherit model')}
+                  ariaLabel={t('Fork model')}
                   catalogLoaded={models.length > 0}
                   onChange={(selection) => {
                     setFailure('');

@@ -189,9 +189,7 @@ async function run(): Promise<void> {
     try {
       await eventually(async () => presented(), Boolean);
     } catch (error) {
-      log(
-        `not presented: last requests ${presentCalls.slice(-3).join(' ')}; view ${JSON.stringify(view.getBounds())}`
-      );
+      log(`not presented: last requests ${presentCalls.slice(-3).join(' ')}; view ${JSON.stringify(view.getBounds())}`);
       throw error;
     }
     const initialBounds = view.getBounds();

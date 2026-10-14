@@ -1,6 +1,6 @@
 // Temporary git repositories and data dirs for the worktree suites.
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -56,14 +56,29 @@ export function commitFile(cwd, rel, content, message = `edit ${rel}`) {
   return git(cwd, 'rev-parse', 'HEAD');
 }
 
-/** A repository on `main` with one commit. */
-export function makeRepo({ commit = true } = {}) {
-  const dir = tempDir('mixdog-wt-repo-');
+// Built once per process and copied per repository: the five or six git
+// spawns behind one fresh repository cost ~0.8 s on win32, and the worktree
+// suites make dozens. A non-bare repository holds no absolute paths, so a copy
+// is the same repository at its new location.
+const templates = new Map();
+
+function repoTemplate(commit) {
+  const existing = templates.get(commit);
+  if (existing && existsSync(existing)) return existing;
+  const dir = tempDir('mixdog-wt-template-');
   git(dir, 'init', '-q', '-b', 'main');
   git(dir, 'config', 'user.name', 'Mixdog Test');
   git(dir, 'config', 'user.email', 'mixdog@example.com');
   git(dir, 'config', 'core.autocrlf', 'false');
   if (commit) commitFile(dir, 'README.md', 'hello\n', 'initial');
+  templates.set(commit, dir);
+  return dir;
+}
+
+/** A repository on `main` with one commit. */
+export function makeRepo({ commit = true } = {}) {
+  const dir = tempDir('mixdog-wt-repo-');
+  cpSync(repoTemplate(commit), dir, { recursive: true });
   return dir;
 }
 

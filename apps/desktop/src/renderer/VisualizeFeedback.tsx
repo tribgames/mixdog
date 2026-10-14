@@ -482,9 +482,15 @@ export function useVisualizeFeedbackBridge({
         answered.set(event.source, now);
         postToPage(frame, stateRef.current(index, true));
       } else if (message.type === 'tweaks') {
-        // The page's declared controls: a malformed block is logged by the page
-        // itself, which the desktop reports as a page problem.
+        // A document announces its own controls once it is ready (never
+        // throttled: a reload at the same URL announces again). Its saved
+        // overrides are replayed from these definitions only: a new document
+        // has nothing applied, so nothing from the previous one is cleared.
+        // A malformed block is logged by the page itself, which the desktop
+        // reports as a page problem.
         const defs = setVisualizeTweakDefs(session, shown.id, index, message.raw);
+        const replay = tweaksRef.current(index);
+        if (replay) postToPage(frame, replay);
         if (defs && 'error' in defs) postToPage(frame, { type: 'tweaks-problem', reason: defs.error });
       } else if (message.type === 'exit-comment') {
         if (live.current.comment) live.current.setComment(false);
@@ -545,11 +551,27 @@ export function useVisualizeFeedbackBridge({
     return () => body.removeEventListener('load', onLoad, true);
   }, [body]);
 
-  // Panel → pages: Comment mode and the pin numbers.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: value, comment and the tweaks revision are re-send triggers; they are read through the live refs
+  // Panel → pages: Comment mode and the pin numbers. Keyed on what is sent
+  // (the shown panes and their messages), not on the tab object or the whole
+  // feedback / tweak state, so an unrelated change resends nothing.
+  // tweaksRevision only re-renders this hook when a tweak changes; the tweak
+  // messages themselves are part of the key.
+  void tweaksRevision;
+  const pageKey =
+    body && tab
+      ? JSON.stringify([
+          tab.id,
+          tab.revision,
+          tab.panes.map((pane, index) =>
+            visualizeCommentPage(pane.kind) ? [pane.kind, pane.url, stateFor(index, false), tweaksFor(index)] : null
+          ),
+        ])
+      : '';
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pageKey is the re-send trigger; the messages are read through the live refs
   useEffect(() => {
-    if (!body || !tab) return;
-    tab.panes.forEach((pane, index) => {
+    const shown = live.current.tab;
+    if (!body || !shown) return;
+    shown.panes.forEach((pane, index) => {
       if (!visualizeCommentPage(pane.kind)) return;
       const frame = body.querySelector<HTMLIFrameElement>(`[data-visualize-pane="${index}"] iframe`);
       if (!frame) return;
@@ -557,7 +579,7 @@ export function useVisualizeFeedbackBridge({
       const tweaks = tweaksRef.current(index);
       if (tweaks) postToPage(frame, tweaks);
     });
-  }, [body, tab, value, comment, tweaksRevision]);
+  }, [body, pageKey]);
 
   // Esc leaves Comment mode (inside a page, the page script reports it).
   useEffect(() => {

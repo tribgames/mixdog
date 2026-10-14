@@ -121,7 +121,8 @@ export function turnChangesEpoch(sessionId: string): number {
   return epochs.get(sessionId) ?? 0;
 }
 
-function bumpTurnChangesEpoch(sessionId: string): number {
+/** Every card and session diff of the session re-reads (a mutation landed). */
+export function bumpTurnChangesEpoch(sessionId: string): number {
   const next = turnChangesEpoch(sessionId) + 1;
   epochs.set(sessionId, next);
   for (const listener of epochListeners) listener();

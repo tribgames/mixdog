@@ -212,6 +212,7 @@ export function useShownTurnReview({
     active,
     revision: turnBoundaryKey,
     busy,
+    gitWatchPath: sessionScoped ? cwd : '',
   });
   const sessionSummary = useMemo(() => {
     if (!sessionScoped) return summary;
@@ -226,6 +227,17 @@ export function useShownTurnReview({
     }
     return transcript;
   }, [sessionScoped, sessionDiff.result, items, summary, cwd]);
+  // The island segment of a Git project counts only what is still uncommitted
+  // (the runtime's files that differ from HEAD); elsewhere the session set.
+  const uncommittedFiles = sessionDiff.result?.uncommittedFiles;
+  const islandSummary = useMemo(
+    () =>
+      sessionScoped && Array.isArray(uncommittedFiles)
+        ? summarizeSessionDiffRows(buildSessionDiffRows({ files: uncommittedFiles }))
+        : sessionSummary,
+    [sessionScoped, uncommittedFiles, sessionSummary]
+  );
+  const historyTurns = Number(sessionDiff.result?.historyTurns) || 0;
   const shownSummary = sessionScoped ? sessionSummary : summary;
   const headlineStats = sessionScoped ? sessionSummary : turnHeadlineStats;
   const sources = useMemo(() => {
@@ -239,5 +251,5 @@ export function useShownTurnReview({
     };
     return [...(transcriptSummary.files.size > 0 ? [transcriptSource] : []), ...agentSources];
   }, [sessionScoped, sessionSummary, transcriptSummary, agentSources, authoritativeWorktreeSnapshot]);
-  return { shownSummary, headlineStats, sources };
+  return { shownSummary, headlineStats, sources, islandSummary, historyTurns };
 }

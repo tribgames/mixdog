@@ -941,36 +941,6 @@
   gap: 12px;
   padding: 0 20px 20px;
 }
-.settings-oauth-status {
-  min-height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 12px;
-  border-radius: var(--mx-radius-md);
-  background: transparent;
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
-  font-size: var(--mx-font-minor);
-}
-.settings-oauth-status span {
-  color: var(--mx-text-muted);
-}
-.settings-oauth-status b {
-  font-weight: var(--mx-weight-semibold);
-}
-.settings-oauth-status b.tone-positive {
-  color: var(--mx-success);
-}
-.settings-oauth-status b.tone-warning {
-  color: var(--mx-warning);
-}
-.settings-oauth-status b.tone-danger {
-  color: var(--mx-danger);
-}
-.settings-oauth-status b.tone-neutral {
-  color: var(--mx-text-muted);
-}
 /* Google's own account check: the one action that unblocks the sign-in. */
 .settings-oauth-verify {
   display: grid;
@@ -1044,10 +1014,85 @@
   resize: none;
 }
 .settings-oauth-code {
+  display: grid;
+  gap: 8px;
+}
+.settings-oauth-code > b {
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+}
+.settings-oauth-code-row {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: nowrap;
+}
+.settings-oauth-code input[aria-invalid="true"] {
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-danger);
+}
+.settings-oauth-paste-error {
+  margin: 0;
+  color: var(--mx-danger);
+  font-size: var(--mx-font-minor);
+}
+.settings-oauth-domain {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: var(--mx-radius-md);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+}
+.settings-oauth-domain > div:first-child {
+  min-width: 0;
+  display: grid;
+}
+.settings-oauth-host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--mx-weight-semibold);
+}
+.settings-oauth-hint {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.settings-oauth-domain-actions {
+  display: flex;
+  gap: 4px;
+}
+.settings-oauth-domain-actions button {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.settings-oauth-domain-actions button:hover {
+  color: var(--mx-icon);
+  background: var(--mx-hover);
+}
+.settings-oauth-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.settings-oauth-wait .tone-positive {
+  color: var(--mx-success);
+}
+.settings-oauth-wait .tone-warning {
+  color: var(--mx-warning);
+}
+.settings-oauth-wait .tone-danger {
+  color: var(--mx-danger);
 }
 .settings-oauth-code input {
   min-width: 0;

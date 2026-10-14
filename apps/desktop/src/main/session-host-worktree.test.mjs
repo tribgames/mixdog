@@ -3,20 +3,30 @@ import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import test from 'node:test';
+import { DesktopProjectRegistry } from './desktop-project-registry.ts';
 import { SessionHost } from './session-host.ts';
 
-async function fixture(t, { registerProject = true, entryFor, containing = false } = {}) {
+async function fixture(t, { registerProject = true, entryFor, containing = false, strict = false, nestedProject = false } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mixdog-host-worktree-')));
   const project = join(root, 'repo');
   const worktree = join(root, 'data', 'worktrees-v1', '0123456789abcdef', 'fix-login');
   const arbitrary = join(root, 'elsewhere');
+  const nested = join(project, 'packages', 'app');
   for (const dir of [project, worktree, arbitrary]) await mkdir(dir, { recursive: true });
+  if (nestedProject) await mkdir(nested, { recursive: true });
+  const projects = registerProject
+    ? [
+        { name: 'repo', path: project, addedAt: 1 },
+        ...(nestedProject ? [{ name: 'app', path: nested, addedAt: 1 }] : []),
+      ]
+    : [];
   const host = await SessionHost.create(
     { userDataPath: root, resourcesPath: root, appPath: root, packaged: false },
     {
       attachSessionClient: async () => ({ list: async () => ({ sessions: [] }), close: async () => {} }),
       loadProjects: async () => ({
-        listProjects: () => (registerProject ? [{ name: 'repo', path: project, addedAt: 1 }] : []),
+        listProjects: () => projects,
+        ...(strict ? { listProjectsStrict: () => projects } : {}),
       }),
       loadWorktrees: async () => ({
         getWorktreeByPath: (path) =>
@@ -43,7 +53,7 @@ async function fixture(t, { registerProject = true, entryFor, containing = false
     await host.dispose().catch(() => {});
     await rm(root, { recursive: true, force: true });
   });
-  return { host, root, project, worktree, arbitrary };
+  return { host, root, project, worktree, arbitrary, nested };
 }
 
 test('a managed worktree of a registered project resolves with the main project identity', async (t) => {
@@ -167,6 +177,128 @@ test('a registered Project whose folder is gone fails the branch menus with a ty
   // Session-less (the registry still lists it) and session menus alike.
   await assert.rejects(host.invokeCapability('getProjectBranchMenu', [{ projectPath: project }]), typed);
   await assert.rejects(host.invokeCapability('getBranchMenu', [], 's1'), typed);
+});
+
+test('inheriting a session whose Project is not registered starts the heir in the containing Project, else as a task', async (t) => {
+  const { host, root, project, arbitrary } = await fixture(t, { strict: true });
+  const subfolder = join(project, 'packages', 'app');
+  await mkdir(subfolder, { recursive: true });
+  const created = [];
+  host.sessionClient.create = async (input) => {
+    created.push(input);
+    return { sessionId: `sess_heir_${created.length}` };
+  };
+  host.transport.invokeSession = async () => ({ value: null, snapshot: null, result: {} });
+  host.catalog.publishCatalogs = async () => {};
+  host.listSessions = async () => [
+    { id: 'sess_unregistered', projectPath: arbitrary },
+    { id: 'sess_registered', projectPath: project },
+    { id: 'sess_subfolder', projectPath: subfolder },
+    { id: 'sess_sibling', projectPath: `${project}-sibling` },
+  ];
+  const taskWorkspace = join(root, 'workspace', 'unclassified');
+
+  const heir = await host.inheritSession('sess_unregistered', null, null);
+  assert.equal(heir.sessionId, 'sess_heir_1');
+  assert.equal(created[0].cwd, taskWorkspace);
+  assert.deepEqual(created[0].desktopSession, { classification: 'task', projectPath: null });
+
+  // A registered Project keeps its identity.
+  await host.inheritSession('sess_registered', null, null);
+  assert.equal(created[1].cwd, project);
+  assert.deepEqual(created[1].desktopSession, { classification: 'project', projectPath: project });
+
+  // A subfolder of a registered Project starts at that Project's root.
+  await host.inheritSession('sess_subfolder', null, null);
+  assert.equal(created[2].cwd, project);
+  assert.deepEqual(created[2].desktopSession, { classification: 'project', projectPath: project });
+
+  // A name-prefix sibling is not inside the Project.
+  await host.inheritSession('sess_sibling', null, null);
+  assert.equal(created[3].cwd, taskWorkspace);
+  assert.deepEqual(created[3].desktopSession, { classification: 'task', projectPath: null });
+});
+
+test('inheriting a session the user moved to a Project starts the heir in that Project', async (t) => {
+  const { host, root, project, arbitrary } = await fixture(t, { strict: true });
+  const created = [];
+  host.sessionClient.create = async (input) => {
+    created.push(input);
+    return { sessionId: `sess_heir_${created.length}` };
+  };
+  host.transport.invokeSession = async () => ({ value: null, snapshot: null, result: {} });
+  host.catalog.publishCatalogs = async () => {};
+  host.listSessions = async () => [
+    { id: 'sess_moved_in', projectPath: arbitrary, projectAssignment: project },
+    { id: 'sess_moved_out', projectPath: project, projectAssignment: '' },
+    { id: 'sess_moved_to_removed', projectPath: project, projectAssignment: join(root, 'removed') },
+  ];
+  const taskWorkspace = join(root, 'workspace', 'unclassified');
+
+  // Moved into a registered Project: the heir starts there.
+  await host.inheritSession('sess_moved_in', null, null);
+  assert.equal(created[0].cwd, project);
+  assert.deepEqual(created[0].desktopSession, { classification: 'project', projectPath: project });
+
+  // Moved out to "no Project": the heir is a task.
+  await host.inheritSession('sess_moved_out', null, null);
+  assert.equal(created[1].cwd, taskWorkspace);
+  assert.deepEqual(created[1].desktopSession, { classification: 'task', projectPath: null });
+
+  // Moved to a Project removed since: the source's own Project applies.
+  await host.inheritSession('sess_moved_to_removed', null, null);
+  assert.equal(created[2].cwd, project);
+  assert.deepEqual(created[2].desktopSession, { classification: 'project', projectPath: project });
+});
+
+test('inheritance considers all sidebar paths and selects the deepest registered Project', async (t) => {
+  const { host, project, nested, arbitrary, worktree } = await fixture(t, { strict: true, nestedProject: true });
+  const cases = [
+    [{ projectPath: project, cwd: join(nested, 'src') }, nested],
+    [{ projectPath: null, cwd: join(nested, 'src') }, nested],
+    [{ projectPath: arbitrary, cwd: worktree, workspace: { projectPath: project, cwd: worktree } }, project],
+    [{ projectPath: project, workspace: { projectPath: project, cwd: join(nested, 'src') } }, nested],
+    [{ projectPath: project, cwd: nested, projectAssignment: project }, project],
+    [{ projectPath: arbitrary, cwd: join(nested, 'src'), projectAssignment: arbitrary }, nested],
+  ];
+  host.listSessions = async () => cases.map(([row], index) => ({ id: `sess_case_${index}`, ...row }));
+  const created = [];
+  host.sessionClient.create = async (input) => {
+    created.push(input);
+    return { sessionId: `sess_heir_${created.length}` };
+  };
+  host.transport.invokeSession = async () => ({ value: null, snapshot: null, result: {} });
+  host.catalog.publishCatalogs = async () => {};
+  for (const [index, [, expected]] of cases.entries()) {
+    await host.inheritSession(`sess_case_${index}`, null, null);
+    assert.equal(created[index].cwd, expected, `case ${index}`);
+    assert.deepEqual(created[index].desktopSession, { classification: 'project', projectPath: expected });
+  }
+});
+
+test('inheritance propagates registry and directory errors without creating a session', async (t) => {
+  const { host, project } = await fixture(t, { strict: true });
+  let creates = 0;
+  host.sessionClient.create = async () => {
+    creates += 1;
+    return { sessionId: 'sess_unexpected' };
+  };
+  host.listSessions = async () => [{ id: 'sess_source', projectPath: project }];
+  const ioError = Object.assign(new Error('Registry read failed'), { code: 'EIO' });
+  host.projects = new DesktopProjectRegistry({
+    loadProjectsModule: async () => ({
+      listProjects: () => [],
+      listProjectsStrict: () => { throw ioError; },
+    }),
+    userDataRoot: () => project,
+  });
+  await assert.rejects(host.inheritSession('sess_source'), (error) => error === ioError);
+  const directoryCase = await fixture(t, { strict: true });
+  directoryCase.host.sessionClient.create = host.sessionClient.create;
+  directoryCase.host.listSessions = async () => [{ id: 'sess_source', projectPath: directoryCase.project }];
+  await rm(directoryCase.project, { recursive: true });
+  await assert.rejects(directoryCase.host.inheritSession('sess_source'), { code: 'ENOENT' });
+  assert.equal(creates, 0);
 });
 
 test('open hints carry the worktree cwd under the main project identity', async (t) => {

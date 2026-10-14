@@ -17,6 +17,12 @@ import {
 import type { DesktopApi, DesktopEditorSettings } from '../../shared/contract';
 import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../../shared/editor-settings';
 import { getLinkPreview, setLinkPreview, subscribeLinkPreview } from '../link-preview-preference';
+import {
+  getChatTextSize,
+  setChatTextSize,
+  subscribeChatTextSize,
+  type ChatTextSize,
+} from '../chat-text-size-preference';
 import { record } from '../record-utils';
 import { isRemoteBrowserRenderer, isRemoteHostRenderer } from '../remote-ui-projection';
 import {
@@ -60,7 +66,28 @@ function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>)
         options={desktopThemeOptions().map((option) => ({ ...option, label: t(option.label) }))}
         onChange={choose}
       />
+      <ChatTextSizeRow pending={pending} />
     </Group>
+  );
+}
+
+/** Per-device scale of the conversation and the message box; applies live. */
+function ChatTextSizeRow({ pending }: Pick<PanelContext, 'pending'>) {
+  const size = useSyncExternalStore(subscribeChatTextSize, getChatTextSize, () => 'default');
+  return (
+    <SelectRow
+      title={t('Chat text size')}
+      description={t('Changes the size of chat messages and the message box on this device.')}
+      value={size}
+      disabled={Boolean(pending)}
+      options={[
+        { value: 'small', label: t('Small') },
+        { value: 'default', label: t('Default') },
+        { value: 'large', label: t('Large') },
+        { value: 'extra-large', label: t('Extra large') },
+      ]}
+      onChange={(next) => setChatTextSize(next as ChatTextSize)}
+    />
   );
 }
 

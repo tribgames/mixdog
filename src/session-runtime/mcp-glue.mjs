@@ -44,6 +44,7 @@ export function createMcpGlue({
     connectConfiguredMcp: connect.connectConfiguredMcp,
     awaitInitialMcpConnect: connect.awaitInitialMcpConnect,
     cancelMcpLogin: connect.cancelMcpLogin,
+    completeMcpLogin: connect.completeMcpLogin,
     normalizeMcpServerInput,
   };
 }

@@ -106,9 +106,8 @@ test('read PDF document stays native media without base64 text, storage, or toke
   assert.equal(anthropicToolResult.content[0].source.data, pdfData);
 
   const gemini = toGeminiContents(history, 'gemini-3-pro-preview');
-  const geminiFunctionResponse = gemini[2].parts[0].functionResponse;
-  assert.equal(geminiFunctionResponse.parts[0].inlineData.mimeType, 'application/pdf');
-  assert.equal(geminiFunctionResponse.parts[0].inlineData.data, pdfData);
+  assert.equal(gemini[2].parts[1].inlineData.mimeType, 'application/pdf');
+  assert.equal(gemini[2].parts[1].inlineData.data, pdfData);
 
   const xai = toXaiResponsesInput(
     history,
@@ -152,13 +151,9 @@ function anthropicToolResult(history) {
     .find((part) => part?.type === 'tool_result');
 }
 
-// Gemini 3 nests tool media inside the function response, so inline payloads
-// live one level below the turn's parts.
+// Tool media travels as ordinary inlineData parts beside the function response.
 function geminiInlineParts(contents) {
-  return contents
-    .flatMap((item) => item.parts || [])
-    .flatMap((part) => part.functionResponse?.parts || [part])
-    .filter((part) => part?.inlineData);
+  return contents.flatMap((item) => item.parts || []).filter((part) => part?.inlineData);
 }
 
 test('a text download travels as readable text, never as a PDF document block', () => {
@@ -304,19 +299,20 @@ test('Anthropic error tool_result with text only is left untouched', () => {
   assert.equal(toolResult.content, 'Error: bridge unavailable');
 });
 
-test('Gemini 3 nests media and IDs inside one function-response turn', () => {
+test('Gemini puts IDs on the call and response and media beside the response in one turn', () => {
   const contents = toGeminiContents(imageHistory(), 'gemini-3-pro-preview');
   const functionCall = contents[1].parts[0].functionCall;
   const functionResponse = contents[2].parts[0].functionResponse;
   assert.equal(functionCall.id, 'call_1');
   assert.equal(functionResponse.id, 'call_1');
   assert.equal(functionResponse.response.result, 'Image read successfully');
-  assert.equal(functionResponse.parts[0].inlineData.data, IMAGE_DATA);
+  assert.equal('parts' in functionResponse, false);
+  assert.equal(contents[2].parts[1].inlineData.data, IMAGE_DATA);
   assert.equal(contents.length, 3);
   assert.equal(occurrences(contents, 'Image read successfully'), 1);
 });
 
-test('Gemini 2 merges parallel responses, omits IDs, then sends media', () => {
+test('Gemini 2 merges parallel responses and sends media in the same turn after them', () => {
   const history = [
     { role: 'user', content: 'inspect both' },
     {
@@ -331,23 +327,16 @@ test('Gemini 2 merges parallel responses, omits IDs, then sends media', () => {
     { role: 'tool', toolCallId: 'call_2', content: 'second result' },
   ];
   const contents = toGeminiContents(history, 'gemini-2.5-pro');
+  assert.equal(contents.length, 3);
   assert.equal(contents[1].parts.length, 2);
-  assert.equal('id' in contents[1].parts[0].functionCall, false);
-  assert.equal(contents[2].parts.length, 2);
+  assert.equal(contents[1].parts[0].functionCall.id, 'call_1');
+  assert.equal(contents[2].parts.length, 3);
   assert.equal(
-    contents[2].parts.every((part) => part?.functionResponse),
+    contents[2].parts.slice(0, 2).every((part) => part?.functionResponse),
     true
   );
-  assert.equal('id' in contents[2].parts[0].functionResponse, false);
+  assert.equal(contents[2].parts[0].functionResponse.id, 'call_1');
   assert.equal('parts' in contents[2].parts[0].functionResponse, false);
-  assert.deepEqual(contents[3].parts, [
-    {
-      inlineData: {
-        mimeType: 'image/png',
-        data: IMAGE_DATA,
-        displayName: 'tool_media_1',
-      },
-    },
-  ]);
+  assert.deepEqual(contents[2].parts[2], { inlineData: { mimeType: 'image/png', data: IMAGE_DATA } });
   assert.equal(occurrences(contents, 'Image read successfully'), 1);
 });

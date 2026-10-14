@@ -78,6 +78,13 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
         revision
       );
     },
+    clearSessionChangeHistory: async () => {
+      // A queued or running prompt/command may still be about to record changes.
+      if (getState().busy || getState().commandBusy) {
+        throw new Error('Change history cannot be deleted while this session is running a turn');
+      }
+      return await requireRuntimeMethod('clearSessionChangeHistory', 'Change history deletion is unavailable')();
+    },
     getOnboardingStatus: () => {
       return runtime.getOnboardingStatus?.() || { completed: true, workflowRoutes: {} };
     },

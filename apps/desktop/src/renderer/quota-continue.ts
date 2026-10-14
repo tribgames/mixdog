@@ -1,12 +1,17 @@
-import type { DesktopModelSelection } from '../shared/contract';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
-import { requestOpenModelPicker } from './model-picker-event';
+
+/** Provider kinds the composer banner speaks to; only the first can be resumed at a reset. */
+export type QuotaFailureKind = 'quota_exhausted' | 'entitlement' | 'billing';
 
 export type QuotaFailure = {
   turnKey: string;
+  kind: QuotaFailureKind;
   quota: { provider: string; model: string; resetAt: number | null };
 };
+
+const finiteTime = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 
 /** The failed turndone that ended the transcript on an exhausted provider
  *  quota, when no later turn has begun. */
@@ -21,12 +26,18 @@ export function latestQuotaFailure(items: readonly TranscriptItem[], turnKeys: r
     }
     const turnKey = turnKeys[index] || '';
     if (!turnKey) return null;
+    // The persisted provider-kind descriptor decides; items without one
+    // (older transcripts) are quota stops by their quota metadata alone.
+    const descriptor = item.errorKind as { kind?: unknown; resetAt?: unknown } | null | undefined;
+    const kind = descriptor && typeof descriptor.kind === 'string' ? descriptor.kind : 'quota_exhausted';
+    if (kind !== 'quota_exhausted' && kind !== 'entitlement' && kind !== 'billing') return null;
     return {
       turnKey,
+      kind,
       quota: {
         provider: quota.provider,
         model: typeof quota.model === 'string' ? quota.model : '',
-        resetAt: typeof quota.resetAt === 'number' && Number.isFinite(quota.resetAt) ? quota.resetAt : null,
+        resetAt: finiteTime(quota.resetAt) ?? finiteTime(descriptor?.resetAt),
       },
     };
   }
@@ -44,22 +55,10 @@ export function quotaPanelVisible(state: {
   dismissedKey: string;
 }): boolean {
   const { failure, sessionId, busy, dismissedKey } = state;
-  return Boolean(failure && sessionId && !busy && dismissedKey !== quotaDismissKey(sessionId, failure.turnKey));
-}
-
-/** What the island offers for a quota stop: the waiting pill when a resume is
- *  reserved; else the panel, with the schedule button only while the setting
- *  is off and the reset time is known (with it on the runtime reserves by
- *  itself). `autoResume` is null until the setting has been read. */
-export function quotaIslandPlan(state: {
-  resume: { state?: string } | null | undefined;
-  failure: QuotaFailure | null;
-  panelVisible: boolean;
-  autoResume: boolean | null;
-}): 'resume' | 'panel' | 'panel-schedule' | 'none' {
-  if (state.resume?.state === 'waiting') return 'resume';
-  if (!state.failure || !state.panelVisible) return 'none';
-  return state.autoResume === false && state.failure.quota.resetAt !== null ? 'panel-schedule' : 'panel';
+  if (!failure || !sessionId || busy || dismissedKey === quotaDismissKey(sessionId, failure.turnKey)) return false;
+  // An exhausted quota with no known reset has nothing to wait for or resume
+  // at: the plain usage-limit notice speaks for it, not the banner.
+  return failure.kind !== 'quota_exhausted' || failure.quota.resetAt !== null;
 }
 
 /** Local HH:mm, prefixed with month/day when the reset is not today. */
@@ -81,40 +80,4 @@ export function quotaRemainingLabel(resetAt: number, now = Date.now()): string {
   if (hours > 0) return t('{{hours}}h', { hours });
   if (minutes > 0) return t('{{minutes}}m', { minutes });
   return t('Under 1m');
-}
-
-/** Switch the session's model, then retry the failed turn when it can be
- *  retried. A prompt with nothing to resubmit (media-only) stays stopped. */
-export async function continueAfterQuota(steps: {
-  switchModel(): Promise<boolean | undefined>;
-  retry(): Promise<boolean> | boolean;
-}): Promise<'retried' | 'switched' | 'failed'> {
-  if ((await steps.switchModel()) !== true) return 'failed';
-  return (await steps.retry()) ? 'retried' : 'switched';
-}
-
-type PendingContinue = { sessionId: string; onSelect(selection: DesktopModelSelection): void };
-let pending: PendingContinue | null = null;
-
-/** Opens the composer's model picker; the next explicit model selection for
- *  `sessionId` goes to `onSelect` instead of the ordinary route change.
- *  False when no picker answered. */
-export function beginQuotaContinue(sessionId: string, onSelect: (selection: DesktopModelSelection) => void): boolean {
-  pending = { sessionId, onSelect };
-  if (requestOpenModelPicker()) return true;
-  pending = null;
-  return false;
-}
-
-/** Claims the pending continue for an explicit model selection. */
-export function takeQuotaContinue(sessionId: string): ((selection: DesktopModelSelection) => void) | null {
-  if (!pending || pending.sessionId !== sessionId) return null;
-  const { onSelect } = pending;
-  pending = null;
-  return onSelect;
-}
-
-/** The picker closed without a selection. */
-export function cancelQuotaContinue(sessionId: string): void {
-  if (pending?.sessionId === sessionId) pending = null;
 }

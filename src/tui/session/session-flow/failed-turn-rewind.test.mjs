@@ -18,6 +18,17 @@ test('an output-less failed turn is dropped when its prompt is resubmitted', () 
   assert.deepEqual(rewoundFailedTurnItems([...history, failedPrompt, ...failure], `${PROMPT} `), history);
 });
 
+test('a model switch after the stop is no output: the failed turn rewinds and the divider stays', () => {
+  const divider = { kind: 'statusdone', id: 10, status: 'model-switched', provider: 'p', modelId: 'm' };
+  assert.deepEqual(rewoundFailedTurnItems([...history, failedPrompt, ...failure, divider], PROMPT), [
+    ...history,
+    divider,
+  ]);
+  // Any other status row still counts as the turn's activity.
+  const other = { kind: 'statusdone', id: 11, status: 'compacted' };
+  assert.equal(rewoundFailedTurnItems([...history, failedPrompt, ...failure, other], PROMPT), null);
+});
+
 test('a failed turn with assistant or tool activity stays so the retry continues below it', () => {
   for (const activity of [
     { kind: 'tool', id: 7, name: 'shell' },

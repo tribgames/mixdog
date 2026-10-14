@@ -60,6 +60,51 @@ test('partial handoff collects only assistant text appended in the current turn'
   assert.equal(partialHandoffTextFromSession(session, start), 'first\n\nsecond\nthird');
 });
 
+test('partial handoff falls back to visible providerReplay text when content is empty', () => {
+  const replay = (provider, items) => ({ version: 1, provider, items });
+  const session = {
+    messages: [
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 't1' }],
+        providerReplay: replay('anthropic', [
+          { type: 'thinking', thinking: 'private', text: 'hidden-thinking' },
+          { type: 'text', text: 'PARTIAL-REPORT-OK' },
+          { type: 'tool_use', id: 't1', name: 'read', input: { text: 'tool-payload' } },
+        ]),
+      },
+      {
+        role: 'assistant',
+        content: '',
+        providerReplay: replay('openai-responses', [
+          { type: 'reasoning', summary: [{ type: 'summary_text', text: 'hidden-reasoning' }] },
+          { type: 'message', content: [{ type: 'output_text', text: 'openai-visible' }] },
+          { type: 'function_call', call_id: 'c1', arguments: '{"text":"tool-payload"}' },
+        ]),
+      },
+      {
+        role: 'assistant',
+        content: '',
+        providerReplay: replay('gemini', [
+          { thought: true, text: 'hidden-thought' },
+          { text: 'gemini-visible' },
+          { functionCall: { name: 'read', args: {} } },
+        ]),
+      },
+      {
+        role: 'assistant',
+        content: 'content wins',
+        providerReplay: replay('anthropic', [{ type: 'text', text: 'replay loses' }]),
+      },
+    ],
+  };
+  assert.equal(
+    partialHandoffTextFromSession(session),
+    'PARTIAL-REPORT-OK\n\nopenai-visible\n\ngemini-visible\n\ncontent wins'
+  );
+});
+
 test('watchdog handoff preserves supported stale-error messages and the turn boundary', () => {
   const session = {
     messages: [

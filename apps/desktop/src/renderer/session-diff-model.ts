@@ -27,6 +27,11 @@ export type SessionDiffResult = {
   patchTruncated?: boolean;
   reason?: unknown;
   files?: SessionDiffFile[];
+  /** Git projects: the session's files that still differ from HEAD, with
+   *  their counts against HEAD — what the island counts. */
+  uncommittedFiles?: SessionDiffFile[];
+  /** Retained turn change records that deleting the history removes. */
+  historyTurns?: number;
 };
 
 type SessionDiffPart = ReturnType<typeof parseUnifiedDiff>[number];

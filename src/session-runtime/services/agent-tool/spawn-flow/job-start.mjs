@@ -44,6 +44,8 @@ export function createJobStarter({ mgr, notifyStatusChange, notifySessionComplet
       meta: jobMeta,
       resultType: 'agent_task_result',
       renderResult: (result) => renderResult(result),
+      // Cancellation reaches the owner once, with the worker's partial output.
+      notifyOnCancel: true,
       cancel: () => {
         try {
           admissionController.abort(new Error('agent task cancelled before resource admission'));

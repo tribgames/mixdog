@@ -1,5 +1,5 @@
 import { MessageChannel, Worker } from 'node:worker_threads';
-import { guardedSaveOptions as _guardedSaveOptions } from './write-guards.mjs';
+import { guardedSaveOptions as _guardedSaveOptions, releaseSessionWriteControl } from './write-guards.mjs';
 import { _ensureLifecycleFields } from './serialize.mjs';
 import {
   _attemptEvidence,
@@ -63,9 +63,12 @@ export { _hasSessionSaveBaseline } from './save-delta.mjs';
  * the writes, so a write already posted for `id` still lands first; the next
  * save for `id`, if any, simply goes out as a full snapshot.
  */
-export function forgetSessionSaveBaseline(id) {
+export function forgetSessionSaveBaseline(id, { releaseWriteControl = false } = {}) {
   if (!id) return false;
   const had = _dropDeltaBaseline(id);
+  // Only when the session itself is gone (close/teardown/delete): a mid-life
+  // forget (compaction) must keep the landed-epoch fence for in-flight writes.
+  if (releaseWriteControl) releaseSessionWriteControl(String(id));
   if (_saveWorker) {
     try {
       _saveWorker.postMessage({ __forgetBase: String(id) });
@@ -854,7 +857,7 @@ export function purgeSessionSaveBookkeeping(id) {
     }
   }
   // Also frees the worker-side base: a deleted id never saves again.
-  forgetSessionSaveBaseline(id);
+  forgetSessionSaveBaseline(id, { releaseWriteControl: true });
   return purged;
 }
 

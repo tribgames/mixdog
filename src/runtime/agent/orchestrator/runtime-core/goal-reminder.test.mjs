@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import {
   acknowledgePendingGoalReminder,
   markPendingGoalReminder,
-  prependGoalReminderToLatestUserMessage,
   snapshotPendingGoalReminder,
 } from './goal-reminder.mjs';
 import { continuationPrompt, goalStateReminder, goalTaskLines } from './goal-text.mjs';
@@ -163,27 +162,6 @@ test('a user pause supersedes pending deadline guidance without losing the resum
     assert.match(snapshot.content, /The user paused this Goal/);
     assert.doesNotMatch(snapshot.content, /<goal_deadline/);
   }
-});
-
-test('post-compact Goal state is prepended to the current user turn and leaves no next-turn reminder', () => {
-  const session = { id: 'sess_goal_inline' };
-  markPendingGoalReminder(session);
-  const snapshot = snapshotPendingGoalReminder(session, { readGoal: () => goal() });
-  const messages = prependGoalReminderToLatestUserMessage(
-    [
-      { role: 'user', content: 'older compact handoff' },
-      { role: 'assistant', content: 'recent answer' },
-      { role: 'user', content: 'current instruction' },
-    ],
-    snapshot.content
-  );
-  acknowledgePendingGoalReminder(session, snapshot.revision);
-
-  assert.equal(messages[0].content, 'older compact handoff');
-  assert.match(messages[2].content, /<goal_state>/);
-  assert.match(messages[2].content, /current instruction$/);
-  assert.equal((JSON.stringify(messages).match(/<goal_state>/g) || []).length, 1);
-  assert.equal(session.pendingGoalReminder, undefined);
 });
 
 test('Goal task lines carry mark and id for every task', () => {

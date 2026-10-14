@@ -54,10 +54,14 @@ function requestInitFor(cfg) {
 // Configured authentication stays authoritative even when its variables are
 // unset or resolve empty: the server then fails as configured instead of
 // turning into an OAuth login.
-function hasConfiguredMcpAuth(cfg) {
+export function hasConfiguredMcpAuth(cfg) {
   const configured = (value) =>
     value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
-  return Boolean(String(cfg.bearer_token_env_var || '').trim()) || configured(cfg.headers) || configured(cfg.env_http_headers);
+  return (
+    Boolean(String(cfg.bearer_token_env_var || '').trim()) ||
+    configured(cfg.headers) ||
+    configured(cfg.env_http_headers)
+  );
 }
 
 // The SDK's WebSocket transport opens its socket without a way to set request
@@ -129,19 +133,24 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOption
     // Explicit authentication remains authoritative (including custom API-key
     // headers). Never forward those credentials to OAuth discovery endpoints.
     let transport;
-    const oauth = hasConfiguredMcpAuth(cfg) ? null : createMcpOAuth({
-      url, ...oauthOptions,
-      // SSE advertises its POST endpoint on the authenticated event stream.
-      // No other path on the origin is allowed to receive this server's token.
-      isTransportEndpoint: (input) => kind === 'sse' && transport?._endpoint?.href === new URL(input).href,
-    });
-    transport = new Transport(new URL(url), oauth
-      ? { fetch: oauth.fetch }
-      : opts);
+    const oauth = hasConfiguredMcpAuth(cfg)
+      ? null
+      : createMcpOAuth({
+          url,
+          serverName: name,
+          ...oauthOptions,
+          // SSE advertises its POST endpoint on the authenticated event stream.
+          // No other path on the origin is allowed to receive this server's token.
+          isTransportEndpoint: (input) => kind === 'sse' && transport?._endpoint?.href === new URL(input).href,
+        });
+    transport = new Transport(new URL(url), oauth ? { fetch: oauth.fetch } : opts);
     if (oauth) {
       transport.oauth = oauth;
       const close = transport.close.bind(transport);
-      transport.close = async () => { oauth.close(); await close(); };
+      transport.close = async () => {
+        oauth.close();
+        await close();
+      };
     }
     log(`[mcp-client] Connecting "${name}" via ${kind.toUpperCase()}: ${mcpUrlForLog(url)}\n`);
     return {

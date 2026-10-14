@@ -117,6 +117,29 @@ test('a completion wake continues the user turn review with its Lead edits and w
   }
 });
 
+test('a worker running its own session turn still reports its edits to the Lead turn', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-turn-own-worker-'));
+  const lead = 'own-turn-lead';
+  try {
+    await beginTurnSnapshot(root, lead, { checkpointId: 'prompt-1' });
+    const worker = beginAgentTurnReview(lead, 'own-turn-worker', { tag: 'impl' });
+    // The worker's session turn opens its own tracker, replacing the bound one.
+    await beginTurnSnapshot(root, 'own-turn-worker', { checkpointId: 'worker-prompt' });
+    recordTurnDiffChanges('own-turn-worker', [
+      { path: join(root, 'worker.txt'), displayPath: 'worker.txt', before: 'a\n', after: 'b\n' },
+    ]);
+    completeAgentTurnReview(worker);
+    const review = await getTurnReviewDiff(root, lead);
+    assert.deepEqual(
+      review.agents.map((agent) => [agent.tag, parseUnifiedDiff(agent.patch).map((file) => file.newFile.fileName)]),
+      [['impl', ['worker.txt']]]
+    );
+  } finally {
+    _resetTurnSnapshotForTest();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 // Exact per-call patches: each card shows the change ITS call made, from that
 // call's own before and after, never the turn's running total.
 const added = (name, lines) =>

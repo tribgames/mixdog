@@ -612,7 +612,7 @@ test('right-click menus offer per-target actions for sessions and project folder
       'Open',
       'Open in split pane',
       'Rename',
-      'Inherit session',
+      'Fork session',
       'Add to favorites',
       'Archive',
       'Delete',

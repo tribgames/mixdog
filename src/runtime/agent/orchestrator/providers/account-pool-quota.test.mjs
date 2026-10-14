@@ -27,6 +27,8 @@ const { createAccountPoolProvider, resetAccountProbePacing, resetSessionAccountB
   './account-pool.mjs'
 );
 const { fetchOAuthUsageSnapshot } = await import('./oauth-usage.mjs');
+const { providerErrorKind } = await import('./provider-error-kind.mjs');
+const { isProviderRecoveryTerminal } = await import('./retry-executor.mjs');
 const { currentProviderAccountId } = await import('../../../shared/provider-auth-binding.mjs');
 after(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -150,6 +152,124 @@ test('a generic 429 with a long Retry-After rotates accounts but carries no mark
   assert.equal(calls, 3, 'rotation across the roster is unchanged');
 });
 
+test('an overload 429 with a long Retry-After never blocks the account', async () => {
+  for (const row of readProviderAccountPool(provider).accounts) await removeProviderAccount(provider, row.id);
+  resetAccountProbePacing();
+  const id = newProviderAccountId();
+  await registerProviderAccount(provider, id, { label: 'Only' });
+  await changeProviderAccounts(provider, { selectedId: id, auto: true, useCredits: false });
+  const stages = [];
+  let calls = 0;
+  const gateway = createAccountPoolProvider(provider, () => ({
+    async send() {
+      calls += 1;
+      if (calls === 1) {
+        throw Object.assign(new Error('Codex is at capacity, please try again later'), {
+          status: 429,
+          headers: { 'retry-after': '3600' },
+        });
+      }
+      return { content: 'ok' };
+    },
+  }));
+  const onStageChange = (stage, detail) => stages.push(detail?.message || stage);
+  await assert.rejects(gateway.send([], 'm', [], { onStageChange }), (error) => {
+    assert.equal(error.quotaExhausted, undefined);
+    return /at capacity/.test(error.message);
+  });
+  const row = readProviderAccountPool(provider).accounts.find((entry) => entry.id === id);
+  assert.ok(!(row.blockedUntil > Date.now()), 'the account is not blocked');
+  assert.equal(stages.some((message) => /Quota exhausted/.test(message)), false);
+  assert.equal((await gateway.send([], 'm', [], { onStageChange })).content, 'ok');
+  assert.equal(calls, 2, 'the next send dispatches to the same account');
+});
+
+test('a long Retry-After without quota evidence is a cooldown: rotates, blocks only as advised', async () => {
+  const ids = await setup();
+  const stages = [];
+  const gateway = failing(() =>
+    Object.assign(new Error('Too many requests'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 120_000 })
+  );
+  const before = Date.now();
+  await assert.rejects(gateway.send([], 'm', [], { onStageChange: (_s, d) => stages.push(d?.message) }), (error) => {
+    assert.equal(error.quotaExhausted, undefined);
+    return true;
+  });
+  for (const row of readProviderAccountPool(provider).accounts.filter((entry) => ids.includes(entry.id))) {
+    assert.ok(row.blockedUntil <= Date.now() + 120_000 && row.blockedUntil >= before + 120_000);
+    assert.notEqual(row.blockedQuota, true);
+  }
+  assert.ok(stages.length > 0 && stages.every((message) => /Rate limited \(cooldown\)/.test(message)));
+});
+
+test('a typed quota refusal blocks until the provider-named reset', async () => {
+  await setup({ auto: false });
+  const resetAt = Date.now() + 2 * 3_600_000;
+  const gateway = failing(() => Object.assign(new Error('limit'), { status: 429, code: 'usage_limit_reached', resetAt }));
+  await assert.rejects(gateway.send([], 'm', [], {}), (error) => {
+    assert.ok(Math.abs(error.quotaExhausted.resetAt - resetAt) < 5);
+    return true;
+  });
+});
+
+test('a provider-supplied accountCooldownPolicy sets reason-based cooldowns when the server names no delay', async () => {
+  const { ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY } = await import('./antigravity-retry-policy.mjs');
+  const ag = 'antigravity-oauth';
+  for (const row of readProviderAccountPool(ag).accounts) await removeProviderAccount(ag, row.id);
+  resetAccountProbePacing();
+  const ids = [newProviderAccountId(), newProviderAccountId()];
+  for (const [i, id] of ids.entries()) await registerProviderAccount(ag, id, { label: `AG ${i}` });
+  await changeProviderAccounts(ag, { selectedId: ids[0], auto: false, useCredits: false });
+  const blockedFor = (id) => readProviderAccountPool(ag).accounts.find((row) => row.id === id).blockedUntil - Date.now();
+  const near = (actual, expected) => Math.abs(actual - expected) < 5_000;
+  // Cooldown waits are exercised separately; here every refusal surfaces.
+  const noWait = { ...ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY, waitForCooldownMs: 0 };
+  const gateway = (makeError, policy = noWait) =>
+    createAccountPoolProvider(ag, () => ({
+      accountCooldownPolicy: policy,
+      async send() {
+        throw makeError();
+      },
+    }));
+  const quota = () => Object.assign(new Error('quota'), { status: 429, code: 'quota_exhausted' });
+  for (const expected of [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000, 2 * 60 * 60_000]) {
+    await assert.rejects(gateway(quota).send([], 'm', [], {}));
+    assert.ok(near(blockedFor(ids[0]), Math.min(expected, 6 * 60 * 60_000)), `quota step ${expected}`);
+    await blockProviderAccount(ag, ids[0], 0);
+  }
+  assert.equal(ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY.waitForCooldownMs, 300_000);
+  assert.equal(ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY.rotateOnRateLimit, true);
+  // A 30s cooldown sits inside the 300s wait bound: the pool waits for it,
+  // so an abort ends that wait.
+  const rate = () => Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded' });
+  const stop = new AbortController();
+  const waited = gateway(rate, ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY).send([], 'm', [], {
+    signal: stop.signal,
+    onStageChange: (stage, detail) => {
+      if (stage === 'reconnecting' && detail?.waitMs > 0) stop.abort(new Error('cancelled'));
+    },
+  });
+  await assert.rejects(waited, /cancelled/);
+  assert.ok(near(blockedFor(ids[0]), 30_000), 'rate limit 30s');
+  await blockProviderAccount(ag, ids[0], 0);
+  const advised = () => Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 100 });
+  await assert.rejects(gateway(advised).send([], 'm', [], {}));
+  assert.ok(near(blockedFor(ids[0]), 2_000), 'advised rate limit rotates; the advice (floored) is the cooldown');
+  await blockProviderAccount(ag, ids[0], 0);
+  const longAdvice = () => Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 400_000 });
+  await assert.rejects(gateway(longAdvice).send([], 'm', [], {}));
+  assert.ok(near(blockedFor(ids[0]), 400_000), 'advice beyond the wait bound blocks for the advice');
+  await blockProviderAccount(ag, ids[0], 0);
+  const capacity = () => Object.assign(new Error('busy'), { status: 503, code: 'model_capacity_exceeded' });
+  await assert.rejects(gateway(capacity).send([], 'm', [], {}));
+  assert.equal(readProviderAccountPool(ag).accounts.find((row) => row.id === ids[0]).blockedUntil > Date.now(), false);
+  // Without a policy the inferred five minutes apply.
+  const cursorIds = await setup({ auto: false });
+  await assert.rejects(failing(() => Object.assign(new Error('q'), { status: 429, code: 'quota_exceeded' })).send([], 'm', [], {}));
+  const cursorRow = readProviderAccountPool(provider).accounts.find((row) => row.id === cursorIds[0]);
+  assert.ok(near(cursorRow.blockedUntil - Date.now(), 5 * 60_000));
+});
+
 test('the 20-attempt cap with every account exhausted still carries the marker', async () => {
   for (const row of readProviderAccountPool(provider).accounts) await removeProviderAccount(provider, row.id);
   resetAccountProbePacing();
@@ -243,6 +363,105 @@ test('blocks without quota evidence stay unmarked on later sends', async () => {
     assert.equal(error.quotaExhausted, undefined);
     return true;
   });
+});
+
+test('a roster that is only cooling down reports a rate limit advising the earliest cooldown, not quota', async () => {
+  const ids = await setup();
+  const now = Date.now();
+  for (const [index, id] of ids.entries()) {
+    await blockProviderAccount(provider, id, now + 600_000 + index * 60_000, 'm', 'retry-after');
+  }
+  const gateway = failing(() => new Error('unreachable'));
+  await assert.rejects(gateway.send([], 'm', [], {}), (error) => {
+    assert.notEqual(error.code, 'provider_accounts_exhausted');
+    const kind = providerErrorKind(error);
+    assert.equal(kind.kind, 'rate_limited');
+    assert.ok(kind.retryAfterMs > 590_000 && kind.retryAfterMs <= 600_000, `advice ${kind.retryAfterMs}`);
+    // A deliberate verdict: the loop surfaces it instead of classifying it
+    // as an unknown failure.
+    assert.equal(isProviderRecoveryTerminal(error), true);
+    return true;
+  });
+});
+
+const cooling = (policy, send) =>
+  createAccountPoolProvider(provider, () => ({ accountCooldownPolicy: policy, send }));
+
+test('waitForCooldownMs waits out a cooldown-only roster inside the bound, then sends', async () => {
+  const ids = await setup();
+  const until = Date.now() + 150;
+  for (const id of ids) await blockProviderAccount(provider, id, until, 'm', 'retry-after');
+  const stages = [];
+  const gateway = cooling({ waitForCooldownMs: 10_000 }, async () => ({ content: 'ok' }));
+  const result = await gateway.send([], 'm', [], {
+    onStageChange: (stage, detail) => stages.push([stage, detail]),
+  });
+  assert.equal(result.content, 'ok');
+  assert.ok(Date.now() >= until, 'the send waited for the earliest cooldown');
+  const wait = stages.find(([stage, detail]) => stage === 'reconnecting' && detail?.waitMs > 0);
+  assert.ok(wait && wait[1].waitMs <= 150, 'the wait is reported as reconnect progress');
+});
+
+test('waitForCooldownMs: beyond the bound, or with quota evidence, the send throws without waiting', async () => {
+  const ids = await setup();
+  for (const id of ids) await blockProviderAccount(provider, id, Date.now() + 600_000, 'm', 'retry-after');
+  const gateway = cooling({ waitForCooldownMs: 1_000 }, async () => ({ content: 'ok' }));
+  const started = Date.now();
+  await assert.rejects(gateway.send([], 'm', [], {}), (error) => error.code === 'rate_limited');
+  await setup();
+  await assert.rejects(
+    cooling({ waitForCooldownMs: 600_000 }, async () => {
+      throw quotaError();
+    }).send([], 'other', [], {}),
+    (error) => Boolean(error.quotaExhausted)
+  );
+  assert.ok(Date.now() - started < 5_000);
+});
+
+test('accountBlocked: a policy blockedMs cools that account and rotates; without it the error surfaces', async () => {
+  const { ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY } = await import('./antigravity-retry-policy.mjs');
+  assert.equal(ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY.blockedMs, 600_000);
+  const blocked = () =>
+    Object.assign(new Error('verify'), { status: 403, code: 'validation_required', accountBlocked: true, unsafeToRetry: true });
+  const ids = await setup();
+  let calls = 0;
+  const gateway = cooling({ blockedMs: 600_000 }, async () => {
+    calls += 1;
+    if (calls === 1) throw blocked();
+    return { content: 'ok' };
+  });
+  assert.equal((await gateway.send([], 'm', [], {})).content, 'ok');
+  assert.equal(calls, 2);
+  const row = readProviderAccountPool(provider).accounts.find((entry) => entry.id === ids[0]);
+  assert.ok(Math.abs(row.blockedUntil - Date.now() - 600_000) < 5_000, 'the blocked account cools for blockedMs');
+  assert.notEqual(row.blockedQuota, true, 'never quota evidence');
+
+  const plainIds = await setup();
+  const error = blocked();
+  await assert.rejects(cooling(null, async () => { throw error; }).send([], 'm', [], {}), (thrown) => thrown === error);
+  const plain = readProviderAccountPool(provider).accounts.find((entry) => entry.id === plainIds[0]);
+  assert.equal(plain.blockedUntil > Date.now(), false, 'default: no block');
+
+  await setup();
+  const emitted = cooling({ blockedMs: 600_000 }, async (_m, _model, _t, opts) => {
+    opts.onTextDelta('partial');
+    throw blocked();
+  });
+  await assert.rejects(emitted.send([], 'm', [], { onTextDelta() {} }), /verify/, 'emitted output never rotates');
+});
+
+test('rotateOnRateLimit rotates an advised rate limit and the wait retries the account after its advice', async () => {
+  const ids = await setup({ auto: false });
+  let calls = 0;
+  const gateway = cooling({ rotateOnRateLimit: true, waitForCooldownMs: 10_000 }, async () => {
+    calls += 1;
+    if (calls === 1) throw Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 100 });
+    return { content: 'ok' };
+  });
+  const result = await gateway.send([], 'm', [], {});
+  assert.equal(result.content, 'ok');
+  assert.equal(calls, 2);
+  assert.ok(ids.length > 0);
 });
 
 const serving = (used, refuse = () => false) =>

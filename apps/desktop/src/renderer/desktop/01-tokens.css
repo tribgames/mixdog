@@ -100,7 +100,16 @@
   /* Terminal canvas and ink stay dark-theme paired in every app theme. */
   --mx-terminal-bg: #121215;
   --mx-terminal-fg: #e9e9e9;
-
+}
+/* The type scale is declared on the root AND re-declared on the chat scope
+   (transcript + composer typing row), where --mx-content-scale carries the
+   per-device "Chat text size" (chat-text-size-preference.ts). Custom
+   properties resolve where they are declared, so the root resolves every
+   token at scale 1 — chrome keeps its size — and only the chat scope
+   computes them scaled for its descendants. */
+:root,
+.transcript,
+.composer-input-row {
   /* ── Type scale ── */
   /* One chrome ramp on SIX real sizes — 12 badge · 13 meta · 14 item ·
      15 category · 16 panel title · 20 page title. The semantic aliases below
@@ -111,21 +120,21 @@
      11 type ramp's floor for regular text (Caption 12/16); 11 sat under it
 . Content scales (markdown headings,
      onboarding hero, editor titles) stay literal. */
-  --mx-font-micro: 12px;
-  --mx-font-meta: 13px;
-  --mx-font-minor: 14px;
-  --mx-font-code: 13px;
-  --mx-font-ui: 14px;
-  --mx-font-emphasis: 15px;
-  --mx-font-body: 15px;
-  --mx-font-panel-title: 16px;
+  --mx-font-micro: calc(12px * var(--mx-content-scale, 1));
+  --mx-font-meta: calc(13px * var(--mx-content-scale, 1));
+  --mx-font-minor: calc(14px * var(--mx-content-scale, 1));
+  --mx-font-code: calc(13px * var(--mx-content-scale, 1));
+  --mx-font-ui: calc(14px * var(--mx-content-scale, 1));
+  --mx-font-emphasis: calc(15px * var(--mx-content-scale, 1));
+  --mx-font-body: calc(15px * var(--mx-content-scale, 1));
+  --mx-font-panel-title: calc(16px * var(--mx-content-scale, 1));
   /* Rail panel titles (세션, 에이전트 …): the 16px panel tier — 18 read too
      large — in the title band (--mx-rail-panel-band).
      The band matches the PANE tab strip (43px row + 1px edge) so the side
      panel's head and the workspace's tab row read as one line; the old 52px
      band stood taller than the strip and the two looked detached. 39px read
      cramped once the selection became a plate. */
-  --mx-rail-panel-title: 16px;
+  --mx-rail-panel-title: calc(16px * var(--mx-content-scale, 1));
   --mx-rail-panel-band: 44px;
   /* Air between that band and a panel's first box. The band's own lower
      half already leaves ~16px under the title, so the content adds only a
@@ -149,8 +158,8 @@
      A clear step over the 16 panel tier, as the Fluent subtitle (20/28),
      Geist and Primer titles step to 20 — 15 and 16 alone told the page and
      its sections apart by weight only. */
-  --mx-font-page-title: 20px;
-  --mx-line-page-title: 28px;
+  --mx-font-page-title: calc(20px * var(--mx-content-scale, 1));
+  --mx-line-page-title: calc(28px * var(--mx-content-scale, 1));
   --mx-font-category: var(--mx-font-emphasis);
   --mx-font-item: var(--mx-font-ui);
   --mx-font-supporting: var(--mx-font-meta);
@@ -159,12 +168,12 @@
      through the token). 15/17/19/23 strays converged to the pair;
      content headings (markdown h1-h3, onboarding hero, recovery card)
      keep literal metrics like their font sizes. */
-  --mx-line-micro: 16px;
-  --mx-line-meta: 16px;
-  --mx-line-minor: 18px;
-  --mx-line-ui: 20px;
-  --mx-line-emphasis: 22px;
-  --mx-line-body: 24px;
+  --mx-line-micro: calc(16px * var(--mx-content-scale, 1));
+  --mx-line-meta: calc(16px * var(--mx-content-scale, 1));
+  --mx-line-minor: calc(18px * var(--mx-content-scale, 1));
+  --mx-line-ui: calc(20px * var(--mx-content-scale, 1));
+  --mx-line-emphasis: calc(22px * var(--mx-content-scale, 1));
+  --mx-line-body: calc(24px * var(--mx-content-scale, 1));
   /* PROSE ONLY, one step above the body rung. 15/24 is the same 1.6 the Latin
      references set, but Hangul (and CJK generally) fills its line box edge to
      edge, so the identical ratio reads packed.
@@ -172,7 +181,17 @@
      marks the vertical room the tighter box clipped. Chrome rows keep 24.
      Back to 24 beside Codex's tighter prose, chosen side by side with the
      looser rhythm. */
-  --mx-line-prose: 24px;
+  --mx-line-prose: calc(24px * var(--mx-content-scale, 1));
+}
+/* The chat scope reads the root's per-device scale; outside it the scale
+   stays undefined and every scoped calc() falls back to 1. Literal content
+   metrics inside the scope (markdown headings, tool-card captions, diff rows)
+   multiply by the same --mx-content-scale. */
+.transcript,
+.composer-input-row {
+  --mx-content-scale: var(--mx-chat-scale, 1);
+}
+:root {
   /* Tracking, two steps beside the 0 base: tight for 14px+ headings,
      wide for uppercase micro labels/badges. Sub-.015em strays dropped to
      0; content strays (onboarding hero -.45px, PR title -.015em,

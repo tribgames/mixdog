@@ -8,6 +8,7 @@ import { JSDOM } from 'jsdom';
 import i18n from './i18n.ts';
 import { CompletionStatus, ContextUsageIndicator } from './transcript-status.tsx';
 import { DESKTOP_TOAST_EVENT } from './desktop-toasts.tsx';
+import { modelDisplayName } from './provider-display.tsx';
 
 const koCatalog = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
 i18n.addResourceBundle('ko', 'translation', koCatalog, true, true);
@@ -51,7 +52,7 @@ test('inheritance completion renders a distinct, accessible conversation boundar
   const dom = new JSDOM(markup);
   try {
     const status = dom.window.document.querySelector('[role="status"]');
-    assert.match(status.textContent, /Session inherited/);
+    assert.match(status.textContent, /Session forked/);
     assert.match(status.textContent, /Continuing with the previous context/);
     assert.doesNotMatch(status.textContent, /compacted/i);
   } finally {
@@ -59,7 +60,37 @@ test('inheritance completion renders a distinct, accessible conversation boundar
   }
 });
 
-for (const action of ['inherit', 'compact']) {
+test('an in-place model switch renders the compaction-style divider naming only the new model', async () => {
+  const previousLang = i18n.language;
+  const item = {
+    kind: 'statusdone',
+    status: 'model-switched',
+    label: 'Model switched',
+    provider: 'openai-oauth',
+    modelId: 'gpt-6-astra',
+  };
+  const render = () => {
+    const dom = new JSDOM(renderToStaticMarkup(React.createElement(CompletionStatus, { item })));
+    const status = dom.window.document.querySelector('.compaction-divider[role="status"]');
+    const text = status.textContent;
+    const icon = status.querySelector('svg.compaction-icon');
+    dom.window.close();
+    return { text, icon };
+  };
+  try {
+    const english = render();
+    assert.ok(english.icon, 'swap glyph');
+    const model = modelDisplayName('gpt-6-astra', 'openai-oauth');
+    assert.equal(english.text, `Switched to ${model}`);
+    await i18n.changeLanguage('ko');
+    assert.equal(render().text, `${model}로 변경`);
+  } finally {
+    await i18n.changeLanguage(previousLang);
+  }
+});
+
+{
+  const action = 'compact';
   for (const outcome of ['success', 'failure']) {
     test(`${action} blocks re-entry without extra progress UI until ${outcome}`, async () => {
       const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
@@ -82,10 +113,8 @@ for (const action of ['inherit', 'compact']) {
         reject = no;
       });
       const calls = [];
-      // The card measures the heir's own route before anything moves, so the
-      // inherit action opens with that preflight and reaches the carry only
-      // once it answers; compaction still runs as a single capability call.
-      const startedCalls = action === 'inherit' ? ['inheritancePreflight'] : ['compact'];
+      // Compaction runs as a single capability call.
+      const startedCalls = ['compact'];
       window.mixdogDesktop = {
         invokeCapability: (request) => {
           calls.push(request.capability);
@@ -99,8 +128,8 @@ for (const action of ['inherit', 'compact']) {
         items: [
           {
             kind: 'assistant',
-            provider: action === 'inherit' ? 'anthropic-oauth' : 'openai-oauth',
-            modelId: action === 'inherit' ? 'claude-fable-5-1' : 'gpt-6-astra',
+            provider: 'openai-oauth',
+            modelId: 'gpt-6-astra',
           },
         ],
       };
@@ -110,15 +139,11 @@ for (const action of ['inherit', 'compact']) {
             snapshot: current,
             open,
             onOpenChange() {},
-            onInherit: () => {
-              calls.push('inherit');
-              return pending;
-            },
           })
         );
       try {
         await act(async () => render(true));
-        const label = action === 'inherit' ? 'Inherit session' : 'Compact context';
+        const label = 'Compact context';
         const button = [...document.querySelectorAll('button')].find((node) => node.textContent === label);
         assert.ok(button);
         const idleMarkup = button.innerHTML;
@@ -138,8 +163,8 @@ for (const action of ['inherit', 'compact']) {
             items: [
               {
                 kind: 'assistant',
-                provider: action === 'inherit' ? 'openai-oauth' : 'anthropic-oauth',
-                modelId: action === 'inherit' ? 'gpt-6-astra' : 'claude-fable-5-1',
+                provider: 'anthropic-oauth',
+                modelId: 'claude-fable-5-1',
               },
             ],
           })
@@ -155,7 +180,7 @@ for (const action of ['inherit', 'compact']) {
         });
         assert.equal(document.querySelector('[role="status"]'), null);
         if (outcome === 'success') {
-          assert.deepEqual(calls, action === 'inherit' ? ['inheritancePreflight', 'inherit'] : ['compact']);
+          assert.deepEqual(calls, ['compact']);
           await act(async () =>
             render(true, {
               ...snapshot,

@@ -65,7 +65,7 @@ export function statuslineFooterIdentityChanged(args, lastArgs) {
   if (!lastArgs) return true;
   if (args.sessionId !== lastArgs.sessionId) return true;
   if (args.provider !== lastArgs.provider || args.model !== lastArgs.model) return true;
-  if (args.effort !== lastArgs.effort || args.fast !== lastArgs.fast) return true;
+  if (args.effort !== lastArgs.effort || args.fast !== lastArgs.fast || args.ultra !== lastArgs.ultra) return true;
   if (args.contextWindow !== lastArgs.contextWindow || args.rawContextWindow !== lastArgs.rawContextWindow) return true;
   if (args.displayContextWindow !== lastArgs.displayContextWindow) return true;
   if (args.compactBoundaryTokens !== lastArgs.compactBoundaryTokens) return true;

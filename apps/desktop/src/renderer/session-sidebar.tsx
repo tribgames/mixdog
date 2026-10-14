@@ -34,6 +34,7 @@ import {
   groupProjectSessions,
 } from './session-sidebar-sections';
 import { withOpen, type OpenMap } from './sidebar-open-state';
+import type { ForkRowRole } from './session-fork-groups';
 import { usePersistedListOrder } from './use-persisted-list-order';
 import {
   applySessionOrder,
@@ -662,11 +663,12 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     onArchiveSession,
     onFavoriteSession,
     openSessionMenu,
+    onToggleFork: openState.toggleFork,
     setDraggedSessionId,
     setSessionDropKey,
   };
-  const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string, rowScope?: string) =>
-    renderSessionRow(session, listKey, rowContext, rowScope);
+  const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string, rowScope?: string, fork?: ForkRowRole) =>
+    renderSessionRow(session, listKey, rowContext, rowScope, fork);
   const sectionContext: SidebarSectionContext = {
     sectionOrder,
     openState,

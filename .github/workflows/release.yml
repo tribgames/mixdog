@@ -125,6 +125,12 @@ jobs:
     needs: identity
     runs-on: ubuntu-22.04
     timeout-minutes: 45
+    # onnxruntime-node's postinstall fetches the CUDA execution-provider
+    # libraries from NuGet on linux/x64, and a connect timeout there failed
+    # `npm ci`. This job tests and packs the npm package (`npm pack` ships no
+    # node_modules), so it skips them exactly as release-gate.yml does.
+    env:
+      ONNXRUNTIME_NODE_INSTALL: skip
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -144,8 +150,16 @@ jobs:
       - name: Verify bundled release assets
         run: node scripts/verify-release-assets.mjs
 
+      # Retried for a transient registry failure; a deterministic one fails
+      # all three attempts.
       - name: Install
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: |
+          for attempt in 1 2 3; do
+            npm ci --prefer-offline --no-audit --no-fund && exit 0
+            echo "npm ci failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 10))
+          done
+          exit 1
 
       # src/tui/dist is gitignored; smoke imports it. Build it once, then pack
       # with lifecycle scripts disabled so prepack does not rebuild it.
@@ -215,6 +229,11 @@ jobs:
     timeout-minutes: 60
     env:
       NODE_OPTIONS: --max-old-space-size=6144
+      # The platform-neutral output bundles no native addon; each packager's
+      # prepare-runtime installs the runtime dependencies (and, on linux-x64,
+      # the CUDA provider libraries) itself. Skipping the NuGet fetch here
+      # removes the failure mode that took down `npm ci`.
+      ONNXRUNTIME_NODE_INSTALL: skip
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
