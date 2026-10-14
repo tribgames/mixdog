@@ -456,8 +456,12 @@ test('header-only selections populate appliedSkills; failed loads never do', asy
       session.messages,
       session
     );
-    recordAppliedSkills(message, applied);
-    assert.deepEqual(message.meta.transcript, { messageId: 'msg_header', at: 1, appliedSkills: ['selected-guide'] });
+    const list = [message];
+    const stamped = recordAppliedSkills(list, message, applied);
+    assert.notEqual(stamped, message, 'a new message object, so the delta save re-sends it');
+    assert.equal(list[0], stamped);
+    assert.deepEqual(stamped.meta.transcript, { messageId: 'msg_header', at: 1, appliedSkills: ['selected-guide'] });
+    assert.equal(recordAppliedSkills(list, stamped, []), stamped, 'nothing loaded: unchanged');
     const denied = newSession('openai-oauth', root);
     denied.beforeToolHook = async () => ({ action: 'deny', reason: 'policy' });
     assert.deepEqual(

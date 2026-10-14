@@ -156,8 +156,7 @@ export async function runAskAgentLoop({
         signal: turnSignal,
       });
       // The user turn message sits right after the history it was built on.
-      const userMessage = outgoing[prepared.beforeCount - 1];
-      recordAppliedSkills(userMessage, applied);
+      const userMessage = recordAppliedSkills(outgoing, outgoing[prepared.beforeCount - 1], applied);
       session.messages = filterModelVisibleSessionMessages(outgoing);
       checkpoint.schedule(true);
       if (applied.length) {

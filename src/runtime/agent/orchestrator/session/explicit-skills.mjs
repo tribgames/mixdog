@@ -60,12 +60,19 @@ export function explicitSkillNames(prompt, cwd) {
 }
 
 /** Stamps the skills a user turn actually loaded on its transcript metadata,
- *  where the live row, the persisted transcript and restore all read it. */
-export function recordAppliedSkills(message, names) {
-  if (!message || !Array.isArray(names) || !names.length) return;
+ *  where the live row, the persisted transcript and restore all read it.
+ *  The stamped message REPLACES `message` in `messages` (returned): the
+ *  session store ships reference-identical messages as an append-only delta,
+ *  so an in-place edit of a user message an earlier save already sent would
+ *  never reach disk. */
+export function recordAppliedSkills(messages, message, names) {
+  if (!message || !Array.isArray(names) || !names.length) return message;
   const meta = message.meta && typeof message.meta === 'object' ? message.meta : {};
   const transcript = meta.transcript && typeof meta.transcript === 'object' ? meta.transcript : {};
-  message.meta = { ...meta, transcript: { ...transcript, appliedSkills: [...names] } };
+  const stamped = { ...message, meta: { ...meta, transcript: { ...transcript, appliedSkills: [...names] } } };
+  const index = Array.isArray(messages) ? messages.indexOf(message) : -1;
+  if (index >= 0) messages[index] = stamped;
+  return stamped;
 }
 
 // Called before the first model request for a real user turn. This performs the

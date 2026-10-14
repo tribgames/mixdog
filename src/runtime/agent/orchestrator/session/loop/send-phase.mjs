@@ -44,12 +44,12 @@ export async function beginIteration(state) {
   // policy-checked selection before the next provider snapshot instead of
   // starting detached work from a drain callback.
   while (state.pendingSkillPrompts.length) {
-    const { content, message } = state.pendingSkillPrompts.shift();
+    const { content, message: queued } = state.pendingSkillPrompts.shift();
     const applied = await prepareExplicitSkills(content, messages, sessionRef, {
       cwd: state.cwd,
       signal: opts.signal,
     });
-    recordAppliedSkills(message, applied);
+    const message = recordAppliedSkills(messages, queued, applied);
     if (applied.length) {
       try {
         opts.onSkillsApplied?.(applied, { messageId: message?.meta?.transcript?.messageId || null });
