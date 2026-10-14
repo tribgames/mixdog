@@ -131,6 +131,16 @@ async function authenticated(t, endpoint) {
   return raw;
 }
 
+/** Sends a request frame the way the bridge client does: reserve its bytes, send once granted. */
+function reserveAndSend(raw, frame, timeoutMs = 20_000) {
+  const line = typeof frame === 'string' ? frame : `${JSON.stringify(frame)}\n`;
+  const { id } = JSON.parse(line);
+  raw.send({ type: 'reserve', id, bytes: Buffer.byteLength(line) });
+  return raw.next((f) => f.type === 'grant' && f.id === id, timeoutMs).then(() => {
+    raw.socket.write(line);
+  });
+}
+
 async function waitFor(predicate, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -458,13 +468,30 @@ test('the bridge rejects a bad token, a missing hello and an oversized frame', a
   control.socket.write(`{"type":"result","pad":"${'y'.repeat(4096)}"}\n`);
   assert.equal((await control.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_FRAME_TOO_LARGE');
   await control.closed;
-  // …a request frame may be larger, up to its own limit.
+  // …a request frame without a grant is held to the control limit…
+  const unreserved = await authenticated(t, endpoint);
+  unreserved.socket.write(`{"type":"req","id":"a","callbacks":[],"call":{"pad":"${'z'.repeat(4096)}"}}\n`);
+  assert.equal((await unreserved.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_FRAME_TOO_LARGE');
+  await unreserved.closed;
+  // …and is never admitted, however small.
+  const unadmitted = await authenticated(t, endpoint);
+  unadmitted.send({ type: 'req', id: 'a', callbacks: [], call: { provider: 'openai', method: 'send' } });
+  assert.equal((await unadmitted.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_BAD_FRAME');
+  await unadmitted.closed;
+  // A reservation past the request limit is refused; a frame past its grant drops the client.
   const request = await authenticated(t, endpoint);
-  request.socket.write(`{"type":"req","id":"a","callbacks":[],"call":{"pad":"${'z'.repeat(16_384)}"}}\n`);
+  request.send({ type: 'reserve', id: 'big', bytes: 16_384 });
+  const big = await request.next((frame) => frame.type === 'done' && frame.id === 'big');
+  assert.equal(big.error.props.code, 'MODEL_PROXY_REQUEST_TOO_LARGE');
+  request.send({ type: 'reserve', id: 'a', bytes: 3000 });
+  await request.next((frame) => frame.type === 'grant' && frame.id === 'a');
+  request.socket.write(`{"type":"req","id":"a","callbacks":[],"call":{"pad":"${'z'.repeat(4096)}"}}\n`);
   assert.equal((await request.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_FRAME_TOO_LARGE');
   await request.closed;
-  // A large frame that is not a request (by its parsed type) is refused too.
+  // A large granted frame that is not a request (by its parsed type) is refused too.
   const disguised = await authenticated(t, endpoint);
+  disguised.send({ type: 'reserve', id: 'a', bytes: 8000 });
+  await disguised.next((frame) => frame.type === 'grant' && frame.id === 'a');
   disguised.socket.write(`{"type":"req","id":"a","pad":"${'w'.repeat(4096)}","type":"result"}\n`);
   assert.equal((await disguised.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_BAD_FRAME');
 });
@@ -478,22 +505,22 @@ test('the bridge refuses unknown methods, malformed callbacks, duplicate ids and
   t.after(attachPc(channel, ({ id }) => pending.push(id), snapshots));
   const raw = await authenticated(t, endpoint);
 
-  raw.send({ type: 'req', id: 'm1', callbacks: [], call: { provider: 'openai', method: 'deleteEverything' } });
+  await reserveAndSend(raw, { type: 'req', id: 'm1', callbacks: [], call: { provider: 'openai', method: 'deleteEverything' } });
   const unknown = await raw.next((frame) => frame.type === 'done' && frame.id === 'm1');
   assert.equal(unknown.ok, false);
   assert.equal(unknown.error.props.code, 'MODEL_PROXY_BRIDGE_METHOD');
 
-  raw.send({ type: 'req', id: 'c1', callbacks: ['send'], call: { provider: 'openai', method: 'send' } });
+  await reserveAndSend(raw, { type: 'req', id: 'c1', callbacks: ['send'], call: { provider: 'openai', method: 'send' } });
   const badNames = await raw.next((frame) => frame.type === 'done' && frame.id === 'c1');
   assert.equal(badNames.error.props.code, 'MODEL_PROXY_BRIDGE_BAD_REQUEST');
 
-  raw.send({ type: 'req', id: 'a', callbacks: [], call: { provider: 'openai', method: 'send', model: 'm' } });
+  await reserveAndSend(raw, { type: 'req', id: 'a', callbacks: [], call: { provider: 'openai', method: 'send', model: 'm' } });
   assert.ok(await waitFor(() => pending.length === 1));
-  raw.send({ type: 'req', id: 'b', callbacks: [], call: { provider: 'openai', method: 'send', model: 'm' } });
+  raw.send({ type: 'reserve', id: 'b', bytes: 100 });
   const capped = await raw.next((frame) => frame.type === 'done' && frame.id === 'b');
   assert.equal(capped.error.props.code, 'MODEL_PROXY_BRIDGE_LIMIT');
 
-  raw.send({ type: 'req', id: 'a', callbacks: [], call: { provider: 'openai', method: 'send', model: 'm' } });
+  raw.send({ type: 'reserve', id: 'a', bytes: 100 });
   assert.equal((await raw.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_DUPLICATE_ID');
   await raw.closed;
   // The violating connection's running call was withdrawn upstream, never replayed.
@@ -502,7 +529,7 @@ test('the bridge refuses unknown methods, malformed callbacks, duplicate ids and
 
   // A client that never acknowledges a callback fails that call in bounded time.
   const mute = await authenticated(t, endpoint);
-  mute.send({ type: 'req', id: 'x', callbacks: ['onTextDelta'], call: { provider: 'openai', method: 'send' } });
+  await reserveAndSend(mute, { type: 'req', id: 'x', callbacks: ['onTextDelta'], call: { provider: 'openai', method: 'send' } });
   assert.ok(await waitFor(() => pending.length === 2));
   op(channel, 'claim', pending[1]);
   const reply = await op(channel, 'event', pending[1], encodeModelProxyWire([{ name: 'onTextDelta', args: ['a'] }]));
@@ -519,55 +546,173 @@ test('the bridge refuses unknown methods, malformed callbacks, duplicate ids and
   for (const client of extra) client.socket.destroy();
 });
 
-test('aggregate buffering is bounded across connections', async (t) => {
-  const { endpoint } = await startBridge(t, {
-    limits: { controlFrameMaxBytes: 1024, requestFrameMaxBytes: 8192, aggregateBytes: 10_000 },
-  });
-  const first = await authenticated(t, endpoint);
-  const second = await authenticated(t, endpoint);
-  // Two partial request frames, nothing running that could release budget.
-  first.socket.write(`{"type":"req","id":"a","callbacks":[],"call":{"pad":"${'p'.repeat(6000)}`);
-  await delay(50);
-  second.socket.write(`{"type":"req","id":"b","callbacks":[],"call":{"pad":"${'q'.repeat(6000)}`);
-  assert.equal((await second.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_BUSY');
-  await second.closed;
-  // The first one completes normally once its frame ends.
-  first.socket.write('"}}\n');
-  const done = await first.next((frame) => frame.type === 'done' && frame.id === 'a');
-  assert.equal(done.error.props.code, 'MODEL_PROXY_BRIDGE_METHOD');
-});
-
 /** A request frame of a fixed size, so the aggregate cap admits a known count. */
-const paddedReq = (model, pad = 3000) =>
-  `${JSON.stringify({ type: 'req', id: model, callbacks: [], call: { provider: 'openai', method: 'send', model, pad: 'p'.repeat(pad) } })}\n`;
+const paddedReq = (model, pad = 3000, callbacks = []) =>
+  `${JSON.stringify({ type: 'req', id: model, callbacks, call: { provider: 'openai', method: 'send', model, pad: 'p'.repeat(pad) } })}\n`;
 
-async function queuedBridge(t) {
+async function queuedBridge(t, limits = {}) {
   // Two padded requests fit; a third must wait for one to finish.
   const bridge = await startBridge(t, {
-    limits: { controlFrameMaxBytes: 1024, requestFrameMaxBytes: 8192, aggregateBytes: 7_000 },
+    limits: { controlFrameMaxBytes: 1024, requestFrameMaxBytes: 8192, aggregateBytes: 7_000, ...limits },
   });
   const claimed = [];
+  const ids = new Map();
   const release = new Map();
+  const snapshots = [];
   t.after(
-    attachPc(bridge.channel, ({ id }) => {
-      const call = decodeModelProxyWire(op(bridge.channel, 'claim', id).payload);
-      claimed.push(call.model);
-      release.set(call.model, () =>
-        op(bridge.channel, 'resolve', id, true, encodeModelProxyWire({ content: call.model }), null)
-      );
-    })
+    attachPc(
+      bridge.channel,
+      ({ id }) => {
+        const call = decodeModelProxyWire(op(bridge.channel, 'claim', id).payload);
+        claimed.push(call.model);
+        ids.set(call.model, id);
+        release.set(call.model, () =>
+          op(bridge.channel, 'resolve', id, true, encodeModelProxyWire({ content: call.model }), null)
+        );
+      },
+      snapshots
+    )
   );
-  return { ...bridge, claimed, release };
+  return { ...bridge, claimed, ids, release, snapshots };
 }
+
+/** Queue `count` padded requests, one connection each, in order. */
+async function queueRequests(t, endpoint, count) {
+  const clients = [];
+  for (let i = 0; i < count; i += 1) clients.push(await authenticated(t, endpoint));
+  for (let i = 0; i < count; i += 1) {
+    reserveAndSend(clients[i], paddedReq(`m${i}`)).catch(() => {});
+    await delay(30);
+  }
+  return clients;
+}
+
+test('a reservation that can never fit is refused; a granted frame that never arrives gives its budget back', async (t) => {
+  const { server, claimed, release, endpoint } = await queuedBridge(t, { frameStallMs: 300 });
+  const raw = await authenticated(t, endpoint);
+  raw.send({ type: 'reserve', id: 'huge', bytes: 7_001 });
+  const huge = await raw.next((frame) => frame.type === 'done' && frame.id === 'huge');
+  assert.equal(huge.error.props.code, 'MODEL_PROXY_REQUEST_TOO_LARGE');
+  // The holder takes most of the budget and never sends its frame.
+  const holder = await authenticated(t, endpoint);
+  holder.send({ type: 'reserve', id: 'h', bytes: 6_000 });
+  await holder.next((frame) => frame.type === 'grant' && frame.id === 'h');
+  const queued = await authenticated(t, endpoint);
+  const sent = reserveAndSend(queued, paddedReq('m0'));
+  await delay(100);
+  assert.deepEqual(claimed, [], 'm0 waits for budget');
+  assert.equal((await holder.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_FRAME_STALLED');
+  await sent;
+  assert.ok(await waitFor(() => claimed.length === 1));
+  release.get('m0')();
+  assert.deepEqual((await queued.next((frame) => frame.type === 'done' && frame.id === 'm0')).value, { content: 'm0' });
+  assert.ok(await waitFor(() => server.activeCount === 0));
+});
+
+test('with a request queued behind the cap, an active request’s callback acknowledgment is handled at once', async (t) => {
+  const { server, claimed, ids, release, channel, endpoint } = await queuedBridge(t, { callbackAckMs: 3_000 });
+  const streaming = await authenticated(t, endpoint);
+  const other = await authenticated(t, endpoint);
+  const third = await authenticated(t, endpoint);
+  await reserveAndSend(streaming, paddedReq('m0', 3000, ['onTextDelta']));
+  await reserveAndSend(other, paddedReq('m1'));
+  assert.ok(await waitFor(() => claimed.length === 2));
+  // Queued: one from another connection, then one on the streaming connection itself.
+  reserveAndSend(third, paddedReq('m2')).catch(() => {});
+  await delay(30);
+  reserveAndSend(streaming, paddedReq('m3')).catch(() => {});
+  await delay(50);
+  assert.deepEqual(claimed, ['m0', 'm1']);
+
+  const startedAt = Date.now();
+  const event = streaming.next((frame) => frame.type === 'event' && frame.id === 'm0');
+  const reply = op(channel, 'event', ids.get('m0'), encodeModelProxyWire([{ name: 'onTextDelta', args: ['hi'] }]));
+  streaming.send({ type: 'result', id: 'm0', seq: (await event).seq, ok: true, value: 'ack' });
+  assert.deepEqual(decodeModelProxyWire((await reply).results), [{ ok: true, value: 'ack' }]);
+  assert.ok(Date.now() - startedAt < 1_000, 'acknowledged without waiting for budget');
+  release.get('m0')();
+  assert.deepEqual((await streaming.next((frame) => frame.type === 'done' && frame.id === 'm0')).value, { content: 'm0' });
+  // m0's budget goes to the head of the queue, then m3 after m1.
+  assert.ok(await waitFor(() => claimed.length === 3));
+  assert.deepEqual(claimed, ['m0', 'm1', 'm2']);
+  release.get('m1')();
+  assert.ok(await waitFor(() => claimed.length === 4));
+  assert.deepEqual(claimed, ['m0', 'm1', 'm2', 'm3']);
+  release.get('m2')();
+  release.get('m3')();
+  await third.next((frame) => frame.type === 'done' && frame.id === 'm2');
+  await streaming.next((frame) => frame.type === 'done' && frame.id === 'm3');
+  assert.ok(await waitFor(() => server.activeCount === 0));
+});
+
+test('a cancel for an active request is handled while others are queued, and frees their budget', async (t) => {
+  const { server, claimed, ids, release, snapshots, endpoint } = await queuedBridge(t);
+  const clients = await queueRequests(t, endpoint, 4);
+  assert.ok(await waitFor(() => claimed.length === 2));
+  await delay(50);
+  assert.deepEqual(claimed, ['m0', 'm1']);
+  clients[0].send({ type: 'cancel', id: 'm0' });
+  const cancelled = await clients[0].next((frame) => frame.type === 'done' && frame.id === 'm0');
+  assert.equal(cancelled.ok, false);
+  assert.ok(await waitFor(() => snapshots.at(-1)?.cancelled.includes(ids.get('m0'))), 'the PC sees the cancel');
+  assert.ok(await waitFor(() => claimed.length === 3));
+  assert.deepEqual(claimed, ['m0', 'm1', 'm2']);
+  // A queued reservation can be withdrawn too: m3 never reaches the PC.
+  clients[3].send({ type: 'cancel', id: 'm3' });
+  release.get('m1')();
+  release.get('m2')();
+  await clients[2].next((frame) => frame.type === 'done' && frame.id === 'm2');
+  await delay(50);
+  assert.deepEqual(claimed, ['m0', 'm1', 'm2']);
+  assert.ok(await waitFor(() => server.activeCount === 0));
+});
+
+test('an oversized control frame is still refused while requests are queued', async (t) => {
+  const { server, claimed, release, endpoint } = await queuedBridge(t);
+  const clients = await queueRequests(t, endpoint, 3);
+  assert.ok(await waitFor(() => claimed.length === 2));
+  clients[0].socket.write(`{"type":"result","id":"m0","seq":1,"ok":true,"value":"${'y'.repeat(4096)}"}\n`);
+  assert.equal((await clients[0].next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_FRAME_TOO_LARGE');
+  await clients[0].closed;
+  // Its call was aborted, which serves the queued one.
+  assert.ok(await waitFor(() => claimed.length === 3));
+  release.get('m1')();
+  release.get('m2')();
+  await clients[2].next((frame) => frame.type === 'done' && frame.id === 'm2');
+  assert.ok(await waitFor(() => server.activeCount === 0));
+});
+
+test('one bridge client streams a call while its own next call waits for budget', async (t) => {
+  const { server, claimed, ids, release, channel, endpoint } = await queuedBridge(t, {
+    aggregateBytes: 4_000,
+    callbackAckMs: 3_000,
+  });
+  const client = bridgeClient(t, endpoint);
+  assert.equal(await client.whenConnected(2_000), true);
+  const deltas = [];
+  const pad = 'p'.repeat(3000);
+  const first = client.request(
+    { provider: 'openai', method: 'send', model: 'm0', pad },
+    { callbacks: { onTextDelta: (text) => (deltas.push(text), `got ${text}`) } }
+  );
+  assert.ok(await waitFor(() => claimed.length === 1));
+  const second = client.request({ provider: 'openai', method: 'send', model: 'm1', pad });
+  await delay(50);
+  assert.deepEqual(claimed, ['m0'], 'm1 waits for budget');
+  const reply = await op(channel, 'event', ids.get('m0'), encodeModelProxyWire([{ name: 'onTextDelta', args: ['a'] }]));
+  assert.deepEqual(decodeModelProxyWire(reply.results), [{ ok: true, value: 'got a' }]);
+  release.get('m0')();
+  assert.deepEqual(await first, { content: 'm0' });
+  assert.ok(await waitFor(() => claimed.length === 2));
+  release.get('m1')();
+  assert.deepEqual(await second, { content: 'm1' });
+  assert.deepEqual(deltas, ['a']);
+  assert.ok(await waitFor(() => server.activeCount === 0));
+});
 
 test('connections queued behind the aggregate cap are all served, in FIFO order', async (t) => {
   const { server, claimed, release, endpoint } = await queuedBridge(t);
-  const clients = [];
-  for (let i = 0; i < 5; i += 1) clients.push(await authenticated(t, endpoint));
-  for (let i = 0; i < 5; i += 1) {
-    clients[i].socket.write(paddedReq(`m${i}`));
-    await delay(30);
-  }
+  const clients = await queueRequests(t, endpoint, 5);
   assert.ok(await waitFor(() => claimed.length === 2));
   await delay(50);
   assert.deepEqual(claimed, ['m0', 'm1'], 'the rest wait for budget');
@@ -584,12 +729,7 @@ test('connections queued behind the aggregate cap are all served, in FIFO order'
 
 test('a queued connection that closes is dropped without stalling the ones behind it', async (t) => {
   const { server, claimed, release, endpoint } = await queuedBridge(t);
-  const clients = [];
-  for (let i = 0; i < 5; i += 1) clients.push(await authenticated(t, endpoint));
-  for (let i = 0; i < 5; i += 1) {
-    clients[i].socket.write(paddedReq(`m${i}`));
-    await delay(30);
-  }
+  const clients = await queueRequests(t, endpoint, 5);
   assert.ok(await waitFor(() => claimed.length === 2));
   // m2 heads the queue, m3 waits behind it; m2 leaves before it is served.
   clients[2].socket.destroy();
@@ -608,28 +748,6 @@ test('a queued connection that closes is dropped without stalling the ones behin
     await clients[i].next((frame) => frame.type === 'done' && frame.id === `m${i}`);
   }
   assert.ok(await waitFor(() => server.activeCount === 0));
-});
-
-test('a queued connection is rejected busy, never left paused, once nothing running can free budget', async (t) => {
-  const { server, claimed, release, endpoint } = await queuedBridge(t);
-  const runner = await authenticated(t, endpoint);
-  const holder = await authenticated(t, endpoint);
-  const queued = await authenticated(t, endpoint);
-  runner.socket.write(paddedReq('m0'));
-  assert.ok(await waitFor(() => claimed.length === 1));
-  // A partial frame holds budget it can only release by finishing.
-  holder.socket.write(`{"type":"req","id":"h","callbacks":[],"call":{"pad":"${'h'.repeat(3700)}`);
-  await delay(30);
-  // Holder + m1 exceed the cap even with m0 finished.
-  queued.socket.write(paddedReq('m1', 3500));
-  await delay(50);
-  assert.deepEqual(claimed, ['m0'], 'm1 waits while m0 runs');
-  release.get('m0')();
-  await runner.next((frame) => frame.type === 'done' && frame.id === 'm0');
-  assert.equal((await queued.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_BUSY');
-  await queued.closed;
-  assert.deepEqual(claimed, ['m0']);
-  assert.equal(server.activeCount, 0);
 });
 
 test('a fenced or stopping daemon refuses new calls and aborts running ones', async (t) => {
