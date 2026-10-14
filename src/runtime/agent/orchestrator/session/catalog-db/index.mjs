@@ -24,7 +24,6 @@ import { dataDir as currentDataDir } from '../store-summary-locations.mjs';
 export const SESSION_CATALOG_DB_FILE = 'session-catalog.sqlite';
 /** Config: `{ "sessionStore": { "sqliteCatalog": false } }` forces the JSON
  *  path (an off-switch); absent or true uses the DB whenever it can. */
-export const SESSION_STORE_CONFIG_SECTION = 'sessionStore';
 export const SESSION_STORE_CONFIG_DEFAULTS = Object.freeze({ sqliteCatalog: true });
 /** Stable prefix of every daemon.log line of the catalog DB. */
 export const SESSION_CATALOG_LOG_PREFIX = '[session-catalog-db]';
