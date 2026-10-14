@@ -28,7 +28,7 @@
 import { existsSync } from 'node:fs';
 import { assertRecoveryStoresClear, recoveryScopes, retainedRecoveryScopes, validateRecoveryScope } from './file-recovery.mjs';
 import { lstat, mkdir, readdir, readFile, rm, rmdir } from 'node:fs/promises';
-import { dirname, join, relative, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import {
   managedWorktreePath,
   managedWorktreeRoot,
@@ -65,7 +65,7 @@ import { withRepoLock as withRepoMutationLock } from './lock.mjs';
 import { mergeBranchIntoCheckout } from './merge.mjs';
 import { readOwnerLease, removeOwnerLease, sameOwner, writeOwnerLease } from './owner.mjs';
 import { canonicalPath, checkoutFolder, isWithin, pathKey, projectSubdirOf, samePath } from './paths.mjs';
-import { deleteRecord, entryView, getRecord, insertRecord, putRecord, readRegistry } from './registry.mjs';
+import { deleteRecord, entryView, getRecord, insertRecord, putRecord, readRegistry, registryPath } from './registry.mjs';
 import { normalizeWorktreeSettings } from './settings.mjs';
 import { slugFromHint, uniqueSlug } from './slug.mjs';
 
@@ -531,7 +531,18 @@ export async function findWorktreeContaining(path) {
  */
 export async function withWorktreeRecoveryStore(root, directory, action, run) {
   const entry = await findWorktreeContaining(root);
-  if (!entry) return run();
+  if (!entry) {
+    // A managed checkout can disappear between host authorization and this
+    // lookup. Its reserved namespace must never become an ordinary project.
+    // Retain a lexical check as well, so a replacement link cannot escape it.
+    const store = dirname(registryPath());
+    const lexicalKey = (path) => process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path);
+    const requested = lexicalKey(root);
+    if (isWithin(store, root) || [store, canonicalPath(store)].some((path) =>
+      requested === lexicalKey(path) || requested.startsWith(lexicalKey(path) + sep)))
+      throw worktreeError('WORKTREE_MISSING', undefined, { path: root });
+    return run();
+  }
   return withRepoLock(entry.repoCommonDir, async () => {
     const record = await getRecord(entry.id);
     if (!record || ((action === 'write' || action === 'restore') && record.state !== 'ready'))

@@ -572,3 +572,21 @@ test('unknown store entries require manual inspection instead of an empty invent
   await fs.rm(join(store, '.DS_Store'));
   assert.deepEqual((await projectRecoveryIn(f.data, f.root, { action: 'list' })).records, []);
 });
+
+for (const kind of ['file', 'symlink']) {
+  test(`a recovery-named ${kind} requires manual inspection without touching its contents`, async (t) => {
+    const f = await fixture(t);
+    const store = projectRecoveryStorePath(f.data, f.root);
+    await fs.mkdir(store, { recursive: true });
+    const location = join(store, randomUUID());
+    const target = join(f.base, 'unrelated');
+    if (kind === 'file') await fs.writeFile(location, 'preserve');
+    else {
+      await fs.mkdir(target);
+      await fs.writeFile(join(target, 'keep'), 'preserve');
+      await fs.symlink(target, location, process.platform === 'win32' ? 'junction' : 'dir');
+    }
+    await assert.rejects(projectRecoveryIn(f.data, f.root, { action: 'list' }), { code: 'RECOVERY_MANUAL_INSPECTION' });
+    assert.equal(await fs.readFile(kind === 'file' ? location : join(target, 'keep'), 'utf8'), 'preserve');
+  });
+}

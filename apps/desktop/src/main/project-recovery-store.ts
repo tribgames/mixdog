@@ -233,7 +233,7 @@ export async function recoveryLocations(userDataPath: string, root: string): Pro
   for await (const entry of await opendir(parent)) {
     if (++seen > RECOVERY_MAX_RECORDS * 3)
       throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery storage needs manual inspection: too many entries.');
-    if (!locationName(entry.name))
+    if (!locationName(entry.name) || !entry.isDirectory() || entry.isSymbolicLink())
       throw new ProjectRecoveryError('RECOVERY_MANUAL_INSPECTION', 'Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.');
     result.push(join(parent, entry.name));
   }

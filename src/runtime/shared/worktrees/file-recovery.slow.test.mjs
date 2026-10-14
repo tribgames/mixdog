@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
@@ -164,4 +164,26 @@ test('full retained scope capacity is released only after explicit cleanup', asy
     rmSync(join(scopes[0].directory, 'retained-record')));
   await withWorktreeRecoveryStore(next.root, next.directory, 'write', async () => retain(next.directory));
   assert.deepEqual((await getRecord(entry.id)).editorRecoveryStores, [...scopes.slice(1), next]);
+});
+
+test('a managed root removed after authorization never falls through to an ordinary recovery operation', async () => {
+  const { entry } = await createTestWorktree(makeRepo());
+  const directory = storeFor(entry.path);
+  retain(directory); // Legacy store has not yet been linked to the ledger.
+  assert.equal((await removeManagedWorktree({ entryId: entry.id })).removed, true);
+  for (const action of ['inspect', 'discard', 'restore', 'write'])
+    await assert.rejects(withWorktreeRecoveryStore(entry.path, directory, action, async () => assert.fail('lost managed scope')),
+      { code: 'WORKTREE_MISSING' });
+  mkdirSync(entry.path, { recursive: true });
+  writeFileSync(join(entry.path, 'replacement'), 'preserve');
+  await assert.rejects(withWorktreeRecoveryStore(entry.path, directory, 'write', async () => assert.fail('replacement write')),
+    { code: 'WORKTREE_MISSING' });
+  assert.equal(readFileSync(join(entry.path, 'replacement'), 'utf8'), 'preserve');
+  assert.equal(readFileSync(join(directory, 'retained-record'), 'utf8'), 'do not delete');
+  const ordinary = realpathSync(tempDir('mixdog-ordinary-recovery-'));
+  assert.equal(await withWorktreeRecoveryStore(ordinary, storeFor(ordinary), 'inspect', async () => 'ordinary'), 'ordinary');
+  const alias = join(entry.path, 'replacement-link');
+  symlinkSync(ordinary, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  await assert.rejects(withWorktreeRecoveryStore(alias, storeFor(alias), 'write', async () => assert.fail('escaped namespace')),
+    { code: 'WORKTREE_MISSING' });
 });

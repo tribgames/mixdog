@@ -69,4 +69,10 @@ test('a real host journal survives force removal and stays manageable after its 
   const result = await operations.invoke('projectRecoveryIn', [recoveryRoot, { action: 'discard', id: detail.id, revision: detail.revision }]);
   assert.equal(result.records.length, 0);
   assert.equal((await removeManagedWorktree({ entryId: entry.id, force: true })).removed, true);
+  // Requests may already hold the host-resolved root when removal wins the
+  // race. Even that canonical spelling must not fall through as unmanaged.
+  await assert.rejects(operations.invoke('projectRecoveryIn', [recoveryRoot, { action: 'list' }]),
+    { code: 'WORKTREE_MISSING' });
+  await assert.rejects(operations.invoke('writeProjectTextFilesIn', [fileRoot, []]),
+    { code: 'WORKTREE_MISSING' });
 });

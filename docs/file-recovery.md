@@ -44,7 +44,8 @@ journal. Coded errors distinguish a changed observation, active ownership,
 capacity/batch limits, unavailable records and storage/permission failures.
 
 Unrecognized entries in a project recovery store produce a manual-inspection
-notice, never an empty list. They block new journal admission and worktree
+notice, never an empty list. This includes valid-looking record names whose
+entries are files or links instead of directories. They block new journal admission and worktree
 removal. Inspect the file host's private user-data `editor-recovery/<root-hash>`
 directory (the linked path is also recorded in the core worktree ledger), and
 identify unexpected entries before moving or deleting them manually. The app
@@ -69,6 +70,11 @@ and managed-worktree deletion use the same repository lock. The lock is acquired
 outside the editor's file-mutation claims. A deletion therefore cannot race
 between a journal check and an admitted host batch. Scope descriptors survive
 process exit, so daemon startup can protect records without a desktop callback.
+
+If a checkout is removed after project authorization but before journal
+admission, its path remains inside the manager's reserved storage namespace.
+Recovery operations reject that missing managed entry instead of treating it
+as an ordinary project, including a replacement folder or link at the old path.
 
 Any retained entry blocks removal, including forced removal, prune, automatic
 cleanup and resuming a decided deletion. This deliberately includes resolved or
