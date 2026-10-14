@@ -49,7 +49,6 @@ test('explicit cwd selection persists execution cwd and desktop project metadata
       pluginAdminStatus: () => ({}),
       pluginManifest: () => ({}),
       pluginMcpServerName: () => '',
-      mcpScriptForPlugin: () => '',
       countSkillFiles: () => 0,
       writeLastSessionCwd: (cwd, pid) => sentinels.push({ cwd, pid }),
       updateCurrentCwdOverride: (cwd) => overrides.push(cwd),

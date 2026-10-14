@@ -6,7 +6,11 @@
 
 <p align="center">
   The open-source coding agent that uses 63% fewer tokens.
+  <br>
+  <a href="#installation"><b>Download ↓</b></a>
 </p>
+
+https://github.com/user-attachments/assets/af515dc9-b0fb-4b6a-aaa1-1d82db792ed0
 
 <p align="center">
   <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe"><img src="https://raw.githubusercontent.com/tribgames/mixdog/main/docs/assets/download-windows.svg" alt="Download for Windows" height="48"></a>
@@ -29,8 +33,6 @@
   <a href="benchmarks/terminal-bench-2.1/"><b>Benchmarks</b></a> ·
   <a href="#documentation"><b>Docs</b></a>
 </p>
-
-https://github.com/user-attachments/assets/af515dc9-b0fb-4b6a-aaa1-1d82db792ed0
 
 ## Highlights
 

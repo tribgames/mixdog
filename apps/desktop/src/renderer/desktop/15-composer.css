@@ -513,10 +513,6 @@ button.composer-island-tab {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.composer-island-row .agent-route-meta {
-  flex: none;
-  white-space: nowrap;
-}
 .composer-island-row .composer-island-shell-command {
   font-family: var(--mx-font-mono);
 }
