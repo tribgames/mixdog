@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { beginProjectRecovery, recoveryIdentity, releaseRecoveryDirectory } from './project-recovery-store.ts';
 
 const DESKTOP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const REPOSITORY_ROOT = resolve(DESKTOP_DIR, '../..');
 
 test('plain-Node daemon loads the unpacked desktop adapter and serves pane catalogs', async () => {
-  const runtimeRoot = mkdtempSync(join(tmpdir(), 'mixdog-desktop-service-e2e-'));
+  const runtimeRoot = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-desktop-service-e2e-')));
   const environment = {
     ...process.env,
     MIXDOG_RUNTIME_ROOT: runtimeRoot,
@@ -72,6 +73,31 @@ test('plain-Node daemon loads the unpacked desktop adapter and serves pane catal
       ]);
       assert.ok(Array.isArray(projects));
       assert.ok(Array.isArray(sessions));
+      // Exercise the packaged recovery operation against a persisted partial
+      // batch created in a different process (this test runner).
+      const project = join(runtimeRoot, 'recovery-project');
+      mkdirSync(project);
+      const destination = join(project, 'a.txt');
+      writeFileSync(destination, 'before');
+      const journal = await beginProjectRecovery(runtimeRoot, project, [{
+        relPath: 'a.txt', destination, parent: recoveryIdentity(project), mode: 0o600,
+        before: Buffer.from('before'), after: Buffer.from('after'),
+      }]);
+      await releaseRecoveryDirectory(journal.directory);
+      writeFileSync(destination, 'after');
+      const recover = (request) => client.call('desktop.invoke', {
+        desktopId: initialized.desktopId, method: 'invokeDesktopOperation',
+        args: ['projectRecoveryIn', [project, request]],
+      });
+      const listed = await recover({ action: 'list' });
+      assert.equal(listed.records.length, 1);
+      const inspected = await recover({ action: 'inspect', id: journal.id });
+      assert.equal(inspected.detail.files[0].status, 'written');
+      await recover({ action: 'restore', id: journal.id, revision: inspected.detail.revision });
+      assert.equal(readFileSync(destination, 'utf8'), 'before');
+      const restored = await recover({ action: 'inspect', id: journal.id });
+      await recover({ action: 'discard', id: journal.id, revision: restored.detail.revision });
+      assert.deepEqual((await recover({ action: 'list' })).records, []);
       const submitted = await client.call('desktop.invoke', {
         desktopId: initialized.desktopId,
         method: 'submitNewTask',

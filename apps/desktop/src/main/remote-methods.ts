@@ -4,6 +4,7 @@
 // shares transport-neutral validators so the remote surface cannot accept a shape
 // the in-process IPC surface would reject.
 import { randomUUID } from 'node:crypto';
+import { requiredProjectRecoveryRequest } from '../shared/project-recovery';
 import { lstat, realpath } from 'node:fs/promises';
 import {
   basename as pathBasename,
@@ -732,6 +733,11 @@ function editorRemoteMethods(deps: {
     lspApplyWorkspaceEdit: async ([projectPath, rawWrites]) => {
       const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
       return invokeDesktopOperation('writeProjectTextFilesIn', [root, requiredWorkspaceTextWrites(rawWrites)]);
+    },
+    projectRecovery: async ([projectPath, input]) => {
+      const request = requiredProjectRecoveryRequest(input);
+      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
+      return invokeDesktopOperation('projectRecoveryIn', [root, request]);
     },
   };
 }

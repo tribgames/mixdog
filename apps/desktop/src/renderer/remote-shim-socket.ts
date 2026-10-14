@@ -254,6 +254,7 @@ const openSocketAttempt = (
     ctx.peerBrowserSessionTabs = false;
     ctx.peerTermSizeOwner = false;
     ctx.peerHostDirectories = false;
+    ctx.peerProjectRecovery = false;
     ctx.peerRouteAutoEffort = false;
     ctx.peerVisualize = false;
     ctx.peerFileDownloads = false;
@@ -325,6 +326,7 @@ const openSocketAttempt = (
         ctx.peerBrowserSessionTabs = clear.browserSessionTabs === 1;
         ctx.peerTermSizeOwner = clear.termSizeOwner === 1;
         ctx.peerHostDirectories = clear.hostDirectories === 1;
+        ctx.peerProjectRecovery = clear.projectRecovery === 1;
         ctx.peerRouteAutoEffort = clear.routeAutoEffort === 1;
         ctx.peerVisualize = clear.visualize === 1;
         ctx.peerFileDownloads = clear.fileDownloads === 1;
