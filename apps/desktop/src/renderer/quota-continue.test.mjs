@@ -21,8 +21,17 @@ test('quota failure: only the latest failed turndone with quota and no later tur
   const base = [{ kind: 'user', id: 'u1', text: 'hi' }];
   assert.deepEqual(latestQuotaFailure([...base, failed()], keysFor([...base, failed()])), {
     turnKey: 'turn:u1',
+    kind: 'quota_exhausted',
     quota,
   });
+  for (const kind of ['overloaded', 'rate_limited', 'auth', 'policy', 'context_overflow']) {
+    const other = [...base, failed({ errorKind: { kind } })];
+    assert.equal(latestQuotaFailure(other, keysFor(other)), null, `${kind} has no usage banner`);
+  }
+  const plan = [...base, failed({ errorKind: { kind: 'entitlement' } })];
+  assert.equal(latestQuotaFailure(plan, keysFor(plan))?.kind, 'entitlement');
+  const described = [...base, failed({ quota: { ...quota }, errorKind: { kind: 'quota_exhausted', resetAt: 5_000 } })];
+  assert.equal(latestQuotaFailure(described, keysFor(described))?.quota.resetAt, 5_000, 'reset from the descriptor');
   const noQuota = [...base, { kind: 'turndone', status: 'failed' }];
   assert.equal(latestQuotaFailure(noQuota, keysFor(noQuota)), null);
   const done = [...base, failed({ status: 'done' })];
@@ -33,13 +42,17 @@ test('quota failure: only the latest failed turndone with quota and no later tur
 });
 
 test('panel visibility: idle, undismissed, quota present', () => {
-  const failure = { turnKey: 'turn:u1', quota };
+  const failure = { turnKey: 'turn:u1', kind: 'quota_exhausted', quota };
   const state = { failure, sessionId: 's1', busy: false, dismissedKey: '' };
-  assert.equal(quotaPanelVisible(state), true);
+  assert.equal(quotaPanelVisible(state), false, 'exhausted quota with no known reset: plain notice only');
+  const known = { ...failure, quota: { ...quota, resetAt: 5_000 } };
+  assert.equal(quotaPanelVisible({ ...state, failure: known }), true);
+  assert.equal(quotaPanelVisible({ ...state, failure: { ...failure, kind: 'billing' } }), true);
   assert.equal(quotaPanelVisible({ ...state, failure: null }), false, 'no quota failure / a later turn');
-  assert.equal(quotaPanelVisible({ ...state, busy: true }), false);
-  assert.equal(quotaPanelVisible({ ...state, dismissedKey: quotaDismissKey('s1', 'turn:u1') }), false);
-  assert.equal(quotaPanelVisible({ ...state, dismissedKey: quotaDismissKey('s1', 'turn:u0') }), true);
+  const live = { ...state, failure: known };
+  assert.equal(quotaPanelVisible({ ...live, busy: true }), false);
+  assert.equal(quotaPanelVisible({ ...live, dismissedKey: quotaDismissKey('s1', 'turn:u1') }), false);
+  assert.equal(quotaPanelVisible({ ...live, dismissedKey: quotaDismissKey('s1', 'turn:u0') }), true);
 });
 
 test('remaining label rounds up to whole minutes', () => {
@@ -183,6 +196,28 @@ test('the quota banner is one line between the island and the composer, with no 
   assert.equal(banner(document).querySelector('.composer-quota-card-guide').textContent, `· ${guidanceText(true)}`);
 });
 
+test('a plan or billing stop shows its own guidance and never offers a resume', async (t) => {
+  const { root, document } = mount(t);
+  for (const [kind, title, guide] of [
+    ['entitlement', 'Not included in your plan', 'Upgrade your plan, or choose another model or provider.'],
+    ['billing', 'Out of credits or at spend limit', 'Check your billing with the provider, then try again.'],
+  ]) {
+    await act(async () =>
+      root.render(
+        React.createElement(ComposerDock, {
+          ...dockProps(),
+          quotaCard: { kind, resetAt: null, otherAccount: false, reserved: false, busy: false },
+        })
+      )
+    );
+    const section = banner(document);
+    assert.equal(section.querySelector('.composer-quota-card-title').textContent, translate(title));
+    assert.equal(section.querySelector('.composer-quota-card-guide').textContent, `· ${translate(guide)}`);
+    assert.equal(section.querySelector('button'), null);
+    assert.equal(section.querySelector('.composer-quota-card-reset'), null);
+  }
+});
+
 test('a guidance that does not fit is hidden and kept as the tooltip and description', async (t) => {
   const { root, document } = mount(t);
   const window = document.defaultView;
@@ -273,7 +308,7 @@ function quotaHost(document, roster = null) {
 }
 
 function quotaProps(overrides = {}) {
-  const settledItems = overrides.settledItems ?? quotaStop(null);
+  const settledItems = overrides.settledItems ?? quotaStop(Date.now() + 3_600_000);
   return {
     draftMode: false,
     snapshot: { sessionId: 's1' },

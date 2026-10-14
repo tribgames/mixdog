@@ -65,18 +65,30 @@ export function useSlotRemeasure(
     // The phone dock SLIDES in: only the slot's position changes during the
     // transform, so a mid-slide rect would pin the surface off-screen. Any
     // finished transition re-measures.
-    window.addEventListener('transitionend', schedule, true);
-    window.addEventListener('transitionrun', settle, true);
-    window.addEventListener('transitioncancel', schedule, true);
+    // Only a transition on the slot, one of its ancestors or a descendant can
+    // move it; unrelated transitions elsewhere in the window are ignored.
+    const related = (event: Event) => {
+      const target = event.target as Node | null;
+      return Boolean(target && 'nodeType' in target && (target.contains(node) || node.contains(target)));
+    };
+    const onTransitionEnd = (event: Event) => {
+      if (related(event)) schedule();
+    };
+    const onTransitionRun = (event: Event) => {
+      if (related(event)) settle();
+    };
+    window.addEventListener('transitionend', onTransitionEnd, true);
+    window.addEventListener('transitionrun', onTransitionRun, true);
+    window.addEventListener('transitioncancel', onTransitionEnd, true);
     schedule();
     return () => {
       if (frame) window.cancelAnimationFrame(frame);
       if (trackFrame) window.cancelAnimationFrame(trackFrame);
-      window.removeEventListener('transitionrun', settle, true);
-      window.removeEventListener('transitioncancel', schedule, true);
+      window.removeEventListener('transitionrun', onTransitionRun, true);
+      window.removeEventListener('transitioncancel', onTransitionEnd, true);
       observer?.disconnect();
       window.removeEventListener('resize', schedule);
-      window.removeEventListener('transitionend', schedule, true);
+      window.removeEventListener('transitionend', onTransitionEnd, true);
     };
   }, [active, controller, observeWorkspace, sessionId, slotRef]);
 }

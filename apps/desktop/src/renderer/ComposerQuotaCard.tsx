@@ -6,6 +6,8 @@ import { quotaResetLabel } from './quota-continue';
 
 /** The provider's quota ran out and stopped the latest turn. */
 export type ComposerQuotaCardModel = {
+  /** What stopped the turn; absent means an exhausted quota. */
+  kind?: 'quota_exhausted' | 'entitlement' | 'billing';
   /** Epoch ms the quota resets; null when unknown. */
   resetAt: number | null;
   /** The exhausted provider sends from a manually picked account and has
@@ -29,9 +31,20 @@ export type ComposerQuotaCardModel = {
 export function ComposerQuotaCard({ card }: { card: ComposerQuotaCardModel }) {
   const remaining = useQuotaRemaining(card.resetAt);
   const time = card.resetAt === null ? '' : quotaResetLabel(card.resetAt);
-  const guidance = card.otherAccount
-    ? t("Switch accounts or to another provider's model to continue now")
-    : t("Switch to another provider's model to continue now");
+  const title =
+    card.kind === 'entitlement'
+      ? t('Not included in your plan')
+      : card.kind === 'billing'
+        ? t('Out of credits or at spend limit')
+        : t('Usage limit reached');
+  const guidance =
+    card.kind === 'entitlement'
+      ? t('Upgrade your plan, or choose another model or provider.')
+      : card.kind === 'billing'
+        ? t('Check your billing with the provider, then try again.')
+        : card.otherAccount
+          ? t("Switch accounts or to another provider's model to continue now")
+          : t("Switch to another provider's model to continue now");
   const guidanceId = useId();
   const guideRef = useRef<HTMLSpanElement>(null);
   const [guidanceHidden, setGuidanceHidden] = useState(false);
@@ -51,17 +64,15 @@ export function ComposerQuotaCard({ card }: { card: ComposerQuotaCardModel }) {
   return (
     <section
       className="composer-quota-card"
-      aria-label={t('Usage limit reached')}
+      aria-label={title}
       aria-describedby={guidanceHidden ? guidanceId : undefined}
       title={guidanceHidden ? guidance : undefined}
       data-guidance-hidden={guidanceHidden ? 'true' : undefined}
     >
       <MxIcon name="warning" size={16} className="composer-quota-card-icon" aria-hidden="true" />
       <div className="composer-quota-card-text">
-        <strong className="composer-quota-card-title">{t('Usage limit reached')}</strong>
-        {time ? (
-          <span className="composer-quota-card-reset">{t('· {{remaining}} left', { remaining })}</span>
-        ) : null}
+        <strong className="composer-quota-card-title">{title}</strong>
+        {time ? <span className="composer-quota-card-reset">{t('· {{remaining}} left', { remaining })}</span> : null}
         <span className="composer-quota-card-guide" ref={guideRef}>
           <span aria-hidden="true">· </span>
           <span id={guidanceId}>{guidance}</span>

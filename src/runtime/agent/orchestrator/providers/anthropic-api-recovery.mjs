@@ -9,6 +9,7 @@
 import { PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS, createTimeoutSignal } from '../stall-policy.mjs';
 import { AnthropicFallbackTriggeredError, markProviderRecoveryExhausted } from './retry-classifier.mjs';
 import { normalizeAnthropicNonStreamingResponse } from './lib/anthropic-request-utils.mjs';
+import { capForNonStreaming } from './anthropic-max-tokens-recovery.mjs';
 import { createAnthropicRecoveryGuards } from './anthropic-recovery-guards.mjs';
 
 /**
@@ -44,7 +45,7 @@ export function createAnthropicApiRecovery({
     try {
       onStageChange?.('requesting', { transport: 'non-streaming-fallback' });
     } catch {}
-    const nonStreamingParams = { ...params, stream: false };
+    const nonStreamingParams = capForNonStreaming({ ...params, stream: false });
     const timeoutMs =
       Number(opts._nonStreamingTimeoutMs) > 0
         ? Number(opts._nonStreamingTimeoutMs)

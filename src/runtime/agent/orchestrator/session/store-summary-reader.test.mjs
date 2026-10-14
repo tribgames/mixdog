@@ -702,6 +702,51 @@ test('expired running-worker evidence is unknown rather than normal idle', () =>
   });
 });
 
+test('a running worker stays in the pool whatever runtime phase its stage carries; the status decides', () => {
+  withAgentPoolRoot('mixdog-status-decides-', (root) => {
+    const now = Date.now();
+    const workers = {};
+    for (const stage of ['idle', 'done', 'error']) {
+      const sessionId = `child-${stage}`;
+      writeAgentChild(root, sessionId, { status: 'running', stage: 'running', tag: stage });
+      workers[stage] = {
+        tag: stage,
+        sessionId,
+        agent: 'worker',
+        ownerSessionId: 'lead-a',
+        status: 'running',
+        stage,
+        runtimePid: process.pid,
+        updatedAt: new Date(now).toISOString(),
+        turnStartedAt: new Date(now - 5_000).toISOString(),
+      };
+    }
+    // The opposite mix is a settled worker: its stale active stage does not revive it.
+    writeAgentChild(root, 'child-settled', { status: 'idle', stage: 'idle', tag: 'settled' });
+    workers.settled = {
+      tag: 'settled',
+      sessionId: 'child-settled',
+      agent: 'worker',
+      ownerSessionId: 'lead-a',
+      status: 'idle',
+      stage: 'streaming',
+      runtimePid: process.pid,
+      updatedAt: new Date(now).toISOString(),
+      turnStartedAt: new Date(now - 5_000).toISOString(),
+    };
+    writeAgentWorkerIndex(root, workers);
+    const rows = listStoredAgentWorkers();
+    for (const stage of ['idle', 'done', 'error']) {
+      const row = rows.find((entry) => entry.sessionId === `child-${stage}`);
+      assert.equal(row?.status, 'running', `stage ${stage}`);
+      assert.equal(row?.turnStartedAt, workers[stage].turnStartedAt, `stage ${stage} keeps its turn stamp`);
+    }
+    const settled = rows.find((entry) => entry.sessionId === 'child-settled');
+    assert.equal(settled?.status, 'idle');
+    assert.equal(settled?.turnStartedAt, null, 'an idle status is not live work');
+  });
+});
+
 test('a cancelled session whose heartbeat is still fresh is not reported as running', () => {
   withAgentPoolRoot('mixdog-cancel-hb-', (root) => {
     writeAgentChild(root, 'child-cancel', { status: 'cancelled', stage: 'running' });

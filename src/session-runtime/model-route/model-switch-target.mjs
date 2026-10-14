@@ -12,7 +12,12 @@ export function selectedModel(runtime, request, sessionProvider, sessionModel) {
     const wanted = model.toLowerCase();
     const presets = runtime?.listPresets?.();
     const preset = (Array.isArray(presets) ? presets : []).find((entry) =>
-      [entry?.id, entry?.name].some((key) => String(key ?? '').trim().toLowerCase() === wanted)
+      [entry?.id, entry?.name].some(
+        (key) =>
+          String(key ?? '')
+            .trim()
+            .toLowerCase() === wanted
+      )
     );
     if (preset?.provider && preset?.model) return { provider: String(preset.provider), model: String(preset.model) };
   }

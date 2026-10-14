@@ -24,6 +24,8 @@ import {
 } from './retry-classifier.mjs';
 import { _classifyMidstreamError, _midstreamSleepWithAbort, stampAnthropicStreamOutcome } from './anthropic-sse.mjs';
 import { notifyCurrentAnthropicRateLimit } from './admission-scheduler.mjs';
+import { applyAnthropicErrorContract } from './anthropic-error-contract.mjs';
+import { isAnthropicOverloadError } from './anthropic-overload-fallback.mjs';
 import { noteAbandonedUsage } from '../../../shared/llm/usage-context.mjs';
 
 export function createAnthropicMidState(attemptIndex) {
@@ -88,6 +90,8 @@ export function assertAnthropicStreamNotEmpty(midState, result, label) {
  * @param {{ recoverNonStreaming: Function, issueNonStreamingFallback: Function, requireTransportRecoveryBudget: Function }} deps.recovery
  * @param {Function|null} [deps.onStageChange]  receives the display-only 'reconnecting' stage per retry
  * @param {boolean} [deps.retry529]  false for a background call: an overload mid-stream is not retried
+ * @param {ReturnType<typeof import('./anthropic-overload-fallback.mjs').createAnthropicOverloadTracker>|null} [deps.overload]
+ *   the send's shared overload counter (SSE overloads feed it)
  */
 export function createAnthropicMidstreamRecovery({
   label,
@@ -101,6 +105,7 @@ export function createAnthropicMidstreamRecovery({
   recovery,
   onStageChange = null,
   retry529 = true,
+  overload = null,
 }) {
   const log = (line) => {
     try {
@@ -128,7 +133,7 @@ export function createAnthropicMidstreamRecovery({
     firstAttemptClassifier = classifier;
     abortStream(controller, err);
     log(message);
-    const waitMs = delayMs ?? midstreamBackoffFor(attemptIndex + 1);
+    const waitMs = delayMs ?? midstreamBackoffFor(attemptIndex + 1, undefined, err);
     emitProviderRetryStage(onStageChange, {
       attempt: attemptIndex + 1,
       maxAttempts: maxRetries,
@@ -191,6 +196,16 @@ export function createAnthropicMidstreamRecovery({
     if (retry529 === false && Number(err?.httpStatus || err?.status || 0) === 529) {
       abortStream(controller, err);
       throw err;
+    }
+    // An SSE overload counts toward the same limit as a request-loop 529; at
+    // the limit the configured fallback model takes over (the provider's
+    // send loop catches the trigger around this whole recovery).
+    if (overload && isAnthropicOverloadError(err)) {
+      const trigger = overload.noteStreamOverload(err);
+      if (trigger) {
+        abortStream(controller, err);
+        throw trigger;
+      }
     }
     const canRetry = attemptIndex < maxRetries;
     const attemptLabel = `${attemptIndex + 1}/${maxRetries}`;
@@ -270,10 +285,9 @@ export function createAnthropicMidstreamRecovery({
       const status = Number(err?.httpStatus || err?.status || 0);
       let retryDelayMs = null;
       if (status === 429) {
-        if (!err.headers && response?.headers) err.headers = response.headers;
         if (!err.response && response) err.response = { status, headers: response.headers };
+        applyAnthropicErrorContract(err, { status, headers: response?.headers });
         retryDelayMs = retryAfterMsFromError(err);
-        if (retryDelayMs != null) err.retryAfterMs = retryDelayMs;
         notifyCurrentAnthropicRateLimit(err);
       }
       try {
@@ -283,7 +297,7 @@ export function createAnthropicMidstreamRecovery({
         log(`abort on stream error failed: ${abortErr?.message ?? String(abortErr)}`);
       }
       log(`mid-stream recovered: retry ${attemptLabel} (cause: ${classifier})`);
-      const waitMs = retryDelayMs ?? midstreamBackoffFor(attemptIndex + 1);
+      const waitMs = retryDelayMs ?? midstreamBackoffFor(attemptIndex + 1, undefined, err);
       emitProviderRetryStage(onStageChange, {
         attempt: attemptIndex + 1,
         maxAttempts: maxRetries,

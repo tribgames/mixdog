@@ -1,5 +1,6 @@
 import { resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { markProviderRecoveryExhausted, withRetry } from './retry-classifier.mjs';
+import { compatRetryOptions, withCompatRetryProfile } from './openai-compat-retry-profile.mjs';
 import { consumeCompatResponsesStream } from './openai-compat-stream.mjs';
 import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, createPassthroughSignal } from '../stall-policy.mjs';
 import {
@@ -91,7 +92,7 @@ export async function sendXaiResponses(provider, messages, useModel, tools, opts
   let streamed;
   try {
     streamed = await withRetry(
-      async ({ signal: attemptSignal }) => {
+      withCompatRetryProfile(provider.name, async ({ signal: attemptSignal }) => {
         const stream = await withRetry(
           ({ signal: openSignal }) => provider.client.responses.create(params, { signal: openSignal }),
           {
@@ -127,11 +128,12 @@ export async function sendXaiResponses(provider, messages, useModel, tools, opts
           }
           throw error;
         }
-      },
+      }),
       {
         signal: totalSignal.signal,
         onRetry: compatStreamRetryReporter('xai:responses', opts),
         retry529: opts.retry529,
+        ...compatRetryOptions(provider.name),
       }
     );
   } finally {

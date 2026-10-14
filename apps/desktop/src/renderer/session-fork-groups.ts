@@ -87,9 +87,5 @@ export function commitForkGroupOrder(
     const group = byRoot.get(id);
     return group ? groupIds(group) : [];
   });
-  return commitVisibleOrder(
-    groupForkRows(rows).flatMap(groupIds),
-    visible.flatMap(groupIds).length,
-    nextVisible
-  );
+  return commitVisibleOrder(groupForkRows(rows).flatMap(groupIds), visible.flatMap(groupIds).length, nextVisible);
 }

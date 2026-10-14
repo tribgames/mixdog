@@ -72,7 +72,8 @@ export function useConversationQuotaCard({
     });
 
   // Whether the exhausted provider's roster offers switching accounts.
-  const exhaustedProvider = quotaVisible ? (quotaFailure?.quota.provider ?? '') : '';
+  const exhaustedProvider =
+    quotaVisible && quotaFailure?.kind === 'quota_exhausted' ? (quotaFailure?.quota.provider ?? '') : '';
   const [otherAccount, setOtherAccount] = useState({ provider: '', offered: false });
   useEffect(() => {
     // Every banner reads the roster afresh: an earlier answer never outlives
@@ -81,10 +82,13 @@ export function useConversationQuotaCard({
     if (!exhaustedProvider) return undefined;
     let current = true;
     void Promise.resolve()
-      .then(() => window.mixdogDesktop.invokeCapability({ capability: 'getProviderAccounts', args: [exhaustedProvider] }))
+      .then(() =>
+        window.mixdogDesktop.invokeCapability({ capability: 'getProviderAccounts', args: [exhaustedProvider] })
+      )
       .then(
         (response) => {
-          if (current) setOtherAccount({ provider: exhaustedProvider, offered: rosterOffersOtherAccount(response?.value) });
+          if (current)
+            setOtherAccount({ provider: exhaustedProvider, offered: rosterOffersOtherAccount(response?.value) });
         },
         () => {
           if (current) setOtherAccount({ provider: '', offered: false });
@@ -104,15 +108,20 @@ export function useConversationQuotaCard({
       if (toggling) return;
       setToggling(true);
       void invokeResult(() =>
-        waiting ? window.mixdogDesktop.cancelQuotaResume(sessionId) : window.mixdogDesktop.scheduleQuotaResume(sessionId)
+        waiting
+          ? window.mixdogDesktop.cancelQuotaResume(sessionId)
+          : window.mixdogDesktop.scheduleQuotaResume(sessionId)
       ).finally(() => setToggling(false));
     };
+    // Only an exhausted quota resets; a plan or billing stop has nothing to resume at.
+    const resettable = quotaFailure.kind === 'quota_exhausted';
     quotaCard = {
-      resetAt,
+      kind: quotaFailure.kind,
+      resetAt: resettable ? resetAt : null,
       otherAccount: otherAccount.provider === quotaFailure.quota.provider && otherAccount.offered,
       reserved: waiting,
       busy: toggling,
-      onToggleResume: resetAt === null ? undefined : toggleResume,
+      onToggleResume: resettable && resetAt !== null ? toggleResume : undefined,
     };
   }
 

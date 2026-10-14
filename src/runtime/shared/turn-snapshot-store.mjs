@@ -15,6 +15,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { withFileLock } from './atomic-file.mjs';
 import { cleanString as clean } from './clean.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
@@ -287,8 +288,34 @@ function summaryPath(sessionId) {
   return join(summariesRoot(), `${hash}.json`);
 }
 
+// Test hook: runs inside the summary critical section, between the cleared
+// check and the write.
+let summaryWriteHookForTest = null;
+export function _setSummaryWriteHookForTest(hook) {
+  summaryWriteHookForTest = typeof hook === 'function' ? hook : null;
+}
+
+const SUMMARY_LOCK_TIMEOUT_MS = 10_000;
+const withSummaryLock = (sessionId, task) =>
+  withFileLock(`${summaryPath(sessionId)}.lock`, task, { timeoutMs: SUMMARY_LOCK_TIMEOUT_MS });
+
+// Summary saves still running. Callers fire them and move on, so a test that
+// removes the store root settles them first instead of racing their writes.
+const pendingSummarySaves = new Set();
+export async function _settleSummarySavesForTest() {
+  while (pendingSummarySaves.size) await Promise.allSettled([...pendingSummarySaves]);
+}
+
 /** Keep the files and counts last computed for `turn` (a loaded record turn). */
-export async function saveTurnReviewSummary(sessionId, turn, review) {
+export function saveTurnReviewSummary(sessionId, turn, review) {
+  const saving = saveTurnReviewSummaryNow(sessionId, turn, review);
+  pendingSummarySaves.add(saving);
+  const done = () => pendingSummarySaves.delete(saving);
+  saving.then(done, done);
+  return saving;
+}
+
+async function saveTurnReviewSummaryNow(sessionId, turn, review) {
   const id = clean(sessionId);
   if (!id || !turn?.baselineTree || !Array.isArray(review?.files)) return false;
   return await chain(`summary:${id}`, async () => {
@@ -298,18 +325,25 @@ export async function saveTurnReviewSummary(sessionId, turn, review) {
         summarySweepDone = true;
         void sweepDirectory(summariesRoot(), RECORD_TTL_MS, MAX_RECORD_FILES);
       }
-      await writeJsonAtomically(summaryPath(id), {
-        version: RECORD_VERSION,
-        sessionId: id,
-        generation: Number(turn.generation) || 0,
-        baselineTree: clean(turn.baselineTree),
-        checkpointId: clean(turn.checkpointId),
-        toolFilesKey: summaryToolFilesKey(turn),
-        files: review.files,
-        patchTruncated: review.patchTruncated === true,
-        savedAt: Date.now(),
+      return await withSummaryLock(id, async () => {
+        // Deleted history stays deleted: a summary computed before the delete
+        // must not bring it back (a newly recorded turn ends the marker). The
+        // check and the write are one step against a delete in any process.
+        if (await sessionChangeHistoryCleared(id)) return false;
+        await summaryWriteHookForTest?.(id);
+        await writeJsonAtomically(summaryPath(id), {
+          version: RECORD_VERSION,
+          sessionId: id,
+          generation: Number(turn.generation) || 0,
+          baselineTree: clean(turn.baselineTree),
+          checkpointId: clean(turn.checkpointId),
+          toolFilesKey: summaryToolFilesKey(turn),
+          files: review.files,
+          patchTruncated: review.patchTruncated === true,
+          savedAt: Date.now(),
+        });
+        return true;
       });
-      return true;
     } catch {
       return false;
     }
@@ -360,7 +394,13 @@ export async function clearSessionChangeHistory(sessionId) {
     // The marker lands before the records go: a failure in between leaves
     // the session answering empty, never resurrecting what was asked gone.
     await mkdir(clearedRoot(), { recursive: true });
-    await writeJsonAtomically(clearedPath(id), { version: RECORD_VERSION, sessionId: id, clearedAt: Date.now() });
+    // Under the summary's file lock, shared with every process: a summary
+    // write that passed its marker check finishes before the marker lands (and
+    // is removed with it); one that starts later sees the marker and stays away.
+    await withSummaryLock(id, async () => {
+      await writeJsonAtomically(clearedPath(id), { version: RECORD_VERSION, sessionId: id, clearedAt: Date.now() });
+      await rm(summaryPath(id), { force: true });
+    });
     await rm(recordPath(id), { force: true });
   });
   return await chain(`changes:${id}`, async () => {

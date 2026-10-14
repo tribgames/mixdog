@@ -410,22 +410,20 @@ export function McpEditorDialog({
             tone={connection.tone}
             control={
               oauthActions && (
-                <>
-                  {!signedIn ? (
+                !signedIn ? (
+                  <ExtensionAction disabled={busy} onClick={() => onConnect?.(name)}>
+                    {t('Connect')}
+                  </ExtensionAction>
+                ) : (
+                  <>
                     <ExtensionAction disabled={busy} onClick={() => onConnect?.(name)}>
-                      {t('Connect')}
+                      {t('Reconnect')}
                     </ExtensionAction>
-                  ) : (
-                    <>
-                      <ExtensionAction disabled={busy} onClick={() => onConnect?.(name)}>
-                        {t('Reconnect')}
-                      </ExtensionAction>
-                      <ExtensionAction danger disabled={busy} onClick={() => onDisconnect?.(name)}>
-                        {t('Disconnect')}
-                      </ExtensionAction>
-                    </>
-                  )}
-                </>
+                    <ExtensionAction danger disabled={busy} onClick={() => onDisconnect?.(name)}>
+                      {t('Disconnect')}
+                    </ExtensionAction>
+                  </>
+                )
               )
             }
           />
@@ -545,7 +543,9 @@ export function McpEditorDialog({
             {probeUrl && probing && <ExtensionNote role="status">{t('Checking…')}</ExtensionNote>}
             {probeResult?.auth === 'unreachable' && (
               <ExtensionNote tone="danger" role="status">
-                {probeResult.error ? mcpErrorSummary(probeResult.error) : t('Could not verify the connection. Try again.')}
+                {probeResult.error
+                  ? mcpErrorSummary(probeResult.error)
+                  : t('Could not verify the connection. Try again.')}
               </ExtensionNote>
             )}
             {probeResult?.auth === 'oauth' && (
@@ -637,5 +637,3 @@ export function mcpStatus(server: RecordValue): { label: string; tone: SidebarRe
 export function mcpErrorSummary(error: unknown): string {
   return describeError(error).kind === 'connection' ? t('Connection failed') : errorSummary(error);
 }
-
-

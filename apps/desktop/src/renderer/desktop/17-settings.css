@@ -404,7 +404,7 @@
 .settings-form-controls input,
 .core-memory-edit input,
 .settings-provider-secret input,
-.settings-custom-provider-form input:not([type='checkbox']),
+.settings-custom-provider-form input:not([type="checkbox"]),
 .settings-custom-provider-form select,
 .settings-oauth-code input,
 .settings-oauth-url textarea {
@@ -443,7 +443,7 @@
 }
 .settings-form-controls input:focus,
 .core-memory-edit input:focus,
-.settings-custom-provider-form input:not([type='checkbox']):focus,
+.settings-custom-provider-form input:not([type="checkbox"]):focus,
 .settings-provider-secret input:focus {
   outline-color: var(--mx-focus);
   box-shadow: none;

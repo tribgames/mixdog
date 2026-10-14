@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createModelRouteApi } from './model-route-api.mjs';
+import { _buildWirePayload, _invalidateDeltaBaseline } from '../runtime/agent/orchestrator/session/store/save-delta.mjs';
 import { createContextStatus } from '../runtime/agent/orchestrator/runtime-core/context-status.mjs';
 import { createRuntimeFacade } from './runtime-facade.mjs';
 import { createContextState } from '../tui/session/context-state.mjs';
@@ -240,6 +241,32 @@ test('continueSessionInModel rejects a session that is not the addressed one', a
 });
 
 const crossRoute = { provider: 'anthropic', model: 'claude-x', effort: 'low', fast: false };
+
+test('the model-switch boundary replaces its anchor message so the save worker persists it', async () => {
+  const { api, state } = fixture();
+  const sessionId = state.session.id;
+  const anchorBefore = state.session.messages.at(-1);
+  // The save worker's baseline: the message references last handed to it.
+  _buildWirePayload(sessionId, state.session);
+  const { modelSwitch } = await api.setRoute(crossRoute, { applyToCurrentSession: true });
+  const anchor = state.session.messages.at(-1);
+  assert.notEqual(anchor, anchorBefore, 'the anchor is a new object, not edited in place');
+  assert.equal(anchorBefore.meta, undefined);
+  const payload = _buildWirePayload(sessionId, state.session);
+  const sent = payload.session?.messages ?? payload.delta?.tailMessages;
+  assert.ok(payload.session, 'a changed prefix message forces a full snapshot');
+  assert.deepEqual(sent.at(-1).meta.modelSwitches, [modelSwitch]);
+  _invalidateDeltaBaseline(sessionId);
+});
+
+test('validateOnly accepts or rejects a selection without adopting it', async () => {
+  const { api, state, routeUpdates } = fixture();
+  const before = structuredClone({ route: state.route, session: state.session });
+  await api.setRoute({ model: 'claude-x', provider: 'anthropic' }, { validateOnly: true });
+  await assert.rejects(api.setRoute({ model: 'not a model!' }, { validateOnly: true }), /Invalid model selector/);
+  assert.deepEqual({ route: state.route, session: state.session }, before);
+  assert.deepEqual(routeUpdates, []);
+});
 
 test('an addressed selection of another model switches the established conversation in place', async () => {
   const { api, state, routeUpdates } = fixture();

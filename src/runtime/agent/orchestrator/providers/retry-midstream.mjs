@@ -11,6 +11,46 @@ import {
   isTransientErrorCode,
   typedStatusFrom,
 } from './retry-classification.mjs';
+import { DETERMINISTIC_KINDS, providerErrorKind } from './provider-error-kind.mjs';
+
+// A 429 that is an overload or an ordinary rate limit is request-local: it is
+// re-issued under the bounded mid-stream budget (the server's advice, when it
+// sent one, sets the wait). Quota / plan / billing refusals never are.
+// The advice-honoring mid-stream wait lives with the backoff schedule.
+export { midstreamRetryDelayMs } from './retry-backoff.mjs';
+
+// Per-provider parity, as policy options (default false = retry under the
+// bounded budget with ordinary backoff):
+//   overloadRetryRequiresAdvice   — an overload (server_is_overloaded,
+//     overloaded_error, 529, statusless overload event) retries ONLY when the
+//     server gave advice (Retry-After / retryAfterMs / RetryInfo).
+//   generic429RetryRequiresAdvice — a rate limit without a typed
+//     rate_limit_exceeded / slow_down code retries ONLY on advice.
+// A typed rate_limit_exceeded / slow_down always retries (advice, else the
+// delay its message names, else local backoff). Returns false when the
+// policy denies the retry, null when it has no say.
+const TYPED_RATE_LIMIT_CODES = new Set(['rate_limit_exceeded', 'slow_down']);
+export function adviceGatedRetry(err, policy = {}) {
+  const { kind, code, retryAfterMs } = providerErrorKind(err);
+  const advised = retryAfterMs != null;
+  if (kind === 'overloaded' && policy.overloadRetryRequiresAdvice === true && !advised) return false;
+  if (
+    kind === 'rate_limited' &&
+    !TYPED_RATE_LIMIT_CODES.has(code) &&
+    policy.generic429RetryRequiresAdvice === true &&
+    !advised
+  ) {
+    return false;
+  }
+  return null;
+}
+
+function retryable429(err, policy) {
+  if (policy.retry429 === false) return false;
+  if (adviceGatedRetry(err, policy) === false) return false;
+  const { kind } = providerErrorKind(err);
+  return kind === 'overloaded' || kind === 'rate_limited';
+}
 
 // F) Retry-budget profiles as DATA. The numbers live ONLY here now.
 //    ws.*Retries (5)              — one Responses stream retry budget.
@@ -88,19 +128,24 @@ function isWebSocketConnectionLimit(err) {
 // bucket. Buckets need typed codes; the DEFAULT for an unrecognized (or
 // absent) code is the bounded retry, with fatal refusal codes staying
 // terminal.
-function classifyResponseFailed(failed, attemptIndex, policy) {
+function classifyResponseFailed(failed, attemptIndex, policy, err = null) {
   const detail = failed?.response?.error || failed?.error || failed;
   const failedStatus = typedStatusFrom(detail, failed?.response, failed);
+  // Deterministic codes outrank a numeric 5xx on the same payload.
+  const keys = [detail?.code, detail?.type]
+    .map((field) => (typeof field === 'string' ? field.trim().toLowerCase() : ''))
+    .filter(Boolean);
+  const codeClassifier = keys.map((key) => RESPONSE_FAILED_CODE_CLASSIFIERS.get(key)).find(Boolean) || null;
+  if (!codeClassifier && keys.some((key) => WIRE_ERROR_FATAL_CODES.has(key))) return null;
+  const subject = { responseFailed: failed, headers: err?.headers, retryAfterMs: err?.retryAfterMs };
+  if (DETERMINISTIC_KINDS.has(providerErrorKind(subject).kind)) return null;
+  // Statusless overload / generic rate-limit events follow the advice gate.
+  if (adviceGatedRetry(subject, policy) === false) return null;
   if (failedStatus >= 500 && failedStatus < 600) {
     if (TERMINAL_EDGE_STATUSES.has(failedStatus)) return null;
     return _allowMidstream(`http_${failedStatus}`, attemptIndex, policy);
   }
-  for (const field of [detail?.code, detail?.type]) {
-    const key = typeof field === 'string' ? field.trim().toLowerCase() : '';
-    const classifier = RESPONSE_FAILED_CODE_CLASSIFIERS.get(key);
-    if (classifier) return _allowMidstream(classifier, attemptIndex, policy);
-    if (key && WIRE_ERROR_FATAL_CODES.has(key)) return null;
-  }
+  if (codeClassifier) return _allowMidstream(codeClassifier, attemptIndex, policy);
   // A typed non-transient 4xx on the failure payload is a deterministic
   // refusal even without a recognized code string.
   if (failedStatus >= 400 && failedStatus < 500 && !TRANSIENT_STATUSES.has(failedStatus)) return null;
@@ -146,12 +191,19 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   // NOMINAL closes count too: a pooled socket the server retires between
   // turns closes with 1000/1001/1005 and must reconnect fresh — treating
   // that as terminal killed the turn instead of reissuing it.
-  if (!state.sawResponseCreated && !NON_TERMINAL_STREAM_CLOSE_CODES.has(closeCode)) return null;
+  // An EXPLICIT wire failure (response.failed / error event) before
+  // response.created exposed nothing either: it gets the same bounded WS
+  // retry budget, and its typed code decides below.
+  const failed = err?.responseFailed || state.responseFailedPayload;
+  if (!state.sawResponseCreated && !NON_TERMINAL_STREAM_CLOSE_CODES.has(closeCode) && !failed) return null;
   if (state.userAbort) return null;
 
   if (!err) return null;
   const status = Number(err?.httpStatus || 0);
-  if (status === 401 || status === 403 || status === 429) return null;
+  if (status === 401 || status === 403) return null;
+  if (DETERMINISTIC_KINDS.has(providerErrorKind(err).kind)) return null;
+  if (status === 429) return retryable429(err, policy) ? _allowMidstream('http_429', attemptIndex, policy) : null;
+  if (status && adviceGatedRetry(err, policy) === false) return null;
   if (status >= 500 && status < 600) {
     if (TERMINAL_EDGE_STATUSES.has(status)) return null;
     return _allowMidstream(`http_${status}`, attemptIndex, policy);
@@ -167,8 +219,7 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
     return _allowMidstream(`ws_${closeCode}`, attemptIndex, policy);
   }
 
-  const failed = err?.responseFailed || state.responseFailedPayload;
-  if (failed) return classifyResponseFailed(failed, attemptIndex, policy);
+  if (failed) return classifyResponseFailed(failed, attemptIndex, policy, err);
   return null;
 }
 
@@ -181,8 +232,8 @@ const RESPONSE_FAILED_CODE_CLASSIFIERS = new Map([
   ['auth_expired', 'response_failed_auth_expired'],
   ['previous_response_not_found', 'previous_response_not_found'],
   ['websocket_connection_limit_reached', 'websocket_connection_limit'],
-  // A rate limit is retried after the server-advised wait (the reference
-  // client's RateLimitExceeded); a usage limit stays a fatal code.
+  // A rate limit is retried after the server-advised wait; a usage limit
+  // stays a fatal code.
   ['rate_limit_exceeded', 'response_failed_rate_limited'],
 ]);
 
@@ -197,7 +248,10 @@ function _classifyMidstreamSse(err, state, attemptIndex, policy) {
   if (!err) return null;
   const status = Number(err?.httpStatus || err?.status || err?.response?.status || 0);
   if (status === 401 || status === 403) return null;
-  if (status === 429) return 'http_429';
+  if (DETERMINISTIC_KINDS.has(providerErrorKind(err).kind)) return null;
+  if (status === 429) return retryable429(err, policy) ? 'http_429' : null;
+  // Opt-in: overloads retry only on server advice.
+  if (adviceGatedRetry(err, policy) === false) return null;
   if (status >= 500 && status < 600) {
     if (TERMINAL_EDGE_STATUSES.has(status)) return null;
     return `http_${status}`;
@@ -322,13 +376,24 @@ export function shouldFallbackTransport(err, { signal, enabled = true } = {}) {
 //    returns null. HTTP 401 is reserved for auth recovery and 426 for immediate
 //    HTTPS fallback. The OpenAI OAuth caller opts out of 429 retries
 //    (retry429:false); all other callers retain the historical retryable
-//    UnexpectedStatus policy.
-export function classifyHandshakeError(err, { retry429 = true } = {}) {
+//    UnexpectedStatus policy. overloadRetryRequiresAdvice /
+//    generic429RetryRequiresAdvice (default false) opt a caller into
+//    advice-gated overload / generic-429 retries.
+export function classifyHandshakeError(
+  err,
+  { retry429 = true, overloadRetryRequiresAdvice = false, generic429RetryRequiresAdvice = false } = {}
+) {
   if (!err) return null;
   const code = err.code || '';
   const status = Number(err.httpStatus || 0);
 
   if (status === 401 || status === 426 || (status === 429 && !retry429)) return null;
+  // Every deterministic refusal (quota, billing, auth, permission, policy,
+  // invalid request, context/size) is final, whatever 5xx or advice it carries.
+  if (DETERMINISTIC_KINDS.has(providerErrorKind(err).kind)) return null;
+  if (status && adviceGatedRetry(err, { overloadRetryRequiresAdvice, generic429RetryRequiresAdvice }) === false) {
+    return null;
+  }
   if (status > 0) {
     // Typed transient handshake statuses only. A 403/404/4xx upgrade refusal
     // is a deterministic decision: spending the retry budget on it cannot

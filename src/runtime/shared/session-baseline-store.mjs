@@ -123,11 +123,16 @@ function emptyState(sessionId) {
   return {
     sessionId,
     incomplete: false,
+    // Issue time of the latest capture that made it incomplete (0 = unknown or
+    // not a capture): a clear compares it with its own issue time, since only
+    // a capture issued after the clear can owe it incompleteness.
+    incompleteAt: 0,
     createdAt: 0,
     clearedAt: 0,
     files: new Map(),
     // Paths edited after the clear whose first state is lost: key → { key,
-    // path, root } (their review lists them as missing).
+    // path, root, at } (their review lists them as missing; `at` is their
+    // latest edit, which tells a later clear whether it predates the entry).
     missing: new Map(),
     // Renames folded through `foldedAt`, the events after it (issue order)
     // and the map both give: renamed path → the path it came from.
@@ -148,6 +153,13 @@ function emptyState(sessionId) {
 
 const hasBaselines = (state) => state.files.size > 0 || state.incomplete;
 
+/** The index can no longer vouch for everything, because of the capture issued
+ *  at `at` (0 when the cause is not a capture). */
+function markIncomplete(state, at = 0) {
+  state.incomplete = true;
+  if (at > state.incompleteAt) state.incompleteAt = at;
+}
+
 function parsedEntry(value) {
   const entry = value && typeof value === 'object' ? value : {};
   const key = clean(entry.key);
@@ -163,6 +175,7 @@ function parsedEntry(value) {
     ...(SHA256.test(entry.sha256 || '') ? { sha256: entry.sha256 } : {}),
     ...(entry.status === 'captured' && SHA256.test(entry.blob || '') ? { blob: entry.blob } : {}),
     at: Number(entry.at) || 0,
+    ...(Number(entry.touched) > 0 ? { touched: Number(entry.touched) } : {}),
   };
 }
 
@@ -198,6 +211,7 @@ async function readState(sessionId) {
   if (parsed?.version !== BASELINE_VERSION || parsed.sessionId !== sessionId) return { ...state, incomplete: true };
   state.incomplete = parsed.incomplete === true;
   state.createdAt = Number(parsed.createdAt) || 0;
+  state.incompleteAt = Number(parsed.incompleteAt) || 0;
   state.clearedAt = Number(parsed.clearedAt) || 0;
   for (const value of Array.isArray(parsed.files) ? parsed.files : []) {
     const entry = parsedEntry(value);
@@ -207,7 +221,9 @@ async function readState(sessionId) {
   for (const value of Array.isArray(parsed.missing) ? parsed.missing : []) {
     const key = clean(value?.key);
     const path = clean(value?.path);
-    if (key && path) state.missing.set(key, { key, path, root: clean(value.root) });
+    // `at`: when the path was last edited (absent in older indexes).
+    const at = Number(value?.at);
+    if (key && path) state.missing.set(key, { key, path, root: clean(value.root), ...(at > 0 ? { at } : {}) });
     else state.incomplete = true;
   }
   for (const pair of Array.isArray(parsed.renames) ? parsed.renames : []) {
@@ -301,7 +317,7 @@ function enforceBounds(state) {
   if (state.files.size > MAX_FILES_PER_SESSION) {
     const newest = [...state.files.values()].sort((left, right) => left.at - right.at).slice(MAX_FILES_PER_SESSION);
     for (const entry of newest) state.files.delete(entry.key);
-    state.incomplete = true;
+    markIncomplete(state, Math.max(...newest.map((entry) => entry.touched ?? entry.at)));
   }
   boundCapturedBytes(state);
 }
@@ -315,7 +331,7 @@ const isRenameEvent = (event) =>
 /** Apply one rename event to `map` (renamed path → the path it came from):
  *  a move carries the source's origin to its destination, an in-place
  *  create/delete ends the path's rename. Past the bound, incomplete. */
-function foldEvent(map, [, key, to], state) {
+function foldEvent(map, [at, key, to], state) {
   if (to === undefined) {
     map.delete(key);
     return;
@@ -324,7 +340,7 @@ function foldEvent(map, [, key, to], state) {
   map.delete(key);
   if (origin === to) map.delete(to);
   else if (map.has(to) || map.size < MAX_FILES_PER_SESSION) map.set(to, origin);
-  else state.incomplete = true;
+  else markIncomplete(state, at);
 }
 
 function refold(state) {
@@ -353,7 +369,7 @@ function placeRenameEvents(state, at, events) {
   if (events.length === 0) return false;
   if (at <= state.foldedAt) {
     // Older than history already folded away: its place in it is unknown.
-    state.incomplete = true;
+    markIncomplete(state, at);
     for (const event of events) foldEvent(state.baseRenames, event, state);
     state.renames = refold(state);
     return true;
@@ -393,19 +409,45 @@ function applyCapture(state, { at, changes }, blobs = null) {
     // A tie with a clear can only come from another process (issue times are
     // strict within one): its order is unknown, so it is kept, unvouched.
     dirty = true;
-    state.incomplete = true;
+    markIncomplete(state, at);
   }
+  // A later observation of a known path keeps its first state but is noted on
+  // the entry (`touched`), so a clear that lands after this capture was issued
+  // knows the path was edited after it and its first state is lost.
+  // A touch alone is not `dirty`: it is held like a redundant capture, so
+  // repeated edits of one path keep only the latest (see below).
+  let touched = false;
+  const touch = (side) => {
+    const existing = state.files.get(side.key);
+    if (existing && at > (existing.touched ?? existing.at)) {
+      state.files.set(side.key, { ...existing, touched: at });
+      touched = true;
+    }
+    const lost = state.missing.get(side.key);
+    if (lost && at > (lost.at ?? 0)) {
+      state.missing.set(side.key, { ...lost, at });
+      touched = true;
+    }
+  };
   const add = (side, make) => {
     const existing = state.files.get(side.key);
     // First seen wins: only an earlier observation (another process's,
     // replayed onto this index) replaces an entry.
-    if (existing && !(at < existing.at)) return null;
-    if (!existing && state.files.size >= MAX_FILES_PER_SESSION) {
-      dirty ||= !state.incomplete;
-      state.incomplete = true;
+    if (existing && !(at < existing.at)) {
+      touch(side);
       return null;
     }
-    const { entry, bytes } = make();
+    if (!existing && state.files.size >= MAX_FILES_PER_SESSION) {
+      // A new cause (a later capture than any recorded) is worth a write.
+      dirty ||= !state.incomplete || at > state.incompleteAt;
+      markIncomplete(state, at);
+      return null;
+    }
+    const made = make();
+    const { bytes } = made;
+    // The entry it replaces was an observation too.
+    const latest = Math.max(existing?.touched ?? 0, existing?.at ?? 0);
+    const entry = latest > made.entry.at ? { ...made.entry, touched: latest } : made.entry;
     state.files.set(side.key, entry);
     if (bytes) writes.set(entry.blob, bytes);
     dirty = true;
@@ -416,13 +458,14 @@ function applyCapture(state, { at, changes }, blobs = null) {
     const bytes = change.entry.blob ? blobs?.get(change.entry.blob) : undefined;
     if (!change.entry.blob || bytes) return { entry: change.entry, bytes };
     // Its unwritten bytes went to the byte budget.
-    state.incomplete = true;
+    markIncomplete(state, at);
     const { blob: _blob, ...rest } = change.entry;
     return { entry: { ...rest, status: 'evicted' } };
   };
   const events = [];
   const kept = [];
   for (const change of changes) {
+    if (change.redundant) touch(change.source);
     const entry = change.redundant ? null : add(change.source, () => recorded(change));
     kept.push({
       source: change.source,
@@ -445,8 +488,8 @@ function applyCapture(state, { at, changes }, blobs = null) {
     // clear has since removed: the path's first state is lost, never dropped.
     if (!change.redundant || state.files.has(change.source.key) || state.missing.has(change.source.key)) continue;
     const { key, path, root } = change.source;
-    if (state.missing.size < MAX_FILES_PER_SESSION) state.missing.set(key, { key, path, root });
-    state.incomplete = true;
+    if (state.missing.size < MAX_FILES_PER_SESSION) state.missing.set(key, { key, path, root, at });
+    markIncomplete(state, at);
     dirty = true;
   }
   if (placeRenameEvents(state, at, events)) dirty = true;
@@ -455,7 +498,7 @@ function applyCapture(state, { at, changes }, blobs = null) {
     // away before it is written: held (without bytes) until the unwritten
     // captures are. Only each path's latest such edit is kept, since a clear
     // landing between edits must still see the one after it.
-    if (state.pending.length === 0 || kept.length === 0) return null;
+    if ((state.pending.length === 0 && !touched) || kept.length === 0) return null;
     const op = { at, changes: kept };
     for (const change of kept) {
       const prior = state.heldRedundant.get(change.source.key);
@@ -484,7 +527,7 @@ function holdCapture(state, applied) {
   for (const blob of state.writes.keys()) {
     if (referenced.has(blob)) continue;
     state.writes.delete(blob);
-    state.incomplete = true;
+    markIncomplete(state, applied.op.at);
   }
 }
 
@@ -526,6 +569,7 @@ async function writeIndex(state) {
       updatedAt: Date.now(),
       ...(state.clearedAt ? { clearedAt: state.clearedAt } : {}),
       ...(state.incomplete ? { incomplete: true } : {}),
+      ...(state.incompleteAt ? { incompleteAt: state.incompleteAt } : {}),
       files: [...state.files.values()],
       ...(state.missing.size > 0 ? { missing: [...state.missing.values()] } : {}),
       renames: [...state.baseRenames],
@@ -744,6 +788,11 @@ export function _rowCacheBytesForTest() {
   return rowCacheBytes;
 }
 
+/** Unwritten capture batches this process holds for the session (tests). */
+export function _pendingCapturesForTest(sessionId) {
+  return states.get(memoryKey(clean(sessionId)))?.pending.length ?? 0;
+}
+
 /** Bytes this process holds for the session's unwritten captures (tests). */
 export function _unsavedBytesForTest(sessionId) {
   const state = states.get(memoryKey(clean(sessionId)));
@@ -802,9 +851,52 @@ export async function loadSessionBaselines(sessionId) {
   return await queued.result;
 }
 
+/** Carry what the index on disk holds from `state.clearedAt` on into the
+ *  freshly cleared `state`: another process may have published a capture issued
+ *  after this clear while it was waiting for the lock. */
+function keepSinceClear(state, onDisk) {
+  const { clearedAt } = state;
+  // The latest capture issued from the clear on that the index cannot vouch
+  // for (0 = none). Capture issue times only: the index's write time is a
+  // different clock reading than the clear's issue time.
+  let cause = 0;
+  for (const entry of onDisk.files.values()) {
+    const latest = entry.touched ?? entry.at;
+    if (latest < clearedAt) continue;
+    if (entry.at < clearedAt) {
+      // First seen before the clear, edited again after it: the state it had
+      // when the clear landed is lost, so it is listed as missing.
+      const { key, path, root } = entry;
+      state.missing.set(key, { key, path, root, at: latest });
+      cause = Math.max(cause, latest);
+      continue;
+    }
+    state.files.set(entry.key, entry);
+    // Issued in the clear's very millisecond: order unknown (see applyCapture).
+    if (entry.at === clearedAt) cause = Math.max(cause, clearedAt);
+  }
+  // A path already listed as missing stays so only when edited from this
+  // clear on; one without an edit time (an older index) predates it.
+  for (const lost of onDisk.missing.values()) {
+    if (lost.at === undefined || lost.at < clearedAt) continue;
+    state.missing.set(lost.key, lost);
+    cause = Math.max(cause, lost.at);
+  }
+  // Incompleteness owed to a capture from the clear on stays (an entry the
+  // bound rejected leaves nothing else to show); what cannot be placed on
+  // either side of the clear is not vouched for.
+  if (onDisk.incomplete && onDisk.incompleteAt >= clearedAt) cause = Math.max(cause, onDisk.incompleteAt);
+  if (onDisk.foldedAt >= clearedAt) cause = Math.max(cause, onDisk.foldedAt);
+  if (state.files.size === 0 && state.missing.size === 0 && cause === 0) return;
+  state.createdAt = onDisk.createdAt;
+  state.events = onDisk.events.filter((event) => event[0] >= clearedAt);
+  state.renames = refold(state);
+  if (cause > 0) markIncomplete(state, cause);
+}
+
 /** Delete the session's baselines (Delete history): later edits start fresh.
  *  Every capture issued before it — in this process or, by its `clearedAt`
- *  epoch, in another — is dropped. */
+ *  epoch, in another — is dropped; one issued after it is kept. */
 export async function clearSessionBaselines(sessionId) {
   const id = clean(sessionId);
   if (!id) return;
@@ -823,10 +915,20 @@ export async function clearSessionBaselines(sessionId) {
       dropRows(key);
       await withIndexLock(id, async () => {
         await mkdir(baselinesRoot(), { recursive: true, mode: 0o700 });
+        const onDisk = await readState(id);
+        // A later clear already landed: nothing here predates it.
+        if (onDisk.clearedAt >= clearedAt) {
+          remember(id, onDisk);
+          return;
+        }
+        keepSinceClear(cleared, onDisk);
         // A tombstone index, not a deletion: its epoch tells other processes
         // which of their unwritten captures predate the clear.
         await writeIndex(cleared);
-        await rm(blobDir(id), { recursive: true, force: true });
+        const kept = new Set([...cleared.files.values()].map((entry) => entry.blob).filter(Boolean));
+        for (const name of await readdir(blobDir(id)).catch(() => [])) {
+          if (!kept.has(name)) await rm(join(blobDir(id), name), { recursive: true, force: true });
+        }
       });
     }),
   }));

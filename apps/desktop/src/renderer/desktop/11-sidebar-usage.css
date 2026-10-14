@@ -631,7 +631,9 @@
   padding-right: 18px;
 }
 .session-sidebar .session-row:hover:has(.session-row-favorite) .session-row-main:has(.session-row-fork-toggle),
-.session-sidebar .session-row:has(:focus-visible):has(.session-row-favorite) .session-row-main:has(.session-row-fork-toggle) {
+.session-sidebar
+  .session-row:has(:focus-visible):has(.session-row-favorite)
+  .session-row-main:has(.session-row-fork-toggle) {
   padding-right: 52px;
 }
 /* Unread activity dot: the session gained messages while it

@@ -27,7 +27,10 @@ const {
   disabledMentionedSkills,
   filterSkillMentions,
   invalidateSkillCatalogForMutation,
+  refreshSkillCatalog,
+  resetSkillCatalogReadsForTests,
   skillMentionSegments,
+  useSkillCatalog,
 } = await import('./composer-skill-mentions.tsx');
 const { Composer } = await import('./Composer.tsx');
 
@@ -427,5 +430,55 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
     assert.deepEqual(reads[local], [{ capability: 'skillsStatus' }]);
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+test('skill catalog reads are single-flight with a minimum age; focus never re-reads, signals force', async () => {
+  resetSkillCatalogReadsForTests();
+  let count = 0;
+  let release;
+  window.mixdogDesktop = {
+    invokeCapability: async () => {
+      count += 1;
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      return { value: STATUS };
+    },
+  };
+  const first = refreshSkillCatalog('single-flight');
+  const second = refreshSkillCatalog('single-flight');
+  assert.equal(first, second, 'concurrent reads share one promise');
+  assert.equal(count, 1);
+  release();
+  await first;
+  // Within the minimum age the cached catalog is served without a read.
+  assert.equal(await refreshSkillCatalog('single-flight'), await first);
+  assert.equal(count, 1);
+  // A change signal (force) always starts a fresh read.
+  const forced = refreshSkillCatalog('single-flight', null, { force: true });
+  assert.equal(count, 2);
+  release();
+  await forced;
+
+  // A mounted catalog no longer re-reads when the window regains focus.
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  function Probe() {
+    useSkillCatalog('focus-probe', '');
+    return null;
+  }
+  try {
+    await act(async () => root.render(React.createElement(Probe)));
+    const mountedReads = count;
+    release();
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)));
+    await act(async () => window.dispatchEvent(new window.Event('focus')));
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)));
+    assert.equal(count, mountedReads, 'window focus does not read skills');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });

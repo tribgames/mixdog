@@ -384,11 +384,7 @@ try {
       }
       const delayedReview = summary.delayedReview || {};
       assert.equal(delayedReview.appeared, true, 'the delayed review segment must appear during the probe.');
-      assert.equal(
-        Number(delayedReview.height),
-        26,
-        'the composer island Files segment must keep its 26px height.'
-      );
+      assert.equal(Number(delayedReview.height), 26, 'the composer island Files segment must keep its 26px height.');
       assert.equal(
         Number(delayedReview.maxOverlap),
         0,
@@ -429,11 +425,7 @@ try {
       // Session entry resets the visit's tool disclosures on purpose
       // (resetToolDisclosureScope in use-conversation-transcript-identity.ts):
       // tool cards always start collapsed after re-entry.
-      assert.equal(
-        Number(expandedReentry.openTools),
-        0,
-        'tool cards must start collapsed after session re-entry.'
-      );
+      assert.equal(Number(expandedReentry.openTools), 0, 'tool cards must start collapsed after session re-entry.');
       assert.ok(
         Number(expandedReentry.motion?.maxRowShift) <= 2,
         `expanded-tool re-entry moved rows ${expandedReentry.motion?.maxRowShift}px.`

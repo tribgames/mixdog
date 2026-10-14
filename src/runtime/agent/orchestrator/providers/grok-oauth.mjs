@@ -19,6 +19,7 @@ import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { OpenAICompatProvider, preloadOpenAICompatRuntime } from './openai-compat.mjs';
 import { xaiModelSupportsReasoningEffort } from './openai-compat-xai.mjs';
+import { XAI_COMPAT_RETRY_POLICY } from './openai-compat-retry-profile.mjs';
 import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { normalizeGrokToolSchemas } from './lib/grok-tool-schema.mjs';
@@ -48,6 +49,23 @@ export {
   normalizeGrokModelId,
 } from './grok-oauth-tokens.mjs';
 export { beginOAuthLogin, loginOAuth } from './grok-oauth-login.mjs';
+
+// Typed wire codes that say the bearer itself expired or was revoked. An
+// ordinary permission 403 carries none of them and is never a refresh signal.
+const EXPIRED_TOKEN_CODES = new Set([
+  'token_expired',
+  'expired_token',
+  'access_token_expired',
+  'token_revoked',
+  'revoked_token',
+  'invalid_token',
+]);
+
+function hasExpiredTokenSignature(err) {
+  return [err?.code, err?.type, err?.providerErrorCode, err?.error?.code, err?.error?.type].some(
+    (field) => typeof field === 'string' && EXPIRED_TOKEN_CODES.has(field.trim().toLowerCase())
+  );
+}
 
 const _modelCache = makeModelCache({
   fileName: 'grok-oauth-models.json',
@@ -285,6 +303,8 @@ export class GrokOAuthProvider {
   // OpenAI-compatible usage: prompt_tokens includes cached. See registry.mjs.
   static inputExcludesCache = false;
   name = 'grok-oauth';
+  // The inner xai profile's limits are final: no loop-level recovery cycles on top.
+  retryPolicy = XAI_COMPAT_RETRY_POLICY;
   config;
   tokens = null;
   _inner = null;
@@ -435,9 +455,10 @@ export class GrokOAuthProvider {
       return await inner._doSend(messages, useModel, grokTools, sendOpts);
     } catch (err) {
       noteErrorUsage(err);
-      // Refresh-and-retry on a server-rejected OAuth session (401/403).
-      // TYPED status only: a rejection whose only evidence is message
-      // text is never treated as an auth failure worth re-issuing.
+      // Refresh-and-retry on a server-rejected OAuth session: 401, or a 403
+      // carrying an explicit expired/revoked-token code. TYPED evidence only:
+      // message text is never an auth verdict, and a plain permission 403 is
+      // surfaced as-is.
       const rejectedStatus = Number(err?.httpStatus || err?.status);
       // 426 = client version gate. Retry once only when the body stated a
       // minimum we did not already satisfy; nothing was emitted before it.
@@ -455,7 +476,7 @@ export class GrokOAuthProvider {
           sendOpts
         );
       }
-      if (rejectedStatus === 401 || rejectedStatus === 403) {
+      if (rejectedStatus === 401 || (rejectedStatus === 403 && hasExpiredTokenSignature(err))) {
         // A stream-level rejection after text/tool dispatch cannot be safely
         // replayed: the client has already observed output or may have
         // executed a side-effecting tool.
@@ -465,7 +486,14 @@ export class GrokOAuthProvider {
         process.stderr.write(`[grok-oauth] ${rejectedStatus}, force-refreshing token...\n`);
         const fresh = await this.ensureAuth({ forceRefresh: true });
         const retryInner = this._ensureInner(fresh.access_token, useModel, requestHeaders);
-        return await retryInner._doSend(messages, useModel, grokTools, sendOpts);
+        try {
+          return await retryInner._doSend(messages, useModel, grokTools, sendOpts);
+        } catch (retryErr) {
+          // Rejected again on a token that was just refreshed: re-login is the
+          // only remaining path.
+          if (Number(retryErr?.httpStatus || retryErr?.status) === 401) retryErr.reauthRequired = true;
+          throw retryErr;
+        }
       }
       throw err;
     }

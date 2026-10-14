@@ -21,7 +21,7 @@ import {
   revertTurnReview,
   revertTurnReviewFile,
 } from '../src/runtime/shared/turn-snapshot.mjs';
-import { _setTurnSnapshotStoreRootForTest } from '../src/runtime/shared/turn-snapshot-store.mjs';
+import { _setTurnSnapshotStoreRootForTest, _settleSummarySavesForTest } from '../src/runtime/shared/turn-snapshot-store.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 
@@ -124,6 +124,7 @@ test('explicit ignored edits survive review, restart and undo without capturing 
       assert.deepEqual((await getSessionReviewDiff(root, sessionId)).files, []);
     } finally {
       _resetTurnSnapshotForTest();
+      await _settleSummarySavesForTest();
       _setTurnSnapshotStoreRootForTest('');
       await rm(store, { recursive: true, force: true });
       await rm(root, { recursive: true, force: true });
@@ -186,6 +187,7 @@ test('large explicit untracked files retain their original baseline and every ch
     assert.equal(await exists(join(root, 'z-small.txt')), false);
   } finally {
     _resetTurnSnapshotForTest();
+    await _settleSummarySavesForTest();
     _setTurnSnapshotStoreRootForTest('');
     await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
@@ -344,6 +346,7 @@ test('a completed review survives losing its in-memory tracker', async () => {
     assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\n');
   } finally {
     _resetTurnSnapshotForTest();
+    await _settleSummarySavesForTest();
     _setTurnSnapshotStoreRootForTest('');
     await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
@@ -397,6 +400,7 @@ test('entering a recorded review answers its last computed summary without resca
     assert.equal(next.checkpointId, 'prompt-next');
   } finally {
     _resetTurnSnapshotForTest();
+    await _settleSummarySavesForTest();
     _setTurnSnapshotStoreRootForTest('');
     await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
@@ -438,6 +442,7 @@ test('a shared worktree reverts only the session-owned paths', async () => {
     assert.equal(await readFile(join(root, 'sibling.txt'), 'utf8'), 'sibling\n');
   } finally {
     _resetTurnSnapshotForTest();
+    await _settleSummarySavesForTest();
     _setTurnSnapshotStoreRootForTest('');
     await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
@@ -490,6 +495,7 @@ test('a session review accumulates every checkpoint change across turns without 
     assert.deepEqual(resumed.files.map((file) => file.path).sort(), ['file.txt', 'second.txt', 'shell.txt']);
   } finally {
     _resetTurnSnapshotForTest();
+    await _settleSummarySavesForTest();
     _setTurnSnapshotStoreRootForTest('');
     await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
@@ -534,6 +540,7 @@ test('a session whose cwd is a subdirectory still scopes its review to the repos
     assert.equal(await exists(join(cwd, 'page.txt')), false);
   } finally {
     _resetTurnSnapshotForTest();
+    await _settleSummarySavesForTest();
     _setTurnSnapshotStoreRootForTest('');
     await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });

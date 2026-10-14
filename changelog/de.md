@@ -4,6 +4,37 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Explizite MCP-OAuth-Anmeldung, Modellwechsel an Ort und Stelle und einzeiliges Kontingent-Banner hinzugefügt.
+
+### Neue Funktionen
+
+- **MCP-Anmeldung** — Explizite OAuth-Anmeldung für MCP-Server mit Statusanzeige, geteiltem Anmeldedialog, Remote-Einfügen und TUI-Befehlen hinzugefügt (#74, thanks @oh1701).
+- **Modell an Ort und Stelle wechseln** — Wechseln des Modells eines Chats ohne Starten einer neuen Sitzung sowie Fork im Sitzungsmenü hinzugefügt (#73, #52, thanks @grapefruit0205).
+- **Kontingent-Banner** — Einzeiliges Banner über dem Composer bei Erreichen eines Limits hinzugefügt; Fortsetzen reserviert den nächsten Lauf für den Zurücksetzungszeitpunkt.
+- **Dateien-Menü** — Dateien-Zähler auf der Insel zur Erfassung ungespeicherter Sitzungsänderungen mit Änderungen anzeigen und Verlauf löschen hinzugefügt.
+- **Chat-Textgröße** — Geräteabhängige Einstellung für die Chat-Textgröße hinzugefügt.
+
+### Änderungen
+
+- Anbieter-Wiederholungsversuche so geändert, dass sie den eigenen Limits und Wartezeiten des jeweiligen Anbieters folgen und die verbleibende Wartezeit mit einer Abbruchmöglichkeit anzeigen.
+- Fehlermeldungen so geändert, dass sie Ursache und nächsten Schritt benennen und Wiederholen ausblenden, wenn ein erneuter Versuch nicht hilft.
+- Shell-Befehle so geändert, dass sie standardmäßig 10 Sekunden und bis zu 30 Sekunden im Vordergrund verbleiben, bevor sie in den Hintergrund wechseln.
+- Desktop-App, automatisches Denken und Hintergrunddienst so angepasst, dass sie in langen Sitzungen weniger Polling, Rendering und Speicher beanspruchen.
+
+### Fehlerbehebungen
+
+- Behoben: Der Hintergrunddienst fror alle 30 Minuten für ein bis zwei Sekunden ein.
+- Behoben: Abschlussbenachrichtigungen von Agents gingen verloren, wenn ein Durchlauf mit bereits vorhandener Ausgabe abgebrochen wurde.
+- Behoben: Die Composer-Insel zeigte laufende Agents als untätig oder fertig an.
+- Behoben: Der Sitzungswechsel geriet ins Stocken, während auf Änderungsscans anderer Sitzungen gewartet wurde.
+- Behoben: Browser-Seitendialoge verließen den Bereich, die Verlassen-Bestätigung wurde nicht abgeschlossen und Tastenkombinationen zum Kopieren im Browser schlugen fehl.
+- Behoben: Prompt-Caching bei benutzerdefinierten Responses-Anbietern schlug fehl und übernommene Sitzungsprojekte stimmten nicht mit der Seitenleiste überein (#70, #75, thanks @sukjong2002).
+- Behoben: Streaming-Tabellen flackerten, das Protokoll sprang während eines aktiven Durchlaufs und die Kontingentkarte blieb nach dem Anbieterwechsel sichtbar.
+
+### Sonstiges
+
+- Nicht verwendete Helfer entfernt (#67, thanks @22nsuk).
+
 ## v1.2.1 - 2026-10-14
 
 Unterhaltungsimport aus Codex und Claude Code, den Command Code-Anbieter sowie `$`-Skill-Erwähnungen hinzugefügt und Computer Use-Eingabebeobachtung, Skill-Skripte, automatisches Denken sowie mehrere Sitzungsprobleme behoben.

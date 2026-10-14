@@ -189,6 +189,45 @@ test("re-entering a session never lets its superseded read overwrite the newer a
   assert.match(text(), /\+5/);
 });
 
+test("an outgoing session's answer never suppresses the incoming session's identical answer", async (t) => {
+  const pending = [];
+  const requests = [];
+  const { dom, root } = installReviewDom(t, {
+    desktop: {
+      invokeCapability(request) {
+        requests.push(request);
+        return new Promise((resolve) => pending.push(resolve));
+      },
+    },
+  });
+  const render = (sessionId, extra = []) =>
+    act(async () =>
+      root.render(
+        React.createElement(TurnReviewBar, { items: [prompt, edit('same'), ...extra], sessionId, active: true, busy: true })
+      )
+    );
+  const reply = (index, files) =>
+    act(async () =>
+      pending[index]({
+        value: { supported: true, authoritative: true, snapshotKind: 'worktree', patch: '', agents: [], files },
+      })
+    );
+  const text = () => dom.window.document.querySelector('.turn-review-bar')?.textContent || '';
+
+  await render('sess-sig-a');
+  await render('sess-sig-b');
+  assert.equal(requests.length, 2);
+  await reply(1, [{ path: 'a.txt', status: 'M', additions: 5, deletions: 0 }]);
+  assert.match(text(), /\+5/);
+  await render('sess-sig-b', [edit('later')]);
+  assert.equal(requests.length, 3);
+  assert.equal(requests[2].sessionId, 'sess-sig-b');
+  // The outgoing session answers empty first, then the incoming one does.
+  await reply(0, []);
+  await reply(2, []);
+  assert.doesNotMatch(text(), /\+5/, 'the incoming session shows its own empty answer');
+});
+
 test('an idle backoff read answered from the cached summary is followed by a refreshing read', async (t) => {
   const { dom, render, answer, requests } = mount(t, 'sess-review-idle-cached');
   const timers = [];
@@ -345,7 +384,7 @@ test('blurring a first foreground read never reveals a temporary transcript esti
   assert.equal(bar(), null);
 });
 
-test('only the interval timer marks its read as a background poll', async (t) => {
+test('running-turn boundaries and the interval timer read in the background; opening and idle reads capture now', async (t) => {
   const { dom, render, answer, requests } = mount(t, 'sess-review-poll-kind');
   const timers = [];
   dom.window.setInterval = (callback) => timers.push(callback);
@@ -356,7 +395,7 @@ test('only the interval timer marks its read as a background poll', async (t) =>
 
   await render(items, true);
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].args[0].poll, undefined, 'a tool-boundary read is a foreground read');
+  assert.equal(requests[0].args[0].poll, 'background', 'a running turn tool-boundary read respects the capture gap');
   assert.equal(requests[0].args[0].refresh, true);
   await answer(changed);
 
@@ -378,14 +417,19 @@ test('only the interval timer marks its read as a background poll', async (t) =>
   assert.equal(requests[3].args[0].summary, undefined, 'an open review polls for its patch');
   await answer(changed);
 
-  // A foreground read queued behind a poll keeps its foreground kind.
+  // A boundary queued behind a poll stays a background read.
   await tick();
   await render([...items, edit('second')], true);
   assert.equal(requests.length, 5);
   await answer(changed);
   assert.equal(requests.length, 6);
-  assert.equal(requests[5].args[0].poll, undefined);
+  assert.equal(requests[5].args[0].poll, 'background');
   await answer(changed);
+
+  // The turn ending is the authoritative boundary: it captures now.
+  await render([...items, edit('second')], false);
+  assert.equal(requests.at(-1).args[0].poll, undefined);
+  assert.equal(requests.at(-1).args[0].refresh, true);
 });
 
 test('a review tag is only sent while the review it names is still cached', async (t) => {

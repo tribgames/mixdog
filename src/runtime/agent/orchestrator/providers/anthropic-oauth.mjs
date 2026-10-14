@@ -42,8 +42,12 @@ import { AnthropicFallbackTriggeredError } from './retry-classifier.mjs';
 import { ANTHROPIC_MAX_MIDSTREAM_RETRIES, parseSSEStream, _classifyMidstreamError } from './anthropic-sse.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
 import { applyAnthropicServerFallback } from './anthropic-server-fallback.mjs';
-import { fastModeAvailable } from './anthropic-fast-mode.mjs';
+import { fastModeAvailable, fastModeDowngraded, noteFastModeCapacityError } from './anthropic-fast-mode.mjs';
 import { ANTHROPIC_VERSION, anthropicQuotaError, createAnthropicOAuthRequest } from './anthropic-oauth-request.mjs';
+import { isRefreshableAuthRejection } from './anthropic-oauth-request/initial-status.mjs';
+import { applyAnthropicErrorContract } from './anthropic-error-contract.mjs';
+import { adjustMaxTokensForContextOverflow } from './anthropic-max-tokens-recovery.mjs';
+import { announceAnthropicModelFallback, createAnthropicOverloadTracker } from './anthropic-overload-fallback.mjs';
 import { createAnthropicOAuthRecovery } from './anthropic-oauth-recovery.mjs';
 import { createMidState, createMidstreamRecovery } from './anthropic-oauth-midstream.mjs';
 import { assertAnthropicStreamNotEmpty } from './anthropic-midstream-recovery.mjs';
@@ -472,6 +476,12 @@ export class AnthropicOAuthProvider {
     // totalSignal is therefore a pure pass-through of externalSignal with no timer.
     const totalTimeout = createPassthroughSignal(externalSignal);
     const totalSignal = totalTimeout.signal;
+    // Request-loop 529s and SSE overload events share one counter; at the
+    // limit the configured fallback model takes over the whole send.
+    const overload = createAnthropicOverloadTracker({
+      model: useModel,
+      fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
+    });
     const { requestWithRetry, cleanupCancelHandler } = createAnthropicOAuthRequest({
       provider: this,
       opts,
@@ -479,6 +489,7 @@ export class AnthropicOAuthProvider {
       useModel,
       sessionId,
       totalSignal,
+      overload,
       betaHeadersFor: (requestBody) =>
         buildOAuthBetaHeaders(requestBody, {
           fastMode: this.fastModeBetaHeaderLatched,
@@ -508,24 +519,14 @@ export class AnthropicOAuthProvider {
       recovery,
       onStageChange,
       retry529: opts.retry529 !== false,
+      overload,
     });
 
+    let maxTokensAdjusted = false;
     try {
       for (let attemptIndex = 0; attemptIndex <= ANTHROPIC_MAX_MIDSTREAM_RETRIES; attemptIndex++) {
         let response, controller, cancelHandler;
-        try {
-          ({ response, controller, cancelHandler } = await requestWithRetry(auth.creds.accessToken));
-        } catch (err) {
-          if (err instanceof AnthropicFallbackTriggeredError) {
-            process.stderr.write(`[anthropic-oauth] ${err.message}\n`);
-            return this.send(messages, err.fallbackModel, tools, {
-              ...opts,
-              fallbackModel: undefined,
-              _fallbackTriggered: true,
-            });
-          }
-          throw err;
-        }
+        ({ response, controller, cancelHandler } = await requestWithRetry(auth.creds.accessToken));
 
         // Refresh on 401, and only Anthropic's exact official revoked-token
         // 403 signature. Ordinary permission/policy 403s are terminal.
@@ -533,8 +534,7 @@ export class AnthropicOAuthProvider {
         if (response.status === 401 || response.status === 403) {
           rejectedAuthBody = await response.text().catch(() => '');
         }
-        const revoked403 = response.status === 403 && String(rejectedAuthBody).includes('OAuth token has been revoked');
-        if (response.status === 401 || revoked403) {
+        if (isRefreshableAuthRejection(response.status, rejectedAuthBody)) {
           process.stderr.write(`[anthropic-oauth] ${response.status} — forcing refresh and retrying once\n`);
           cleanupCancelHandler(cancelHandler);
           // Body was drained above; abort closes any remaining transport
@@ -547,6 +547,20 @@ export class AnthropicOAuthProvider {
           rejectedAuthBody = null;
         }
 
+        // "input length and max_tokens exceed context limit": shrink max_tokens
+        // to what the context has room for and replay once.
+        if (response.status === 400 && !maxTokensAdjusted) {
+          rejectedAuthBody = await response.text().catch(() => '');
+          if (adjustMaxTokensForContextOverflow(body, 400, rejectedAuthBody)) {
+            maxTokensAdjusted = true;
+            cleanupCancelHandler(cancelHandler);
+            try {
+              controller?.abort?.();
+            } catch {}
+            ({ response, controller, cancelHandler } = await requestWithRetry(auth.creds.accessToken));
+            rejectedAuthBody = null;
+          }
+        }
         if (!response.ok) {
           cleanupCancelHandler(cancelHandler);
           return await this._resendAfterRejection({
@@ -607,6 +621,18 @@ export class AnthropicOAuthProvider {
         }
       }
       throw midstream.exhaustedError();
+    } catch (err) {
+      // The fallback trigger can surface from the request loop, a mid-stream
+      // overload, or the non-streaming recovery: handle it around the whole
+      // operation, not just the first request.
+      if (!(err instanceof AnthropicFallbackTriggeredError)) throw err;
+      process.stderr.write(`[anthropic-oauth] ${err.message}\n`);
+      announceAnthropicModelFallback(onStageChange, _displayModel(useModel), _displayModel(err.fallbackModel));
+      return await this.send(messages, err.fallbackModel, tools, {
+        ...opts,
+        fallbackModel: undefined,
+        _fallbackTriggered: true,
+      });
     } finally {
       totalTimeout.cleanup();
     }
@@ -622,6 +648,21 @@ export class AnthropicOAuthProvider {
 
     if (response.status === 429) {
       throw anthropicQuotaError(response.status, response.headers, safeText);
+    }
+
+    // An account that cannot use fast mode answers the speed field with a
+    // 400. Fast mode is now off for this process, so replaying the turn once
+    // builds a standard-speed request.
+    if (
+      response.status === 400 &&
+      opts.fast === true &&
+      !opts._fastModeRetry &&
+      fastModeDowngraded(
+        noteFastModeCapacityError({ httpStatus: 400, message: scrubbedText }, { fast: true })
+      )
+    ) {
+      process.stderr.write(`[anthropic-oauth] fast mode is not enabled for this account; retrying at standard speed\n`);
+      return this.send(messages, useModel, tools, { ...opts, _fastModeRetry: true });
     }
 
     // A newer model that rejects the mid-conversation effort update: switch
@@ -686,9 +727,14 @@ export class AnthropicOAuthProvider {
       return this.send(messages, fallbackModel || model, tools, { ...opts, _modelRetry: true });
     }
     const err = new Error(`Anthropic OAuth API ${response.status}: ${safeText}`);
-    err.status = response.status;
-    err.httpStatus = response.status;
-    throw err;
+    // 413 stays `request_too_large` (a byte/media size refusal) and a 400
+    // "prompt is too long" stays `invalid_request_error`, so the core can tell
+    // a payload it must shrink from a context it can compact.
+    throw applyAnthropicErrorContract(err, {
+      status: response.status,
+      headers: response.headers,
+      bodyText: scrubbedText,
+    });
   }
 
   // Traces + catalog upkeep for a streamed turn, then the empty-stream guard.

@@ -67,7 +67,9 @@ const OPENAI_UNSUPPORTED = new RegExp(
 const GROK_UNSUPPORTED = new RegExp(`${NON_CHAT_ID}|composer|^grok-build$|^grok-[123](?:[.-]|$)`);
 // The Gemini family is also reached through a relay serving other vendors'
 // models, whose hosted search is Gemini's alone, so a non-Gemini id is out.
-const GEMINI_UNSUPPORTED = new RegExp(`${NON_CHAT_ID}|^(?!gemini-)|computer-use|customtools|^gemini-(?:1[.-]|pro|ultra)|^gemini-2\\.0-(?!flash)`);
+const GEMINI_UNSUPPORTED = new RegExp(
+  `${NON_CHAT_ID}|^(?!gemini-)|computer-use|customtools|^gemini-(?:1[.-]|pro|ultra)|^gemini-2\\.0-(?!flash)`
+);
 const ANTHROPIC_UNSUPPORTED = /^claude-(?:\d|instant)|^claude-[a-z]+-[123](?:[-.]|$)/;
 
 const openAiModelSupportsHostedWebSearch = (model, row) => hostedWebSearchFallback(model, row, OPENAI_UNSUPPORTED);

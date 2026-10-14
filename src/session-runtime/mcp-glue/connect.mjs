@@ -27,20 +27,14 @@ export function createMcpConnect({
   // Abort the pending interactive OAuth login of one server's connect.
   const cancelMcpLogin = (name) => mcpClient.cancelMcpLogin?.(clean(name), scopeOptions());
   // Answer it with the redirect URL pasted from the browser.
-  const completeMcpLogin = (name, callbackUrl) =>
-    mcpClient.completeMcpLogin(clean(name), callbackUrl, scopeOptions());
+  const completeMcpLogin = (name, callbackUrl) => mcpClient.completeMcpLogin(clean(name), callbackUrl, scopeOptions());
 
   // Connect/disconnect exactly one server in the live registry, leaving all
   // others untouched. Used by the enable/disable toggle so a single-server
   // change never triggers a full disconnectAll()/reconnect freeze. Only an
   // explicit sign-in passes `login` ({ openBrowser }): every other connect is
   // non-interactive and reports a server that needs one as sign-in required.
-  async function applyMcpServerConnection(
-    name,
-    enabled,
-    servers = resolveEffectiveMcpServers().servers,
-    login = null
-  ) {
+  async function applyMcpServerConnection(name, enabled, servers = resolveEffectiveMcpServers().servers, login = null) {
     const target = clean(name);
     if (!target) return;
     // Changing this server's state clears any stale failure record for it.
@@ -65,15 +59,9 @@ export function createMcpConnect({
         login ? { interactive: true, openBrowser: login.openBrowser } : {}
       );
     } catch (error) {
-      const failures = Array.isArray(error?.failures)
-        ? error.failures
-        : [
-            {
-              name: target,
-              msg: error?.message || String(error),
-              ...(error?.authRequired ? { authRequired: true } : {}),
-            },
-          ];
+      const failure = { name: target, msg: error?.message || String(error) };
+      if (error?.authRequired) failure.authRequired = true;
+      const failures = Array.isArray(error?.failures) ? error.failures : [failure];
       state.mcpFailures = [...(state.mcpFailures || []), ...failures];
     }
   }
@@ -95,7 +83,13 @@ export function createMcpConnect({
     ]);
   }
 
-  async function connectConfiguredMcp({ reset = false, only = null, enabled = true, reconcile = false, login = null } = {}) {
+  async function connectConfiguredMcp({
+    reset = false,
+    only = null,
+    enabled = true,
+    reconcile = false,
+    login = null,
+  } = {}) {
     if (envFlag('MIXDOG_DISABLE_MCP')) {
       ++state.mcpConnectGeneration;
       state.mcpFailures = [];

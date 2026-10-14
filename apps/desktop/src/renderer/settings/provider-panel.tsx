@@ -5,6 +5,7 @@ import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
 import { ErrorNotice, verificationUrlOf } from '../ErrorNotice';
 import { record } from '../record-utils';
+import { startVisibleRefreshCadence } from '../visible-refresh-cadence';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { OAuthLoginDialog, pasteErrorText, useOAuthLoginFlow } from './oauth-login-flow';
 import { useOAuthUsageRefresh } from './use-oauth-usage-refresh';
@@ -117,15 +118,30 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   // keyring locks or is unlocked while this page is open.
   useEffect(() => {
     const refresh = (recheckKeychain: boolean) => () =>
-      void runRef.current('getProviderSetup', [recheckKeychain ? { recheckKeychain } : {}], 'keychain-refresh', true, true);
+      void runRef.current(
+        'getProviderSetup',
+        [recheckKeychain ? { recheckKeychain } : {}],
+        'keychain-refresh',
+        true,
+        true
+      );
     const poll = refresh(false);
     const onFocus = refresh(true);
-    const timer = window.setInterval(poll, 7000);
+    // Visible-only cadence; an unfocused window skips ticks (the focus event
+    // below refreshes as soon as it returns).
+    const stopCadence = startVisibleRefreshCadence({
+      win: window,
+      intervalMs: 7000,
+      refresh: (reason) => {
+        if (reason === 'interval' && !window.document.hasFocus()) return;
+        poll();
+      },
+    });
     // Returning to the window re-snapshots the keyring right away instead of
     // waiting for the daemon's TTL (secret-tool may have changed it meanwhile).
     window.addEventListener('focus', onFocus);
     return () => {
-      window.clearInterval(timer);
+      stopCadence();
       window.removeEventListener('focus', onFocus);
     };
   }, []);
@@ -227,7 +243,16 @@ export function OAuthControl({
   accountId?: string;
 }) {
   const providerId = String(provider.id || '');
-  const { flow, setFlow, error, pasteError, setPasteError, remote, start: beginFlow, close } = useOAuthLoginFlow({
+  const {
+    flow,
+    setFlow,
+    error,
+    pasteError,
+    setPasteError,
+    remote,
+    start: beginFlow,
+    close,
+  } = useOAuthLoginFlow({
     run,
     keyId: providerId,
     statusCapability: 'getOAuthProviderLoginStatus',
@@ -333,29 +358,29 @@ export function OAuthControl({
           disabled={disabled}
           onClose={close}
         >
-              {verificationUrl && (
-                <section className="settings-oauth-verify" role="alert">
-                  <b>{t('Additional verification required')}</b>
-                  <p>
-                    {t(
-                      'Google asks for an extra check on this account before Antigravity can be used. Open the verification page, finish the steps there, then sign in again.'
-                    )}
-                  </p>
-                  <div className="settings-oauth-verify-actions">
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => void window.mixdogDesktop?.openExternal?.(verificationUrl).catch(() => undefined)}
-                    >
-                      <ExternalLink size={14} aria-hidden="true" />
-                      {t('Open verification page')}
-                    </button>
-                    <button type="button" disabled={disabled} onClick={() => void start()}>
-                      {t('Sign in again')}
-                    </button>
-                  </div>
-                </section>
-              )}
+          {verificationUrl && (
+            <section className="settings-oauth-verify" role="alert">
+              <b>{t('Additional verification required')}</b>
+              <p>
+                {t(
+                  'Google asks for an extra check on this account before Antigravity can be used. Open the verification page, finish the steps there, then sign in again.'
+                )}
+              </p>
+              <div className="settings-oauth-verify-actions">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void window.mixdogDesktop?.openExternal?.(verificationUrl).catch(() => undefined)}
+                >
+                  <ExternalLink size={14} aria-hidden="true" />
+                  {t('Open verification page')}
+                </button>
+                <button type="button" disabled={disabled} onClick={() => void start()}>
+                  {t('Sign in again')}
+                </button>
+              </div>
+            </section>
+          )}
         </OAuthLoginDialog>
       )}
     </>

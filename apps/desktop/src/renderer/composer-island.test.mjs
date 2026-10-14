@@ -249,6 +249,44 @@ test('idle, finished and cancelled agents drop out; waiting parents stay; the Le
   );
 });
 
+test('a working agent stays listed through a transient idle/done phase and an unprovable lease, until it is idle', async (t) => {
+  const { root, document, publishPool } = mount(t);
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  const lead = poolAgent('island-session', {
+    agent: 'lead',
+    sessionId: 'island-session',
+    ownerSessionId: 'island-session',
+    stage: 'idle',
+    status: 'idle',
+  });
+  // The progress sweep copies the live runtime phase into the worker row: between
+  // turns/steps that phase reads idle/done/error while the worker is still running.
+  await publishPool([
+    lead,
+    poolAgent('between-a', { sessionId: 's-a', status: 'running', stage: 'idle' }),
+    poolAgent('between-b', { sessionId: 's-b', status: 'running', stage: 'done' }),
+    poolAgent('between-c', { sessionId: 's-c', status: 'running', stage: 'error' }),
+    poolAgent('lease-d', { sessionId: 's-d', status: 'unknown', stage: 'unknown' }),
+    poolAgent('settled-e', { sessionId: 's-e', status: 'idle', stage: 'idle' }),
+  ]);
+  assert.equal(document.querySelector('.composer-island-seg-agents').textContent.slice(0, 8), '4 agents');
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  assert.deepEqual(
+    [...document.querySelectorAll('.agent-pool-row')].map((row) => row.dataset.agentTag),
+    ['between-a', 'between-b', 'between-c', 'lease-d']
+  );
+  // Only an actual idle ends the listing.
+  await publishPool([
+    lead,
+    poolAgent('between-a', { sessionId: 's-a', status: 'idle', stage: 'idle' }),
+    poolAgent('between-b', { sessionId: 's-b', status: 'running', stage: 'streaming' }),
+  ]);
+  assert.deepEqual(
+    [...document.querySelectorAll('.agent-pool-row')].map((row) => row.dataset.agentTag),
+    ['between-b']
+  );
+});
+
 test('with no shells there is no shell segment, tab or row anywhere in the island', async (t) => {
   const { root, document, publishPool } = mount(t);
   await publish({ shellJobs: { count: 0, jobs: [], finished: [] } });

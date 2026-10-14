@@ -199,6 +199,34 @@ test('an idle island re-reads after Git changes made outside a turn (project wat
   assert.equal(notify, undefined);
 });
 
+test('an unchanged background poll neither flips loading nor re-renders; a changed one does', async (t) => {
+  let patch = 'same';
+  const view = harness(t, async () => ({
+    value: { supported: true, files: [{ path: 'a.ts' }], patch },
+  }));
+  const frames = [];
+  let refresh;
+  const onRender = (state) => {
+    refresh = state.refresh;
+    frames.push(state);
+  };
+  await view.render({ sessionId: 'unchanged-poll', onRender });
+  await view.settle(() => {});
+  assert.match(view.text(), /false\|same/);
+  const rendered = frames.length;
+  await act(async () => {
+    assert.equal(await refresh(true, true), true);
+  });
+  await view.settle(() => {});
+  assert.equal(frames.length, rendered, 'an unchanged background poll renders nothing');
+  patch = 'different';
+  await act(async () => {
+    await refresh(true, true);
+  });
+  assert.match(view.text(), /different/);
+  assert.ok(frames.slice(rendered).every((frame) => frame.loading === false), 'background polls never flip loading');
+});
+
 test("a new session never presents the previous session's diff or an unconfirmed empty result", async (t) => {
   const requests = [];
   const view = harness(t, () => {

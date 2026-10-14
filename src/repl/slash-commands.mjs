@@ -71,6 +71,8 @@ async function setModel(ctx, arg) {
   // auto-compact on model change (default on) the history is compacted on the
   // current model first. A failed compaction never blocks the switch.
   if (switchesSessionModel(runtime, request) && runtime.getCompactionSettings?.()?.onModelChange !== false) {
+    // An invalid or unavailable selector is rejected before anything compacts.
+    await runtime.setRoute(request, { validateOnly: true });
     out.write(`${dim('compacting conversation before the model change…')}\n`);
     try {
       await runtime.compact();

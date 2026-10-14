@@ -8,6 +8,8 @@
 // again, and the session's own lane runs the retry under the entry's
 // generation. Overdue entries run as soon as the scheduler starts.
 
+import { isAgentOnlySession } from '../../runtime/shared/quota-resume-store.mjs';
+
 /** A still-exhausted reading is re-taken once, this much later. */
 export const QUOTA_RESUME_RETRY_MS = 5 * 60_000;
 /** A busy session is re-checked this much later, without spending an attempt. */
@@ -30,6 +32,12 @@ async function resumeDueEntry(entry, { store, materializeSession, readQuotaUsabl
     return 'unavailable';
   }
   if (!isCurrent(store, entry)) return 'cancelled';
+  // A delegated agent child never owns a resume (the Lead decides retries), so
+  // an entry persisted for one never fires, whatever wrote it.
+  if (isAgentOnlySession({ id: sessionId, ...runtime?.session })) {
+    store.cancelQuotaResumeEntry(sessionId, { generation });
+    return 'agent-session';
+  }
   let usable = false;
   try {
     usable = await readQuotaUsable(entry.provider, entry.model);

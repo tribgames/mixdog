@@ -2103,18 +2103,22 @@ test('retryAfterMsFromError: typed rate_limit_exceeded parses try-again delay', 
   );
 });
 
-test('retryAfterMsFromError: anthropic-ratelimit-unified-reset is honored and capped', () => {
+test('retryAfterMsFromError: anthropic-ratelimit-unified-reset is a window reset, not retry advice', () => {
+  // Claude Code parity: ordinary retries use Retry-After or backoff; the
+  // unified reset stays for display/cooldown (resetAt) only.
   const resetUnix = Math.floor(Date.now() / 1000) + 12;
   const headers = {
     get: (name) => (String(name).toLowerCase() === 'anthropic-ratelimit-unified-reset' ? String(resetUnix) : null),
   };
-  const delay = retryAfterMsFromError(err('rate limited', { httpStatus: 429, headers }));
-  assert.ok(delay >= 10_000 && delay <= 12_000, `expected ~12s, got ${delay}`);
-  const far = Math.floor(Date.now() / 1000) + 3600;
-  const farHeaders = {
-    get: (name) => (String(name).toLowerCase() === 'anthropic-ratelimit-unified-reset' ? String(far) : null),
+  assert.equal(retryAfterMsFromError(err('rate limited', { httpStatus: 429, headers })), null);
+  const withAdvice = {
+    get: (name) => {
+      const key = String(name).toLowerCase();
+      if (key === 'anthropic-ratelimit-unified-reset') return String(resetUnix);
+      return key === 'retry-after' ? '3' : null;
+    },
   };
-  assert.equal(retryAfterMsFromError(err('rate limited', { httpStatus: 429, headers: farHeaders })), 300_000);
+  assert.equal(retryAfterMsFromError(err('rate limited', { httpStatus: 429, headers: withAdvice })), 3000);
 });
 
 test('provider admission does not cache long subscription quota windows', async () => {
@@ -2186,8 +2190,10 @@ test('classifyError: SDK timeout names, 425, HTTP/2, and WS connection-limit', (
   );
 });
 
-test('isContextOverflowError: typed 413 and request_too_large/context codes', () => {
-  assert.equal(isContextOverflowError(err('too big', { httpStatus: 413 })), true);
+test('isContextOverflowError: context codes; a bare 413 or typed request_too_large is a size refusal', () => {
+  assert.equal(isContextOverflowError(err('too big', { httpStatus: 413 })), false);
+  // A typed byte/media-size refusal is not cured by compaction (kind
+  // request_too_large, distinct from token context overflow).
   assert.equal(
     isContextOverflowError(
       err('too big', {
@@ -2195,8 +2201,9 @@ test('isContextOverflowError: typed 413 and request_too_large/context codes', ()
         responseFailed: { error: { type: 'request_too_large' } },
       })
     ),
-    true
+    false
   );
+  assert.equal(isContextOverflowError(err('too big', { httpStatus: 413, code: 'context_length_exceeded' })), true);
   assert.equal(isContextOverflowError(err('too big', { code: 'context_length_exceeded' })), true);
   assert.equal(isContextOverflowError(err('bad json', { httpStatus: 400 })), false);
 });

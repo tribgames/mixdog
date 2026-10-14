@@ -17,60 +17,36 @@ interface StreamProbeDeps {
   outPath: string;
 }
 
+type ProbeItem = ReturnType<typeof probeItems>[number];
+type StreamSend = StreamProbeDeps['send'];
 
-export async function runStreamingProbe({
-  window,
-  baseSnapshot,
-  prepareRemoteResume,
-  send,
-  outPath,
-}: StreamProbeDeps): Promise<{ reversals: number }> {
-  // Phase 0: idle short session A on screen.
-  const sessionA = {
-    ...baseSnapshot,
-    toasts: [],
-    sessionId: 'probe_session_a',
-    busy: false,
-    items: probeItems(6),
-    streamingTail: null,
-  };
-  send(sessionA);
-  await sleep(700);
+interface StreamSample {
+  t: number;
+  hidden: boolean;
+  st: number;
+  dist: number;
+  tailTop: number | null;
+  tailIndex: number | null;
+  tailBodyBottom: number | null;
+  th: number;
+  partialVisible: boolean;
+}
 
-  // Shared conversation for session B. The persisted restore ends at the
-  // user's last message (marker below); the owner FULL frame carries the
-  // progressed turn under the OWNER's id namespace for the recent rows.
-  const items = probeItems(88);
-  items[60] = {
-    ...items[60],
-    text: `${String(items[60]?.text || '')} probe persisted last user`,
-  };
-  // Rows from here on were created by the owner AFTER the viewer's last
-  // visit persisted its restore ids — the live frame re-identifies them.
-  const OWNER_REMAP_FROM = 45;
-  const ownerItems = () =>
-    items.map((item, index) => (index >= OWNER_REMAP_FROM ? { ...item, id: `own-${String(item.id)}` } : item));
+interface ScrollPasses {
+  pass1: Record<string, number>;
+  pass2: Record<string, number>;
+  diag: Record<string, number | null>;
+}
 
-  // Phase 0.5: previous visit. The viewer has ALREADY displayed session B
-  // under its first-seen (restore) ids and navigated away. The later live
-  // entry re-identifies the tail region (owner ids); the renderer must adopt
-  // those ids in place instead of remounting the rows — the remount path was
-  // the up/down shake reported when entering the working session.
-  send({
-    ...baseSnapshot,
-    toasts: [],
-    sessionId: 'probe_session_b',
-    busy: false,
-    items: items.slice(0, 61),
-    streamingTail: null,
-    sessionRemoteAttached: true,
-  });
-  await sleep(500);
-  send(sessionA);
-  await sleep(400);
+interface LiveSession {
+  tail(): Record<string, unknown>;
+  sessionB(): Record<string, unknown>;
+  storedSessionB: Record<string, unknown>;
+  advance(ticks: number): void;
+}
 
-  // Install the per-frame sampler BEFORE entering the streaming session.
-  await window.webContents.executeJavaScript(`(() => {
+// Install the per-frame sampler BEFORE entering the streaming session.
+const STREAM_SAMPLER_INSTALL = `(() => {
     const w = window;
     w.__jitter = { samples: [], raf: 0, stop: null };
     const snapshot = () => {
@@ -101,127 +77,9 @@ export async function runStreamingProbe({
     };
     (${PAINTED_SAMPLER})(w.__jitter, snapshot);
     return true;
-  })()`);
+})()`;
 
-  // Phase 1: remoteAttached ENTER session B. The stored restore ends at the
-  // user's last message; the owner FULL frame already contains the progressed
-  // turn and streaming tail. CaptureService holds the former and resolves
-  // resume with the latter, matching the real live-share entry barrier.
-  let tailText = assistantMarkdown(97);
-  const tail = () => ({ id: 'probe-tail', kind: 'assistant', text: tailText, streaming: true });
-  const sessionB = () => ({
-    ...baseSnapshot,
-    toasts: [],
-    sessionId: 'probe_session_b',
-    busy: true,
-    spinner: { label: 'Wrapping' },
-    items: ownerItems(),
-    streamingTail: tail(),
-  });
-  const storedSessionB = {
-    ...sessionB(),
-    busy: false,
-    spinner: null,
-    items: items.slice(0, 61),
-    streamingTail: null,
-    sessionRemoteAttached: true,
-  };
-  prepareRemoteResume(storedSessionB, {
-    ...sessionB(),
-    sessionRemoteAttached: true,
-  });
-  await window.webContents.executeJavaScript(`(async () => {
-    const row = ${waitForProbeSessionRow('probe_session_b', 'Missing remote probe session row')};
-    row.click();
-    await new Promise((resolve) => setTimeout(resolve, 420));
-    return true;
-  })()`);
-
-  // Phase 2: stream for ~3.2s — tail grows every frame-ish tick; a settled
-  // assistant row is appended every ~500ms (count change → followOnAppend
-  // path); occasionally the tail REWRITES shorter (markdown reflow).
-  const startedAt = Date.now();
-  let ticks = 0;
-  while (Date.now() - startedAt < 3200) {
-    await sleep(66);
-    ticks += 1;
-    if (ticks % 8 === 0) {
-      items.push({ id: `probe-appended-${ticks}`, kind: 'assistant', text: assistantMarkdown(200 + ticks) });
-    }
-    if (ticks % 13 === 0) {
-      // Simulate a fenced-block reflow: streamed markdown collapses shorter.
-      tailText = tailText.slice(0, Math.max(80, tailText.length - 220));
-    }
-    tailText += ` ${paragraph(300 + ticks, 1)}`;
-    if (ticks % 5 === 0) tailText += '\n\n';
-    send(sessionB());
-  }
-
-  // Phase 3: settle the streaming assistant and fold the successful
-  // completion footer into that same projected assistant row. `data-index`
-  // belongs to the projected timeline (including TurnGap rows), not `items`.
-  // Capture the actual live row index before completion so the same visible
-  // assistant must remain the tail anchor throughout settlement.
-  // The last chunk has not painted yet: wait two frames before the window.
-  await window.webContents.executeJavaScript(
-    'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))'
-  );
-  const finishStart = (await window.webContents.executeJavaScript('window.__jitter.samples.length')) as number;
-  const completedVisibleTailIndex = (await window.webContents.executeJavaScript(`(() => {
-    const row = document.querySelector('.transcript-live-part')?.closest('.transcript-virtual-row');
-    const index = row?.getAttribute('data-index');
-    return index == null ? null : Number(index);
-  })()`)) as number | null;
-  if (!Number.isInteger(completedVisibleTailIndex)) {
-    throw new Error('Missing projected live tail before completion settlement');
-  }
-  send({
-    ...sessionB(),
-    // Keep the capture-only route alive while measuring. Removing spinner and
-    // streamingTail produces the same visible completion geometry; busy only
-    // prevents the synthetic host from cleaning up its task tab mid-sample.
-    busy: true,
-    spinner: null,
-    items: [
-      ...ownerItems(),
-      { ...tail(), streaming: false },
-      {
-        id: 'probe-turn-done',
-        kind: 'turndone',
-        status: 'done',
-        verb: 'Completed',
-        elapsedMs: Date.now() - startedAt,
-      },
-    ],
-    streamingTail: null,
-  });
-  await sleep(700);
-
-  // Freeze the jitter samples BEFORE the scroll-to-top passes: phase 4
-  // scrolls away from the bottom on purpose, which must not pollute the
-  // entry/stream/settlement metrics (it used to count as partial/off-bottom
-  // frames and fail the probe assertions spuriously).
-  await window.webContents.executeJavaScript(
-    '(() => { const w = window; w.__jitter.stop(); return w.__jitter.samples.length; })()'
-  );
-
-  // Phase 4: first-scroll-to-top jank (user report: entering a session and
-  // scrolling to the TOP always lags the first time). Two identical upward
-  // passes: pass 1 is COLD (every row above the viewport mounts + measures +
-  // compensates), pass 2 is WARM (virtualizer measurement cache hit). The
-  // delta between the two isolates the first-pass cost.
-  // The synthetic host can tear the probe route down between phases — re-push
-  // the completed snapshot immediately before measuring so the virtualized
-  // transcript is guaranteed on screen.
-  send({
-    ...sessionB(),
-    busy: true,
-    spinner: null,
-    items: [...ownerItems(), { ...tail(), streaming: false }],
-    streamingTail: null,
-  });
-  await sleep(600);
-  const scrollPasses = (await window.webContents.executeJavaScript(`(async () => {
+const SCROLL_TO_TOP_PASSES = `(async () => {
     // The workspace may have navigated off the probe session between phases —
     // re-enter it, then measure the transcript that actually has content.
     const row = document.querySelector('[data-session-id="probe_session_b"]');
@@ -277,32 +135,187 @@ export async function runStreamingProbe({
     await new Promise((resolve) => setTimeout(resolve, 120));
     const pass2 = stats(await passUp());
     return { pass1, pass2, diag };
-  })()`)) as {
-    pass1: Record<string, number>;
-    pass2: Record<string, number>;
-    diag: Record<string, number | null>;
-  } | null;
+})()`;
 
-  const report = (await window.webContents.executeJavaScript('window.__jitter.samples')) as Array<{
-    t: number;
-    hidden: boolean;
-    st: number;
-    dist: number;
-    tailTop: number | null;
-    tailIndex: number | null;
-    tailBodyBottom: number | null;
-    th: number;
-    partialVisible: boolean;
-  }>;
+async function prepareSessions(send: StreamSend, baseSnapshot: Record<string, unknown>) {
+  // Phase 0: idle short session A on screen.
+  const sessionA = {
+    ...baseSnapshot,
+    toasts: [],
+    sessionId: 'probe_session_a',
+    busy: false,
+    items: probeItems(6),
+    streamingTail: null,
+  };
+  send(sessionA);
+  await sleep(700);
 
-  // The sampler starts BEFORE the session-row click, so report.slice(5) only
-  // discarded five blank pre-navigation frames and still counted the entry
-  // settle as a streaming reversal. Start from the first real tail, then skip
-  // its ENTRY-SETTLE window: bands below the transcript (the worker review
-  // bar) mount one IPC round-trip after the first paint and shrink the pinned
-  // viewport. That entry-layout behaviour is what the `entry` pass measures;
-  // this pass is about follow stability WHILE STREAMING.
-  const ENTRY_SETTLE_MS = 400;
+  // Shared conversation for session B. The persisted restore ends at the
+  // user's last message (marker below); the owner FULL frame carries the
+  // progressed turn under the OWNER's id namespace for the recent rows.
+  const items = probeItems(88);
+  items[60] = {
+    ...items[60],
+    text: `${String(items[60]?.text || '')} probe persisted last user`,
+  };
+  // Rows from here on were created by the owner AFTER the viewer's last
+  // visit persisted its restore ids — the live frame re-identifies them.
+  const OWNER_REMAP_FROM = 45;
+  const ownerItems = () =>
+    items.map((item, index) => (index >= OWNER_REMAP_FROM ? { ...item, id: `own-${String(item.id)}` } : item));
+
+  // Phase 0.5: previous visit. The viewer has ALREADY displayed session B
+  // under its first-seen (restore) ids and navigated away. The later live
+  // entry re-identifies the tail region (owner ids); the renderer must adopt
+  // those ids in place instead of remounting the rows — the remount path was
+  // the up/down shake reported when entering the working session.
+  send({
+    ...baseSnapshot,
+    toasts: [],
+    sessionId: 'probe_session_b',
+    busy: false,
+    items: items.slice(0, 61),
+    streamingTail: null,
+    sessionRemoteAttached: true,
+  });
+  await sleep(500);
+  send(sessionA);
+  await sleep(400);
+  return { items, ownerItems };
+}
+
+function createLiveSession(
+  baseSnapshot: Record<string, unknown>,
+  items: ProbeItem[],
+  ownerItems: () => unknown[]
+): LiveSession {
+  let tailText = assistantMarkdown(97);
+  const tail = () => ({ id: 'probe-tail', kind: 'assistant', text: tailText, streaming: true });
+  const sessionB = () => ({
+    ...baseSnapshot,
+    toasts: [],
+    sessionId: 'probe_session_b',
+    busy: true,
+    spinner: { label: 'Wrapping' },
+    items: ownerItems(),
+    streamingTail: tail(),
+  });
+  const storedSessionB = {
+    ...sessionB(),
+    busy: false,
+    spinner: null,
+    items: items.slice(0, 61),
+    streamingTail: null,
+    sessionRemoteAttached: true,
+  };
+  const advance = (ticks: number) => {
+    if (ticks % 8 === 0) {
+      items.push({ id: `probe-appended-${ticks}`, kind: 'assistant', text: assistantMarkdown(200 + ticks) });
+    }
+    if (ticks % 13 === 0) {
+      // Simulate a fenced-block reflow: streamed markdown collapses shorter.
+      tailText = tailText.slice(0, Math.max(80, tailText.length - 220));
+    }
+    tailText += ` ${paragraph(300 + ticks, 1)}`;
+    if (ticks % 5 === 0) tailText += '\n\n';
+  };
+  return { tail, sessionB, storedSessionB, advance };
+}
+
+async function settleCompletion(
+  window: BrowserWindow,
+  send: StreamSend,
+  live: LiveSession,
+  ownerItems: () => unknown[],
+  startedAt: number
+) {
+  const { sessionB, tail } = live;
+  // Phase 3: settle the streaming assistant and fold the successful
+  // completion footer into that same projected assistant row. `data-index`
+  // belongs to the projected timeline (including TurnGap rows), not `items`.
+  // Capture the actual live row index before completion so the same visible
+  // assistant must remain the tail anchor throughout settlement.
+  // The last chunk has not painted yet: wait two frames before the window.
+  await window.webContents.executeJavaScript(
+    'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))'
+  );
+  const finishStart = (await window.webContents.executeJavaScript('window.__jitter.samples.length')) as number;
+  const completedVisibleTailIndex = (await window.webContents.executeJavaScript(`(() => {
+    const row = document.querySelector('.transcript-live-part')?.closest('.transcript-virtual-row');
+    const index = row?.getAttribute('data-index');
+    return index == null ? null : Number(index);
+  })()`)) as number | null;
+  if (!Number.isInteger(completedVisibleTailIndex)) {
+    throw new Error('Missing projected live tail before completion settlement');
+  }
+  send({
+    ...sessionB(),
+    // Keep the capture-only route alive while measuring. Removing spinner and
+    // streamingTail produces the same visible completion geometry; busy only
+    // prevents the synthetic host from cleaning up its task tab mid-sample.
+    busy: true,
+    spinner: null,
+    items: [
+      ...ownerItems(),
+      { ...tail(), streaming: false },
+      {
+        id: 'probe-turn-done',
+        kind: 'turndone',
+        status: 'done',
+        verb: 'Completed',
+        elapsedMs: Date.now() - startedAt,
+      },
+    ],
+    streamingTail: null,
+  });
+  await sleep(700);
+  return { finishStart, completedVisibleTailIndex };
+}
+
+async function measureScrollToTop(
+  window: BrowserWindow,
+  send: StreamSend,
+  live: LiveSession,
+  ownerItems: () => unknown[]
+) {
+  const { sessionB, tail } = live;
+  // Freeze the jitter samples BEFORE the scroll-to-top passes: phase 4
+  // scrolls away from the bottom on purpose, which must not pollute the
+  // entry/stream/settlement metrics (it used to count as partial/off-bottom
+  // frames and fail the probe assertions spuriously).
+  await window.webContents.executeJavaScript(
+    '(() => { const w = window; w.__jitter.stop(); return w.__jitter.samples.length; })()'
+  );
+
+  // Phase 4: first-scroll-to-top jank (user report: entering a session and
+  // scrolling to the TOP always lags the first time). Two identical upward
+  // passes: pass 1 is COLD (every row above the viewport mounts + measures +
+  // compensates), pass 2 is WARM (virtualizer measurement cache hit). The
+  // delta between the two isolates the first-pass cost.
+  // The synthetic host can tear the probe route down between phases — re-push
+  // the completed snapshot immediately before measuring so the virtualized
+  // transcript is guaranteed on screen.
+  send({
+    ...sessionB(),
+    busy: true,
+    spinner: null,
+    items: [...ownerItems(), { ...tail(), streaming: false }],
+    streamingTail: null,
+  });
+  await sleep(600);
+  return (await window.webContents.executeJavaScript(SCROLL_TO_TOP_PASSES)) as ScrollPasses | null;
+}
+
+const ENTRY_SETTLE_MS = 400;
+
+// The sampler starts BEFORE the session-row click, so report.slice(5) only
+// discarded five blank pre-navigation frames and still counted the entry
+// settle as a streaming reversal. Start from the first real tail, then skip
+// its ENTRY-SETTLE window: bands below the transcript (the worker review
+// bar) mount one IPC round-trip after the first paint and shrink the pinned
+// viewport. That entry-layout behaviour is what the `entry` pass measures;
+// this pass is about follow stability WHILE STREAMING.
+function activeFramesStart(report: StreamSample[], finishStart: number) {
   const firstTailFrame = report.findIndex((sample, index) => index < finishStart && sample.tailIndex != null);
   let activeStart = Math.min(finishStart, 5);
   if (firstTailFrame >= 0) {
@@ -311,7 +324,10 @@ export async function runStreamingProbe({
     while (index < finishStart && report[index].t < settleUntil) index += 1;
     activeStart = Math.min(finishStart, index);
   }
-  const active = report.slice(activeStart, finishStart);
+  return activeStart;
+}
+
+function followStability(active: StreamSample[]) {
   let reversals = 0;
   let maxSwing = 0;
   let lastDelta = 0;
@@ -336,6 +352,17 @@ export async function runStreamingProbe({
     }
     if (Math.abs(delta) > 3) lastDelta = delta;
   }
+  return { reversals, maxSwing };
+}
+
+function summarizeStream(
+  report: StreamSample[],
+  finishStart: number,
+  completedVisibleTailIndex: number | null,
+  scrollPasses: ScrollPasses | null
+) {
+  const active = report.slice(activeFramesStart(report, finishStart), finishStart);
+  const { reversals, maxSwing } = followStability(active);
   const shownActive = active.filter((sample) => !sample.hidden);
   const distances = shownActive.map((sample) => sample.dist);
   const finish = report.slice(finishStart).filter((sample) => !sample.hidden);
@@ -370,6 +397,54 @@ export async function runStreamingProbe({
     scrollToTopPass2: scrollPasses?.pass2 ?? null,
     scrollToTopDiag: scrollPasses?.diag ?? null,
   };
+  return summary;
+}
+
+export async function runStreamingProbe({
+  window,
+  baseSnapshot,
+  prepareRemoteResume,
+  send,
+  outPath,
+}: StreamProbeDeps): Promise<{ reversals: number }> {
+  const { items, ownerItems } = await prepareSessions(send, baseSnapshot);
+
+  await window.webContents.executeJavaScript(STREAM_SAMPLER_INSTALL);
+
+  // Phase 1: remoteAttached ENTER session B. The stored restore ends at the
+  // user's last message; the owner FULL frame already contains the progressed
+  // turn and streaming tail. CaptureService holds the former and resolves
+  // resume with the latter, matching the real live-share entry barrier.
+  const live = createLiveSession(baseSnapshot, items, ownerItems);
+  prepareRemoteResume(live.storedSessionB, {
+    ...live.sessionB(),
+    sessionRemoteAttached: true,
+  });
+  await window.webContents.executeJavaScript(`(async () => {
+    const row = ${waitForProbeSessionRow('probe_session_b', 'Missing remote probe session row')};
+    row.click();
+    await new Promise((resolve) => setTimeout(resolve, 420));
+    return true;
+  })()`);
+
+  // Phase 2: stream for ~3.2s — tail grows every frame-ish tick; a settled
+  // assistant row is appended every ~500ms (count change → followOnAppend
+  // path); occasionally the tail REWRITES shorter (markdown reflow).
+  const startedAt = Date.now();
+  let ticks = 0;
+  while (Date.now() - startedAt < 3200) {
+    await sleep(66);
+    ticks += 1;
+    live.advance(ticks);
+    send(live.sessionB());
+  }
+
+  const { finishStart, completedVisibleTailIndex } = await settleCompletion(window, send, live, ownerItems, startedAt);
+
+  const scrollPasses = await measureScrollToTop(window, send, live, ownerItems);
+
+  const report = (await window.webContents.executeJavaScript('window.__jitter.samples')) as StreamSample[];
+  const summary = summarizeStream(report, finishStart, completedVisibleTailIndex, scrollPasses);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(
     outPath,

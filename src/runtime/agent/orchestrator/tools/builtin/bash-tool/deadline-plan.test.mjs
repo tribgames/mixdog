@@ -26,10 +26,10 @@ const foregroundWindow = (args) => planShellDeadlines({ args, backgroundOnTimeou
 test('wait_ms extends the foreground window and never shortens it', () => {
   withEnv(defaults, () => {
     assert.equal(foregroundWindow({}), DEFAULT_SHELL_AUTO_BACKGROUND_MS);
-    assert.equal(foregroundWindow({ wait_ms: 60_000 }), 60_000);
+    assert.equal(foregroundWindow({ wait_ms: 20_000 }), 20_000);
     assert.equal(foregroundWindow({ wait_ms: 1000 }), DEFAULT_SHELL_AUTO_BACKGROUND_MS);
-    // Capped by the foreground maximum.
-    assert.equal(foregroundWindow({ wait_ms: 500_000 }), 120_000);
+    // Capped by the per-call wait maximum.
+    assert.equal(foregroundWindow({ wait_ms: 500_000 }), 30_000);
   });
 });
 
@@ -41,10 +41,11 @@ test('a hard deadline inside the foreground window still bounds it', () => {
 });
 
 test('the operator override is a default wait_ms can only extend', () => {
-  withEnv({ ...defaults, MIXDOG_SHELL_AUTO_BACKGROUND_MS: '30000' }, () => {
-    assert.equal(foregroundWindow({}), 30_000);
-    assert.equal(foregroundWindow({ wait_ms: 10_000 }), 30_000);
-    assert.equal(foregroundWindow({ wait_ms: 45_000 }), 45_000);
+  withEnv({ ...defaults, MIXDOG_SHELL_AUTO_BACKGROUND_MS: '20000' }, () => {
+    assert.equal(foregroundWindow({}), 20_000);
+    assert.equal(foregroundWindow({ wait_ms: 10_000 }), 20_000);
+    assert.equal(foregroundWindow({ wait_ms: 25_000 }), 25_000);
+    assert.equal(foregroundWindow({ wait_ms: 45_000 }), 30_000);
   });
   // 0 disables the default promotion; an explicit wait_ms still arms one.
   withEnv({ ...defaults, MIXDOG_SHELL_AUTO_BACKGROUND_MS: '0' }, () => {

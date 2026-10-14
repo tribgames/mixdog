@@ -415,6 +415,19 @@ export function completeBackgroundTask(
   return task;
 }
 
+// Surfaces whose later reads consume the structured result object itself:
+// shell `task read` re-reads output via result paths and renders exit_code /
+// timed_out / signal; agent job views return `job.result`. They keep it for the
+// TTL; every other surface keeps only resultText + metadata once delivered.
+const RESULT_KEPT_SURFACES = new Set(['shell', 'agent']);
+
+function releaseDeliveredResult(task, body) {
+  if (task.result === undefined || RESULT_KEPT_SURFACES.has(task.surface)) return;
+  // Pin the rendered body first so re-renders and retries stay identical.
+  if (!task.resultText) task.resultText = body;
+  task.result = undefined;
+}
+
 export function notifyTaskCompletion(task, instruction) {
   if (!task) return false;
   if (!TERMINAL_STATUSES.has(task.status)) return false;
@@ -456,7 +469,10 @@ export function notifyTaskCompletion(task, instruction) {
   });
   if (sent) {
     task.notified = true;
-    if (hasBody) task.notifiedWithBody = true;
+    if (hasBody) {
+      task.notifiedWithBody = true;
+      releaseDeliveredResult(task, body);
+    }
   }
   return sent;
 }

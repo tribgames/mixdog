@@ -8,7 +8,10 @@ import { PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS, createTimeoutSignal } from '../sta
 import { AnthropicFallbackTriggeredError, markProviderRecoveryExhausted } from './retry-classifier.mjs';
 import { cloneAnthropicEffortBody } from './effort-configuration.mjs';
 import { normalizeAnthropicNonStreamingResponse } from './lib/anthropic-request-utils.mjs';
+import { capForNonStreaming } from './anthropic-max-tokens-recovery.mjs';
 import { createAnthropicRecoveryGuards } from './anthropic-recovery-guards.mjs';
+import { applyAnthropicErrorContract } from './anthropic-error-contract.mjs';
+import { isRefreshableAuthRejection } from './anthropic-oauth-request/initial-status.mjs';
 
 /**
  * @param {object} deps
@@ -70,7 +73,7 @@ export function createAnthropicOAuthRecovery({
     const requestFallback = async (accessToken) => {
       const result = await requestWithRetry(
         accessToken,
-        cloneAnthropicEffortBody(body, { stream: false }),
+        capForNonStreaming(cloneAnthropicEffortBody(body, { stream: false })),
         lifetime.signal
       );
       fallback = result;
@@ -89,19 +92,30 @@ export function createAnthropicOAuthRecovery({
     };
     try {
       fallback = await requestFallback(auth.creds.accessToken);
-      if (fallback.response.status === 401) {
-        releaseFallback('Anthropic OAuth non-streaming fallback refreshing auth');
-        auth.creds = await provider.ensureAuth({ forceRefresh: true, reason: '401' });
-        fallback = await requestFallback(auth.creds.accessToken);
+      // Same refresh rule as the streaming request: every 401 and only the
+      // exact revoked-token 403 are refreshed and replayed once; an ordinary
+      // 403 stays terminal. A rejected body is drained once and reused below.
+      let rejectedBody = null;
+      if (fallback.response.status === 401 || fallback.response.status === 403) {
+        rejectedBody = await fallback.response.text().catch(() => '');
+        if (isRefreshableAuthRejection(fallback.response.status, rejectedBody)) {
+          const rejectedStatus = fallback.response.status;
+          releaseFallback('Anthropic OAuth non-streaming fallback refreshing auth');
+          auth.creds = await provider.ensureAuth({ forceRefresh: true, reason: String(rejectedStatus) });
+          fallback = await requestFallback(auth.creds.accessToken);
+          rejectedBody = null;
+        }
       }
       if (!fallback.response.ok) {
-        const text = await fallback.response.text().catch(() => '');
+        const text = rejectedBody ?? (await fallback.response.text().catch(() => ''));
         const fallbackError = new Error(
           `Anthropic OAuth API ${fallback.response.status}: ${provider.scrubTokens(text).slice(0, 200)}`
         );
-        fallbackError.status = fallback.response.status;
-        fallbackError.httpStatus = fallback.response.status;
-        throw fallbackError;
+        throw applyAnthropicErrorContract(fallbackError, {
+          status: fallback.response.status,
+          headers: fallback.response.headers,
+          bodyText: provider.scrubTokens(text),
+        });
       }
       const message = await fallback.response.json();
       return normalizeAnthropicNonStreamingResponse(message, useModel);

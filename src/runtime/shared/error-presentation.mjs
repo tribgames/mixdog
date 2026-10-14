@@ -1,3 +1,4 @@
+import { PROVIDER_ERROR_KINDS, providerErrorKind } from '../agent/orchestrator/providers/provider-error-kind.mjs';
 import { transportErrorText } from './transport-error-text.mjs';
 
 const DETAILS_LIMIT = 12_000;
@@ -72,34 +73,167 @@ export function isRejected429(value) {
   return /\bAPI 429 request rejected\b/.test(messageOf(value));
 }
 
+// Provider kind → presentation. Summaries are also the persisted form of a
+// failure, so each maps back to its kind when only the text survives.
+const KIND_COPY = {
+  overloaded: ['overloaded', 'The provider is busy right now.', 'Try again later or choose another model.'],
+  rate_limited: ['rate-limit', 'The provider is temporarily rate-limiting requests.', 'Try again shortly.'],
+  quota_exhausted: [
+    'quota',
+    'The provider usage limit was reached.',
+    'Wait for the limit to reset or choose another account.',
+  ],
+  entitlement: [
+    'entitlement',
+    "This model isn't included in your plan.",
+    'Upgrade your plan, or choose another model or provider.',
+  ],
+  billing: [
+    'billing',
+    'The provider account is out of credits or at its spend limit.',
+    'Check your billing with the provider, then try again.',
+  ],
+  permission: [
+    'permission',
+    "You don't have access to this resource.",
+    'Check your account permissions, or choose another model.',
+  ],
+  context_overflow: [
+    'context-overflow',
+    'The conversation is too long for this model.',
+    'Compact the conversation or start a new one.',
+  ],
+  request_too_large: [
+    'payload-size',
+    'The request exceeds the size limit.',
+    'Reduce the attachments or request size, then try again.',
+  ],
+  policy: [
+    'policy',
+    'The provider refused this request under its safety policy.',
+    'Rephrase the request or choose another model.',
+  ],
+  service_tier_unavailable: [
+    'service-tier',
+    'The requested service tier is unavailable right now.',
+    'Switch to the standard tier or try again later.',
+  ],
+};
+const SUMMARY_KINDS = new Map(Object.entries(KIND_COPY).map(([providerKind, [, summary]]) => [summary, providerKind]));
+
+function waitLabel(ms) {
+  const seconds = Math.max(1, Math.ceil(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
+}
+
+/** Local HH:mm, prefixed with month/day when the reset is not today. */
+function resetLabel(resetAt) {
+  const reset = new Date(resetAt);
+  const pad = (n) => String(n).padStart(2, '0');
+  const time = `${pad(reset.getHours())}:${pad(reset.getMinutes())}`;
+  return reset.toDateString() === new Date().toDateString() ? time : `${reset.getMonth() + 1}/${reset.getDate()} ${time}`;
+}
+
+// Only legacy items (no persisted descriptor) and untyped strings reach this.
+const LEGACY_TEXT_KINDS = [
+  [/The provider usage limit was reached|quota.*(?:hit|exceed)|usage limit/i, 'quota_exhausted'],
+  [/rate[_ -]?limit|too many requests/i, 'rate_limited'],
+];
+
+/**
+ * The provider kind descriptor: the persisted one, else typed evidence, else
+ * wording. `typed` is true when the kind came from a persisted descriptor or a
+ * typed error: wording heuristics must then never override it.
+ */
+function classify(value, raw, clean, status, code) {
+  const persisted = value?.errorKind;
+  if (persisted && PROVIDER_ERROR_KINDS.includes(persisted.kind)) {
+    return { descriptor: persisted, typed: persisted.kind !== 'unknown' };
+  }
+  const hasTypedFields =
+    value &&
+    typeof value === 'object' &&
+    Boolean(value.status || value.httpStatus || value.response?.status || value.code || value.retryAfterMs);
+  if (!hasTypedFields) {
+    // Legacy persisted strings: their wording (and wait) is the only evidence.
+    const legacy = SUMMARY_KINDS.get(clean) ?? LEGACY_TEXT_KINDS.find(([re]) => re.test(clean))?.[1];
+    if (legacy) {
+      const wait = /retryAfter=(\d+)(ms|s|m)\b/i.exec(raw);
+      const retryAfterMs = wait ? Number(wait[1]) * { ms: 1, s: 1000, m: 60_000 }[wait[2].toLowerCase()] : undefined;
+      return { descriptor: { kind: legacy, ...(retryAfterMs ? { retryAfterMs } : {}) }, typed: false };
+    }
+  }
+  let descriptor = value && typeof value === 'object' ? providerErrorKind(value) : null;
+  const typed = Boolean(descriptor) && descriptor.kind !== 'unknown';
+  if (!descriptor || descriptor.kind === 'unknown') {
+    descriptor = providerErrorKind(
+      Object.assign(new Error(raw), { ...(status ? { status } : {}), ...(code ? { code } : {}) })
+    );
+  }
+  if (descriptor.kind === 'unknown') {
+    const known = SUMMARY_KINDS.get(clean);
+    const legacy = known ?? LEGACY_TEXT_KINDS.find(([re]) => re.test(clean))?.[1];
+    if (legacy) return { descriptor: { ...descriptor, kind: legacy }, typed: false };
+  }
+  return { descriptor, typed };
+}
+
 /** Presentation only: never changes retry policy or the underlying failure. */
 export function describeError(value) {
-  const { raw, message, status, code } = unwrap(value);
-  const rejected429 = isRejected429(value);
+  const { raw, message, status: textStatus, code: textCode } = unwrap(value);
   const details = safeErrorDetails(raw);
   const clean = safeErrorDetails(message)
     .replace(/^(?:Error invoking remote method ['"][^'"]+['"]:\s*)?(?:Error:\s*)?/i, '')
     .trim();
+  const { descriptor, typed } = classify(value, raw, clean, textStatus, textCode);
+  // A typed or persisted kind owns the verdict: its own status and code stand
+  // in for the text-derived ones, and wording below may only refine it.
+  const status = typed ? Number(descriptor.status) || 0 : textStatus;
+  const code = typed ? String(descriptor.code || '') : textCode;
+  // A 429 refusal without quota headers refines a rate limit, nothing else.
+  const rejected429 = isRejected429(value) && (!typed || descriptor.kind === 'rate_limited');
+  const copy = KIND_COPY[descriptor.kind];
+  const retryAfterMs = Number(descriptor.retryAfterMs) > 0 ? Number(descriptor.retryAfterMs) : null;
+  const resetAt = Number(descriptor.resetAt) > 0 ? Number(descriptor.resetAt) : null;
   let kind = 'unknown';
   let summary = '';
   let recovery = '';
-  const transport = transportErrorText(value) || transportErrorText(raw);
+  // Localization hook: a recovery that carries a value is given as a template.
+  let recoveryTemplate = '';
+  let params = null;
+  // A persisted descriptor keeps the status and errno code, not the cause
+  // chain: rebuild the transport evidence from them. Wording only reads for
+  // untyped failures and transient ones (a bare "fetch failed" is that evidence).
+  const transport =
+    transportErrorText(value) ||
+    (typed && transportErrorText({ code: code.toUpperCase(), status })) ||
+    (!typed || descriptor.kind === 'transient' ? transportErrorText(raw) : null);
   if (
     value?.reauthRequired === true ||
-    /invalid_grant|refresh token (?:expired|revoked|not available)|sign in again|sign-in expired|Reauth Required/i.test(raw)
+    (!typed &&
+      /invalid_grant|refresh token (?:expired|revoked|not available)|sign in again|sign-in expired|Reauth Required/i.test(raw))
   ) {
     kind = 'reauth';
     summary = 'Sign-in expired.';
     recovery = 'Sign in again from Providers.';
   } else if (
-    status === 401 ||
-    status === 403 ||
-    /\b(?:invalid|expired)\s+(?:api[ _-]?key|access token|credentials?)\b|Provider authentication failed/i.test(clean)
+    descriptor.kind === 'auth' ||
+    (descriptor.kind === 'unknown' &&
+      /\b(?:invalid|expired)\s+(?:api[ _-]?key|access token|credentials?)\b|Provider authentication failed/i.test(clean))
   ) {
     kind = 'authentication';
     summary = 'Provider authentication failed';
     recovery = 'Check your sign-in or API key, then try again.';
+  } else if (rejected429) {
+    kind = 'request';
+    summary = 'The provider rejected this request.';
+    recovery = 'Review the request details before trying again.';
   } else if (
+    ['invalid_request', 'unknown', 'request_too_large'].includes(descriptor.kind) &&
     /image.*dimensions.*exceed|image.*(?:too large|maximum.*(?:size|dimension))|many-image requests|An attached image exceeds the provider limit/i.test(
       clean
     )
@@ -108,20 +242,21 @@ export function describeError(value) {
     summary = 'An attached image exceeds the provider limit.';
     recovery = 'Reduce the image dimensions or number of images, then try again.';
   } else if (
-    status === 413 ||
+    descriptor.kind === 'unknown' &&
     /payload too large|request (?:body )?too large|The request exceeds the size limit/i.test(clean)
   ) {
-    kind = 'payload-size';
-    summary = 'The request exceeds the size limit.';
-    recovery = 'Reduce the attachments or request size, then try again.';
-  } else if (
-    !rejected429 &&
-    (status === 429 ||
-      /rate[_ -]?limit|quota.*(?:hit|exceed)|too many requests|The provider usage limit was reached/i.test(clean))
-  ) {
-    kind = 'rate-limit';
-    summary = 'The provider usage limit was reached.';
-    recovery = 'Wait for the limit to reset or choose another account.';
+    [kind, summary, recovery] = KIND_COPY.request_too_large;
+  } else if (copy) {
+    [kind, summary, recovery] = copy;
+    if (descriptor.kind === 'rate_limited' && retryAfterMs) {
+      recovery = `Try again in ${waitLabel(retryAfterMs)}.`;
+      recoveryTemplate = 'Try again in {{wait}}.';
+      params = { wait: waitLabel(retryAfterMs) };
+    } else if (descriptor.kind === 'quota_exhausted' && resetAt) {
+      recovery = `It resets at ${resetLabel(resetAt)}. Switch accounts or providers to continue now.`;
+      recoveryTemplate = 'It resets at {{time}}. Switch accounts or providers to continue now.';
+      params = { time: resetLabel(resetAt) };
+    }
   } else if (transport) {
     kind = 'connection';
     summary = transport.replace(/\.$/, '');
@@ -150,6 +285,11 @@ export function describeError(value) {
     kind,
     summary,
     recovery,
+    recoveryTemplate,
+    params,
+    providerKind: descriptor.kind,
+    resetAt,
+    retryAfterMs,
     details,
     // Known structured failures ignore volatile indexes; unknown failures
     // retain their diagnostic identity rather than merging unrelated work.

@@ -11,6 +11,7 @@
 import {
   cancelQuotaResumeEntry,
   forgetQuotaSuspendedGoal,
+  isAgentOnlySession,
   noteQuotaSuspendedGoal,
   publicQuotaResume,
   quotaAutoResumeEnabled,
@@ -139,6 +140,8 @@ export function createQuotaResumeLane(bag) {
     routeProvider: String(runtime.sessionProvider ?? runtime.provider ?? ''),
     routeModel: String(runtime.sessionModel ?? runtime.model ?? ''),
   });
+  // A delegated agent child never owns a resume: the Lead decides its retries.
+  const agentOnly = () => isAgentOnlySession({ id: currentId(), ...runtime.session });
   const queueResume = (sessionId, failure) =>
     scheduleQuotaResumeEntry({ sessionId, turnKey: failure.turnKey, ...failure.quota, ...sessionRoute() });
 
@@ -195,7 +198,7 @@ export function createQuotaResumeLane(bag) {
       settlement = null;
       if (!id || !failure) return null;
       settlement = { sessionId: id, turnKey: failure.turnKey, epoch: cancelEpoch };
-      if (failure.quota.resetAt === null || !quotaAutoResumeEnabled()) return null;
+      if (failure.quota.resetAt === null || !quotaAutoResumeEnabled() || agentOnly()) return null;
       return queueResume(id, failure);
     },
 
@@ -217,6 +220,7 @@ export function createQuotaResumeLane(bag) {
     /** Explicit request to auto-resume the latest quota-failed turn. */
     scheduleQuotaResume(sessionId) {
       requireAddressed(sessionId);
+      if (agentOnly()) throw new Error('agent sessions do not auto-resume; the Lead decides retries');
       const failure = latestQuotaFailure(getState().items);
       if (!failure || failure.quota.resetAt === null) {
         throw new Error('latest turn did not fail on exhausted provider quota with a known reset time');
@@ -254,6 +258,10 @@ export function createQuotaResumeLane(bag) {
       const id = currentId();
       const entry = quotaResumeEntry(id);
       if (!id || !entry || entry.generation !== generation) return 'stale';
+      if (agentOnly()) {
+        cancelQuotaResumeEntry(id, { generation });
+        return 'agent-session';
+      }
       const state = getState();
       if (retryBlocked()) return 'busy';
       const failure = latestQuotaFailure(state.items);

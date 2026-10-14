@@ -90,7 +90,8 @@ export function useTranscriptRows({
   // kept below it for a lingering busy flag moved the settled reply by the
   // band's height, twice. Visible activity (a wake's spinner, a command) or a
   // waiting prompt still brings the band back.
-  const turnSettled = settledProjection.endsWithFoldedCompletion && !commandActivityVisible && pendingItems.length === 0;
+  const turnSettled =
+    settledProjection.endsWithFoldedCompletion && !commandActivityVisible && pendingItems.length === 0;
   const transcriptRows = useMemo(
     () =>
       appendLiveTranscriptRows({

@@ -69,7 +69,7 @@ test('createPaneConversationRenderer builds conversation surface with appropriat
   const { dom } = installTestDom(null, {
     html: '<!doctype html><html><body><div id="root"></div></body></html>',
     jsdom: { url: 'about:blank' },
-    expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent', 'MutationObserver'],
+    expose: ['navigator', 'HTMLElement', 'Element', 'Event', 'CustomEvent', 'MutationObserver'],
     actEnvironment: false,
   });
   globalThis.ResizeObserver = class {

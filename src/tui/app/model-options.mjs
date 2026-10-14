@@ -320,8 +320,10 @@ export const buildProviderModelItems = (models, provider, currentRoute = null) =
 };
 
 // The configured speed tier: Ultrafast when the fast route asks for it.
-const routeSpeedLabel = (route) =>
-  route?.fast ? (route.modelParameters?.serviceTier === 'ultrafast' ? 'Ultrafast' : 'Fast') : '';
+const routeSpeedLabel = (route) => {
+  if (!route?.fast) return '';
+  return route.modelParameters?.serviceTier === 'ultrafast' ? 'Ultrafast' : 'Fast';
+};
 
 // Model · Effort · Fast/Ultrafast, dropping the empty parts.
 const routeModelDetails = (route) =>

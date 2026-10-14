@@ -372,6 +372,16 @@ function readPostmasterInfo(pgdata) {
   }
 }
 
+// Async child run (never blocks the daemon loop): stdout on exit 0, else null.
+async function _execFileText(file, args) {
+  const { execFile } = await import('node:child_process');
+  return new Promise((resolveText) => {
+    execFile(file, args, { encoding: 'utf8', windowsHide: true, timeout: 15_000 }, (error, stdout) => {
+      resolveText(error ? null : String(stdout || ''));
+    });
+  });
+}
+
 /**
  * Best-effort process-name check: confirms the pid's comm name contains 'postgres'.
  * Falls back to true (alive) when the name cannot be determined.
@@ -383,19 +393,12 @@ async function isPostgresPid(pid) {
       return comm.includes('postgres');
     }
     if (process.platform === 'darwin') {
-      const { spawnSync } = await import('node:child_process');
-      const r = spawnSync('ps', ['-o', 'comm=', '-p', String(pid)], { encoding: 'utf8', windowsHide: true });
-      if (r.status === 0) return (r.stdout || '').trim().includes('postgres');
-      return true;
+      const out = await _execFileText('ps', ['-o', 'comm=', '-p', String(pid)]);
+      return out === null ? true : out.trim().includes('postgres');
     }
     if (process.platform === 'win32') {
-      const { spawnSync } = await import('node:child_process');
-      const r = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
-        encoding: 'utf8',
-        windowsHide: true,
-      });
-      if (r.status === 0) return (r.stdout || '').toLowerCase().includes('postgres');
-      return true;
+      const out = await _execFileText('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']);
+      return out === null ? true : out.toLowerCase().includes('postgres');
     }
   } catch {
     /* cannot read — fall back to alive */
@@ -463,8 +466,8 @@ function scheduleOrphanTempPostmasterSweep() {
   _orphanSweepStarted = true;
   const runSweep = () => {
     void _getPgProc()
-      .then(({ sweepOrphanTempPostmasters }) => {
-        const reaped = sweepOrphanTempPostmasters?.() || 0;
+      .then(async ({ sweepOrphanTempPostmasters }) => {
+        const reaped = (await sweepOrphanTempPostmasters?.()) || 0;
         if (reaped > 0) __mixdogMemoryLog(`[supervisor-pg] orphan sweep reaped ${reaped} temp postmaster(s)\n`);
       })
       .catch(() => {

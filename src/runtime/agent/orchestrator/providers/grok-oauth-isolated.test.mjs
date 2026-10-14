@@ -214,6 +214,7 @@ async function isolated() {
     './model-list-sanitize.mjs': { sanitizeModelList: (models) => models },
     // The real shared xAI rule, running against empty catalogs (cold start).
     './openai-compat-xai.mjs': { xaiModelSupportsReasoningEffort: realXaiRule },
+    './openai-compat-retry-profile.mjs': { XAI_COMPAT_RETRY_POLICY: Object.freeze({ recoveryCycles: false, inBandInvalidRequestRetryable: true }) },
     './lib/note-error-usage.mjs': { noteErrorUsage: () => {} },
     // No remembered client version: the sandbox never reads the operator's disk.
     './client-version-store.mjs': { readLastKnownVersion: () => null, rememberLastKnownVersion: () => {} },
@@ -829,15 +830,53 @@ function registerTests() {
     assert.ok(s.timeouts.every((timeout) => timeout.cleaned));
   });
 
-  test('send preserves aliases, tools, request identity on safe 401/403 retry', async () => {
-    for (const status of [401, 403]) {
+  test('a plain permission 403 is surfaced without a token refresh', async () => {
+    for (const properties of [
+      { httpStatus: 403 },
+      { status: 403, code: 'permission_denied' },
+      { status: 403, error: { type: 'forbidden' } },
+    ]) {
+      const {
+        s,
+        provider: { GrokOAuthProvider },
+      } = await isolated();
+      s.store(token());
+      const provider = new GrokOAuthProvider({ preconnect: false });
+      const error = Object.assign(new Error('forbidden'), properties);
+      s.sendReplies.push(error, 'must not be reached');
+      await assert.rejects(provider.send([], 'grok-4.5', [], {}), (err) => err === error);
+      assert.equal(s.requests.length, 0, 'no refresh request');
+      assert.equal(s.sends.length, 1);
+    }
+  });
+
+  test('a 401 retried on a fresh token that is rejected again requires re-login', async () => {
+    const {
+      s,
+      provider: { GrokOAuthProvider },
+    } = await isolated();
+    s.store(token());
+    const provider = new GrokOAuthProvider({ preconnect: false });
+    const again = Object.assign(new Error('still rejected'), { status: 401 });
+    s.sendReplies.push(Object.assign(new Error('rejected'), { status: 401 }), again);
+    s.replies.push(response({ access_token: 'fresh', expires_in: 3600 }));
+    await assert.rejects(provider.send([], 'grok-4.5', [], {}), (err) => err === again && err.reauthRequired === true);
+    assert.equal(s.sends.length, 2);
+  });
+
+  test('send preserves aliases, tools, request identity on safe 401 and expired-token 403 retry', async () => {
+    for (const [status, extra] of [
+      [401, {}],
+      [403, { code: 'token_expired' }],
+      [403, { error: { type: 'Token_Revoked' } }],
+    ]) {
       const {
         s,
         provider: { GrokOAuthProvider },
       } = await isolated();
       s.store(token({ user_id: 'user' }));
       const provider = new GrokOAuthProvider({ preconnect: false, responsesTransport: 'websocket' });
-      s.sendReplies.push(Object.assign(new Error('rejected'), { httpStatus: status }), 'retried');
+      s.sendReplies.push(Object.assign(new Error('rejected'), { httpStatus: status, ...extra }), 'retried');
       s.replies.push(response({ access_token: 'fresh', refresh_token: 'rotated', expires_in: 3600 }));
       const tools = [{ name: 'fixture-tool' }];
       s.toolResult = [{ name: 'normalized-tool' }];

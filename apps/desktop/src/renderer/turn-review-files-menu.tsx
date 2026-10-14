@@ -240,7 +240,11 @@ function DeleteHistoryDialog({
       }
       if (event.key !== 'Tab') return;
       const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled])') || []);
-      const next = trappedTabIndex(controls.indexOf(document.activeElement as HTMLElement), controls.length, event.shiftKey);
+      const next = trappedTabIndex(
+        controls.indexOf(document.activeElement as HTMLElement),
+        controls.length,
+        event.shiftKey
+      );
       event.preventDefault();
       controls[next]?.focus();
     };

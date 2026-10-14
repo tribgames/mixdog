@@ -1,10 +1,17 @@
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 
+/** Provider kinds the composer banner speaks to; only the first can be resumed at a reset. */
+export type QuotaFailureKind = 'quota_exhausted' | 'entitlement' | 'billing';
+
 export type QuotaFailure = {
   turnKey: string;
+  kind: QuotaFailureKind;
   quota: { provider: string; model: string; resetAt: number | null };
 };
+
+const finiteTime = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 
 /** The failed turndone that ended the transcript on an exhausted provider
  *  quota, when no later turn has begun. */
@@ -19,12 +26,18 @@ export function latestQuotaFailure(items: readonly TranscriptItem[], turnKeys: r
     }
     const turnKey = turnKeys[index] || '';
     if (!turnKey) return null;
+    // The persisted provider-kind descriptor decides; items without one
+    // (older transcripts) are quota stops by their quota metadata alone.
+    const descriptor = item.errorKind as { kind?: unknown; resetAt?: unknown } | null | undefined;
+    const kind = descriptor && typeof descriptor.kind === 'string' ? descriptor.kind : 'quota_exhausted';
+    if (kind !== 'quota_exhausted' && kind !== 'entitlement' && kind !== 'billing') return null;
     return {
       turnKey,
+      kind,
       quota: {
         provider: quota.provider,
         model: typeof quota.model === 'string' ? quota.model : '',
-        resetAt: typeof quota.resetAt === 'number' && Number.isFinite(quota.resetAt) ? quota.resetAt : null,
+        resetAt: finiteTime(quota.resetAt) ?? finiteTime(descriptor?.resetAt),
       },
     };
   }
@@ -42,7 +55,10 @@ export function quotaPanelVisible(state: {
   dismissedKey: string;
 }): boolean {
   const { failure, sessionId, busy, dismissedKey } = state;
-  return Boolean(failure && sessionId && !busy && dismissedKey !== quotaDismissKey(sessionId, failure.turnKey));
+  if (!failure || !sessionId || busy || dismissedKey === quotaDismissKey(sessionId, failure.turnKey)) return false;
+  // An exhausted quota with no known reset has nothing to wait for or resume
+  // at: the plain usage-limit notice speaks for it, not the banner.
+  return failure.kind !== 'quota_exhausted' || failure.quota.resetAt !== null;
 }
 
 /** Local HH:mm, prefixed with month/day when the reset is not today. */

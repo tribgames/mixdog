@@ -29,35 +29,10 @@ interface EntryProbeDeps {
   outPath: string;
 }
 
-export async function runEntryProbe({
-  window,
-  baseSnapshot,
-  prepareColdResume,
-  send,
-  outPath,
-}: EntryProbeDeps): Promise<{ reversals: number }> {
-  // ── Phase A: COLD FIRST ENTRY into a session that already has history ────
-  // Runs before every other phase on purpose: this is the user's "최초 진입"
-  // — no cached row heights, and the markdown/diff chunks are as cold as they
-  // are right after launch. The transcript must land bottom-pinned and hold
-  // still while the estimated rows are re-measured.
-  const coldStamp = Date.now() % 100_000;
-  // The composer island's files segment folds only patch-publishing tool
-  // calls (a shell result no longer counts), so the tail call is an `edit`
-  // whose runtime `uiDiff` arrives late (delayedReviewItems below).
-  const coldItems = coldHistoryItems(84, coldStamp).map((item) =>
-    item.id === `cold-${coldStamp}-tool-tail`
-      ? {
-          ...item,
-          name: 'edit',
-          args: { file_path: 'src/probe.ts', old_string: 'const stable = false;', new_string: 'const stable = true;' },
-        }
-      : item
-  );
-  // Pick the transcript of the VISIBLE route: background tabs keep their own
-  // (taller, scrolled-away) transcript mounted. Prewarm rows live in a hidden
-  // sibling container, so only DIRECT children of the virtual space count.
-  const pickTranscript = `(() => {
+// Pick the transcript of the VISIBLE route: background tabs keep their own
+// (taller, scrolled-away) transcript mounted. Prewarm rows live in a hidden
+// sibling container, so only DIRECT children of the virtual space count.
+const PICK_TRANSCRIPT = `(() => {
   const nodes = [...document.querySelectorAll('.transcript')]
     .filter((node) => node.getBoundingClientRect().height > 0);
   if (nodes.length === 0) return null;
@@ -68,12 +43,12 @@ export async function runEntryProbe({
     }))
     .sort((a, b) => b.rows - a.rows || b.node.scrollHeight - a.node.scrollHeight)[0].node;
 })()`;
-  const install = `(() => {
+const INSTALL_SAMPLER = `(() => {
   const w = window;
   if (w.__entry && w.__entry.stop) w.__entry.stop();
   w.__entry = { samples: [], raf: 0, stop: null };
   const snapshot = () => {
-    const el = ${pickTranscript};
+    const el = ${PICK_TRANSCRIPT};
     if (el) {
       const box = el.getBoundingClientRect();
       const rows = [...el.querySelectorAll('.transcript-virtual-space > .transcript-virtual-row')]
@@ -161,12 +136,46 @@ export async function runEntryProbe({
   (${PAINTED_SAMPLER})(w.__entry, snapshot);
   return true;
 })()`;
-  const stop = `(() => {
+const STOP_SAMPLER = `(() => {
   const w = window;
   w.__entry.stop();
   return w.__entry.samples;
 })()`;
 
+const ENTRY_DIAGNOSTICS = `(() => {
+  const el = ${PICK_TRANSCRIPT};
+  const shell = el?.closest('.conversation') || document;
+  return {
+    transcripts: document.querySelectorAll('.transcript').length,
+    coldVisible: (document.body.textContent || '').includes('cold entry question'),
+    rows: el ? el.querySelectorAll('.transcript-virtual-space > .transcript-virtual-row').length : 0,
+    toolCards: el ? el.querySelectorAll(${JSON.stringify(TOOL_DISCLOSURE)}).length : 0,
+    reviewBarHeight: Math.round(shell.querySelector(${JSON.stringify(REVIEW_IN_ISLAND)})?.getBoundingClientRect().height || 0),
+    markdownPlainFallbacks: Math.max(0, ...window.__entry.samples.map((sample) => Number(sample.plain || 0))),
+    settledMarkdownPlainFallbacks: Math.max(
+      0,
+      ...window.__entry.samples.slice(-20).map((sample) => Number(sample.plain || 0)),
+    ),
+    scrollHeight: el ? Math.round(el.scrollHeight) : 0,
+    clientHeight: el ? Math.round(el.clientHeight) : 0,
+    dist: el ? Math.round(el.scrollHeight - el.scrollTop - el.clientHeight) : null,
+  };
+})()`;
+
+function coldFixtures(baseSnapshot: Record<string, unknown>) {
+  const coldStamp = Date.now() % 100_000;
+  // The composer island's files segment folds only patch-publishing tool
+  // calls (a shell result no longer counts), so the tail call is an `edit`
+  // whose runtime `uiDiff` arrives late (delayedReviewItems below).
+  const coldItems = coldHistoryItems(84, coldStamp).map((item) =>
+    item.id === `cold-${coldStamp}-tool-tail`
+      ? {
+          ...item,
+          name: 'edit',
+          args: { file_path: 'src/probe.ts', old_string: 'const stable = false;', new_string: 'const stable = true;' },
+        }
+      : item
+  );
   // Enter through the real resume path: a snapshot pushed for a foreign
   // session id never reaches the visible route.
   const coldSnapshot = {
@@ -209,31 +218,21 @@ export async function runEntryProbe({
       },
     ],
   };
-  prepareColdResume(coldSnapshot);
-  await window.webContents.executeJavaScript(install);
-  const coldClick = (await window.webContents.executeJavaScript(`(async () => {
-  const row = ${waitForProbeSessionRow('probe_session_cold', 'Missing cold probe session row')};
-  row.click();
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  return {
-    tabs: [...document.querySelectorAll('.workspace-tab')].map((tab) => tab.textContent.slice(0, 24)),
-    errors: [...document.querySelectorAll('.inline-error, .runtime-progress')]
-      .map((node) => node.textContent.slice(0, 120)),
+  const appendedSnapshot = {
+    ...delayedReviewSnapshot,
+    items: [
+      ...delayedReviewItems,
+      {
+        id: `cold-${coldStamp}-append-after-toggle`,
+        kind: 'assistant',
+        text: 'follow remains pinned after a tool disclosure changes height',
+      },
+    ],
   };
-})()`)) as Record<string, unknown>;
-  // The route is now bound to the cold session id, so the history batch
-  // lands through the normal state push (one commit, like a real resume).
-  send(coldSnapshot);
-  // Cover the 6s worker-review poll as well as any delayed renderer idle work.
-  await sleep(5_800);
-  // A worker-only diff becomes known late without adding a transcript row.
-  // The bottom stack must grow once, retain the followed bottom, preserve the
-  // thinking gap, and never cover transcript content.
-  send(delayedReviewSnapshot);
-  await sleep(1_200);
-  const entrySamples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
-  const firstReviewFrame = entrySamples.findIndex((sample) => Number(sample.review?.height || 0) > 0);
-  const entry = contentMotion(firstReviewFrame > 0 ? entrySamples.slice(0, firstReviewFrame) : entrySamples);
+  return { coldSnapshot, delayedReviewSnapshot, queuedSnapshot, appendedSnapshot };
+}
+
+function summarizeDelayedReview(entrySamples: RowSample[], firstReviewFrame: number) {
   const delayedReviewSamples = firstReviewFrame >= 0 ? entrySamples.slice(Math.max(0, firstReviewFrame - 2)) : [];
   const visibleReviewSamples = delayedReviewSamples.filter((sample) => sample.review && !sample.hidden);
   const settledReviewSamples = visibleReviewSamples.slice(-5);
@@ -270,84 +269,68 @@ export async function runEntryProbe({
     ),
     motion: contentMotion(delayedReviewSamples),
   };
-  const entryDiag = (await window.webContents.executeJavaScript(`(() => {
-  const el = ${pickTranscript};
-  const shell = el?.closest('.conversation') || document;
+  return delayedReview;
+}
+
+async function toggleQueue(
+  window: BrowserWindow,
+  send: EntryProbeDeps['send'],
+  label: string,
+  nextSnapshot: Record<string, unknown>,
+  targetVisible: boolean
+) {
+  await window.webContents.executeJavaScript(INSTALL_SAMPLER);
+  await sleep(100);
+  send(nextSnapshot);
+  await sleep(700);
+  const samples = (await window.webContents.executeJavaScript(STOP_SAMPLER)) as RowSample[];
+  const baseline = samples.slice(0, Math.min(5, samples.length));
+  const settled = samples.slice(-5);
+  const visibleBefore = baseline.some((sample) => Number(sample.queueHeight || 0) > 0);
+  const visibleAfter = settled.some((sample) => Number(sample.queueHeight || 0) > 0);
   return {
-    transcripts: document.querySelectorAll('.transcript').length,
-    coldVisible: (document.body.textContent || '').includes('cold entry question'),
-    rows: el ? el.querySelectorAll('.transcript-virtual-space > .transcript-virtual-row').length : 0,
-    toolCards: el ? el.querySelectorAll(${JSON.stringify(TOOL_DISCLOSURE)}).length : 0,
-    reviewBarHeight: Math.round(shell.querySelector(${JSON.stringify(REVIEW_IN_ISLAND)})?.getBoundingClientRect().height || 0),
-    markdownPlainFallbacks: Math.max(0, ...window.__entry.samples.map((sample) => Number(sample.plain || 0))),
-    settledMarkdownPlainFallbacks: Math.max(
-      0,
-      ...window.__entry.samples.slice(-20).map((sample) => Number(sample.plain || 0)),
-    ),
-    scrollHeight: el ? Math.round(el.scrollHeight) : 0,
-    clientHeight: el ? Math.round(el.clientHeight) : 0,
-    dist: el ? Math.round(el.scrollHeight - el.scrollTop - el.clientHeight) : null,
+    label,
+    targetVisible,
+    transitioned: targetVisible ? !visibleBefore && visibleAfter : visibleBefore && !visibleAfter,
+    finalHeight: Number(samples.at(-1)?.queueHeight || 0),
+    followingAfter: samples.at(-1)?.following ?? null,
+    finalDistance: samples.at(-1)?.dist ?? null,
+    motion: contentMotion(samples),
+    samples,
   };
-})()`)) as Record<string, unknown>;
-  Object.assign(entryDiag, { click: coldClick });
+}
 
-  const toggleQueue = async (label: string, nextSnapshot: Record<string, unknown>, targetVisible: boolean) => {
-    await window.webContents.executeJavaScript(install);
-    await sleep(100);
-    send(nextSnapshot);
-    await sleep(700);
-    const samples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
-    const baseline = samples.slice(0, Math.min(5, samples.length));
-    const settled = samples.slice(-5);
-    const visibleBefore = baseline.some((sample) => Number(sample.queueHeight || 0) > 0);
-    const visibleAfter = settled.some((sample) => Number(sample.queueHeight || 0) > 0);
-    return {
-      label,
-      targetVisible,
-      transitioned: targetVisible ? !visibleBefore && visibleAfter : visibleBefore && !visibleAfter,
-      finalHeight: Number(samples.at(-1)?.queueHeight || 0),
-      followingAfter: samples.at(-1)?.following ?? null,
-      finalDistance: samples.at(-1)?.dist ?? null,
-      motion: contentMotion(samples),
-      samples,
-    };
-  };
-  const queueMount = await toggleQueue('queue-mount', queuedSnapshot, true);
-  const queueUnmount = await toggleQueue('queue-unmount', delayedReviewSnapshot, false);
-  prepareColdResume(delayedReviewSnapshot);
-
-  // Re-entry: leave the session and come back. Everything the first visit
-  // resolved asynchronously (worker review bar, row heights) must now be
-  // known up front, so the second entry may not move at all.
-  const reenterColdSession = async (settleMs: number) => {
-    await window.webContents.executeJavaScript(`(async () => {
+// Re-entry: leave the session and come back. Everything the first visit
+// resolved asynchronously (worker review bar, row heights) must now be
+// known up front, so the second entry may not move at all.
+async function reenterColdSession(
+  window: BrowserWindow,
+  send: EntryProbeDeps['send'],
+  snapshot: Record<string, unknown>,
+  settleMs: number
+) {
+  await window.webContents.executeJavaScript(`(async () => {
   const link = document.querySelector('button[aria-label="New task"]');
   if (link instanceof HTMLElement) link.click();
   await new Promise((resolve) => setTimeout(resolve, 700));
   return true;
 })()`);
-    await window.webContents.executeJavaScript(install);
-    await window.webContents.executeJavaScript(`(async () => {
+  await window.webContents.executeJavaScript(INSTALL_SAMPLER);
+  await window.webContents.executeJavaScript(`(async () => {
   const row = ${waitForProbeSessionRow('probe_session_cold', 'Missing cold probe session row')};
   row.click();
   await new Promise((resolve) => setTimeout(resolve, 400));
   return true;
 })()`);
-    send(delayedReviewSnapshot);
-    await sleep(settleMs);
-  };
-  await reenterColdSession(2_000);
-  const reentrySamples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
-  const reentry = contentMotion(reentrySamples);
+  send(snapshot);
+  await sleep(settleMs);
+}
 
-  // ── Phase B: tool-card expand / collapse ────────────────────────────────
-  // The toggled card's own top must not move, and neither may the rest of
-  // the visible transcript (user: 도구 사용 표기 펼침/접힘도 같은 출렁임).
-  const toggle = async (label: string, pinned: boolean, targetExpanded: boolean) => {
-    // Select (and if needed scroll to) the subject card BEFORE sampling, so
-    // the recorded frames contain only the toggle's own motion.
-    const prepared = (await window.webContents.executeJavaScript(`(async () => {
-    const el = ${pickTranscript};
+// Select (and if needed scroll to) the subject card BEFORE sampling, so
+// the recorded frames contain only the toggle's own motion.
+async function prepareToggleHeader(window: BrowserWindow, pinned: boolean) {
+  return (await window.webContents.executeJavaScript(`(async () => {
+    const el = ${PICK_TRANSCRIPT};
     if (!el) return false;
     let box = el.getBoundingClientRect();
     const headers = [...el.querySelectorAll(${JSON.stringify(TOOL_DISCLOSURE_HEADERS)})]
@@ -368,10 +351,11 @@ export async function runEntryProbe({
     window.__entryHeader = header || null;
     return Boolean(header);
   })()`)) as boolean;
-    await sleep(300);
-    await window.webContents.executeJavaScript(install);
-    const clicked = (await window.webContents.executeJavaScript(`(() => {
-    const el = ${pickTranscript};
+}
+
+async function clickToggleHeader(window: BrowserWindow, targetExpanded: boolean) {
+  return (await window.webContents.executeJavaScript(`(() => {
+    const el = ${PICK_TRANSCRIPT};
     const header = window.__entryHeader;
     if (!el || !header || !header.isConnected) return null;
     const box = el.getBoundingClientRect();
@@ -399,20 +383,21 @@ export async function runEntryProbe({
     }
     return { before, open };
   })()`)) as {
-      before: {
-        top: number;
-        scrollTop: number;
-        scrollHeight: number;
-        spaceHeight: number;
-        rowHeight: number;
-        cardHeight: number;
-      };
-      open: boolean;
-    } | null;
-    await sleep(1_000);
-    const samples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
-    const card = (await window.webContents.executeJavaScript(`(() => {
-    const el = ${pickTranscript};
+    before: {
+      top: number;
+      scrollTop: number;
+      scrollHeight: number;
+      spaceHeight: number;
+      rowHeight: number;
+      cardHeight: number;
+    };
+    open: boolean;
+  } | null;
+}
+
+async function readToggledCard(window: BrowserWindow) {
+  return (await window.webContents.executeJavaScript(`(() => {
+    const el = ${PICK_TRANSCRIPT};
     const card = window.__entryCard;
     if (!el || !card || !card.isConnected) return null;
     const row = card.closest('.transcript-virtual-row');
@@ -428,145 +413,224 @@ export async function runEntryProbe({
       cardHeight: Math.round(card.getBoundingClientRect().height),
     };
   })()`)) as {
-      top: number;
-      open: string;
-      subjectKey: string;
-      scrollTop: number;
-      scrollHeight: number;
-      spaceHeight: number;
-      rowHeight: number;
-      cardHeight: number;
-    } | null;
-    const scrollDelta = clicked && card ? card.scrollTop - clicked.before.scrollTop : null;
-    const scrollHeightDelta = clicked && card ? card.scrollHeight - clicked.before.scrollHeight : null;
-    const spaceHeightDelta = clicked && card ? card.spaceHeight - clicked.before.spaceHeight : null;
-    const rowHeightDelta = clicked && card ? card.rowHeight - clicked.before.rowHeight : null;
-    const cardHeightDelta = clicked && card ? card.cardHeight - clicked.before.cardHeight : null;
-    const pinnedScrollHeightDelta = pinned ? (scrollHeightDelta ?? 0) : 0;
-    return {
-      label,
-      prepared,
-      clicked: Boolean(clicked),
-      targetExpanded,
-      subjectKey: card?.subjectKey ?? null,
-      cardShift: clicked && card ? card.top - clicked.before.top : null,
-      openAfter: card?.open ?? null,
-      scrollDelta,
-      scrollHeightDelta,
-      spaceHeightDelta,
-      rowHeightDelta,
-      cardHeightDelta,
-      scrollError: scrollDelta === null || scrollHeightDelta === null ? null : scrollDelta - pinnedScrollHeightDelta,
-      rowGeometryError: rowHeightDelta === null || cardHeightDelta === null ? null : rowHeightDelta - cardHeightDelta,
-      spaceGeometryError:
-        spaceHeightDelta === null || cardHeightDelta === null ? null : spaceHeightDelta - cardHeightDelta,
-      followingAfter: samples.at(-1)?.following ?? null,
-      finalDistance: samples.at(-1)?.dist ?? null,
-      motion: contentMotion(samples),
-      samples,
-    };
+    top: number;
+    open: string;
+    subjectKey: string;
+    scrollTop: number;
+    scrollHeight: number;
+    spaceHeight: number;
+    rowHeight: number;
+    cardHeight: number;
+  } | null;
+}
+
+async function toggleToolCard(window: BrowserWindow, label: string, pinned: boolean, targetExpanded: boolean) {
+  const prepared = await prepareToggleHeader(window, pinned);
+  await sleep(300);
+  await window.webContents.executeJavaScript(INSTALL_SAMPLER);
+  const clicked = await clickToggleHeader(window, targetExpanded);
+  await sleep(1_000);
+  const samples = (await window.webContents.executeJavaScript(STOP_SAMPLER)) as RowSample[];
+  const card = await readToggledCard(window);
+  const scrollDelta = clicked && card ? card.scrollTop - clicked.before.scrollTop : null;
+  const scrollHeightDelta = clicked && card ? card.scrollHeight - clicked.before.scrollHeight : null;
+  const spaceHeightDelta = clicked && card ? card.spaceHeight - clicked.before.spaceHeight : null;
+  const rowHeightDelta = clicked && card ? card.rowHeight - clicked.before.rowHeight : null;
+  const cardHeightDelta = clicked && card ? card.cardHeight - clicked.before.cardHeight : null;
+  const pinnedScrollHeightDelta = pinned ? (scrollHeightDelta ?? 0) : 0;
+  return {
+    label,
+    prepared,
+    clicked: Boolean(clicked),
+    targetExpanded,
+    subjectKey: card?.subjectKey ?? null,
+    cardShift: clicked && card ? card.top - clicked.before.top : null,
+    openAfter: card?.open ?? null,
+    scrollDelta,
+    scrollHeightDelta,
+    spaceHeightDelta,
+    rowHeightDelta,
+    cardHeightDelta,
+    scrollError: scrollDelta === null || scrollHeightDelta === null ? null : scrollDelta - pinnedScrollHeightDelta,
+    rowGeometryError: rowHeightDelta === null || cardHeightDelta === null ? null : rowHeightDelta - cardHeightDelta,
+    spaceGeometryError:
+      spaceHeightDelta === null || cardHeightDelta === null ? null : spaceHeightDelta - cardHeightDelta,
+    followingAfter: samples.at(-1)?.following ?? null,
+    finalDistance: samples.at(-1)?.dist ?? null,
+    motion: contentMotion(samples),
+    samples,
   };
-  // Pinned pass first (the common case: the newest tool card at the bottom of
-  // a followed transcript), then the scrolled-up reading case.
-  const pinnedExpand = await toggle('pinned-expand', true, true);
-  await reenterColdSession(1_200);
-  const expandedReentrySamples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
-  const expandedReentry = contentMotion(expandedReentrySamples);
-  const expandedReentryOpenTools = (await window.webContents.executeJavaScript(
-    `document.querySelectorAll(${JSON.stringify(TOOL_DISCLOSURE_OPEN)}).length`
-  )) as number;
-  // Re-entry reset every disclosure to collapsed, so the card is expanded again
-  // first; only then does the collapse pass toggle a real expansion back.
-  const pinnedExpandAgain = await toggle('pinned-expand-again', true, true);
-  const pinnedCollapse = await toggle('pinned-collapse', true, false);
-  await window.webContents.executeJavaScript(install);
-  send({
-    ...delayedReviewSnapshot,
-    items: [
-      ...delayedReviewItems,
-      {
-        id: `cold-${coldStamp}-append-after-toggle`,
-        kind: 'assistant',
-        text: 'follow remains pinned after a tool disclosure changes height',
-      },
-    ],
-  });
-  await sleep(700);
-  const pinnedAppendSamples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
-  const pinnedAppend = {
-    followingAfter: pinnedAppendSamples.at(-1)?.following ?? null,
-    finalDistance: pinnedAppendSamples.at(-1)?.dist ?? null,
-    motion: contentMotion(pinnedAppendSamples),
-  };
-  await window.webContents.executeJavaScript(`(async () => {
-  const el = ${pickTranscript};
+}
+
+/** The tool-toggle passes need a scrolled-up (reading) position: disarm follow
+ *  with a wheel event, then scroll away from the bottom. */
+const SCROLL_UP_FROM_BOTTOM = `(async () => {
+  const el = ${PICK_TRANSCRIPT};
   if (!el) return false;
   el.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }));
   el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight - 1_200);
   await new Promise((resolve) => setTimeout(resolve, 500));
   return true;
-})()`);
-  const expand = await toggle('expand', false, true);
-  const collapse = await toggle('collapse', false, false);
+})()`;
+
+async function measureExpandedReentry(window: BrowserWindow) {
+  const samples = (await window.webContents.executeJavaScript(STOP_SAMPLER)) as RowSample[];
+  const motion = contentMotion(samples);
+  const openTools = (await window.webContents.executeJavaScript(
+    `document.querySelectorAll(${JSON.stringify(TOOL_DISCLOSURE_OPEN)}).length`
+  )) as number;
+  return { samples, motion, openTools };
+}
+
+async function measurePinnedAppend(
+  window: BrowserWindow,
+  send: EntryProbeDeps['send'],
+  snapshot: Record<string, unknown>
+) {
+  await window.webContents.executeJavaScript(INSTALL_SAMPLER);
+  send(snapshot);
+  await sleep(700);
+  const samples = (await window.webContents.executeJavaScript(STOP_SAMPLER)) as RowSample[];
+  const summary = {
+    followingAfter: samples.at(-1)?.following ?? null,
+    finalDistance: samples.at(-1)?.dist ?? null,
+    motion: contentMotion(samples),
+  };
+  return { samples, summary };
+}
+
+function withoutSamples<T extends { samples: unknown }>(result: T): Omit<T, 'samples'> {
+  const { samples: _samples, ...rest } = result;
+  return rest;
+}
+
+function writeEntryReport(outPath: string, summary: Record<string, unknown>, samples: Record<string, unknown>) {
+  mkdirSync(dirname(outPath), { recursive: true });
+  writeFileSync(outPath, JSON.stringify({ summary, ...samples }, null, 1));
+  console.log(`[jitter-probe] ${JSON.stringify(summary)}`);
+}
+
+async function measureColdEntry(
+  window: BrowserWindow,
+  send: EntryProbeDeps['send'],
+  coldSnapshot: Record<string, unknown>,
+  delayedReviewSnapshot: Record<string, unknown>
+) {
+  await window.webContents.executeJavaScript(INSTALL_SAMPLER);
+  const coldClick = (await window.webContents.executeJavaScript(`(async () => {
+  const row = ${waitForProbeSessionRow('probe_session_cold', 'Missing cold probe session row')};
+  row.click();
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  return {
+    tabs: [...document.querySelectorAll('.workspace-tab')].map((tab) => tab.textContent.slice(0, 24)),
+    errors: [...document.querySelectorAll('.inline-error, .runtime-progress')]
+      .map((node) => node.textContent.slice(0, 120)),
+  };
+})()`)) as Record<string, unknown>;
+  // The route is now bound to the cold session id, so the history batch
+  // lands through the normal state push (one commit, like a real resume).
+  send(coldSnapshot);
+  // Cover the 6s worker-review poll as well as any delayed renderer idle work.
+  await sleep(5_800);
+  // A worker-only diff becomes known late without adding a transcript row.
+  // The bottom stack must grow once, retain the followed bottom, preserve the
+  // thinking gap, and never cover transcript content.
+  send(delayedReviewSnapshot);
+  await sleep(1_200);
+  const entrySamples = (await window.webContents.executeJavaScript(STOP_SAMPLER)) as RowSample[];
+  const firstReviewFrame = entrySamples.findIndex((sample) => Number(sample.review?.height || 0) > 0);
+  const entry = contentMotion(firstReviewFrame > 0 ? entrySamples.slice(0, firstReviewFrame) : entrySamples);
+  const delayedReview = summarizeDelayedReview(entrySamples, firstReviewFrame);
+  const entryDiag = (await window.webContents.executeJavaScript(ENTRY_DIAGNOSTICS)) as Record<string, unknown>;
+  Object.assign(entryDiag, { click: coldClick });
+  return { entrySamples, entry, delayedReview, entryDiag };
+}
+
+export async function runEntryProbe({
+  window,
+  baseSnapshot,
+  prepareColdResume,
+  send,
+  outPath,
+}: EntryProbeDeps): Promise<{ reversals: number }> {
+  // ── Phase A: COLD FIRST ENTRY into a session that already has history ────
+  // Runs before every other phase on purpose: this is the user's "최초 진입"
+  // — no cached row heights, and the markdown/diff chunks are as cold as they
+  // are right after launch. The transcript must land bottom-pinned and hold
+  // still while the estimated rows are re-measured.
+  const { coldSnapshot, delayedReviewSnapshot, queuedSnapshot, appendedSnapshot } = coldFixtures(baseSnapshot);
+  prepareColdResume(coldSnapshot);
+  const { entrySamples, entry, delayedReview, entryDiag } = await measureColdEntry(
+    window,
+    send,
+    coldSnapshot,
+    delayedReviewSnapshot
+  );
+
+  const queueMount = await toggleQueue(window, send, 'queue-mount', queuedSnapshot, true);
+  const queueUnmount = await toggleQueue(window, send, 'queue-unmount', delayedReviewSnapshot, false);
+  prepareColdResume(delayedReviewSnapshot);
+
+  await reenterColdSession(window, send, delayedReviewSnapshot, 2_000);
+  const reentrySamples = (await window.webContents.executeJavaScript(STOP_SAMPLER)) as RowSample[];
+  const reentry = contentMotion(reentrySamples);
+
+  // ── Phase B: tool-card expand / collapse ────────────────────────────────
+  // The toggled card's own top must not move, and neither may the rest of
+  // the visible transcript (user: 도구 사용 표기 펼침/접힘도 같은 출렁임).
+  // Pinned pass first (the common case: the newest tool card at the bottom of
+  // a followed transcript), then the scrolled-up reading case.
+  const pinnedExpand = await toggleToolCard(window, 'pinned-expand', true, true);
+  await reenterColdSession(window, send, delayedReviewSnapshot, 1_200);
+  const expandedReentry = await measureExpandedReentry(window);
+  // Re-entry reset every disclosure to collapsed, so the card is expanded again
+  // first; only then does the collapse pass toggle a real expansion back.
+  const pinnedExpandAgain = await toggleToolCard(window, 'pinned-expand-again', true, true);
+  const pinnedCollapse = await toggleToolCard(window, 'pinned-collapse', true, false);
+  const pinnedAppend = await measurePinnedAppend(window, send, appendedSnapshot);
+  await window.webContents.executeJavaScript(SCROLL_UP_FROM_BOTTOM);
+  const expand = await toggleToolCard(window, 'expand', false, true);
+  const collapse = await toggleToolCard(window, 'collapse', false, false);
   const toggleSamples = {
     pinnedExpand: pinnedExpand.samples,
     pinnedCollapse: pinnedCollapse.samples,
-    pinnedAppend: pinnedAppendSamples,
+    pinnedAppend: pinnedAppend.samples,
     expand: expand.samples,
     collapse: collapse.samples,
   };
 
-  const { samples: _pe, ...pinnedExpandOnly } = pinnedExpand;
-  const { samples: _pc, ...pinnedCollapseOnly } = pinnedCollapse;
-  const { samples: _e, ...expandOnly } = expand;
-  const { samples: _c, ...collapseOnly } = collapse;
-  const { samples: _qm, ...queueMountOnly } = queueMount;
-  const { samples: _qu, ...queueUnmountOnly } = queueUnmount;
   const entrySummary = {
     coldEntry: entry,
     coldReentry: reentry,
     delayedReview,
-    queueMount: queueMountOnly,
-    queueUnmount: queueUnmountOnly,
+    queueMount: withoutSamples(queueMount),
+    queueUnmount: withoutSamples(queueUnmount),
     coldEntryDiag: entryDiag,
     expandedToolReentry: {
-      motion: expandedReentry,
-      openTools: expandedReentryOpenTools,
+      motion: expandedReentry.motion,
+      openTools: expandedReentry.openTools,
     },
-    toolTogglePinnedExpand: pinnedExpandOnly,
-    toolTogglePinnedExpandAgain: (() => {
-      const { samples: _samples, ...rest } = pinnedExpandAgain;
-      return rest;
-    })(),
-    toolTogglePinnedCollapse: pinnedCollapseOnly,
-    toolTogglePinnedAppend: pinnedAppend,
-    toolToggleExpand: expandOnly,
-    toolToggleCollapse: collapseOnly,
+    toolTogglePinnedExpand: withoutSamples(pinnedExpand),
+    toolTogglePinnedExpandAgain: withoutSamples(pinnedExpandAgain),
+    toolTogglePinnedCollapse: withoutSamples(pinnedCollapse),
+    toolTogglePinnedAppend: pinnedAppend.summary,
+    toolToggleExpand: withoutSamples(expand),
+    toolToggleCollapse: withoutSamples(collapse),
   };
-  mkdirSync(dirname(outPath), { recursive: true });
-  writeFileSync(
-    outPath,
-    JSON.stringify(
-      {
-        summary: entrySummary,
-        entrySamples,
-        reentrySamples,
-        expandedReentrySamples,
-        queueMountSamples: queueMount.samples,
-        queueUnmountSamples: queueUnmount.samples,
-        toggleSamples,
-      },
-      null,
-      1
-    )
-  );
-  console.log(`[jitter-probe] ${JSON.stringify(entrySummary)}`);
+  writeEntryReport(outPath, entrySummary, {
+    entrySamples,
+    reentrySamples,
+    expandedReentrySamples: expandedReentry.samples,
+    queueMountSamples: queueMount.samples,
+    queueUnmountSamples: queueUnmount.samples,
+    toggleSamples,
+  });
   return {
     reversals: Math.max(
       entry.reversals,
       reentry.reversals,
       delayedReview.motion.reversals,
-      expandedReentry.reversals,
+      expandedReentry.motion.reversals,
       queueMount.motion.reversals,
       queueUnmount.motion.reversals,
       pinnedExpand.motion.reversals,

@@ -65,7 +65,7 @@ import {
 } from '../runtime/agent/orchestrator/providers/stream-json-pool.mjs';
 import { createAgentDispatchBroker } from './agent-dispatch-broker.mjs';
 import { createChannelTransport } from './channel-transport.mjs';
-import { drainDeferral } from './daemon-drain-policy.mjs';
+import { drainDeferral, idleGcEligible } from './daemon-drain-policy.mjs';
 import { createChannelSessionRouter } from '../session-runtime/services/channel-session-router.mjs';
 import { createSessionTransport } from './session-transport.mjs';
 import { createSessionService } from './session-service.mjs';
@@ -309,6 +309,7 @@ function inFlightWork() {
     queuedCalls: (transport?.queuedCount ?? 0) + (sessionTransport?.queuedCount ?? 0),
     busySessions: sessionService?.busyCount ?? 0,
     busyMemoryAgents: agentDispatchBroker?.snapshot?.().inFlight ?? 0,
+    turnBusySessions: sessionService?.turnBusyCount ?? 0,
   };
 }
 
@@ -352,11 +353,6 @@ daemonTelemetry = createDaemonTelemetry({
     eventLoopDelay.reset();
   },
 });
-
-function daemonHasWorkInFlight() {
-  const work = inFlightWork();
-  return work.activeCalls > 0 || work.queuedCalls > 0 || work.busySessions > 0 || work.busyMemoryAgents > 0;
-}
 
 /** One process, two front doors (channels + sessions): an idle side must never
  *  evict a busy one, so every self-shutdown trigger checks BOTH registries. */
@@ -823,7 +819,7 @@ async function main() {
   // Reclaim deferred garbage while nothing is in flight. V8 keeps a long-lived
   // daemon's dead transcripts resident for as long as the heap limit stays out
   // of sight; a measured sweep on this daemon returned 140MB in 98ms.
-  idleGc = createIdleGc({ isBusy: daemonHasWorkInFlight, log });
+  idleGc = createIdleGc({ isBusy: () => !idleGcEligible(inFlightWork()), log });
   if (idleGc.arm()) log('idle gc armed');
 
   const channelsRuntime = createChannelsRuntimeLoader({

@@ -924,40 +924,44 @@ export async function resumeTurnWorktreeSnapshot(
   if (!root) return null;
   const state = stateForRoot(root);
   const after = captureSequence(state);
-  return await withStateLock(state, async () => {
-    await ensureState(state);
-    // A collected or never-written baseline restores nothing. Report that as
-    // "no snapshot" instead of failing every later call made against it.
-    const kind = await runGit(shadowArgs(state, ['cat-file', '-t', tree]), {
-      cwd: state.root,
-      allowFailure: true,
-    });
-    if (kind.code !== 0 || clean(kind.stdout) !== 'tree') return null;
-    const scopePaths = Array.isArray(paths) && paths.length > 0 ? [...new Set(paths)] : null;
-    const applied = await applyBaselineFilesUnlocked(state, tree, baselineFiles || []);
-    const snapshot = {
-      state,
-      root,
-      baselineTree: applied.tree,
-      currentTree: tree,
-      patch: '',
-      files: [],
-      patchTruncated: false,
-      scopePaths,
-      toolPaths: new Set(scopePaths || []),
-      pendingBaselines: new Map(),
-      baselineFiles: new Map(applied.files.map((entry) => [pathKey(entry.path), entry])),
-    };
-    const currentTree = await captureTreeUnlocked(state, snapshot.toolPaths, { after });
-    Object.assign(
-      snapshot,
-      withOmittedBaselines(
+  return await withStateLock(
+    state,
+    async () => {
+      await ensureState(state);
+      // A collected or never-written baseline restores nothing. Report that as
+      // "no snapshot" instead of failing every later call made against it.
+      const kind = await runGit(shadowArgs(state, ['cat-file', '-t', tree]), {
+        cwd: state.root,
+        allowFailure: true,
+      });
+      if (kind.code !== 0 || clean(kind.stdout) !== 'tree') return null;
+      const scopePaths = Array.isArray(paths) && paths.length > 0 ? [...new Set(paths)] : null;
+      const applied = await applyBaselineFilesUnlocked(state, tree, baselineFiles || []);
+      const snapshot = {
+        state,
+        root,
+        baselineTree: applied.tree,
+        currentTree: tree,
+        patch: '',
+        files: [],
+        patchTruncated: false,
+        scopePaths,
+        toolPaths: new Set(scopePaths || []),
+        pendingBaselines: new Map(),
+        baselineFiles: new Map(applied.files.map((entry) => [pathKey(entry.path), entry])),
+      };
+      const currentTree = await captureTreeUnlocked(state, snapshot.toolPaths, { after });
+      Object.assign(
         snapshot,
-        await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths, { omitPatch })
-      )
-    );
-    return snapshot;
-  }, 'resume');
+        withOmittedBaselines(
+          snapshot,
+          await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths, { omitPatch })
+        )
+      );
+      return snapshot;
+    },
+    'resume'
+  );
 }
 
 // Git's well-known empty tree: what an unborn HEAD (no commit yet) compares as.

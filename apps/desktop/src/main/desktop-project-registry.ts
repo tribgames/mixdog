@@ -63,7 +63,10 @@ export class DesktopProjectRegistry {
   async sessionProjectPath(session?: DesktopSessionSummary): Promise<string | null> {
     const store: ProjectAuthorityStore = await this.loadProjectsModule();
     const projects = this.registered(store, typeof store.listProjectsStrict === 'function');
-    const key = sessionProjectKey(session ?? {}, projects.map((project) => projectIdentity(project.path)));
+    const key = sessionProjectKey(
+      session ?? {},
+      projects.map((project) => projectIdentity(project.path))
+    );
     return projects.find((project) => projectIdentity(project.path) === key)?.path ?? null;
   }
 
@@ -107,7 +110,7 @@ export class DesktopProjectRegistry {
   async remove(projectPath: string): Promise<string[]> {
     const store = await this.loadProjectsModule();
     const known = this.known(store, projectPath).path;
-    if (store.removeProject(known) !== true) throw new Error('Project is not available.');
+    if (!store.removeProject(known)) throw new Error('Project is not available.');
     const preferences = await this.loadPreferences();
     preferences.hidden = [known, ...withoutMatchingProject(preferences.hidden, known)];
     await this.savePreferences(store);

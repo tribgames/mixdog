@@ -169,7 +169,9 @@ export function localBootStatusLine(args = {}) {
   const raw = String(model || '').trim();
   const { STATUS, SUBTLE } = statusColors();
   const display = shortenModelName(displayModelName(raw, provider, ''), terminalColumns());
-  const flags = [effort ? effortDisplayLabel(effort) : '', fast === true ? (ultra === true ? 'Ultrafast' : 'Fast') : ''].filter(Boolean);
+  let speedLabel = '';
+  if (fast === true) speedLabel = ultra === true ? 'Ultrafast' : 'Fast';
+  const flags = [effort ? effortDisplayLabel(effort) : '', speedLabel].filter(Boolean);
   const modelBits = [display, ...flags].join(` ${SUBTLE}·${RESET} `);
   const ctxPct = measuredContextUsage({
     stats,

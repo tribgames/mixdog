@@ -75,6 +75,14 @@ export function createAgentTurns({
         const stop = takeWatchdogStop(sessionId) || new Error('agent session turn cancelled');
         throw await withPartialHandoff(entry.runtime, sessionId, stop, messageStart);
       }
+      // Only a completed turn has a result; a rejected submission (session
+      // closing/terminal, steering persist failure) or any unknown status is a
+      // failure, never an empty completion.
+      if (detail?.status !== 'done' && detail?.status !== 'completed') {
+        const status = String(detail?.status || 'unknown');
+        const reason = String(detail?.reason || detail?.error || '').trim();
+        throw new Error(`agent turn ${status}${reason ? `: ${reason}` : ''}`);
+      }
       const result = detail?.result || { content: '' };
       descriptor.status = 'idle';
       descriptor.stage = 'idle';

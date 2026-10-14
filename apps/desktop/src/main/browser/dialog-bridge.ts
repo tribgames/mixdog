@@ -35,7 +35,9 @@ export const DIALOG_BRIDGE_SCRIPT = `(() => {
       request.open('GET', endpoint + '?' + query.toString(), false);
       request.send(null);
       answer = JSON.parse(request.responseText || 'null');
-    } catch {}
+    } catch {
+      /* no host answer: treated as dismissed below */
+    }
     if (answer && typeof answer.accept === 'boolean') return answer;
     reportDismissed(String(type || ''), String(message == null ? '' : message));
     return null;
@@ -48,7 +50,8 @@ export const DIALOG_BRIDGE_SCRIPT = `(() => {
     if (!result?.accept) return null;
     // The host shows a bounded copy of the default; accepting it unchanged
     // keeps the page's own value rather than that copy.
-    return result.keepDefault ? initial : String(result.promptText == null ? '' : result.promptText);
+    if (result.keepDefault) return initial;
+    return String(result.promptText == null ? '' : result.promptText);
   };
 })()`;
 

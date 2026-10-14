@@ -4,6 +4,37 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Đã thêm đăng nhập OAuth MCP rõ ràng, chuyển đổi mô hình tại chỗ và biểu ngữ giới hạn một dòng.
+
+### Tính năng mới
+
+- **Đăng nhập MCP** — Đã thêm đăng nhập OAuth rõ ràng cho máy chủ MCP với trạng thái, hộp thoại đăng nhập dùng chung, dán từ xa và lệnh TUI (#74, thanks @oh1701).
+- **Chuyển mô hình tại chỗ** — Đã thêm tính năng chuyển đổi mô hình của đoạn chat mà không cần bắt đầu phiên mới, và Fork trong menu phiên (#73, #52, thanks @grapefruit0205).
+- **Biểu ngữ giới hạn** — Đã thêm biểu ngữ một dòng phía trên trình soạn thảo khi đạt giới hạn; Tiếp tục sẽ đặt trước lần chạy tiếp theo cho thời điểm đặt lại.
+- **Menu tệp** — Đã thêm số lượng tệp trên đảo theo dõi các thay đổi chưa cam kết của phiên, với Xem thay đổi và Xóa lịch sử.
+- **Kích thước chữ chat** — Đã thêm cài đặt kích thước chữ chat cho từng thiết bị.
+
+### Thay đổi
+
+- Đã thay đổi số lần thử lại của nhà cung cấp để tuân theo các giới hạn và thời gian chờ riêng của từng nhà cung cấp, hiển thị thời gian chờ còn lại cùng cách hủy.
+- Đã thay đổi thông báo lỗi để nêu rõ nguyên nhân cùng bước tiếp theo, và ẩn Thử lại khi việc thử lại không thể giải quyết.
+- Đã thay đổi các lệnh shell để duy trì ở chế độ nền trước mặc định 10 giây, tối đa 30 giây, trước khi chuyển sang nền sau.
+- Đã điều chỉnh ứng dụng máy tính để bàn, suy luận tự động và dịch vụ nền để giảm thăm dò, kết xuất và bộ nhớ trong các phiên dài.
+
+### Sửa lỗi
+
+- Đã sửa lỗi dịch vụ nền bị đơ từ một đến hai giây mỗi 30 phút.
+- Đã sửa lỗi thông báo hoàn thành của Agent bị bỏ qua khi một lượt đã có kết quả đầu ra bị hủy.
+- Đã sửa lỗi đảo trình soạn thảo hiển thị các Agent đang chạy thành không hoạt động hoặc đã xong.
+- Đã sửa lỗi chuyển đổi phiên bị treo khi chờ quét thay đổi từ các phiên khác.
+- Đã sửa lỗi hộp thoại trang trình duyệt rời khỏi ngăn, xác nhận rời trang không hoàn tất và phím tắt sao chép trong trình duyệt bị lỗi.
+- Đã sửa lỗi lưu bộ nhớ cache prompt trên các nhà cung cấp Responses tùy chỉnh và các dự án phiên kế thừa không khớp với thanh bên (#70, #75, thanks @sukjong2002).
+- Đã sửa lỗi bảng phát trực tuyến bị nhấp nháy, bản ghi bị giật khi một lượt đang hoạt động và thẻ giới hạn vẫn hiển thị sau khi đổi nhà cung cấp.
+
+### Khác
+
+- Đã xóa các hàm trợ giúp không sử dụng (#67, thanks @22nsuk).
+
 ## v1.2.1 - 2026-10-14
 
 Đã thêm tính năng nhập cuộc trò chuyện từ Codex và Claude Code, nhà cung cấp Command Code, đề cập kỹ năng bằng `$`, và đã sửa lỗi theo dõi nhập liệu của Computer Use, tập lệnh kỹ năng, suy luận tự động cùng một số lỗi phiên.

@@ -14,6 +14,7 @@ import {
 } from './cursor-wire-protobuf.mjs';
 import {
   assertCursorUserImages,
+  createCursorCredentialRefresher,
   createCursorStreamWatchdog,
   resolveCursorStreamTuning,
   storeCursorBlob,
@@ -358,12 +359,16 @@ function createStreamResponse({
   sessionId = '',
   sawTurnEnded = false,
   restart = null,
+  sleep = undefined,
+  onStageChange = null,
 }) {
   const id = newCompletionId();
   // The bridge currently feeding the stream; a restart swaps it in place.
   const live = { bridge, heartbeat };
   let watchdog = null;
   let cancelled = false;
+  // Cuts a pending retry backoff short when the caller cancels.
+  const cancelController = new AbortController();
   const runs = { get: (runKey) => activeRuns.get(runKey), store: storeActiveRun, forget: forgetActiveRun };
   const stream = new ReadableStream({
     start(controller) {
@@ -395,12 +400,16 @@ function createStreamResponse({
         run: { key, conversation, tools, cloudRule, modelParameters, maxMode, sessionId },
         runs,
         restart,
+        sleep,
+        onStageChange,
+        cancelSignal: cancelController.signal,
         isCancelled: () => cancelled,
       });
       bridges.attach(bridge, heartbeat);
     },
     cancel(reason) {
       cancelled = true;
+      cancelController.abort();
       watchdog?.stop();
       clearInterval(live.heartbeat);
       const active = activeRuns.get(key);
@@ -459,7 +468,7 @@ function noUserMessageResponse() {
   });
 }
 
-export async function handleChatCompletion(body, accessToken) {
+export async function handleChatCompletion(body, accessToken, { onStageChange = null, getAccessToken = null } = {}) {
   await warmCursorClientVersion();
   const parsed = parseMessages(body.messages);
   if (
@@ -504,6 +513,10 @@ export async function handleChatCompletion(body, accessToken) {
   };
   const requestBytes = buildRunRequest(runInput);
   const { bridge, heartbeat } = startRun(accessToken, requestBytes);
+  // Every retry force-refreshes credentials and falls back to the previous
+  // token if the refresh fails. A rejected credential is only
+  // retried when the refresh produced a different token.
+  const credentials = createCursorCredentialRefresher(accessToken, getAccessToken);
   return createStreamResponse({
     bridge,
     heartbeat,
@@ -515,11 +528,21 @@ export async function handleChatCompletion(body, accessToken) {
     maxMode,
     key,
     sessionId,
-    restart: ({ fromCheckpoint }) =>
-      startRun(
-        accessToken,
-        fromCheckpoint ? buildRunRequest({ ...runInput, userText: '', userImages: [] }) : requestBytes
-      ),
+    onStageChange,
+    restart: async ({ fromCheckpoint, reason, error }) => {
+      if (reason === 'throttle') {
+        // Cursor can pin resource_exhausted to one conversation id (conversation
+        // rotation after a rate limit): start a fresh one from the full
+        // history instead of the checkpoint it refused.
+        conversation.id = crypto.randomUUID();
+        conversation.checkpoint = null;
+      }
+      const token = await credentials.refresh(reason, error);
+      let bytes = requestBytes;
+      if (fromCheckpoint) bytes = buildRunRequest({ ...runInput, userText: '', userImages: [] });
+      else if (reason === 'throttle') bytes = buildRunRequest(runInput);
+      return startRun(token, bytes);
+    },
   });
 }
 

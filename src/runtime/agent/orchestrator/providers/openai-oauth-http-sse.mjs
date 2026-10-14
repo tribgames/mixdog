@@ -16,6 +16,7 @@ import { CODEX_OAUTH_ORIGINATOR } from './openai-codex-endpoints.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';
 import { envFlag as _envFlag } from '../../../shared/env.mjs';
 import { activateCodexTurnState } from './openai-turn-state.mjs';
+import { httpLabel } from './openai-error-contract.mjs';
 import { openHttpSseResponse } from './openai-http-sse-request.mjs';
 import { createHttpSseWatchdogs } from './openai-http-sse-watchdogs.mjs';
 import { createHttpSseResponseState } from './openai-http-sse-response-state.mjs';
@@ -165,6 +166,7 @@ export async function sendViaHttpSse({
     onStageChange?.('streaming');
   } catch {}
   const sseStartedAt = Date.now();
+  const label = httpLabel(auth);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let ttftMs = null;
@@ -173,6 +175,7 @@ export async function sendViaHttpSse({
     reader,
     totalTimeout,
     stallPartial: () => state.stallPartial(),
+    label,
   });
   const meaningful = (kind = 'semantic') => {
     if (ttftMs == null) ttftMs = Date.now() - sseStartedAt;
@@ -187,6 +190,7 @@ export async function sendViaHttpSse({
     onTextDelta,
     meaningful,
     onServerEvent: watchdogs.noteServerEvent,
+    label,
   });
   const foldFrames = async (text) => {
     const parsed = _sseEventsFromBuffer(text);
@@ -202,7 +206,7 @@ export async function sendViaHttpSse({
       if (totalTimeout.signal?.aborted) {
         watchdogs.clearSemanticIdle();
         const reason = totalTimeout.signal.reason;
-        throw reason instanceof Error ? reason : new Error('OpenAI OAuth HTTP fallback aborted');
+        throw reason instanceof Error ? reason : new Error(`${label} aborted`);
       }
       const abortReason = watchdogs.abortReason();
       if (abortReason) throw abortReason;

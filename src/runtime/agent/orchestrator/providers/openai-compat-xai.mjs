@@ -166,8 +166,8 @@ export function normalizeXaiReasoningEffort(value) {
   return ['low', 'medium', 'high', 'xhigh'].includes(effort) ? effort : null;
 }
 
-const hasEffortValues = (options) =>
-  (options || []).some((option) => option?.type === 'effort' && option.values?.length > 0);
+const hasEffortValues = (modelOptions) =>
+  (modelOptions || []).some((option) => option?.type === 'effort' && option.values?.length > 0);
 
 // The first Grok generations (grok-3, grok-4, grok-4-fast, grok-code-fast)
 // REJECT reasoning_effort outright (HTTP 400 "does not support parameter

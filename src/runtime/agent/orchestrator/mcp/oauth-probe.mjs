@@ -65,8 +65,10 @@ export async function probeMcpServerAuth(cfg, { fetchImpl = fetch, timeoutMs = M
   } catch (error) {
     return failure(error);
   }
+  // The body is discarded; a failed cancel changes nothing.
   await response.body?.cancel().catch(() => {});
-  if (response.status === 404 || response.status >= 500) return { auth: 'unreachable', error: `HTTP ${response.status}` };
+  if (response.status === 404 || response.status >= 500)
+    return { auth: 'unreachable', error: `HTTP ${response.status}` };
   if (response.status !== 401) return { auth: 'none' };
   try {
     const { discoverOAuthServerInfo, extractWWWAuthenticateParams } = await import(

@@ -8,6 +8,7 @@ import { truncatedCompatStreamError } from '../lib/openai-tool-args.mjs';
 import {
   emitCompatToolCallOnce,
   firstByteCompatStreamError,
+  failingFinishReasonError,
   markErrorLiveTextEmitted,
   markUnsafeRetryIfToolEmitted,
 } from '../openai-compat-stream-common.mjs';
@@ -61,7 +62,28 @@ function parseAccumulatedToolCalls(state, { label, parseToolCalls }) {
   }
 }
 
+// A gateway-reported failing finish_reason (`network_error`, `error`) is an
+// interruption: the stream carries no terminal, so exposure keeps its replay
+// gates.
+function finishReasonInterruption(state, err) {
+  attachPartial(state, err);
+  if (state.emittedText) {
+    markErrorLiveTextEmitted(err);
+    try {
+      err.streamStalled = true;
+    } catch {
+      /* best-effort */
+    }
+  }
+  return stampCompatOutcome(state, markUnsafeRetryIfToolEmitted(err, state.streamEmitState), {
+    terminalObserved: false,
+    continuation: true,
+  });
+}
+
 export function settleCompatStream(state, { label, parseToolCalls }) {
+  const failing = failingFinishReasonError(state.stopReason, label);
+  if (failing) throw finishReasonInterruption(state, failing);
   const response = buildResponse(state);
   let toolCalls = parseAccumulatedToolCalls(state, { label, parseToolCalls });
   if (Array.isArray(toolCalls) && toolCalls.length) {

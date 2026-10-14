@@ -43,7 +43,7 @@ test('shell, edit, and task keep their execution contracts', () => {
     !/^Run programs, builds, tests and computation/i.test(shellDescription) ||
     !/Never use shell commands or scripts for work covered by dedicated tools/i.test(shellDescription) ||
     !/Tool names are not shell commands/i.test(shellDescription) ||
-    !/15s foreground window.*not a timeout/i.test(shellDescription) ||
+    !/10s foreground window.*not a timeout/i.test(shellDescription) ||
     !/use task wait, not read polling/i.test(shellDescription)
   ) {
     throw new Error(

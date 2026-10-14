@@ -383,6 +383,7 @@ async function replaceServerConnection(scopeId, name, current, cfg, genAtStart, 
 // connect per server is ever running (no doubly registered transports).
 async function runExclusiveServerOp(registryKey, task) {
   for (let pending = reconnects.wait(registryKey); pending; pending = reconnects.wait(registryKey)) {
+    // Only waiting for the reconnect to settle; its failure belongs to its caller.
     await pending.catch(() => {});
   }
   return reconnects.run(registryKey, task);
@@ -935,6 +936,7 @@ export function raceMcpAbort(promise, signal, message) {
   if (!signal) return promise;
   allowConcurrentAbortListeners(signal);
   if (signal.aborted) {
+    // The abort wins; the abandoned promise's late rejection must not go unhandled.
     void Promise.resolve(promise).catch(() => {});
     return Promise.reject(mcpAbortError(signal, message));
   }
@@ -1447,6 +1449,7 @@ export function setMcpScopeRoot(scopeId, root) {
     if (server.cfg?._mixdogRootsFollowScope !== true) continue;
     Promise.resolve()
       .then(() => server.client?.sendRootsListChanged?.())
+      // A server that rejects the roots notification keeps its previous roots.
       .catch(() => {});
   }
 }

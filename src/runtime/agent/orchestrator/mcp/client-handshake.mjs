@@ -136,7 +136,7 @@ export async function runBoundedHandshake({
       try {
         closeServer({ client, transport }).catch(() => {});
       } catch {
-        /* ignore */
+        // Teardown is best effort: the handshake failure below is what gets reported.
       }
       // Never let the late handshake settle into an unhandled rejection.
       handshake.catch(() => {});

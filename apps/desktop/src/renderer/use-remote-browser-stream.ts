@@ -27,7 +27,12 @@ function inputGeometry(
 ): Omit<RemoteInputFrame, 'documentId'> {
   const { width, height, viewportWidth, viewportHeight } = described;
   const valid =
-    width > 0 && height > 0 && viewportWidth > 0 && viewportHeight > 0 && shown?.width === width && shown.height === height;
+    width > 0 &&
+    height > 0 &&
+    viewportWidth > 0 &&
+    viewportHeight > 0 &&
+    shown?.width === width &&
+    shown.height === height;
   return valid ? { width, height, viewportWidth, viewportHeight } : NO_INPUT_GEOMETRY;
 }
 

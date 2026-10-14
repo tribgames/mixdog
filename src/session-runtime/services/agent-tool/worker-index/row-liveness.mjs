@@ -11,8 +11,15 @@ const ACTIVE_WORKER_STATUS =
   /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
 const WORKER_POOL_FRESH_MS = 2 * 60 * 1000;
 
+const CANCELLED_WORKER_STATUS = /^(?:cancelled|canceled|killed|cancel[-_\s]?(?:unconfirmed|pending))$/i;
+
+/** `status` decides; `stage` is the runtime phase copied in by the progress
+ *  sweep and only decides for a row with no status. A cancel in either field
+ *  is not work (bare `cancelling` still is). */
 export const isActiveWorkerRow = (row) =>
-  ACTIVE_WORKER_STATUS.test(clean(row?.status)) || ACTIVE_WORKER_STATUS.test(clean(row?.stage));
+  !CANCELLED_WORKER_STATUS.test(clean(row?.status)) &&
+  !CANCELLED_WORKER_STATUS.test(clean(row?.stage)) &&
+  ACTIVE_WORKER_STATUS.test(clean(row?.status) || clean(row?.stage));
 
 /** A persisted approval wait whose runtime is gone: the in-memory wait died
  *  with that process (daemon restart), so the flag must not stick. */

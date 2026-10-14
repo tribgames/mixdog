@@ -217,7 +217,9 @@ test('a slot that only moves is re-measured while it slides and after the transi
     assert.equal(container.style.left, '158px');
 
     // The sheet slides: neither size nor window events change, only position.
-    window.dispatchEvent(new window.Event('transitionrun'));
+    // The sliding sheet is an ancestor of the slot; transition events bubble.
+    const sheet = document.querySelector('.session-terminal-slot').parentElement;
+    sheet.dispatchEvent(new window.Event('transitionrun', { bubbles: true }));
     slotShift = 60;
     await flushFrames(1);
     assert.equal(container.style.left, '100px');
@@ -228,7 +230,7 @@ test('a slot that only moves is re-measured while it slides and after the transi
     // A move after the settle window is still picked up by the transition end.
     await flushFrames(60);
     slotShift = 10;
-    window.dispatchEvent(new window.Event('transitionend'));
+    sheet.dispatchEvent(new window.Event('transitionend', { bubbles: true }));
     await flushFrames(2);
     assert.equal(container.style.left, '50px');
   } finally {

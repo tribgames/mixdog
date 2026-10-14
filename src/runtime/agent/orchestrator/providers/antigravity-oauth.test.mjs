@@ -24,6 +24,7 @@ import {
   _resetAntigravityVersionForTest,
 } from './antigravity-oauth-tokens.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
+import { isProviderRecoveryExhausted } from './retry-classifier.mjs';
 
 function sseResponse(chunks, { status = 200 } = {}) {
   const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('');
@@ -184,6 +185,8 @@ test('a content-plane verification demand surfaces the link Google hides in the 
     assert.ok(error.message.includes(url), error.message);
     assert.equal(error.validationUrl, url);
     assert.equal(error.unsafeToRetry, true);
+    assert.equal(error.code, 'validation_required');
+    assert.equal(error.accountBlocked, true);
     return true;
   });
 });
@@ -820,7 +823,8 @@ for (const finishReason of ['SAFETY', 'MAX_TOKENS', 'MALFORMED_FUNCTION_CALL', '
         onToolCall: (call) => calls.push(call),
       }),
       (error) => {
-        assert.equal(error.code, 'PROVIDER_INCOMPLETE');
+        assert.equal(error.code, finishReason.endsWith('SAFETY') ? 'safety' : 'PROVIDER_INCOMPLETE');
+        assert.equal(error.providerIncomplete, true);
         assert.equal(error.finishReason, finishReason);
         return true;
       }
@@ -840,9 +844,30 @@ test('prompt blocking suppresses calls even without a candidate finish reason', 
       effort: 'low',
       onToolCall: (call) => calls.push(call),
     }),
-    (error) => error.code === 'PROVIDER_INCOMPLETE' && error.finishReason === 'PROMPT_SAFETY'
+    (error) => error.code === 'safety' && error.finishReason === 'PROMPT_SAFETY'
   );
   assert.equal(calls.length, 0);
+});
+
+test('RECITATION finish throws a recitation policy refusal', async () => {
+  const provider = providerWith(async () => sseResponse([candidateChunk([{ text: 'partial' }], 'RECITATION')]));
+  await assert.rejects(
+    provider.send([{ role: 'user', content: 'Hi.' }], 'gemini-3.8-flash', [], { effort: 'low' }),
+    (error) => error.code === 'recitation' && error.providerIncomplete === true && error.partialContent === 'partial'
+  );
+});
+
+test('an in-band error envelope after STOP fails the turn before any success', async () => {
+  const provider = providerWith(async () =>
+    sseResponse([
+      candidateChunk([{ text: 'done' }], 'STOP'),
+      { error: { code: 503, status: 'UNAVAILABLE', message: 'backend gone' } },
+    ])
+  );
+  await assert.rejects(
+    provider.send([{ role: 'user', content: 'Hi.' }], 'gemini-3.8-flash', [], { effort: 'low', onTextDelta() {} }),
+    (error) => error.status === 503 && error.code === 'unavailable' && error.unsafeToRetry === true
+  );
 });
 
 test('a later failed finish retains earlier eager calls without dispatching the rejected call', async () => {
@@ -859,7 +884,7 @@ test('a later failed finish retains earlier eager calls without dispatching the 
       onToolCall: (call) => calls.push(call),
     }),
     (error) => {
-      assert.equal(error.code, 'PROVIDER_INCOMPLETE');
+      assert.equal(error.code, 'safety');
       assert.equal(error.emittedToolCall, true);
       assert.equal(error.unsafeToRetry, true);
       assert.deepEqual(error.partialToolCalls, calls);
@@ -900,4 +925,128 @@ test('truncation after an eager native call cannot retry or fail over and retain
   );
   assert.equal(calls.length, 1);
   assert.equal(requests, 1);
+});
+
+// ── Retry policy (capacity backoff, RPM quick retry) ──
+
+function errorResponse(status, reason, extra = {}) {
+  const info = reason
+    ? [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason, domain: 'cloudcode-pa.googleapis.com', metadata: {} }]
+    : [];
+  return new Response(JSON.stringify({ error: { code: status, message: extra.message || 'x', details: info } }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function retryHarness(responses, overrides = {}) {
+  const sleeps = [];
+  let calls = 0;
+  const provider = providerWith(
+    async () => {
+      const next = responses[Math.min(calls++, responses.length - 1)];
+      return typeof next === 'function' ? next() : next;
+    },
+    { sleepFn: async (ms) => sleeps.push(ms), ...overrides }
+  );
+  const send = (opts = {}) => provider.send([{ role: 'user', content: 'Hi.' }], 'gemini-3-pro-high', [], opts);
+  return { sleeps, send, get calls() { return calls; } };
+}
+
+const ok = () => sseResponse([candidateChunk([{ text: 'recovered' }], 'STOP')]);
+const near = (value, base, ratio) => value >= base * (1 - ratio) - 1 && value <= base * (1 + ratio) + 1;
+
+test('capacity 429 retries the same host at 1s / 2s / 4s ±10% and then succeeds', async () => {
+  const h = retryHarness([
+    () => errorResponse(429, 'MODEL_CAPACITY_EXHAUSTED'),
+    () => errorResponse(429, 'MODEL_CAPACITY_EXHAUSTED'),
+    () => errorResponse(429, 'MODEL_CAPACITY_EXHAUSTED'),
+    ok,
+  ]);
+  const result = await h.send();
+  assert.equal(result.content, 'recovered');
+  assert.equal(h.calls, 4);
+  assert.equal(h.sleeps.length, 3);
+  [1000, 2000, 4000].forEach((base, index) => assert.ok(near(h.sleeps[index], base, 0.1), `${index}: ${h.sleeps[index]}`));
+});
+
+test('capacity that outlasts three retries surfaces as an exhausted overload', async () => {
+  const h = retryHarness([() => errorResponse(429, 'MODEL_CAPACITY_EXHAUSTED')]);
+  await assert.rejects(h.send(), (error) => {
+    assert.equal(error.code, 'model_capacity_exhausted');
+    assert.equal(isProviderRecoveryExhausted(error), true);
+    return true;
+  });
+  assert.equal(h.calls, 4);
+});
+
+test('an RPM 429 gets one 1s quick retry, then surfaces for the account layer', async () => {
+  const h = retryHarness([() => errorResponse(429, 'RATE_LIMIT_EXCEEDED')]);
+  await assert.rejects(h.send(), (error) => error.status === 429 && error.code === 'rate_limit_exceeded');
+  assert.equal(h.calls, 2);
+  assert.deepEqual(h.sleeps, [1000]);
+
+  const recovered = retryHarness([() => errorResponse(429, 'RATE_LIMIT_EXCEEDED'), ok]);
+  assert.equal((await recovered.send()).content, 'recovered');
+  assert.deepEqual(recovered.sleeps, [1000]);
+});
+
+function adviceResponse(status, retryDelay, reason) {
+  const details = [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay }];
+  if (reason) details.push({ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason, domain: 'cloudcode-pa.googleapis.com', metadata: {} });
+  return new Response(JSON.stringify({ error: { code: status, message: 'x', details } }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+test('capacity ignores long server advice on 429, 503 and 529', async () => {
+  for (const status of [429, 503, 529]) {
+    const h = retryHarness([() => adviceResponse(status, '600s', status === 429 ? 'MODEL_CAPACITY_EXHAUSTED' : undefined), ok]);
+    assert.equal((await h.send()).content, 'recovered', `status ${status}`);
+    assert.equal(h.sleeps.length, 1);
+    assert.ok(near(h.sleeps[0], 1000, 0.1), `status ${status}: ${h.sleeps[0]}`);
+  }
+});
+
+test('an RPM 429 quick retry honors advice up to 60s, beyond that it surfaces to the pool', async () => {
+  const short = retryHarness([() => adviceResponse(429, '30s', 'RATE_LIMIT_EXCEEDED'), ok]);
+  assert.equal((await short.send()).content, 'recovered');
+  assert.deepEqual(short.sleeps, [30_000]);
+
+  const long = retryHarness([() => adviceResponse(429, '600s', 'RATE_LIMIT_EXCEEDED'), ok]);
+  await assert.rejects(long.send(), (error) => error.status === 429 && error.retryAfterMs === 600_000);
+  assert.equal(long.calls, 1);
+  assert.deepEqual(long.sleeps, []);
+});
+
+test('QUOTA_EXHAUSTED is never retried', async () => {
+  const h = retryHarness([() => errorResponse(429, 'QUOTA_EXHAUSTED')]);
+  await assert.rejects(h.send(), (error) => error.code === 'quota_exhausted');
+  assert.equal(h.calls, 1);
+  assert.deepEqual(h.sleeps, []);
+});
+
+test('a 503 is capacity and a 500 follows the same 4-attempt same-host ladder', async () => {
+  for (const status of [503, 500]) {
+    const h = retryHarness([() => errorResponse(status)]);
+    await assert.rejects(h.send(), (error) => error.status === status);
+    assert.equal(h.calls, 4, `status ${status}`);
+    assert.equal(h.sleeps.length, 3);
+    h.sleeps.forEach((ms, index) => assert.ok(near(ms, [1000, 2000, 4000][index], 0.1), `${status}/${index}: ${ms}`));
+  }
+});
+
+test('a 429 after visible output is never re-issued', async () => {
+  const h = retryHarness([
+    () =>
+      sseResponse([
+        candidateChunk([{ text: 'partial' }]),
+        { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'rate limit' } },
+      ]),
+    ok,
+  ]);
+  await assert.rejects(h.send({ onTextDelta() {} }), (error) => error.status === 429);
+  assert.equal(h.calls, 1);
+  assert.deepEqual(h.sleeps, []);
 });

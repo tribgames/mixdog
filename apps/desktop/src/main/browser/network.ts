@@ -303,7 +303,8 @@ export class BrowserNetworkLedger {
       const request = requests[index];
       // Only the page's own target: a viewer frame in a child target loads
       // the same address again as its own document.
-      if (request.sessionId !== undefined || request.resourceType !== 'document' || request.status === undefined) continue;
+      if (request.sessionId !== undefined || request.resourceType !== 'document' || request.status === undefined)
+        continue;
       if (withoutFragment(request.url) !== wanted) continue;
       return { status: request.status, statusText: request.statusText, mimeType: request.mimeType };
     }

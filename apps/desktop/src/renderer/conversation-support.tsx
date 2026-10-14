@@ -14,7 +14,7 @@ import type {
   SessionSnapshot,
 } from '../shared/contract';
 import { t } from './i18n';
-import { describeError, ErrorNotice } from './ErrorNotice';
+import { describeError, ErrorNotice, errorWithKind } from './ErrorNotice';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
@@ -329,10 +329,16 @@ function errorRowNode(
   const retryKey = [...row.failures]
     .reverse()
     .find((failure) => turnPromptText(settledItems, settledTurnKeys, failure.turnKey))?.turnKey;
-  const errors = row.failures.map(
-    ({ item }) => item?.errorDetails || item?.detail || item?.message || item?.text || item?.label || t('Failed')
+  const errors = row.failures.map(({ item }) =>
+    errorWithKind(
+      String(item?.errorDetails || item?.detail || item?.message || item?.text || item?.label || t('Failed')),
+      item?.errorKind
+    )
   );
-  const reauth = describeError(errors.at(-1)).kind === 'reauth';
+  const failureKind = describeError(errors.at(-1)).kind;
+  const reauth = failureKind === 'reauth' || failureKind === 'authentication';
+  // A retry of these would only repeat the same refusal.
+  const retryable = !reauth && !['policy', 'entitlement', 'billing', 'service-tier'].includes(failureKind);
   const notice = (
     <ErrorNotice
       className="transcript-error-notice"
@@ -345,7 +351,7 @@ function errorRowNode(
         ) : undefined
       }
       onRetry={
-        !reauth && !readOnly && retryKey && !transcriptRowArchived(row) ? () => onRetryTurn(retryKey) : undefined
+        retryable && !readOnly && retryKey && !transcriptRowArchived(row) ? () => onRetryTurn(retryKey) : undefined
       }
       retryDisabled={retryDisabled}
       role="status"

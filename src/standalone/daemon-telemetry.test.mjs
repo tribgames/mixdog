@@ -308,3 +308,26 @@ test('a child using the production start/stop loop emits periodic samples then f
   assert.equal(report.after.lines, report.frozen.lines);
   assert.equal(report.after.intervalTicks, report.frozen.intervalTicks);
 });
+
+test('post-major-GC heap: min per interval is reported on the line and reset on take', async () => {
+  const { createPostGcHeapTracker, createDaemonTelemetry } = await import('./daemon-telemetry.mjs');
+  let onGc;
+  let used = 0;
+  const tracker = createPostGcHeapTracker({ heapUsed: () => used, observe: (cb) => ((onGc = cb), () => {}) });
+  used = 300;
+  onGc({ detail: { kind: 4 } });
+  used = 200;
+  onGc({ detail: { kind: 4 } });
+  used = 50;
+  onGc({ detail: { kind: 1 } }); // minor GC ignored
+  assert.equal(tracker.take(), 200);
+  assert.equal(tracker.take(), -1);
+  used = 120;
+  onGc({ detail: { kind: 4 } });
+  const lines = [];
+  const t = createDaemonTelemetry({ log: (l) => lines.push(l), createGcTracker: () => tracker });
+  t.start(1_000_000);
+  t.emit();
+  t.stop();
+  assert.match(lines[0], /postGcHeapMinBytes=120/);
+});

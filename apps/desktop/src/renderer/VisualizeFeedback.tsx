@@ -563,9 +563,7 @@ export function useVisualizeFeedbackBridge({
           tab.id,
           tab.revision,
           tab.panes.map((pane, index) =>
-            visualizeCommentPage(pane.kind)
-              ? [pane.kind, pane.url, stateFor(index, false), tweaksFor(index)]
-              : null
+            visualizeCommentPage(pane.kind) ? [pane.kind, pane.url, stateFor(index, false), tweaksFor(index)] : null
           ),
         ])
       : '';

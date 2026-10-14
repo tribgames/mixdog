@@ -1,7 +1,7 @@
 import { SlidersHorizontal } from 'lucide-react';
 import { Suspense, createContext, memo, useContext, useEffect, useRef, useState } from 'react';
 import { submissionIdentity } from './transcript-rows';
-import { fitImageThumbnail, persistentImagePreviews, previewKey } from './image-preview-store';
+import { fitImageThumbnail, onSessionPreviewsDeleted, persistentImagePreviews, previewKey } from './image-preview-store';
 import { AttachmentCard, composerCardMeta } from './attachment-card';
 import { extractFileMarkers, fileChipKind, sentFileSource, sentPastedTextSource } from './attachment-menu';
 import { useAttachmentContextMenu } from './attachment-context-menu';
@@ -154,6 +154,12 @@ function markerChipRefs(
 
 const inflightThumbnails = new Map<string, Promise<string | undefined>>();
 const failedThumbnails = new Set<string>();
+
+// A deleted session's attachments are gone with it: forget their misses.
+onSessionPreviewsDeleted((session) => {
+  const prefix = previewKey(session, '');
+  for (const key of failedThumbnails) if (key.startsWith(prefix)) failedThumbnails.delete(key);
+});
 
 /** The cached thumbnail of a stored attachment; on a miss it is rebuilt from
  *  the stored original through the host (one host call per ref at a time). A

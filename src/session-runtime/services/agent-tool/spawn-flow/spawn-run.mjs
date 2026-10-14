@@ -22,6 +22,7 @@ import {
 } from '../../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { saveSessionAsync } from '../../../../runtime/agent/orchestrator/session/store.mjs';
 import { presetDescriptor } from './spawn-prep.mjs';
+import { workerStageForStatus } from '../worker-rows.mjs';
 
 // Mid-turn worker persistence cadence. The watchdog sweep runs every second;
 // a transcript save is far more expensive than a bookkeeping stamp, so the
@@ -70,7 +71,7 @@ export function createSpawnRunner({
       const messages = Number(progress?.messages) || 0;
       upsertWorkerSessionDeferred(session, tag, {
         status: 'running',
-        stage: progress.stage || 'running',
+        stage: workerStageForStatus('running', progress.stage),
         ...(messages > 0 ? { messages } : {}),
       });
       // The canonical runtime owns persistence; this session is only its descriptor.

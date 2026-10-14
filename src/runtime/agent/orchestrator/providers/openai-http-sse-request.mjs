@@ -9,11 +9,17 @@
 import zlib from 'node:zlib';
 import { traceAgentFetch } from '../agent-trace.mjs';
 import { PROVIDER_HTTP_RESPONSE_TIMEOUT_MS, createTimeoutSignal } from '../stall-policy.mjs';
+import { CODEX_REQUEST_RETRY_BACKOFF_MS, CODEX_RETRY_JITTER_RATIO } from './openai-retry-policy.mjs';
 import { classifyError, jitterDelayMs, retryAfterMsFromError, sleepWithAbort } from './retry-classifier.mjs';
+import { emitProviderRetryStage } from './retry-executor.mjs';
+import { adviceGatedRetry } from './retry-midstream.mjs';
+import { TERMINAL_EDGE_STATUSES } from './retry-classification.mjs';
+import { DETERMINISTIC_KINDS, providerErrorKind } from './provider-error-kind.mjs';
 import { readStreamOutcome } from './lib/stream-outcome.mjs';
 import { getLlmDispatcher, recycleLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { CODEX_RESPONSES_URL } from './openai-codex-endpoints.mjs';
 import { captureCodexTurnState } from './openai-turn-state.mjs';
+import { httpLabel, httpResponseError } from './openai-error-contract.mjs';
 
 // Public OpenAI Responses API endpoint for the api-key `openai` provider.
 // The openai-direct WS transport hits the same origin (openai-ws-pool
@@ -22,9 +28,28 @@ import { captureCodexTurnState } from './openai-turn-state.mjs';
 // openai-oauth. Same Responses SSE wire format, only endpoint + auth differ.
 const OPENAI_DIRECT_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const CODEX_REQUEST_MAX_RETRIES = 4;
-const CODEX_REQUEST_BACKOFF_MS = Object.freeze([200, 400, 800, 1600]);
-const CODEX_RETRY_JITTER_RATIO = 0.1;
+// Advice-gated retry for the OpenAI request loops (same options the shared
+// withRetry takes): an overload and an untyped 429 retry only with server advice.
+const OPENAI_REQUEST_RETRY_OPTS = Object.freeze({
+  overloadRetryRequiresAdvice: true,
+  generic429RetryRequiresAdvice: true,
+  backoffMs: CODEX_REQUEST_RETRY_BACKOFF_MS,
+  retryJitterRatio: CODEX_RETRY_JITTER_RATIO,
+});
 
+
+// Request-layer retry: 5xx and typed transport
+// failures only. 408 and 429 are NOT retried here; they surface to the outer
+// stream-retry layer, which owns their budget and honors Retry-After.
+// A deterministic refusal (quota, billing, entitlement, policy, auth,
+// permission, invalid request) is terminal whatever status carries it.
+function isRetryableHttpFailure(err) {
+  const status = err.httpStatus;
+  if (!(status >= 500 && status <= 599) || TERMINAL_EDGE_STATUSES.has(status)) return false;
+  const { kind } = providerErrorKind(err);
+  if (DETERMINISTIC_KINDS.has(kind)) return false;
+  return adviceGatedRetry(err, OPENAI_REQUEST_RETRY_OPTS) !== false;
+}
 // Request-body zstd gate. Namespace import: on Node runtimes without zlib
 // zstd bindings the named export would fail at module load, so the call site
 // typeof-guards zlib.zstdCompressSync instead.
@@ -65,13 +90,15 @@ async function postWithRetries({
   onStageChange,
   _sleepFn,
 }) {
+  const label = httpLabel(auth);
   let bodyForSend = encodeRequestBody(auth, rawBytes);
   let response;
+  let httpError = null;
   for (let attempt = 0; attempt <= CODEX_REQUEST_MAX_RETRIES; attempt++) {
     const headerTimeout = createTimeoutSignal(
       totalTimeout.signal,
       PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
-      'OpenAI OAuth HTTP fallback initial response'
+      `${label} initial response`
     );
     let requestError = null;
     try {
@@ -113,7 +140,19 @@ async function postWithRetries({
       attempt--;
       continue;
     }
-    const retryableStatus = response && response.status >= 500 && response.status <= 599;
+    // The error body is read exactly once, here, into the contract fields.
+    httpError = null;
+    if (response && !response.ok) {
+      const text = await response.text().catch(() => '');
+      httpError = httpResponseError({
+        label,
+        status: response.status,
+        headers: response.headers,
+        text,
+        initialResponse: true,
+      });
+    }
+    const retryableStatus = httpError !== null && isRetryableHttpFailure(httpError);
     // Typed transient transport failures only (errno / SDK connection
     // type). An unknown pre-response failure throws immediately instead of
     // re-issuing the POST.
@@ -135,30 +174,36 @@ async function postWithRetries({
       // Reissuing the POST is a REPLAY: allowed for a typed transient
       // failure of the initial request, denied once the failure carries
       // exposure evidence (relayed output / dispatched tool call).
-      const attemptFailure =
-        requestError ||
-        Object.assign(new Error(`OpenAI OAuth HTTP fallback ${response.status}`), {
-          httpStatus: response.status,
-          headers: response.headers,
-          initialResponseError: true,
-        });
+      const attemptFailure = requestError || httpError;
       if (readStreamOutcome(attemptFailure).replaySafe !== true) {
-        if (response) await response.arrayBuffer().catch(() => {});
         totalTimeout.cleanup();
         throw attemptFailure;
       }
-      // A non-success response has not exposed any streamed output. Drain
-      // its body before reissuing so the dispatcher can reuse the socket.
-      if (response) await response.arrayBuffer().catch(() => {});
       // Server advice (Retry-After / Retry-After-Ms) replaces the local curve.
-      const raw = CODEX_REQUEST_BACKOFF_MS[attempt];
-      await sleepWithAbort(
-        retryAfterMsFromError(attemptFailure) ?? jitterDelayMs(raw, CODEX_RETRY_JITTER_RATIO),
-        externalSignal,
-        _sleepFn,
-        'OpenAI OAuth HTTP request retry backoff aborted'
-      );
+      // Uncapped for retryable errors; the attempt count is
+      // the bound, and the abort signal cancels the wait.
+      // The shared schedule carries a leading duplicate (withRetry convention).
+    const raw = OPENAI_REQUEST_RETRY_OPTS.backoffMs[attempt + 1];
+      const delayMs = retryAfterMsFromError(attemptFailure) ?? jitterDelayMs(raw, OPENAI_REQUEST_RETRY_OPTS.retryJitterRatio);
+      emitProviderRetryStage(onStageChange, {
+        attempt: attempt + 2,
+        maxAttempts: CODEX_REQUEST_MAX_RETRIES + 1,
+        lastErr: attemptFailure,
+        delayMs,
+      });
+      try {
+        await sleepWithAbort(
+          delayMs,
+          externalSignal || totalTimeout.signal,
+          _sleepFn,
+          `${label} request retry backoff aborted`
+        );
+      } catch (abortErr) {
+        totalTimeout.cleanup();
+        throw abortErr;
+      }
       response = undefined;
+      httpError = null;
       continue;
     }
     if (requestError) {
@@ -169,7 +214,7 @@ async function postWithRetries({
     }
     break;
   }
-  return response;
+  return { response, httpError };
 }
 
 export async function openHttpSseResponse({
@@ -187,7 +232,7 @@ export async function openHttpSseResponse({
 }) {
   const fetchStartedAt = Date.now();
   const responsesUrl = auth?.type === 'openai-direct' ? OPENAI_DIRECT_RESPONSES_URL : CODEX_RESPONSES_URL;
-  const response = await postWithRetries({
+  const { response, httpError } = await postWithRetries({
     responsesUrl,
     headers,
     rawBytes: Buffer.from(JSON.stringify(body)),
@@ -208,14 +253,9 @@ export async function openHttpSseResponse({
     transport: 'http',
   });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    const err = new Error(`OpenAI OAuth HTTP fallback ${response.status}: ${text.slice(0, 200)}`);
-    err.httpStatus = response.status;
-    err.headers = response.headers;
-    err.initialResponseError = true;
+  if (httpError) {
     totalTimeout.cleanup();
-    throw err;
+    throw httpError;
   }
   if (auth?.type !== 'openai-direct') {
     const responseTurnState = response.headers?.get?.('x-codex-turn-state');
@@ -223,7 +263,7 @@ export async function openHttpSseResponse({
   }
   if (!response.body) {
     totalTimeout.cleanup();
-    throw Object.assign(new Error('OpenAI OAuth HTTP fallback returned no response body'), {
+    throw Object.assign(new Error(`${httpLabel(auth)} returned no response body`), {
       initialResponseError: true,
     });
   }

@@ -26,7 +26,58 @@ const copy = new Map<string, () => string>([
   ['Sign-in expired.', () => t('Sign-in expired.')],
   ['Sign in again from Providers.', () => t('Sign in again from Providers.')],
   ['Something went wrong.', () => t('Something went wrong.')],
+  ['The provider is busy right now.', () => t('The provider is busy right now.')],
+  ['Try again later or choose another model.', () => t('Try again later or choose another model.')],
+  [
+    'The provider is temporarily rate-limiting requests.',
+    () => t('The provider is temporarily rate-limiting requests.'),
+  ],
+  ['Try again shortly.', () => t('Try again shortly.')],
+  ["This model isn't included in your plan.", () => t("This model isn't included in your plan.")],
+  [
+    'Upgrade your plan, or choose another model or provider.',
+    () => t('Upgrade your plan, or choose another model or provider.'),
+  ],
+  [
+    'The provider account is out of credits or at its spend limit.',
+    () => t('The provider account is out of credits or at its spend limit.'),
+  ],
+  [
+    'Check your billing with the provider, then try again.',
+    () => t('Check your billing with the provider, then try again.'),
+  ],
+  ["You don't have access to this resource.", () => t("You don't have access to this resource.")],
+  [
+    'Check your account permissions, or choose another model.',
+    () => t('Check your account permissions, or choose another model.'),
+  ],
+  ['The conversation is too long for this model.', () => t('The conversation is too long for this model.')],
+  ['Compact the conversation or start a new one.', () => t('Compact the conversation or start a new one.')],
+  [
+    'The provider refused this request under its safety policy.',
+    () => t('The provider refused this request under its safety policy.'),
+  ],
+  ['Rephrase the request or choose another model.', () => t('Rephrase the request or choose another model.')],
+  [
+    'The requested service tier is unavailable right now.',
+    () => t('The requested service tier is unavailable right now.'),
+  ],
+  ['Switch to the standard tier or try again later.', () => t('Switch to the standard tier or try again later.')],
 ]);
+
+/** The next-step line of a described error, in the UI language. */
+export function localizeErrorRecovery(presentation: {
+  recovery: string;
+  recoveryTemplate?: string;
+  params?: Record<string, string> | null;
+}): string {
+  const { recovery, recoveryTemplate, params } = presentation;
+  if (recoveryTemplate === 'Try again in {{wait}}.') return t('Try again in {{wait}}.', params ?? {});
+  if (recoveryTemplate === 'It resets at {{time}}. Switch accounts or providers to continue now.') {
+    return t('It resets at {{time}}. Switch accounts or providers to continue now.', params ?? {});
+  }
+  return localizeErrorCopy(recovery);
+}
 
 export function localizeErrorCopy(text: string): string {
   return copy.get(text)?.() ?? localizedTurnFailureReason(text);

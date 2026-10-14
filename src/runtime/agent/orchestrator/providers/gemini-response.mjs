@@ -14,6 +14,7 @@ import { createProviderReplay } from './lib/provider-replay.mjs';
 import { collectGeminiGroundingSources, parseGeminiTextPartMetadata, parseToolCalls } from './gemini-schema.mjs';
 import { _resolveGeminiCacheUsage } from './gemini-cache.mjs';
 import { traceGeminiCache } from './gemini-cache-policy.mjs';
+import { geminiPolicyFinishCode } from './gemini-error-contract.mjs';
 
 // Candidate text and tool calls after the text-leak guard: leaked
 // (text-embedded) tool calls are appended to the native ones and empty the
@@ -64,7 +65,8 @@ export function geminiIncompleteError(response, parsed, useModel, usage = null) 
   if (!finishReason || normalizedFinishReason === 'STOP') return null;
   return Object.assign(new Error(`Gemini response incomplete: finishReason=${finishReason}`), {
     name: 'ProviderIncompleteError',
-    code: 'PROVIDER_INCOMPLETE',
+    // Safety/recitation are policy refusals the core presents as such.
+    code: geminiPolicyFinishCode(finishReason) || 'PROVIDER_INCOMPLETE',
     providerIncomplete: true,
     finishReason,
     partialContent: parsed.content,

@@ -789,7 +789,9 @@ export class SessionHost implements DesktopService {
       } finally {
         try {
           await this.sessionClient.close('service host disposed');
-        } catch {}
+        } catch {
+          // Best-effort close: disposal continues regardless.
+        }
         this.publication.clearProjections();
         this.visibleSessionIds.clear();
         this.visibleSessionSources.clear();

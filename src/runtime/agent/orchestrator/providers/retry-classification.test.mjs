@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isContextOverflowError } from './retry-classification.mjs';
+import { canFallbackNonStreaming, isContextOverflowError } from './retry-classification.mjs';
+import { markProviderRecoveryExhausted } from './retry-executor.mjs';
+
+test('a provider-terminal failure never falls back to a non-streaming re-issue', () => {
+  const unavailable = () => Object.assign(new Error('unavailable'), { status: 503 });
+  assert.equal(canFallbackNonStreaming(unavailable()), true);
+  assert.equal(canFallbackNonStreaming(markProviderRecoveryExhausted(unavailable(), { terminal: true })), false);
+});
 
 test('byte-size request refusals without a 413 status route to overflow recovery', () => {
   for (const message of [

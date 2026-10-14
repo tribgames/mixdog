@@ -16,6 +16,12 @@ const FIXED_REASONS: ReadonlyMap<string, () => string> = new Map([
   ['Session state changed unexpectedly', () => t('Session state changed unexpectedly')],
   ['Context too large', () => t('Context too large')],
   ['Compact failed', () => t('Compact failed')],
+  ['Provider is rate-limited', () => t('Provider is rate-limited')],
+  ['Provider usage limit reached', () => t('Provider usage limit reached')],
+  ['Not included in your plan', () => t('Not included in your plan')],
+  ['Out of credits or at spend limit', () => t('Out of credits or at spend limit')],
+  ['Access denied by the provider', () => t('Access denied by the provider')],
+  ['Refused by the provider safety policy', () => t('Refused by the provider safety policy')],
 ]);
 
 const FIXED_REASON_RE = /^(.+?)(?:\s+\(([^()]+)\))?\.?$/;
@@ -29,5 +35,7 @@ export function localizedTurnFailureReason(reason: string): string {
   const localize = match ? FIXED_REASONS.get(match[1]) : undefined;
   if (!match || !localize) return text;
   const sentence = localize();
-  return match[2] ? `${sentence} (${match[2]})` : sentence;
+  if (!match[2]) return sentence;
+  const wait = /^retry in (\S+)$/.exec(match[2])?.[1];
+  return wait ? t('{{sentence}} (retry in {{wait}})', { sentence, wait }) : `${sentence} (${match[2]})`;
 }

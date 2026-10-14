@@ -6,13 +6,45 @@
  * account-verification URL Google hides in the error details), and the
  * per-attempt hand-off of the live stream to the turn collector.
  */
-import { emitProviderRetryStage, withRetry } from './retry-classifier.mjs';
+import { emitProviderRetryStage, markProviderRecoveryExhausted, sleepWithAbort, withRetry } from './retry-classifier.mjs';
+import {
+  ANTIGRAVITY_RETRY,
+  antigravity429WaitMs,
+  isAntigravityCapacityError,
+} from './antigravity-retry-policy.mjs';
 import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { GEMINI_FIRST_BYTE_TIMEOUT_MS } from './gemini-stream.mjs';
 import { _scrubTokens } from './antigravity-oauth-tokens.mjs';
+import { applyGeminiErrorContract } from './gemini-error-contract.mjs';
+import { DETERMINISTIC_KINDS, providerErrorKind } from './provider-error-kind.mjs';
 
-function antigravityError(res, text, endpoint) {
+// Rate-limit reason: 503/529 are capacity by status; a
+// typed ErrorInfo reason decides next; wording is the last resort for a 429.
+const CAPACITY_MESSAGE_RE = /capacity|overloaded|resource exhausted|server (?:is )?(?:currently )?busy/i;
+const RATE_LIMIT_MESSAGE_RE = /per minute|rate limit|too many requests/i;
+const TYPED_REASONS = new Set(['quota_exhausted', 'rate_limit_exceeded', 'model_capacity_exhausted']);
+
+function applyAntigravityRateLimitReason(err, status, message) {
+  if (status === 503 || status === 529) {
+    // A typed refusal of this request (bad argument, policy, auth, quota) is
+    // not an overload whatever the status says.
+    if (DETERMINISTIC_KINDS.has(providerErrorKind(err).kind)) return;
+    err.code = 'model_capacity_exhausted';
+    return;
+  }
+  if (status !== 429 || TYPED_REASONS.has(err.code)) return;
+  if (CAPACITY_MESSAGE_RE.test(message)) err.code = 'model_capacity_exhausted';
+  else if (RATE_LIMIT_MESSAGE_RE.test(message)) err.code = 'rate_limit_exceeded';
+}
+
+const CAPACITY_STATUSES = new Set([429, 503, 529]);
+
+function isCapacityFailure(err) {
+  return CAPACITY_STATUSES.has(Number(err?.status)) && isAntigravityCapacityError(err);
+}
+
+export function antigravityError(res, text, endpoint) {
   let payload = null;
   try {
     payload = text ? JSON.parse(text) : null;
@@ -30,7 +62,11 @@ function antigravityError(res, text, endpoint) {
     err.error = detail;
     err.data = payload;
     if (detail.status) err.geminiStatus = detail.status;
+    const details = detail.details ?? detail.errorDetails;
+    applyGeminiErrorContract(err, { details, googleStatus: detail.status, message });
   }
+  // Capacity is overload of the shared model pool, not this account's quota.
+  applyAntigravityRateLimitReason(err, res.status, message);
   // Account verification is terminal and actionable: surface the URL Google
   // returns instead of a raw API body the user cannot act on.
   // Google puts the link in the error details, not the message text.
@@ -47,6 +83,9 @@ function antigravityError(res, text, endpoint) {
     err.message = `Antigravity requires account verification${validationUrl ? `: open ${validationUrl} , complete the check, then retry` : ''}`;
     err.validationUrl = validationUrl || undefined;
     err.unsafeToRetry = true;
+    // This account needs verification; another account may still serve.
+    err.code ||= 'validation_required';
+    err.accountBlocked = true;
   }
   return err;
 }
@@ -62,8 +101,17 @@ function antigravityError(res, text, endpoint) {
  * @param {{ beginAttempt: Function, consume: Function }} deps.collector
  * @returns {() => Promise<object>} one retried request that resolves the final payload
  */
-export function createAntigravityRequest({ fetchFn, endpoint, headers, body, opts, signal, collector }) {
-  return () =>
+export function createAntigravityRequest({ fetchFn, endpoint, headers, body, opts, signal, collector, sleepFn }) {
+  const log = (attempt, lastErr, delayMs) => {
+    emitProviderRetryStage(opts.onStageChange, {
+      attempt: attempt + 1,
+      maxAttempts: ANTIGRAVITY_RETRY.maxAttempts,
+      lastErr,
+      delayMs,
+    });
+    process.stderr.write(`[antigravity] retry ${attempt + 1} after ${lastErr?.message || 'transient error'}\n`);
+  };
+  const attemptOnce = () =>
     withRetry(
       async ({ signal: attemptSignal }) => {
         try {
@@ -94,17 +142,42 @@ export function createAntigravityRequest({ fetchFn, endpoint, headers, body, opt
         }
         if (!res.ok) {
           const text = await res.text().catch(() => '');
-          throw antigravityError(res, text, endpoint);
+          const failure = antigravityError(res, text, endpoint);
+          // Capacity is paced by the local schedule below; the generic loop
+          // would sleep whatever wait the server names.
+          if (isCapacityFailure(failure)) markProviderRecoveryExhausted(failure, { owner: 'antigravity-capacity' });
+          throw failure;
         }
         collector.beginAttempt();
         return collector.consume(res, attemptSignal);
       },
       {
+        ...ANTIGRAVITY_RETRY,
+        finalOnExhaust: true,
         signal,
-        onRetry: ({ attempt, maxAttempts, lastErr: retryErr, delayMs }) => {
-          emitProviderRetryStage(opts.onStageChange, { attempt: attempt + 1, maxAttempts, lastErr: retryErr, delayMs });
-          process.stderr.write(`[antigravity] retry ${attempt + 1} after ${retryErr?.message || 'transient error'}\n`);
-        },
+        sleepFn,
+        onRetry: ({ attempt, lastErr: retryErr, delayMs }) => log(attempt, retryErr, delayMs),
       }
     );
+  // A 429 comes back from withRetry untouched (retry429:false) and is paced by
+  // the retry schedule: capacity backs off on this host, an RPM hit
+  // gets one quick retry, a spent quota surfaces.
+  return async () => {
+    const state = { capacityRetries: 0, quickRetried: false };
+    for (let tried = 1; ; tried++) {
+      try {
+        return await attemptOnce();
+      } catch (err) {
+        const waitMs = antigravity429WaitMs(err, state);
+        if (waitMs == null) {
+          if (isCapacityFailure(err)) {
+            markProviderRecoveryExhausted(err, { owner: 'antigravity-capacity', attempts: tried });
+          }
+          throw err;
+        }
+        log(tried, err, waitMs);
+        await sleepWithAbort(waitMs, signal, sleepFn, 'Antigravity retry wait aborted');
+      }
+    }
+  };
 }

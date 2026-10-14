@@ -188,18 +188,19 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
         !cachedAnswer && typeof value?.etag === 'string' ? value.etag : ''
       );
     }
+    // The signature belongs to the active scope: an outgoing session's answer
+    // (cached above) must not mark the incoming one's review as already shown.
+    if (ctx.activeScope.current !== requestedScope) return;
     if (ctx.lastAgentReviewSignature.current === signature) return;
     ctx.lastAgentReviewSignature.current = signature;
-    if (ctx.activeScope.current === requestedScope) {
-      ctx.setAgentReviewState({
-        scopeKey: requestedScope,
-        reviews,
-        leadPatch,
-        files,
-        snapshotKind,
-        checkpointId,
-      });
-    }
+    ctx.setAgentReviewState({
+      scopeKey: requestedScope,
+      reviews,
+      leadPatch,
+      files,
+      snapshotKind,
+      checkpointId,
+    });
   } catch {
     // The next turn boundary, visibility change, expansion, or bounded idle
     // refresh retries. A transient read must never permanently lock Revert.
@@ -251,6 +252,13 @@ function useTurnReviewRefreshSchedule({
   entryPendingRef: MutableRefObject<boolean>;
   refreshAgentReviews: RefreshAgentReviews;
 }) {
+  // Opening the review reads the worktree now; every other read while the
+  // turn runs may be answered from a recent capture.
+  const wasExpanded = useRef(false);
+  const boundaryInBackground = busy && !(expanded && !wasExpanded.current);
+  useEffect(() => {
+    wasExpanded.current = expanded;
+  }, [expanded]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: turnBoundaryKey stands in for items as the re-run trigger
   useEffect(() => {
     // A tool/turn boundary is the authoritative point at which the visible
@@ -261,7 +269,11 @@ function useTurnReviewRefreshSchedule({
       // An idle entry asks the runtime's held snapshot first (fast), then the
       // fresh worktree read queues behind it.
       if (entryPendingRef.current && !busy) void refreshAgentReviews(false);
-      void refreshAgentReviews(true);
+      // A tool boundary inside a running turn is a `background` read, so the
+      // daemon's capture gap applies instead of forcing a worktree capture at
+      // every tool. The turn's end, an idle entry and an opening review still
+      // capture now (the runtime also seals the turn with a fresh capture).
+      void refreshAgentReviews(true, boundaryInBackground);
     }
   }, [active, busy, refreshAgentReviews, hasTurnActivity, turnBoundaryKey]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: turnBoundaryKey re-runs the schedule at each turn boundary
@@ -271,7 +283,7 @@ function useTurnReviewRefreshSchedule({
     // Once idle, use a bounded backoff window to catch a late child completion
     // without leaving every mounted session on a permanent six-second poll.
     if (busy || expanded) {
-      void refreshAgentReviews(true);
+      void refreshAgentReviews(true, boundaryInBackground);
       // Every tool/turn boundary already re-reads (effect above). On a phone
       // each timed re-read of a working turn moves its whole diff over the
       // relay and re-diffs the desktop worktree, so the timer only backstops.

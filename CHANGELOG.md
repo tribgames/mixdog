@@ -5,6 +5,37 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Added explicit MCP OAuth sign-in, in-place model switching, and a one-line quota banner.
+
+### New features
+
+- **MCP sign-in** — Added explicit OAuth sign-in for MCP servers with status, a shared login dialog, remote paste, and TUI commands (#74, thanks @oh1701).
+- **Switch model in place** — Added switching a chat's model without starting a new session, and Fork in the session menu (#73, #52, thanks @grapefruit0205).
+- **Quota banner** — Added a one-line banner above the composer when a limit is reached; Resume reserves the next run for the reset time.
+- **Files menu** — Added an island Files count that tracks uncommitted session changes, with View changes and Delete history.
+- **Chat text size** — Added a per-device chat text size setting.
+
+### Changes
+
+- Changed provider retries to follow each provider's own limits and wait times, showing the remaining wait with a way to cancel.
+- Changed error messages to name the cause and next step, and to hide Retry when retrying cannot help.
+- Changed shell commands to stay in the foreground for 10 seconds by default, up to 30 seconds, before moving to the background.
+- Adjusted the desktop app, auto reasoning, and the background service to use less polling, rendering, and memory in long sessions.
+
+### Bug fixes
+
+- Fixed the background service freezing for one to two seconds every 30 minutes.
+- Fixed Agent completion notices being dropped when a turn that already had output was cancelled.
+- Fixed the composer island showing running Agents as idle or done.
+- Fixed switching sessions stalling when waiting on other sessions' change scans.
+- Fixed browser page dialogs leaving the pane, leave confirmation failing to complete, and browser copy shortcuts failing.
+- Fixed prompt caching failing on custom Responses providers and inherited session projects not matching the sidebar (#70, #75, thanks @sukjong2002).
+- Fixed streaming tables flickering, the transcript bouncing while a turn works, and the quota card staying after switching providers.
+
+### Other
+
+- Removed unused helpers (#67, thanks @22nsuk).
+
 ## v1.2.1 - 2026-10-14
 
 Added conversation import from Codex and Claude Code, the Command Code provider, and `$` skill mentions, and fixed Computer Use input observation, skill scripts, auto reasoning, and several session issues.

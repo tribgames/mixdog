@@ -39,7 +39,11 @@ export function onExecutionContextDestroyed(
   state.for(guest).browserComponentContexts.delete(contextKey(sessionId, params.executionContextId));
 }
 
-export function onExecutionContextsCleared(state: BrowserGuestStateStore, guest: WebContents, sessionId?: string): void {
+export function onExecutionContextsCleared(
+  state: BrowserGuestStateStore,
+  guest: WebContents,
+  sessionId?: string
+): void {
   const contexts = state.for(guest).browserComponentContexts;
   for (const key of contexts) {
     if (key.startsWith(`${sessionId ?? ''}:`)) contexts.delete(key);

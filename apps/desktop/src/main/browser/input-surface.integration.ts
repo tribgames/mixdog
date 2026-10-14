@@ -157,10 +157,17 @@ export async function exerciseBrowserInputSurface(options: {
         clipboard.writeText('browser copy fixture');
         for (const type of ['rawKeyDown', 'keyUp']) {
           await shell.debugger.sendCommand('Input.dispatchKeyEvent', {
-            type, key: 'c', code: 'KeyC', windowsVirtualKeyCode: 67, modifiers,
+            type,
+            key: 'c',
+            code: 'KeyC',
+            windowsVirtualKeyCode: 67,
+            modifiers,
           });
         }
-        await eventually(async () => clipboard.readText(), (value) => value === expected);
+        await eventually(
+          async () => clipboard.readText(),
+          (value) => value === expected
+        );
         assert.equal(await guest.executeJavaScript(`document.getElementById('agent').value`), 'manual 한글');
         assert.equal(await shell.executeJavaScript(`document.getElementById('draft').textContent`), 'keep editing');
       }

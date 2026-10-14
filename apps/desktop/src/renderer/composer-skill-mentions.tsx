@@ -96,20 +96,51 @@ export function cachedSkillCatalog(
 const startedReads = new Map<string, number>();
 const appliedReads = new Map<string, number>();
 
-export async function refreshSkillCatalog(
+// Concurrent reads of one catalog share a promise, and a catalog read within
+// SKILL_CATALOG_MIN_AGE_MS is served as is. A skill-changing signal passes
+// `force` to start a fresh read regardless (so it is never answered by one
+// that began before the change).
+export const SKILL_CATALOG_MIN_AGE_MS = 2000;
+const inflightReads = new Map<string, Promise<ComposerSkillCatalog>>();
+const readFinishedAt = new Map<string, number>();
+
+export function resetSkillCatalogReadsForTests(): void {
+  inflightReads.clear();
+  readFinishedAt.clear();
+}
+
+export function refreshSkillCatalog(
   sessionId?: string | null,
-  projectPath?: string | null
+  projectPath?: string | null,
+  options: { force?: boolean } = {}
 ): Promise<ComposerSkillCatalog> {
   const key = catalogKey(sessionId, projectPath);
+  if (!options.force) {
+    const inflight = inflightReads.get(key);
+    if (inflight) return inflight;
+    const cached = catalogs.get(key);
+    if (cached && Date.now() - (readFinishedAt.get(key) ?? 0) < SKILL_CATALOG_MIN_AGE_MS) {
+      return Promise.resolve(cached);
+    }
+  }
   const read = (startedReads.get(key) ?? 0) + 1;
   startedReads.set(key, read);
-  const next = composerSkillCatalog(await readSkillsStatus(sessionId, projectPath));
-  if (read > (appliedReads.get(key) ?? 0)) {
-    appliedReads.set(key, read);
-    catalogs.set(key, next);
-    for (const notify of catalogListeners) notify();
-  }
-  return catalogs.get(key) ?? next;
+  const promise = (async () => {
+    const next = composerSkillCatalog(await readSkillsStatus(sessionId, projectPath));
+    readFinishedAt.set(key, Date.now());
+    if (read > (appliedReads.get(key) ?? 0)) {
+      appliedReads.set(key, read);
+      catalogs.set(key, next);
+      for (const notify of catalogListeners) notify();
+    }
+    return catalogs.get(key) ?? next;
+  })();
+  inflightReads.set(key, promise);
+  const clear = () => {
+    if (inflightReads.get(key) === promise) inflightReads.delete(key);
+  };
+  promise.then(clear, clear);
+  return promise;
 }
 
 // Catalogs with a mounted composer, so one change re-reads each of them once
@@ -125,7 +156,7 @@ function refreshMountedCatalogs(): void {
     // A failed read leaves mentions unhighlighted (they still reach the
     // runtime, which resolves them); the + menu surfaces the read error.
     for (const { sessionId, projectPath } of mountedCatalogs.values()) {
-      void refreshSkillCatalog(sessionId, projectPath).catch(() => undefined);
+      void refreshSkillCatalog(sessionId, projectPath, { force: true }).catch(() => undefined);
     }
   });
 }
@@ -154,15 +185,13 @@ export function invalidateSkillCatalogForMutation(capability: string): boolean {
 }
 
 /** The catalog for a session, or (no session) for a new-task draft's
- *  `projectPath`. Re-read when `refreshKey` changes (the composer passes its
- *  focus state) and on every app signal that skills may have changed while it
- *  stays focused: a settings mutation, a setup-tool or host/other-client
- *  settings change, the window regaining focus (another window or app), and a
- *  remote reconnect or state gap. Never on keystrokes. */
+ *  `projectPath`. Read when the catalog changes and re-read on every app signal
+ *  that skills may have changed: a settings mutation, a setup-tool or
+ *  host/other-client settings change, and a remote reconnect or state gap.
+ *  Never on keystrokes or focus changes. */
 export function useSkillCatalog(
   sessionId: string | null | undefined,
-  projectPath: string | null | undefined,
-  refreshKey: unknown
+  projectPath: string | null | undefined
 ): ComposerSkillCatalog {
   const session = sessionId || '';
   const project = session ? '' : projectPath || '';
@@ -172,16 +201,14 @@ export function useSkillCatalog(
     () => catalogs.get(key) ?? EMPTY_CATALOG,
     () => EMPTY_CATALOG
   );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey is the re-read trigger; the body does not read it
   useEffect(() => {
     void refreshSkillCatalog(session, project).catch(() => undefined);
-  }, [session, project, refreshKey]);
+  }, [session, project]);
   useEffect(() => {
     const mounted = mountedCatalogs.get(key);
     if (mounted) mounted.count += 1;
     else mountedCatalogs.set(key, { sessionId: session, projectPath: project, count: 1 });
     const unsubscribeSetup = subscribeSetupChanges(refreshMountedCatalogs);
-    window.addEventListener('focus', refreshMountedCatalogs);
     window.addEventListener('mixdog:remote-state-gap', refreshMountedCatalogs);
     window.addEventListener('mixdog:remote-reconnected', refreshMountedCatalogs);
     return () => {
@@ -189,7 +216,6 @@ export function useSkillCatalog(
       if (entry && entry.count > 1) entry.count -= 1;
       else mountedCatalogs.delete(key);
       unsubscribeSetup();
-      window.removeEventListener('focus', refreshMountedCatalogs);
       window.removeEventListener('mixdog:remote-state-gap', refreshMountedCatalogs);
       window.removeEventListener('mixdog:remote-reconnected', refreshMountedCatalogs);
     };

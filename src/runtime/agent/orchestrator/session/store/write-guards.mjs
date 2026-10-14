@@ -49,6 +49,22 @@ export function guardedSaveOptions(id, opts, epoch = null) {
   };
 }
 
+/**
+ * Drop the id's control buffer once the session is gone (close/forget/delete)
+ * so the map does not grow by one SharedArrayBuffer per session ever saved.
+ * Kept while a commit holds the lock: that write still serialises on this
+ * buffer. A later save for the same id simply allocates a fresh control.
+ */
+export function releaseSessionWriteControl(id) {
+  const control = _writeControls.get(id);
+  if (!control || Atomics.load(control, 1) !== 0) return false;
+  return _writeControls.delete(id);
+}
+
+export function _hasSessionWriteControl(id) {
+  return _writeControls.has(id);
+}
+
 export function cancelSessionWrites(id) {
   Atomics.add(writeControl(id), 0, 1);
 }

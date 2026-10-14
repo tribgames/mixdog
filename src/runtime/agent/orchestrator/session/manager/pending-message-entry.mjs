@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { mergeNormalizedContentEntries } from '../loop/steering.mjs';
 import { isDeliveredCompletion, logDuplicateSkip } from './delivered-completions.mjs';
-import { isInternalRuntimeNotificationText, promptContentText } from './prompt-utils.mjs';
+import { promptContentText } from './prompt-utils.mjs';
 import { parseTaskNotification, taskNotificationId } from '../../../../shared/task-notification-envelope.mjs';
 
 const STALE_USER_INJECTION_TTL_MS = 30 * 60 * 1000;
@@ -295,15 +295,10 @@ function normalizePersistedEntryBase(entry) {
 }
 
 export function modelVisiblePendingMessages(messages) {
-  return (Array.isArray(messages) ? messages : [])
-    .map(pendingMessageQueueEntry)
-    .filter(Boolean)
-    .filter(
-      (message) =>
-        !isInternalRuntimeNotificationText(
-          message && typeof message === 'object' && Object.hasOwn(message, 'content') ? message.content : message
-        )
-    );
+  // No content filter: isInternalRuntimeNotificationText is a display-only
+  // predicate. Every canonical completion envelope matches it, and a drained
+  // entry the model never sees is never claimed/acked/released.
+  return (Array.isArray(messages) ? messages : []).map(pendingMessageQueueEntry).filter(Boolean);
 }
 
 export function _mergePendingMessageEntries(entries) {

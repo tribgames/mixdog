@@ -114,7 +114,11 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     'Runtime.consoleAPICalled': ({ guest, params, sessionId }) => {
       const dismissed = parseDialogBridgeNotice(params);
       if (dismissed) {
-        state.noteDismissedDialog(guest, { ...dismissed, message: redactBrowserText(dismissed.message) }, 'unreachable');
+        state.noteDismissedDialog(
+          guest,
+          { ...dismissed, message: redactBrowserText(dismissed.message) },
+          'unreachable'
+        );
       } else onConsoleApiCalled(state, guest, params, sessionId);
     },
     'Log.entryAdded': ({ guest, params }) => onLogEntryAdded(state, guest, params),

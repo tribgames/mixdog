@@ -52,15 +52,15 @@ export function createCommandReplies(host: CommandRepliesHost) {
 
   /** Honour image_output for the pixel-only replies that carry no capture
    *  payload. A frame that cannot be written stays in the reply. */
-  function frameReply(
+  async function frameReply(
     command: ComputerCommand,
     description: string,
     image: { mimeType: string; data: string },
     frameId: string,
     captureAttempts?: CaptureAttempt[]
-  ): ComputerCommandResult {
+  ): Promise<ComputerCommandResult> {
     if (String(command.image_output || 'inline') !== 'file') return { text: description, image, captureAttempts };
-    const stored = persistFrameImage('computer', sessionIdFor(command), frameId, image);
+    const stored = await persistFrameImage('computer', sessionIdFor(command), frameId, image);
     if (!stored) return { text: description, image, captureAttempts };
     return {
       captureAttempts,

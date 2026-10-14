@@ -53,13 +53,13 @@ export async function applyFrameImage(
 /** `image_output: 'file'` moves the pixels to disk; a frame that could not be
  *  written stays inline — the caller asked for a cheaper reply, not for the
  *  pixels to disappear. Returns the image still to send inline. */
-export function persistCaptureImage(
+export async function persistCaptureImage(
   payload: Record<string, unknown>,
   image: CaptureImage | undefined,
   { command, sessionId }: { command: ComputerCommand; sessionId: string }
-): CaptureImage | undefined {
+): Promise<CaptureImage | undefined> {
   if (!image || String(command.image_output || 'inline') !== 'file') return image;
-  const stored = persistFrameImage('computer', sessionId, String(payload.frame_id || ''), image);
+  const stored = await persistFrameImage('computer', sessionId, String(payload.frame_id || ''), image);
   if (!stored) return image;
   payload.image_file = { path: stored.path, bytes: stored.bytes, mime_type: image.mimeType };
   return undefined;

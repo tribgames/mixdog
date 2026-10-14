@@ -7,6 +7,8 @@ import {
   writeXaiResponsesCacheTrace,
 } from './openai-compat-xai.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
+import { stampStreamOutcome, STREAM_TRANSPORTS } from './lib/stream-outcome.mjs';
+import { failingFinishReasonError } from './openai-compat-stream-common.mjs';
 
 const reportedNumber = (value) =>
   value == null || (typeof value === 'string' && value.trim() === '') ? Number.NaN : Number(value);
@@ -141,6 +143,27 @@ export function normalizeCompatChatResponse({
   const choice = response.choices[0];
   const toolCalls = assembled.toolCalls;
   const stopReason = choice?.finish_reason || null;
+  const failingFinish = failingFinishReasonError(stopReason, providerName);
+  if (failingFinish) {
+    const err = failingFinish;
+    const partialContent = choice?.message?.content || '';
+    Object.assign(err, {
+      partialContent,
+      partialToolCalls: Array.isArray(toolCalls) && toolCalls.length ? toolCalls : undefined,
+      pendingToolUse: false,
+      partialModel: response.model || useModel,
+      ...(response.usage ? { partialUsage: chatCompletionUsage(providerName, response.usage) } : {}),
+    });
+    stampStreamOutcome(err, {
+      transport: STREAM_TRANSPORTS.NON_STREAMING,
+      provider: 'openai-compat',
+      terminalObserved: false,
+      continuation: true,
+      textObservedChars: partialContent.length,
+      toolCallsComplete: err.partialToolCalls?.length || 0,
+    });
+    throw err;
+  }
   if (
     (stopReason === 'length' && Array.isArray(toolCalls) && toolCalls.length > 0) ||
     stopReason === 'content_filter'

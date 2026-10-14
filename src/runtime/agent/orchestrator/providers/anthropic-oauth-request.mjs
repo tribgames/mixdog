@@ -11,7 +11,6 @@
 import { traceAgentFetch } from '../agent-trace.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
 import { notifyCurrentAnthropicRateLimit } from './admission-scheduler.mjs';
-import { noteFastModeCapacityError } from './anthropic-fast-mode.mjs';
 import { noteRequestServiceTier } from '../../../shared/llm/usage-context.mjs';
 import {
   ANTHROPIC_RETRY_BACKOFF_MS,
@@ -21,6 +20,7 @@ import {
   emitProviderRetryStage,
   withRetry,
 } from './retry-classifier.mjs';
+import { ANTHROPIC_MAX_CONSECUTIVE_529 } from './retry-backoff.mjs';
 import { postMessages } from './anthropic-oauth-request/gzip-post.mjs';
 import { removeAbortListener, wireRequestAbort } from './anthropic-oauth-request/abort-wiring.mjs';
 import { judgeInitialStatus } from './anthropic-oauth-request/initial-status.mjs';
@@ -38,6 +38,7 @@ export { anthropicQuotaError } from './anthropic-oauth-request/initial-status.mj
  * @param {AbortSignal|null} deps.totalSignal  session-lifetime pass-through
  * @param {(requestBody: object) => string} deps.betaHeadersFor
  * @param {((stage: string) => void)|null} deps.onStageChange
+ * @param {{ state: { consecutive529Errors: number } }|null} [deps.overload]  the send's shared overload counter
  */
 export function createAnthropicOAuthRequest({
   provider,
@@ -48,8 +49,10 @@ export function createAnthropicOAuthRequest({
   totalSignal,
   betaHeadersFor,
   onStageChange,
+  overload = null,
 }) {
   const requestTimeoutMs = anthropicRequestTimeoutMs();
+  const isEnterprise = String(provider?.credentials?.subscriptionType || '').toLowerCase() === 'enterprise';
   const cleanupCancelHandler = (handler) => removeAbortListener(totalSignal, handler);
 
   const doRequest = async (accessToken, requestSignal = null, requestBody = body) => {
@@ -100,7 +103,7 @@ export function createAnthropicOAuthRequest({
         try {
           await judgeInitialStatus(result, requestBody, { provider, cleanupCancelHandler });
         } catch (err) {
-          // Fast-pool 429 before any byte was sampled: `speed` is already
+          // Fast-pool 429/529 before any byte was sampled: `speed` is already
           // dropped, so replay once at standard speed within this attempt.
           if (err?.fastDowngraded !== true) throw err;
           const replay = await doRequestImpl(accessToken, attemptSignal, requestBody);
@@ -118,23 +121,25 @@ export function createAnthropicOAuthRequest({
         // Max/Pro OAuth sessions use subscription quota windows. Claude
         // Code fails their 429s immediately rather than waiting through
         // the API-key/PAYG retry budget (which may carry hours-long
-        // Retry-After values).
-        retry429: false,
+        // Retry-After values). Enterprise bills PAYG-style, so its 429s
+        // are retried like an API key's.
+        retry429: isEnterprise,
         retry529: opts.retry529,
         perAttemptTimeoutMs: requestTimeoutMs,
         perAttemptLabel: 'Anthropic OAuth initial response',
         provider: 'anthropic',
+        // This transport honors the positive x-should-retry override.
+        honorShouldRetryTrue: true,
         model: useModel,
         fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
+        // One overload counter for the send: SSE overloads count toward the
+        // same limit as request-loop 529s.
+        overloadState: overload?.state,
+        overloadFallbackAfter: ANTHROPIC_MAX_CONSECUTIVE_529,
         onRetry: ({ attempt, maxAttempts, lastErr, delayMs, delayReason }) => {
           emitProviderRetryStage(onStageChange, { attempt: attempt + 1, maxAttempts, lastErr, delayMs });
           const status = Number(lastErr?.httpStatus || lastErr?.status || lastErr?.response?.status || 0) || null;
           if (status === 429) notifyCurrentAnthropicRateLimit(lastErr);
-          // Fast capacity exhausted: drop `speed` so the replay runs at
-          // standard speed instead of re-hitting the drained pool.
-          if (requestBody?.speed === 'fast' && noteFastModeCapacityError(lastErr, { fast: true }) !== 'retry-fast') {
-            delete requestBody.speed;
-          }
           const reason = status || lastErr?.code || lastErr?.message || 'network error';
           const suffix = delayReason ? ` (${delayReason})` : '';
           try {

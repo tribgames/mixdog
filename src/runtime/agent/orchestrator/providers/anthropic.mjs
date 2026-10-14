@@ -1,6 +1,11 @@
 import { reloadProviderApiKey, resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { sanitizeToolPairs } from '../session/context-utils.mjs';
 import { AnthropicFallbackTriggeredError } from './retry-classifier.mjs';
+import {
+  announceAnthropicModelFallback,
+  createAnthropicOverloadTracker,
+  isTerminalOverloadModel,
+} from './anthropic-overload-fallback.mjs';
 import { readStreamOutcome } from './lib/stream-outcome.mjs';
 import { createPassthroughSignal } from '../stall-policy.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
@@ -166,6 +171,13 @@ export class AnthropicProvider {
       } catch {}
     };
 
+    // Request-loop 529s and SSE overload events share one counter; at the
+    // limit the configured fallback model takes over the whole send.
+    const overload = createAnthropicOverloadTracker({
+      model: useModel,
+      fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
+      terminalAtLimit: !isCustomProviderName(this.name) && isTerminalOverloadModel(useModel),
+    });
     // The SDK calls and their initial-response retry policy
     // (anthropic-api-transport.mjs).
     const transport = createAnthropicApiTransport({
@@ -176,6 +188,7 @@ export class AnthropicProvider {
       params,
       requestHeaders,
       totalSignal,
+      overload,
     });
     // Usage accounting + caller-visible projection, shared by the streaming
     // success path and the non-streaming fallback (anthropic-turn-result.mjs).
@@ -213,8 +226,10 @@ export class AnthropicProvider {
       recovery,
       onStageChange,
       retry529: opts.retry529 !== false,
+      overload,
     });
 
+    let streamingFallbackTried = false;
     try {
       for (let attemptIndex = 0; attemptIndex <= ANTHROPIC_MAX_MIDSTREAM_RETRIES; attemptIndex++) {
         const streamController = createAbortController();
@@ -274,13 +289,13 @@ export class AnthropicProvider {
 
           return buildTurnResult(parseResult);
         } catch (err) {
-          if (err instanceof AnthropicFallbackTriggeredError) {
-            process.stderr.write(`[${this.name}] ${err.message}\n`);
-            return this._doSend(messages, err.fallbackModel, tools, {
-              ...opts,
-              fallbackModel: undefined,
-              _fallbackTriggered: true,
-            });
+          // The fallback trigger is handled around the whole send below.
+          if (err instanceof AnthropicFallbackTriggeredError) throw err;
+          // Gateways that 404 the streaming endpoint but serve non-streaming:
+          // one non-streaming replay (nothing was streamed yet).
+          if (err?.initialResponseError === true && Number(err.status) === 404 && !streamingFallbackTried) {
+            streamingFallbackTried = true;
+            return await recovery.issueNonStreamingFallback(streamController, err);
           }
           // Ordered recovery ladder: canonical outcome stamp, acknowledged
           // non-streaming replay for exposed output, bounded streaming
@@ -300,6 +315,18 @@ export class AnthropicProvider {
         }
       }
       throw midstream.exhaustedError();
+    } catch (err) {
+      // The fallback trigger can surface from the request loop, a mid-stream
+      // overload, or the non-streaming recovery: handle it around the whole
+      // operation, not just the first request.
+      if (!(err instanceof AnthropicFallbackTriggeredError)) throw err;
+      process.stderr.write(`[${this.name}] ${err.message}\n`);
+      announceAnthropicModelFallback(onStageChange, useModel, err.fallbackModel);
+      return await this._doSend(messages, err.fallbackModel, tools, {
+        ...opts,
+        fallbackModel: undefined,
+        _fallbackTriggered: true,
+      });
     } finally {
       totalTimeout.cleanup();
     }

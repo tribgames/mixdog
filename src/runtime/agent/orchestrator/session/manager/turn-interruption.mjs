@@ -1,6 +1,6 @@
 import { sanitizeToolPairs } from '../context-utils.mjs';
 import { collectAssistantToolCallIds as assistantToolCallIds } from '../context-tool-pairs.mjs';
-import { isInternalRuntimeNotificationText, promptContentText } from './prompt-utils.mjs';
+import { promptContentText } from './prompt-utils.mjs';
 import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
 import { journalDelta } from './turn-interruption-journal.mjs';
 
@@ -72,8 +72,11 @@ function finalizeInterruptedTurn({
       const index = provisionalUserTurnIndex(messages, currentUserContent);
       return index >= 0 && index < messages.length - 1;
     })();
-  const preserveResponse =
-    responseStarted && !isInternalRuntimeNotificationText(currentUserContent) && (producedOutput || !userCancelled);
+  // A turn woken by a task notification is preserved by the same rule as a
+  // user prompt: once it produced output its notification is consumed (the
+  // host commits it and never requeues it), so rewinding it would erase the
+  // turn and its side effects from history.
+  const preserveResponse = responseStarted && (producedOutput || !userCancelled);
   if (!preserveResponse) {
     if (!userCancelled) {
       return {
@@ -198,8 +201,11 @@ export function createTurnInterruptionTracker() {
       // copies of the same first sentence). Reference agents never
       // commit a replayed attempt's discarded stream at all; the
       // tombstone exists only for the window between a retraction and
-      // its replacement.
-      if (state.tombstonedAssistantContent) {
+      // its replacement. Whitespace is not a replacement: it is not output
+      // (finalizeInterruptedTurn trims, and the host commits the prompt only
+      // on non-blank text), so until real text arrives the retracted bytes
+      // remain the only output the user saw.
+      if (state.tombstonedAssistantContent && value.trim()) {
         state.tombstonedAssistantContent = '';
         state.tombEpoch += 1;
       }
@@ -212,8 +218,13 @@ export function createTurnInterruptionTracker() {
       // REPLACE, never accumulate: consecutive retractions belong to
       // successive attempts at the SAME answer, so keeping the earlier
       // tombstone alongside the newer one is what multiplied the visible
-      // text across retries.
-      state.tombstonedAssistantContent = state.partialAssistantContent.slice(cutAt);
+      // text across retries. A whitespace-only retraction is not a newer
+      // attempt at the answer (recordTextDelta never let it supersede the
+      // draft), so it never replaces a meaningful tombstone.
+      const retracted = state.partialAssistantContent.slice(cutAt);
+      if (retracted.trim() || !state.tombstonedAssistantContent.trim()) {
+        state.tombstonedAssistantContent = retracted;
+      }
       state.partialAssistantContent = state.partialAssistantContent.slice(0, cutAt);
       state.textEpoch += 1;
       state.tombEpoch += 1;

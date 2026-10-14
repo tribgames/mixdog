@@ -83,6 +83,9 @@ import {
 import { classifyToolCategory, formatToolSurface } from '../../../../src/runtime/shared/tool-surface.mjs';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
+import { formatElapsed as formatCardElapsed } from '../../../../src/runtime/shared/time-format.mjs';
+// biome-ignore format: @ts-expect-error must precede the specifier
+// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { deriveToolCardModel, deriveToolOutcomeTone, splitLineDeltaTokens } from '../../../../src/runtime/shared/tool-card-model.mjs';
 
 interface DetailLinePart {
@@ -233,6 +236,32 @@ function ToolWorkingStatus({ startedAt, spark = false }: { startedAt: number; sp
     </span>
   );
 }
+
+/** Live elapsed text since `startedAt` (from `minMs`), ticking on its own so
+ *  only this leaf re-renders each second. */
+const Elapsed = React.memo(function Elapsed({
+  startedAt,
+  prefix = '',
+  minMs = 1_000,
+}: {
+  startedAt: number;
+  prefix?: string;
+  minMs?: number;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+  const elapsedMs = Math.max(0, now - startedAt);
+  return elapsedMs >= minMs ? (
+    <>
+      {prefix}
+      {formatCardElapsed(elapsedMs) as string}
+    </>
+  ) : null;
+});
 
 type LineCounts = { additions: number; deletions: number };
 
@@ -1127,12 +1156,6 @@ export function ToolCard({ item, disclosureScope = '' }: { item: TranscriptItem;
   const contentId = useId();
   const done = toolItemDone(item);
   const startedAt = Number(item.startedAt || 0);
-  const [nowTick, setNowTick] = useState(() => Date.now());
-  useEffect(() => {
-    if (done || !startedAt) return;
-    const timer = window.setInterval(() => setNowTick(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [done, startedAt]);
   const callFailedCount = Math.max(0, Number(item.callErrorCount || 0));
   const exitFailedCount = Math.max(0, Number(item.exitErrorCount || 0));
   const denied = isHookApprovalDenialToolItem(item);
@@ -1158,9 +1181,12 @@ export function ToolCard({ item, disclosureScope = '' }: { item: TranscriptItem;
         categories: item.categories,
         doneCategories: item.doneCategories,
         headerFinalized: item.headerFinalized,
-        nowMs: nowTick,
+        // A pending card is derived at zero elapsed ("Running"); the ticking
+        // `<Elapsed>` leaf appends the live time, so the card never re-renders
+        // per second.
+        nowMs: done ? undefined : startedAt || undefined,
       }) as ToolCardModel,
-    [item, done, nowTick]
+    [item, done, startedAt]
   );
   const hasResult = typeof rawResult === 'string' ? Boolean(rawResult.trim()) : rawResult != null;
   const hasDetails = Boolean(model.detailLine);
@@ -1241,6 +1267,7 @@ export function ToolCard({ item, disclosureScope = '' }: { item: TranscriptItem;
                 <React.Fragment key={index}>{part.text}</React.Fragment>
               )
             )}
+            {model.detailIsPlaceholder && !done && startedAt > 0 && <Elapsed startedAt={startedAt} prefix=" · " />}
           </span>
         </div>
       )}

@@ -3,17 +3,24 @@ import test, { mock } from 'node:test';
 
 // A hard judgment: one step above the base (medium → high), two for very hard.
 let probs = [0, 0, 0, 1];
+// Tests replace this to hold a judgment back.
+let judge = async () => ({ probs, ms: 1 });
 const original = await import('../../../../effort-judge/judge-client.mjs');
 mock.module('../../../../effort-judge/judge-client.mjs', {
   namedExports: {
     ...original,
-    judgeTurn: async () => ({ probs, ms: 1 }),
+    judgeTurn: (input) => judge(input),
     recordEffortDecision: () => {},
     effortJudgeSupportsSteps: () => true,
   },
 });
 
-const { markStepEffort } = await import('./step-auto-effort.mjs');
+const { markStepEffort, applyStepEffort, STEP_EFFORT_GRACE_MS } = await import('./step-auto-effort.mjs');
+// The loop's order: the judgment starts after the batch and is applied when the next request is projected.
+const markAndApply = async (state, assistant) => {
+  markStepEffort(state, assistant);
+  await applyStepEffort(state);
+};
 const { prepareTurnEffortConfiguration } = await import('../../providers/effort-configuration.mjs');
 const { resolveTurnAutoEffort, turnStepAutoEffort } = await import('../manager/ask-turn-auto-effort.mjs');
 const { resolveCustomReasoning } = await import('../../providers/custom-reasoning.mjs');
@@ -52,7 +59,7 @@ test('a custom step sends the judged effort, snapped by the custom resolver, as 
   assert.equal(snapshot.mode, 'custom');
   probs = [0, 0, 0, 1];
   const { state, tool, assistant } = stepState(provider, snapshot);
-  await markStepEffort(state, assistant);
+  await markAndApply(state, assistant);
   // Very hard climbs past the declared levels: snapped to the top supported level, not its wire value.
   assert.equal(state.opts.effort, 'high');
   assert.equal(tool.meta.effortConfiguration.mode, 'custom');
@@ -60,7 +67,7 @@ test('a custom step sends the judged effort, snapped by the custom resolver, as 
 
   probs = [1, 0, 0, 0];
   const next = stepState(provider, snapshot);
-  await markStepEffort(next.state, next.assistant);
+  await markAndApply(next.state, next.assistant);
   assert.equal(next.state.opts.effort, 'low');
 });
 
@@ -73,7 +80,7 @@ test('a custom GPT-6 Responses step marks the snapped effort as its update and a
   probs = [0, 0, 0, 1];
   const { state, tool, assistant } = stepState(provider, snapshot);
   state.model = model;
-  await markStepEffort(state, assistant);
+  await markAndApply(state, assistant);
   assert.equal(state.opts.effort, 'high');
   assert.deepEqual(tool.meta.effortConfiguration, { ...snapshot, effort: 'high' });
 });
@@ -134,7 +141,7 @@ test('per-step auto effort runs end to end on custom Chat/Responses routes with 
     const { state, assistant } = stepState(provider, effortConfiguration);
     state.opts.stepAutoEffort = step;
     probs = [0, 0, 0, 1];
-    await markStepEffort(state, assistant);
+    await markAndApply(state, assistant);
     assert.equal(state.opts.effort, 'high', protocol);
     // The next request of the turn serializes that level with the row's wire value.
     const { fields } = resolveCustomReasoning({
@@ -153,4 +160,159 @@ test('per-step auto effort runs end to end on custom Chat/Responses routes with 
     assert.equal(effortConfiguration, null, protocol);
     assert.equal(step, null, protocol);
   }
+});
+
+const deferredJudge = () => {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  return { judge: async () => (await gate, { probs, ms: 1 }), release };
+};
+
+function nextBatch(state, id) {
+  const assistant = { role: 'assistant', content: 'Next.', toolCalls: [{ id, name: 'read', arguments: {} }] };
+  const tool = { role: 'tool', toolCallId: id, content: 'text' };
+  state.messages.push(assistant, tool);
+  return { assistant, tool };
+}
+
+test('a slow step judgment does not hold the next request; its result rides on the request after', async () => {
+  const provider = customProvider('openai-chat', ROW);
+  const session = { provider: 'custom-a', model: 'm', effort: 'medium', messages: [] };
+  const snapshot = prepareTurnEffortConfiguration(session, provider);
+  probs = [0, 0, 0, 1];
+  const first = deferredJudge();
+  judge = first.judge;
+  const { state, tool, assistant } = stepState(provider, snapshot);
+
+  // Batch 1 lands: starting the judgment returns at once; the request waits
+  // only the grace for it, then goes out unmarked.
+  const startedAt = performance.now();
+  markStepEffort(state, assistant);
+  assert.ok(performance.now() - startedAt < 50);
+  assert.equal(state.stepEffort.settled, false);
+  const waitStart = performance.now();
+  await applyStepEffort(state);
+  const waited = performance.now() - waitStart;
+  assert.ok(waited >= STEP_EFFORT_GRACE_MS - 20 && waited < STEP_EFFORT_GRACE_MS + 250, `waited ${waited} ms`);
+  assert.equal(tool.meta, undefined);
+  assert.equal(state.opts.effort, 'medium');
+
+  // The judgment resolves while that request is in flight.
+  first.release();
+  await state.stepEffort.promise;
+  await applyStepEffort(state);
+  assert.equal(tool.meta, undefined, 'a sent request history is never rewritten');
+  assert.equal(state.opts.effort, 'medium');
+
+  // Batch 2 lands: it carries batch 1's judgment for the request after, and a new judgment starts.
+  const second = deferredJudge();
+  judge = second.judge;
+  const next = nextBatch(state, 'c2');
+  markStepEffort(state, next.assistant);
+  assert.equal(next.tool.meta.effortConfiguration.effort, 'high');
+  assert.equal(state.opts.effort, 'high');
+  assert.equal(tool.meta, undefined);
+  second.release();
+  await applyStepEffort(state);
+  // The second judgment resolved within the grace: it replaces the carried mark for this request.
+  assert.equal(state.stepEffort.applied, true);
+  assert.equal(next.tool.meta.effortConfiguration.effort, 'high');
+  judge = async () => ({ probs, ms: 1 });
+});
+
+test('a judgment that resolves within the grace applies to the very next request', async () => {
+  const provider = customProvider('openai-chat', ROW);
+  const session = { provider: 'custom-a', model: 'm', effort: 'medium', messages: [] };
+  const snapshot = prepareTurnEffortConfiguration(session, provider);
+  probs = [0, 0, 0, 1];
+  judge = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    return { probs, ms: 60 };
+  };
+  const { state, tool, assistant } = stepState(provider, snapshot);
+  markStepEffort(state, assistant);
+  const waitStart = performance.now();
+  await applyStepEffort(state);
+  assert.ok(performance.now() - waitStart < STEP_EFFORT_GRACE_MS);
+  assert.equal(tool.meta.effortConfiguration.effort, 'high');
+  assert.equal(state.opts.effort, 'high');
+  judge = async () => ({ probs, ms: 1 });
+});
+
+test('a judge that never answers holds a request no longer than the grace', async () => {
+  const provider = customProvider('openai-chat', ROW);
+  const session = { provider: 'custom-a', model: 'm', effort: 'medium', messages: [] };
+  const snapshot = prepareTurnEffortConfiguration(session, provider);
+  judge = () => new Promise(() => {});
+  const { state, tool, assistant } = stepState(provider, snapshot);
+  markStepEffort(state, assistant);
+  const waitStart = performance.now();
+  await applyStepEffort(state);
+  assert.ok(performance.now() - waitStart < STEP_EFFORT_GRACE_MS + 250);
+  assert.equal(tool.meta, undefined);
+  judge = async () => ({ probs, ms: 1 });
+});
+
+test('a step judgment that is ready when the next request is projected rides on it', async () => {
+  const provider = customProvider('openai-chat', ROW);
+  const session = { provider: 'custom-a', model: 'm', effort: 'medium', messages: [] };
+  const snapshot = prepareTurnEffortConfiguration(session, provider);
+  probs = [0, 0, 0, 1];
+  const { state, tool, assistant } = stepState(provider, snapshot);
+  markStepEffort(state, assistant);
+  await state.stepEffort.promise;
+  await applyStepEffort(state);
+  assert.equal(tool.meta.effortConfiguration.effort, 'high');
+  assert.equal(state.opts.effort, 'high');
+});
+
+test('a busy judge queues only the newest step (latest wins); an aborted or replaced turn is never marked', async () => {
+  const provider = customProvider('openai-chat', ROW);
+  const session = { provider: 'custom-a', model: 'm', effort: 'medium', messages: [] };
+  const snapshot = prepareTurnEffortConfiguration(session, provider);
+  probs = [0, 0, 0, 1];
+  let calls = 0;
+  const gate = deferredJudge();
+  judge = (input) => {
+    calls += 1;
+    return gate.judge(input);
+  };
+  const { state, tool, assistant } = stepState(provider, snapshot);
+  markStepEffort(state, assistant);
+  const first = state.stepEffort;
+  await applyStepEffort(state);
+  const second = nextBatch(state, 'c2');
+  markStepEffort(state, second.assistant);
+  const middle = state.stepEffort;
+  const third = nextBatch(state, 'c3');
+  markStepEffort(state, third.assistant);
+  assert.equal(calls, 1, 'one judgment runs; the newer ones wait behind it');
+  assert.equal(first.superseded, true);
+  assert.equal(middle.superseded, true);
+  gate.release();
+  await state.stepEffort.promise;
+  assert.equal(calls, 2, 'the skipped middle step never reached the judge');
+  assert.equal(middle.result, null);
+
+  // Aborted before the result is applied: nothing is applied.
+  const controller = new AbortController();
+  state.signal = controller.signal;
+  controller.abort();
+  assert.ok(state.stepEffort.result, 'the judgment itself resolved');
+  const effortBefore = state.opts.effort;
+  await applyStepEffort(state);
+  assert.equal(third.tool.meta, undefined);
+  assert.equal(state.opts.effort, effortBefore);
+
+  // A result for a message that left the transcript (compaction) is dropped.
+  const gone = stepState(provider, snapshot);
+  judge = async () => ({ probs, ms: 1 });
+  markStepEffort(gone.state, gone.assistant);
+  await gone.state.stepEffort.promise;
+  gone.state.messages.length = 0;
+  await applyStepEffort(gone.state);
+  assert.equal(gone.tool.meta, undefined);
+  assert.equal(tool.meta, undefined);
 });

@@ -44,6 +44,20 @@ test('missing liveness is unknown, and execution capacity waits are queued', () 
   assert.equal(desktopAgentActivityState({ status: 'running', stage: 'resource_wait' }), 'queued');
 });
 
+test('a working agent keeps its lifecycle while the runtime phase reads idle, done or error between steps', () => {
+  for (const stage of ['idle', 'done', 'error', 'connecting', 'streaming', 'tool_running']) {
+    assert.equal(desktopAgentActivityState({ status: 'running', stage }), 'running', stage);
+  }
+  // The status still ends the work: a settled agent is idle whatever stale phase it carries.
+  assert.equal(desktopAgentActivityState({ status: 'idle', stage: 'streaming' }), 'idle');
+  assert.equal(desktopAgentActivityState({ status: 'error', stage: 'running' }), 'idle');
+  // A cancel in either field is never work.
+  assert.equal(desktopAgentActivityState({ status: 'running', stage: 'cancelled' }), 'cancelled');
+  // A row with only a stage is judged by it.
+  assert.equal(desktopAgentActivityState({ stage: 'streaming' }), 'running');
+  assert.equal(desktopAgentActivityState({ stage: 'idle' }), 'idle');
+});
+
 test('background shell jobs never change an agent state or count as waiting', () => {
   for (const [status, expected] of [
     ['running', 'running'],

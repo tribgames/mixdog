@@ -16,6 +16,7 @@ const conversation = () => [
  *  command share one bag, as in the composed session. */
 function harness({ items = conversation(), busy = false, commandBusy = false, onModelChange, compact } = {}) {
   const calls = [];
+  const validations = [];
   const statuses = [];
   let state = { sessionId: 's1', ...chatRoute, busy, commandBusy, items, stats: {} };
   let sequence = 0;
@@ -29,6 +30,11 @@ function harness({ items = conversation(), busy = false, commandBusy = false, on
     },
     listPresets: () => [{ id: 'opus', name: 'Opus', provider: 'anthropic-oauth', model: 'claude-x' }],
     setRoute: async (next, options) => {
+      if (options.validateOnly) {
+        validations.push(next);
+        if (next.model === 'bogus') throw new Error('Invalid model selector "bogus"');
+        return { ...next };
+      }
       calls.push(['setRoute', next, options]);
       const preset = runtime.listPresets().find((entry) => entry.id === next.model);
       const target = preset ? { provider: preset.provider, model: preset.model } : next;
@@ -64,7 +70,7 @@ function harness({ items = conversation(), busy = false, commandBusy = false, on
   };
   createSessionCommandsApi(bag);
   const api = { ...createSessionSettingsApi(bag), ...createSessionRouteApi(bag) };
-  return { api, calls, statuses, runtime, state: () => state };
+  return { api, calls, validations, statuses, runtime, state: () => state };
 }
 
 const rows = (h) => h.state().items.slice(3).map((item) => [item.status || item.label, item.modelId ?? null]);
@@ -91,6 +97,21 @@ test('with auto-compact on model change (default), the chat compacts on its curr
   assert.equal(tail.at(-1).status, 'model-switched');
   assert.equal(tail.at(-1).modelId, 'claude-x');
   assert.equal(h.state().commandBusy, false);
+});
+
+test('an invalid destination is rejected before the conversation is compacted', async () => {
+  for (const attempt of [
+    (h) => h.api.setRoute({ model: 'bogus' }),
+    (h) => h.api.setModel('bogus'),
+  ]) {
+    const h = harness();
+    await assert.rejects(attempt(h), /Invalid model selector/);
+    assert.equal(h.validations.length, 1, 'the destination was validated');
+    assert.deepEqual(h.calls, [], 'nothing compacted and nothing switched');
+    assert.deepEqual(h.statuses, []);
+    assert.equal(h.runtime.sessionModel, 'gpt-x');
+    assert.equal(h.state().commandBusy, false);
+  }
 });
 
 test('a compaction with nothing worth compacting adds no row; the switch still lands', async () => {

@@ -35,14 +35,14 @@ test('all modes share Default while only active modes inject instructions and ag
     ['default']
   );
   const body = helpers.loadWorkflowPack(dataDir, 'default').body;
-  assert.doesNotMatch(body, /Delegate every substantial|Dispatch all ready/);
+  assert.doesNotMatch(body, /Delegate every independent|Dispatch all ready/);
   assert.match(body, /user approves the latest plan/);
   // Reviewer fallback rides with the delegating orchestration instructions, never the pack body.
   assert.doesNotMatch(body, /Lead alone reviews/);
   const expected = {
     focused: /Lead executes the main scope directly/,
     balanced: /coherent feature or module/,
-    swarm: /Delegate every substantial independent scope/,
+    swarm: /Delegate every independent scope/,
   };
   for (const mode of ORCHESTRATION_MODES) {
     const result = helpers.activeWorkflowContext({ workflow: { active: 'default' }, orchestrationMode: mode }, dataDir);

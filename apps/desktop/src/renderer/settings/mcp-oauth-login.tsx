@@ -10,10 +10,7 @@ import { isRemoteHostRenderer } from '../remote-ui-projection';
 import type { PanelContext, RecordValue } from './capability-data';
 import { OAuthLoginDialog, pasteErrorText, useOAuthLoginFlow } from './oauth-login-flow';
 
-export function useMcpOAuthLogin({
-  run,
-  refreshExtensions,
-}: Pick<PanelContext, 'run' | 'refreshExtensions'>) {
+export function useMcpOAuthLogin({ run, refreshExtensions }: Pick<PanelContext, 'run' | 'refreshExtensions'>) {
   const [name, setName] = useState('');
   // Away from the host the loopback callback is unreachable: the sign-in opens
   // on this device and its final redirect is pasted back.

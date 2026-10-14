@@ -44,7 +44,13 @@ export function createBrowserLocalPrompts(host: {
   };
   /** Throws unless `pending` is still the prompt answered, in the document shown. */
   const guardFor =
-    (current: () => object | null, pending: object | null, requestId: string, assertCurrent: () => void, signal?: AbortSignal) =>
+    (
+      current: () => object | null,
+      pending: object | null,
+      requestId: string,
+      assertCurrent: () => void,
+      signal?: AbortSignal
+    ) =>
     () => {
       signal?.throwIfAborted();
       assertCurrent();
@@ -86,7 +92,14 @@ export function createBrowserLocalPrompts(host: {
       }
       const guard = guardFor(() => host.state.for(owner).pendingDialog, dialog, input.requestId, assertCurrent, signal);
       guard();
-      await host.dialogs.handleDialog(owner, input.accept, input.promptText ?? '', signal, guard, input.keepDefault === true);
+      await host.dialogs.handleDialog(
+        owner,
+        input.accept,
+        input.promptText ?? '',
+        signal,
+        guard,
+        input.keepDefault === true
+      );
       host.state.invalidateInteraction(owner);
       return;
     }

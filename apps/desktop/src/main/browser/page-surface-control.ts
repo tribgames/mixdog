@@ -75,7 +75,10 @@ export function navigatePage(
 /** Human page input through CDP under the caller's document guard. Shared by
  *  the local pane and paired remote clients so both behave identically. */
 export function createPageInputDispatcher(
-  host: Pick<BrowserPageSurfaceHost, 'state' | 'cdp' | 'dispatchInput' | 'urlPolicy' | 'assertUrl' | 'dialogOwner' | 'leave'>
+  host: Pick<
+    BrowserPageSurfaceHost,
+    'state' | 'cdp' | 'dispatchInput' | 'urlPolicy' | 'assertUrl' | 'dialogOwner' | 'leave'
+  >
 ) {
   /** Each page's last press: the first half of the click its release completes. */
   const presses = new WeakMap<WebContents, Record<string, unknown>>();

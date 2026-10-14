@@ -339,4 +339,3 @@ export function OAuthLoginDialog({
   );
   return portal ? createPortal(layer, document.body) : layer;
 }
-

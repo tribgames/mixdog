@@ -86,9 +86,7 @@ export function createMcpOAuthLogins({
   };
   // One sign-in per server of this runtime (its MCP scope).
   const cancelServerFlows = (name) =>
-    Promise.all(
-      [...flows.values()].filter((flow) => flow.owner === owner && flow.name === name).map(cancelFlow)
-    );
+    Promise.all([...flows.values()].filter((flow) => flow.owner === owner && flow.name === name).map(cancelFlow));
 
   async function begin(name, options = {}) {
     const { openBrowser: hostBrowser } = options || {};

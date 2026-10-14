@@ -92,7 +92,9 @@ export function createSessionRouteApi(bag) {
     if (runtime.getCompactionSettings?.()?.onModelChange === false) return;
     if (latestQuotaFailure(getState().items)) return;
     if (typeof bag.compactBeforeModelSwitch !== 'function') return;
-    set({ commandStatus: { active: true, verb: 'Compacting conversation', startedAt: Date.now(), mode: 'compacting' } });
+    set({
+      commandStatus: { active: true, verb: 'Compacting conversation', startedAt: Date.now(), mode: 'compacting' },
+    });
     flushEmitImmediate();
     try {
       await bag.compactBeforeModelSwitch();
@@ -128,19 +130,21 @@ export function createSessionRouteApi(bag) {
       if (previousWrite) await previousWrite.catch(() => {});
       const previousRoute = routeState();
       try {
-        if (switchesModel) {
-          await compactBeforeModelSwitch();
-          if (token === routeSequence && preview) {
-            set(preview);
-            flushEmitImmediate();
-          }
-        }
         // Explicit addressing applies the route to this session: an empty
         // one is initialized in place. Either way an established
         // conversation follows the user's choice in place.
         const applyToCurrentSession = routeOpts.applyToCurrentSession === true;
         const keepMainModel = routeOpts.keepMainModel === true;
         const { applyToCurrentSession: _drop, keepMainModel: _keep, ...nextRoute } = routeOpts;
+        if (switchesModel) {
+          // The destination must be accepted before the history is compacted.
+          await runtime.setRoute(nextRoute, { validateOnly: true });
+          await compactBeforeModelSwitch();
+          if (token === routeSequence && preview) {
+            set(preview);
+            flushEmitImmediate();
+          }
+        }
         const resolvedRoute = await runtime.setRoute(nextRoute, {
           applyToCurrentSession,
           keepMainModel,

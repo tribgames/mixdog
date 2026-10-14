@@ -1,4 +1,14 @@
-import { Archive, ArchiveRestore, ChevronDown, ChevronUp, CornerDownRight, GitFork, Star, Trash2, X } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  ChevronDown,
+  ChevronUp,
+  CornerDownRight,
+  GitFork,
+  Star,
+  Trash2,
+  X,
+} from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
@@ -377,7 +387,11 @@ const SessionRow = React.memo(function SessionRow({
             tabIndex={0}
             className="session-row-fork-toggle"
             aria-expanded={forkExpanded === true}
-            aria-label={forkExpanded ? t('Collapse forks of {{name}}', { name: label }) : t('Expand forks of {{name}}', { name: label })}
+            aria-label={
+              forkExpanded
+                ? t('Collapse forks of {{name}}', { name: label })
+                : t('Expand forks of {{name}}', { name: label })
+            }
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();

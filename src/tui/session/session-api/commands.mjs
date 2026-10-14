@@ -128,9 +128,7 @@ export function createSessionCommandsApi(bag) {
     if (getState().commandBusy) return null;
     if (getState().busy) return scheduleCompactForTurnEnd(compactCommand);
     try {
-      return await withCommandStatus('Compacting conversation', 'compacting', (startedAt) =>
-        runCompaction(startedAt)
-      );
+      return await withCommandStatus('Compacting conversation', 'compacting', (startedAt) => runCompaction(startedAt));
     } finally {
       // A command reply reads the published snapshot, not the draft. Commit
       // completion before the awaiting service constructs that reply.

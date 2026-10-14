@@ -3,7 +3,10 @@
 // configured/current routes, deduplicated per provider:model.
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { quickWebSearchModels } from '../quick-web-search-models.mjs';
-import { WEB_SEARCH_DEFAULT_PROVIDER, WEB_SEARCH_DEFAULT_MODEL } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import {
+  WEB_SEARCH_DEFAULT_PROVIDER,
+  WEB_SEARCH_DEFAULT_MODEL,
+} from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { providerCachedModelsSync } from '../../runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
 import { hydratedModel } from './model-meta.mjs';
 

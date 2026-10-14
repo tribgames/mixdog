@@ -361,11 +361,7 @@
 .composer-island[data-measuring] > .composer-island-pill {
   width: max-content;
 }
-.composer-island[data-compact]
-  :is(
-    .composer-island-seg-word,
-    .composer-island-seg.turn-review-segment .diff-stats
-  ) {
+.composer-island[data-compact] :is(.composer-island-seg-word, .composer-island-seg.turn-review-segment .diff-stats) {
   display: none;
 }
 .composer-island[data-compact] .composer-island-seg-num {

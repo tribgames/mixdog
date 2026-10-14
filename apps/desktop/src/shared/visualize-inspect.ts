@@ -628,13 +628,17 @@ export function visualizePageInspection(value: unknown): PageInspection | { erro
       selector: text(item.selector, 200),
       tag: text(item.tag, 24),
       ...(typeof item.value === 'string' ? { value: secret ? '[redacted]' : text(item.value, 60) } : {}),
-      flags: list(item.flags, 6).map((flag) => text(flag, 24)).filter(Boolean),
+      flags: list(item.flags, 6)
+        .map((flag) => text(flag, 24))
+        .filter(Boolean),
       ...box(item),
     };
   });
   const findings = list(raw.findings, MAX_INSPECT_FINDINGS).flatMap((entry): InspectFinding[] => {
     const item = record(entry);
-    const kind = (INSPECT_FINDING_KINDS as readonly string[]).includes(item.kind as string) ? (item.kind as InspectFindingKind) : null;
+    const kind = (INSPECT_FINDING_KINDS as readonly string[]).includes(item.kind as string)
+      ? (item.kind as InspectFindingKind)
+      : null;
     if (!kind) return [];
     return [
       {
@@ -681,7 +685,9 @@ function fit(lines: string[], budget: number, noun: string): string[] {
     kept.push(line);
     used += line.length + 1;
   }
-  return kept.length < lines.length ? [...kept, `  …${lines.length - kept.length} more ${noun} omitted (output capped)`] : kept;
+  return kept.length < lines.length
+    ? [...kept, `  …${lines.length - kept.length} more ${noun} omitted (output capped)`]
+    : kept;
 }
 
 /** The agent's text read-out of one pane's inspection: findings first, then
@@ -691,10 +697,13 @@ export function formatPageInspection(inspection: PageInspection, title: string):
     `${title}: viewport ${inspection.viewport.width}×${inspection.viewport.height}, page ${inspection.page.width}×${inspection.page.height}${inspection.scope ? `, scope ${inspection.scope}` : ''}${inspection.partial ? ' (very large page: only the first part was read)' : ''}`,
   ];
   if (inspection.contrastUnknown) {
-    head.push(`${inspection.contrastUnknown} text element${inspection.contrastUnknown === 1 ? '' : 's'} over images or gradients: contrast not checked.`);
+    head.push(
+      `${inspection.contrastUnknown} text element${inspection.contrastUnknown === 1 ? '' : 's'} over images or gradients: contrast not checked.`
+    );
   }
   const findings = inspection.findings.map(
-    (finding) => `  - [${finding.severity}] ${finding.kind}: ${finding.message} · ${finding.selector} (${boxText(finding)})`
+    (finding) =>
+      `  - [${finding.severity}] ${finding.kind}: ${finding.message} · ${finding.selector} (${boxText(finding)})`
   );
   const unlisted = inspection.findingCount - inspection.findings.length;
   const unlistedLine = unlisted > 0 ? [`  …${unlisted} more not listed`] : [];
@@ -712,9 +721,13 @@ export function formatPageInspection(inspection: PageInspection, title: string):
   const sections = [
     head.join('\n'),
     inspection.findingCount
-      ? [`Layout findings (${inspection.findingCount}):`, ...fit(findings, 3_200, 'findings'), ...unlistedLine].join('\n')
+      ? [`Layout findings (${inspection.findingCount}):`, ...fit(findings, 3_200, 'findings'), ...unlistedLine].join(
+          '\n'
+        )
       : 'Layout findings: none.',
-    outline.length ? ['Outline:', ...fit(outline, 1_800, 'outline rows')].join('\n') : 'Outline: no landmarks or headings.',
+    outline.length
+      ? ['Outline:', ...fit(outline, 1_800, 'outline rows')].join('\n')
+      : 'Outline: no landmarks or headings.',
     elements.length
       ? [
           `Interactive elements (${inspection.elementCount}${inspection.elementCount > inspection.elements.length ? `, first ${inspection.elements.length} listed` : ''}):`,
@@ -723,7 +736,9 @@ export function formatPageInspection(inspection: PageInspection, title: string):
       : 'Interactive elements: none.',
   ];
   const out = sections.join('\n');
-  return out.length > MAX_INSPECT_TEXT ? `${out.slice(0, MAX_INSPECT_TEXT - 40)}\n…output capped at ${MAX_INSPECT_TEXT} characters` : out;
+  return out.length > MAX_INSPECT_TEXT
+    ? `${out.slice(0, MAX_INSPECT_TEXT - 40)}\n…output capped at ${MAX_INSPECT_TEXT} characters`
+    : out;
 }
 
 /** "3 layout findings — run inspect", or '' when there are none. */

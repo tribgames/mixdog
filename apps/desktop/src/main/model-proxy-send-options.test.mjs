@@ -56,8 +56,21 @@ const NOT_SEND_OPTIONS = new Map([
   ['retry-executor.mjs::backoffMs', 'withRetry helper argument built by the adapter'],
   ['retry-executor.mjs::model', 'withRetry helper argument built by the adapter'],
   ['retry-executor.mjs::onRetry', 'withRetry helper callback built by the adapter, never a send option'],
-  ['retry-executor.mjs::provider', 'withRetry helper argument built by the adapter'],
   ['retry-executor.mjs::sleepFn', 'withRetry test seam argument'],
+  ['retry-executor.mjs::adviceAtLeastBackoff', 'withRetry retry-policy argument built by the adapter'],
+  ['retry-executor.mjs::honorShouldRetryTrue', 'withRetry retry-policy argument built by the adapter'],
+  ['retry-executor.mjs::overloadState', 'withRetry per-send overload counter built by the adapter'],
+  ['retry-executor.mjs::retry499', 'withRetry retry-policy argument built by the adapter'],
+  ['retry-executor.mjs::retryAfterJitterRatio', 'withRetry retry-policy argument built by the adapter'],
+  ['retry-executor.mjs::stopAfterRepeated529', 'withRetry retry-policy argument built by the adapter'],
+  ['retry-executor.mjs::overloadFallbackAfter', 'withRetry retry-policy argument built by the adapter'],
+  ['retry-executor.mjs::finalOnExhaust', 'withRetry retry-policy argument built by the adapter'],
+  ['retry-executor.mjs::recycleDispatcherOn5xx', 'withRetry retry-policy argument built by the adapter'],
+  ['retry-classification.mjs::retry499', 'classifyError policy argument, never a send option'],
+  ['account-pool.mjs::useCredits', 'account-exhaustion helper option built from the pool, never a send option'],
+  ['provider-error-kind.mjs::legacyQuotaWording', 'providerErrorKind presentation option, never a send option'],
+  ['provider-error-kind.mjs::quotaFlags', 'providerErrorKind classifier option, never a send option'],
+  ['provider-error-kind.mjs::text', 'providerErrorKind classifier option, never a send option'],
 ]);
 
 /** `file::expression` computed reads off send options, with why they are safe. */

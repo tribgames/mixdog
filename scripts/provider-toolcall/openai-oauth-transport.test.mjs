@@ -195,11 +195,14 @@ for (const authRetry of [false, true]) {
         return true;
       });
       assert.equal(wsCalls, authRetry ? 2 : 1);
-      assert.equal(httpCalls, 1);
+      // A first HTTP 401 gets the single bounded refresh + reissue; after a
+      // WS-side auth recovery the refresh budget of the send is already spent.
+      const firstSendHttpCalls = label === '401' && !authRetry ? 2 : 1;
+      assert.equal(httpCalls, firstSendHttpCalls);
       failHttp = false;
       await provider.send([], prebuiltBody.model, [], opts);
       assert.equal(wsCalls, authRetry ? 2 : 1, 'HTTP failure must not reset the sticky transport');
-      assert.equal(httpCalls, 2);
+      assert.equal(httpCalls, firstSendHttpCalls + 1);
     });
   }
 }

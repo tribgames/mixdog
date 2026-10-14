@@ -61,6 +61,7 @@ const { _setTurnChangeRecordWriteHookForTest, loadTurnChangeRecord, upsertTurnCh
 );
 const {
   _rowCacheBytesForTest,
+  _pendingCapturesForTest,
   _settleSessionBaselinesForTest,
   _unsavedBytesForTest,
   captureSessionBaselines,
@@ -1732,6 +1733,208 @@ test('unsaved captures hold only first-seen bytes, within the session byte budge
   // The churned path keeps its first state (the oldest bytes, evicted first).
   const churn = reloaded.files.find((entry) => entry.path === file);
   assert.deepEqual([churn.state, churn.status, churn.size], ['present', 'evicted', body.length]);
+});
+
+test('a delayed clear keeps the baselines captured after it was issued, and their bytes', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delayed-clear';
+  const root = sessionRoot(sessionId);
+  const before = join(root, 'before.txt');
+  const after = join(root, 'after.txt');
+  writeFileSync(before, 'now\n');
+  writeFileSync(after, 'now\n');
+  captureSessionBaselines(sessionId, [{ path: before, root, before: 'old\n' }]);
+  await _settleSessionBaselinesForTest();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const clearIssued = Date.now();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  // Captured and written after the clear was issued, before it finishes.
+  captureSessionBaselines(sessionId, [{ path: after, root, before: 'newer\n' }]);
+  await _settleSessionBaselinesForTest();
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${clearIssued};
+    const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+    Date.now = now; await cleared; }`);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const baselines = await loadSessionBaselines(sessionId);
+    assert.deepEqual(baselineKeys(baselines), [after]);
+    assert.equal((await baselines.readBlob(baselines.files[0])).toString(), 'newer\n');
+  }
+});
+
+test('a delayed clear lists a path captured before it and edited again after it as missing', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delayed-clear-retouched';
+  const root = sessionRoot(sessionId);
+  const file = join(root, 'again.txt');
+  writeFileSync(file, 'now\n');
+  const t0 = Date.now() + 1000;
+  const [t1, t2] = [t0 + 10, t0 + 20];
+  // Two captures of one path, the second after the clear was issued.
+  inOtherProcess(`${captureIssuedAt(t0, sessionId, [{ path: file, root, before: 'old\n' }])}
+    await store._settleSessionBaselinesForTest();
+    ${captureIssuedAt(t2, sessionId, [{ path: file, root, before: 'newer\n' }])}`);
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${t1};
+    const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+    Date.now = now; await cleared; }`);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const baselines = await loadSessionBaselines(sessionId);
+    assert.ok(baselines, 'the post-clear edit is not forgotten');
+    assert.deepEqual(baselineKeys(baselines), []);
+    assert.deepEqual(
+      baselines.missing.map((entry) => entry.path),
+      [file]
+    );
+    assert.equal(baselines.incomplete, true);
+  }
+});
+
+test('two delayed clears keep a path edited after both', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delayed-double-clear';
+  const root = sessionRoot(sessionId);
+  const file = join(root, 'twice.txt');
+  const other = join(root, 'older.txt');
+  writeFileSync(file, 'now\n');
+  const t0 = Date.now() + 1000;
+  const [t1, t2, t3] = [t0 + 10, t0 + 20, t0 + 30];
+  inOtherProcess(`${captureIssuedAt(t0, sessionId, [
+    { path: file, root, before: 'old\n' },
+    { path: other, root, before: 'old\n' },
+  ])}
+    await store._settleSessionBaselinesForTest();
+    ${captureIssuedAt(t3, sessionId, [{ path: file, root, before: 'newer\n' }])}`);
+  const clearAt = (at) =>
+    inOtherProcess(`{ const now = Date.now; Date.now = () => ${at};
+      const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+      Date.now = now; await cleared; }`);
+  clearAt(t1);
+  clearAt(t2);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const baselines = await loadSessionBaselines(sessionId);
+    assert.ok(baselines, 'the edit after both clears is not forgotten');
+    assert.deepEqual(baselineKeys(baselines), []);
+    // `other` was last touched before the second clear: it is not carried.
+    assert.deepEqual(
+      baselines.missing.map((entry) => entry.path),
+      [file]
+    );
+    assert.equal(baselines.incomplete, true);
+  }
+  // A clear issued after the edit ends it.
+  clearAt(t3 + 10);
+  _resetTurnSnapshotForTest();
+  assert.equal(await loadSessionBaselines(sessionId), null);
+});
+
+test('a delayed clear keeps the incompleteness of a capture the entry limit rejected after it', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delayed-clear-limit-rejected';
+  const root = sessionRoot(sessionId);
+  const t0 = Date.now() + 1000;
+  const [t1, t2] = [t0 + 10, t0 + 20];
+  // 4,096 entries before the clear, then one more path after it: rejected by
+  // the limit. The capture clock runs ahead of the clock the index is written
+  // with, so only the capture times can order them.
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${t0};
+    const root = ${JSON.stringify(root)};
+    const changes = Array.from({ length: 4096 }, (_, index) => ({ path: root + '/full-' + index + '.txt', root, before: null }));
+    store.captureSessionBaselines(${JSON.stringify(sessionId)}, changes);
+    Date.now = now; }
+    await store._settleSessionBaselinesForTest();
+    ${captureIssuedAt(t2, sessionId, [{ path: join(root, 'rejected.txt'), root, before: null }])}`);
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${t1};
+    const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+    Date.now = now; await cleared; }`);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const baselines = await loadSessionBaselines(sessionId);
+    assert.ok(baselines, 'the rejected post-clear edit is not forgotten');
+    assert.deepEqual([baselines.files.length, baselines.incomplete], [0, true]);
+  }
+  // A clear issued after that capture starts clean.
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${t2 + 10};
+    const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+    Date.now = now; await cleared; }`);
+  _resetTurnSnapshotForTest();
+  assert.equal(await loadSessionBaselines(sessionId), null);
+});
+
+test('a clear drops an older index’s missing path and incompleteness that no capture after it explains', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'legacy-missing';
+  const root = sessionRoot(sessionId);
+  const path = join(root, 'old.txt');
+  mkdirSync(dirname(baselineIndexPath(sessionId)), { recursive: true });
+  // An index written before missing paths carried an edit time.
+  writeFileSync(
+    baselineIndexPath(sessionId),
+    JSON.stringify({
+      version: 1,
+      sessionId,
+      createdAt: 1,
+      incomplete: true,
+      files: [],
+      missing: [{ key: changePathKey(path), path, root }],
+    })
+  );
+  assert.deepEqual((await loadSessionBaselines(sessionId)).missing.map((entry) => entry.path), [path]);
+  await clearSessionBaselines(sessionId);
+  await clearSessionBaselines(sessionId);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    assert.equal(await loadSessionBaselines(sessionId), null);
+    const stored = JSON.parse(readFileSync(baselineIndexPath(sessionId), 'utf8'));
+    assert.deepEqual([stored.missing, stored.incomplete], [undefined, undefined]);
+  }
+});
+
+test('repeat edits of one path keep a bounded number of unwritten captures', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'touch-coalesce';
+  const root = sessionRoot(sessionId);
+  const file = join(root, 'churn.txt');
+  const restore = refuseBaselineWrites(sessionId);
+  for (let index = 0; index < 200; index += 1) {
+    captureSessionBaselines(sessionId, [{ path: file, root, before: `v${index}\n` }]);
+  }
+  await _settleSessionBaselinesForTest();
+  assert.ok(_pendingCapturesForTest(sessionId) <= 2, String(_pendingCapturesForTest(sessionId)));
+  restore();
+  const baselines = await loadSessionBaselines(sessionId);
+  assert.equal(baselines.unsaved, undefined);
+  assert.equal((await baselines.readBlob(baselines.files[0])).toString(), 'v0\n');
+  const [entry] = JSON.parse(readFileSync(baselineIndexPath(sessionId), 'utf8')).files;
+  assert.ok(entry.touched > entry.at, 'the latest edit time is kept');
+});
+
+test('a delayed clear keeps the incompleteness of the post-clear entries it carries', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delayed-clear-incomplete';
+  const root = sessionRoot(sessionId);
+  const at = Date.now() + 1000;
+  // Built in the child: 4,097 changes do not fit a command line.
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${at + 10};
+    const root = ${JSON.stringify(root)};
+    const changes = Array.from({ length: 4097 }, (_, index) => ({ path: root + '/many-' + index + '.txt', root, before: null }));
+    store.captureSessionBaselines(${JSON.stringify(sessionId)}, changes);
+    Date.now = now; }`);
+  const before = await loadSessionBaselines(sessionId);
+  assert.deepEqual([before.files.length, before.incomplete], [4096, true]);
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${at};
+    const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+    Date.now = now; await cleared; }`);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const after = await loadSessionBaselines(sessionId);
+    assert.deepEqual([after.files.length, after.incomplete], [4096, true]);
+  }
 });
 
 test('a capture tied with another process’s clear is kept, but the review is never complete', {

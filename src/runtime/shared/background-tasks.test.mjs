@@ -351,3 +351,31 @@ test('shell task cancellation keeps its notification behavior', async () => {
     cleanupBackgroundTasks({ force: true });
   }
 });
+
+test('a delivered result object is released (text and metadata kept) except for shell/agent readers', () => {
+  const sent = [];
+  const make = (surface) =>
+    registerBackgroundTask({
+      surface,
+      label: 'x',
+      meta: { tag: 'keep-me' },
+      context: { notifyFn: (text) => sent.push(text) },
+    });
+  const generic = make('github');
+  const shell = make('shell');
+  const agent = make('agent');
+  try {
+    for (const t of [generic, shell, agent]) {
+      completeBackgroundTask(t.taskId, { result: { content: 'body-' + t.surface, exit_code: 0 } });
+    }
+    assert.equal(sent.length, 3);
+    assert.equal(generic.result, undefined);
+    assert.ok(generic.resultText.includes('body-github'));
+    assert.equal(generic.meta.tag, 'keep-me');
+    assert.match(renderBackgroundTask(generic, { includeResult: true }), /body-github/);
+    assert.equal(shell.result.exit_code, 0);
+    assert.equal(agent.result.content, 'body-agent');
+  } finally {
+    cleanupBackgroundTasks({ force: true });
+  }
+});

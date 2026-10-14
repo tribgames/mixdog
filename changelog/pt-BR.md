@@ -4,6 +4,37 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Adicionados login OAuth explícito para MCP, troca de modelo no local e um banner de cota de linha única.
+
+### Novos recursos
+
+- **Login no MCP** — Adicionado login OAuth explícito para servidores MCP com status, diálogo de login compartilhado, colagem remota e comandos TUI (#74, thanks @oh1701).
+- **Trocar modelo no local** — Adicionada a troca de modelo de um chat sem iniciar uma nova sessão, e Bifurcar no menu da sessão (#73, #52, thanks @grapefruit0205).
+- **Banner de cota** — Adicionado um banner de linha única acima do compositor quando um limite é atingido; Continuar reserva a próxima execução para o horário de redefinição.
+- **Menu de arquivos** — Adicionada uma contagem de arquivos na ilha que rastreia alterações não confirmadas da sessão, com Ver alterações e Excluir histórico.
+- **Tamanho do texto do chat** — Adicionada uma configuração de tamanho de texto do chat por dispositivo.
+
+### Alterações
+
+- Alteradas as novas tentativas de provedores para seguir os limites e tempos de espera próprios de cada provedor, exibindo a espera restante com opção de cancelar.
+- Alteradas as mensagens de erro para indicar a causa e o próximo passo, ocultando Tentar novamente quando tentar novamente não ajudar.
+- Alterados os comandos de shell para permanecer em primeiro plano por 10 segundos por padrão, até 30 segundos, antes de irem para o segundo plano.
+- Ajustados o aplicativo desktop, o raciocínio automático e o serviço em segundo plano para consumir menos sondagem, renderização e memória em sessões longas.
+
+### Correções de bugs
+
+- Corrigido o congelamento de um a dois segundos do serviço em segundo plano a cada 30 minutos.
+- Corrigida a perda de avisos de conclusão de agentes quando um turno que já possuía saída era cancelado.
+- Corrigida a ilha do compositor exibindo agentes em execução como ociosos ou concluídos.
+- Corrigido o travamento na troca de sessões ao aguardar varreduras de alterações de outras sessões.
+- Corrigidos os diálogos de página do navegador saindo do painel, a confirmação de saída não concluindo e o não funcionamento dos atalhos de cópia do navegador.
+- Corrigida a falha no cache de prompts em provedores Responses personalizados e projetos de sessão herdados que não correspondiam à barra lateral (#70, #75, thanks @sukjong2002).
+- Corrigidas a oscilação de tabelas em streaming, a oscilação da transcrição durante a execução de um turno e a permanência do cartão de cota após a troca de provedores.
+
+### Outros
+
+- Removidos helpers não utilizados (#67, thanks @22nsuk).
+
 ## v1.2.1 - 2026-10-14
 
 Adicionada a importação de conversas do Codex e do Claude Code, o provedor Command Code e menções de skills com `$`, e corrigida a observação de entrada do Computer Use, scripts de skills, raciocínio automático e vários problemas de sessão.

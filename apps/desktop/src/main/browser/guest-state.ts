@@ -26,7 +26,6 @@ interface CdpTargetSession {
   ready: Promise<void>;
 }
 
-
 /** A native file picker the page asked for. Chromium hands it to the host
  *  instead of showing it, and `upload` answers it with the approved paths. */
 export interface PendingFileChooser {

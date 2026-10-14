@@ -20,8 +20,6 @@ import {
   streamStalledError,
 } from '../stall-policy.mjs';
 
-const LABEL = 'OpenAI OAuth HTTP fallback';
-
 function positiveOverride(value) {
   const ms = Number(value);
   return Number.isFinite(ms) && ms > 0 ? ms : 0;
@@ -34,7 +32,7 @@ function positiveOverride(value) {
  * @param {{ signal?: AbortSignal, cleanup(): void }} deps.totalTimeout
  * @param {() => object} deps.stallPartial  streamed partial state attached to a semantic-idle stall
  */
-export function createHttpSseWatchdogs({ opts, reader, totalTimeout, stallPartial }) {
+export function createHttpSseWatchdogs({ opts, reader, totalTimeout, stallPartial, label: LABEL }) {
   let abortReason = null;
   let pendingReadReject = null;
   const rejectPendingRead = (err) => {

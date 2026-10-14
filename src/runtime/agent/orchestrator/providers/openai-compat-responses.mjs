@@ -7,6 +7,7 @@
 // turn tool loops keep the model's reasoning chain without server storage.
 
 import { markProviderRecoveryExhausted, withRetry } from './retry-classifier.mjs';
+import { compatRetryOptions, withCompatRetryProfile } from './openai-compat-retry-profile.mjs';
 import { consumeCompatResponsesStream } from './openai-compat-stream.mjs';
 import { getModelMetadataSync } from './model-catalog.mjs';
 import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, createPassthroughSignal } from '../stall-policy.mjs';
@@ -157,7 +158,7 @@ async function streamCompatResponses({ provider, params, label, signal, opts, he
   const totalSignal = createPassthroughSignal(signal);
   try {
     return await withRetry(
-      async ({ signal: attemptSignal }) => {
+      withCompatRetryProfile(provider.name, async ({ signal: attemptSignal }) => {
         const stream = await withRetry(
           ({ signal: openSignal }) =>
             provider.client.responses.create(params, {
@@ -193,11 +194,12 @@ async function streamCompatResponses({ provider, params, label, signal, opts, he
           }
           throw error;
         }
-      },
+      }),
       {
         signal: totalSignal.signal,
         onRetry: compatStreamRetryReporter(label, opts),
         retry529: opts.retry529,
+        ...compatRetryOptions(provider.name),
       }
     );
   } finally {

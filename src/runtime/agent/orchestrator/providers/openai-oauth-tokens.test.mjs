@@ -185,3 +185,41 @@ test('a forced refresh without credentials asks for re-authentication', async (t
   clearStoredTokens();
   await assert.rejects(() => refreshStoredTokens({ current: null, force: true }), /refresh token not available/);
 });
+
+function stubRefreshResponse(t, status, body) {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(body, { status });
+  t.after(() => {
+    globalThis.fetch = realFetch;
+  });
+}
+
+test('a confirmed permanent refresh failure surfaces reauthRequired through the wrapper', async (t) => {
+  stubRefreshResponse(t, 400, JSON.stringify({ error: 'invalid_grant', error_description: 'revoked' }));
+  writeStoredTokens({ access_token: 'a', refresh_token: 'dead', expires_at: Date.now() - 60_000 });
+  await assert.rejects(
+    () => refreshStoredTokens({ current: null, force: true }),
+    (err) => {
+      assert.equal(err.reauthRequired, true);
+      assert.equal(err.isInvalidGrant, true);
+      assert.equal(err.status, 400);
+      assert.equal(err.code, 'invalid_grant');
+      return true;
+    }
+  );
+});
+
+test('an unconfirmed refresh failure does not claim reauthRequired', async (t) => {
+  for (const [status, body] of [
+    [400, '{"error":"invalid_request"}'],
+    [429, 'slow down'],
+    [503, 'unavailable'],
+  ]) {
+    stubRefreshResponse(t, status, body);
+    writeStoredTokens({ access_token: 'a', refresh_token: 'live', expires_at: Date.now() - 60_000 });
+    await assert.rejects(
+      () => refreshStoredTokens({ current: null, force: true }),
+      (err) => err.reauthRequired !== true
+    );
+  }
+});

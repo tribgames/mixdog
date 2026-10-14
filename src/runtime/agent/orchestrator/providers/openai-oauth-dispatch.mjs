@@ -13,6 +13,9 @@ import { codexCatalogHas } from './openai-oauth-catalog.mjs';
 import { _displayCodexModel } from './openai-codex-model.mjs';
 import { _envFlag, _shouldUseOpenAIHttpFallback } from './openai-oauth-http-sse.mjs';
 import { isWsMessageTooBigClose } from './retry-classifier.mjs';
+import { waitForRetryDeadline } from './openai-error-contract.mjs';
+import { isReplaySafe } from './lib/stream-outcome.mjs';
+import { noteErrorUsage } from './lib/note-error-usage.mjs';
 
 function openAiOAuthHandshakeErrorPolicy({ status }) {
   if (Number(status) === 404) {
@@ -130,6 +133,17 @@ export function createOpenAiOAuthDispatch({
       });
     } catch {}
   };
+  // A 401 is recoverable once per send, and only while nothing the turn
+  // produced could be duplicated by reissuing it.
+  const canReissueAfter401 = (err) =>
+    Number(err?.httpStatus || err?.status || 0) === 401 &&
+    authState.authRefreshed !== true &&
+    !externalSignal?.aborted &&
+    err?.liveTextEmitted !== true &&
+    err?.emittedToolCall !== true &&
+    err?.toolCallEmitted !== true &&
+    err?.unsafeToRetry !== true &&
+    isReplaySafe(err);
   const dispatchHttp = async (reason, originalErr = null, { sticky = false } = {}) => {
     // Transport switching is a session decision, not an HTTP-success
     // side effect. Persist it before the fallback can fail or abort.
@@ -158,9 +172,10 @@ export function createOpenAiOAuthDispatch({
       if (!process.env.MIXDOG_QUIET_PROVIDER_LOG)
         process.stderr.write(`[openai-oauth] WebSocket unhealthy (${reason}); falling back to HTTP/SSE\n`);
     }
-    let result;
-    try {
-      result = await sendHttp({
+    // The server's retry deadline outlives a transport switch.
+    if (originalErr && reason !== 'forced') await waitForRetryDeadline(originalErr, externalSignal, opts._sleepFn);
+    const sendHttpOnce = () =>
+      sendHttp({
         auth: authState.tokens,
         body,
         opts,
@@ -175,6 +190,22 @@ export function createOpenAiOAuthDispatch({
         useModel,
         fetchFn: opts._fetchFn,
       });
+    let result;
+    try {
+      try {
+        result = await sendHttpOnce();
+      } catch (firstErr) {
+        if (!canReissueAfter401(firstErr)) throw firstErr;
+        // Same bounded, replay-safe recovery the WS path applies: one forced
+        // refresh per send, one reissue of the identical request.
+        noteErrorUsage(firstErr);
+        traceTransportError(firstErr, 'primary', 'http');
+        process.stderr.write('[openai-oauth-http] 401 — forcing refresh and retrying once over HTTP/SSE\n');
+        authState.authRefreshed = true;
+        provider._refreshFallbackUntil = 0;
+        authState.tokens = await provider.ensureAuth({ forceRefresh: true, reason: '401' });
+        result = await sendHttpOnce();
+      }
     } catch (httpErr) {
       // The current transport owns the terminal decision, including
       // auth, rate limits, cancellation and output-safety markers.

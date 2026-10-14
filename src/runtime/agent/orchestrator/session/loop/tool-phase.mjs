@@ -70,7 +70,9 @@ export async function runToolPhase(state, round, sent, onToolCall) {
   // carries a runtime notice for the model, delivered after its results.
   if (response.recoveryNotice) messages.push(response.recoveryNotice);
   const toolsEndedAt = Date.now();
-  await markStepEffort(state, assistantTurnMsg);
+  // Starts the step judgment; the next request uses it if it has resolved by
+  // then (send-phase.mjs applyStepEffort), else the one after.
+  markStepEffort(state, assistantTurnMsg);
   try {
     opts.onToolPhaseCompleted?.({
       iteration: round.nextIteration,

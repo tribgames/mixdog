@@ -22,6 +22,7 @@ import {
   quotaResumeEntry,
   quotaSuspendedGoal,
   reloadQuotaResumeStore,
+  scheduleQuotaResumeEntry,
   setQuotaAutoResumeEnabled,
 } from '../../runtime/shared/quota-resume-store.mjs';
 
@@ -540,6 +541,27 @@ test('clearing the session cancels its resume and clears the snapshot field', as
   assert.equal(quotaSuspendedGoal(SESSION, 'turn:u1'), '');
   assert.equal(h.bag.fireQuotaResume({ generation }), 'stale');
   assert.equal(h.state.quotaResume, null);
+});
+
+test('an agent-only session never owns a quota resume; a Lead session still does', (t) => {
+  const agent = harness(t, { runtime: { session: { visibility: 'agent-only', owner: 'agent', agent: 'worker' } } });
+  assert.equal(agent.bag.onQuotaTurnSettled({ suspendedGoalId: 'goal-1' }), null);
+  assert.equal(quotaResumeEntry(SESSION), null);
+  assert.equal(agent.state.quotaResume, null);
+  assert.throws(() => agent.bag.scheduleQuotaResume(SESSION), /agent sessions do not auto-resume/);
+
+  // An entry already persisted for the agent session (an older daemon wrote it) never fires.
+  const { generation } = scheduleQuotaResumeEntry({ sessionId: SESSION, turnKey: 'turn:u1', ...quota() });
+  assert.equal(agent.bag.fireQuotaResume({ generation }), 'agent-session');
+  assert.equal(agent.enqueued.length, 0);
+  assert.equal(quotaResumeEntry(SESSION), null);
+
+  const legacy = harness(t, { runtime: { session: { owner: 'agent', agent: 'worker', parentSessionId: 'lead-1' } } });
+  assert.equal(legacy.bag.onQuotaTurnSettled(), null);
+
+  const lead = harness(t, { runtime: { session: { owner: 'user', visibility: null } } });
+  assert.equal(lead.bag.onQuotaTurnSettled().turnKey, 'turn:u1');
+  assert.equal(quotaResumeEntry(SESSION).turnKey, 'turn:u1');
 });
 
 test('a fire without a suspended Goal revives none', (t) => {

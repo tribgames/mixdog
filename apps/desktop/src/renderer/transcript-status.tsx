@@ -8,6 +8,7 @@ import { subscribeUiLanguage, t, uiFormatLocale } from './i18n';
 import { modelDisplayName, modelRouteDisplayParts } from './provider-display';
 import { uiCurrency } from './ui-format';
 import { liveAgentRows } from './agent-activity-model';
+import { onSessionPreviewsDeleted } from './image-preview-store';
 import { MxIcon } from './MxIcon';
 import { goalHasBackgroundWork } from './session-goal-presentation';
 import { showDesktopToast } from './notifications';
@@ -450,6 +451,14 @@ function translateStatusDetail(detail: unknown): string {
 const liveActivityTurns = new Set<string>();
 const completedActivityTurns = new Set<string>();
 const liveTurnKey = (sessionId: string, turnKey: string) => `${sessionId}\0${turnKey}`;
+
+// A deleted session's turns never render again: drop its entries.
+onSessionPreviewsDeleted((sessionId) => {
+  const prefix = `${sessionId}\0`;
+  for (const turns of [liveActivityTurns, completedActivityTurns]) {
+    for (const key of turns) if (key.startsWith(prefix)) turns.delete(key);
+  }
+});
 
 export function completionActivityKey(sessionId: string, turnKey: string): string {
   return sessionId && turnKey ? liveTurnKey(sessionId, turnKey) : '';

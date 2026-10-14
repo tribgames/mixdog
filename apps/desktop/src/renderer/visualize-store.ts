@@ -97,7 +97,8 @@ function shareStructure<T>(prev: unknown, next: T): T {
   const keys = Object.keys(next);
   const shared: Record<string, unknown> = {};
   for (const key of keys) shared[key] = shareStructure(before[key], (next as Record<string, unknown>)[key]);
-  const same = keys.length === Object.keys(before).length && keys.every((key) => key in before && shared[key] === before[key]);
+  const same =
+    keys.length === Object.keys(before).length && keys.every((key) => key in before && shared[key] === before[key]);
   return (same ? prev : shared) as T;
 }
 
@@ -308,7 +309,10 @@ interface VisualizeHeaderAction {
 /** The panel's header actions at `panelWidth` (0 = unmeasured: as wide).
  *  Folded toggles lead the ⋯ menu as checkbox items, ahead of the menu's
  *  own items (exports) behind a separator; attention and badges ride along. */
-export function visualizeHeaderActions<T extends VisualizeHeaderAction>(actions: readonly T[], panelWidth: number): T[] {
+export function visualizeHeaderActions<T extends VisualizeHeaderAction>(
+  actions: readonly T[],
+  panelWidth: number
+): T[] {
   if (!(panelWidth > 0 && panelWidth < VISUALIZE_HEADER_FOLD_WIDTH)) return [...actions];
   const folds = (action: T) => Boolean(action.inline) && !VISUALIZE_HEADER_PINNED.has(action.id);
   const folded = actions
@@ -346,13 +350,15 @@ export function revealVisualizeTab(sessionId: string, tabId: string): void {
 export function reopenVisualizeTargets(sessionId: string, tabId: string, targets: string[], label = ''): Promise<void> {
   allowVisualizeReveal(sessionId);
   return (
-    window.mixdogDesktop?.visualizeCommand?.({
-      sessionId,
-      tabId,
-      action: 'reopen',
-      targets,
-      ...(label ? { label } : {}),
-    })?.then(() => undefined) ?? Promise.resolve()
+    window.mixdogDesktop
+      ?.visualizeCommand?.({
+        sessionId,
+        tabId,
+        action: 'reopen',
+        targets,
+        ...(label ? { label } : {}),
+      })
+      ?.then(() => undefined) ?? Promise.resolve()
   );
 }
 
@@ -365,14 +371,16 @@ export function reopenVisualizeContent(
 ): Promise<void> {
   allowVisualizeReveal(sessionId);
   return (
-    window.mixdogDesktop?.visualizeCommand?.({
-      sessionId,
-      tabId,
-      action: 'reopen',
-      targets: [],
-      content,
-      ...(label ? { label } : {}),
-    })?.then(() => undefined) ?? Promise.resolve()
+    window.mixdogDesktop
+      ?.visualizeCommand?.({
+        sessionId,
+        tabId,
+        action: 'reopen',
+        targets: [],
+        content,
+        ...(label ? { label } : {}),
+      })
+      ?.then(() => undefined) ?? Promise.resolve()
   );
 }
 
@@ -396,7 +404,9 @@ export async function exportVisualizeTab(
   format: 'png' | 'pdf' | 'project',
   pane: number
 ): Promise<VisualizeCommandResult | undefined> {
-  return (await window.mixdogDesktop?.visualizeCommand?.({ sessionId, tabId, action: 'export', format, pane })) || undefined;
+  return (
+    (await window.mixdogDesktop?.visualizeCommand?.({ sessionId, tabId, action: 'export', format, pane })) || undefined
+  );
 }
 
 /** The displayed pane the toolbar's export acts on: the live one while a
@@ -529,12 +539,14 @@ export function restoreVisualizeVersion(
   assets: string[] = []
 ): Promise<void> {
   return (
-    window.mixdogDesktop?.visualizeCommand?.({
-      sessionId,
-      tabId,
-      action: 'restore',
-      version,
-      ...(assets.length ? { assets } : {}),
-    })?.then(() => undefined) ?? Promise.resolve()
+    window.mixdogDesktop
+      ?.visualizeCommand?.({
+        sessionId,
+        tabId,
+        action: 'restore',
+        version,
+        ...(assets.length ? { assets } : {}),
+      })
+      ?.then(() => undefined) ?? Promise.resolve()
   );
 }

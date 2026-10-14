@@ -8,24 +8,20 @@
  */
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { lstat, mkdir, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 
 import type { VisualizeVersionView } from '../../shared/visualize';
-import { pageAssetType } from '../local-page-server';
 import { insidePath } from './targets';
+import { evictVersions, floorBytes } from './version-eviction';
+import { collectSnapshot, relOf, type SnapshotSource, snapshotHash } from './version-snapshot';
+
+export { pageReferences, type SnapshotSource as VisualizeSnapshotSource } from './version-snapshot';
 
 export const MAX_VERSIONS_PER_TAB = 20;
 export const MAX_SESSION_VERSION_BYTES = 128 * 1024 * 1024;
 /** One version's files together; a larger pane is shown live but not kept. */
 export const MAX_SNAPSHOT_BYTES = 32 * 1024 * 1024;
-const MAX_PAGE_ASSETS = 64;
-
-export interface VisualizeSnapshotSource {
-  kind: string;
-  /** Symlink-resolved file inside the working directory. */
-  path: string;
-}
 
 export interface VisualizeVersion extends VisualizeVersionView {
   /** The version's folder (resolved); files sit at their cwd-relative paths. */
@@ -51,36 +47,10 @@ interface TabHistory {
   chain: Promise<unknown>;
 }
 
-const ELEMENT = /<(?:link|script|img|source|video|audio|track|embed|input)\b[^>]*>/gi;
-const REFERENCE = /\s(?:src|href|poster)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi;
-const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
-
-/** Local relative references (styles, scripts, media) of an HTML page. */
-export function pageReferences(html: string): string[] {
-  const found = new Set<string>();
-  for (const element of html.match(ELEMENT) ?? []) {
-    for (const match of element.matchAll(REFERENCE)) {
-      const raw = (match[1] ?? match[2] ?? match[3] ?? '').trim();
-      // Root-relative paths leave the page's lease; schemes are not local.
-      if (!raw || raw.startsWith('#') || raw.startsWith('/') || raw.startsWith('\\') || SCHEME.test(raw)) continue;
-      const path = raw.replace(/[?#].*$/, '');
-      try {
-        found.add(decodeURIComponent(path));
-      } catch {
-        found.add(path);
-      }
-      if (found.size >= MAX_PAGE_ASSETS) return [...found];
-    }
-  }
-  return [...found];
-}
-
 const folderName = (value: string): string =>
   /^[\w-]{1,64}$/.test(value) ? value : createHash('sha256').update(value).digest('hex').slice(0, 24);
 
 const sessionFolder = (sessionId: string): string => createHash('sha256').update(sessionId).digest('hex').slice(0, 24);
-
-const relOf = (root: string, path: string): string => relative(root, path).split(sep).join('/');
 
 /** The session's version budget is held by versions eviction may not drop
  *  (each tab's newest and the shown ones), so the current files are not kept. */
@@ -253,106 +223,16 @@ export function createVisualizeVersionStore(
     return history;
   };
 
-  /** The files one version keeps, or null when a pane file is too large. */
-  const collect = async (
-    cwd: string,
-    sources: VisualizeSnapshotSource[]
-  ): Promise<{ files: Map<string, Buffer>; panes: string[]; assets: string[]; bytes: number } | null> => {
-    const realCwd = await realpath(cwd);
-    const files = new Map<string, Buffer>();
-    const panes: string[] = [];
-    let bytes = 0;
-    /** false when the file does not fit the remaining budget. */
-    const add = async (path: string): Promise<boolean> => {
-      const rel = relOf(realCwd, path);
-      if (files.has(rel)) return true;
-      const info = await stat(path);
-      if (!info.isFile() || bytes + info.size > maxSnapshotBytes) return false;
-      const data = await readFile(path);
-      if (bytes + data.length > maxSnapshotBytes) return false;
-      bytes += data.length;
-      files.set(rel, data);
-      return true;
-    };
-    for (const source of sources) {
-      if (!insidePath(realCwd, source.path)) throw new Error('a snapshot source is outside the working directory');
-      panes.push(relOf(realCwd, source.path));
-      if (!(await add(source.path))) return null;
-      if (source.kind !== 'html') continue;
-      const page = files.get(relOf(realCwd, source.path));
-      for (const reference of pageReferences(page?.toString('utf8') ?? '')) {
-        let real: string;
-        try {
-          real = await realpath(resolve(dirname(source.path), reference));
-        } catch {
-          continue;
-        }
-        // The page server's own asset policy: inside cwd, not hidden, a web type.
-        if (!insidePath(realCwd, real) || !pageAssetType(realCwd, real, dirname(source.path))) continue;
-        // An asset that does not fit is left out; the page itself is kept.
-        await add(real).catch(() => false);
-      }
-    }
-    const assets = [...files.keys()].filter((rel) => !panes.includes(rel));
-    return { files, panes, assets, bytes };
-  };
+  /** The version `sessionId`'s tab `tabId` shows (never evicted), or null. */
+  const pinnedIn = (sessionId: string) => (tabId: string) => options.pinned?.(sessionId, tabId) ?? null;
+  const sessionFloor = (sessionId: string, tabId: string): number =>
+    floorBytes(sessions.get(sessionId), pinnedIn(sessionId), tabId);
 
-  /** Bytes eviction can never free once `tabId` gains a new newest version:
-   *  every other tab's newest and every pinned (shown) version. */
-  const floorBytes = (sessionId: string, tabId: string): number => {
-    let bytes = 0;
-    for (const [id, history] of sessions.get(sessionId) ?? []) {
-      const pinned = options.pinned?.(sessionId, id) ?? null;
-      const last = history.versions.length - 1;
-      history.versions.forEach((version, index) => {
-        if (version.n === pinned || (index === last && id !== tabId)) bytes += version.bytes;
-      });
-    }
-    return bytes;
-  };
-
-  const hashOf = (files: Map<string, Buffer>, panes: string[]): string => {
-    const hash = createHash('sha256').update(panes.join('\0'));
-    for (const rel of [...files.keys()].sort()) {
-      hash.update(`\0${rel}\0`).update(createHash('sha256').update(files.get(rel) as Buffer).digest());
-    }
-    return hash.digest('hex');
-  };
-
-  /** Drop versions past the per-tab and per-session caps, oldest first; a
-   *  tab's newest version and every pinned one stay. */
+  /** Drop versions past the per-tab and per-session caps, with their files. */
   const evict = async (sessionId: string) => {
     const tabs = sessions.get(sessionId);
     if (!tabs) return;
-    const removed: VisualizeVersion[] = [];
-    const evictable = (tabId: string, history: TabHistory) => {
-      const pinned = options.pinned?.(sessionId, tabId) ?? null;
-      return history.versions.findIndex((version, index) => index < history.versions.length - 1 && version.n !== pinned);
-    };
-    for (const [tabId, history] of tabs) {
-      while (history.versions.length > maxPerTab) {
-        const index = evictable(tabId, history);
-        if (index < 0) break;
-        removed.push(...history.versions.splice(index, 1));
-      }
-    }
-    let total = [...tabs.values()].reduce(
-      (sum, history) => sum + history.versions.reduce((tabSum, version) => tabSum + version.bytes, 0),
-      0
-    );
-    while (total > maxSessionBytes) {
-      let pick: { history: TabHistory; index: number; at: number } | null = null;
-      for (const [tabId, history] of tabs) {
-        const index = evictable(tabId, history);
-        if (index < 0) continue;
-        const at = history.versions[index].at;
-        if (!pick || at < pick.at) pick = { history, index, at };
-      }
-      if (!pick) break;
-      const [version] = pick.history.versions.splice(pick.index, 1);
-      removed.push(version);
-      total -= version.bytes;
-    }
+    const removed = evictVersions(tabs, pinnedIn(sessionId), maxPerTab, maxSessionBytes);
     await Promise.all(removed.map((version) => rm(version.dir, { recursive: true, force: true })));
   };
 
@@ -365,16 +245,16 @@ export function createVisualizeVersionStore(
       sessionId: string,
       tabId: string,
       cwd: string,
-      sources: VisualizeSnapshotSource[],
+      sources: SnapshotSource[],
       label?: string
     ): Promise<VisualizeVersion | null> {
       const history = historyOf(sessionId, tabId);
       const run = async (): Promise<VisualizeVersion | null> => {
-        const collected = await collect(cwd, sources);
+        const collected = await collectSnapshot(cwd, sources, maxSnapshotBytes);
         if (!collected) return null;
-        const hash = hashOf(collected.files, collected.panes);
+        const hash = snapshotHash(collected.files, collected.panes);
         if (history.versions.at(-1)?.hash === hash) return null;
-        if (floorBytes(sessionId, tabId) + collected.bytes > maxSessionBytes) {
+        if (sessionFloor(sessionId, tabId) + collected.bytes > maxSessionBytes) {
           throw new VersionHistoryFullError(maxSessionBytes);
         }
         const n = history.next;
@@ -392,7 +272,7 @@ export function createVisualizeVersionStore(
         }
         // Checked again together with the commit (no await in between): other
         // tabs' snapshots or the shown version may have changed meanwhile.
-        if (floorBytes(sessionId, tabId) + collected.bytes > maxSessionBytes) {
+        if (sessionFloor(sessionId, tabId) + collected.bytes > maxSessionBytes) {
           await rm(dir, { recursive: true, force: true });
           throw new VersionHistoryFullError(maxSessionBytes);
         }

@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import http2 from 'node:http2';
 import { MAX_CONNECT_FRAME_BYTES, createCursorByteQueue } from './cursor-wire-guards.mjs';
 import { cursorClientVersion, warmCursorClientVersion } from './cursor-client-version.mjs';
+import { retryAfterMsFromError } from './retry-classifier.mjs';
 
 export { warmCursorClientVersion };
 
@@ -40,7 +41,66 @@ function rpcHeaders(accessToken, path, unary) {
   };
 }
 
-export function cursorError(message, { status = 0, code = '', retryAfter = null } = {}) {
+// HTTP-equivalent status for every Connect error code.
+const CONNECT_CODE_STATUS = Object.freeze({
+  canceled: 499,
+  unknown: 500,
+  invalid_argument: 400,
+  deadline_exceeded: 504,
+  not_found: 404,
+  already_exists: 409,
+  permission_denied: 403,
+  resource_exhausted: 429,
+  failed_precondition: 400,
+  aborted: 409,
+  out_of_range: 400,
+  unimplemented: 501,
+  internal: 500,
+  unavailable: 503,
+  data_loss: 500,
+  unauthenticated: 401,
+});
+
+// Connect code for a plain HTTP failure that carried no Connect error body.
+const HTTP_STATUS_CODE = Object.freeze({
+  401: 'unauthenticated',
+  403: 'permission_denied',
+  404: 'not_found',
+  429: 'resource_exhausted',
+  500: 'internal',
+  502: 'unavailable',
+  503: 'unavailable',
+  504: 'deadline_exceeded',
+});
+
+// Only explicit wording about the tool catalog or request payload being too
+// large counts; resource_exhausted otherwise stays a throttle.
+const REQUEST_TOO_LARGE_RE =
+  /\b(?:tool\s+(?:catalog|definitions?|schemas?)|tools|payload|request(?:\s+body)?)\b[^.\n]{0,80}?\b(?:too\s+(?:large|big)|exceed(?:s|ed)?\b[^.\n]{0,30}?\b(?:size|limit|maximum))/i;
+
+// Rate/quota wording wins over the size match: "request exceeded the rate
+// limit" is a throttle, not an oversized request.
+const THROTTLE_CUE_RE = /too\s+many\s+requests|quota|rate[\s_-]*limit|throttl/i;
+
+function firstValue(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+// Lowercased string-valued header map without HTTP/2 pseudo-headers.
+function plainHeaders(source) {
+  const headers = {};
+  for (const [key, value] of Object.entries(source || {})) {
+    const first = firstValue(value);
+    if (key.startsWith(':') || first == null || typeof first === 'object') continue;
+    headers[key.toLowerCase()] = String(first);
+  }
+  return headers;
+}
+
+export function cursorError(
+  message,
+  { status = 0, code = '', cursorCode = code, headers = null, retryAfter = null, reauthRequired = false, detail } = {}
+) {
   const error = new Error(message);
   if (status) {
     error.status = status;
@@ -48,15 +108,30 @@ export function cursorError(message, { status = 0, code = '', retryAfter = null 
   }
   if (code) {
     error.code = code;
-    error.cursorCode = code;
+    error.cursorCode = cursorCode;
   }
+  if (detail != null) error.cursorDetail = detail;
+  if (reauthRequired) error.reauthRequired = true;
+  const errorHeaders = plainHeaders(headers);
   if (retryAfter != null && retryAfter !== '') {
-    const headers = { 'retry-after': String(retryAfter) };
     error.retryAfter = retryAfter;
-    error.headers = headers;
-    error.response = { status, headers };
+    errorHeaders['retry-after'] = String(retryAfter);
+  }
+  if (Object.keys(errorHeaders).length) {
+    error.headers = errorHeaders;
+    error.response = { status, headers: errorHeaders };
+    const retryAfterMs = retryAfterMsFromError(error);
+    if (Number.isFinite(retryAfterMs)) error.retryAfterMs = retryAfterMs;
   }
   return error;
+}
+
+function httpStatusError(status, headers) {
+  return cursorError(`Cursor request failed (${status})`, {
+    status,
+    code: HTTP_STATUS_CODE[status] || '',
+    headers,
+  });
 }
 
 export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }) {
@@ -66,7 +141,7 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
   let closeHandler = null;
   let closed = false;
   let status = 0;
-  let retryAfter = null;
+  let responseHeaders = null;
   let closeError = null;
   let timeout = setTimeout(
     () => close(cursorError('Cursor connection timed out', { code: 'connection_timeout' })),
@@ -97,8 +172,7 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
     closed = true;
     clearTimeout(timeout);
     clearInterval(ping);
-    closeError =
-      error || (status >= 400 ? cursorError(`Cursor request failed (${status})`, { status, retryAfter }) : null);
+    closeError = error || (status >= 400 ? httpStatusError(status, responseHeaders) : null);
     try {
       request.close();
     } catch {}
@@ -120,7 +194,7 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
 
   request.on('response', (headers) => {
     status = Number(headers[':status'] || 0);
-    retryAfter = headers['retry-after'] ?? null;
+    responseHeaders = headers;
     resetTimeout();
   });
   request.on('data', (chunk) => {
@@ -167,7 +241,7 @@ export async function callCursorUnary({ accessToken, path, body, url = API_URL, 
     const request = session.request(rpcHeaders(accessToken, path, true));
     const chunks = [];
     let status = 0;
-    let retryAfter = null;
+    let responseHeaders = null;
     let settled = false;
     const timeout = setTimeout(() => finish(new Error('Cursor request timed out')), timeoutMs);
     const finish = (error = null) => {
@@ -181,12 +255,12 @@ export async function callCursorUnary({ accessToken, path, body, url = API_URL, 
         session.close();
       } catch {}
       if (error) reject(error);
-      else if (status >= 400) reject(cursorError(`Cursor request failed (${status})`, { status, retryAfter }));
+      else if (status >= 400) reject(httpStatusError(status, responseHeaders));
       else resolve(Buffer.concat(chunks));
     };
     request.on('response', (headers) => {
       status = Number(headers[':status'] || 0);
-      retryAfter = headers['retry-after'] ?? null;
+      responseHeaders = headers;
     });
     request.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
     request.on('end', () => finish());
@@ -235,7 +309,7 @@ export function createFrameParser(onMessage, onEnd) {
   };
   parse.finish = () => {
     if (pending.byteLength) {
-      throw cursorError('Cursor stream ended with a truncated frame', { code: 'protocol_error' });
+      throw cursorError('Cursor stream ended with a truncated frame', { code: 'incomplete_stream' });
     }
   };
   parse.bufferedBytes = () => pending.byteLength;
@@ -246,26 +320,22 @@ export function parseEndStream(bytes) {
   try {
     const payload = JSON.parse(textDecoder.decode(bytes));
     if (!payload?.error) return null;
-    const code = String(payload.error.code || 'error');
-    const status =
-      {
-        unauthenticated: 401,
-        permission_denied: 403,
-        not_found: 404,
-        resource_exhausted: 429,
-        invalid_argument: 400,
-        internal: 500,
-        unavailable: 503,
-      }[code] || 0;
-    return cursorError(`Cursor ${code}: ${payload.error.message || 'request failed'}`, {
-      status,
-      code,
-      retryAfter:
-        payload.error.retryAfter ??
-        payload.error.retry_after ??
-        payload.metadata?.['retry-after'] ??
-        payload.metadata?.retryAfter ??
-        null,
+    const connectCode = String(payload.error.code || 'error').toLowerCase();
+    const detail = String(payload.error.message || 'request failed');
+    const tooLarge = connectCode === 'resource_exhausted' && !THROTTLE_CUE_RE.test(detail) && REQUEST_TOO_LARGE_RE.test(detail);
+    const retryAfter =
+      payload.error.retryAfter ??
+      payload.error.retry_after ??
+      payload.metadata?.['retry-after'] ??
+      payload.metadata?.retryAfter ??
+      null;
+    return cursorError(`Cursor ${connectCode}: ${detail}`, {
+      status: tooLarge ? 413 : CONNECT_CODE_STATUS[connectCode] || 0,
+      code: tooLarge ? 'request_too_large' : connectCode,
+      cursorCode: connectCode,
+      headers: payload.metadata,
+      retryAfter: firstValue(retryAfter),
+      detail,
     });
   } catch {
     return cursorError('Cursor returned an invalid end-stream frame', { code: 'protocol_error' });

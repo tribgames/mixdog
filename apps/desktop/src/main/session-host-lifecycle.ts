@@ -164,7 +164,9 @@ export class SessionHostLifecycle {
   private async unsubscribeQuietly(sessionId: string): Promise<void> {
     try {
       await this.owner.client.unsubscribe({ sessionId }, this.owner.callOptions());
-    } catch {}
+    } catch {
+      // Best-effort: the subscription is abandoned either way.
+    }
   }
 
   async renameSession(sessionId: string, title: string): Promise<void> {

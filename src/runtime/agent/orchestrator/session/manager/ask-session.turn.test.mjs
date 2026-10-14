@@ -187,6 +187,295 @@ test('a delivered task notification survives turn commit and the next provider r
   });
 });
 
+// Regression (lost Lead turn): a turn woken by a task notification ran a
+// long tool, the user stopped it and sent a new message. The cancelled
+// turn's notification, assistant text and tool call must stay in history,
+// the unfinished call closed as cancelled, before the user's next message.
+for (const abortReason of ['user-cancel', 'interrupt']) {
+  test(`a notification turn stopped mid-tool (${abortReason}) keeps its turn before the next user message`, async (t) => {
+    const { abortSessionTurn } = await import('./session-close.mjs');
+    await withAskHarness(t, async ({ session, askSession, loadSession, SessionClosedError, setReply }) => {
+      const notification = renderShellCompletionEnvelope({
+        jobId: 'task_agent_island',
+        status: 'completed',
+        exitCode: 0,
+        summary: 'Agent "island-agents" completed',
+      });
+      setReply(async () => ({
+        content: 'The island fix is done. Re-running the full gate.',
+        toolCalls: [{ id: 'call_gate', name: 'read', arguments: { path: 'gate.log' } }],
+        stopReason: 'tool_use',
+      }));
+      let toolStarted = false;
+      await assert.rejects(
+        askSession(session.id, notification, null, null, null, null, {
+          promptSource: 'task-notification',
+          // The long-running tool: still executing when the turn is stopped.
+          beforeToolExecution: () => {
+            toolStarted = true;
+            setImmediate(() => abortSessionTurn(session.id, abortReason));
+            return new Promise(() => {});
+          },
+        }),
+        (err) => err instanceof SessionClosedError
+      );
+      assert.equal(toolStarted, true);
+
+      setReply(async () => ({ content: 'Looking into the shell.', usage: { inputTokens: 1, outputTokens: 1 } }));
+      await askSession(session.id, 'Why did the foreground shell not background?', null, null, null, null, {});
+
+      const messages = loadSession(session.id).messages.filter((m) => m.role !== 'system');
+      const start = messages.findIndex((m) => m.role === 'user' && String(m.content).includes('task_agent_island'));
+      assert.ok(start >= 0, 'the notification that started the turn is in history');
+      const turn = messages.slice(start);
+      const call = turn.find((m) => m.role === 'assistant' && m.toolCalls?.some((c) => c.id === 'call_gate'));
+      assert.ok(call, 'the assistant tool call is in history');
+      assert.match(String(call.content), /island fix is done/);
+      const result = turn.find((m) => m.role === 'tool' && m.toolCallId === 'call_gate');
+      assert.equal(result?.content, 'Cancelled', 'the unfinished tool call is closed as cancelled');
+      const next = turn.findIndex((m) => m.role === 'user' && /foreground shell/.test(String(m.content)));
+      assert.ok(next > turn.indexOf(result), 'the user message follows the interrupted turn');
+      assert.equal(turn.at(-1).content, 'Looking into the shell.');
+    });
+  });
+}
+
+const islandNotification = () =>
+  renderShellCompletionEnvelope({
+    jobId: 'task_agent_island',
+    status: 'completed',
+    exitCode: 0,
+    summary: 'Agent "island-agents" completed',
+  });
+
+// P1-a: an idle ask drains every queued completion at once; only the first
+// runs, the rest wait as follow-up turns. Cancelling the first must hand the
+// waiting ones back to the pending queue, not drop them with the ask.
+test('completions drained behind a cancelled idle turn are released back to the pending queue', async (t) => {
+  const { abortSessionTurn } = await import('./session-close.mjs');
+  const { markCompletionEntry, drainPendingMessages, releasePendingMessages } = await import('./pending-messages.mjs');
+  await withAskHarness(t, async ({ session, askSession, SessionClosedError, sends, setReply }) => {
+    const completion = (jobId) =>
+      markCompletionEntry(
+        renderShellCompletionEnvelope({ jobId, status: 'completed', exitCode: 0, summary: `${jobId} done` }),
+        { executionId: jobId }
+      );
+    enqueuePendingMessage(session.id, completion('job_first'));
+    enqueuePendingMessage(session.id, completion('job_second'));
+    setReply(
+      (_messages, sendOpts) =>
+        new Promise((_, reject) => {
+          sendOpts.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          setImmediate(() => abortSessionTurn(session.id, 'user-cancel'));
+        })
+    );
+    await assert.rejects(
+      askSession(session.id, '', null, null, null, null, {}),
+      (err) => err instanceof SessionClosedError
+    );
+    assert.equal(sends.length, 1, 'only the first completion started a turn');
+    assert.match(String(sends[0].messages.at(-1).content), /job_first/);
+    const drained = drainPendingMessages(session.id);
+    const text = drained.map((entry) => String(entry.content ?? entry.message ?? ''));
+    assert.deepEqual(
+      [text.filter((value) => value.includes('job_first')).length, text.filter((value) => value.includes('job_second')).length],
+      [1, 1],
+      'both completions are queued again, each exactly once'
+    );
+    assert.ok(text.findIndex((v) => v.includes('job_first')) < text.findIndex((v) => v.includes('job_second')));
+    releasePendingMessages(session.id, drained);
+  });
+});
+
+// P1-b: the host commits the prompt on the first meaningful text. A reset
+// retracts that text and the retry so far streamed only whitespace; the
+// retracted text is still the only output the user saw, so a cancel must keep
+// the turn (the host will not requeue a committed notification).
+test('a cancel after a text reset and whitespace-only replacement keeps the committed output', async (t) => {
+  const { abortSessionTurn } = await import('./session-close.mjs');
+  await withAskHarness(t, async ({ session, askSession, loadSession, SessionClosedError, setReply }) => {
+    const notification = islandNotification();
+    setReply(
+      (_messages, sendOpts) =>
+        new Promise((_, reject) => {
+          sendOpts.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          (async () => {
+            sendOpts.onTextDelta?.('hello');
+            assert.equal(await sendOpts.onTextReset?.({ chars: 5 }), true);
+            sendOpts.onTextDelta?.('  ');
+            abortSessionTurn(session.id, 'user-cancel');
+          })();
+        })
+    );
+    await assert.rejects(
+      askSession(session.id, notification, null, null, null, null, {
+        promptSource: 'task-notification',
+        onTextReset: () => true,
+      }),
+      (err) => err instanceof SessionClosedError
+    );
+    const stored = loadSession(session.id).messages;
+    const start = stored.findIndex((m) => m.role === 'user' && m.content === notification);
+    assert.ok(start >= 0, 'the committed notification turn is kept');
+    const assistant = stored.slice(start).find((m) => m.role === 'assistant');
+    assert.match(String(assistant?.content), /hello/, 'the text the user saw is kept');
+  });
+});
+
+// A second reset that retracts only the whitespace replacement must not
+// overwrite the meaningful draft the host already committed on.
+test('a cancel after two resets around a whitespace-only retry keeps the committed output', async (t) => {
+  const { abortSessionTurn } = await import('./session-close.mjs');
+  await withAskHarness(t, async ({ session, askSession, loadSession, SessionClosedError, setReply }) => {
+    const notification = islandNotification();
+    setReply(
+      (_messages, sendOpts) =>
+        new Promise((_, reject) => {
+          sendOpts.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          (async () => {
+            sendOpts.onTextDelta?.('hello');
+            assert.equal(await sendOpts.onTextReset?.({ chars: 5 }), true);
+            sendOpts.onTextDelta?.('  ');
+            assert.equal(await sendOpts.onTextReset?.({ chars: 2 }), true);
+            abortSessionTurn(session.id, 'user-cancel');
+          })();
+        })
+    );
+    await assert.rejects(
+      askSession(session.id, notification, null, null, null, null, {
+        promptSource: 'task-notification',
+        onTextReset: () => true,
+      }),
+      (err) => err instanceof SessionClosedError
+    );
+    const stored = loadSession(session.id).messages;
+    const start = stored.findIndex((m) => m.role === 'user' && m.content === notification);
+    assert.ok(start >= 0, 'the committed notification turn is kept');
+    const assistant = stored.slice(start).find((m) => m.role === 'assistant');
+    assert.match(String(assistant?.content), /hello/, 'the text the user saw is kept');
+  });
+});
+
+// An idle ask drains every queued completion at once; after the first turn
+// succeeds, the ones waiting in the queue's tail must run too, in order,
+// even when nothing new arrived during the first turn.
+test('completions drained together by an idle ask all run as follow-up turns', async (t) => {
+  const { markCompletionEntry, drainPendingMessages } = await import('./pending-messages.mjs');
+  await withAskHarness(t, async ({ session, askSession, sends, setReply }) => {
+    const completion = (jobId) =>
+      markCompletionEntry(
+        renderShellCompletionEnvelope({ jobId, status: 'completed', exitCode: 0, summary: `${jobId} done` }),
+        { executionId: jobId }
+      );
+    enqueuePendingMessage(session.id, completion('job_first'));
+    enqueuePendingMessage(session.id, completion('job_second'));
+    setReply(async () => ({ content: 'Noted.', usage: { inputTokens: 1, outputTokens: 1 } }));
+    await askSession(session.id, '', null, null, null, null, {});
+    assert.equal(sends.length, 2, 'each queued completion ran its own turn');
+    assert.match(String(sends[0].messages.at(-1).content), /job_first/);
+    assert.match(String(sends[1].messages.at(-1).content), /job_second/);
+    assert.deepEqual(drainPendingMessages(session.id), [], 'nothing is left pending');
+  });
+});
+
+// The host half (the uncommitted notification entry is requeued by Esc) is
+// pinned in src/tui/session/session-api/intake.test.mjs.
+test('a notification turn cancelled with reasoning only is rewound from history', async (t) => {
+  const { abortSessionTurn } = await import('./session-close.mjs');
+  await withAskHarness(t, async ({ session, askSession, loadSession, SessionClosedError, setReply }) => {
+    const notification = islandNotification();
+    setReply(
+      (_messages, sendOpts) =>
+        new Promise((_, reject) => {
+          sendOpts.onReasoningDelta?.('Thinking about the gate.');
+          sendOpts.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          setImmediate(() => abortSessionTurn(session.id, 'user-cancel'));
+        })
+    );
+    await assert.rejects(
+      askSession(session.id, notification, null, null, null, null, { promptSource: 'task-notification' }),
+      (err) => err instanceof SessionClosedError
+    );
+    const stored = loadSession(session.id).messages;
+    assert.equal(
+      stored.some((m) => String(m.content).includes('task_agent_island')),
+      false,
+      'a turn that produced no output is rewound'
+    );
+    assert.equal(
+      stored.some((m) => m.role === 'assistant'),
+      false,
+      'reasoning alone never persists as an assistant message'
+    );
+  });
+});
+
+test('a completed tool result of a cancelled notification turn is kept exactly once', async (t) => {
+  const { abortSessionTurn } = await import('./session-close.mjs');
+  await withAskHarness(t, async ({ session, askSession, loadSession, SessionClosedError, sends, setReply }) => {
+    setReply(async (_messages, sendOpts) => {
+      if (sends.length === 1) {
+        return {
+          content: 'Checking the gate log.',
+          toolCalls: [{ id: 'call_done', name: 'read', arguments: { path: 'missing-gate.log' } }],
+          stopReason: 'tool_use',
+        };
+      }
+      // The follow-up request after the completed tool: stopped mid-stream.
+      return new Promise((_, reject) => {
+        sendOpts.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        setImmediate(() => abortSessionTurn(session.id, 'user-cancel'));
+      });
+    });
+    await assert.rejects(
+      askSession(session.id, islandNotification(), null, null, null, null, { promptSource: 'task-notification' }),
+      (err) => err instanceof SessionClosedError
+    );
+    assert.equal(sends.length, 2, 'the tool completed and its result was sent');
+    const stored = loadSession(session.id).messages;
+    assert.ok(stored.some((m) => m.role === 'user' && String(m.content).includes('task_agent_island')));
+    const results = stored.filter((m) => m.role === 'tool' && m.toolCallId === 'call_done');
+    assert.equal(results.length, 1, 'the completed result is not duplicated');
+    assert.notEqual(results[0].content, 'Cancelled', 'a completed result is never replaced by a closure');
+    assert.equal(stored.at(-1).content, '[Request interrupted by user]');
+  });
+});
+
+test('after the close snapshot finalizes a cancelled notification turn, the next provider request carries it', async (t) => {
+  const { abortSessionTurn } = await import('./session-close.mjs');
+  await withAskHarness(t, async ({ session, askSession, SessionClosedError, sends, setReply }) => {
+    const notification = islandNotification();
+    setReply(async () => ({
+      content: 'The island fix is done. Re-running the full gate.',
+      toolCalls: [{ id: 'call_gate', name: 'read', arguments: { path: 'gate.log' } }],
+      stopReason: 'tool_use',
+    }));
+    await assert.rejects(
+      askSession(session.id, notification, null, null, null, null, {
+        promptSource: 'task-notification',
+        beforeToolExecution: () => {
+          setImmediate(() => abortSessionTurn(session.id, 'user-cancel'));
+          return new Promise(() => {});
+        },
+      }),
+      (err) => err instanceof SessionClosedError
+    );
+    setReply(async () => ({ content: 'Looking into the shell.', usage: { inputTokens: 1, outputTokens: 1 } }));
+    // Desktop-style next turn: a plain user prompt with transcript metadata.
+    await askSession(session.id, 'Why did the foreground shell not background?', null, null, null, null, {
+      transcriptMeta: { at: Date.now(), device: 'test-desktop' },
+    });
+    const request = sends.at(-1).messages;
+    const at = (predicate) => request.findIndex(predicate);
+    const notificationAt = at((m) => m.role === 'user' && m.content === notification);
+    const assistantAt = at((m) => m.role === 'assistant' && /island fix is done/.test(String(m.content)));
+    const closureAt = at((m) => m.role === 'tool' && m.content === 'Cancelled');
+    const promptAt = at((m) => m.role === 'user' && /foreground shell/.test(String(m.content)));
+    assert.ok(notificationAt >= 0, 'the provider sees the notification');
+    assert.ok(notificationAt < assistantAt && assistantAt < closureAt && closureAt < promptAt);
+  });
+});
+
 test('a provider failure rejects, keeps the session usable, and an abort surfaces as a closed-session error', async (t) => {
   await withAskHarness(t, async ({ session, askSession, loadSession, SessionClosedError, sends, setReply }) => {
     // A 400 is terminal for the loop's retry classifier: no transport retries.

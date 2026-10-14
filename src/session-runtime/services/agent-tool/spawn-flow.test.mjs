@@ -87,6 +87,34 @@ test('agent job completion uses immutable caller owner and never invokes stale n
   cleanupBackgroundTasks({ surface: 'agent', force: true });
 });
 
+test('the progress stamp keeps a working stage beside status running, whatever phase the runtime reads', () => {
+  const updates = [];
+  const flow = createSpawnFlow({
+    mgr: {},
+    upsertWorkerSessionDeferred(_session, _tag, patch) {
+      updates.push(patch);
+    },
+    sessionSurface: { canonical: true },
+  });
+  const stamp = flow.progressStamper({ id: 'sess_progress' }, 'progress-worker');
+  for (const stage of ['idle', 'done', 'error', null]) stamp({ messages: 2, stage });
+  for (const stage of ['connecting', 'requesting', 'streaming', 'tool_running', 'resource_wait']) stamp({ stage });
+  assert.deepEqual(
+    updates.map((patch) => [patch.status, patch.stage]),
+    [
+      ['running', 'running'],
+      ['running', 'running'],
+      ['running', 'running'],
+      ['running', 'running'],
+      ['running', 'connecting'],
+      ['running', 'requesting'],
+      ['running', 'streaming'],
+      ['running', 'tool_running'],
+      ['running', 'resource_wait'],
+    ]
+  );
+});
+
 test('a user-cancelled Agent turn settles the worker row as cancelled, not error', async () => {
   const updates = [];
   const flow = createSpawnFlow({

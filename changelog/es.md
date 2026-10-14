@@ -5,6 +5,37 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Se agregaron inicio de sesión explícito mediante OAuth para MCP, cambio de modelo en el lugar y un banner de cuota de una sola línea.
+
+### Nuevas funciones
+
+- **Inicio de sesión en MCP** — Se agregó inicio de sesión explícito mediante OAuth para servidores MCP con estado, diálogo de inicio de sesión compartido, pegado remoto y comandos TUI (#74, thanks @oh1701).
+- **Cambiar modelo en el lugar** — Se agregó el cambio de modelo en el chat sin iniciar una nueva sesión, y Bifurcar en el menú de sesión (#73, #52, thanks @grapefruit0205).
+- **Banner de cuota** — Se agregó un banner de una línea sobre el compositor al alcanzar un límite; Reanudar reserva la siguiente ejecución para la hora de reinicio.
+- **Menú de archivos** — Se agregó un contador de archivos en la isla que rastrea cambios no confirmados de la sesión, con Ver cambios y Eliminar historial.
+- **Tamaño de texto del chat** — Se agregó un ajuste del tamaño de texto del chat por dispositivo.
+
+### Cambios
+
+- Se cambiaron los reintentos de proveedores para respetar los límites y tiempos de espera propios de cada proveedor, mostrando el tiempo restante con opción de cancelar.
+- Se cambiaron los mensajes de error para indicar la causa y el siguiente paso, y ocultar Reintentar cuando reintentar no sirva de ayuda.
+- Se cambiaron los comandos de shell para permanecer en primer plano durante 10 segundos por defecto, hasta 30 segundos, antes de pasar a segundo plano.
+- Se ajustaron la aplicación de escritorio, el razonamiento automático y el servicio en segundo plano para usar menos sondeos, renderizado y memoria en sesiones largas.
+
+### Correcciones de errores
+
+- Se corrigió que el servicio en segundo plano se congelara entre uno y dos segundos cada 30 minutos.
+- Se corrigió que se perdieran los avisos de finalización de agentes al cancelar un turno que ya tenía salida.
+- Se corrigió que la isla del compositor mostrara agentes en ejecución como inactivos o terminados.
+- Se corrigió que el cambio de sesiones se detuviera al esperar los escaneos de cambios de otras sesiones.
+- Se corrigió que los diálogos de página del navegador salieran del panel, la confirmación de salida no se completara y los atajos de copia del navegador fallaran.
+- Se corrigió que fallara el almacenamiento en caché de instrucciones en proveedores personalizados de Responses y que los proyectos de sesión heredados no coincidieran con la barra lateral (#70, #75, thanks @sukjong2002).
+- Se corrigió que las tablas en streaming parpadearan, la transcripción saltara mientras un turno trabaja y la tarjeta de cuota permaneciera tras cambiar de proveedor.
+
+### Otros
+
+- Se eliminaron helpers sin usar (#67, thanks @22nsuk).
+
 ## v1.2.1 - 2026-10-14
 
 Se añadió la importación de conversaciones de Codex y Claude Code, el proveedor Command Code y menciones de skills con `$`, y se corrigió la observación de entrada de Computer Use, los scripts de skills, el razonamiento automático y varios fallos de sesiones.

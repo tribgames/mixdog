@@ -667,12 +667,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     setDraggedSessionId,
     setSessionDropKey,
   };
-  const renderOrderedRow = (
-    session: DesktopSessionSummary,
-    listKey?: string,
-    rowScope?: string,
-    fork?: ForkRowRole
-  ) => renderSessionRow(session, listKey, rowContext, rowScope, fork);
+  const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string, rowScope?: string, fork?: ForkRowRole) =>
+    renderSessionRow(session, listKey, rowContext, rowScope, fork);
   const sectionContext: SidebarSectionContext = {
     sectionOrder,
     openState,

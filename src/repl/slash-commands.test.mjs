@@ -49,6 +49,10 @@ function modelContext({ sessionModel = 'gemini-3.8-flash', onModelChange = true,
       return { changed: true };
     },
     setRoute: async (next, options) => {
+      if (options.validateOnly) {
+        if (next.model === 'bogus') throw new Error('Invalid model selector "bogus"');
+        return;
+      }
       calls.push(['setRoute', next, options]);
       runtime.model = next.model;
     },
@@ -60,6 +64,12 @@ test('/model switches the conversation in place, compacting first on the current
   const { calls, ctx } = modelContext();
   await handleSlash('/model gemini-3.5-flash', ctx);
   assert.deepEqual(calls, ['compact', ['setRoute', { model: 'gemini-3.5-flash' }, { switchEstablished: true }]]);
+});
+
+test('/model rejects an invalid selector before compacting the conversation', async () => {
+  const { calls, ctx } = modelContext();
+  await assert.rejects(handleSlash('/model bogus', ctx), /Invalid model selector/);
+  assert.deepEqual(calls, []);
 });
 
 test('/model skips the pre-compaction when off, for the same model or preset, and for an empty chat', async () => {

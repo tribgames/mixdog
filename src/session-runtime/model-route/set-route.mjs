@@ -118,24 +118,28 @@ function updateSessionInPlace(deps, session, updateOptions) {
   writeStatuslineRoute(statusRoutes, getSession(), route);
 }
 
-/** The message a model switch boundary is recorded on: the last one before a
- *  trailing unanswered prompt, which a retry may rewind. */
-function modelSwitchAnchor(messages) {
+/** Index of the message a model switch boundary is recorded on: the last one
+ *  before a trailing unanswered prompt, which a retry may rewind. */
+function modelSwitchAnchorIndex(messages) {
   let index = messages.length - 1;
   while (index >= 0 && (messages[index]?.role === 'user' || messages[index]?.role === 'system')) index -= 1;
-  if (index >= 0) return messages[index];
-  return messages.findLast((message) => message?.role !== 'system') || null;
+  if (index >= 0) return index;
+  return messages.findLastIndex((message) => message?.role !== 'system');
 }
 
 /** Display-only boundary of an in-place model switch, kept in message meta
  *  (like an inheritance boundary): the transcript shows it live and after a
  *  restore, and the model conversation gains no synthetic message. */
 export function recordModelSwitchBoundary(session, boundary) {
-  const anchor = modelSwitchAnchor(Array.isArray(session?.messages) ? session.messages : []);
-  if (!anchor) return false;
+  const messages = Array.isArray(session?.messages) ? session.messages : [];
+  const index = modelSwitchAnchorIndex(messages);
+  if (index < 0) return false;
+  const anchor = messages[index];
   const switches = Array.isArray(anchor.meta?.modelSwitches) ? anchor.meta.modelSwitches : [];
   if (switches.some((entry) => entry?.at === boundary.at && entry?.modelId === boundary.modelId)) return true;
-  anchor.meta = { ...anchor.meta, modelSwitches: [...switches, boundary] };
+  // Replace the message object: the session save worker detects changed
+  // messages by reference identity, so an in-place meta edit is never saved.
+  messages[index] = { ...anchor, meta: { ...anchor.meta, modelSwitches: [...switches, boundary] } };
   return true;
 }
 
@@ -204,6 +208,12 @@ export function createContinueSessionInModel(deps, persist) {
   };
 }
 
+/** Rejects an unacceptable selection without applying it. */
+async function validateSelectedRoute(deps, next) {
+  await resolveSelectedRoute(deps, next);
+  return deps.getRoute();
+}
+
 export function createSetRoute(deps, persist) {
   const { getRoute, getSession, invalidateContextStatusCache, createCurrentSession } = deps;
 
@@ -215,6 +225,9 @@ export function createSetRoute(deps, persist) {
     // place while an empty one follows the unaddressed rules below.
     const applyToCurrentSession = options?.applyToCurrentSession === true;
     const switchEstablished = applyToCurrentSession || options?.switchEstablished === true;
+    // Lets a caller prove the selection is acceptable before it does
+    // irreversible work (compaction) ahead of the switch; changes nothing.
+    if (options?.validateOnly === true) return validateSelectedRoute(deps, next);
     await adoptRoute(deps, persist, next, options);
     const session = getSession();
     // A session the user has already talked in or compacted keeps its route
