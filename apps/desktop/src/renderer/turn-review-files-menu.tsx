@@ -101,6 +101,11 @@ export function TurnReviewFilesMenu({
     entries[next]?.focus();
   };
   const deleteHistory = async () => {
+    // The segment hides once the history is gone, so typing continues in this
+    // pane's composer instead of focus falling to the document.
+    let scope = trigger.current?.parentElement ?? null;
+    while (scope && !scope.querySelector('.composer textarea')) scope = scope.parentElement;
+    const composer = scope?.querySelector<HTMLTextAreaElement>('.composer textarea') ?? null;
     try {
       await window.mixdogDesktop?.invokeCapability?.({
         capability: 'clearSessionChangeHistory',
@@ -116,6 +121,7 @@ export function TurnReviewFilesMenu({
     // Every turn card and session diff of the session re-reads: the island
     // segment hides and the Changes list empties.
     if (sessionId) bumpTurnChangesEpoch(sessionId);
+    composer?.focus({ preventScroll: true });
   };
 
   return (
