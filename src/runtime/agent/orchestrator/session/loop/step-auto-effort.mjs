@@ -8,12 +8,13 @@
  * later request rebuilds the same history and the prompt cache keeps hitting.
  * A judge that is missing, slow or failing leaves the step at the effort in
  * force (the turn's or the previous step's).
- * A custom route (snapshot mode 'custom') has no mid-conversation update: the
- * judged effort, snapped onto the model's levels, becomes the effort of the
- * turn's following requests.
+ * A custom route snaps the judged effort onto the model's levels. Without a
+ * mid-conversation update (snapshot mode 'custom') it becomes the effort of
+ * the turn's following requests; a custom GPT-6+ Responses route (mode
+ * 'responses') also marks it as the update.
  */
 import { resolveAutoEffort } from '../../providers/auto-effort.mjs';
-import { resolveCustomReasoning } from '../../providers/custom-reasoning.mjs';
+import { isCustomProviderName, resolveCustomReasoning } from '../../providers/custom-reasoning.mjs';
 import { autoEffortModel, stepEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import { effortOptionsFor } from '../../runtime-core/effort.mjs';
 import { judgeTurn, recordEffortDecision } from '../../../../effort-judge/judge-client.mjs';
@@ -96,7 +97,7 @@ export async function markStepEffort(state, assistantTurnMsg) {
     ms: judged.ms,
     probs: judged.probs.map((value) => Number(value.toFixed(3))),
   });
-  if (snapshot.mode === 'custom') {
+  if (isCustomProviderName(provider)) {
     const level =
       resolved &&
       resolveCustomReasoning({
@@ -105,8 +106,12 @@ export async function markStepEffort(state, assistantTurnMsg) {
         effort: resolved.effort,
       }).level;
     if (!level) return;
+    // The per-request effort also carries the step on an update route,
+    // where a rejected update replays the request with it.
     state.opts.effort = level;
-    last.meta = { ...last.meta, effortConfiguration: { ...snapshot, effort: level } };
+    const marked =
+      snapshot.mode === 'custom' ? { ...snapshot, effort: level } : stepEffortConfiguration(snapshot, provider, model, level);
+    if (marked) last.meta = { ...last.meta, effortConfiguration: marked };
     return;
   }
   const marked = resolved && stepEffortConfiguration(snapshot, provider, model, resolved.effort);

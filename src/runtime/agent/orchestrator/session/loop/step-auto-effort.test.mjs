@@ -64,6 +64,20 @@ test('a custom step sends the judged effort, snapped by the custom resolver, as 
   assert.equal(next.state.opts.effort, 'low');
 });
 
+test('a custom GPT-6 Responses step marks the snapped effort as its update and as the request effort', async () => {
+  const provider = customProvider('openai-responses', ROW);
+  const model = 'openai/gpt-6.1-sol';
+  const session = { provider: 'custom-a', model, effort: 'medium', messages: [] };
+  const snapshot = prepareTurnEffortConfiguration(session, provider);
+  assert.equal(snapshot.mode, 'responses');
+  probs = [0, 0, 0, 1];
+  const { state, tool, assistant } = stepState(provider, snapshot);
+  state.model = model;
+  await markStepEffort(state, assistant);
+  assert.equal(state.opts.effort, 'high');
+  assert.deepEqual(tool.meta.effortConfiguration, { ...snapshot, effort: 'high' });
+});
+
 test('turn auto effort judges custom Chat/Responses routes with levels and skips the rest', async (t) => {
   const saved = process.env.MIXDOG_AUTO_EFFORT;
   t.after(() => {
