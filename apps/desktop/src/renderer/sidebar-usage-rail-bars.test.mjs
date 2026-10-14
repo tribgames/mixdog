@@ -221,7 +221,8 @@ test('the pin item toggles the rail pin and the radios apply the bar mode', asyn
   await press(trigger());
   const pin = document.querySelector('[role="menuitemcheckbox"]');
   assert.equal(pin.getAttribute('aria-checked'), 'true');
-  assert.equal(pin.textContent, 'Pin usage to the rail');
+  assert.equal(pin.textContent, 'Pin to rail');
+  assert.equal(pin.querySelector('svg') !== null, true, 'the checked pin shows a check mark');
   await press(pin);
   assert.equal(state.toggles, 1);
   assert.equal(menu().getAttribute('aria-label'), 'Usage menu');
@@ -229,9 +230,16 @@ test('the pin item toggles the rail pin and the radios apply the bar mode', asyn
     radios().map((radio) => [radio.textContent, radio.getAttribute('aria-checked')]),
     [
       ['Longest period only', 'true'],
-      ['Short + long period', 'false'],
+      ['5-hour + longest period', 'false'],
     ]
   );
+  assert.deepEqual(radios().map((radio) => radio.getAttribute('data-tooltip')), [
+    'Only the longest period, such as monthly or weekly',
+    '5-hour and weekly as two bars; the number shows the higher',
+  ]);
+  assert.equal(document.querySelector('.usage-menu-hint'), null);
+  assert.equal(radios()[0].querySelector('svg') !== null, true);
+  assert.equal(radios()[1].querySelector('svg'), null);
   await press(radios()[1]);
   assert.deepEqual(state.changes, ['short-long']);
   state.railBars = 'short-long';

@@ -1,5 +1,5 @@
-import { MoreHorizontal } from 'lucide-react';
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
+import { Check, MoreHorizontal } from 'lucide-react';
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
@@ -29,7 +29,6 @@ export function SidebarUsageMenu({
   const panel = useRef<HTMLDivElement>(null);
   const anchorBounds = useRef<ReturnType<typeof captureRowMenuAnchor> | null>(null);
   const clickGuard = useImmediateOverlayClickGuard();
-  const hintId = useId();
   useMobileBack(open, () => setOpen(false));
 
   useEffect(() => {
@@ -86,23 +85,20 @@ export function SidebarUsageMenu({
   };
 
   const radio = (value: UsageRailBars, label: string, hint: string) => (
-    <>
-      <button
-        type="button"
-        role="menuitemradio"
-        aria-checked={railBars === value}
-        aria-describedby={`${hintId}-${value}`}
-        disabled={!pinned}
-        data-rail-bars={value}
-        onClick={() => onRailBarsChange?.(value)}
-      >
-        <span className="usage-menu-radio" aria-hidden="true" />
-        <span className="row-overflow-label">{label}</span>
-      </button>
-      <div className="usage-menu-hint" id={`${hintId}-${value}`}>
-        {hint}
-      </div>
-    </>
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={railBars === value}
+      disabled={!pinned}
+      data-rail-bars={value}
+      data-tooltip={hint}
+      onClick={() => onRailBarsChange?.(value)}
+    >
+      <span className="row-overflow-check" aria-hidden="true">
+        {railBars === value && <Check size={14} />}
+      </span>
+      <span className="row-overflow-label">{label}</span>
+    </button>
   );
 
   const placement = positionRowMenu(open ? anchorBounds.current : null, 8, 1, window.innerWidth, window.innerHeight);
@@ -144,8 +140,8 @@ export function SidebarUsageMenu({
             style={placement}
           >
             <button type="button" role="menuitemcheckbox" aria-checked={pinned} onClick={onTogglePin}>
-              <span className="row-overflow-label">{t('Pin usage to the rail')}</span>
-              <span className="usage-menu-switch" aria-hidden="true" />
+              <span className="row-overflow-check" aria-hidden="true">{pinned && <Check size={14} />}</span>
+              <span className="row-overflow-label">{t('Pin to rail')}</span>
             </button>
             <div className="usage-menu-separator" role="separator" />
             <div className="usage-menu-group" role="presentation">
@@ -154,7 +150,7 @@ export function SidebarUsageMenu({
             {radio('long', t('Longest period only'), t('Only the longest period, such as monthly or weekly'))}
             {radio(
               'short-long',
-              t('Short + long period'),
+              t('5-hour + longest period'),
               t('5-hour and weekly as two bars; the number shows the higher')
             )}
           </div>,
