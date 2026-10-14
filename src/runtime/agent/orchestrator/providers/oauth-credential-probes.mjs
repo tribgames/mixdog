@@ -181,6 +181,17 @@ function mimoOAuthState() {
   );
 }
 
+function commandCodeOAuthState() {
+  const paths = [
+    boundProviderAuthPath('command-code-oauth') ||
+      process.env.COMMAND_CODE_OAUTH_CREDENTIALS_PATH ||
+      join(resolvePluginData(), 'command-code-oauth.json'),
+  ];
+  return memoProbe('command-code-oauth', paths, () =>
+    resolveProbeState(paths, (docs) => docs.some((own) => typeof own?.apiKey === 'string' && !!own.apiKey.trim()))
+  );
+}
+
 function museCodeOAuthState() {
   const paths = [
     boundProviderAuthPath('muse-code-oauth') ||
@@ -255,6 +266,7 @@ const OAUTH_PROBE_STATES = new Map([
   ['openai-oauth', openAIOAuthState],
   ['grok-oauth', grokOAuthState],
   ['muse-code-oauth', museCodeOAuthState],
+  ['command-code-oauth', commandCodeOAuthState],
   ['mimo-oauth', mimoOAuthState],
   ['cursor-oauth', cursorOAuthState],
   ['antigravity-oauth', antigravityOAuthState],

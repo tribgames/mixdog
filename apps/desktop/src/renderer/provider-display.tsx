@@ -18,6 +18,7 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   'gemini-api': 'Gemini API',
   'grok-oauth': 'Grok OAuth',
   'muse-code-oauth': 'Muse Code',
+  'command-code-oauth': 'Command Code',
   'mimo-oauth': 'MiMo',
   'antigravity-oauth': 'Antigravity OAuth',
   'cursor-oauth': 'Cursor OAuth',
@@ -37,6 +38,7 @@ const PROVIDER_RANKS: Readonly<Record<string, number>> = {
   'anthropic-oauth': 20,
   'grok-oauth': 30,
   'muse-code-oauth': 33,
+  'command-code-oauth': 33.5,
   'mimo-oauth': 34,
   'antigravity-oauth': 31,
   'cursor-oauth': 32,
@@ -389,6 +391,7 @@ type ProviderIconKind =
   | 'opencode'
   | 'meta'
   | 'xiaomi'
+  | 'commandcode'
   | 'synthetic';
 
 function providerIconKind(provider: string): ProviderIconKind {
@@ -396,6 +399,7 @@ function providerIconKind(provider: string): ProviderIconKind {
   if (normalized === 'cursor-oauth') return 'cursor';
   if (normalized.startsWith('muse-code')) return 'meta';
   if (normalized.startsWith('mimo')) return 'xiaomi';
+  if (normalized === 'command-code-oauth') return 'commandcode';
   if (normalized === 'antigravity-oauth') return 'google';
   if (normalized === 'opencode-go') return 'opencode';
   if (normalized.includes('openai') || normalized.includes('codex')) return 'openai';
@@ -469,6 +473,13 @@ export function ProviderIcon({ provider, ...props }: SVGProps<SVGSVGElement> & {
         <g stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
           <rect x="5" y="5" width="30" height="30" rx="10" />
           <path d="M12.5 26.5v-11h8a3.5 3.5 0 0 1 3.5 3.5v7.5M18.25 20v6.5M28.5 15.5v11" />
+        </g>
+      )}
+      {/* Command Code: a terminal prompt (chevron and cursor) in a rounded square. */}
+      {kind === 'commandcode' && (
+        <g stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="5" y="5" width="30" height="30" rx="8" />
+          <path d="m12.5 14.5 6 5.5-6 5.5M21.5 26h7" />
         </g>
       )}
       {kind === 'synthetic' && (

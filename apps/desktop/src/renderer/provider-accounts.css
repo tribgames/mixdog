@@ -17,6 +17,7 @@
 }
 .provider-accounts {
   min-width: 0;
+  container-type: inline-size;
 }
 .provider-accounts-list > li:first-child {
   border-top: var(--mx-hairline) solid var(--mx-border);
@@ -62,18 +63,72 @@
   align-items: center;
   gap: 12px;
 }
-.provider-accounts-auto {
+/* Switching policy: "Switch <policy> ⌄" opens the policy menu below. */
+.provider-accounts-policy {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  color: var(--mx-text-muted);
+  gap: 6px;
+  padding: 0 8px 0 10px !important;
   font-size: var(--mx-font-meta);
-  line-height: 1;
-  cursor: pointer;
-  user-select: none;
+  white-space: nowrap;
 }
-.provider-accounts-auto:hover {
+.provider-accounts-policy .k {
+  color: var(--mx-text-muted);
+}
+.provider-accounts-policy svg,
+.provider-accounts-refresh svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.provider-accounts-refresh {
+  background: transparent !important;
+  color: var(--mx-icon-muted) !important;
+}
+.row-overflow-menu.provider-accounts-policy-menu {
+  width: 320px;
+}
+.row-overflow-menu.provider-accounts-policy-menu > button {
+  align-items: flex-start;
+  padding: 8px 10px 9px 8px;
+}
+.row-overflow-menu.provider-accounts-policy-menu > button[aria-checked="true"] {
+  background: var(--mx-hover);
+}
+.provider-accounts-policy-check {
+  width: 18px;
+  flex: 0 0 18px;
+  padding-top: 2px;
+  color: var(--mx-text-accent);
+}
+.provider-accounts-policy-copy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+.provider-accounts-policy-copy > b {
   color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
+}
+.provider-accounts-policy-copy > small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting, 12px);
+  line-height: 16px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.row-overflow-menu.provider-accounts-policy-menu > .provider-accounts-policy-refresh {
+  align-items: center;
+  padding: 7px 10px 7px 34px;
+  font-size: var(--mx-font-meta);
+}
+.provider-accounts-policy-refresh > small {
+  margin-left: auto;
+  flex: none;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting, 12px);
 }
 .provider-account-add-button {
   width: 28px;
@@ -164,8 +219,10 @@
 .provider-account-row {
   min-height: 48px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
+  row-gap: 8px;
   padding: 10px 0 10px 4px;
 }
 .provider-account-grip {
@@ -191,8 +248,8 @@
 }
 .provider-account-identity {
   position: relative;
-  min-width: 0;
-  flex: 1;
+  min-width: 96px;
+  flex: 1 1 0;
   display: flex;
   align-items: center;
   min-height: 28px;
@@ -220,8 +277,10 @@
   position: relative;
   min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  row-gap: 2px;
 }
 .provider-account-title > .settings-status {
   flex: none;
@@ -283,13 +342,124 @@
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-semibold);
 }
+/* The settings sheet's narrow rule (max-width 640px) stretches every
+   .settings-resource-actions to the full row, which left no room for the
+   account name; account rows keep their actions content-sized. */
 .provider-account-row > .settings-resource-actions {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+  min-width: 128px;
+  width: auto;
+  max-width: none;
   margin-left: auto;
+}
+/* Usage, in the sidebar usage flyout's grammar: label | meter | % | reset,
+   one line per quota window the account carries. */
+.provider-account-usage {
+  flex: 0 0 240px;
+  display: grid;
+  grid-template-columns: fit-content(84px) minmax(48px, 1fr) 38px minmax(52px, max-content);
+  column-gap: 6px;
+  row-gap: 4px;
+  align-items: center;
+}
+.provider-account-usage > span {
+  display: contents;
+}
+.provider-account-usage small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-row-meta-ink, var(--mx-text-muted));
+  font-size: var(--mx-font-supporting, 12px);
+  line-height: 16px;
+  letter-spacing: var(--mx-tracking-wide, 0);
+}
+.provider-account-usage i {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  height: 5px;
+  border-radius: var(--mx-radius-pill, 999px);
+  background: var(--mx-meter-track);
+}
+.provider-account-usage i > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--mx-meter-fill);
+}
+.provider-account-usage .tone-warning i > i {
+  background: var(--mx-meter-warning);
+}
+.provider-account-usage .tone-danger i > i {
+  background: var(--mx-meter-danger);
+}
+.provider-account-usage b {
+  color: var(--mx-text);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+}
+.provider-account-usage .tone-warning b {
+  color: var(--mx-warning);
+}
+.provider-account-usage .tone-danger b {
+  color: var(--mx-danger);
+}
+.provider-account-usage em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-style: normal;
+  color: var(--mx-row-meta-ink, var(--mx-text-muted));
+  font-size: var(--mx-font-supporting, 12px);
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.provider-account-usage .empty {
+  grid-column: 1 / -1;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-supporting, 12px);
+}
+.provider-accounts-list > li.is-dim .provider-account-identity,
+.provider-accounts-list > li.is-dim .provider-account-usage {
+  opacity: 0.55;
+}
+/* Narrow card: usage drops under the identity at full width, aligned with
+   the name past the grip. */
+@container (max-width: 520px) {
+  .provider-account-usage {
+    order: 3;
+    flex: 1 0 100%;
+    padding-left: 32px;
+  }
+  .provider-account-row > .settings-resource-actions {
+    min-width: 0;
+  }
+}
+/* Narrowest card: drop the account count, the "Switch" prefix, the refresh
+   button (only with several accounts, where the policy menu carries it) and
+   per-row "Use" (tapping the row still selects). */
+@container (max-width: 380px) {
+  .provider-accounts-heading > small,
+  .provider-accounts-policy .k,
+  .provider-accounts-refresh.is-in-menu,
+  .provider-account-use {
+    display: none !important;
+  }
+  .provider-accounts-heading,
+  .provider-accounts-heading-actions {
+    gap: 8px;
+  }
 }
 .provider-accounts-notice,
 .provider-accounts-error {

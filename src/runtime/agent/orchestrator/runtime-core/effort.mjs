@@ -25,6 +25,9 @@ const EFFORT_OPTIONS_BY_PROVIDER = {
   // xAI Grok 4.6+: low/medium/high/xhigh. Reasoning cannot be disabled.
   xai: ['low', 'medium', 'high', 'xhigh'],
   'mimo-oauth': ['minimal', 'low', 'medium', 'high'],
+  // Command Code relays several vendors over Chat Completions; the common
+  // `reasoning_effort` levels are the fallback when no catalog row declares any.
+  'command-code-oauth': ['low', 'medium', 'high'],
 };
 const EFFORT_BY_FAMILY = {
   opus: ['low', 'medium', 'high', 'xhigh', 'max'],

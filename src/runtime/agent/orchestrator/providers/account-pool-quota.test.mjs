@@ -23,8 +23,11 @@ const {
   blockProviderAccount,
   removeProviderAccount,
 } = await import('../../../shared/provider-accounts.mjs');
-const { createAccountPoolProvider, resetAccountProbePacing } = await import('./account-pool.mjs');
+const { createAccountPoolProvider, resetAccountProbePacing, resetSessionAccountBindings } = await import(
+  './account-pool.mjs'
+);
 const { fetchOAuthUsageSnapshot } = await import('./oauth-usage.mjs');
+const { currentProviderAccountId } = await import('../../../shared/provider-auth-binding.mjs');
 after(() => rmSync(dir, { recursive: true, force: true }));
 
 const provider = 'cursor-oauth';
@@ -240,6 +243,177 @@ test('blocks without quota evidence stay unmarked on later sends', async () => {
     assert.equal(error.quotaExhausted, undefined);
     return true;
   });
+});
+
+const serving = (used, refuse = () => false) =>
+  createAccountPoolProvider(provider, () => {
+    const id = currentProviderAccountId(provider);
+    return {
+      async send() {
+        used.push(id);
+        if (refuse(id)) throw quotaError();
+        return { content: 'ok' };
+      },
+    };
+  });
+
+test('headroom first: each new session starts on the most headroom and keeps that account', async () => {
+  const ids = await setup({ policy: 'headroom' });
+  const usage = async (pcts) => {
+    for (const [i, id] of ids.entries()) {
+      await recordProviderAccountUsage(provider, id, { quotaWindows: [{ label: '5H', usedPct: pcts[i] }] });
+    }
+  };
+  await usage([80, 20, 50]);
+  const used = [];
+  const gateway = serving(used);
+  await gateway.send([], 'm', [], { sessionId: 'headroom-1' });
+  assert.equal(used.at(-1), ids[1]);
+  assert.equal(readProviderAccountPool(provider).selectedId, ids[1], 'the first pick is the account in use');
+  await usage([80, 60, 10]);
+  await gateway.send([], 'm', [], { sessionId: 'headroom-1' });
+  assert.equal(used.at(-1), ids[1], 'the session keeps its account while it is usable');
+  await gateway.send([], 'm', [], { sessionId: 'headroom-2' });
+  assert.equal(used.at(-1), ids[2], 'a new session takes the most headroom now');
+  assert.equal(readProviderAccountPool(provider).selectedId, ids[2]);
+  await gateway.send([], 'm', [], { sessionId: 'headroom-1' });
+  assert.equal(used.at(-1), ids[1]);
+  assert.equal(readProviderAccountPool(provider).selectedId, ids[2], 'continuing a session moves no selection');
+  // A session this process has not seen keeps the account its state names.
+  await gateway.send([], 'm', [], {
+    sessionId: 'headroom-3',
+    providerState: { providerAccountId: ids[0], providerAccountProvider: provider },
+  });
+  assert.equal(used.at(-1), ids[0]);
+  const routed = { accountRouting: { provider, accountId: ids[0] } };
+  await gateway.send([{ role: 'assistant', content: 'x', providerMetadata: routed }], 'm', [], {
+    sessionId: 'headroom-4',
+  });
+  assert.equal(used.at(-1), ids[0]);
+  // Within a session, only a limit moves it — to the most headroom.
+  const refusing = serving(used, (id) => id === ids[1]);
+  await refusing.send([], 'm', [], { sessionId: 'headroom-1' });
+  assert.deepEqual(used.slice(-2), [ids[1], ids[2]]);
+  await usage([80, 60, 40]);
+  await gateway.send([], 'm', [], { sessionId: 'headroom-1' });
+  assert.equal(used.at(-1), ids[2], 'the session stays on the account it moved to');
+});
+
+test('headroom first: a stateless session keeps its account after the in-memory binding is gone', async () => {
+  const ids = await setup({ policy: 'headroom' });
+  const usage = async (pcts) => {
+    for (const [i, id] of ids.entries()) {
+      await recordProviderAccountUsage(provider, id, { quotaWindows: [{ label: '5H', usedPct: pcts[i] }] });
+    }
+  };
+  await usage([80, 20, 50]);
+  const used = [];
+  const first = await serving(used).send([], 'm', [], { sessionId: 'headroom-evicted' });
+  assert.equal(used.at(-1), ids[1]);
+  assert.equal(first.providerReplay, undefined);
+  assert.equal(first.providerState, undefined);
+  assert.deepEqual(first.providerMetadata, { accountRouting: { provider, accountId: ids[1] } });
+  await usage([80, 60, 10]);
+  // Eviction from the bounded map, or a restart: only the transcript remains.
+  resetSessionAccountBindings();
+  const history = [{ role: 'assistant', content: 'ok', providerMetadata: first.providerMetadata }];
+  await serving(used).send(history, 'm', [], { sessionId: 'headroom-evicted' });
+  assert.equal(used.at(-1), ids[1], 'no limit was hit, so the session stays on its account');
+});
+
+test('headroom first ignores bindings recorded for another provider', async () => {
+  const ids = await setup({ policy: 'headroom' });
+  for (const [i, id] of ids.entries()) {
+    await recordProviderAccountUsage(provider, id, { quotaWindows: [{ label: '5H', usedPct: [90, 10, 50][i] }] });
+  }
+  const used = [];
+  const foreign = {
+    role: 'assistant',
+    content: 'x',
+    providerReplay: { accountId: ids[0] },
+    providerMetadata: { accountRouting: { provider: 'other-oauth', accountId: ids[0] } },
+  };
+  await serving(used).send([foreign], 'm', [], {
+    sessionId: 'headroom-foreign',
+    providerState: { providerAccountId: ids[0], providerAccountProvider: 'other-oauth' },
+  });
+  assert.equal(used.at(-1), ids[1], 'the most headroom wins over a foreign binding');
+});
+
+test('a switch to Manual while a fallback request runs keeps the user selection', async () => {
+  const ids = await setup({ policy: 'limit' });
+  const used = [];
+  const gateway = createAccountPoolProvider(provider, () => {
+    const id = currentProviderAccountId(provider);
+    return {
+      async send() {
+        used.push(id);
+        if (id === ids[0]) throw quotaError();
+        await changeProviderAccounts(provider, { policy: 'manual' });
+        return { content: 'ok' };
+      },
+    };
+  });
+  await gateway.send([], 'm', [], {});
+  assert.deepEqual(used, [ids[0], ids[1]]);
+  const pool = readProviderAccountPool(provider);
+  assert.equal(pool.policy, 'manual');
+  assert.equal(pool.selectedId, ids[0], 'the completion must not override the later policy change');
+});
+
+test('headroom first with an unmeasured account keeps roster order', async () => {
+  const ids = await setup({ policy: 'headroom' });
+  await recordProviderAccountUsage(provider, ids[1], { quotaWindows: [{ label: '5H', usedPct: 5 }] });
+  const used = [];
+  await serving(used).send([], 'm', [], { sessionId: 'headroom-unknown' });
+  assert.deepEqual(used, [ids[0]]);
+});
+
+test('a model-scoped limit serves from the fallback without moving the selection', async () => {
+  const ids = await setup({ policy: 'limit' });
+  const resetAt = Date.now() + 3_600_000;
+  await recordProviderAccountUsage(provider, ids[0], {
+    quotaWindows: [
+      { label: '5H', usedPct: 10, resetAt },
+      { label: '7D Fable', usedPct: 100, resetAt },
+    ],
+  });
+  for (const id of ids.slice(1)) {
+    await recordProviderAccountUsage(provider, id, {
+      quotaWindows: [
+        { label: '5H', usedPct: 10, resetAt },
+        { label: '7D Fable', usedPct: 10, resetAt },
+      ],
+    });
+  }
+  const used = [];
+  const gateway = serving(used);
+  await gateway.send([], 'claude-fable-5', [], {});
+  assert.equal(used.at(-1), ids[1]);
+  assert.equal(readProviderAccountPool(provider).selectedId, ids[0], 'a full Fable window keeps the selection');
+  await gateway.send([], 'claude-opus-4', [], {});
+  assert.equal(used.at(-1), ids[0], 'other models still run on the selected account');
+});
+
+test('a quota refusal scoped to a model family does not commit the fallback', async () => {
+  const ids = await setup({ policy: 'limit' });
+  for (const id of ids) {
+    await recordProviderAccountUsage(provider, id, {
+      quotaWindows: [
+        { label: '5H', usedPct: 10 },
+        { label: '7D Fable', usedPct: 40 },
+      ],
+    });
+  }
+  const used = [];
+  await serving(used, (id) => id === ids[0]).send([], 'claude-fable-5', [], {});
+  assert.deepEqual(used, [ids[0], ids[1]]);
+  assert.equal(readProviderAccountPool(provider).selectedId, ids[0]);
+  await serving(used).send([], 'claude-opus-4', [], {});
+  assert.equal(used.at(-1), ids[0]);
+  // An account-wide refusal still moves the selection.
+  await serving(used, (id) => id === ids[0]).send([], 'claude-opus-4', [], {});
+  assert.equal(readProviderAccountPool(provider).selectedId, ids[1]);
 });
 
 test('auto switching off: a full window on the selected account marks even with another account free', async () => {

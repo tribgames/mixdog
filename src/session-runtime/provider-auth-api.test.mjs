@@ -34,6 +34,7 @@ const admin = {
     accounts: [{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }, { id: 'a4' }, { id: 'a5' }],
     selectedId: 'a1',
   }),
+  materializeProviderAccounts: async (providerId) => admin.listProviderAccounts(providerId),
   updateProviderAccounts: (providerId, change) => {
     calls.push(['updateAccounts', providerId, change]);
     return { selectedId: change.selectedId ?? 'a1' };

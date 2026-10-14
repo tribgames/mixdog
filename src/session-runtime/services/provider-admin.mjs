@@ -55,6 +55,15 @@ import {
   loginOAuth as loginMuseCodeOAuth,
 } from '../../runtime/agent/orchestrator/providers/muse-code-oauth-login.mjs';
 import {
+  describeCommandCodeOAuthCredentials,
+  forgetCommandCodeOAuthCredentials,
+  hasCommandCodeOAuthCredentials,
+} from '../../runtime/agent/orchestrator/providers/command-code-oauth-tokens.mjs';
+import {
+  beginOAuthLogin as beginCommandCodeOAuthLogin,
+  loginOAuth as loginCommandCodeOAuth,
+} from '../../runtime/agent/orchestrator/providers/command-code-oauth-login.mjs';
+import {
   beginCursorOAuthLogin,
   describeCursorOAuthCredentials,
   forgetCursorOAuthCredentials,
@@ -80,6 +89,7 @@ import {
   changeProviderAccounts,
   removeProviderAccount,
   clearProviderAccountQuotaState,
+  providerAccountLimit,
   ACCOUNT_PROVIDERS,
 } from '../../runtime/shared/provider-accounts.mjs';
 import { currentProviderAccountId, withProviderAccount } from '../../runtime/shared/provider-auth-binding.mjs';
@@ -153,6 +163,16 @@ const OAUTH_PROVIDERS = Object.freeze([
     forget: forgetMuseCodeOAuthCredentials,
     begin: beginMuseCodeOAuthLogin,
     login: loginMuseCodeOAuth,
+  }),
+  Object.freeze({
+    id: 'command-code-oauth',
+    name: 'Command Code',
+    desc: 'Sign in with your Command Code account',
+    has: hasCommandCodeOAuthCredentials,
+    describe: describeCommandCodeOAuthCredentials,
+    forget: forgetCommandCodeOAuthCredentials,
+    begin: beginCommandCodeOAuthLogin,
+    login: loginCommandCodeOAuth,
   }),
   Object.freeze({
     id: 'mimo-oauth',
@@ -735,9 +755,11 @@ export function listProviderAccounts(provider) {
   if (!oauth) throw new TypeError('Unknown OAuth provider.');
   const pool = readProviderAccountPool(provider);
   const accounts = pool.accounts.length ? pool.accounts : defaultAccountRows(provider, oauth);
+  const now = Date.now();
   return {
     provider,
     auto: pool.auto !== false,
+    policy: pool.policy,
     useCredits: pool.useCredits === true,
     selectedId: pool.selectedId || accounts[0]?.id || null,
     accounts: accounts.map((row) => {
@@ -754,6 +776,9 @@ export function listProviderAccounts(provider) {
         reauthRequired: auth.reauthRequired === true,
         usage: row.usage || null,
         blockedUntil: row.blockedUntil || null,
+        // The limit holding the account now: account-wide, or only for one
+        // model family ("7D Fable") while other models still run.
+        limit: providerAccountLimit(row, now, { useCredits: pool.useCredits === true }),
         ...(identity ? { identity } : {}),
         ...(typeof auth.email === 'string' && auth.email.trim() ? { email: auth.email.trim() } : {}),
       };
@@ -767,11 +792,17 @@ function defaultAccountRows(provider, oauth) {
   return authenticated ? [{ id: 'default', label: 'Account 1' }] : [];
 }
 
-export async function updateProviderAccounts(provider, change) {
+// Store the implicit signed-in `default` account in the roster, so a change or
+// a usage measurement has a row to land on. Returns the current roster view.
+export async function materializeProviderAccounts(provider) {
   const current = listProviderAccounts(provider);
-  if (!readProviderAccountPool(provider).accounts.length && current.accounts.length) {
-    await registerProviderAccount(provider, 'default', { label: 'Account 1' });
-  }
+  if (readProviderAccountPool(provider).accounts.length || !current.accounts.length) return current;
+  await registerProviderAccount(provider, 'default', { label: 'Account 1' });
+  return listProviderAccounts(provider);
+}
+
+export async function updateProviderAccounts(provider, change) {
+  await materializeProviderAccounts(provider);
   await changeProviderAccounts(provider, change);
   // Picking an account by hand is a decision to use it NOW, so the refusal
   // window and meter stored against it — both describing the state the user

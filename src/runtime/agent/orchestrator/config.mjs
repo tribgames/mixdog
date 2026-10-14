@@ -112,6 +112,8 @@ export function buildDefaultConfig(options = {}) {
   providers['grok-oauth'] = oauthEntry('grok-oauth');
   // Muse Code subscription (Meta Muse Spark), enabled from its stored key.
   providers['muse-code-oauth'] = oauthEntry('muse-code-oauth');
+  // Command Code Provider API, enabled from its stored Studio API key.
+  providers['command-code-oauth'] = oauthEntry('command-code-oauth');
   // Dev-only providers (Settings → Developer → Providers, one option each):
   // omitted entirely from the default config while their option is off so
   // they never surface in settings.

@@ -146,6 +146,7 @@ function publicAccounts(pool) {
   return {
     selectedId: pool.selectedId,
     auto: pool.auto,
+    ...(pool.policy ? { policy: pool.policy } : {}),
     useCredits: pool.useCredits === true,
     accounts: pool.accounts.map(({ id, label, authenticated, reauthRequired }) => ({
       id,

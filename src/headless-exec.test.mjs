@@ -98,6 +98,28 @@ test('pristine headless execution binds Cursor OAuth credentials in process', as
   }
 });
 
+for (const [provider, model] of [
+  ['muse-code-oauth', 'muse-spark-1.3'],
+  ['command-code-oauth', 'deepseek/deepseek-v4-flash'],
+  ['mimo-oauth', 'mimo-v2.5'],
+]) {
+  test(`pristine headless execution binds ${provider} credentials and copies its model catalog`, () => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-oauth-test-'));
+    const dataDir = join(root, 'data');
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(join(dataDir, `${provider}.json`), JSON.stringify({ apiKey: 'k', access_token: 'k' }));
+    writeFileSync(join(dataDir, `${provider}-models.json`), '{}');
+    const boundary = createPristineExecutionBoundary({ provider, model, env: { MIXDOG_HOME: root } });
+    try {
+      assert.equal(boundary.audit.authMode, 'in-process-host-oauth-binding');
+      assert.equal(boundary.audit.injectedModelCatalogFileCount, 1);
+    } finally {
+      boundary.cleanup();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
 test('pristine headless execution binds the selected provider-accounts credential', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-pool-auth-test-'));
   const dataDir = join(root, 'data');

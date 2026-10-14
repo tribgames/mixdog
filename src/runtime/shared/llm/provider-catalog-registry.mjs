@@ -85,6 +85,12 @@ const PROVIDER_CATALOGS = Object.freeze({
   // Effort tiers live in the wire id; a row without levels has no effort
   // surface (resolveAntigravityWireModel drops the effort).
   'antigravity-oauth': { relay: true, rosterFiles: ['antigravity-oauth-models.json'], rosterLadderFinal: true },
+  // api.commandcode.ai/provider/v1 relays other vendors' models.
+  'command-code-oauth': {
+    relay: true,
+    rosterFiles: ['command-code-oauth-models.json'],
+    rosterLimitsAuthoritative: true,
+  },
   'cursor-oauth': { relay: true },
   'cursor-api': { relay: true },
   'opencode-go': { relay: true },

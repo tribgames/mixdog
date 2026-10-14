@@ -240,12 +240,12 @@ test('provider popup preserves meters and opens only an account list beside the 
     document.querySelector('.sidebar-usage-heading.session-panel-header'),
     'header shares the rail panel title grammar'
   );
-  assert.match(buttons[0].getAttribute('aria-label'), /Pin/);
+  // The rail pin lives in the heading's usage menu.
+  assert.equal(buttons[0].getAttribute('aria-label'), 'Usage menu');
   assert.equal(buttons[1].getAttribute('aria-label'), 'Connect provider');
-  await act(async () => {
-    buttons[0].click();
-    buttons[1].click();
-  });
+  await act(async () => buttons[0].click());
+  await act(async () => document.querySelector('.usage-menu [role="menuitemcheckbox"]').click());
+  await act(async () => buttons[1].click());
   assert.equal(added, 1);
   assert.equal(pinned, 1);
   assert.equal(document.querySelectorAll('[data-account-id]').length, 0);
@@ -536,10 +536,161 @@ test('settings show only removal for healthy accounts, reconnect for expired acc
   assert.deepEqual(calls[0][1], [provider, { accountId: 'b' }]);
   await act(async () => buttons[1].click());
   assert.deepEqual(calls.find((call) => call[0] === 'forgetProviderAuth')[1], [provider, 'b']);
-  const connect = document.querySelector('.provider-accounts-heading button');
+  const connect = document.querySelector('.provider-accounts-heading button[aria-label="Add account"]');
   await act(async () => connect.click());
   assert.deepEqual(calls.at(-1)[1], [provider, { addAccount: true }]);
-  assert.equal(document.querySelector('[aria-expanded]'), null);
+  assert.equal(document.querySelector('[aria-expanded="true"]'), null);
+});
+
+test('account rows show every usage window, the limit holding them and the switching policy', async (t) => {
+  const render = harness(t);
+  const now = Date.now();
+  const at = (hours, minutes = 0) => now + hours * 3_600_000 + minutes * 60_000 - 1_000;
+  let pool = {
+    selectedId: 'codex',
+    auto: true,
+    accounts: [
+      {
+        id: 'codex',
+        label: 'Work',
+        authenticated: true,
+        usage: { checkedAt: now - 120_000, windows: [{ label: '7D', usedPct: 61, resetAt: at(74) }] },
+      },
+      {
+        id: 'claude',
+        label: 'Personal',
+        authenticated: true,
+        limit: { scope: 'model', families: ['Fable'] },
+        usage: {
+          checkedAt: now,
+          windows: [
+            { label: '5H', usedPct: 92, resetAt: at(1, 12) },
+            { label: '7D', usedPct: 75, resetAt: at(50) },
+            { label: '7D Fable', usedPct: 100, resetAt: at(50) },
+          ],
+        },
+      },
+      { id: 'fresh', label: 'Spare', authenticated: true },
+      { id: 'expired', label: 'Old', authenticated: true, reauthRequired: true },
+      {
+        id: 'spent',
+        label: 'Spent',
+        authenticated: true,
+        limit: { scope: 'account' },
+        usage: { checkedAt: now, windows: [{ label: '5H', usedPct: 100, resetAt: at(2) }] },
+      },
+    ],
+  };
+  const writes = [];
+  const api = {
+    async invokeCapability({ capability, args }) {
+      if (capability === 'getUsageDashboard') return { value: { rows: [] } };
+      if (capability === 'updateProviderAccounts') {
+        writes.push(args[1]);
+        if (args[1].policy) pool = { ...pool, policy: args[1].policy, auto: args[1].policy !== 'manual' };
+      }
+      return { value: structuredClone(pool) };
+    },
+  };
+  await render(React.createElement(ProviderAccountsList, { api, provider: 'anthropic-oauth', title: 'Anthropic' }));
+  const row = (id) => document.querySelector(`[data-account-id="${id}"]`);
+  const meters = (id) =>
+    [...row(id).querySelectorAll('.provider-account-usage > span')].map((line) => [
+      line.className,
+      ...[...line.children].filter((cell) => cell.tagName !== 'I').map((cell) => cell.textContent),
+    ]);
+  assert.deepEqual(meters('codex'), [['', '7D', '61%', '3d 2h']]);
+  assert.deepEqual(meters('claude'), [
+    ['tone-danger', '5H', '92%', '1h 12m'],
+    ['tone-warning', '7D', '75%', '2d 2h'],
+    ['tone-danger', '7D FABLE', '100%', '2d 2h'],
+  ]);
+  assert.equal(row('claude').querySelector('.provider-account-usage i > i').style.width, '92%');
+  assert.deepEqual(meters('fresh'), []);
+  assert.equal(row('fresh').querySelector('.provider-account-usage .empty').textContent, 'Usage not checked yet');
+  assert.equal(
+    row('expired').querySelector('.provider-account-usage .empty').textContent,
+    'Shown after signing in again'
+  );
+  assert.equal(row('expired').classList.contains('is-dim'), true);
+  assert.equal(row('codex').classList.contains('is-dim'), false);
+  const pills = (id) => [...row(id).querySelectorAll('.settings-status')].map((pill) => pill.textContent);
+  assert.deepEqual(pills('codex'), ['In use']);
+  assert.deepEqual(pills('claude'), ['Fable limit']);
+  assert.deepEqual(pills('spent'), ['Limit reached']);
+  assert.deepEqual(pills('expired'), ['Reauth required']);
+  assert.ok(row('spent').querySelector('.provider-account-use'), 'a spent account can still be picked');
+  // The usage block sits between the identity and the actions.
+  assert.deepEqual(
+    [...row('codex').querySelector('.provider-account-row').children].map((cell) => cell.className),
+    ['provider-account-grip', 'provider-account-identity', 'provider-account-usage', 'settings-resource-actions']
+  );
+
+  const policy = () => document.querySelector('.provider-accounts-policy');
+  assert.equal(policy().textContent, 'SwitchSwitch at limit');
+  assert.equal(document.querySelector('[role="menu"]'), null);
+  await act(async () => policy().click());
+  const menu = document.querySelector('[role="menu"]');
+  assert.deepEqual(
+    [...menu.querySelectorAll('[role="menuitemradio"]')].map((item) => [
+      item.dataset.accountPolicy,
+      item.getAttribute('aria-checked'),
+    ]),
+    [
+      ['manual', 'false'],
+      ['limit', 'true'],
+      ['headroom', 'false'],
+    ]
+  );
+  assert.match(menu.querySelector('[role="menuitem"]').textContent, /^Refresh usage/);
+  await act(async () => menu.querySelector('[data-account-policy="headroom"]').click());
+  assert.deepEqual(writes.at(-1), { policy: 'headroom' });
+  assert.equal(document.querySelector('[role="menu"]'), null);
+  assert.equal(policy().textContent, 'SwitchMost headroom first');
+
+  await act(async () => document.querySelector('.provider-accounts-refresh').click());
+  assert.deepEqual(writes.at(-1), { refreshUsage: true });
+  assert.equal(writes.length, 2);
+  assert.equal(document.querySelector('[role="alert"]'), null);
+});
+
+test('refreshing usage re-measures through the dashboard; a single account keeps a standalone refresh', async (t) => {
+  const render = harness(t);
+  const dashboardArgs = [];
+  const pool = { selectedId: 'a', auto: true, accounts: [{ id: 'a', label: 'a', authenticated: true }] };
+  const api = {
+    async invokeCapability({ capability, args }) {
+      if (capability === 'getUsageDashboard') {
+        dashboardArgs.push(args[0]);
+        return { value: { rows: [] } };
+      }
+      return { value: structuredClone(pool) };
+    },
+  };
+  await render(React.createElement(ProviderAccountsList, { api, provider: 'openai-oauth', title: 'OpenAI' }));
+  const button = document.querySelector('.provider-accounts-refresh');
+  assert.ok(button, 'one account has a refresh action');
+  assert.equal(button.classList.contains('is-in-menu'), false, 'not hidden by the narrow-card rule');
+  dashboardArgs.length = 0;
+  await act(async () => button.click());
+  assert.deepEqual(dashboardArgs, [{ refresh: true, refreshSetup: false, refreshProviders: ['openai-oauth'] }]);
+});
+
+test('a roster saved before switching policies shows auto off as Manual', async (t) => {
+  const render = harness(t);
+  const api = {
+    async invokeCapability() {
+      return {
+        value: {
+          selectedId: 'a',
+          auto: false,
+          accounts: ['a', 'b'].map((id) => ({ id, label: id, authenticated: true })),
+        },
+      };
+    },
+  };
+  await render(React.createElement(ProviderAccountsList, { api, provider: 'openai-oauth', title: 'OpenAI' }));
+  assert.equal(document.querySelector('.provider-accounts-policy').textContent, 'SwitchManual');
 });
 
 test('account names are edited inline and persisted through the account API', async (t) => {

@@ -14,7 +14,7 @@ const { updateSection } = await import('../runtime/shared/config.mjs');
 const { providerSetup, providerStatus, isKnownProvider, listProviderAccounts } = await import('../session-runtime/services/provider-admin.mjs');
 
 const DEV = ['mimo-oauth', 'cursor-oauth', 'antigravity-oauth'];
-const BASE = ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth'];
+const BASE = ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth'];
 const setDeveloper = (developer) => updateSection('agent', (current) => ({ ...current, developer }));
 const oauthIds = async () =>
   (await providerSetup({}, { checkSecrets: false, detectLocal: false })).oauth.map((row) => row.id);
@@ -29,6 +29,7 @@ test('each provider option exposes and hides only its own dev-only OAuth provide
   }
   assert.equal(isKnownProvider('openai-oauth'), true);
   assert.equal(isKnownProvider('muse-code-oauth'), true);
+  assert.equal(isKnownProvider('command-code-oauth'), true);
   assert.equal(isKnownProvider('openai'), true);
   assert.equal(isKnownProvider('mixdog-local'), true);
 

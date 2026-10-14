@@ -6,6 +6,8 @@ import {
   selectProviderAccountIf,
   blockProviderAccount,
   providerAccountExhausted,
+  providerAccountExhaustedForModelOnly,
+  providerAccountPolicy,
   providerAccountsResetAt,
 } from '../../../shared/provider-accounts.mjs';
 import { withProviderAccount, hasExplicitProviderAuthBinding } from '../../../shared/provider-auth-binding.mjs';
@@ -117,10 +119,68 @@ function boundAccountSend(providerName, row, messages, options) {
 }
 
 // Commit only a successful fallback, without overwriting a newer selection:
-// the selection is compared under the write's lock, not before it.
-async function commitFallbackAccount(providerName, pool, row) {
-  if (row.id === pool.selectedId) return null;
-  return selectProviderAccountIf(providerName, pool.selectedId, row.id);
+// the selection is compared under the write's lock, not before it. A fallback
+// forced by a model-scoped limit ("7D Fable" full, or a block attributed to
+// one family) serves this request only: the selected account still serves
+// every other model, so it stays the provider's account of record.
+async function commitFallbackAccount(providerName, pool, row, model, refusalScoped, policy) {
+  if (row.id === pool.selectedId || refusalScoped) return null;
+  if (accountExhaustedForModelOnly(providerName, pool.selectedId, model)) return null;
+  return selectProviderAccountIf(providerName, pool.selectedId, row.id, policy);
+}
+
+// The account each session runs on under the headroom policy. Every answer
+// records its provider and account in the assistant message's
+// `providerMetadata` (and in provider state when the adapter keeps one), so
+// the binding survives a restart and eviction from this map, which only
+// spares the history walk. Bounded, oldest binding first out.
+const SESSION_ACCOUNT_LIMIT = 1000;
+const ROUTING_METADATA_KEY = 'accountRouting';
+const sessionAccounts = new Map();
+
+// Forget every in-memory binding, as a restart does (tests).
+export function resetSessionAccountBindings() {
+  sessionAccounts.clear();
+}
+
+function rememberSessionAccount(key, id) {
+  sessionAccounts.delete(key);
+  sessionAccounts.set(key, id);
+  if (sessionAccounts.size > SESSION_ACCOUNT_LIMIT) sessionAccounts.delete(sessionAccounts.keys().next().value);
+}
+
+function accountExhaustedForModelOnly(providerName, id, model) {
+  const pool = readProviderAccountPool(providerName);
+  const row = pool.accounts.find((entry) => entry.id === id);
+  return (
+    Boolean(row) &&
+    providerAccountExhaustedForModelOnly(row, Date.now(), model, { useCredits: pool.useCredits === true })
+  );
+}
+
+// Only a binding recorded for THIS provider counts: a session that switched
+// providers carries another roster's account ids (every roster has a `default`).
+function sessionAccountId(providerName, key, messages, options) {
+  if (key && sessionAccounts.has(key)) return sessionAccounts.get(key);
+  const state = options.providerState;
+  if (state?.providerAccountId && state.providerAccountProvider === providerName) return state.providerAccountId;
+  for (let index = (messages?.length || 0) - 1; index >= 0; index -= 1) {
+    const routing = messages[index]?.providerMetadata?.[ROUTING_METADATA_KEY];
+    if (routing?.accountId && routing.provider === providerName) return routing.accountId;
+  }
+  return null;
+}
+
+// Stamp the serving account on the answer, independent of transport state.
+function recordServingAccount(providerName, result, id) {
+  if (!result || typeof result !== 'object') return;
+  if (result.providerReplay) result.providerReplay = { ...result.providerReplay, accountId: id };
+  if (result.providerState) {
+    result.providerState = { ...result.providerState, providerAccountId: id, providerAccountProvider: providerName };
+  }
+  const metadata =
+    result.providerMetadata && typeof result.providerMetadata === 'object' ? result.providerMetadata : {};
+  result.providerMetadata = { ...metadata, [ROUTING_METADATA_KEY]: { provider: providerName, accountId: id } };
 }
 
 // Whether the failed account's quota window is exhausted, plus the server's
@@ -156,12 +216,18 @@ function poolSend(providerName, account) {
     let lastError;
     let probed = false;
     const evidenced = new Set();
+    const sessionKey = options.sessionId ? `${providerName}:${options.sessionId}` : null;
+    const boundId = sessionAccountId(providerName, sessionKey, messages, options);
+    // Whether this send already left an account, and whether the latest quota
+    // refusal held only for this model's family.
+    let switched = false;
+    let refusalScoped = false;
     // Mark `error` only when every account in `ids` (default: the roster) is
     // exhausted with quota evidence: observed in this send, or a full window.
     const markExhausted = (error, ids) => {
       const pool = readProviderAccountPool(providerName);
-      // Auto switching off: the eligible set is the selected account alone.
-      const scope = ids || (pool.auto === false ? [pool.selectedId] : null);
+      // Manual policy: the eligible set is the selected account alone.
+      const scope = ids || (providerAccountPolicy(pool) === 'manual' ? [pool.selectedId] : null);
       const rows = scope ? pool.accounts.filter((entry) => scope.includes(entry.id)) : pool.accounts;
       const opts = { useCredits: pool.useCredits === true };
       const now = Date.now();
@@ -192,7 +258,8 @@ function poolSend(providerName, account) {
         }
         return account('default').send(messages, model, tools, options);
       }
-      const row = chooseProviderAccount(pool, attempted, Date.now(), model);
+      const policy = providerAccountPolicy(pool);
+      const row = chooseProviderAccount(pool, attempted, Date.now(), model, { sessionAccountId: boundId });
       if (!row) {
         // Once per send: a refusal built on a stale meter must not outlive the
         // meter. Re-measuring can only widen the roster, so it is tried before
@@ -207,9 +274,18 @@ function poolSend(providerName, account) {
       const bound = boundAccountSend(providerName, row, messages, options);
       try {
         const result = await account(row.id).send(bound.history, model, tools, bound.opts);
-        if (result?.providerReplay) result.providerReplay = { ...result.providerReplay, accountId: row.id };
-        if (result?.providerState) result.providerState = { ...result.providerState, providerAccountId: row.id };
-        if (await commitFallbackAccount(providerName, pool, row)) {
+        recordServingAccount(providerName, result, row.id);
+        // Headroom policy: a session's first pick, or its move off its account
+        // on a limit, becomes the selection; continuing on its account does
+        // not, so concurrent sessions never flip the selection back and forth.
+        // A move forced by a model-scoped limit serves this request only.
+        const leftBound = Boolean(boundId) && row.id !== boundId;
+        const scoped = switched
+          ? refusalScoped
+          : policy === 'headroom' && leftBound && accountExhaustedForModelOnly(providerName, boundId, model);
+        if (sessionKey && policy === 'headroom' && !scoped) rememberSessionAccount(sessionKey, row.id);
+        const commit = policy !== 'headroom' || !boundId || leftBound;
+        if (commit && (await commitFallbackAccount(providerName, pool, row, model, scoped, policy))) {
           // Publish only a committed selection, never a speculative retry or
           // one superseded by a manual switch. The existing progress channel
           // carries this across runtime shards to the attached UI.
@@ -228,7 +304,7 @@ function poolSend(providerName, account) {
         if (options.signal?.aborted) throw error;
         if (error?.reauthRequired === true) {
           if (
-            pool.auto === false ||
+            policy === 'manual' ||
             bound.emitted() ||
             error.unsafeToRetry ||
             error.liveTextEmitted ||
@@ -236,6 +312,8 @@ function poolSend(providerName, account) {
           )
             throw error;
           lastError = error;
+          switched = true;
+          refusalScoped = false;
           options.onStageChange?.('reconnecting', { message: 'Sign-in expired — switching to the next account' });
           continue;
         }
@@ -251,9 +329,11 @@ function poolSend(providerName, account) {
           { quota: evidence === true }
         );
         if (bound.emitted() || error.unsafeToRetry || error.liveTextEmitted || error.emittedToolCall) throw error;
-        // Auto switching off: the eligible set is the selected account alone.
-        if (pool.auto === false) throw markExhausted(error, [row.id]);
+        // Manual policy: the eligible set is the selected account alone.
+        if (policy === 'manual') throw markExhausted(error, [row.id]);
         lastError = error;
+        switched = true;
+        refusalScoped = accountExhaustedForModelOnly(providerName, row.id, model);
         options.onStageChange?.('reconnecting', { message: 'Quota exhausted — switching to the next account' });
       }
     }

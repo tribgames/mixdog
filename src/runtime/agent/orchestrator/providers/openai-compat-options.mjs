@@ -74,6 +74,17 @@ export function applyCompatProviderChatOptions(params, providerName, opts = {}, 
     }
     return params;
   }
+  if (providerName === 'command-code-oauth') {
+    // The API's field is undocumented; mirror the common `reasoning_effort`
+    // (levels the catalog row declares, else low/medium/high).
+    const rawEffort = opts.effort ?? config?.reasoningEffort;
+    const declared = modelInfo?.reasoningOptions?.some((option) => option?.type === 'effort');
+    const effort = declared
+      ? normalizeOpencodeGoReasoningEffort(rawEffort, modelInfo)
+      : normalizeReasoningEffort(rawEffort, ['low', 'medium', 'high']);
+    if (effort) params.reasoning_effort = effort;
+    return params;
+  }
   if (providerName === 'opencode-go') {
     const reasoningEffort = normalizeOpencodeGoReasoningEffort(opts.effort ?? config?.reasoningEffort, modelInfo);
     // OpenCode Go's OpenAI-compatible contract exposes reasoning_effort,

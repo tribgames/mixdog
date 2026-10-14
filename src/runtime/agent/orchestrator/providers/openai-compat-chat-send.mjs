@@ -38,7 +38,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
   // global catalog must not shape a user-defined endpoint's request.
   let modelInfo = null;
   if (isCustom) modelInfo = provider.getCachedModelInfo(useModel) || null;
-  else if (provider.name === 'opencode-go')
+  else if (provider.name === 'opencode-go' || provider.name === 'command-code-oauth')
     modelInfo = provider.getCachedModelInfo(useModel) || getModelMetadataSync(useModel, provider.name);
   else if (profile?.resolveModelInfo) modelInfo = profile.resolveModelInfo(provider, useModel) || null;
   // Resolved before lowering: replay eligibility depends on the snapped level

@@ -241,7 +241,8 @@ export function OAuthControl({
   // A remote client signs in on its own machine, so every provider that can
   // take the final redirect (or code) back gets a paste step.
   const remote = isRemoteHostRenderer();
-  const manualCodeFlow = providerId === 'anthropic-oauth' || providerId === 'mimo-oauth' || remote;
+  const manualCodeFlow =
+    providerId === 'anthropic-oauth' || providerId === 'mimo-oauth' || providerId === 'command-code-oauth' || remote;
   const openSignInPage = (url: unknown) => {
     if (typeof url === 'string' && url) void window.mixdogDesktop?.openExternal?.(url).catch(() => undefined);
   };

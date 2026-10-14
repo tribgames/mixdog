@@ -66,11 +66,18 @@
     },
     "muse-code-oauth": {
       "credentialFile": "muse-code-oauth.json",
-      "credentialPathEnv": "MUSE_CODE_OAUTH_CREDENTIALS_PATH"
+      "credentialPathEnv": "MUSE_CODE_OAUTH_CREDENTIALS_PATH",
+      "modelCatalogFile": "muse-code-oauth-models.json"
+    },
+    "command-code-oauth": {
+      "credentialFile": "command-code-oauth.json",
+      "credentialPathEnv": "COMMAND_CODE_OAUTH_CREDENTIALS_PATH",
+      "modelCatalogFile": "command-code-oauth-models.json"
     },
     "mimo-oauth": {
       "credentialFile": "mimo-oauth.json",
-      "credentialPathEnv": "MIMO_OAUTH_CREDENTIALS_PATH"
+      "credentialPathEnv": "MIMO_OAUTH_CREDENTIALS_PATH",
+      "modelCatalogFile": "mimo-oauth-models.json"
     },
     "cursor-oauth": {
       "credentialFile": "cursor-oauth.json",
