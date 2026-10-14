@@ -37,6 +37,12 @@ let recordRootOverride = '';
 function recordRoot() {
   return recordRootOverride || join(resolvePluginData(), 'turn-snapshots');
 }
+
+/** The directory every turn-snapshot store lives under (follows the test
+ *  override and a runtime MIXDOG_DATA_DIR retarget). */
+export function turnSnapshotStoreRoot() {
+  return recordRoot();
+}
 // Per-session write chain. Two turns of one session never race their own file,
 // and a read never observes a partially written record (writes land by rename).
 const writeChains = new Map();
@@ -133,7 +139,7 @@ async function readRecordFile(path) {
 
 /** Oldest-first sweep of one record directory so a long-lived install cannot
  *  accumulate records. */
-async function sweepDirectory(directory, ttlMs, maxFiles) {
+export async function sweepDirectory(directory, ttlMs, maxFiles) {
   try {
     const names = await readdir(directory);
     const now = Date.now();

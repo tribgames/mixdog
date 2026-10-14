@@ -12,11 +12,16 @@ import {
 } from '../runtime/shared/turn-snapshot.mjs';
 import { noteTurnWorktreeChange } from '../runtime/shared/turn-worktree-snapshot.mjs';
 import { forgetSessionChangeHistoryMarker } from '../runtime/shared/turn-snapshot-store.mjs';
+import { forgetSessionBaselines } from '../runtime/shared/session-baseline-store.mjs';
 import { registerSessionPurgeHook } from '../runtime/agent/orchestrator/session/store.mjs';
 
 // A deleted history stays deleted for as long as its session exists; the
-// session's own deletion takes the marker with it.
-registerSessionPurgeHook((sessionId) => void forgetSessionChangeHistoryMarker(sessionId));
+// session's own deletion takes the marker — and its stored first-seen file
+// contents — with it.
+registerSessionPurgeHook((sessionId) => {
+  void forgetSessionChangeHistoryMarker(sessionId);
+  void forgetSessionBaselines(sessionId);
+});
 
 // Tool writes (apply_patch, mutating shell commands, git, watcher events)
 // reach the live review snapshot as its change signal: a review poll right
