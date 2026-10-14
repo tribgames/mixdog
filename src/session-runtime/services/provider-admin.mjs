@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { renameSync } from 'node:fs';
+import { modelProxyClientMode } from '../../runtime/shared/model-proxy-mode.mjs';
 import { sameAccountIdentity } from '../../runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs';
 import {
   AGENT_PROVIDER_ENV,
@@ -490,6 +491,7 @@ function customProviderRows(providers, checkSecrets) {
 }
 
 export async function providerSetup(config = {}, options = {}) {
+  if (modelProxyClientMode()) return modelProxyProviderSetup(options);
   const providers = config.providers || {};
   const checkSecrets = options?.checkSecrets !== false;
   const keychain = checkSecrets ? keychainIssueFor(true) : null;
@@ -501,6 +503,44 @@ export async function providerSetup(config = {}, options = {}) {
     ],
     oauth: availableOAuthProviders().map((p) => oauthProviderSetup(p, providers, checkSecrets)),
     local: [builtInLocalProviderSetup(config, options)],
+  };
+}
+
+// SSH servers have no model credentials. Project only the PC's advertised
+// availability; account identities and credential management stay on the PC.
+async function modelProxyProviderSetup(options) {
+  const { loadModelProxyProviderConfig } = await import(
+    '../../runtime/agent/orchestrator/providers/model-proxy-provider.mjs'
+  );
+  let providers;
+  try {
+    providers = await loadModelProxyProviderConfig({ force: options.force === true, waitMs: 1_000 });
+  } catch (error) {
+    if (error?.code !== 'MODEL_PROXY_UNAVAILABLE') throw error;
+    return { managedByClient: true, unavailable: true, api: [], oauth: [], local: [] };
+  }
+  const project = (definitions, group, type) =>
+    definitions
+      .filter(({ id }) => Object.hasOwn(providers, id))
+      .map(({ id, name }) => {
+        const enabled = providers[id]?.enabled === true;
+        return {
+          id, name, group, type, enabled,
+          authenticated: enabled,
+          usable: enabled,
+          ...(group === 'local' ? { detected: enabled } : {}),
+          ...(type === 'custom' ? { custom: true } : {}),
+          status: enabled ? 'Connected' : 'Not connected',
+        };
+      });
+  const custom = Object.entries(providers)
+    .filter(([id, entry]) => isCustomProviderId(id) && entry?.type === 'custom')
+    .map(([id]) => ({ id, name: id }));
+  return {
+    managedByClient: true,
+    api: [...project(API_PROVIDERS, 'api', 'api-key'), ...project(custom, 'api', 'custom')],
+    oauth: project(OAUTH_PROVIDERS, 'oauth', 'oauth'),
+    local: project([{ id: 'mixdog-local', name: 'Local Provider' }], 'local', 'local'),
   };
 }
 

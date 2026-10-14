@@ -4405,5 +4405,7 @@
   "Zoom options": "Zoom-Optionen",
   "Zoom out": "Verkleinern",
   "Zoom Out": "Herauszoomen",
-  "Zoom to {{value0}}%": "Auf {{value0}}% zoomen"
+  "Zoom to {{value0}}%": "Auf {{value0}}% zoomen",
+  "This server uses providers connected on your desktop. Manage sign-ins and accounts in the local window.": "Dieser Server verwendet die auf deinem Desktop verbundenen Anbieter. Verwalte Anmeldungen und Konten im lokalen Fenster.",
+  "Connect the desktop to view its providers.": "Verbinde den Desktop, um seine Anbieter anzuzeigen."
 }

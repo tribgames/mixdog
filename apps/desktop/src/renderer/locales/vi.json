@@ -4345,5 +4345,7 @@
   "Zoom options": "Tùy chọn thu phóng",
   "Zoom out": "Thu nhỏ",
   "Zoom Out": "Thu nhỏ",
-  "Zoom to {{value0}}%": "Thu phóng về {{value0}}%"
+  "Zoom to {{value0}}%": "Thu phóng về {{value0}}%",
+  "This server uses providers connected on your desktop. Manage sign-ins and accounts in the local window.": "Máy chủ này sử dụng các nhà cung cấp đã kết nối trên máy tính của bạn. Quản lý đăng nhập và tài khoản trong cửa sổ cục bộ.",
+  "Connect the desktop to view its providers.": "Kết nối máy tính để xem các nhà cung cấp."
 }

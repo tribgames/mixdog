@@ -4525,5 +4525,7 @@
   "Zoom options": "Параметры масштаба",
   "Zoom out": "Уменьшить",
   "Zoom Out": "Уменьшить масштаб",
-  "Zoom to {{value0}}%": "Масштаб {{value0}}%"
+  "Zoom to {{value0}}%": "Масштаб {{value0}}%",
+  "This server uses providers connected on your desktop. Manage sign-ins and accounts in the local window.": "Этот сервер использует провайдеров, подключённых на вашем компьютере. Управляйте входом и аккаунтами в локальном окне.",
+  "Connect the desktop to view its providers.": "Подключите компьютер, чтобы увидеть его провайдеров."
 }

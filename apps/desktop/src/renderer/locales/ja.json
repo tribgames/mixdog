@@ -4345,5 +4345,7 @@
   "Zoom options": "ズームオプション",
   "Zoom out": "縮小",
   "Zoom Out": "ズームアウト",
-  "Zoom to {{value0}}%": "{{value0}}%にする"
+  "Zoom to {{value0}}%": "{{value0}}%にする",
+  "This server uses providers connected on your desktop. Manage sign-ins and accounts in the local window.": "このサーバーはデスクトップで接続済みのプロバイダーを使用します。ログインとアカウントはローカルウィンドウで管理してください。",
+  "Connect the desktop to view its providers.": "プロバイダーを表示するにはデスクトップを接続してください。"
 }

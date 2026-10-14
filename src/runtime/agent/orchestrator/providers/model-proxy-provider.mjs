@@ -190,10 +190,12 @@ export function loadModelProxyProviderConfig({
   channel = getModelProxyChannel(),
   now = Date.now,
   waitMs = MODEL_PROXY_CONFIG_WAIT_MS,
+  force = false,
 } = {}) {
   const generation = channel.generation;
   const cached = _providerConfigCache;
   if (
+    !force &&
     cached &&
     cached.channel === channel &&
     cached.generation === generation &&

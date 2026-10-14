@@ -7,8 +7,44 @@ import { ProviderAccountsList } from './ProviderAccountsList.tsx';
 import { OAuthControl, ProvidersPanel } from './settings/provider-panel.tsx';
 import { SidebarUsage, usagePinEntries } from './SidebarUsage.tsx';
 import { getUsageDashboardSnapshot, publishUsageDashboard } from './usage-dashboard-store.ts';
+import { filterConfiguredModels } from './model-catalog.tsx';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+test('SSH provider settings display PC availability without account or credential controls', async (t) => {
+  const render = harness(t);
+  const show = (setup) => render(React.createElement(ProvidersPanel, {
+    api: { invokeCapability() { assert.fail('must not read the server account roster'); } },
+    pending: '', run: async () => {}, confirm: () => assert.fail('no remote credential mutations'),
+    data: { providerSetup: setup },
+  }));
+  const setup = {
+    managedByClient: true,
+    oauth: [
+      { id: 'openai-oauth', name: 'OpenAI OAuth', authenticated: true, status: 'Connected' },
+      { id: 'cursor-oauth', name: 'Cursor OAuth', authenticated: true, status: 'Connected' },
+    ],
+    api: [{ id: 'openai', name: 'OpenAI API', authenticated: false, status: 'Not connected' }],
+  };
+  await show(setup);
+  const models = [
+    { provider: 'openai-oauth', model: 'gpt-test' },
+    { provider: 'cursor-oauth', model: 'auto' },
+    { provider: 'openai', model: 'gpt-test' },
+  ];
+  assert.deepEqual(filterConfiguredModels(models, setup), models.slice(0, 2));
+  assert.deepEqual([...document.querySelectorAll('.settings-status')].map((el) => el.textContent), [
+    'Connected', 'Connected', 'Not connected',
+  ]);
+  assert.match(document.querySelector('main').textContent, /Manage sign-ins and accounts in the local window/);
+  assert.equal(document.querySelector('button, input[type="password"], form, .provider-accounts-list'), null);
+  await show({ ...setup, oauth: [{ ...setup.oauth[0], authenticated: false, status: 'Not connected' }] });
+  assert.equal(document.querySelector('.settings-status').textContent, 'Not connected');
+  await show({ managedByClient: true, unavailable: true, oauth: [], api: [], local: [] });
+  assert.deepEqual(filterConfiguredModels(models, { managedByClient: true, oauth: [], api: [], local: [] }), []);
+  assert.match(document.querySelector('main').textContent, /Connect the desktop to view its providers/);
+  assert.equal(document.querySelector('.settings-status'), null);
+});
 
 function harness(t) {
   const { dom } = installTestDom(null, {

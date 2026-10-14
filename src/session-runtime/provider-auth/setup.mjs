@@ -3,6 +3,7 @@
 // the model catalog.
 import { refreshKeychainStatus, retryKeychain } from '../../runtime/shared/config.mjs';
 import { keychainIssueFor } from '../services/provider-admin.mjs';
+import { modelProxyClientMode } from '../../runtime/shared/model-proxy-mode.mjs';
 
 // The keyring alert must reflect the live state (it can lock or unlock while a
 // cached setup is served), so overlay it on every ready read.
@@ -26,6 +27,9 @@ export function createSetupApi({
   return {
     async getProviderSetup(options = {}) {
       const force = options?.force === true || options?.refresh === true;
+      if (modelProxyClientMode()) {
+        return cachedProviderSetup({ force: force || options?.recheckKeychain === true });
+      }
       // An unforced read never blocks: the authoritative setup waits on the OS
       // keychain, which can take seconds on a cold start and used to stall the
       // whole settings sweep behind it. Serve

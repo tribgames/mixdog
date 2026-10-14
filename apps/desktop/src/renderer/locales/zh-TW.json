@@ -4345,5 +4345,7 @@
   "Zoom options": "縮放選項",
   "Zoom out": "縮小",
   "Zoom Out": "縮小",
-  "Zoom to {{value0}}%": "縮放至 {{value0}}%"
+  "Zoom to {{value0}}%": "縮放至 {{value0}}%",
+  "This server uses providers connected on your desktop. Manage sign-ins and accounts in the local window.": "此伺服器使用桌面端已連線的供應商。請在本機視窗中管理登入和帳號。",
+  "Connect the desktop to view its providers.": "請連線桌面端以查看其供應商。"
 }

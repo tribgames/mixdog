@@ -4345,5 +4345,7 @@
   "Zoom options": "확대/축소 옵션",
   "Zoom out": "축소",
   "Zoom Out": "축소",
-  "Zoom to {{value0}}%": "{{value0}}%로"
+  "Zoom to {{value0}}%": "{{value0}}%로",
+  "This server uses providers connected on your desktop. Manage sign-ins and accounts in the local window.": "이 서버는 데스크톱에 연결된 프로바이더를 사용합니다. 로그인과 계정은 로컬 창에서 관리하세요.",
+  "Connect the desktop to view its providers.": "프로바이더를 보려면 데스크톱을 연결하세요."
 }
