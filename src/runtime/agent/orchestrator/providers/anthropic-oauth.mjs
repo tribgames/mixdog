@@ -91,12 +91,6 @@ function logQuiet(line) {
   if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] ${line}\n`);
 }
 
-function requiresSystemPrefix(model) {
-  // Every Claude OAuth model needs the first-party system prefix for OAuth
-  // pool routing; without it the server answers 429 rate_limit_error "Error".
-  return /^claude-/.test(String(model || '').toLowerCase());
-}
-
 function buildOAuthBetaHeaders(body, { fastMode = false, toolSearch = false, model, opts = {} } = {}) {
   return buildAnthropicBetaHeaders({
     base: usesAnthropicEffortBody(body) ? `${OAUTH_BETA_HEADERS},${EFFORT_CONFIGURATION_BETA}` : OAUTH_BETA_HEADERS,
@@ -114,23 +108,21 @@ function buildOAuthBetaHeaders(body, { fastMode = false, toolSearch = false, mod
 // content (even the prefix concatenated with extra text in the same block)
 // falls into the standard pool and Opus/Sonnet return 429. Splitting into
 // two blocks — [prefix, rest] — keeps both routing and user instructions.
-function buildSystemBlocks(systemMsgs, model, systemTtl, tier3Ttl) {
+function buildSystemBlocks(systemMsgs, systemTtl, tier3Ttl) {
   // systemMsgs is an array of { content, cacheTier } — each non-empty element
   // becomes its own Anthropic content block with its own cache_control
   // breakpoint. Blocks tagged cacheTier:'tier3' (BP3 sessionMarker) take the
   // tier3 TTL; every other block (BP1 baseRules / BP2 stableSystem) takes the
   // system TTL. Invariant: callers must pass an array.
   const items = systemBlockItems(systemMsgs);
-  const gated = requiresSystemPrefix(model);
 
-  const blocks = [];
-  if (gated) {
-    blocks.push({ type: 'text', text: CLAUDE_CODE_SYSTEM_PREFIX });
-  }
+  // Every model on the OAuth route is routed by this prefix block, so it is
+  // sent unconditionally rather than keyed on the model id.
+  const blocks = [{ type: 'text', text: CLAUDE_CODE_SYSTEM_PREFIX }];
   for (let i = 0; i < items.length; i++) {
     let body = items[i].text;
     // Strip a duplicated OAuth system prefix from the first block if present.
-    if (gated && i === 0 && body.startsWith(CLAUDE_CODE_SYSTEM_PREFIX)) {
+    if (i === 0 && body.startsWith(CLAUDE_CODE_SYSTEM_PREFIX)) {
       body = body.slice(CLAUDE_CODE_SYSTEM_PREFIX.length).trim();
       if (!body) continue;
     }
@@ -170,8 +162,8 @@ function buildSystemBlocks(systemMsgs, model, systemTtl, tier3Ttl) {
 //   1. MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS env override, if set, wins outright.
 //   2. Catalog outputTokens (trusted over hardcoded heuristics when present),
 //      clamped to [MAX_TOKENS_FLOOR, safetyCap].
-//   3. Static MAX_TOKENS table / family heuristic fallback when the catalog
-//      has no entry for this model, also clamped to the safety cap.
+//   3. Shared model catalog outputTokens, then the floor, when the live
+//      roster has no entry for this model.
 function resolveMaxTokens(model) {
   return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokens });
 }
@@ -202,7 +194,7 @@ function buildRequestBody(messages, model, tools, sendOpts) {
   // Each system message becomes its own Anthropic content block with its own
   // breakpoint: BP1 baseRules + BP2 stableSystem at ttls.system, BP3
   // sessionMarker (cacheTier:'tier3') at ttls.tier3.
-  const systemBlocks = buildSystemBlocks(systemMsgs, model, ttls?.system, ttls?.tier3);
+  const systemBlocks = buildSystemBlocks(systemMsgs, ttls?.system, ttls?.tier3);
 
   // Message-tail cache budget (4-BP layout + ANTHROPIC_MSG_SLOTS) is shared
   // with anthropic.mjs — see resolveAnthropicMessageCacheSlots.

@@ -63,7 +63,8 @@ test('direct API payload sends ultrafast for astra and 6.1-sol only', async () =
   for (const model of ['gpt-6-sol', 'gpt-5.5']) {
     assert.equal(buildRequestBody(messages, model, [], direct).service_tier, 'priority', model);
   }
-  assert.equal(buildRequestBody(messages, 'gpt-5', [], direct).service_tier, undefined);
+  // gpt-5 has a published Priority rate in the catalog, so Fast applies to it.
+  assert.equal(buildRequestBody(messages, 'gpt-5', [], direct).service_tier, 'priority');
   assert.equal(
     buildRequestBody(messages, 'gpt-6-astra', [], { ...direct, modelParameters: {} }).service_tier,
     'priority'

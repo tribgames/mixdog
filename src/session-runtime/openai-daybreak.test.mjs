@@ -167,11 +167,12 @@ test('catalog successors: program variants move to the first Blue model, retired
   }
 });
 
-test('capability: the catalog list decides; the static fallback answers only without one', () => {
+test('capability: only the catalog list decides; no id is special', () => {
   assert.equal(daybreak.daybreakBlueSupported({ id: 'gpt-6-sol', accessPrograms: ['standard'] }), false);
   assert.equal(daybreak.daybreakBlueSupported({ id: 'gpt-6-sol', accessPrograms: [] }), false);
   assert.equal(daybreak.daybreakBlueSupported({ id: 'future', accessPrograms: ['daybreak_blue'] }), true);
-  assert.equal(daybreak.daybreakBlueSupported({ id: 'gpt-5.6-sol' }), true);
+  assert.equal(daybreak.daybreakBlueSupported({ id: 'gpt-5.6-sol' }), false);
+  assert.equal(daybreak.daybreakBlueSupported({ id: 'gpt-9-future', accessPrograms: ['standard', 'daybreak_blue'] }), true);
   assert.equal(daybreak.daybreakBlueSupported('gpt-6-astra'), false);
 });
 

@@ -73,6 +73,7 @@ const modelsdev = {
   },
   xiaomi: { models: { 'mimo-v2.5': { cost: { input: 0.4, output: 2, cache_read: 0.08 } } } },
   moonshotai: { models: { 'kimi-k3': { cost: { input: 3, output: 15, cache_read: 0.3 } } } },
+  zetalabs: { models: { 'zeta-9-max': { cost: { input: 7, output: 21, cache_read: 0.7 } } } },
   anthropic: {
     models: {
       'claude-opus-5-5': { cost: { input: 4, output: 20, cache_read: 0.2, cache_write: 5 } },
@@ -307,6 +308,11 @@ test('Cursor Fast bills the vendor Fast rate or Cursor’s published Fast SKU', 
   near(cursor('composer-2.5', fast), 0.45);
   // Outside Cursor these rows never apply.
   assert.equal(priceUsage({ provider: 'xai', model: 'composer-2.5', inputTokens: 1000 }).costUsd, null);
+});
+
+test('a relay finds the serving vendor in the catalogs, so a future vendor id needs no code change', () => {
+  assert.equal(priceUsage({ provider: 'cursor-oauth', model: 'zeta-9-max', inputTokens: 1_000_000 }).costUsd, 7);
+  assert.equal(priceUsage({ provider: 'opencode-go', model: 'zeta-9-max', inputTokens: 1_000_000 }).costUsd, 7);
 });
 
 test('published variant multiples and vendor-served relay ids price from their base SKU', () => {

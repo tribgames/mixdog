@@ -101,15 +101,24 @@ test('Antigravity keeps bare Flash thinkingLevel without guessing Claude token b
     assert.equal(flash.model, 'gemini-3-flash');
     assert.equal(flash.request.generationConfig.thinkingConfig.thinkingLevel, effort);
   }
-  assert.throws(
-    () => provider._buildBody(messages, 'claude-opus-4-6-thinking', [], { effort: 'high' }),
-    /uses thinkingBudget/
-  );
-  const claude = provider._buildBody(messages, 'claude-opus-4-6-thinking', [], {
+  // Claude takes the effort on thinkingLevel; the gateway enum tops out at high.
+  for (const [effort, level] of [
+    ['low', 'low'],
+    ['medium', 'medium'],
+    ['high', 'high'],
+    ['max', 'high'],
+    ['xhigh', 'high'],
+  ]) {
+    const body = provider._buildBody(messages, 'claude-opus-4-6-thinking', [], { effort });
+    assert.equal(body.model, 'claude-opus-4-6-thinking');
+    assert.deepEqual(body.request.generationConfig.thinkingConfig, { includeThoughts: true, thinkingLevel: level });
+  }
+  const claude =provider._buildBody(messages, 'claude-opus-4-6-thinking', [], {
     effort: 'high',
     thinkingBudget: 4096,
   });
   assert.equal(claude.request.generationConfig.thinkingConfig.thinkingBudget, 4096);
+  assert.equal(claude.request.generationConfig.thinkingConfig.thinkingLevel, undefined);
 });
 
 test('the stored credential (snake_case) reaches requests as a bearer token and project', async (t) => {
@@ -194,7 +203,11 @@ test('picker families send the tiered wire id and drop the effort field', async 
     bodies.map((body) => body.model),
     ['gemini-3.8-flash-low', 'gemini-3.1-pro-high', 'claude-opus-4-6-thinking', 'gemini-3.8-flash-high']
   );
-  for (const body of bodies) assert.equal(body.request.generationConfig?.thinkingConfig?.thinkingLevel, undefined);
+  // Tiered ids consume the effort; the single-wire Claude id carries it on thinkingLevel.
+  assert.deepEqual(
+    bodies.map((body) => body.request.generationConfig?.thinkingConfig?.thinkingLevel),
+    [undefined, undefined, 'high', undefined]
+  );
 });
 
 test('the catalog is served from the gateway and cached, with the curated list as the offline fallback', async (t) => {

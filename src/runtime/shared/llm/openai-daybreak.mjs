@@ -13,17 +13,6 @@ export const DAYBREAK_OFF = 'off';
 export const DAYBREAK_BLUE_PROGRAM = 'daybreak_blue';
 const STANDARD_PROGRAM = 'standard';
 
-// Static fallback, used ONLY when a catalog row carries no access-program
-// list at all (an older cache or a catalog without the field). Any list the
-// catalog does send — empty included — decides on its own.
-const FALLBACK_DAYBREAK_BLUE_MODELS = new Set([
-  'gpt-6-sol',
-  'gpt-6-luna',
-  'gpt-5.6-sol',
-  'gpt-5.6-terra',
-  'gpt-5.6-luna',
-]);
-
 export const DAYBREAK_PARAMETER_OPTION = Object.freeze({
   id: DAYBREAK_PARAMETER_ID,
   label: 'Daybreak Blue',
@@ -43,13 +32,12 @@ export function catalogAccessPrograms(raw) {
 }
 
 /**
- * Whether a model (catalog record or bare id) accepts Blue: the catalog's
- * access-program list when it has one, else the static fallback.
+ * Whether a model accepts Blue: only when the catalog's access-program list
+ * for it names the program. A row with no list (or a bare id) is not offered
+ * the toggle; the server's catalog is the only source of this entitlement.
  */
 export function daybreakBlueSupported(model) {
-  if (Array.isArray(model?.accessPrograms)) return model.accessPrograms.includes(DAYBREAK_BLUE_PROGRAM);
-  const id = clean(typeof model === 'string' ? model : model?.id).toLowerCase();
-  return FALLBACK_DAYBREAK_BLUE_MODELS.has(id);
+  return Array.isArray(model?.accessPrograms) && model.accessPrograms.includes(DAYBREAK_BLUE_PROGRAM);
 }
 
 /**

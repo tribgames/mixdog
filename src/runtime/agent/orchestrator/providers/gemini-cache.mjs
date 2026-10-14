@@ -43,12 +43,11 @@ function summarizeTraceContents(contents) {
   return [...summaries.slice(0, 8), { omittedTurns: summaries.length - 12 }, ...summaries.slice(-4)];
 }
 
-// Gemini cachedContents API rejects prefixes below the model-specific minimum
-// (Gemini 2.0/2.5 = 2048 tokens, Gemini 3.x = 4096 tokens) with HTTP 400
-// "Cached content is too small". Estimating chars/4 ≈ tokens lets us skip the
-// roundtrip when the prefix cannot satisfy the invariant. Estimate undercount
-// is harmless (we attempt and get the same 400 we would have skipped); overcount
-// is harmless (we skip, fall back to implicit cache).
+// Gemini cachedContents API rejects prefixes below a model-specific minimum
+// with HTTP 400 "Cached content is too small". Estimating chars/4 ≈ tokens
+// lets us skip the roundtrip when the prefix cannot satisfy the invariant.
+// Estimate undercount is harmless (we attempt and get the same 400 we would
+// have skipped); overcount is harmless (we skip, fall back to implicit cache).
 export function _estimateGeminiCacheTokens(systemInstruction, geminiTools, contents) {
   let chars = 0;
   if (typeof systemInstruction === 'string') chars += systemInstruction.length;
@@ -67,8 +66,15 @@ export function _estimateGeminiCacheTokens(systemInstruction, geminiTools, conte
   return Math.ceil(chars / 4);
 }
 
-export function _geminiCacheMinTokens(model) {
-  return /^gemini-3/i.test(String(model || '')) ? 4096 : 2048;
+// No catalog publishes the cachedContents floor and the published minimums
+// differ per model and change between releases, so one floor serves every id:
+// the highest published minimum. Skipping a small prefix only falls back to the
+// implicit cache, whereas a floor that is too low would POST a create that the
+// server rejects on every turn.
+const GEMINI_CACHE_MIN_TOKENS = 4096;
+
+export function _geminiCacheMinTokens() {
+  return GEMINI_CACHE_MIN_TOKENS;
 }
 
 export function _geminiCachePrefixCount(contents) {
@@ -110,6 +116,21 @@ const GEMINI_GLOBAL_CACHE_MAX_ENTRIES = 128;
 export const GEMINI_GLOBAL_CACHE_DELETE_GRACE_MS = 2 * 60 * 1000;
 const geminiGlobalCaches = new Map();
 export const geminiGlobalCacheCreates = new Map();
+// Models whose cachedContents.create the server refused as unsupported (not
+// a prefix or quota failure). No catalog publishes explicit-cache support, so
+// the server's own answer decides, once per process.
+const geminiExplicitCacheRefusedModels = new Set();
+
+export function markGeminiExplicitCacheRefused(model, err) {
+  if (err?.status !== 400) return false;
+  if (!/explicit caching is not supported/i.test(String(err?.message || ''))) return false;
+  geminiExplicitCacheRefusedModels.add(String(model || ''));
+  return true;
+}
+
+export function geminiExplicitCacheRefused(model) {
+  return geminiExplicitCacheRefusedModels.has(String(model || ''));
+}
 
 export function _geminiCredentialFingerprint(apiKey) {
   return traceHash(String(apiKey || ''));

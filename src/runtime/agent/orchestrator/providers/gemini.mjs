@@ -32,6 +32,8 @@ import {
   GEMINI_GLOBAL_CACHE_DELETE_GRACE_MS,
   _geminiCredentialFingerprint,
   _invalidateGeminiCachesForCredentialFingerprint,
+  geminiExplicitCacheRefused,
+  markGeminiExplicitCacheRefused,
 } from './gemini-cache.mjs';
 import {
   awaitSharedCreate,
@@ -263,7 +265,7 @@ export class GeminiProvider {
     if (decision.canReuseState) {
       return state.cacheName;
     }
-    if (!apiKey) return null;
+    if (!apiKey || geminiExplicitCacheRefused(model)) return null;
     const { canAttachState } = decision;
     if (geminiPrefixBelowMinimum({ model, systemInstruction, geminiTools, contents, opts, currentIter })) {
       return canAttachState ? state.cacheName : null;
@@ -443,6 +445,7 @@ export class GeminiProvider {
       _setGeminiGlobalCache(globalCacheKey, entry);
       return entry;
     } catch (err) {
+      markGeminiExplicitCacheRefused(model, err);
       process.stderr.write(`[gemini] cachedContents.create error: ${err?.message || err}\n`);
       return null;
     }

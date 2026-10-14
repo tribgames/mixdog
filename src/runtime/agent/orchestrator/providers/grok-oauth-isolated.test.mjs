@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -43,7 +44,24 @@ const response = (body, status = 200) => ({
   text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
 });
 
+// The real xAI effort rule from the host realm, pointed at an empty catalog
+// directory so only its cold-start behavior is exercised.
+let realXaiRulePromise;
+function realXaiRuleLoader() {
+  realXaiRulePromise ||= (async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mixdog-grok-cold-'));
+    process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+    const empty = JSON.stringify({ fetchedAt: Date.now(), data: {} });
+    writeFileSync(join(dir, 'modelsdev-catalog.json'), empty);
+    writeFileSync(join(dir, 'litellm-catalog.json'), empty);
+    process.env.MIXDOG_DATA_DIR = dir;
+    return (await import('./openai-compat-xai.mjs')).xaiModelSupportsReasoningEffort;
+  })();
+  return realXaiRulePromise;
+}
+
 async function isolated() {
+  const realXaiRule = await realXaiRuleLoader();
   const root = resolve('virtual-grok-fixtures');
   const s = {
     env: { MIXDOG_DISABLE_LIVE_CLI_VERSIONS: '1' },
@@ -194,6 +212,8 @@ async function isolated() {
       getModelMetadataSync: (id) => s.metadata[id],
     },
     './model-list-sanitize.mjs': { sanitizeModelList: (models) => models },
+    // The real shared xAI rule, running against empty catalogs (cold start).
+    './openai-compat-xai.mjs': { xaiModelSupportsReasoningEffort: realXaiRule },
     './lib/note-error-usage.mjs': { noteErrorUsage: () => {} },
     // No remembered client version: the sandbox never reads the operator's disk.
     './client-version-store.mjs': { readLastKnownVersion: () => null, rememberLastKnownVersion: () => {} },
@@ -715,6 +735,57 @@ function registerTests() {
     assert.deepEqual(plain(cached.map((model) => model.display)), plain(listed.map((model) => model.display)));
     assert.ok(cached.every((model) => model.outputTokens === null));
     assert.equal(s.requests.length, 2);
+  });
+
+  test('a roster row declaring capabilities.reasoning_effort sets its levels; an undeclared id follows the shared xAI rule', async () => {
+    const {
+      s,
+      provider: { GrokOAuthProvider },
+    } = await isolated();
+    s.store(token());
+    const provider = new GrokOAuthProvider({ preconnect: false });
+    s.replies.push(
+      response({
+        data: [
+          { id: 'grok-9-caps', capabilities: { reasoning_effort: ['none', 'low', 'high', 'unknown'] } },
+          { id: 'grok-9-bare' },
+          { id: 'grok-build-0.1' },
+        ],
+      }),
+      response({ data: [] })
+    );
+    const listed = await provider.listModels();
+    assert.deepEqual(plain(listed.map((model) => model.reasoningLevels)), [
+      ['none', 'low', 'high'],
+      ['low', 'medium', 'high'],
+      [],
+    ]);
+    assert.deepEqual(
+      plain(listed.map((model) => model.family)),
+      ['grok', 'grok', 'grok-static']
+    );
+  });
+
+  test('send keeps or strips the effort by the model roster row, not by its id', async () => {
+    const {
+      s,
+      provider: { GrokOAuthProvider },
+    } = await isolated();
+    s.store(token());
+    s.cache = [
+      { id: 'grok-9-effortless', reasoningLevels: [] },
+      { id: 'grok-9-effort', reasoningLevels: ['low', 'high'] },
+    ];
+    const provider = new GrokOAuthProvider({ preconnect: false });
+    s.sendReplies.push('a', 'b', 'c');
+    await provider.send([], 'grok-9-effortless', [], { effort: 'high' });
+    await provider.send([], 'grok-9-effort', [], { effort: 'high' });
+    // Not on the roster yet: the shared rule passes the effort through.
+    await provider.send([], 'grok-10-new', [], { effort: 'high' });
+    assert.deepEqual(
+      plain(s.sends.map((send) => send.args[3].effort)),
+      ['none', 'high', 'high']
+    );
   });
 
   test('catalog merging, default release date, proxy fallback and API failures', async () => {

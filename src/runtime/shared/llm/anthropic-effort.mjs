@@ -2,11 +2,13 @@
  * Anthropic "effort" (extended-thinking budget) request parameter handling.
  */
 import {
-  assertAnthropicManualBudgetSupported,
+  CLAUDE_GENERATION_FLOOR,
+  claudeGenerationAtLeast,
   emitsAnthropicProgressUpdates,
-  isAnthropicAdaptiveOnlyModel,
+  isAnthropicAdaptiveOnlyByGeneration,
   normalizeClaudeModelId as normalizeModelId,
 } from './anthropic-thinking-contract.mjs';
+import { getModelMetadataSync } from './model-catalog.mjs';
 
 const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
 const THINKING_DISPLAYS = new Set(['summarized', 'omitted', 'updates']);
@@ -32,12 +34,47 @@ const CONTROL_EFFORT_KEYS = new Set(['supported', 'enabled', 'default']);
 
 // ── Catalog-first capability index ───────────────────────────────────────
 // The provider catalog already carries what each model advertises
-// (capabilities.effort → reasoningOptions:[{type:'effort',values:[…]}]), so it
-// — not a hardcoded regex ladder — is the source of truth for what we put on
-// the wire. anthropic-model-resolve feeds this whenever the in-memory catalog
-// moves. The regex ladder below stays as the fallback for ids the catalog does
-// not know (offline start, api-key provider, first run before /v1/models).
-const _catalogEffortLevels = new Map();
+// (capabilities.effort → reasoningOptions:[{type:'effort',values:[…]}],
+// capabilities.thinking.types → thinkingTypes), so it — not an id ladder — is
+// the source of truth for what we put on the wire. Order for one model:
+//   1. the live-roster index below (anthropic-model-resolve feeds it whenever
+//      the in-memory catalog moves),
+//   2. the shared model catalog (cached roster / LiteLLM / models.dev),
+//   3. a release-generation floor (anthropic-thinking-contract) for an id no
+//      catalog describes — a new release inherits it, no per-id entry.
+const _catalogEntries = new Map();
+
+/** `{adaptive?:boolean, enabled?:boolean}` a live /v1/models row declares under
+ *  capabilities.thinking.types, or undefined when it declares neither. */
+export function thinkingTypesFromCapabilities(capabilities) {
+  const types = capabilities?.thinking?.types;
+  if (!types || typeof types !== 'object') return undefined;
+  const out = {};
+  for (const key of ['adaptive', 'enabled']) {
+    const declared = types[key];
+    const supported = typeof declared === 'boolean' ? declared : declared?.supported;
+    if (typeof supported === 'boolean') out[key] = supported;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function _effortLevelsOf(reasoningOptions) {
+  const option = (Array.isArray(reasoningOptions) ? reasoningOptions : []).find(
+    (entry) =>
+      String(entry?.type || '')
+        .trim()
+        .toLowerCase() === 'effort'
+  );
+  return new Set(
+    (Array.isArray(option?.values) ? option.values : [])
+      .map((value) =>
+        String(value || '')
+          .trim()
+          .toLowerCase()
+      )
+      .filter((value) => value && !CONTROL_EFFORT_KEYS.has(value))
+  );
+}
 
 function _catalogKeys(model) {
   const id = normalizeModelId(model);
@@ -55,7 +92,7 @@ function _catalogKeys(model) {
  * lists carry no capability data and must not disable effort.
  */
 export function setModelEffortCapabilities(models) {
-  _catalogEffortLevels.clear();
+  _catalogEntries.clear();
   if (!Array.isArray(models)) return;
   for (const model of models) {
     if (!model?.id || !Array.isArray(model.reasoningOptions)) continue;
@@ -63,48 +100,79 @@ export function setModelEffortCapabilities(models) {
     // (custom-reasoning.mjs); a same-id custom model must never reshape the
     // first-party index.
     if (String(model.provider || '').startsWith('custom-')) continue;
-    const option = model.reasoningOptions.find(
-      (entry) =>
-        String(entry?.type || '')
-          .trim()
-          .toLowerCase() === 'effort'
-    );
-    const levels = new Set(
-      (Array.isArray(option?.values) ? option.values : [])
-        .map((value) =>
-          String(value || '')
-            .trim()
-            .toLowerCase()
-        )
-        .filter((value) => value && !CONTROL_EFFORT_KEYS.has(value))
-    );
+    const levels = _effortLevelsOf(model.reasoningOptions);
+    const manual = typeof model.thinkingTypes?.enabled === 'boolean' ? model.thinkingTypes.enabled : undefined;
+    const adaptive = typeof model.thinkingTypes?.adaptive === 'boolean' ? model.thinkingTypes.adaptive : undefined;
     for (const key of _catalogKeys(model.id)) {
-      const existing = _catalogEffortLevels.get(key);
+      const existing = _catalogEntries.get(key);
       // A bare alias shared by several records keeps the richer entry.
-      if (existing?.size && levels.size === 0) continue;
-      _catalogEffortLevels.set(key, levels);
+      if (existing?.levels.size && levels.size === 0) continue;
+      _catalogEntries.set(key, { levels, manual, adaptive });
     }
   }
 }
 
-/** Advertised levels for `model`, or null when the catalog has no record. */
-function _catalogLevels(model) {
+// Shared-catalog tier (cached roster rows, LiteLLM, models.dev) for an id the
+// live index does not hold. Only an actual effort ladder counts; silence
+// returns null so the generation floor decides.
+function _sharedCatalogEntry(model) {
+  const id = normalizeModelId(model);
+  if (!id) return null;
+  const levels = _effortLevelsOf(getModelMetadataSync(id, 'anthropic')?.reasoningOptions);
+  return levels.size ? { levels, manual: undefined, adaptive: undefined } : null;
+}
+
+/** `{levels: Set, manual?: boolean, adaptive?: boolean}` for `model`, or null when no catalog describes it. */
+function _catalogEntry(model) {
   for (const key of _catalogKeys(model)) {
-    const levels = _catalogEffortLevels.get(key);
-    if (levels) return levels;
+    const entry = _catalogEntries.get(key);
+    if (entry) return entry;
   }
-  return null;
+  return _sharedCatalogEntry(model);
+}
+
+/** Advertised levels for `model`, or null when the catalog has no ladder for it. */
+function _catalogLevels(model) {
+  return _catalogEntry(model)?.levels ?? null;
+}
+
+/**
+ * True when the model's thinking contract rejects a manual
+ * `thinking:{type:"enabled",budget_tokens}` request: the catalog's declared
+ * thinking types decide, the release-generation floor covers an undescribed id.
+ */
+export function isAnthropicAdaptiveOnlyModel(model) {
+  const manual = _catalogEntry(model)?.manual;
+  return typeof manual === 'boolean' ? !manual : isAnthropicAdaptiveOnlyByGeneration(model);
+}
+
+// The thinking type is resolved apart from the effort ladder: a catalog can
+// advertise effort levels for a model that still takes the manual budget shape
+// (effort is not adaptive-thinking support). A declared `adaptive` flag decides;
+// otherwise the release-generation floor does, whatever ladder the catalog holds.
+function _usesAdaptiveThinking(model) {
+  if (isEnvTruthy(process.env.MIXDOG_ANTHROPIC_ALWAYS_ENABLE_EFFORT)) return true;
+  const adaptive = _catalogEntry(model)?.adaptive;
+  return typeof adaptive === 'boolean' ? adaptive : _floorSupportsEffort(model);
+}
+
+export function assertAnthropicManualBudgetSupported(model) {
+  if (isAnthropicAdaptiveOnlyModel(model)) {
+    throw new TypeError(`${model} does not support thinkingBudgetTokens; use effort with adaptive thinking instead.`);
+  }
 }
 
 /**
  * Effort levels the wire builder sends unchanged for `model` (reserved `max`
  * excluded), from the same capability gates normalizeAnthropicEffortInput and
- * applyAnthropicEffortToBody use: catalog record first, regex ladder for an
- * absent record. A model without effort support, or whose catalog record
+ * applyAnthropicEffortToBody use: catalog record first, generation floor for
+ * an absent record. A model without effort support, or whose catalog record
  * declares none, accepts none.
  */
 export function anthropicEffortLevelsFor(model) {
-  if (!modelSupportsEffort(model)) return [];
+  // Only the adaptive path sends output_config effort; a manual-thinking model
+  // takes none, whatever ladder a catalog holds for it.
+  if (!modelSupportsEffort(model) || !_usesAdaptiveThinking(model)) return [];
   const levels = ['low', 'medium', 'high'];
   if (modelSupportsXhighEffort(model)) levels.push('xhigh');
   return levels;
@@ -123,121 +191,41 @@ const _LOGGED_EFFORT_NORMALIZATION = new Set();
 const _LOGGED_UNKNOWN_EFFORT = new Set();
 const MAX_LOGGED_UNKNOWN_EFFORTS = 100;
 
-function parseClaudeVersion(model) {
-  const m = normalizeModelId(model);
-  const triple = m.match(/^claude-(haiku|sonnet|opus|fable)-(\d+)-(\d+)/);
-  if (triple) {
-    return { family: triple[1], major: Number(triple[2]), minor: Number(triple[3]) };
-  }
-  // Bare version ids carry family + major only (claude-opus-5). opus/haiku
-  // were missing here, so `claude-opus-5` parsed to null and fell through
-  // every capability check as an unknown shape.
-  const pair = m.match(/^claude-(sonnet|fable|opus|haiku)-(\d+)(?:$|[-@])/);
-  if (pair) {
-    return { family: pair[1], major: Number(pair[2]), minor: null };
-  }
-  // Legacy naming: version comes BEFORE the family (claude-3-7-sonnet,
-  // claude-3-5-sonnet, claude-3-opus). These are manual-thinking models —
-  // parse them so isLegacyAnthropicReasoningModel excludes them instead of
-  // letting modelSupportsEffort's `startsWith('claude-')` fallthrough grant
-  // them adaptive thinking + the effort beta (a hard 400).
-  const legacy = m.match(/^claude-(\d+)-(\d+)-(haiku|sonnet|opus)/);
-  if (legacy) {
-    return { family: legacy[3], major: Number(legacy[1]), minor: Number(legacy[2]) };
-  }
-  return null;
-}
-
-function isLegacyAnthropicReasoningModel(model) {
-  const parsed = parseClaudeVersion(model);
-  if (!parsed) return false;
-  if (parsed.family === 'haiku') return true;
-  if (parsed.family === 'fable') return false;
-  if (parsed.family === 'sonnet' || parsed.family === 'opus') {
-    if (parsed.major < 4) return true;
-    if (parsed.major === 4 && parsed.minor !== null && parsed.minor < 6) return true;
-    // Bare major, no minor (claude-opus-4 / claude-sonnet-4): adaptive
-    // effort only ships from 5 up, so 4.x aliases stay manual-thinking.
-    if (parsed.minor === null && parsed.major < 5) return true;
-    return false;
-  }
-  return false;
-}
-
-// @[MODEL LAUNCH]: extend allowlist when new Claude models ship with effort support.
 export function modelSupportsEffort(model) {
   if (isEnvTruthy(process.env.MIXDOG_ANTHROPIC_ALWAYS_ENABLE_EFFORT)) return true;
   const advertised = _catalogLevels(model);
   if (advertised) return advertised.size > 0;
-  return _regexSupportsEffort(model);
+  return _floorSupportsEffort(model);
 }
 
-// Fallback ladder for ids the catalog does not carry. Also used by
-// effortValuesForModel, which BUILDS the catalog records and therefore must
-// never consult the index it feeds.
-function _regexSupportsEffort(model) {
-  const m = normalizeModelId(model);
-  if (!m.includes('claude')) return false;
-  if (isLegacyAnthropicReasoningModel(model)) return false;
-  if (isAnthropicAdaptiveOnlyModel(model)) return true;
-  if (m.includes('opus-4-6') || m.includes('sonnet-4-6')) return true;
-  if (m.includes('sonnet-5') || m.includes('fable-5')) return true;
-  if (/^claude-mythos-5-1(?:-\d{8})?$/.test(m)) return true;
-  if (/^claude-opus-4-(6|7|8)(?:$|[-@])/.test(m)) return true;
-  if (/^claude-opus-5(?:$|[-@])/.test(m)) return true;
-  // Fallthrough for not-yet-enumerated modern models: only grant effort when
-  // parseClaudeVersion resolves a family with major>=4 (and not a manual-
-  // thinking legacy already excluded above). A bare `startsWith('claude-')`
-  // here would hand thinking:adaptive + the effort beta to legacy/unknown
-  // IDs (e.g. claude-3-7-sonnet) → hard 400. Unknown-shape IDs (no version
-  // parsed) fall through to false: no effort, no adaptive thinking.
-  const parsed = parseClaudeVersion(model);
-  if (
-    parsed &&
-    (parsed.family === 'sonnet' || parsed.family === 'opus' || parsed.family === 'fable') &&
-    parsed.major >= 4
-  ) {
-    return true;
-  }
-  return false;
+// Generation-floor fallbacks for ids the catalog does not describe. Also used
+// by effortValuesForModel, which BUILDS the catalog records and therefore must
+// never consult the index it feeds. Legacy manual-thinking generations
+// (claude-3-7-sonnet, claude-sonnet-4-5, claude-haiku-4-5) sit below the
+// floor; non-claude ids have no generation and get nothing.
+function _floorSupportsEffort(model) {
+  return claudeGenerationAtLeast(model, CLAUDE_GENERATION_FLOOR.adaptiveEffort);
 }
 
-// @[MODEL LAUNCH]: extend when new models support xhigh effort.
-// Per platform.claude.com/docs/en/build-with-claude/effort — xhigh is
-// supported by: Fable 5, Mythos 5, Opus 4.8, Opus 4.7, Sonnet 5.
-// NOT Opus 4.6 / Sonnet 4.6 (those support max but not xhigh).
 export function modelSupportsXhighEffort(model) {
   const advertised = _catalogLevels(model);
   if (advertised) return advertised.has('xhigh');
-  return _regexSupportsXhighEffort(model);
+  return _floorSupportsXhighEffort(model);
 }
 
-function _regexSupportsXhighEffort(model) {
-  const m = normalizeModelId(model);
-  if (/^claude-opus-4-(7|8)(?:$|[-@])/.test(m)) return true;
-  if (/^claude-opus-5(?:$|[-@])/.test(m)) return true;
-  if (/^claude-sonnet-5(?:$|[-@])/.test(m)) return true;
-  if (/^claude-fable-5(?:$|[-@])/.test(m)) return true;
-  if (/^claude-mythos-5(?:$|[-@])/.test(m)) return true;
-  if (/^claude-mythos-preview(?:$|[-@])/.test(m)) return true;
-  return false;
+function _floorSupportsXhighEffort(model) {
+  return claudeGenerationAtLeast(model, CLAUDE_GENERATION_FLOOR.xhighEffort);
 }
 
-// @[MODEL LAUNCH]: extend when new Opus models support max effort.
-// Max list = xhigh list PLUS Opus 4.6, Sonnet 4.6, Opus 4.5.
 export function modelSupportsMaxEffort(model) {
   const advertised = _catalogLevels(model);
-  // xhigh support implies max support (kept from the ladder below).
+  // xhigh support implies max support.
   if (advertised) return advertised.has('max') || advertised.has('xhigh');
-  return _regexSupportsMaxEffort(model);
+  return _floorSupportsMaxEffort(model);
 }
 
-function _regexSupportsMaxEffort(model) {
-  if (_regexSupportsXhighEffort(model)) return true;
-  const m = normalizeModelId(model);
-  if (/^claude-opus-4-(5|6)(?:$|[-@])/.test(m)) return true;
-  if (/^claude-sonnet-4-6(?:$|[-@])/.test(m)) return true;
-  return false;
+function _floorSupportsMaxEffort(model) {
+  return claudeGenerationAtLeast(model, CLAUDE_GENERATION_FLOOR.maxEffort);
 }
 
 function isEnvTruthy(value) {
@@ -290,7 +278,8 @@ export function normalizeAnthropicEffortInput(raw, model, logTag = 'anthropic') 
 export function shouldIncludeEffortBeta(model, opts = {}) {
   const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
   if (Number.isFinite(thinkingBudgetTokens) && thinkingBudgetTokens > 0) return false;
-  return modelSupportsEffort(model);
+  // Only requests that carry output_config effort (adaptive path) need the beta.
+  return modelSupportsEffort(model) && _usesAdaptiveThinking(model);
 }
 
 /**
@@ -314,7 +303,7 @@ export function applyAnthropicEffortToBody(
 
   const normalized = normalizeAnthropicEffortInput(opts.effort, model, logTag);
 
-  if (modelSupportsEffort(model)) {
+  if (modelSupportsEffort(model) && _usesAdaptiveThinking(model)) {
     if (normalized) {
       const existing = body.output_config && typeof body.output_config === 'object' ? body.output_config : {};
       body.output_config = { ...existing, effort: normalized };
@@ -386,10 +375,10 @@ export function effortValuesForModel(capabilities, modelId) {
   // the model supports effort but doesn't enumerate levels, so derive the
   // set from the known level ladder, gated by the top-tier model check.
   let levels = [...EFFORT_LEVELS];
-  if (!_regexSupportsMaxEffort(modelId)) {
+  if (!_floorSupportsMaxEffort(modelId)) {
     levels = levels.filter((level) => level !== 'max');
   }
-  if (!_regexSupportsXhighEffort(modelId)) {
+  if (!_floorSupportsXhighEffort(modelId)) {
     levels = levels.filter((level) => level !== 'xhigh');
   }
   return levels;

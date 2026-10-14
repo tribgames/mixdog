@@ -10,6 +10,8 @@ export function modelMetaKey(providerId, modelId) {
 
 export function createModelMetaIndex({ caches, modelMetaByRoute, reg, scheduleProviderModelWarmup }) {
   let observedCatalogRevision = catalogRevision(reg());
+  // Keys holding only the bare-id placeholder: a fetching lookup replaces them.
+  const placeholderKeys = new Set();
 
   /** Invalidates the provider caches when the registry's catalog moved on;
    *  returns the current revision either way. */
@@ -22,6 +24,7 @@ export function createModelMetaIndex({ caches, modelMetaByRoute, reg, schedulePr
     caches.providerModelsPromise = null;
     caches.webSearchProviderModelsCache = { models: null, at: 0, revision };
     modelMetaByRoute.clear();
+    placeholderKeys.clear();
     return revision;
   }
 
@@ -32,14 +35,16 @@ export function createModelMetaIndex({ caches, modelMetaByRoute, reg, schedulePr
   }
 
   function remember(providerId, modelId, meta) {
-    modelMetaByRoute.set(modelMetaKey(providerId, modelId), meta);
+    const key = modelMetaKey(providerId, modelId);
+    modelMetaByRoute.set(key, meta);
+    placeholderKeys.delete(key);
   }
 
   async function lookupModelMeta(providerId, modelId, { allowFetch = false } = {}) {
     const revision = syncCatalogRevision();
     const seq = caches.providerModelsLoadSeq;
     const key = modelMetaKey(providerId, modelId);
-    if (modelMetaByRoute.has(key)) return modelMetaByRoute.get(key);
+    if (modelMetaByRoute.has(key) && !(allowFetch && placeholderKeys.has(key))) return modelMetaByRoute.get(key);
     const fallback = () => ({ id: modelId, provider: providerId });
     const providerImpl = reg().getProvider(providerId);
     if (!providerImpl || typeof providerImpl.listModels !== 'function') {
@@ -58,6 +63,7 @@ export function createModelMetaIndex({ caches, modelMetaByRoute, reg, schedulePr
     if (!allowFetch) {
       const meta = fallback();
       modelMetaByRoute.set(key, meta);
+      placeholderKeys.add(key);
       scheduleProviderModelWarmup();
       return meta;
     }
@@ -65,7 +71,10 @@ export function createModelMetaIndex({ caches, modelMetaByRoute, reg, schedulePr
       const models = await providerImpl.listModels();
       const found = Array.isArray(models) ? models.find((m) => m?.id === modelId) : null;
       const meta = found || fallback();
-      if (snapshotIsCurrent(revision, seq)) modelMetaByRoute.set(key, meta);
+      if (snapshotIsCurrent(revision, seq)) {
+        modelMetaByRoute.set(key, meta);
+        placeholderKeys.delete(key);
+      }
       return meta;
     } catch {
       // A failed fetch is not authoritative: nothing is pinned.

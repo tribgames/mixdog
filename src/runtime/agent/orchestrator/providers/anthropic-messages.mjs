@@ -1,6 +1,6 @@
 // Anthropic model catalog + message conversion helpers.
 import { createRequire } from 'node:module';
-import { effortValuesForModel } from './anthropic-effort.mjs';
+import { effortValuesForModel, thinkingTypesFromCapabilities } from './anthropic-effort.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
 import {
@@ -73,6 +73,7 @@ export function _normalizeAnthropicModel(raw, provider = 'anthropic') {
   const dated = /-\d{8}$/.test(String(id));
   const versioned = !dated && /^claude-[a-z]+-\d+(?:-\d+)?$/i.test(String(id));
   const effortValues = effortValuesForModel(raw?.capabilities, id);
+  const thinkingTypes = thinkingTypesFromCapabilities(raw?.capabilities);
   return {
     id,
     display: raw?.display_name || raw?.displayName || raw?.display || _prettyName(id, family),
@@ -90,6 +91,7 @@ export function _normalizeAnthropicModel(raw, provider = 'anthropic') {
     latest: false,
     supportsReasoning: effortValues.length > 0 || _capabilitySupported(raw?.capabilities?.thinking),
     reasoningOptions: effortValues.length ? [{ type: 'effort', values: effortValues }] : [],
+    ...(thinkingTypes ? { thinkingTypes } : {}),
   };
 }
 // The API-key provider has no catalog cache of its own — it reads the same
