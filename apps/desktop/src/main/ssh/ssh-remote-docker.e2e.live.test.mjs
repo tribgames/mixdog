@@ -23,7 +23,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const DESKTOP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const BUNDLE = join(DESKTOP_DIR, 'out', 'main', 'daemon.cjs');
-const SERVER_DEPS = join(DESKTOP_DIR, 'out', 'server', 'deps', 'package-lock.json');
+const SERVER_DEPS = join(DESKTOP_DIR, 'out', 'server', 'deps', 'server-package-lock.json');
 const SERVER_USER = 'mixdog';
 const SERVER_HOME = `/home/${SERVER_USER}`;
 const STATE_DIR = `${SERVER_HOME}/.mixdog-remote`;
