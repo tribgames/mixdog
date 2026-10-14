@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createMcpGlue } from './mcp-glue.mjs';
+import { createMcpConnect } from './mcp-glue/connect.mjs';
 
 test('mcpStatus surfaces a live server that reports not alive as failed', () => {
   const glue = createMcpGlue({
@@ -17,6 +18,27 @@ test('mcpStatus surfaces a live server that reports not alive as failed', () => 
   assert.equal(row.connected, false);
   assert.equal(row.status, 'failed');
   assert.equal(row.error, 'process exited');
+});
+
+test('startup and reconciliation stay noninteractive while explicit local reconnect opts in', async () => {
+  const calls = [];
+  const servers = { remote: { url: 'https://example.test/mcp' } };
+  const { connectConfiguredMcp } = createMcpConnect({
+    mcpClient: {
+      connectMcpServers: async (_servers, options) => calls.push(['all', options.interactive]),
+      reconnectSingleMcpServer: async (_scope, name, _cfg, options) => calls.push([name, options.interactive]),
+    },
+    getMcpScopeId: () => 'test',
+    state: { mcpConnectGeneration: 0, mcpFailures: [] },
+    resolveEffectiveMcpServers: () => ({ servers }),
+    mcpStatus: () => ({}),
+  });
+  await connectConfiguredMcp();
+  await connectConfiguredMcp({ only: 'remote', interactive: true });
+  await connectConfiguredMcp({ only: 'remote' });
+  servers.remote = { url: 'https://example.test/changed' };
+  await connectConfiguredMcp({ reconcile: true, interactive: true });
+  assert.deepEqual(calls, [['all', false], ['remote', true], ['remote', false], ['remote', false]]);
 });
 
 test('awaitInitialMcpConnect waits for the largest per-server startup budget', async () => {

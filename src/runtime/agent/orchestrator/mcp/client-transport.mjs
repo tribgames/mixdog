@@ -118,9 +118,15 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOption
     const opts = requestInitFor(cfg);
     // Explicit authentication remains authoritative (including custom API-key
     // headers). Never forward those credentials to OAuth discovery endpoints.
-    const oauth = opts ? null : createMcpOAuth({ url, ...oauthOptions });
-    const transport = new Transport(new URL(url), oauth
-      ? { authProvider: oauth.provider, fetch: oauth.fetch }
+    let transport;
+    const oauth = opts ? null : createMcpOAuth({
+      url, ...oauthOptions,
+      // SSE advertises its POST endpoint on the authenticated event stream.
+      // No other path on the origin is allowed to receive this server's token.
+      isTransportEndpoint: (input) => kind === 'sse' && transport?._endpoint?.href === new URL(input).href,
+    });
+    transport = new Transport(new URL(url), oauth
+      ? { fetch: oauth.fetch }
       : opts);
     if (oauth) {
       transport.oauth = oauth;

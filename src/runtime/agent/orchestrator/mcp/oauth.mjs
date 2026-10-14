@@ -1,13 +1,60 @@
 import { createServer } from 'node:http';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import keychain from '../../../../lib/keychain-cjs.cjs';
 import { openInBrowser } from '../../../shared/open-url.mjs';
 import { normalizeMcpTransportUrl } from './client-config.mjs';
 
 export const MCP_OAUTH_TIMEOUT_MS = 5 * 60_000;
 
-// Credentials belong to this connection only: no configuration writes, disk
-// cache, URL logging, or cross-server/cross-session token sharing.
-export function createMcpOAuth({ url, openBrowser = openInBrowser, fetchImpl = fetch, timeoutMs = MCP_OAUTH_TIMEOUT_MS }) {
+const scopes = new WeakMap();
+const reauthenticationRequired = () => Object.assign(
+  new Error('MCP OAuth reauthenticationRequired: reconnect explicitly to log in'),
+  { code: 'reauthenticationRequired' },
+);
+
+// The keychain is the only durable store. Exact URLs, including query strings,
+// partition clients and tokens even when servers share an authorization issuer.
+export function createMcpOAuth({
+  url, credentialStore = keychain, interactive = false, isTransportEndpoint = () => false, ...options
+}) {
+  url = normalizeMcpTransportUrl(url);
+  let entries = scopes.get(credentialStore);
+  if (!entries) scopes.set(credentialStore, entries = new Map());
+  let entry = entries.get(url);
+  if (!entry) {
+    entry = { oauth: createSharedOAuth({ url, credentialStore, ...options }), users: 0 };
+    entries.set(url, entry);
+  }
+  entry.users++;
+  const lifetime = new AbortController();
+  let onStart = () => {};
+  let loginAllowed = interactive === true;
+  return {
+    provider: entry.oauth.provider,
+    signal: lifetime.signal,
+    set onStart(value) { onStart = value; },
+    finishConnect() { loginAllowed = false; },
+    async fetch(input, init = {}) {
+      const signal = AbortSignal.any([lifetime.signal, ...(init.signal ? [init.signal] : [])]);
+      return entry.oauth.fetch(input, { ...init, signal }, () => {
+        if (!loginAllowed) return false;
+        loginAllowed = false;
+        onStart();
+        return true;
+      }, options.openBrowser, isTransportEndpoint);
+    },
+    close() {
+      if (lifetime.signal.aborted) return;
+      lifetime.abort();
+      if (--entry.users === 0) {
+        entry.oauth.close();
+        entries.delete(url);
+      }
+    },
+  };
+}
+
+function createSharedOAuth({ url, credentialStore, openBrowser = openInBrowser, fetchImpl = fetch, timeoutMs = MCP_OAUTH_TIMEOUT_MS }) {
   const lifetime = new AbortController();
   let listener;
   let redirectUrl;
@@ -17,8 +64,23 @@ export function createMcpOAuth({ url, openBrowser = openInBrowser, fetchImpl = f
   let clientInformation;
   let discovery;
   let flight;
-  let onStart = () => {};
+  let waiters = 0;
+  let flightController;
+  let allowBrowser = false;
+  let browserOpened = false;
+  let launchBrowser = openBrowser;
   let finishCallback;
+  const account = `mcp-oauth:${createHash('sha256').update(url).digest('hex')}`;
+  let loaded;
+  const ready = () => loaded ??= (async () => {
+    const saved = await credentialStore.getSecretAsync(account);
+    if (!saved) return;
+    const value = JSON.parse(saved);
+    if (value.url !== url) throw reauthenticationRequired();
+    ({ tokens, clientInformation, redirectUrl, discovery } = value);
+  })();
+  const persist = () => credentialStore.setSecretAsync(account,
+    JSON.stringify({ url, tokens, clientInformation, redirectUrl, discovery }));
   const fail = () => new Error('MCP OAuth login failed, cancelled, or timed out');
   const provider = {
     get redirectUrl() { return redirectUrl; },
@@ -32,28 +94,32 @@ export function createMcpOAuth({ url, openBrowser = openInBrowser, fetchImpl = f
       };
     },
     state: () => state,
-    clientInformation: () => clientInformation,
-    saveClientInformation: (value) => { clientInformation = value; },
-    tokens: () => tokens,
-    saveTokens: (value) => { lifetime.signal.throwIfAborted(); tokens = value; },
+    clientInformation: async () => { await ready(); return clientInformation; },
+    saveClientInformation: async (value) => { clientInformation = value; await persist(); },
+    tokens: async () => { await ready(); return tokens; },
+    saveTokens: async (value) => { lifetime.signal.throwIfAborted(); tokens = value; await persist(); },
     saveCodeVerifier: (value) => { verifier = value; },
     codeVerifier: () => {
       if (!verifier) throw fail();
       return verifier;
     },
     discoveryState: () => discovery,
-    saveDiscoveryState: (value) => { discovery = value; },
-    invalidateCredentials: (scope) => {
+    saveDiscoveryState: async (value) => { discovery = value; await persist(); },
+    invalidateCredentials: async (scope) => {
       if (scope === 'all' || scope === 'tokens') tokens = undefined;
       if (scope === 'all' || scope === 'client') clientInformation = undefined;
       if (scope === 'all' || scope === 'verifier') verifier = undefined;
       if (scope === 'all' || scope === 'discovery') discovery = undefined;
+      if (scope === 'all') await credentialStore.deleteSecretAsync(account);
+      else if (scope === 'tokens' || scope === 'client') await persist();
     },
     redirectToAuthorization: async (authorizationUrl) => {
+      if (!allowBrowser || browserOpened) throw reauthenticationRequired();
       const target = new URL(normalizeMcpTransportUrl(authorizationUrl));
       if (target.searchParams.get('state') !== state ||
           target.searchParams.get('code_challenge_method') !== 'S256' || !verifier) throw fail();
-      await openBrowser(target.href);
+      browserOpened = true;
+      await launchBrowser(target.href);
     },
   };
   function closeListener() {
@@ -63,8 +129,10 @@ export function createMcpOAuth({ url, openBrowser = openInBrowser, fetchImpl = f
     verifier = undefined;
     state = undefined;
   }
-  async function login(challenge, requestSignal) {
-    onStart();
+  async function login(challenge, requestSignal, interactive, browser) {
+    allowBrowser = interactive;
+    browserOpened = false;
+    launchBrowser = browser || openBrowser;
     const signal = AbortSignal.any([lifetime.signal, requestSignal, AbortSignal.timeout(timeoutMs)]);
     const safeFetch = (input, init = {}) => fetchImpl(normalizeMcpTransportUrl(input), {
       ...init, redirect: 'error',
@@ -80,9 +148,12 @@ export function createMcpOAuth({ url, openBrowser = openInBrowser, fetchImpl = f
     callback.catch(() => {});
     try {
       signal.throwIfAborted();
+      if (!interactive && (!tokens?.refresh_token || !clientInformation || !redirectUrl)) {
+        throw reauthenticationRequired();
+      }
       const { auth } = await import('@modelcontextprotocol/sdk/client/auth.js');
       state = randomBytes(32).toString('base64url');
-      listener = createServer((req, res) => {
+      if (interactive) listener = createServer((req, res) => {
         let target;
         try { target = new URL(req.url || '/', redirectUrl); } catch {
           res.writeHead(400).end('Invalid OAuth callback');
@@ -101,14 +172,14 @@ export function createMcpOAuth({ url, openBrowser = openInBrowser, fetchImpl = f
         res.end('You may return to Mixdog.');
         finishCallback(target.searchParams.has('error') ? undefined : target.searchParams.get('code'));
       });
-      await new Promise((resolve, reject) => {
+      if (interactive) await new Promise((resolve, reject) => {
         listener.once('error', reject);
         // Retain the registered redirect URI if this connection later needs
         // refresh or reauthorization; never register a different callback.
         listener.listen(redirectUrl ? Number(new URL(redirectUrl).port) : 0, '127.0.0.1', resolve);
       });
       signal.throwIfAborted();
-      redirectUrl = `http://127.0.0.1:${listener.address().port}/oauth/callback`;
+      if (interactive) redirectUrl = `http://127.0.0.1:${listener.address().port}/oauth/callback`;
       const options = { serverUrl: url, ...challenge, fetchFn: safeFetch };
       const result = await auth(provider, options);
       if (result === 'REDIRECT') {
@@ -117,11 +188,12 @@ export function createMcpOAuth({ url, openBrowser = openInBrowser, fetchImpl = f
         if (await auth(provider, { ...options, authorizationCode: code }) !== 'AUTHORIZED') throw fail();
       }
       signal.throwIfAborted();
-    } catch {
+    } catch (error) {
       // SDK errors may contain authorization server response bodies/secrets.
-      lifetime.abort();
+      if (error?.code === 'reauthenticationRequired' || !interactive) throw reauthenticationRequired();
       throw fail();
     } finally {
+      allowBrowser = false;
       signal.removeEventListener('abort', abort);
       closeListener();
       finishCallback = undefined;
@@ -130,29 +202,54 @@ export function createMcpOAuth({ url, openBrowser = openInBrowser, fetchImpl = f
   return {
     provider,
     signal: lifetime.signal,
-    set onStart(value) { onStart = value; },
-    async fetch(input, init = {}) {
+    async fetch(input, init = {}, requestLogin = () => false, browser, isTransportEndpoint = () => false) {
+      try { await ready(); } catch { throw reauthenticationRequired(); }
       lifetime.signal.throwIfAborted();
       const signal = AbortSignal.any([lifetime.signal, ...(init.signal ? [init.signal] : [])]);
-      const sameOrigin = new URL(input).origin === new URL(url).origin;
+      const sameOrigin = new URL(input).href === new URL(url).href ||
+        (new URL(input).origin === new URL(url).origin && isTransportEndpoint(input));
       const request = () => {
         const headers = new Headers(init.headers);
         if (tokens && sameOrigin) headers.set('Authorization', `Bearer ${tokens.access_token}`);
-        return fetchImpl(input, { ...init, headers, signal });
+        else headers.delete('Authorization');
+        return fetchImpl(input, { ...init, headers, signal, redirect: 'error' });
       };
+      const attemptedToken = tokens;
       const response = await request();
       if (!sameOrigin || ![401, 403].includes(response.status)) return response;
       const { extractWWWAuthenticateParams } = await import('@modelcontextprotocol/sdk/client/auth.js');
       const challenge = extractWWWAuthenticateParams(response);
       if (response.status === 403 && challenge.error !== 'insufficient_scope') return response;
       await response.body?.cancel();
-      flight ??= login(challenge, signal).finally(() => { flight = undefined; });
-      await flight;
+      if (!flight && tokens === attemptedToken) {
+        flightController = new AbortController();
+        flight = login(challenge, flightController.signal, requestLogin(), browser)
+          .finally(() => { flight = undefined; });
+      }
+      if (flight) {
+        waiters++;
+        let abort;
+        try {
+          await Promise.race([flight, new Promise((_, reject) => {
+            abort = () => reject(fail());
+            signal.addEventListener('abort', abort, { once: true });
+            if (signal.aborted) abort();
+          })]);
+        } finally {
+          signal.removeEventListener('abort', abort);
+          if (--waiters === 0 && flight) {
+            flightController.abort();
+            await flight.catch(() => {});
+          }
+        }
+      }
       lifetime.signal.throwIfAborted();
+      signal.throwIfAborted();
       const retried = await request();
       if (retried.status === 401 || retried.status === 403) {
         await retried.body?.cancel();
-        throw fail();
+        await provider.invalidateCredentials('tokens');
+        throw reauthenticationRequired();
       }
       return retried;
     },
@@ -160,7 +257,6 @@ export function createMcpOAuth({ url, openBrowser = openInBrowser, fetchImpl = f
       lifetime.abort();
       finishCallback?.();
       closeListener();
-      tokens = clientInformation = discovery = undefined;
     },
   };
 }

@@ -28,7 +28,7 @@ export function createMcpConnect({
   // Connect/disconnect exactly one server in the live registry, leaving all
   // others untouched. Used by the enable/disable toggle so a single-server
   // change never triggers a full disconnectAll()/reconnect freeze.
-  async function applyMcpServerConnection(name, enabled, servers = resolveEffectiveMcpServers().servers) {
+  async function applyMcpServerConnection(name, enabled, servers = resolveEffectiveMcpServers().servers, interactive = false) {
     const target = clean(name);
     if (!target) return;
     // Changing this server's state clears any stale failure record for it.
@@ -46,7 +46,7 @@ export function createMcpConnect({
     // between the close and the connect never resurrects the server.
     try {
       ensurePluginServerData(cfg);
-      await mcpClient.reconnectSingleMcpServer(getMcpScopeId(), target, cfg);
+      await mcpClient.reconnectSingleMcpServer(getMcpScopeId(), target, cfg, { interactive });
     } catch (error) {
       const failures = Array.isArray(error?.failures)
         ? error.failures
@@ -72,7 +72,7 @@ export function createMcpConnect({
     ]);
   }
 
-  async function connectConfiguredMcp({ reset = false, only = null, enabled = true, reconcile = false } = {}) {
+  async function connectConfiguredMcp({ reset = false, only = null, enabled = true, reconcile = false, interactive = false } = {}) {
     if (envFlag('MIXDOG_DISABLE_MCP')) {
       ++state.mcpConnectGeneration;
       state.mcpFailures = [];
@@ -106,7 +106,7 @@ export function createMcpConnect({
         }
         if (gen !== state.mcpConnectGeneration) return;
         if (reconcile) await reconcileServers();
-        else await applyMcpServerConnection(only, enabled);
+        else await applyMcpServerConnection(only, enabled, undefined, interactive);
       })();
       state.mcpConnectInFlight = run;
       try {
@@ -147,7 +147,7 @@ export function createMcpConnect({
       if (Object.keys(servers).length === 0) return;
       try {
         for (const cfg of Object.values(servers)) if (cfg?.enabled !== false) ensurePluginServerData(cfg);
-        await mcpClient.connectMcpServers(servers, scopeOptions());
+        await mcpClient.connectMcpServers(servers, { ...scopeOptions(), interactive });
       } catch (error) {
         state.mcpFailures = Array.isArray(error?.failures)
           ? error.failures

@@ -148,7 +148,7 @@ export async function connectMcpServers(config, options = {}) {
   });
   // Connect all servers in PARALLEL: a slow/hung server (bounded by its
   // per-server startup timeout) must never delay the others' handshakes.
-  const settled = await Promise.allSettled(entries.map(([name, cfg]) => connectServer(name, cfg, scopeId, genAtStart)));
+  const settled = await Promise.allSettled(entries.map(([name, cfg]) => connectServer(name, cfg, scopeId, genAtStart, options)));
   settled.forEach((res, i) => {
     if (res.status !== 'rejected') return;
     const [name, cfg] = entries[i];
@@ -330,7 +330,7 @@ export function getMcpServerInstructionsMap(scopeId = DEFAULT_MCP_SCOPE_ID) {
 // shutdown generation captured BEFORE the caller queued/closed anything: a
 // disconnectAll() landing during the close (or the connect) bumps it, and the
 // replacement must then never register (no resurrection after shutdown).
-async function replaceServerConnection(scopeId, name, current, cfg, genAtStart) {
+async function replaceServerConnection(scopeId, name, current, cfg, genAtStart, options = {}) {
   const registryKey = mcpServerRegistryKey(scopeId, name);
   if (current) {
     await _closeServer(current);
@@ -343,7 +343,7 @@ async function replaceServerConnection(scopeId, name, current, cfg, genAtStart) 
   try {
     // connectServer re-checks the same generation after loading the SDK and
     // again right before registering, so a shutdown mid-handshake also aborts.
-    await connectServer(name, cfg, scopeId, genAtStart);
+    await connectServer(name, cfg, scopeId, genAtStart, options);
   } catch (reason) {
     const rawMessage = reason instanceof Error ? reason.message : String(reason);
     throw new Error(scrubMcpConnectionMessage(rawMessage, cfg));
@@ -396,7 +396,7 @@ async function reconnectMcpServer(scopeId, serverName, failedServer) {
  * rejects (credential-scrubbed message) when the connect fails, leaving the
  * server unregistered.
  */
-export async function reconnectSingleMcpServer(scopeId, name, cfg = undefined) {
+export async function reconnectSingleMcpServer(scopeId, name, cfg = undefined, options = {}) {
   const normalized = normalizeMcpScopeId(scopeId);
   _knownMcpScopes.add(normalized);
   const registryKey = mcpServerRegistryKey(normalized, name);
@@ -415,7 +415,7 @@ export async function reconnectSingleMcpServer(scopeId, name, cfg = undefined) {
       closeCallAdmission(normalized, name, `MCP ${name} disabled`);
       return false;
     }
-    await replaceServerConnection(normalized, name, current, nextCfg, genAtStart);
+    await replaceServerConnection(normalized, name, current, nextCfg, genAtStart, options);
     return true;
   });
 }
@@ -1172,7 +1172,8 @@ async function connectServer(
   name,
   cfg,
   scopeId = DEFAULT_MCP_SCOPE_ID,
-  genAtStart = currentConnectAbortGeneration(scopeId)
+  genAtStart = currentConnectAbortGeneration(scopeId),
+  options = {}
 ) {
   scopeId = normalizeMcpScopeId(scopeId);
   _knownMcpScopes.add(scopeId);
@@ -1189,6 +1190,7 @@ async function connectServer(
     sdk,
     log: mcpLog,
     strictEnv: cfg?._mixdogStrictEnv === true,
+    oauthOptions: { interactive: options.interactive === true },
   });
   const liveness = trackMcpLiveness(client, name, cfg, stderrTail);
   const pending = { scopeId, name, client, transport };

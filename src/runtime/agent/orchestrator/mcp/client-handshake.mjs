@@ -122,6 +122,7 @@ export async function runBoundedHandshake({
     }
     throw tail ? new Error(appendMcpStderrTail(String(err), tail)) : err;
   } finally {
+    transport.oauth?.finishConnect?.();
     if (guard.timer) clearTimeout(guard.timer);
     transport.oauth?.signal.removeEventListener('abort', cancelOAuth);
     if (transport.oauth) transport.oauth.onStart = () => {};
