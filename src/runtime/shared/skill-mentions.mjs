@@ -97,6 +97,15 @@ function codeRanges(source) {
   return ranges;
 }
 
+/** True when `offset` in `text` lies inside Markdown code (a fenced block or
+ *  an inline code span) by the same rules mention recognition uses, so a
+ *  composer can tell whether a `$` being typed can become a mention. */
+export function isInMarkdownCode(text, offset) {
+  const source = typeof text === 'string' ? text : '';
+  if (!Number.isInteger(offset) || (!source.includes('`') && !source.includes('~~~'))) return false;
+  return codeRanges(source).some(([from, to]) => offset >= from && offset < to);
+}
+
 /** Every syntactically valid `$name` in `text` outside Markdown code, in
  *  order: `start` is the `$`. */
 export function skillMentionCandidates(text) {

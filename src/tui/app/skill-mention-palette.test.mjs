@@ -105,6 +105,36 @@ test('the palette opens in skill mode only while a skill matches; slash commands
   assert.equal(palette('plain text').slashPaletteOpen, false);
 });
 
+test('the skill palette stays closed while the caret is inside inline code or a fenced block', () => {
+  const at = (draft, marker = '|') => {
+    const caret = draft.indexOf(marker);
+    return palette(draft.replace(marker, ''), { promptCaret: caret });
+  };
+  for (const draft of [
+    'run `echo $pd|` here',
+    '`$pd|`',
+    '`` a ` $pd| ``',
+    '```\n$pd|\n```',
+    '```sh\nfoo $pd|',
+    '~~~\nuse $pd|\n~~~ after',
+    '```\r\n$pd|\r\n```',
+  ]) {
+    assert.equal(at(draft).slashPaletteOpen, false, JSON.stringify(draft));
+    assert.equal(skillMentionQuery(draft.replace('|', ''), draft.indexOf('|')), null, JSON.stringify(draft));
+  }
+  for (const draft of [
+    '`code` then $pd|',
+    '```\nx\n```\nnow $pd|',
+    'a lone ` tick $pd|',
+    '`` x ` y $pd|',
+    '~~~\nx\n~~~\n$pd| more',
+  ]) {
+    const shown = at(draft);
+    assert.equal(shown.slashPaletteOpen, true, JSON.stringify(draft));
+    assert.equal(shown.paletteKind, 'skills');
+  }
+});
+
 test('the skill palette opens and filters at a mid-text caret, multi-line included', () => {
   const draft = 'fix $pd then ship';
   const mid = palette(draft, { promptCaret: 7 });

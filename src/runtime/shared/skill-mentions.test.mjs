@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  isInMarkdownCode,
   isReservedMentionName,
   mentionedSkillNames,
   skillMentionCandidates,
@@ -73,6 +74,28 @@ test('$name inside Markdown code is not a mention; offsets stay those of the ori
   after('`` a ` b `` and $pptx', '`` a ` b `` and '.length);
   // A ``` run inside a line is an inline span, not a fence.
   after('see ```$api``` and $pptx', 'see ```$api``` and '.length);
+});
+
+test('isInMarkdownCode agrees with mention recognition at every offset', () => {
+  const texts = [
+    'a `$pptx` b $pptx',
+    '```\n$pptx\n```\n$pptx',
+    '~~~~\n$pptx\n~~~\nx $pptx\n~~~~ $pptx',
+    '`` a ` $pptx `` $pptx',
+    'lone ` $pptx',
+    '```\r\n$pptx\r\n```\r\n$pptx',
+    'no code $pptx',
+  ];
+  for (const text of texts) {
+    const outside = new Set(skillMentions(text, isSkill).map((mention) => mention.start));
+    for (let index = text.indexOf('$'); index >= 0; index = text.indexOf('$', index + 1)) {
+      assert.equal(isInMarkdownCode(text, index), !outside.has(index), `${JSON.stringify(text)} @${index}`);
+    }
+  }
+  assert.equal(isInMarkdownCode('`x`', 1), true);
+  assert.equal(isInMarkdownCode('`x`', 3), false);
+  assert.equal(isInMarkdownCode('plain', 0), false);
+  assert.equal(isInMarkdownCode(null, 0), false);
 });
 
 test('environment-variable names and numbers are never mentions, even as skill names', () => {

@@ -19,7 +19,10 @@ export function createChannelSessionRouter({ getSessionService, getSessionId, lo
       service.submitSession({
         sessionId,
         prompt: content,
-        options: { source: 'channel' },
+        // A channel notification (webhook event rules carry fenced external
+        // values) is queued as a task notification, never as typed input, so
+        // nothing inside it selects a skill.
+        options: { source: 'channel', mode: 'task-notification' },
       })
     ).catch((error) => {
       log(`channel session delivery failed session=${sessionId}: ${error?.message || error}`);

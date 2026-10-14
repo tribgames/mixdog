@@ -158,6 +158,14 @@ export function lateDeliveryText(text, entry, now = Date.now()) {
   return `[late delivery: queued ${age} ago, before the current session owner started]\n${value}`;
 }
 
+// A non-completion entry may be queued explicitly as a task notification (a
+// runtime/channel notice, never the user typing): the mode survives
+// normalization and the durable spool so the drain stores it as one and it
+// never drives explicit skill selection.
+function explicitModeField(entry) {
+  return entry?.mode === PENDING_MODE_TASK_NOTIFICATION ? { mode: PENDING_MODE_TASK_NOTIFICATION } : {};
+}
+
 export function normalizePendingMessageEntry(entry) {
   if (typeof entry === 'string') {
     const text = entry.trim();
@@ -173,7 +181,10 @@ export function normalizePendingMessageEntry(entry) {
     id: pendingMessageId(entry),
     enqueuedAt: Number(entry.enqueuedAt) || Date.now(),
   };
-  const entryOptions = entry.options && typeof entry.options === 'object' ? { options: entry.options } : {};
+  const entryOptions = {
+    ...(entry.options && typeof entry.options === 'object' ? { options: entry.options } : {}),
+    ...explicitModeField(entry),
+  };
   const marker =
     entry.notificationKind === COMPLETION_NOTIFICATION_KIND
       ? {
@@ -259,26 +270,28 @@ function normalizePersistedEntryBase(entry) {
         }
       : null;
   }
+  const mode = explicitModeField(entry);
   if (typeof entry.message === 'string') {
     const message = entry.message.trim();
-    return message ? { id, message, enqueuedAt } : null;
+    return message ? { id, message, ...mode, enqueuedAt } : null;
   }
   if (Object.hasOwn(entry, 'content')) {
     const normalized = normalizePendingMessageEntry(entry);
     if (!normalized) return null;
     if (typeof normalized.content === 'string' && !normalized.options) {
-      return { id, message: normalized.text || normalized.content, enqueuedAt };
+      return { id, message: normalized.text || normalized.content, ...mode, enqueuedAt };
     }
     return {
       id,
       content: normalized.content,
       text: normalized.text,
       ...(normalized.options ? { options: normalized.options } : {}),
+      ...mode,
       enqueuedAt,
     };
   }
   const text = pendingMessageText(entry);
-  return text ? { id, message: text, enqueuedAt } : null;
+  return text ? { id, message: text, ...mode, enqueuedAt } : null;
 }
 
 export function modelVisiblePendingMessages(messages) {

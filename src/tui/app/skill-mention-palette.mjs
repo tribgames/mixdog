@@ -8,7 +8,7 @@
  * but still load when their name is typed: the runtime resolves mentions.
  */
 import { useEffect, useState } from 'react';
-import { isReservedMentionName } from '../../runtime/shared/skill-mentions.mjs';
+import { isInMarkdownCode, isReservedMentionName } from '../../runtime/shared/skill-mentions.mjs';
 
 // A mention being typed just before the caret: `$` plus a partial name.
 const MENTION_TAIL = /(^|[\s([{"'`])\$([a-z0-9][a-z0-9-]{0,63})?$/;
@@ -23,7 +23,11 @@ export function skillMentionQuery(value, caret) {
   const end = caretIn(text, caret);
   const match = MENTION_TAIL.exec(text.slice(0, end));
   if (!match) return null;
-  return { query: match[2] || '', start: match.index + match[1].length, end };
+  const start = match.index + match[1].length;
+  // `$` inside inline code or a fenced block is never a mention (the shared
+  // parser's rule, judged on the whole draft like the desktop composer).
+  if (isInMarkdownCode(text, start)) return null;
+  return { query: match[2] || '', start, end };
 }
 
 const byName = (a, b) => a.name.localeCompare(b.name, 'en');
