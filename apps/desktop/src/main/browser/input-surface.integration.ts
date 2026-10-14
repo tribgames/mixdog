@@ -91,19 +91,19 @@ export async function exerciseBrowserInputSurface(options: {
     }
     await eventually(
       () => readFrame('visible-session'),
-      (value) => value.width === 420
+      (value) => value.viewportWidth === 420
     );
     assert.equal(guest.getZoomFactor(), 1, 'normal browsing does not shrink text with the pane');
     await shell.executeJavaScript(`document.getElementById('browser-dock').style.width = '600px'`);
     await eventually(
       () => readFrame('visible-session'),
-      (value) => value.width === 600
+      (value) => value.viewportWidth === 600
     );
     await eventually(
       () =>
         shell.executeJavaScript(`(() => {
       const image = document.querySelector('.browser-isolated-pixels > :first-child');
-      return (image?.naturalWidth || image?.width) === 600 && getComputedStyle(image).visibility === 'visible';
+      return image?.getBoundingClientRect().width === 600 && getComputedStyle(image).visibility === 'visible';
     })()`),
       Boolean
     );

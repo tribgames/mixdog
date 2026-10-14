@@ -69,7 +69,7 @@ async function run(): Promise<void> {
       <body style="margin:0;height:3000px;background:rgb(20,120,200)">
       <label>Agent input <input id="agent"></label>
       <button onclick="document.getElementById('agent').focus()">Focus field</button>
-      <iframe src="http://127.0.0.2:${address.port}/frame"></iframe></body>`);
+      <iframe src="http://localhost:${address.port}/frame"></iframe></body>`);
   });
   let parent: BrowserWindow | undefined;
   let host: BrowserHost | undefined;
