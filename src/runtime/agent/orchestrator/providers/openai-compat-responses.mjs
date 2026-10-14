@@ -24,6 +24,8 @@ import {
 import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { normalizeOpencodeGoReasoningEffort } from './openai-compat-xai.mjs';
 import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
+import { projectEffortConfiguration, withEffortConfigurationFallback } from './effort-configuration.mjs';
+import { normalizeCacheKey } from '../agent-runtime/cache-strategy.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import {
   applyCompatToolChoice,
@@ -53,9 +55,60 @@ function resolveReasoning(provider, useModel, opts) {
   return reasoningEffort ? { effort: reasoningEffort } : null;
 }
 
+/**
+ * A custom route's mid-conversation effort projection (GPT-6+ on this wire)
+ * with every effort in the row's wire value, or null for the per-request
+ * effort. Consecutive efforts sharing one wire value collapse into none; an
+ * effort the row cannot serve falls back to the per-request effort.
+ */
+function customEffortProjection(provider, useModel, messages, opts) {
+  if (!isCustomProviderName(provider.name)) return null;
+  const projection = projectEffortConfiguration(messages, provider.name, useModel, {
+    ...opts,
+    protocol: 'openai-responses',
+  });
+  if (!projection) return null;
+  const model = provider.getCachedModelInfo?.(useModel) || null;
+  const wire = (effort) =>
+    resolveCustomReasoning({ protocol: 'openai-responses', model, effort }).fields.reasoning?.effort || null;
+  const initialEffort = wire(projection.initialEffort);
+  if (!initialEffort) return null;
+  const updates = new Map();
+  let current = initialEffort;
+  for (const [message, effort] of projection.updates) {
+    const value = wire(effort);
+    if (!value) return null;
+    if (value !== current) updates.set(message, (current = value));
+  }
+  return { ...projection, initialEffort, effort: current, updates };
+}
+
+/**
+ * A custom route's session identity: its prompt_cache_key and session
+ * headers, '' without a session. The session wins over the provider-scoped
+ * cache key, so parallel sessions never evict each other; a one-shot role
+ * ('shared' scope, a fresh session per call) keys on the provider key instead.
+ * Never the effort, so an effort change keeps the cache routing.
+ */
+function customSessionCacheKey(provider, opts) {
+  if (!isCustomProviderName(provider.name)) return '';
+  const explicit = opts.promptCacheKey || opts.providerCacheKey || opts.session?.promptCacheKey;
+  return normalizeCacheKey(opts.promptCacheScope === 'shared' ? explicit || opts.sessionId : opts.sessionId || explicit);
+}
+
 /** The request body: lowered transcript plus the per-turn knobs (output cap,
- *  tools and tool choice, reasoning effort). */
-function buildCompatResponsesParams({ provider, useModel, input, previousResponseId, tools, opts, instructions }) {
+ *  tools and tool choice, reasoning effort, session cache key). */
+function buildCompatResponsesParams({
+  provider,
+  useModel,
+  input,
+  previousResponseId,
+  tools,
+  opts,
+  instructions,
+  effortProjection,
+  sessionCacheKey,
+}) {
   const params = {
     model: useModel,
     input,
@@ -71,10 +124,14 @@ function buildCompatResponsesParams({ provider, useModel, input, previousRespons
     params.parallel_tool_calls = true;
   }
   applyCompatToolChoice(params, opts);
-  const reasoning = resolveReasoning(provider, useModel, opts);
+  // A projected conversation keeps its initial effort on top; changes ride as input items.
+  const reasoning = effortProjection
+    ? { effort: effortProjection.initialEffort }
+    : resolveReasoning(provider, useModel, opts);
   if (reasoning) params.reasoning = reasoning;
   // Opt-in system-as-instructions: set before the hook so the hook can override it.
   if (instructions) params.instructions = instructions;
+  if (sessionCacheKey) params.prompt_cache_key = sessionCacheKey;
   // Opt-in per-provider final shaping (a provider passes the hook in its config).
   const hook = provider.config?.responsesParamsHook;
   if (typeof hook === 'function') {
@@ -90,7 +147,7 @@ function buildCompatResponsesParams({ provider, useModel, input, previousRespons
  * that re-opens the request. A content-idle stall is terminal for this
  * transport, so it is marked recovery-exhausted rather than retried.
  */
-async function streamCompatResponses({ provider, params, label, signal, opts }) {
+async function streamCompatResponses({ provider, params, label, signal, opts, headers }) {
   const totalSignal = createPassthroughSignal(signal);
   try {
     return await withRetry(
@@ -99,7 +156,7 @@ async function streamCompatResponses({ provider, params, label, signal, opts }) 
           ({ signal: openSignal }) =>
             provider.client.responses.create(params, {
               signal: openSignal,
-              ...(opts.requestHeaders ? { headers: opts.requestHeaders } : {}),
+              ...(headers ? { headers } : {}),
             }),
           {
             signal: attemptSignal,
@@ -145,9 +202,17 @@ async function streamCompatResponses({ provider, params, label, signal, opts }) 
 /**
  * Send one turn over `POST {baseURL}/responses` (streaming) using the
  * provider's existing OpenAI SDK client. Returns the same result shape as
- * the chat/completions path so the agent loop stays wire-agnostic.
+ * the chat/completions path so the agent loop stays wire-agnostic. A custom
+ * route whose model rejects the mid-conversation effort update is replayed
+ * once with the per-request effort.
  */
-export async function sendCompatResponses(provider, messages, useModel, tools, opts = {}) {
+export function sendCompatResponses(provider, messages, useModel, tools, opts = {}) {
+  const send = (sendOpts) => sendCompatResponsesOnce(provider, messages, useModel, tools, sendOpts);
+  if (!isCustomProviderName(provider.name)) return send(opts);
+  return withEffortConfigurationFallback(provider.name, useModel, opts, send);
+}
+
+async function sendCompatResponsesOnce(provider, messages, useModel, tools, opts) {
   const replayProvider = compatResponsesReplayProvider(provider.name);
   const signal = opts.signal || null;
   if (signal?.aborted) {
@@ -156,7 +221,10 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
   }
   const label = `${provider.name}:responses`;
   messages = await preparePdfTextForProvider(messages, provider);
+  const effortProjection = customEffortProjection(provider, useModel, messages, opts);
+  const sessionCacheKey = customSessionCacheKey(provider, opts);
   const { input, previousResponseId, continuationResetReason } = toXaiResponsesInput(messages, opts.providerState, {
+    effortProjection,
     model: useModel,
     stateKey: COMPAT_RESPONSES_STATE_KEY,
     replayProvider,
@@ -175,14 +243,20 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
     tools,
     opts,
     instructions,
+    effortProjection,
+    sessionCacheKey,
   });
+  // The session identity also travels as headers; caller headers win.
+  const headers = sessionCacheKey
+    ? { 'session-id': sessionCacheKey, 'x-client-request-id': sessionCacheKey, ...opts.requestHeaders }
+    : opts.requestHeaders;
 
   try {
     opts.onStageChange?.('requesting');
   } catch {
     /* heartbeat best-effort */
   }
-  const streamed = await streamCompatResponses({ provider, params, label, signal, opts });
+  const streamed = await streamCompatResponses({ provider, params, label, signal, opts, headers });
   const response = streamed.response;
   const usage = response?.usage || null;
   const inputTokens = Number(usage?.input_tokens ?? usage?.prompt_tokens ?? 0);

@@ -110,11 +110,25 @@ function openAiSupportsEffortUpdates(provider, model, id) {
   return declared ?? openAiVersionSupported(id);
 }
 
+// A custom route on the Responses wire (`opts.protocol`) serving GPT-6 or
+// later takes the same update as the official routes. The version is read
+// from the id's last `/` segment, so gateway ids like `openai/gpt-6.1-sol` count.
+function customResponsesSupportsEffortUpdates(provider, opts, id) {
+  return (
+    isCustomProviderName(provider) &&
+    opts.protocol === 'openai-responses' &&
+    openAiVersionSupported(id.slice(id.lastIndexOf('/') + 1))
+  );
+}
+
 export function effortConfigurationMode(provider, model, opts = {}) {
   const id = modelKey(model);
   if (opts.effortConfigurationEnabled === false || Number(opts.thinkingBudgetTokens) > 0) return null;
   if (unsupportedModels.has(`${provider}:${id}`)) return null;
-  if (OPENAI_PROVIDERS.has(provider) && openAiSupportsEffortUpdates(provider, model, id)) {
+  if (
+    (OPENAI_PROVIDERS.has(provider) && openAiSupportsEffortUpdates(provider, model, id)) ||
+    customResponsesSupportsEffortUpdates(provider, opts, id)
+  ) {
     const parameters = opts.modelParameters || {};
     const mode = opts.reasoning?.mode ?? parameters.reasoning_mode ?? parameters.mode ?? 'standard';
     if (mode !== 'standard' || opts.multiAgent === true || parameters.multi_agent === true) return null;
@@ -132,7 +146,8 @@ export function effortConfigurationMode(provider, model, opts = {}) {
 
 // Custom providers on the Chat and Responses wires take a fresh effort with
 // every request, so auto effort sends a turn's or step's effort as that
-// request's own effort: no mid-conversation update, no beta header. A custom
+// request's own effort: no mid-conversation update, no beta header (except a
+// Responses-wire GPT-6+ model, which takes the 'responses' update). A custom
 // Anthropic-wire provider keeps auto effort off.
 const CUSTOM_AUTO_EFFORT_PROTOCOLS = new Set(['openai-chat', 'openai-responses']);
 
@@ -161,17 +176,24 @@ export function autoEffortModel(providerName, providerImpl, model) {
 }
 
 /** The effort-change mode of a session's route: 'responses' / 'anthropic'
- *  (mid-conversation update), 'custom' (per-request effort), or null. */
+ *  (mid-conversation update), 'custom' (per-request effort), or null. A
+ *  custom route takes an update mode only when its model declares levels. */
 export function turnEffortConfigurationMode(session, provider) {
-  const opts = { ...(provider?.config || {}), modelParameters: session.modelParameters || {} };
+  const protocol = provider?.customConfig?.protocol;
+  const opts = { ...(provider?.config || {}), modelParameters: session.modelParameters || {}, protocol };
+  const custom = customAutoEffortCapable(
+    session.provider,
+    protocol,
+    autoEffortModel(session.provider, provider, session.model)
+  );
   const mode = effortConfigurationMode(session.provider, session.model, opts);
-  if (mode) return mode;
-  const model = autoEffortModel(session.provider, provider, session.model);
-  return customAutoEffortCapable(session.provider, provider?.customConfig?.protocol, model) ? 'custom' : null;
+  if (mode && (custom || !isCustomProviderName(session.provider))) return mode;
+  return custom ? 'custom' : null;
 }
 
 const CUSTOM_EFFORTS = new Set(CUSTOM_EFFORT_LEVELS);
-const effortsFor = (mode) => (mode === 'custom' ? CUSTOM_EFFORTS : EFFORTS);
+// A custom route keeps its own levels (including `none`) in either mode.
+const effortsFor = (mode, provider) => (mode === 'custom' || isCustomProviderName(provider) ? CUSTOM_EFFORTS : EFFORTS);
 
 function normalizedEffort(provider, model, effort) {
   if (ANTHROPIC_PROVIDERS.has(provider)) return normalizeAnthropicEffortInput(effort, model) || null;
@@ -187,8 +209,8 @@ function validSnapshot(value, provider, model, mode) {
     value.provider === provider &&
     value.model === modelKey(model) &&
     value.mode === mode &&
-    effortsFor(mode).has(value.initialEffort) &&
-    effortsFor(mode).has(value.effort)
+    effortsFor(mode, provider).has(value.initialEffort) &&
+    effortsFor(mode, provider).has(value.effort)
   );
 }
 
@@ -199,7 +221,7 @@ function validSnapshot(value, provider, model, mode) {
 export function prepareTurnEffortConfiguration(session, provider, turnEffort) {
   const mode = turnEffortConfigurationMode(session, provider);
   const effort = normalizedEffort(session.provider, session.model, turnEffort ?? session.effort);
-  if (!mode || !effortsFor(mode).has(effort)) return null;
+  if (!mode || !effortsFor(mode, session.provider).has(effort)) return null;
   const first = (session.messages || []).find((message) =>
     validSnapshot(message?.meta?.[META_KEY], session.provider, session.model, mode)
   )?.meta?.[META_KEY];
@@ -221,7 +243,7 @@ export function prepareTurnEffortConfiguration(session, provider, turnEffort) {
 // step), or null when that effort is not valid for the model.
 export function stepEffortConfiguration(snapshot, provider, model, effort) {
   const value = normalizedEffort(provider, model, effort);
-  if (!snapshot || !EFFORTS.has(value)) return null;
+  if (!snapshot || !effortsFor(snapshot.mode, provider).has(value)) return null;
   return { ...snapshot, effort: value };
 }
 
@@ -254,6 +276,32 @@ export function projectEffortConfiguration(messages, provider, model, opts = {})
     }
   }
   return { mode, initialEffort: seed.initialEffort, effort: current, updates };
+}
+
+/**
+ * Responses-wire placement of a projection's updates while a history is
+ * lowered in order: `before(message)` gives the items to emit ahead of a
+ * message, `end()` those after the last one. An update on a tool result
+ * applies after its whole batch; one on a user message before it. Adjacent
+ * updates are rejected, so a batch update that a user message directly
+ * follows yields to that message's own.
+ */
+export function responsesEffortUpdates(projection) {
+  let afterBatch = null;
+  const items = (effort) => (effort ? [{ type: 'configuration_update', reasoning: { effort } }] : []);
+  return {
+    before(message) {
+      const effort = projection?.updates.get(message);
+      if (message.role === 'tool') {
+        if (effort) afterBatch = effort;
+        return [];
+      }
+      const value = effort || afterBatch;
+      afterBatch = null;
+      return items(value);
+    },
+    end: () => items(afterBatch),
+  };
 }
 
 // Split only before a user message or after a whole tool-result batch.

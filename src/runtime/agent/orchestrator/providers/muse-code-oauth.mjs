@@ -12,6 +12,7 @@ import { fileMtimeMs } from './lib/oauth-token-utils.mjs';
 import { OpenAICompatProvider, preloadOpenAICompatRuntime } from './openai-compat.mjs';
 import { getModelMetadataSync } from './model-catalog.mjs';
 import { makeModelCache } from './model-cache.mjs';
+import { normalizeCacheKey } from '../agent-runtime/cache-strategy.mjs';
 import { PRICING_RATE_KEYS } from '../../../shared/llm/model-pricing-rates.mjs';
 import {
   MUSE_DEFAULT_EFFORT_LEVELS as FIVE_LEVELS,
@@ -99,15 +100,6 @@ function museRow(id, discovered = null) {
 
 const EFFORT_DOWNGRADE = { max: 'xhigh' };
 const SUMMARY_MODES = new Set(['auto', 'detailed', 'concise']);
-
-// Cache identities beyond the wire limit become a bounded hash identity.
-function normalizeCacheKey(value) {
-  const text = String(value ?? '').trim();
-  if (!text) return '';
-  const wellFormed = text.toWellFormed();
-  if (wellFormed.length <= 64) return wellFormed;
-  return `pc_${createHash('sha256').update(wellFormed).digest('hex').slice(0, 32)}`;
-}
 
 // Final request shaping on the Responses wire (installed through the shared
 // transport's opt-in params hook).
