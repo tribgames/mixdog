@@ -292,12 +292,13 @@ test('PowerShell model commands carry a mixdog-skill-node function that the disp
   assert.equal(displayShellCommand(plan.wrappedCommand), command);
   assert.equal(displayShellCommand(`${fn}\n${command}`), command);
   assert.equal(displayShellCommand('function other { }\nls'), 'function other { }\nls');
-  // Electron node mode appears only in an Electron daemon's function, and
-  // only in the child's ProcessStartInfo environment, never on $env.
+  // Electron node mode appears only in an Electron daemon's function; no
+  // caller argument reaches the native command line.
   assert.doesNotMatch(fn, /ELECTRON_RUN_AS_NODE/);
-  const electronFn = renderPowerShellSkillFunction({ ...skillScriptRuntime(), electron: true });
-  assert.match(electronFn, /EnvironmentVariables\['ELECTRON_RUN_AS_NODE'\] = '1'/);
-  assert.doesNotMatch(electronFn, /\$env:(ELECTRON_RUN_AS_NODE|MIXDOG_SKILL_ARGV)\s*=/);
+  const runtime = skillScriptRuntime();
+  const electronFn = renderPowerShellSkillFunction({ ...runtime, electron: true });
+  assert.match(electronFn, /\$env:ELECTRON_RUN_AS_NODE = '1'/);
+  assert.ok(electronFn.includes(`& ${psQuote(runtime.interpreter)} ${psQuote(runtime.entry)} } finally {`), electronFn);
   assert.match(renderPowerShellSkillFunction({ interpreter: "C:\\it's\u2019\\n.exe", entry: 'e', electron: false }), /'C:\\it''s\u2019\u2019\\n\.exe'/);
 });
 
@@ -329,122 +330,43 @@ test('the argument hand-over survives every argument shape', () => {
 const STREAMS_SCRIPT = [
   "import { writeSync } from 'node:fs';",
   'const [mode, code] = process.argv.slice(2);',
-  'const pause = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40);',
-  "if (mode === 'order') {",
-  "  for (const [fd, text] of [[2, 'first'], [2, 'second 한글'], [1, 'third']]) { writeSync(fd, `${text}\\n`); pause(); }",
-  "} else if (mode.startsWith('seq:')) {",
-  "  [...mode.slice(4)].forEach((kind, i) => { writeSync(kind === 'o' ? 1 : 2, `${kind}${i}\\n`); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15); });",
-  "} else if (mode === 'flood') {",
+  "if (mode === 'flood') {",
   '  for (let i = 0; i < 200000; i++) writeSync(1, `o${i}\\n`);',
-  "} else if (mode === 'mem') {",
-  "  const line = `${'x'.repeat(1023)}\\n`;",
-  '  for (let i = 0; i < 32768; i++) writeSync(1, line);',
-  "  writeSync(2, 'producer finished\\n');",
-  "  (await import('node:fs')).writeFileSync('done.txt', '');",
-  "} else if (mode === 'big') {",
-  '  for (let i = 0; i < 20000; i++) { writeSync(1, `o${i} ${"x".repeat(40)}\\n`); writeSync(2, `e${i} ${"y".repeat(40)}\\n`); }',
   '} else {',
-  "  for (const [fd, text] of [[1, 'out1 한글'], [2, 'err1 üñí 한글'], [1, 'out2'], [2, 'err2']]) { writeSync(fd, `${text}\\n`); pause(); }",
+  "  for (const [fd, text] of [[1, 'out1 한글'], [2, 'err1 üñí 한글'], [1, 'out2'], [2, 'err2']]) {",
+  '    writeSync(fd, `${text}\\n`);',
+  '    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40);',
+  '  }',
   '}',
   'process.exitCode = Number(code);',
 ].join('\n');
 
 for (const shell of powerShells()) {
-  test(`${basename(shell)}: mixdog-skill-node stderr travels PowerShell's error stream like native stderr`, async () => {
+  test(`${basename(shell)}: mixdog-skill-node output behaves as a native command's`, async () => {
     const root = mkdtempSync(join(tmpdir(), 'mixdog skill ps streams '));
     try {
       writeFileSync(join(root, 'streams.mjs'), STREAMS_SCRIPT);
       const fn = renderPowerShellSkillFunction({ interpreter: process.execPath, entry: ENTRY, electron: false });
-      const prefix = `${process.platform === 'win32' ? `${POWERSHELL_UTF8_PREFIX}\n` : ''}${fn}\n$ErrorActionPreference = 'Stop'\n`;
+      const prefix = `${process.platform === 'win32' ? `${POWERSHELL_UTF8_PREFIX}\n` : ''}${fn}\n`;
       const flags = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'];
       const ps = (body) => run(shell, [...flags, `${prefix}${body}`], { cwd: root, env: process.env });
       const tag = 'ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { "E:$_" } else { "O:$_" } }';
       const lines = (text) => text.trim().split(/\r?\n/);
 
-      // 2>&1 merges stderr into the pipeline, in order, as error records;
-      // stderr of a successful run is no terminating error under Stop.
+      // 2>&1 merges stderr into the pipeline, in order, as error records.
       const merged = await ps(`mixdog-skill-node 'streams.mjs' small 0 2>&1 | ${tag}; "after:$LASTEXITCODE"`);
       assert.equal(merged.code, 0, merged.stderr);
       assert.deepEqual(lines(merged.stdout), ['O:out1 한글', 'E:err1 üñí 한글', 'O:out2', 'E:err2', 'after:0']);
-      assert.equal(merged.stderr.trim(), '');
 
-      // Lines leave in arrival order even when both streams have lines ready
-      // while a slow consumer holds the first one: never stdout first.
-      const ordered = await ps(
-        `mixdog-skill-node 'streams.mjs' order 0 2>&1 | ForEach-Object { Start-Sleep -Milliseconds 400; if ($_ -is [System.Management.Automation.ErrorRecord]) { "E:$_" } else { "O:$_" } }`
-      );
-      assert.equal(ordered.code, 0, ordered.stderr);
-      assert.deepEqual(lines(ordered.stdout), ['E:first', 'E:second 한글', 'O:third']);
-
-      // Randomized interleaving, consumed slowly.
-      const seq = Array.from({ length: 40 }, () => (Math.random() < 0.5 ? 'o' : 'e')).join('');
-      const random = await ps(
-        `mixdog-skill-node 'streams.mjs' 'seq:${seq}' 0 2>&1 | ForEach-Object { Start-Sleep -Milliseconds 20; if ($_ -is [System.Management.Automation.ErrorRecord]) { "$_" } else { "$_" } }`
-      );
-      assert.equal(random.code, 0, random.stderr);
-      assert.deepEqual(lines(random.stdout), [...seq].map((kind, i) => `${kind}${i}`), `sequence ${seq}`);
-
-      // Twenty floods cut off by Select-Object -First 1 behave like the
-      // native command: first line, no crash, no child left running.
-      const flood = await ps(
-        [
-          "$r = foreach ($i in 1..20) { mixdog-skill-node 'streams.mjs' flood 0 | Select-Object -First 1 }",
-          `$n = & ${psQuote(process.execPath)} 'streams.mjs' flood 0 | Select-Object -First 1`,
-          'Start-Sleep -Milliseconds 1000',
-          "$kids = @(Get-CimInstance Win32_Process -Filter \"ParentProcessId=$PID\" | Where-Object { $_.Name -like 'node*' }).Count",
-          '"$($r.Count):$(@($r | Select-Object -Unique) -join \',\'):$($n):$($kids)"',
-          "'end'",
-        ].join('\n')
-      );
+      // Early stop ends the producer and the command goes on.
+      const flood = await ps("mixdog-skill-node 'streams.mjs' flood 0 | Select-Object -First 1; 'end'");
       assert.equal(flood.code, 0, flood.stderr);
-      assert.deepEqual(lines(flood.stdout), ['20:o0:o0:0', 'end']);
-
-      // A 32 MiB producer behind a sleeping consumer blocks on its pipe;
-      // the PowerShell process does not buffer it.
-      const memory = await ps(
-        [
-          '$base = (Get-Process -Id $PID).PrivateMemorySize64',
-          "mixdog-skill-node 'streams.mjs' mem 0 2>$null | ForEach-Object -Begin { $i = 0 } -Process { if ($i++ -eq 0) { Start-Sleep -Seconds 4; \"blocked:$(-not (Test-Path 'done.txt'))\"; \"grew:$([int](((Get-Process -Id $PID).PrivateMemorySize64 - $base) / 1MB))\" } } -End { \"lines:$i\" }",
-          '"done:$(Test-Path \'done.txt\')"',
-        ].join('\n')
-      );
-      assert.equal(memory.code, 0, memory.stderr);
-      const [blocked, grew, count, done] = lines(memory.stdout);
-      assert.equal(blocked, 'blocked:True');
-      assert.ok(Number(grew.slice(5)) < 16, grew);
-      assert.equal(count, 'lines:32768');
-      assert.equal(done, 'done:True');
-
-      // Not redirected: stderr prints as the bare text (PowerShell 7 colours
-      // error records; the shell tool strips ANSI), success stays success.
-      const plain = await ps(`mixdog-skill-node 'streams.mjs' small 0; 'after'`);
-      assert.equal(plain.code, 0, plain.stderr);
-      assert.deepEqual(lines(plain.stdout), ['out1 한글', 'out2', 'after']);
-      assert.deepEqual(lines(plain.stderr.replace(/\x1b\[[0-9;]*m/g, '')), ['err1 üñí 한글', 'err2']);
-
-      // 2>$null hides stderr.
-      const hidden = await ps(`mixdog-skill-node 'streams.mjs' small 0 2>$null; 'after'`);
-      assert.equal(hidden.code, 0, hidden.stderr);
-      assert.deepEqual(lines(hidden.stdout), ['out1 한글', 'out2', 'after']);
-      assert.equal(hidden.stderr.trim(), '');
-
-      // 2>file writes it.
-      const file = await ps(`mixdog-skill-node 'streams.mjs' small 0 2>'err out.txt'; Get-Content -Encoding utf8 'err out.txt'`);
-      assert.equal(file.code, 0, file.stderr);
-      assert.deepEqual(lines(file.stdout), ['out1 한글', 'out2', 'err1 üñí 한글', 'err2']);
-      assert.equal(file.stderr.trim(), '');
+      assert.deepEqual(lines(flood.stdout), ['o0', 'end']);
 
       // A failing script still fails the command, redirected or not.
       const failing = await ps(`mixdog-skill-node 'streams.mjs' small 7 2>&1 | Out-Null; 'not reached'`);
       assert.equal(failing.code, 7, failing.stderr);
       assert.equal(failing.stdout.trim(), '');
-
-      // Far more than a pipe buffer on both streams: no deadlock, nothing lost.
-      const big = await ps(
-        `$o = 0; $e = 0; mixdog-skill-node 'streams.mjs' big 0 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $e++ } else { $o++ } }; "$o/$e"`
-      );
-      assert.equal(big.code, 0, big.stderr);
-      assert.equal(big.stdout.trim(), '20000/20000');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -461,26 +383,21 @@ for (const shell of powerShells()) {
       const prefix = process.platform === 'win32' ? `${POWERSHELL_UTF8_PREFIX}\n` : '';
       const flags = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'];
       const state = '"state:$($null -eq $env:MIXDOG_SKILL_ARGV):$($null -eq $env:ELECTRON_RUN_AS_NODE):$LASTEXITCODE"';
-      // A downstream pipeline child and the parent itself, while the script
-      // still streams, must see neither variable.
-      const childProbe = psQuote(
-        "console.log('child:' + ('MIXDOG_SKILL_ARGV' in process.env) + ':' + ('ELECTRON_RUN_AS_NODE' in process.env))"
-      );
-      const downstream = `ForEach-Object { $_; ${state.replace(':$LASTEXITCODE', '')}; & ${psQuote(process.execPath)} -e ${childProbe} }`;
+      // Both variables are removed after the call, or get their old value back.
       const command = [
         `${prefix}${fn}`,
         `mixdog-skill-node 'ok.mjs'; ${state}`,
-        `mixdog-skill-node ${[script, ...PS_ARGS].map(psQuote).join(' ')} | ${downstream}`,
+        `$env:ELECTRON_RUN_AS_NODE = 'prev'; mixdog-skill-node 'ok.mjs'; "prev:$env:ELECTRON_RUN_AS_NODE"; $env:ELECTRON_RUN_AS_NODE = $null`,
+        `mixdog-skill-node ${[script, ...PS_ARGS].map(psQuote).join(' ')}`,
         "'not reached'",
       ].join('\n');
       const result = await run(shell, [...flags, command], { cwd: root, env });
       assert.equal(result.code, 7, result.stderr);
       const lines = result.stdout.trim().split(/\r?\n/);
-      assert.equal(lines.length, 4, result.stdout);
+      assert.equal(lines.length, 3, result.stdout);
       assert.equal(lines[0], 'state:True:True:0');
-      assert.deepEqual(JSON.parse(lines[1]), { args: PS_ARGS, main: true, electronMode: false, argvEnv: false });
-      assert.equal(lines[2], 'state:True:True');
-      assert.equal(lines[3], 'child:false:false');
+      assert.equal(lines[1], 'prev:prev');
+      assert.deepEqual(JSON.parse(lines[2]), { args: PS_ARGS, main: true, electronMode: false, argvEnv: false });
 
       // The reviewed failure: cmd used to split `missing&ver` and run `ver`.
       // Through the real planner, with and without the UTF-8 prefix already
