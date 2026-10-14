@@ -1,9 +1,29 @@
 // agent-tree/agent-cancel.mjs
 // Cancelling an agent subtree: descendants first, then a durable canonical
 // close of the session itself. Concurrent cancels of one id share a run.
-import { cancelBackgroundTasks } from '../../../runtime/shared/background-tasks.mjs';
+import {
+  cancelBackgroundTask,
+  cancelBackgroundTasks,
+  listBackgroundTasks,
+} from '../../../runtime/shared/background-tasks.mjs';
 
-export function createAgentCancellation({ registry, rehydrateAgentSessions, sessionOwner, entryForSession, log }) {
+// Cancel the running Agent task(s) bound to this session itself (owned by its
+// parent) BEFORE the session closes, so the owner hears `cancelled` with the
+// turn's partial output instead of the closed turn failing the task.
+function cancelOwnAgentTasks(sessionId, reason) {
+  for (const row of listBackgroundTasks({ surface: 'agent' })) {
+    if (row.status === 'running' && row.sessionId === sessionId) cancelBackgroundTask(row.task_id, reason);
+  }
+}
+
+export function createAgentCancellation({
+  registry,
+  rehydrateAgentSessions,
+  sessionOwner,
+  entryForSession,
+  log,
+  rememberCancelTranscript,
+}) {
   const agentCancelRuns = new Map();
 
   /** The runtime entry that can close this descriptor: the live owner, else a
@@ -39,6 +59,7 @@ export function createAgentCancellation({ registry, rehydrateAgentSessions, sess
       });
       const children = registry.childrenOf(id);
       await Promise.all(children.map((childId) => cancelAgentTree(childId, reason)));
+      cancelOwnAgentTasks(id, reason);
       const descriptor = registry.get(id);
       if (!descriptor) return children.length > 0;
       if (descriptor.closed) return true;
@@ -46,6 +67,16 @@ export function createAgentCancellation({ registry, rehydrateAgentSessions, sess
       const closeCanonical = entry?.runtime?.closeCanonicalSession;
       if (typeof closeCanonical !== 'function') {
         throw new TypeError('session runtime must implement closeCanonicalSession');
+      }
+      // The close clears the transcript: capture a running turn's transcript
+      // first so the cancelled turn still hands off its partial output.
+      if (descriptor.status === 'running') {
+        try {
+          const { messages } = await entry.runtime.readModelMessages(0);
+          rememberCancelTranscript(id, messages);
+        } catch (error) {
+          log(`agent cancel transcript read failed session=${id}: ${error?.message || error}`);
+        }
       }
       const closed = await closeCanonical.call(entry.runtime, reason);
       if (closed !== true) throw new Error(`agent session ${id} could not be durably closed`);

@@ -6,6 +6,7 @@
  */
 import { createNotify } from '../notify.mjs';
 import {
+  reconcileJobCancelled,
   reconcileJobFinally,
   reconcileJobStreamStalled,
   reconcileJobWatchdogPartial,
@@ -15,6 +16,7 @@ import { abnormalEmptyFinishError } from '../render.mjs';
 import { createProgressWatchdogRegistry } from '../../agent-watchdog-registry.mjs';
 import {
   resolveHandoffMessageStartIndex,
+  turnPartialHandoff,
   watchdogPartialHandoffFromError,
   watchdogStoppedHandoff,
 } from '../../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
@@ -135,6 +137,16 @@ export function createSpawnRunner({
     });
     notifyStatusChange();
     let handoffMsgStart = 0;
+    // A cancelled turn reports the output it produced before it stopped.
+    const settleCancelled = (error, result = null) => {
+      finalStatus = 'cancelled';
+      reconcileJobCancelled(job, {
+        tag,
+        sessionId: session.id,
+        ...presetDescriptor(agent, preset, presetName),
+        content: turnPartialHandoff(error, mgr.getSession(session.id), handoffMsgStart) || result?.content || '',
+      });
+    };
     try {
       handoffMsgStart = resolveHandoffMessageStartIndex(mgr.getSession(session.id));
       const turnHooks = {
@@ -157,6 +169,10 @@ export function createSpawnRunner({
       // notifyTaskCompletion is left to fire exactly once with output via the
       // resolve/reconcile/finally path.
       const finalValue = completionValue(result);
+      if (job?.status === 'cancelled') {
+        settleCancelled(null, result);
+        return finalValue;
+      }
       // Non-job return path (or job path where the terminal-result reconcile
       // already ran): if the finish was abnormal-empty, surface it as a thrown
       // error so finalStatus becomes 'error' and the caller's error path (and
@@ -168,6 +184,10 @@ export function createSpawnRunner({
       }
       return finalValue;
     } catch (error) {
+      if (job?.status === 'cancelled') {
+        settleCancelled(error);
+        throw error;
+      }
       const partial = watchdogPartialHandoffFromError(error, mgr.getSession(session.id), handoffMsgStart);
       if (partial) {
         finalStatus = 'idle';
@@ -181,10 +201,6 @@ export function createSpawnRunner({
         if (job) job._terminalResultValue = value;
         reconcileJobWatchdogPartial(job, value);
         return value;
-      }
-      if (job?.status === 'cancelled') {
-        finalStatus = 'cancelled';
-        throw error;
       }
       finalStatus = 'error';
       reconcileJobStreamStalled(job, error);
