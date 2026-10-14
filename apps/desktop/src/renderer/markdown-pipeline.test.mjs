@@ -224,6 +224,32 @@ test('a partially arrived closing fence never parses as a code line', () => {
   assert.equal(code(`${body.replaceAll('```', '~~~')}~`), settled);
 });
 
+test('a streaming table appears only once its delimiter row is complete', () => {
+  const render = (text) => {
+    const markup = renderToStaticMarkup(
+      React.createElement(MarkdownAstBody, {
+        root: parseMarkdownToHast(healStreamingMarkdownTail(text)),
+        copyControl: CopyControl,
+      })
+    );
+    const document = new JSDOM(markup).window.document;
+    return { table: document.querySelector('table') !== null, text: document.body.textContent };
+  };
+  const lead = '정리하면 다음과 같습니다.\n\n';
+  for (const partial of ['| 항목 | 값 | 비', '| 항목 | 값 | 비고 |', '| 항목 | 값 | 비고 |\n', '| 항목 | 값 | 비고 |\n|---|--', '| 항목 | 값 | 비고 |\n|---|---|']) {
+    const shown = render(lead + partial);
+    assert.equal(shown.table, false, partial);
+    assert.equal(shown.text.includes('|'), false, `raw pipes stay hidden: ${partial}`);
+    assert.match(shown.text, /정리하면/);
+  }
+  assert.equal(render(`${lead}| 항목 | 값 | 비고 |\n|---|---|---|`).table, true);
+  assert.equal(render(`${lead}| 항목 | 값 | 비고 |\n|---|---|---|\n| A | 1 |`).table, true);
+  // Inside an open fence pipes are code, never held back.
+  assert.match(render('```\n| a | b |').text, /\| a \| b \|/);
+  // A pipe inside prose is not a table head.
+  assert.match(render('use a | b here').text, /a \| b/);
+});
+
 test('a block cut from the live tail keeps its last parse until its own parse lands', async () => {
   const { dom, restore } = installTestDom(null, { jsdom: { url: 'http://localhost/' } });
   const host = dom.window.document.getElementById('root');
