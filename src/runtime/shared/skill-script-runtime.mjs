@@ -159,11 +159,20 @@ function psQuote(value) {
  * The child is started through ProcessStartInfo so the argument variable and
  * Electron node mode live in ITS environment block only; setting them on
  * $env would reach every process the pipeline starts while this one streams.
- * Its stdout is relayed line by line into the pipeline (as PowerShell does
- * for a native command); stdin and stderr are inherited and stay live. The
- * working directory is the current FileSystem location, as for a native
- * command. A failing script ends the command with its exit code (`exit`),
- * because a PowerShell function cannot fail `$?` or the -Command exit code.
+ * Both output streams are redirected and drained concurrently (one pending
+ * ReadLineAsync per stream, polled so a stopped pipeline is noticed), line by
+ * line in arrival order: stdout lines go to the pipeline, stderr lines to the
+ * error stream as NativeCommandErrorMessage records, which is what PowerShell
+ * makes of a native command's stderr, so `2>&1`, `2>$null` and `2>file`
+ * behave the same and the records print as plain text. They are written with
+ * -ErrorAction Continue, as PowerShell 7.2+ treats native stderr, so stderr
+ * of a successful run never becomes a terminating error under
+ * `$ErrorActionPreference = 'Stop'` (Windows PowerShell 5.1 would throw on the
+ * first redirected native stderr line). stdin is inherited. The working
+ * directory is the current FileSystem location, as for a native command; a
+ * stopped pipeline kills the child. A failing script ends the command with
+ * its exit code (`exit`), because a PowerShell function cannot fail `$?` or
+ * the -Command exit code.
  */
 export function renderPowerShellSkillFunction({ interpreter, entry, electron }) {
   const body = [
@@ -176,12 +185,25 @@ export function renderPowerShellSkillFunction({ interpreter, entry, electron }) 
     `if ($__mxi.PSObject.Properties['ArgumentList']) { $__mxi.ArgumentList.Add(${psQuote(entry)}) } else { $__mxi.Arguments = ${psQuote(`"${entry}"`)} }`,
     '$__mxi.UseShellExecute = $false',
     '$__mxi.RedirectStandardOutput = $true',
+    '$__mxi.RedirectStandardError = $true',
     '$__mxi.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false',
+    '$__mxi.StandardErrorEncoding = New-Object System.Text.UTF8Encoding $false',
     '$__mxi.WorkingDirectory = (Get-Location -PSProvider FileSystem).ProviderPath',
     `$__mxi.EnvironmentVariables['${SKILL_ARGV_ENV}'] = $__mxa`,
     ...(electron ? ["$__mxi.EnvironmentVariables['ELECTRON_RUN_AS_NODE'] = '1'"] : []),
+    '$__mxw = { [CmdletBinding()] param($__mxr) $PSCmdlet.WriteError($__mxr) }',
     '$__mxp = [System.Diagnostics.Process]::Start($__mxi)',
-    'try { while ($null -ne ($__mxl = $__mxp.StandardOutput.ReadLine())) { $__mxl }; $__mxp.WaitForExit(); $__mxc = $__mxp.ExitCode } finally { if (-not $__mxp.HasExited) { try { $__mxp.Kill() } catch { } }; $__mxp.Dispose() }',
+    [
+      'try {',
+      '$__mxo = $__mxp.StandardOutput.ReadLineAsync(); $__mxe = $__mxp.StandardError.ReadLineAsync();',
+      'while ($__mxo -or $__mxe) {',
+      'if ([System.Threading.Tasks.Task]::WaitAny([System.Threading.Tasks.Task[]]@(@($__mxo, $__mxe) | Where-Object { $_ }), 200) -lt 0) { continue };',
+      'if ($__mxo -and $__mxo.IsCompleted) { $__mxl = $__mxo.Result; if ($null -eq $__mxl) { $__mxo = $null } else { $__mxo = $__mxp.StandardOutput.ReadLineAsync(); $__mxl } };',
+      "if ($__mxe -and $__mxe.IsCompleted) { $__mxl = $__mxe.Result; if ($null -eq $__mxl) { $__mxe = $null } else { $__mxe = $__mxp.StandardError.ReadLineAsync(); & $__mxw (New-Object System.Management.Automation.ErrorRecord ((New-Object System.Management.Automation.RemoteException $__mxl), 'NativeCommandErrorMessage', 'NotSpecified', $null)) -ErrorAction Continue } }",
+      '};',
+      '$__mxp.WaitForExit(); $__mxc = $__mxp.ExitCode',
+      '} finally { if (-not $__mxp.HasExited) { try { $__mxp.Kill() } catch { } }; $__mxp.Dispose() }',
+    ].join(' '),
     '$global:LASTEXITCODE = $__mxc',
     'if ($__mxc) { exit $__mxc }',
   ];

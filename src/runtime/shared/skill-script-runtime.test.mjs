@@ -326,7 +326,72 @@ test('the argument hand-over survives every argument shape', () => {
   assert.deepEqual(decodeSkillArgv(encoded), PS_ARGS);
 });
 
+const STREAMS_SCRIPT = [
+  "import { writeSync } from 'node:fs';",
+  'const [mode, code] = process.argv.slice(2);',
+  'const pause = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40);',
+  "if (mode === 'big') {",
+  '  for (let i = 0; i < 20000; i++) { writeSync(1, `o${i} ${"x".repeat(40)}\\n`); writeSync(2, `e${i} ${"y".repeat(40)}\\n`); }',
+  '} else {',
+  "  for (const [fd, text] of [[1, 'out1 한글'], [2, 'err1 üñí 한글'], [1, 'out2'], [2, 'err2']]) { writeSync(fd, `${text}\\n`); pause(); }",
+  '}',
+  'process.exitCode = Number(code);',
+].join('\n');
+
 for (const shell of powerShells()) {
+  test(`${basename(shell)}: mixdog-skill-node stderr travels PowerShell's error stream like native stderr`, async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog skill ps streams '));
+    try {
+      writeFileSync(join(root, 'streams.mjs'), STREAMS_SCRIPT);
+      const fn = renderPowerShellSkillFunction({ interpreter: process.execPath, entry: ENTRY, electron: false });
+      const prefix = `${process.platform === 'win32' ? `${POWERSHELL_UTF8_PREFIX}\n` : ''}${fn}\n$ErrorActionPreference = 'Stop'\n`;
+      const flags = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'];
+      const ps = (body) => run(shell, [...flags, `${prefix}${body}`], { cwd: root, env: process.env });
+      const tag = 'ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { "E:$_" } else { "O:$_" } }';
+      const lines = (text) => text.trim().split(/\r?\n/);
+
+      // 2>&1 merges stderr into the pipeline, in order, as error records;
+      // stderr of a successful run is no terminating error under Stop.
+      const merged = await ps(`mixdog-skill-node 'streams.mjs' small 0 2>&1 | ${tag}; "after:$LASTEXITCODE"`);
+      assert.equal(merged.code, 0, merged.stderr);
+      assert.deepEqual(lines(merged.stdout), ['O:out1 한글', 'E:err1 üñí 한글', 'O:out2', 'E:err2', 'after:0']);
+      assert.equal(merged.stderr.trim(), '');
+
+      // Not redirected: stderr prints as the bare text (PowerShell 7 colours
+      // error records; the shell tool strips ANSI), success stays success.
+      const plain = await ps(`mixdog-skill-node 'streams.mjs' small 0; 'after'`);
+      assert.equal(plain.code, 0, plain.stderr);
+      assert.deepEqual(lines(plain.stdout), ['out1 한글', 'out2', 'after']);
+      assert.deepEqual(lines(plain.stderr.replace(/\x1b\[[0-9;]*m/g, '')), ['err1 üñí 한글', 'err2']);
+
+      // 2>$null hides stderr.
+      const hidden = await ps(`mixdog-skill-node 'streams.mjs' small 0 2>$null; 'after'`);
+      assert.equal(hidden.code, 0, hidden.stderr);
+      assert.deepEqual(lines(hidden.stdout), ['out1 한글', 'out2', 'after']);
+      assert.equal(hidden.stderr.trim(), '');
+
+      // 2>file writes it.
+      const file = await ps(`mixdog-skill-node 'streams.mjs' small 0 2>'err out.txt'; Get-Content -Encoding utf8 'err out.txt'`);
+      assert.equal(file.code, 0, file.stderr);
+      assert.deepEqual(lines(file.stdout), ['out1 한글', 'out2', 'err1 üñí 한글', 'err2']);
+      assert.equal(file.stderr.trim(), '');
+
+      // A failing script still fails the command, redirected or not.
+      const failing = await ps(`mixdog-skill-node 'streams.mjs' small 7 2>&1 | Out-Null; 'not reached'`);
+      assert.equal(failing.code, 7, failing.stderr);
+      assert.equal(failing.stdout.trim(), '');
+
+      // Far more than a pipe buffer on both streams: no deadlock, nothing lost.
+      const big = await ps(
+        `$o = 0; $e = 0; mixdog-skill-node 'streams.mjs' big 0 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $e++ } else { $o++ } }; "$o/$e"`
+      );
+      assert.equal(big.code, 0, big.stderr);
+      assert.equal(big.stdout.trim(), '20000/20000');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test(`${basename(shell)}: mixdog-skill-node runs the script directly with verbatim arguments and fails the command with its exit code`, async () => {
     const root = mkdtempSync(join(tmpdir(), 'mixdog skill ps '));
     try {
