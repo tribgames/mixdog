@@ -16,7 +16,15 @@ const snapshot = {
     elapsedLabel: '',
     jobs: [{ taskId: 'job_3', command: 'npm run dev', cwd: '', startedAt: 3000 }],
     finished: [
-      { taskId: 'job_1', command: 'make', cwd: '', startedAt: 1000, status: 'completed', exitCode: 0, finishedAt: 2000 },
+      {
+        taskId: 'job_1',
+        command: 'make',
+        cwd: '',
+        startedAt: 1000,
+        status: 'completed',
+        exitCode: 0,
+        finishedAt: 2000,
+      },
       { taskId: 'job_2', command: 'test', cwd: '', startedAt: 1500, status: 'failed', exitCode: 2, finishedAt: 2500 },
     ],
   },
@@ -59,7 +67,10 @@ test('shell row action follows the stop state; finished rows only dismiss', () =
 
 test('finished shell labels: cancelled reads Stopped, then exit code, then Finished', () => {
   assert.equal(shellFinishedLabel({ status: 'cancelled', exitCode: 1 }), translate('Island: Stopped'));
-  assert.equal(shellFinishedLabel({ status: 'failed', exitCode: 2 }), translate('Island: Exited {{code}}', { code: 2 }));
+  assert.equal(
+    shellFinishedLabel({ status: 'failed', exitCode: 2 }),
+    translate('Island: Exited {{code}}', { code: 2 })
+  );
   assert.equal(shellFinishedLabel({ status: 'completed', exitCode: null }), translate('Island: Finished'));
 });
 
@@ -67,7 +78,12 @@ test('cwd folder name takes the last segment of either separator', () => {
   assert.equal(cwdFolderName('C:\\Project\\cart-service\\'), 'cart-service');
   assert.equal(cwdFolderName('/work/api'), 'api');
   assert.equal(cwdFolderName(''), '');
-  assert.equal(backgroundJobRows({ shellJobs: { count: 1, elapsedLabel: '', jobs: [{ taskId: 'a', command: 'x', cwd: '/w/p', startedAt: 1 }] } })[0].taskId, 'a');
+  assert.equal(
+    backgroundJobRows({
+      shellJobs: { count: 1, elapsedLabel: '', jobs: [{ taskId: 'a', command: 'x', cwd: '/w/p', startedAt: 1 }] },
+    })[0].taskId,
+    'a'
+  );
 });
 
 test('dismissed finished rows never come back, and persist per session', () => {
