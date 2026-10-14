@@ -21,10 +21,10 @@ export function rosterOffersOtherAccount(value: unknown): boolean {
 
 /**
  * The quota banner above the composer: the latest turn stopped on an
- * exhausted provider quota and nothing has begun since. It offers resuming at
- * the reset. It leaves by itself when a new turn begins, when a resume is
- * reserved (the island's waiting pill takes over) or when the chat already
- * runs on another model than the exhausted one.
+ * exhausted provider quota and nothing has begun since. Its resume button
+ * toggles the reservation at the reset (spinning while reserved). It leaves
+ * by itself when a new turn begins or when the chat already runs on another
+ * model than the exhausted one.
  */
 export function useConversationQuotaCard({
   draftMode,
@@ -49,6 +49,7 @@ export function useConversationQuotaCard({
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
 }): { quotaCard: ComposerQuotaCardModel | null; quotaResume: ComposerIslandQuotaResume | null } {
   const [dismissedQuotaTurn, setDismissedQuotaTurn] = useState('');
+  const [toggling, setToggling] = useState(false);
   const live = !draftMode && Boolean(sessionId);
   const stopped = live ? latestQuotaFailure(settledItems, settledTurnKeys) : null;
   // A chat already switched to another model has left the stop behind: its
@@ -62,7 +63,6 @@ export function useConversationQuotaCard({
   const waitingResume = live ? (snapshot.quotaResume ?? null) : null;
   const waiting = waitingResume?.state === 'waiting';
   const quotaVisible =
-    !waiting &&
     pendingPromptCount === 0 &&
     quotaPanelVisible({
       failure: quotaFailure,
@@ -97,23 +97,28 @@ export function useConversationQuotaCard({
 
   let quotaCard: ComposerQuotaCardModel | null = null;
   if (quotaFailure && quotaVisible) {
-    const dismissKey = quotaDismissKey(sessionId, quotaFailure.turnKey);
     const resetAt = quotaFailure.quota.resetAt;
+    // One toggle: reserve the resume at the reset, or drop the reservation
+    // (the runtime may already have made one on its own). The banner stays.
+    const toggleResume = () => {
+      if (toggling) return;
+      setToggling(true);
+      void invokeResult(() =>
+        waiting ? window.mixdogDesktop.cancelQuotaResume(sessionId) : window.mixdogDesktop.scheduleQuotaResume(sessionId)
+      ).finally(() => setToggling(false));
+    };
     quotaCard = {
       resetAt,
       otherAccount: otherAccount.provider === quotaFailure.quota.provider && otherAccount.offered,
-      onWait:
-        resetAt === null
-          ? undefined
-          : () =>
-              void invokeResult(() => window.mixdogDesktop.scheduleQuotaResume(sessionId)).then((scheduled) => {
-                if (scheduled === true) setDismissedQuotaTurn(dismissKey);
-              }),
+      reserved: waiting,
+      busy: toggling,
+      onToggleResume: resetAt === null ? undefined : toggleResume,
     };
   }
 
+  // The island's waiting pill only when the banner is not showing the stop.
   let quotaResume: ComposerIslandQuotaResume | null = null;
-  if (waiting && waitingResume) {
+  if (waiting && waitingResume && !quotaCard) {
     const resumeTurnKey = quotaFailure?.turnKey || waitingResume.turnKey;
     quotaResume = {
       model: modelDisplayName(waitingResume.model, waitingResume.provider),

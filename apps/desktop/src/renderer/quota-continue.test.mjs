@@ -143,7 +143,7 @@ test('the quota banner is one line between the island and the composer, with no 
 
   const resetAt = Date.now() + (2 * 60 + 15) * 60_000 - 1_000;
   const time = quotaResetLabel(resetAt);
-  await render({ resetAt, otherAccount: false, onWait: () => calls.push('wait') });
+  await render({ resetAt, otherAccount: false, reserved: false, busy: false, onToggleResume: () => calls.push('toggle') });
   const section = banner(document);
   const order = [...document.querySelector('.composer-region').children].map((child) => child.className);
   assert.deepEqual(order, ['composer-island-slot', 'composer-quota-card', 'composer-queue-tray', 'composer']);
@@ -152,8 +152,7 @@ test('the quota banner is one line between the island and the composer, with no 
   assert.equal(section.querySelector('.composer-quota-card-title').textContent, translate('Usage limit reached'));
   assert.equal(
     section.querySelector('.composer-quota-card-reset').textContent,
-    translate('· resets {{time}} ({{remaining}})', {
-      time,
+    translate('· {{remaining}} left', {
       remaining: translate('{{hours}}h {{minutes}}m', { hours: 2, minutes: 15 }),
     })
   );
@@ -165,11 +164,20 @@ test('the quota banner is one line between the island and the composer, with no 
     [[translate('Resume at {{time}}', { time }), true]],
     'only the resume button: no close, no switch'
   );
+  assert.equal(buttons[0].getAttribute('aria-pressed'), 'false');
+  assert.equal(buttons[0].dataset.reserved, undefined, 'off: the clock stays still');
   await act(async () => buttons[0].click());
-  assert.deepEqual(calls, ['wait']);
+  assert.deepEqual(calls, ['toggle']);
+
+  // Reserved: the same button spins and pressing it cancels.
+  await render({ resetAt, otherAccount: false, reserved: true, busy: false, onToggleResume: () => calls.push('toggle') });
+  const reserved = banner(document).querySelector('button');
+  assert.equal(reserved.getAttribute('aria-pressed'), 'true');
+  assert.equal(reserved.dataset.reserved, 'true', 'on: the icon spins');
+  assert.equal(reserved.getAttribute('title'), translate('Resume reserved · click to cancel'));
 
   // An unknown reset: no time part and no resume button.
-  await render({ resetAt: null, otherAccount: true });
+  await render({ resetAt: null, otherAccount: true, reserved: false, busy: false });
   assert.equal(banner(document).querySelector('.composer-quota-card-reset'), null);
   assert.equal(banner(document).querySelector('button'), null);
   assert.equal(banner(document).querySelector('.composer-quota-card-guide').textContent, `· ${guidanceText(true)}`);
@@ -200,7 +208,12 @@ test('a guidance that does not fit is hidden and kept as the tooltip and descrip
   });
   const resetAt = Date.now() + 3_600_000;
   await act(async () =>
-    root.render(React.createElement(ComposerDock, { ...dockProps(), quotaCard: { resetAt, otherAccount: false, onWait() {} } }))
+    root.render(
+      React.createElement(ComposerDock, {
+        ...dockProps(),
+        quotaCard: { resetAt, otherAccount: false, reserved: false, busy: false, onToggleResume() {} },
+      })
+    )
   );
   const section = banner(document);
   assert.equal(section.dataset.guidanceHidden, 'true');
@@ -345,44 +358,46 @@ test('a roster that cannot be read keeps the provider guidance', async (t) => {
   assert.equal(banner(document).querySelector('.composer-quota-card-guide').textContent, `· ${guidanceText()}`);
 });
 
-test('resume at the reset reserves it; the waiting pill takes over and offers only cancel', async (t) => {
+test('the resume button toggles the reservation and the banner stays; no island pill beside it', async (t) => {
   const { root, document } = mount(t);
   const host = quotaHost(document);
   const resetAt = Date.now() + 3_600_000;
+  const waitingResume = { state: 'waiting', turnKey: 'turn:u2', provider: 'anthropic-oauth', model: 'claude-opus', resetAt };
   const render = (snapshot) =>
     act(async () => {
       root.render(React.createElement(QuotaHarness, quotaProps({ snapshot, settledItems: quotaStop(resetAt) })));
       await settle();
     });
+  const resume = () => banner(document).querySelector('button');
+
+  // Off: pressing reserves; the banner stays.
   await render({ sessionId: 's1' });
+  assert.equal(resume().dataset.reserved, undefined);
   await act(async () => {
-    banner(document).querySelector('button').click();
+    resume().click();
     await settle();
   });
   assert.deepEqual(host.schedules, ['s1']);
-  assert.equal(banner(document), null, 'reserved: the banner leaves');
+  assert.ok(banner(document), 'the banner stays');
 
-  await render({
-    sessionId: 's1',
-    quotaResume: { state: 'waiting', turnKey: 'turn:u2', provider: 'anthropic-oauth', model: 'claude-opus', resetAt },
-  });
-  assert.equal(banner(document), null);
-  await act(async () => document.querySelector('.composer-island-seg-warning').click());
-  const panelButtons = [...document.querySelectorAll('.composer-island-quota .composer-island-pfoot button')];
-  assert.deepEqual(
-    panelButtons.map((button) => button.textContent),
-    [translate('Cancel resume')]
-  );
+  // Reserved (by the click or by the runtime on its own): the button spins,
+  // the island shows no separate waiting pill, and pressing cancels.
+  await render({ sessionId: 's1', quotaResume: waitingResume });
+  assert.equal(resume().dataset.reserved, 'true');
+  assert.equal(document.querySelector('.composer-island-seg-warning'), null, 'no pill beside the banner');
   await act(async () => {
-    panelButtons[0].click();
+    resume().click();
     await settle();
   });
   assert.deepEqual(host.cancels, ['s1']);
+  assert.ok(banner(document), 'cancelling keeps the banner, off again once the snapshot drops the reservation');
+  await render({ sessionId: 's1' });
+  assert.equal(resume().dataset.reserved, undefined);
 });
 
-test('a reservation the runtime made on its own hides the banner too', async (t) => {
+test('a reservation without a banner still shows the island pill, which offers only cancel', async (t) => {
   const { root, document } = mount(t);
-  quotaHost(document);
+  const host = quotaHost(document);
   const resetAt = Date.now() + 3_600_000;
   await act(async () => {
     root.render(
@@ -394,13 +409,24 @@ test('a reservation the runtime made on its own hides the banner too', async (t)
             quotaResume: { state: 'waiting', turnKey: 'turn:u2', provider: 'anthropic-oauth', model: 'claude-opus', resetAt },
           },
           settledItems: quotaStop(resetAt),
+          pendingPromptCount: 1,
         })
       )
     );
     await settle();
   });
-  assert.equal(banner(document), null);
-  assert.ok(document.querySelector('.composer-island-seg-warning'));
+  assert.equal(banner(document), null, 'a queued prompt hides the banner');
+  await act(async () => document.querySelector('.composer-island-seg-warning').click());
+  const panelButtons = [...document.querySelectorAll('.composer-island-quota .composer-island-pfoot button')];
+  assert.deepEqual(
+    panelButtons.map((button) => button.textContent),
+    [translate('Cancel resume')]
+  );
+  await act(async () => {
+    panelButtons[0].click();
+    await settle();
+  });
+  assert.deepEqual(host.cancels, ['s1']);
 });
 
 test('a new turn removes the banner', async (t) => {

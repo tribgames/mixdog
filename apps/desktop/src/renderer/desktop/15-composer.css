@@ -681,16 +681,27 @@ button.composer-island-tab {
 .composer-quota-card[data-guidance-hidden="true"] .composer-quota-card-guide {
   visibility: hidden;
 }
-/* The island's primary button, as a pill. */
+/* The island's primary button, as a pill: a still clock while off, a
+   spinning loader while the resume is reserved. */
 .composer-quota-card .composer-quota-card-resume {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 30px;
-  padding: 0 12px;
+  padding: 0 12px 0 10px;
   border-radius: 999px;
   font-weight: var(--mx-weight-semibold);
 }
+.composer-quota-card-resume-icon {
+  flex: none;
+}
+.composer-quota-card-resume[data-reserved="true"] .composer-quota-card-resume-icon {
+  animation: var(--mx-motion-spin);
+}
 @media (prefers-reduced-motion: reduce) {
-  .composer-quota-card {
+  .composer-quota-card,
+  .composer-quota-card-resume[data-reserved="true"] .composer-quota-card-resume-icon {
     animation: none;
   }
 }

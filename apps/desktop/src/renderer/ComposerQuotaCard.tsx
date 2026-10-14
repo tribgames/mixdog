@@ -11,8 +11,12 @@ export type ComposerQuotaCardModel = {
   /** The exhausted provider sends from a manually picked account and has
    *  another signed-in one to switch to. */
   otherAccount: boolean;
-  /** Resume this chat at the reset time; given only with a known reset. */
-  onWait?(): void;
+  /** A resume at the reset is reserved: the button spins. */
+  reserved: boolean;
+  /** A reserve/cancel request is in flight. */
+  busy: boolean;
+  /** Reserve or cancel the resume at the reset; given only with a known reset. */
+  onToggleResume?(): void;
 };
 
 /**
@@ -56,19 +60,29 @@ export function ComposerQuotaCard({ card }: { card: ComposerQuotaCardModel }) {
       <div className="composer-quota-card-text">
         <strong className="composer-quota-card-title">{t('Usage limit reached')}</strong>
         {time ? (
-          <span className="composer-quota-card-reset">{t('· resets {{time}} ({{remaining}})', { time, remaining })}</span>
+          <span className="composer-quota-card-reset">{t('· {{remaining}} left', { remaining })}</span>
         ) : null}
         <span className="composer-quota-card-guide" ref={guideRef}>
           <span aria-hidden="true">· </span>
           <span id={guidanceId}>{guidance}</span>
         </span>
       </div>
-      {card.onWait && time ? (
+      {card.onToggleResume && time ? (
         <button
           type="button"
           className="composer-island-button composer-island-button-primary composer-quota-card-resume"
-          onClick={card.onWait}
+          aria-pressed={card.reserved}
+          data-reserved={card.reserved ? 'true' : undefined}
+          disabled={card.busy}
+          title={card.reserved ? t('Resume reserved · click to cancel') : undefined}
+          onClick={card.onToggleResume}
         >
+          <MxIcon
+            name={card.reserved ? 'loading' : 'clock'}
+            size={14}
+            className="composer-quota-card-resume-icon"
+            aria-hidden="true"
+          />
           {t('Resume at {{time}}', { time })}
         </button>
       ) : null}
