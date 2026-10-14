@@ -52,12 +52,14 @@ policy. Provider and model must be explicit; it uses the existing sign-in, never
 asks to paste credentials. This is context separation, not an OS filesystem
 sandbox or proof that the model's judgement is unbiased.
 
-Run from the Project; `<pptx-skill-directory>` is the `<base-dir>` the runtime
-printed when the skill loaded (`SKILL.md` §2 step 9 carries the command with
-that directory already resolved):
+Run it from the Project with the command `SKILL.md` §2 step 9 carries, which
+the runtime resolved when the skill loaded. It starts with the launcher command
+named there (on the shell tool's PATH), not plain `node`, which cannot load the
+script in every installation. Its shape, with `<pptx-skill-directory>` the
+`<base-dir>` the runtime printed:
 
 ```text
-node "<pptx-skill-directory>/scripts/review-deck.mjs" packet.json --provider <provider> --model <model> --output review.json
+<launcher command from SKILL.md> "<pptx-skill-directory>/scripts/review-deck.mjs" packet.json --provider <provider> --model <model> --output review.json
 ```
 
 Packet format (all paths relative to the packet file unless absolute):

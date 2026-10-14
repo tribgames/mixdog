@@ -6,7 +6,7 @@
 // portable session that is closed without saving; anything else is read as
 // UTF-8 text. Output is bounded by --chars (default 4000) and every block is
 // cut at BLOCK_CHARS, so a large source never floods the context.
-//   node "${MIXDOG_SKILL_DIR}/scripts/source-extract.mjs" <file> [--chars 4000]
+//   ${MIXDOG_SKILL_NODE} "${MIXDOG_SKILL_DIR}/scripts/source-extract.mjs" <file> [--chars 4000]
 import { access, readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';

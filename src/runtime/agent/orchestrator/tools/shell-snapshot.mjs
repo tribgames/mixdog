@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { getPluginData } from '../config.mjs';
 import { scrubLoaderVars, scrubProviderSecrets, scrubRuntimeRootVars } from './env-scrub.mjs';
 import { spawnShellWithRetry } from './lib/shell-spawn-retry.mjs';
+import { ensureSkillLauncherDir } from '../../../shared/skill-script-runtime.mjs';
 
 const SNAPSHOT_TIMEOUT_MS = 10_000;
 
@@ -146,6 +147,9 @@ echo "# Shell options" >> "$SNAPSHOT_FILE"
 ${optDump}
 echo "# Aliases" >> "$SNAPSHOT_FILE"
 ${aliasDump}
+# The sourced PATH replaces the model shell's own, so it carries the
+# skill-launcher entry buildShellSpawnEnv prepends (mixdog-skill-node).
+PATH=${_shellQuote(ensureSkillLauncherDir())}:"$PATH"
 # PATH may contain $, backticks, or quotes that would re-expand if we
 # emitted it inside double quotes. Emit a shell-safe single-quoted PATH
 # export line via printf %q-style escaping inside the dump shell.

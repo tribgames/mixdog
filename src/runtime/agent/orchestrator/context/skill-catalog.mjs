@@ -12,6 +12,7 @@ import {
   SKILL_TRIGGER_LISTING_MIN,
 } from '../../../shared/skill-document.mjs';
 import { readSkillToolDependencies, skillToolDependenciesRoot } from '../../../shared/skill-tool-dependencies.mjs';
+import { SKILL_LAUNCHER_COMMAND } from '../../../shared/skill-script-runtime.mjs';
 import { loadConfig, normalizeSkillsConfig } from '../config.mjs';
 import { builtinFeatureActive, withGrandfatheredBuiltins } from '../runtime-core/builtin-features.mjs';
 import { SKILL_TOOL } from '../runtime-core/tool-defs.mjs';
@@ -332,7 +333,8 @@ export function skillExecutionDir(dir, source) {
 }
 
 /**
- * Load full skill content plus its on-disk directory (for base-dir + ${MIXDOG_SKILL_DIR}).
+ * Load full skill content plus its on-disk directory (for base-dir + ${MIXDOG_SKILL_DIR};
+ * ${MIXDOG_SKILL_NODE} is resolved at render time in buildSkillResultEnvelope).
  */
 export function loadSkillResource(name, cwd) {
   const skillName = String(name || '').trim();
@@ -369,6 +371,10 @@ export function buildSkillResultEnvelope(name, content, skillDir) {
   const escapedName = escapeSkillXmlText(name);
   let body = String(content == null ? '' : content);
   let dirLine = '';
+  // `${MIXDOG_SKILL_NODE}` runs a bundled script on this daemon's own runtime
+  // (plain node cannot load runtime internals from a packaged archive). It is
+  // one shell-neutral command name that model shells find on their PATH.
+  body = body.replace(/\$\{MIXDOG_SKILL_NODE\}/g, SKILL_LAUNCHER_COMMAND);
   if (skillDir) {
     const normDir = String(skillDir).replace(/\\/g, '/');
     body = body.replace(/\$\{MIXDOG_SKILL_DIR\}/g, normDir);

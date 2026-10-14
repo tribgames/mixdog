@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { access, chmod, cp, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, cp, mkdir, mkdtemp, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
@@ -65,6 +66,67 @@ const builtinSkillsUnpackDir = join('node_modules', 'mixdog', ...builtinSkillsPa
 // The skill validator must run without the runtime's shared modules, so the
 // shipped copy is bundled with its imports inlined.
 const skillValidatorPackagePath = 'src/defaults/skills/skill-creator/scripts/validate-skill.mjs';
+// Scripts that import runtime internals run through ${MIXDOG_SKILL_NODE}: the
+// app binary in node mode on this bootstrap, imported from inside the archive.
+const skillScriptEntryPackagePaths = ['src/skill-script-entry.mjs', 'src/runtime/shared/skill-script-runtime.mjs'];
+const pptxSkillScriptPackagePaths = ['source-extract.mjs', 'qc-pages.mjs', 'review-deck.mjs'].map(
+  (name) => `src/defaults/skills/pptx/scripts/${name}`
+);
+const skillScriptFixturePackagePath = 'src/runtime/office/design/library/templates/mixdog-executive.pptx';
+
+/**
+ * Run the prepared archive and sidecar the way a desktop model shell does:
+ * the generated launcher starts the Electron binary on the archive's bootstrap,
+ * which imports the sidecar's source-extract.mjs from inside the archive. The
+ * fixture is the template the archive ships, read from a directory with spaces.
+ */
+async function checkSkillScriptLauncher() {
+  const { default: electronBinary } = await import('electron');
+  const { SKILL_LAUNCHER_COMMAND, skillScriptRuntime, withSkillLauncherPath } = await import(
+    '../../../src/runtime/shared/skill-script-runtime.mjs'
+  );
+  const scratch = await mkdtemp(join(tmpdir(), 'mixdog skill check '));
+  try {
+    const workDir = join(scratch, 'deck folder');
+    await mkdir(workDir);
+    await cp(
+      join(runtimeSidecar, 'node_modules', 'mixdog', ...skillScriptFixturePackagePath.split('/')),
+      join(workDir, 'executive deck.pptx')
+    );
+    // The same PATH entry a model shell gets, so the bare command name resolves.
+    const env = withSkillLauncherPath(
+      { ...process.env },
+      {
+        runtime: skillScriptRuntime({
+          execPath: electronBinary,
+          versions: { electron: 'desktop' },
+          packageRoot: join(runtimeArchive, 'node_modules', 'mixdog'),
+        }),
+        dataDir: join(scratch, 'data dir'),
+      }
+    );
+    delete env.ELECTRON_RUN_AS_NODE;
+    const script = join(runtimeSidecar, 'node_modules', 'mixdog', ...pptxSkillScriptPackagePaths[0].split('/'));
+    const options = { cwd: workDir, env, windowsHide: true, timeout: 180_000, maxBuffer: 16 * 1024 * 1024 };
+    const { stdout } =
+      process.platform === 'win32'
+        ? await execFileAsync(
+            process.env.ComSpec || 'cmd.exe',
+            ['/d', '/s', '/c', `"${SKILL_LAUNCHER_COMMAND} "${script}" "executive deck.pptx""`],
+            { ...options, windowsVerbatimArguments: true }
+          )
+        : await execFileAsync(
+            '/bin/sh',
+            ['-c', `${SKILL_LAUNCHER_COMMAND} "$@"`, 'sh', script, 'executive deck.pptx'],
+            options
+          );
+    if (!stdout.includes('[slide 1] EXECUTIVE STORY SYSTEM')) {
+      throw new Error(`source-extract.mjs through the skill launcher printed no deck text:\n${stdout}`);
+    }
+  } finally {
+    await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
+  }
+}
 
 /** Archive paths of every shipped built-in skill file, from the npm pack manifest. */
 function builtinSkillArchivePaths(manifest) {
@@ -825,6 +887,7 @@ async function prepareRuntime(manifest, fingerprint) {
       '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
       '/node_modules/mixdog/src/runtime/local-provider/data/manifest.json',
       `/node_modules/mixdog/${skillValidatorPackagePath}`,
+      ...[...skillScriptEntryPackagePaths, ...pptxSkillScriptPackagePaths].map((path) => `/node_modules/mixdog/${path}`),
       ...unpackedArchiveEntries,
       '/node_modules/@huggingface/transformers/package.json',
       '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
@@ -896,6 +959,10 @@ async function prepareRuntime(manifest, fingerprint) {
         windowsHide: true,
       });
     });
+    // Only a host that can execute the target's Electron binary runs it.
+    if (embeddingTarget.platform === process.platform && embeddingTarget.arch === process.arch) {
+      await timed('skill-script-launcher-check', () => checkSkillScriptLauncher());
+    }
 
     const archive = await stat(runtimeArchive);
     await writeFile(

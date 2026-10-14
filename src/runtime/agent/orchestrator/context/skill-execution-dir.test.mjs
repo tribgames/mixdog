@@ -53,3 +53,17 @@ test('the envelope substitutes the mapped directory for MIXDOG_SKILL_DIR and bas
   assert.ok(envelope.includes(`node "${expected}/scripts/validate-skill.mjs"`));
   assert.ok(!envelope.includes('runtime.asar/'));
 });
+
+test('the envelope renders MIXDOG_SKILL_NODE as the same bare launcher command for every shell', () => {
+  const envelope = buildSkillResultEnvelope(
+    'pptx',
+    '${MIXDOG_SKILL_NODE} "${MIXDOG_SKILL_DIR}/scripts/source-extract.mjs" <file>\n${MIXDOG_SKILL_NODE} x',
+    WIN_BUILTIN
+  );
+  const dir = WIN_BUILTIN.replace(/\\/g, '/');
+  assert.ok(envelope.includes(`mixdog-skill-node "${dir}/scripts/source-extract.mjs" <file>\nmixdog-skill-node x`));
+  assert.ok(!envelope.includes('${MIXDOG_SKILL_NODE}'));
+  // skill-creator's validator keeps its plain-node command.
+  const validator = buildSkillResultEnvelope('skill-creator', 'node "${MIXDOG_SKILL_DIR}/scripts/validate-skill.mjs"', '/s');
+  assert.ok(validator.includes('node "/s/scripts/validate-skill.mjs"'));
+});
