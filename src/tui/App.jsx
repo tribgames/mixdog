@@ -216,6 +216,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     setPromptDraft,
     promptDraftOverride,
     setPromptDraftOverride,
+    promptCaret,
+    setPromptCaret,
     promptLayoutValueRef,
     setPromptLayoutRows,
     textEntryLayoutRows,
@@ -626,7 +628,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     pastedTextsRef,
   });
 
-  const mentionSkills = useSkillMentionSkills(store, skillMentionQuery(promptDraft) !== null);
+  const mentionSkills = useSkillMentionSkills(store, skillMentionQuery(promptDraft, promptCaret) !== null);
   const { activeSlashQuery, slashCommands, slashPaletteOpen, paletteKind } = deriveSlashPalette({
     providerPrompt,
     settingsPrompt,
@@ -639,6 +641,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     promptDraft,
     slashDismissedFor,
     skills: mentionSkills,
+    promptCaret,
   });
   slashPaletteRef.current = { open: slashPaletteOpen, count: slashCommands.length };
   scrollFocusRef.current = {
@@ -836,6 +839,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     hasUserMessages,
     initialStatusLine,
     onPromptDraftChange,
+    onPromptCaretChange: setPromptCaret,
     onSubmit,
     overlayHintAttachItemIndex,
     overlayHintFallbackRow,

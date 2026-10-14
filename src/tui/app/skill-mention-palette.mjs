@@ -9,15 +9,20 @@
  */
 import { useEffect, useState } from 'react';
 
-// A mention being typed at the end of the draft: `$` plus a partial name.
+// A mention being typed just before the caret: `$` plus a partial name.
 const MENTION_TAIL = /(^|[\s([{"'`])\$([a-z0-9][a-z0-9-]{0,63})?$/;
 
-/** The mention being typed at the end of `value`, or null. `start` is the `$`. */
-export function skillMentionQuery(value) {
+const caretIn = (text, caret) =>
+  Number.isInteger(caret) ? Math.max(0, Math.min(text.length, caret)) : text.length;
+
+/** The mention being typed before `caret` (default: end of `value`), or null.
+ *  `start` is the `$`, `end` the caret. */
+export function skillMentionQuery(value, caret) {
   const text = String(value ?? '');
-  const match = MENTION_TAIL.exec(text);
+  const end = caretIn(text, caret);
+  const match = MENTION_TAIL.exec(text.slice(0, end));
   if (!match) return null;
-  return { query: match[2] || '', start: match.index + match[1].length };
+  return { query: match[2] || '', start: match.index + match[1].length, end };
 }
 
 const byName = (a, b) => a.name.localeCompare(b.name, 'en');
@@ -41,11 +46,14 @@ export function skillMentionItems(skills, query) {
   }));
 }
 
-/** `value` with the mention being typed replaced by `$name `. */
-export function completeSkillMention(value, name) {
-  const mention = skillMentionQuery(value);
+/** The draft with the `$fragment` before `caret` replaced by `$name `; the
+ *  text after the caret is kept and the caret lands after the insertion. */
+export function completeSkillMention(value, name, caret) {
+  const text = String(value ?? '');
+  const mention = skillMentionQuery(text, caret);
   if (!mention || !name) return undefined;
-  return `${String(value).slice(0, mention.start)}$${name} `;
+  const head = `${text.slice(0, mention.start)}$${name} `;
+  return { value: head + text.slice(mention.end), cursor: head.length };
 }
 
 /** The skill list for the palette, fetched each time a mention starts. */

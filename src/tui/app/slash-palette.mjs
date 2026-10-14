@@ -16,6 +16,7 @@ export function deriveSlashPalette({
   promptDraft,
   slashDismissedFor,
   skills = [],
+  promptCaret = null,
 }) {
   const activeSlashQuery =
     providerPrompt || settingsPrompt || toolApproval || contextPanel || usagePanel ? null : slashQuery(promptDraft);
@@ -29,7 +30,7 @@ export function deriveSlashPalette({
     // `$name` completion shares the palette, but opens only while a skill
     // matches: `$HOME` or `$300` in prose must not raise a panel.
     const mention =
-      surfaceFree && !providerPrompt && !settingsPrompt ? skillMentionQuery(promptDraft) : null;
+      surfaceFree && !providerPrompt && !settingsPrompt ? skillMentionQuery(promptDraft, promptCaret) : null;
     const slashCommands = mention ? skillMentionItems(skills, mention.query) : [];
     return {
       activeSlashQuery: mention ? mention.query : null,
