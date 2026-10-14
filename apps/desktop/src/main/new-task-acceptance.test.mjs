@@ -258,6 +258,27 @@ test('a worktree draft enters its worktree before the prompt is submitted; a lar
   assert.equal(f.state.submits.length, 1);
 });
 
+test('a draft remembering a deleted workflow starts on Default; other workflow failures still refuse', async (t) => {
+  const f = await fixture(t);
+  const workflows = [];
+  let missing = 'workflow "gone" not found';
+  f.state.onConfigure = async (params) => {
+    assert.equal(params.action, 'setWorkflow');
+    const [id] = params.args;
+    workflows.push(id);
+    if (id === 'gone') throw new Error(missing);
+    return { sessionId: f.sessionId, revision: 1, full: { sessionId: f.sessionId, items: [] }, value: id };
+  };
+  const other = await f.createHost();
+  missing = 'workflow store is unreadable';
+  await assert.rejects(other.submitNewTask('Other work', { id: 'other-draft' }, { workflowId: 'gone' }), /unreadable/);
+  missing = 'workflow "gone" not found';
+  const accepted = await f.host.submitNewTask('Accepted work', f.options, { workflowId: 'gone' });
+  assert.equal(accepted.accepted, true);
+  assert.deepEqual(workflows, ['gone', 'gone', 'default']);
+  assert.equal(f.state.submits.length, 1);
+});
+
 test('a worktree draft whose session cannot be created (no model) or is not bound never sends the prompt', async (t) => {
   const f = await fixture(t);
   let reply = 'no-model';

@@ -454,7 +454,14 @@ export class SessionHostLifecycle {
    *  reserved session, before its first submission. */
   private async configureDraft(sessionId: string, draft: DesktopNewTaskDraft): Promise<void> {
     if (draft.workflowId) {
-      await this.owner.invokeSession(sessionId, 'setWorkflow', [draft.workflowId]);
+      try {
+        await this.owner.invokeSession(sessionId, 'setWorkflow', [draft.workflowId]);
+      } catch (error) {
+        // A draft can remember a workflow deleted since; it starts on the
+        // built-in Default, which cannot be deleted.
+        if (!/workflow ".*" not found/.test(error instanceof Error ? error.message : String(error))) throw error;
+        await this.owner.invokeSession(sessionId, 'setWorkflow', ['default']);
+      }
     }
     if (draft.orchestrationMode !== undefined) {
       await this.owner.invokeSession(sessionId, 'setOrchestrationMode', [draft.orchestrationMode]);
