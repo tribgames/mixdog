@@ -15,10 +15,10 @@ export const MCP_OAUTH_TIMEOUT_MS = 5 * 60_000;
 const CREDENTIAL_LOCK_OPTIONS = Object.freeze({ timeoutMs: 120_000, staleMs: 120_000 });
 
 const scopes = new WeakMap();
-const reauthenticationRequired = () => Object.assign(
-  new Error('MCP OAuth reauthenticationRequired: reconnect explicitly to log in'),
-  { code: 'reauthenticationRequired' },
-);
+const reauthenticationRequired = () =>
+  Object.assign(new Error('MCP OAuth reauthenticationRequired: reconnect explicitly to log in'), {
+    code: 'reauthenticationRequired',
+  });
 
 // One keychain entry per exact server URL. Windows stores each account as a
 // file name, so the account is a hash of the URL and nothing else.
@@ -56,6 +56,42 @@ function readStoredCredentials(credentialStore, account) {
 // Every write stores a fresh random revision; null stands for no entry.
 const revisionOf = (saved) => (saved ? (JSON.parse(saved).revision ?? '') : null);
 
+// `signal`, also aborted by the caller's optional `other` signal.
+const anySignal = (signal, other) => AbortSignal.any(other ? [signal, other] : [signal]);
+
+// Answers a request to the loopback redirect URI: only a GET of the exact
+// callback path and host, carrying exactly the pending state (compared in
+// constant time) and either one code or an error, finishes the login.
+function answerOAuthCallback(req, res, { redirectUrl, state, finish }) {
+  let target;
+  try {
+    target = new URL(req.url || '/', redirectUrl);
+  } catch {
+    res.writeHead(400).end('Invalid OAuth callback');
+    return;
+  }
+  const supplied = Buffer.from(target.searchParams.get('state') || '');
+  const expected = Buffer.from(state || '');
+  const valid =
+    req.method === 'GET' &&
+    req.headers.host === new URL(redirectUrl).host &&
+    target.pathname === '/oauth/callback' &&
+    target.searchParams.getAll('state').length === 1 &&
+    supplied.length === expected.length &&
+    timingSafeEqual(supplied, expected);
+  if (!valid || (!target.searchParams.has('error') && target.searchParams.getAll('code').length !== 1)) {
+    res.writeHead(400, { 'Cache-Control': 'no-store' }).end('Invalid OAuth callback');
+    return;
+  }
+  res.writeHead(200, {
+    'Content-Type': 'text/plain',
+    'Cache-Control': 'no-store',
+    'Referrer-Policy': 'no-referrer',
+  });
+  res.end('You may return to Mixdog.');
+  finish(target.searchParams.has('error') ? undefined : target.searchParams.get('code'));
+}
+
 /** Log out of one MCP server URL: delete its stored tokens and client
  *  registration and drop them from live connections, which then need an
  *  explicit reconnect to log in again. */
@@ -64,7 +100,8 @@ export async function clearMcpOAuth({ url, credentialStore = keychain }) {
   const account = mcpOAuthAccount(url);
   await withCredentialLock(account, async () => {
     await writeRevisionMarker(account, null);
-    if (await readStoredCredentials(credentialStore, account) != null) await credentialStore.deleteSecretAsync(account);
+    if ((await readStoredCredentials(credentialStore, account)) != null)
+      await credentialStore.deleteSecretAsync(account);
   });
   scopes.get(credentialStore)?.get(url)?.oauth.clear();
 }
@@ -72,11 +109,18 @@ export async function clearMcpOAuth({ url, credentialStore = keychain }) {
 // The keychain is the only durable store. Exact URLs, including query strings,
 // partition clients and tokens even when servers share an authorization issuer.
 export function createMcpOAuth({
-  url, credentialStore = keychain, interactive = false, isTransportEndpoint = () => false, ...options
+  url,
+  credentialStore = keychain,
+  interactive = false,
+  isTransportEndpoint = () => false,
+  ...options
 }) {
   url = normalizeMcpTransportUrl(url);
   let entries = scopes.get(credentialStore);
-  if (!entries) scopes.set(credentialStore, entries = new Map());
+  if (!entries) {
+    entries = new Map();
+    scopes.set(credentialStore, entries);
+  }
   let entry = entries.get(url);
   if (!entry) {
     entry = { oauth: createSharedOAuth({ url, credentialStore, ...options }), users: 0 };
@@ -89,18 +133,28 @@ export function createMcpOAuth({
   return {
     provider: entry.oauth.provider,
     signal: lifetime.signal,
-    set onStart(value) { onStart = value; },
-    finishConnect() { loginAllowed = false; },
+    set onStart(value) {
+      onStart = value;
+    },
+    finishConnect() {
+      loginAllowed = false;
+    },
     /** Every OAuth token this connection held, for scrubbing errors and results. */
     secrets: () => entry.oauth.secrets(),
     async fetch(input, init = {}) {
-      const signal = AbortSignal.any([lifetime.signal, ...(init.signal ? [init.signal] : [])]);
-      return entry.oauth.fetch(input, { ...init, signal }, () => {
-        if (!loginAllowed) return false;
-        loginAllowed = false;
-        onStart();
-        return true;
-      }, options.openBrowser, isTransportEndpoint);
+      const signal = anySignal(lifetime.signal, init.signal);
+      return entry.oauth.fetch(
+        input,
+        { ...init, signal },
+        () => {
+          if (!loginAllowed) return false;
+          loginAllowed = false;
+          onStart();
+          return true;
+        },
+        options.openBrowser,
+        isTransportEndpoint
+      );
     },
     close() {
       if (lifetime.signal.aborted) return;
@@ -113,7 +167,13 @@ export function createMcpOAuth({
   };
 }
 
-function createSharedOAuth({ url, credentialStore, openBrowser = openInBrowser, fetchImpl = fetch, timeoutMs = MCP_OAUTH_TIMEOUT_MS }) {
+function createSharedOAuth({
+  url,
+  credentialStore,
+  openBrowser = openInBrowser,
+  fetchImpl = fetch,
+  timeoutMs = MCP_OAUTH_TIMEOUT_MS,
+}) {
   const lifetime = new AbortController();
   let listener;
   let redirectUrl;
@@ -148,10 +208,14 @@ function createSharedOAuth({ url, credentialStore, openBrowser = openInBrowser, 
     hold();
   };
   // A failed read (locked keychain) is retried by the next request.
-  const ready = () => loaded ??= credentialStore.getSecretAsync(account).then(adopt).catch((error) => {
-    loaded = undefined;
-    throw error;
-  });
+  const ready = () =>
+    (loaded ??= credentialStore
+      .getSecretAsync(account)
+      .then(adopt)
+      .catch((error) => {
+        loaded = undefined;
+        throw error;
+      }));
   const fail = () => new Error('MCP OAuth login failed, cancelled, or timed out');
   // The only writer of the stored entry. Under the cross-process lock it
   // changes the entry only while it still has the revision the caller observed
@@ -173,8 +237,10 @@ function createSharedOAuth({ url, credentialStore, openBrowser = openInBrowser, 
       } else {
         const revision = randomBytes(16).toString('hex');
         await writeRevisionMarker(account, revision);
-        await credentialStore.setSecretAsync(account,
-          JSON.stringify({ url, revision, tokens, clientInformation, redirectUrl, discovery }));
+        await credentialStore.setSecretAsync(
+          account,
+          JSON.stringify({ url, revision, tokens, clientInformation, redirectUrl, discovery })
+        );
         observed = revision;
       }
       return true;
@@ -197,7 +263,9 @@ function createSharedOAuth({ url, credentialStore, openBrowser = openInBrowser, 
     if (!(await update(change))) throw fail();
   };
   const provider = {
-    get redirectUrl() { return redirectUrl; },
+    get redirectUrl() {
+      return redirectUrl;
+    },
     get clientMetadata() {
       return {
         client_name: 'Mixdog',
@@ -208,35 +276,58 @@ function createSharedOAuth({ url, credentialStore, openBrowser = openInBrowser, 
       };
     },
     state: () => state,
-    clientInformation: async () => { await ready(); return clientInformation; },
-    saveClientInformation: (value) => save(() => { clientInformation = value; }),
-    tokens: async () => { await ready(); return tokens; },
+    clientInformation: async () => {
+      await ready();
+      return clientInformation;
+    },
+    saveClientInformation: (value) =>
+      save(() => {
+        clientInformation = value;
+      }),
+    tokens: async () => {
+      await ready();
+      return tokens;
+    },
     saveTokens: async (value) => {
       lifetime.signal.throwIfAborted();
-      await save(() => { tokens = value; });
+      await save(() => {
+        tokens = value;
+      });
     },
-    saveCodeVerifier: (value) => { verifier = value; },
+    saveCodeVerifier: (value) => {
+      verifier = value;
+    },
     codeVerifier: () => {
       if (!verifier) throw fail();
       return verifier;
     },
     discoveryState: () => discovery,
-    saveDiscoveryState: (value) => save(() => { discovery = value; }),
+    saveDiscoveryState: (value) =>
+      save(() => {
+        discovery = value;
+      }),
     invalidateCredentials: async (scope) => {
       if (scope === 'all' || scope === 'verifier') verifier = undefined;
       if (scope === 'discovery') discovery = undefined;
       if (scope !== 'all' && scope !== 'tokens' && scope !== 'client') return;
-      await update(() => {
-        if (scope !== 'client') tokens = undefined;
-        if (scope !== 'tokens') clientInformation = undefined;
-        if (scope === 'all') discovery = undefined;
-      }, { remove: scope === 'all' });
+      await update(
+        () => {
+          if (scope !== 'client') tokens = undefined;
+          if (scope !== 'tokens') clientInformation = undefined;
+          if (scope === 'all') discovery = undefined;
+        },
+        { remove: scope === 'all' }
+      );
     },
     redirectToAuthorization: async (authorizationUrl) => {
       if (!allowBrowser || browserOpened) throw reauthenticationRequired();
       const target = new URL(normalizeMcpTransportUrl(authorizationUrl));
-      if (target.searchParams.get('state') !== state ||
-          target.searchParams.get('code_challenge_method') !== 'S256' || !verifier) throw fail();
+      if (
+        target.searchParams.get('state') !== state ||
+        target.searchParams.get('code_challenge_method') !== 'S256' ||
+        !verifier
+      )
+        throw fail();
       browserOpened = true;
       await launchBrowser(target.href);
     },
@@ -253,13 +344,15 @@ function createSharedOAuth({ url, credentialStore, openBrowser = openInBrowser, 
     browserOpened = false;
     launchBrowser = browser || openBrowser;
     const signal = AbortSignal.any([lifetime.signal, requestSignal, AbortSignal.timeout(timeoutMs)]);
-    const safeFetch = (input, init = {}) => fetchImpl(normalizeMcpTransportUrl(input), {
-      ...init, redirect: 'error',
-      signal: AbortSignal.any([signal, ...(init.signal ? [init.signal] : [])]),
-    });
+    const safeFetch = (input, init = {}) =>
+      fetchImpl(normalizeMcpTransportUrl(input), {
+        ...init,
+        redirect: 'error',
+        signal: anySignal(signal, init.signal),
+      });
     let abort;
     const callback = new Promise((resolve, reject) => {
-      finishCallback = (code) => code ? resolve(code) : reject(fail());
+      finishCallback = (code) => (code ? resolve(code) : reject(fail()));
       abort = () => finishCallback();
       signal.addEventListener('abort', abort, { once: true });
     });
@@ -309,25 +402,9 @@ function createSharedOAuth({ url, credentialStore, openBrowser = openInBrowser, 
     }
   }
   async function listenForCallback() {
-    listener = createServer((req, res) => {
-      let target;
-      try { target = new URL(req.url || '/', redirectUrl); } catch {
-        res.writeHead(400).end('Invalid OAuth callback');
-        return;
-      }
-      const supplied = Buffer.from(target.searchParams.get('state') || '');
-      const expected = Buffer.from(state || '');
-      const valid = req.method === 'GET' && req.headers.host === new URL(redirectUrl).host &&
-        target.pathname === '/oauth/callback' && target.searchParams.getAll('state').length === 1 &&
-        supplied.length === expected.length && timingSafeEqual(supplied, expected);
-      if (!valid || (!target.searchParams.has('error') && target.searchParams.getAll('code').length !== 1)) {
-        res.writeHead(400, { 'Cache-Control': 'no-store' }).end('Invalid OAuth callback');
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
-      res.end('You may return to Mixdog.');
-      finishCallback(target.searchParams.has('error') ? undefined : target.searchParams.get('code'));
-    });
+    listener = createServer((req, res) =>
+      answerOAuthCallback(req, res, { redirectUrl, state, finish: finishCallback })
+    );
     await new Promise((resolve, reject) => {
       listener.once('error', reject);
       // Retain the registered redirect URI if this connection later needs
@@ -343,11 +420,16 @@ function createSharedOAuth({ url, credentialStore, openBrowser = openInBrowser, 
       // An unreadable (e.g. locked) keychain must not block a server that
       // needs no authentication; credentials are required only on challenge.
       let storeUnreadable = false;
-      try { await ready(); } catch { storeUnreadable = true; }
+      try {
+        await ready();
+      } catch {
+        storeUnreadable = true;
+      }
       lifetime.signal.throwIfAborted();
-      const signal = AbortSignal.any([lifetime.signal, ...(init.signal ? [init.signal] : [])]);
-      const sameOrigin = new URL(input).href === new URL(url).href ||
-        (new URL(input).origin === new URL(url).origin && isTransportEndpoint(input));
+      const signal = anySignal(lifetime.signal, init.signal);
+      const target = new URL(input);
+      const server = new URL(url);
+      const sameOrigin = target.href === server.href || (target.origin === server.origin && isTransportEndpoint(input));
       let sentRevision;
       let sentTokens;
       const request = async () => {
@@ -378,18 +460,22 @@ function createSharedOAuth({ url, credentialStore, openBrowser = openInBrowser, 
       if (storeUnreadable) throw reauthenticationRequired();
       if (!flight && tokens === attemptedToken) {
         flightController = new AbortController();
-        flight = login(challenge, flightController.signal, requestLogin(), browser, attemptedToken)
-          .finally(() => { flight = undefined; });
+        flight = login(challenge, flightController.signal, requestLogin(), browser, attemptedToken).finally(() => {
+          flight = undefined;
+        });
       }
       if (flight) {
         waiters++;
         let abort;
         try {
-          await Promise.race([flight, new Promise((_, reject) => {
-            abort = () => reject(fail());
-            signal.addEventListener('abort', abort, { once: true });
-            if (signal.aborted) abort();
-          })]);
+          await Promise.race([
+            flight,
+            new Promise((_, reject) => {
+              abort = () => reject(fail());
+              signal.addEventListener('abort', abort, { once: true });
+              if (signal.aborted) abort();
+            }),
+          ]);
         } finally {
           signal.removeEventListener('abort', abort);
           if (--waiters === 0 && flight) {
@@ -405,7 +491,12 @@ function createSharedOAuth({ url, credentialStore, openBrowser = openInBrowser, 
         await retried.body?.cancel();
         // Forget the rejected tokens unless a refresh (here or in another
         // process) or a log-out replaced them since this retry was sent.
-        await update(() => { tokens = undefined; }, { expected: sentRevision });
+        await update(
+          () => {
+            tokens = undefined;
+          },
+          { expected: sentRevision }
+        );
         throw reauthenticationRequired();
       }
       return retried;

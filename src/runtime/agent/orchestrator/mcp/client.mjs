@@ -165,7 +165,9 @@ export async function connectMcpServers(config, options = {}) {
   });
   // Connect all servers in PARALLEL: a slow/hung server (bounded by its
   // per-server startup timeout) must never delay the others' handshakes.
-  const settled = await Promise.allSettled(entries.map(([name, cfg]) => connectServer(name, cfg, scopeId, genAtStart, options)));
+  const settled = await Promise.allSettled(
+    entries.map(([name, cfg]) => connectServer(name, cfg, scopeId, genAtStart, options))
+  );
   settled.forEach((res, i) => {
     if (res.status !== 'rejected') return;
     const [name, cfg] = entries[i];
@@ -458,96 +460,98 @@ export async function executeMcpTool(name, args, options = {}) {
   let retryServer = null;
   const secrets = () => oauthSecrets(server.transport, retryServer?.transport);
   const gate = callAdmissionFor(server);
-  return gate.run(
-    options?.ownerKey || currentToolExecutionOwner(),
-    async () => {
-      // The gate stops forwarding the caller's abort once this task is
-      // admitted, so the task itself observes the signal for its whole run.
-      if (callSignal?.aborted) {
-        throw mcpAbortError(
-          callSignal,
-          `MCP tool call aborted before dispatch (server="${serverName}", tool="${toolName}")`
-        );
-      }
-      let result;
-      try {
-        result = await dispatch(server);
-      } catch (firstErr) {
-        const firstMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
-        if (isMcpCallAbortError(firstErr) || callSignal?.aborted) {
-          // A cancelled call is not a transport failure: reconnecting and
-          // replaying it would duplicate the side effect the caller just
-          // walked away from.
-          mcpLog(`[mcp-client] Tool call aborted by caller for "${serverName}/${toolName}".\n`);
-          throw firstErr;
-        }
-        if (isMcpToolCallTimeoutError(firstErr)) {
-          mcpLog(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
-          throw firstErr;
-        }
-        const serverDead = server.liveness?.alive === false;
-        if (!serverDead && isMcpServerResponseError(firstErr)) {
-          // The server answered (JSON-RPC error): it is alive — nothing to
-          // reconnect, and the call already ran its course.
-          throw firstErr;
-        }
-        // Only a failure that proves the request never left this process
-        // may be replayed; anything else may already have run server-side.
-        const undelivered = isMcpUndeliveredError(firstErr);
-        const deadTail = serverDead ? server.stderrTail?.() : '';
-        mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
-        try {
-          // The reconnect is SHARED (singleflight): the race only stops
-          // THIS caller from waiting on it — the reconnect keeps running
-          // for its other waiters. Without this, an abort mid-reconnect
-          // could not settle the call and the admission slot stayed held
-          // until the reconnect finished, or forever if it hung.
-          retryServer = await raceMcpAbort(
-            reconnectMcpServer(scopeId, serverName, server),
-            callSignal,
-            `MCP tool call aborted during reconnect (server="${serverName}", tool="${toolName}")`
-          );
-        } catch (reconnectErr) {
-          if (isMcpCallAbortError(reconnectErr) || callSignal?.aborted) throw reconnectErr;
-          const reconnectMsg = reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr);
-          throw new Error(
-            appendMcpStderrTail(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`, deadTail)
-          );
-        }
-        if (!undelivered) {
-          throw new Error(
-            appendMcpStderrTail(
-              `Tool call failed: ${firstMsg}; MCP server "${serverName}" was reconnected for the next call, but this call was not replayed because the request may already have reached the server`,
-              deadTail
-            )
-          );
-        }
-        // A reconnect that outlived the caller's abort must not dispatch the
-        // retry: that would run the side effect after cancellation.
+  return gate
+    .run(
+      options?.ownerKey || currentToolExecutionOwner(),
+      async () => {
+        // The gate stops forwarding the caller's abort once this task is
+        // admitted, so the task itself observes the signal for its whole run.
         if (callSignal?.aborted) {
           throw mcpAbortError(
             callSignal,
-            `MCP tool call aborted after reconnect (server="${serverName}", tool="${toolName}")`
+            `MCP tool call aborted before dispatch (server="${serverName}", tool="${toolName}")`
           );
         }
+        let result;
         try {
-          result = await dispatch(retryServer);
-        } catch (retryErr) {
-          if (isMcpCallAbortError(retryErr) || callSignal?.aborted) throw retryErr;
-          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          throw new Error(`Tool call failed: ${firstMsg}; retry after reconnect also failed: ${retryMsg}`);
+          result = await dispatch(server);
+        } catch (firstErr) {
+          const firstMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+          if (isMcpCallAbortError(firstErr) || callSignal?.aborted) {
+            // A cancelled call is not a transport failure: reconnecting and
+            // replaying it would duplicate the side effect the caller just
+            // walked away from.
+            mcpLog(`[mcp-client] Tool call aborted by caller for "${serverName}/${toolName}".\n`);
+            throw firstErr;
+          }
+          if (isMcpToolCallTimeoutError(firstErr)) {
+            mcpLog(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
+            throw firstErr;
+          }
+          const serverDead = server.liveness?.alive === false;
+          if (!serverDead && isMcpServerResponseError(firstErr)) {
+            // The server answered (JSON-RPC error): it is alive — nothing to
+            // reconnect, and the call already ran its course.
+            throw firstErr;
+          }
+          // Only a failure that proves the request never left this process
+          // may be replayed; anything else may already have run server-side.
+          const undelivered = isMcpUndeliveredError(firstErr);
+          const deadTail = serverDead ? server.stderrTail?.() : '';
+          mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
+          try {
+            // The reconnect is SHARED (singleflight): the race only stops
+            // THIS caller from waiting on it — the reconnect keeps running
+            // for its other waiters. Without this, an abort mid-reconnect
+            // could not settle the call and the admission slot stayed held
+            // until the reconnect finished, or forever if it hung.
+            retryServer = await raceMcpAbort(
+              reconnectMcpServer(scopeId, serverName, server),
+              callSignal,
+              `MCP tool call aborted during reconnect (server="${serverName}", tool="${toolName}")`
+            );
+          } catch (reconnectErr) {
+            if (isMcpCallAbortError(reconnectErr) || callSignal?.aborted) throw reconnectErr;
+            const reconnectMsg = reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr);
+            throw new Error(
+              appendMcpStderrTail(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`, deadTail)
+            );
+          }
+          if (!undelivered) {
+            throw new Error(
+              appendMcpStderrTail(
+                `Tool call failed: ${firstMsg}; MCP server "${serverName}" was reconnected for the next call, but this call was not replayed because the request may already have reached the server`,
+                deadTail
+              )
+            );
+          }
+          // A reconnect that outlived the caller's abort must not dispatch the
+          // retry: that would run the side effect after cancellation.
+          if (callSignal?.aborted) {
+            throw mcpAbortError(
+              callSignal,
+              `MCP tool call aborted after reconnect (server="${serverName}", tool="${toolName}")`
+            );
+          }
+          try {
+            result = await dispatch(retryServer);
+          } catch (retryErr) {
+            if (isMcpCallAbortError(retryErr) || callSignal?.aborted) throw retryErr;
+            const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            throw new Error(`Tool call failed: ${firstMsg}; retry after reconnect also failed: ${retryMsg}`);
+          }
         }
+        const normalized = normalizeToolEnvelope(await normalizeMcpToolResult(scrubMcpSecrets(result, secrets())));
+        const text = capMcpResult(normalized.result);
+        return normalized.explicitSuccess ? makeToolEnvelope(text, [], { explicitSuccess: true }) : text;
+      },
+      {
+        signal: callSignal,
       }
-      const normalized = normalizeToolEnvelope(await normalizeMcpToolResult(scrubMcpSecrets(result, secrets())));
-      const text = capMcpResult(normalized.result);
-      return normalized.explicitSuccess ? makeToolEnvelope(text, [], { explicitSuccess: true }) : text;
-    },
-    {
-      signal: callSignal,
-    }
-  ).catch((error) => {
-    throw scrubMcpOAuthError(error, server.cfg, secrets());
-  });
+    )
+    .catch((error) => {
+      throw scrubMcpOAuthError(error, server.cfg, secrets());
+    });
 }
 
 const MCP_FEATURE_REQUESTS = {

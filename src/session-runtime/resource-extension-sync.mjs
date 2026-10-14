@@ -34,7 +34,8 @@ export function createExtensionSync({
   // only the reconcile connects it there and drops the stale name. Servers
   // whose resolved config is unchanged stay untouched.
   async function applyMcpChanges(changes, interactive = false) {
-    for (const { name, enabled } of changes) await connectConfiguredMcp({ only: name, enabled, ...(interactive ? { interactive: enabled !== false } : {}) });
+    for (const { name, enabled } of changes)
+      await connectConfiguredMcp({ only: name, enabled, ...(interactive ? { interactive: enabled !== false } : {}) });
     return connectConfiguredMcp({ reconcile: true });
   }
 

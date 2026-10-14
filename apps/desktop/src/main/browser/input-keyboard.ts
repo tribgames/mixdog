@@ -173,10 +173,12 @@ export function createKeyboardInput(send: SendBrowserInput, options: { allowClip
     };
     // macOS editor shortcuts need Chromium's edit command when dispatched
     // through CDP; a synthetic Command+A alone does not select the field.
-    const commands = process.platform === 'darwin' && modifierBits === 4 && spec.code === 'KeyA'
-      ? { commands: ['selectAll'] }
-      : {};
-    if ((await send(guest, 'Input.dispatchKeyEvent', { ...base, type: 'rawKeyDown', ...commands }, signal)) === 'dialog') return;
+    const commands =
+      process.platform === 'darwin' && modifierBits === 4 && spec.code === 'KeyA' ? { commands: ['selectAll'] } : {};
+    if (
+      (await send(guest, 'Input.dispatchKeyEvent', { ...base, type: 'rawKeyDown', ...commands }, signal)) === 'dialog'
+    )
+      return;
     // Control+Enter is a shortcut, not a newline: a shortcut never types.
     if (spec.text && typesText) {
       if (

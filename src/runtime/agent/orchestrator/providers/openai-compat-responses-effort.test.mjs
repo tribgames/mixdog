@@ -154,7 +154,14 @@ test('a custom step effort is sent after its whole tool batch', async () => {
   const session = newSession(provider, model);
   const opts = appendTurn(session, provider, 'low');
   session.messages.push(
-    { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 't', arguments: {} }, { id: 'c2', name: 't', arguments: {} }] },
+    {
+      role: 'assistant',
+      content: '',
+      toolCalls: [
+        { id: 'c1', name: 't', arguments: {} },
+        { id: 'c2', name: 't', arguments: {} },
+      ],
+    },
     { role: 'tool', toolCallId: 'c1', content: 'one' },
     {
       role: 'tool',
@@ -186,7 +193,13 @@ test('a custom model rejecting the update is replayed once with the per-request 
   const session = newSession(provider, model);
   await sendCompatResponses(provider, session.messages, model, [], appendTurn(session, provider, 'low'));
   session.messages.push({ role: 'assistant', content: 'a' });
-  const result = await sendCompatResponses(provider, session.messages, model, [], appendTurn(session, provider, 'high'));
+  const result = await sendCompatResponses(
+    provider,
+    session.messages,
+    model,
+    [],
+    appendTurn(session, provider, 'high')
+  );
   assert.equal(result.content, 'ok');
   assert.equal(requests.length, 3);
   assert.equal(updatesOf(requests[1].body).length, 1);

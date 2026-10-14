@@ -20,8 +20,12 @@ function memoryStore(values = new Map()) {
   return {
     values,
     getSecretAsync: async (key) => values.get(key),
-    setSecretAsync: async (key, value) => { values.set(key, value); },
-    deleteSecretAsync: async (key) => { values.delete(key); },
+    setSecretAsync: async (key, value) => {
+      values.set(key, value);
+    },
+    deleteSecretAsync: async (key) => {
+      values.delete(key);
+    },
   };
 }
 // A credential store another process can share: one file per account. The
@@ -35,10 +39,11 @@ const FILE_STORE_SOURCE = `(dir) => ({
   deleteSecretAsync: (key) => rm(join(dir, key + '.json'), { force: true }),
 })`;
 const fileStore = (dir) => ({
-  getSecretAsync: (key) => readFile(join(dir, `${key}.json`), 'utf8').catch((error) => {
-    if (error.code === 'ENOENT') return null;
-    throw error;
-  }),
+  getSecretAsync: (key) =>
+    readFile(join(dir, `${key}.json`), 'utf8').catch((error) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }),
   setSecretAsync: (key, value) => writeFile(join(dir, `${key}.json`), value),
   deleteSecretAsync: (key) => rm(join(dir, `${key}.json`), { force: true }),
 });
@@ -49,13 +54,19 @@ function storeDir(t) {
 }
 // A real second process sharing the store directory and the credential lock files.
 async function logOutInAnotherProcess(dir, url) {
-  await promisify(execFile)(process.execPath, ['--input-type=module', '-e', `
+  await promisify(execFile)(process.execPath, [
+    '--input-type=module',
+    '-e',
+    `
     import { readFile, rm, writeFile } from 'node:fs/promises';
     import { join } from 'node:path';
     import { clearMcpOAuth } from ${JSON.stringify(new URL('./oauth.mjs', import.meta.url).href)};
     const [dir, url] = process.argv.slice(1);
     await clearMcpOAuth({ url, credentialStore: (${FILE_STORE_SOURCE})(dir) });
-  `, dir, url]);
+  `,
+    dir,
+    url,
+  ]);
 }
 // Holds the next request sent with one bearer token until released.
 function holdingFetch() {
@@ -66,21 +77,28 @@ function holdingFetch() {
     async fetchImpl(input, init = {}) {
       if (token && new Headers(init.headers).get('authorization') === `Bearer ${token}`) {
         token = undefined;
-        await new Promise((resolve) => { release = resolve; onHeld(); });
+        await new Promise((resolve) => {
+          release = resolve;
+          onHeld();
+        });
       }
       return fetch(input, init);
     },
     hold(value) {
       token = value;
-      return new Promise((resolve) => { onHeld = resolve; });
+      return new Promise((resolve) => {
+        onHeld = resolve;
+      });
     },
     release: () => release(),
   };
 }
 const createMcpOAuth = (options) => buildOAuth({ credentialStore: memoryStore(), interactive: true, ...options });
-const createMcpTransport = (options) => buildTransport({
-  ...options, oauthOptions: { credentialStore: memoryStore(), interactive: true, ...options.oauthOptions },
-});
+const createMcpTransport = (options) =>
+  buildTransport({
+    ...options,
+    oauthOptions: { credentialStore: memoryStore(), interactive: true, ...options.oauthOptions },
+  });
 
 async function fixture(t, { type = 'http', header = null, rotate = false } = {}) {
   let origin;
@@ -100,12 +118,18 @@ async function fixture(t, { type = 'http', header = null, rotate = false } = {})
       res.end(JSON.stringify({ resource: `${origin}/mcp`, authorization_servers: [origin] }));
     } else if (path.startsWith('/.well-known/')) {
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({
-        issuer: origin, authorization_endpoint: `${origin}/authorize`,
-        token_endpoint: `${origin}/token`, registration_endpoint: `${origin}/register`,
-        response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'],
-        code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'],
-      }));
+      res.end(
+        JSON.stringify({
+          issuer: origin,
+          authorization_endpoint: `${origin}/authorize`,
+          token_endpoint: `${origin}/token`,
+          registration_endpoint: `${origin}/register`,
+          response_types_supported: ['code'],
+          grant_types_supported: ['authorization_code', 'refresh_token'],
+          code_challenge_methods_supported: ['S256'],
+          token_endpoint_auth_methods_supported: ['none'],
+        })
+      );
     } else if (path === '/register') {
       let body = '';
       for await (const chunk of req) body += chunk;
@@ -130,20 +154,34 @@ async function fixture(t, { type = 'http', header = null, rotate = false } = {})
       }
       assert.equal(params.get('code'), 'fixture-code');
       assert.equal(params.get('redirect_uri'), metadata.redirect_uris[0]);
-      assert.equal(createHash('sha256').update(params.get('code_verifier')).digest('base64url'),
-        authorization.searchParams.get('code_challenge'));
+      assert.equal(
+        createHash('sha256').update(params.get('code_verifier')).digest('base64url'),
+        authorization.searchParams.get('code_challenge')
+      );
       exchanges++;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ access_token: validToken, refresh_token: refreshToken, token_type: 'Bearer', expires_in: 3600 }));
+      res.end(
+        JSON.stringify({
+          access_token: validToken,
+          refresh_token: refreshToken,
+          token_type: 'Bearer',
+          expires_in: 3600,
+        })
+      );
     } else if (path === '/mcp' || path === '/messages') {
       received.push(req.headers.authorization);
       if (req.headers.authorization !== (header || `Bearer ${validToken}`)) {
-        res.writeHead(401, { 'WWW-Authenticate': `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"` });
+        res.writeHead(401, {
+          'WWW-Authenticate': `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+        });
         res.end();
         return;
       }
       if (req.method === 'GET') {
-        if (type === 'http') { res.writeHead(405).end(); return; }
+        if (type === 'http') {
+          res.writeHead(405).end();
+          return;
+        }
         stream = res;
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         res.write('event: endpoint\ndata: /messages\n\n');
@@ -152,10 +190,18 @@ async function fixture(t, { type = 'http', header = null, rotate = false } = {})
       let body = '';
       for await (const chunk of req) body += chunk;
       const message = JSON.parse(body);
-      if (message.id === undefined) { res.writeHead(202).end(); return; }
-      const result = message.method === 'initialize'
-        ? { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' } }
-        : { tools: [{ name: 'hello', inputSchema: { type: 'object' } }] };
+      if (message.id === undefined) {
+        res.writeHead(202).end();
+        return;
+      }
+      const result =
+        message.method === 'initialize'
+          ? {
+              protocolVersion: '2025-03-26',
+              capabilities: { tools: {} },
+              serverInfo: { name: 'fixture', version: '1' },
+            }
+          : { tools: [{ name: 'hello', inputSchema: { type: 'object' } }] };
       const response = { jsonrpc: '2.0', id: message.id, result };
       if (type === 'sse') {
         stream.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
@@ -168,11 +214,22 @@ async function fixture(t, { type = 'http', header = null, rotate = false } = {})
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   origin = `http://127.0.0.1:${server.address().port}`;
-  t.after(() => { server.closeAllConnections(); server.close(); });
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
   return {
-    url: `${origin}/mcp`, received, exchanges: () => exchanges, refreshes: () => refreshes,
-    expire(next = 'renewed-token') { validToken = next; },
-    revoke() { revoked = true; validToken = 'reauthenticated-token'; },
+    url: `${origin}/mcp`,
+    received,
+    exchanges: () => exchanges,
+    refreshes: () => refreshes,
+    expire(next = 'renewed-token') {
+      validToken = next;
+    },
+    revoke() {
+      revoked = true;
+      validToken = 'reauthenticated-token';
+    },
     async approve(href) {
       authorization = new URL(href);
       const callback = new URL(authorization.searchParams.get('redirect_uri'));
@@ -189,14 +246,24 @@ for (const type of ['http', 'sse']) {
     const server = await fixture(t, { type });
     let opened = 0;
     const { transport } = createMcpTransport({
-      name: 'fixture', cfg: { type, url: server.url },
-      sdk: { StreamableHTTPClientTransport, SSEClientTransport }, log: () => {},
-      oauthOptions: { openBrowser: async (url) => { opened++; await server.approve(url); } },
+      name: 'fixture',
+      cfg: { type, url: server.url },
+      sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+      log: () => {},
+      oauthOptions: {
+        openBrowser: async (url) => {
+          opened++;
+          await server.approve(url);
+        },
+      },
     });
     const client = new Client({ name: 'test', version: '1' });
     t.after(() => transport.close());
     const result = await runBoundedHandshake({
-      name: 'fixture', cfg: {}, client, transport,
+      name: 'fixture',
+      cfg: {},
+      client,
+      transport,
       closeServer: () => transport.close(),
     });
     assert.equal(result.toolsResult.tools[0].name, 'hello');
@@ -209,8 +276,10 @@ for (const type of ['http', 'sse']) {
   test(`${type}: explicit bearer/header authentication does not start OAuth`, async (t) => {
     const server = await fixture(t, { type, header: 'Bearer existing' });
     const { transport } = createMcpTransport({
-      name: 'fixture', cfg: { type, url: server.url, headers: { Authorization: 'Bearer existing' } },
-      sdk: { StreamableHTTPClientTransport, SSEClientTransport }, log: () => {},
+      name: 'fixture',
+      cfg: { type, url: server.url, headers: { Authorization: 'Bearer existing' } },
+      sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+      log: () => {},
       oauthOptions: { openBrowser: () => assert.fail('OAuth must not open') },
     });
     const client = new Client({ name: 'test', version: '1' });
@@ -272,7 +341,8 @@ for (const mode of ['cancel', 'request-abort', 'timeout', 'denial']) {
     const oauth = createMcpOAuth({
       // The timeout must outlast discovery, registration and the credential
       // lock/marker writes before the browser step, even under suite load.
-      url: server.url, timeoutMs: mode === 'timeout' ? 1000 : 5000,
+      url: server.url,
+      timeoutMs: mode === 'timeout' ? 1000 : 5000,
       openBrowser: async (href) => {
         const url = new URL(href);
         callback = new URL(url.searchParams.get('redirect_uri'));
@@ -286,7 +356,10 @@ for (const mode of ['cancel', 'request-abort', 'timeout', 'denial']) {
       },
     });
     t.after(() => oauth.close());
-    await assert.rejects(oauth.fetch(server.url, { signal: controller.signal }), /MCP OAuth login failed, cancelled, or timed out/);
+    await assert.rejects(
+      oauth.fetch(server.url, { signal: controller.signal }),
+      /MCP OAuth login failed, cancelled, or timed out/
+    );
     assert.ok(callback);
     assert.equal(server.exchanges(), 0);
     await assert.rejects(fetch(callback));
@@ -297,20 +370,30 @@ for (const type of ['http', 'sse']) {
   test(`${type}: closing the transport cancels a challenged handshake and cleans the callback`, async (t) => {
     const server = await fixture(t, { type });
     let opened;
-    const ready = new Promise((resolve) => { opened = resolve; });
+    const ready = new Promise((resolve) => {
+      opened = resolve;
+    });
     let callback;
     const { transport } = createMcpTransport({
-      name: 'fixture', cfg: { type, url: server.url },
-      sdk: { StreamableHTTPClientTransport, SSEClientTransport }, log: () => {},
-      oauthOptions: { openBrowser: (href) => {
-        callback = new URL(href).searchParams.get('redirect_uri');
-        opened();
-      } },
+      name: 'fixture',
+      cfg: { type, url: server.url },
+      sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+      log: () => {},
+      oauthOptions: {
+        openBrowser: (href) => {
+          callback = new URL(href).searchParams.get('redirect_uri');
+          opened();
+        },
+      },
     });
     const client = new Client({ name: 'test', version: '1' });
     t.after(() => transport.close());
     const handshake = runBoundedHandshake({
-      name: 'fixture', cfg: {}, client, transport, closeServer: () => transport.close(),
+      name: 'fixture',
+      cfg: {},
+      client,
+      transport,
+      closeServer: () => transport.close(),
     });
     const rejected = assert.rejects(handshake);
     await ready;
@@ -324,17 +407,25 @@ for (const type of ['http', 'sse']) {
 test('human login outlives the ordinary startup budget without timing out the SDK initialize request', async (t) => {
   const server = await fixture(t);
   const { transport } = createMcpTransport({
-    name: 'fixture', cfg: { type: 'http', url: server.url },
-    sdk: { StreamableHTTPClientTransport, SSEClientTransport }, log: () => {},
-    oauthOptions: { openBrowser: async (href) => {
-      await new Promise((resolve) => setTimeout(resolve, 120));
-      await server.approve(href);
-    } },
+    name: 'fixture',
+    cfg: { type: 'http', url: server.url },
+    sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+    log: () => {},
+    oauthOptions: {
+      openBrowser: async (href) => {
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        await server.approve(href);
+      },
+    },
   });
   const client = new Client({ name: 'test', version: '1' });
   t.after(() => transport.close());
   const result = await runBoundedHandshake({
-    name: 'fixture', cfg: { startupTimeoutMs: 80 }, client, transport, closeServer: () => transport.close(),
+    name: 'fixture',
+    cfg: { startupTimeoutMs: 80 },
+    client,
+    transport,
+    closeServer: () => transport.close(),
   });
   assert.equal(result.toolsResult.tools[0].name, 'hello');
 });
@@ -350,7 +441,8 @@ test('stored credentials survive connection close and a fresh store instance wit
   assert.equal(saved.tokens.refresh_token, 'fixture-refresh');
   assert.match(saved.redirectUrl, /^http:\/\/127\.0\.0\.1:\d+\/oauth\/callback$/);
   const restarted = buildOAuth({
-    url: server.url, credentialStore: memoryStore(store.values),
+    url: server.url,
+    credentialStore: memoryStore(store.values),
     openBrowser: () => assert.fail('Stored credentials must not open a browser'),
   });
   t.after(() => restarted.close());
@@ -364,22 +456,34 @@ test('stored credentials survive connection close and a fresh store instance wit
 test('background missing and revoked credentials require explicit reconnect without popup', async (t) => {
   const server = await fixture(t);
   const store = memoryStore();
-  const background = buildOAuth({ url: server.url, credentialStore: store,
-    openBrowser: () => assert.fail('Background login is forbidden') });
+  const background = buildOAuth({
+    url: server.url,
+    credentialStore: store,
+    openBrowser: () => assert.fail('Background login is forbidden'),
+  });
   await assert.rejects(background.fetch(server.url), { code: 'reauthenticationRequired' });
   background.close();
   const login = createMcpOAuth({ url: server.url, credentialStore: store, openBrowser: server.approve });
   await login.fetch(server.url);
   login.close();
   server.revoke();
-  const recovery = buildOAuth({ url: server.url, credentialStore: store,
-    openBrowser: () => assert.fail('Automatic recovery must not open a browser') });
+  const recovery = buildOAuth({
+    url: server.url,
+    credentialStore: store,
+    openBrowser: () => assert.fail('Automatic recovery must not open a browser'),
+  });
   await assert.rejects(recovery.fetch(server.url), { code: 'reauthenticationRequired' });
   await assert.rejects(recovery.fetch(server.url), { code: 'reauthenticationRequired' });
   recovery.close();
   let opened = 0;
-  const reconnect = createMcpOAuth({ url: server.url, credentialStore: store,
-    openBrowser: async (href) => { opened++; await server.approve(href); } });
+  const reconnect = createMcpOAuth({
+    url: server.url,
+    credentialStore: store,
+    openBrowser: async (href) => {
+      opened++;
+      await server.approve(href);
+    },
+  });
   t.after(() => reconnect.close());
   assert.equal((await reconnect.fetch(server.url)).status, 405);
   assert.equal(opened, 1);
@@ -392,14 +496,24 @@ test('concurrent connections share one login and cancelling one does not cancel 
   let authorize;
   let opened = 0;
   let notify;
-  const ready = new Promise((resolve) => { notify = resolve; });
+  const ready = new Promise((resolve) => {
+    notify = resolve;
+  });
   const options = {
-    url: server.url, credentialStore: store,
-    openBrowser: (href) => { opened++; authorize = href; notify(); },
+    url: server.url,
+    credentialStore: store,
+    openBrowser: (href) => {
+      opened++;
+      authorize = href;
+      notify();
+    },
   };
   const first = createMcpOAuth(options);
   const second = createMcpOAuth(options);
-  t.after(() => { first.close(); second.close(); });
+  t.after(() => {
+    first.close();
+    second.close();
+  });
   const a = first.fetch(server.url);
   const rejected = assert.rejects(a, /cancelled/);
   const b = second.fetch(server.url);
@@ -424,7 +538,7 @@ test('exact server paths and queries isolate credentials and token forwarding', 
   const login = createMcpOAuth({ url: server.url, credentialStore: store, openBrowser: server.approve });
   t.after(() => login.close());
   await login.fetch(server.url);
-  for (const url of [server.url + '?tenant=other', server.url.replace('/mcp', '/messages')]) {
+  for (const url of [`${server.url}?tenant=other`, server.url.replace('/mcp', '/messages')]) {
     const isolated = buildOAuth({ url, credentialStore: store, openBrowser: () => assert.fail('No popup') });
     t.after(() => isolated.close());
     await assert.rejects(isolated.fetch(url), { code: 'reauthenticationRequired' });
@@ -438,13 +552,23 @@ test('successful handshake consumes explicit permission before later automatic r
   const server = await fixture(t);
   let opened = 0;
   const { transport } = createMcpTransport({
-    name: 'fixture', cfg: { type: 'http', url: server.url },
-    sdk: { StreamableHTTPClientTransport }, log: () => {},
-    oauthOptions: { openBrowser: async (url) => { opened++; await server.approve(url); } },
+    name: 'fixture',
+    cfg: { type: 'http', url: server.url },
+    sdk: { StreamableHTTPClientTransport },
+    log: () => {},
+    oauthOptions: {
+      openBrowser: async (url) => {
+        opened++;
+        await server.approve(url);
+      },
+    },
   });
   t.after(() => transport.close());
   await runBoundedHandshake({
-    name: 'fixture', cfg: {}, client: new Client({ name: 'test', version: '1' }), transport,
+    name: 'fixture',
+    cfg: {},
+    client: new Client({ name: 'test', version: '1' }),
+    transport,
     closeServer: () => transport.close(),
   });
   server.revoke();
@@ -475,8 +599,10 @@ for (const auth of [
     delete process.env.MIXDOG_TEST_UNSET_MCP_KEY;
     const server = await fixture(t);
     const { transport } = createMcpTransport({
-      name: 'fixture', cfg: { type: 'http', url: server.url, ...auth },
-      sdk: { StreamableHTTPClientTransport }, log: () => {},
+      name: 'fixture',
+      cfg: { type: 'http', url: server.url, ...auth },
+      sdk: { StreamableHTTPClientTransport },
+      log: () => {},
       oauthOptions: { openBrowser: () => assert.fail('OAuth must not open') },
     });
     t.after(() => transport.close());
@@ -491,18 +617,31 @@ for (const auth of [
 test('an unreadable keychain blocks only servers that challenge for authentication', async (t) => {
   const open = createServer((_req, res) => res.writeHead(200).end('open'));
   await new Promise((resolve) => open.listen(0, '127.0.0.1', resolve));
-  t.after(() => { open.closeAllConnections(); open.close(); });
+  t.after(() => {
+    open.closeAllConnections();
+    open.close();
+  });
   const locked = {
-    getSecretAsync: async () => { throw new Error('keychain locked'); },
+    getSecretAsync: async () => {
+      throw new Error('keychain locked');
+    },
     setSecretAsync: async () => assert.fail('Nothing may be written'),
     deleteSecretAsync: async () => assert.fail('Nothing may be deleted'),
   };
   const openUrl = `http://127.0.0.1:${open.address().port}/mcp`;
-  const anonymous = createMcpOAuth({ url: openUrl, credentialStore: locked, openBrowser: () => assert.fail('No popup') });
+  const anonymous = createMcpOAuth({
+    url: openUrl,
+    credentialStore: locked,
+    openBrowser: () => assert.fail('No popup'),
+  });
   t.after(() => anonymous.close());
   assert.equal((await anonymous.fetch(openUrl)).status, 200);
   const server = await fixture(t);
-  const challenged = createMcpOAuth({ url: server.url, credentialStore: locked, openBrowser: () => assert.fail('No popup') });
+  const challenged = createMcpOAuth({
+    url: server.url,
+    credentialStore: locked,
+    openBrowser: () => assert.fail('No popup'),
+  });
   t.after(() => challenged.close());
   await assert.rejects(challenged.fetch(server.url), { code: 'reauthenticationRequired' });
   assert.deepEqual(server.received, [undefined]);
@@ -541,7 +680,10 @@ test('a refresh by another process is adopted instead of replaying its rotated r
   const options = { url: server.url, openBrowser: () => assert.fail('Refresh must not open') };
   const first = buildOAuth({ ...options, credentialStore: memoryStore(values) });
   const second = buildOAuth({ ...options, credentialStore: memoryStore(values) });
-  t.after(() => { first.close(); second.close(); });
+  t.after(() => {
+    first.close();
+    second.close();
+  });
   assert.equal((await first.fetch(server.url)).status, 405);
   assert.equal((await second.fetch(server.url)).status, 405);
   server.expire();
@@ -556,7 +698,10 @@ test('a delayed rejected retry never clears tokens another process refreshed sin
   const values = new Map();
   const holding = holdingFetch();
   const first = createMcpOAuth({
-    url: server.url, credentialStore: memoryStore(values), openBrowser: server.approve, fetchImpl: holding.fetchImpl,
+    url: server.url,
+    credentialStore: memoryStore(values),
+    openBrowser: server.approve,
+    fetchImpl: holding.fetchImpl,
   });
   t.after(() => first.close());
   assert.equal((await first.fetch(server.url)).status, 405);
@@ -567,7 +712,9 @@ test('a delayed rejected retry never clears tokens another process refreshed sin
   const delayed = first.fetch(server.url);
   await held;
   const second = buildOAuth({
-    url: server.url, credentialStore: memoryStore(values), openBrowser: () => assert.fail('Refresh must not open'),
+    url: server.url,
+    credentialStore: memoryStore(values),
+    openBrowser: () => assert.fail('Refresh must not open'),
   });
   t.after(() => second.close());
   assert.equal((await second.fetch(server.url)).status, 405);
@@ -592,8 +739,14 @@ test('a log-out by another process wins over a login pending since before it', a
   const server = await fixture(t);
   const dir = storeDir(t);
   let opened;
-  const authorization = new Promise((resolve) => { opened = resolve; });
-  const pending = createMcpOAuth({ url: server.url, credentialStore: fileStore(dir), openBrowser: (href) => opened(href) });
+  const authorization = new Promise((resolve) => {
+    opened = resolve;
+  });
+  const pending = createMcpOAuth({
+    url: server.url,
+    credentialStore: fileStore(dir),
+    openBrowser: (href) => opened(href),
+  });
   t.after(() => pending.close());
   const login = pending.fetch(server.url);
   const rejected = assert.rejects(login, /MCP OAuth login failed, cancelled, or timed out/);
@@ -611,7 +764,10 @@ test('cached tokens observe a log-out by another process and never restore its c
   const dir = storeDir(t);
   const holding = holdingFetch();
   const cached = createMcpOAuth({
-    url: server.url, credentialStore: fileStore(dir), openBrowser: server.approve, fetchImpl: holding.fetchImpl,
+    url: server.url,
+    credentialStore: fileStore(dir),
+    openBrowser: server.approve,
+    fetchImpl: holding.fetchImpl,
   });
   t.after(() => cached.close());
   assert.equal((await cached.fetch(server.url)).status, 405);

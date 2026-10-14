@@ -40,7 +40,16 @@ function Fixture() {
       </div>
       <div id="loading-tab-fixture" style={{ width: 240, height: 38 }}>
         <BrowserTabStrip
-          tabs={[{ id: 'loading', title: 'Loading page', url: 'https://example.test/', active: true, loading: true, kind: 'page' }]}
+          tabs={[
+            {
+              id: 'loading',
+              title: 'Loading page',
+              url: 'https://example.test/',
+              active: true,
+              loading: true,
+              kind: 'page',
+            },
+          ]}
           onSelect={async () => {}}
           onClose={async () => {}}
         />

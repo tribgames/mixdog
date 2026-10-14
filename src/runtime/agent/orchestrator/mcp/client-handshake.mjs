@@ -82,7 +82,9 @@ export async function runBoundedHandshake({
       rejectDeadline(startupTimeoutError(name, ms));
     }, ms);
   };
-  const deadline = new Promise((_, reject) => { rejectDeadline = reject; });
+  const deadline = new Promise((_, reject) => {
+    rejectDeadline = reject;
+  });
   const cancelOAuth = () => rejectDeadline(new Error('MCP OAuth login failed, cancelled, or timed out'));
   transport.oauth?.signal.addEventListener('abort', cancelOAuth, { once: true });
   if (transport.oauth?.signal.aborted) cancelOAuth();
@@ -91,7 +93,7 @@ export async function runBoundedHandshake({
   // budget still applies until the server actually challenges authentication.
   if (transport.oauth) transport.oauth.onStart = () => armDeadline(MCP_OAUTH_TIMEOUT_MS);
   const handshake = performHandshake(client, transport, {
-    timeout: transport.oauth ? MCP_MAX_TIMER_MS : startupTimeoutMs > 0 ? startupTimeoutMs : MCP_MAX_TIMER_MS,
+    timeout: !transport.oauth && startupTimeoutMs > 0 ? startupTimeoutMs : MCP_MAX_TIMER_MS,
   });
   try {
     return await Promise.race([handshake, deadline]);
@@ -122,7 +124,7 @@ export async function runBoundedHandshake({
     }
     throw tail ? new Error(appendMcpStderrTail(String(err), tail)) : err;
   } finally {
-    transport.oauth?.finishConnect?.();
+    transport.oauth?.finishConnect();
     if (guard.timer) clearTimeout(guard.timer);
     transport.oauth?.signal.removeEventListener('abort', cancelOAuth);
     if (transport.oauth) transport.oauth.onStart = () => {};

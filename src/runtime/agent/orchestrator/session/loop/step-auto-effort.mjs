@@ -97,6 +97,7 @@ export async function markStepEffort(state, assistantTurnMsg) {
     ms: judged.ms,
     probs: judged.probs.map((value) => Number(value.toFixed(3))),
   });
+  let marked;
   if (isCustomProviderName(provider)) {
     const level =
       resolved &&
@@ -109,11 +110,12 @@ export async function markStepEffort(state, assistantTurnMsg) {
     // The per-request effort also carries the step on an update route,
     // where a rejected update replays the request with it.
     state.opts.effort = level;
-    const marked =
-      snapshot.mode === 'custom' ? { ...snapshot, effort: level } : stepEffortConfiguration(snapshot, provider, model, level);
-    if (marked) last.meta = { ...last.meta, effortConfiguration: marked };
-    return;
+    marked =
+      snapshot.mode === 'custom'
+        ? { ...snapshot, effort: level }
+        : stepEffortConfiguration(snapshot, provider, model, level);
+  } else {
+    marked = resolved && stepEffortConfiguration(snapshot, provider, model, resolved.effort);
   }
-  const marked = resolved && stepEffortConfiguration(snapshot, provider, model, resolved.effort);
   if (marked) last.meta = { ...last.meta, effortConfiguration: marked };
 }

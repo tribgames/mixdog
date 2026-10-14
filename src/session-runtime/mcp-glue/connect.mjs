@@ -30,7 +30,12 @@ export function createMcpConnect({
   // Connect/disconnect exactly one server in the live registry, leaving all
   // others untouched. Used by the enable/disable toggle so a single-server
   // change never triggers a full disconnectAll()/reconnect freeze.
-  async function applyMcpServerConnection(name, enabled, servers = resolveEffectiveMcpServers().servers, interactive = false) {
+  async function applyMcpServerConnection(
+    name,
+    enabled,
+    servers = resolveEffectiveMcpServers().servers,
+    interactive = false
+  ) {
     const target = clean(name);
     if (!target) return;
     // Changing this server's state clears any stale failure record for it.
@@ -74,7 +79,13 @@ export function createMcpConnect({
     ]);
   }
 
-  async function connectConfiguredMcp({ reset = false, only = null, enabled = true, reconcile = false, interactive = false } = {}) {
+  async function connectConfiguredMcp({
+    reset = false,
+    only = null,
+    enabled = true,
+    reconcile = false,
+    interactive = false,
+  } = {}) {
     if (envFlag('MIXDOG_DISABLE_MCP')) {
       ++state.mcpConnectGeneration;
       state.mcpFailures = [];
