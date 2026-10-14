@@ -380,11 +380,12 @@ export function ModelRouteLabel({
   );
 }
 
-type ProviderIconKind = 'openai' | 'anthropic' | 'xai' | 'google' | 'cursor' | 'opencode' | 'synthetic';
+type ProviderIconKind = 'openai' | 'anthropic' | 'xai' | 'google' | 'cursor' | 'opencode' | 'meta' | 'synthetic';
 
 function providerIconKind(provider: string): ProviderIconKind {
   const normalized = provider.toLowerCase();
   if (normalized === 'cursor-oauth') return 'cursor';
+  if (normalized.startsWith('muse-code')) return 'meta';
   if (normalized === 'antigravity-oauth') return 'google';
   if (normalized === 'opencode-go') return 'opencode';
   if (normalized.includes('openai') || normalized.includes('codex')) return 'openai';
@@ -442,6 +443,16 @@ export function ProviderIcon({ provider, ...props }: SVGProps<SVGSVGElement> & {
             clipRule="evenodd"
           />
         </g>
+      )}
+      {/* Muse Code is Meta's: its looped infinity mark, stroked in the same ink. */}
+      {kind === 'meta' && (
+        <path
+          stroke="currentColor"
+          strokeWidth="3.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M20 20c-2.5-4.5-4.5-7-7.5-7C9 13 6 16 6 20s3 7 6.5 7c3 0 5-2.5 7.5-7s4.5-7 7.5-7c3.5 0 6.5 3 6.5 7s-3 7-6.5 7c-3 0-5-2.5-7.5-7Z"
+        />
       )}
       {kind === 'synthetic' && (
         <path
