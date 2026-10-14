@@ -46,20 +46,10 @@ test('finished shell rows follow running ones, newest finish first, with exit in
 });
 
 test('compact counts and usage meta omit unknown parts', () => {
-  assert.deepEqual([0, 999, 1000, 128_400, 999_960, 1_250_000].map(compactCount), [
-    '0',
-    '999',
-    '1k',
-    '128.4k',
-    '1M',
-    '1.3M',
-  ]);
+  assert.deepEqual([0, 999, 1000, 128_400, 999_960, 1_250_000].map(compactCount), ['0', '999', '1k', '128.4k', '1M', '1.3M']);
   assert.equal(agentUsageMeta(undefined), '');
   assert.equal(agentUsageMeta({ usage: null, toolCalls: null }), '');
-  assert.equal(
-    agentUsageMeta({ usage: { totalTokens: 128_400 }, toolCalls: null }),
-    translate('{{tokens}} tokens', { tokens: '128.4k' })
-  );
+  assert.equal(agentUsageMeta({ usage: { totalTokens: 128_400 }, toolCalls: null }), translate('{{tokens}} tokens', { tokens: '128.4k' }));
   assert.equal(
     agentUsageMeta({ usage: { totalTokens: 41_200 }, toolCalls: 9 }),
     `${translate('{{tokens}} tokens', { tokens: '41.2k' })} · ${translate('Island: {{count}} tool calls', { count: 9 })}`
