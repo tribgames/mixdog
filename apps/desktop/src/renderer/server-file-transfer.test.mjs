@@ -46,7 +46,9 @@ test('an upload sends the file in chunks, reports progress and commits', async (
   const { api, calls, received } = fakeUploadApi();
   const progress = [];
   const file = new File([new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])], 'a.bin');
-  const entry = await uploadFileToServer(api, file, 'session-1', { onProgress: (sent, total) => progress.push([sent, total]) });
+  const entry = await uploadFileToServer(api, file, 'session-1', {
+    onProgress: (sent, total) => progress.push([sent, total]),
+  });
   assert.equal(entry.absolutePath, '/srv/u/a.bin');
   assert.deepEqual(received, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   assert.deepEqual(progress, [
@@ -54,7 +56,10 @@ test('an upload sends the file in chunks, reports progress and commits', async (
     [8, 10],
     [10, 10],
   ]);
-  assert.deepEqual(calls.map(([kind, , offset]) => (kind === 'chunk' ? offset : kind)), ['begin', 0, 4, 8, 'commit']);
+  assert.deepEqual(
+    calls.map(([kind, , offset]) => (kind === 'chunk' ? offset : kind)),
+    ['begin', 0, 4, 8, 'commit']
+  );
 });
 
 test('a cancelled upload stops between chunks and is aborted on the server', async () => {
@@ -116,7 +121,10 @@ test('a download steps until done, and a cancelled one is aborted', async () => 
   calls.length = 0;
   const controller = new AbortController();
   await assert.rejects(
-    downloadServerFile(api, '/srv/repo', 'r.pdf', undefined, { signal: controller.signal, onProgress: () => controller.abort() }),
+    downloadServerFile(api, '/srv/repo', 'r.pdf', undefined, {
+      signal: controller.signal,
+      onProgress: () => controller.abort(),
+    }),
     ServerTransferCancelledError
   );
   assert.deepEqual(calls, [['step', 4], ['abort']]);
