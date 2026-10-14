@@ -16,6 +16,7 @@ import React, {
 import { CapabilityIcon } from './CapabilityIcon';
 import { selectableComposerSkills, skillTitle, type ComposerSkill } from './composer-skill';
 import { t } from './i18n';
+import { subscribeSetupChanges } from './setup-change-refresh';
 import { mentionedSkillNames, skillMentions } from '../../../../src/runtime/shared/skill-mentions.mjs';
 
 export type ComposerSkillCatalog = {
@@ -59,19 +60,72 @@ export function cachedSkillCatalog(sessionId?: string | null): ComposerSkillCata
   return catalogs.get(sessionId || '');
 }
 
+// Reads are ordered per session: one that started before a skill change must
+// not land over the read that started after it.
+const startedReads = new Map<string, number>();
+const appliedReads = new Map<string, number>();
+
 export async function refreshSkillCatalog(sessionId?: string | null): Promise<ComposerSkillCatalog> {
+  const key = sessionId || '';
+  const read = (startedReads.get(key) ?? 0) + 1;
+  startedReads.set(key, read);
   const [result] = await window.mixdogDesktop.readCapabilities([
     { capability: 'skillsStatus', ...(sessionId ? { sessionId } : {}) },
   ]);
   if (!result?.ok) throw new Error(result && !result.ok ? result.error : 'Skills unavailable.');
   const next = composerSkillCatalog(result.value);
-  catalogs.set(sessionId || '', next);
-  for (const notify of catalogListeners) notify();
-  return next;
+  if (read > (appliedReads.get(key) ?? 0)) {
+    appliedReads.set(key, read);
+    catalogs.set(key, next);
+    for (const notify of catalogListeners) notify();
+  }
+  return catalogs.get(key) ?? next;
 }
 
-/** The session's catalog, re-read whenever `refreshKey` changes (the composer
- *  passes its focus state, so enabling a skill in Settings shows on return). */
+// Sessions with a mounted composer, so one change re-reads each of them once
+// however many panes show it.
+const mountedSessions = new Map<string, number>();
+let refreshQueued = false;
+
+function refreshMountedCatalogs(): void {
+  if (refreshQueued) return;
+  refreshQueued = true;
+  queueMicrotask(() => {
+    refreshQueued = false;
+    // A failed read leaves mentions unhighlighted (they still reach the
+    // runtime, which resolves them); the + menu surfaces the read error.
+    for (const key of mountedSessions.keys()) void refreshSkillCatalog(key || null).catch(() => undefined);
+  });
+}
+
+// Settings mutations that add, remove, enable or disable a skill (directly or
+// through the plugin that bundles it).
+const SKILL_CATALOG_MUTATIONS = new Set<string>([
+  'setDisabledSkills',
+  'setExtensionScope',
+  'addSkill',
+  'saveSkill',
+  'reloadSkills',
+  'reloadPlugins',
+  'addPlugin',
+  'updatePlugin',
+  'setPluginEnabled',
+  'removePlugin',
+]);
+
+/** Settings' mutation completion boundary: a resolved skill-changing write
+ *  re-reads every mounted composer's catalog. Other capabilities are ignored. */
+export function invalidateSkillCatalogForMutation(capability: string): boolean {
+  if (!SKILL_CATALOG_MUTATIONS.has(capability)) return false;
+  refreshMountedCatalogs();
+  return true;
+}
+
+/** The session's catalog, re-read when `refreshKey` changes (the composer
+ *  passes its focus state) and on every app signal that skills may have
+ *  changed while it stays focused: a settings mutation, a setup-tool or
+ *  host/other-client settings change, the window regaining focus (another
+ *  window or app), and a remote reconnect or state gap. Never on keystrokes. */
 export function useSkillCatalog(sessionId: string | null | undefined, refreshKey: unknown): ComposerSkillCatalog {
   const key = sessionId || '';
   const catalog = useSyncExternalStore(
@@ -81,10 +135,24 @@ export function useSkillCatalog(sessionId: string | null | undefined, refreshKey
   );
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey is the re-read trigger; the body does not read it
   useEffect(() => {
-    // A failed read leaves mentions unhighlighted (they still reach the
-    // runtime, which resolves them); the + menu surfaces the read error.
     void refreshSkillCatalog(key || null).catch(() => undefined);
   }, [key, refreshKey]);
+  useEffect(() => {
+    mountedSessions.set(key, (mountedSessions.get(key) ?? 0) + 1);
+    const unsubscribeSetup = subscribeSetupChanges(refreshMountedCatalogs);
+    window.addEventListener('focus', refreshMountedCatalogs);
+    window.addEventListener('mixdog:remote-state-gap', refreshMountedCatalogs);
+    window.addEventListener('mixdog:remote-reconnected', refreshMountedCatalogs);
+    return () => {
+      const count = (mountedSessions.get(key) ?? 1) - 1;
+      if (count > 0) mountedSessions.set(key, count);
+      else mountedSessions.delete(key);
+      unsubscribeSetup();
+      window.removeEventListener('focus', refreshMountedCatalogs);
+      window.removeEventListener('mixdog:remote-state-gap', refreshMountedCatalogs);
+      window.removeEventListener('mixdog:remote-reconnected', refreshMountedCatalogs);
+    };
+  }, [key]);
   return catalog;
 }
 

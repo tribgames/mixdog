@@ -21,8 +21,14 @@ window.HTMLElement.prototype.scrollIntoView = () => {};
 const { default: React, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { skillMentionMatchAt } = await import('./use-composer-palettes.ts');
-const { appliedSkillsOf, composerSkillCatalog, disabledMentionedSkills, filterSkillMentions, skillMentionSegments } =
-  await import('./composer-skill-mentions.tsx');
+const {
+  appliedSkillsOf,
+  composerSkillCatalog,
+  disabledMentionedSkills,
+  filterSkillMentions,
+  invalidateSkillCatalogForMutation,
+  skillMentionSegments,
+} = await import('./composer-skill-mentions.tsx');
 const { Composer } = await import('./Composer.tsx');
 
 const STATUS = {
@@ -253,6 +259,57 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
     assert.equal(line.textContent, 'No skills are on. Open skill settings');
     await act(async () => line.querySelector('button').click());
     assert.deepEqual(settingsOpened, ['skills']);
+
+    // A skill toggled elsewhere while the composer keeps focus: the palette,
+    // highlight and off-skill notice follow the app's change signals, and
+    // typing alone never re-reads the catalog.
+    currentStatus = STATUS;
+    const live = { ...props, sessionId: 'skill-mention-live', identityScope: 'skill-mention-live' };
+    await act(async () => root.render(React.createElement(Composer, live)));
+    input = document.querySelector('textarea');
+    await act(async () => input.blur());
+    await type('$api-review 보고 $');
+    assert.deepEqual(rows(), ['$release-notes', '$api-review']);
+    assert.deepEqual(tokens(), ['$api-review']);
+    const settle = () => act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)));
+    const readsBefore = reads.length;
+    await type('$api-review 보고 $r');
+    await type('$api-review 보고 $');
+    assert.equal(reads.length, readsBefore, 'keystrokes do not re-read skills');
+    assert.equal(invalidateSkillCatalogForMutation('setTheme'), false);
+    await settle();
+    assert.equal(reads.length, readsBefore, 'unrelated mutations do not re-read skills');
+
+    const toggled = (name, enabled) => ({
+      skills: STATUS.skills.map((skill) => (skill.name === name ? { ...skill, enabled } : skill)),
+    });
+    currentStatus = toggled('api-review', false);
+    assert.equal(document.activeElement, input);
+    await act(async () => {
+      assert.equal(invalidateSkillCatalogForMutation('setDisabledSkills'), true);
+    });
+    await settle();
+    assert.equal(document.activeElement, input);
+    assert.deepEqual(rows(), ['$release-notes']);
+    assert.deepEqual(tokens(), []);
+    assert.equal(
+      status(),
+      'api-review skill is off, so it is sent as plain text. Turn it on in Settings › Skills.'
+    );
+
+    // A setup-tool (or host settings) change brings it back the same way.
+    currentStatus = STATUS;
+    await act(async () => window.dispatchEvent(new window.CustomEvent('mixdog:setup-changed', { detail: { action: 'x' } })));
+    await settle();
+    assert.deepEqual(rows(), ['$release-notes', '$api-review']);
+    assert.deepEqual(tokens(), ['$api-review']);
+    assert.equal(status(), '');
+
+    // So does a remote state gap.
+    currentStatus = toggled('release-notes', false);
+    await act(async () => window.dispatchEvent(new window.Event('mixdog:remote-state-gap')));
+    await settle();
+    assert.deepEqual(rows(), ['$api-review']);
   } finally {
     await act(async () => root.unmount());
   }

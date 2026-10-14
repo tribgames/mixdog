@@ -15,6 +15,7 @@ import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
 import { record } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
+import { invalidateSkillCatalogForMutation } from '../composer-skill-mentions';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { SettingsConfirmDialog } from './capability-controls';
 import {
@@ -214,6 +215,9 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           // a resolved call invalidates the sidebar reference keys it makes
           // untrue (provider setup/model catalogs, search route, agents).
           invalidateSidebarReferenceForMutation(capability);
+          // The composer's `$` palette, mention highlight and off-skill notice
+          // read their own skill catalog; a skill change re-reads it.
+          invalidateSkillCatalogForMutation(capability);
           // The next load must re-read past the write instead of adopting a
           // cached or still-running sweep that predates it.
           invalidateCapabilitySettings(api, capability);
