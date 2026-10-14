@@ -62,6 +62,10 @@ function restoredTranscriptMetadata(message) {
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
     ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
     ...(typeof value.checkpointId === 'string' && value.checkpointId ? { checkpointId: value.checkpointId } : {}),
+    // Skills this user turn explicitly loaded (header selection or `$name`).
+    ...(Array.isArray(value.appliedSkills) && value.appliedSkills.length
+      ? { appliedSkills: value.appliedSkills.filter((name) => typeof name === 'string' && name) }
+      : {}),
     ...(completion ? { completion } : {}),
   };
 }

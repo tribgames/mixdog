@@ -5,7 +5,7 @@
 // (runAskAgentLoop). Provider-not-available and trim failures throw here so
 // the caller marks the session errored instead of leaving stage='connecting'.
 import { getProvider } from '../../providers/registry.mjs';
-import { prepareExplicitSkills } from '../explicit-skills.mjs';
+import { prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
 import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import { resolveTurnAutoEffort, turnStepAutoEffort } from './ask-turn-auto-effort.mjs';
 import { saveSessionAsync } from '../store.mjs';
@@ -151,9 +151,22 @@ export async function runAskAgentLoop({
   }
   try {
     if (!input.promptSource) {
-      await prepareExplicitSkills(input.prompt, outgoing, session, { cwd: effectiveCwd, signal: turnSignal });
+      const applied = await prepareExplicitSkills(input.prompt, outgoing, session, {
+        cwd: effectiveCwd,
+        signal: turnSignal,
+      });
+      // The user turn message sits right after the history it was built on.
+      const userMessage = outgoing[prepared.beforeCount - 1];
+      recordAppliedSkills(userMessage, applied);
       session.messages = filterModelVisibleSessionMessages(outgoing);
       checkpoint.schedule(true);
+      if (applied.length) {
+        try {
+          askOpts?.onSkillsApplied?.(applied, { messageId: userMessage?.meta?.transcript?.messageId || null });
+        } catch {
+          /* best-effort host callback */
+        }
+      }
     }
     return await _api_call_with_interrupt(sessionId, (signal) =>
       agentLoop(

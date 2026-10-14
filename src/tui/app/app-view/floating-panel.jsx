@@ -18,6 +18,12 @@ import { textEntryClearsByEmpty } from '../text-entry-policy.mjs';
 import { withPickerEnterLatch } from '../picker-enter-latch.mjs';
 import { providerPromptFields, settingsPromptFields } from './text-entry-labels.mjs';
 
+// `$name` skill completion reuses the command palette with its own copy.
+const SKILL_PALETTE_TEXT = {
+  description: 'Type to filter · Enter or Tab inserts the highlighted skill.',
+  help: '↑/↓ select · Enter insert · Esc cancel',
+};
+
 function renderToolApproval({ toolApproval, store, frameColumns, expandedOptionPanel }) {
   const resolve = (approved) => {
     store.resolveToolApproval?.(toolApproval.id, {
@@ -166,13 +172,15 @@ export function renderFloatingPanel(ctx) {
     );
   }
   if (slashPaletteOpen) {
+    const skills = ctx.paletteKind === 'skills';
     return (
       <SlashCommandPalette
         commands={slashCommands}
         selectedIndex={slashIndex}
-        title="Commands"
+        title={skills ? 'Skills' : 'Commands'}
         columns={frameColumns}
         query={activeSlashQuery}
+        {...(skills ? SKILL_PALETTE_TEXT : {})}
       />
     );
   }

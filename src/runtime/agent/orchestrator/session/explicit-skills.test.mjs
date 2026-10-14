@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { skillSelectionHeader, selectedSkillName } from '../../../shared/skill-selection.mjs';
 import { invalidateSkillsCache } from '../context/collect.mjs';
 import { latestSkillBodies } from '../context/skill-state.mjs';
-import { prepareExplicitSkills } from './explicit-skills.mjs';
+import { prepareExplicitSkills, recordAppliedSkills } from './explicit-skills.mjs';
+import { restoreTranscriptItems } from './transcript-restore/restore.mjs';
 import { SKILL_TOOL } from '../runtime-core/tool-defs.mjs';
 import { applyDeferredToolSurface, snapshotProviderRequestTools } from '../runtime-core/tool-catalog.mjs';
 import { buildRequestBody } from '../providers/openai-responses-payload.mjs';
@@ -292,6 +293,178 @@ test('queued selections are prepared before continuation, while task notificatio
     assert.equal(sends, 2);
     assert.deepEqual(executed, ['selected-guide']);
     assert.equal(bodies(session).length, 1);
+  });
+});
+
+function addSkill(root, name, frontmatter = '') {
+  const dir = join(root, 'skills', name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: Skill ${name}.\n${frontmatter}---\n# ${name} body\nFollow ${name}.\n`
+  );
+  invalidateSkillsCache(root);
+}
+
+const skillBodyNames = (session) =>
+  bodies(session).map((message) => /<name>([^<]+)<\/name>/.exec(message.content)[1]);
+
+test('inline $name mentions load every named skill in first-mention order, deduplicated with the header', async () => {
+  await withSkill(async ({ root }) => {
+    addSkill(root, 'second-guide');
+    for (const provider of ['openai-oauth', 'anthropic-oauth']) {
+      // A mid-text mention selects the skill; the prompt itself is not rewritten.
+      let session = newSession(provider, root);
+      const midText = 'Please follow $selected-guide while you work.';
+      session.messages.push({ role: 'user', content: midText });
+      const promptIndex = session.messages.length - 1;
+      assert.deepEqual(await prepareExplicitSkills(midText, session.messages, session), ['selected-guide']);
+      assert.equal(session.messages[promptIndex].content, midText);
+      assert.deepEqual(skillBodyNames(session), ['selected-guide']);
+
+      // Two mentions (one inside brackets, one in a later text part) load both, in order.
+      session = newSession(provider, root);
+      const parts = [
+        { type: 'text', text: 'First ($second-guide),' },
+        { type: 'text', text: '$selected-guide next.' },
+      ];
+      assert.deepEqual(await prepareExplicitSkills(parts, session.messages, session), [
+        'second-guide',
+        'selected-guide',
+      ]);
+      assert.deepEqual(skillBodyNames(session), ['second-guide', 'selected-guide']);
+
+      // A header selection plus a mention of the same skill loads it once; header first.
+      session = newSession(provider, root);
+      const executed = [];
+      session.beforeToolHook = async (call) => {
+        executed.push(call.args.name);
+        return { action: 'allow' };
+      };
+      const mixed = `${skillSelectionHeader('selected-guide')}Use $second-guide and $selected-guide again.`;
+      assert.deepEqual(await prepareExplicitSkills(mixed, session.messages, session), [
+        'selected-guide',
+        'second-guide',
+      ]);
+      assert.deepEqual(executed, ['selected-guide', 'second-guide']);
+      assert.deepEqual(skillBodyNames(session), ['selected-guide', 'second-guide']);
+    }
+  });
+});
+
+test('unknown, shell-like, embedded, disabled and unavailable mentions stay prose', async () => {
+  await withSkill(async ({ root }) => {
+    addSkill(root, 'off-guide');
+    addSkill(root, 'needs-feature', 'metadata:\n  requires: no-such-feature\n');
+    const { patchSkillsDisabled } = await import('../config.mjs');
+    const backupRoot = process.env.MIXDOG_USER_DATA_BACKUP_ROOT;
+    process.env.MIXDOG_USER_DATA_BACKUP_ROOT = join(root, 'backups');
+    try {
+      patchSkillsDisabled(['off-guide']);
+    } finally {
+      if (backupRoot === undefined) delete process.env.MIXDOG_USER_DATA_BACKUP_ROOT;
+      else process.env.MIXDOG_USER_DATA_BACKUP_ROOT = backupRoot;
+    }
+    const session = newSession('openai-oauth', root);
+    const prompt =
+      'Echo $HOME and pay $300 to $unknown-skill; mail me@$selected-guide or a$selected-guide; ' +
+      'also $off-guide and $needs-feature and $Selected-guide.';
+    const before = structuredClone(session.messages);
+    const applied = await prepareExplicitSkills(prompt, session.messages, session, {
+      execute() {
+        assert.fail('prose mentions must not execute Skill');
+      },
+    });
+    assert.deepEqual(applied, []);
+    assert.deepEqual(session.messages, before);
+  });
+});
+
+test('at most five explicit skills are prepared per turn', async () => {
+  await withSkill(async ({ root }) => {
+    const names = ['g-one', 'g-two', 'g-three', 'g-four', 'g-five', 'g-six', 'g-seven'];
+    for (const name of names) addSkill(root, name);
+    const session = newSession('openai-oauth', root);
+    const executed = [];
+    const applied = await prepareExplicitSkills(names.map((name) => `$${name}`).join(' '), session.messages, session, {
+      async execute(_tool, args) {
+        executed.push(args.name);
+        return `Loaded skill: ${args.name}`;
+      },
+    });
+    assert.deepEqual(executed, names.slice(0, 5));
+    assert.deepEqual(applied, names.slice(0, 5));
+  });
+});
+
+test('applied skills are recorded on the steered user row, reported live and restored', async () => {
+  await withSkill(async ({ root }) => {
+    const session = newSession('openai-oauth', root);
+    session.messages.push({ role: 'user', content: 'First task' });
+    const reported = [];
+    let sends = 0;
+    let drained = false;
+    await agentLoop(
+      {
+        name: 'openai-oauth',
+        async send() {
+          sends += 1;
+          return { content: 'Done.', toolCalls: [], stopReason: 'end_turn' };
+        },
+      },
+      session.messages,
+      'fake-model',
+      session.tools,
+      null,
+      root,
+      {
+        session,
+        onSkillsApplied: (names, detail) => reported.push({ names, detail }),
+        drainSteering() {
+          if (sends !== 1 || drained) return [];
+          drained = true;
+          return [
+            {
+              mode: 'prompt',
+              content: 'Next: use $selected-guide and $unknown-skill.',
+              transcriptMeta: { messageId: 'msg_steered' },
+            },
+          ];
+        },
+      }
+    );
+    const steered = session.messages.find((message) => message.meta?.transcript?.messageId === 'msg_steered');
+    assert.deepEqual(steered.meta.transcript.appliedSkills, ['selected-guide']);
+    assert.equal(steered.content, 'Next: use $selected-guide and $unknown-skill.');
+    assert.deepEqual(reported, [{ names: ['selected-guide'], detail: { messageId: 'msg_steered' } }]);
+    const restored = restoreTranscriptItems(JSON.parse(JSON.stringify(session.messages)));
+    const rows = restored.filter((item) => item.kind === 'user');
+    assert.deepEqual(rows.find((item) => item.messageId === 'msg_steered').appliedSkills, ['selected-guide']);
+    assert.equal(
+      rows.some((item) => item.messageId !== 'msg_steered' && item.appliedSkills),
+      false
+    );
+  });
+});
+
+test('header-only selections populate appliedSkills; failed loads never do', async () => {
+  await withSkill(async ({ root }) => {
+    const message = { role: 'user', content: 'x', meta: { transcript: { messageId: 'msg_header', at: 1 } } };
+    const session = newSession('openai-oauth', root);
+    const applied = await prepareExplicitSkills(
+      `${skillSelectionHeader('selected-guide')}Work`,
+      session.messages,
+      session
+    );
+    recordAppliedSkills(message, applied);
+    assert.deepEqual(message.meta.transcript, { messageId: 'msg_header', at: 1, appliedSkills: ['selected-guide'] });
+    const denied = newSession('openai-oauth', root);
+    denied.beforeToolHook = async () => ({ action: 'deny', reason: 'policy' });
+    assert.deepEqual(
+      await prepareExplicitSkills(`${skillSelectionHeader('selected-guide')}$selected-guide`, denied.messages, denied),
+      []
+    );
+    assert.deepEqual(await prepareExplicitSkills(skillSelectionHeader('not-installed'), denied.messages, denied), []);
   });
 });
 

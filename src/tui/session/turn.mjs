@@ -322,9 +322,26 @@ function applyTurnUsageDelta({ turn, getState, set, syncContextStats }, delta) {
   set({ stats: { ...getState().stats }, ...(spinner ? { spinner: { ...spinner, inputTokens, outputTokens } } : {}) });
 }
 
+// The runtime reports the skills a user turn actually loaded (`Skill:` header
+// or inline `$name`); the prompt row carries them as `appliedSkills`, the same
+// field a restored row reads from the persisted transcript metadata.
+function applySkillsToPromptRow({ turn, getState, patchItem }, names, detail = {}) {
+  const appliedSkills = (Array.isArray(names) ? names : []).filter((name) => typeof name === 'string' && name);
+  if (!appliedSkills.length) return;
+  const messageId = typeof detail?.messageId === 'string' ? detail.messageId : '';
+  const submitted = turn.submittedIds[0];
+  const row = getState().items.findLast(
+    (item) => item?.kind === 'user' && (messageId ? item.messageId === messageId : item.id === submitted)
+  );
+  if (row) patchItem(row.id, { appliedSkills });
+}
+
 function turnHandlers(ctx) {
   const { isCurrentTurn, drainPendingSteering } = ctx;
   return {
+    onSkillsApplied: (names, detail) => {
+      if (isCurrentTurn()) applySkillsToPromptRow(ctx, names, detail);
+    },
     drainSteering: (_sessionId, drainOptions) =>
       isCurrentTurn() ? drainPendingSteering({ ...drainOptions, turnEpoch: ctx.turn.epoch }) : [],
     onStreamDelta: () => {},

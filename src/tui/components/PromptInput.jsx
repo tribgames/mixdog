@@ -328,7 +328,9 @@ export function PromptInput({
     const next = prefix ? insertText(current, prefix) : current;
     if (commandPaletteActive) {
       const accepted = onCommandPaletteAccept?.(next.value);
-      if (accepted !== false) {
+      if (typeof accepted === 'string') {
+        commitDraft({ value: accepted, cursor: accepted.length, selectionAnchor: null });
+      } else if (accepted !== false) {
         commitDraft({ value: '', cursor: 0, selectionAnchor: null });
       } else if (next !== current) {
         commitDraft(next);

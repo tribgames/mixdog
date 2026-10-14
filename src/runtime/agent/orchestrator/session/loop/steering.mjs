@@ -156,7 +156,7 @@ function injectSteeringEntry(merged, { messages, opts, stage, onSkillPrompt }) {
   const notification = merged.mode === 'task-notification';
   const execution =
     notification && merged.execution && typeof merged.execution === 'object' ? { ...merged.execution } : null;
-  messages.push({
+  const message = {
     role: 'user',
     content: merged.content,
     meta: {
@@ -165,8 +165,9 @@ function injectSteeringEntry(merged, { messages, opts, stage, onSkillPrompt }) {
       ...(submissionIds.length ? { submissionIds } : {}),
       transcript: steeringTranscriptMeta,
     },
-  });
-  if (!notification) onSkillPrompt(merged.content);
+  };
+  messages.push(message);
+  if (!notification) onSkillPrompt(merged.content, message);
   const text = merged.text || steeringContentText(merged.content);
   try {
     opts.onSteerMessage?.(text, {

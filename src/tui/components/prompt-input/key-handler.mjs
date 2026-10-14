@@ -178,7 +178,10 @@ export function createPromptKeyHandler(ctx) {
 
       if (commandPaletteActive) {
         const accepted = onCommandPaletteAccept?.(draftRef.current.value);
-        if (accepted !== false) {
+        // A string accept (skill mention completion) replaces the draft.
+        if (typeof accepted === 'string') {
+          commitDraft({ value: accepted, cursor: accepted.length, selectionAnchor: null });
+        } else if (accepted !== false) {
           commitDraft({ value: '', cursor: 0, selectionAnchor: null });
         }
         return;

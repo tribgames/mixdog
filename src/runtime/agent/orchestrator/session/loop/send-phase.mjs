@@ -5,7 +5,7 @@
  */
 import { traceCacheBreak } from '../../cache-break-trace.mjs';
 import { resolveLiveToolCwd } from './tool-exec.mjs';
-import { prepareExplicitSkills } from '../explicit-skills.mjs';
+import { prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
 import { addUsage, usageDeltaEvent } from './usage.mjs';
 import { prepareProviderRequest } from './request-boundary.mjs';
 import { projectProviderRequest } from './request-projection.mjs';
@@ -44,10 +44,19 @@ export async function beginIteration(state) {
   // policy-checked selection before the next provider snapshot instead of
   // starting detached work from a drain callback.
   while (state.pendingSkillPrompts.length) {
-    await prepareExplicitSkills(state.pendingSkillPrompts.shift(), messages, sessionRef, {
+    const { content, message } = state.pendingSkillPrompts.shift();
+    const applied = await prepareExplicitSkills(content, messages, sessionRef, {
       cwd: state.cwd,
       signal: opts.signal,
     });
+    recordAppliedSkills(message, applied);
+    if (applied.length) {
+      try {
+        opts.onSkillsApplied?.(applied, { messageId: message?.meta?.transcript?.messageId || null });
+      } catch {
+        /* best-effort host callback */
+      }
+    }
   }
   const boundary = await prepareProviderRequest({
     provider,

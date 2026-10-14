@@ -28,6 +28,7 @@ function queryMatchesAlias(command, query) {
 }
 
 function commandDisplayLabel(command, query) {
+  if (command?.label) return command.label;
   const usage = String(command?.usage || command?.name || '').replace(/^\/+/, '');
   const aliasText =
     command?.showAliasUsage !== false &&
@@ -41,7 +42,15 @@ function commandDisplayLabel(command, query) {
   return `${label}${aliasText}`;
 }
 
-export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Commands', columns = 80, query = '' }) {
+export function SlashCommandPalette({
+  commands,
+  selectedIndex = 0,
+  title = 'Commands',
+  columns = 80,
+  query = '',
+  description: descriptionText = SLASH_DESCRIPTION,
+  help: helpText = SLASH_HELP,
+}) {
   const total = commands.length;
   const half = Math.floor(MAX_VISIBLE / 2);
   let start = Math.max(0, selectedIndex - half);
@@ -58,9 +67,9 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
   const labelWidth = Math.min(COMMAND_LABEL_WIDTH, Math.max(12, Math.floor(columns * 0.45)));
   const descriptionWidth = Math.max(0, columns - labelWidth - 12);
   // Standard panel rhythm: title row, blank, description/hint row, blank, content.
-  const description = truncateText(SLASH_DESCRIPTION, Math.max(0, columns - 4));
+  const description = truncateText(descriptionText, Math.max(0, columns - 4));
   const titleWidth = stringWidth(String(title || ''));
-  const help = truncateText(SLASH_HELP, Math.max(0, columns - titleWidth - 7));
+  const help = truncateText(helpText, Math.max(0, columns - titleWidth - 7));
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%">
