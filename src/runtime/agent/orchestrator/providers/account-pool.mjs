@@ -160,27 +160,40 @@ function accountExhaustedForModelOnly(providerName, id, model) {
 
 // Only a binding recorded for THIS provider counts: a session that switched
 // providers carries another roster's account ids (every roster has a `default`).
+// The session's binding is read before the serving account, which differs
+// when a model-scoped limit lent this one answer to another account.
 function sessionAccountId(providerName, key, messages, options) {
   if (key && sessionAccounts.has(key)) return sessionAccounts.get(key);
   const state = options.providerState;
-  if (state?.providerAccountId && state.providerAccountProvider === providerName) return state.providerAccountId;
+  if (state?.providerAccountId && state.providerAccountProvider === providerName) {
+    return state.providerSessionAccountId || state.providerAccountId;
+  }
   for (let index = (messages?.length || 0) - 1; index >= 0; index -= 1) {
     const routing = messages[index]?.providerMetadata?.[ROUTING_METADATA_KEY];
-    if (routing?.accountId && routing.provider === providerName) return routing.accountId;
+    if (routing?.accountId && routing.provider === providerName) return routing.sessionAccountId || routing.accountId;
   }
   return null;
 }
 
-// Stamp the serving account on the answer, independent of transport state.
-function recordServingAccount(providerName, result, id) {
+// Stamp the serving account on the answer, independent of transport state,
+// with the account the session stays bound to (`bindingId`).
+function recordServingAccount(providerName, result, id, bindingId) {
   if (!result || typeof result !== 'object') return;
   if (result.providerReplay) result.providerReplay = { ...result.providerReplay, accountId: id };
   if (result.providerState) {
-    result.providerState = { ...result.providerState, providerAccountId: id, providerAccountProvider: providerName };
+    result.providerState = {
+      ...result.providerState,
+      providerAccountId: id,
+      providerSessionAccountId: bindingId,
+      providerAccountProvider: providerName,
+    };
   }
   const metadata =
     result.providerMetadata && typeof result.providerMetadata === 'object' ? result.providerMetadata : {};
-  result.providerMetadata = { ...metadata, [ROUTING_METADATA_KEY]: { provider: providerName, accountId: id } };
+  result.providerMetadata = {
+    ...metadata,
+    [ROUTING_METADATA_KEY]: { provider: providerName, accountId: id, sessionAccountId: bindingId },
+  };
 }
 
 // Whether the failed account's quota window is exhausted, plus the server's
@@ -274,7 +287,6 @@ function poolSend(providerName, account) {
       const bound = boundAccountSend(providerName, row, messages, options);
       try {
         const result = await account(row.id).send(bound.history, model, tools, bound.opts);
-        recordServingAccount(providerName, result, row.id);
         // Headroom policy: a session's first pick, or its move off its account
         // on a limit, becomes the selection; continuing on its account does
         // not, so concurrent sessions never flip the selection back and forth.
@@ -283,6 +295,7 @@ function poolSend(providerName, account) {
         const scoped = switched
           ? refusalScoped
           : policy === 'headroom' && leftBound && accountExhaustedForModelOnly(providerName, boundId, model);
+        recordServingAccount(providerName, result, row.id, scoped && boundId ? boundId : row.id);
         if (sessionKey && policy === 'headroom' && !scoped) rememberSessionAccount(sessionKey, row.id);
         const commit = policy !== 'headroom' || !boundId || leftBound;
         if (commit && (await commitFallbackAccount(providerName, pool, row, model, scoped, policy))) {

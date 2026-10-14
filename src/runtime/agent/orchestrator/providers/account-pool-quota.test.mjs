@@ -312,13 +312,39 @@ test('headroom first: a stateless session keeps its account after the in-memory 
   assert.equal(used.at(-1), ids[1]);
   assert.equal(first.providerReplay, undefined);
   assert.equal(first.providerState, undefined);
-  assert.deepEqual(first.providerMetadata, { accountRouting: { provider, accountId: ids[1] } });
+  assert.deepEqual(first.providerMetadata, {
+    accountRouting: { provider, accountId: ids[1], sessionAccountId: ids[1] },
+  });
   await usage([80, 60, 10]);
   // Eviction from the bounded map, or a restart: only the transcript remains.
   resetSessionAccountBindings();
   const history = [{ role: 'assistant', content: 'ok', providerMetadata: first.providerMetadata }];
   await serving(used).send(history, 'm', [], { sessionId: 'headroom-evicted' });
   assert.equal(used.at(-1), ids[1], 'no limit was hit, so the session stays on its account');
+});
+
+test('headroom first: a model-scoped fallback answer leaves the session bound to its account after a restart', async () => {
+  const ids = await setup({ policy: 'headroom' });
+  for (const [i, id] of ids.entries()) {
+    await recordProviderAccountUsage(provider, id, { quotaWindows: [{ label: '5H', usedPct: [10, 50, 60][i] }] });
+  }
+  const used = [];
+  await serving(used).send([], 'claude-sonnet-4', [], { sessionId: 'headroom-scoped' });
+  assert.equal(used.at(-1), ids[0]);
+  await recordProviderAccountUsage(provider, ids[0], {
+    quotaWindows: [
+      { label: '5H', usedPct: 10 },
+      { label: '7D Opus', usedPct: 100, resetAt: Date.now() + 3_600_000 },
+    ],
+  });
+  const lent = await serving(used).send([], 'claude-opus-4-1', [], { sessionId: 'headroom-scoped' });
+  assert.notEqual(used.at(-1), ids[0], 'the Opus answer comes from another account');
+  assert.equal(lent.providerMetadata.accountRouting.accountId, used.at(-1));
+  assert.equal(lent.providerMetadata.accountRouting.sessionAccountId, ids[0]);
+  resetSessionAccountBindings();
+  const history = [{ role: 'assistant', content: 'ok', providerMetadata: lent.providerMetadata }];
+  await serving(used).send(history, 'claude-sonnet-4', [], { sessionId: 'headroom-scoped' });
+  assert.equal(used.at(-1), ids[0], 'after a restart the session still runs on its own account');
 });
 
 test('headroom first ignores bindings recorded for another provider', async () => {
