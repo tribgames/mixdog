@@ -159,10 +159,11 @@ function psQuote(value) {
  * The child is started through ProcessStartInfo so the argument variable and
  * Electron node mode live in ITS environment block only; setting them on
  * $env would reach every process the pipeline starts while this one streams.
- * Both output streams are redirected and read continuously by .NET's own
- * line readers into one queue, so lines come out in the order they arrived
- * whichever stream they are on and however slow the pipeline downstream is:
- * stdout lines go to the pipeline, stderr lines to the
+ * Both output streams are redirected and read continuously, one reader
+ * thread each, into one bounded queue, so lines come out in the order they
+ * arrived whichever stream they are on, and a slow pipeline downstream holds
+ * the child back instead of growing memory: stdout lines go to the pipeline,
+ * stderr lines to the
  * error stream as NativeCommandErrorMessage records, which is what PowerShell
  * makes of a native command's stderr, so `2>&1`, `2>$null` and `2>file`
  * behave the same and the records print as plain text. They are written with
@@ -195,33 +196,68 @@ export function renderPowerShellSkillFunction({ interpreter, entry, electron }) 
     `$__mxi.EnvironmentVariables['${SKILL_ARGV_ENV}'] = $__mxa`,
     ...(electron ? ["$__mxi.EnvironmentVariables['ELECTRON_RUN_AS_NODE'] = '1'"] : []),
     '$__mxw = { [CmdletBinding()] param($__mxr) $PSCmdlet.WriteError($__mxr) }',
-    // One queue, fed in arrival order by both streams' line handlers. The
-    // handlers run on .NET reader threads, where a PowerShell scriptblock
-    // cannot, so they are compiled expression trees: (s, d) => q.Add(new
-    // DictionaryEntry(stream, d.Data)), a null Data marking that stream's end.
-    "$__mxq = New-Object 'System.Collections.Concurrent.BlockingCollection[object]'",
+    // One bounded queue of text chunks, fed in arrival order by one reader
+    // thread per stream. Reader threads cannot run PowerShell, so their loop
+    // is a compiled expression tree:
+    //   b = new char[4096];
+    //   try { while ((n = reader.Read(b, 0, 4096)) > 0) q.Add(new DictionaryEntry(stream, new string(b, 0, n)), token);
+    //         q.Add(new DictionaryEntry(stream, null), token); } catch (Exception) { }
+    // q holds at most 256 chunks of at most 4096 UTF-16 chars (2 MiB): once
+    // full, Add blocks, the reader stops reading, and the child blocks on its
+    // pipe as it would behind a native command. Teardown cancels the token so
+    // a reader blocked in Add ends, kills the child so a reader blocked in
+    // Read ends, and disposes the process only after both readers have ended;
+    // q and the token source are never disposed, so nothing a reader can
+    // still touch is ever disposed.
+    "$__mxq = New-Object 'System.Collections.Concurrent.BlockingCollection[object]' -ArgumentList 256",
+    '$__mxt = New-Object System.Threading.CancellationTokenSource',
     '$__mxx = [System.Linq.Expressions.Expression]',
-    "$__mxs = $__mxx::Parameter([object], 's'); $__mxd = $__mxx::Parameter([System.Diagnostics.DataReceivedEventArgs], 'd')",
     // Expression.New through reflection: `$type::New` would call a constructor.
     "$__mxm = $__mxx.GetMethod('New', [type[]]@([System.Reflection.ConstructorInfo], [System.Linq.Expressions.Expression[]]))",
-    "$__mxh = foreach ($__mxk in 0, 1) { $__mxx::Lambda([System.Diagnostics.DataReceivedEventHandler], $__mxx::Call($__mxx::Constant($__mxq), $__mxq.GetType().GetMethod('Add', [type[]]@([object])), [System.Linq.Expressions.Expression[]]@($__mxx::Convert($__mxm.Invoke($null, @([System.Collections.DictionaryEntry].GetConstructor([type[]]@([object], [object])), [System.Linq.Expressions.Expression[]]@($__mxx::Constant($__mxk, [object]), $__mxx::Property($__mxd, 'Data')))), [object]))), [System.Linq.Expressions.ParameterExpression[]]@($__mxs, $__mxd)).Compile() }",
-    '$__mxp = New-Object System.Diagnostics.Process',
-    '$__mxp.StartInfo = $__mxi',
-    '$__mxp.add_OutputDataReceived($__mxh[0]); $__mxp.add_ErrorDataReceived($__mxh[1])',
-    '[void]$__mxp.Start()',
+    "$__mxg = $__mxq.GetType().GetMethod('Add', [type[]]@([object], [System.Threading.CancellationToken]))",
+    '$__mxde = [System.Collections.DictionaryEntry].GetConstructor([type[]]@([object], [object]))',
+    '$__mxsc = [string].GetConstructor([type[]]@([char[]], [int], [int]))',
+    "$__mxrd = [System.IO.TextReader].GetMethod('Read', [type[]]@([char[]], [int], [int]))",
+    [
+      '$__mxj = { param($__mxr, $__mxid)',
+      "$__mxb = $__mxx::Variable([char[]], 'b'); $__mxn = $__mxx::Variable([int], 'n'); $__mxl = $__mxx::Label('l');",
+      '$__mxadd = { param($__mxv) $__mxx::Call($__mxx::Constant($__mxq), $__mxg, [System.Linq.Expressions.Expression[]]@($__mxx::Convert($__mxm.Invoke($null, @($__mxde, [System.Linq.Expressions.Expression[]]@($__mxx::Constant($__mxid, [object]), $__mxv))), [object]), $__mxx::Constant($__mxt.Token))) };',
+      '$__mxread = $__mxx::Assign($__mxn, $__mxx::Call($__mxx::Constant($__mxr), $__mxrd, [System.Linq.Expressions.Expression[]]@($__mxb, $__mxx::Constant(0), $__mxx::Constant(4096))));',
+      '$__mxstop = $__mxx::IfThen($__mxx::LessThanOrEqual($__mxn, $__mxx::Constant(0)), $__mxx::Break($__mxl));',
+      '$__mxchunk = & $__mxadd ($__mxx::Convert($__mxm.Invoke($null, @($__mxsc, [System.Linq.Expressions.Expression[]]@($__mxb, $__mxx::Constant(0), $__mxn))), [object]));',
+      '$__mxloop = $__mxx::Loop($__mxx::Block([System.Linq.Expressions.Expression[]]@($__mxread, $__mxstop, $__mxchunk)), $__mxl);',
+      '$__mxeof = & $__mxadd ($__mxx::Constant($null, [object]));',
+      '$__mxtry = $__mxx::TryCatch($__mxx::Block([System.Linq.Expressions.Expression[]]@($__mxloop, $__mxeof)), [System.Linq.Expressions.CatchBlock[]]@($__mxx::Catch([System.Exception], $__mxx::Empty())));',
+      '$__mxbody = $__mxx::Block([System.Void], [System.Linq.Expressions.ParameterExpression[]]@($__mxb, $__mxn), [System.Linq.Expressions.Expression[]]@($__mxx::Assign($__mxb, $__mxx::NewArrayBounds([char], [System.Linq.Expressions.Expression[]]@($__mxx::Constant(4096)))), $__mxtry));',
+      '$__mxth = [System.Threading.Thread]::new($__mxx::Lambda([System.Threading.ThreadStart], $__mxbody, [System.Linq.Expressions.ParameterExpression[]]@()).Compile());',
+      '$__mxth.IsBackground = $true; $__mxth',
+      '}',
+    ].join(' '),
+    '$__mxp = [System.Diagnostics.Process]::Start($__mxi)',
+    '$__mxrs = @()',
     [
       'try {',
-      '$__mxp.BeginOutputReadLine(); $__mxp.BeginErrorReadLine();',
-      '$__mxn = 0;',
-      'while ($__mxn -lt 2) {',
+      '$__mxrs = @((& $__mxj $__mxp.StandardOutput 0), (& $__mxj $__mxp.StandardError 1)); foreach ($__mxth in $__mxrs) { $__mxth.Start() };',
+      '$__mxsb = @((New-Object System.Text.StringBuilder), (New-Object System.Text.StringBuilder)); $__mxopen = 2;',
+      'while ($__mxopen -gt 0) {',
       // The timeout only lets a stopped pipeline be noticed; it is no busy poll.
       '$__mxy = $null; if (-not $__mxq.TryTake([ref]$__mxy, 200)) { continue };',
-      'if ($null -eq $__mxy.Value) { $__mxn++ }',
-      'elseif ($__mxy.Key -eq 0) { $__mxy.Value }',
-      "else { & $__mxw (New-Object System.Management.Automation.ErrorRecord ((New-Object System.Management.Automation.RemoteException $__mxy.Value), 'NativeCommandErrorMessage', 'NotSpecified', $null)) -ErrorAction Continue }",
+      '$__mxk = [int]$__mxy.Key; $__mxs = $__mxsb[$__mxk];',
+      'if ($null -eq $__mxy.Value) { $__mxopen--; if ($__mxs.Length -eq 0) { continue }; $__mxls = @($__mxs.ToString(), $null); [void]$__mxs.Clear() }',
+      'else { $__mxv = [string]$__mxy.Value; [void]$__mxs.Append($__mxv); if ($__mxv.IndexOf([char]10) -lt 0) { continue }; $__mxls = $__mxs.ToString().Split([char]10); [void]$__mxs.Clear(); [void]$__mxs.Append($__mxls[-1]) };',
+      'for ($__mxz = 0; $__mxz -lt $__mxls.Length - 1; $__mxz++) {',
+      '$__mxl = $__mxls[$__mxz]; if ($__mxl.EndsWith([string][char]13)) { $__mxl = $__mxl.Substring(0, $__mxl.Length - 1) };',
+      "if ($__mxk -eq 0) { $__mxl } else { & $__mxw (New-Object System.Management.Automation.ErrorRecord ((New-Object System.Management.Automation.RemoteException $__mxl), 'NativeCommandErrorMessage', 'NotSpecified', $null)) -ErrorAction Continue }",
+      '}',
       '};',
       '$__mxp.WaitForExit(); $__mxc = $__mxp.ExitCode',
-      '} finally { if (-not $__mxp.HasExited) { try { $__mxp.Kill() } catch { } }; $__mxp.Dispose(); $__mxq.Dispose() }',
+      // No cmdlets in finally: a stopping pipeline refuses to run them.
+      '} finally {',
+      'if (-not $__mxp.HasExited) { try { $__mxp.Kill() } catch { } };',
+      '$__mxt.Cancel();',
+      '$__mxdone = $true; foreach ($__mxth in $__mxrs) { if ($__mxth.ThreadState -ne [System.Threading.ThreadState]::Unstarted -and -not $__mxth.Join(2000)) { $__mxdone = $false } };',
+      'if ($__mxdone) { $__mxp.Dispose() }',
+      '}',
     ].join(' '),
     '$global:LASTEXITCODE = $__mxc',
     'if ($__mxc) { exit $__mxc }',

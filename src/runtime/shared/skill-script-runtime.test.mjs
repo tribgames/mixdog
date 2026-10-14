@@ -334,6 +334,13 @@ const STREAMS_SCRIPT = [
   "  for (const [fd, text] of [[2, 'first'], [2, 'second 한글'], [1, 'third']]) { writeSync(fd, `${text}\\n`); pause(); }",
   "} else if (mode.startsWith('seq:')) {",
   "  [...mode.slice(4)].forEach((kind, i) => { writeSync(kind === 'o' ? 1 : 2, `${kind}${i}\\n`); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15); });",
+  "} else if (mode === 'flood') {",
+  '  for (let i = 0; i < 200000; i++) writeSync(1, `o${i}\\n`);',
+  "} else if (mode === 'mem') {",
+  "  const line = `${'x'.repeat(1023)}\\n`;",
+  '  for (let i = 0; i < 32768; i++) writeSync(1, line);',
+  "  writeSync(2, 'producer finished\\n');",
+  "  (await import('node:fs')).writeFileSync('done.txt', '');",
   "} else if (mode === 'big') {",
   '  for (let i = 0; i < 20000; i++) { writeSync(1, `o${i} ${"x".repeat(40)}\\n`); writeSync(2, `e${i} ${"y".repeat(40)}\\n`); }',
   '} else {',
@@ -376,6 +383,37 @@ for (const shell of powerShells()) {
       );
       assert.equal(random.code, 0, random.stderr);
       assert.deepEqual(lines(random.stdout), [...seq].map((kind, i) => `${kind}${i}`), `sequence ${seq}`);
+
+      // Twenty floods cut off by Select-Object -First 1 behave like the
+      // native command: first line, no crash, no child left running.
+      const flood = await ps(
+        [
+          "$r = foreach ($i in 1..20) { mixdog-skill-node 'streams.mjs' flood 0 | Select-Object -First 1 }",
+          `$n = & ${psQuote(process.execPath)} 'streams.mjs' flood 0 | Select-Object -First 1`,
+          'Start-Sleep -Milliseconds 1000',
+          "$kids = @(Get-CimInstance Win32_Process -Filter \"ParentProcessId=$PID\" | Where-Object { $_.Name -like 'node*' }).Count",
+          '"$($r.Count):$(@($r | Select-Object -Unique) -join \',\'):$($n):$($kids)"',
+          "'end'",
+        ].join('\n')
+      );
+      assert.equal(flood.code, 0, flood.stderr);
+      assert.deepEqual(lines(flood.stdout), ['20:o0:o0:0', 'end']);
+
+      // A 32 MiB producer behind a sleeping consumer blocks on its pipe;
+      // the PowerShell process does not buffer it.
+      const memory = await ps(
+        [
+          '$base = (Get-Process -Id $PID).PrivateMemorySize64',
+          "mixdog-skill-node 'streams.mjs' mem 0 2>$null | ForEach-Object -Begin { $i = 0 } -Process { if ($i++ -eq 0) { Start-Sleep -Seconds 4; \"blocked:$(-not (Test-Path 'done.txt'))\"; \"grew:$([int](((Get-Process -Id $PID).PrivateMemorySize64 - $base) / 1MB))\" } } -End { \"lines:$i\" }",
+          '"done:$(Test-Path \'done.txt\')"',
+        ].join('\n')
+      );
+      assert.equal(memory.code, 0, memory.stderr);
+      const [blocked, grew, count, done] = lines(memory.stdout);
+      assert.equal(blocked, 'blocked:True');
+      assert.ok(Number(grew.slice(5)) < 16, grew);
+      assert.equal(count, 'lines:32768');
+      assert.equal(done, 'done:True');
 
       // Not redirected: stderr prints as the bare text (PowerShell 7 colours
       // error records; the shell tool strips ANSI), success stays success.
