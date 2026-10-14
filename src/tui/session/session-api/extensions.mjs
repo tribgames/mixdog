@@ -83,8 +83,10 @@ export function createSessionExtensionsApi(bag) {
       }
       return await runtime.setExtensionScope(kind, name, projects);
     },
-    skillsStatus: () => {
-      return runtime.skillsStatus?.() || { cwd: getState().cwd, count: 0, skills: [] };
+    // `options.cwd`: list and scope skills for that folder instead of this
+    // session's (the desktop resolves a new-task draft's Project to it).
+    skillsStatus: (options) => {
+      return runtime.skillsStatus?.(options) || { cwd: getState().cwd, count: 0, skills: [] };
     },
     skillContent: (name) => {
       return runtime.skillContent?.(name);

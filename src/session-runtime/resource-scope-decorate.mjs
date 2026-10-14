@@ -14,11 +14,10 @@ function listOf(status, key) {
 }
 
 export function createScopeDecorators({ getConfig, getCurrentCwd }) {
-  function scopeInfo(kind, name, pluginId = '') {
+  function scopeInfo(kind, name, pluginId = '', cwd = getCurrentCwd()) {
     const scopes = extensionScopesFromConfig(getConfig());
     const scope = extensionScopeProjects(scopes, kind, name);
     const inheritedScope = pluginId ? extensionScopeProjects(scopes, 'plugins', pluginId) : null;
-    const cwd = getCurrentCwd();
     const activeHere =
       (scope ? cwdWithinProjects(cwd, scope) : true) &&
       (inheritedScope ? cwdWithinProjects(cwd, inheritedScope) : true);
@@ -34,12 +33,13 @@ export function createScopeDecorators({ getConfig, getCurrentCwd }) {
         })),
       };
     },
-    skills(status) {
+    /** `cwd`: decide `activeHere` for that folder instead of the current one. */
+    skills(status, cwd = getCurrentCwd()) {
       return {
         ...status,
         skills: listOf(status, 'skills').map((skill) => ({
           ...skill,
-          ...scopeInfo('skills', skill.name, skill?.owner?.kind === 'plugin' ? clean(skill.owner.id) : ''),
+          ...scopeInfo('skills', skill.name, skill?.owner?.kind === 'plugin' ? clean(skill.owner.id) : '', cwd),
         })),
       };
     },

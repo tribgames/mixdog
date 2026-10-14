@@ -271,6 +271,7 @@ const MODEL_SELECTION_KEYS = new Set([
 ]);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh', 'unlockKeychain', 'recheckKeychain']);
+const SKILLS_STATUS_OPTION_KEYS = new Set(['projectPath']);
 const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason']);
 const TOGGLEABLE_BUILTIN_TOOLS = new Set(['git', 'office', 'localProvider', 'tidy', 'autoEffort', 'visualize']);
 const INSTALLABLE_BUILTIN_FEATURES = new Set(['git', 'memory', 'office', 'localProvider', 'tidy', 'autoEffort']);
@@ -335,7 +336,7 @@ const CAPABILITY_ARITY = {
   getDisabledSkills: [0, 0],
   setDisabledSkills: [1, 1],
   setExtensionScope: [2, 3],
-  skillsStatus: [0, 0],
+  skillsStatus: [0, 1],
   skillContent: [1, 1],
   addSkill: [1, 1],
   saveSkill: [1, 1],
@@ -1130,6 +1131,17 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     ) {
       throw new TypeError('provider setup options are invalid.');
     }
+  }
+  // A new-task draft asks for skills as its selected Project would see them.
+  // Only an absolute path passes here; the host then resolves it to a
+  // registered Project (or its managed worktree) and refuses anything else.
+  if (capability === 'skillsStatus' && args.length) {
+    const options =
+      args[0] && typeof args[0] === 'object' && !Array.isArray(args[0]) ? (args[0] as Record<string, unknown>) : null;
+    if (!options) throw new TypeError('skills status options are invalid.');
+    requireAllowedKeys(options, SKILLS_STATUS_OPTION_KEYS, 'skills status options');
+    const projectPath = requiredString(options.projectPath, 'projectPath', 4_096);
+    if (!pathIsAbsolute(projectPath) || projectPath.includes('\0')) throw new TypeError('projectPath is invalid.');
   }
   const sessionId =
     input.sessionId === undefined || input.sessionId === null || input.sessionId === ''

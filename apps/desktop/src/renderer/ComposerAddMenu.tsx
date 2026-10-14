@@ -194,6 +194,7 @@ export function ComposerAddMenu({
   disabled,
   goalDisabled,
   sessionId,
+  projectPath,
   openRequest = 0,
   onAttach,
   onSkill,
@@ -204,6 +205,8 @@ export function ComposerAddMenu({
   disabled: boolean;
   goalDisabled: boolean;
   sessionId?: string | null;
+  /** Without a session (a new-task draft): the Project whose skills apply. */
+  projectPath?: string | null;
   /** Each change opens the menu (/skills); the value at mount is already handled. */
   openRequest?: number;
   onAttach(): void;
@@ -212,8 +215,11 @@ export function ComposerAddMenu({
   onMore(): void;
 }) {
   const [open, setOpen] = useState(false);
-  const cacheKey = sessionId || '';
-  const [skills, setSkills] = useState<ComposerSkill[]>(() => cachedSkillCatalog(cacheKey)?.selectable || []);
+  const session = sessionId || '';
+  const project = session ? '' : projectPath || '';
+  const [skills, setSkills] = useState<ComposerSkill[]>(
+    () => cachedSkillCatalog(session, project)?.selectable || []
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const panel = useRef<HTMLDivElement>(null);
@@ -226,11 +232,11 @@ export function ComposerAddMenu({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    const cached = cachedSkillCatalog(cacheKey);
+    const cached = cachedSkillCatalog(session, project);
     setSkills(cached?.selectable || []);
     setLoading(!cached);
     setError('');
-    void refreshSkillCatalog(sessionId)
+    void refreshSkillCatalog(session, project)
       .then((next) => {
         if (!cancelled) setSkills(next.selectable);
       })
@@ -243,7 +249,7 @@ export function ComposerAddMenu({
     return () => {
       cancelled = true;
     };
-  }, [open, sessionId, cacheKey]);
+  }, [open, session, project]);
   useMobileBack(open, () => setOpen(false));
   useComposerAddMenuDismiss({ open, panel, trigger, close, setOpen });
   useEffect(() => {

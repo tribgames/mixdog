@@ -55,20 +55,16 @@ export function shouldRemoveSelectedSkill(input: {
 type ScopedSkill = { enabled?: unknown; activeHere?: unknown; scope?: unknown; inheritedScope?: unknown };
 
 /** Whether the runtime would use `skill` for this composer: switched on AND in
- *  scope. `scopeResolved` says the status came from the composer's own session,
- *  so `activeHere` was decided for its project. Otherwise (a new-task draft,
- *  answered by the control session, whose cwd is not the draft's project) only
- *  unscoped skills count: a project- or plugin-scoped one may be refused. */
-export function skillAvailable(skill: ScopedSkill | null | undefined, scopeResolved = true): boolean {
-  if (skill?.enabled !== true) return false;
-  if (scopeResolved) return skill.activeHere !== false;
-  return skill.scope == null && skill.inheritedScope == null;
+ *  scope. The status is always read for the composer's own folder (its
+ *  session's, or a draft's selected Project), so `activeHere` decides. */
+export function skillAvailable(skill: ScopedSkill | null | undefined): boolean {
+  return skill?.enabled === true && skill.activeHere !== false;
 }
 
 // The menu offers only the user's own skills, in the order the daemon
 // reported. Shipped skills stay off it: the model loads them when a request
 // matches, so pinning one to a message adds nothing.
-export function selectableComposerSkills(value: unknown, scopeResolved = true): ComposerSkill[] {
+export function selectableComposerSkills(value: unknown): ComposerSkill[] {
   const status = value as {
     skills?: Array<ScopedSkill & { name?: unknown; description?: unknown; source?: unknown; owner?: unknown }>;
   } | null;
@@ -76,7 +72,7 @@ export function selectableComposerSkills(value: unknown, scopeResolved = true): 
   const custom: ComposerSkill[] = [];
   for (const skill of Array.isArray(status?.skills) ? status.skills : []) {
     const name = typeof skill?.name === 'string' ? skill.name.trim() : '';
-    if (!name || !skillAvailable(skill, scopeResolved) || seen.has(name) || isBuiltInSkill(skill)) continue;
+    if (!name || !skillAvailable(skill) || seen.has(name) || isBuiltInSkill(skill)) continue;
     seen.add(name);
     custom.push({ name, description: skillDisplayDescription(skill) });
   }

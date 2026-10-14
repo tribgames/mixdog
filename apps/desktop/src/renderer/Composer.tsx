@@ -439,7 +439,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     historyNavigation: history.navigation,
     showNotice: showComposerNotice,
   });
-  const skillCatalog = useSkillCatalog(sessionId, composerFocused);
+  const skillCatalog = useSkillCatalog(sessionId, projectScope, composerFocused);
   const isEnabledSkill = useCallback((name: string) => skillCatalog.enabled.has(name), [skillCatalog]);
   const palettes = useComposerPalettes({
     draft,
@@ -827,6 +827,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           textarea={textarea}
           paletteAnchor={paletteAnchor}
           recoveryScope={recoveryScope}
+          projectScope={projectScope}
           goalDialogOpen={goalDialogOpen}
           setGoalDialogOpen={setGoalDialogOpen}
           addMenuRequest={addMenuRequest}

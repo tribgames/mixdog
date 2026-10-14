@@ -31,9 +31,7 @@ export type ComposerSkillCatalog = {
 
 const EMPTY_CATALOG: ComposerSkillCatalog = { selectable: [], enabled: new Set(), disabled: new Set() };
 
-/** `scopeResolved`: see `skillAvailable` — false for a status the composer's
- *  own session did not answer. */
-export function composerSkillCatalog(value: unknown, scopeResolved = true): ComposerSkillCatalog {
+export function composerSkillCatalog(value: unknown): ComposerSkillCatalog {
   const status = value as {
     skills?: Array<Parameters<typeof skillAvailable>[0] & { name?: unknown }>;
   } | null;
@@ -42,23 +40,30 @@ export function composerSkillCatalog(value: unknown, scopeResolved = true): Comp
   for (const skill of Array.isArray(status?.skills) ? status.skills : []) {
     const name = typeof skill?.name === 'string' ? skill.name.trim() : '';
     if (!name) continue;
-    if (skillAvailable(skill, scopeResolved)) enabled.add(name);
+    if (skillAvailable(skill)) enabled.add(name);
     else if (skill?.enabled === false) disabled.add(name);
   }
   for (const name of enabled) disabled.delete(name);
-  return { selectable: selectableComposerSkills(value, scopeResolved), enabled, disabled };
+  return { selectable: selectableComposerSkills(value), enabled, disabled };
 }
 
+/** One catalog per answering runtime: a session's own, or a new-task draft's
+ *  selected Project (none: the task workspace an unclassified task runs in). */
+const catalogKey = (sessionId?: string | null, projectPath?: string | null) =>
+  sessionId || `draft:${projectPath || ''}`;
+
 /** skillsStatus as the runtime would apply it to this composer's prompt. A
- *  session's own runtime answers for its project (`readCapabilities` always
+ *  session's own runtime answers for its folder (`readCapabilities` always
  *  goes to the control session, so a session read is addressed through
- *  invokeCapability). A draft has no session yet, and skillsStatus takes no
- *  project argument, so its scope stays unresolved. */
-async function readSkillsStatus(sessionId: string): Promise<unknown> {
+ *  invokeCapability). A draft names its Project; the host resolves it to the
+ *  folder the task would run in, and the control session answers for that. */
+async function readSkillsStatus(sessionId?: string | null, projectPath?: string | null): Promise<unknown> {
   if (sessionId) {
     return (await window.mixdogDesktop.invokeCapability({ capability: 'skillsStatus', sessionId })).value;
   }
-  const [result] = await window.mixdogDesktop.readCapabilities([{ capability: 'skillsStatus' }]);
+  const [result] = await window.mixdogDesktop.readCapabilities([
+    { capability: 'skillsStatus', ...(projectPath ? { args: [{ projectPath }] } : {}) },
+  ]);
   if (!result?.ok) throw new Error(result && !result.ok ? result.error : 'Skills unavailable.');
   return result.value;
 }
@@ -75,20 +80,26 @@ const subscribeCatalog = (notify: () => void) => {
   };
 };
 
-export function cachedSkillCatalog(sessionId?: string | null): ComposerSkillCatalog | undefined {
-  return catalogs.get(sessionId || '');
+export function cachedSkillCatalog(
+  sessionId?: string | null,
+  projectPath?: string | null
+): ComposerSkillCatalog | undefined {
+  return catalogs.get(catalogKey(sessionId, projectPath));
 }
 
-// Reads are ordered per session: one that started before a skill change must
+// Reads are ordered per catalog: one that started before a skill change must
 // not land over the read that started after it.
 const startedReads = new Map<string, number>();
 const appliedReads = new Map<string, number>();
 
-export async function refreshSkillCatalog(sessionId?: string | null): Promise<ComposerSkillCatalog> {
-  const key = sessionId || '';
+export async function refreshSkillCatalog(
+  sessionId?: string | null,
+  projectPath?: string | null
+): Promise<ComposerSkillCatalog> {
+  const key = catalogKey(sessionId, projectPath);
   const read = (startedReads.get(key) ?? 0) + 1;
   startedReads.set(key, read);
-  const next = composerSkillCatalog(await readSkillsStatus(key), Boolean(key));
+  const next = composerSkillCatalog(await readSkillsStatus(sessionId, projectPath));
   if (read > (appliedReads.get(key) ?? 0)) {
     appliedReads.set(key, read);
     catalogs.set(key, next);
@@ -97,9 +108,9 @@ export async function refreshSkillCatalog(sessionId?: string | null): Promise<Co
   return catalogs.get(key) ?? next;
 }
 
-// Sessions with a mounted composer, so one change re-reads each of them once
+// Catalogs with a mounted composer, so one change re-reads each of them once
 // however many panes show it.
-const mountedSessions = new Map<string, number>();
+const mountedCatalogs = new Map<string, { sessionId: string; projectPath: string; count: number }>();
 let refreshQueued = false;
 
 function refreshMountedCatalogs(): void {
@@ -109,7 +120,9 @@ function refreshMountedCatalogs(): void {
     refreshQueued = false;
     // A failed read leaves mentions unhighlighted (they still reach the
     // runtime, which resolves them); the + menu surfaces the read error.
-    for (const key of mountedSessions.keys()) void refreshSkillCatalog(key || null).catch(() => undefined);
+    for (const { sessionId, projectPath } of mountedCatalogs.values()) {
+      void refreshSkillCatalog(sessionId, projectPath).catch(() => undefined);
+    }
   });
 }
 
@@ -136,13 +149,20 @@ export function invalidateSkillCatalogForMutation(capability: string): boolean {
   return true;
 }
 
-/** The session's catalog, re-read when `refreshKey` changes (the composer
- *  passes its focus state) and on every app signal that skills may have
- *  changed while it stays focused: a settings mutation, a setup-tool or
- *  host/other-client settings change, the window regaining focus (another
- *  window or app), and a remote reconnect or state gap. Never on keystrokes. */
-export function useSkillCatalog(sessionId: string | null | undefined, refreshKey: unknown): ComposerSkillCatalog {
-  const key = sessionId || '';
+/** The catalog for a session, or (no session) for a new-task draft's
+ *  `projectPath`. Re-read when `refreshKey` changes (the composer passes its
+ *  focus state) and on every app signal that skills may have changed while it
+ *  stays focused: a settings mutation, a setup-tool or host/other-client
+ *  settings change, the window regaining focus (another window or app), and a
+ *  remote reconnect or state gap. Never on keystrokes. */
+export function useSkillCatalog(
+  sessionId: string | null | undefined,
+  projectPath: string | null | undefined,
+  refreshKey: unknown
+): ComposerSkillCatalog {
+  const session = sessionId || '';
+  const project = session ? '' : projectPath || '';
+  const key = catalogKey(session, project);
   const catalog = useSyncExternalStore(
     subscribeCatalog,
     () => catalogs.get(key) ?? EMPTY_CATALOG,
@@ -150,18 +170,20 @@ export function useSkillCatalog(sessionId: string | null | undefined, refreshKey
   );
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey is the re-read trigger; the body does not read it
   useEffect(() => {
-    void refreshSkillCatalog(key || null).catch(() => undefined);
-  }, [key, refreshKey]);
+    void refreshSkillCatalog(session, project).catch(() => undefined);
+  }, [session, project, refreshKey]);
   useEffect(() => {
-    mountedSessions.set(key, (mountedSessions.get(key) ?? 0) + 1);
+    const mounted = mountedCatalogs.get(key);
+    if (mounted) mounted.count += 1;
+    else mountedCatalogs.set(key, { sessionId: session, projectPath: project, count: 1 });
     const unsubscribeSetup = subscribeSetupChanges(refreshMountedCatalogs);
     window.addEventListener('focus', refreshMountedCatalogs);
     window.addEventListener('mixdog:remote-state-gap', refreshMountedCatalogs);
     window.addEventListener('mixdog:remote-reconnected', refreshMountedCatalogs);
     return () => {
-      const count = (mountedSessions.get(key) ?? 1) - 1;
-      if (count > 0) mountedSessions.set(key, count);
-      else mountedSessions.delete(key);
+      const entry = mountedCatalogs.get(key);
+      if (entry && entry.count > 1) entry.count -= 1;
+      else mountedCatalogs.delete(key);
       unsubscribeSetup();
       window.removeEventListener('focus', refreshMountedCatalogs);
       window.removeEventListener('mixdog:remote-state-gap', refreshMountedCatalogs);

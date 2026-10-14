@@ -31,3 +31,19 @@ test('a remote turn review answers its value without the session snapshot', asyn
     ['contextStatus', SESSION],
   ]);
 });
+
+// The composer re-reads its session's skills on focus and on every skill
+// change signal; on a phone each of those would otherwise ship the transcript.
+test('a remote session skill status answers its value without the session snapshot', async () => {
+  const transcript = { sessionId: SESSION, items: [{ kind: 'assistant', text: 'x'.repeat(50_000) }] };
+  const methods = createRemoteMethods({
+    host: {
+      async invokeCapability(capability, _args, sessionId) {
+        return { value: { skills: [{ name: 'api-review', activeHere: true }], sessionId }, snapshot: transcript };
+      },
+    },
+  });
+  const status = await methods.invokeCapability([{ capability: 'skillsStatus', sessionId: SESSION }]);
+  assert.deepEqual(status, { value: { skills: [{ name: 'api-review', activeHere: true }], sessionId: SESSION } });
+  assert.ok(JSON.stringify(status).length < 300);
+});

@@ -33,7 +33,8 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
   const acceptGoal = false;
   let attached = 0;
   window.mixdogDesktop = {
-    // The session answers for its own project, so scope is decided there.
+    // The session answers for its own project, so scope is decided there (a
+    // session ignores the draft-only projectPath).
     invokeCapability: async (request) => {
       assert.deepEqual(request, { capability: 'skillsStatus', sessionId: 'menu-session' });
       return {
@@ -58,6 +59,7 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
         disabled: false,
         goalDisabled: false,
         sessionId: 'menu-session',
+        projectPath: 'C:/project',
         onAttach: () => {
           attached += 1;
         },
@@ -107,6 +109,58 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
     assert.deepEqual(goals, ['/goal']);
     assert.equal(document.querySelector('[role="menu"]'), null);
     assert.equal(document.querySelector('[role="dialog"]'), null);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("a new-task draft's add menu lists the skills its selected Project sees", async () => {
+  const reads = [];
+  window.mixdogDesktop = {
+    readCapabilities: async (requests) => {
+      reads.push(requests);
+      return [
+        {
+          ok: true,
+          value: {
+            skills: [
+              { name: 'team-only', enabled: true, scope: ['C:/project'], activeHere: true },
+              { name: 'elsewhere', enabled: true, scope: ['C:/other'], activeHere: false },
+            ],
+          },
+        },
+      ];
+    },
+  };
+  function Harness() {
+    const anchor = useRef(null);
+    return React.createElement(
+      'form',
+      { ref: anchor },
+      React.createElement(ComposerAddMenu, {
+        anchor,
+        disabled: false,
+        goalDisabled: false,
+        sessionId: '',
+        projectPath: 'C:/project',
+        onAttach() {},
+        onSkill() {},
+        onGoal: async () => false,
+        onMore() {},
+      })
+    );
+  }
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(async () => host.querySelector('button').click());
+    assert.deepEqual(reads, [[{ capability: 'skillsStatus', args: [{ projectPath: 'C:/project' }] }]]);
+    const names = [...document.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent);
+    assert.ok(names.includes('team-only'));
+    assert.ok(!names.includes('elsewhere'));
   } finally {
     await act(async () => root.unmount());
     host.remove();

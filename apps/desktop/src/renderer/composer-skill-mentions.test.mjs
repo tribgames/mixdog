@@ -107,7 +107,7 @@ const SCOPED_STATUS = {
   ],
 };
 
-test('catalog: only skills in scope here are available; a draft keeps unscoped ones only', () => {
+test('catalog: only skills in scope here are available', () => {
   const here = composerSkillCatalog(SCOPED_STATUS);
   assert.deepEqual(
     here.selectable.map((skill) => skill.name),
@@ -116,12 +116,6 @@ test('catalog: only skills in scope here are available; a draft keeps unscoped o
   assert.deepEqual([...here.enabled].sort(), ['image', 'plugin-here', 'release-notes']);
   // Out of scope is not "off": no plain-text notice for it.
   assert.deepEqual([...here.disabled], []);
-  const draft = composerSkillCatalog(SCOPED_STATUS, false);
-  assert.deepEqual(
-    draft.selectable.map((skill) => skill.name),
-    ['release-notes']
-  );
-  assert.deepEqual([...draft.enabled].sort(), ['image', 'release-notes']);
   // Status without scope decoration (older runtime) keeps the enabled rule.
   assert.deepEqual([...composerSkillCatalog(STATUS).enabled].sort(), ['api-review', 'pptx', 'release-notes']);
 });
@@ -375,19 +369,27 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
     assert.deepEqual(tokens(), ['$plugin-here']);
     assert.equal(status(), '');
 
-    // A new-task draft has no session to answer for its project: it reads the
-    // control session, which says nothing about the draft's project, so only
-    // unscoped skills count there.
+    // A new-task draft has no session yet: it names its selected Project and
+    // the host answers for the folder that task would run in.
     const draftReads = reads.length;
     const draft = { ...props, sessionId: '', identityScope: 'draft:scoped', projectScope: 'C:/project' };
     await act(async () => root.render(React.createElement(Composer, draft)));
     input = document.querySelector('textarea');
     await act(async () => input.blur());
-    assert.deepEqual(reads[draftReads], [{ capability: 'skillsStatus' }]);
+    assert.deepEqual(reads[draftReads], [{ capability: 'skillsStatus', args: [{ projectPath: 'C:/project' }] }]);
     await type('$elsewhere $plugin-here $');
-    assert.deepEqual(rows(), ['$release-notes']);
-    assert.deepEqual(tokens(), []);
+    assert.deepEqual(rows(), ['$release-notes', '$plugin-here']);
+    assert.deepEqual(tokens(), ['$plugin-here']);
     assert.equal(status(), '');
+
+    // Switching the draft's Project re-reads for the new one; a draft with no
+    // Project (task workspace) sends no argument.
+    const switched = reads.length;
+    await act(async () => root.render(React.createElement(Composer, { ...draft, projectScope: 'C:/other' })));
+    assert.deepEqual(reads[switched], [{ capability: 'skillsStatus', args: [{ projectPath: 'C:/other' }] }]);
+    const local = reads.length;
+    await act(async () => root.render(React.createElement(Composer, { ...draft, projectScope: '' })));
+    assert.deepEqual(reads[local], [{ capability: 'skillsStatus' }]);
   } finally {
     await act(async () => root.unmount());
   }
