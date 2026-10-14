@@ -33,6 +33,7 @@ Se añadió la importación de conversaciones de Codex y Claude Code, el proveed
 
 - Se corrigió que Computer Use quedara no disponible con "foreground input observation is unavailable"; la entrada perdida cuenta como entrada de usuario, la observación se recupera sola y el diagnóstico indica la causa (#66).
 - Se corrigió que añadir un servidor SSH en la app instalada se quedara indefinidamente en "Conectando…" empaquetando el archivo de bloqueo del servidor (#69, gracias a @victorwon2001).
+- Se corrigió que los enlaces del chat abrieran el navegador interno en una página `about:blank` en blanco en lugar del enlace (#63).
 - Se corrigió que scripts de skills integrados, incluido el validador, fallaran en algunas instalaciones y shells (#62).
 - Se corrigió que nuevas tareas que recordaban un flujo eliminado iniciaran con Default (#64).
 - Se corrigió que el razonamiento automático no se aplicara en rutas de Claude en 1.2.0 y que un juicio lento provocara tiempos de espera en los siguientes.

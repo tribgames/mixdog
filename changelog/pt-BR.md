@@ -32,6 +32,7 @@ Adicionada a importação de conversas do Codex e do Claude Code, o provedor Com
 
 - Corrigido o Computer Use indisponível com "foreground input observation is unavailable"; entradas perdidas contam como do usuário, a observação recupera sozinha e o diagnóstico informa a causa (#66).
 - Corrigido o problema em que adicionar um servidor SSH no aplicativo instalado ficava indefinidamente em "Conectando…", empacotando o lockfile do servidor (#69, obrigado a @victorwon2001).
+- Corrigido o problema em que os links do chat abriam o navegador interno em uma página `about:blank` em branco em vez do link (#63).
 - Corrigidos scripts de skills incluídos, como o validador, falhando em algumas instalações e shells (#62).
 - Corrigidas novas tarefas que lembravam fluxos excluídos para iniciarem no Default (#64).
 - Corrigido o raciocínio automático que não se aplicava em rotas do Claude no 1.2.0 e um julgamento lento causando tempo limite nos seguintes.

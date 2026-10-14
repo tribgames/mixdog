@@ -33,6 +33,7 @@ Added conversation import from Codex and Claude Code, the Command Code provider,
 
 - Fixed Computer Use staying unavailable with "foreground input observation is unavailable"; missed input now counts as user input, observation recovers on its own, and diagnose names the cause (#66).
 - Fixed adding an SSH server in the installed app staying on "Connecting…" forever by packaging the server lockfile (#69, thanks @victorwon2001).
+- Fixed chat links opening the in-app browser on a blank `about:blank` page instead of the link (#63).
 - Fixed bundled skill scripts, including the skill validator, failing in some installs and shells (#62).
 - Fixed new tasks that remembered a deleted workflow so they start on Default (#64).
 - Fixed auto reasoning not applying on Claude routes in 1.2.0, and one slow judgment timing out the ones after it.

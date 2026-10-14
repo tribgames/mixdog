@@ -32,6 +32,7 @@ Unterhaltungsimport aus Codex und Claude Code, den Command Code-Anbieter sowie `
 
 - Behoben: Computer Use blieb mit "foreground input observation is unavailable" nicht verfügbar; verpasste Eingaben zählen nun als Nutzereingaben, Beobachtung erholt sich selbst und Diagnose nennt die Ursache (#66).
 - Behoben: Das Hinzufügen eines SSH-Servers in der installierten App blieb dauerhaft bei "Verbindung wird hergestellt…" stehen; die Server-Lockdatei wird nun mitgeliefert (#69, danke an @victorwon2001).
+- Behoben: Chat-Links öffneten den In-App-Browser auf einer leeren `about:blank`-Seite statt des Links (#63).
 - Behoben: Gebündelte Skill-Skripte, einschließlich des Skill-Validators, schlugen bei manchen Installationen und Shells fehl (#62).
 - Behoben: Neue Aufgaben, die einen gelöschten Workflow gespeichert hatten, starten nun mit Default (#64).
 - Behoben: Automatisches Denken wurde in 1.2.0 auf Claude-Routen nicht angewendet, und eine langsame Bewertung führte bei folgenden zu Timeouts.

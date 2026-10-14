@@ -32,6 +32,7 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 - Đã sửa lỗi Computer Use bị treo với "foreground input observation is unavailable"; thao tác bỏ lỡ nay tính là đầu vào của người dùng, quan sát tự phục hồi và chẩn đoán nêu rõ nguyên nhân (#66).
 - Đã sửa lỗi thêm máy chủ SSH trong ứng dụng đã cài đặt bị kẹt ở "Đang kết nối…" vô thời hạn bằng cách đóng gói tệp khóa máy chủ (#69, cảm ơn @victorwon2001).
+- Đã sửa lỗi liên kết trong đoạn chat mở trình duyệt trong ứng dụng trên trang `about:blank` trống thay vì liên kết (#63).
 - Đã sửa lỗi các tập lệnh kỹ năng đi kèm, bao gồm trình xác thực, bị lỗi trên một số bản cài đặt và shell (#62).
 - Đã sửa lỗi các tác vụ mới từng ghi nhớ quy trình đã xóa để khởi động với Default (#64).
 - Đã sửa lỗi suy luận tự động không áp dụng trên tuyến Claude trong 1.2.0 và một lần phán đoán chậm khiến các lần tiếp theo bị quá thời gian.
