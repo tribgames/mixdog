@@ -1090,6 +1090,7 @@ export async function disconnectAll(options = undefined) {
       /* ignore */
     }
     try {
+      entry.transport.oauth?.close();
       void entry.client.close().catch(() => {
         /* ignore */
       });
@@ -1118,6 +1119,11 @@ export async function disconnectAll(options = undefined) {
 export async function disconnectMcpServer(name, options = {}) {
   const scopeId = normalizeMcpScopeId(options);
   const registryKey = mcpServerRegistryKey(scopeId, name);
+  // An exclusive reconnect may currently be waiting for human authorization.
+  // Cancel before queueing the disconnect behind that operation.
+  for (const entry of _pendingConnects) {
+    if (entry.scopeId === scopeId && entry.name === name) entry.transport.oauth?.close();
+  }
   return runExclusiveServerOp(registryKey, async () => {
     const server = servers.get(registryKey);
     if (!server) return false;
@@ -1143,6 +1149,7 @@ async function _closeServer(server) {
   // A deliberate close is not a crash: suppress the unexpected-close report.
   if (server?.liveness) server.liveness.closing = true;
   const transport = server?.transport;
+  transport?.oauth?.close();
   // Live stdio transports expose the spawned ChildProcess on _process.
   if (transport?._process) {
     try {
@@ -1237,6 +1244,9 @@ async function connectServer(
     }
     _invalidateMcpToolFieldMemo();
     mcpLog(`[mcp] connected: ${tools.length} tools — ${tools.map((t) => t.name).join(', ')}\n`);
+  } catch (error) {
+    await _closeServer({ client, transport, liveness });
+    throw error;
   } finally {
     _pendingConnects.delete(pending);
   }

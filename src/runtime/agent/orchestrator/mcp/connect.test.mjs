@@ -14,6 +14,7 @@ class FakeTransport {
     this.args = args;
     transports.push(this);
   }
+  async close() {}
 }
 class FakeStdioTransport extends FakeTransport {
   constructor(options) {
@@ -240,6 +241,18 @@ test('disabled servers are skipped and every failed server is reported by name',
   } finally {
     await disconnectAll({ scopeId });
   }
+});
+
+test('disconnect cancels pending OAuth before waiting for the server operation queue', async () => {
+  const scopeId = freshScope();
+  behavior = { connect: () => new Promise(() => {}) };
+  const connect = reconnectSingleMcpServer(scopeId, 'oauth', { type: 'http', url: 'https://mcp.example/mcp' });
+  const rejected = assert.rejects(connect, /MCP OAuth login failed, cancelled, or timed out/);
+  await waitUntil(() => transports.some((transport) => transport.oauth));
+  await disconnectMcpServer('oauth', { scopeId });
+  await rejected;
+  assert.equal(transports[0].oauth.signal.aborted, true);
+  assert.equal(getMcpServerStatus(scopeId).length, 0);
 });
 
 test('a hung handshake fails on the startup budget and tears the pending transport down', async () => {

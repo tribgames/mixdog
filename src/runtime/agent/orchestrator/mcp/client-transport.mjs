@@ -4,6 +4,7 @@
  * WebSocket, or a stdio child.
  */
 import { readServicePort } from '../../../shared/service-discovery.mjs';
+import { createMcpOAuth } from './oauth.mjs';
 import {
   AUTO_DETECT_PORTS,
   expandEnvVars,
@@ -88,7 +89,7 @@ function createHeaderWebSocketTransport(Base, messageSchema, url, headers) {
  *  transports. `strictEnv` (the caller passes it for plugin-declared servers)
  *  makes unset variables without a default fail the server; otherwise they
  *  expand to empty and are reported in `warnings` (names only). */
-export function createMcpTransport({ name, cfg, sdk, log, strictEnv }) {
+export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOptions }) {
   const { StdioClientTransport, StreamableHTTPClientTransport, SSEClientTransport, WebSocketClientTransport } = sdk;
   const kind = resolveMcpTransportKind(cfg);
   const warnings = [];
@@ -115,9 +116,20 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv }) {
     const Transport = kind === 'http' ? StreamableHTTPClientTransport : SSEClientTransport;
     const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), kind);
     const opts = requestInitFor(cfg);
+    // Explicit authentication remains authoritative (including custom API-key
+    // headers). Never forward those credentials to OAuth discovery endpoints.
+    const oauth = opts ? null : createMcpOAuth({ url, ...oauthOptions });
+    const transport = new Transport(new URL(url), oauth
+      ? { authProvider: oauth.provider, fetch: oauth.fetch }
+      : opts);
+    if (oauth) {
+      transport.oauth = oauth;
+      const close = transport.close.bind(transport);
+      transport.close = async () => { oauth.close(); await close(); };
+    }
     log(`[mcp-client] Connecting "${name}" via ${kind.toUpperCase()}: ${mcpUrlForLog(url)}\n`);
     return {
-      transport: opts ? new Transport(new URL(url), opts) : new Transport(new URL(url)),
+      transport,
       autoDetectAdvert: null,
       stderrTail: noStderrTail,
       warnings,
