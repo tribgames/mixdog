@@ -1,3 +1,4 @@
+import { isVisibleStreamProgress } from '../../../shared/stream-progress.mjs';
 import { anthropicEffortLevelsFor, normalizeAnthropicEffortInput } from './anthropic-effort.mjs';
 import { CUSTOM_EFFORT_LEVELS, customEffortLevels, isCustomProviderName } from './custom-reasoning.mjs';
 import { codexModelSupportsEffortUpdates } from './openai-oauth-catalog.mjs';
@@ -82,7 +83,7 @@ export async function withEffortConfigurationFallback(provider, model, opts, sen
     const callback = opts?.[name];
     if (typeof callback === 'function') {
       tracked[name] = (...args) => {
-        streamed = true;
+        if (name !== 'onStreamDelta' || isVisibleStreamProgress(args[0])) streamed = true;
         return callback(...args);
       };
     }

@@ -18,7 +18,7 @@ for (const callback of ['onStreamDelta', 'onTextDelta', 'onToolCall']) {
     const provider = `custom-output-${callback}`;
     const error = rejection();
     const received = [];
-    const payload = { id: 'call-1', text: 'already delivered' };
+    const payload = callback === 'onStreamDelta' ? 'text' : { id: 'call-1', text: 'already delivered' };
     let attempts = 0;
     await assert.rejects(
       withEffortConfigurationFallback(
@@ -36,6 +36,53 @@ for (const callback of ['onStreamDelta', 'onTextDelta', 'onToolCall']) {
     assert.equal(attempts, 1);
     assert.deepEqual(received, [payload]);
     assert.equal(effortConfigurationMode(provider, MODEL, MODE), 'responses', 'do not poison the capability');
+  });
+}
+
+
+for (const kind of ['transport', 'semantic', 'ack']) {
+  test(`effort update fallback allows a pre-output rejection after ${kind} health progress`, async () => {
+    const provider = `custom-health-${kind}`;
+    const received = [];
+    let attempts = 0;
+    const result = await withEffortConfigurationFallback(
+      provider,
+      MODEL,
+      { effort: 'high', onStreamDelta: (...args) => received.push(args) },
+      async (opts) => {
+        attempts += 1;
+        if (attempts === 1) {
+          opts.onStreamDelta(kind, { connected: true });
+          throw rejection();
+        }
+        assert.equal(opts.effortConfigurationEnabled, false);
+        assert.equal(opts.effort, 'high');
+        opts.onStreamDelta('text');
+        return { content: 'ok' };
+      }
+    );
+    assert.equal(result.content, 'ok');
+    assert.equal(attempts, 2);
+    assert.deepEqual(received, [[kind, { connected: true }], ['text']]);
+    assert.equal(effortConfigurationMode(provider, MODEL, MODE), null);
+  });
+}
+
+for (const kind of ['reasoning', 'tool']) {
+  test(`effort update fallback does not replay visible ${kind} progress`, async () => {
+    const provider = `custom-visible-${kind}`;
+    const error = rejection();
+    let attempts = 0;
+    await assert.rejects(
+      withEffortConfigurationFallback(provider, MODEL, { onStreamDelta() {} }, async (opts) => {
+        attempts += 1;
+        opts.onStreamDelta(kind);
+        throw error;
+      }),
+      (actual) => actual === error
+    );
+    assert.equal(attempts, 1);
+    assert.equal(effortConfigurationMode(provider, MODEL, MODE), 'responses');
   });
 }
 
@@ -284,4 +331,36 @@ test('sessionless requests retain their original header input', async () => {
   await sendCompatResponses(provider, [{ role: 'user', content: 'hi' }], MODEL, [], { requestHeaders });
   assert.equal(requests[0].headers, requestHeaders);
   assert.equal(Object.hasOwn(requests[0].body, 'prompt_cache_key'), false);
+});
+
+for (const scope of ['request-record', 'request-pairs', 'provider-defaults', 'sdk-defaults']) {
+  test(`undefined identity headers do not suppress generated values (${scope})`, async () => {
+    const values = { 'session-id': undefined, 'X-Client-Request-ID': undefined };
+    const options = { sdk: true };
+    if (scope === 'provider-defaults') options.defaultHeaders = values;
+    if (scope === 'sdk-defaults') options.clientOptions = { defaultHeaders: values };
+    const { provider, requests } = fixture(`undefined-${scope}`, options);
+    const sendOpts = { sessionId: 'generated' };
+    if (scope === 'request-record') sendOpts.requestHeaders = values;
+    if (scope === 'request-pairs') sendOpts.requestHeaders = Object.entries(values);
+    await sendCompatResponses(provider, [{ role: 'user', content: 'hi' }], MODEL, [], sendOpts);
+    assert.equal(requests[0].headers.get('session-id'), 'generated');
+    assert.equal(requests[0].headers.get('x-client-request-id'), 'generated');
+    assert.deepEqual(values, { 'session-id': undefined, 'X-Client-Request-ID': undefined });
+  });
+}
+
+test('empty and undefined-only header arrays do not suppress generated identities', async () => {
+  const { provider, requests } = fixture('empty-header-arrays', {
+    sdk: true,
+    defaultHeaders: { 'Session-ID': [], 'X-Client-Request-ID': [undefined] },
+  });
+  const requestHeaders = { 'session-id': [undefined], 'x-client-request-id': [] };
+  await sendCompatResponses(provider, [{ role: 'user', content: 'hi' }], MODEL, [], {
+    sessionId: 'generated',
+    requestHeaders,
+  });
+  assert.equal(requests[0].headers.get('session-id'), 'generated');
+  assert.equal(requests[0].headers.get('x-client-request-id'), 'generated');
+  assert.deepEqual(requestHeaders, { 'session-id': [undefined], 'x-client-request-id': [] });
 });

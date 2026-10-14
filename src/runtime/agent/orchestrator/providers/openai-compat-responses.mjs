@@ -112,14 +112,14 @@ function customSessionHeaders(provider, sessionCacheKey, requestHeaders) {
   const configured = Object.hasOwn(clientOptions, 'defaultHeaders')
     ? clientOptions.defaultHeaders
     : provider.defaultHeaders;
+  const entries = (source) =>
+    source instanceof Headers || Array.isArray(source) ? source : Object.entries(source || {});
+  const hasValue = (value) =>
+    Array.isArray(value) ? value.some((item) => item !== undefined) : value !== undefined;
   for (const source of [configured, requestHeaders]) {
-    const names =
-      source instanceof Headers
-        ? source.keys()
-        : Array.isArray(source)
-          ? source.map(([name]) => name)
-          : Object.keys(source || {});
-    for (const name of names) delete headers[name.toLowerCase()];
+    for (const [name, value] of entries(source)) {
+      if (hasValue(value)) delete headers[name.toLowerCase()];
+    }
   }
   if (requestHeaders instanceof Headers) {
     const merged = new Headers(requestHeaders);
@@ -127,7 +127,8 @@ function customSessionHeaders(provider, sessionCacheKey, requestHeaders) {
     return merged;
   }
   if (Array.isArray(requestHeaders)) return [...Object.entries(headers), ...requestHeaders];
-  return { ...headers, ...requestHeaders };
+  const supplied = Object.fromEntries(Object.entries(requestHeaders || {}).filter(([, value]) => hasValue(value)));
+  return { ...headers, ...supplied };
 }
 
 /** The request body: lowered transcript plus the per-turn knobs (output cap,
