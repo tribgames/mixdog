@@ -81,6 +81,51 @@ test('catalog: enabled includes built-ins, the palette lists only custom skills,
   assert.deepEqual(disabledMentionedSkills('figma$figma-handoff', catalog), []);
 });
 
+// skillsStatus as the runtime's scope decoration returns it for a session
+// whose cwd is C:/project.
+const SCOPED_STATUS = {
+  skills: [
+    { name: 'release-notes', enabled: true, scope: null, inheritedScope: null, activeHere: true },
+    { name: 'elsewhere', enabled: true, scope: ['C:/other'], inheritedScope: null, activeHere: false },
+    {
+      name: 'plugin-here',
+      enabled: true,
+      scope: null,
+      inheritedScope: ['C:/project'],
+      activeHere: true,
+      owner: { kind: 'plugin', id: 'team' },
+    },
+    {
+      name: 'plugin-elsewhere',
+      enabled: true,
+      scope: null,
+      inheritedScope: ['C:/other'],
+      activeHere: false,
+      owner: { kind: 'plugin', id: 'other' },
+    },
+    { name: 'image', enabled: true, source: 'builtin', scope: null, inheritedScope: null, activeHere: true },
+  ],
+};
+
+test('catalog: only skills in scope here are available; a draft keeps unscoped ones only', () => {
+  const here = composerSkillCatalog(SCOPED_STATUS);
+  assert.deepEqual(
+    here.selectable.map((skill) => skill.name),
+    ['release-notes', 'plugin-here']
+  );
+  assert.deepEqual([...here.enabled].sort(), ['image', 'plugin-here', 'release-notes']);
+  // Out of scope is not "off": no plain-text notice for it.
+  assert.deepEqual([...here.disabled], []);
+  const draft = composerSkillCatalog(SCOPED_STATUS, false);
+  assert.deepEqual(
+    draft.selectable.map((skill) => skill.name),
+    ['release-notes']
+  );
+  assert.deepEqual([...draft.enabled].sort(), ['image', 'release-notes']);
+  // Status without scope decoration (older runtime) keeps the enabled rule.
+  assert.deepEqual([...composerSkillCatalog(STATUS).enabled].sort(), ['api-review', 'pptx', 'release-notes']);
+});
+
 test('highlight segments keep the text verbatim and mark only recognised names', () => {
   const enabled = composerSkillCatalog(STATUS).enabled;
   const text = '$api-review 기준, 결과는 $pptx. 경로 $HOME/reports, 예산 $300, $unknown-skill, $figma-handoff';
@@ -106,8 +151,15 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
   const settingsOpened = [];
   let currentStatus = STATUS;
   window.mixdogDesktop = {
-    invokeCapability: async (request) =>
-      request.capability === 'getVoiceStatus' ? { value: { installed: false } } : { value: {} },
+    // A session's skills are read from that session (its cwd decides scope);
+    // a draft's from the control session.
+    invokeCapability: async (request) => {
+      if (request.capability === 'skillsStatus') {
+        reads.push([request]);
+        return { value: currentStatus };
+      }
+      return request.capability === 'getVoiceStatus' ? { value: { installed: false } } : { value: {} };
+    },
     readCapabilities: async (requests) => {
       reads.push(requests);
       return [{ ok: true, value: currentStatus }];
@@ -170,7 +222,7 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
   try {
     await act(async () => root.render(React.createElement(Composer, props)));
     input = document.querySelector('textarea');
-    assert.equal(reads[0][0].capability, 'skillsStatus');
+    assert.deepEqual(reads[0], [{ capability: 'skillsStatus', sessionId: 'skill-mention-test' }]);
 
     // A: mid-sentence `$` lists the custom skills only (pptx is typed, not listed).
     await type('이번 주 커밋 정리해서 $');
@@ -310,6 +362,32 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
     await act(async () => window.dispatchEvent(new window.Event('mixdog:remote-state-gap')));
     await settle();
     assert.deepEqual(rows(), ['$api-review']);
+
+    // Scope: a skill the session's project does not see is neither listed,
+    // highlighted nor reported as off; one it sees (here via its plugin) is.
+    currentStatus = SCOPED_STATUS;
+    const scoped = { ...props, sessionId: 'skill-mention-scoped', identityScope: 'skill-mention-scoped' };
+    await act(async () => root.render(React.createElement(Composer, scoped)));
+    input = document.querySelector('textarea');
+    await act(async () => input.blur());
+    await type('$elsewhere $plugin-here $');
+    assert.deepEqual(rows(), ['$release-notes', '$plugin-here']);
+    assert.deepEqual(tokens(), ['$plugin-here']);
+    assert.equal(status(), '');
+
+    // A new-task draft has no session to answer for its project: it reads the
+    // control session, which says nothing about the draft's project, so only
+    // unscoped skills count there.
+    const draftReads = reads.length;
+    const draft = { ...props, sessionId: '', identityScope: 'draft:scoped', projectScope: 'C:/project' };
+    await act(async () => root.render(React.createElement(Composer, draft)));
+    input = document.querySelector('textarea');
+    await act(async () => input.blur());
+    assert.deepEqual(reads[draftReads], [{ capability: 'skillsStatus' }]);
+    await type('$elsewhere $plugin-here $');
+    assert.deepEqual(rows(), ['$release-notes']);
+    assert.deepEqual(tokens(), []);
+    assert.equal(status(), '');
   } finally {
     await act(async () => root.unmount());
   }

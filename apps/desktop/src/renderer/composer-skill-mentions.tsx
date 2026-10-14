@@ -14,15 +14,16 @@ import React, {
   type RefObject,
 } from 'react';
 import { CapabilityIcon } from './CapabilityIcon';
-import { selectableComposerSkills, skillTitle, type ComposerSkill } from './composer-skill';
+import { selectableComposerSkills, skillAvailable, skillTitle, type ComposerSkill } from './composer-skill';
 import { t } from './i18n';
 import { subscribeSetupChanges } from './setup-change-refresh';
 import { mentionedSkillNames, skillMentions } from '../../../../src/runtime/shared/skill-mentions.mjs';
 
 export type ComposerSkillCatalog = {
-  /** The user's enabled custom skills: the `$` palette and the + menu. */
+  /** The user's available custom skills: the `$` palette and the + menu. */
   selectable: ComposerSkill[];
-  /** Every enabled skill, built-ins included: what a typed `$name` selects. */
+  /** Every available skill (on and in scope here), built-ins included: what a
+   *  typed `$name` selects. */
   enabled: ReadonlySet<string>;
   /** Skills that exist but are switched off: sent as plain text. */
   disabled: ReadonlySet<string>;
@@ -30,18 +31,36 @@ export type ComposerSkillCatalog = {
 
 const EMPTY_CATALOG: ComposerSkillCatalog = { selectable: [], enabled: new Set(), disabled: new Set() };
 
-export function composerSkillCatalog(value: unknown): ComposerSkillCatalog {
-  const status = value as { skills?: Array<{ name?: unknown; enabled?: unknown }> } | null;
+/** `scopeResolved`: see `skillAvailable` — false for a status the composer's
+ *  own session did not answer. */
+export function composerSkillCatalog(value: unknown, scopeResolved = true): ComposerSkillCatalog {
+  const status = value as {
+    skills?: Array<Parameters<typeof skillAvailable>[0] & { name?: unknown }>;
+  } | null;
   const enabled = new Set<string>();
   const disabled = new Set<string>();
   for (const skill of Array.isArray(status?.skills) ? status.skills : []) {
     const name = typeof skill?.name === 'string' ? skill.name.trim() : '';
     if (!name) continue;
-    if (skill.enabled === true) enabled.add(name);
-    else if (skill.enabled === false) disabled.add(name);
+    if (skillAvailable(skill, scopeResolved)) enabled.add(name);
+    else if (skill?.enabled === false) disabled.add(name);
   }
   for (const name of enabled) disabled.delete(name);
-  return { selectable: selectableComposerSkills(value), enabled, disabled };
+  return { selectable: selectableComposerSkills(value, scopeResolved), enabled, disabled };
+}
+
+/** skillsStatus as the runtime would apply it to this composer's prompt. A
+ *  session's own runtime answers for its project (`readCapabilities` always
+ *  goes to the control session, so a session read is addressed through
+ *  invokeCapability). A draft has no session yet, and skillsStatus takes no
+ *  project argument, so its scope stays unresolved. */
+async function readSkillsStatus(sessionId: string): Promise<unknown> {
+  if (sessionId) {
+    return (await window.mixdogDesktop.invokeCapability({ capability: 'skillsStatus', sessionId })).value;
+  }
+  const [result] = await window.mixdogDesktop.readCapabilities([{ capability: 'skillsStatus' }]);
+  if (!result?.ok) throw new Error(result && !result.ok ? result.error : 'Skills unavailable.');
+  return result.value;
 }
 
 // Last catalog per session, kept for the renderer's lifetime: the + menu and
@@ -69,11 +88,7 @@ export async function refreshSkillCatalog(sessionId?: string | null): Promise<Co
   const key = sessionId || '';
   const read = (startedReads.get(key) ?? 0) + 1;
   startedReads.set(key, read);
-  const [result] = await window.mixdogDesktop.readCapabilities([
-    { capability: 'skillsStatus', ...(sessionId ? { sessionId } : {}) },
-  ]);
-  if (!result?.ok) throw new Error(result && !result.ok ? result.error : 'Skills unavailable.');
-  const next = composerSkillCatalog(result.value);
+  const next = composerSkillCatalog(await readSkillsStatus(key), Boolean(key));
   if (read > (appliedReads.get(key) ?? 0)) {
     appliedReads.set(key, read);
     catalogs.set(key, next);

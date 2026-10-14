@@ -33,19 +33,19 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
   const acceptGoal = false;
   let attached = 0;
   window.mixdogDesktop = {
-    readCapabilities: async (requests) => {
-      assert.equal(requests[0].sessionId, 'menu-session');
-      return [
-        {
-          ok: true,
-          value: {
-            skills: [
-              { name: 'pdf', enabled: true },
-              { name: 'off', enabled: false },
-            ],
-          },
+    // The session answers for its own project, so scope is decided there.
+    invokeCapability: async (request) => {
+      assert.deepEqual(request, { capability: 'skillsStatus', sessionId: 'menu-session' });
+      return {
+        value: {
+          skills: [
+            { name: 'pdf', enabled: true },
+            { name: 'off', enabled: false },
+            { name: 'elsewhere', enabled: true, scope: ['C:/other'], activeHere: false },
+            { name: 'plugin-elsewhere', enabled: true, inheritedScope: ['C:/other'], activeHere: false },
+          ],
         },
-      ];
+      };
     },
   };
   function Harness() {
@@ -79,6 +79,12 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
     const trigger = host.querySelector('button');
     await click(trigger);
     assert.equal(document.querySelectorAll('[role="menuitem"]').length, 4);
+    for (const name of ['elsewhere', 'plugin-elsewhere']) {
+      assert.ok(
+        ![...document.querySelectorAll('[role="menuitem"]')].some((node) => node.textContent === name),
+        `${name} is out of scope here`
+      );
+    }
     assert.equal(goals.length, 0);
     const pdf = [...document.querySelectorAll('[role="menuitem"]')].find((node) => node.textContent === 'PDF');
     assert.ok(pdf.querySelector('svg'));
