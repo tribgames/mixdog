@@ -5,7 +5,9 @@
   independent invariants, never from the output itself or from recall.
 - After all edits, cover each required check once: one runner per runtime,
   independent checks in parallel; no read/list/diff to confirm your own
-  writes; rerun only failed or invalidated checks.
+  writes; rerun only failed or invalidated checks. If repeated fixes leave
+  the same failure unchanged, test the underlying assumptions before
+  another fix.
 - Use supplied commands unchanged except inputs, else documented defaults; no
   stricter flags or unrequested suites.
 - Warnings or blocked checks never justify editing passing code. Fix obsolete
