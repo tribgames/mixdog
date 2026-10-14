@@ -200,7 +200,9 @@ test('effort maps to reasoning_effort on the chat wire', async () => {
   });
   const provider = new CommandCodeOAuthProvider({ preconnect: false, fetchImpl: api.fetchImpl });
   for (const effort of ['high', undefined]) {
-    await assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'deepseek/deepseek-v4-flash', [], { effort }));
+    await assert.rejects(
+      provider.send([{ role: 'user', content: 'hi' }], 'deepseek/deepseek-v4-flash', [], { effort })
+    );
   }
   assert.equal(bodies[0].reasoning_effort, 'high');
   assert.equal(bodies.at(-1).reasoning_effort, undefined);
@@ -217,8 +219,7 @@ test('effort follows the listed model row: a declared xhigh is sent, an undeclar
   });
   const provider = new CommandCodeOAuthProvider({ preconnect: false, fetchImpl: api.fetchImpl });
   await provider.listModels();
-  const go = (model, effort) =>
-    assert.rejects(provider.send([{ role: 'user', content: 'hi' }], model, [], { effort }));
+  const go = (model, effort) => assert.rejects(provider.send([{ role: 'user', content: 'hi' }], model, [], { effort }));
   await go('gpt-5.5', 'xhigh');
   assert.equal(bodies.at(-1).reasoning_effort, 'xhigh');
   await go('gpt-5.5', 'bogus');

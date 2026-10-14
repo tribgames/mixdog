@@ -202,7 +202,9 @@ export async function changeProviderAccounts(provider, change) {
       // Turning switching on keeps a non-manual policy; on from manual is the
       // classic switch-at-limit behaviour.
       const current = providerAccountPolicy(pool);
-      pool.policy = change.auto ? (current === 'manual' ? 'limit' : current) : 'manual';
+      if (!change.auto) pool.policy = 'manual';
+      else if (current === 'manual') pool.policy = 'limit';
+      else pool.policy = current;
       pool.auto = change.auto;
     }
     if (change.policy !== undefined) {

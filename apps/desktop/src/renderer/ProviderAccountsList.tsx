@@ -71,12 +71,13 @@ function checkedAge(at: number | null): string {
 function AccountUsage({ account }: { account: ProviderAccount }) {
   const windows = account.usage?.windows ?? [];
   const refreshedAt = Number(account.usage?.checkedAt) || 0;
+  let emptyNote = '';
+  if (account.reauthRequired) emptyNote = t('Shown after signing in again');
+  else if (windows.length === 0) emptyNote = t('Usage not checked yet');
   return (
     <div className="provider-account-usage">
-      {account.reauthRequired ? (
-        <small className="empty">{t('Shown after signing in again')}</small>
-      ) : windows.length === 0 ? (
-        <small className="empty">{t('Usage not checked yet')}</small>
+      {emptyNote ? (
+        <small className="empty">{emptyNote}</small>
       ) : (
         windows.map((window, index) => {
           const used = typeof window.usedPct === 'number' ? Math.max(0, Math.min(100, window.usedPct)) : null;

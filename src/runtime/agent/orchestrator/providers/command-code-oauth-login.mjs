@@ -327,9 +327,7 @@ export async function beginOAuthLogin({
     port,
     waitForCallback,
     completeCode: async (input) => settle(parsePastedInput(input, state)),
-    cancel: () => {
-      finish?.(null);
-    },
+    cancel: () => finish(null),
   };
 }
 
