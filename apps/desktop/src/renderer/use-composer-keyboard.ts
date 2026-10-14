@@ -12,6 +12,29 @@ import { paletteOwnsPromptVerticalArrow } from '../../../../src/tui/components/p
 
 type TextareaKeyEvent = KeyboardEvent<HTMLTextAreaElement>;
 
+/** Arrow/Home/End/Page movement shared by the list palettes; false = not ours. */
+function movePaletteIndex(
+  event: TextareaKeyEvent,
+  count: number,
+  setIndex: (move: (index: number) => number) => void
+): boolean {
+  if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !paletteOwnsPromptVerticalArrow(count)) return false;
+  const last = count - 1;
+  const moves: Record<string, (index: number) => number> = {
+    ArrowDown: (index) => (index + 1) % count,
+    ArrowUp: (index) => (index - 1 + count) % count,
+    Home: () => 0,
+    End: () => last,
+    PageUp: (index) => Math.max(0, index - 8),
+    PageDown: (index) => Math.min(last, index + 8),
+  };
+  const move = moves[event.key];
+  if (!move) return false;
+  event.preventDefault();
+  setIndex(move);
+  return true;
+}
+
 export function useComposerKeyboard({
   draft,
   slash,
@@ -172,31 +195,13 @@ export function useComposerKeyboard({
       }
       const { results } = skillMention;
       if (!results.length) return false;
-      if (
-        (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
-        !paletteOwnsPromptVerticalArrow(results.length)
-      )
-        return false;
       if (event.key === 'Enter' || event.key === 'Tab') {
         if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return false;
         event.preventDefault();
         selectSkillMention((results[skillMention.index] || results[0]).skill.name);
         return true;
       }
-      const last = results.length - 1;
-      const moves: Record<string, (index: number) => number> = {
-        ArrowDown: (index) => (index + 1) % results.length,
-        ArrowUp: (index) => (index - 1 + results.length) % results.length,
-        Home: () => 0,
-        End: () => last,
-        PageUp: (index) => Math.max(0, index - 8),
-        PageDown: (index) => Math.min(last, index + 8),
-      };
-      const move = moves[event.key];
-      if (!move) return false;
-      event.preventDefault();
-      skillMention.setIndex(move);
-      return true;
+      return movePaletteIndex(event, results.length, skillMention.setIndex);
     },
     [selectSkillMention, skillMention]
   );
@@ -251,30 +256,12 @@ export function useComposerKeyboard({
         return true;
       }
       if (!mention.results.length) return false;
-      if (
-        (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
-        !paletteOwnsPromptVerticalArrow(mention.results.length)
-      )
-        return false;
       if (event.key === 'Enter' || event.key === 'Tab') {
         event.preventDefault();
         selectMention(mention.results[mention.index] || mention.results[0]);
         return true;
       }
-      const last = mention.results.length - 1;
-      const moves: Record<string, (index: number) => number> = {
-        ArrowDown: (index) => (index + 1) % mention.results.length,
-        ArrowUp: (index) => (index - 1 + mention.results.length) % mention.results.length,
-        Home: () => 0,
-        End: () => last,
-        PageUp: (index) => Math.max(0, index - 8),
-        PageDown: (index) => Math.min(last, index + 8),
-      };
-      const move = moves[event.key];
-      if (!move) return false;
-      event.preventDefault();
-      mention.setIndex(move);
-      return true;
+      return movePaletteIndex(event, mention.results.length, mention.setIndex);
     },
     [mention, selectMention]
   );

@@ -132,7 +132,10 @@ test('highlight segments keep the text verbatim and mark only recognised names',
       ['pptx', '$pptx'],
     ]
   );
-  assert.deepEqual(skillMentionSegments('', () => true), [{ text: '' }]);
+  assert.deepEqual(
+    skillMentionSegments('', () => true),
+    [{ text: '' }]
+  );
 });
 
 test('appliedSkills is read defensively', () => {
@@ -277,10 +280,7 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
     await type('$figma-handoff 로 스펙 정리해 줘');
     assert.deepEqual(tokens(), []);
     assert.equal(input.classList.contains('has-skill-mentions'), false);
-    assert.equal(
-      status(),
-      'figma-handoff skill is off, so it is sent as plain text. Turn it on in Settings › Skills.'
-    );
+    assert.equal(status(), 'figma-handoff skill is off, so it is sent as plain text. Turn it on in Settings › Skills.');
     assert.equal(document.querySelector('button.send-button').disabled, false);
 
     // IME composition hands the ink back to the textarea.
@@ -338,14 +338,13 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
     assert.equal(document.activeElement, input);
     assert.deepEqual(rows(), ['$release-notes']);
     assert.deepEqual(tokens(), []);
-    assert.equal(
-      status(),
-      'api-review skill is off, so it is sent as plain text. Turn it on in Settings › Skills.'
-    );
+    assert.equal(status(), 'api-review skill is off, so it is sent as plain text. Turn it on in Settings › Skills.');
 
     // A setup-tool (or host settings) change brings it back the same way.
     currentStatus = STATUS;
-    await act(async () => window.dispatchEvent(new window.CustomEvent('mixdog:setup-changed', { detail: { action: 'x' } })));
+    await act(async () =>
+      window.dispatchEvent(new window.CustomEvent('mixdog:setup-changed', { detail: { action: 'x' } }))
+    );
     await settle();
     assert.deepEqual(rows(), ['$release-notes', '$api-review']);
     assert.deepEqual(tokens(), ['$api-review']);

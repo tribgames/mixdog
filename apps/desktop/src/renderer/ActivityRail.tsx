@@ -39,8 +39,8 @@ function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'],
       <span className="rail-usage-pin-stack">
         {rows.map((entry) => {
           const percent = displayUsagePercent(entry.percent) ?? 0;
-          // Glanceable readout (user: 프로그래스 중간에): icon, then the
-          // flyout's meter grammar in miniature, then the number — the bars
+          // Glanceable readout: icon, then the flyout's meter grammar in
+          // miniature, then the number — the bars
           // are the final window (plus the shortest one in short + long mode)
           // and the number is the higher of the drawn bars.
           const tone = usageToneClass(entry.percent);
@@ -53,10 +53,7 @@ function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'],
             >
               <ProviderIcon provider={entry.provider} />
               {entry.bars.map((bar, index) => (
-                <i
-                  key={bar.label}
-                  className={entry.bars.length > 1 && index !== entry.hot ? 'is-cool' : undefined}
-                >
+                <i key={bar.label} className={entry.bars.length > 1 && index !== entry.hot ? 'is-cool' : undefined}>
                   <i style={{ width: `${displayUsagePercent(bar.percent) ?? 0}%` }} />
                 </i>
               ))}

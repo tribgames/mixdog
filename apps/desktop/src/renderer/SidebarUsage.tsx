@@ -47,7 +47,6 @@ function number(value: unknown): number | null {
   return value === null || value === undefined || value === '' || !Number.isFinite(parsed) ? null : parsed;
 }
 
-
 /** Subscriptions matched by row id or label whatever the row's group. */
 const ROW_MATCHERS: Record<string, (id: string, label: string) => boolean> = {
   'opencode-go': (id, label) => id === 'opencode-go' || label.includes('opencode go'),
@@ -151,7 +150,9 @@ function pinWindows(
 ): { long: UsagePinWindow; short: UsagePinWindow | null } | null {
   const candidates = windows.flatMap((window): UsagePinWindow[] => {
     const percent = usedPercent(window);
-    return percent === null ? [] : [{ label: String(window.label || '').trim(), percent, resetAt: timestamp(window.resetAt) }];
+    return percent === null
+      ? []
+      : [{ label: String(window.label || '').trim(), percent, resetAt: timestamp(window.resetAt) }];
   });
   if (!candidates.length) return null;
   let long: UsagePinWindow | undefined;

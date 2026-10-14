@@ -150,11 +150,7 @@ export function SidebarUsageMenu({
             <div className="usage-menu-group" role="presentation">
               {t('Rail bars')}
             </div>
-            {radio(
-              'long',
-              t('Longest period only'),
-              t('Only the longest period, such as monthly or weekly')
-            )}
+            {radio('long', t('Longest period only'), t('Only the longest period, such as monthly or weekly'))}
             {radio(
               'short-long',
               t('Short + long period'),

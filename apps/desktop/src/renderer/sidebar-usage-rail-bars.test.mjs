@@ -54,7 +54,11 @@ test('the figure and the driving bar follow the higher of the two', () => {
 });
 
 test('a provider without a short window gets one bar and no placeholder', () => {
-  for (const windows of [[{ label: 'M', usedPct: 30 }], [{ label: 'W', usedPct: 30 }], [{ label: 'FLASH', usedPct: 30 }]]) {
+  for (const windows of [
+    [{ label: 'M', usedPct: 30 }],
+    [{ label: 'W', usedPct: 30 }],
+    [{ label: 'FLASH', usedPct: 30 }],
+  ]) {
     const [entry] = usagePinEntries(claude(windows), 'short-long');
     assert.equal(entry.bars.length, 1);
     assert.equal(entry.percent, 30);
@@ -135,10 +139,20 @@ test('the taller two-bar stack counts toward rail room', () => {
   assert.equal(usagePinStackFits({ ...base, railHeight, doubleBarCount: 3 }), false);
 });
 
-function mount(t, windows = [{ label: '5H', usedPct: 99 }, { label: 'W', usedPct: 41 }]) {
+function mount(
+  t,
+  windows = [
+    { label: '5H', usedPct: 99 },
+    { label: 'W', usedPct: 41 },
+  ]
+) {
   const { root } = installTestDom(t, { expose: ['HTMLElement', 'Node'], rootId: 'root' });
   publishUsageDashboard(claude(windows));
-  const api = { async invokeCapability() { return { value: { selectedId: 'a', auto: true, accounts: [] } }; } };
+  const api = {
+    async invokeCapability() {
+      return { value: { selectedId: 'a', auto: true, accounts: [] } };
+    },
+  };
   const state = { pinned: true, railBars: 'long', toggles: 0, changes: [] };
   const render = () =>
     act(async () =>

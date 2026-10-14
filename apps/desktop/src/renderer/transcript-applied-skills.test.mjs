@@ -19,9 +19,9 @@ test('a sent message lists its applied skills and marks only those $mentions', (
   assert.ok(html.includes('$HOME/reports'));
   const applied = html.slice(html.indexOf('message-applied-skills'));
   assert.match(applied, /<span>Applied skills<\/span>/);
-  const chips = [...applied.matchAll(/class="message-applied-skill" title="([^"]+)">(?:<svg[\s\S]*?<\/svg>)([^<]*)</g)].map(
-    (match) => [match[1], match[2]]
-  );
+  const chips = [
+    ...applied.matchAll(/class="message-applied-skill" title="([^"]+)">(?:<svg[\s\S]*?<\/svg>)([^<]*)</g),
+  ].map((match) => [match[1], match[2]]);
   assert.deepEqual(chips, [
     ['api-review', 'api-review'],
     ['pptx', 'PPT'],

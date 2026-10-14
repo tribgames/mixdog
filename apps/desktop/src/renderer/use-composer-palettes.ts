@@ -30,7 +30,7 @@ export function skillMentionMatchAt(draft: string, caretOffset: number): Mention
   const match = /(^|[\s([{"'`])\$([a-z0-9-]*)$/.exec(beforeCaret);
   if (!match) return null;
   const start = match.index + match[1].length;
-  return { start, end: beforeCaret.length, query: match[2] || '' };
+  return { start, end: beforeCaret.length, query: match[2] };
 }
 
 export function useComposerPalettes({

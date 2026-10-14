@@ -45,7 +45,11 @@ async function mountRail(t) {
   const props = {
     settingsOpen: false,
     onOpenSettings() {},
-    usageApi: { async invokeCapability() { return { value: { selectedId: 'a', auto: true, accounts: [] } }; } },
+    usageApi: {
+      async invokeCapability() {
+        return { value: { selectedId: 'a', auto: true, accounts: [] } };
+      },
+    },
     navigationItems: [],
     activeNavigationId: null,
     onSelectNavigation() {},
@@ -63,15 +67,13 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
   assert.equal(meters('claude').length, 1);
   assert.equal(brand('claude').querySelector('small').textContent, '41%');
 
-  await act(async () => document.querySelector('.sidebar-usage-toggle').dispatchEvent(
-    new window.MouseEvent('click', { bubbles: true })
-  ));
+  await act(async () =>
+    document.querySelector('.sidebar-usage-toggle').dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  );
   const menuButton = document.querySelector('.sidebar-usage-menu');
   assert.ok(menuButton);
   await act(async () => menuButton.click());
-  await act(async () =>
-    document.querySelector('[role="menuitemradio"][data-rail-bars="short-long"]').click()
-  );
+  await act(async () => document.querySelector('[role="menuitemradio"][data-rail-bars="short-long"]').click());
 
   // Two stacked meters, short window first; one figure = the higher; the tone
   // colors only the bar that drives it.

@@ -32,7 +32,6 @@ export function usagePinStackFits(input: {
   doubleBarCount?: number;
 }): boolean {
   if (input.rowCount <= 0) return true;
-  const needed =
-    input.navHeight + usagePinStackHeight(input.rowCount, input.doubleBarCount) + input.settingsHeight;
+  const needed = input.navHeight + usagePinStackHeight(input.rowCount, input.doubleBarCount) + input.settingsHeight;
   return input.railHeight >= needed;
 }

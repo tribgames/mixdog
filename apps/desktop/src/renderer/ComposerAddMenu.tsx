@@ -11,13 +11,6 @@ import { cachedSkillCatalog, refreshSkillCatalog } from './composer-skill-mentio
 import { wrappedNavigationIndex } from './list-navigation';
 import './desktop/composer-add-menu.css';
 
-// The last skill catalog per session is kept for the renderer's lifetime
-// (shared with the composer's `$` mentions). Opening the menu paints it at once
-// and refreshes behind it, instead of emptying the list and waiting on a
-// renderer → main → daemon control-session round trip every time (user: 로딩까지
-// 시간이 엄청 오래 걸림). skillsStatus is already cached daemon-side, so the
-// refresh only ever moves the list when skills changed.
-
 // Roving focus over the enabled menu items, wrapping at both ends.
 function moveComposerAddMenuFocus(
   event: React.KeyboardEvent<HTMLDivElement>,
@@ -217,9 +210,8 @@ export function ComposerAddMenu({
   const [open, setOpen] = useState(false);
   const session = sessionId || '';
   const project = session ? '' : projectPath || '';
-  const [skills, setSkills] = useState<ComposerSkill[]>(
-    () => cachedSkillCatalog(session, project)?.selectable || []
-  );
+  // Paint the cached catalog at once and refresh behind it (see composer-skill-mentions).
+  const [skills, setSkills] = useState<ComposerSkill[]>(() => cachedSkillCatalog(session, project)?.selectable || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const panel = useRef<HTMLDivElement>(null);

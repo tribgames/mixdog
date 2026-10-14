@@ -15,9 +15,8 @@ installTestDom(null, {
 const { createRoot } = await import('react-dom/client');
 const { startElementPin, useVisualizeInspection, VisualizeElements } = await import('./VisualizeElements.tsx');
 const { VisualizeCommentLayer } = await import('./VisualizeFeedback.tsx');
-const { resetVisualizeElementPins, requestVisualizeElementPin, takeVisualizeElementPin, VISUALIZE_ELEMENT_PIN_TTL_MS } = await import(
-  './visualize-elements-store.ts'
-);
+const { resetVisualizeElementPins, requestVisualizeElementPin, takeVisualizeElementPin, VISUALIZE_ELEMENT_PIN_TTL_MS } =
+  await import('./visualize-elements-store.ts');
 const { resetVisualizeFeedback } = await import('./visualize-feedback-store.ts');
 
 const jsdomUtils = createRequire(import.meta.url)('jsdom/lib/jsdom/living/generated/utils.js');
@@ -26,7 +25,8 @@ async function userClick(node) {
   jsdomUtils.implForWrapper(event).isTrusted = true;
   await act(async () => jsdomUtils.implForWrapper(node)._dispatch(jsdomUtils.implForWrapper(event)));
 }
-const scriptClick = (node) => act(async () => node.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })));
+const scriptClick = (node) =>
+  act(async () => node.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })));
 
 const tab = {
   id: 'v1',
@@ -43,7 +43,18 @@ const inspection = {
   outline: [{ depth: 0, kind: 'heading', role: 'heading', level: 1, name: 'Dashboard', selector: 'h1' }],
   elements: [{ role: 'button', name: 'Save', selector: '#save', tag: 'button', x: 1, y: 2, w: 3, h: 4, flags: [] }],
   elementCount: 1,
-  findings: [{ kind: 'overflow-x', severity: 'error', message: 'page scrolls horizontally', selector: 'html', x: 0, y: 0, w: 500, h: 0 }],
+  findings: [
+    {
+      kind: 'overflow-x',
+      severity: 'error',
+      message: 'page scrolls horizontally',
+      selector: 'html',
+      x: 0,
+      y: 0,
+      w: 500,
+      h: 0,
+    },
+  ],
   findingCount: 1,
   contrastUnknown: 0,
   partial: false,
@@ -135,7 +146,10 @@ test('answers from other windows, with another id, or malformed are ignored', as
   await page.fromPage({ type: 'ready' });
   await settle(350);
   const request = page.toPage.find((message) => message.type === 'inspect');
-  const stranger = new window.MessageEvent('message', { data: tagged({ type: 'inspected', id: request.id, inspection }), source: window });
+  const stranger = new window.MessageEvent('message', {
+    data: tagged({ type: 'inspected', id: request.id, inspection }),
+    source: window,
+  });
   await act(async () => window.dispatchEvent(stranger));
   await page.fromPage({ type: 'inspected', id: 'guessed', inspection });
   await page.fromPage({ type: 'inspected', id: request.id, inspection: { elements: 'nope' } });
@@ -159,7 +173,9 @@ test('a page that never answers is unavailable, and an error answer is shown', a
 test('hovering a row outlines the element in the page, leaving clears it', async (t) => {
   const page = await mount(t);
   await readPage(page);
-  const row = [...page.host.querySelectorAll('.visualize-elements-row')].find((node) => node.textContent.includes('Save'));
+  const row = [...page.host.querySelectorAll('.visualize-elements-row')].find((node) =>
+    node.textContent.includes('Save')
+  );
   await act(async () => row.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })));
   await act(async () => row.dispatchEvent(new window.MouseEvent('mouseout', { bubbles: true })));
   const highlights = page.toPage.filter((message) => message.type === 'highlight').map((message) => message.selector);
@@ -169,10 +185,15 @@ test('hovering a row outlines the element in the page, leaving clears it', async
 test('only a trusted click on a row starts a pin: Comment mode comes on and the page describes that element', async (t) => {
   const page = await mount(t);
   await readPage(page);
-  const row = [...page.host.querySelectorAll('.visualize-elements-row')].find((node) => node.textContent.includes('Save'));
+  const row = [...page.host.querySelectorAll('.visualize-elements-row')].find((node) =>
+    node.textContent.includes('Save')
+  );
   await scriptClick(row);
   assert.equal(page.state.comment, false, 'a script-made click does nothing');
-  assert.equal(page.toPage.some((message) => message.type === 'describe'), false);
+  assert.equal(
+    page.toPage.some((message) => message.type === 'describe'),
+    false
+  );
 
   await userClick(row);
   await settle();
@@ -193,7 +214,11 @@ test('the pin request slot is single, scoped to its pane and expires', () => {
   assert.deepEqual(takeVisualizeElementPin('v1', 0, 1001), { tabId: 'v1', pane: 0, selector: '#a' });
   assert.equal(takeVisualizeElementPin('v1', 0, 1002), null, 'taken once');
   requestVisualizeElementPin({ tabId: 'v1', pane: 0, selector: '#b' }, 1000);
-  assert.equal(takeVisualizeElementPin('v1', 0, 1000 + VISUALIZE_ELEMENT_PIN_TTL_MS + 1), null, 'stale requests are dropped');
+  assert.equal(
+    takeVisualizeElementPin('v1', 0, 1000 + VISUALIZE_ELEMENT_PIN_TTL_MS + 1),
+    null,
+    'stale requests are dropped'
+  );
 });
 test('a flood of ready messages makes a bounded number of reads, one in flight, trailing-debounced', async (t) => {
   const page = await mount(t);
