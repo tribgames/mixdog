@@ -4,11 +4,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { DESKTOP_CAPABILITIES } from '../shared/contract.ts';
+import { DESKTOP_IMPORT_CAPABILITIES } from '../shared/contract-import.ts';
 import { assertRemoteCapability, redactRemoteError, REMOTE_BLOCKED_CAPABILITIES } from './remote-methods.ts';
 
-test('only the media resolver is denied over remote access', () => {
-  assert.deepEqual([...REMOTE_BLOCKED_CAPABILITIES], ['resolveMediaFile']);
-  assert.throws(() => assertRemoteCapability('resolveMediaFile'), /is not available over remote access/);
+test('only the media resolver and local conversation import are denied over remote access', () => {
+  assert.deepEqual([...REMOTE_BLOCKED_CAPABILITIES], ['resolveMediaFile', ...DESKTOP_IMPORT_CAPABILITIES]);
+  for (const capability of REMOTE_BLOCKED_CAPABILITIES) {
+    assert.throws(() => assertRemoteCapability(capability), /is not available over remote access/, capability);
+  }
 });
 
 test('secret, OAuth, MCP and developer capabilities are allowed for every paired client', () => {

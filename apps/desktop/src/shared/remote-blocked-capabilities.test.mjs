@@ -4,6 +4,8 @@ import { remoteCapabilityBlocked } from './remote-blocked-capabilities.ts';
 
 test('only host-internal capabilities are blocked for every client', () => {
   assert.equal(remoteCapabilityBlocked('resolveMediaFile'), true);
+  assert.equal(remoteCapabilityBlocked('startConversationImport'), true);
+  assert.equal(remoteCapabilityBlocked('listImportableConversations'), true);
   assert.equal(remoteCapabilityBlocked('saveProviderApiKey'), false);
   assert.equal(remoteCapabilityBlocked('getSnapshot'), false);
 });
