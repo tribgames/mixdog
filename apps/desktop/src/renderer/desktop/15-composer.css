@@ -1729,8 +1729,8 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   color: var(--mx-skill-token-ink);
   background: var(--mx-skill-token-fill);
 }
-.slash-palette.mention-palette.skill-mention-palette button {
-  grid-template-columns: 18px 128px minmax(0, 1fr);
+.slash-palette.mention-palette.skill-mention-palette button[role="option"] {
+  grid-template-columns: 18px 150px minmax(0, 1fr);
 }
 .skill-mention-palette .skill-mention-name {
   overflow: hidden;
@@ -1747,24 +1747,31 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.slash-palette.skill-mention-palette .skill-mention-hint {
-  margin: 2px 0 0;
-  padding: 6px 12px 4px;
-  border-top: var(--mx-hairline) solid var(--mx-border-muted);
+/* Empty and no-match states: one left-aligned muted line, the settings
+   link inline in accent ink. */
+.slash-palette.skill-mention-palette .skill-mention-empty {
+  padding: 4px 12px 6px;
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
   text-align: left;
 }
-.skill-mention-hint kbd {
-  padding: 0 4px;
-  border-radius: var(--mx-radius-sm);
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-2);
-  font: 12px var(--mx-font-mono);
+.slash-palette.skill-mention-palette .skill-mention-settings,
+.slash-palette.skill-mention-palette .skill-mention-settings:hover {
+  display: inline;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  color: var(--mx-text-accent);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.slash-palette.skill-mention-palette .skill-mention-settings:hover {
+  text-decoration: underline;
 }
 @media (max-width: 520px) {
-  .slash-palette.mention-palette.skill-mention-palette button {
+  .slash-palette.mention-palette.skill-mention-palette button[role="option"] {
     grid-template-columns: 18px minmax(0, 1fr);
   }
   .skill-mention-palette .skill-mention-description {

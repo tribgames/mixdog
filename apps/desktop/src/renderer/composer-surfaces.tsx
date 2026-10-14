@@ -191,38 +191,8 @@ export function MentionPalette({
   );
 }
 
-// The built-in hint names `$pptx` as its example; the example is drawn as a
-// key cap wherever the translation places it.
-const BUILT_IN_EXAMPLE = '$pptx';
-
-function SkillMentionHint({ query }: { query: string }) {
-  if (!query) {
-    return (
-      <p className="skill-mention-hint">
-        <kbd>↑</kbd> <kbd>↓</kbd> {t('Move')} · <kbd>Enter</kbd>·<kbd>Tab</kbd> {t('Insert')} · <kbd>Esc</kbd>{' '}
-        {t('Close')}
-      </p>
-    );
-  }
-  const [lead, ...rest] = t('Built-in skills are recognized when you type the full name (e.g. {{example}})', {
-    example: BUILT_IN_EXAMPLE,
-  }).split(BUILT_IN_EXAMPLE);
-  return (
-    <p className="skill-mention-hint">
-      {lead}
-      {rest.map((part, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: positional pieces of one translated sentence
-        <React.Fragment key={index}>
-          <kbd>{BUILT_IN_EXAMPLE}</kbd>
-          {part}
-        </React.Fragment>
-      ))}
-    </p>
-  );
-}
-
-/** `$` palette: the user's enabled custom skills. Built-ins are recognised
- *  when typed in full but not listed. */
+/** `$` palette, built like the `@` file palette: the user's enabled custom
+ *  skills. Built-ins are recognised when typed in full but not listed. */
 export function SkillMentionPalette({
   anchor,
   panel,
@@ -232,6 +202,7 @@ export function SkillMentionPalette({
   index,
   setIndex,
   onSelect,
+  onOpenSkillSettings,
 }: {
   anchor: Anchor;
   panel: Panel;
@@ -242,6 +213,8 @@ export function SkillMentionPalette({
   index: number;
   setIndex: (index: number) => void;
   onSelect: (name: string) => void;
+  /** Settings › Skills, the same destination as the + menu's manage entry. */
+  onOpenSkillSettings: () => void;
 }) {
   return (
     <ComposerPalette
@@ -277,10 +250,24 @@ export function SkillMentionPalette({
           <span className="skill-mention-description">{skill.description}</span>
         </button>
       ))}
-      {results.length === 0 && (
-        <p role="status">{available ? t('No matching skills.') : t('No enabled skills.')}</p>
+      {results.length === 0 && available && (
+        <p className="skill-mention-empty" role="status">
+          {t('No matching skills.')}
+        </p>
       )}
-      <SkillMentionHint query={query} />
+      {!available && (
+        <p className="skill-mention-empty" role="status">
+          {t('No skills are on.')}{' '}
+          <button
+            type="button"
+            className="skill-mention-settings"
+            onMouseDown={preventFocusSteal}
+            onClick={onOpenSkillSettings}
+          >
+            {t('Open skill settings')}
+          </button>
+        </p>
+      )}
     </ComposerPalette>
   );
 }

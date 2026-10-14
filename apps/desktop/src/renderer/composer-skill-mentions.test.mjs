@@ -97,12 +97,14 @@ test('appliedSkills is read defensively', () => {
 
 test('composer: $ palette opens, filters, inserts; tokens highlight; off skills get a status line', async () => {
   const reads = [];
+  const settingsOpened = [];
+  let currentStatus = STATUS;
   window.mixdogDesktop = {
     invokeCapability: async (request) =>
       request.capability === 'getVoiceStatus' ? { value: { installed: false } } : { value: {} },
     readCapabilities: async (requests) => {
       reads.push(requests);
-      return [{ ok: true, value: STATUS }];
+      return [{ ok: true, value: currentStatus }];
     },
     searchProjectFiles: async () => ['src/app.ts'],
     rendererDiagnostic() {},
@@ -132,7 +134,7 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
     onResumeSession() {},
     onOpenSessions() {},
     onOpenProjects() {},
-    onOpenSettings() {},
+    onOpenSettings: (section) => settingsOpened.push(section),
     onOpenCommandSurface() {},
     dropTargetRef: { current: null },
   };
@@ -170,7 +172,9 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
     assert.equal(palette().getAttribute('aria-label'), 'Skills');
     assert.equal(palette().querySelector('header').textContent, 'Skills');
     assert.deepEqual(rows(), ['$release-notes', '$api-review']);
-    assert.match(palette().querySelector('.skill-mention-hint').textContent, /Move .* Insert .* Close/);
+    // Same structure as the `@` palette: header and rows, no footer hint.
+    assert.equal(palette().querySelector('kbd'), null);
+    assert.equal(palette().querySelector('p'), null);
     assert.equal(input.getAttribute('aria-controls'), 'composer-skill-mention-palette');
     assert.equal(input.getAttribute('aria-expanded'), 'true');
     assert.equal(input.getAttribute('aria-activedescendant'), 'composer-skill-mention-option-0');
@@ -181,10 +185,10 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
     await type('이번 주 커밋 정리해서 $rel');
     assert.deepEqual(rows(), ['$release-notes']);
     assert.equal(palette().querySelector('[role="option"] b').textContent, 'rel');
-    assert.match(palette().querySelector('.skill-mention-hint').textContent, /full name.*\$pptx/);
     await type('이번 주 커밋 정리해서 $zzz');
     assert.deepEqual(rows(), []);
     assert.equal(palette().querySelector('p[role="status"]').textContent, 'No matching skills.');
+    assert.equal(palette().querySelector('.skill-mention-settings'), null);
 
     // C: Tab inserts `$name ` over the fragment and keeps the caret after it.
     await type('이번 주 커밋 정리해서 $rel 형식으로', '이번 주 커밋 정리해서 $rel'.length);
@@ -235,6 +239,20 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
     assert.equal(document.querySelector('.composer-skill-highlight'), null);
     await act(async () => input.dispatchEvent(new window.CompositionEvent('compositionend', { bubbles: true })));
     assert.ok(input.classList.contains('has-skill-mentions'));
+
+    // No custom skill on: one status line with an inline link to Settings › Skills.
+    currentStatus = { skills: STATUS.skills.filter((skill) => skill.source === 'builtin') };
+    const empty = { ...props, sessionId: 'skill-mention-empty', identityScope: 'skill-mention-empty' };
+    await act(async () => root.render(React.createElement(Composer, empty)));
+    input = document.querySelector('textarea');
+    // The identity switch drops the focus flag; focus the field afresh.
+    await act(async () => input.blur());
+    await type('$');
+    assert.deepEqual(rows(), []);
+    const line = palette().querySelector('p[role="status"]');
+    assert.equal(line.textContent, 'No skills are on. Open skill settings');
+    await act(async () => line.querySelector('button').click());
+    assert.deepEqual(settingsOpened, ['skills']);
   } finally {
     await act(async () => root.unmount());
   }

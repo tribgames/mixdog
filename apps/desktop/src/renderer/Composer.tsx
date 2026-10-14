@@ -755,6 +755,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
             index={skillMention.index}
             setIndex={skillMention.setIndex}
             onSelect={selectSkillMention}
+            onOpenSkillSettings={() => onOpenSettings('skills')}
           />
         )}
         {attachments.length > 0 && (
