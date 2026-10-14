@@ -32,6 +32,7 @@ Added conversation import from Codex and Claude Code, the Command Code provider,
 ### Bug fixes
 
 - Fixed Computer Use staying unavailable with "foreground input observation is unavailable"; missed input now counts as user input, observation recovers on its own, and diagnose names the cause (#66).
+- Fixed adding an SSH server in the installed app staying on "Connecting…" forever by packaging the server lockfile (#69, thanks @victorwon2001).
 - Fixed bundled skill scripts, including the skill validator, failing in some installs and shells (#62).
 - Fixed new tasks that remembered a deleted workflow so they start on Default (#64).
 - Fixed auto reasoning not applying on Claude routes in 1.2.0, and one slow judgment timing out the ones after it.
@@ -40,7 +41,6 @@ Added conversation import from Codex and Claude Code, the Command Code provider,
 - Fixed fast upward scrolling on phones stopping short and then jumping far up on the next touch.
 - Fixed the rename editor closing at once for sessions listed in both a project folder and Recent.
 - Fixed thumbnails showing the wrong image in restored conversations with several images.
-- Fixed queued TUI messages dropping attached images or long pasted text when merged.
 - Fixed hook commands inheriting Mixdog's internal runtime settings.
 - Fixed headless runs, such as model calls from skill scripts, being unable to use Muse Code or MiMo.
 - Fixed the confirmation dialog not appearing when removing an MCP server or plugin.

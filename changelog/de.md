@@ -31,6 +31,7 @@ Unterhaltungsimport aus Codex und Claude Code, den Command Code-Anbieter sowie `
 ### Fehlerbehebungen
 
 - Behoben: Computer Use blieb mit "foreground input observation is unavailable" nicht verfügbar; verpasste Eingaben zählen nun als Nutzereingaben, Beobachtung erholt sich selbst und Diagnose nennt die Ursache (#66).
+- Behoben: Das Hinzufügen eines SSH-Servers in der installierten App blieb dauerhaft bei "Verbindung wird hergestellt…" stehen; die Server-Lockdatei wird nun mitgeliefert (#69, danke an @victorwon2001).
 - Behoben: Gebündelte Skill-Skripte, einschließlich des Skill-Validators, schlugen bei manchen Installationen und Shells fehl (#62).
 - Behoben: Neue Aufgaben, die einen gelöschten Workflow gespeichert hatten, starten nun mit Default (#64).
 - Behoben: Automatisches Denken wurde in 1.2.0 auf Claude-Routen nicht angewendet, und eine langsame Bewertung führte bei folgenden zu Timeouts.
@@ -39,7 +40,6 @@ Unterhaltungsimport aus Codex und Claude Code, den Command Code-Anbieter sowie `
 - Behoben: Schnelles Aufwärtsscrollen auf Smartphones stockte und sprang bei der nächsten Berührung weit nach oben.
 - Behoben: Der Umbenennen-Editor schloss sich sofort bei Sitzungen, die sowohl in einem Projektordner als auch unter Zuletzt verwendet aufgeführt waren.
 - Behoben: Miniaturansichten zeigten in wiederhergestellten Unterhaltungen mit mehreren Bildern das falsche Bild an.
-- Behoben: In der TUI-Warteschlange befindliche Nachrichten verloren beim Zusammenführen angehängte Bilder oder lange eingefügte Texte.
 - Behoben: Hook-Befehle erbten interne Laufzeiteinstellungen von Mixdog.
 - Behoben: Monitorlose Ausführungen, wie Modellaufrufe aus Skill-Skripten, konnten Muse Code oder MiMo nicht nutzen.
 - Behoben: Bestätigungsdialog erschien beim Entfernen eines MCP-Servers oder Plugins nicht.

@@ -31,6 +31,7 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 ### Sửa lỗi
 
 - Đã sửa lỗi Computer Use bị treo với "foreground input observation is unavailable"; thao tác bỏ lỡ nay tính là đầu vào của người dùng, quan sát tự phục hồi và chẩn đoán nêu rõ nguyên nhân (#66).
+- Đã sửa lỗi thêm máy chủ SSH trong ứng dụng đã cài đặt bị kẹt ở "Đang kết nối…" vô thời hạn bằng cách đóng gói tệp khóa máy chủ (#69, cảm ơn @victorwon2001).
 - Đã sửa lỗi các tập lệnh kỹ năng đi kèm, bao gồm trình xác thực, bị lỗi trên một số bản cài đặt và shell (#62).
 - Đã sửa lỗi các tác vụ mới từng ghi nhớ quy trình đã xóa để khởi động với Default (#64).
 - Đã sửa lỗi suy luận tự động không áp dụng trên tuyến Claude trong 1.2.0 và một lần phán đoán chậm khiến các lần tiếp theo bị quá thời gian.
@@ -39,7 +40,6 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 - Đã sửa lỗi cuộn nhanh lên trên ở điện thoại bị khựng lại rồi nhảy vọt lên ở lần chạm tiếp theo.
 - Đã sửa lỗi trình chỉnh sửa đổi tên đóng ngay lập tức đối với các phiên xuất hiện ở cả thư mục dự án lẫn mục Gần đây.
 - Đã sửa lỗi hình thu nhỏ hiển thị sai ảnh trong các cuộc trò chuyện được khôi phục có nhiều ảnh.
-- Đã sửa lỗi các tin nhắn trong hàng đợi TUI bị mất ảnh đính kèm hoặc văn bản dán dài khi hợp nhất.
 - Đã sửa lỗi các lệnh hook kế thừa cài đặt runtime nội bộ của Mixdog.
 - Đã sửa lỗi các lần chạy headless, chẳng hạn như gọi mô hình từ tập lệnh kỹ năng, không thể sử dụng Muse Code hoặc MiMo.
 - Đã sửa lỗi hộp thoại xác nhận không xuất hiện khi xóa máy chủ MCP hoặc plugin.

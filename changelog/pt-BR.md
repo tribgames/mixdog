@@ -31,6 +31,7 @@ Adicionada a importação de conversas do Codex e do Claude Code, o provedor Com
 ### Correções de bugs
 
 - Corrigido o Computer Use indisponível com "foreground input observation is unavailable"; entradas perdidas contam como do usuário, a observação recupera sozinha e o diagnóstico informa a causa (#66).
+- Corrigido o problema em que adicionar um servidor SSH no aplicativo instalado ficava indefinidamente em "Conectando…", empacotando o lockfile do servidor (#69, obrigado a @victorwon2001).
 - Corrigidos scripts de skills incluídos, como o validador, falhando em algumas instalações e shells (#62).
 - Corrigidas novas tarefas que lembravam fluxos excluídos para iniciarem no Default (#64).
 - Corrigido o raciocínio automático que não se aplicava em rotas do Claude no 1.2.0 e um julgamento lento causando tempo limite nos seguintes.
@@ -39,7 +40,6 @@ Adicionada a importação de conversas do Codex e do Claude Code, o provedor Com
 - Corrigida a rolagem rápida para cima em celulares parando antes do fim e saltando para o topo no toque seguinte.
 - Corrigido o editor de renomeação fechando imediatamente para sessões listadas na pasta do projeto e em Recentes.
 - Corrigidas miniaturas exibindo a imagem errada em conversas restauradas com várias imagens.
-- Corrigidas mensagens na fila da TUI descartando imagens anexadas ou textos longos colados ao serem mescladas.
 - Corrigidos comandos de hook herdando configurações internas de runtime do Mixdog.
 - Corrigidas execuções headless, como chamadas de modelo de scripts de skills, que não conseguiam usar Muse Code ou MiMo.
 - Corrigido o diálogo de confirmação que não aparecia ao remover um servidor MCP ou plugin.
