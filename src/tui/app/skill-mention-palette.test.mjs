@@ -49,6 +49,22 @@ test('rows list enabled custom skills, prefix matches before contains matches', 
   assert.equal(skillMentionItems(SKILLS, 'dep')[0].description, 'Ship it');
 });
 
+test('rows drop skills outside this project and reserved (env-var/number) names', () => {
+  const skills = [
+    ...SKILLS,
+    { name: 'pdf-elsewhere', source: 'global', enabled: true, activeHere: false },
+    { name: 'pdf-here', source: 'plugin', enabled: true, activeHere: true },
+    { name: 'path', source: 'global', enabled: true },
+    { name: '300', source: 'global', enabled: true },
+  ];
+  assert.deepEqual(
+    skillMentionItems(skills, 'pdf').map((item) => item.name),
+    ['pdf-here', 'pdf-tools', 'report-pdf']
+  );
+  assert.deepEqual(skillMentionItems(skills, 'pa'), []);
+  assert.deepEqual(skillMentionItems(skills, '3'), []);
+});
+
 test('completion replaces only the `$fragment` before the caret with `$name `', () => {
   assert.deepEqual(completeSkillMention('please use $pd', 'pdf-tools'), {
     value: 'please use $pdf-tools ',

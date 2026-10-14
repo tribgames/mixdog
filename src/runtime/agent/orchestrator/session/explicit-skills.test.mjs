@@ -380,6 +380,50 @@ test('unknown, shell-like, embedded, disabled and unavailable mentions stay pros
   });
 });
 
+test('token boundaries, code and reserved names: prose stays prose, chip selection still works', async () => {
+  await withSkill(async ({ root }) => {
+    addSkill(root, 'path');
+    const session = newSession('openai-oauth', root);
+    const executed = [];
+    const execute = async (_tool, args) => {
+      executed.push(args.name);
+      return `Loaded skill: ${args.name}`;
+    };
+    const prose =
+      'Set $path and $PATH, $selected-guide_env, $selected-guideX, `$selected-guide`:\n' +
+      '```\n$selected-guide\n```';
+    assert.deepEqual(await prepareExplicitSkills(prose, session.messages, session, { execute }), []);
+    assert.deepEqual(executed, []);
+    assert.deepEqual(
+      await prepareExplicitSkills('결과는 $selected-guide로 정리', session.messages, session, { execute }),
+      ['selected-guide']
+    );
+    // A reserved-name skill is never an inline mention but the header chip selects it.
+    assert.deepEqual(
+      await prepareExplicitSkills(`${skillSelectionHeader('path')}Work on $path.`, session.messages, session, {
+        execute,
+      }),
+      ['path']
+    );
+    // Pristine `mixdog exec` isolation: with skills disabled nothing selects.
+    const previous = process.env.MIXDOG_DISABLE_SKILLS;
+    process.env.MIXDOG_DISABLE_SKILLS = '1';
+    try {
+      executed.length = 0;
+      assert.deepEqual(
+        await prepareExplicitSkills(`${skillSelectionHeader('selected-guide')}Use $selected-guide.`, session.messages, session, {
+          execute,
+        }),
+        []
+      );
+      assert.deepEqual(executed, []);
+    } finally {
+      if (previous === undefined) delete process.env.MIXDOG_DISABLE_SKILLS;
+      else process.env.MIXDOG_DISABLE_SKILLS = previous;
+    }
+  });
+});
+
 test('at most five explicit skills are prepared per turn', async () => {
   await withSkill(async ({ root }) => {
     const names = ['g-one', 'g-two', 'g-three', 'g-four', 'g-five', 'g-six', 'g-seven'];
@@ -495,9 +539,17 @@ test('missing, denied and cancelled selections never become successful skill bod
       );
     }
     const session = newSession('openai-oauth', root);
-    await prepareExplicitSkills(skillSelectionHeader('not-installed'), session.messages, session);
-    assert.equal(bodies(session).length, 0);
-    assert.match(session.messages.at(-1).content, /not found/);
+    // A header naming no loadable skill is not a selection: nothing executes.
+    const untouched = structuredClone(session.messages);
+    assert.deepEqual(
+      await prepareExplicitSkills(skillSelectionHeader('not-installed'), session.messages, session, {
+        execute() {
+          assert.fail('an unknown header selection must not execute Skill');
+        },
+      }),
+      []
+    );
+    assert.deepEqual(session.messages, untouched);
     const before = structuredClone(session.messages);
     await assert.rejects(
       prepareExplicitSkills(skillSelectionHeader('selected-guide'), session.messages, session, {
@@ -511,5 +563,60 @@ test('missing, denied and cancelled selections never become successful skill bod
     assert.equal(bodies(session).length, 1);
     assert.ok(session.messages.some((message) => /Required tools unavailable/.test(message.content)));
     assert.equal(session.deferredCallableTools?.includes('office') || false, false);
+  });
+});
+
+test('out-of-scope skills are refused for header, inline and model-requested loads', async () => {
+  await withSkill(async ({ root }) => {
+    addSkill(root, 'scoped-guide');
+    const elsewhere = join(root, 'elsewhere');
+    mkdirSync(elsewhere, { recursive: true });
+    const { loadConfig, saveConfig } = await import('../config.mjs');
+    const backupRoot = process.env.MIXDOG_USER_DATA_BACKUP_ROOT;
+    process.env.MIXDOG_USER_DATA_BACKUP_ROOT = join(root, 'backups');
+    try {
+      saveConfig({
+        ...loadConfig({ secrets: false }),
+        extensionScopes: { skills: { 'scoped-guide': [elsewhere] } },
+      });
+    } finally {
+      if (backupRoot === undefined) delete process.env.MIXDOG_USER_DATA_BACKUP_ROOT;
+      else process.env.MIXDOG_USER_DATA_BACKUP_ROOT = backupRoot;
+    }
+    invalidateSkillsCache(root);
+    const prompt = `${skillSelectionHeader('scoped-guide')}Use $scoped-guide and $selected-guide.`;
+
+    // Header and inline selection outside the scope: not selected, not executed.
+    const outside = newSession('openai-oauth', root);
+    const executed = [];
+    const applied = await prepareExplicitSkills(prompt, outside.messages, outside, {
+      async execute(_tool, args) {
+        executed.push(args.name);
+        return `Loaded skill: ${args.name}`;
+      },
+    });
+    assert.deepEqual(executed, ['selected-guide']);
+    assert.deepEqual(applied, ['selected-guide']);
+
+    // Inside the scope the same prompt selects it, header first.
+    const inside = newSession('openai-oauth', elsewhere);
+    assert.deepEqual(await prepareExplicitSkills(prompt, inside.messages, inside, { cwd: elsewhere }), [
+      'scoped-guide',
+      'selected-guide',
+    ]);
+
+    // The loading boundary itself refuses a model-requested out-of-scope load
+    // with a clear result, and still loads in-scope skills.
+    const { viewSkill } = await import('./loop/tool-helpers.mjs');
+    assert.match(String(viewSkill(root, 'scoped-guide')), /^Error: skill "scoped-guide" is not available in this project/);
+    assert.doesNotMatch(String(viewSkill(elsewhere, 'scoped-guide')), /^Error:/);
+    assert.doesNotMatch(String(viewSkill(root, 'selected-guide')), /^Error:/);
+    const contextMod = await import('../context/collect.mjs');
+    const { createSkillsApi } = await import('../../../../session-runtime/skills-api.mjs');
+    const here = createSkillsApi({ contextMod, getCwd: () => root });
+    assert.match(String(here.skillToolContent('scoped-guide', null)), /is not available in this project/);
+    assert.equal(typeof here.skillToolContent('selected-guide', null), 'object');
+    const there = createSkillsApi({ contextMod, getCwd: () => elsewhere });
+    assert.equal(typeof there.skillToolContent('scoped-guide', null), 'object');
   });
 });

@@ -43,18 +43,17 @@ function userPromptText(prompt) {
 }
 
 /** The skills a prompt explicitly selects: the leading `Skill: "name"` header,
- *  then every inline `$name` naming a skill enabled and in scope for `cwd`, in
- *  first-mention order, deduplicated and capped. */
+ *  then every inline `$name`, each only when it names a skill enabled and in
+ *  scope for `cwd`, in first-mention order, deduplicated and capped. */
 export function explicitSkillNames(prompt, cwd) {
-  const names = [];
   const header = selectedSkillName(prompt);
-  if (header) names.push(header);
   const text = userPromptText(prompt);
-  if (skillMentionCandidates(text).length) {
-    const available = new Set(collectPromptSkillsCached(cwd).map((skill) => skill.name));
-    for (const name of mentionedSkillNames(text, (candidate) => available.has(candidate))) {
-      if (!names.includes(name)) names.push(name);
-    }
+  if (!header && !skillMentionCandidates(text).length) return [];
+  const available = new Set(collectPromptSkillsCached(cwd).map((skill) => skill.name));
+  const isSkill = (name) => available.has(name);
+  const names = header && isSkill(header) ? [header] : [];
+  for (const name of mentionedSkillNames(text, isSkill)) {
+    if (!names.includes(name)) names.push(name);
   }
   return names.slice(0, MAX_EXPLICIT_SKILLS);
 }
@@ -80,15 +79,20 @@ export function recordAppliedSkills(messages, message, names) {
 // Native schemas still travel as a properly paired loader execution, never as
 // new eager definitions or an orphan tool_search_output. Returns the names of
 // the skills that loaded successfully, in selection order.
+// `selection`, when given (even empty), is the turn's TRUSTED selection input
+// and the only text skills are selected from: a host whose model-visible
+// prompt carries external data (webhook payloads) passes just the
+// operator-authored part, so nothing inside the data can load a skill.
 export async function prepareExplicitSkills(
   prompt,
   messages,
   session,
-  { cwd = session?.cwd, signal, execute = executeTool } = {}
+  { cwd = session?.cwd, signal, execute = executeTool, selection } = {}
 ) {
   throwIfAborted(signal);
   const applied = [];
-  for (const name of explicitSkillNames(prompt, cwd)) {
+  const source = selection === undefined || selection === null ? prompt : selection;
+  for (const name of explicitSkillNames(source, cwd)) {
     const id = `skill-selection-${randomUUID()}`;
     const args = { name };
     const raw = await execute('Skill', args, cwd, session?.id, session, { signal, toolCallId: id });

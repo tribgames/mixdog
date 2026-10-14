@@ -154,6 +154,7 @@ export async function runAskAgentLoop({
       const applied = await prepareExplicitSkills(input.prompt, outgoing, session, {
         cwd: effectiveCwd,
         signal: turnSignal,
+        selection: input.skillSelection,
       });
       // The user turn message sits right after the history it was built on.
       const userMessage = recordAppliedSkills(outgoing, outgoing[prepared.beforeCount - 1], applied);

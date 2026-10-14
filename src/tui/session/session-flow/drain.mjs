@@ -65,7 +65,19 @@ function renderBatchItems(batch, pushUserOrSyntheticItem) {
   }
 }
 
-function turnOptionsForBatch(batch, steering) {
+const COMPLETION_WAKE_MODES = new Set(['task-notification', 'pending-resume']);
+
+// Trusted provenance of a drained batch: Goal turns keep their own source; a
+// batch made only of completion wakes (task notifications, pending resumes)
+// is the runtime reporting, carried as a task notification so the runtime
+// stores it as one and never treats its text as a user skill selection.
+function batchPromptSource(batch) {
+  if (isGoalQueuedEntry(batch[0])) return batch[0].mode;
+  if (batch.length > 0 && batch.every((entry) => COMPLETION_WAKE_MODES.has(entry?.mode))) return 'task-notification';
+  return undefined;
+}
+
+export function turnOptionsForBatch(batch, steering) {
   const nonEditable = batch.filter((entry) => !isQueuedEntryEditable(entry));
   // A completion resume is owned by the completion that woke it. Esc
   // consumes that ownership; unlike ordinary notifications it must never
@@ -75,7 +87,7 @@ function turnOptionsForBatch(batch, steering) {
     (entry) => entry?.abortDiscardOnAbort === true || entry?.mode === 'pending-resume'
   );
   return {
-    promptSource: isGoalQueuedEntry(batch[0]) ? batch[0].mode : undefined,
+    promptSource: batchPromptSource(batch),
     retryFailedTurn: batch[0]?.retryFailedTurn === true,
     displayText: batch
       .map((entry) => entry.text)
@@ -113,8 +125,6 @@ function turnOptionsForBatch(batch, steering) {
     },
   };
 }
-
-const COMPLETION_WAKE_MODES = new Set(['task-notification', 'pending-resume']);
 
 export function createDrainLoop(
   bag,

@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mentionedSkillNames, skillMentionCandidates, skillMentions } from './skill-mentions.mjs';
+import {
+  isReservedMentionName,
+  mentionedSkillNames,
+  skillMentionCandidates,
+  skillMentions,
+} from './skill-mentions.mjs';
 
 const known = new Set(['api-review', 'pptx', 'release-notes']);
 const isSkill = (name) => known.has(name);
@@ -20,8 +25,90 @@ test('unknown names, env vars, prices and mid-word dollars stay prose', () => {
   );
   assert.deepEqual(
     skillMentionCandidates('$HOME $Path $300').map((mention) => mention.name),
-    ['300']
+    []
   );
+});
+
+test('a token continued by any ASCII identifier character is not the shorter name', () => {
+  for (const text of ['$pptx_env', '$pptxUPPER', '$pptx-', '$pptx2', '$pptxA b']) {
+    assert.deepEqual(mentionedSkillNames(text, isSkill), [], text);
+  }
+  for (const text of ['$pptx로 만들어', '$pptx.', '$pptx, ok', '($pptx)', '$pptx\n', '$pptx—done']) {
+    assert.deepEqual(mentionedSkillNames(text, isSkill), ['pptx'], text);
+  }
+  const text = '결과는 $pptx로';
+  const [mention] = skillMentions(text, isSkill);
+  assert.equal(text.slice(mention.start, mention.end), '$pptx');
+});
+
+test('$name inside Markdown code is not a mention; offsets stay those of the original text', () => {
+  const none = [
+    '`$pptx`',
+    'run `echo $pptx` now',
+    '```\n$pptx\n```',
+    '```js title="x"\nconst a = "$pptx";\n```',
+    '~~~\n$pptx\n~~~',
+    '~~~~\n$pptx\n~~~\n$pptx\n~~~~',
+    '````\n$pptx\n```\nstill code $pptx',
+    '```\nunclosed fence $pptx',
+    '`` a ` $pptx ``',
+    '```\r\n$pptx\r\n```',
+  ];
+  for (const text of none) assert.deepEqual(skillMentions(text, isSkill), [], JSON.stringify(text));
+
+  const after = (text, expectedStart) => {
+    const mentions = skillMentions(text, isSkill);
+    assert.equal(mentions.length, 1, JSON.stringify(text));
+    assert.equal(mentions[0].start, expectedStart, JSON.stringify(text));
+    assert.equal(text.slice(mentions[0].start, mentions[0].end), '$pptx');
+  };
+  after('`$api` then $pptx', '`$api` then '.length);
+  after('```\n$pptx\n```\nnow $pptx', '```\n$pptx\n```\nnow '.length);
+  after('~~~\n$pptx\n~~~\n$pptx', '~~~\n$pptx\n~~~\n'.length);
+  after('```\r\n$pptx\r\n```\r\nuse $pptx\r\n', '```\r\n$pptx\r\n```\r\nuse '.length);
+  // An unmatched backtick run is literal text.
+  after('a ` lone tick $pptx', 'a ` lone tick '.length);
+  after('`` x ` y $pptx', '`` x ` y '.length);
+  // A double-backtick span may contain single backticks; text after it counts.
+  after('`` a ` b `` and $pptx', '`` a ` b `` and '.length);
+  // A ``` run inside a line is an inline span, not a fence.
+  after('see ```$api``` and $pptx', 'see ```$api``` and '.length);
+});
+
+test('environment-variable names and numbers are never mentions, even as skill names', () => {
+  const reserved = [
+    'path',
+    'home',
+    'user',
+    'shell',
+    'pwd',
+    'tmpdir',
+    'temp',
+    'tmp',
+    'lang',
+    'term',
+    'userprofile',
+    'appdata',
+    'localappdata',
+    'programfiles',
+    'systemroot',
+    'windir',
+    'comspec',
+    '300',
+    '2024',
+  ];
+  const everything = () => true;
+  for (const name of reserved) {
+    assert.equal(isReservedMentionName(name), true, name);
+    assert.equal(isReservedMentionName(name.toUpperCase()), true, name);
+    assert.deepEqual(skillMentionCandidates(`use $${name} here`), [], name);
+    assert.deepEqual(mentionedSkillNames(`use $${name}`, everything), [], name);
+  }
+  assert.equal(isReservedMentionName('XDG_CONFIG_HOME'), true);
+  for (const name of ['pptx', 'path-tools', 'home2', '3d', 'temp-notes']) {
+    assert.equal(isReservedMentionName(name), false, name);
+    assert.deepEqual(mentionedSkillNames(`$${name}`, everything), [name], name);
+  }
 });
 
 test('a mention may follow an opening bracket or quote and end at punctuation', () => {

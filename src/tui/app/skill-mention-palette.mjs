@@ -8,6 +8,7 @@
  * but still load when their name is typed: the runtime resolves mentions.
  */
 import { useEffect, useState } from 'react';
+import { isReservedMentionName } from '../../runtime/shared/skill-mentions.mjs';
 
 // A mention being typed just before the caret: `$` plus a partial name.
 const MENTION_TAIL = /(^|[\s([{"'`])\$([a-z0-9][a-z0-9-]{0,63})?$/;
@@ -27,12 +28,20 @@ export function skillMentionQuery(value, caret) {
 
 const byName = (a, b) => a.name.localeCompare(b.name, 'en');
 
-/** Palette rows for `query`: enabled non-built-in skills whose name starts
- *  with the query, then those that merely contain it, each alphabetical. */
+/** Palette rows for `query`: enabled, in-project (not `activeHere:false`)
+ *  non-built-in skills whose name starts with the query, then those that
+ *  merely contain it, each alphabetical. */
 export function skillMentionItems(skills, query) {
   const needle = String(query || '').toLowerCase();
   const usable = (Array.isArray(skills) ? skills : []).filter(
-    (skill) => typeof skill?.name === 'string' && skill.name && skill.enabled !== false && skill.source !== 'builtin'
+    (skill) =>
+      typeof skill?.name === 'string' &&
+      skill.name &&
+      skill.enabled !== false &&
+      skill.activeHere !== false &&
+      skill.source !== 'builtin' &&
+      // `$path`/`$300` are never mentions, so offering them would insert prose.
+      !isReservedMentionName(skill.name)
   );
   const prefix = usable.filter((skill) => skill.name.startsWith(needle)).sort(byName);
   const contains = needle

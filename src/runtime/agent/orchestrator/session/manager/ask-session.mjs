@@ -148,7 +148,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
     // queued send always lands AFTER the in-flight prompt here, ordering is
     // preserved and the spawn/connecting startup race disappears.
     for (;;) {
-      const input = queue.nextTurn({ prompt, context, explicitPrefetch });
+      // `skillSelection` (askOpts) is the trusted selection input of the
+      // caller's own prompt only; drained follow-up turns never inherit it.
+      const input = queue.nextTurn({ prompt, context, explicitPrefetch, skillSelection: askOpts.skillSelection });
       if (!input) {
         void takeoverHydration.then((count) => {
           if (count <= 0) return;

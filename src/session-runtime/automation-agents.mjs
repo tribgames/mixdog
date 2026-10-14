@@ -57,10 +57,16 @@ export function deliverAutomationCompletion(sessionId, text, meta = {}) {
   return true;
 }
 
+// Ask options for a follow-up turn fed by agent results: the runtime reporting
+// worker output, not the user — stored as a task notification and never a
+// source of explicit skill selection.
+export const AUTOMATION_RESULT_TURN_OPTS = Object.freeze({ promptSource: 'task-notification' });
+
 /**
  * Runs an automation conversation to its end: the first turn, then one more
  * turn per batch of agent results while agents it started are still out.
- * Resolves with the last turn's result.
+ * `nextTurn(text, askOpts)` receives AUTOMATION_RESULT_TURN_OPTS as the
+ * results' provenance. Resolves with the last turn's result.
  */
 export async function runAutomationTurns(sessionId, firstTurn, nextTurn, { waitMs = AGENT_RESULT_WAIT_MS } = {}) {
   const run = { pending: new Set(), ready: [], wake: null };
@@ -79,7 +85,7 @@ export async function runAutomationTurns(sessionId, firstTurn, nextTurn, { waitM
         run.wake = null;
         if (!arrived) break;
       }
-      result = await nextTurn(run.ready.splice(0).join('\n\n'));
+      result = await nextTurn(run.ready.splice(0).join('\n\n'), { ...AUTOMATION_RESULT_TURN_OPTS });
     }
     return result;
   } finally {

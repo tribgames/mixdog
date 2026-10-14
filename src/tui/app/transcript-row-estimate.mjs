@@ -20,6 +20,7 @@ import {
 import { isShellTool } from '../../runtime/shared/tool-card-model/shell-surface.mjs';
 import { stripLeadingStatusMarkerFromText } from '../../runtime/shared/tool-card-model/terminal-status.mjs';
 import { readRowsForDisplay } from '../../runtime/shared/read-row-numbers.mjs';
+import { appliedSkillsLine } from '../components/user-message-skills.mjs';
 import { aggregateRawResultForDisplay } from '../session/tool-result-status.mjs';
 import { formatExpandedResult, wrapExpandedResultLines } from '../components/tool-output-format.mjs';
 import {
@@ -213,8 +214,11 @@ function estimateToolRenderedResultRows(value, { pathArg = '', isShell = false, 
 export function estimateTranscriptItemRows(item, columns, toolOutputExpanded, attachedTool = false) {
   if (!item) return 1;
   switch (item.kind) {
-    case 'user':
-      return 1 + estimateWrappedRows(item.text, columns, 4);
+    case 'user': {
+      // UserMessage: marginTop + wrapped text + the applied-skills line.
+      const skillsLine = appliedSkillsLine(item.appliedSkills);
+      return 1 + estimateWrappedRows(item.text, columns, 4) + (skillsLine ? estimateWrappedRows(skillsLine, columns, 4) : 0);
+    }
     case 'assistant':
       // marginTop={1} (AssistantMessage <Box>) + rendered body height.
       return (

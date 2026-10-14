@@ -38,8 +38,10 @@ test('an automation run turns each delegated agent result into its next turn', a
       }, 5);
       return { content: 'delegated' };
     },
-    async (completions) => {
+    async (completions, askOpts) => {
       turns.push(completions);
+      // Worker results are the runtime reporting, never a user skill selection.
+      assert.deepEqual(askOpts, { promptSource: 'task-notification' });
       return { content: 'final answer' };
     }
   );

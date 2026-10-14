@@ -263,6 +263,19 @@ export function skillMissingFeature(name, config = null, skills = null) {
   return skill ? missingFeature(skill, featureConfig(config)) : null;
 }
 
+/** True when an installed skill exists but its (or its plugin's) project scope
+ *  excludes `cwd` — the same scope rule filterSkillsExcludingDisabled applies. */
+export function skillOutsideScope(name, cwd, config = null, skills = null) {
+  const skill = findCachedSkillByKey(normalizeSkillNameKey(name), skills);
+  if (!skill) return false;
+  return !skillAllowedForCwd(extensionScopesFromConfig(featureConfig(config)), skill, cwd);
+}
+
+/** The Skill tool result for a skill skillOutsideScope refuses. */
+export function skillOutsideScopeError(name) {
+  return `Error: skill "${name}" is not available in this project (its project scope excludes the current folder)`;
+}
+
 /**
  * Skills a session may see: not switched off, feature available, and — when
  * `cwd` is given — inside the skill's (or its plugin's) project scope. Without

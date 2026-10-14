@@ -17,6 +17,7 @@ import { Box, Text } from 'ink';
 import { theme, TURN_MARKER } from '../theme.mjs';
 import { StreamingMarkdown, resetStreamingMarkdownStablePrefix, windowPlainStreamingText } from './Markdown.jsx';
 import { assistantBodyWidth } from '../markdown/table-layout.mjs';
+import { appliedSkillsLine, userTextSegments } from './user-message-skills.mjs';
 
 // `themeEpoch` is a memo-busting prop (threaded from App): the active theme
 // mutates `theme` in-place, so a /theme switch must re-render this memoized row
@@ -66,6 +67,7 @@ export const UserMessage = React.memo(function UserMessage({
   text,
   attached = false,
   columns,
+  appliedSkills,
   themeEpoch: _themeEpoch = 0,
 }) {
   // `attached` = the previous transcript row is also a user message (consecutive
@@ -79,6 +81,10 @@ export const UserMessage = React.memo(function UserMessage({
   // makes Windows Terminal/conhost auto-wrap, which drifts the alt-screen frame
   // and stacks stale gray bands on re-render. One narrower cell is invisible.
   const bandColumns = Math.max(1, columns - 1);
+  // `$name` tokens of the skills this turn applied are marked; the applied
+  // skills are listed on their own line (user-message-skills.mjs).
+  const skillsLine = appliedSkillsLine(appliedSkills);
+  const segments = userTextSegments(text, appliedSkills);
   return (
     <Box
       flexDirection="column"
@@ -89,8 +95,23 @@ export const UserMessage = React.memo(function UserMessage({
       paddingRight={1}
     >
       <Text color={theme.mixdogIvory} wrap="wrap">
-        {text}
+        {segments.length === 1 && !segments[0].mention
+          ? text
+          : segments.map((segment, index) =>
+              segment.mention ? (
+                <Text key={index} color={theme.panelTitle} bold>
+                  {segment.text}
+                </Text>
+              ) : (
+                segment.text
+              )
+            )}
       </Text>
+      {skillsLine ? (
+        <Text color={theme.subtle} wrap="wrap">
+          {skillsLine}
+        </Text>
+      ) : null}
     </Box>
   );
 });

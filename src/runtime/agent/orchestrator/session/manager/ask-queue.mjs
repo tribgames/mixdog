@@ -12,6 +12,17 @@ import {
 
 const SYNTHETIC_PROMPT_SOURCES = ['goal-continuation', 'goal-closeout'];
 
+// A caller-declared prompt source the runtime trusts as provenance of the
+// initial prompt: Goal turns are runtime-synthetic; a task notification (an
+// idle-drained completion, an automation run's agent results) is stored like
+// one the steering/queue drains inject, never as the user speaking — so none
+// of these run explicit skill selection.
+function initialPromptSourceFor(promptSource) {
+  if (SYNTHETIC_PROMPT_SOURCES.includes(promptSource)) return { source: promptSource, synthetic: true };
+  if (promptSource === PENDING_MODE_TASK_NOTIFICATION) return { source: promptSource };
+  return null;
+}
+
 /** Prompt provenance for a drained queue turn: the source plus its execution when one exists. */
 const promptSourceFields = (source, execution) => {
   if (!source) return null;
@@ -42,9 +53,7 @@ export function createAskPromptQueue({ sessionId, promptSource }) {
   // Local FIFO of follow-up prompts drained from the pending-message queue
   // after each turn — keeps queued `agent type=send` messages in order.
   const tail = [];
-  let initialPromptSource = SYNTHETIC_PROMPT_SOURCES.includes(promptSource)
-    ? { source: promptSource, synthetic: true }
-    : null;
+  let initialPromptSource = initialPromptSourceFor(promptSource);
 
   /** The next turn's input — prompt, caller context, consumed queue entries
    *  and provenance — or null when nothing model-visible is left to run. */
