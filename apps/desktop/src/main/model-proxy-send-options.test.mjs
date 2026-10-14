@@ -25,6 +25,10 @@ const PROVIDERS = fileURLToPath(new URL('../../../../src/runtime/agent/orchestra
  *  options in that file (helper arguments that share a name), with the reason. */
 const NOT_SEND_OPTIONS = new Map([
   ['auto-effort.mjs::map', '`options` is the array of supported effort levels'],
+  [
+    'effort-configuration.mjs::protocol',
+    "the custom route's wire protocol, set by the adapter itself from its own provider config",
+  ],
   ['mimo-oauth-tokens.mjs::persist', 'token probe argument'],
   ['model-list-sanitize.mjs::provider', 'model-list helper argument'],
   ['oauth-usage.mjs::allowStale', 'usage-snapshot read options'],

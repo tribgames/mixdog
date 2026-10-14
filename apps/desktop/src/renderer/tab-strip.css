@@ -130,7 +130,7 @@
   border-radius: 3px;
   object-fit: contain;
 }
-.browser-tab-select span {
+.browser-tab-select > span:not(.progress-spinner-turn) {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -337,7 +337,7 @@
 }
 /* Side-dock file tabs: a preview tab (the next link replaces it) is italic,
    like a preview tab in the pane workspace strip. */
-.browser-tab.is-preview .browser-tab-select span {
+.browser-tab.is-preview .browser-tab-select > span:not(.progress-spinner-turn) {
   font-style: italic;
 }
 /* Tab strips (browser, terminal) sit in the left slot: the row owns the height

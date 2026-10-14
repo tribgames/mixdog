@@ -42,6 +42,8 @@ export function createBrowserPageClient(options: {
   /** The page draws itself natively: read its facts, never its pixels. */
   metadataOnly?(): boolean;
   update(frame: DesktopBrowserPageFrame): void;
+  /** Native chrome facts do not certify pixels or their input coordinates. */
+  updateMetadata?(frame: DesktopBrowserPageFrame): void;
   /** Decode pixels before publishing their coordinate metadata. */
   prepare?(frame: DesktopBrowserPageFrame): Promise<void>;
   failure(message: string): void;
@@ -50,6 +52,8 @@ export function createBrowserPageClient(options: {
   unconfirmedText?(text: string): void;
 }) {
   let current: DesktopBrowserPageFrame | null = null;
+  let metadata: DesktopBrowserPageFrame | null = null;
+  let metadataKey = '';
   let presentationKey = '';
   let element: BrowserPageElement | null = null;
   let tail: Promise<unknown> = Promise.resolve();
@@ -59,6 +63,7 @@ export function createBrowserPageClient(options: {
   let queued = 0;
   let disposed = false;
   let pendingRead: Promise<void> | null = null;
+  let pendingMetadata: Promise<void> | null = null;
   let refresh = () => {};
   type Pointer = Extract<DesktopBrowserPageAction, { type: 'pointer' }>;
   let pendingMove: { action: Pointer; documentId: string } | null = null;
@@ -98,18 +103,39 @@ export function createBrowserPageClient(options: {
     element?.dispatchEvent(Object.assign(new Event(type), detail));
   }
 
-  function accept(frame: DesktopBrowserPageFrame): void {
+  function acceptMetadata(frame: DesktopBrowserPageFrame): void {
+    const previous = metadata;
+    metadata = frame;
+    const {
+      image: _image, frameId: _frame, textureId: _texture,
+      width: _width, height: _height, viewportWidth: _viewportWidth, viewportHeight: _viewportHeight,
+      ...facts
+    } = frame;
+    const key = JSON.stringify(facts);
+    if (key !== metadataKey) {
+      metadataKey = key;
+      options.updateMetadata?.({ ...frame, image: undefined });
+    }
+    publishEvents(previous, frame);
+  }
+
+  function accept(frame: DesktopBrowserPageFrame, previousMetadata: DesktopBrowserPageFrame | null): void {
     const previous = current;
     // frameId owns pixel identity. An unchanged sample still refreshes host
     // state, but must not make React redraw the pane at display cadence.
-    const { image: _image, ...metadata } = frame;
-    const key = JSON.stringify(metadata);
+    const { image: _image, ...presentation } = frame;
+    const key = JSON.stringify(presentation);
     if (key !== presentationKey) {
       options.update(frame);
       presentationKey = key;
     }
     if (previous && previous.documentId !== frame.documentId) documentRevision += 1;
     current = frame;
+    // A slow decode must not roll chrome back past a newer native read.
+    if (metadata === previousMetadata) acceptMetadata(frame);
+  }
+
+  function publishEvents(previous: DesktopBrowserPageFrame | null, frame: DesktopBrowserPageFrame): void {
     if (!previous || previous.webContentsId !== frame.webContentsId) emit('did-attach');
     if (!previous || previous.documentId !== frame.documentId) emit('dom-ready');
     if (previous?.url !== frame.url || previous?.webContentsId !== frame.webContentsId) {
@@ -125,13 +151,24 @@ export function createBrowserPageClient(options: {
       });
   }
 
+  function pollMetadata(): Promise<void> {
+    if (disposed || !options.api.browserPageMetadata) return Promise.resolve();
+    if (pendingMetadata) return pendingMetadata;
+    pendingMetadata = options.api.browserPageMetadata(options.sessionId)
+      .then((next) => {
+        if (!disposed) acceptMetadata(next);
+      })
+      .finally(() => {
+        pendingMetadata = null;
+      });
+    return pendingMetadata;
+  }
+
   async function poll(): Promise<void> {
     if (disposed || !options.api.browserPageFrame) return;
+    if (options.metadataOnly?.() && options.api.browserPageMetadata) return pollMetadata();
     if (pendingRead) return pendingRead;
     const capture = async (): Promise<DesktopBrowserPageFrame> => {
-      if (options.metadataOnly?.() && options.api.browserPageMetadata) {
-        return options.api.browserPageMetadata(options.sessionId);
-      }
       // A discarded frame is safe to recapture; never publish its old pixels.
       const resample = async () => {
         const fresh = await options.api.browserPageFrame!(options.sessionId);
@@ -146,11 +183,12 @@ export function createBrowserPageClient(options: {
         return await resample();
       }
     };
+    const previousMetadata = metadata;
     pendingRead = capture()
       .then(async (next) => {
         if (disposed) return;
         await options.prepare?.(next);
-        if (!disposed) accept(next);
+        if (!disposed) accept(next, previousMetadata);
       })
       .finally(() => {
         pendingRead = null;
@@ -159,6 +197,13 @@ export function createBrowserPageClient(options: {
   }
 
   function control(action: DesktopBrowserPageAction): Promise<DesktopBrowserTabControlResult | void> {
+    // Navigation and tab chrome can initialize without any compositor sample.
+    // Page edits still require the exact frame the person actually saw.
+    const needsPixels = action.type === 'pointer' || action.type === 'wheel' || browserTypingInput(action);
+    const page = needsPixels ? current : metadata ?? current;
+    if (!disposed && !page && !needsPixels && options.api.browserPageMetadata) {
+      return pollMetadata().then(() => control(action));
+    }
     if (!inputOrder.has(action)) inputOrder.set(action, ++nextInputOrder);
     if (pendingText?.action !== action) pendingText = null;
     if (pendingComposition?.action !== action) pendingComposition = null;
@@ -181,20 +226,20 @@ export function createBrowserPageClient(options: {
     // in an ordinary browser: the prompt card answers it. Nothing is queued
     // or reported; a release still goes out so no press stays held.
     if (
-      current?.dialog &&
+      (metadata ?? current)?.dialog &&
       !release &&
       (action.type === 'pointer' || action.type === 'wheel' || browserTypingInput(action))
     ) {
       clearPending();
       return Promise.resolve();
     }
-    if (disposed || !current || !options.api.browserPageControl) {
+    if (disposed || !page || !options.api.browserPageControl) {
       clearPending();
       // Pane chrome (zoom, geometry, navigation) and hover motion run before
       // the first frame attaches; the pane reapplies them on did-attach and
       // dom-ready, so an early attempt is not a user-facing failure. Only
       // deliberate human input reports that the page cannot take it yet.
-      if (!disposed && !current && options.api.browserPageControl && !humanInput(action)) {
+      if (!disposed && !page && options.api.browserPageControl && !humanInput(action)) {
         return Promise.reject(new Error('Browser page is attaching.'));
       }
       return rejectInput('Browser page is not ready.', action);
@@ -206,7 +251,7 @@ export function createBrowserPageClient(options: {
     if (browserTabControl(action)) inputGeneration += 1;
     const generation = inputGeneration;
     const admittedFailureRevision = failureRevision;
-    const documentId = current.documentId;
+    const documentId = page.documentId;
     const enqueuedAt = performance.now();
     queued += 1;
     const work = (recovery ? chromeTail : Promise.all([tail, chromeTail])).then(async () => {
@@ -235,7 +280,7 @@ export function createBrowserPageClient(options: {
       try {
         reply = await options.api.browserPageControl!(options.sessionId, {
           ...action,
-          documentId: browserInputPresentation(action) ? current!.documentId : documentId,
+          documentId: browserInputPresentation(action) ? (metadata ?? current)!.documentId : documentId,
         });
       } catch (error) {
         // Navigation can win the race after the last displayed frame. Drop
@@ -249,7 +294,7 @@ export function createBrowserPageClient(options: {
           // pane's last frame may name a tab the host has since replaced).
           // Retry once only after the host proved it had not dispatched it.
           if (action.type === 'resize' || action.type === 'navigate') {
-            await options.api.browserPageControl!(options.sessionId, { ...action, documentId: current!.documentId });
+            await options.api.browserPageControl!(options.sessionId, { ...action, documentId: (metadata ?? current)!.documentId });
             return;
           }
         }
@@ -300,6 +345,7 @@ export function createBrowserPageClient(options: {
    *  sample that follows belongs to the frame loop's display health, not to
    *  this input (as an input failure it would stay until the next click). */
   function refreshAfterControl(): Promise<void> {
+    if (options.api.browserPageMetadata) return pollMetadata();
     return poll().catch((error) => {
       if (!browserCaptureTransient(error)) throw error;
     });
@@ -390,19 +436,19 @@ export function createBrowserPageClient(options: {
   function bind(node: BrowserPageElement, focusInput: () => void): void {
     element = node;
     node.getWebContentsId = () => {
-      if (!current) throw new Error('Browser page is attaching.');
-      return current.webContentsId;
+      if (!metadata) throw new Error('Browser page is attaching.');
+      return metadata.webContentsId;
     };
-    node.getURL = () => current?.url || 'about:blank';
-    node.canGoBack = () => current?.canGoBack === true;
-    node.canGoForward = () => current?.canGoForward === true;
+    node.getURL = () => metadata?.url || 'about:blank';
+    node.canGoBack = () => metadata?.canGoBack === true;
+    node.canGoForward = () => metadata?.canGoForward === true;
     node.loadURL = (url) => control({ type: 'navigate', url });
     node.goBack = () => fire({ type: 'back' });
     node.goForward = () => fire({ type: 'forward' });
     node.reload = () => fire({ type: 'reload' });
     node.stop = () => fire({ type: 'stop' });
     node.setZoomFactor = (factor) => fire({ type: 'zoom', factor });
-    node.getTabs = () => current?.tabs ?? [];
+    node.getTabs = () => metadata?.tabs ?? [];
     node.createTab = () => control({ type: 'new-tab' });
     node.selectTab = (tabId) => control({ type: 'select-tab', tabId });
     node.closeTab = (tabId) => control({ type: 'close-tab', tabId });
@@ -416,6 +462,7 @@ export function createBrowserPageClient(options: {
 
   return {
     poll,
+    pollMetadata,
     fire,
     control,
     bind,
@@ -426,6 +473,7 @@ export function createBrowserPageClient(options: {
     },
     shortcut: (shortcut: string) => emit('browser-shortcut', { shortcut }),
     frame: () => current,
+    metadata: () => metadata,
     setRefresh: (callback: () => void) => {
       refresh = callback;
     },

@@ -24,13 +24,16 @@ import { currentToolExecutionOwner } from '../../../shared/tool-execution-owner.
 import { positiveInt } from '../../../shared/numbers.mjs';
 import {
   providerSafeMcpToolName,
+  resolveMcpOAuthUrl,
   resolveMcpRequestTimeouts,
   resolveMcpTransportKind,
   scrubMcpConnectionMessage,
+  scrubMcpSecrets,
 } from './client-config.mjs';
 import { createLazyOutputValidator } from './lazy-output-validator.mjs';
 import { appendMcpStderrTail, createMcpTransport } from './client-transport.mjs';
 import { listAllMcpTools, runBoundedHandshake } from './client-handshake.mjs';
+import { clearMcpOAuth } from './oauth.mjs';
 
 // Config interpretation (transport kind, URL policy, env expansion, headers,
 // timeouts, log scrubbing) lives in client-config.mjs; re-exported so every
@@ -103,6 +106,20 @@ function mcpLog(line) {
   if (process.env.MIXDOG_QUIET_MCP_LOG) return;
   process.stderr.write(line);
 }
+// OAuth tokens belong to the live connection, not to its config: a server may
+// echo the request (Authorization included) into an error body or result.
+function oauthSecrets(...transports) {
+  return transports.flatMap((transport) => transport?.oauth?.secrets() || []);
+}
+function scrubMcpOAuthError(error, cfg, secrets) {
+  if (secrets.length === 0) return error;
+  if (!(error instanceof Error)) return new Error(scrubMcpConnectionMessage(String(error), cfg, secrets));
+  error.message = scrubMcpConnectionMessage(error.message, cfg, secrets);
+  if (typeof error.stack === 'string') error.stack = scrubMcpConnectionMessage(error.stack, cfg, secrets);
+  // A JSON-RPC error carries the server's own payload (McpError.data).
+  if (error.data !== undefined) error.data = scrubMcpSecrets(error.data, secrets);
+  return error;
+}
 
 async function loadMcpSdk() {
   mcpSdkPromise ??= Promise.all([
@@ -148,7 +165,7 @@ export async function connectMcpServers(config, options = {}) {
   });
   // Connect all servers in PARALLEL: a slow/hung server (bounded by its
   // per-server startup timeout) must never delay the others' handshakes.
-  const settled = await Promise.allSettled(entries.map(([name, cfg]) => connectServer(name, cfg, scopeId, genAtStart)));
+  const settled = await Promise.allSettled(entries.map(([name, cfg]) => connectServer(name, cfg, scopeId, genAtStart, options)));
   settled.forEach((res, i) => {
     if (res.status !== 'rejected') return;
     const [name, cfg] = entries[i];
@@ -330,7 +347,7 @@ export function getMcpServerInstructionsMap(scopeId = DEFAULT_MCP_SCOPE_ID) {
 // shutdown generation captured BEFORE the caller queued/closed anything: a
 // disconnectAll() landing during the close (or the connect) bumps it, and the
 // replacement must then never register (no resurrection after shutdown).
-async function replaceServerConnection(scopeId, name, current, cfg, genAtStart) {
+async function replaceServerConnection(scopeId, name, current, cfg, genAtStart, options = {}) {
   const registryKey = mcpServerRegistryKey(scopeId, name);
   if (current) {
     await _closeServer(current);
@@ -343,7 +360,7 @@ async function replaceServerConnection(scopeId, name, current, cfg, genAtStart) 
   try {
     // connectServer re-checks the same generation after loading the SDK and
     // again right before registering, so a shutdown mid-handshake also aborts.
-    await connectServer(name, cfg, scopeId, genAtStart);
+    await connectServer(name, cfg, scopeId, genAtStart, options);
   } catch (reason) {
     const rawMessage = reason instanceof Error ? reason.message : String(reason);
     throw new Error(scrubMcpConnectionMessage(rawMessage, cfg));
@@ -396,7 +413,7 @@ async function reconnectMcpServer(scopeId, serverName, failedServer) {
  * rejects (credential-scrubbed message) when the connect fails, leaving the
  * server unregistered.
  */
-export async function reconnectSingleMcpServer(scopeId, name, cfg = undefined) {
+export async function reconnectSingleMcpServer(scopeId, name, cfg = undefined, options = {}) {
   const normalized = normalizeMcpScopeId(scopeId);
   _knownMcpScopes.add(normalized);
   const registryKey = mcpServerRegistryKey(normalized, name);
@@ -415,7 +432,7 @@ export async function reconnectSingleMcpServer(scopeId, name, cfg = undefined) {
       closeCallAdmission(normalized, name, `MCP ${name} disabled`);
       return false;
     }
-    await replaceServerConnection(normalized, name, current, nextCfg, genAtStart);
+    await replaceServerConnection(normalized, name, current, nextCfg, genAtStart, options);
     return true;
   });
 }
@@ -438,6 +455,8 @@ export async function executeMcpTool(name, args, options = {}) {
     definition?.mcpOperation
       ? _callMcpFeatureWithTimeout(target, definition.mcpOperation, args, callSignal)
       : _callToolWithTimeout(target, toolName, args, callSignal);
+  let retryServer = null;
+  const secrets = () => oauthSecrets(server.transport, retryServer?.transport);
   const gate = callAdmissionFor(server);
   return gate.run(
     options?.ownerKey || currentToolExecutionOwner(),
@@ -477,7 +496,6 @@ export async function executeMcpTool(name, args, options = {}) {
         const undelivered = isMcpUndeliveredError(firstErr);
         const deadTail = serverDead ? server.stderrTail?.() : '';
         mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
-        let retryServer;
         try {
           // The reconnect is SHARED (singleflight): the race only stops
           // THIS caller from waiting on it — the reconnect keeps running
@@ -520,14 +538,16 @@ export async function executeMcpTool(name, args, options = {}) {
           throw new Error(`Tool call failed: ${firstMsg}; retry after reconnect also failed: ${retryMsg}`);
         }
       }
-      const normalized = normalizeToolEnvelope(await normalizeMcpToolResult(result));
+      const normalized = normalizeToolEnvelope(await normalizeMcpToolResult(scrubMcpSecrets(result, secrets())));
       const text = capMcpResult(normalized.result);
       return normalized.explicitSuccess ? makeToolEnvelope(text, [], { explicitSuccess: true }) : text;
     },
     {
       signal: callSignal,
     }
-  );
+  ).catch((error) => {
+    throw scrubMcpOAuthError(error, server.cfg, secrets());
+  });
 }
 
 const MCP_FEATURE_REQUESTS = {
@@ -1090,6 +1110,7 @@ export async function disconnectAll(options = undefined) {
       /* ignore */
     }
     try {
+      entry.transport.oauth?.close();
       void entry.client.close().catch(() => {
         /* ignore */
       });
@@ -1118,6 +1139,9 @@ export async function disconnectAll(options = undefined) {
 export async function disconnectMcpServer(name, options = {}) {
   const scopeId = normalizeMcpScopeId(options);
   const registryKey = mcpServerRegistryKey(scopeId, name);
+  // An exclusive reconnect may currently be waiting for human authorization.
+  // Cancel before queueing the disconnect behind that operation.
+  cancelMcpLogin(name, options);
   return runExclusiveServerOp(registryKey, async () => {
     const server = servers.get(registryKey);
     if (!server) return false;
@@ -1133,6 +1157,32 @@ export async function disconnectMcpServer(name, options = {}) {
   });
 }
 /**
+ * Cancel the interactive OAuth login of a connect of `name` still in its
+ * handshake; that connect then fails. Callers that queue behind the connect
+ * (disable, remove) call this first so they never wait out the login.
+ */
+export function cancelMcpLogin(name, options = {}) {
+  const scopeId = normalizeMcpScopeId(options);
+  for (const entry of _pendingConnects) {
+    if (entry.scopeId === scopeId && entry.name === name) entry.transport.oauth?.close();
+  }
+}
+/**
+ * Log out of an HTTP/SSE server URL: delete the OAuth tokens and client
+ * registration stored for it, shared by every server configured with that
+ * exact URL, and drop them from live connections.
+ */
+export async function clearMcpServerOAuth(cfg) {
+  let url;
+  try {
+    url = resolveMcpOAuthUrl(cfg);
+  } catch {
+    // A config without a valid remote URL never connected, so never logged in.
+    return;
+  }
+  if (url) await clearMcpOAuth({ url });
+}
+/**
  * Close a single server: for stdio transports first shut down the full child
  * process tree (close stdin -> grace -> tree kill) so wrapper chains such as
  * uvx/npx/uv never orphan grandchildren, then release the SDK client. The
@@ -1143,6 +1193,7 @@ async function _closeServer(server) {
   // A deliberate close is not a crash: suppress the unexpected-close report.
   if (server?.liveness) server.liveness.closing = true;
   const transport = server?.transport;
+  transport?.oauth?.close();
   // Live stdio transports expose the spawned ChildProcess on _process.
   if (transport?._process) {
     try {
@@ -1165,7 +1216,8 @@ async function connectServer(
   name,
   cfg,
   scopeId = DEFAULT_MCP_SCOPE_ID,
-  genAtStart = currentConnectAbortGeneration(scopeId)
+  genAtStart = currentConnectAbortGeneration(scopeId),
+  options = {}
 ) {
   scopeId = normalizeMcpScopeId(scopeId);
   _knownMcpScopes.add(scopeId);
@@ -1182,8 +1234,9 @@ async function connectServer(
     sdk,
     log: mcpLog,
     strictEnv: cfg?._mixdogStrictEnv === true,
+    oauthOptions: { interactive: options.interactive === true },
   });
-  const liveness = trackMcpLiveness(client, name, cfg, stderrTail);
+  const liveness = trackMcpLiveness(client, name, cfg, stderrTail, transport);
   const pending = { scopeId, name, client, transport };
   _pendingConnects.add(pending);
   try {
@@ -1237,6 +1290,9 @@ async function connectServer(
     }
     _invalidateMcpToolFieldMemo();
     mcpLog(`[mcp] connected: ${tools.length} tools — ${tools.map((t) => t.name).join(', ')}\n`);
+  } catch (error) {
+    await _closeServer({ client, transport, liveness });
+    throw scrubMcpOAuthError(error, cfg, oauthSecrets(transport));
   } finally {
     _pendingConnects.delete(pending);
   }
@@ -1249,7 +1305,7 @@ async function connectServer(
  * records the last error (parse/send hiccups do not mean the server died).
  * Handlers already installed on the client are chained, not replaced.
  */
-function trackMcpLiveness(client, name, cfg, stderrTail) {
+function trackMcpLiveness(client, name, cfg, stderrTail, transport) {
   const liveness = { alive: true, closing: false, closedAt: 0, lastError: '' };
   const priorClose = client.onclose;
   const priorError = client.onerror;
@@ -1263,7 +1319,11 @@ function trackMcpLiveness(client, name, cfg, stderrTail) {
     if (typeof priorClose === 'function') priorClose.apply(client, args);
   };
   client.onerror = (error, ...rest) => {
-    liveness.lastError = scrubMcpConnectionMessage(error instanceof Error ? error.message : String(error), cfg);
+    liveness.lastError = scrubMcpConnectionMessage(
+      error instanceof Error ? error.message : String(error),
+      cfg,
+      oauthSecrets(transport)
+    );
     if (typeof priorError === 'function') priorError.call(client, error, ...rest);
   };
   return liveness;
@@ -1383,7 +1443,7 @@ async function runToolRefresh(registryKey, live, name, cfg, capabilities) {
     _invalidateMcpToolFieldMemo();
   } catch (error) {
     mcpLog(
-      `[mcp-client] Failed to refresh tools for "${name}": ${scrubMcpConnectionMessage(error?.message || error, cfg)}\n`
+      `[mcp-client] Failed to refresh tools for "${name}": ${scrubMcpConnectionMessage(error?.message || error, cfg, oauthSecrets(live.transport))}\n`
     );
   }
 }
@@ -1419,7 +1479,7 @@ export function _registerMcpServerForTest(scopeId, name, rawTools = [], options 
     capabilities,
     liveness: { alive: true, closing: false, closedAt: 0, lastError: '' },
     stderrTail: typeof options.stderrTail === 'function' ? options.stderrTail : () => '',
-    transport: null,
+    transport: options.transport || null,
     client: {
       callTool:
         typeof options.callTool === 'function'

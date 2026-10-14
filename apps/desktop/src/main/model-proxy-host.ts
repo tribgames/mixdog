@@ -340,6 +340,7 @@ export const MODEL_PROXY_SESSION_KEYS: ReadonlySet<string> = new Set([
   'parentSessionId',
   'permission',
   'profileId',
+  'promptCacheKey',
   'role',
   'sourceName',
   'sourceType',

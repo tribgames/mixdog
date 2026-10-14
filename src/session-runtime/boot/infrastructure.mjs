@@ -40,11 +40,13 @@ function wireMcp(boot) {
   const {
     mcpStatus,
     resolveMcpCatalog,
+    resolveConfiguredMcpCatalog,
     pluginMcpServer,
     pluginMcpSummary,
     getMcpServerConfig,
     connectConfiguredMcp,
     awaitInitialMcpConnect,
+    cancelMcpLogin,
     normalizeMcpServerInput,
   } = createMcpGlue({
     mcpClient,
@@ -59,11 +61,13 @@ function wireMcp(boot) {
   Object.assign(boot, {
     mcpStatus,
     resolveMcpCatalog,
+    resolveConfiguredMcpCatalog,
     pluginMcpServer,
     pluginMcpSummary,
     getMcpServerConfig,
     connectConfiguredMcp,
     awaitInitialMcpConnect,
+    cancelMcpLogin,
     normalizeMcpServerInput,
   });
 }

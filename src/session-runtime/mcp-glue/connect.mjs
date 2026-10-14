@@ -24,11 +24,13 @@ export function createMcpConnect({
   const fingerprint = (cfg) => JSON.stringify(cfg);
   // Roots advertised by cwd-following servers track this runtime's cwd.
   const syncScopeRoot = () => mcpClient.setMcpScopeRoot?.(getMcpScopeId(), clean(getCurrentCwd?.()));
+  // Abort the pending interactive OAuth login of one server's connect.
+  const cancelMcpLogin = (name) => mcpClient.cancelMcpLogin?.(clean(name), scopeOptions());
 
   // Connect/disconnect exactly one server in the live registry, leaving all
   // others untouched. Used by the enable/disable toggle so a single-server
   // change never triggers a full disconnectAll()/reconnect freeze.
-  async function applyMcpServerConnection(name, enabled, servers = resolveEffectiveMcpServers().servers) {
+  async function applyMcpServerConnection(name, enabled, servers = resolveEffectiveMcpServers().servers, interactive = false) {
     const target = clean(name);
     if (!target) return;
     // Changing this server's state clears any stale failure record for it.
@@ -46,7 +48,7 @@ export function createMcpConnect({
     // between the close and the connect never resurrects the server.
     try {
       ensurePluginServerData(cfg);
-      await mcpClient.reconnectSingleMcpServer(getMcpScopeId(), target, cfg);
+      await mcpClient.reconnectSingleMcpServer(getMcpScopeId(), target, cfg, { interactive });
     } catch (error) {
       const failures = Array.isArray(error?.failures)
         ? error.failures
@@ -72,7 +74,7 @@ export function createMcpConnect({
     ]);
   }
 
-  async function connectConfiguredMcp({ reset = false, only = null, enabled = true, reconcile = false } = {}) {
+  async function connectConfiguredMcp({ reset = false, only = null, enabled = true, reconcile = false, interactive = false } = {}) {
     if (envFlag('MIXDOG_DISABLE_MCP')) {
       ++state.mcpConnectGeneration;
       state.mcpFailures = [];
@@ -87,6 +89,9 @@ export function createMcpConnect({
     // been requested in the meantime. Registering as in-flight makes a later
     // reset serialize behind us instead of interleaving disconnect/connect.
     if (only || reconcile) {
+      // A disable/remove must not wait out an interactive login of the
+      // connect it queues behind: cancel that login first.
+      if (only && enabled === false) cancelMcpLogin(only);
       // Atomically capture the current generation AND the prior in-flight
       // promise in the same synchronous step, then chain our op onto it. No
       // await sits between the capture and the `state.mcpConnectInFlight = run`
@@ -106,7 +111,7 @@ export function createMcpConnect({
         }
         if (gen !== state.mcpConnectGeneration) return;
         if (reconcile) await reconcileServers();
-        else await applyMcpServerConnection(only, enabled);
+        else await applyMcpServerConnection(only, enabled, undefined, interactive);
       })();
       state.mcpConnectInFlight = run;
       try {
@@ -147,7 +152,7 @@ export function createMcpConnect({
       if (Object.keys(servers).length === 0) return;
       try {
         for (const cfg of Object.values(servers)) if (cfg?.enabled !== false) ensurePluginServerData(cfg);
-        await mcpClient.connectMcpServers(servers, scopeOptions());
+        await mcpClient.connectMcpServers(servers, { ...scopeOptions(), interactive });
       } catch (error) {
         state.mcpFailures = Array.isArray(error?.failures)
           ? error.failures
@@ -207,5 +212,5 @@ export function createMcpConnect({
     }
   }
 
-  return { connectConfiguredMcp, awaitInitialMcpConnect };
+  return { connectConfiguredMcp, awaitInitialMcpConnect, cancelMcpLogin };
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { type BrowserWindow, ipcMain, type WebContents } from 'electron';
+import { type BrowserWindow, clipboard, ipcMain, type WebContents } from 'electron';
 import type { BrowserHost } from './host';
 import { createPolling } from '../host-harness-poll';
 import { registerBrowserIpc } from '../ipc-browser';
@@ -55,6 +55,14 @@ export async function exerciseBrowserInputSurface(options: {
       Boolean
     );
     log('local display ready');
+    const spinner = await shell.executeJavaScript(`(() => {
+      const wrapper = document.querySelector('#loading-tab-fixture .progress-spinner-turn');
+      const glyph = wrapper.querySelector('svg');
+      return { width: wrapper.offsetWidth, height: wrapper.offsetHeight,
+        glyphWidth: glyph.width.baseVal.value, glyphHeight: glyph.height.baseVal.value };
+    })()`);
+    assert.deepEqual(spinner, { width: 15, height: 15, glyphWidth: 15, glyphHeight: 15 });
+    log('loading spinner rotation box stays exactly the glyph size');
     await eventually(
       () => shell.executeJavaScript(`document.activeElement.id`),
       (value) => value === 'composer'
@@ -91,19 +99,19 @@ export async function exerciseBrowserInputSurface(options: {
     }
     await eventually(
       () => readFrame('visible-session'),
-      (value) => value.width === 420
+      (value) => value.viewportWidth === 420
     );
     assert.equal(guest.getZoomFactor(), 1, 'normal browsing does not shrink text with the pane');
     await shell.executeJavaScript(`document.getElementById('browser-dock').style.width = '600px'`);
     await eventually(
       () => readFrame('visible-session'),
-      (value) => value.width === 600
+      (value) => value.viewportWidth === 600
     );
     await eventually(
       () =>
         shell.executeJavaScript(`(() => {
       const image = document.querySelector('.browser-isolated-pixels > :first-child');
-      return (image?.naturalWidth || image?.width) === 600 && getComputedStyle(image).visibility === 'visible';
+      return image?.getBoundingClientRect().width === 600 && getComputedStyle(image).visibility === 'visible';
     })()`),
       Boolean
     );
@@ -134,6 +142,32 @@ export async function exerciseBrowserInputSurface(options: {
     );
     assert.equal(await shell.executeJavaScript(`document.getElementById('draft').textContent`), 'keep editing');
     log('local display click and Korean text reached only its page');
+    const savedClipboard = {
+      text: clipboard.readText(),
+      html: clipboard.readHTML(),
+      rtf: clipboard.readRTF(),
+      image: clipboard.readImage(),
+    };
+    try {
+      for (const [modifiers, start, end, expected] of [
+        [2, 0, 6, 'manual'],
+        [4, 7, 9, '한글'],
+      ] as const) {
+        await guest.executeJavaScript(`document.getElementById('agent').setSelectionRange(${start}, ${end})`);
+        clipboard.writeText('browser copy fixture');
+        for (const type of ['rawKeyDown', 'keyUp']) {
+          await shell.debugger.sendCommand('Input.dispatchKeyEvent', {
+            type, key: 'c', code: 'KeyC', windowsVirtualKeyCode: 67, modifiers,
+          });
+        }
+        await eventually(async () => clipboard.readText(), (value) => value === expected);
+        assert.equal(await guest.executeJavaScript(`document.getElementById('agent').value`), 'manual 한글');
+        assert.equal(await shell.executeJavaScript(`document.getElementById('draft').textContent`), 'keep editing');
+      }
+    } finally {
+      clipboard.write(savedClipboard);
+    }
+    log('Ctrl+C and Command+C copy the selected page text without changing page or composer content');
     await exerciseBrowserIme(shell, guest, 'agent', 'manual 한글');
     log('native Korean composition updates, commits, cancellation and mixed English input passed');
 

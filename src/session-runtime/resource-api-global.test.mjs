@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createResourceApi } from './resource-api.mjs';
+import { resolveMcpServerCatalog } from './mcp-glue/plugin-servers.mjs';
 
 function resourceApi(overrides = {}) {
   return createResourceApi({
@@ -134,6 +135,67 @@ test('a global MCP toggle reloads and reconnects peer session runtimes', async (
   } finally {
     writer.disposeGlobalExtensionSubscription();
     peer.disposeGlobalExtensionSubscription();
+  }
+});
+
+test('removing an MCP server disconnects it, then clears its stored OAuth credentials', async () => {
+  const remote = { type: 'http', url: 'https://mcp.example/mcp' };
+  let config = { mcpServers: { remote, other: { command: 'other' } } };
+  const calls = [];
+  const api = resourceApi({
+    getConfig: () => config,
+    saveConfigAndAdopt: (next) => {
+      config = structuredClone(next);
+    },
+    connectConfiguredMcp: async (options) => {
+      calls.push(['connect', options.only ?? null, options.enabled ?? null]);
+      return { servers: [] };
+    },
+    clearMcpServerOAuth: async (cfg) => calls.push(['clear', cfg]),
+  });
+  try {
+    await api.removeMcpServer('remote');
+    assert.deepEqual(Object.keys(config.mcpServers), ['other']);
+    assert.deepEqual(calls, [
+      ['connect', 'remote', false],
+      ['connect', null, null],
+      ['clear', remote],
+    ]);
+  } finally {
+    api.disposeGlobalExtensionSubscription();
+  }
+});
+
+test('removing a server keeps OAuth credentials another configured server uses through the same URL', async () => {
+  const url = 'https://mcp.example/mcp';
+  const servers = {
+    a: { type: 'http', url },
+    b: { type: 'sse', url, enabled: false },
+    c: { type: 'http', url: `${url}?tenant=other` },
+    local: { command: 'node' },
+  };
+  let config = { mcpServers: structuredClone(servers) };
+  const cleared = [];
+  const api = resourceApi({
+    getConfig: () => config,
+    saveConfigAndAdopt: (next) => {
+      config = structuredClone(next);
+    },
+    resolveMcpCatalog: () => resolveMcpServerCatalog({ config }),
+    clearMcpServerOAuth: async (cfg) => cleared.push(cfg),
+  });
+  try {
+    // The disabled SSE alias still uses the credentials of its exact URL.
+    await api.removeMcpServer('a');
+    assert.deepEqual(cleared, []);
+    // Another query is another credential set; stdio servers have none.
+    await api.removeMcpServer('c');
+    await api.removeMcpServer('local');
+    assert.deepEqual(cleared, [servers.c]);
+    await api.removeMcpServer('b');
+    assert.deepEqual(cleared, [servers.c, servers.b]);
+  } finally {
+    api.disposeGlobalExtensionSubscription();
   }
 });
 

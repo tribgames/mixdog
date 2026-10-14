@@ -14,13 +14,11 @@ function fixture(t) {
   t.after(() => dom.window.close());
   const container = dom.window.document.getElementById('pixels');
   const image = { current: null };
-  const metadata = [];
   const textures = [];
   const presentation = createBrowserPixelPresentation({
     container: () => container,
     image,
     canvasId: 'gpu',
-    metadata: (frame) => metadata.push(frame),
     texture: (id) => textures.push(id),
   });
   const frame = (id, extra = {}) => ({
@@ -36,10 +34,10 @@ function fixture(t) {
     image: { mimeType: 'image/png', data: id },
     ...extra,
   });
-  return { container, image, metadata, textures, presentation, frame };
+  return { container, image, textures, presentation, frame };
 }
 
-test('decoded pixels update without re-publishing unchanged pane metadata', async (t) => {
+test('decoded pixels update the image and its hidden state without publishing pane metadata', async (t) => {
   const f = fixture(t);
   f.presentation.resize(600, 400);
   for (const id of ['one', 'two', 'three']) {
@@ -49,15 +47,12 @@ test('decoded pixels update without re-publishing unchanged pane metadata', asyn
     assert.equal(f.image.current.src, `data:image/png;base64,${id}`);
     assert.equal(f.image.current.hidden, false);
   }
-  assert.equal(f.metadata.length, 1);
-  assert.equal(f.metadata[0].image, undefined);
   f.presentation.resize(700, 400);
   assert.equal(f.image.current.hidden, true);
   const next = f.frame('four', { title: 'Changed', surfaceWidth: 700 });
   await f.presentation.prepare(next);
   f.presentation.update(next);
   assert.equal(f.image.current.hidden, false);
-  assert.equal(f.metadata.length, 2);
 });
 
 test('GPU frames are painted once and a replacement document cannot retain old pixels', (t) => {

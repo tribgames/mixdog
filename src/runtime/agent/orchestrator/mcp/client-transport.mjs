@@ -4,6 +4,7 @@
  * WebSocket, or a stdio child.
  */
 import { readServicePort } from '../../../shared/service-discovery.mjs';
+import { createMcpOAuth } from './oauth.mjs';
 import {
   AUTO_DETECT_PORTS,
   expandEnvVars,
@@ -11,6 +12,7 @@ import {
   mcpUrlForLog,
   normalizeMcpTransportUrl,
   resolveMcpHttpHeaders,
+  resolveMcpOAuthUrl,
   resolveMcpStdioEnvironment,
   resolveMcpTransportKind,
   scrubMcpConnectionMessage,
@@ -47,6 +49,15 @@ export function appendMcpStderrTail(message, tail) {
 function requestInitFor(cfg) {
   const headers = resolveMcpHttpHeaders(cfg);
   return headers && Object.keys(headers).length > 0 ? { requestInit: { headers } } : undefined;
+}
+
+// Configured authentication stays authoritative even when its variables are
+// unset or resolve empty: the server then fails as configured instead of
+// turning into an OAuth login.
+function hasConfiguredMcpAuth(cfg) {
+  const configured = (value) =>
+    value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
+  return Boolean(String(cfg.bearer_token_env_var || '').trim()) || configured(cfg.headers) || configured(cfg.env_http_headers);
 }
 
 // The SDK's WebSocket transport opens its socket without a way to set request
@@ -88,7 +99,7 @@ function createHeaderWebSocketTransport(Base, messageSchema, url, headers) {
  *  transports. `strictEnv` (the caller passes it for plugin-declared servers)
  *  makes unset variables without a default fail the server; otherwise they
  *  expand to empty and are reported in `warnings` (names only). */
-export function createMcpTransport({ name, cfg, sdk, log, strictEnv }) {
+export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOptions }) {
   const { StdioClientTransport, StreamableHTTPClientTransport, SSEClientTransport, WebSocketClientTransport } = sdk;
   const kind = resolveMcpTransportKind(cfg);
   const warnings = [];
@@ -113,11 +124,28 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv }) {
   }
   if (kind === 'http' || kind === 'sse') {
     const Transport = kind === 'http' ? StreamableHTTPClientTransport : SSEClientTransport;
-    const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), kind);
+    const url = resolveMcpOAuthUrl(cfg);
     const opts = requestInitFor(cfg);
+    // Explicit authentication remains authoritative (including custom API-key
+    // headers). Never forward those credentials to OAuth discovery endpoints.
+    let transport;
+    const oauth = hasConfiguredMcpAuth(cfg) ? null : createMcpOAuth({
+      url, ...oauthOptions,
+      // SSE advertises its POST endpoint on the authenticated event stream.
+      // No other path on the origin is allowed to receive this server's token.
+      isTransportEndpoint: (input) => kind === 'sse' && transport?._endpoint?.href === new URL(input).href,
+    });
+    transport = new Transport(new URL(url), oauth
+      ? { fetch: oauth.fetch }
+      : opts);
+    if (oauth) {
+      transport.oauth = oauth;
+      const close = transport.close.bind(transport);
+      transport.close = async () => { oauth.close(); await close(); };
+    }
     log(`[mcp-client] Connecting "${name}" via ${kind.toUpperCase()}: ${mcpUrlForLog(url)}\n`);
     return {
-      transport: opts ? new Transport(new URL(url), opts) : new Transport(new URL(url)),
+      transport,
       autoDetectAdvert: null,
       stderrTail: noStderrTail,
       warnings,

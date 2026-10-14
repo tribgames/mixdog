@@ -43,6 +43,7 @@ export const IsolatedBrowserView = forwardRef<
   const keyboard = useRef<HTMLTextAreaElement | null>(null);
   const [frame, setFrame] = useState<DesktopBrowserPageFrame | null>(null);
   const [failure, setFailure] = useState('');
+  const [metadataFailure, setMetadataFailure] = useState('');
   const [actionFailure, setActionFailure] = useState('');
   const [unconfirmedText, setUnconfirmedText] = useState('');
   const presentation = useMemo(
@@ -56,7 +57,6 @@ export const IsolatedBrowserView = forwardRef<
           if (!present) throw new Error('Browser GPU display is unavailable.');
           present(sessionId, id, canvas);
         },
-        metadata: setFrame,
       }),
     [sessionId, canvasId]
   );
@@ -68,6 +68,7 @@ export const IsolatedBrowserView = forwardRef<
         metadataOnly: () => nativeShownRef.current,
         prepare: presentation.prepare,
         update: presentation.update,
+        updateMetadata: setFrame,
         failure: (message) => setActionFailure(browserInputNotice(message)),
         unconfirmedText: setUnconfirmedText,
         // Only a new deliberate input, begun after the failure, proves recovery.
@@ -88,6 +89,37 @@ export const IsolatedBrowserView = forwardRef<
     };
   }, [client, sessionId]);
   const input = useBrowserPageInput(client, image, keyboard);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    const health = createBrowserDisplayHealth();
+    let stopped = false;
+    const loop = createBrowserPresentationLoop({
+      visible: () => document.visibilityState !== 'hidden',
+      now: () => performance.now(),
+      schedule: (callback, delay) => window.setTimeout(callback, delay),
+      cancel: (handle) => window.clearTimeout(handle as number),
+      interval: () => NATIVE_METADATA_INTERVAL_MS,
+      async read() {
+        await client.pollMetadata();
+        if (!stopped) {
+          health.recovered();
+          setMetadataFailure('');
+        }
+      },
+      failed(error) {
+        if (!stopped) setMetadataFailure(health.failed(error, Date.now(), 'metadata'));
+        return 1000;
+      },
+    });
+    document.addEventListener('visibilitychange', loop.wake);
+    loop.wake();
+    return () => {
+      stopped = true;
+      loop.stop();
+      document.removeEventListener('visibilitychange', loop.wake);
+    };
+  }, [active, client]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -165,7 +197,7 @@ export const IsolatedBrowserView = forwardRef<
     };
     const clearRect = (): Rect | null => {
       const face = surface.current;
-      const page = client.frame();
+      const page = client.metadata();
       if (!face || !page || page.dialog || page.fileChooser || document.visibilityState === 'hidden') return null;
       const bounds = face.getBoundingClientRect();
       const left = Math.max(0, bounds.left);
@@ -209,7 +241,7 @@ export const IsolatedBrowserView = forwardRef<
       animation = 0;
       if (stopped) return;
       const rect = clearRect();
-      const key = rect ? `${client.frame()?.webContentsId}:${rect.x}:${rect.y}:${rect.width}:${rect.height}` : '';
+      const key = rect ? `${client.metadata()?.webContentsId}:${rect.x}:${rect.y}:${rect.width}:${rect.height}` : '';
       if (key === sent) return;
       sent = key;
       wanted = { rect };
@@ -303,13 +335,14 @@ export const IsolatedBrowserView = forwardRef<
           control={client.control}
         />
       )}
-      {(failure || actionFailure || unconfirmedText) && (
+      {(failure || metadataFailure || actionFailure || unconfirmedText) && (
         <div className="browser-remote-status">
           <ErrorNotice
-            errors={[failure, actionFailure]}
+            errors={[failure, metadataFailure, actionFailure]}
             role="status"
             onDismiss={() => {
               setFailure('');
+              setMetadataFailure('');
               setActionFailure('');
             }}
           />

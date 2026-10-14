@@ -3,6 +3,30 @@ import test from 'node:test';
 import { createBrowserPageSurface } from './page-surface.ts';
 import { normalizeBrowserPageControl } from '../../shared/browser-page-control.ts';
 
+test('human copy shortcuts use the selected page native edit command without typing or retargeting', async () => {
+  for (const key of ['Control+c', 'Control+C', 'Meta+c', 'Meta+C']) {
+    const record = { documentGeneration: 1 };
+    let copies = 0;
+    let changeDuringWait = false;
+    const guest = { isDestroyed: () => false, copy: () => { copies++; } };
+    const surface = createBrowserPageSurface({
+      ensureGuest: async () => guest,
+      currentGuest: () => guest,
+      state: { pageId: () => 'p1', for: () => record, invalidateInteraction() {} },
+      cdp: {
+        waitForIdle: async () => { if (changeDuringWait) record.documentGeneration++; },
+        guestDebugger: async () => ({}),
+        sendCdpInput: async () => assert.fail('copy must not become a synthetic key or text input'),
+      },
+    });
+    await surface.control('owner', { type: 'key', key, documentId: 'p1:1' });
+    assert.equal(copies, 1);
+    changeDuringWait = true;
+    await assert.rejects(surface.control('owner', { type: 'key', key, documentId: 'p1:1' }), /page changed/);
+    assert.equal(copies, 1);
+  }
+});
+
 test('GPU reads transfer exact frame identities, including a newly attached client facing a dialog', async () => {
   const record = { documentGeneration: 1 };
   const guest = {

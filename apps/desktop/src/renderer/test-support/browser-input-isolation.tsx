@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import BrowserPane from '../BrowserPane.lazy';
+import { BrowserTabStrip } from '../BrowserTabStrip';
 import { useComposerFocus, usePaneTypingFocus } from '../use-composer-focus';
+import '../styles.css';
 
 const fixture = window as unknown as {
   setSurfaceActive(value: boolean): void;
@@ -35,6 +37,13 @@ function Fixture() {
       </section>
       <div id="browser-dock" style={{ width: 600, height: 400, marginTop: 30 }}>
         <BrowserPane sessionId="visible-session" active={active} foreground={active} focusAddressOnActivate={false} />
+      </div>
+      <div id="loading-tab-fixture" style={{ width: 240, height: 38 }}>
+        <BrowserTabStrip
+          tabs={[{ id: 'loading', title: 'Loading page', url: 'https://example.test/', active: true, loading: true, kind: 'page' }]}
+          onSelect={async () => {}}
+          onClose={async () => {}}
+        />
       </div>
     </>
   );

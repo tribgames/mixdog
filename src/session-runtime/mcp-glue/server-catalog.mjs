@@ -43,6 +43,12 @@ export function createMcpServerCatalog({
    *  runtime's session cwd. */
   function resolveCatalog() {
     if (envFlag('MIXDOG_DISABLE_MCP')) return EMPTY_CATALOG;
+    return resolveConfiguredCatalog();
+  }
+
+  /** Every configured server (user config plus plugin declarations, disabled
+   *  ones included) whether or not this runtime connects MCP at all. */
+  function resolveConfiguredCatalog() {
     let plugins = [];
     let registryWarning = null;
     try {
@@ -180,6 +186,7 @@ export function createMcpServerCatalog({
   return {
     mcpTransportLabel,
     resolveCatalog,
+    resolveConfiguredCatalog,
     resolveEffectiveMcpServers,
     pluginServer,
     getMcpServerConfig,

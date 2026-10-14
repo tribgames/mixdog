@@ -7,8 +7,19 @@ import {
   mergeMcpServerConfig,
   MCP_TIMEOUT_FIELD_GROUPS,
 } from '../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
+import { resolveMcpOAuthUrl } from '../runtime/agent/orchestrator/mcp/client-config.mjs';
 import { withAdoptedCopies, withPinnedCollisionNames, withPluginServerIntent } from './mcp-glue/plugin-servers.mjs';
 import { findRegisteredPlugin } from './resource-plugins-api.mjs';
+
+/** The URL a server's OAuth credentials are stored under, or null. */
+function oauthUrlOf(cfg) {
+  try {
+    return resolveMcpOAuthUrl(cfg);
+  } catch {
+    // No valid remote URL: such a server never logged in.
+    return null;
+  }
+}
 
 /** The `mcpServers` map of a config as a fresh object (never the live one). */
 function mcpServersOf(config) {
@@ -59,10 +70,12 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     mcpStatus,
     getMcpServerConfig,
     connectConfiguredMcp,
+    clearMcpServerOAuth,
     reloadFullConfig,
     awaitKeychainPrewarm,
     pluginsStatus,
-    resolveMcpCatalog = () => ({ adoption: null, plugins: {}, entries: {} }),
+    resolveMcpCatalog = () => ({ servers: {}, adoption: null, plugins: {}, entries: {} }),
+    resolveConfiguredMcpCatalog = resolveMcpCatalog,
     pluginMcpServer = () => null,
     flushSkillsSave,
   } = deps;
@@ -162,9 +175,19 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
         refusePluginServer(serverName);
         throw new Error(`MCP server not configured: ${serverName}`);
       }
+      const removed = servers[serverName];
       delete servers[serverName];
       saveServers(servers);
-      return sync.reconnectMcpAndAnnounce({ drop: [serverName] });
+      const status = await sync.reconnectMcpAndAnnounce({ drop: [serverName] });
+      // A removed server keeps no OAuth tokens or client registration, unless
+      // another configured server (plugin or disabled ones included, even
+      // with MCP disabled for this runtime) still uses them through the same
+      // exact URL.
+      const url = oauthUrlOf(removed);
+      if (url && !Object.values(resolveConfiguredMcpCatalog().servers).some((cfg) => oauthUrlOf(cfg) === url)) {
+        await clearMcpServerOAuth(removed);
+      }
+      return status;
     },
     async setMcpServerEnabled(name, enabled) {
       const serverName = clean(name);
