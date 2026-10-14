@@ -27,6 +27,10 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
   process.env.MIXDOG_CONFIG_DIR = join(root, 'config');
   process.env.MIXDOG_SESSION_CWD = 'process-global-must-not-change';
   process.env.MIXDOG_DISABLE_MCP = '1';
+  // Importing the patch tool schedules a native-binary prewarm that downloads
+  // the prebuilt engine when no local build exists (e.g. a clean gate
+  // checkout). This test must stay offline either way.
+  process.env.MIXDOG_PATCH_NATIVE_PREWARM = '0';
 
   const noop = () => {};
   const keychain = {
