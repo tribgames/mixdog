@@ -380,12 +380,22 @@ export function ModelRouteLabel({
   );
 }
 
-type ProviderIconKind = 'openai' | 'anthropic' | 'xai' | 'google' | 'cursor' | 'opencode' | 'meta' | 'synthetic';
+type ProviderIconKind =
+  | 'openai'
+  | 'anthropic'
+  | 'xai'
+  | 'google'
+  | 'cursor'
+  | 'opencode'
+  | 'meta'
+  | 'xiaomi'
+  | 'synthetic';
 
 function providerIconKind(provider: string): ProviderIconKind {
   const normalized = provider.toLowerCase();
   if (normalized === 'cursor-oauth') return 'cursor';
   if (normalized.startsWith('muse-code')) return 'meta';
+  if (normalized.startsWith('mimo')) return 'xiaomi';
   if (normalized === 'antigravity-oauth') return 'google';
   if (normalized === 'opencode-go') return 'opencode';
   if (normalized.includes('openai') || normalized.includes('codex')) return 'openai';
@@ -453,6 +463,13 @@ export function ProviderIcon({ provider, ...props }: SVGProps<SVGSVGElement> & {
           strokeLinejoin="round"
           d="M20 20c-2.5-4.5-4.5-7-7.5-7C9 13 6 16 6 20s3 7 6.5 7c3 0 5-2.5 7.5-7s4.5-7 7.5-7c3.5 0 6.5 3 6.5 7s-3 7-6.5 7c-3 0-5-2.5-7.5-7Z"
         />
+      )}
+      {/* MiMo is Xiaomi's: the rounded-square "mi" mark, in the same ink. */}
+      {kind === 'xiaomi' && (
+        <g stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="5" y="5" width="30" height="30" rx="10" />
+          <path d="M12.5 26.5v-11h8a3.5 3.5 0 0 1 3.5 3.5v7.5M18.25 20v6.5M28.5 15.5v11" />
+        </g>
       )}
       {kind === 'synthetic' && (
         <path
