@@ -57,8 +57,6 @@ export const BROWSER_PAGE_ACTIONS = Object.freeze(
 
 const BROWSER_TOOL_NAME = 'browser';
 const BROWSER_DEVTOOLS_TOOL_NAME = 'browser_devtools';
-/** Both tools drive the same bridge, pages, and sign-in. */
-export const BROWSER_TOOL_NAMES = Object.freeze([BROWSER_TOOL_NAME, BROWSER_DEVTOOLS_TOOL_NAME]);
 
 export function browserToolForAction(action) {
   return BROWSER_DEVTOOLS_ACTIONS.includes(action) ? BROWSER_DEVTOOLS_TOOL_NAME : BROWSER_TOOL_NAME;

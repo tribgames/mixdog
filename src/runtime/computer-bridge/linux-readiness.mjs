@@ -32,22 +32,6 @@ export const CLIPBOARD_HINT =
 export const DISPLAY_HINT =
   'display_unavailable: no graphical session to drive; run inside a desktop session with DISPLAY (X11) or WAYLAND_DISPLAY set';
 
-/**
- * User-facing English phrases, one per fix a capability can ask for. They are
- * the keys of the UI catalogs (apps/desktop/src/renderer/locales), so a UI that
- * renders a capability's `fix` looks the phrase up there; `{{package}}` is the
- * capability's `package`. The tool result text for the model stays English.
- */
-export const FIX_MESSAGES = Object.freeze({
-  allow_input:
-    'Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.',
-  relogin: 'Sign out and sign in again to finish setting up window control for Mixdog.',
-  enable_window_helper:
-    'Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).',
-  install_package: 'Install {{package}} to enable this Computer Use feature.',
-});
-export const REFUSAL_MESSAGE = 'Computer Use cannot run this action because a required capability is not ready.';
-
 /** Stable code of the whole refusal; the per-capability codes are the native ones. */
 export const CAPABILITY_UNAVAILABLE_CODE = 'computer_capability_unavailable';
 

@@ -176,9 +176,3 @@ export function createClaudeReducer() {
     },
   };
 }
-
-export function convertClaudeRecords(records) {
-  const reducer = createClaudeReducer();
-  for (const record of records) reducer.push(record);
-  return reducer.result();
-}

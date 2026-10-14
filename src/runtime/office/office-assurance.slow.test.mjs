@@ -20,7 +20,6 @@ import { officeTemplateCoverage } from './design/library/design-library.mjs';
 import { expandOfficeDesignOperations, resolveOfficeDesign } from './design/design-system.mjs';
 import { normalizeOfficeContentModel } from './design/content-model.mjs';
 import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
-import { evaluatePowerPointCategorySpacing } from './pdf/pdf-analysis.mjs';
 import { evaluateXlsxAssertions } from './portable/xlsx-assertions.mjs';
 import {
   buildOfficePolishPlan,
@@ -183,23 +182,6 @@ test('render review reads the page images behind a long document contact sheet',
     xlsx.issues.filter((issue) => issue.code === 'worksheet_print_too_small').map((issue) => issue.path),
     ['/page[14]']
   );
-});
-
-test('PowerPoint render review rejects clustered chart category labels', () => {
-  const layout = (positions) => ({
-    pages: [
-      {
-        page: 3,
-        width: 960,
-        items: positions.flatMap((x, index) => [
-          { text: String(index + 5), x, top: 438, width: 7 },
-          { text: '월', x: x + 7, top: 438, width: 12 },
-        ]),
-      },
-    ],
-  });
-  assert.equal(evaluatePowerPointCategorySpacing(layout([476, 638, 799]), ['5월', '6월', '7월']).ok, true);
-  assert.equal(evaluatePowerPointCategorySpacing(layout([476, 506, 536]), ['5월', '6월', '7월']).ok, false);
 });
 
 test('Korean and English prompt injection is labeled as untrusted data and gates mutation', () => {

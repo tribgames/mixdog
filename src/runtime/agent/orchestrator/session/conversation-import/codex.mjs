@@ -113,12 +113,6 @@ export function createCodexReducer() {
   };
 }
 
-export function convertCodexRecords(records) {
-  const reducer = createCodexReducer();
-  for (const record of records) reducer.push(record);
-  return reducer.result();
-}
-
 /** id/cwd of a `session_meta` first line cut off by a bounded prefix read. */
 export function codexMetaFromTruncatedLine(line) {
   const text = String(line || '');
