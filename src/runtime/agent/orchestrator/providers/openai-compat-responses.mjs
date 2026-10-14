@@ -65,6 +65,7 @@ function resolveReasoning(provider, useModel, opts) {
 function customEffortProjection(provider, useModel, messages, opts) {
   if (!isCustomProviderName(provider.name)) return null;
   const projection = projectEffortConfiguration(messages, provider.name, useModel, {
+    ...provider.config,
     ...opts,
     protocol: 'openai-responses',
   });
@@ -100,6 +101,23 @@ function customSessionCacheKey(provider, opts) {
   return normalizeCacheKey(
     opts.promptCacheScope === 'shared' ? explicit || opts.sessionId : opts.sessionId || explicit
   );
+}
+
+// HTTP header names are case-insensitive. Do not shadow explicit SDK
+// defaults, combine differently-cased identities, or stringify null deletions.
+function customSessionHeaders(provider, sessionCacheKey, requestHeaders) {
+  if (!sessionCacheKey) return requestHeaders;
+  const headers = { 'session-id': sessionCacheKey, 'x-client-request-id': sessionCacheKey };
+  const clientOptions = provider.config?.clientOptions || {};
+  const configured = Object.hasOwn(clientOptions, 'defaultHeaders')
+    ? clientOptions.defaultHeaders
+    : provider.defaultHeaders;
+  for (const source of [configured, requestHeaders]) {
+    const names = source instanceof Headers ? source.keys() : Object.keys(source || {});
+    for (const name of names) delete headers[name.toLowerCase()];
+  }
+  const supplied = requestHeaders instanceof Headers ? Object.fromEntries(requestHeaders) : requestHeaders;
+  return { ...headers, ...supplied };
 }
 
 /** The request body: lowered transcript plus the per-turn knobs (output cap,
@@ -254,9 +272,7 @@ async function sendCompatResponsesOnce(provider, messages, useModel, tools, opts
     sessionCacheKey,
   });
   // The session identity also travels as headers; caller headers win.
-  const headers = sessionCacheKey
-    ? { 'session-id': sessionCacheKey, 'x-client-request-id': sessionCacheKey, ...opts.requestHeaders }
-    : opts.requestHeaders;
+  const headers = customSessionHeaders(provider, sessionCacheKey, opts.requestHeaders);
 
   try {
     opts.onStageChange?.('requesting');
