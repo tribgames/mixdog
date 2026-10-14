@@ -64,6 +64,10 @@ test('the envelope renders MIXDOG_SKILL_NODE as the same bare launcher command f
   assert.ok(envelope.includes(`mixdog-skill-node "${dir}/scripts/source-extract.mjs" <file>\nmixdog-skill-node x`));
   assert.ok(!envelope.includes('${MIXDOG_SKILL_NODE}'));
   // skill-creator's validator keeps its plain-node command.
-  const validator = buildSkillResultEnvelope('skill-creator', 'node "${MIXDOG_SKILL_DIR}/scripts/validate-skill.mjs"', '/s');
+  const validator = buildSkillResultEnvelope(
+    'skill-creator',
+    'node "${MIXDOG_SKILL_DIR}/scripts/validate-skill.mjs"',
+    '/s'
+  );
   assert.ok(validator.includes('node "/s/scripts/validate-skill.mjs"'));
 });

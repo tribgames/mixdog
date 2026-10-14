@@ -122,7 +122,7 @@ export function renderWindowsSkillLauncher({ interpreter, entry, electron }) {
   // cmd decodes a batch file in the console code page line by line, so a
   // non-ASCII path needs UTF-8 for the lines after chcp; the caller's code
   // page is restored before exit.
-  const unicode = /[^\x00-\x7f]/.test(`${interpreter}${entry}`);
+  const unicode = /\P{ASCII}/u.test(`${interpreter}${entry}`);
   return `${[
     '@echo off',
     'rem Mixdog skill-script launcher, generated for one installation. Do not edit.',
@@ -171,7 +171,7 @@ export function renderPowerShellSkillFunction({ interpreter, entry, electron }) 
   const values = ['$__mxa', ...(electron ? ["'1'"] : [])];
   const body = [
     `$__mxa = '${SKILL_ARGV_TAG}'`,
-    'foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += \',\' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }',
+    "foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }",
     names.map((name, i) => `$__mxo${i} = $env:${name}`).join('; '),
     [
       'try {',

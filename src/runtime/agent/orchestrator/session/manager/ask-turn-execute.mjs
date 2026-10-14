@@ -5,7 +5,7 @@
 // (runAskAgentLoop). Provider-not-available and trim failures throw here so
 // the caller marks the session errored instead of leaving stage='connecting'.
 import { getProvider } from '../../providers/registry.mjs';
-import { prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
+import { notifySkillsApplied, prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
 import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import { resolveTurnAutoEffort, turnStepAutoEffort } from './ask-turn-auto-effort.mjs';
 import { saveSessionAsync } from '../store.mjs';
@@ -160,13 +160,7 @@ export async function runAskAgentLoop({
       const userMessage = recordAppliedSkills(outgoing, outgoing[prepared.beforeCount - 1], applied);
       session.messages = filterModelVisibleSessionMessages(outgoing);
       checkpoint.schedule(true);
-      if (applied.length) {
-        try {
-          askOpts?.onSkillsApplied?.(applied, { messageId: userMessage?.meta?.transcript?.messageId || null });
-        } catch {
-          /* best-effort host callback */
-        }
-      }
+      notifySkillsApplied(askOpts?.onSkillsApplied, applied, userMessage);
     }
     return await _api_call_with_interrupt(sessionId, (signal) =>
       agentLoop(

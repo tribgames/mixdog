@@ -75,6 +75,17 @@ export function recordAppliedSkills(messages, message, names) {
   return stamped;
 }
 
+/** Tells the host which skills a user turn loaded; a host callback failure
+ *  never fails the turn. */
+export function notifySkillsApplied(onSkillsApplied, applied, message) {
+  if (!applied.length) return;
+  try {
+    onSkillsApplied?.(applied, { messageId: message?.meta?.transcript?.messageId || null });
+  } catch {
+    /* best-effort host callback */
+  }
+}
+
 // Called before the first model request for a real user turn. This performs the
 // same policy-checked Skill operation, without asking the model to request it.
 // Native schemas still travel as a properly paired loader execution, never as
@@ -123,6 +134,5 @@ export async function prepareExplicitSkills(
     if (LOADED_SKILL_RE.test(String(summary))) applied.push(name);
     throwIfAborted(signal);
   }
-  throwIfAborted(signal);
   return applied;
 }

@@ -306,8 +306,7 @@ function addSkill(root, name, frontmatter = '') {
   invalidateSkillsCache(root);
 }
 
-const skillBodyNames = (session) =>
-  bodies(session).map((message) => /<name>([^<]+)<\/name>/.exec(message.content)[1]);
+const skillBodyNames = (session) => bodies(session).map((message) => /<name>([^<]+)<\/name>/.exec(message.content)[1]);
 
 test('inline $name mentions load every named skill in first-mention order, deduplicated with the header', async () => {
   await withSkill(async ({ root }) => {
@@ -390,8 +389,7 @@ test('token boundaries, code and reserved names: prose stays prose, chip selecti
       return `Loaded skill: ${args.name}`;
     };
     const prose =
-      'Set $path and $PATH, $selected-guide_env, $selected-guideX, `$selected-guide`:\n' +
-      '```\n$selected-guide\n```';
+      'Set $path and $PATH, $selected-guide_env, $selected-guideX, `$selected-guide`:\n' + '```\n$selected-guide\n```';
     assert.deepEqual(await prepareExplicitSkills(prose, session.messages, session, { execute }), []);
     assert.deepEqual(executed, []);
     assert.deepEqual(
@@ -411,9 +409,14 @@ test('token boundaries, code and reserved names: prose stays prose, chip selecti
     try {
       executed.length = 0;
       assert.deepEqual(
-        await prepareExplicitSkills(`${skillSelectionHeader('selected-guide')}Use $selected-guide.`, session.messages, session, {
-          execute,
-        }),
+        await prepareExplicitSkills(
+          `${skillSelectionHeader('selected-guide')}Use $selected-guide.`,
+          session.messages,
+          session,
+          {
+            execute,
+          }
+        ),
         []
       );
       assert.deepEqual(executed, []);
@@ -640,7 +643,10 @@ test('out-of-scope skills are refused for header, inline and model-requested loa
     // The loading boundary itself refuses a model-requested out-of-scope load
     // with a clear result, and still loads in-scope skills.
     const { viewSkill } = await import('./loop/tool-helpers.mjs');
-    assert.match(String(viewSkill(root, 'scoped-guide')), /^Error: skill "scoped-guide" is not available in this project/);
+    assert.match(
+      String(viewSkill(root, 'scoped-guide')),
+      /^Error: skill "scoped-guide" is not available in this project/
+    );
     assert.doesNotMatch(String(viewSkill(elsewhere, 'scoped-guide')), /^Error:/);
     assert.doesNotMatch(String(viewSkill(root, 'selected-guide')), /^Error:/);
     const contextMod = await import('../context/collect.mjs');

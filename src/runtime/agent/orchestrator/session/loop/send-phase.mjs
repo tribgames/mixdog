@@ -5,7 +5,7 @@
  */
 import { traceCacheBreak } from '../../cache-break-trace.mjs';
 import { resolveLiveToolCwd } from './tool-exec.mjs';
-import { prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
+import { notifySkillsApplied, prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
 import { addUsage, usageDeltaEvent } from './usage.mjs';
 import { prepareProviderRequest } from './request-boundary.mjs';
 import { projectProviderRequest } from './request-projection.mjs';
@@ -50,13 +50,7 @@ export async function beginIteration(state) {
       signal: opts.signal,
     });
     const message = recordAppliedSkills(messages, queued, applied);
-    if (applied.length) {
-      try {
-        opts.onSkillsApplied?.(applied, { messageId: message?.meta?.transcript?.messageId || null });
-      } catch {
-        /* best-effort host callback */
-      }
-    }
+    notifySkillsApplied(opts.onSkillsApplied, applied, message);
   }
   const boundary = await prepareProviderRequest({
     provider,
@@ -272,8 +266,7 @@ function traceActualCacheMiss(state, sent, response, { previousGuardState, previ
   const ttlMs = MESSAGES_CACHE_TTL_MS[sessionRef.providerCacheOpts?.cacheStrategy?.messages];
   const idleMs = sent.sendStartedAt - previousSendAt;
   const requestPrefixChanged =
-    !!previousGuardState &&
-    previousGuardState.requestPrefixHash !== sent.prefixGuardCandidate?.requestPrefixHash;
+    !!previousGuardState && previousGuardState.requestPrefixHash !== sent.prefixGuardCandidate?.requestPrefixHash;
   if (
     baseline > 0 &&
     ttlMs &&
