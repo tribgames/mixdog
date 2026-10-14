@@ -478,7 +478,9 @@ test('keyless provider disables the key field and saves auth none without a key'
   await type(field('Base URL'), 'http://localhost:11434/v1');
   await submit();
   assert.match(alerts(), /No API key/);
-  await act(async () => modelCheckbox('No authentication (local server)').click());
+  await act(async () =>
+    document.querySelector('input[aria-label="No authentication (local server)"]').click(),
+  );
   assert.equal(field('API key').disabled, true);
   assert.equal(field('API key').required, false);
   await submit();

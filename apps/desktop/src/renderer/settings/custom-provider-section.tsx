@@ -3,7 +3,7 @@ import { ChevronDown, Plus, X } from 'lucide-react';
 
 import { t } from '../i18n';
 import { OpenSelect } from '../OpenSelect';
-import { ActionButton, ResourceRow } from './capability-controls';
+import { ActionButton, CompactSwitch, ResourceRow } from './capability-controls';
 import { providerLabel, type PanelContext, type RecordValue } from './capability-data';
 import { record, rows } from '../record-utils';
 import { useMobileBack } from '../mobile-back';
@@ -340,18 +340,19 @@ function CustomProviderForm({
               changed();
             }}
           />
-          <label className="settings-model-check">
-            <input
-              type="checkbox"
+          <div className="settings-model-check">
+            <CompactSwitch
+              label={t('No authentication (local server)')}
               checked={keyless}
               disabled={disabled}
-              onChange={(event) => {
-                setKeyless(event.target.checked);
+              optimistic={false}
+              onChange={(next) => {
+                setKeyless(next);
                 changed();
               }}
             />
-            {t('No authentication (local server)')}
-          </label>
+            <span>{t('No authentication (local server)')}</span>
+          </div>
           <details
             className="settings-custom-models"
             open={manualOpen}
