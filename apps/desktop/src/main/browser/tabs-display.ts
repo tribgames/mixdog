@@ -82,7 +82,7 @@ export function createDisplayTabs(host: DisplayTabsHost) {
   }
 
   function closeDisplayTab(sessionId: string, id: string): void {
-    // Use the window's normal close path so beforeunload can protect edits.
+    // closeGuest lets the page's beforeunload protect unsaved edits.
     host.closeGuest(displayEntry(sessionId, id).guest);
   }
 

@@ -25,17 +25,21 @@ interface CdpCallsHost {
 export function createBrowserCdpCalls(host: CdpCallsHost) {
   const { state, sendCdp, guestDebugger } = host;
 
-  /** An open alert, confirm or prompt freezes the page's main thread, so every
-   *  later call dies on its deadline with a message that explains nothing and
-   *  invites a retry that will time out again. Name the dialog instead: it has
-   *  to be answered before anything else on this page can run. */
+  /** An open alert, confirm or prompt freezes its renderer's main thread, so
+   *  every later call dies on its deadline with a message that explains
+   *  nothing and invites a retry that will time out again. Name the dialog
+   *  instead, including one open on another page sharing this renderer: it
+   *  has to be answered before anything else on this page can run. That
+   *  page's text stays with the page, which may belong to another session. */
   function explainPendingDialog(guest: WebContents, error: unknown): unknown {
-    const dialog = state.peek(guest)?.pendingDialog;
-    if (!dialog || !(error instanceof Error) || !/ timed out after \d+ms$/.test(error.message)) return error;
-    return new Error(
-      `${error.message} — an open ${dialog.type} dialog is blocking this page: ${JSON.stringify(dialog.message)}. ` +
-        'Answer it with handle_dialog; the page cannot run anything else until then.'
-    );
+    const blocking = state.blockingDialog(guest);
+    if (!blocking || !(error instanceof Error) || !/ timed out after \d+ms$/.test(error.message)) return error;
+    const { owner, dialog } = blocking;
+    const which =
+      owner === guest
+        ? `an open ${dialog.type} dialog is blocking this page: ${JSON.stringify(dialog.message)}. Answer it with handle_dialog`
+        : `an open ${dialog.type} dialog on page ${state.pageId(owner)}, which shares this page's renderer, is blocking this page. Answer it with handle_dialog on that page`;
+    return new Error(`${error.message} — ${which}; the page cannot run anything else until then.`);
   }
 
   /** One command against a guest: resolves the attached debugger and applies
@@ -70,8 +74,9 @@ export function createBrowserCdpCalls(host: CdpCallsHost) {
   }
 
   /** Input commands can remain pending while a JavaScript dialog blocks its
-   *  event handler. Return control as soon as the dialog event arrives so the
-   *  caller can issue handle_dialog instead of waiting for the CDP timeout. */
+   *  event handler, or the renderer it shares with the dialog's page. Return
+   *  control as soon as the dialog is known so the caller can issue
+   *  handle_dialog instead of waiting for the CDP timeout. */
   async function sendCdpInput(
     guest: WebContents,
     cdp: Electron.Debugger,
@@ -105,7 +110,7 @@ export function createBrowserCdpCalls(host: CdpCallsHost) {
           if (next.error) throw next.error;
           return 'completed';
         }
-        if (state.for(guest).pendingDialog) return 'dialog';
+        if (state.blockingDialog(guest)) return 'dialog';
       }
     });
   }

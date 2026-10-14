@@ -25,7 +25,8 @@ export function normalizeBrowserPageControl(value: unknown): DesktopBrowserPageC
     case 'answer-dialog': {
       if (
         typeof input.accept !== 'boolean' ||
-        (input.promptText !== undefined && (typeof input.promptText !== 'string' || input.promptText.length > 2000))
+        (input.promptText !== undefined && (typeof input.promptText !== 'string' || input.promptText.length > 2000)) ||
+        (input.keepDefault !== undefined && typeof input.keepDefault !== 'boolean')
       ) {
         throw new TypeError('Browser dialog answer is invalid.');
       }
@@ -35,6 +36,7 @@ export function normalizeBrowserPageControl(value: unknown): DesktopBrowserPageC
         requestId: text('requestId', 100),
         accept: input.accept,
         promptText: input.promptText,
+        ...(input.keepDefault ? { keepDefault: true } : {}),
       };
     }
     case 'choose-files': {

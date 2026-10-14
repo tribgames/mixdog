@@ -67,7 +67,6 @@ import {
 import { createBrowserCommandQueue } from './command-queue';
 import { createBrowserPresentationReads } from './presentation-reads';
 import { type BrowserCredentialFillResult, createBrowserCredentialFill } from './credential-autofill';
-import { DIALOG_BRIDGE_UNINSTALL_SCRIPT } from './dialog-bridge';
 import { createBrowserDialogReport } from './dialog-report';
 import { createBrowserDocuments } from './documents';
 import { createBrowserDownloads } from './downloads';
@@ -82,6 +81,7 @@ import { createBrowserPageState } from './page-state';
 import { createBrowserPageSurface } from './page-surface';
 import { isSessionTabControl, type SessionTabStrip } from './tabs-close-result';
 import { createBrowserLocalPrompts } from './local-prompts';
+import { closePage, createBrowserLeaveConfirmation } from './leave-confirmation';
 import {
   BROWSER_INPUT_WAIT_MS,
   browserInputImmediate,
@@ -294,7 +294,16 @@ export function createBrowserHost(
     publishRemoteImportProgress?: (progress: DesktopBrowserImportProgress) => Promise<void>;
   } = {}
 ): BrowserHost {
-  const state = new BrowserGuestStateStore();
+  // A JavaScript dialog pauses its whole renderer process, so every page that
+  // process hosts (typically a same-site popup and its opener) waits on it.
+  // The process, not the opener link, decides: a cross-site popup runs elsewhere.
+  const state = new BrowserGuestStateStore((guest) => {
+    const pid = guest.isDestroyed() ? 0 : guest.getOSProcessId();
+    if (pid <= 0) return [];
+    return webContents
+      .getAllWebContents()
+      .filter((other) => other !== guest && !other.isDestroyed() && other.getOSProcessId() === pid);
+  });
   const approvals = createBrowserActionApproval({
     ask: options.requestApproval || ((request, signal) => requestBrowserApproval(window, request, signal)),
     confirmActions: process.env.MIXDOG_BROWSER_CONFIRM_ACTIONS,
@@ -428,6 +437,7 @@ export function createBrowserHost(
     for (const guest of browserSessions.visibleGuests(sessionId)) pagePower.refresh(guest);
     for (const page of browserSessions.backgroundPages(sessionId).values()) pagePower.refresh(page.guest);
   };
+  const leave = createBrowserLeaveConfirmation();
   const lifecycle = createBrowserGuestLifecycle({
     window,
     partitionSession,
@@ -435,7 +445,6 @@ export function createBrowserHost(
     sessions: browserSessions,
     cdp,
     urlPolicy: browserUrlPolicy,
-    bridgeWanted: () => bridgeWanted,
     isBackgroundBusy,
     waitForLoadSettle: settle.waitForLoadSettle,
     onPopup: (opener, popup) => taskLifecycle.inherit(opener, popup),
@@ -444,6 +453,12 @@ export function createBrowserHost(
       guest.once('destroyed', () => panelActiveGuests.delete(guest));
       displayTextures.attach(guest);
       nativeViews?.watch(guest);
+      // Without a listener Electron keeps the page silently; a person's
+      // request is asked about instead (see leave-confirmation).
+      guest.on('will-prevent-unload', (event) => leave.vetoed(guest, () => event.preventDefault()));
+      guest.on('did-start-navigation', (details) => {
+        if (details.isMainFrame) leave.settled(guest, details.isSameDocument);
+      });
       trackBrowserPageIdentity(guest, pageIdentity, {
         // The page's own session: its cookies and cache, as the page loads it.
         favicon: (url, pageUrl) => readBrowserFavicon(guest.session, url, pageUrl),
@@ -464,6 +479,7 @@ export function createBrowserHost(
         humanInput: (guest) => {
           if (guest.isDestroyed()) return;
           const owner = browserSessions.sessionIdForGuest(guest) ?? DEFAULT_BROWSER_SESSION_ID;
+          state.for(guest).userInput = true;
           retainGuest(guest);
           interruptForLocal({ action: 'remote_control', session_id: owner, tab: state.pageId(guest) });
         },
@@ -635,6 +651,10 @@ export function createBrowserHost(
         driving,
       }),
   });
+  // A page sharing this one's renderer whose dialog blocks it as well, in any
+  // session. Those pages are presented and guarded like the dialog page
+  // itself; only a view in the dialog page's own session shows and answers it.
+  const dialogOwner = (guest: WebContents): WebContents | null => state.dialogOwner(guest);
   // One session tab strip for the local pane and for paired clients' tab controls.
   const sessionTabs: SessionTabStrip = {
     list: (sessionId) => tabs.displayTabs(sessionId),
@@ -658,8 +678,23 @@ export function createBrowserHost(
       return guest !== null && !guest.isDestroyed() && state.pageId(guest) === tabId;
     },
   };
+  // The prompts a person answers, at the pane and on a paired client alike.
+  const prompts = createBrowserLocalPrompts({
+    state,
+    dialogs,
+    uploads: refActions,
+    chooseFiles:
+      options.chooseBrowserFiles ??
+      ((multiple) =>
+        dialog.showOpenDialog(window, {
+          properties: multiple ? ['openFile', 'multiSelections'] : ['openFile'],
+        })),
+    controller: (guest) => browserSessions.sessionIdForGuest(guest),
+    leave,
+  });
   const remote = createBrowserRemoteControl({
     tabs: sessionTabs,
+    dialog: (guest) => prompts.describe(guest).dialog,
     drive: remoteDrive,
     state,
     cdp,
@@ -675,11 +710,14 @@ export function createBrowserHost(
       sendToRenderer(DESKTOP_IPC.browserRemoteViewerChanged, { sessionId, active });
     },
     onUserControl: retainGuest,
+    leave,
     assertResolvedUrlAllowed: urls.assertResolvedUrlAllowed,
     dispatchPageInput: createPageInputDispatcher({
       state,
       cdp,
       dispatchInput,
+      dialogOwner,
+      leave,
       urlPolicy: browserUrlPolicy,
       assertUrl: urls.assertResolvedUrlAllowed,
     }),
@@ -698,22 +736,14 @@ export function createBrowserHost(
     ensureGuest: lifecycle.ensureGuest,
     currentGuest: (sessionId) => browserSessions.currentGuest(sessionId),
     remoteDriven: (guest) => remoteDrive.driven(guest),
+    dialogOwner,
+    leave,
     tabs: sessionTabs,
     state,
     cdp,
     dispatchInput,
     urlPolicy: browserUrlPolicy,
-    prompts: createBrowserLocalPrompts({
-      state,
-      dialogs,
-      uploads: refActions,
-      chooseFiles:
-        options.chooseBrowserFiles ??
-        ((multiple) =>
-          dialog.showOpenDialog(window, {
-            properties: multiple ? ['openFile', 'multiSelections'] : ['openFile'],
-          })),
-    }),
+    prompts,
     assertUrl: urls.assertResolvedUrlAllowed,
     capture: (guest, geometryKey, pixels, signal) =>
       cdp.bounded(displayCapture(guest, geometryKey, pixels), 2000, 'Browser display capture', signal),
@@ -776,7 +806,8 @@ export function createBrowserHost(
     pageId: (guest) => state.pageId(guest),
     currentGuest: (sessionId) => browserSessions.currentGuest(sessionId),
     selectGuest: (sessionId, guest) => browserSessions.selectGuest(sessionId, guest),
-    closeGuest: (guest) => browserPageWindow(guest)?.close(),
+    // The page closes before its window, so beforeunload can protect edits.
+    closeGuest: (guest) => leave.request(guest, () => closePage(guest)),
   });
 
   const services: BrowserActionServices = {
@@ -830,7 +861,12 @@ export function createBrowserHost(
     downloads,
     taskLifecycle,
     retainGuest,
-    drivePage: pagePower.drive,
+    // Every agent command reaches its page here, before acting on it: from
+    // now on a veto answers the agent, not a person's earlier click or key.
+    drivePage: (guest) => {
+      leave.agentActs(guest);
+      return pagePower.drive(guest);
+    },
     services,
   });
 
@@ -902,22 +938,22 @@ export function createBrowserHost(
     await bridgeServer.stop();
     commandChains.clear();
     pendingReads.clear();
-    for (const guest of browserSessions.visibleGuests()) {
-      await cdp.detach(guest, { uninstallScript: DIALOG_BRIDGE_UNINSTALL_SCRIPT });
-    }
     // Agent-only surfaces die with the bridge; visible pane tabs belong to
-    // the user and stay open.
+    // the user and stay open — with their debugger, which is what keeps their
+    // page dialogs in the pane rather than in OS dialog boxes.
     lifecycle.destroyAllBackgroundPages();
   }
 
   // Pages nobody displays or drives for long are unloaded (URLs kept) and
-  // restore when the panel or an agent command returns.
+  // restore when the panel or an agent command returns — unless a person
+  // entered something there, which only the live document holds.
   const userReclaimTimer = setInterval(
     () =>
       reclaimIdleUserSessions({
         sessions: browserSessions,
         power: pagePower,
         isBackgroundBusy,
+        holdsUserInput: (guest) => state.peek(guest)?.userInput === true,
         unload: (sessionId) => browserHost.releaseSession(sessionId, { restore: true }),
       }),
     BACKGROUND_RECLAIM_INTERVAL_MS
@@ -1080,6 +1116,9 @@ export function createBrowserHost(
       if (control.type === 'viewport' || isSessionTabControl(control)) {
         return remote.remoteBrowserControl(browserSessionId(sessionId), control);
       }
+      // A dialog answer takes the pane's own path: bound to the shown
+      // document and prompt, and never queued behind the command it blocks.
+      if (control.type === 'answer-dialog') return browserHost.browserPageControl(sessionId, control);
       return executeSerialized({ action: 'remote_control', session_id: browserSessionId(sessionId) }, undefined, () =>
         remote.remoteBrowserControl(browserSessionId(sessionId), control)
       );

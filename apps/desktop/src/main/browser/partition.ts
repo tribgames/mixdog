@@ -13,6 +13,7 @@ import { BROWSER_PARTITION } from './command';
 import { createBrowserDownloadLedger } from './downloads';
 import { clearBrowserPermissionHandlers, lockDownBrowserPermissions } from './permissions';
 import { redactBrowserText } from './redaction';
+import { browserRequestDisposition } from './request-scheme';
 import { browserPartitionUserAgent } from './user-agent';
 
 interface BrowserPartitionHost {
@@ -26,9 +27,6 @@ interface BrowserPartitionHost {
   onRequestRefused?(webContentsId: number | undefined, url: string, reason: string): void;
 }
 
-const WEB_PROTOCOLS = new Set(['http:', 'https:', 'ws:', 'wss:']);
-const EMBEDDED_ONLY_PROTOCOLS = new Set(['about:', 'data:', 'blob:']);
-
 export function createBrowserPartition(host: BrowserPartitionHost) {
   const partitionSession: Session = session.fromPartition(BROWSER_PARTITION);
   // Agent-visited pages receive no ambient browser permission. A future
@@ -36,16 +34,9 @@ export function createBrowserPartition(host: BrowserPartitionHost) {
   lockDownBrowserPermissions(partitionSession);
   partitionSession.setUserAgent(browserPartitionUserAgent(partitionSession.getUserAgent()));
   partitionSession.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
-    let parsed: URL;
-    try {
-      parsed = new URL(details.url);
-    } catch {
-      callback({ cancel: true });
-      return;
-    }
-    if (!WEB_PROTOCOLS.has(parsed.protocol)) {
-      const allowedEmbedded = details.resourceType !== 'mainFrame' && EMBEDDED_ONLY_PROTOCOLS.has(parsed.protocol);
-      callback({ cancel: !allowedEmbedded });
+    const disposition = browserRequestDisposition(details.url, details.resourceType);
+    if (disposition !== 'web') {
+      callback({ cancel: disposition === 'deny' });
       return;
     }
     void host.assertResolvedResourceUrlAllowed(details.url).then(

@@ -7,6 +7,7 @@ import type { WebContents } from 'electron';
 
 import type {
   DesktopBrowserPageControl,
+  DesktopBrowserPageDialog,
   DesktopBrowserTabControlResult,
   DesktopRemoteBrowserControl,
   DesktopRemoteBrowserStreamFrame,
@@ -18,6 +19,8 @@ import type { BrowserRemoteDrive } from './remote-drive';
 import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
 import { controlSessionTab, isSessionTabControl, type SessionTabStrip } from './tabs-close-result';
 import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
+import type { BrowserLeaveConfirmation } from './leave-confirmation';
+import { navigatePage } from './page-surface-control';
 
 interface BrowserRemoteControlHost {
   state: BrowserGuestStateStore;
@@ -30,6 +33,11 @@ interface BrowserRemoteControlHost {
    *  client keeps a watched guest where Chromium still composes frames. */
   viewerChanged?(sessionId: string, active: boolean): void;
   onUserControl?(guest: WebContents): void;
+  /** Runs a person's request that may leave the page (see leave-confirmation). */
+  leave?: Pick<BrowserLeaveConfirmation, 'request'>;
+  /** The dialog a view of this page offers, as the local pane shows it; the
+   *  client answers it through the pane's own answer path. */
+  dialog?(guest: WebContents): DesktopBrowserPageDialog | undefined;
   assertResolvedUrlAllowed(url: string, pageGenerated: boolean): Promise<void>;
   /** The local pane's CDP input dispatch, under the caller's document guard. */
   dispatchPageInput(guest: WebContents, input: DesktopBrowserPageControl, assertCurrent: () => void): Promise<void>;
@@ -78,15 +86,21 @@ function jpegSize(base64: string): { width: number; height: number } | null {
   return null;
 }
 
+interface PictureView {
+  size: { width: number; height: number };
+  viewport: { width: number; height: number };
+}
+
 interface ScreencastRun {
   guest: WebContents;
   port: Electron.Debugger;
   documentId: string;
   size: string;
   listener(event: unknown, method: string, params: Record<string, unknown>, cdpSession?: string): void;
-  gotFrame: boolean;
-  /** pageSignature of the last frame sent for this run. */
-  signature: string;
+  /** This run's latest image: its size and the CSS viewport it depicted.
+   *  Only it may be described — never an image of another page, document
+   *  or size. */
+  view: PictureView | null;
   detachGuest(): void;
   firstFrameTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -95,8 +109,8 @@ interface RemoteStream {
   options: DesktopRemoteBrowserStreamOptions;
   seq: number;
   run: ScreencastRun | null;
-  /** The last image's size and the CSS viewport it depicted. */
-  lastView: { size: { width: number; height: number }; viewport: { width: number; height: number } } | null;
+  /** frameSignature of the last frame queued. */
+  signature: string;
   checking: boolean;
   work: Promise<void>;
   expiry: ReturnType<typeof setTimeout>;
@@ -165,74 +179,111 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       guest.isLoadingMainFrame(),
       history.canGoBack(),
       history.canGoForward(),
-      state.peek(guest)?.pendingDialog ? 'dialog' : '',
+      host.dialog?.(guest)?.id ?? '',
       guest.getZoomFactor(),
     ].join('\u0000');
   }
 
-  /** Queue a frame of the run's page; without `data` it carries metadata only. */
-  function queueFrame(
+  /** Queue a frame of a page's document: its facts, and the picture `view`
+   *  describes (0×0 for none) with `image` when one goes out with it. */
+  function composeFrame(
+    sessionId: string,
+    stream: RemoteStream,
+    guest: WebContents,
+    documentId: string,
+    view: PictureView,
+    image: DesktopRemoteBrowserStreamFrame['image']
+  ): void {
+    stream.signature = frameSignature(sessionId, guest, documentId, view);
+    const history = guest.navigationHistory;
+    const dialog = host.dialog?.(guest);
+    stream.seq += 1;
+    stream.pending = {
+      sessionId,
+      seq: stream.seq,
+      frameId: `rbf_${stream.seq.toString(36)}`,
+      documentId,
+      url: guest.getURL() || 'about:blank',
+      title: guest.getTitle(),
+      loading: guest.isLoadingMainFrame(),
+      canGoBack: history.canGoBack(),
+      canGoForward: history.canGoForward(),
+      width: view.size.width,
+      height: view.size.height,
+      viewportWidth: view.viewport.width,
+      viewportHeight: view.viewport.height,
+      ...(host.tabs ? { tabs: host.tabs.list(sessionId) } : {}),
+      ...(dialog ? { dialog } : {}),
+      ...(image ? { image } : {}),
+    };
+    schedulePublish(stream);
+  }
+
+  /** Queue the run's image of its page. */
+  function queueImage(
     sessionId: string,
     stream: RemoteStream,
     run: ScreencastRun,
-    data: string | undefined,
+    data: string,
     viewport: { width: number; height: number }
   ): void {
     const { guest } = run;
     if (stream.run !== run || guest.isDestroyed()) return;
     // A frame from before a navigation must not carry the new document's id.
     if (browserDocumentId(state, guest) !== run.documentId) return;
-    const size = (data ? jpegSize(data) : null) ?? stream.lastView?.size ?? viewport;
-    if (data) {
-      run.gotFrame = true;
-      stream.lastView = { size, viewport };
-    }
-    run.signature = pageSignature(guest, run.documentId, sessionId);
-    const history = guest.navigationHistory;
-    // A metadata-only frame must not discard an image still waiting to go out.
-    const image = data ? { mimeType: 'image/jpeg' as const, data } : stream.pending?.image;
-    stream.seq += 1;
-    stream.pending = {
-      sessionId,
-      seq: stream.seq,
-      frameId: `rbf_${stream.seq.toString(36)}`,
-      documentId: run.documentId,
-      url: guest.getURL() || 'about:blank',
-      title: guest.getTitle(),
-      loading: guest.isLoadingMainFrame(),
-      canGoBack: history.canGoBack(),
-      canGoForward: history.canGoForward(),
-      width: size.width,
-      height: size.height,
-      viewportWidth: viewport.width,
-      viewportHeight: viewport.height,
-      ...(host.tabs ? { tabs: host.tabs.list(sessionId) } : {}),
-      ...(image ? { image } : {}),
-    };
-    schedulePublish(stream);
+    run.view = { size: jpegSize(data) ?? viewport, viewport };
+    composeFrame(sessionId, stream, guest, run.documentId, run.view, { mimeType: 'image/jpeg', data });
   }
 
-  const emitFrame = queueFrame;
+  const NO_PICTURE = { size: { width: 0, height: 0 }, viewport: { width: 0, height: 0 } };
 
-  /** Reconcile the screencast, then push the page's facts if they changed. */
+  /** Push the session page's facts if they changed. This needs no screencast
+   *  and no debugger: a dialog may hold back painting, even debugger
+   *  initialization, until the client answers the card these facts carry.
+   *  The picture described is the image the screencast of this page, this
+   *  document and the current size has sent, or none (0×0) until it sends
+   *  one, so the client maps no input through the image it still shows. */
+  function publishFacts(sessionId: string, stream: RemoteStream): void {
+    if (streams.get(sessionId) !== stream) return;
+    const guest = host.currentGuest(sessionId);
+    if (!guest || guest.isDestroyed()) return;
+    const documentId = browserDocumentId(state, guest);
+    const run = stream.run;
+    const live = run?.guest === guest && run.documentId === documentId && run.size === sizeKey(stream);
+    const view = (live && run.view) || NO_PICTURE;
+    if (frameSignature(sessionId, guest, documentId, view) === stream.signature) return;
+    // A metadata-only frame must not discard an image still waiting to go out.
+    const waiting = live && stream.pending?.documentId === documentId ? stream.pending.image : undefined;
+    composeFrame(sessionId, stream, guest, documentId, view, waiting);
+  }
+
+  /** What a client is told besides pixels: the page's facts and the picture
+   *  described — a resize that retires the picture is news too. */
+  function frameSignature(
+    sessionId: string,
+    guest: WebContents,
+    documentId: string,
+    view: PictureView
+  ): string {
+    const picture = [view.size.width, view.size.height, view.viewport.width, view.viewport.height].join('x');
+    return `${pageSignature(guest, documentId, sessionId)}\u0000${picture}`;
+  }
+
+  /** Push the page's facts, then reconcile the screencast and push what that changed. */
   async function check(sessionId: string, stream: RemoteStream): Promise<void> {
+    publishFacts(sessionId, stream);
     if (stream.checking) return;
     stream.checking = true;
     try {
       await reconcile(sessionId, stream);
-      const run = stream.run;
-      if (!run || run.guest.isDestroyed() || streams.get(sessionId) !== stream) return;
-      if (browserDocumentId(state, run.guest) !== run.documentId) return;
-      // Before the first image there is no viewport to describe; it follows.
-      if (!stream.lastView || pageSignature(run.guest, run.documentId, sessionId) === run.signature) return;
-      queueFrame(sessionId, stream, run, undefined, stream.lastView.viewport);
+      publishFacts(sessionId, stream);
     } finally {
       stream.checking = false;
     }
   }
 
   async function captureFirstFrame(sessionId: string, stream: RemoteStream, run: ScreencastRun): Promise<void> {
-    if (stream.run !== run || run.gotFrame) return;
+    if (stream.run !== run || run.view) return;
     const metrics = await cdp.call<{ cssVisualViewport?: { clientWidth: number; clientHeight: number } }>(
       run.guest,
       'Page.getLayoutMetrics'
@@ -249,8 +300,8 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       quality: STREAM_JPEG_QUALITY,
       clip: { x: 0, y: 0, width: viewport.clientWidth, height: viewport.clientHeight, scale },
     });
-    if (run.gotFrame) return;
-    emitFrame(sessionId, stream, run, shot.data, { width: viewport.clientWidth, height: viewport.clientHeight });
+    if (run.view) return;
+    queueImage(sessionId, stream, run, shot.data, { width: viewport.clientWidth, height: viewport.clientHeight });
   }
 
   async function stopRun(stream: RemoteStream): Promise<void> {
@@ -290,7 +341,6 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     if (current && current.size !== size) {
       // A frame captured at the old size must not reach the client as the new one.
       stream.pending = null;
-      stream.lastView = null;
     }
     // Every page, document and size change passes here, so a driven viewport
     // is re-applied before the new screencast captures anything.
@@ -301,8 +351,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       port,
       documentId,
       size,
-      gotFrame: false,
-      signature: '',
+      view: null,
       detachGuest: () => {
         for (const name of PAGE_EVENTS) (guest as NodeJS.EventEmitter).removeListener(name, onPageEvent);
       },
@@ -312,7 +361,9 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
         // Acked at once: Chromium sends no further frame until this one is.
         void cdp.call(guest, 'Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => undefined);
         const metadata = (params.metadata ?? {}) as { deviceWidth?: number; deviceHeight?: number };
-        emitFrame(sessionId, stream, run, String(params.data ?? ''), {
+        const data = String(params.data ?? '');
+        if (!data) return;
+        queueImage(sessionId, stream, run, data, {
           width: metadata.deviceWidth || 0,
           height: metadata.deviceHeight || 0,
         });
@@ -409,7 +460,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
         options,
         seq: 0,
         run: null,
-        lastView: null,
+        signature: '',
         checking: false,
         // Starts only once the session's previous stream has handed its page back.
         work: teardowns.get(sessionId) ?? Promise.resolve(),
@@ -429,6 +480,8 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     }
     stream.options = options;
     armExpiry(sessionId, stream);
+    // The page's facts go first: starting the screencast may wait on the page.
+    publishFacts(sessionId, stream);
     await reconcile(sessionId, stream);
   }
 
@@ -437,9 +490,10 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     stopStream(sessionId);
   }
 
+  /** A dialog answer is not taken here: it goes the local pane's answer path. */
   async function remoteBrowserControl(
     sessionId: string,
-    control: DesktopRemoteBrowserControl
+    control: Exclude<DesktopRemoteBrowserControl, { type: 'answer-dialog' }>
   ): Promise<DesktopBrowserTabControlResult | void> {
     if (control.type === 'viewport') {
       // Only a streaming client drives the page; it resends with each renewal,
@@ -478,26 +532,14 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       return;
     }
     state.invalidateInteraction(guest);
-    switch (control.type) {
-      case 'navigate': {
-        const url = normalizePageUrl(control.url, urlPolicy);
-        await assertResolvedUrlAllowed(url, true);
-        void guest.loadURL(url).catch(() => undefined);
-        return;
-      }
-      case 'back':
-        if (guest.navigationHistory.canGoBack()) guest.navigationHistory.goBack();
-        return;
-      case 'forward':
-        if (guest.navigationHistory.canGoForward()) guest.navigationHistory.goForward();
-        return;
-      case 'reload':
-        guest.reload();
-        return;
-      case 'stop':
-        guest.stop();
-        return;
+    // A person on the paired client navigates the same way as at the pane.
+    if (control.type === 'navigate') {
+      const url = normalizePageUrl(control.url, urlPolicy);
+      await assertResolvedUrlAllowed(url, true);
+      navigatePage(host, guest, { type: 'navigate', url });
+      return;
     }
+    navigatePage(host, guest, control);
   }
 
   return { remoteBrowserStream, remoteBrowserControl, releaseViewer };

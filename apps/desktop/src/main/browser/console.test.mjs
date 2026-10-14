@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import {
+  onConsoleApiCalled,
+  onExceptionThrown,
+  onExecutionContextCreated,
+  onExecutionContextsCleared,
+  onLogEntryAdded,
+} from './cdp-events-console.ts';
 import { BrowserConsoleLedger } from './console.ts';
+import { BrowserGuestStateStore } from './guest-state.ts';
 import { formatConsoleArguments, formatConsoleSource } from './console-format.ts';
 import { BrowserNetworkLedger } from './network.ts';
 import { validateBrowserToolArgs } from '../../../../../src/runtime/browser-bridge/action-schema.mjs';
@@ -20,6 +28,30 @@ test('new console errors are reported once while recent errors stay available', 
   const bulk = ledger.newErrors(2);
   assert.deepEqual(bulk, ['bulk 248', 'bulk 249'], 'the cap does not resurrect reported entries');
   assert.deepEqual(ledger.newErrors(2), []);
+});
+
+test("diagnostics from the browser's own components are not page content", () => {
+  const state = new BrowserGuestStateStore();
+  const guest = {};
+  const created = (sessionId, id, origin) =>
+    onExecutionContextCreated(state, guest, { context: { id, origin } }, sessionId);
+  created('viewer', 1, 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai');
+  created(undefined, 1, 'http://a.test');
+  const consoleCall = (sessionId, executionContextId) =>
+    onConsoleApiCalled(state, guest, { type: 'error', args: [{ type: 'string', value: 'boom' }], executionContextId }, sessionId);
+  const exception = (sessionId, executionContextId) =>
+    onExceptionThrown(state, guest, { exceptionDetails: { text: 'thrown', executionContextId } }, sessionId);
+  consoleCall('viewer', 1);
+  exception('viewer', 1);
+  assert.equal(state.for(guest).console.errorCount(), 0);
+  consoleCall(undefined, 1);
+  exception(undefined, 1);
+  assert.equal(state.for(guest).console.errorCount(), 2, 'the page context with the same id is still recorded');
+  onLogEntryAdded(state, guest, { entry: { level: 'error', text: 'x', url: 'chrome-extension://abc/main.js' } });
+  assert.equal(state.for(guest).console.errorCount(), 2);
+  onExecutionContextsCleared(state, guest, 'viewer');
+  consoleCall('viewer', 1);
+  assert.equal(state.for(guest).console.errorCount(), 3, 'a cleared context is no longer a component');
 });
 
 test('a capped report keeps the page fault ahead of trackers the host policy refused', () => {

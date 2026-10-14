@@ -41,18 +41,18 @@ export async function runBrowserPageReportScenarios(
   );
   progress('download inline attachment and snapshot report complete');
 
-  // A PDF link commits its address but renders nothing here, so the report
-  // has to name the document instead of handing back an empty page.
+  // A PDF renders in Chromium's viewer, whose content is not part of the
+  // page, so the report has to name the document instead of an empty page.
   const pdfNavigation = await run({
     action: 'navigate',
     url: `${origin}/paper.pdf`,
     background: true,
     tab: 'paper',
   });
-  assert.match(pdfNavigation.text, /This document is a PDF, which this browser cannot display/);
-  // The viewer Chromium tries to load is its own component, so its blocked
-  // resources must not surface as the page's console or network failures.
-  assert.doesNotMatch(pdfNavigation.text, /chrome-extension:/);
+  assert.match(pdfNavigation.text, /This document is a PDF shown in the browser's built-in viewer/);
+  // The viewer is Chromium's own component: its requests must not surface as
+  // blocked or failed network resources of the page.
+  assert.doesNotMatch(pdfNavigation.text, /chrome-extension:|ERR_BLOCKED|Network failures|console (errors|warnings)/i);
   assert.match((await run({ action: 'snapshot', tab: 'paper' })).text, /This document is a PDF/);
   await run({ action: 'close_tab', tab: 'paper' });
   progress('pdf document report complete');

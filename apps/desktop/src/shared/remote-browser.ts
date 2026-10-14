@@ -116,7 +116,8 @@ export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrow
     type === 'text' ||
     type === 'key' ||
     type === 'composition' ||
-    type === 'composition-end'
+    type === 'composition-end' ||
+    type === 'answer-dialog'
   ) {
     if (
       typeof input.documentId !== 'string' ||
@@ -131,8 +132,9 @@ export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrow
     ) {
       throw new TypeError('remote browser text is invalid.');
     }
-    // The local pane's validator owns phases, buttons, modifiers, click counts
-    // and bounded coordinates/deltas, so both surfaces admit the same input.
+    // The local pane's validator owns phases, buttons, modifiers, click counts,
+    // bounded coordinates/deltas and dialog answers, so both surfaces admit
+    // the same input.
     return normalizeBrowserPageControl(input) as DesktopRemoteBrowserPageInput;
   }
   throw new TypeError(`unknown remote browser control "${type || '(none)'}".`);

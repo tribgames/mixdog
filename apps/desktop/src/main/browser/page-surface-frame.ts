@@ -96,8 +96,9 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
     }
   }
 
-  /** A synchronous dialog also blocks layout metrics. Present its controls
-   *  entirely from native state; never wait for the page it is blocking. */
+  /** A synchronous dialog also blocks layout metrics, its own page's and
+   *  those of every page sharing its renderer. Present the page entirely
+   *  from native state; never wait for the renderer the dialog is blocking. */
   async function blockedDialogFrame(
     sessionId: string,
     guest: WebContents,
@@ -283,7 +284,7 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
       if (size) resizeGuest(guest, size);
       presentedGuests.set(sessionId, guest);
     }
-    if (host.state.for(guest).pendingDialog) {
+    if (host.state.for(guest).pendingDialog || host.dialogOwner?.(guest)) {
       return blockedDialogFrame(sessionId, guest, previousId, previousFrames, useTexture, signal);
     }
     return liveFrame(sessionId, guest, previousId, previousFrames, useTexture, signal);

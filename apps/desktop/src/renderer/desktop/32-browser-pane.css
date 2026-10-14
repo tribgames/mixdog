@@ -287,6 +287,16 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
   background: var(--mx-workspace-sheet);
 }
 
+/* The streamed page and, over it, the page's own dialog card: a sibling of
+   the input surface, so answering it never reaches the page. */
+.browser-remote-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .browser-remote-content {
   position: relative;
   align-items: stretch;
