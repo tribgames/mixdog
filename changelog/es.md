@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.2.1 - 2026-10-14
+
 Se añadió la importación de conversaciones de Codex y Claude Code, el proveedor Command Code y menciones de skills con `$`, y se corrigió la observación de entrada de Computer Use, los scripts de skills, el razonamiento automático y varios fallos de sesiones.
 
 ### Nuevas funciones

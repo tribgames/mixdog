@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.2.1 - 2026-10-14
+
 Unterhaltungsimport aus Codex und Claude Code, den Command Code-Anbieter sowie `$`-Skill-Erwähnungen hinzugefügt und Computer Use-Eingabebeobachtung, Skill-Skripte, automatisches Denken sowie mehrere Sitzungsprobleme behoben.
 
 ### Neue Funktionen

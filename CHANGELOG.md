@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.2.1 - 2026-10-14
+
 Added conversation import from Codex and Claude Code, the Command Code provider, and `$` skill mentions, and fixed Computer Use input observation, skill scripts, auto reasoning, and several session issues.
 
 ### New features

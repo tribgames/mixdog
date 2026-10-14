@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.2.1 - 2026-10-14
+
 Aggiunta l'importazione di conversazioni da Codex e Claude Code, il provider Command Code e le menzioni di skill con `$`, e corretta l'osservazione dell'input di Computer Use, gli script di skill, il ragionamento automatico e diversi problemi di sessione.
 
 ### Nuove funzionalità

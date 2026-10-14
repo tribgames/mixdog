@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.2.1 - 2026-10-14
+
 Đã thêm tính năng nhập cuộc trò chuyện từ Codex và Claude Code, nhà cung cấp Command Code, đề cập kỹ năng bằng `$`, và đã sửa lỗi theo dõi nhập liệu của Computer Use, tập lệnh kỹ năng, suy luận tự động cùng một số lỗi phiên.
 
 ### Tính năng mới

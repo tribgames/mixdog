@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.2.1 - 2026-10-14
+
 Adicionada a importação de conversas do Codex e do Claude Code, o provedor Command Code e menções de skills com `$`, e corrigida a observação de entrada do Computer Use, scripts de skills, raciocínio automático e vários problemas de sessão.
 
 ### Novos recursos
