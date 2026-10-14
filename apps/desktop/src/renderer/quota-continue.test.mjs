@@ -249,6 +249,22 @@ function quotaProps(host, overrides = {}) {
 
 const picked = { provider: 'openai-oauth', model: 'gpt-5.1' };
 
+test('a chat already switched to another provider drops the quota card; the same provider keeps it', async (t) => {
+  const { root, document } = mount(t);
+  const host = quotaHost(t, document);
+  const render = (chatProvider) =>
+    act(async () => {
+      root.render(React.createElement(QuotaHarness, quotaProps(host, { chatProvider })));
+      await settle();
+    });
+  await render('anthropic-oauth');
+  assert.ok(document.querySelector('.composer-quota-card'), 'still on the exhausted provider');
+  await render('openai-oauth');
+  assert.equal(document.querySelector('.composer-quota-card'), null, 'switched provider: next turn runs there');
+  await render('');
+  assert.ok(document.querySelector('.composer-quota-card'), 'unknown chat route keeps the card');
+});
+
 test('switch model opens the picker; once the pick applied in place the stopped turn is retried once', async (t) => {
   const { root, document } = mount(t);
   const host = quotaHost(t, document);

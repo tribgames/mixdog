@@ -16,6 +16,7 @@ export function useConversationQuotaCard({
   draftMode,
   snapshot,
   sessionId,
+  chatProvider = '',
   settledItems,
   settledTurnKeys,
   pendingPromptCount,
@@ -24,6 +25,8 @@ export function useConversationQuotaCard({
   draftMode: boolean;
   snapshot: Snapshot;
   sessionId: string;
+  /** The provider this chat runs on now; '' when unknown. */
+  chatProvider?: string;
   settledItems: TranscriptItem[];
   settledTurnKeys: string[];
   pendingPromptCount: number;
@@ -33,7 +36,11 @@ export function useConversationQuotaCard({
   const [switching, setSwitching] = useState(false);
   const switchingRef = useRef(false);
   const live = !draftMode && Boolean(sessionId);
-  const quotaFailure = live ? latestQuotaFailure(settledItems, settledTurnKeys) : null;
+  const stopped = live ? latestQuotaFailure(settledItems, settledTurnKeys) : null;
+  // A chat already switched to another provider has left the exhausted quota
+  // behind: its next turn runs on the new model, so the stop no longer needs
+  // a card (another model of the same provider shares the quota and keeps it).
+  const quotaFailure = stopped && chatProvider && chatProvider !== stopped.quota.provider ? null : stopped;
   const waitingResume = live ? (snapshot.quotaResume ?? null) : null;
   const waiting = waitingResume?.state === 'waiting';
   const quotaVisible =
