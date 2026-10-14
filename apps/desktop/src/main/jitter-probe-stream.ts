@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { BrowserWindow } from 'electron';
 import { assistantMarkdown, paragraph, probeItems } from './jitter-probe-fixtures';
-import { sleep, waitForProbeSessionRow } from './jitter-probe-session';
+import { PAINTED_SAMPLER, sleep, waitForProbeSessionRow } from './jitter-probe-session';
 
 interface StreamProbeDeps {
   window: BrowserWindow;
@@ -72,8 +72,8 @@ export async function runStreamingProbe({
   // Install the per-frame sampler BEFORE entering the streaming session.
   await window.webContents.executeJavaScript(`(() => {
     const w = window;
-    w.__jitter = { samples: [], raf: 0 };
-    const sample = () => {
+    w.__jitter = { samples: [], raf: 0, stop: null };
+    const snapshot = () => {
       const el = document.querySelector('.transcript');
       if (el) {
         const box = el.getBoundingClientRect();
@@ -83,8 +83,10 @@ export async function runStreamingProbe({
           || null;
         const tailBody = tail?.querySelector('.message-body');
         const thread = el.querySelector('.thread');
-        w.__jitter.samples.push({
+        return {
           t: Math.round(performance.now()),
+          // The viewport stays visibility:hidden until the entry reveal.
+          hidden: el.style.visibility === 'hidden',
           st: Math.round(el.scrollTop),
           dist: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight),
           tailTop: tail ? Math.round(tail.getBoundingClientRect().bottom - box.bottom) : null,
@@ -93,11 +95,11 @@ export async function runStreamingProbe({
           th: thread ? Math.round(thread.getBoundingClientRect().height) : 0,
           partialVisible: (document.body.textContent || '').includes('probe persisted last user')
             && !tail,
-        });
+        };
       }
-      w.__jitter.raf = requestAnimationFrame(sample);
+      return null;
     };
-    w.__jitter.raf = requestAnimationFrame(sample);
+    (${PAINTED_SAMPLER})(w.__jitter, snapshot);
     return true;
   })()`);
 
@@ -160,6 +162,10 @@ export async function runStreamingProbe({
   // belongs to the projected timeline (including TurnGap rows), not `items`.
   // Capture the actual live row index before completion so the same visible
   // assistant must remain the tail anchor throughout settlement.
+  // The last chunk has not painted yet: wait two frames before the window.
+  await window.webContents.executeJavaScript(
+    'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))'
+  );
   const finishStart = (await window.webContents.executeJavaScript('window.__jitter.samples.length')) as number;
   const completedVisibleTailIndex = (await window.webContents.executeJavaScript(`(() => {
     const row = document.querySelector('.transcript-live-part')?.closest('.transcript-virtual-row');
@@ -196,7 +202,7 @@ export async function runStreamingProbe({
   // entry/stream/settlement metrics (it used to count as partial/off-bottom
   // frames and fail the probe assertions spuriously).
   await window.webContents.executeJavaScript(
-    '(() => { const w = window; cancelAnimationFrame(w.__jitter.raf); return w.__jitter.samples.length; })()'
+    '(() => { const w = window; w.__jitter.stop(); return w.__jitter.samples.length; })()'
   );
 
   // Phase 4: first-scroll-to-top jank (user report: entering a session and
@@ -279,6 +285,7 @@ export async function runStreamingProbe({
 
   const report = (await window.webContents.executeJavaScript('window.__jitter.samples')) as Array<{
     t: number;
+    hidden: boolean;
     st: number;
     dist: number;
     tailTop: number | null;
@@ -311,7 +318,14 @@ export async function runStreamingProbe({
   for (let i = 1; i < active.length; i++) {
     const prev = active[i - 1];
     const next = active[i];
-    if (prev.tailTop == null || next.tailTop == null) {
+    // A comparison needs both frames on screen.
+    if (prev.hidden || next.hidden || prev.tailTop == null || next.tailTop == null) {
+      lastDelta = 0;
+      continue;
+    }
+    // The tracked tail is a different row now (a settled row landed below
+    // the live one): its offset is not motion of the same content.
+    if (prev.tailIndex !== next.tailIndex) {
       lastDelta = 0;
       continue;
     }
@@ -322,8 +336,9 @@ export async function runStreamingProbe({
     }
     if (Math.abs(delta) > 3) lastDelta = delta;
   }
-  const distances = active.map((sample) => sample.dist);
-  const finish = report.slice(finishStart);
+  const shownActive = active.filter((sample) => !sample.hidden);
+  const distances = shownActive.map((sample) => sample.dist);
+  const finish = report.slice(finishStart).filter((sample) => !sample.hidden);
   const finishTailTops = finish.map((sample) => sample.tailTop).filter((value): value is number => value != null);
   const finishBodyBottoms = finish
     .map((sample) => sample.tailBodyBottom)
@@ -335,13 +350,14 @@ export async function runStreamingProbe({
       ? Math.max(...finishBodyBottoms) - Math.min(...finishBodyBottoms)
       : Number.MAX_SAFE_INTEGER;
   const summary = {
-    frames: active.length,
+    frames: shownActive.length,
+    hiddenFrames: active.length - shownActive.length,
     reversals,
     maxSwing,
-    maxDistance: Math.max(...distances),
+    maxDistance: distances.length ? Math.max(...distances) : 0,
     meanDistance: Math.round(distances.reduce((a, b) => a + b, 0) / Math.max(1, distances.length)),
     offBottomFrames: distances.filter((d) => d > 8).length,
-    partialFrames: report.filter((sample) => sample.partialVisible).length,
+    partialFrames: report.filter((sample) => !sample.hidden && sample.partialVisible).length,
     finishFrames: finish.length,
     finishMaxTailShift,
     finishMaxBodyShift,

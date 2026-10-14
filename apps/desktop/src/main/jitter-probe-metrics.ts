@@ -2,6 +2,8 @@ import type { BrowserWindow, NativeImage } from 'electron';
 
 export interface RowSample {
   t: number;
+  /** The transcript viewport was visibility:hidden (pre-reveal): not seen. */
+  hidden?: boolean;
   st: number;
   sh?: number;
   ch?: number;
@@ -144,8 +146,11 @@ export function contentMotion(samples: RowSample[], shiftThreshold = 4): Content
   let movingFrames = 0;
   let reversals = 0;
   let lastDirection = 0;
-  let settleAt = samples.length > 0 ? samples[0].t : 0;
+  const shown = samples.filter((sample) => !sample.hidden);
+  let settleAt = shown.length > 0 ? shown[0].t : 0;
   for (let index = 1; index < samples.length; index += 1) {
+    // A comparison needs both frames on screen.
+    if (samples[index].hidden || samples[index - 1].hidden) continue;
     const previous = new Map(samples[index - 1].rows.map((row) => [row.i, row.top]));
     const deltas: number[] = [];
     for (const row of samples[index].rows) {
@@ -169,15 +174,15 @@ export function contentMotion(samples: RowSample[], shiftThreshold = 4): Content
       lastDirection = direction;
     }
   }
-  const distances = samples.map((sample) => sample.dist);
+  const distances = shown.map((sample) => sample.dist);
   return {
-    frames: samples.length,
+    frames: shown.length,
     maxRowShift,
     totalTravel: Math.round(totalTravel),
     movingFrames,
     reversals,
     maxDistance: distances.length ? Math.max(...distances) : 0,
     offBottomFrames: distances.filter((value) => value > 8).length,
-    settleMs: samples.length ? Math.max(0, settleAt - samples[0].t) : 0,
+    settleMs: shown.length ? Math.max(0, settleAt - shown[0].t) : 0,
   };
 }

@@ -72,6 +72,9 @@ export type ComposerIslandQuotaResume = {
 };
 
 const FLASH_MS = 2_500;
+/** Same content test as the slot's collapsed CSS rule (15-composer.css). */
+const ISLAND_CONTENT =
+  '.composer-island-seg, .session-goal-island, .composer-island-approval, .composer-island-flash, .composer-island-quota, .turn-review-bar';
 
 /** A segment's words, plus the icon and bare count the narrow island shows
  *  instead (the count is painted from the attribute so it never joins the
@@ -139,6 +142,32 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
       mutation.disconnect();
     };
   }, [islandRef, pillRef]);
+}
+
+/** Latches the slot open (`data-held`) the first time island content is in
+ *  it. Content often comes and goes through a child's own update (the files
+ *  segment after its async diff read) that never re-renders the island, so
+ *  the slot subtree is observed instead of checked per island render. The
+ *  observer's records count too: content added and removed again before the
+ *  callback still opened the slot. */
+function useHeldIslandSlot(slotRef: RefObject<HTMLDivElement | null>) {
+  useLayoutEffect(() => {
+    const slot = slotRef.current;
+    if (!slot) return undefined;
+    const holds = (node: Node) =>
+      node instanceof Element && (node.matches(ISLAND_CONTENT) || node.querySelector(ISLAND_CONTENT) !== null);
+    if (holds(slot)) {
+      slot.dataset.held = 'true';
+      return undefined;
+    }
+    const observer = new MutationObserver((records) => {
+      if (!holds(slot) && !records.some((record) => [...record.addedNodes].some(holds))) return;
+      slot.dataset.held = 'true';
+      observer.disconnect();
+    });
+    observer.observe(slot, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [slotRef]);
 }
 
 /** An agent blocked on the user is marked for attention and never pulses;
@@ -568,6 +597,11 @@ export function ComposerIsland({
   const islandRef = useRef<HTMLDivElement | null>(null);
   const pillRef = useRef<HTMLDivElement | null>(null);
   useIslandFit(islandRef, pillRef);
+  // Once the slot has opened in this visit (the island is keyed per session)
+  // it stays open: collapsing it again slid an end-pinned transcript down by
+  // the slot height, so a short flash or job read as an up/down bounce.
+  const slotRef = useRef<HTMLDivElement | null>(null);
+  useHeldIslandSlot(slotRef);
   // Finished background work announces nothing: a flash per job would make
   // the island pop in and out.
   const visibleFlash = useIslandFlash(flash ?? null);
@@ -612,7 +646,7 @@ export function ComposerIsland({
 
   return (
     <ComposerIslandContext.Provider value={context}>
-      <div className="composer-island-slot" data-mode={mode}>
+      <div ref={slotRef} className="composer-island-slot" data-mode={mode}>
         <div className="composer-island-stage">
           <div ref={islandRef} className="composer-island" data-mode={mode} data-expanded={expanded || undefined}>
             {approval ? <div className="composer-island-approval">{approval}</div> : null}

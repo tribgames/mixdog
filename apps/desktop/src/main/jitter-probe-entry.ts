@@ -8,6 +8,7 @@ import { dirname } from 'node:path';
 import type { BrowserWindow } from 'electron';
 import { coldHistoryItems } from './jitter-probe-fixtures';
 import {
+  PAINTED_SAMPLER,
   sleep,
   TOOL_DISCLOSURE,
   TOOL_DISCLOSURE_HEADERS,
@@ -15,6 +16,10 @@ import {
   waitForProbeSessionRow,
 } from './jitter-probe-session';
 import { contentMotion, type RowSample } from './jitter-probe-metrics';
+
+/** The composer island's review: its Files segment (the desktop opens the
+ *  session diff in the side dock instead of expanding the bar in place). */
+const REVIEW_IN_ISLAND = '.composer-island-slot .turn-review-segment';
 
 interface EntryProbeDeps {
   window: BrowserWindow;
@@ -37,7 +42,18 @@ export async function runEntryProbe({
   // are right after launch. The transcript must land bottom-pinned and hold
   // still while the estimated rows are re-measured.
   const coldStamp = Date.now() % 100_000;
-  const coldItems = coldHistoryItems(84, coldStamp);
+  // The composer island's files segment folds only patch-publishing tool
+  // calls (a shell result no longer counts), so the tail call is an `edit`
+  // whose runtime `uiDiff` arrives late (delayedReviewItems below).
+  const coldItems = coldHistoryItems(84, coldStamp).map((item) =>
+    item.id === `cold-${coldStamp}-tool-tail`
+      ? {
+          ...item,
+          name: 'edit',
+          args: { file_path: 'src/probe.ts', old_string: 'const stable = false;', new_string: 'const stable = true;' },
+        }
+      : item
+  );
   // Pick the transcript of the VISIBLE route: background tabs keep their own
   // (taller, scrolled-away) transcript mounted. Prewarm rows live in a hidden
   // sibling container, so only DIRECT children of the virtual space count.
@@ -54,9 +70,9 @@ export async function runEntryProbe({
 })()`;
   const install = `(() => {
   const w = window;
-  if (w.__entry && w.__entry.raf) cancelAnimationFrame(w.__entry.raf);
-  w.__entry = { samples: [], raf: 0 };
-  const sample = () => {
+  if (w.__entry && w.__entry.stop) w.__entry.stop();
+  w.__entry = { samples: [], raf: 0, stop: null };
+  const snapshot = () => {
     const el = ${pickTranscript};
     if (el) {
       const box = el.getBoundingClientRect();
@@ -69,8 +85,11 @@ export async function runEntryProbe({
           i: Number(row.getAttribute('data-index')),
           top: Math.round(rect.top - box.top),
         }));
-      w.__entry.samples.push({
+      return {
         t: Math.round(performance.now()),
+        // The viewport stays visibility:hidden until the entry reveal; those
+        // frames are never seen by the user.
+        hidden: el.style.visibility === 'hidden',
         st: Math.round(el.scrollTop),
         sh: Math.round(el.scrollHeight),
         ch: Math.round(el.clientHeight),
@@ -79,7 +98,7 @@ export async function runEntryProbe({
         // Layout bands around the transcript: a band that appears AFTER
         // entry shrinks the viewport and drags the pinned content with it.
         bands: [
-          '.turn-review-bar', '.composer-region', '.composer-context-bar',
+          '.composer-island-slot .turn-review-segment', '.composer-island-slot', '.composer-region', '.composer-context-bar',
           '.runtime-progress', '.inline-error', '.live-work', '.transcript-shell',
         ].map((selector) => {
           const node = document.querySelector(selector);
@@ -92,16 +111,24 @@ export async function runEntryProbe({
           .querySelector('.queue-list')?.getBoundingClientRect().height || 0),
         review: (() => {
           const shell = el.closest('.conversation') || document;
-          const review = shell.querySelector('.turn-review-bar');
+          const review = shell.querySelector(${JSON.stringify(REVIEW_IN_ISLAND)});
           if (!review) return null;
           const reviewBox = review.getBoundingClientRect();
           const activity = el.querySelector('.live-activity-status');
           const activityBox = activity?.getBoundingClientRect();
           const composer = shell.querySelector('.composer');
           const composerBox = composer?.getBoundingClientRect();
+          // The transcript viewport runs under the absolutely positioned
+          // composer dock, so the viewport itself always "overlaps" the
+          // island; the segment must not cover the visible rows instead.
+          let rowsBottom = box.top;
+          for (const row of el.querySelectorAll('.transcript-virtual-space > .transcript-virtual-row')) {
+            const rect = row.getBoundingClientRect();
+            if (rect.bottom > box.top && rect.top < box.bottom) rowsBottom = Math.max(rowsBottom, rect.bottom);
+          }
           return {
             height: Math.round(reviewBox.height),
-            overlap: Math.max(0, Math.round(box.bottom - reviewBox.top)),
+            overlap: Math.max(0, Math.round(rowsBottom - reviewBox.top)),
             thinkingGap: activityBox ? Math.round(reviewBox.top - activityBox.bottom) : null,
             composerGap: composerBox ? Math.round(composerBox.top - reviewBox.bottom) : null,
           };
@@ -127,24 +154,16 @@ export async function runEntryProbe({
           return walk(region, 2);
         })(),
         rows,
-      });
-      // The rAF read precedes this frame's ResizeObserver pass, which is where
-      // the transcript pins a composer/band height change. A task posted from
-      // here runs after the frame is presented: that is the painted distance.
-      const painted = w.__entry.samples[w.__entry.samples.length - 1];
-      setTimeout(() => {
-        painted.postDist = Math.round(el.scrollHeight - el.scrollTop - el.clientHeight);
-      }, 0);
+      };
     }
-    w.__entry.raf = requestAnimationFrame(sample);
+    return null;
   };
-  w.__entry.raf = requestAnimationFrame(sample);
+  (${PAINTED_SAMPLER})(w.__entry, snapshot);
   return true;
 })()`;
   const stop = `(() => {
   const w = window;
-  cancelAnimationFrame(w.__entry.raf);
-  w.__entry.raf = 0;
+  w.__entry.stop();
   return w.__entry.samples;
 })()`;
 
@@ -167,13 +186,13 @@ export async function runEntryProbe({
     item.id === `cold-${coldStamp}-tool-tail`
       ? {
           ...item,
-          result: `${String(item.result || '')}
-diff --git a/src/probe.ts b/src/probe.ts
+          uiDiff: `diff --git a/src/probe.ts b/src/probe.ts
 --- a/src/probe.ts
 +++ b/src/probe.ts
 @@ -1 +1 @@
 -const stable = false;
-+const stable = true;`,
++const stable = true;
+`,
         }
       : item
   );
@@ -216,7 +235,7 @@ diff --git a/src/probe.ts b/src/probe.ts
   const firstReviewFrame = entrySamples.findIndex((sample) => Number(sample.review?.height || 0) > 0);
   const entry = contentMotion(firstReviewFrame > 0 ? entrySamples.slice(0, firstReviewFrame) : entrySamples);
   const delayedReviewSamples = firstReviewFrame >= 0 ? entrySamples.slice(Math.max(0, firstReviewFrame - 2)) : [];
-  const visibleReviewSamples = delayedReviewSamples.filter((sample) => sample.review);
+  const visibleReviewSamples = delayedReviewSamples.filter((sample) => sample.review && !sample.hidden);
   const settledReviewSamples = visibleReviewSamples.slice(-5);
   const thinkingGaps = visibleReviewSamples
     .map((sample) => sample.review?.thinkingGap)
@@ -232,9 +251,10 @@ diff --git a/src/probe.ts b/src/probe.ts
     .filter((value): value is number => Number.isFinite(value));
   const delayedReview = {
     appeared: firstReviewFrame > 0 && entrySamples.slice(0, firstReviewFrame).some((sample) => !sample.review),
-    height: firstReviewFrame >= 0 ? Number(entrySamples[firstReviewFrame].review?.height || 0) : 0,
-    maxOverlap: delayedReviewSamples.length
-      ? Math.max(...delayedReviewSamples.map((sample) => Number(sample.review?.overlap || 0)))
+    // The settled segment height (the first frame can catch it mid-reveal).
+    height: Number(settledReviewSamples.at(-1)?.review?.height || 0),
+    maxOverlap: visibleReviewSamples.length
+      ? Math.max(...visibleReviewSamples.map((sample) => Number(sample.review?.overlap || 0)))
       : Number.MAX_SAFE_INTEGER,
     minThinkingGap: thinkingGaps.length ? Math.min(...thinkingGaps) : null,
     minComposerGap: composerGaps.length ? Math.min(...composerGaps) : null,
@@ -258,7 +278,7 @@ diff --git a/src/probe.ts b/src/probe.ts
     coldVisible: (document.body.textContent || '').includes('cold entry question'),
     rows: el ? el.querySelectorAll('.transcript-virtual-space > .transcript-virtual-row').length : 0,
     toolCards: el ? el.querySelectorAll(${JSON.stringify(TOOL_DISCLOSURE)}).length : 0,
-    reviewBarHeight: Math.round(shell.querySelector('.turn-review-bar')?.getBoundingClientRect().height || 0),
+    reviewBarHeight: Math.round(shell.querySelector(${JSON.stringify(REVIEW_IN_ISLAND)})?.getBoundingClientRect().height || 0),
     markdownPlainFallbacks: Math.max(0, ...window.__entry.samples.map((sample) => Number(sample.plain || 0))),
     settledMarkdownPlainFallbacks: Math.max(
       0,
@@ -271,61 +291,6 @@ diff --git a/src/probe.ts b/src/probe.ts
 })()`)) as Record<string, unknown>;
   Object.assign(entryDiag, { click: coldClick });
 
-  const toggleReview = async (label: string, targetExpanded: boolean) => {
-    await window.webContents.executeJavaScript(install);
-    // Preserve several collapsed/expanded baseline frames before the click.
-    await sleep(100);
-    const clicked = (await window.webContents.executeJavaScript(`(() => {
-    const el = ${pickTranscript};
-    const summary = el?.closest('.conversation')?.querySelector('.turn-review-summary');
-    if (!(summary instanceof HTMLElement)) return false;
-    const expanded = summary.getAttribute('aria-expanded') === 'true';
-    if (expanded !== ${targetExpanded ? 'true' : 'false'}) summary.click();
-    return true;
-  })()`)) as boolean;
-    await sleep(700);
-    const samples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
-    const expanded = (await window.webContents.executeJavaScript(`(() => {
-    const el = ${pickTranscript};
-    return el?.closest('.conversation')?.querySelector('.turn-review-summary')
-      ?.getAttribute('aria-expanded') === 'true';
-  })()`)) as boolean;
-    const reviewSamples = samples.filter((sample) => sample.review);
-    const settledSamples = reviewSamples.slice(-5);
-    const thinkingGap = reviewSamples
-      .map((sample) => sample.review?.thinkingGap)
-      .filter((value): value is number => Number.isFinite(value));
-    const composerGap = reviewSamples
-      .map((sample) => sample.review?.composerGap)
-      .filter((value): value is number => Number.isFinite(value));
-    const settledThinkingGap = settledSamples
-      .map((sample) => sample.review?.thinkingGap)
-      .filter((value): value is number => Number.isFinite(value));
-    const settledComposerGap = settledSamples
-      .map((sample) => sample.review?.composerGap)
-      .filter((value): value is number => Number.isFinite(value));
-    return {
-      label,
-      clicked,
-      expanded,
-      maxOverlap: reviewSamples.length
-        ? Math.max(...reviewSamples.map((sample) => Number(sample.review?.overlap || 0)))
-        : Number.MAX_SAFE_INTEGER,
-      minThinkingGap: thinkingGap.length ? Math.min(...thinkingGap) : null,
-      minComposerGap: composerGap.length ? Math.min(...composerGap) : null,
-      settledThinkingGap: settledThinkingGap.length ? Math.min(...settledThinkingGap) : null,
-      settledComposerGap: settledComposerGap.length ? Math.min(...settledComposerGap) : null,
-      settledMaxDistance: settledSamples.length
-        ? Math.max(...settledSamples.map((sample) => sample.dist))
-        : Number.MAX_SAFE_INTEGER,
-      followingAfter: samples.at(-1)?.following ?? null,
-      finalDistance: samples.at(-1)?.dist ?? null,
-      motion: contentMotion(samples),
-      samples,
-    };
-  };
-  const reviewExpand = await toggleReview('review-expand', true);
-  const reviewCollapse = await toggleReview('review-collapse', false);
   const toggleQueue = async (label: string, nextSnapshot: Record<string, unknown>, targetVisible: boolean) => {
     await window.webContents.executeJavaScript(install);
     await sleep(100);
@@ -510,8 +475,10 @@ diff --git a/src/probe.ts b/src/probe.ts
   const expandedReentryOpenTools = (await window.webContents.executeJavaScript(
     `document.querySelectorAll(${JSON.stringify(TOOL_DISCLOSURE_OPEN)}).length`
   )) as number;
-  const pinnedCollapse = await toggle('pinned-collapse', true, false);
+  // Re-entry reset every disclosure to collapsed, so the card is expanded again
+  // first; only then does the collapse pass toggle a real expansion back.
   const pinnedExpandAgain = await toggle('pinned-expand-again', true, true);
+  const pinnedCollapse = await toggle('pinned-collapse', true, false);
   await window.webContents.executeJavaScript(install);
   send({
     ...delayedReviewSnapshot,
@@ -542,8 +509,6 @@ diff --git a/src/probe.ts b/src/probe.ts
   const expand = await toggle('expand', false, true);
   const collapse = await toggle('collapse', false, false);
   const toggleSamples = {
-    reviewExpand: reviewExpand.samples,
-    reviewCollapse: reviewCollapse.samples,
     pinnedExpand: pinnedExpand.samples,
     pinnedCollapse: pinnedCollapse.samples,
     pinnedAppend: pinnedAppendSamples,
@@ -555,16 +520,12 @@ diff --git a/src/probe.ts b/src/probe.ts
   const { samples: _pc, ...pinnedCollapseOnly } = pinnedCollapse;
   const { samples: _e, ...expandOnly } = expand;
   const { samples: _c, ...collapseOnly } = collapse;
-  const { samples: _re, ...reviewExpandOnly } = reviewExpand;
-  const { samples: _rc, ...reviewCollapseOnly } = reviewCollapse;
   const { samples: _qm, ...queueMountOnly } = queueMount;
   const { samples: _qu, ...queueUnmountOnly } = queueUnmount;
   const entrySummary = {
     coldEntry: entry,
     coldReentry: reentry,
     delayedReview,
-    reviewExpand: reviewExpandOnly,
-    reviewCollapse: reviewCollapseOnly,
     queueMount: queueMountOnly,
     queueUnmount: queueUnmountOnly,
     coldEntryDiag: entryDiag,
@@ -606,8 +567,6 @@ diff --git a/src/probe.ts b/src/probe.ts
       reentry.reversals,
       delayedReview.motion.reversals,
       expandedReentry.reversals,
-      reviewExpand.motion.reversals,
-      reviewCollapse.motion.reversals,
       queueMount.motion.reversals,
       queueUnmount.motion.reversals,
       pinnedExpand.motion.reversals,

@@ -480,6 +480,51 @@ test('the agent and shell segments expand the island panel inline', async (t) =>
   assert.equal(document.querySelector('.composer-island-jobs .composer-island-shell-command').textContent, 'npm test');
 });
 
+test('content shown by a child-only update holds the island slot open after it leaves', async (t) => {
+  const { root, document } = mount(t);
+  const { ComposerIsland } = await import('./ComposerIsland.tsx');
+  // The files segment renders from its own async read: the island itself
+  // never re-renders when it appears or disappears.
+  const control = { show: () => {} };
+  function LateFiles() {
+    const [shown, setShown] = React.useState(false);
+    control.show = setShown;
+    return shown ? React.createElement('button', { type: 'button', className: 'composer-island-seg' }, '1 file') : null;
+  }
+  let islandRenders = 0;
+  function CountedIsland(props) {
+    islandRenders += 1;
+    return React.createElement(ComposerIsland, props);
+  }
+  await act(async () =>
+    root.render(
+      React.createElement(CountedIsland, { sessionId: 'island-session', files: React.createElement(LateFiles) })
+    )
+  );
+  const slot = document.querySelector('.composer-island-slot');
+  const rendersBefore = islandRenders;
+  assert.equal(slot.dataset.held, undefined, 'an empty slot is not held yet');
+  await act(async () => control.show(true));
+  await act(async () => control.show(false));
+  assert.equal(islandRenders, rendersBefore, 'only the child re-rendered');
+  assert.equal(document.querySelector('.composer-island-seg'), null);
+  assert.equal(slot.dataset.held, 'true', 'the slot stays open instead of collapsing under the transcript');
+});
+
+test('content added and removed before the observer runs still holds the slot', async (t) => {
+  const { root, document } = mount(t);
+  const { ComposerIsland } = await import('./ComposerIsland.tsx');
+  await act(async () => root.render(React.createElement(ComposerIsland, { sessionId: 'island-session' })));
+  const slot = document.querySelector('.composer-island-slot');
+  const pill = slot.querySelector('.composer-island-pill');
+  const segment = document.createElement('span');
+  segment.className = 'composer-island-seg';
+  pill.append(segment);
+  segment.remove();
+  await act(async () => {});
+  assert.equal(slot.dataset.held, 'true');
+});
+
 test('the shared poll runs once for all subscribers, pauses while hidden and refreshes on becoming visible', async (t) => {
   const { subscribeSharedPoll } = await import('./shared-pool-poll.ts');
   const saved = { window: globalThis.window, document: globalThis.document };

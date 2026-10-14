@@ -171,7 +171,7 @@ export function TranscriptList({
     anchorHold,
     restoreReadingAnchor,
   });
-  useVirtualizerResizePatch({
+  const { settleHeldShrinks } = useVirtualizerResizePatch({
     virtualizer,
     viewport,
     hasScrollGestureRef,
@@ -192,8 +192,15 @@ export function TranscriptList({
   const { measureRow, bindSpacer } = useTranscriptRowRegistration({ viewport, spacer, content, virtualizerRef });
 
   useTranscriptScrollGeometry({ viewport, spacer, virtualizerRef, domTop, scrollInset, contentHeight, deviation });
-  useRememberVirtualMeasurements({ sessionKey, viewport, virtualizerRef, flushDeferredResizes });
-  useTranscriptHandles({ endPin, scrollToEndRef, setAnchorBottomRef, virtualizerRef, anchorOverride });
+  useRememberVirtualMeasurements({ sessionKey, viewport, virtualizerRef, flushDeferredResizes, settleHeldShrinks });
+  useTranscriptHandles({
+    endPin,
+    scrollToEndRef,
+    setAnchorBottomRef,
+    virtualizerRef,
+    anchorOverride,
+    settleHeldShrinks,
+  });
   useSelectionDrag({ viewport, sessionKey, bottomInsetRef, rowsRef, setSelectionPin, onSelectionAutoScroll });
 
   useEffect(
@@ -229,6 +236,9 @@ function renderVirtualRow(
   if (!row) return null;
   const next = rows[virtualRow.index + 1];
   const turnEnd = !next || next._tag === 'TurnGap';
+  // The live band under a reply part stands where that reply's completion
+  // footer lands (12-transcript.css).
+  const bandUnderPart = row._tag === 'Thinking' && rows[virtualRow.index - 1]?._tag === 'AssistantPart';
   return (
     // A row binds position AND measurement to one element.
     // Position and measurement therefore share the
@@ -249,6 +259,7 @@ function renderVirtualRow(
         data-index={virtualRow.index}
         data-tag={row._tag}
         data-turn-end={turnEnd ? 'true' : undefined}
+        data-under-part={bandUnderPart ? 'true' : undefined}
       >
         {renderRow(row)}
       </div>

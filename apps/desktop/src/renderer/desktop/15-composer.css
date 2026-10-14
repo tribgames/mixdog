@@ -65,19 +65,21 @@
    One island above a session's composer carries every status (Goal, jobs,
    changed files, model mismatch), expands upward in place, grows into the
    tool approval card and flashes short notices. Its slot reserves the
-   pill's 34px + 12px gap while something shows and collapses to 0 when empty;
-   everything taller overlays upward. */
+   pill's 34px + 12px gap once something has shown (it then stays held open,
+   see ComposerIsland) and is 0 before that; everything taller overlays
+   upward. The slot opens in one step: the island draws at its final place at
+   once, so an animated slot let the end-pinned transcript glide up under the
+   new segment for 180ms, the segment covering the last rows meanwhile. */
 .composer-island-slot {
   position: relative;
   z-index: 9;
   height: 46px;
   pointer-events: none;
-  transition: height 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-/* Nothing to carry: the slot collapses too. Same content test as the
+/* Nothing carried yet: the slot is collapsed. Same content test as the
    island's hidden rule below; :root outranks the mobile slot height. */
 :root
-.composer-island-slot:not(
+.composer-island-slot:not([data-held]):not(
   :has(
     .composer-island-seg,
     .session-goal-island,
@@ -88,24 +90,6 @@
   )
 ) {
   height: 0;
-  /* Grace period: the collapse waits 1.5s so one job ending and another
-     starting right after does not close and reopen the slot. The delay lives
-     on the collapsed state, so content returning in time cancels it, and
-     opening carries no delay. */
-  transition-delay: 1500ms;
-}
-@media (prefers-reduced-motion: reduce) {
-  /* No height animation, but the grace delay still applies. */
-  .composer-island-slot {
-    transition-duration: 0s;
-  }
-}
-/* A session entry still behind the reveal takes the island height at once.
-   Content that lands during entry (a late review read) otherwise opened the
-   slot over 180ms starting at the reveal frame, and the end-pinned
-   transcript visibly rode that animation. */
-.conversation[data-transcript-entering] .composer-island-slot {
-  transition: none;
 }
 .composer-island-stage {
   position: absolute;
