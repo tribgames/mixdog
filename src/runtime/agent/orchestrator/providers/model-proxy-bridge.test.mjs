@@ -609,6 +609,83 @@ test('a reservation that can never fit is refused; a granted frame that never ar
   assert.ok(await waitFor(() => server.activeCount === 0));
 });
 
+test('unrelated control frames never extend a silent grant', async (t) => {
+  const { server, claimed, release, endpoint } = await queuedBridge(t, { frameStallMs: 300 });
+  const holder = await authenticated(t, endpoint);
+  holder.send({ type: 'reserve', id: 'h', bytes: 6_000 });
+  await holder.next((frame) => frame.type === 'grant' && frame.id === 'h');
+  const queued = await authenticated(t, endpoint);
+  const sent = reserveAndSend(queued, paddedReq('m0'));
+  // Every 100 ms: a cancel for an unknown id and a stray result.
+  const startedAt = Date.now();
+  const noise = setInterval(() => {
+    holder.send({ type: 'cancel', id: 'other' });
+    holder.send({ type: 'result', id: 'other', seq: 1, ok: true, value: null });
+  }, 100);
+  t.after(() => clearInterval(noise));
+  assert.equal((await holder.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_FRAME_STALLED');
+  clearInterval(noise);
+  assert.ok(Date.now() - startedAt < 1_000, 'expired on its own stall timeout');
+  await sent;
+  assert.ok(await waitFor(() => claimed.length === 1), 'the next queued reservation is granted');
+  release.get('m0')();
+  await queued.next((frame) => frame.type === 'done' && frame.id === 'm0');
+  assert.ok(await waitFor(() => server.activeCount === 0));
+});
+
+test('a partial frame for another id never extends a silent grant', async (t) => {
+  const { claimed, endpoint } = await queuedBridge(t, { frameStallMs: 300 });
+  const holder = await authenticated(t, endpoint);
+  holder.send({ type: 'reserve', id: 'h', bytes: 3_500 });
+  holder.send({ type: 'reserve', id: 'g', bytes: 3_400 });
+  await holder.next((frame) => frame.type === 'grant' && frame.id === 'g');
+  const queued = await authenticated(t, endpoint);
+  const sent = reserveAndSend(queued, paddedReq('m0'));
+  // g's frame trickles in steadily; h never sends anything.
+  const frame = paddedReq('g', 3000);
+  let offset = 0;
+  const trickle = setInterval(() => {
+    if (offset < frame.length - 1) holder.socket.write(frame.slice(offset, (offset += 40)));
+  }, 50);
+  t.after(() => clearInterval(trickle));
+  assert.equal((await holder.next((f) => f.type === 'error')).code, 'MODEL_PROXY_BRIDGE_FRAME_STALLED');
+  clearInterval(trickle);
+  await sent;
+  assert.ok(await waitFor(() => claimed.length === 1));
+});
+
+test('a slowly but steadily arriving request frame is not expired, up to the grant ceiling', async (t) => {
+  const { claimed, release, endpoint } = await queuedBridge(t, { frameStallMs: 300, grantMaxMs: 5_000 });
+  const slow = await authenticated(t, endpoint);
+  const frame = paddedReq('m0', 600);
+  slow.send({ type: 'reserve', id: 'm0', bytes: Buffer.byteLength(frame) });
+  await slow.next((f) => f.type === 'grant' && f.id === 'm0');
+  // ~1.6 s of delivery in 100 ms steps, far past the 300 ms stall timeout.
+  const startedAt = Date.now();
+  for (let offset = 0; offset < frame.length; offset += 40) {
+    slow.socket.write(frame.slice(offset, offset + 40));
+    await delay(100);
+  }
+  assert.ok(Date.now() - startedAt > 1_000);
+  assert.ok(await waitFor(() => claimed.length === 1), 'served, not expired');
+  assert.equal(slow.frames.some((f) => f.type === 'error'), false);
+  release.get('m0')();
+  await slow.next((f) => f.type === 'done' && f.id === 'm0');
+
+  // The ceiling still bounds a frame that would trickle forever.
+  const { endpoint: capped } = await queuedBridge(t, { frameStallMs: 300, grantMaxMs: 700 });
+  const endless = await authenticated(t, capped);
+  const long = paddedReq('m1', 3000);
+  endless.send({ type: 'reserve', id: 'm1', bytes: Buffer.byteLength(long) });
+  await endless.next((f) => f.type === 'grant' && f.id === 'm1');
+  let offset = 0;
+  const trickle = setInterval(() => endless.socket.write(long.slice(offset, (offset += 10))), 100);
+  t.after(() => clearInterval(trickle));
+  assert.equal((await endless.next((f) => f.type === 'error')).code, 'MODEL_PROXY_BRIDGE_FRAME_STALLED');
+  clearInterval(trickle);
+  assert.ok(offset < long.length, 'expired before the frame was complete');
+});
+
 test('with a request queued behind the cap, an active request’s callback acknowledgment is handled at once', async (t) => {
   const { server, claimed, ids, release, channel, endpoint } = await queuedBridge(t, { callbackAckMs: 3_000 });
   const streaming = await authenticated(t, endpoint);

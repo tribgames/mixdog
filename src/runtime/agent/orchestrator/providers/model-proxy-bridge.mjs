@@ -64,8 +64,10 @@ export const MODEL_PROXY_BRIDGE_LIMITS = Object.freeze({
   outgoingQueueBytes: 64 * MiB,
   /** A relayed callback the client has not answered by then aborts its call. */
   callbackAckMs: 30_000,
-  /** A partial frame (or a granted request) that receives no bytes for this long drops its client. */
+  /** A partial frame, or a grant whose own request frame, receives no bytes for this long: its client is dropped. */
   frameStallMs: 60_000,
+  /** A granted request frame must have arrived in full by then, however steadily it trickles. */
+  grantMaxMs: 300_000,
   maxConnections: 16,
   maxRequestsPerConnection: 16,
   maxCallbacks: 32,
@@ -78,6 +80,9 @@ const CALLBACK_NAME_RE = /^on[A-Z][A-Za-z0-9_]{0,62}$/;
 const MAX_FIELD_CHARS = 256;
 const NEWLINE = 0x0a;
 const REQ_PREFIX = Buffer.from('{"type":"req",');
+// The bridge client writes `{"type":"req","id":"<id>",…`: enough head bytes name the grant.
+const REQ_ID_RE = /^\{"type":"req","id":"([A-Za-z0-9_-]{1,64})"/;
+const REQ_HEAD_BYTES = 96;
 const RECONNECT_DELAY_MS = 250;
 
 function bridgeError(code, message) {
@@ -136,6 +141,18 @@ class LineBuffer {
     const head = Buffer.concat(parts).subarray(0, length);
     if (head.length >= length) this.#headCache = head;
     return head;
+  }
+
+  /** The first `length` bytes of the buffered partial frame. */
+  peek(length) {
+    const parts = [];
+    let have = 0;
+    for (const part of this.#chunks) {
+      if (have >= length) break;
+      parts.push(part);
+      have += part.length;
+    }
+    return Buffer.concat(parts).subarray(0, length);
   }
 
   /**
@@ -230,6 +247,9 @@ export function createModelProxyBridgeServer({
       lines: new LineBuffer(),
       limit: null,
       reservations: new Map(),
+      /** The grant the buffered partial frame belongs to, and its size when last seen. */
+      partialGrant: null,
+      partialSize: 0,
       requests: new Map(),
       stallTimer: null,
       helloTimer: setTimeout(() => {
@@ -266,7 +286,6 @@ export function createModelProxyBridgeServer({
   /** Never paused for budget: request bytes were reserved before they were sent. */
   function onData(conn, chunk) {
     if (conn.closed) return;
-    for (const reservation of conn.reservations.values()) reservation.timer?.refresh();
     const withinLimits = conn.lines.push(chunk, conn.limit, (line) => {
       handleLine(conn, line);
       return !conn.closed;
@@ -276,7 +295,27 @@ export function createModelProxyBridgeServer({
       fail(conn, 'MODEL_PROXY_BRIDGE_FRAME_TOO_LARGE');
       return;
     }
+    trackGrantProgress(conn);
     armStall(conn);
+  }
+
+  /**
+   * A grant's stall timer is refreshed only by its own `req` frame growing:
+   * control frames and frames for other ids never keep a silent grant alive.
+   * (A frame that completes settles its grant in handleRequest.)
+   */
+  function trackGrantProgress(conn) {
+    const size = conn.lines.size;
+    if (size === 0) {
+      conn.partialGrant = null;
+      return;
+    }
+    const id = REQ_ID_RE.exec(conn.lines.peek(REQ_HEAD_BYTES).toString('latin1'))?.[1];
+    const reservation = id === undefined ? undefined : conn.reservations.get(id);
+    const owner = reservation?.granted ? reservation : null;
+    if (owner && (owner !== conn.partialGrant || size > conn.partialSize)) owner.timer?.refresh();
+    conn.partialGrant = owner;
+    conn.partialSize = size;
   }
 
   function armStall(conn) {
@@ -331,9 +370,12 @@ export function createModelProxyBridgeServer({
     const { conn } = reservation;
     budgetUsed += reservation.bytes;
     reservation.granted = true;
-    // The granted frame must keep arriving, or its budget is reclaimed.
+    // The granted frame must keep arriving, and arrive in full by the ceiling,
+    // or its budget is reclaimed.
     reservation.timer = setTimeout(() => fail(conn, 'MODEL_PROXY_BRIDGE_FRAME_STALLED'), limits.frameStallMs);
     reservation.timer.unref?.();
+    reservation.deadline = setTimeout(() => fail(conn, 'MODEL_PROXY_BRIDGE_FRAME_STALLED'), limits.grantMaxMs);
+    reservation.deadline.unref?.();
     send(conn, { type: 'grant', id: reservation.id });
   }
 
@@ -341,6 +383,7 @@ export function createModelProxyBridgeServer({
   function dropReservation(conn, reservation) {
     conn.reservations.delete(reservation.id);
     clearTimeout(reservation.timer);
+    clearTimeout(reservation.deadline);
     if (reservation.granted) budgetUsed -= reservation.bytes;
   }
 
@@ -429,7 +472,7 @@ export function createModelProxyBridgeServer({
       refuse(conn, id, bridgeError('MODEL_PROXY_REQUEST_TOO_LARGE', 'the model call exceeds the bridge limit'));
       return;
     }
-    const reservation = { conn, id, bytes, granted: false, timer: null };
+    const reservation = { conn, id, bytes, granted: false, timer: null, deadline: null };
     conn.reservations.set(id, reservation);
     waiting.push(reservation);
     drain();
@@ -463,6 +506,7 @@ export function createModelProxyBridgeServer({
     }
     conn.reservations.delete(id);
     clearTimeout(reservation.timer);
+    clearTimeout(reservation.deadline);
     const refusal = requestRefusal(call, names);
     if (refusal) {
       budgetUsed -= reservation.bytes;
