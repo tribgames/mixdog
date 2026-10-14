@@ -3,6 +3,7 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ActivityRail } from './ActivityRail.tsx';
+import { press } from './test-support/pointer-press.mjs';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { publishUsageDashboard } from './usage-dashboard-store.ts';
 
@@ -55,8 +56,16 @@ async function mountRail(t) {
     onSelectNavigation() {},
   };
   await act(async () => root.render(React.createElement(ActivityRail, props)));
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  await waitFor(() => document.querySelector('[data-usage-pin="claude"]'));
   return { root, props, stored };
+}
+
+async function waitFor(check) {
+  for (let i = 0; i < 100; i += 1) {
+    if (check()) return;
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  }
+  assert.ok(check(), 'condition not reached');
 }
 
 const brand = (key) => document.querySelector(`[data-usage-pin="${key}"]`);
@@ -67,13 +76,13 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
   assert.equal(meters('claude').length, 1);
   assert.equal(brand('claude').querySelector('small').textContent, '41%');
 
-  await act(async () =>
-    document.querySelector('.sidebar-usage-toggle').dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
-  );
+  await press(document.querySelector('.sidebar-usage-toggle'));
   const menuButton = document.querySelector('.sidebar-usage-menu');
   assert.ok(menuButton);
-  await act(async () => menuButton.click());
-  await act(async () => document.querySelector('[role="menuitemradio"][data-rail-bars="short-long"]').click());
+  await press(menuButton);
+  await press(document.querySelector('[role="menuitemradio"][data-rail-bars="short-long"]'));
+  assert.ok(document.querySelector('.usage-menu'), 'the menu survives its own press');
+  await waitFor(() => stored.usageRailShortLong === true);
 
   // Two stacked meters, short window first; one figure = the higher; the tone
   // colors only the bar that drives it.
@@ -99,7 +108,16 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
   const host = document.body.appendChild(document.createElement('div'));
   const second = createRoot(host);
   await act(async () => second.render(React.createElement(ActivityRail, props)));
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-  assert.equal(meters('claude').length, 2);
+  await waitFor(() => brand('claude') && meters('claude').length === 2);
   await act(async () => second.unmount());
+});
+
+test('the pin switch in the portaled menu survives a real pointer press and saves the pin', async (t) => {
+  const { stored } = await mountRail(t);
+  await press(document.querySelector('.sidebar-usage-toggle'));
+  await press(document.querySelector('.sidebar-usage-menu'));
+  await press(document.querySelector('[role="menuitemcheckbox"]'));
+  assert.ok(document.querySelector('.usage-menu'), 'the menu survives its own press');
+  await waitFor(() => stored.usagePinned === false);
+  await waitFor(() => document.querySelector('[role="menuitemradio"]').disabled);
 });

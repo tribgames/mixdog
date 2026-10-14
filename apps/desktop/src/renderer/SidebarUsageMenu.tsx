@@ -137,6 +137,7 @@ export function SidebarUsageMenu({
           <div
             ref={panel}
             className="row-overflow-menu usage-menu"
+            data-usage-menu-overlay
             role="menu"
             aria-label={t('Usage menu')}
             onKeyDown={onKeyDown}

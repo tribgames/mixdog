@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
+import { press } from './test-support/pointer-press.mjs';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { SidebarUsage, usagePinEntries } from './SidebarUsage.tsx';
 import { publishUsageDashboard } from './usage-dashboard-store.ts';
@@ -181,14 +182,14 @@ test('the ··· menu replaces the pin button and opens, closes on Escape and re
   assert.equal(document.querySelector('.sidebar-usage-pin'), null);
   assert.equal(trigger().getAttribute('aria-label'), 'Usage menu');
   assert.equal(trigger().getAttribute('aria-expanded'), 'false');
-  await act(async () => trigger().click());
+  await press(trigger());
   assert.equal(trigger().getAttribute('aria-expanded'), 'true');
   assert.ok(menu());
   assert.equal(document.activeElement.getAttribute('role'), 'menuitemcheckbox');
   await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
   assert.equal(menu(), null);
   assert.equal(document.activeElement, trigger());
-  await act(async () => trigger().click());
+  await press(trigger());
   await act(async () => document.body.dispatchEvent(new window.Event('pointerdown', { bubbles: true })));
   assert.equal(menu(), null);
 });
@@ -196,7 +197,7 @@ test('the ··· menu replaces the pin button and opens, closes on Escape and re
 test('arrow keys rove through the enabled items', async (t) => {
   const { render } = mount(t);
   await render();
-  await act(async () => trigger().click());
+  await press(trigger());
   const keys = (key) =>
     act(async () => menu().dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true })));
   const items = [...document.querySelectorAll('[role^="menuitem"]')];
@@ -217,11 +218,11 @@ test('arrow keys rove through the enabled items', async (t) => {
 test('the pin item toggles the rail pin and the radios apply the bar mode', async (t) => {
   const { state, render } = mount(t);
   await render();
-  await act(async () => trigger().click());
+  await press(trigger());
   const pin = document.querySelector('[role="menuitemcheckbox"]');
   assert.equal(pin.getAttribute('aria-checked'), 'true');
   assert.equal(pin.textContent, 'Pin usage to the rail');
-  await act(async () => pin.click());
+  await press(pin);
   assert.equal(state.toggles, 1);
   assert.equal(menu().getAttribute('aria-label'), 'Usage menu');
   assert.deepEqual(
@@ -231,7 +232,7 @@ test('the pin item toggles the rail pin and the radios apply the bar mode', asyn
       ['Short + long period', 'false'],
     ]
   );
-  await act(async () => radios()[1].click());
+  await press(radios()[1]);
   assert.deepEqual(state.changes, ['short-long']);
   state.railBars = 'short-long';
   await render();
@@ -245,10 +246,10 @@ test('the bar radios are disabled while the rail pin is off', async (t) => {
   const { state, render } = mount(t);
   state.pinned = false;
   await render();
-  await act(async () => trigger().click());
+  await press(trigger());
   assert.equal(document.querySelector('[role="menuitemcheckbox"]').getAttribute('aria-checked'), 'false');
   assert.ok(radios().every((radio) => radio.disabled));
-  await act(async () => radios()[1].click());
+  await press(radios()[1]);
   assert.deepEqual(state.changes, []);
   // Disabled radios are skipped by keyboard roving.
   assert.equal(document.querySelectorAll('[role^="menuitem"]:not(:disabled)').length, 1);
