@@ -124,8 +124,6 @@ export function useAppSessionCommands(
     return () => window.removeEventListener(OPEN_CONNECTION_SETTINGS_EVENT, open);
   }, [openSettings]);
 
-  // A finished single import: refresh the catalog, then open it like any other
-  // existing session (no prompt is submitted).
   const { setSettingsOpen } = shellPanels;
   // Batch imports register their projects; refresh both catalogs, leaving the active chat alone.
   useEffect(() => {
@@ -137,6 +135,8 @@ export function useAppSessionCommands(
     window.addEventListener(IMPORT_CATALOGS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(IMPORT_CATALOGS_CHANGED_EVENT, refresh);
   }, [refreshProjects, refreshSessionsBestEffort]);
+  // A finished single import: refresh the catalog, then open it like any other
+  // existing session (no prompt is submitted).
   useEffect(() => {
     const open = (event: Event) => {
       const detail = (event as CustomEvent<OpenImportedSessionDetail>).detail;

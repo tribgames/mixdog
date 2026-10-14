@@ -179,7 +179,10 @@ test('dialog: labels follow the selection, select-all is mixed', async (t) => {
 
   await click(boxes[1]);
   await click(selectAll);
-  assert.equal(boxes.every((box) => box.checked), true);
+  assert.equal(
+    boxes.every((box) => box.checked),
+    true
+  );
 
   await click(boxes[0]);
   await click(primary(host));
@@ -311,9 +314,15 @@ test('dialog: a selection made before a query refresh is dropped and cannot be s
   await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
   // The refresh is in flight: nothing is selected and nothing can be picked or submitted.
   assert.equal(primary(host).disabled, true);
-  assert.equal([...host.querySelectorAll('.settings-import-item > input')].every((box) => box.disabled), true);
+  assert.equal(
+    [...host.querySelectorAll('.settings-import-item > input')].every((box) => box.disabled),
+    true
+  );
   await click(primary(host));
-  assert.equal(calls.some((call) => call[1] === 'startConversationImport'), false);
+  assert.equal(
+    calls.some((call) => call[1] === 'startConversationImport'),
+    false
+  );
   await act(async () => release());
   assert.equal(host.querySelector('.settings-import-item > input').checked, false);
   assert.equal(host.querySelector('.settings-import-item > input').disabled, false);

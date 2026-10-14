@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type {
   ConversationImportJob,
-  ConversationImportList,
   ConversationImportRow,
   ConversationImportSource,
 } from '../../shared/contract-import';
@@ -35,10 +34,6 @@ export function importHeading(job: ConversationImportJob | null, running: boolea
   if (job.state === 'stopped') return t('Import stopped');
   if (job.state === 'failed') return t('Import failed');
   return t('Import finished');
-}
-
-function importCountLine(list: ConversationImportList): string {
-  return t('{{count}} conversations', { count: list.matchedCount });
 }
 
 export function ImportJobView({ job, running }: { job: ConversationImportJob; running: boolean }) {
@@ -177,7 +172,7 @@ function ImportListView({ listing, busy }: { listing: ImportListing; busy: boole
           />
           <span>{t('Select all conversations')}</span>
         </label>
-        <span className="settings-import-count">{list ? importCountLine(list) : ''}</span>
+        <span className="settings-import-count">{list ? t('{{count}} conversations', { count: list.matchedCount }) : ''}</span>
       </div>
       {/* biome-ignore lint/a11y/useSemanticElements: a <fieldset> does not scroll as an overflow container in Chromium, and this list pages in rows on scroll. */}
       <div
@@ -239,7 +234,8 @@ function ImportRow({
         <span className="settings-import-item-path" title={row.cwd ?? undefined}>
           {row.cwd ?? '—'}
         </span>
-        {row.messageCount !== null && <span>· {t('{{count}} messages', { count: row.messageCount })}</span>}      </span>
+        {row.messageCount !== null && <span>· {t('{{count}} messages', { count: row.messageCount })}</span>}{' '}
+      </span>
     </label>
   );
 }
@@ -311,9 +307,9 @@ interface FooterProps {
 }
 
 export function ImportFooterContent(props: FooterProps) {
-  const { batchJob, running, showEmpty, onClose } = props;
-  if (batchJob && running) return <RunningFooter job={batchJob} onStop={props.onStop} />;
-  if (batchJob) return <FinishedFooter job={batchJob} onViewChats={props.onViewChats} onClose={onClose} />;
+  const { batchJob, running, showEmpty, selectedCount, canContinue, busy, onStop, onViewChats, onClose, onStart } = props;
+  if (batchJob && running) return <RunningFooter job={batchJob} onStop={onStop} />;
+  if (batchJob) return <FinishedFooter job={batchJob} onViewChats={onViewChats} onClose={onClose} />;
   if (showEmpty) {
     return (
       <>
@@ -331,13 +327,8 @@ export function ImportFooterContent(props: FooterProps) {
         <button type="button" onClick={onClose}>
           {t('Cancel')}
         </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={props.selectedCount === 0 || props.busy}
-          onClick={props.onStart}
-        >
-          {props.busy ? t('Importing…') : importButtonLabel(props.selectedCount, props.canContinue)}
+        <button type="button" className="primary" disabled={selectedCount === 0 || busy} onClick={onStart}>
+          {busy ? t('Importing…') : importButtonLabel(selectedCount, canContinue)}
         </button>
       </div>
     </>

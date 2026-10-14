@@ -268,7 +268,9 @@ export async function createDesktopService({
   });
   const importProgress = createConversationImportProgress({
     fetchJobs: async () => {
-      const { value } = await host.invokeCapability<{ jobs?: ConversationImportJob[] }>('getConversationImportJobs', [{}]);
+      const { value } = await host.invokeCapability<{ jobs?: ConversationImportJob[] }>('getConversationImportJobs', [
+        {},
+      ]);
       return value?.jobs ?? [];
     },
     publish: publishDesktopEvent,
@@ -616,7 +618,11 @@ export async function createDesktopService({
       }
       if (method === 'deleteSession') return deleteSessionWithUploads(args[0]);
       if (method === 'invokeCapability') {
-        const result = await host.invokeCapability(args[0] as DesktopCapability, args[1] as unknown[], args[2] as string);
+        const result = await host.invokeCapability(
+          args[0] as DesktopCapability,
+          args[1] as unknown[],
+          args[2] as string
+        );
         importProgress.observe(String(args[0]), result.value);
         return result;
       }

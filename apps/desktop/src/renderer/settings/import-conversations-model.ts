@@ -122,7 +122,9 @@ export function importCodeFromError(error: unknown): string | undefined {
 export function importFailureSummary(job: ConversationImportJob): Array<{ code: string; count: number }> {
   const counts = new Map<string, number>();
   for (const result of job.results) {
-    if (result.status === 'failed') counts.set(result.errorCode ?? '', (counts.get(result.errorCode ?? '') ?? 0) + 1);
+    if (result.status !== 'failed') continue;
+    const code = result.errorCode ?? '';
+    counts.set(code, (counts.get(code) ?? 0) + 1);
   }
   return [...counts].map(([code, count]) => ({ code, count }));
 }
