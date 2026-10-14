@@ -49,5 +49,10 @@
   "Island: {{count}} agents": "{{count}} agent",
   "Island: {{count}} shells": "{{count}} shell",
   "Island: {{count}} files": "{{count}} file",
-  "Turn changes: {{count}} files changed": "{{count}} file changed"
+  "Turn changes: {{count}} files changed": "{{count}} file changed",
+  "{{count}} conversations": "{{count}} conversation",
+  "Imported {{count}} conversations": "Imported {{count}} conversation",
+  "Skipped {{count}} already imported": "Skipped {{count}} already imported",
+  "{{count}} could not be imported": "{{count}} could not be imported",
+  "Import {{count}}": "Import {{count}}"
 }
