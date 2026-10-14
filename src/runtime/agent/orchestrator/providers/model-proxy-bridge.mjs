@@ -185,6 +185,8 @@ export function createModelProxyBridgeServer({
   const token = tokenBytes.toString('hex');
   const connections = new Set();
   const waiting = [];
+  let draining = false;
+  let redrain = false;
   const settling = new Set();
   let budgetUsed = 0;
   let inflightBytes = 0;
@@ -247,15 +249,12 @@ export function createModelProxyBridgeServer({
 
   function onData(conn, chunk) {
     if (conn.closed) return;
-    if (conn.pending.length || budgetUsed + chunk.length > limits.aggregateBytes) {
-      // Nothing running will ever release budget: waiting could only deadlock.
-      if (!conn.pending.length && inflightBytes === 0) {
-        fail(conn, 'MODEL_PROXY_BRIDGE_BUSY');
-        return;
-      }
+    // FIFO: while anyone waits for budget, new bytes queue behind them.
+    if (conn.pending.length || waiting.length || budgetUsed + chunk.length > limits.aggregateBytes) {
       conn.pending.push(chunk);
       conn.socket.pause();
       if (!waiting.includes(conn)) waiting.push(conn);
+      resumeWaiting();
       return;
     }
     consume(conn, chunk);
@@ -295,20 +294,44 @@ export function createModelProxyBridgeServer({
     conn.stallTimer.unref?.();
   }
 
+  /**
+   * Serves paused connections strictly in FIFO order. Non-reentrant: consume()
+   * and closeConnection() call back in here; a nested call only requests
+   * another pass, so the loop always acts on the current head of the queue and
+   * a connection leaves it only once resumed or rejected.
+   */
   function resumeWaiting() {
-    while (waiting.length) {
-      const conn = waiting[0];
-      if (conn.closed) {
-        waiting.shift();
-        continue;
-      }
-      while (conn.pending.length && budgetUsed + conn.pending[0].length <= limits.aggregateBytes) {
-        consume(conn, conn.pending.shift());
-        if (conn.closed) break;
-      }
-      if (!conn.closed && conn.pending.length) return;
-      waiting.shift();
-      if (!conn.closed) conn.socket.resume();
+    if (draining) {
+      redrain = true;
+      return;
+    }
+    draining = true;
+    try {
+      do {
+        redrain = false;
+        while (waiting.length) {
+          const conn = waiting[0];
+          if (conn.closed) {
+            waiting.shift();
+            continue;
+          }
+          if (!conn.pending.length) {
+            waiting.shift();
+            conn.socket.resume();
+            continue;
+          }
+          if (budgetUsed + conn.pending[0].length > limits.aggregateBytes) {
+            // Nothing running will ever release budget: waiting could only deadlock.
+            if (inflightBytes > 0) break;
+            waiting.shift();
+            fail(conn, 'MODEL_PROXY_BRIDGE_BUSY');
+            continue;
+          }
+          consume(conn, conn.pending.shift());
+        }
+      } while (redrain);
+    } finally {
+      draining = false;
     }
   }
 

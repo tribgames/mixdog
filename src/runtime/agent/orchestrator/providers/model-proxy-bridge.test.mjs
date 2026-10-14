@@ -537,6 +537,101 @@ test('aggregate buffering is bounded across connections', async (t) => {
   assert.equal(done.error.props.code, 'MODEL_PROXY_BRIDGE_METHOD');
 });
 
+/** A request frame of a fixed size, so the aggregate cap admits a known count. */
+const paddedReq = (model, pad = 3000) =>
+  `${JSON.stringify({ type: 'req', id: model, callbacks: [], call: { provider: 'openai', method: 'send', model, pad: 'p'.repeat(pad) } })}\n`;
+
+async function queuedBridge(t) {
+  // Two padded requests fit; a third must wait for one to finish.
+  const bridge = await startBridge(t, {
+    limits: { controlFrameMaxBytes: 1024, requestFrameMaxBytes: 8192, aggregateBytes: 7_000 },
+  });
+  const claimed = [];
+  const release = new Map();
+  t.after(
+    attachPc(bridge.channel, ({ id }) => {
+      const call = decodeModelProxyWire(op(bridge.channel, 'claim', id).payload);
+      claimed.push(call.model);
+      release.set(call.model, () =>
+        op(bridge.channel, 'resolve', id, true, encodeModelProxyWire({ content: call.model }), null)
+      );
+    })
+  );
+  return { ...bridge, claimed, release };
+}
+
+test('connections queued behind the aggregate cap are all served, in FIFO order', async (t) => {
+  const { server, claimed, release, endpoint } = await queuedBridge(t);
+  const clients = [];
+  for (let i = 0; i < 5; i += 1) clients.push(await authenticated(t, endpoint));
+  for (let i = 0; i < 5; i += 1) {
+    clients[i].socket.write(paddedReq(`m${i}`));
+    await delay(30);
+  }
+  assert.ok(await waitFor(() => claimed.length === 2));
+  await delay(50);
+  assert.deepEqual(claimed, ['m0', 'm1'], 'the rest wait for budget');
+  // Finish in completion order m0, m1, m2, …: each frees room for the next in line.
+  for (let i = 0; i < 5; i += 1) {
+    assert.ok(await waitFor(() => release.has(`m${i}`)), `m${i} reached the PC; claimed ${JSON.stringify(claimed)}`);
+    release.get(`m${i}`)();
+    const done = await clients[i].next((frame) => frame.type === 'done' && frame.id === `m${i}`);
+    assert.deepEqual(done.value, { content: `m${i}` });
+  }
+  assert.deepEqual(claimed, ['m0', 'm1', 'm2', 'm3', 'm4']);
+  assert.ok(await waitFor(() => server.activeCount === 0));
+});
+
+test('a queued connection that closes is dropped without stalling the ones behind it', async (t) => {
+  const { server, claimed, release, endpoint } = await queuedBridge(t);
+  const clients = [];
+  for (let i = 0; i < 5; i += 1) clients.push(await authenticated(t, endpoint));
+  for (let i = 0; i < 5; i += 1) {
+    clients[i].socket.write(paddedReq(`m${i}`));
+    await delay(30);
+  }
+  assert.ok(await waitFor(() => claimed.length === 2));
+  // m2 heads the queue, m3 waits behind it; m2 leaves before it is served.
+  clients[2].socket.destroy();
+  await clients[2].closed;
+  await delay(50);
+  assert.deepEqual(claimed, ['m0', 'm1']);
+  release.get('m1')();
+  await clients[1].next((frame) => frame.type === 'done' && frame.id === 'm1');
+  assert.ok(await waitFor(() => claimed.length === 3));
+  release.get('m0')();
+  await clients[0].next((frame) => frame.type === 'done' && frame.id === 'm0');
+  assert.ok(await waitFor(() => claimed.length === 4));
+  assert.deepEqual(claimed, ['m0', 'm1', 'm3', 'm4']);
+  for (const i of [3, 4]) {
+    release.get(`m${i}`)();
+    await clients[i].next((frame) => frame.type === 'done' && frame.id === `m${i}`);
+  }
+  assert.ok(await waitFor(() => server.activeCount === 0));
+});
+
+test('a queued connection is rejected busy, never left paused, once nothing running can free budget', async (t) => {
+  const { server, claimed, release, endpoint } = await queuedBridge(t);
+  const runner = await authenticated(t, endpoint);
+  const holder = await authenticated(t, endpoint);
+  const queued = await authenticated(t, endpoint);
+  runner.socket.write(paddedReq('m0'));
+  assert.ok(await waitFor(() => claimed.length === 1));
+  // A partial frame holds budget it can only release by finishing.
+  holder.socket.write(`{"type":"req","id":"h","callbacks":[],"call":{"pad":"${'h'.repeat(3700)}`);
+  await delay(30);
+  // Holder + m1 exceed the cap even with m0 finished.
+  queued.socket.write(paddedReq('m1', 3500));
+  await delay(50);
+  assert.deepEqual(claimed, ['m0'], 'm1 waits while m0 runs');
+  release.get('m0')();
+  await runner.next((frame) => frame.type === 'done' && frame.id === 'm0');
+  assert.equal((await queued.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_BUSY');
+  await queued.closed;
+  assert.deepEqual(claimed, ['m0']);
+  assert.equal(server.activeCount, 0);
+});
+
 test('a fenced or stopping daemon refuses new calls and aborts running ones', async (t) => {
   let admitted = true;
   const { endpoint, channel, server } = await startBridge(t, { admit: () => admitted });
