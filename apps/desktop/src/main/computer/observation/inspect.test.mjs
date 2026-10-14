@@ -200,14 +200,22 @@ test('diagnose reports the structured Linux readiness from an asynchronous permi
     session: 'wayland',
     desktop: 'kde',
     capabilities: {
-      capture: { state: 'unknown' }, windows: { state: 'unsupported' }, accessibility: ready,
-      semanticActions: { state: 'unsupported' }, pointer: ready, keyboard: ready,
-      clipboard: { ...ready, optional: true }, ocr: { state: 'needs_setup', fix: 'install_package', package: 'tesseract-ocr', optional: true },
+      capture: { state: 'unknown' },
+      windows: { state: 'unsupported' },
+      accessibility: ready,
+      semanticActions: { state: 'unsupported' },
+      pointer: ready,
+      keyboard: ready,
+      clipboard: { ...ready, optional: true },
+      ocr: { state: 'needs_setup', fix: 'install_package', package: 'tesseract-ocr', optional: true },
     },
   };
   const permissions = { screen_capture: 'unknown', accessibility: 'ready', input: 'ready', linux };
   const reader = createInspection({
-    callPowerShell: async () => ({ ok: true, result: { available: true, observer_ready: true, ready: true, held: false } }),
+    callPowerShell: async () => ({
+      ok: true,
+      result: { available: true, observer_ready: true, ready: true, held: false },
+    }),
     sessionIdFor: () => 'diagnose-linux',
     assertExecutionNotAborted() {},
     readComputerWindows: async () => [],
@@ -239,13 +247,49 @@ test('diagnose names each input observation cause independently and reports the 
     return JSON.parse((await reader.diagnoseComputer({ action: 'diagnose' })).text);
   };
   for (const [native, cause, pattern] of [
-    [{ observer_ready: false, observer_reason: 'hooks_unavailable', desktop_ready: true, ready: false, held: false }, 'hooks_unavailable', /hooks could not be installed/],
-    [{ observer_ready: false, observer_reason: 'input_gap', desktop_ready: true, ready: false, held: false }, 'input_gap', /input was missed.*administrator window.*recovering.*without touching the keyboard or mouse/],
-    [{ observer_ready: false, observer_reason: 'monitor_unresponsive', desktop_ready: true, ready: false, held: false }, 'monitor_unresponsive', /observer is not responding/],
-    [{ observer_ready: true, observer_reason: '', desktop_ready: false, ready: false, held: false }, 'secure_desktop', /secure desktop \(lock screen or UAC prompt\)/],
+    [
+      { observer_ready: false, observer_reason: 'hooks_unavailable', desktop_ready: true, ready: false, held: false },
+      'hooks_unavailable',
+      /hooks could not be installed/,
+    ],
+    [
+      { observer_ready: false, observer_reason: 'input_gap', desktop_ready: true, ready: false, held: false },
+      'input_gap',
+      /input was missed.*administrator window.*recovering.*without touching the keyboard or mouse/,
+    ],
+    [
+      {
+        observer_ready: false,
+        observer_reason: 'monitor_unresponsive',
+        desktop_ready: true,
+        ready: false,
+        held: false,
+      },
+      'monitor_unresponsive',
+      /observer is not responding/,
+    ],
+    [
+      { observer_ready: true, observer_reason: '', desktop_ready: false, ready: false, held: false },
+      'secure_desktop',
+      /secure desktop \(lock screen or UAC prompt\)/,
+    ],
     // A missed input on the secure desktop is resolved by leaving it first.
-    [{ observer_ready: false, observer_reason: 'input_gap', desktop_ready: false, ready: false, held: false }, 'secure_desktop', /secure desktop/],
-    [{ observer_ready: false, observer_reason: 'unknown_future_reason', desktop_ready: true, ready: false, held: false }, undefined, /^foreground input observation is unavailable$/],
+    [
+      { observer_ready: false, observer_reason: 'input_gap', desktop_ready: false, ready: false, held: false },
+      'secure_desktop',
+      /secure desktop/,
+    ],
+    [
+      {
+        observer_ready: false,
+        observer_reason: 'unknown_future_reason',
+        desktop_ready: true,
+        ready: false,
+        held: false,
+      },
+      undefined,
+      /^foreground input observation is unavailable$/,
+    ],
   ]) {
     const result = await diagnose(native);
     const observation = result.capabilities.input_observation;
@@ -258,7 +302,13 @@ test('diagnose names each input observation cause independently and reports the 
     assert.match(issues[0], pattern);
     assert.doesNotMatch(issues[0], /silently removed/);
   }
-  const ready = await diagnose({ observer_ready: true, observer_reason: '', desktop_ready: true, ready: true, held: false });
+  const ready = await diagnose({
+    observer_ready: true,
+    observer_reason: '',
+    desktop_ready: true,
+    ready: true,
+    held: false,
+  });
   assert.equal(ready.capabilities.input_observation.ready, true);
   assert.equal(ready.capabilities.input_observation.cause, undefined);
   assert.equal(ready.issues.length, 0);

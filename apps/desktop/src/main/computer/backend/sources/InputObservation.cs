@@ -411,7 +411,10 @@ public static class MixInputObservation
                 if (tick < 0) ledger.Latch();
                 else ledger.Observe(unchecked((uint)tick));
             }
-            int reason = !alive ? ReasonUnresponsive : !hooked ? ReasonHooks : (ledger == null || ledger.Gap) ? ReasonGap : ReasonNone;
+            int reason = ReasonNone;
+            if (!alive) reason = ReasonUnresponsive;
+            else if (!hooked) reason = ReasonHooks;
+            else if (ledger == null || ledger.Gap) reason = ReasonGap;
             using (var view = run.Receipt.CreateViewAccessor())
             {
                 view.Write(0, reason == ReasonNone);
@@ -458,10 +461,11 @@ public static class MixInputObservation
                         if (!current && attempt < 3) continue;
                         int reason = view.ReadInt32(28);
                         bool ready = view.ReadBoolean(0) && reason == ReasonNone && current;
+                        int failure = current ? reason : ReasonGap;
                         return new MixInputSnapshot
                         {
                             Ready = ready,
-                            Reason = ready ? "" : ReasonName(current ? reason : ReasonGap),
+                            Reason = ready ? "" : ReasonName(failure),
                             Generation = id,
                             Sequence = view.ReadInt64(8),
                             LastOwn = view.ReadBoolean(4),

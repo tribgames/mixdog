@@ -184,7 +184,12 @@ try {
         ],
         {
           windowsHide: true,
-          env: { ...env, ORIGINAL_OBSERVER: original.Generation, EXPECTED_SEQUENCE: String(sequence), FIXTURE_TICK: String(tick) },
+          env: {
+            ...env,
+            ORIGINAL_OBSERVER: original.Generation,
+            EXPECTED_SEQUENCE: String(sequence),
+            FIXTURE_TICK: String(tick),
+          },
         }
       );
       return stdout.trim();
