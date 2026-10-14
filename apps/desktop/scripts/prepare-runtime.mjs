@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { listPackage, statFile } from '@electron/asar';
+import { build } from 'esbuild';
 import { createAsarPackage } from './asar-pack.mjs';
 import { embeddingRuntimeTarget, pruneEmbeddingRuntime } from '../../../scripts/prune-embedding-runtime.mjs';
 import { pruneDesktopPtyPackage, pruneDesktopRuntime } from '../../../scripts/prune-desktop-runtime.mjs';
@@ -55,7 +56,47 @@ const externalProcessArchivePaths = [
   'node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
   'node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
 ];
-const externalProcessArchiveEntries = externalProcessArchivePaths.map((path) => `/${path}`);
+// Built-in skills hand their directory to the model, which runs their bundled
+// scripts with plain Node; Node cannot read inside runtime.asar, so every
+// shipped skill file is unpacked beside the archive (asar matches unpackDir
+// against OS-native relative paths).
+const builtinSkillsPackageRoot = 'src/defaults/skills/';
+const builtinSkillsUnpackDir = join('node_modules', 'mixdog', ...builtinSkillsPackageRoot.split('/').filter(Boolean));
+// The skill validator must run without the runtime's shared modules, so the
+// shipped copy is bundled with its imports inlined.
+const skillValidatorPackagePath = 'src/defaults/skills/skill-creator/scripts/validate-skill.mjs';
+
+/** Archive paths of every shipped built-in skill file, from the npm pack manifest. */
+function builtinSkillArchivePaths(manifest) {
+  return manifest.files
+    .map((entry) => String(entry.path).replaceAll('\\', '/'))
+    .filter((path) => path.startsWith(builtinSkillsPackageRoot))
+    .map((path) => `node_modules/mixdog/${path}`);
+}
+
+/** Archive paths that must exist as real files in runtime.asar.unpacked. */
+function unpackedArchivePaths(manifest) {
+  return [...externalProcessArchivePaths, ...builtinSkillArchivePaths(manifest)];
+}
+
+async function bundleSkillValidator() {
+  const entry = join(runtimePackageDir, ...skillValidatorPackagePath.split('/'));
+  await build({
+    entryPoints: [entry],
+    outfile: entry,
+    allowOverwrite: true,
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node22',
+    // yaml's Node build is CommonJS and requires Node built-ins, which an ESM
+    // bundle can only reach through a real require.
+    banner: {
+      js: "import { createRequire as __bundleCreateRequire } from 'node:module'; const require = __bundleCreateRequire(import.meta.url);",
+    },
+    logLevel: 'warning',
+  });
+}
 const desktopPtyPackageDir = join(desktopDir, 'node_modules', '@homebridge', 'node-pty-prebuilt-multiarch');
 const builderDesktopPtyDir = join(runtimeDir, 'desktop-node-pty');
 const desktopNativeToolsDir = join(runtimeDir, 'native-tools');
@@ -411,7 +452,7 @@ async function runtimeInputFingerprint(manifest) {
   );
 }
 
-async function canReusePreparedRuntime(fingerprint) {
+async function canReusePreparedRuntime(fingerprint, packageManifest) {
   try {
     const manifest = JSON.parse(await readFile(runtimeManifestPath, 'utf8'));
     if (
@@ -426,7 +467,7 @@ async function canReusePreparedRuntime(fingerprint) {
     await Promise.all([
       access(runtimeSidecar),
       access(builderNativeModulesDir),
-      ...externalProcessArchivePaths.flatMap((path) => [
+      ...unpackedArchivePaths(packageManifest).flatMap((path) => [
         access(join(runtimeSidecar, ...path.split('/'))),
         access(join(builderNativeModulesDir, ...path.split('/').slice(1))),
       ]),
@@ -676,6 +717,7 @@ async function prepareRuntime(manifest, fingerprint) {
         destination: runtimePackageDir,
       })
     );
+    await timed('skill-validator-bundle', () => bundleSkillValidator());
 
     const runtimePackage = JSON.parse(await readFile(join(stagingDir, 'package.json'), 'utf8'));
     runtimePackage.private = true;
@@ -743,6 +785,7 @@ async function prepareRuntime(manifest, fingerprint) {
             // matchBase enabled. A basename glob is therefore portable; **/*.node is
             // not, because minimatch treats Windows separators differently.
             unpack: '*.{node,dll,dylib,so,so.*,ps1,pptx,mixdog.json}',
+            unpackDir: builtinSkillsUnpackDir,
           });
           return;
         } catch (error) {
@@ -769,6 +812,7 @@ async function prepareRuntime(manifest, fingerprint) {
     const archiveEntries = new Set(
       listPackage(runtimeArchive, { isPack: false }).map((entry) => entry.replaceAll('\\', '/'))
     );
+    const unpackedArchiveEntries = unpackedArchivePaths(manifest).map((path) => `/${path}`);
     const ortArchiveRoot = relative(stagingDir, prunedEmbedding.ortRoot).replaceAll(sep, '/');
     const embeddingNapiRoot = `/${ortArchiveRoot}/bin/napi-v6`;
     const embeddingPlatformRoot = `${embeddingNapiRoot}/${embeddingTarget.platform}`;
@@ -780,7 +824,8 @@ async function prepareRuntime(manifest, fingerprint) {
       '/node_modules/mixdog/src/runtime/office/core/journal.mjs',
       '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
       '/node_modules/mixdog/src/runtime/local-provider/data/manifest.json',
-      ...externalProcessArchiveEntries,
+      `/node_modules/mixdog/${skillValidatorPackagePath}`,
+      ...unpackedArchiveEntries,
       '/node_modules/@huggingface/transformers/package.json',
       '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
       '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',
@@ -816,7 +861,7 @@ async function prepareRuntime(manifest, fingerprint) {
     }
 
     const nativeBinaryEntries = [...archiveEntries].filter((entry) => NATIVE_BINARY_NAME.test(entry));
-    const unpackedRuntimeEntries = [...new Set([...nativeBinaryEntries, ...externalProcessArchiveEntries])];
+    const unpackedRuntimeEntries = [...new Set([...nativeBinaryEntries, ...unpackedArchiveEntries])];
     await timed('unpacked-runtime-mirror', async () => {
       for (const entry of unpackedRuntimeEntries) {
         const archivePath = entry.replace(/^\/+/, '');
@@ -842,6 +887,14 @@ async function prepareRuntime(manifest, fingerprint) {
         await mkdir(dirname(destination), { recursive: true });
         await cp(source, destination);
       }
+    });
+    // The mirror holds only the skill files, not the runtime's shared modules,
+    // so validating a skill from it proves the shipped validator is self-contained.
+    await timed('skill-validator-check', async () => {
+      const skillCreatorDir = join(builderNativeModulesDir, 'mixdog', ...builtinSkillsPackageRoot.split('/'), 'skill-creator');
+      await execFileAsync(process.execPath, [join(skillCreatorDir, 'scripts', 'validate-skill.mjs'), skillCreatorDir], {
+        windowsHide: true,
+      });
     });
 
     const archive = await stat(runtimeArchive);
@@ -972,7 +1025,7 @@ try {
   ));
   const manifest = await timed('package-manifest', () => resolveRuntimePackageManifest());
   const fingerprint = await timed('input-fingerprint', () => runtimeInputFingerprint(manifest));
-  if (!fastFullMode && (await timed('prepared-runtime-check', () => canReusePreparedRuntime(fingerprint)))) {
+  if (!fastFullMode && (await timed('prepared-runtime-check', () => canReusePreparedRuntime(fingerprint, manifest)))) {
     console.log(`Reused prepared ${embeddingTarget.key} runtime.asar.`);
   } else {
     await prepareRuntime(manifest, fingerprint);

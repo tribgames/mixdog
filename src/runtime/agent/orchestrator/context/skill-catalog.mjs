@@ -320,6 +320,18 @@ export function invalidateSkillsCache(cwd) {
 }
 
 /**
+ * Directory the model hands to external processes for a skill. A packaged
+ * desktop runtime reads built-in skills from inside `runtime.asar`, which only
+ * Electron can open; the build ships them as real files beside the archive
+ * under `runtime.asar.unpacked`, so a built-in skill's directory points there.
+ * Every other source keeps its own on-disk directory.
+ */
+export function skillExecutionDir(dir, source) {
+  if (source !== 'builtin') return dir;
+  return String(dir).replace(/([\\/])runtime\.asar(?=[\\/]|$)/, '$1runtime.asar.unpacked');
+}
+
+/**
  * Load full skill content plus its on-disk directory (for base-dir + ${MIXDOG_SKILL_DIR}).
  */
 export function loadSkillResource(name, cwd) {
@@ -333,7 +345,7 @@ export function loadSkillResource(name, cwd) {
   try {
     return {
       content: parseSkillDocument(content).body,
-      dir: dirname(skill.filePath),
+      dir: skillExecutionDir(dirname(skill.filePath), skill.source),
       filePath: skill.filePath,
       source: skill.source || 'global',
       toolDependencies: skill.toolDependencies || [],

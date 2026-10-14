@@ -520,7 +520,7 @@ test('runtime preparation reuses prepared output and persistent validated depend
   assert.match(preparation, /MIXDOG_RUNTIME_DEPENDENCY_CACHE must point outside the disposable \.runtime directory/);
   assert.match(preparation, /runtimeDependencyCacheIdentity\(rootDir,\s*embeddingTarget\)/);
   assert.match(preparation, /runtimeInputFingerprint\(manifest\)/);
-  assert.match(preparation, /canReusePreparedRuntime\(fingerprint\)/);
+  assert.match(preparation, /canReusePreparedRuntime\(fingerprint,\s*manifest\)/);
   assert.match(preparation, /Reused prepared \$\{embeddingTarget\.key\} runtime\.asar/);
   assert.match(preparation, /restoreRuntimeDependencies\(\)/);
   assert.match(preparation, /Reused cached \$\{embeddingTarget\.key\} runtime dependencies/);
