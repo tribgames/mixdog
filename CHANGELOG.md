@@ -5,42 +5,50 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-Bring your Codex and Claude Code conversations into Mixdog, sign in to Command Code, and call a skill by typing `$` in the composer.
+Added conversation import from Codex and Claude Code, the Command Code provider, and `$` skill mentions, and fixed Computer Use input observation, skill scripts, auto reasoning, and several session issues.
 
 ### New features
 
-- **Import conversations** — Settings > General > Import conversations brings in Codex and Claude Code chats from this PC.
-- **Command Code** — Sign in with a Command Code account as a new provider.
-- **Account switching** — With multiple accounts, choose Manual, Switch at limit, or Most headroom first.
-- **`$` skills** — Type `$` in the composer (or the TUI) to apply a skill to that message.
-- **Usage menu** — Pin usage to the sidebar rail and choose short or long bars (#66).
-- **Plugin MCP servers** — Claude Code and Codex plugin servers connect automatically, and Claude Code plugin skills load too (#58).
-- **Dismiss Goal** — Dismiss a finished Goal from the composer island; its progress mark always shows five cells.
+- **Conversation import** — Added Settings > General > Import conversations to bring Codex and Claude Code chats on this PC into Mixdog.
+- **Command Code** — Added Command Code as a provider that signs in with your Command Code account.
+- **Account switching policies** — Added Manual, Switch at limit, and Most headroom first for providers with several accounts.
+- **`$` skill mentions** — Added `$` in the composer and TUI to pick a skill and apply it to that message.
+- **5-hour usage bar** — Added a usage menu option that shows a 5-hour bar next to the longest period on the sidebar rail (#66).
+- **Visualize feedback cards** — Added composer cards for queued visualize pins, picks, and tweaks, and pins on images, video frames, and dragged regions.
+- **Dismiss Goal** — Added a button to dismiss a finished Goal.
 
 ### Changes
 
-- The session list opens faster.
-- `@` file mentions list folders first.
-- Muse Code and MiMo show their own icons.
-- On SSH servers, skills that call a model use your PC's models, so the server needs no credentials.
-- Long sessions stay more responsive: MCP tools, file searches, and account updates no longer stall the background service.
+- Changed Claude Code and Codex plugin MCP servers to connect automatically without a manual enable step, and added Claude Code plugin skill loading (#58).
+- Changed the session list to load from a local database and caches so it opens faster.
+- Changed skills on SSH servers to route model calls through your PC, so the server needs no credentials.
+- Changed `@` file mentions to list folders first.
+- Changed Muse Code and MiMo to their own icons.
+- Changed sent image thumbnails to load as downscaled previews on the PC and paired phones.
+- Adjusted MCP tool loading, file searches, and account saves so they no longer block the background service in long sessions.
+- Adjusted the Goal progress mark to always show five cells.
+- Adjusted the composer island to sit 12px above the prompt card and restored 14px tool activity lines.
 
 ### Bug fixes
 
-- Bundled skill scripts, including the skill validator, failed in some installs and shells (#62).
-- A new task that remembered a deleted workflow now starts on Default (#64).
-- Auto reasoning did not apply on Claude routes, and one slow judgment could make the next ones time out.
-- A second message sent right after a new task started could open a separate session instead of continuing it.
-- Renaming a session listed in both a project folder and Recent closed the editor immediately.
-- In restored conversations with several images, a thumbnail could show the wrong image.
-- Hook commands inherited Mixdog's internal runtime settings and could fail.
-- Headless runs, such as model calls from skill scripts, could not use Muse Code or MiMo.
-- Removing an MCP server or plugin could not be confirmed because the dialog never appeared.
-- On Windows, the ONNX runtime could fail to load without the Visual C++ runtime installed.
+- Fixed Computer Use staying unavailable with "foreground input observation is unavailable"; missed input now counts as user input, observation recovers on its own, and diagnose names the cause (#66).
+- Fixed bundled skill scripts, including the skill validator, failing in some installs and shells (#62).
+- Fixed new tasks that remembered a deleted workflow so they start on Default (#64).
+- Fixed auto reasoning not applying on Claude routes in 1.2.0, and one slow judgment timing out the ones after it.
+- Fixed Gemini, Anthropic, OpenAI, and OpenAI-compatible providers not listing models when the key was added after startup.
+- Fixed a second message sent right after a new task started opening a separate session.
+- Fixed fast upward scrolling on phones stopping short and then jumping far up on the next touch.
+- Fixed the rename editor closing at once for sessions listed in both a project folder and Recent.
+- Fixed thumbnails showing the wrong image in restored conversations with several images.
+- Fixed queued TUI messages dropping attached images or long pasted text when merged.
+- Fixed hook commands inheriting Mixdog's internal runtime settings.
+- Fixed headless runs, such as model calls from skill scripts, being unable to use Muse Code or MiMo.
+- Fixed the confirmation dialog not appearing when removing an MCP server or plugin.
+- Fixed the ONNX runtime failing to load on Windows PCs without the Visual C++ runtime by shipping that runtime with the app.
 
 ### Other
 
-- Translations reviewed across all 11 languages.
+- Reviewed translations across all 11 languages.
 
 ## v1.2.0 - 2026-10-13
 

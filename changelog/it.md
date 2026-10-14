@@ -4,38 +4,46 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
-Porta le conversazioni di Codex e Claude Code in Mixdog, accedi a Command Code e richiama una skill digitando `$` nel compositore.
+Aggiunta l'importazione di conversazioni da Codex e Claude Code, il provider Command Code e le menzioni di skill con `$`, e corretta l'osservazione dell'input di Computer Use, gli script di skill, il ragionamento automatico e diversi problemi di sessione.
 
 ### Nuove funzionalità
 
-- **Importa conversazioni** — Impostazioni > Generale > Importa conversazioni trasferisce le chat di Codex e Claude Code da questo PC.
-- **Command Code** — Accedi con un account Command Code come nuovo provider.
-- **Cambio account** — Con più account, scegli Manuale, Cambia al limite o Più margine prima.
-- **`$` skill** — Digita `$` nel compositore (o nella TUI) per applicare una skill a quel messaggio.
-- **Menu utilizzo** — Fissa l'utilizzo sulla barra laterale e scegli barre corte o lunghe (#66).
-- **Server MCP dei plugin** — I server dei plugin Claude Code e Codex si connettono automaticamente e caricano le skill (#58).
-- **Chiudi Goal** — Chiudi un Goal completato direttamente dall'isola del compositore; l'indicatore di avanzamento mostra sempre cinque celle.
+- **Importa conversazioni** — Aggiunta l'opzione Impostazioni > Generale > Importa conversazioni per trasferire le chat di Codex e Claude Code da questo PC in Mixdog.
+- **Command Code** — Aggiunto Command Code come provider che accede con il tuo account Command Code.
+- **Criteri di cambio account** — Aggiunte le opzioni Manuale, Cambia al limite e Più margine prima per i provider con più account.
+- **Menzioni di skill con `$`** — Aggiunto `$` nel compositore e nella TUI per selezionare una skill e applicarla a quel messaggio.
+- **Barra di utilizzo di 5 ore** — Aggiunta un'opzione nel menu di utilizzo che mostra una barra di 5 ore accanto al periodo più lungo sulla barra laterale (#66).
+- **Schede di feedback visualizzazione** — Aggiunte schede nel compositore per annotazioni, selezioni e modifiche in coda, nonché spille su immagini, fotogrammi video e aree trascinate.
+- **Chiudi Goal** — Aggiunto un pulsante per chiudere un Goal completato.
 
 ### Modifiche
 
-- L'elenco delle sessioni si apre più rapidamente.
-- Le menzioni di file con `@` mostrano prima le cartelle.
-- Muse Code e MiMo mostrano le proprie icone dedicate.
-- Sui server SSH, le skill che chiamano un modello usano quelli del tuo PC, senza richiedere credenziali sul server.
-- Le sessioni lunghe restano più reattive: strumenti MCP, ricerche di file e aggiornamenti account non bloccano più il servizio in background.
+- Modificati i server MCP dei plugin Claude Code e Codex per connettersi automaticamente senza abilitazione manuale e aggiunto il caricamento delle skill dei plugin (#58).
+- Modificato l'elenco delle sessioni per caricare da database locale e cache in modo da aprirsi più rapidamente.
+- Modificate le skill sui server SSH per instradare le chiamate ai modelli tramite il tuo PC, evitando credenziali sul server.
+- Modificate le menzioni di file con `@` per elencare prima le cartelle.
+- Modificate le icone di Muse Code e MiMo con icone dedicate.
+- Modificate le miniature delle immagini inviate per caricarsi come anteprime ridotte sul PC e sui telefoni associati.
+- Regolato il caricamento degli strumenti MCP, le ricerche di file e il salvataggio degli account per non bloccare più il servizio in background nelle sessioni lunghe.
+- Regolato l'indicatore di avanzamento di Goal per mostrare sempre cinque celle.
+- Regolata l'isola del compositore posizionandola 12px sopra la scheda prompt e ripristinate le righe di attività degli strumenti a 14px.
 
 ### Correzioni di bug
 
-- Gli script delle skill integrati, incluso il validatore, non funzionavano su alcune installazioni e shell (#62).
-- Una nuova attività che ricordava un flusso di lavoro eliminato ora si avvia su Default (#64).
-- Il ragionamento automatico non veniva applicato sui percorsi Claude e una valutazione lenta poteva far scadere quelle successive.
-- Un secondo messaggio inviato subito dopo l'avvio di una nuova attività poteva aprire una sessione separata invece di continuarla.
-- La ridenominazione di una sessione presente sia in una cartella di progetto che in Recenti chiudeva immediatamente l'editor.
-- Nelle conversazioni ripristinate con diverse immagini, un'anteprima poteva mostrare l'immagine errata.
-- I comandi hook ereditavano le impostazioni di runtime interne di Mixdog e potevano fallire.
-- Le esecuzioni headless, come le chiamate ai modelli da script di skill, non potevano utilizzare Muse Code o MiMo.
-- La rimozione di un server MCP o plugin non poteva essere confermata perché la finestra di dialogo non appariva.
-- Su Windows, il runtime ONNX poteva non caricarsi se il runtime di Visual C++ non era installato.
+- Corretto il blocco di Computer Use su "foreground input observation is unavailable"; l'input mancato conta come input utente, l'osservazione si ripristina autonomamente e la diagnosi indica la causa (#66).
+- Corretti gli script di skill inclusi, compreso il validatore di skill, che fallivano su alcune installazioni e shell (#62).
+- Corrette le nuove attività che ricordavano un flusso di lavoro eliminato in modo da avviarsi su Default (#64).
+- Corretto il mancato funzionamento del ragionamento automatico sui percorsi Claude in 1.2.0 e il timeout delle valutazioni successive causato da una valutazione lenta.
+- Corretto il mancato elenco dei modelli per i provider Gemini, Anthropic, OpenAI e compatibili con OpenAI quando la chiave veniva inserita dopo l'avvio.
+- Corretto l'invio di un secondo messaggio subito dopo l'avvio di una nuova attività che apriva una sessione separata.
+- Corretto lo scorrimento rapido verso l'alto sui telefoni che si arrestava bruscamente per poi saltare in alto al tocco successivo.
+- Corretta la chiusura immediata dell'editor di ridenominazione per le sessioni presenti sia in una cartella di progetto che in Recenti.
+- Corretta la visualizzazione dell'immagine errata nelle miniature di conversazioni ripristinate con più immagini.
+- Corretta la perdita di immagini allegate o testo incollato lungo nei messaggi TUI in coda durante l'unione.
+- Corretti i comandi hook che ereditavano le impostazioni di runtime interne di Mixdog.
+- Corrette le esecuzioni headless, come le chiamate ai modelli da script di skill, che non riuscivano a usare Muse Code o MiMo.
+- Corretta la mancata comparsa della finestra di conferma durante la rimozione di un server MCP o plugin.
+- Corretto il mancato caricamento del runtime ONNX su PC Windows sprovvisti del runtime Visual C++ includendo tale runtime nell'applicazione.
 
 ### Altro
 
