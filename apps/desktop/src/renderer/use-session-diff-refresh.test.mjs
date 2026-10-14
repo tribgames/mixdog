@@ -12,7 +12,7 @@ function Probe(props) {
   return React.createElement('output', null, `${state.loading}|${state.result?.patch || ''}|${state.error}`);
 }
 
-function harness(t, invokeCapability) {
+function harness(t, invokeCapability, desktop = {}) {
   const clock = createRendererClock();
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><main></main>',
@@ -22,7 +22,7 @@ function harness(t, invokeCapability) {
   Object.defineProperty(dom.window.document, 'visibilityState', { configurable: true, get: () => visibility });
   dom.window.setInterval = clock.win.setInterval;
   dom.window.clearInterval = clock.win.clearInterval;
-  dom.window.mixdogDesktop = { invokeCapability };
+  dom.window.mixdogDesktop = { invokeCapability, ...desktop };
   const root = createRoot(dom.window.document.querySelector('main'));
   t.after(async () => {
     await act(async () => root.unmount());
@@ -31,6 +31,7 @@ function harness(t, invokeCapability) {
   const base = { sessionId: 'session', active: true, busy: true, revision: 'first' };
   return {
     clock,
+    win: dom.window,
     render: (props = {}) => act(async () => root.render(React.createElement(Probe, { ...base, ...props }))),
     empty: () => act(async () => root.render(null)),
     text: () => dom.window.document.querySelector('main').textContent,
@@ -147,6 +148,55 @@ test('repeated diff pane mounts leave no timer that can launch another backend r
   await view.visibility('hidden');
   await view.visibility('visible');
   assert.equal(calls, settledCalls);
+});
+
+test('an idle island re-reads after Git changes made outside a turn (project watch, focus)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  let calls = 0;
+  let notify;
+  const watched = [];
+  const view = harness(
+    t,
+    async () => {
+      calls += 1;
+      return { value: { supported: true, files: [], patch: `idle-${calls}` } };
+    },
+    {
+      folderWatch: async (path) => void watched.push(path),
+      folderUnwatch: async () => {},
+      subscribeFolderChanges: (listener) => {
+        notify = listener;
+        return () => {
+          notify = undefined;
+        };
+      },
+    }
+  );
+  const wait = (work) =>
+    act(async () => {
+      work();
+      for (let index = 0; index < 4; index += 1) {
+        t.mock.timers.tick(1_000);
+        await view.clock.settle();
+      }
+    });
+  const props = { sessionId: 'idle-git', busy: false, gitWatchPath: 'C:/repo' };
+  await view.render(props);
+  await wait(() => {});
+  const initial = calls;
+  assert.ok(initial >= 1);
+  assert.deepEqual(watched, ['C:/repo'], "the project is watched (Source Control's evidence)");
+
+  // A commit in a terminal touches .git: the recursive project watch fires.
+  await wait(() => notify('C:/repo'));
+  assert.equal(calls, initial + 1);
+  // Committing in another app, then coming back: focus re-reads.
+  await wait(() => view.win.dispatchEvent(new view.win.Event('focus')));
+  assert.equal(calls, initial + 2);
+
+  // A running turn's own cadence owns it: the watch is released.
+  await view.render({ ...props, busy: true });
+  assert.equal(notify, undefined);
 });
 
 test("a new session never presents the previous session's diff or an unconfirmed empty result", async (t) => {

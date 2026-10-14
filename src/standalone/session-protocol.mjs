@@ -143,6 +143,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'revertTurnReviewFile',
   'revertTurnChanges',
   'reapplyTurnChanges',
+  'clearSessionChangeHistory',
   'rewindToItem',
   'runDoctor',
   'runScheduleNow',

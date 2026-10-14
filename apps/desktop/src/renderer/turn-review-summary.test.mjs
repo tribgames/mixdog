@@ -50,6 +50,65 @@ test('tracker counts sent as files fill a collapsed bar without the patch', asyn
   assert.match(text, /-3/);
 });
 
+// A Git project's island counts the session's uncommitted files (against HEAD),
+// not the session-wide set; at zero it hides even while the session set has rows.
+test('the island segment counts uncommitted files and hides when none are left', async (t) => {
+  let uncommittedFiles = [{ path: 'b.ts', status: 'M', additions: 4, deletions: 1 }];
+  const { dom, root } = installReviewDom(t, {
+    desktop: {
+      invokeCapability: async ({ capability }) => ({
+        value:
+          capability === 'getSessionReviewDiff'
+            ? {
+                supported: true,
+                authoritative: true,
+                complete: true,
+                patch: '',
+                files: [
+                  { path: 'a.ts', status: 'M', additions: 9, deletions: 9 },
+                  { path: 'b.ts', status: 'M', additions: 6, deletions: 2 },
+                ],
+                uncommittedFiles,
+                historyTurns: 2,
+              }
+            : { supported: true, files: [], patch: '', agents: [] },
+      }),
+    },
+  });
+  const render = () =>
+    act(async () =>
+      root.render(
+        React.createElement(TurnReviewBar, {
+          variant: 'segment',
+          items: [],
+          sessionId: 'island-uncommitted',
+          active: true,
+          busy: false,
+          onOpenChanges() {},
+        })
+      )
+    );
+  const segment = () => dom.window.document.querySelector('.turn-review-segment');
+  await render();
+  assert.equal(segment()?.getAttribute('title'), 'Files 1');
+  assert.equal(segment().querySelector('.diff-stats').textContent, '+4 −1');
+  uncommittedFiles = [];
+  // A revision change (a commit lands with the next activity) re-reads.
+  await act(async () =>
+    root.render(
+      React.createElement(TurnReviewBar, {
+        variant: 'segment',
+        items: [{ kind: 'turndone', id: 'next' }],
+        sessionId: 'island-uncommitted',
+        active: true,
+        busy: false,
+        onOpenChanges() {},
+      })
+    )
+  );
+  assert.equal(segment(), null, 'nothing uncommitted: the segment hides');
+});
+
 // A phone's collapsed bar asks for files and counts only; opening it asks for
 // the patch text it is about to draw.
 test('a collapsed bar on a phone reads a summary, an opened one reads in full', async (t) => {

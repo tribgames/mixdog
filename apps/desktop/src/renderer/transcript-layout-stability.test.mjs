@@ -174,9 +174,11 @@ test('the island files segment appears only once the session diff read finds cha
       assert.match(segment().textContent, /^1 file\+1/, 'the count in words, singular for one file');
       assert.ok(segment().firstElementChild.classList.contains('composer-island-seg-icon'), 'the file glyph leads');
       assert.equal(segment().querySelector('.composer-island-seg-num').dataset.count, '1');
-      // No side dock here (no onOpenSessionDiff): the segment expands the
-      // island to the turn's file list in place, and Escape collapses it.
+      // No side dock here (no onOpenSessionDiff): the segment's View changes
+      // expands the island to the turn's file list in place, and Escape
+      // collapses it.
       await act(async () => segment().click());
+      await act(async () => document.querySelector('.turn-review-files-menu [role="menuitem"]').click());
       assert.equal(document.querySelector('.composer-island').dataset.expanded, 'files');
       const bar = document.querySelector('.composer-island-pill > .turn-review-bar');
       assert.equal(bar?.dataset.expanded, 'true');

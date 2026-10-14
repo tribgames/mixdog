@@ -4350,5 +4350,11 @@
   "Zoom options": "Tùy chọn thu phóng",
   "Zoom out": "Thu nhỏ",
   "Zoom Out": "Thu nhỏ",
-  "Zoom to {{value0}}%": "Thu phóng về {{value0}}%"
+  "Zoom to {{value0}}%": "Thu phóng về {{value0}}%",
+  "Island: View changes": "Xem thay đổi",
+  "Delete history": "Xóa lịch sử",
+  "Delete this session's change history?": "Xóa lịch sử thay đổi của phiên này?",
+  "Files menu": "Menu tệp",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged.": "Các thay đổi đã lưu và Hoàn tác/Áp dụng lại của {{count}} lượt sẽ bị xóa vĩnh viễn. Tệp hiện tại, cuộc trò chuyện và lịch sử Git vẫn giữ nguyên.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._other": "Các thay đổi đã lưu và Hoàn tác/Áp dụng lại của {{count}} lượt sẽ bị xóa vĩnh viễn. Tệp hiện tại, cuộc trò chuyện và lịch sử Git vẫn giữ nguyên."
 }

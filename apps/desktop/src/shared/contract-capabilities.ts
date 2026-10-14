@@ -88,6 +88,7 @@ export const DESKTOP_CAPABILITIES = [
   'getTurnChanges',
   'revertTurnChanges',
   'reapplyTurnChanges',
+  'clearSessionChangeHistory',
   'memoryControl',
   'recall',
   'runDoctor',

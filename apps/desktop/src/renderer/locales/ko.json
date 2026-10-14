@@ -4350,5 +4350,11 @@
   "Zoom options": "확대/축소 옵션",
   "Zoom out": "축소",
   "Zoom Out": "축소",
-  "Zoom to {{value0}}%": "{{value0}}%로"
+  "Zoom to {{value0}}%": "{{value0}}%로",
+  "Island: View changes": "변경 사항 보기",
+  "Delete history": "기록 삭제",
+  "Delete this session's change history?": "이 세션의 변경 기록을 삭제할까요?",
+  "Files menu": "파일 메뉴",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged.": "저장된 {{count}}개 턴의 변경 내역과 되돌리기·다시 적용이 영구 삭제됩니다. 현재 파일, 대화, Git 기록은 그대로입니다.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._other": "저장된 {{count}}개 턴의 변경 내역과 되돌리기·다시 적용이 영구 삭제됩니다. 현재 파일, 대화, Git 기록은 그대로입니다."
 }

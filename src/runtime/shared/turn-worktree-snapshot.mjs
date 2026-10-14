@@ -911,6 +911,36 @@ export async function resumeTurnWorktreeSnapshot(
   });
 }
 
+// Git's well-known empty tree: what an unborn HEAD (no commit yet) compares as.
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+/** The files among `paths` whose bytes in the snapshot's last capture still
+ *  differ from the source repository's current HEAD (staged or not), with
+ *  their counts against HEAD; no patch text. An ignored file that HEAD does
+ *  not hold is no uncommitted change and is left out. */
+export async function diffTurnWorktreeHead(snapshot, paths) {
+  const scope = [...new Set((paths || []).filter(Boolean))];
+  if (!snapshot?.state || !snapshot.currentTree || scope.length === 0) return [];
+  return await withStateLock(snapshot.state, async () => {
+    const { state } = snapshot;
+    const head = await runGit(['rev-parse', '--verify', '--quiet', 'HEAD^{tree}'], {
+      cwd: state.root,
+      allowFailure: true,
+    });
+    const headTree = head.code === 0 ? clean(head.stdout) : EMPTY_TREE;
+    const { files } = await diffTreesUnlocked(state, headTree, snapshot.currentTree, scope, { omitPatch: true });
+    const added = files.filter((file) => file.status === 'A').map((file) => file.path);
+    if (added.length === 0) return files;
+    const ignored = await runGit(['check-ignore', '-z', '--stdin'], {
+      cwd: state.root,
+      input: `${added.join('\0')}\0`,
+      allowFailure: true,
+    });
+    const skip = new Set(splitNulList(ignored.stdout).map(pathKey));
+    return files.filter((file) => file.status !== 'A' || !skip.has(pathKey(file.path)));
+  });
+}
+
 /** What a capture starting now has seen: the change stamp, the source index
  *  identity (commits, checkouts, staging) and the time. */
 async function captureMark(state) {

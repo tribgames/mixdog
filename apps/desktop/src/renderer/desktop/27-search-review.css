@@ -204,6 +204,37 @@
 .composer-island[data-expanded="files"] .composer-island-pill > :not(.turn-review-bar) {
   display: none;
 }
+/* The files segment's menu is an island tab like the Goal's: the island
+   expands upward in place into its panel (TurnReviewFilesMenu). */
+.composer-island[data-expanded="files-menu"] .composer-island-pill:not([hidden]) {
+  height: auto;
+  display: block;
+  padding: 0;
+}
+.composer-island[data-expanded="files-menu"] .composer-island-pill > :not(.turn-review-files-panel) {
+  display: none;
+}
+.turn-review-files-panel {
+  white-space: normal;
+}
+.turn-review-files-tab .diff-stats {
+  display: inline;
+}
+.turn-review-files-tab .diff-stats i {
+  color: var(--mx-success);
+  font-style: normal;
+}
+.turn-review-files-tab .diff-stats em {
+  color: var(--mx-danger);
+  font-style: normal;
+}
+.turn-review-files-menu {
+  display: grid;
+  padding: 6px;
+}
+.turn-review-files-menu > .mx-menu-item.danger {
+  color: var(--mx-danger);
+}
 .composer-island .turn-review-bar {
   background: transparent;
   box-shadow: none;

@@ -4470,5 +4470,13 @@
   "Zoom options": "Options de zoom",
   "Zoom out": "Zoom arrière",
   "Zoom Out": "Zoom arrière",
-  "Zoom to {{value0}}%": "Zoom à {{value0}} %"
+  "Zoom to {{value0}}%": "Zoom à {{value0}} %",
+  "Island: View changes": "Voir les modifications",
+  "Delete history": "Supprimer l'historique",
+  "Delete this session's change history?": "Supprimer l'historique des modifications de cette session ?",
+  "Files menu": "Menu des fichiers",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged.": "Les modifications conservées et Annuler/Réappliquer pour {{count}} tours seront définitivement supprimées. Les fichiers actuels, la conversation et l'historique Git restent inchangés.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._one": "Les modifications conservées et Annuler/Réappliquer pour {{count}} tour seront définitivement supprimées. Les fichiers actuels, la conversation et l'historique Git restent inchangés.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._many": "Les modifications conservées et Annuler/Réappliquer pour {{count}} tours seront définitivement supprimées. Les fichiers actuels, la conversation et l'historique Git restent inchangés.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._other": "Les modifications conservées et Annuler/Réappliquer pour {{count}} tours seront définitivement supprimées. Les fichiers actuels, la conversation et l'historique Git restent inchangés."
 }

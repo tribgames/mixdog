@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -7,11 +7,15 @@ import { storedChangeFile, turnChangesReply } from './turn-changes.mjs';
 import {
   _setTurnSnapshotStoreRootForTest,
   REMOVED_WORKTREE_CHANGE_REASON,
+  clearSessionChangeHistory,
+  forgetSessionChangeHistoryMarker,
   forgetTurnSnapshotRoot,
   loadSessionSnapshotRecords,
   loadTurnChangeRecord,
+  loadTurnChangeRecords,
   loadTurnSnapshotRecord,
   saveTurnSnapshotRecord,
+  sessionChangeHistoryCleared,
   updateTurnChangeRecord,
   upsertTurnChangeRecord,
 } from './turn-snapshot-store.mjs';
@@ -124,4 +128,82 @@ test("forgetTurnSnapshotRoot marks the removed root's change records unavailable
   // Idempotent: an already unavailable record is not rewritten again.
   assert.deepEqual(await forgetTurnSnapshotRoot(rootA), { removed: [], kept: [] });
   assert.equal((await loadTurnChangeRecord('c1', 'cp-a')).revision, before.revision + 1);
+});
+
+test("clearSessionChangeHistory deletes only that session's baselines and change records, and is marked", async () => {
+  const file = storedChangeFile({ path: 'f.txt', status: 'M', additions: 1, deletions: 0, revertable: false });
+  for (const sessionId of ['h1', 'h2']) {
+    await saveTurnSnapshotRecord(sessionId, turn(rootA, 1, 'd'.repeat(40)));
+    await upsertTurnChangeRecord(sessionId, { checkpointId: 'cp-1', kind: 'git', root: rootA, files: [file] });
+    await upsertTurnChangeRecord(sessionId, { checkpointId: 'cp-2', kind: 'git', root: rootA, files: [file] });
+  }
+  assert.equal(await sessionChangeHistoryCleared('h1'), false);
+
+  assert.equal(await clearSessionChangeHistory('h1'), 2);
+  assert.deepEqual(await loadSessionSnapshotRecords('h1'), []);
+  assert.equal(await loadTurnSnapshotRecord('h1'), null);
+  assert.deepEqual(await loadTurnChangeRecords('h1'), []);
+  assert.equal(await loadTurnChangeRecord('h1', 'cp-1'), null);
+  assert.equal(await sessionChangeHistoryCleared('h1'), true);
+  // Another session keeps everything.
+  assert.equal((await loadSessionSnapshotRecords('h2')).length, 1);
+  assert.equal((await loadTurnChangeRecords('h2')).length, 2);
+  assert.equal(await sessionChangeHistoryCleared('h2'), false);
+
+  // The next recorded turn starts a fresh scope and ends the cleared state.
+  await saveTurnSnapshotRecord('h1', turn(rootB, 1, 'e'.repeat(40)));
+  assert.deepEqual(
+    (await loadSessionSnapshotRecords('h1')).map((scope) => scope.root),
+    [rootB]
+  );
+  assert.equal(await sessionChangeHistoryCleared('h1'), false);
+});
+
+test('a deletion marker outlives record retention and goes only with the session', async () => {
+  const root = join(dir, 'retention');
+  _setTurnSnapshotStoreRootForTest(root);
+  try {
+    await saveTurnSnapshotRecord('r1', turn(rootA, 1, 'f'.repeat(40)));
+    await clearSessionChangeHistory('r1');
+    // Everything in the store ages past the 7-day record TTL.
+    const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const age = (path) => {
+      for (const entry of readdirSync(path, { withFileTypes: true })) {
+        const full = join(path, entry.name);
+        if (entry.isDirectory()) age(full);
+        else utimesSync(full, old, old);
+      }
+    };
+    await saveTurnSnapshotRecord('stale', turn(rootA, 1, '1'.repeat(40)));
+    age(root);
+    // The next write runs the (once per process) record sweep; it reaps the
+    // stale record but never the deletion marker.
+    _setTurnSnapshotStoreRootForTest(root);
+    await saveTurnSnapshotRecord('fresh', turn(rootA, 1, '2'.repeat(40)));
+    for (let tries = 0; tries < 100 && (await loadTurnSnapshotRecord('stale')); tries += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(await loadTurnSnapshotRecord('stale'), null, 'the sweep ran');
+    assert.equal(await sessionChangeHistoryCleared('r1'), true);
+
+    // Deleting the session removes it.
+    await forgetSessionChangeHistoryMarker('r1');
+    assert.equal(await sessionChangeHistoryCleared('r1'), false);
+  } finally {
+    _setTurnSnapshotStoreRootForTest(dir);
+  }
+});
+
+test('any new turn change record ends the cleared state, a non-Git one too', async () => {
+  const file = storedChangeFile({ path: 'f.txt', status: 'M', additions: 1, deletions: 0, revertable: false });
+  await upsertTurnChangeRecord('n1', { checkpointId: 'cp-1', kind: 'tracked', root: rootA, files: [file] });
+  await clearSessionChangeHistory('n1');
+  assert.equal(await sessionChangeHistoryCleared('n1'), true);
+  // A non-Git turn writes no baseline, only its change record.
+  await upsertTurnChangeRecord('n1', { checkpointId: 'cp-2', kind: 'tracked', root: rootA, files: [file] });
+  assert.equal(await sessionChangeHistoryCleared('n1'), false);
+  assert.deepEqual(
+    (await loadTurnChangeRecords('n1')).map((record) => record.checkpointId),
+    ['cp-2']
+  );
 });

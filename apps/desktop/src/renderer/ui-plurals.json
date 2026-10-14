@@ -54,5 +54,6 @@
   "Imported {{count}} conversations": "Imported {{count}} conversation",
   "Skipped {{count}} already imported": "Skipped {{count}} already imported",
   "{{count}} could not be imported": "{{count}} could not be imported",
-  "Import {{count}}": "Import {{count}}"
+  "Import {{count}}": "Import {{count}}",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged.": "Retained changes and Undo/Reapply for {{count}} turn will be permanently removed. Current files, conversation and Git history stay unchanged."
 }

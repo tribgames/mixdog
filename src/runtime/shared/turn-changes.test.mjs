@@ -30,6 +30,7 @@ const snapshotModule = await import('./turn-snapshot.mjs');
 const {
   _resetTurnSnapshotForTest,
   beginTurnSnapshot,
+  clearSessionChangeHistory,
   completeTurnSnapshot,
   getSessionReviewDiff,
   getTurnChanges,
@@ -487,6 +488,27 @@ test('the session review lists a non-Git session from its records, outside files
   assert.deepEqual(restarted.files.map((file) => file.path).sort(), turn.files.map((file) => file.path).sort());
 });
 
+test('a non-Git session review lists its workers’ edits beside the Lead’s, after a restart too', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const { beginAgentTurnReview, completeAgentTurnReview } = snapshotModule;
+  const lead = 'review-with-worker';
+  const root = sessionRoot(lead);
+  writeFileSync(join(root, 'lead.txt'), 'lead\n');
+  writeFileSync(join(root, 'worker.txt'), 'worker\n');
+  const token = await beginTurnSnapshot(root, lead, { checkpointId: 'cp' });
+  const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
+  // The worker runs its own session turn, which records its own change.
+  await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'worker.txt', before: null, after: 'worker\n' }]);
+  completeAgentTurnReview(worker);
+  recordTurnDiffChanges(lead, [{ path: join(root, 'lead.txt'), displayPath: 'lead.txt', before: null, after: 'lead\n' }]);
+  await completeTurnSnapshot(lead, token);
+  const [live, restarted] = await reviewTwice(root, lead);
+  assert.deepEqual(live.files.map((file) => file.path).sort(), ['lead.txt', 'worker.txt']);
+  assert.deepEqual(reviewShape(live), reviewShape(restarted));
+});
+
 test('session review nets turns: create then delete leaves nothing, edits across turns are one diff', {
   skip,
 }, async () => {
@@ -880,4 +902,162 @@ test('a file under a parent junction is not read, nor is NUL content diffed as t
   const file = trackedChangeFile({ oldPath: 'bin.dat', newPath: 'bin.dat', before: null, after: Buffer.from('a\0b') });
   assert.equal(file.binary, true);
   assert.equal(file.revertable, false);
+});
+
+// ── Island count (uncommitted vs HEAD) and Delete history ──────────────────
+
+function git(cwd, ...args) {
+  const result = spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], {
+    cwd,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout;
+}
+
+/** A committed repository holding `files`. */
+function gitRepo(name, files) {
+  const repo = join(base, `repo-${name}`);
+  mkdirSync(repo, { recursive: true });
+  git(repo, 'init', '-q');
+  git(repo, 'config', 'core.autocrlf', 'false');
+  writeTree(repo, files);
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'seed');
+  return realpathSync.native(repo);
+}
+
+/** One sealed Git turn that writes `edits` while it runs. */
+async function gitTurn(repo, sessionId, checkpointId, edits) {
+  await beginTurnSnapshot(repo, sessionId, { checkpointId });
+  writeTree(repo, edits);
+  await completeTurnSnapshot(sessionId);
+}
+
+const islandShape = (review) =>
+  (review.uncommittedFiles || []).map((file) => [file.path, file.status, file.additions, file.deletions]);
+const gitState = (repo) => [git(repo, 'rev-parse', 'HEAD'), git(repo, 'status', '--porcelain'), git(repo, 'diff', '--cached')];
+
+test('the island counts only session files still differing from HEAD; the session review keeps them all', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'island-head';
+  const repo = gitRepo(sessionId, { 'a.txt': 'a\n', 'b.txt': 'b\n', 'user.txt': 'u\n' });
+  // Dirty before the session touched anything: never the session's.
+  writeTree(repo, { 'user.txt': 'user edit\n' });
+  await gitTurn(repo, sessionId, 'cp', { 'a.txt': 'a\nA2\n', 'b.txt': 'b\nB2\nB3\n', 'new.txt': 'n\n' });
+  let review = await getSessionReviewDiff(repo, sessionId);
+  assert.deepEqual(islandShape(review), [
+    ['a.txt', 'M', 1, 0],
+    ['b.txt', 'M', 2, 0],
+    ['new.txt', 'A', 1, 0],
+  ]);
+  assert.equal(review.historyTurns, 1);
+
+  // Committing a file removes it; staging alone does not.
+  git(repo, 'add', 'a.txt', 'new.txt');
+  git(repo, 'commit', '-qm', 'take a');
+  git(repo, 'add', 'b.txt');
+  review = await getSessionReviewDiff(repo, sessionId);
+  assert.deepEqual(islandShape(review), [['b.txt', 'M', 2, 0]]);
+  // The Changes panel's session-wide set is unchanged by the commit.
+  assert.deepEqual(review.files.map((file) => file.path).sort(), ['a.txt', 'b.txt', 'new.txt']);
+
+  // A file returned to its HEAD bytes disappears, across a restart too.
+  writeTree(repo, { 'b.txt': 'b\n' });
+  _resetTurnSnapshotForTest();
+  review = await getSessionReviewDiff(repo, sessionId);
+  assert.deepEqual(islandShape(review), []);
+  assert.equal(review.complete, true);
+});
+
+test('a non-Git session keeps its session-based count (no HEAD set)', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'island-plain';
+  const root = await plainTurn(sessionId, { 'a.txt': 'a\n' }, { 'a.txt': 'A\n' });
+  const review = await getSessionReviewDiff(root, sessionId);
+  assert.equal(review.uncommittedFiles, undefined);
+  assert.deepEqual(reviewShape(review), [['a.txt', '', 'M', 1, 1]]);
+});
+
+test('Delete history empties the records for good, never touches files or Git, and tracks later edits', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delete-history';
+  const repo = gitRepo(sessionId, { 'a.txt': 'a\n', 'c.txt': 'c\n' });
+  await gitTurn(repo, sessionId, 'cp-1', { 'a.txt': 'a\nA2\n' });
+  await gitTurn(repo, sessionId, 'cp-2', { 'a.txt': 'a\nA2\nA3\n' });
+  assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp-2' })).status, 'ready');
+  const before = gitState(repo);
+  const disk = readTree(repo, ['a.txt', 'c.txt']);
+
+  // Refused while a turn runs.
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-busy' });
+  await assert.rejects(clearSessionChangeHistory(sessionId), /running a turn/);
+  await completeTurnSnapshot(sessionId);
+
+  assert.deepEqual(await clearSessionChangeHistory(sessionId), { turns: 3 });
+  assert.deepEqual(gitState(repo), before, 'HEAD, index and status are untouched');
+  assert.deepEqual(readTree(repo, ['a.txt', 'c.txt']), disk, 'files are untouched');
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const review = await getSessionReviewDiff(repo, sessionId);
+    // Complete and empty: nothing (the transcript included) may resurface it.
+    assert.deepEqual([review.files, review.complete, review.historyTurns], [[], true, 0]);
+    assert.deepEqual(islandShape(review), []);
+    assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp-1' })).status, 'missing');
+    assert.deepEqual((await getTurnReviewDiff(repo, sessionId)).files, []);
+  }
+
+  // Edits from the next turn on are tracked again; the old ones stay forgotten.
+  await gitTurn(repo, sessionId, 'cp-3', { 'c.txt': 'c\nC2\n' });
+  const review = await getSessionReviewDiff(repo, sessionId);
+  assert.deepEqual(review.files.map((file) => file.path), ['c.txt']);
+  assert.deepEqual(islandShape(review), [['c.txt', 'M', 1, 0]]);
+  assert.equal(review.historyTurns, 1);
+});
+
+test('a worker finishing while history is being deleted cannot write the old turn back', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const { beginAgentTurnReview, completeAgentTurnReview } = snapshotModule;
+  const sessionId = 'delete-history-race';
+  const repo = gitRepo(sessionId, { 'a.txt': 'a\n', 'w.txt': 'w\n' });
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-old' });
+  const worker = beginAgentTurnReview(sessionId, `${sessionId}-worker`, { agent: 'worker' });
+  writeTree(repo, { 'a.txt': 'a\nA2\n' });
+  await completeTurnSnapshot(sessionId);
+  assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp-old' })).status, 'ready');
+
+  // The deletion starts; before it lands the late worker completes and
+  // queues a re-seal of the old turn with its tracker.
+  const clearing = clearSessionChangeHistory(sessionId);
+  writeTree(repo, { 'w.txt': 'w\nW2\n' });
+  completeAgentTurnReview(worker, ['diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1 +1,2 @@\n w\n+W2\n']);
+  assert.deepEqual(await clearing, { turns: 1 });
+  // Drain the session's change lock: anything queued behind the delete has run.
+  await revertTurnChanges(sessionId, 'drain', null, 1).catch(() => {});
+
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp-old' })).status, 'missing');
+    const review = await getSessionReviewDiff(repo, sessionId);
+    assert.deepEqual([review.files, review.complete, review.historyTurns], [[], true, 0]);
+  }
+});
+
+test('Delete history of a non-Git session stays empty after a restart', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delete-history-plain';
+  const root = await plainTurn(sessionId, { 'a.txt': 'a\n' }, { 'a.txt': 'A\n' });
+  assert.deepEqual(await clearSessionChangeHistory(sessionId), { turns: 1 });
+  _resetTurnSnapshotForTest();
+  const review = await getSessionReviewDiff(root, sessionId);
+  assert.deepEqual([review.files, review.complete], [[], true]);
+  assert.deepEqual(readTree(root, ['a.txt']), { 'a.txt': 'A\n' });
+  await trackedTurn(sessionId, root, 'cp-next', [{ path: 'b.txt', before: null, after: 'b\n' }]);
+  writeTree(root, { 'b.txt': 'b\n' });
+  assert.deepEqual(reviewShape(await getSessionReviewDiff(root, sessionId)), [['b.txt', '', 'A', 1, 0]]);
 });

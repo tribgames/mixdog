@@ -4410,5 +4410,12 @@
   "Zoom options": "Zoom-Optionen",
   "Zoom out": "Verkleinern",
   "Zoom Out": "Herauszoomen",
-  "Zoom to {{value0}}%": "Auf {{value0}}% zoomen"
+  "Zoom to {{value0}}%": "Auf {{value0}}% zoomen",
+  "Island: View changes": "Änderungen anzeigen",
+  "Delete history": "Verlauf löschen",
+  "Delete this session's change history?": "Änderungsverlauf dieser Sitzung löschen?",
+  "Files menu": "Dateimenü",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged.": "Gespeicherte Änderungen und Rückgängig/Erneut anwenden für {{count}} Runden werden dauerhaft entfernt. Aktuelle Dateien, Unterhaltung und Git-Verlauf bleiben unverändert.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._one": "Gespeicherte Änderungen und Rückgängig/Erneut anwenden für {{count}} Runde werden dauerhaft entfernt. Aktuelle Dateien, Unterhaltung und Git-Verlauf bleiben unverändert.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._other": "Gespeicherte Änderungen und Rückgängig/Erneut anwenden für {{count}} Runden werden dauerhaft entfernt. Aktuelle Dateien, Unterhaltung und Git-Verlauf bleiben unverändert."
 }

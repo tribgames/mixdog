@@ -4350,5 +4350,11 @@
   "Zoom options": "缩放选项",
   "Zoom out": "缩小",
   "Zoom Out": "缩小",
-  "Zoom to {{value0}}%": "缩放到 {{value0}}%"
+  "Zoom to {{value0}}%": "缩放到 {{value0}}%",
+  "Island: View changes": "查看更改",
+  "Delete history": "删除历史",
+  "Delete this session's change history?": "删除此会话的更改历史？",
+  "Files menu": "文件菜单",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged.": "将永久删除已保留的 {{count}} 个轮次的更改以及撤销/重新应用。当前文件、对话和 Git 历史保持不变。",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._other": "将永久删除已保留的 {{count}} 个轮次的更改以及撤销/重新应用。当前文件、对话和 Git 历史保持不变。"
 }

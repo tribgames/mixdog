@@ -4,6 +4,7 @@ import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import {
   _resetTurnWorktreeSnapshotsForTest,
   createTurnWorktreeSnapshot,
+  diffTurnWorktreeHead,
   freezeTurnWorktreeChanges,
   noteTurnWorktreeChange,
   refreshTurnWorktreeSnapshot,
@@ -14,11 +15,13 @@ import {
   revertTurnWorktreeSnapshot,
 } from './turn-worktree-snapshot.mjs';
 import {
+  clearSessionChangeHistory as clearStoredChangeHistory,
   loadSessionSnapshotRecords,
   loadTurnChangeRecord,
   loadTurnChangeRecords,
   loadTurnSnapshotRecord,
   saveTurnSnapshotRecord,
+  sessionChangeHistoryCleared,
   updateTurnChangeRecord,
   upsertTurnChangeRecord,
 } from './turn-snapshot-store.mjs';
@@ -735,11 +738,15 @@ export function completeAgentTurnReview(handle, patches = []) {
   const tracker = _diffTrackersBySession.get(key);
   const matchingTracker =
     tracker && tracker.ownerSessionId === clean(handle.ownerSessionId) && tracker.ownerGeneration === handle.generation;
+  // A worker that runs its own session turn replaces the bound tracker with
+  // its turn's own one (no owner). beginAgentTurnReview reset any older
+  // tracker, so an unowned one here holds this execution's edits.
+  const source = matchingTracker || (tracker && !tracker.ownerSessionId) ? tracker : null;
   try {
     if (!turn || turn.generation !== handle.generation) return false;
     const prior = turn.agents.get(key);
-    const tracked = matchingTracker && tracker.revision > 0;
-    const patch = tracked ? tracker.unifiedDiff : mergePatches(patches);
+    const tracked = Boolean(source) && source.revision > 0;
+    const patch = tracked ? source.unifiedDiff : mergePatches(patches);
     if (!patch) {
       if (tracked && prior) {
         turn.agents.delete(key);
@@ -755,8 +762,8 @@ export function completeAgentTurnReview(handle, patches = []) {
       patch: tracked ? patch : mergePatches([prior?.patch, patch]),
     });
     const ownerTracker = _diffTrackersBySession.get(clean(handle.ownerSessionId));
-    if (matchingTracker && ownerTracker && ownerTracker !== tracker) {
-      for (const path of tracker.ownedPaths) ownerTracker.ownedPaths.add(path);
+    if (source && ownerTracker && ownerTracker !== source) {
+      for (const path of source.ownedPaths) ownerTracker.ownedPaths.add(path);
     }
     trimAgentReviews(turn);
     // A worker that finishes after its Lead turn sealed re-seals that turn's
@@ -780,7 +787,7 @@ export function completeAgentTurnReview(handle, patches = []) {
  *  are precisely the attribution that contention destroys. */
 async function persistTurnSnapshotRecord(ownerSessionId, tracker) {
   const snapshot = tracker?.worktreeSnapshot;
-  if (!ownerSessionId || !snapshot?.baselineTree || !snapshot.root) return;
+  if (!ownerSessionId || tracker.discarded || !snapshot?.baselineTree || !snapshot.root) return;
   const owned = [...sessionAttributedPaths(snapshot.root, tracker)];
   if (owned.length === 0) return;
   try {
@@ -937,6 +944,8 @@ const pendingFreezeKey = (ownerSessionId, checkpointId) => `${ownerSessionId}\0$
  * re-freezes a turn that is still sealed.
  */
 function sealTurn(ownerSessionId, tracker, { reseal = false } = {}) {
+  // Its history was deleted (clearSessionChangeHistory): never written again.
+  if (tracker.discarded) return Promise.resolve();
   if (tracker.freezing) {
     if (reseal) return tracker.freezing;
     return tracker.freezing.then(() => (tracker.sealed ? undefined : sealTurn(ownerSessionId, tracker)));
@@ -953,11 +962,11 @@ function sealTurn(ownerSessionId, tracker, { reseal = false } = {}) {
         // Best-effort refresh: seal with the last captured worktree state.
       }
     }
-    if (tracker.sealEpoch !== epoch || (reseal && !tracker.sealed)) return;
+    if (tracker.discarded || tracker.sealEpoch !== epoch || (reseal && !tracker.sealed)) return;
     tracker.sealed = true;
     await persistTurnSnapshotRecord(ownerSessionId, tracker);
     try {
-      await freezeTurnChanges(ownerSessionId, tracker, agents);
+      if (!tracker.discarded) await freezeTurnChanges(ownerSessionId, tracker, agents);
     } catch {
       /* the change record adds Undo history; it never fails a turn */
     }
@@ -1168,7 +1177,27 @@ export async function getSessionReviewDiff(worktree, sessionId) {
   // mtime-keyed cache.
   const records = await loadTurnChangeRecords(ownerSessionId).catch(() => []);
   const live = review.source === 'git' ? null : liveTrackedRecord(_diffTrackersBySession.get(ownerSessionId));
-  return mergeRecordedSessionChanges(review, records, live);
+  const merged = await mergeRecordedSessionChanges(review, await withWorkerRecords(records), live);
+  // `historyTurns`: the retained turn records clearSessionChangeHistory deletes.
+  return { ...merged, historyTurns: records.length };
+}
+
+/** The session's records with each attributed worker's own turn records
+ *  placed after the Lead turn that launched it, so the session review lists
+ *  the workers' edits too (a non-Git Lead record holds only its own). */
+async function withWorkerRecords(records) {
+  const merged = [];
+  const seen = new Set();
+  for (const record of records) {
+    merged.push(record);
+    for (const agent of record?.agents || []) {
+      const workerId = clean(agent?.sessionId);
+      if (!workerId || seen.has(workerId)) continue;
+      seen.add(workerId);
+      merged.push(...(await loadTurnChangeRecords(workerId).catch(() => [])));
+    }
+  }
+  return merged;
 }
 
 const LIVE_RECORD_TTL_MS = 1000;
@@ -1211,8 +1240,9 @@ async function baselineSessionReviewDiff(worktree, ownerSessionId) {
   for (const path of sessionAttributedPaths(root, tracker)) ownedPaths.add(path);
   if (ownedPaths.size === 0) {
     // Authoritatively empty only when the session left ownership metadata
-    // behind (a stored scope or a live tracker); with neither, the retained
-    // change records are the only memory of what it changed.
+    // behind (a stored scope, a live tracker, or a deleted history); with
+    // none, the retained change records are the only memory of what it changed.
+    const known = Boolean(stored || tracker) || (await sessionChangeHistoryCleared(ownerSessionId).catch(() => false));
     return {
       supported: true,
       root,
@@ -1220,7 +1250,7 @@ async function baselineSessionReviewDiff(worktree, ownerSessionId) {
       patch: '',
       snapshotKind: 'session',
       authoritative: true,
-      source: stored || tracker ? 'empty' : 'absent',
+      source: known ? 'empty' : 'absent',
     };
   }
   const baselineTree = stored?.baselineTree || tracker?.worktreeSnapshot?.baselineTree;
@@ -1235,6 +1265,9 @@ async function baselineSessionReviewDiff(worktree, ownerSessionId) {
       baselineFiles: [...baselineFiles.values()],
     }).catch(() => null);
     if (snapshot) {
+      // The island counts only what is still uncommitted: the owned files
+      // that differ from HEAD now, measured against HEAD.
+      const uncommittedFiles = await diffTurnWorktreeHead(snapshot, [...ownedPaths]).catch(() => null);
       return {
         supported: true,
         root,
@@ -1244,6 +1277,7 @@ async function baselineSessionReviewDiff(worktree, ownerSessionId) {
         snapshotKind: 'session',
         authoritative: true,
         source: 'git',
+        ...(uncommittedFiles ? { uncommittedFiles } : {}),
       };
     }
   }
@@ -1623,6 +1657,40 @@ export function revertTurnChanges(sessionId, checkpointId, file, revision) {
 /** Forward-apply one reverted file (`file`) or every reverted file (`null`). */
 export function reapplyTurnChanges(sessionId, checkpointId, file, revision) {
   return mutateTurnChanges(sessionId, checkpointId, file, revision, false);
+}
+
+/** Permanently delete this session's retained change history — every turn's
+ *  change record (patches, file metadata, applied/reverted state), its stored
+ *  Git baselines, and the live and latest-turn trackers that would resurface
+ *  them — so its reviews answer empty, across a restart too. Edits from the
+ *  next turn on are tracked again. Refused while a turn runs or seals; on the
+ *  per-session lock, behind any Undo/Reapply. Files, the Git index, commits
+ *  and the conversation are never touched. Resolves to `{ turns }`, the
+ *  number of turn records deleted. */
+export async function clearSessionChangeHistory(sessionId) {
+  const ownerSessionId = clean(sessionId);
+  if (!ownerSessionId) throw new Error('change history is unavailable without a session');
+  return await serializeChangeMutation(ownerSessionId, async () => {
+    if (sessionTurnBusy(ownerSessionId)) {
+      throw new Error('change history cannot be deleted while this session is running a turn');
+    }
+    // Invalidate every producer of the old history BEFORE the awaited
+    // deletion: a worker finishing meanwhile finds no turn to fold into, and
+    // a re-seal it (or anything earlier) already queued finds its tracker
+    // discarded, so nothing begun before the delete can write it back.
+    for (const [trackedSessionId, tracker] of _diffTrackersBySession) {
+      if (trackedSessionId !== ownerSessionId && tracker.ownerSessionId !== ownerSessionId) continue;
+      tracker.discarded = true;
+      tracker.resealQueued = false;
+      releaseDiffTrackerContent(tracker);
+      _diffTrackersBySession.delete(trackedSessionId);
+    }
+    _turnsBySession.delete(ownerSessionId);
+    for (const key of _unknownChangeStates.keys()) {
+      if (key.startsWith(`${ownerSessionId}\0`)) _unknownChangeStates.delete(key);
+    }
+    return { turns: await clearStoredChangeHistory(ownerSessionId) };
+  });
 }
 
 export function _resetTurnSnapshotForTest() {

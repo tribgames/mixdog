@@ -4468,5 +4468,13 @@
   "Zoom options": "Opciones de zoom",
   "Zoom out": "Alejar",
   "Zoom Out": "Alejar",
-  "Zoom to {{value0}}%": "Zoom al {{value0}}%"
+  "Zoom to {{value0}}%": "Zoom al {{value0}}%",
+  "Island: View changes": "Ver cambios",
+  "Delete history": "Eliminar historial",
+  "Delete this session's change history?": "¿Eliminar el historial de cambios de esta sesión?",
+  "Files menu": "Menú de archivos",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged.": "Se eliminarán de forma permanente los cambios guardados y Deshacer/Volver a aplicar de {{count}} turnos. Los archivos actuales, la conversación y el historial de Git no cambian.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._one": "Se eliminarán de forma permanente los cambios guardados y Deshacer/Volver a aplicar de {{count}} turno. Los archivos actuales, la conversación y el historial de Git no cambian.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._many": "Se eliminarán de forma permanente los cambios guardados y Deshacer/Volver a aplicar de {{count}} turnos. Los archivos actuales, la conversación y el historial de Git no cambian.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._other": "Se eliminarán de forma permanente los cambios guardados y Deshacer/Volver a aplicar de {{count}} turnos. Los archivos actuales, la conversación y el historial de Git no cambian."
 }

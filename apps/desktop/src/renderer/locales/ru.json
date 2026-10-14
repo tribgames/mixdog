@@ -4530,5 +4530,14 @@
   "Zoom options": "Параметры масштаба",
   "Zoom out": "Уменьшить",
   "Zoom Out": "Уменьшить масштаб",
-  "Zoom to {{value0}}%": "Масштаб {{value0}}%"
+  "Zoom to {{value0}}%": "Масштаб {{value0}}%",
+  "Island: View changes": "Просмотреть изменения",
+  "Delete history": "Удалить историю",
+  "Delete this session's change history?": "Удалить историю изменений этого сеанса?",
+  "Files menu": "Меню файлов",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged.": "Сохранённые изменения и отмена/повторное применение для {{count}} хода будут удалены безвозвратно. Текущие файлы, беседа и история Git останутся без изменений.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._one": "Сохранённые изменения и отмена/повторное применение для {{count}} хода будут удалены безвозвратно. Текущие файлы, беседа и история Git останутся без изменений.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._few": "Сохранённые изменения и отмена/повторное применение для {{count}} ходов будут удалены безвозвратно. Текущие файлы, беседа и история Git останутся без изменений.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._many": "Сохранённые изменения и отмена/повторное применение для {{count}} ходов будут удалены безвозвратно. Текущие файлы, беседа и история Git останутся без изменений.",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._other": "Сохранённые изменения и отмена/повторное применение для {{count}} хода будут удалены безвозвратно. Текущие файлы, беседа и история Git останутся без изменений."
 }

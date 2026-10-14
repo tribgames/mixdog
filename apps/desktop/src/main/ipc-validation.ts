@@ -396,6 +396,7 @@ const CAPABILITY_ARITY = {
   getTurnChanges: [1, 1],
   revertTurnChanges: [3, 3],
   reapplyTurnChanges: [3, 3],
+  clearSessionChangeHistory: [0, 0],
   getOnboardingStatus: [0, 0],
   skipOnboarding: [0, 0],
   completeOnboarding: [0, 1],

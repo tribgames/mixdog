@@ -231,6 +231,7 @@ export async function saveTurnSnapshotRecord(sessionId, turn) {
           .map(serializeScope),
       };
       await writeJsonAtomically(path, payload);
+      await endClearedHistory(id);
       return true;
     } catch {
       return false;
@@ -266,6 +267,69 @@ export async function loadSessionSnapshotRecords(sessionId) {
   const record = await readRecordFile(recordPath(id));
   if (!record) return [];
   return sessionScopes(record).map(serializeScope);
+}
+
+/**
+ * Permanently delete one session's retained change history: its turn
+ * baselines and session scopes, and every per-turn change record (stored
+ * patches, file metadata, applied/reverted state). The baseline index keeps a
+ * `historyCleared` marker so the session review answers an authoritative
+ * empty set instead of falling back to older sources; the next recorded turn
+ * starts a fresh scope. Each half is serialized with the other writes of its
+ * file. Resolves to the number of turn change records deleted.
+ */
+export async function clearSessionChangeHistory(sessionId) {
+  const id = clean(sessionId);
+  if (!id) return 0;
+  await chain(id, async () => {
+    // The marker lands before the records go: a failure in between leaves
+    // the session answering empty, never resurrecting what was asked gone.
+    await mkdir(clearedRoot(), { recursive: true });
+    await writeJsonAtomically(clearedPath(id), { version: RECORD_VERSION, sessionId: id, clearedAt: Date.now() });
+    await rm(recordPath(id), { force: true });
+  });
+  return await chain(`changes:${id}`, async () => {
+    const records = (await readChangesFile(id))?.records || [];
+    await rm(changesPath(id), { force: true });
+    changeRecordsCache.delete(id);
+    return records.length;
+  });
+}
+
+// "History deleted" markers live in their own directory: neither record
+// sweep (age or count) reaches it, so a deletion stays in force for as long
+// as the session exists. The next recorded turn ends it, and deleting the
+// session removes it (forgetSessionChangeHistoryMarker).
+function clearedRoot() {
+  return join(recordRoot(), 'cleared');
+}
+
+function clearedPath(sessionId) {
+  const hash = createHash('sha256').update(sessionId).digest('hex').slice(0, 24);
+  return join(clearedRoot(), `${hash}.json`);
+}
+
+/** End the cleared state: a new turn record of the session was written. */
+async function endClearedHistory(sessionId) {
+  await rm(clearedPath(sessionId), { force: true });
+}
+
+/** The session's history was deleted and no turn has been recorded since. */
+export async function sessionChangeHistoryCleared(sessionId) {
+  const id = clean(sessionId);
+  if (!id) return false;
+  try {
+    return JSON.parse(await readFile(clearedPath(id), 'utf8'))?.sessionId === id;
+  } catch {
+    return false;
+  }
+}
+
+/** The session itself was deleted: its history marker goes with it. */
+export async function forgetSessionChangeHistoryMarker(sessionId) {
+  const id = clean(sessionId);
+  if (!id) return;
+  await chain(id, () => rm(clearedPath(id), { force: true })).catch(() => {});
 }
 
 // Absolute, slash-normalized and (on Windows) case-folded: equal for every
@@ -520,6 +584,8 @@ export async function upsertTurnChangeRecord(sessionId, next) {
     else records.push(record);
     boundChangeRecords(records, checkpointId);
     await writeChangeRecords(id, records);
+    // Any new turn record (Git or not) starts the history again.
+    await endClearedHistory(id);
     return records.find((entry) => entry.checkpointId === checkpointId) || null;
   });
 }

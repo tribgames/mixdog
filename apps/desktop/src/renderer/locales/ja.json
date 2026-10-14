@@ -4350,5 +4350,11 @@
   "Zoom options": "ズームオプション",
   "Zoom out": "縮小",
   "Zoom Out": "ズームアウト",
-  "Zoom to {{value0}}%": "{{value0}}%にする"
+  "Zoom to {{value0}}%": "{{value0}}%にする",
+  "Island: View changes": "変更を表示",
+  "Delete history": "履歴を削除",
+  "Delete this session's change history?": "このセッションの変更履歴を削除しますか？",
+  "Files menu": "ファイルメニュー",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged.": "保持されている {{count}} ターン分の変更内容と「元に戻す」・「再適用」が完全に削除されます。現在のファイル、会話、Git 履歴はそのまま残ります。",
+  "Retained changes and Undo/Reapply for {{count}} turns will be permanently removed. Current files, conversation and Git history stay unchanged._other": "保持されている {{count}} ターン分の変更内容と「元に戻す」・「再適用」が完全に削除されます。現在のファイル、会話、Git 履歴はそのまま残ります。"
 }

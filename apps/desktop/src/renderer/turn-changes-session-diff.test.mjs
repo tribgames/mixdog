@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { SessionDiffPane } from './SessionDiffPane.tsx';
 import { requestSessionDiffFile, requestSessionDiffList } from './session-diff-focus.ts';
+import { bumpTurnChangesEpoch } from './turn-changes-model.ts';
 
 const h = React.createElement;
 const patchFor = (path) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+b\n`;
@@ -170,6 +171,18 @@ test('a list request (island files segment) shows every file from the top', asyn
   await view.settle();
   assert.deepEqual(sectionPaths(view), ['src/a.ts', 'src/b.ts']);
   assert.equal(view.q('.session-diff-stack').scrollTop, 0);
+});
+test('an open Changes pane re-reads when the history is deleted and empties', async (t) => {
+  const paths = ['src/a.ts', 'src/b.ts'];
+  const view = await mountPane(t, 'sd-cleared', paths);
+  assert.deepEqual(sectionPaths(view), ['src/a.ts', 'src/b.ts']);
+  const reads = view.reads.length;
+  // Delete history landed in the runtime; the island bumps the session's epoch.
+  paths.length = 0;
+  await act(async () => bumpTurnChangesEpoch('sd-cleared'));
+  await view.settle();
+  assert.ok(view.reads.length > reads, 'the pane re-read the session diff');
+  assert.deepEqual(sectionPaths(view), []);
 });
 test('a requested file that left the session diff shows a notice, not another file', async (t) => {
   const view = await mountPane(t, 'sd-missing', ['src/a.ts', 'src/b.ts']);

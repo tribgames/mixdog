@@ -561,3 +561,150 @@ test('the shared poll runs once for all subscribers, pauses while hidden and ref
   off2();
   assert.equal(timers.size, 0);
 });
+
+test('the files segment opens a menu: View changes opens Changes, Delete history confirms first', async (t) => {
+  const { root, document, window } = mount(t);
+  window.mixdogDesktop.setTitleBarDimmed = () => {};
+  await import('./TurnReview');
+  const calls = [];
+  let cleared = false;
+  let refuse = '';
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    calls.push(request);
+    if (request.capability === 'clearSessionChangeHistory') {
+      if (refuse) throw new Error(refuse);
+      cleared = true;
+      return { value: { turns: 12 } };
+    }
+    if (request.capability !== 'getSessionReviewDiff') return { value: { supported: true, files: [], patch: '' } };
+    const files = cleared ? [] : [{ path: 'a.ts', status: 'M', additions: 3, deletions: 1 }];
+    return {
+      value: {
+        supported: true,
+        authoritative: true,
+        complete: true,
+        patch: '',
+        files,
+        uncommittedFiles: files,
+        historyTurns: cleared ? 0 : 12,
+      },
+    };
+  };
+  let opened = 0;
+  await act(async () =>
+    root.render(
+      React.createElement(
+        ComposerDock,
+        dockProps({ reviewSessionId: 'island-files', reviewCwd: 'C:/work', onOpenSessionDiff: () => opened++ })
+      )
+    )
+  );
+  const segment = () => document.querySelector('.turn-review-segment');
+  const menu = () => document.querySelector('.turn-review-files-menu');
+  const items = () => [...(menu()?.querySelectorAll('[role="menuitem"]') ?? [])];
+  const flush = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await flush();
+  assert.ok(segment(), 'the session has uncommitted files');
+  assert.equal(segment().getAttribute('aria-haspopup'), 'menu');
+
+  // Click opens the menu (no Changes yet): View changes, a separator, Delete history.
+  await act(async () => segment().click());
+  await flush();
+  assert.equal(opened, 0);
+  assert.equal(segment().getAttribute('aria-expanded'), 'true');
+  // Like the island's other tabs it expands the island upward in place: an
+  // island panel inside the island, not a popup portaled under it.
+  const island = document.querySelector('.composer-island');
+  assert.equal(island.dataset.expanded, 'files-menu');
+  assert.equal(island.dataset.mode, 'panel');
+  assert.ok(island.contains(menu()));
+  assert.ok(menu().closest('.composer-island-panel'));
+  assert.deepEqual(
+    items().map((item) => item.textContent),
+    ['View changes', 'Delete history']
+  );
+  assert.equal(menu().children[1].getAttribute('role'), 'separator');
+  assert.ok(items()[1].classList.contains('danger'));
+  assert.equal(document.activeElement, items()[0], 'keyboard focus lands on the first item');
+  await act(async () =>
+    menu().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+  );
+  assert.equal(document.activeElement, items()[1]);
+  await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+  assert.equal(menu(), null, 'Escape closes the menu');
+  assert.equal(island.dataset.expanded, undefined);
+  assert.equal(document.activeElement, segment(), 'focus returns to the segment');
+
+  // View changes does what the click used to do.
+  await act(async () => segment().click());
+  await act(async () => items()[0].click());
+  assert.equal(opened, 1);
+  assert.equal(menu(), null);
+
+  // Delete history asks first, with Cancel focused; Cancel changes nothing.
+  await act(async () => segment().click());
+  await act(async () => items()[1].click());
+  const dialog = () => document.querySelector('.settings-confirm-dialog');
+  assert.equal(dialog().querySelector('h3').textContent, "Delete this session's change history?");
+  assert.equal(
+    dialog().querySelector('p').textContent,
+    'Retained changes and Undo/Reapply for 12 turns will be permanently removed. Current files, conversation and Git history stay unchanged.'
+  );
+  const buttons = () => [...dialog().querySelectorAll('footer button')];
+  assert.deepEqual(
+    buttons().map((button) => button.textContent),
+    ['Cancel', 'Delete history']
+  );
+  assert.equal(document.activeElement, buttons()[0], 'Cancel is the default');
+  assert.equal(dialog().getAttribute('aria-modal'), 'true');
+  // A real modal: Tab and Shift+Tab cycle inside it.
+  const controls = () => [...dialog().querySelectorAll('button')];
+  const tab = (shiftKey = false) =>
+    act(async () =>
+      document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true }))
+    );
+  const [closeButton, , deleteButton] = controls();
+  await tab();
+  assert.equal(document.activeElement, deleteButton);
+  await tab();
+  assert.equal(document.activeElement, closeButton, 'Tab wraps inside the dialog');
+  await tab(true);
+  assert.equal(document.activeElement, deleteButton, 'Shift+Tab wraps back');
+  // Escape cancels and focus returns to the Files segment.
+  await act(async () => document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  assert.equal(dialog(), null);
+  assert.equal(document.activeElement, segment());
+  // So does Cancel.
+  await act(async () => segment().click());
+  await act(async () => items()[1].click());
+  await act(async () => buttons()[0].click());
+  assert.equal(dialog(), null);
+  assert.equal(document.activeElement, segment());
+  assert.equal(calls.filter((call) => call.capability === 'clearSessionChangeHistory').length, 0);
+
+  // A refusal (a running turn) shows its reason in the reopened menu.
+  refuse = 'Change history cannot be deleted while this session is running a turn';
+  await act(async () => segment().click());
+  await act(async () => items()[1].click());
+  await act(async () => buttons()[1].click());
+  await flush();
+  assert.match(menu().querySelector('.error-notice').textContent, /running a turn/);
+  assert.ok(segment(), 'nothing was deleted');
+  await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+
+  // Confirming deletes this session's history and the segment leaves.
+  refuse = '';
+  await act(async () => segment().click());
+  await act(async () => items()[1].click());
+  await act(async () => buttons()[1].click());
+  await flush();
+  const clears = calls.filter((call) => call.capability === 'clearSessionChangeHistory');
+  assert.deepEqual(
+    clears.map((call) => [call.sessionId, call.args]),
+    [
+      ['island-files', []],
+      ['island-files', []],
+    ]
+  );
+  assert.equal(segment(), null, 'an empty history hides the segment');
+});
