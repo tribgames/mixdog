@@ -97,8 +97,10 @@ function posixQuote(value) {
 /**
  * The command `${MIXDOG_SKILL_NODE}` renders to. It is the same word in every
  * shell: model shells find it on PATH (withSkillLauncherPath), as the
- * extensionless sh launcher (bash, sh, zsh, Git Bash, pwsh on POSIX) or as
- * the .cmd beside it (PowerShell and cmd through PATHEXT on Windows).
+ * extensionless sh launcher (bash, sh, zsh, Git Bash) or as the .cmd beside
+ * it (cmd through PATHEXT on Windows). PowerShell model commands define a
+ * function of the same name first (renderPowerShellSkillFunction), which
+ * takes precedence over both.
  */
 export const SKILL_LAUNCHER_COMMAND = 'mixdog-skill-node';
 
@@ -134,6 +136,50 @@ export function renderWindowsSkillLauncher({ interpreter, entry, electron }) {
     ...(unicode ? ['if defined MIXDOG_SKILL_CP chcp %MIXDOG_SKILL_CP% >nul'] : []),
     'exit /b %MIXDOG_SKILL_EXIT%',
   ].join('\r\n')}\r\n`;
+}
+
+/** Environment variable carrying a PowerShell caller's arguments to the entry. */
+export const SKILL_ARGV_ENV = 'MIXDOG_SKILL_ARGV';
+const SKILL_ARGV_TAG = 'mixdog1';
+
+function psQuote(value) {
+  // PowerShell also treats the typographic single quotes as quote characters.
+  return `'${String(value).replace(/['\u2018\u2019\u201a\u201b]/g, '$&$&')}'`;
+}
+
+/**
+ * One-line PowerShell definition of `mixdog-skill-node`, prepended to every
+ * PowerShell model command. Through PATH, PowerShell would reach the .cmd via
+ * `cmd.exe /c` with arguments it does not quote, so `'a&b'` ran `b`. The
+ * function starts this daemon's executable directly instead, and hands the
+ * arguments over in SKILL_ARGV_ENV (UTF-8 base64) rather than argv: Windows
+ * PowerShell 5.1 drops empty native arguments and does not escape embedded
+ * double quotes. Electron node mode and the argument variable exist only for
+ * the call. A failing script ends the command with its exit code (`exit`),
+ * because a PowerShell function cannot fail `$?` or the -Command exit code.
+ */
+export function renderPowerShellSkillFunction({ interpreter, entry, electron }) {
+  const body = [
+    `$__mxa = '${SKILL_ARGV_TAG}'`,
+    'foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += \',\' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }',
+    '$__mxp = $env:ELECTRON_RUN_AS_NODE',
+    '$__mxc = 1',
+    `try { $env:${SKILL_ARGV_ENV} = $__mxa; ${electron ? "$env:ELECTRON_RUN_AS_NODE = '1'; " : ''}& ${psQuote(interpreter)} ${psQuote(entry)}; $__mxc = $LASTEXITCODE } finally { $env:${SKILL_ARGV_ENV} = $null${electron ? '; $env:ELECTRON_RUN_AS_NODE = $__mxp' : ''} }`,
+    'if ($__mxc) { exit $__mxc }',
+  ];
+  return `function ${SKILL_LAUNCHER_COMMAND} { ${body.join('; ')} }`;
+}
+
+/** The arguments a PowerShell caller sent through SKILL_ARGV_ENV, or null. */
+export function decodeSkillArgv(value) {
+  const text = typeof value === 'string' ? value : '';
+  if (!text.startsWith(SKILL_ARGV_TAG)) return null;
+  const rest = text.slice(SKILL_ARGV_TAG.length);
+  if (!rest) return [];
+  return rest
+    .slice(1)
+    .split(',')
+    .map((item) => Buffer.from(item, 'base64').toString('utf8'));
 }
 
 /** Launcher files of `runtime`: the sh script everywhere, plus the .cmd on Windows. */

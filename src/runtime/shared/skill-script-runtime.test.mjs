@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -16,11 +17,16 @@ import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { planShellInvocation } from '../agent/orchestrator/tools/builtin/bash-tool/invocation-plan.mjs';
+import { buildShellSpawnEnv } from '../agent/orchestrator/tools/builtin/bash-tool/spawn-env.mjs';
 import { resolveShellFor } from '../agent/orchestrator/tools/builtin/shell-runtime.mjs';
+import { displayShellCommand, POWERSHELL_UTF8_PREFIX } from './shell-display.mjs';
 import {
   archiveRootOf,
   canonicalSkillScriptPath,
+  decodeSkillArgv,
   ensureSkillLauncherDir,
+  renderPowerShellSkillFunction,
   renderPosixSkillLauncher,
   renderWindowsSkillLauncher,
   skillLauncherDir,
@@ -227,6 +233,7 @@ const PROBE = [
   '  args: process.argv.slice(2),',
   '  main: import.meta.url === pathToFileURL(resolve(process.argv[1])).href,',
   "  electronMode: 'ELECTRON_RUN_AS_NODE' in process.env,",
+  "  argvEnv: 'MIXDOG_SKILL_ARGV' in process.env,",
   '}));',
   'process.exitCode = 7;',
 ].join('\n');
@@ -240,34 +247,120 @@ test('mixdog-skill-node by name runs a script as the main module with every argu
     const { script, env } = launcherEnv(root, SPECIAL_DATA_DIR);
     const result = await runByName([script, ...SPECIAL_ARGS], { cwd: root, env });
     assert.equal(result.code, 7, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), { args: SPECIAL_ARGS, main: true, electronMode: false });
+    assert.deepEqual(JSON.parse(result.stdout), { args: SPECIAL_ARGS, main: true, electronMode: false, argvEnv: false });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test(
-  'PowerShell resolves mixdog-skill-node by name and propagates arguments and the exit code',
-  { skip: !resolveShellFor('powershell') && 'no PowerShell on this host' },
-  async () => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog skill pwsh '));
+/** PowerShell 7 and, on Windows, the bundled Windows PowerShell 5.1. */
+function powerShells() {
+  const shells = [];
+  const pwsh = resolveShellFor('powershell')?.shell;
+  if (pwsh) shells.push(pwsh);
+  if (process.platform === 'win32') {
+    const bundled = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    if (existsSync(bundled) && !shells.some((shell) => shell.toLowerCase() === bundled.toLowerCase())) shells.push(bundled);
+  }
+  return shells;
+}
+
+const PS_ARGS = [
+  'missing&ver',
+  'a|b',
+  'x;y',
+  '$(whoami)',
+  '%PATH%',
+  '!x!',
+  "it's",
+  'say "hi"',
+  'üñí 한글',
+  'two words',
+  '',
+  'trailing\\',
+];
+
+test('PowerShell model commands carry a mixdog-skill-node function that the display form hides', async () => {
+  const command = "mixdog-skill-node 'x.mjs'";
+  const plan = await planShellInvocation({
+    command,
+    resolvedSpec: { shell: 'pwsh', shellArg: '-Command', shellArgs: ['-Command'], shellType: 'powershell' },
+    cwd: tmpdir(),
+  });
+  const fn = renderPowerShellSkillFunction(skillScriptRuntime());
+  assert.equal(plan.wrappedCommand, `${process.platform === 'win32' ? `${POWERSHELL_UTF8_PREFIX}\n` : ''}${fn}\n${command}`);
+  assert.equal(displayShellCommand(plan.wrappedCommand), command);
+  assert.equal(displayShellCommand(`${fn}\n${command}`), command);
+  assert.equal(displayShellCommand('function other { }\nls'), 'function other { }\nls');
+  // Electron node mode appears only in an Electron daemon's function.
+  assert.doesNotMatch(fn, /ELECTRON_RUN_AS_NODE = '1'/);
+  assert.match(renderPowerShellSkillFunction({ ...skillScriptRuntime(), electron: true }), /ELECTRON_RUN_AS_NODE = '1'/);
+  assert.match(renderPowerShellSkillFunction({ interpreter: "C:\\it's\u2019\\n.exe", entry: 'e', electron: false }), /'C:\\it''s\u2019\u2019\\n\.exe'/);
+});
+
+test('bash, sh and other non-PowerShell children never get the function', async () => {
+  const command = 'mixdog-skill-node "x.mjs"';
+  const plan = await planShellInvocation({
+    command,
+    resolvedSpec: { shell: 'bash', shellArg: '-c', shellArgs: ['-c'], shellType: 'posix' },
+    cwd: tmpdir(),
+  });
+  for (const value of [plan.wrappedCommand, ...Object.values(plan.spawnEnv)]) {
+    assert.doesNotMatch(String(value), /function mixdog-skill-node/);
+  }
+  for (const value of Object.values(buildShellSpawnEnv(tmpdir()))) {
+    assert.doesNotMatch(String(value), /function mixdog-skill-node/);
+  }
+});
+
+test('the argument hand-over survives every argument shape', () => {
+  assert.equal(decodeSkillArgv(undefined), null);
+  assert.equal(decodeSkillArgv('other'), null);
+  assert.deepEqual(decodeSkillArgv('mixdog1'), []);
+  assert.deepEqual(decodeSkillArgv('mixdog1,'), ['']);
+  assert.deepEqual(decodeSkillArgv('mixdog1,,'), ['', '']);
+  const encoded = `mixdog1${PS_ARGS.map((arg) => `,${Buffer.from(arg).toString('base64')}`).join('')}`;
+  assert.deepEqual(decodeSkillArgv(encoded), PS_ARGS);
+});
+
+for (const shell of powerShells()) {
+  test(`${basename(shell)}: mixdog-skill-node runs the script directly with verbatim arguments and fails the command with its exit code`, async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog skill ps '));
     try {
       const { script, env } = launcherEnv(root, SPECIAL_DATA_DIR);
-      // Windows PowerShell 5.1 drops empty native arguments, and PowerShell
-      // passes a .cmd an argument without spaces unquoted, so cmd splits a
-      // bare `a&b` before the launcher runs (a known limit of .cmd launchers).
-      // Both are checked by the cmd and bash runs instead.
-      const args = SPECIAL_ARGS.filter((arg) => arg && !(process.platform === 'win32' && /^[^\s]*&/.test(arg)));
-      const command = `mixdog-skill-node ${[script, ...args].map(psQuote).join(' ')}; exit $LASTEXITCODE`;
-      const { shell, shellArgs } = resolveShellFor('powershell');
-      const result = await run(shell, [...shellArgs, command], { cwd: root, env });
+      writeFileSync(join(root, 'ok.mjs'), '');
+      // Real node stands in for the app binary; the function still sets and
+      // restores ELECTRON_RUN_AS_NODE as it would for Electron.
+      const fn = renderPowerShellSkillFunction({ interpreter: process.execPath, entry: ENTRY, electron: true });
+      const prefix = process.platform === 'win32' ? `${POWERSHELL_UTF8_PREFIX}\n` : '';
+      const flags = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'];
+      const state = '"state:$($null -eq $env:MIXDOG_SKILL_ARGV):$($null -eq $env:ELECTRON_RUN_AS_NODE):$LASTEXITCODE"';
+      const command = [
+        `${prefix}${fn}`,
+        `mixdog-skill-node 'ok.mjs'; ${state}`,
+        `mixdog-skill-node ${[script, ...PS_ARGS].map(psQuote).join(' ')}`,
+        "'not reached'",
+      ].join('\n');
+      const result = await run(shell, [...flags, command], { cwd: root, env });
       assert.equal(result.code, 7, result.stderr);
-      assert.deepEqual(JSON.parse(result.stdout), { args, main: true, electronMode: false });
+      const lines = result.stdout.trim().split(/\r?\n/);
+      assert.equal(lines.length, 2, result.stdout);
+      assert.equal(lines[0], 'state:True:True:0');
+      assert.deepEqual(JSON.parse(lines[1]), { args: PS_ARGS, main: true, electronMode: false, argvEnv: false });
+
+      // The reviewed failure: cmd used to split `missing&ver` and run `ver`.
+      const failing = await run(shell, [...flags, `${prefix}${fn}\nmixdog-skill-node 'missing&ver'\n'not reached'`], {
+        cwd: root,
+        env,
+      });
+      assert.equal(failing.code, 1, failing.stderr);
+      assert.equal(failing.stdout.trim(), '');
+      assert.match(failing.stderr, /missing&ver/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  }
-);
+  });
+}
 
 test(
   'bash (Git Bash on Windows) resolves mixdog-skill-node by name and propagates arguments and the exit code',
@@ -283,7 +376,7 @@ test(
       // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion
       const result = await run(shell, ['-c', 'eval "${MIXDOG_SHELL_SCRIPT}"'], { cwd: root, env });
       assert.equal(result.code, 7, result.stderr);
-      assert.deepEqual(JSON.parse(result.stdout), { args: SPECIAL_ARGS, main: true, electronMode: false });
+      assert.deepEqual(JSON.parse(result.stdout), { args: SPECIAL_ARGS, main: true, electronMode: false, argvEnv: false });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -322,7 +415,16 @@ test('the bootstrap rewrites argv, removes node mode, and preserves exit codes',
     const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
     const ok = await run(process.execPath, [ENTRY, 'probe.mjs', '--flag', ''], { cwd: root, env });
     assert.equal(ok.code, 7, ok.stderr);
-    assert.deepEqual(JSON.parse(ok.stdout), { args: ['--flag', ''], main: true, electronMode: false });
+    assert.deepEqual(JSON.parse(ok.stdout), { args: ['--flag', ''], main: true, electronMode: false, argvEnv: false });
+
+    // argv in the environment (the PowerShell function) only counts when the
+    // command line carries none, and never reaches the script.
+    const handed = `mixdog1,${Buffer.from('probe.mjs').toString('base64')},${Buffer.from('a&b').toString('base64')},`;
+    const viaEnv = await run(process.execPath, [ENTRY], { cwd: root, env: { ...env, MIXDOG_SKILL_ARGV: handed } });
+    assert.equal(viaEnv.code, 7, viaEnv.stderr);
+    assert.deepEqual(JSON.parse(viaEnv.stdout), { args: ['a&b', ''], main: true, electronMode: false, argvEnv: false });
+    const both = await run(process.execPath, [ENTRY, 'probe.mjs', 'cli'], { cwd: root, env: { ...env, MIXDOG_SKILL_ARGV: handed } });
+    assert.deepEqual(JSON.parse(both.stdout).args, ['cli']);
 
     const usage = await run(process.execPath, [ENTRY], { cwd: root, env });
     assert.equal(usage.code, 2);

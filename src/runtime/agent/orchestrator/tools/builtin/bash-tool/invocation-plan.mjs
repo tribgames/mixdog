@@ -3,13 +3,20 @@ import { buildPowerShellFilterTeePlan } from '../shell-analysis.mjs';
 import { normalizeErrorMessage } from '../path-diagnostics.mjs';
 import { planDirectExeSpawn } from '../shell-direct-exe.mjs';
 import { POWERSHELL_UTF8_PREFIX } from '../../../../../shared/shell-display.mjs';
+import { renderPowerShellSkillFunction, skillScriptRuntime } from '../../../../../shared/skill-script-runtime.mjs';
 import { buildShellSpawnEnv } from './spawn-env.mjs';
 import { formatShellToolFailure } from './result-format.mjs';
+
+// Every PowerShell model command defines `mixdog-skill-node` first, so the
+// skill launcher runs without the .cmd's cmd.exe argument re-parsing.
+function prefixPowerShellSkillFunction(command) {
+  return `${renderPowerShellSkillFunction(skillScriptRuntime())}\n${command}`;
+}
 
 function prefixPowerShellUtf8(command) {
   const prefix = POWERSHELL_UTF8_PREFIX;
   const text = String(command || '');
-  return text.trimStart().startsWith(prefix) ? text : `${prefix}\n${text}`;
+  return text.trimStart().startsWith(prefix) ? text : `${prefix}\n${prefixPowerShellSkillFunction(text)}`;
 }
 
 // How the command reaches the child: a direct exe spawn, PowerShell with the
@@ -52,6 +59,10 @@ export async function planShellInvocation({ command, resolvedSpec, cwd }) {
       plan.teePlan = null;
     }
     plan.wrappedCommand = prefixPowerShellUtf8(plan.teePlan ? plan.teePlan.command : command);
+    return plan;
+  }
+  if (shellType === 'powershell') {
+    plan.wrappedCommand = prefixPowerShellSkillFunction(command);
     return plan;
   }
   if (process.platform !== 'win32' && (shell.includes('bash') || shell.includes('zsh'))) {

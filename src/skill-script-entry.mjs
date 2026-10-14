@@ -11,9 +11,15 @@ await import('./runtime/shared/sharp-electron-linux.mjs');
 delete process.env.ELECTRON_RUN_AS_NODE;
 
 const { pathToFileURL } = await import('node:url');
-const { canonicalSkillScriptPath } = await import('./runtime/shared/skill-script-runtime.mjs');
+const { canonicalSkillScriptPath, decodeSkillArgv, SKILL_ARGV_ENV } = await import(
+  './runtime/shared/skill-script-runtime.mjs'
+);
 
-const [execPath, , target, ...args] = process.argv;
+// The PowerShell `mixdog-skill-node` function passes its arguments in the
+// environment (see renderPowerShellSkillFunction); the script never sees them.
+const envArgv = process.argv.length === 2 ? decodeSkillArgv(process.env[SKILL_ARGV_ENV]) : null;
+delete process.env[SKILL_ARGV_ENV];
+const [execPath, , target, ...args] = envArgv ? [process.argv[0], process.argv[1], ...envArgv] : process.argv;
 if (!target) {
   console.error('Usage: <skill launcher> <script.mjs> [args...]');
   process.exitCode = 2;
