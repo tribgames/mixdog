@@ -77,6 +77,14 @@ export function buildProviderItems(setup) {
       _authenticated: p.authenticated,
     });
   }
+  if (setup.managedByClient === true) {
+    for (const p of setup.local || []) {
+      providerItems.push({
+        value: `local:${p.id}`, label: p.name, meta: providerStatusLabel(p), description: '',
+        _type: 'local', _providerId: p.id, _providerName: p.name, _provider: p,
+      });
+    }
+  }
   providerItems.sort((a, b) => {
     const rank = providerItemRank(a) - providerItemRank(b);
     if (rank !== 0) return rank;

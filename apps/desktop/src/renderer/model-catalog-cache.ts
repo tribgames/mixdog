@@ -254,6 +254,7 @@ type SharedModelCatalogRequest = {
 export const SHARED_MODEL_CATALOG_MAX_AGE_MS = 24 * 60 * 60_000;
 let sharedModelCatalogRequest: SharedModelCatalogRequest | null = null;
 let catalogGeneration = 0;
+let forceNextProviderSetup = false;
 const invalidationListeners = new Set<() => void>();
 
 /** Forgets the shared request, so the next caller fetches again. Guarded by
@@ -281,6 +282,7 @@ export function subscribeModelCatalogInvalidation(listener: () => void): () => v
 /** Drops the shared request and wakes mounted pickers after provider changes. */
 export function invalidateSharedModelCatalogRequest(): void {
   catalogGeneration += 1;
+  forceNextProviderSetup = true;
   providerModelsGeneration += 1;
   sharedModelCatalogRequest = null;
   for (const listener of [...invalidationListeners]) {
@@ -301,6 +303,8 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
   ) {
     return current;
   }
+  const forceSetup = forceNextProviderSetup;
+  forceNextProviderSetup = false;
   const generation = ++catalogGeneration;
   const isCurrent = () => generation === catalogGeneration && scope === catalogStorageScope();
   const quick = fetchProviderModels(api, { quick: true }).then(normalizeModelCatalog);
@@ -318,7 +322,7 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
         .then(() =>
           api.invokeCapability<unknown>({
             capability: 'getProviderSetup',
-            args: [],
+            args: forceSetup ? [{ force: true }] : [],
           })
         )
         .then((result) => {

@@ -261,3 +261,24 @@ test('an unavailable desktop snapshot is retryable even with a warm model catalo
   assert.equal((await next.setup).api[0].authenticated, true);
   await next.full;
 });
+
+
+test('provider invalidation bypasses the server setup TTL before sharing the refreshed catalog', async () => {
+  const api = stubApi();
+  let authenticated = false;
+  let serverCached = false;
+  const requests = [];
+  api.invokeCapability = async (request) => {
+    requests.push(request);
+    if (request.args[0]?.force) serverCached = authenticated;
+    return { value: { managedByClient: true, api: [{ id: 'openai', usable: serverCached }] } };
+  };
+  const first = requestModelCatalog(api);
+  await Promise.all([first.full, first.setup]);
+  authenticated = true;
+  invalidateSharedModelCatalogRequest();
+  const next = requestModelCatalog(api);
+  assert.equal((await next.setup).api[0].usable, true);
+  await next.full;
+  assert.deepEqual(requests.at(-1).args, [{ force: true }]);
+});
