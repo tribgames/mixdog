@@ -3,7 +3,6 @@
 // serialises upload, install, daemon replacement, GC and cleanup across every
 // desktop and window that talks to this account.
 
-export const REMOTE_INSTALL_LOCK_NAME = '.install-lock';
 /** How long an ensure run waits for another holder before `install-locked`. */
 export const REMOTE_INSTALL_LOCK_WAIT_MS = 240_000;
 /** A holder older than this is presumed crashed even if its pid looks alive

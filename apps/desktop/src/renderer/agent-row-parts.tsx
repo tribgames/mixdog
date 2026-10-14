@@ -12,8 +12,8 @@ export function AgentProviderMark({ agent }: { agent: DesktopAgentPoolRow }) {
   );
 }
 
-/** An agent row's second line: model and effort, then optional `meta`. */
-export function AgentRouteSummary({ agent, meta = '' }: { agent: DesktopAgentPoolRow; meta?: string }) {
+/** An agent row's second line: model and effort. */
+export function AgentRouteSummary({ agent }: { agent: DesktopAgentPoolRow }) {
   const modelParameters = agent.modelParameters as Record<string, string> | undefined;
   return (
     <small className="agent-route-summary" title={String(agent.model || '') || undefined}>
@@ -26,7 +26,6 @@ export function AgentRouteSummary({ agent, meta = '' }: { agent: DesktopAgentPoo
         autoEffortCapable={cachedAutoEffortCapable(String(agent.provider || ''), String(agent.model || ''))}
         autoEffort={agent.autoEffort}
       />
-      {meta ? <span className="agent-route-meta">{`· ${meta}`}</span> : null}
     </small>
   );
 }

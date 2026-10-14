@@ -19,7 +19,6 @@ export const DEFAULT_WORKTREE_BRANCH_PREFIX = 'mixdog/';
 
 export const WORKSPACE_TRANSITION_STATES = Object.freeze(['idle', 'provisioning', 'switching', 'removing', 'recovery']);
 const WORKTREE_ENTRY_STATES = Object.freeze(['creating', 'ready', 'deleting', 'recovery']);
-const BRANCH_OCCUPANCY_KINDS = Object.freeze(['current', 'session', 'external', 'free']);
 
 /**
  * Stable error codes. Clients branch on `error.code`, never on message text.
@@ -301,29 +300,6 @@ export function normalizeWorktreeOwner(input) {
  * @typedef {'current'|'session'|'external'|'free'} BranchOccupancyKind
  * @typedef {{ branch: string, kind: BranchOccupancyKind, sessionId?: string, path?: string }} BranchOccupancy
  */
-
-/**
- * @param {unknown} input
- * @returns {BranchOccupancy}
- */
-export function normalizeBranchOccupancy(input) {
-  const value = record(input, 'occupancy');
-  const branch = text(value.branch, 'occupancy.branch');
-  const kind = oneOf(value.kind, BRANCH_OCCUPANCY_KINDS, 'occupancy.kind');
-  if (kind === 'free') {
-    if (value.sessionId != null || value.path != null) {
-      throw new TypeError('A free branch carries no sessionId or path.');
-    }
-    return { branch, kind };
-  }
-  if (kind !== 'session' && value.sessionId != null) {
-    throw new TypeError('Only a session occupancy carries a sessionId.');
-  }
-  const occupancy = { branch, kind };
-  if (kind === 'session') occupancy.sessionId = text(value.sessionId, 'occupancy.sessionId');
-  if (value.path != null) occupancy.path = text(value.path, 'occupancy.path');
-  return occupancy;
-}
 
 /**
  * The branch menu's rows (the desktop DesktopGitBranch shape) for the local

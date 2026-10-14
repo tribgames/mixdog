@@ -42,7 +42,6 @@ import {
   createServerWindowRestore,
   hostGraceMs,
   forwardConnectionLink,
-  installConnectionManager,
   registerConnectionLinkIpc,
   registerServerPortsIpc,
   resolveWindowConnection,
@@ -590,7 +589,6 @@ const sshConnections = createConnectionManager<DesktopConnection>({
     if (window && !window.isDestroyed()) window.close();
   },
 });
-installConnectionManager(sshConnections);
 // The server windows open at quit come back at the next launch (a setting in
 // this PC's window), connecting in the background with their progress shown
 // there.

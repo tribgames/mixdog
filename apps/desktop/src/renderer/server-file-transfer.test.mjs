@@ -6,7 +6,6 @@ import test from 'node:test';
 import { SERVER_UPLOAD_MAX_BYTES } from '../shared/server-files.ts';
 import {
   downloadServerFile,
-  serverFilePath,
   ServerTransferCancelledError,
   serverUploadRefusal,
   serverUploadScope,
@@ -130,10 +129,7 @@ test('a download steps until done, and a cancelled one is aborted', async () => 
   assert.deepEqual(calls, [['step', 4], ['abort']]);
 });
 
-test('server paths and upload scopes are POSIX-safe', () => {
-  assert.equal(serverFilePath('/srv/repo/', 'src\\a.ts'), '/srv/repo/src/a.ts');
-  assert.equal(serverFilePath('/', 'etc/hosts'), '/etc/hosts');
-  assert.equal(serverFilePath('/srv/repo', '.'), '/srv/repo');
+test('upload scopes are POSIX-safe', () => {
   assert.equal(serverUploadScope('session:abc/def'), 'session_abc_def');
   assert.equal(serverUploadScope('..'), 'draft');
   assert.equal(serverUploadScope(''), 'draft');

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { foldUsageRollup, freezeRestoredDays, usageRollupDayKey } from '../../runtime/shared/llm/usage-rollup.mjs';
-import { buildUsageHistoryDays } from '../../runtime/shared/llm/usage-session-history.mjs';
 import { usageStatsSnapshot } from './usage-stats-model.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -28,6 +27,48 @@ function turn(overrides = {}) {
 
 function rollupOf(turns) {
   return turns.reduce((document, entry) => foldUsageRollup(document, entry, NOW), null);
+}
+
+/** One transcript-rebuilt day, the shape the stats model folds. */
+function restoredDay({
+  provider,
+  model,
+  sessionId,
+  conversation = true,
+  firstTs = 0,
+  lastTs = 0,
+  day,
+  turns,
+  input,
+  output,
+  cacheRead = 0,
+  cacheWrite = 0,
+  costUsd,
+}) {
+  const slice = { turns, input, output, cacheRead, cacheWrite, costUsd };
+  const conversationSlice = conversation
+    ? { ...slice }
+    : { turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0 };
+  const tokens = input + output + cacheRead + cacheWrite;
+  return {
+    [day]: {
+      ...slice,
+      restored: true,
+      firstTs,
+      lastTs,
+      conversation: conversationSlice,
+      models: {
+        [`${provider}/${model}`]: {
+          provider,
+          model,
+          kind: '',
+          ...slice,
+          conversation: conversationSlice,
+        },
+      },
+      sessions: conversation && sessionId ? { [sessionId]: tokens } : {},
+    },
+  };
 }
 
 test('usage is grouped by provider with a model drill-down beneath it', () => {
@@ -377,26 +418,20 @@ test('a bounded window carries the window before it for comparison', () => {
 
 test('transcript history fills the days no store recorded', () => {
   const older = NOW - 30 * DAY_MS;
-  const history = buildUsageHistoryDays([
-    {
-      provider: 'grok-oauth',
-      model: 'grok-4.6',
-      sessionId: 'session-old',
-      conversation: true,
-      firstTs: older,
-      lastTs: older,
-      days: {
-        [usageRollupDayKey(older)]: {
-          turns: 4,
-          input: 900,
-          output: 300,
-          cacheRead: 500,
-          cacheWrite: 0,
-          costUsd: 0.5,
-        },
-      },
-    },
-  ]);
+  const history = restoredDay({
+    provider: 'grok-oauth',
+    model: 'grok-4.6',
+    sessionId: 'session-old',
+    conversation: true,
+    firstTs: older,
+    lastTs: older,
+    day: usageRollupDayKey(older),
+    turns: 4,
+    input: 900,
+    output: 300,
+    cacheRead: 500,
+    costUsd: 0.5,
+  });
 
   const stats = usageStatsSnapshot({ rollup: rollupOf([turn()]), history, now: NOW });
   const grok = stats.providers.find((row) => row.provider === 'grok-oauth');
@@ -415,16 +450,19 @@ test('transcript history fills the days no store recorded', () => {
 
 test('a day the rollup or the events already hold is never taken from history', () => {
   const day = usageRollupDayKey(NOW);
-  const recorded = { provider: 'anthropic-oauth', model: 'claude-sonnet-4-5', sessionId: 'session-a' };
-  const history = buildUsageHistoryDays([
-    {
-      ...recorded,
-      conversation: true,
-      firstTs: NOW,
-      lastTs: NOW,
-      days: { [day]: { turns: 9, input: 90_000, output: 9000, cacheRead: 0, cacheWrite: 0, costUsd: 9 } },
-    },
-  ]);
+  const history = restoredDay({
+    provider: 'anthropic-oauth',
+    model: 'claude-sonnet-4-5',
+    sessionId: 'session-a',
+    conversation: true,
+    firstTs: NOW,
+    lastTs: NOW,
+    day,
+    turns: 9,
+    input: 90_000,
+    output: 9000,
+    costUsd: 9,
+  });
 
   const fromRollup = usageStatsSnapshot({ rollup: rollupOf([turn()]), history, now: NOW });
   assert.equal(fromRollup.totals.turns, 1);
@@ -443,17 +481,19 @@ test('a day the rollup or the events already hold is never taken from history', 
 test('the day the event cap truncated is taken back from the transcripts', () => {
   const day = usageRollupDayKey(NOW);
   const restored = (turns) =>
-    buildUsageHistoryDays([
-      {
-        provider: 'anthropic-oauth',
-        model: 'claude-sonnet-4-5',
-        sessionId: 'session-a',
-        conversation: true,
-        firstTs: NOW,
-        lastTs: NOW,
-        days: { [day]: { turns, input: 900, output: 300, cacheRead: 0, cacheWrite: 0, costUsd: 0.5 } },
-      },
-    ]);
+    restoredDay({
+      provider: 'anthropic-oauth',
+      model: 'claude-sonnet-4-5',
+      sessionId: 'session-a',
+      conversation: true,
+      firstTs: NOW,
+      lastTs: NOW,
+      day,
+      turns,
+      input: 900,
+      output: 300,
+      costUsd: 0.5,
+    });
 
   // One surviving row against a transcript that remembers the whole day.
   const rebuilt = usageStatsSnapshot({ events: [turn()], history: restored(9), now: NOW });
@@ -473,17 +513,20 @@ test('the day the event cap truncated is taken back from the transcripts', () =>
 test('a frozen rebuild survives the transcripts it was derived from', () => {
   const older = NOW - 30 * DAY_MS;
   const key = usageRollupDayKey(older);
-  const history = buildUsageHistoryDays([
-    {
-      provider: 'grok-oauth',
-      model: 'grok-4.6',
-      sessionId: 'session-old',
-      conversation: true,
-      firstTs: older,
-      lastTs: older,
-      days: { [key]: { turns: 4, input: 900, output: 300, cacheRead: 500, cacheWrite: 0, costUsd: 0.5 } },
-    },
-  ]);
+  const history = restoredDay({
+    provider: 'grok-oauth',
+    model: 'grok-4.6',
+    sessionId: 'session-old',
+    conversation: true,
+    firstTs: older,
+    lastTs: older,
+    day: key,
+    turns: 4,
+    input: 900,
+    output: 300,
+    cacheRead: 500,
+    costUsd: 0.5,
+  });
 
   const { rollup, frozen } = freezeRestoredDays(null, history, NOW);
   assert.equal(frozen, 1);
@@ -499,17 +542,19 @@ test('a frozen rebuild survives the transcripts it was derived from', () => {
 test('freezing never overwrites a recorded day, and never repeats itself', () => {
   const key = usageRollupDayKey(NOW - DAY_MS);
   const recorded = rollupOf([turn({ ts: NOW - DAY_MS })]);
-  const history = buildUsageHistoryDays([
-    {
-      provider: 'anthropic-oauth',
-      model: 'claude-sonnet-4-5',
-      sessionId: 'session-a',
-      conversation: true,
-      firstTs: NOW - DAY_MS,
-      lastTs: NOW - DAY_MS,
-      days: { [key]: { turns: 99, input: 9, output: 9, cacheRead: 0, cacheWrite: 0, costUsd: 9 } },
-    },
-  ]);
+  const history = restoredDay({
+    provider: 'anthropic-oauth',
+    model: 'claude-sonnet-4-5',
+    sessionId: 'session-a',
+    conversation: true,
+    firstTs: NOW - DAY_MS,
+    lastTs: NOW - DAY_MS,
+    day: key,
+    turns: 99,
+    input: 9,
+    output: 9,
+    costUsd: 9,
+  });
 
   const first = freezeRestoredDays(recorded, history, NOW);
   assert.equal(first.frozen, 0);
@@ -526,17 +571,19 @@ test('freezing never overwrites a recorded day, and never repeats itself', () =>
 
 test('today is left to the live recording rather than frozen mid-day', () => {
   const key = usageRollupDayKey(NOW);
-  const history = buildUsageHistoryDays([
-    {
-      provider: 'anthropic-oauth',
-      model: 'claude-sonnet-4-5',
-      sessionId: 'session-a',
-      conversation: true,
-      firstTs: NOW,
-      lastTs: NOW,
-      days: { [key]: { turns: 2, input: 10, output: 5, cacheRead: 0, cacheWrite: 0, costUsd: 0.1 } },
-    },
-  ]);
+  const history = restoredDay({
+    provider: 'anthropic-oauth',
+    model: 'claude-sonnet-4-5',
+    sessionId: 'session-a',
+    conversation: true,
+    firstTs: NOW,
+    lastTs: NOW,
+    day: key,
+    turns: 2,
+    input: 10,
+    output: 5,
+    costUsd: 0.1,
+  });
 
   const { frozen, rollup } = freezeRestoredDays(null, history, NOW);
   assert.equal(frozen, 0);
@@ -568,26 +615,19 @@ test('a route reports its own cache hit rate and price per million tokens', () =
 
 test('restored background sessions stay out of the conversation view', () => {
   const older = NOW - 20 * DAY_MS;
-  const history = buildUsageHistoryDays([
-    {
-      provider: 'openai-oauth',
-      model: 'gpt-5.6',
-      sessionId: 'session-cycle',
-      conversation: false,
-      firstTs: older,
-      lastTs: older,
-      days: {
-        [usageRollupDayKey(older)]: {
-          turns: 3,
-          input: 600,
-          output: 100,
-          cacheRead: 0,
-          cacheWrite: 0,
-          costUsd: 0.2,
-        },
-      },
-    },
-  ]);
+  const history = restoredDay({
+    provider: 'openai-oauth',
+    model: 'gpt-5.6',
+    sessionId: 'session-cycle',
+    conversation: false,
+    firstTs: older,
+    lastTs: older,
+    day: usageRollupDayKey(older),
+    turns: 3,
+    input: 600,
+    output: 100,
+    costUsd: 0.2,
+  });
 
   assert.equal(usageStatsSnapshot({ history, now: NOW }).totals.turns, 0);
   assert.equal(usageStatsSnapshot({ history, now: NOW, source: 'all' }).totals.turns, 3);
