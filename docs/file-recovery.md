@@ -20,6 +20,10 @@ revision before every confirmed mutation. Changing projects or hosts invalidates
 old observations and pending approvals. An unsuccessful refresh is unavailable,
 not an empty inventory.
 
+Automatic refresh also invalidates the open panel's inspected revision and
+pending approval. The panel reloads the visible records after discovery; a
+failed refresh removes its old action controls and offers an explicit retry.
+
 Only unchanged after-images can be restored. External edits, missing/replaced
 files and directories, and unsaved editor buffers are left untouched. Disk
 restoration does not replace a dirty buffer or grant permission to save it.
@@ -38,6 +42,13 @@ confirm deletion of backups, including resolved records; project files are not
 deleted by that action. Oversized edits must be split rather than bypassing the
 journal. Coded errors distinguish a changed observation, active ownership,
 capacity/batch limits, unavailable records and storage/permission failures.
+
+Unrecognized entries in a project recovery store produce a manual-inspection
+notice, never an empty list. They block new journal admission and worktree
+removal. Inspect the file host's private user-data `editor-recovery/<root-hash>`
+directory (the linked path is also recorded in the core worktree ledger), and
+identify unexpected entries before moving or deleting them manually. The app
+does not assume that an unknown file is expendable.
 
 A missing registered folder keeps its recovery-only lookup. It does not become
 a usable file root: normal project file operations still require a live approved
@@ -64,6 +75,12 @@ cleanup and resuming a decided deletion. This deliberately includes resolved or
 invalid entries until explicit inspection/disposal; unknown/unreadable storage
 is not treated as empty. The manager does not delete recovery storage itself.
 Normal successful saves already retire and remove their own completed journals.
+
+The ledger holds at most 64 distinct root/profile scope descriptors per
+worktree. Before rejecting a new scope at that limit, it drops descriptors for
+verifiably empty or missing stores under the repository lock. Retained,
+unreadable or malformed stores keep their descriptors. No backup data is
+removed by this bookkeeping, and explicit discard can free a scope slot.
 
 Legacy journals written before this linkage are registered when their project
 scope is accessed by the updated file host. An old profile that has never been

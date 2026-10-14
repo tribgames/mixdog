@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import fs from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { after, afterEach, beforeEach, test } from 'node:test';
 import { assertRecoveryStoresClear } from './file-recovery.mjs';
@@ -117,4 +119,49 @@ test('malformed or unreadable registered storage never becomes an empty inventor
   await assert.rejects(assertRecoveryStoresClear(record), { code: 'WORKTREE_FILE_RECOVERY' });
   for (const scopes of [{}, Array(65).fill({ root: entry.path, directory }), [{ root: '/elsewhere', directory }]])
     await assert.rejects(assertRecoveryStoresClear({ ...record, editorRecoveryStores: scopes }), { code: 'WORKTREE_FILE_RECOVERY' });
+});
+
+test('new recovery scope admission prunes only proven empty scopes at capacity', async (t) => {
+  const { entry } = await createTestWorktree(makeRepo());
+  const scopes = Array.from({ length: 64 }, (_, i) => {
+    const root = join(entry.path, 'nested', String(i));
+    return { root, directory: storeFor(root) };
+  });
+  retain(scopes[0].directory);
+  mkdirSync(scopes[1].directory, { recursive: true }); // empty
+  mkdirSync(dirname(scopes[2].directory), { recursive: true });
+  writeFileSync(scopes[2].directory, 'not a directory'); // unknown, never prune
+  mkdirSync(scopes[3].directory, { recursive: true });
+  const opendir = fs.opendir;
+  const mocked = t.mock.method(fs, 'opendir', (path, ...args) => {
+    if (path === scopes[3].directory) throw Object.assign(new Error('unreadable store'), { code: 'EACCES' });
+    return opendir(path, ...args);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { mocked.mock.restore(); syncBuiltinESMExports(); });
+  const record = await getRecord(entry.id);
+  record.editorRecoveryStores = scopes;
+  await putRecord(record);
+  const next = { root: entry.path, directory: storeFor(entry.path) };
+  await withWorktreeRecoveryStore(next.root, next.directory, 'write', async () => retain(next.directory));
+  assert.deepEqual((await getRecord(entry.id)).editorRecoveryStores, [scopes[0], scopes[2], scopes[3], next]);
+  assert.equal(readFileSync(join(scopes[0].directory, 'retained-record'), 'utf8'), 'do not delete');
+  await assert.rejects(removeManagedWorktree({ entryId: entry.id, force: true }), { code: 'WORKTREE_FILE_RECOVERY' });
+});
+
+test('full retained scope capacity is released only after explicit cleanup', async () => {
+  const { entry } = await createTestWorktree(makeRepo());
+  const scopes = Array.from({ length: 64 }, () => ({ root: entry.path, directory: storeFor(entry.path) }));
+  for (const scope of scopes) retain(scope.directory);
+  const record = await getRecord(entry.id);
+  record.editorRecoveryStores = scopes;
+  await putRecord(record);
+  const next = { root: entry.path, directory: storeFor(entry.path) };
+  await assert.rejects(withWorktreeRecoveryStore(next.root, next.directory, 'write', async () => assert.fail('full')),
+    { code: 'WORKTREE_FILE_RECOVERY' });
+  assert.deepEqual((await getRecord(entry.id)).editorRecoveryStores, scopes);
+  await withWorktreeRecoveryStore(scopes[0].root, scopes[0].directory, 'discard', async () =>
+    rmSync(join(scopes[0].directory, 'retained-record')));
+  await withWorktreeRecoveryStore(next.root, next.directory, 'write', async () => retain(next.directory));
+  assert.deepEqual((await getRecord(entry.id)).editorRecoveryStores, [...scopes.slice(1), next]);
 });

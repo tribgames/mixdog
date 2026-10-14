@@ -4358,5 +4358,6 @@
   "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "Le dossier du projet est absent ou indisponible. Les sauvegardes sont conservées ; examinez l’enregistrement avant de le supprimer.",
   "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "Enregistrements de récupération : {{used}} / {{limit}} · À examiner : {{unresolved}} · Résolus : {{resolved}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Données enregistrées : {{bytes}} MiB · Enregistrements de taille inconnue : {{unknown}} · Par modification : {{files}} fichiers / {{limit}} MiB",
-  "Inspect file recovery": "Examiner la récupération de fichiers"
+  "Inspect file recovery": "Examiner la récupération de fichiers",
+  "Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.": "Le stockage de récupération contient des éléments inconnus. Inspectez manuellement le dossier de récupération sur l’hôte."
 }

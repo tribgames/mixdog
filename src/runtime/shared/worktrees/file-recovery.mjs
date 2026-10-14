@@ -24,31 +24,45 @@ export function recoveryScopes(record) {
   if (!Array.isArray(scopes) || scopes.length > 64) throw fail(record, record.path);
   return scopes.map((scope) => validateRecoveryScope(record, scope));
 }
+async function recoveryStoreIsEmpty(scope) {
+  try {
+    // Check every existing ancestor of the private journal store; missing
+    // stores are permitted because registration deliberately precedes mkdir.
+    for (const directory of [dirname(dirname(scope.directory)), dirname(scope.directory), scope.directory]) {
+      let info;
+      try { info = await lstat(directory); }
+      catch (error) { if (error?.code === 'ENOENT') continue; throw error; }
+      // Use the same path spelling as the file host's store validation;
+      // async/native realpath can expand Windows short names differently.
+      if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(directory) !== resolve(directory))
+        return false;
+    }
+    let directory;
+    try { directory = await opendir(scope.directory); }
+    catch (error) { if (error?.code === 'ENOENT') return true; throw error; }
+    for await (const entry of directory) {
+      // Also retain unknown/tampered entries, rather than guessing they are
+      // expendable. No manifest or phase can authorize deleting the workspace.
+      if (entry) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Call under the repository lock. Only descriptors for verifiably empty or
+// missing stores may be pruned; this never removes storage or backup bytes.
+export async function retainedRecoveryScopes(record) {
+  const retained = [];
+  for (const scope of recoveryScopes(record)) {
+    if (!(await recoveryStoreIsEmpty(scope))) retained.push(scope);
+  }
+  return retained;
+}
+
 export async function assertRecoveryStoresClear(record) {
   for (const scope of recoveryScopes(record)) {
-    try {
-      // Check every existing ancestor of the private journal store; missing
-      // stores are permitted because registration deliberately precedes mkdir.
-      for (const directory of [dirname(dirname(scope.directory)), dirname(scope.directory), scope.directory]) {
-        let info;
-        try { info = await lstat(directory); }
-        catch (error) { if (error?.code === 'ENOENT') continue; throw error; }
-        // Use the same path spelling as the file host's store validation;
-        // async/native realpath can expand Windows short names differently.
-        if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(directory) !== resolve(directory))
-          throw fail(record, scope.root);
-      }
-      let directory;
-      try { directory = await opendir(scope.directory); }
-      catch (error) { if (error?.code === 'ENOENT') continue; throw error; }
-      for await (const entry of directory) {
-        // Also retain unknown/tampered entries, rather than guessing they are
-        // expendable. No manifest or phase can authorize deleting the workspace.
-        if (entry) throw fail(record, scope.root);
-      }
-    } catch (error) {
-      if (error?.code === 'WORKTREE_FILE_RECOVERY') throw error;
-      throw fail(record, scope.root);
-    }
+    if (!(await recoveryStoreIsEmpty(scope))) throw fail(record, scope.root);
   }
 }

@@ -4303,5 +4303,6 @@
   "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "Der Projektordner fehlt oder ist nicht verfügbar. Sicherungen bleiben erhalten; prüfen Sie den Eintrag vor dem Löschen.",
   "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "Wiederherstellungseinträge: {{used}} / {{limit}} · Zu prüfen: {{unresolved}} · Erledigt: {{resolved}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Erfasste Nutzdaten: {{bytes}} MiB · Einträge unbekannter Größe: {{unknown}} · Pro Änderung: {{files}} Dateien / {{limit}} MiB",
-  "Inspect file recovery": "Dateiwiederherstellung prüfen"
+  "Inspect file recovery": "Dateiwiederherstellung prüfen",
+  "Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.": "Der Wiederherstellungsspeicher enthält unbekannte Einträge. Prüfen Sie den Wiederherstellungsordner auf dem Host manuell."
 }

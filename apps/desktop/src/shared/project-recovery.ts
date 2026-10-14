@@ -57,7 +57,7 @@ export function requiredProjectRecoveryRequest(value: unknown): ProjectRecoveryR
 // These are presentation hints only, never restoration or path authority.
 export const RECOVERY_ERROR_CODES = [
   'RECOVERY_CHANGED', 'RECOVERY_BUSY', 'RECOVERY_CAPACITY', 'RECOVERY_BATCH_LIMIT',
-  'RECOVERY_STORAGE', 'RECOVERY_NOT_RESTORABLE', 'RECOVERY_UNAVAILABLE',
+  'RECOVERY_STORAGE', 'RECOVERY_NOT_RESTORABLE', 'RECOVERY_UNAVAILABLE', 'RECOVERY_MANUAL_INSPECTION',
 ] as const;
 export type RecoveryErrorCode = (typeof RECOVERY_ERROR_CODES)[number];
 export class ProjectRecoveryError extends Error {

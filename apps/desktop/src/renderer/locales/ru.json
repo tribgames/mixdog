@@ -4413,5 +4413,6 @@
   "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "Папка проекта отсутствует или недоступна. Резервные копии сохранены; проверьте запись перед удалением.",
   "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "Записи восстановления: {{used}} / {{limit}} · Требуют проверки: {{unresolved}} · Решены: {{resolved}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Записанные данные: {{bytes}} MiB · Записи неизвестного размера: {{unknown}} · На правку: {{files}} файлов / {{limit}} MiB",
-  "Inspect file recovery": "Проверить восстановление файлов"
+  "Inspect file recovery": "Проверить восстановление файлов",
+  "Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.": "В хранилище восстановления есть неизвестные элементы. Проверьте папку восстановления на хосте вручную."
 }

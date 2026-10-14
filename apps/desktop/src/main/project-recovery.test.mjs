@@ -541,3 +541,34 @@ test('recovery state exclusive-create failure preserves the file it did not crea
   assert.equal(await fs.readFile(collision, 'utf8'), 'existing file owned by another operation');
   assert.deepEqual(await fs.readFile(join(directory, 'state.json')), previous);
 });
+
+test('aggregate UTF-16 preflight byte exhaustion returns the batch-limit code before any mutation', async (t) => {
+  const f = await fixture(t);
+  const content = 'x'.repeat(3_000_000);
+  const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(content, 'utf16le')]);
+  for (const rel of ['a.txt', 'b.txt']) await fs.writeFile(join(f.root, rel), bytes);
+  let readOversizedBody = false;
+  hook(t, 'open', (open, file, ...args) => {
+    if (file === join(f.root, 'b.txt') && args[0] === 'r') readOversizedBody = true;
+    return open(file, ...args);
+  });
+  await assert.rejects(writeProjectTextFilesIn(f.root, ['a.txt', 'b.txt'].map((relPath) => ({
+    relPath, expectedContent: content, content: content + 'y',
+  })), f.data), { code: 'RECOVERY_BATCH_LIMIT' });
+  assert.equal(readOversizedBody, false, 'reject over-budget input before allocating/reading its payload');
+  for (const rel of ['a.txt', 'b.txt']) assert.deepEqual(await fs.readFile(join(f.root, rel)), bytes);
+  assert.deepEqual((await projectRecoveryIn(f.data, f.root, { action: 'list' })).records, []);
+});
+
+test('unknown store entries require manual inspection instead of an empty inventory', async (t) => {
+  const f = await fixture(t);
+  const store = projectRecoveryStorePath(f.data, f.root);
+  await fs.mkdir(store, { recursive: true });
+  await fs.writeFile(join(store, '.DS_Store'), 'unrecognized');
+  await assert.rejects(projectRecoveryIn(f.data, f.root, { action: 'list' }), { code: 'RECOVERY_MANUAL_INSPECTION' });
+  await assert.rejects(writeProjectTextFilesIn(f.root, writes, f.data), { code: 'RECOVERY_MANUAL_INSPECTION' });
+  assert.equal(await fs.readFile(join(store, '.DS_Store'), 'utf8'), 'unrecognized');
+  assert.equal(await fs.readFile(join(f.root, 'a.txt'), 'utf8'), 'A0');
+  await fs.rm(join(store, '.DS_Store'));
+  assert.deepEqual((await projectRecoveryIn(f.data, f.root, { action: 'list' })).records, []);
+});

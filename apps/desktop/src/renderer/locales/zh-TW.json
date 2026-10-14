@@ -4248,5 +4248,6 @@
   "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "專案資料夾遺失或無法使用。備份仍保留；刪除記錄前請先檢查。",
   "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "復原記錄：{{used}} / {{limit}} · 待檢查：{{unresolved}} · 已解決：{{resolved}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "已記錄的資料：{{bytes}} MiB · 大小未知的記錄：{{unknown}} · 每次編輯：{{files}} 個檔案 / {{limit}} MiB",
-  "Inspect file recovery": "檢查檔案復原"
+  "Inspect file recovery": "檢查檔案復原",
+  "Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.": "復原儲存空間含有無法辨識的項目。請手動檢查主機上的復原資料夾。"
 }

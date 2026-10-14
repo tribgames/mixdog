@@ -4248,5 +4248,6 @@
   "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "Thư mục dự án bị thiếu hoặc không khả dụng. Bản sao lưu vẫn được giữ lại; hãy kiểm tra bản ghi trước khi xóa.",
   "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "Bản ghi khôi phục: {{used}} / {{limit}} · Cần kiểm tra: {{unresolved}} · Đã giải quyết: {{resolved}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Dữ liệu đã ghi: {{bytes}} MiB · Bản ghi chưa rõ kích thước: {{unknown}} · Mỗi lần sửa: {{files}} tệp / {{limit}} MiB",
-  "Inspect file recovery": "Kiểm tra khôi phục tệp"
+  "Inspect file recovery": "Kiểm tra khôi phục tệp",
+  "Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.": "Bộ nhớ khôi phục chứa các mục không nhận dạng được. Hãy kiểm tra thủ công thư mục khôi phục trên máy chủ."
 }

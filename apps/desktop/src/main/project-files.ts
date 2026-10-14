@@ -12,7 +12,7 @@ import { codeGraphModuleUrl } from './desktop-support';
 import { ProjectRecoveryError } from '../shared/project-recovery';
 import { withProjectMutationPaths } from './project-mutation-queue';
 import {
-  beginProjectRecovery, RECOVERY_MAX_BYTES, recoveryIdentity, recoveryReadBytes,
+  beginProjectRecovery, RECOVERY_MAX_BYTES, recoveryIdentity, recoveryReadBytes, RecoveryReadLimitError,
   releaseRecoveryDirectory, sameRecoveryIdentity, writeRecoveryState, retireRecoveryDirectory, removeRecoveryDirectory,
   type RecoveryPreparedFile,
 } from './project-recovery-store';
@@ -470,7 +470,11 @@ export async function writeProjectTextFilesIn(
       }
       const file = projectEntryPathIn(root, write.relPath);
       const before = recoveryDataPath
-        ? await recoveryReadBytes(file, RECOVERY_MAX_BYTES - recoveryBytes)
+        ? await recoveryReadBytes(file, RECOVERY_MAX_BYTES - recoveryBytes).catch((error) => {
+            if (error instanceof RecoveryReadLimitError)
+              throw new ProjectRecoveryError('RECOVERY_BATCH_LIMIT', 'Workspace edit exceeds the 16 MiB recovery budget. Split the edit.', { cause: error });
+            throw error;
+          })
         : await readFile(file);
       const current = decodeProjectText(before);
       requireLosslessText(current);

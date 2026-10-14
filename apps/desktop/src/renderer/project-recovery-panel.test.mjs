@@ -361,3 +361,62 @@ test('focus refresh failure never reports zero records as a successful inventory
   assert.match(ui.document.body.textContent, /Recovery request failed/);
   assert.doesNotMatch(ui.document.body.textContent, /No file recovery records/);
 });
+
+for (const source of ['focus', 'folder']) {
+  test(`open recovery ${source} refresh replaces the visible list and invalidates inspection`, async (t) => {
+    let records = [detail], folderChanged;
+    const ui = await mount(t, { initiallyOpen: true }, ProjectRecoverySurface, (window) => {
+      window.mixdogDesktop = {
+        projectRecovery: async (_project, input) => ({ records, ...(input.action === 'inspect' ? { detail } : {}) }),
+        subscribeFolderChanges: (callback) => { folderChanged = callback; return () => {}; },
+      };
+    });
+    await ui.click('Inspect');
+    assert.ok(ui.button('Restore'));
+    records = [{ ...detail, id: '22345678-abcd-abcd-abcd-123456789abc' }, { ...detail, id: '32345678-abcd-abcd-abcd-123456789abc' }];
+    if (source === 'folder') t.mock.timers.enable({ apis: ['setTimeout'] });
+    await act(async () => {
+      if (source === 'focus') window.dispatchEvent(new window.Event('focus'));
+      else { folderChanged('/project-a'); t.mock.timers.tick(250); }
+    });
+    assert.equal(ui.button('Restore'), undefined);
+    assert.equal([...ui.document.querySelectorAll('button')].filter((b) => b.textContent === 'Inspect').length, 2);
+    assert.match(ui.document.querySelector('summary').textContent, /2/);
+  });
+}
+
+test('an unavailable automatic refresh clears open controls and permits an explicit retry', async (t) => {
+  let failed = false;
+  const ui = await mount(t, { initiallyOpen: true }, ProjectRecoverySurface, (window) => {
+    window.mixdogDesktop = { projectRecovery: async (_project, input) => {
+      if (failed) throw new Error('RECOVERY_MANUAL_INSPECTION: unknown entry');
+      return { records: [detail], ...(input.action === 'inspect' ? { detail } : {}) };
+    } };
+  });
+  await ui.click('Inspect');
+  failed = true;
+  await act(async () => window.dispatchEvent(new window.Event('focus')));
+  assert.equal(ui.button('Restore'), undefined);
+  assert.equal(ui.button('Delete'), undefined);
+  assert.match(ui.document.body.textContent, /manually/);
+  failed = false;
+  await ui.click('Refresh');
+  assert.ok(ui.button('Inspect'));
+  assert.equal(ui.button('Restore'), undefined);
+});
+
+test('an inspect response preceding automatic discovery cannot revive an old approval', async (t) => {
+  const old = deferred();
+  let records = [detail];
+  const ui = await mount(t, { initiallyOpen: true }, ProjectRecoverySurface, (window) => {
+    window.mixdogDesktop = { projectRecovery: async (_project, input) =>
+      input.action === 'inspect' ? old.promise : { records } };
+  });
+  await ui.click('Inspect');
+  records = [];
+  await act(async () => window.dispatchEvent(new window.Event('focus')));
+  await act(async () => old.resolve({ records: [detail], detail }));
+  assert.equal(ui.button('Restore'), undefined);
+  assert.equal(ui.button('Inspect'), undefined);
+  assert.match(ui.document.body.textContent, /No file recovery records/);
+});

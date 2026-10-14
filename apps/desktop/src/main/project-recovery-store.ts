@@ -233,7 +233,9 @@ export async function recoveryLocations(userDataPath: string, root: string): Pro
   for await (const entry of await opendir(parent)) {
     if (++seen > RECOVERY_MAX_RECORDS * 3)
       throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery storage needs manual inspection: too many entries.');
-    if (locationName(entry.name)) result.push(join(parent, entry.name));
+    if (!locationName(entry.name))
+      throw new ProjectRecoveryError('RECOVERY_MANUAL_INSPECTION', 'Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.');
+    result.push(join(parent, entry.name));
   }
   return result;
 }
@@ -248,10 +250,11 @@ export async function recoveryLocation(userDataPath: string, root: string, id: s
 function fileStamp(value: Awaited<ReturnType<typeof lstat>>): string {
   return [value.dev, value.ino, value.size, value.mtimeMs, value.ctimeMs, value.mode].join(':');
 }
+export class RecoveryReadLimitError extends Error {}
 export async function recoveryReadBytes(file: string, maxBytes: number): Promise<Buffer> {
   const first = await lstat(file);
-  if (!first.isFile() || first.isSymbolicLink() || first.size > maxBytes)
-    throw new Error('Recovery file is invalid or oversized.');
+  if (!first.isFile() || first.isSymbolicLink()) throw new Error('Recovery file is invalid.');
+  if (first.size > maxBytes) throw new RecoveryReadLimitError('Recovery file is oversized.');
   const handle = await open(file, 'r');
   try {
     if (fileStamp(await handle.stat()) !== fileStamp(first)) throw new Error('Recovery file changed while opening.');

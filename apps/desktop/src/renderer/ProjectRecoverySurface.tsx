@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ProjectRecoveryRequest, ProjectRecoveryDetail, ProjectRecoveryResponse } from '../shared/project-recovery';
 import { ProjectRecoveryPanel, type ProjectRecoveryLabels } from './ProjectRecoveryPanel';
 import { t } from './i18n';
+import { recoveryFailureCode } from '../shared/project-recovery';
 
 export function ProjectRecoverySurface({
   projectPath,
@@ -16,7 +17,11 @@ export function ProjectRecoverySurface({
 }) {
   const [open, setOpen] = useState(initiallyOpen || Boolean(initialRecordId));
   const [overview, setOverview] = useState<ProjectRecoveryResponse | null>(null);
-  const [unavailable, setUnavailable] = useState(false);
+  const [failure, setFailure] = useState<unknown>(null);
+  const unavailable = failure !== null;
+  const [refreshing, setRefreshing] = useState(true);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const refreshDiscovery = useRef<(() => void) | null>(null);
   const generation = useRef(0);
   const api = window.mixdogDesktop;
   const request = useCallback(
@@ -26,13 +31,13 @@ export function ProjectRecoverySurface({
       return api.projectRecovery(project, input).then((result) => {
         if (ticket === generation.current) {
           setOverview(result);
-          setUnavailable(false);
+          setFailure(null);
         }
         return result;
       }, (error) => {
         if (ticket === generation.current) {
           setOverview(null);
-          setUnavailable(true);
+          setFailure(error ?? new Error());
         }
         throw error;
       });
@@ -45,19 +50,25 @@ export function ProjectRecoverySurface({
     let pending = false;
     let again = false;
     setOverview(null);
-    setUnavailable(false);
+    setFailure(null);
     setOpen(initiallyOpen || Boolean(initialRecordId));
     const refresh = async () => {
       if (disposed || !api?.projectRecovery) return;
       if (pending) { again = true; return; }
       pending = true;
+      // Unmount the open panel before discovery, invalidating its observations
+      // and in-flight approvals even when the refresh fails or is still pending.
+      setRefreshing(true);
+      setRefreshVersion((version) => version + 1);
       try { await request(projectPath, { action: 'list' }); }
       catch { /* The request publishes an unavailable state, never an empty inventory. */ }
       finally {
         pending = false;
+        if (!disposed) setRefreshing(false);
         if (again && !disposed) { again = false; void refresh(); }
       }
     };
+    refreshDiscovery.current = () => void refresh();
     // Discovery reads bounded manifest metadata only. It never inspects target
     // files, accepts a mutation, or takes focus away from an editor.
     void refresh();
@@ -70,6 +81,7 @@ export function ProjectRecoverySurface({
     });
     return () => {
       disposed = true;
+      refreshDiscovery.current = null;
       generation.current++;
       clearTimeout(timer);
       window.removeEventListener('focus', focus);
@@ -112,6 +124,7 @@ export function ProjectRecoverySurface({
       RECOVERY_STORAGE: t('Recovery storage could not be read or written. Check disk space and permissions before retrying.'),
       RECOVERY_NOT_RESTORABLE: t('This record cannot restore files. Inspect it before deleting its backups.'),
       RECOVERY_UNAVAILABLE: t('Recovery record unavailable. Refresh the list.'),
+      RECOVERY_MANUAL_INSPECTION: t('Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.'),
     },
     phases: {
       interrupted: t('Interrupted'),
@@ -143,7 +156,10 @@ export function ProjectRecoverySurface({
         {needsReview ? ` · ${t('Review required')}` : ''}
         {unavailable ? ` · ${t('Unavailable')}` : ''}
       </summary>
-      {unavailable && <p role="status">{labels.failure}</p>}
+      {unavailable && <p role="status">{labels.failures?.[recoveryFailureCode(failure)!] ?? labels.failure}</p>}
+      {open && refreshing && <p role="status">{labels.busy}</p>}
+      {open && unavailable && !refreshing &&
+        <button type="button" onClick={() => refreshDiscovery.current?.()}>{labels.refresh}</button>}
       {needsReview &&
         <p role="status">{t('File recovery records need review. No files are restored automatically.')}</p>}
       {open && overview?.rootAvailable === false &&
@@ -160,9 +176,9 @@ export function ProjectRecoverySurface({
         {overview.storage.usedRecords >= overview.storage.maxRecords &&
           <p role="alert">{labels.failures?.RECOVERY_CAPACITY}</p>}
       </div>}
-      {open && (
+      {open && !refreshing && !unavailable && (
         <ProjectRecoveryPanel
-          key={projectPath}
+          key={`${projectPath}:${refreshVersion}`}
           projectPath={projectPath}
           initialRecordId={initialRecordId}
           request={request}

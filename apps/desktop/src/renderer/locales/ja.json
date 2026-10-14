@@ -4248,5 +4248,6 @@
   "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "プロジェクトフォルダーが見つからないか利用できません。バックアップは残っています。削除前に記録を確認してください。",
   "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "復旧記録: {{used}} / {{limit}} · 要確認: {{unresolved}} · 解決済み: {{resolved}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "記録されたデータ: {{bytes}} MiB · サイズ不明の記録: {{unknown}} · 編集ごとの上限: {{files}} ファイル / {{limit}} MiB",
-  "Inspect file recovery": "ファイル復旧を検査"
+  "Inspect file recovery": "ファイル復旧を検査",
+  "Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.": "復元ストレージに認識できない項目があります。ホストの復元フォルダーを手動で確認してください。"
 }

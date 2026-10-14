@@ -4358,5 +4358,6 @@
   "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "A pasta do projeto não existe ou está indisponível. Os backups são mantidos; inspecione o registro antes de excluí-lo.",
   "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "Registros de recuperação: {{used}} / {{limit}} · A revisar: {{unresolved}} · Resolvidos: {{resolved}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Dados registrados: {{bytes}} MiB · Registros com tamanho desconhecido: {{unknown}} · Por edição: {{files}} arquivos / {{limit}} MiB",
-  "Inspect file recovery": "Inspecionar recuperação de arquivos"
+  "Inspect file recovery": "Inspecionar recuperação de arquivos",
+  "Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.": "O armazenamento de recuperação contém itens desconhecidos. Inspecione manualmente a pasta de recuperação no host."
 }

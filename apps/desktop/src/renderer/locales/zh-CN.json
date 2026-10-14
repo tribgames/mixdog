@@ -4248,5 +4248,6 @@
   "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "项目文件夹缺失或不可用。备份仍保留；删除记录前请先检查。",
   "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "恢复记录：{{used}} / {{limit}} · 待检查：{{unresolved}} · 已解决：{{resolved}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "已记录的数据：{{bytes}} MiB · 大小未知的记录：{{unknown}} · 每次编辑：{{files}} 个文件 / {{limit}} MiB",
-  "Inspect file recovery": "检查文件恢复"
+  "Inspect file recovery": "检查文件恢复",
+  "Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.": "恢复存储中包含无法识别的条目。请手动检查主机上的恢复文件夹。"
 }

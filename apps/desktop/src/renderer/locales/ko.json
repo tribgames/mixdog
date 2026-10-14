@@ -4248,5 +4248,6 @@
   "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "프로젝트 폴더가 없거나 사용할 수 없습니다. 백업은 남아 있으므로 기록을 검토한 뒤 삭제하세요.",
   "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "복구 기록: {{used}} / {{limit}} · 검토 필요: {{unresolved}} · 해결됨: {{resolved}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "기록된 백업 데이터: {{bytes}} MiB · 크기 미확인 기록: {{unknown}} · 편집당 한도: {{files}}개 파일 / {{limit}} MiB",
-  "Inspect file recovery": "파일 복구 검사"
+  "Inspect file recovery": "파일 복구 검사",
+  "Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.": "복구 저장소에 인식할 수 없는 항목이 있습니다. 호스트의 복구 폴더를 직접 확인하세요."
 }

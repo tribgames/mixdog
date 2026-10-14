@@ -26,7 +26,7 @@
  * -d` forgets it).
  */
 import { existsSync } from 'node:fs';
-import { assertRecoveryStoresClear, recoveryScopes, validateRecoveryScope } from './file-recovery.mjs';
+import { assertRecoveryStoresClear, recoveryScopes, retainedRecoveryScopes, validateRecoveryScope } from './file-recovery.mjs';
 import { lstat, mkdir, readdir, readFile, rm, rmdir } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import {
@@ -537,8 +537,9 @@ export async function withWorktreeRecoveryStore(root, directory, action, run) {
     if (!record || ((action === 'write' || action === 'restore') && record.state !== 'ready'))
       throw worktreeError('WORKTREE_MISSING', undefined, { entryId: entry.id });
     const scope = validateRecoveryScope(record, { root, directory });
-    const scopes = recoveryScopes(record);
+    let scopes = recoveryScopes(record);
     if (!scopes.some((item) => item.root === root && item.directory === directory)) {
+      if (scopes.length >= 64) scopes = await retainedRecoveryScopes(record);
       if (scopes.length >= 64) throw worktreeError('WORKTREE_FILE_RECOVERY');
       record.editorRecoveryStores = [...scopes, scope];
       await putRecord(record);
