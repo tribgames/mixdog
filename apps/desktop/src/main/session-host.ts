@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, realpath, stat } from 'node:fs/promises';
-import { isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { canonicalPath } from '../../../../src/runtime/shared/worktrees/paths.mjs';
 
 import type {
   DesktopAbortOptions,
@@ -459,17 +460,20 @@ export class SessionHost implements DesktopService {
       if (!entry || !['ready', 'deleting', 'recovery'].includes(entry.state ?? 'ready')) throw error;
       await this.projects.knownPath(entry.projectPath);
       const key = (path: string) => process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path);
-      if (key(requested) !== key(entry.path) && !key(requested).startsWith(key(entry.path) + sep)) throw error;
-      // Resolve existing casing/aliases just like the writer, but never follow
-      // a replacement outside the managed root into another recovery scope.
+      const within = (base: string, path: string) => key(path) === key(base) || key(path).startsWith(key(base) + sep);
+      // Resolve parent aliases/Windows short names even after the checkout is
+      // gone. Do not resolve the checkout itself: it may be a replacement link.
+      const stableRoot = join(canonicalPath(dirname(entry.path)), basename(entry.path));
+      const spelling = [resolve(entry.path), stableRoot].find((base) => within(base, requested));
+      if (!spelling) throw error;
+      const target = join(stableRoot, relative(spelling, requested));
       let canonical: string;
-      try { canonical = await realpath(requested); }
+      try { canonical = await realpath(target); }
       catch (cause) {
-        if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return requested;
+        if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return target;
         throw cause;
       }
-      return key(canonical) === key(entry.path) || key(canonical).startsWith(key(entry.path) + sep)
-        ? canonical : requested;
+      return within(stableRoot, canonical) ? canonical : target;
     }
   }
 

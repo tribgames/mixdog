@@ -250,6 +250,8 @@ test('the Files recovery surface invokes the host API only after inspection and 
   assert.deepEqual(requests, [['/project-a', { action: 'list' }]], 'closed discovery reads metadata only');
   assert.match(ui.document.body.textContent, /need review/);
   assert.equal(ui.button('Restore'), undefined);
+  assert.equal(ui.document.querySelector('details').open, false);
+  assert.match(ui.document.querySelector('summary').textContent, /File recovery.*1.*Review required/);
   await act(async () => {
     const element = ui.document.querySelector('details');
     element.open = true;
@@ -354,6 +356,8 @@ test('focus refresh failure never reports zero records as a successful inventory
   assert.match(ui.document.querySelector('summary').textContent, /1/);
   failed = true;
   await act(async () => window.dispatchEvent(new window.Event('focus')));
+  assert.equal(ui.document.querySelector('details').open, false);
+  assert.match(ui.document.querySelector('summary').textContent, /Unavailable/);
   assert.match(ui.document.body.textContent, /Recovery request failed/);
   assert.doesNotMatch(ui.document.body.textContent, /No file recovery records/);
 });

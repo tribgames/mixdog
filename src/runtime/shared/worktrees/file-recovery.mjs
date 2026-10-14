@@ -2,7 +2,8 @@
  * A retained record (even resolved) needs an explicit discard before its
  * workspace can be removed. An unreadable/symlinked store is never empty. */
 import { createHash } from 'node:crypto';
-import { lstat, opendir, realpath } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
+import { lstat, opendir } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { worktreeError } from './contract.mjs';
 import { isWithin } from './paths.mjs';
@@ -32,7 +33,9 @@ export async function assertRecoveryStoresClear(record) {
         let info;
         try { info = await lstat(directory); }
         catch (error) { if (error?.code === 'ENOENT') continue; throw error; }
-        if (!info.isDirectory() || info.isSymbolicLink() || await realpath(directory) !== resolve(directory))
+        // Use the same path spelling as the file host's store validation;
+        // async/native realpath can expand Windows short names differently.
+        if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(directory) !== resolve(directory))
           throw fail(record, scope.root);
       }
       let directory;

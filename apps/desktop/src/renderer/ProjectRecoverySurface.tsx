@@ -131,15 +131,20 @@ export function ProjectRecoverySurface({
       unavailable: t('Unavailable'),
     },
   };
+  const needsReview = overview?.records.some((record) => !['completed', 'recovered', 'retired'].includes(record.phase));
   return (
     <details
       style={{ padding: '8px 12px', overflowWrap: 'anywhere' }}
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>{labels.title}{overview?.records.length ? ` · ${overview.records.length}` : ''}</summary>
+      <summary>
+        {labels.title}{overview?.records.length ? ` · ${overview.records.length}` : ''}
+        {needsReview ? ` · ${t('Review required')}` : ''}
+        {unavailable ? ` · ${t('Unavailable')}` : ''}
+      </summary>
       {unavailable && <p role="status">{labels.failure}</p>}
-      {overview && overview.records.some((record) => !['completed', 'recovered', 'retired'].includes(record.phase)) &&
+      {needsReview &&
         <p role="status">{t('File recovery records need review. No files are restored automatically.')}</p>}
       {open && overview?.rootAvailable === false &&
         <p role="alert">{t('Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.')}</p>}

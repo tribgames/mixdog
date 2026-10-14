@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import test from 'node:test';
 import { SessionHost } from './session-host.ts';
 
@@ -198,4 +198,30 @@ test('recovery lookup accepts a deleting managed record but never an unregistere
   await assert.rejects(f.host.projectRecoveryDirectory(f.arbitrary));
   const removed = await fixture(t, { registerProject: false });
   await assert.rejects(removed.host.projectRecoveryDirectory(removed.worktree));
+});
+
+
+test('recovery resolves a registered parent alias consistently before and after checkout removal', async (t) => {
+  let aliasEntry;
+  const f = await fixture(t, {
+    entryFor: ({ project, worktree }) => ({ projectPath: project, path: aliasEntry ?? worktree, state: 'ready' }),
+  });
+  const alias = join(f.root, 'checkout-parent-alias');
+  await symlink(dirname(f.worktree), alias, process.platform === 'win32' ? 'junction' : 'dir');
+  aliasEntry = join(alias, basename(f.worktree));
+  const nested = join(f.worktree, 'packages', 'app');
+  const aliasNested = join(aliasEntry, 'packages', 'app');
+  await mkdir(nested, { recursive: true });
+  assert.equal(await f.host.projectDirectory(aliasEntry), f.worktree);
+  assert.equal(await f.host.projectRecoveryDirectory(aliasEntry), f.worktree);
+  assert.equal(await f.host.projectRecoveryDirectory(f.worktree), f.worktree);
+  assert.equal(await f.host.projectRecoveryDirectory(aliasNested), nested);
+  await assert.rejects(f.host.projectRecoveryDirectory(f.arbitrary));
+  await rm(f.worktree, { recursive: true });
+  assert.equal(await f.host.projectRecoveryDirectory(aliasEntry), f.worktree);
+  assert.equal(await f.host.projectRecoveryDirectory(aliasNested), nested);
+  await assert.rejects(f.host.projectDirectory(aliasEntry));
+  // A replacement checkout cannot redirect inventory to a sibling's scope.
+  await symlink(f.arbitrary, f.worktree, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.equal(await f.host.projectRecoveryDirectory(aliasEntry), f.worktree);
 });
