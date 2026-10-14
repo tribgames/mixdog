@@ -78,16 +78,14 @@ export function isEffortConfigurationRejection(status, text) {
  */
 export async function withEffortConfigurationFallback(provider, model, opts, send) {
   let streamed = false;
+  const track = (callback, isProgress = false) => (...args) => {
+    if (!isProgress || isVisibleStreamProgress(args[0])) streamed = true;
+    return callback(...args);
+  };
   const tracked = { ...opts };
-  for (const name of ['onStreamDelta', 'onTextDelta', 'onToolCall']) {
-    const callback = opts?.[name];
-    if (typeof callback === 'function') {
-      tracked[name] = (...args) => {
-        if (name !== 'onStreamDelta' || isVisibleStreamProgress(args[0])) streamed = true;
-        return callback(...args);
-      };
-    }
-  }
+  if (typeof opts?.onStreamDelta === 'function') tracked.onStreamDelta = track(opts.onStreamDelta, true);
+  if (typeof opts?.onTextDelta === 'function') tracked.onTextDelta = track(opts.onTextDelta);
+  if (typeof opts?.onToolCall === 'function') tracked.onToolCall = track(opts.onToolCall);
   try {
     return await send(tracked);
   } catch (error) {
