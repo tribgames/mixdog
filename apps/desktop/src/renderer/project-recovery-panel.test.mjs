@@ -420,3 +420,23 @@ test('an inspect response preceding automatic discovery cannot revive an old app
   assert.equal(ui.button('Inspect'), undefined);
   assert.match(ui.document.body.textContent, /No file recovery records/);
 });
+
+test('automatic refresh does not reopen an initial record after explicit discard', async (t) => {
+  let records = [detail];
+  const requests = [];
+  const ui = await mount(t, { initialRecordId: id }, ProjectRecoverySurface, (window) => {
+    window.confirm = () => true;
+    window.mixdogDesktop = { projectRecovery: async (_project, input) => {
+      requests.push(input);
+      if (input.action === 'discard') records = [];
+      if (input.action === 'inspect' && !records.length) throw new Error('RECOVERY_UNAVAILABLE: discarded');
+      return { records, ...(input.action === 'inspect' ? { detail } : {}) };
+    } };
+  });
+  assert.ok(ui.button('Delete'));
+  await ui.click('Delete');
+  await act(async () => window.dispatchEvent(new window.Event('focus')));
+  assert.equal(requests.filter((input) => input.action === 'inspect').length, 1);
+  assert.match(ui.document.body.textContent, /No file recovery records/);
+  assert.doesNotMatch(ui.document.querySelector('summary').textContent, /Unavailable/);
+});

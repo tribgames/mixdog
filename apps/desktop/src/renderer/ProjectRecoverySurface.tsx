@@ -52,6 +52,7 @@ export function ProjectRecoverySurface({
     setOverview(null);
     setFailure(null);
     setOpen(initiallyOpen || Boolean(initialRecordId));
+    setRefreshVersion(0);
     const refresh = async () => {
       if (disposed || !api?.projectRecovery) return;
       if (pending) { again = true; return; }
@@ -180,7 +181,7 @@ export function ProjectRecoverySurface({
         <ProjectRecoveryPanel
           key={`${projectPath}:${refreshVersion}`}
           projectPath={projectPath}
-          initialRecordId={initialRecordId}
+          initialRecordId={refreshVersion === 1 ? initialRecordId : undefined}
           request={request}
           confirm={confirm}
           labels={labels}
