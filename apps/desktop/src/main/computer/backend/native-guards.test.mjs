@@ -188,6 +188,41 @@ foreach ($vk in 0x08, 0x09, 0x0D, 0x1B, 0x20, 0x41, 0x25) { $keys[[string]$vk] =
   assert.equal(result.edit, true);
 });
 
+test('the composed host refuses every dispatch while its input hooks cannot be installed', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
+  const hookDeclaration =
+    /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll", SetLastError = true\)\]\s+static extern System\.IntPtr SetWindowsHookEx\(int kind, Hook callback, System\.IntPtr module, uint thread\);/;
+  assert.match(MIXDOG_HOST_CSHARP, hookDeclaration);
+  const source = MIXDOG_HOST_CSHARP.replace(
+    hookDeclaration,
+    'static System.IntPtr SetWindowsHookEx(int kind, Hook callback, System.IntPtr module, uint thread) { return System.IntPtr.Zero; }'
+  );
+  const output = await isolatedProgram(
+    `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName Accessibility
+Add-Type -AssemblyName System.Drawing
+Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
+  [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
+$state = [MixInputObservation]::Read()
+$refusals = @()
+try { [MixInputObservation]::Begin(); $refusals += 'begun' } catch { $refusals += $_.Exception.InnerException.Message }
+# The cursor's own position: even a missed guard could not move anything.
+$cursor = [MixWin32]::Cursor()
+try { $null = [MixWin32]::SetCursorPos($cursor.x, $cursor.y); $refusals += 'dispatched' } catch { $refusals += $_.Exception.InnerException.Message }
+[Console]::WriteLine((@{ ready = $state.Ready; reason = $state.Reason; refusals = $refusals } | ConvertTo-Json -Compress))
+`,
+    { 'native.cs': source }
+  );
+  const result = JSON.parse(output);
+  assert.equal(result.ready, false);
+  assert.equal(result.reason, 'hooks_unavailable');
+  assert.equal(result.refusals.length, 2);
+  assert.match(result.refusals[0], /^input_observation_unavailable:.*hooks_unavailable/);
+  assert.match(result.refusals[1], /^input_observation_unavailable:.*hooks_unavailable/);
+});
+
 test('native typing retains a completed preparatory click when text input is unsupported', {
   skip: process.platform !== 'win32' && 'Windows only',
 }, async () => {

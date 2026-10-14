@@ -64,7 +64,7 @@ function diagnoseIssues(diagnosis: Diagnosis): string[] {
     issues.push(
       inputObservation.input_held === true
         ? 'foreground input is unavailable while physical input is held'
-        : String(inputObservation.error || 'foreground input observation is unavailable')
+        : String(inputObservation.error || inputObservation.reason || 'foreground input observation is unavailable')
     );
   }
   // A missing OS grant is the cause of the probe's own failure: name the

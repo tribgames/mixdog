@@ -36,6 +36,43 @@ if ($ledger.ForeignSequence -ne 2) { throw 'same-tick external event was missed'
 # current without reading as someone else's input.
 $ledger.RecordNeutral(5)
 if ($ledger.ForeignSequence -ne 2 -or $ledger.LatestTick -ne 5) { throw 'neutral input changed provenance or lost the clock' }
+# An unaccounted clock change counts once as foreign input and stays open.
+if (-not $ledger.Observe(5) -or $ledger.Gap) { throw 'an accounted clock opened a gap' }
+if ($ledger.Observe(4)) { throw 'an earlier (non-monotonic) unaccounted tick was accepted' }
+if ($ledger.ForeignSequence -ne 3 -or -not $ledger.Gap) { throw 'gap was not counted as foreign input' }
+if ($ledger.Observe(9) -or $ledger.ForeignSequence -ne 3) { throw 'one unresolved gap counted more than once' }
+$ledger.Record($true, 9)
+if ($ledger.Observe(9) -or -not $ledger.Gap -or $ledger.ForeignSequence -ne 3) { throw 'own event restoring tick equality closed the gap' }
+$ledger.Record($false, 9)
+if ($ledger.ForeignSequence -ne 4) { throw 'same-tick foreign event during a gap was missed' }
+# Quiet window: desktop access, nothing held and a still clock over enough
+# observations and enough elapsed time; any input restarts it.
+if ($ledger.ObserveQuiet($true, $false, 9, 0)) { throw 'one observation confirmed quiet' }
+if ($ledger.ObserveQuiet($true, $false, 9, 50)) { throw 'two observations confirmed quiet' }
+if ($ledger.ObserveQuiet($true, $false, 9, 100)) { throw 'quiet confirmed before the elapsed window' }
+if ($ledger.Resynchronize($true, $false, 9) -or -not $ledger.Gap) { throw 'resynced without confirmed quiet' }
+foreach ($blocked in @(@($false, $false), @($true, $true))) {
+  $null = $ledger.ObserveQuiet($true, $false, 9, 1000)
+  $null = $ledger.ObserveQuiet($true, $false, 9, 1100)
+  if ($ledger.ObserveQuiet($blocked[0], $blocked[1], 9, 1400)) { throw 'quiet confirmed without desktop access or with input held' }
+}
+$null = $ledger.ObserveQuiet($true, $false, 9, 2000)
+$null = $ledger.ObserveQuiet($true, $false, 9, 2100)
+$ledger.Record($true, 10)
+if ($ledger.ObserveQuiet($true, $false, 10, 2400)) { throw 'quiet survived an input event' }
+$null = $ledger.ObserveQuiet($true, $false, 10, 2500)
+if ($ledger.ObserveQuiet($true, $false, 11, 2900)) { throw 'quiet survived a clock change' }
+$null = $ledger.ObserveQuiet($true, $false, 11, 3000)
+if (-not $ledger.ObserveQuiet($true, $false, 11, 3300)) { throw 'confirmed quiet was not recognized' }
+if ($ledger.Resynchronize($true, $false, 12) -or -not $ledger.Gap) { throw 'resynced across a clock change' }
+foreach ($elapsed in 4000, 4100, 4400) { $null = $ledger.ObserveQuiet($true, $false, 11, $elapsed) }
+if ($ledger.Resynchronize($true, $true, 11) -or -not $ledger.Gap) { throw 'resynced with input held' }
+foreach ($elapsed in 5000, 5100, 5400) { $null = $ledger.ObserveQuiet($true, $false, 11, $elapsed) }
+if (-not $ledger.Resynchronize($true, $false, 11) -or $ledger.Gap) { throw 'confirmed quiet did not resync' }
+if ($ledger.ForeignSequence -ne 4 -or $ledger.LatestTick -ne 11) { throw 'resync rebased the sequence or lost the clock' }
+if (-not $ledger.Observe(11)) { throw 'resynced ledger is not consistent' }
+# Equality only: a wrapped tick is just another unequal tick.
+if ($ledger.Observe([uint32]::MaxValue) -or $ledger.ForeignSequence -ne 5) { throw 'wrapped unaccounted tick was not a gap' }
 if (-not [MixInputObservation]::IsUnassignedVirtualKey(0xB9)) { throw 'the activation key 0xB9 counts as typing' }
 foreach ($vk in 0x41, 0x0D, 0x10, 0xBA, 0xDB) {
   if ([MixInputObservation]::IsUnassignedVirtualKey($vk)) { throw "a real key was ignored: $vk" }

@@ -27,10 +27,11 @@ test('native dispatch rejects old observations, clipped cursors, and stale messa
       join(directory, 'fixture.cs'),
       `
 using System;
-public class MixInputSnapshot { public bool Ready; public string Generation; public long Sequence; }
+public class MixInputSnapshot { public bool Ready; public string Generation; public long Sequence; public string Reason = ""; }
 public static class MixInputObservation {
   static int actionDepth;
   static long? actionSequence;
+  static string actionGeneration;
   public static Action DispatchAuthorization;
   public static MixInputSnapshot Snapshot = new MixInputSnapshot { Ready=true, Generation="original", Sequence=3 };
   public static MixInputSnapshot Read() { return Snapshot; }
