@@ -21,6 +21,7 @@ import { dataDir } from './store-summary-locations.mjs';
 import {
   desktopSession,
   importKey,
+  inheritedFromSessionId,
   isStoredSessionId,
   positiveNumber,
   workspaceSummary,
@@ -188,6 +189,7 @@ export function normalizedRow(row, heartbeatAt = 0) {
     storageSize: positiveNumber(row.storageSize, 0),
     detachedReason: row.detachedReason || null,
     importKey: importKey(row),
+    inheritedFromSessionId: inheritedFromSessionId(row),
   };
 }
 

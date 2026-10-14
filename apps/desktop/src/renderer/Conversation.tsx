@@ -25,7 +25,6 @@ export function Conversation(props: ConversationProps) {
     activeProjectPath,
     draftMode = false,
     draftId = '',
-    onRoutePreferenceApplied,
     renderAssistantRow,
     readOnly = false,
     reviewActive = true,
@@ -76,7 +75,7 @@ export function Conversation(props: ConversationProps) {
     optimisticActivityStartedAt,
     onEntryRevealed,
   });
-  const { renderTranscriptRow, retryTurnRef } = useConversationRowRenderer({
+  const { renderTranscriptRow } = useConversationRowRenderer({
     snapshot,
     disclosureScope: String(routeSnapshot.sessionId || 'new-task'),
     readOnly,
@@ -100,13 +99,10 @@ export function Conversation(props: ConversationProps) {
     draftMode,
     snapshot,
     routeSnapshot,
-    routeSessionIdRef,
     settledItems,
     settledTurnKeys: timeline.settledTurnKeys,
     pendingPromptCount: pendingItems.length,
     actions,
-    retryTurnRef,
-    onRoutePreferenceApplied,
   });
   const routeProject = String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '');
   const itemCount = source.liveItemCount + pendingItems.length;

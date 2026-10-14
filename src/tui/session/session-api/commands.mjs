@@ -92,34 +92,45 @@ export function createSessionCommandsApi(bag) {
     };
   };
 
+  // The compaction pass itself, under a lock its caller holds. `quiet` (the
+  // model switch's pre-compaction) asks the compactor to skip a pass that
+  // would not reduce anything and then adds no row for it.
+  async function runCompaction(startedAt, { quiet = false } = {}) {
+    // Give Ink one event-loop turn to paint the compacting spinner before
+    // runtime.compact() starts synchronous session/transcript work (same
+    // yield as the auto-clear path; without it /compact looks frozen with
+    // no spinner until the compact already finished).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const result = await runtime.compact({ recoverAgent: true, ...(quiet ? { requireReduction: true } : {}) });
+    const compactChanged = Boolean(result && !result.error && result.changed !== false);
+    syncContextStats({
+      allowEstimated: true,
+      invalidateExact: compactChanged,
+    });
+    set({ ...routeState(), stats: { ...getState().stats } });
+    if (compactChanged) {
+      // The compacted rows stay visible (archived) above the divider.
+      const { items } = archiveItemsForCompaction(getState().items, compactDoneItem(result, startedAt), null, {
+        archived: compactionArchivedRows(result),
+      });
+      set({ items: replaceItems(items, { preserveSpill: true }) });
+    } else if (!quiet || result?.error) {
+      pushItem(compactDoneItem(result, startedAt));
+    }
+    return result;
+  }
+
+  // An in-place model switch compacts first on the current model (routes.mjs
+  // holds the command lock and shows the compacting status meanwhile).
+  bag.compactBeforeModelSwitch = () => runCompaction(Date.now(), { quiet: true });
+
   async function compactCommand() {
     if (getState().commandBusy) return null;
     if (getState().busy) return scheduleCompactForTurnEnd(compactCommand);
     try {
-      return await withCommandStatus('Compacting conversation', 'compacting', async (startedAt) => {
-        // Give Ink one event-loop turn to paint the compacting spinner before
-        // runtime.compact() starts synchronous session/transcript work (same
-        // yield as the auto-clear path; without it /compact looks frozen with
-        // no spinner until the compact already finished).
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        const result = await runtime.compact({ recoverAgent: true });
-        const compactChanged = Boolean(result && !result.error && result.changed !== false);
-        syncContextStats({
-          allowEstimated: true,
-          invalidateExact: compactChanged,
-        });
-        set({ ...routeState(), stats: { ...getState().stats } });
-        if (compactChanged) {
-          // The compacted rows stay visible (archived) above the divider.
-          const { items } = archiveItemsForCompaction(getState().items, compactDoneItem(result, startedAt), null, {
-            archived: compactionArchivedRows(result),
-          });
-          set({ items: replaceItems(items, { preserveSpill: true }) });
-        } else {
-          pushItem(compactDoneItem(result, startedAt));
-        }
-        return result;
-      });
+      return await withCommandStatus('Compacting conversation', 'compacting', (startedAt) =>
+        runCompaction(startedAt)
+      );
     } finally {
       // A command reply reads the published snapshot, not the draft. Commit
       // completion before the awaiting service constructs that reply.

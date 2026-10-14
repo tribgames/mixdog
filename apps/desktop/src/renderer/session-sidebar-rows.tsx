@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, Star, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ChevronDown, ChevronUp, CornerDownRight, GitFork, Star, Trash2, X } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
@@ -12,6 +12,11 @@ const SESSION_PREFETCH_INTENT_DELAY_MS = 40;
 
 export function sessionLabel(session: DesktopSessionSummary) {
   return sessionSummaryTitle(session, t('Untitled session'));
+}
+
+/** Display-only title of the n-th fork; the stored title is unchanged. */
+export function forkDisplayTitle(title: string, n: number) {
+  return t('{{title}} (fork {{n}})', { title, n });
 }
 
 /** Drag-reorder props for one row (see usePersistedListOrder.getReorderProps). */
@@ -42,12 +47,21 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onFavoriteSession,
   onDeleteSession,
   onOpenMenu,
+  forkKind,
+  forkExpanded,
+  forkNumber,
+  onToggleFork,
 }: {
   session: DesktopSessionSummary;
-  reorder?: SessionRowReorder;
+  reorder?: Partial<SessionRowReorder>;
   active: boolean;
   working?: boolean;
   unread?: boolean;
+  /** Fork grouping: the original (`root`, with its expansion) or a numbered fork. */
+  forkKind?: 'root' | 'child';
+  forkExpanded?: boolean;
+  forkNumber?: number;
+  onToggleFork?(sessionId: string): void;
   /** Right-click / Menu key: the sidebar owns the menu and its items. */
   onOpenMenu?(session: DesktopSessionSummary, point: { x: number; y: number }, rowKey: string): void;
   /** This row's list-scoped key; the inline editor opens on one row only. */
@@ -83,6 +97,10 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
       onArchiveSession={onArchiveSession}
       onFavoriteSession={onFavoriteSession}
       onOpenMenu={onOpenMenu && ((target, point) => onOpenMenu(target, point, rowKey))}
+      forkKind={forkKind}
+      forkExpanded={forkExpanded}
+      forkNumber={forkNumber}
+      onToggleFork={onToggleFork}
       onTitleDraftChange={onTitleDraftChange}
       onStartRename={(target) => onStartRename(target, rowKey)}
       onCancelRename={onCancelRename}
@@ -130,12 +148,20 @@ const SessionRow = React.memo(function SessionRow({
   onArchiveSession,
   onFavoriteSession,
   onOpenMenu,
+  forkKind,
+  forkExpanded,
+  forkNumber,
+  onToggleFork,
 }: {
   session: DesktopSessionSummary;
-  reorder?: SessionRowReorder;
+  reorder?: Partial<SessionRowReorder>;
   active: boolean;
   working?: boolean;
   unread?: boolean;
+  forkKind?: 'root' | 'child';
+  forkExpanded?: boolean;
+  forkNumber?: number;
+  onToggleFork?(sessionId: string): void;
   onOpenMenu?(session: DesktopSessionSummary, point: { x: number; y: number }): void;
   editing: boolean;
   titleDraft: string;
@@ -160,7 +186,21 @@ const SessionRow = React.memo(function SessionRow({
   const dragSourceMounted = useRef(true);
   const suppressClick = useRef(false);
   const [dragging, setDragging] = useState(false);
-  const label = sessionLabel(session);
+  const label = forkNumber ? forkDisplayTitle(sessionLabel(session), forkNumber) : sessionLabel(session);
+  const titleRef = useRef<HTMLElement>(null);
+  const [overflowing, setOverflowing] = useState(false);
+  // Only a title that does not fit fades at the row edge.
+  useLayoutEffect(() => {
+    const title = titleRef.current;
+    if (!title) return undefined;
+    const measure = () => setOverflowing(title.scrollWidth > title.clientWidth);
+    measure();
+    // Test DOMs have no observer; they only need the first measurement.
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(title);
+    return () => observer.disconnect();
+  }, [label]);
   const dragSelection = useMemo(
     () => ({ kind: 'session' as const, id: session.id, title: label }),
     [label, session.id]
@@ -237,7 +277,7 @@ const SessionRow = React.memo(function SessionRow({
           event.preventDefault();
           return;
         }
-        reorder?.onDragStart(event);
+        reorder?.onDragStart?.(event);
         const drag: PaneDragSession = {
           kind: 'session',
           key: `session:${session.id}`,
@@ -251,7 +291,7 @@ const SessionRow = React.memo(function SessionRow({
         document.body.dataset.tabDragging = '1';
       }}
       onDragEnd={() => {
-        reorder?.onDragEnd();
+        reorder?.onDragEnd?.();
         finishPaneDrag();
       }}
       onClick={activateFromClick}
@@ -318,9 +358,41 @@ const SessionRow = React.memo(function SessionRow({
           onOpenMenu(session, elementMenuPoint(event.currentTarget));
         }}
       >
+        {forkKind === 'root' && (
+          <GitFork className="session-row-fork-icon" data-fork="root" size={16} aria-hidden="true" />
+        )}
+        {forkKind === 'child' && (
+          <CornerDownRight className="session-row-fork-icon" data-fork="child" size={16} aria-hidden="true" />
+        )}
         <span className="session-row-copy">
-          <b>{label}</b>
+          <b ref={titleRef} data-overflow={overflowing || undefined}>
+            {label}
+          </b>
         </span>
+        {forkKind === 'root' && (
+          // A span, not a button: it sits inside the row's button and the
+          // click must not open the session.
+          <span
+            role="button"
+            tabIndex={0}
+            className="session-row-fork-toggle"
+            aria-expanded={forkExpanded === true}
+            aria-label={forkExpanded ? t('Collapse forks of {{name}}', { name: label }) : t('Expand forks of {{name}}', { name: label })}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleFork?.(session.id);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return;
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleFork?.(session.id);
+            }}
+          >
+            {forkExpanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+          </span>
+        )}
         <span className="session-row-status" data-working={working || undefined}>
           {working && (
             <ProgressSpinner

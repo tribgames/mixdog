@@ -302,6 +302,15 @@ function ContextPanel({ data, pending, run }: PanelContext) {
         onChange={(enabled) => void run('setCompactionSettings', [{ auto: enabled }])}
       />
       <ToggleRow
+        title={t('Auto-compact on model change')}
+        description={t(
+          'Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.'
+        )}
+        checked={compaction.onModelChange !== false}
+        disabled={busy}
+        onChange={(enabled) => void run('setCompactionSettings', [{ onModelChange: enabled }])}
+      />
+      <ToggleRow
         title={t('Auto-clear')}
         description={t(
           'Clear idle sessions after {{value0}} ({{value1}}). A provider idle window below overrides the global duration.',

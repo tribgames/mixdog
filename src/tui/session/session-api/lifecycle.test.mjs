@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createSessionLifecycleApi } from './lifecycle.mjs';
+import { modelSwitchItem } from '../../../runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
 
 // Pins the session-boundary transitions: each reset publishes the blank view,
 // snapshots the TUI for rollback, commits the empty session only after the
@@ -59,6 +60,10 @@ function createHarness({ runtime: runtimeOverrides = {}, state: stateOverrides =
     flushEmitImmediate: () => calls.push('flush'),
     disposeEmit: () => calls.push('disposeEmit'),
     replaceItems: (items) => items,
+    nextId: () => `id_${calls.length}`,
+    pushItem: (item) => {
+      state = { ...state, items: [...state.items, item] };
+    },
     pushNotice: () => {},
     removeNotice: () => {},
     setProgressHint: () => {},
@@ -351,6 +356,30 @@ test('continueSessionInModel applies the route only after a failed quota turn wh
   assert.deepEqual(h.calls[0], ['runtime.continueSessionInModel', 'sess_current', route]);
   assert.equal(h.state.model, 'n');
   assert.equal(h.state.commandBusy, false);
+});
+
+test('continueSessionInModel publishes the same live switch divider as a picker switch', async (t) => {
+  const quotaFailure = [
+    { kind: 'user', text: 'hi' },
+    { kind: 'turndone', status: 'failed', quota: { provider: 'p', model: 'm', resetAt: null } },
+  ];
+  const modelSwitch = { provider: 'q', modelId: 'n', at: 7 };
+  const h = createHarness({
+    runtime: { continueSessionInModel: async () => ({ modelSwitch }) },
+    state: { items: quotaFailure, busy: false },
+  });
+  t.after(h.dispose);
+  assert.equal(await h.api.continueSessionInModel('sess_current', { provider: 'q', model: 'n' }), true);
+  const divider = h.state.items.at(-1);
+  assert.equal(divider.kind, 'statusdone');
+  assert.equal(divider.status, 'model-switched');
+  assert.equal(divider.provider, 'q');
+  assert.equal(divider.modelId, 'n');
+  assert.deepEqual(
+    { ...divider, id: '' },
+    { ...modelSwitchItem('', modelSwitch) },
+    'the routes path renders the same row'
+  );
 });
 
 test('continueSessionInModel rejects busy, wrong-session and non-quota states', async (t) => {

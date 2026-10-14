@@ -20,6 +20,7 @@ import { cleanSessionPreview, isSessionPreviewNoise, sessionMessageText } from '
 import { sessionVisibility } from './store-summary-visibility.mjs';
 import {
   importKey,
+  inheritedFromSessionId,
   isStoredSessionId,
   positiveNumber as _positiveNumber,
   workspaceSummary,
@@ -209,6 +210,7 @@ export function _sessionSummary(session) {
     // Imported-conversation identity, so "already imported" is answered
     // from summaries without loading sessions.
     importKey: importKey(session),
+    inheritedFromSessionId: inheritedFromSessionId(session),
   };
 }
 
@@ -258,6 +260,7 @@ function _normalizeSummaryRow(row) {
     storageSize: _positiveNumber(row.storageSize, 0),
     detachedReason: row.detachedReason || null,
     importKey: importKey(row),
+    inheritedFromSessionId: inheritedFromSessionId(row),
   };
 }
 

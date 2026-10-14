@@ -28,20 +28,11 @@ export function createSessionSettingsApi(bag) {
   const lockedRuntimeCall = (call) => withCommandLock(async (...args) => await call(...args));
 
   return {
-    // Model changes apply to the NEXT session only (default setRoute behavior)
-    // — never rewrite the live session's provider/model, which would force a
-    // full prompt-cache rewrite mid-conversation. RPC replies read the
-    // published snapshot, not the mutable draft: commit before the caller can
-    // acknowledge an older route.
-    setModel: withCommandLock(
-      async (m) => {
-        bag.supersedeQuotaResume?.(getState().sessionId);
-        await runtime.setRoute({ model: m });
-        publishRoute();
-        return true;
-      },
-      { busyResult: false, onRelease: flushEmitImmediate }
-    ),
+    // A model selector (/model, a preset) is the user's model choice like any
+    // picker selection: the route surface switches an established
+    // conversation in place (pre-compaction, busy refusal, divider). False
+    // while another command holds the lock.
+    setModel: async (m) => (await bag.setSessionRoute({ model: m })) !== false,
     setEffort: withCommandLock(
       async (value) => {
         await runtime.setEffort(value);

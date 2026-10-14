@@ -47,21 +47,6 @@ export function quotaPanelVisible(state: {
   return Boolean(failure && sessionId && !busy && dismissedKey !== quotaDismissKey(sessionId, failure.turnKey));
 }
 
-/** What the island offers for a quota stop: the waiting pill when a resume is
- *  reserved; else the panel, with the schedule button only while the setting
- *  is off and the reset time is known (with it on the runtime reserves by
- *  itself). `autoResume` is null until the setting has been read. */
-export function quotaIslandPlan(state: {
-  resume: { state?: string } | null | undefined;
-  failure: QuotaFailure | null;
-  panelVisible: boolean;
-  autoResume: boolean | null;
-}): 'resume' | 'panel' | 'panel-schedule' | 'none' {
-  if (state.resume?.state === 'waiting') return 'resume';
-  if (!state.failure || !state.panelVisible) return 'none';
-  return state.autoResume === false && state.failure.quota.resetAt !== null ? 'panel-schedule' : 'panel';
-}
-
 /** Local HH:mm, prefixed with month/day when the reset is not today. */
 export function quotaResetLabel(resetAt: number, now = Date.now()): string {
   const reset = new Date(resetAt);
@@ -83,24 +68,14 @@ export function quotaRemainingLabel(resetAt: number, now = Date.now()): string {
   return t('Under 1m');
 }
 
-/** Switch the session's model, then retry the failed turn when it can be
- *  retried. A prompt with nothing to resubmit (media-only) stays stopped. */
-export async function continueAfterQuota(steps: {
-  switchModel(): Promise<boolean | undefined>;
-  retry(): Promise<boolean> | boolean;
-}): Promise<'retried' | 'switched' | 'failed'> {
-  if ((await steps.switchModel()) !== true) return 'failed';
-  return (await steps.retry()) ? 'retried' : 'switched';
-}
-
-type PendingContinue = { sessionId: string; onSelect(selection: DesktopModelSelection): void };
+type PendingContinue = { sessionId: string; onApplied(selection: DesktopModelSelection): void };
 let pending: PendingContinue | null = null;
 
-/** Opens the composer's model picker; the next explicit model selection for
- *  `sessionId` goes to `onSelect` instead of the ordinary route change.
- *  False when no picker answered. */
-export function beginQuotaContinue(sessionId: string, onSelect: (selection: DesktopModelSelection) => void): boolean {
-  pending = { sessionId, onSelect };
+/** Opens the composer's model picker. The next explicit model selection for
+ *  `sessionId` applies to the chat as usual (in place), and once another
+ *  model is applied `onApplied` runs. False when no picker answered. */
+export function beginQuotaContinue(sessionId: string, onApplied: (selection: DesktopModelSelection) => void): boolean {
+  pending = { sessionId, onApplied };
   if (requestOpenModelPicker()) return true;
   pending = null;
   return false;
@@ -109,9 +84,9 @@ export function beginQuotaContinue(sessionId: string, onSelect: (selection: Desk
 /** Claims the pending continue for an explicit model selection. */
 export function takeQuotaContinue(sessionId: string): ((selection: DesktopModelSelection) => void) | null {
   if (!pending || pending.sessionId !== sessionId) return null;
-  const { onSelect } = pending;
+  const { onApplied } = pending;
   pending = null;
-  return onSelect;
+  return onApplied;
 }
 
 /** The picker closed without a selection. */

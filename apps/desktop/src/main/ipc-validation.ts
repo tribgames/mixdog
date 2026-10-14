@@ -355,6 +355,7 @@ const CAPABILITY_ARITY = {
   recall: [1, 2],
   runDoctor: [0, 0],
   compact: [0, 0],
+  retryFailedTurn: [2, 2],
   listPresets: [0, 0],
   setModel: [1, 1],
   getWebSearchRoute: [0, 0],
@@ -1027,6 +1028,10 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     throw new TypeError('installBuiltinFeature requires git, memory, office, localProvider, or tidy.');
   }
   if (capability === 'setModel') requiredString(args[0], 'model selector', 512);
+  if (capability === 'retryFailedTurn') {
+    requiredString(args[0], 'session id', 256);
+    requiredString(args[1], 'turn key', 512);
+  }
   if (capability === 'startLocalProviderInstallation') {
     if (args[0] !== 'runtime' && args[0] !== 'model') throw new TypeError('phase must be runtime or model.');
     if (args[0] === 'model') requiredString(args[1], 'modelId', 512);

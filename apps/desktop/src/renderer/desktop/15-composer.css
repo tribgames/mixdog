@@ -258,16 +258,11 @@
   background: var(--composer-island-rule);
   transform: translateY(-50%);
 }
-/* Only text that can ellipsize gives way on a narrow island: the model label,
-   and the Goal while it still shows its title. Counts never shrink. */
-.composer-island-pill > .composer-island-seg:not(.composer-island-seg-model),
+/* Only text that can ellipsize gives way on a narrow island: the Goal while
+   it still shows its title. Counts never shrink. */
+.composer-island-pill > .composer-island-seg,
 .composer-island-pill:has(> .composer-island-seg ~ .composer-island-seg) > .session-goal-island {
   flex-shrink: 0;
-}
-/* Status reads as text, a dot and numbers, not coloured icons
-   (island-icons.html): only the dot carries the warning hue. */
-.composer-island-seg-model {
-  color: var(--mx-text-muted);
 }
 .composer-island-seg-warning svg {
   color: var(--mx-warning);
@@ -369,8 +364,7 @@
 .composer-island[data-compact]
   :is(
     .composer-island-seg-word,
-    .composer-island-seg.turn-review-segment .diff-stats,
-    .composer-island-seg-model > .composer-island-seg-text
+    .composer-island-seg.turn-review-segment .diff-stats
   ) {
   display: none;
 }
@@ -620,13 +614,58 @@ button.composer-island-tab {
   flex: none;
   text-align: right;
 }
-.composer-island-model .composer-island-pbody,
-.composer-island-quota .composer-island-pbody {
+.composer-island-quota .composer-island-pbody,
+.composer-quota-card .composer-island-pbody {
   padding: 14px 16px 12px;
 }
-.composer-island-quota .composer-island-ptitle svg {
+:is(.composer-island-quota, .composer-quota-card) .composer-island-ptitle svg {
   color: var(--mx-warning);
   flex: none;
+}
+/* The quota card: the island's material at the composer's width, between
+   the island and the prompt input. */
+.composer-quota-card {
+  position: relative;
+  margin-bottom: 8px;
+  border-radius: 18px;
+  color: var(--mx-text);
+  background: var(--mx-island-frame);
+  box-shadow:
+    inset 0 0 0 0.5px var(--mx-border),
+    var(--mx-raised);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-label);
+  line-height: var(--mx-line-ui);
+  letter-spacing: -0.005em;
+  transform-origin: 50% 100%;
+  animation: composer-island-pop 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.composer-quota-card .composer-island-ptitle {
+  padding-right: 28px;
+}
+.composer-quota-card-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.composer-quota-card-close:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-quota-card {
+    animation: none;
+  }
 }
 .composer-island-ptitle {
   display: flex;
@@ -659,9 +698,13 @@ button.composer-island-tab {
   font: inherit;
   cursor: pointer;
 }
-.composer-island-button:hover,
+.composer-island-button:hover:not(:disabled),
 .composer-island .session-goal-control:hover:not(:disabled) {
   background: var(--mx-hover);
+}
+.composer-island-button:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
 }
 .composer-island .session-goal-control:disabled {
   opacity: var(--mx-op-disabled);
@@ -749,7 +792,7 @@ html[data-mixdog-mobile-tabs] .composer-island-button {
 html[data-mixdog-mobile-tabs] .composer-island-pbody {
   padding: 10px 14px 12px;
 }
-html[data-mixdog-mobile-tabs] :is(.composer-island-model, .composer-island-quota) .composer-island-pbody {
+html[data-mixdog-mobile-tabs] :is(.composer-island-quota, .composer-quota-card) .composer-island-pbody {
   padding: 14px 16px 12px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-pfoot {

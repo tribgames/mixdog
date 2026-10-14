@@ -6,6 +6,8 @@ import { t } from './i18n';
 import type { NavigationSelection } from './nav-types';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import { openSessionSearch } from './session-search';
+import { groupForkRows, type ForkRowRole } from './session-fork-groups';
+import { isOpen } from './sidebar-open-state';
 import { listOrderId, type SessionOrderPrefs } from './session-order';
 import { SessionSidebarRow, type SessionRowReorder } from './session-sidebar-rows';
 import { RECENT_SESSION_INITIAL_ROWS } from './session-sidebar-scroll';
@@ -16,6 +18,7 @@ import {
   projectsSection,
   recentSection,
   type ProjectSessionGroup,
+  type RenderForkRows,
 } from './session-sidebar-sections';
 import type { useProjectFolderState, useSidebarOpenState } from './session-sidebar-state';
 import type { usePersistedListOrder } from './use-persisted-list-order';
@@ -50,6 +53,7 @@ export interface SessionRowContext {
   onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
   onFavoriteSession(sessionId: string, favorite: boolean): Promise<void>;
   openSessionMenu(session: DesktopSessionSummary, point: { x: number; y: number }, rowKey: string): void;
+  onToggleFork(sessionId: string): void;
   setDraggedSessionId(sessionId: string): void;
   setSessionDropKey(key: string): void;
 }
@@ -62,7 +66,8 @@ export function renderSessionRow(
   session: DesktopSessionSummary,
   listKey: string | undefined,
   ctx: SessionRowContext,
-  rowScope = listKey ?? ''
+  rowScope = listKey ?? '',
+  fork?: ForkRowRole
 ) {
   const { editor, selection } = ctx;
   // The row's own reorder drag also tells the folders which session travels.
@@ -78,15 +83,25 @@ export function renderSessionRow(
       ctx.setSessionDropKey('');
     },
   });
+  // A group reorders as one unit through its original: forks are neither drag
+  // sources nor drop targets, and the "after" drop line sits under the group's
+  // last visible row rather than between the original and its forks.
+  const reorderFor = (): Partial<SessionRowReorder> | undefined => {
+    if (!listKey) return undefined;
+    if (fork?.kind === 'child') {
+      const root = ctx.sessionReorder.getReorderProps(listOrderId(listKey, fork.rootId));
+      return fork.last && root['data-drop-position'] === 'after' ? { 'data-drop-position': 'after' } : undefined;
+    }
+    const base = withSessionDrag(session.id, ctx.sessionReorder.getReorderProps(listOrderId(listKey, session.id)));
+    return fork?.kind === 'root' && fork.expanded && base['data-drop-position'] === 'after'
+      ? { ...base, 'data-drop-position': undefined }
+      : base;
+  };
   return (
     <SessionSidebarRow
       key={session.id}
       session={session}
-      reorder={
-        listKey
-          ? withSessionDrag(session.id, ctx.sessionReorder.getReorderProps(listOrderId(listKey, session.id)))
-          : undefined
-      }
+      reorder={reorderFor()}
       active={selection.kind === 'session' && selection.id === session.id}
       working={ctx.workingSessionIds?.has(session.id) === true}
       unread={ctx.unreadSessionIds?.has(session.id) === true}
@@ -109,8 +124,41 @@ export function renderSessionRow(
       onArchiveSession={ctx.onArchiveSession}
       onFavoriteSession={ctx.onFavoriteSession}
       onOpenMenu={ctx.openSessionMenu}
+      forkKind={fork?.kind}
+      forkExpanded={fork?.kind === 'root' ? fork.expanded : undefined}
+      forkNumber={fork?.kind === 'child' ? fork.n : undefined}
+      onToggleFork={ctx.onToggleFork}
     />
   );
+}
+
+/** `rows` as fork groups: each original with its forks beneath it while the
+ *  group is expanded. Rows stay keyed by session, so toggling keeps them mounted. */
+export function renderForkRows(
+  ctx: SidebarSectionContext,
+  rows: readonly DesktopSessionSummary[],
+  limit: number | undefined,
+  listKey?: string,
+  rowScope?: string
+) {
+  return groupForkRows(rows, limit).map(({ session, forks }) => {
+    if (forks.length === 0) return ctx.renderOrderedRow(session, listKey, rowScope);
+    const expanded = isOpen(ctx.openState.forkOpen, session.id);
+    return (
+      <Fragment key={session.id}>
+        {ctx.renderOrderedRow(session, listKey, rowScope, { kind: 'root', expanded })}
+        {expanded &&
+          forks.map((fork, index) =>
+            ctx.renderOrderedRow(fork, listKey, rowScope, {
+              kind: 'child',
+              n: index + 1,
+              rootId: session.id,
+              last: index === forks.length - 1,
+            })
+          )}
+      </Fragment>
+    );
+  });
 }
 
 /** The panel title row; other panels portal their primary action into its slot. */
@@ -260,7 +308,12 @@ export interface SidebarSectionContext {
   deleteAllArchived(): Promise<void>;
   openProjectMenu: ProjectsSectionProps['onFolderMenu'];
   projectRenameEditor: ProjectsSectionProps['rename'];
-  renderOrderedRow(session: DesktopSessionSummary, listKey?: string, rowScope?: string): React.ReactNode;
+  renderOrderedRow(
+    session: DesktopSessionSummary,
+    listKey?: string,
+    rowScope?: string,
+    fork?: ForkRowRole
+  ): React.ReactNode;
   sessionsReady: boolean;
   workingSessionIds?: ReadonlySet<string>;
   unreadSessionIds?: ReadonlySet<string>;
@@ -275,7 +328,7 @@ export function renderSidebarSection(section: string, ctx: SidebarSectionContext
   const { openState, folders, rows, automationRows, archivedRows, bulkAction, renderOrderedRow } = ctx;
   const { onAddProject, onNewProjectTask, onNewTask, unreadSessionIds } = ctx;
   const headerProps = ctx.sectionOrder.getReorderProps(section);
-  const renderUnorderedRow = (session: DesktopSessionSummary) => renderOrderedRow(session, undefined, section);
+  const renderUnorderedRows: RenderForkRows = (list, limit) => renderForkRows(ctx, list, limit, undefined, section);
   switch (section) {
     case 'favorites':
       return (
@@ -285,7 +338,7 @@ export function renderSidebarSection(section: string, ctx: SidebarSectionContext
           open: openState.favoritesOpen,
           onToggleOpen: () => openState.toggleSection('favorites'),
           headerProps,
-          renderSessionRow: (session) => renderOrderedRow(session, 'favorites'),
+          renderRows: (list, limit) => renderForkRows(ctx, list, limit, 'favorites'),
         })
       );
     case 'projects':
@@ -305,7 +358,7 @@ export function renderSidebarSection(section: string, ctx: SidebarSectionContext
           folderReorderProps: ctx.projectOrder.getReorderProps,
           headerProps,
           unreadSessionIds,
-          renderSessionRow: (session, groupKey) => renderOrderedRow(session, `project:${groupKey}`),
+          renderRows: (list, limit, groupKey) => renderForkRows(ctx, list, limit, `project:${groupKey}`),
           onFolderMenu: ctx.openProjectMenu,
           rename: ctx.projectRenameEditor,
         })
@@ -328,7 +381,7 @@ export function renderSidebarSection(section: string, ctx: SidebarSectionContext
           workingSessionIds: ctx.workingSessionIds,
           unreadSessionIds,
           headerProps,
-          renderSessionRow: renderUnorderedRow,
+          renderSessionRow: (session) => renderOrderedRow(session, undefined, section),
         })
       );
     case 'recent':
@@ -346,7 +399,8 @@ export function renderSidebarSection(section: string, ctx: SidebarSectionContext
           void ctx.updateSessionArchives('archive-recent', rows, true);
         },
         headerProps,
-        renderSessionRow: (session) => renderOrderedRow(session, 'recent'),
+        allRows: rows,
+        renderRows: (list, limit) => renderForkRows(ctx, list, limit, 'recent'),
       });
     case 'archived':
       return (
@@ -368,7 +422,8 @@ export function renderSidebarSection(section: string, ctx: SidebarSectionContext
             void ctx.deleteAllArchived();
           },
           headerProps,
-          renderSessionRow: renderUnorderedRow,
+          allRows: archivedRows,
+          renderRows: renderUnorderedRows,
         })
       );
   }

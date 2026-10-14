@@ -25,7 +25,7 @@ export function commandSurfaceTitle(surface: CommandSurfaceName): string {
     case 'doctor':
       return t('Doctor');
     case 'inherit':
-      return t('Inherit session');
+      return t('Fork session');
     case 'stats':
       return t('Usage');
   }

@@ -1,12 +1,7 @@
 import { useEffect, useState, type ReactNode, type Ref } from 'react';
 import { ComposerQueueTrayContext } from './composer-island-state';
-import {
-  ComposerIsland,
-  type ComposerIslandFlash,
-  type ComposerIslandModelMismatch,
-  type ComposerIslandQuota,
-  type ComposerIslandQuotaResume,
-} from './ComposerIsland';
+import { ComposerIsland, type ComposerIslandFlash, type ComposerIslandQuotaResume } from './ComposerIsland';
+import { ComposerQuotaCard, type ComposerQuotaCardModel } from './ComposerQuotaCard';
 import type { TranscriptItem } from './desktop-types';
 import { SessionGoalHost } from './session-goal-submission';
 import { requestSessionDiffList } from './session-diff-focus';
@@ -21,12 +16,14 @@ let reviewModulePromise: Promise<TurnReviewModule> | null = null;
  * The chrome stacked ABOVE the prompt input, with the composer itself as the
  * last child. A New Task draft keeps its project/workflow/mode context bar; a
  * session gets the composer island in a fixed slot instead (Goal, background
- * jobs, changed files, model mismatch, tool approval, flashes), then the
- * queued follow-up tray attached to the composer's top edge.
+ * jobs, changed files, a waiting quota resume, tool approval, flashes), then
+ * the quota card, then the queued follow-up tray attached to the composer's
+ * top edge.
  *
  * The dock overlays the transcript and its measured height is the bottom
  * clearance. The island slot reserves a constant height and every island
- * expansion overlays upward, so only the queue tray changes the dock height.
+ * expansion overlays upward, so only the quota card and the queue tray change
+ * the dock height.
  */
 export function ComposerDock({
   dockRef,
@@ -35,8 +32,7 @@ export function ComposerDock({
   goalSubmissionId,
   approval,
   islandFlash,
-  modelMismatch,
-  quotaExhausted,
+  quotaCard,
   quotaResume,
   showProjectSelector,
   contextBar,
@@ -60,8 +56,8 @@ export function ComposerDock({
   /** The live tool approval card; the island grows into it. */
   approval?: ReactNode;
   islandFlash?: ComposerIslandFlash | null;
-  modelMismatch?: ComposerIslandModelMismatch | null;
-  quotaExhausted?: ComposerIslandQuota | null;
+  /** The quota card, between the island and the composer. */
+  quotaCard?: ComposerQuotaCardModel | null;
   quotaResume?: ComposerIslandQuotaResume | null;
   showProjectSelector: boolean;
   contextBar?: ReactNode;
@@ -139,11 +135,10 @@ export function ComposerDock({
           files={files}
           approval={approval}
           flash={islandFlash}
-          modelMismatch={modelMismatch}
-          quotaExhausted={quotaExhausted}
           quotaResume={quotaResume}
         />
       )}
+      {!showProjectSelector && quotaCard ? <ComposerQuotaCard card={quotaCard} /> : null}
       <div className="composer-queue-tray" ref={setQueueTray} />
       <ComposerQueueTrayContext.Provider value={queueTray}>{children}</ComposerQueueTrayContext.Provider>
     </div>

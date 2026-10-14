@@ -31,7 +31,7 @@ export function useConversationRowRenderer({
   optimisticActivityStartedAt: number;
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
 }) {
-  const { retryTurn, retryTurnRef } = useConversationRetry(settledItems, settledTurnKeys, submit);
+  const { retryTurn } = useConversationRetry(settledItems, settledTurnKeys, submit);
   const latestCompletion = useMemo(() => {
     for (let index = settledItems.length - 1; index >= 0; index -= 1) {
       if (settledItems[index]?.kind === 'turndone') return settledItems[index];
@@ -53,5 +53,5 @@ export function useConversationRowRenderer({
       onRetryTurn: retryTurn,
       onOpenSettings,
     });
-  return { renderTranscriptRow, retryTurnRef };
+  return { renderTranscriptRow };
 }

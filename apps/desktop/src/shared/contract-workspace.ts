@@ -131,6 +131,10 @@ export interface DesktopSessionSummary {
    *  snapshot, a peek, or pane focus. */
   provider?: string;
   model?: string;
+  /** Creation time; orders the forks of one original ("fork N"). */
+  createdAt?: number;
+  /** Session this one was forked (inherited) from; absent on older sessions. */
+  inheritedFromSessionId?: string;
   /** The Lead's workspace: where it executes (`cwd`, possibly a managed
    *  worktree) under its registered Project. Absent while it never moved. */
   workspace?: DesktopSessionWorkspace;

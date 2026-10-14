@@ -1,7 +1,8 @@
 /**
  * set-route.mjs — select the main route: resolve and validate the request,
  * adopt it into config, then decide how the current session follows it
- * (untouched, tuned, recreated, or updated in place when empty).
+ * (untouched, tuned, recreated, updated in place when empty, or switched in
+ * place when the selection is addressed to an established conversation).
  */
 import { clean, hasOwn } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import {
@@ -117,6 +118,47 @@ function updateSessionInPlace(deps, session, updateOptions) {
   writeStatuslineRoute(statusRoutes, getSession(), route);
 }
 
+/** The message a model switch boundary is recorded on: the last one before a
+ *  trailing unanswered prompt, which a retry may rewind. */
+function modelSwitchAnchor(messages) {
+  let index = messages.length - 1;
+  while (index >= 0 && (messages[index]?.role === 'user' || messages[index]?.role === 'system')) index -= 1;
+  if (index >= 0) return messages[index];
+  return messages.findLast((message) => message?.role !== 'system') || null;
+}
+
+/** Display-only boundary of an in-place model switch, kept in message meta
+ *  (like an inheritance boundary): the transcript shows it live and after a
+ *  restore, and the model conversation gains no synthetic message. */
+export function recordModelSwitchBoundary(session, boundary) {
+  const anchor = modelSwitchAnchor(Array.isArray(session?.messages) ? session.messages : []);
+  if (!anchor) return false;
+  const switches = Array.isArray(anchor.meta?.modelSwitches) ? anchor.meta.modelSwitches : [];
+  if (switches.some((entry) => entry?.at === boundary.at && entry?.modelId === boundary.modelId)) return true;
+  anchor.meta = { ...anchor.meta, modelSwitches: [...switches, boundary] };
+  return true;
+}
+
+/** Move the addressed, established session onto the adopted route in place.
+ *  Its provider replay state and context readings are dropped, so the next
+ *  turn re-measures and auto-compacts against the new model's window. Returns
+ *  the recorded boundary, or null when the session has nothing to mark. */
+function switchSessionInPlace(deps, session) {
+  const { getRoute, getSession } = deps;
+  const route = getRoute();
+  if (route.provider === session.provider && route.model === session.model) {
+    updateSessionInPlace(deps, session);
+    return null;
+  }
+  const boundary = { provider: route.provider, modelId: route.model, at: Date.now() };
+  const recorded = recordModelSwitchBoundary(session, boundary);
+  updateSessionInPlace(deps, session, { crossProvider: true });
+  // A manager that answered with another copy of the session carries the
+  // boundary too; the next save persists it.
+  if (recorded && getSession() && getSession() !== session) recordModelSwitchBoundary(getSession(), boundary);
+  return recorded ? boundary : null;
+}
+
 /** Validate, persist and adopt the requested route as the runtime's route. */
 async function adoptRoute(deps, persist, next, options) {
   const {
@@ -144,7 +186,9 @@ async function adoptRoute(deps, persist, next, options) {
  * Quota-exhaustion escape hatch: apply `next` to the addressed, ESTABLISHED
  * session in place. The caller (session API) has already proven the latest
  * settled turn failed on quota and that nothing is running. Starts no turn;
- * the next turn's auto-compaction fits history to the new window.
+ * the next turn's auto-compaction fits history to the new window. Answers
+ * `{ modelSwitch }` with the recorded boundary (as setRoute does) so the
+ * session surface shows the same live divider, or true when nothing switched.
  */
 export function createContinueSessionInModel(deps, persist) {
   const { getSession, invalidateContextStatusCache } = deps;
@@ -154,9 +198,9 @@ export function createContinueSessionInModel(deps, persist) {
       throw new Error(`session ${sessionId || ''} is not the active session`);
     }
     await adoptRoute(deps, persist, next, {});
-    updateSessionInPlace(deps, session, { crossProvider: true });
+    const modelSwitch = switchSessionInPlace(deps, session);
     invalidateContextStatusCache();
-    return true;
+    return modelSwitch ? { modelSwitch } : true;
   };
 }
 
@@ -164,23 +208,34 @@ export function createSetRoute(deps, persist) {
   const { getRoute, getSession, invalidateContextStatusCache, createCurrentSession } = deps;
 
   return async function setRoute(next, options = {}) {
-    // Selection is for a new/inherited session. An explicit durable address
-    // permits initializing an EMPTY session, never rewriting an existing
-    // conversation's model, context boundary or provider cache.
+    // Without an explicit durable address a selection is for a new/inherited
+    // session and never rewrites an existing conversation's model, unless it
+    // is the user's model choice for this conversation (`switchEstablished`,
+    // the session surface): that one switches an established conversation in
+    // place while an empty one follows the unaddressed rules below.
     const applyToCurrentSession = options?.applyToCurrentSession === true;
+    const switchEstablished = applyToCurrentSession || options?.switchEstablished === true;
     await adoptRoute(deps, persist, next, options);
     const session = getSession();
-    // Model/provider changes are next-session-only for a session the user
-    // has already talked in or compacted (provider-keyed prompt cache). But
-    // a current session with no model reply, no compaction summary and no
-    // in-flight first turn — empty, or holding only refused prompts — has no
-    // cache to protect, so /model takes effect live: route + statusline
+    // A session the user has already talked in or compacted keeps its route
+    // unless the selection was addressed to it. A current session with no
+    // model reply, no compaction summary and no in-flight first turn — empty,
+    // or holding only refused prompts — takes effect live: route + statusline
     // update immediately. Only a truly empty session is recreated below.
     const currentSessionEmpty = !!session && !sessionRouteCommitted(session);
     if (!currentSessionEmpty) {
-      // Some desktop effort changes travel as a same-model route update.
-      // Only effort/Fast may affect the source, starting with its next turn.
-      if (applyToCurrentSession) persist.applySessionTuning();
+      if (!switchEstablished) return getRoute();
+      const route = getRoute();
+      // An addressed selection of another model switches the conversation
+      // itself in place; the caller (session surface) refuses it while a
+      // turn runs. A same-model update (effort/Fast) only tunes the session
+      // from its next turn.
+      if (session && (route.provider !== session.provider || route.model !== session.model)) {
+        const modelSwitch = switchSessionInPlace(deps, session);
+        invalidateContextStatusCache();
+        return modelSwitch ? { ...getRoute(), modelSwitch } : getRoute();
+      }
+      persist.applySessionTuning();
       return getRoute();
     }
     // An addressed runtime keeps its durable id: the empty session is updated

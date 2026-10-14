@@ -274,6 +274,46 @@ test('retryFailedTurn is the desktop retry: a user submission of the same prompt
   assert.equal(media.enqueued.length, 0);
 });
 
+test("retryFailedTurn re-checks the session's own state when the deferred request arrives", async (t) => {
+  // The reported race: the route reply already showed a running newer turn
+  // while the renderer still looked idle on the stopped one.
+  const newerTurn = [...failedTurn(), { id: 'u2', kind: 'user', text: 'something else' }];
+  const running = harness(t, { items: newerTurn });
+  running.patch({ busy: true });
+  assert.equal(await running.bag.retryFailedTurn(SESSION, 'turn:u1'), false);
+  assert.equal(running.enqueued.length, 0, 'the old prompt is not resubmitted');
+
+  const completed = harness(t, {
+    items: [...newerTurn, { id: 'a2', kind: 'assistant', text: 'done' }, { id: 'd2', kind: 'turndone', status: 'done' }],
+  });
+  assert.equal(await completed.bag.retryFailedTurn(SESSION, 'turn:u1'), false);
+  assert.equal(completed.enqueued.length, 0);
+
+  // Still the latest failed turn, but something owns the session first.
+  for (const block of [
+    (h) => h.patch({ busy: true }),
+    (h) => h.patch({ commandBusy: true }),
+    (h) => h.pending.push({ id: 'queued', mode: 'prompt' }),
+    (h) => {
+      h.bag.flags.draining = true;
+    },
+  ]) {
+    const h = harness(t);
+    block(h);
+    assert.equal(await h.bag.retryFailedTurn(SESSION, 'turn:u1'), false);
+    assert.equal(h.enqueued.length, 0);
+  }
+
+  // Idle on that turn: retried once.
+  const idle = harness(t);
+  assert.equal(await idle.bag.retryFailedTurn(SESSION, 'turn:u1'), true);
+  assert.equal(await idle.bag.retryFailedTurn(SESSION, 'turn:u0'), false, 'not the latest failed turn');
+  assert.deepEqual(
+    idle.enqueued.map((entry) => entry.text),
+    ['build the parser']
+  );
+});
+
 test('a fire revives only the Goal its failure suspended, before the retry, and queues one turn', async (t) => {
   let goal = { id: 'goal-1', sessionId: SESSION, objective: 'Ship it', status: 'usage_limited', tasks: [] };
   const goalListeners = new Set();

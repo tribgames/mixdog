@@ -156,6 +156,8 @@ export function desktopSessionSummaries(
       // blanking until a lane snapshot arrives.
       const provider = String(row.provider || '').trim();
       const model = String(row.model || '').trim();
+      const createdAt = Number(row.createdAt) || 0;
+      const inheritedFrom = String(row.inheritedFromSessionId || '').trim();
       // Empty and synthetic runtime previews both normalize to no usable title.
       // Keep compacted handoffs when their earliest real user prompt can be
       // recovered, but hide abandoned/interrupted/internal rows instead of
@@ -179,6 +181,8 @@ export function desktopSessionSummaries(
           ...(automationType && sourceName ? { sourceName } : {}),
           ...(provider ? { provider } : {}),
           ...(model ? { model } : {}),
+          ...(createdAt > 0 ? { createdAt } : {}),
+          ...(inheritedFrom ? { inheritedFromSessionId: inheritedFrom } : {}),
           ...(workspace ? { workspace } : {}),
         },
       ];

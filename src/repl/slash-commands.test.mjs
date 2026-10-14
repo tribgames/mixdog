@@ -34,6 +34,57 @@ test('/help lists exactly the commands the plain REPL implements, on ctx.out', a
   );
 });
 
+function modelContext({ sessionModel = 'gemini-3.8-flash', onModelChange = true, compact } = {}) {
+  const calls = [];
+  const runtime = {
+    provider: 'google',
+    model: sessionModel,
+    sessionProvider: sessionModel ? 'google' : null,
+    sessionModel,
+    listPresets: () => [{ id: 'flash', provider: 'google', model: 'gemini-3.8-flash' }],
+    getCompactionSettings: () => ({ onModelChange }),
+    compact: async () => {
+      calls.push('compact');
+      if (compact) return compact();
+      return { changed: true };
+    },
+    setRoute: async (next, options) => {
+      calls.push(['setRoute', next, options]);
+      runtime.model = next.model;
+    },
+  };
+  return { calls, ctx: { out: { write() {} }, ensureRuntime: async () => runtime, getRuntime: () => runtime } };
+}
+
+test('/model switches the conversation in place, compacting first on the current model', async () => {
+  const { calls, ctx } = modelContext();
+  await handleSlash('/model gemini-3.5-flash', ctx);
+  assert.deepEqual(calls, ['compact', ['setRoute', { model: 'gemini-3.5-flash' }, { switchEstablished: true }]]);
+});
+
+test('/model skips the pre-compaction when off, for the same model or preset, and for an empty chat', async () => {
+  for (const [options, arg] of [
+    [{ onModelChange: false }, 'gemini-3.5-flash'],
+    [{}, 'gemini-3.8-flash'],
+    [{}, 'flash'],
+    [{ sessionModel: null }, 'gemini-3.5-flash'],
+  ]) {
+    const { calls, ctx } = modelContext(options);
+    await handleSlash(`/model ${arg}`, ctx);
+    assert.deepEqual(calls, [['setRoute', { model: arg }, { switchEstablished: true }]], `${arg}`);
+  }
+});
+
+test('/model still switches when the pre-compaction fails', async () => {
+  const { calls, ctx } = modelContext({
+    compact: () => {
+      throw new Error('boom');
+    },
+  });
+  await handleSlash('/model gemini-3.5-flash', ctx);
+  assert.deepEqual(calls, ['compact', ['setRoute', { model: 'gemini-3.5-flash' }, { switchEstablished: true }]]);
+});
+
 test('/compact reports the runtime reason, its default, both failures and a success', async () => {
   for (const [result, expected] of [
     [{ changed: false, reason: 'context is already small' }, /context is already small/],

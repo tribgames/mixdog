@@ -93,6 +93,9 @@ export const DESKTOP_CAPABILITIES = [
   'recall',
   'runDoctor',
   'compact',
+  // Retry a stopped turn, refused by the session unless it is still the
+  // latest failed turn and the session is idle.
+  'retryFailedTurn',
   'listPresets',
   'setModel',
   'getWebSearchRoute',

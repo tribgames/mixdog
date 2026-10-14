@@ -631,14 +631,16 @@ export const ModelSelector = memo(function ModelSelector({
       ...(optionMaxWindow > 0 ? { contextPercent: nextContextPercent } : {}),
       ...(optionMaxWindow > 0 && sameModel ? exactContextField : {}),
     };
-    // "Continue in another model" after a quota stop: this explicit pick goes
-    // to the continue flow instead of the ordinary route change.
-    const continueInModel = sessionId ? takeQuotaContinue(sessionId) : null;
-    if (continueInModel) {
-      continueInModel(selection);
-      return true;
+    // "Switch model" after a quota stop: the pick applies like any other, and
+    // once another model is applied the stopped turn continues in it.
+    const afterQuotaSwitch = sessionId ? takeQuotaContinue(sessionId) : null;
+    const applied = route(selection, !sameModel);
+    if (afterQuotaSwitch && !sameModel) {
+      void applied.then((ok) => {
+        if (ok) afterQuotaSwitch(selection);
+      });
     }
-    return route(selection, !sameModel);
+    return applied;
   };
   const changeFast = async (enabled: boolean) => {
     if (tuningUnavailable) return;

@@ -1,18 +1,16 @@
-import { FoldVertical, GitFork, ListTree, X } from 'lucide-react';
+import { ArrowLeftRight, FoldVertical, GitFork, ListTree, X } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { DesktopModelSelection } from '../shared/contract';
 import { resolveContextDisplayUsage } from './context-usage';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { useHoverPopover } from './hover-popover';
 import { cachedAutoEffortCapable, useAutoEffortShown } from './auto-effort-store';
 import { subscribeUiLanguage, t, uiFormatLocale } from './i18n';
-import { modelRouteDisplayParts } from './provider-display';
+import { modelDisplayName, modelRouteDisplayParts } from './provider-display';
 import { uiCurrency } from './ui-format';
 import { liveAgentRows } from './agent-activity-model';
 import { MxIcon } from './MxIcon';
 import { goalHasBackgroundWork } from './session-goal-presentation';
 import { showDesktopToast } from './notifications';
-import { inheritSessionDirectly, sessionModelSelection, shouldOfferSessionInheritance } from './session-inheritance';
 import { asRecord, formatElapsed, publicThinkingSummary } from './text-format';
 import { completionTone, formatTokenCount, TextShimmer } from './transcript-primitives';
 import { localizedTurnFailureReason } from './transcript-failure-text';
@@ -73,20 +71,15 @@ export function ContextUsageIndicator({
   snapshot,
   open: controlledOpen,
   onOpenChange,
-  onInherit,
   onViewDetails,
 }: {
   snapshot: Snapshot;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  /** Runs the handover itself, with no confirmation dialog. Inheritance is a
-   *  mechanical carry into a fresh session, so the button is the decision. The
-   *  host still owns opening the heir's tab. */
-  onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
   onViewDetails?: () => void;
 }) {
   // Click-only like the other composer chips: hovering past the gauge must not
-  // surface the compact and inherit actions.
+  // surface the compact action.
   const popover = useHoverPopover({ open: controlledOpen, onOpenChange, hoverOpens: false });
   const popoverOpen = popover.open;
   const context = contextMetrics(snapshot);
@@ -100,36 +93,18 @@ export function ContextUsageIndicator({
   const state = asRecord(snapshot);
   const sessionId = String(state?.sessionId || '').trim();
   const actionBusy = actionPending || Boolean(state?.busy) || Boolean(state?.commandBusy);
-  const inheritRoute = sessionModelSelection(snapshot);
-  const offerInheritance = Boolean(onInherit) && Boolean(inheritRoute) && shouldOfferSessionInheritance(snapshot);
-  // The one fact the card cannot act through is a transcript that no longer
-  // fits — and THIS card's readings cannot answer that question: they belong to
-  // the session's own route, while the carry lands on the selected one. The
-  // runtime measures the heir's route; the refusal is named here in the user's
-  // own terms before any session is created.
-  const runContextAction = async (action: () => Promise<void>) => {
+  const compact = async () => {
+    if (!sessionId || actionBusy || actionInFlight.current) return;
     actionInFlight.current = true;
     setActionPending(true);
     try {
-      await action();
+      await window.mixdogDesktop.invokeCapability({ capability: 'compact', sessionId });
     } catch (reason) {
       showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
     } finally {
       actionInFlight.current = false;
       setActionPending(false);
     }
-  };
-  const inherit = async () => {
-    if (!sessionId || !onInherit || !inheritRoute || actionBusy || actionInFlight.current) return;
-    await runContextAction(async () => {
-      if (await inheritSessionDirectly(sessionId, inheritRoute, onInherit)) popover.close();
-    });
-  };
-  const compact = async () => {
-    if (!sessionId || actionBusy || actionInFlight.current) return;
-    await runContextAction(async () => {
-      await window.mixdogDesktop.invokeCapability({ capability: 'compact', sessionId });
-    });
   };
   const cost = Math.max(0, Number(asRecord(snapshot.stats)?.costUsd || 0));
   return (
@@ -172,11 +147,7 @@ export function ContextUsageIndicator({
               onViewDetails();
             })
           }
-          offerInheritance={offerInheritance}
           actionBusy={actionBusy}
-          onInherit={() => {
-            void inherit();
-          }}
           onCompact={() => {
             void compact();
           }}
@@ -191,18 +162,14 @@ function ContextUsagePopover({
   id,
   cost,
   onViewDetails,
-  offerInheritance,
   actionBusy,
-  onInherit,
   onCompact,
 }: {
   context: NonNullable<ReturnType<typeof contextMetrics>>;
   id: string;
   cost: number;
   onViewDetails?: () => void;
-  offerInheritance: boolean;
   actionBusy: boolean;
-  onInherit: () => void;
   onCompact: () => void;
 }) {
   return (
@@ -227,19 +194,10 @@ function ContextUsagePopover({
           {t('View context details')}
         </button>
       )}
-      {/* One mutating action at a time: a model switch offers inheritance;
-          a completed handover or matching model offers plain compaction. */}
-      {offerInheritance ? (
-        <button type="button" className="context-action context-inherit" disabled={actionBusy} onClick={onInherit}>
-          <GitFork size={14} aria-hidden="true" />
-          {t('Inherit session')}
-        </button>
-      ) : (
-        <button type="button" className="context-action context-compact" disabled={actionBusy} onClick={onCompact}>
-          <FoldVertical size={14} aria-hidden="true" />
-          {t('Compact context')}
-        </button>
-      )}
+      <button type="button" className="context-action context-compact" disabled={actionBusy} onClick={onCompact}>
+        <FoldVertical size={14} aria-hidden="true" />
+        {t('Compact context')}
+      </button>
     </div>
   );
 }
@@ -461,7 +419,7 @@ function translateStatusLabel(label: string): string {
     case 'Conversation compacted':
       return t('Conversation compacted');
     case 'Session inherited':
-      return t('Session inherited');
+      return t('Session forked');
     default:
       return label;
   }
@@ -546,8 +504,20 @@ export function CompletionStatus({
     return (
       <div className="compaction-divider" role="status">
         <GitFork className="compaction-icon" size={16} aria-hidden="true" />
-        <span>{t('Session inherited')}</span>
+        <span>{t('Session forked')}</span>
         <small>{t('Continuing with the previous context.')}</small>
+      </div>
+    );
+  }
+  if (item.kind === 'statusdone' && item.status === 'model-switched') {
+    return (
+      <div className="compaction-divider" role="status">
+        <ArrowLeftRight className="compaction-icon" size={16} aria-hidden="true" />
+        <span>
+          {t('Switched to {{model}}', {
+            model: modelDisplayName(String(item.modelId || ''), String(item.provider || '')),
+          })}
+        </span>
       </div>
     );
   }

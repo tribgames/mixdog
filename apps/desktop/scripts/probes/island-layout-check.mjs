@@ -72,7 +72,7 @@ const HARNESS = `
           goalIsland={s.goal ? <SessionGoalIsland snapshot={s.goal} /> : null}
           approval={s.approval ? <ApprovalCard approval={{ id: 'a1', name: 'shell', args: { command: 'npm run migrate -- --env=staging' }, reason: '스테이징 DB에 마이그레이션을 적용합니다.' }} resolve={async () => true} /> : null}
           islandFlash={s.flash ? { key: 'f1', text: 'MacBook에서 허용했어요' } : null}
-          modelMismatch={s.mismatch ? { sessionModel: 'Claude Opus 5.5', selectedModel: 'Gemini Flash Lite Latest', onRevert() {}, onContinue() {} } : null}
+          quotaCard={s.mismatch ? { provider: 'Anthropic', resetAt: Date.now() + 3_600_000, busy: false, onWait() {}, onSwitch() {}, onDismiss() {} } : null}
           reviewItems={s.review ? reviewItems : []} reviewActive reviewBusy={false} reviewSessionId="s1" reviewCwd="C:/fixture"
           onOpenSessionDiff={() => {}}>
           <Composer queued={queued} />

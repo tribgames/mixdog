@@ -18,8 +18,10 @@ test('context detail renders the usage-by-category estimate', () => {
   assert.ok(html.includes(t('Estimated usage by category')));
 });
 
-for (const action of ['compact', 'inherit']) {
-  test(`details appear above ${action} and remain read-only while the session is busy`, async (context) => {
+// The popover's only action is compaction, whether or not an earlier answer
+// came from another model: forking lives in the session row's menu.
+for (const history of ['same model', 'another model']) {
+  test(`details appear above compact (${history}) and remain read-only while the session is busy`, async (context) => {
     const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
     const previous = {
       window: globalThis.window,
@@ -53,8 +55,8 @@ for (const action of ['compact', 'inherit']) {
       items: [
         {
           kind: 'assistant',
-          provider: action === 'inherit' ? 'anthropic-oauth' : 'openai-oauth',
-          modelId: action === 'inherit' ? 'claude-fable-5-1' : 'gpt-6-astra',
+          provider: history === 'another model' ? 'anthropic-oauth' : 'openai-oauth',
+          modelId: history === 'another model' ? 'claude-fable-5-1' : 'gpt-6-astra',
         },
       ],
     };
@@ -64,9 +66,6 @@ for (const action of ['compact', 'inherit']) {
           snapshot,
           open: true,
           onOpenChange: (open) => changed.push(open),
-          onInherit: async () => {
-            mutations.push('inherit');
-          },
           onViewDetails: () => opened.push(snapshot.sessionId),
         })
       )
@@ -74,7 +73,8 @@ for (const action of ['compact', 'inherit']) {
     const buttons = [...document.querySelectorAll('.context-action')];
     assert.equal(buttons.length, 2);
     assert.equal(buttons[0].textContent, t('View context details'));
-    assert.ok(buttons[1].classList.contains(`context-${action}`));
+    assert.ok(buttons[1].classList.contains('context-compact'));
+    assert.equal(buttons[1].textContent, t('Compact context'));
     assert.equal(buttons[1].disabled, true);
     assert.equal(buttons[0].disabled, false);
     await act(async () => buttons[0].click());

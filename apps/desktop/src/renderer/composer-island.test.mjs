@@ -341,39 +341,6 @@ test('a pending approval takes over the island; a flash notice replaces any left
   assert.equal(document.querySelector('.composer-island-flash').textContent, 'Resolved on another device');
 });
 
-test('a model mismatch segment offers revert and continue', async (t) => {
-  const { root, document } = mount(t);
-  const calls = [];
-  await act(async () =>
-    root.render(
-      React.createElement(ComposerDock, {
-        ...dockProps(),
-        modelMismatch: {
-          sessionModel: 'Claude',
-          selectedModel: 'Gemini',
-          onRevert: () => calls.push('revert'),
-          onContinue: () => calls.push('continue'),
-        },
-      })
-    )
-  );
-  const segment = document.querySelector('.composer-island-seg-model');
-  assert.equal(segment.textContent, translate('Continuing in {{model}}', { model: 'Claude' }));
-  // A dot marks the mismatch, not a warning glyph.
-  assert.ok(segment.querySelector('.composer-island-dot'));
-  assert.equal(segment.querySelector('svg'), null);
-  await act(async () => segment.click());
-  assert.equal(document.querySelector('.composer-island-model svg'), null, 'the panel header has no glyph');
-  const buttons = [...document.querySelectorAll('.composer-island-model button')];
-  assert.deepEqual(
-    buttons.map((button) => button.textContent),
-    [translate('Revert'), translate('Continue in {{model}}', { model: 'Gemini' })]
-  );
-  await act(async () => buttons[0].click());
-  await act(async () => buttons[1].click());
-  assert.deepEqual(calls, ['revert', 'continue']);
-});
-
 test('queued follow-up rows read icon, text, then Steer now, trash and a menu whose Edit edits', async (t) => {
   const { root, document } = mount(t);
   const edits = [];

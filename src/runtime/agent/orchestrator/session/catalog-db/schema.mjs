@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 
 /** Bumped whenever the table layout or a codec changes: the DB is then
  *  dropped and backfilled again from the JSON catalog. */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 /** PRAGMA application_id ('MXSC'): a file without it is not this catalog. */
 export const APPLICATION_ID = 0x4d585343;
 
@@ -57,6 +57,8 @@ const FIELDS = [
   ['detachedReason', 'detached_reason', 'loose'],
   // importOrigin.key of an imported conversation (schema 3).
   ['importKey', 'import_key', 'loose'],
+  // Source session of an inherited (forked) session (schema 4).
+  ['inheritedFromSessionId', 'inherited_from_session_id', 'loose'],
 ];
 
 const COLUMN_TYPES = { text: 'TEXT', real: 'REAL', int: 'INTEGER', bool: 'INTEGER', json: 'TEXT', optjson: 'TEXT' };

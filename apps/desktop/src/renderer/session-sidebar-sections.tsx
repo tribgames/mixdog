@@ -96,6 +96,9 @@ export function groupAutomationSessions(activityOrderedRows: DesktopSessionSumma
   return [...groups.entries()].map(([key, group]) => ({ key, ...group }));
 }
 
+/** Renders `rows` as fork groups, covering at most `limit` rows (all by default). */
+export type RenderForkRows = (rows: readonly DesktopSessionSummary[], limit?: number) => React.ReactNode;
+
 /** Panel-header action slot. Rail destinations (Projects/Workflows/Schedules/
  *  Webhooks) hand their primary action to the panel title row instead of
  *  printing a second page header inside the list (user: 타이틀이 2번). */
@@ -262,13 +265,13 @@ export function favoritesSection({
   open,
   onToggleOpen,
   headerProps,
-  renderSessionRow,
+  renderRows,
 }: {
   rows: DesktopSessionSummary[];
   open: boolean;
   onToggleOpen(): void;
   headerProps?: ReorderProps;
-  renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
+  renderRows: RenderForkRows;
 }) {
   return (
     <section className="sidebar-recent sidebar-favorites" aria-label={t('Favorites')} {...reorderTarget(headerProps)}>
@@ -285,7 +288,7 @@ export function favoritesSection({
       </div>
       {open && (
         <nav className="session-list favorite-session-list" aria-label={t('Favorites')}>
-          {rows.map(renderSessionRow)}
+          {renderRows(rows)}
         </nav>
       )}
     </section>
@@ -307,7 +310,8 @@ export function recentSection({
   archiveAllDisabled,
   onArchiveAll,
   headerProps,
-  renderSessionRow,
+  renderRows,
+  allRows,
 }: {
   headerProps?: ReorderProps;
   sessionsReady: boolean;
@@ -320,7 +324,9 @@ export function recentSection({
   hasHeadingDot: boolean;
   archiveAllDisabled: boolean;
   onArchiveAll(): void;
-  renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
+  /** Renders the full list's fork groups, covering `visibleRows.length` rows. */
+  renderRows: RenderForkRows;
+  allRows: readonly DesktopSessionSummary[];
 }) {
   return (
     <section className="sidebar-recent" aria-label={t('Recent sessions')} {...reorderTarget(headerProps)}>
@@ -362,7 +368,7 @@ export function recentSection({
           ) : (
             sessionsReady && rowCount === 0 && <p className="sidebar-section-empty">{t('No sessions')}</p>
           )}
-          {visibleRows.map(renderSessionRow)}
+          {renderRows(allRows, visibleRows.length)}
           {hasMoreRows && (
             <div
               ref={sentinelRef}
@@ -455,7 +461,7 @@ interface ProjectsSectionProps {
   folderReorderProps(key: string): ReorderProps;
   headerProps?: ReorderProps;
   unreadSessionIds?: ReadonlySet<string>;
-  renderSessionRow(session: DesktopSessionSummary, groupKey: string): React.ReactNode;
+  renderRows(rows: readonly DesktopSessionSummary[], limit: number, groupKey: string): React.ReactNode;
 }
 
 /** One project folder: its drag/drop target, folder row (with inline rename and
@@ -470,7 +476,7 @@ function projectFolderGroup(
     onToggleProject,
     folderReorderProps,
     unreadSessionIds,
-    renderSessionRow,
+    renderRows,
     onFolderMenu,
     rename,
     sessionDrop,
@@ -576,7 +582,7 @@ function projectFolderGroup(
       {expanded && (
         <div className="project-group-sessions">
           {group.rows.length === 0 && <p className="sidebar-section-empty">{t('No sessions')}</p>}
-          {group.rows.slice(0, limit).map((session) => renderSessionRow(session, group.key))}
+          {renderRows(group.rows, limit, group.key)}
           {group.rows.length > limit && (
             <button type="button" className="session-row project-group-more" onClick={() => onShowMore(group.key)}>
               <span className="session-row-copy">
@@ -640,9 +646,11 @@ export function archivedSection({
   onRestoreAll,
   onDeleteAll,
   headerProps,
-  renderSessionRow,
+  renderRows,
+  allRows,
 }: {
   headerProps?: ReorderProps;
+  allRows: readonly DesktopSessionSummary[];
   visibleRows: DesktopSessionSummary[];
   hasMoreRows: boolean;
   sentinelRef: React.RefObject<HTMLDivElement | null>;
@@ -651,7 +659,7 @@ export function archivedSection({
   actionsDisabled: boolean;
   onRestoreAll(): void;
   onDeleteAll(): void;
-  renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
+  renderRows: RenderForkRows;
 }) {
   return (
     <section
@@ -698,7 +706,7 @@ export function archivedSection({
       </div>
       {open && (
         <nav className="session-list archived-session-list" aria-label={t('Archived sessions')}>
-          {visibleRows.map(renderSessionRow)}
+          {renderRows(allRows, visibleRows.length)}
           {hasMoreRows && (
             <div
               ref={sentinelRef}

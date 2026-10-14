@@ -67,11 +67,10 @@ export function useConversationApprovals(snapshot: Snapshot, routeSessionIdRef: 
 }
 
 /** The island's one-shot notice: an approval settled on another device wins
- *  over this device's own refused answer, which wins over a quota continue. */
+ *  over this device's own refused answer. */
 export function conversationIslandFlash(
   retiredApproval: RetiredApproval | null,
   answeredElsewhere: AnsweredElsewhere | null,
-  continueFlash: ComposerIslandFlash | null,
   viewerDevice: string | null
 ): ComposerIslandFlash | null {
   if (retiredApproval && isOtherDevice(retiredApproval.outcome.device, viewerDevice)) {
@@ -91,5 +90,5 @@ export function conversationIslandFlash(
         : t('Resolved on another device'),
     };
   }
-  return continueFlash;
+  return null;
 }
