@@ -12,7 +12,13 @@ import { RemoteBootstrapError } from './remote-install-errors';
 import { encodePayloadArchive, manifestBuildHash, sha256Hex, type PayloadFile } from './remote-install-manifest';
 
 export const REMOTE_BUNDLE_PATH = 'apps/desktop/out/main/daemon.cjs';
-const SERVER_DEPS_FILES = ['package.json', 'package-lock.json'] as const;
+/** out/server/deps file → its name under the payload's server-deps/. The
+ *  lockfile is not built as `package-lock.json`: electron-builder drops that
+ *  name from the packaged app by default (scripts/remote-server-deps.mjs). */
+export const SERVER_DEPS_FILES = [
+  { local: 'package.json', remote: 'package.json' },
+  { local: 'server-package-lock.json', remote: 'package-lock.json' },
+] as const;
 
 export interface RemoteServerPayload {
   /** The runtime's package version. */
@@ -28,7 +34,7 @@ export interface RemoteServerPayload {
 export interface LocalPayloadLayout {
   /** Directory holding the runtime's package.json and src/. */
   runtimePackageDir: string;
-  /** Directory holding the generated server package.json / package-lock.json. */
+  /** Directory holding the generated server package.json / server-package-lock.json. */
   serverDepsDir: string;
 }
 
@@ -143,8 +149,8 @@ export async function createServerPayload(
   };
 }
 
-function runtimeSources(layout: LocalPayloadLayout): PayloadSource[] {
-  const deps = SERVER_DEPS_FILES.map((name) => join(layout.serverDepsDir, name));
+export function runtimeSources(layout: LocalPayloadLayout): PayloadSource[] {
+  const deps = SERVER_DEPS_FILES.map(({ local }) => join(layout.serverDepsDir, local));
   if (!deps.every((path) => existsSync(path))) {
     throw new RemoteBootstrapError(
       'install-failed',
@@ -153,7 +159,10 @@ function runtimeSources(layout: LocalPayloadLayout): PayloadSource[] {
   }
   return [
     { path: 'package.json', source: join(layout.runtimePackageDir, 'package.json') },
-    ...SERVER_DEPS_FILES.map((name) => ({ path: `server-deps/${name}`, source: join(layout.serverDepsDir, name) })),
+    ...SERVER_DEPS_FILES.map(({ local, remote }) => ({
+      path: `server-deps/${remote}`,
+      source: join(layout.serverDepsDir, local),
+    })),
     ...listTree(join(layout.runtimePackageDir, 'src'), 'src').map((path) => ({
       path,
       source: join(layout.runtimePackageDir, ...path.split('/')),

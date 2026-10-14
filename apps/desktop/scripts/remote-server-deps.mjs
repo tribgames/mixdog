@@ -8,6 +8,12 @@ import { join } from 'node:path';
 
 const LOCK_FIELDS_DROPPED = new Set(['dev', 'devOptional', 'extraneous', 'link']);
 
+/** The generated lockfile's name in out/server/deps. electron-builder drops
+ *  every file named `package-lock.json` from the packaged app by default, so
+ *  the build writes it under this name and the payload ships it to the server
+ *  as `server-deps/package-lock.json` (ssh/remote-install-payload.ts). */
+export const REMOTE_SERVER_LOCKFILE = 'server-package-lock.json';
+
 function lockEntry(entry) {
   const copy = {};
   for (const [key, value] of Object.entries(entry)) if (!LOCK_FIELDS_DROPPED.has(key)) copy[key] = value;
@@ -94,7 +100,7 @@ export function remoteServerDependencies({ runtimePackage, runtimeLock, desktopL
   return { packageJson, packageLock };
 }
 
-/** Write out/server/deps/{package.json,package-lock.json} for the desktop build. */
+/** Write out/server/deps/{package.json,server-package-lock.json} for the desktop build. */
 export function writeRemoteServerDependencies({ rootDir, desktopDir, externals }) {
   const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
   const { packageJson, packageLock } = remoteServerDependencies({
@@ -106,6 +112,6 @@ export function writeRemoteServerDependencies({ rootDir, desktopDir, externals }
   const outDir = join(desktopDir, 'out', 'server', 'deps');
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`);
-  writeFileSync(join(outDir, 'package-lock.json'), `${JSON.stringify(packageLock, null, 2)}\n`);
+  writeFileSync(join(outDir, REMOTE_SERVER_LOCKFILE), `${JSON.stringify(packageLock, null, 2)}\n`);
   return outDir;
 }
