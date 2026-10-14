@@ -82,6 +82,39 @@ test('folders are listed as path/ only when asked for', async (t) => {
   ]);
 });
 
+test('an empty query lists the root entries, folders first, then by name', async (t) => {
+  const root = await tempRoot(t);
+  await mkdir(join(root, 'src', 'deep'), { recursive: true });
+  await mkdir(join(root, 'apps'));
+  await writeFile(join(root, 'README.md'), '');
+  await writeFile(join(root, 'a.ts'), '');
+  await writeFile(join(root, 'src', 'deep', 'b.ts'), '');
+  assert.deepEqual(await searchProjectDirectory(root, '', 10, { includeDirectories: true }), [
+    'apps/',
+    'src/',
+    'a.ts',
+    'README.md',
+  ]);
+});
+
+test('matches of one tier list folders first, then by name', async (t) => {
+  const root = await tempRoot(t);
+  await mkdir(join(root, 'src', 'views'), { recursive: true });
+  await mkdir(join(root, 'a'));
+  await mkdir(join(root, 'z'));
+  await writeFile(join(root, 'z', 'apple-review.md'), '');
+  await writeFile(join(root, 'a', 'longer-review.md'), '');
+  await writeFile(join(root, 'a', 'zebra-review.md'), '');
+  await writeFile(join(root, 'view.md'), '');
+  assert.deepEqual(await searchProjectDirectory(root, 'view', 10, { includeDirectories: true }), [
+    'view.md',
+    'src/views/',
+    'z/apple-review.md',
+    'a/longer-review.md',
+    'a/zebra-review.md',
+  ]);
+});
+
 test('gitignored files are found only when asked for, never inside node_modules', async (t) => {
   const root = await tempRoot(t);
   await writeFile(join(root, '.gitignore'), '/deliverables/\n');
