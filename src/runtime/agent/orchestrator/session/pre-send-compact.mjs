@@ -408,9 +408,10 @@ function adoptCompactedTranscript(ctx, run) {
   // providerState so the next send starts a fresh chain.
   ctx.providerState = undefined;
   ctx.providerStateCleared = true;
-  // Compaction shrank the transcript, so prior turns no longer pressure the
-  // window — reset the iteration counter so a steadily-compacting long task
-  // isn't killed by the cap, while a non-compacting tight loop still hits it.
+  // Compaction starts a new loop epoch: the iteration counter restarts at 0
+  // so iteration indices (traces, usage metrics, cross-turn dedup windows)
+  // count from the compacted transcript. The counter bounds nothing — the
+  // loop has no iteration cap.
   ctx.iterations = 0;
   // New loop epoch so persistIterationMetrics idempotency keys do not
   // collide when iteration indices restart at 1 (incl. iter 1 → iter 1).

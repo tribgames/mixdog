@@ -92,7 +92,7 @@ function crossTurnStub(batch, call, ctSig) {
 // (which spans ONE assistant turn): when the model re-issues an IDENTICAL
 // normalized call that has already failed repeatFailLimit times in a row
 // across iterations, stop re-executing — the result will not change, and
-// each retry burns a full LLM round-trip until the hard iteration cap. The
+// each retry burns a full LLM round-trip with no iteration cap to end it. The
 // call stays unresolved; the guard only skips re-execution.
 function repeatFailureSkip(batch, call, sigs) {
   const { sessionRef, repeatFailLimit } = batch;
