@@ -56,10 +56,7 @@ function resolveProbeState(paths, evaluate) {
   return sawUnreadable ? 'unreadable' : 'absent';
 }
 
-function pushUnique(list, value) {
-  if (!value || typeof value !== 'string') return;
-  if (!list.includes(value)) list.push(value);
-}
+
 
 // Short-TTL memo. Under simultaneous multi-agent launch, buildDefaultConfig
 // and registry lazy-init call these probes in bursts; each probe does
@@ -113,9 +110,11 @@ function memoProbe(key, paths, compute, extraSignature = '') {
 }
 
 function anthropicOAuthState() {
-  const paths = [];
-  pushUnique(paths, process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH);
-  pushUnique(paths, ANTHROPIC_DEFAULT_CREDENTIALS_PATH);
+  const paths = [
+    boundProviderAuthPath('anthropic-oauth') ||
+      process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH ||
+      ANTHROPIC_DEFAULT_CREDENTIALS_PATH,
+  ];
   return memoProbe('anthropic-oauth', paths, () => {
     return resolveProbeState(paths, (docs) => {
       const candidates = [];
@@ -230,7 +229,10 @@ function cursorEnvTokenFingerprint() {
 }
 
 function cursorOAuthState() {
-  const paths = [process.env.CURSOR_OAUTH_CREDENTIALS_PATH, join(resolvePluginData(), 'cursor-oauth.json')];
+  // Match the adapter: selected account, then explicit path, then legacy file.
+  // An environment token must not authenticate a different selected account.
+  const bound = boundProviderAuthPath('cursor-oauth');
+  const paths = [bound || process.env.CURSOR_OAUTH_CREDENTIALS_PATH || join(resolvePluginData(), 'cursor-oauth.json')];
   // The env token is the whole answer on this branch and has no file metadata
   // behind it, so its VALUE is what the memo signature has to track: a length
   // (or a bare present/absent flag) let a swap to an equal-length expired token
@@ -245,7 +247,7 @@ function cursorOAuthState() {
       // Expiry is read by the one shared JWT reader (cursor-auth.cursorTokenExpiry),
       // which answers 0 for a non-JWT or unparseable token — exactly the "assume
       // usable" outcome this branch already took for those shapes.
-      if (process.env.CURSOR_ACCESS_TOKEN) {
+      if (process.env.CURSOR_ACCESS_TOKEN && !bound) {
         const expiresAt = cursorTokenExpiry(process.env.CURSOR_ACCESS_TOKEN);
         return expiresAt === 0 || expiresAt > Date.now() ? 'present' : 'absent';
       }
