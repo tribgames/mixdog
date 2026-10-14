@@ -53,12 +53,103 @@
 .sidebar-usage-heading.session-panel-header::after {
   display: none;
 }
-/* Same pin as the rail More menu: muted when off, plain text when pinned. */
-.sidebar-usage-heading .sidebar-usage-pin {
+/* The ··· menu trigger: muted ink, lifted while its menu is open. */
+.sidebar-usage-heading .sidebar-usage-menu {
   color: var(--mx-text-muted);
 }
-.sidebar-usage-heading .sidebar-usage-pin.is-active {
+.sidebar-usage-heading .sidebar-usage-menu[aria-expanded="true"] {
   color: var(--mx-text);
+  background: var(--mx-hover);
+}
+/* ··· menu panel (portaled, row-overflow-menu grammar): pin switch, then the
+   rail bar mode as radios with a hint line each. */
+.row-overflow-menu.usage-menu {
+  width: 252px;
+}
+/* Long translations wrap instead of truncating; the switch/dot stay on the
+   first line. */
+.row-overflow-menu.usage-menu > button {
+  align-items: flex-start;
+}
+.row-overflow-menu.usage-menu .row-overflow-label {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.row-overflow-menu.usage-menu .usage-menu-switch {
+  margin-top: 2px;
+}
+.row-overflow-menu.usage-menu .usage-menu-radio {
+  margin-top: 3px;
+}
+.usage-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--mx-border-muted);
+}
+.usage-menu-group {
+  padding: 6px 10px 2px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting);
+  font-weight: var(--mx-weight-semibold);
+}
+.usage-menu-hint {
+  padding: 0 10px 6px 34px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting);
+  line-height: 16px;
+}
+.row-overflow-menu button:disabled + .usage-menu-hint {
+  opacity: var(--mx-op-disabled);
+}
+.usage-menu-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 16px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-meter-track);
+}
+.usage-menu-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--mx-text);
+  transition: transform 120ms ease;
+}
+.row-overflow-menu button[aria-checked="true"] > .usage-menu-switch {
+  background: var(--mx-accent);
+}
+.row-overflow-menu button[aria-checked="true"] > .usage-menu-switch::after {
+  transform: translateX(12px);
+}
+.usage-menu-radio {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--mx-text-muted);
+  border-radius: 50%;
+}
+.row-overflow-menu button[role="menuitemradio"][aria-checked="true"] > .usage-menu-radio {
+  border-color: var(--mx-text);
+}
+.row-overflow-menu button[role="menuitemradio"][aria-checked="true"] > .usage-menu-radio::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mx-text);
+}
+.usage-menu-radio + .row-overflow-label {
+  flex: 1;
 }
 /* The roster is ONE grid: label | track | percentage | reset. Every provider
    row and quota line subgrids these columns, so the label column is exactly

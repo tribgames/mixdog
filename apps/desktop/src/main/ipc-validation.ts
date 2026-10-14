@@ -1504,6 +1504,7 @@ export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
     value === 'runInBackground' ||
     value === 'turnNotifications' ||
     value === 'usagePinned' ||
+    value === 'usageRailShortLong' ||
     value === 'computerControl' ||
     value === 'computerObserveOnly' ||
     value === 'browserControl' ||

@@ -1229,7 +1229,7 @@ html[data-mixdog-mobile-tabs] .session-row-status {
 html[data-mixdog-mobile-tabs] .row-overflow-trigger,
 html[data-mixdog-mobile-tabs] .session-sidebar-panels .row-overflow-trigger,
 html[data-mixdog-mobile-tabs] .queue-list .queue-remove,
-html[data-mixdog-mobile-tabs] .sidebar-usage-heading > .sidebar-usage-pin {
+html[data-mixdog-mobile-tabs] .sidebar-usage-heading > .sidebar-usage-menu {
   width: var(--mx-touch-row);
   height: var(--mx-touch-row);
   flex-basis: var(--mx-touch-row);
@@ -1391,7 +1391,7 @@ html[data-mixdog-mobile-tabs]
 html[data-mixdog-mobile-tabs]
   :is(
     .row-overflow-trigger,
-    .sidebar-usage-pin,
+    .sidebar-usage-menu,
     .dock-pr-toolbar > button,
     .dock-pr-row-actions > button,
     .dock-scm-list-actions > button,

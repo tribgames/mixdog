@@ -36,19 +36,30 @@ const prefetchSidebarUsage = () => void loadSidebarUsageModule().catch(() => und
 function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'], loading: boolean) {
   if (rows.length) {
     return (
-      <span className="rail-usage-pin-stack" aria-hidden="true">
+      <span className="rail-usage-pin-stack">
         {rows.map((entry) => {
           const percent = displayUsagePercent(entry.percent) ?? 0;
           // Glanceable readout (user: 프로그래스 중간에): icon, then the
-          // flyout's meter grammar in miniature, then the number — bar
-          // and number reflect the provider's final quota window.
+          // flyout's meter grammar in miniature, then the number — the bars
+          // are the final window (plus the shortest one in short + long mode)
+          // and the number is the higher of the drawn bars.
           const tone = usageToneClass(entry.percent);
           return (
-            <span className={`rail-usage-pin-brand${tone}`} key={entry.key} data-usage-pin={entry.key}>
+            <span
+              className={`rail-usage-pin-brand${tone}`}
+              key={entry.key}
+              data-usage-pin={entry.key}
+              data-tooltip={entry.tooltip}
+            >
               <ProviderIcon provider={entry.provider} />
-              <i>
-                <i style={{ width: `${percent}%` }} />
-              </i>
+              {entry.bars.map((bar, index) => (
+                <i
+                  key={bar.label}
+                  className={entry.bars.length > 1 && index !== entry.hot ? 'is-cool' : undefined}
+                >
+                  <i style={{ width: `${displayUsagePercent(bar.percent) ?? 0}%` }} />
+                </i>
+              ))}
               <small>{percent}%</small>
             </span>
           );
@@ -99,6 +110,8 @@ export function ActivityRail({
   const {
     usagePinned,
     toggleUsagePin,
+    railBars,
+    setRailBars,
     usagePinRows,
     loading: usagePinLoading,
   } = useUsageRailPin(
@@ -267,6 +280,8 @@ export function ActivityRail({
               onOpenStats={openUsageStats}
               pinned={usagePinned}
               onTogglePin={toggleUsagePin}
+              railBars={railBars}
+              onRailBarsChange={setRailBars}
             />
           ) : (
             <InitialSurface />
