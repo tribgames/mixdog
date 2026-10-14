@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import OpenAI from 'openai';
 import {
   effortConfigurationMode,
   prepareTurnEffortConfiguration,
@@ -20,11 +21,16 @@ for (const callback of ['onStreamDelta', 'onTextDelta', 'onToolCall']) {
     const payload = { id: 'call-1', text: 'already delivered' };
     let attempts = 0;
     await assert.rejects(
-      withEffortConfigurationFallback(provider, MODEL, { [callback]: (value) => received.push(value) }, async (opts) => {
-        attempts += 1;
-        opts[callback](payload);
-        throw error;
-      }),
+      withEffortConfigurationFallback(
+        provider,
+        MODEL,
+        { [callback]: (value) => received.push(value) },
+        async (opts) => {
+          attempts += 1;
+          opts[callback](payload);
+          throw error;
+        }
+      ),
       (actual) => actual === error
     );
     assert.equal(attempts, 1);
@@ -119,16 +125,26 @@ test('a failed effort update replay is never replayed a third time', async () =>
   assert.equal(attempts, 2);
 });
 
-function fixture(suffix) {
+function fixture(suffix, { sdk = false, defaultHeaders, clientOptions = {} } = {}) {
   const requests = [];
   const row = {
     id: MODEL,
     reasoningLevels: ['low', 'medium', 'high'],
     customReasoning: { wireFormat: 'standard', wireValues: { high: 'H' } },
   };
+  const completed = () => ({
+    type: 'response.completed',
+    response: {
+      id: `response-${requests.length}`,
+      model: MODEL,
+      status: 'completed',
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }],
+    },
+  });
   const provider = {
     name: `custom-boundary-${suffix}`,
-    config: {},
+    config: { clientOptions },
+    defaultHeaders,
     customConfig: MODE,
     nativePdf: false,
     getCachedModelInfo: () => row,
@@ -137,20 +153,29 @@ function fixture(suffix) {
         async create(body, options) {
           requests.push({ body: structuredClone(body), headers: options?.headers });
           return (async function* () {
-            yield {
-              type: 'response.completed',
-              response: {
-                id: `response-${requests.length}`,
-                model: MODEL,
-                status: 'completed',
-                output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }],
-              },
-            };
+            yield completed();
           })();
         },
       },
     },
   };
+  if (sdk) {
+    // Exercise the installed SDK's actual header merger, not new Headers(record):
+    // record keys overwrite case-insensitively and null deletes defaults there.
+    provider.client = new OpenAI({
+      apiKey: 'test-only',
+      baseURL: 'https://mixdog-test.invalid/v1',
+      maxRetries: 0,
+      defaultHeaders,
+      ...clientOptions,
+      fetch: async (_url, init) => {
+        requests.push({ body: JSON.parse(init.body), headers: new Headers(init.headers) });
+        return new Response(`data: ${JSON.stringify(completed())}\n\n`, {
+          headers: { 'content-type': 'text/event-stream' },
+        });
+      },
+    });
+  }
   return { provider, requests };
 }
 
@@ -197,17 +222,18 @@ test('per-request effort configuration overrides the provider default in either 
   assert.equal(updatesOf(requests.at(-1).body).at(-1).reasoning.effort, 'H');
 });
 
-for (const asHeaders of [false, true]) {
-  test(`caller session headers win case-insensitively (${asHeaders ? 'Headers' : 'record'})`, async () => {
-    const { provider, requests } = fixture(`headers-${asHeaders}`);
+for (const format of ['record', 'Headers', 'pairs']) {
+  test(`caller session headers survive the SDK merge (${format})`, async () => {
+    const { provider, requests } = fixture(`headers-${format}`, { sdk: true });
     const values = { 'Session-ID': 'caller-session', 'X-Client-Request-ID': 'caller-request', 'X-Test': 'kept' };
-    const requestHeaders = asHeaders ? new Headers(values) : values;
+    const requestHeaders =
+      format === 'Headers' ? new Headers(values) : format === 'pairs' ? Object.entries(values) : values;
     const before = [...new Headers(requestHeaders)];
     await sendCompatResponses(provider, [{ role: 'user', content: 'hi' }], MODEL, [], {
       sessionId: 'generated',
       requestHeaders,
     });
-    const wire = new Headers(requests[0].headers);
+    const wire = requests[0].headers;
     assert.equal(wire.get('session-id'), 'caller-session');
     assert.equal(wire.get('x-client-request-id'), 'caller-request');
     assert.equal(wire.get('x-test'), 'kept');
@@ -216,24 +242,40 @@ for (const asHeaders of [false, true]) {
   });
 }
 
-test('explicit header deletion suppresses generated defaults without stringifying null', async () => {
-  const { provider, requests } = fixture('header-deletion');
-  const requestHeaders = { 'Session-ID': null, 'X-Client-Request-ID': null };
-  await sendCompatResponses(provider, [{ role: 'user', content: 'hi' }], MODEL, [], {
-    sessionId: 'generated',
-    requestHeaders,
+for (const pairs of [false, true]) {
+  test(`explicit header deletion survives the SDK merge (${pairs ? 'pairs' : 'record'})`, async () => {
+    const { provider, requests } = fixture(`header-deletion-${pairs}`, { sdk: true });
+    const values = { 'Session-ID': null, 'X-Client-Request-ID': null };
+    const requestHeaders = pairs ? Object.entries(values) : values;
+    await sendCompatResponses(provider, [{ role: 'user', content: 'hi' }], MODEL, [], {
+      sessionId: 'generated',
+      requestHeaders,
+    });
+    assert.equal(requests[0].headers.has('session-id'), false);
+    assert.equal(requests[0].headers.has('x-client-request-id'), false);
   });
-  assert.deepEqual(requests[0].headers, requestHeaders);
-});
+}
 
 test('SDK default session headers are not shadowed by generated per-request values', async () => {
-  const { provider, requests } = fixture('default-headers');
-  provider.defaultHeaders = { 'Session-ID': 'configured-session' };
-  await sendCompatResponses(provider, [{ role: 'user', content: 'hi' }], MODEL, [], { sessionId: 'generated' });
-  assert.deepEqual(requests.at(-1).headers, { 'x-client-request-id': 'generated' });
-  provider.config.clientOptions = { defaultHeaders: new Headers({ 'X-Client-Request-ID': 'sdk-request' }) };
-  await sendCompatResponses(provider, [{ role: 'user', content: 'hi' }], MODEL, [], { sessionId: 'generated' });
-  assert.deepEqual(requests.at(-1).headers, { 'session-id': 'generated' });
+  const configured = fixture('default-headers', {
+    sdk: true,
+    defaultHeaders: { 'Session-ID': 'configured-session' },
+  });
+  await sendCompatResponses(configured.provider, [{ role: 'user', content: 'hi' }], MODEL, [], {
+    sessionId: 'generated',
+  });
+  assert.equal(configured.requests[0].headers.get('session-id'), 'configured-session');
+  assert.equal(configured.requests[0].headers.get('x-client-request-id'), 'generated');
+  const overridden = fixture('client-options-headers', {
+    sdk: true,
+    defaultHeaders: { 'Session-ID': 'unused' },
+    clientOptions: { defaultHeaders: new Headers({ 'X-Client-Request-ID': 'sdk-request' }) },
+  });
+  await sendCompatResponses(overridden.provider, [{ role: 'user', content: 'hi' }], MODEL, [], {
+    sessionId: 'generated',
+  });
+  assert.equal(overridden.requests[0].headers.get('session-id'), 'generated');
+  assert.equal(overridden.requests[0].headers.get('x-client-request-id'), 'sdk-request');
 });
 
 test('sessionless requests retain their original header input', async () => {
