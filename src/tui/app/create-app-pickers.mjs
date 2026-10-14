@@ -88,6 +88,8 @@ export function createAppPickers({
   const {
     openMcpServersPicker,
     openMcpPicker,
+    loginMcpServer,
+    logoutMcpServer,
     openProjectSkillsPicker,
     openSkillsPicker,
     openSkillDetailPicker,
@@ -219,6 +221,8 @@ export function createAppPickers({
     enterProject: (...a) => enterProject(...a),
     openProjectPicker: (...a) => openProjectPicker(...a),
     openMcpPicker: (...a) => openMcpPicker(...a),
+    loginMcpServer,
+    logoutMcpServer,
     openSkillsPicker: (...a) => openSkillsPicker(...a),
     openPluginsPicker: (...a) => openPluginsPicker(...a),
     openProviderSetupPicker: (...a) => openProviderSetupPicker(...a),

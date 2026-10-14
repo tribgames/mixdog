@@ -31,9 +31,15 @@ import {
   scrubMcpSecrets,
 } from './client-config.mjs';
 import { createLazyOutputValidator } from './lazy-output-validator.mjs';
-import { appendMcpStderrTail, createMcpTransport } from './client-transport.mjs';
-import { listAllMcpTools, runBoundedHandshake } from './client-handshake.mjs';
-import { clearMcpOAuth } from './oauth.mjs';
+import { appendMcpStderrTail, createMcpTransport, hasConfiguredMcpAuth } from './client-transport.mjs';
+import { listAllMcpTools, MCP_CONNECT_CANCELLED, runBoundedHandshake } from './client-handshake.mjs';
+import {
+  clearMcpOAuth,
+  hasStoredMcpOAuthTokens,
+  isMcpOAuthReauthenticationRequired,
+  MCP_OAUTH_CALLBACK_NOT_PENDING,
+} from './oauth.mjs';
+export { probeMcpServerAuth } from './oauth-probe.mjs';
 
 // Config interpretation (transport kind, URL policy, env expansion, headers,
 // timeouts, log scrubbing) lives in client-config.mjs; re-exported so every
@@ -174,7 +180,7 @@ export async function connectMcpServers(config, options = {}) {
     const rawMessage = res.reason instanceof Error ? res.reason.message : String(res.reason);
     const msg = scrubMcpConnectionMessage(rawMessage, cfg);
     mcpLog(`[mcp-client] Failed to connect "${name}": ${msg}\n`);
-    failures.push({ name, msg });
+    failures.push({ name, msg, ...(res.reason?.authRequired ? { authRequired: true } : {}) });
   });
   if (failures.length > 0) {
     const detail = failures.map((f) => `${f.name}: ${f.msg}`).join('; ');
@@ -365,7 +371,9 @@ async function replaceServerConnection(scopeId, name, current, cfg, genAtStart, 
     await connectServer(name, cfg, scopeId, genAtStart, options);
   } catch (reason) {
     const rawMessage = reason instanceof Error ? reason.message : String(reason);
-    throw new Error(scrubMcpConnectionMessage(rawMessage, cfg));
+    const error = new Error(scrubMcpConnectionMessage(rawMessage, cfg));
+    if (reason?.authRequired) error.authRequired = true;
+    throw error;
   }
 }
 
@@ -1172,6 +1180,47 @@ export function cancelMcpLogin(name, options = {}) {
   }
 }
 /**
+ * Answer the interactive OAuth login of a connect of `name` still in its
+ * handshake with the redirect URL pasted from the browser (remote / headless
+ * sign-in); that connect then proceeds as after the loopback callback. Throws
+ * a fixed message, never the pasted URL, for an invalid paste (the login stays
+ * pending) or when no login is waiting.
+ */
+export function completeMcpLogin(name, callbackUrl, options = {}) {
+  const scopeId = normalizeMcpScopeId(options);
+  for (const entry of _pendingConnects) {
+    if (entry.scopeId === scopeId && entry.name === name && entry.transport.oauth?.loginStarted) {
+      entry.transport.oauth.completeCallback(callbackUrl);
+      return;
+    }
+  }
+  throw new Error(MCP_OAUTH_CALLBACK_NOT_PENDING);
+}
+/** Whether a connect of `name` still in its handshake is waiting for an
+ *  interactive (browser) OAuth login. */
+export function isMcpLoginPending(name, options = {}) {
+  const scopeId = normalizeMcpScopeId(options);
+  for (const entry of _pendingConnects) {
+    if (entry.scopeId === scopeId && entry.name === name && entry.transport.oauth?.loginStarted) return true;
+  }
+  return false;
+}
+/**
+ * Stored OAuth sign-in state of an HTTP/SSE server without configured
+ * authentication: `{ signedIn }` (tokens stored for its exact URL), or null
+ * for servers that never use MCP OAuth.
+ */
+export function getMcpServerOAuthState(cfg) {
+  let url;
+  try {
+    url = resolveMcpOAuthUrl(cfg);
+  } catch {
+    return null;
+  }
+  if (!url || hasConfiguredMcpAuth(cfg)) return null;
+  return { signedIn: hasStoredMcpOAuthTokens(url) };
+}
+/**
  * Log out of an HTTP/SSE server URL: delete the OAuth tokens and client
  * registration stored for it, shared by every server configured with that
  * exact URL, and drop them from live connections.
@@ -1238,7 +1287,12 @@ async function connectServer(
     sdk,
     log: mcpLog,
     strictEnv: cfg?._mixdogStrictEnv === true,
-    oauthOptions: { interactive: options.interactive === true },
+    // Only an explicit sign-in (beginMcpOAuthLogin) is interactive; it may
+    // supply its own browser launcher to capture the authorization URL.
+    oauthOptions: {
+      interactive: options.interactive === true,
+      ...(typeof options.openBrowser === 'function' ? { openBrowser: options.openBrowser } : {}),
+    },
   });
   const liveness = trackMcpLiveness(client, name, cfg, stderrTail, transport);
   const pending = { scopeId, name, client, transport };
@@ -1296,7 +1350,20 @@ async function connectServer(
     mcpLog(`[mcp] connected: ${tools.length} tools — ${tools.map((t) => t.name).join(', ')}\n`);
   } catch (error) {
     await _closeServer({ client, transport, liveness });
-    throw scrubMcpOAuthError(error, cfg, oauthSecrets(transport));
+    const scrubbed = scrubMcpOAuthError(error, cfg, oauthSecrets(transport));
+    // A server that only needs an OAuth sign-in is not a broken server: the
+    // sign-in was required, or an explicit one did not complete (cancelled,
+    // denied, timed out or a failed exchange after it started, or cancelled
+    // before it could). A failure after the sign-in obtained tokens is real.
+    const signInIncomplete =
+      transport.oauth &&
+      (isMcpOAuthReauthenticationRequired(error) ||
+        (transport.oauth.loginStarted && !transport.oauth.loginCompleted) ||
+        (transport.oauth.interactive && error?.code === MCP_CONNECT_CANCELLED));
+    if (signInIncomplete && scrubbed && typeof scrubbed === 'object') {
+      scrubbed.authRequired = true;
+    }
+    throw scrubbed;
   } finally {
     _pendingConnects.delete(pending);
   }

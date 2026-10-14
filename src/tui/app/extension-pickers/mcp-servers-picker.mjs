@@ -8,8 +8,9 @@ const serverDescription = (server, pending, optimistic) => {
   const transport = server.transport || 'unknown';
   if (pending) return `${optimistic.enabled ? 'enabling' : 'disabling'}… · ${transport}`;
   const error = server.error ? ` · ${server.error}` : '';
+  const signIn = server.authRequired ? ` · sign-in required: /mcp login ${server.name}` : '';
   return withScope(
-    `${server.source || 'config'} · ${server.status || 'unknown'} · ${transport} · ${server.toolCount || 0} tools${error}`,
+    `${server.source || 'config'} · ${server.status || 'unknown'} · ${transport} · ${server.toolCount || 0} tools${error}${signIn}`,
     server
   );
 };

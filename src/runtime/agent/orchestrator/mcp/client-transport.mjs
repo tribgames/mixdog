@@ -54,7 +54,7 @@ function requestInitFor(cfg) {
 // Configured authentication stays authoritative even when its variables are
 // unset or resolve empty: the server then fails as configured instead of
 // turning into an OAuth login.
-function hasConfiguredMcpAuth(cfg) {
+export function hasConfiguredMcpAuth(cfg) {
   const configured = (value) =>
     value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
   return (
@@ -137,6 +137,7 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOption
       ? null
       : createMcpOAuth({
           url,
+          serverName: name,
           ...oauthOptions,
           // SSE advertises its POST endpoint on the authenticated event stream.
           // No other path on the origin is allowed to receive this server's token.

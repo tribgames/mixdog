@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import keychain from '../../../../lib/keychain-cjs.cjs';
@@ -7,6 +8,7 @@ import { withFileLock, writeFileAtomicAsync } from '../../../shared/atomic-file.
 import { openInBrowser } from '../../../shared/open-url.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { normalizeMcpTransportUrl } from './client-config.mjs';
+import { OAUTH_PAGE_CONTENT_TYPE, oauthErrorHtml, oauthSuccessHtml } from '../providers/lib/oauth-page.mjs';
 
 export const MCP_OAUTH_TIMEOUT_MS = 5 * 60_000;
 // Same lease as the provider OAuth refresh (openai-oauth-tokens.mjs): a
@@ -15,10 +17,22 @@ export const MCP_OAUTH_TIMEOUT_MS = 5 * 60_000;
 const CREDENTIAL_LOCK_OPTIONS = Object.freeze({ timeoutMs: 120_000, staleMs: 120_000 });
 
 const scopes = new WeakMap();
+const REAUTHENTICATION_REQUIRED_MESSAGE = 'MCP OAuth reauthenticationRequired: sign in to connect';
 const reauthenticationRequired = () =>
-  Object.assign(new Error('MCP OAuth reauthenticationRequired: reconnect explicitly to log in'), {
+  Object.assign(new Error(REAUTHENTICATION_REQUIRED_MESSAGE), {
     code: 'reauthenticationRequired',
   });
+
+/** Whether a connect failed only because the server needs an (explicit) OAuth
+ *  sign-in. Transports may wrap the error (SSE re-raises it as an event
+ *  message), so the message and cause chain count too. */
+export function isMcpOAuthReauthenticationRequired(error) {
+  for (let current = error, depth = 0; current && depth < 5; current = current.cause, depth++) {
+    if (current.code === 'reauthenticationRequired') return true;
+    if (String(current.message ?? current).includes(REAUTHENTICATION_REQUIRED_MESSAGE)) return true;
+  }
+  return false;
+}
 
 // One keychain entry per exact server URL. Windows stores each account as a
 // file name, so the account is a hash of the URL and nothing else.
@@ -34,16 +48,30 @@ function withCredentialLock(account, fn) {
 }
 
 // A non-secret marker of the stored entry's revision ('deleted' when there is
-// none), written under the credential lock before every change of the entry.
-// Every process compares it before sending a cached token, so a refresh or
-// log-out elsewhere is observed without reading the keychain per request.
-const markerOf = (revision) => (revision === null ? 'deleted' : revision);
-function writeRevisionMarker(account, revision) {
-  return writeFileAtomicAsync(credentialFile(account, 'rev'), markerOf(revision));
+// none) and whether the entry holds tokens (a client registration alone does
+// not sign in), written under the credential lock before every change of the
+// entry. Every process compares it before sending a cached token, so a refresh
+// or log-out elsewhere is observed without reading the keychain per request.
+const TOKENS_FLAG = '+tokens';
+const markerOf = (revision, hasTokens) =>
+  revision === null ? 'deleted' : hasTokens ? `${revision}${TOKENS_FLAG}` : revision;
+function writeRevisionMarker(account, revision, hasTokens = false) {
+  return writeFileAtomicAsync(credentialFile(account, 'rev'), markerOf(revision, hasTokens));
 }
 // Missing or unreadable (null) never matches: the caller re-reads the keychain.
 function readRevisionMarker(account) {
   return readFile(credentialFile(account, 'rev'), 'utf8').catch(() => null);
+}
+
+/** Whether OAuth tokens are stored for one server URL, read from the
+ *  non-secret revision marker without touching the keychain. */
+export function hasStoredMcpOAuthTokens(url) {
+  try {
+    const marker = readFileSync(credentialFile(mcpOAuthAccount(normalizeMcpTransportUrl(url)), 'rev'), 'utf8');
+    return marker.endsWith(TOKENS_FLAG);
+  } catch {
+    return false;
+  }
 }
 
 // The stored value as another process may have just written it, not this
@@ -59,37 +87,105 @@ const revisionOf = (saved) => (saved ? (JSON.parse(saved).revision ?? '') : null
 // `signal`, also aborted by the caller's optional `other` signal.
 const anySignal = (signal, other) => AbortSignal.any(other ? [signal, other] : [signal]);
 
+/** Upper bound of a pasted redirect URL (`completeMcpLogin`). */
+export const MCP_OAUTH_CALLBACK_MAX_BYTES = 64 * 1024;
+// Fixed messages: a pasted URL carries the authorization code and is never
+// echoed into an error, a log or a status.
+const INVALID_CALLBACK_PASTE =
+  'The pasted sign-in URL is invalid. Paste the full address the browser was redirected to after signing in.';
+export const MCP_OAUTH_CALLBACK_NOT_PENDING = 'MCP OAuth sign-in is not waiting for a callback';
+const sameState = (supplied, expected) => {
+  const a = Buffer.from(supplied || '');
+  const b = Buffer.from(expected || '');
+  return b.length > 0 && a.length === b.length && timingSafeEqual(a, b);
+};
+
+/**
+ * The outcome of a redirect URL pasted from the browser for a pending login
+ * whose redirect URI is `redirectUrl` and state `state`: `{ code }`, or
+ * `{ denied: true }` for an authorization error. Throws a fixed message (never
+ * the pasted text) for anything that is not exactly that login's callback.
+ */
+export function parsePastedMcpOAuthCallback(pasted, { redirectUrl, state }) {
+  const invalid = () => new Error(INVALID_CALLBACK_PASTE);
+  if (typeof pasted !== 'string' || Buffer.byteLength(pasted) > MCP_OAUTH_CALLBACK_MAX_BYTES) throw invalid();
+  const raw = pasted.trim();
+  let target;
+  let expected;
+  try {
+    target = new URL(raw);
+    expected = new URL(redirectUrl);
+  } catch {
+    throw invalid();
+  }
+  if (
+    raw.includes('#') ||
+    target.username ||
+    target.password ||
+    target.origin !== expected.origin ||
+    target.pathname !== expected.pathname
+  )
+    throw invalid();
+  const seen = new Set();
+  for (const [key, value] of target.searchParams) {
+    if (seen.has(key)) throw invalid();
+    seen.add(key);
+    // The redirect URI's own parameters come back unchanged; any others an
+    // authorization server adds (e.g. Google's scope/authuser/prompt) are
+    // ignored, as in Codex's parse_callback_url.
+    if (expected.searchParams.has(key) && expected.searchParams.get(key) !== value) throw invalid();
+  }
+  for (const key of expected.searchParams.keys()) if (!seen.has(key)) throw invalid();
+  if (!sameState(target.searchParams.get('state'), state)) throw invalid();
+  if (seen.has('code') === seen.has('error')) throw invalid();
+  if (seen.has('error')) return { denied: true };
+  const code = target.searchParams.get('code');
+  if (!code) throw invalid();
+  return { code };
+}
+
 // Answers a request to the loopback redirect URI: only a GET of the exact
 // callback path and host, carrying exactly the pending state (compared in
 // constant time) and either one code or an error, finishes the login.
-function answerOAuthCallback(req, res, { redirectUrl, state, finish }) {
+function answerOAuthCallback(req, res, { redirectUrl, state, finish, serverName }) {
+  const page = (status, html) => {
+    res.writeHead(status, {
+      'Content-Type': OAUTH_PAGE_CONTENT_TYPE,
+      'Cache-Control': 'no-store',
+      'Referrer-Policy': 'no-referrer',
+    });
+    res.end(html);
+  };
+  const invalid = () =>
+    page(400, oauthErrorHtml('This sign-in link is invalid or has expired.', 'Start the sign-in again from Mixdog.'));
   let target;
   try {
     target = new URL(req.url || '/', redirectUrl);
   } catch {
-    res.writeHead(400).end('Invalid OAuth callback');
+    invalid();
     return;
   }
-  const supplied = Buffer.from(target.searchParams.get('state') || '');
-  const expected = Buffer.from(state || '');
+  // `finish` is absent once the login was answered (e.g. by a pasted URL).
   const valid =
+    typeof finish === 'function' &&
     req.method === 'GET' &&
     req.headers.host === new URL(redirectUrl).host &&
     target.pathname === '/oauth/callback' &&
     target.searchParams.getAll('state').length === 1 &&
-    supplied.length === expected.length &&
-    timingSafeEqual(supplied, expected);
+    sameState(target.searchParams.get('state'), state);
   if (!valid || (!target.searchParams.has('error') && target.searchParams.getAll('code').length !== 1)) {
-    res.writeHead(400, { 'Cache-Control': 'no-store' }).end('Invalid OAuth callback');
+    invalid();
     return;
   }
-  res.writeHead(200, {
-    'Content-Type': 'text/plain',
-    'Cache-Control': 'no-store',
-    'Referrer-Policy': 'no-referrer',
-  });
-  res.end('You may return to Mixdog.');
-  finish(target.searchParams.has('error') ? undefined : target.searchParams.get('code'));
+  const server = serverName || 'the MCP server';
+  if (target.searchParams.has('error')) {
+    // The authorization server's error text is never reflected.
+    page(400, oauthErrorHtml(`Sign-in to ${server} was not completed.`, 'Start the sign-in again from Mixdog.'));
+    finish(undefined);
+    return;
+  }
+  page(200, oauthSuccessHtml(server));
+  finish(target.searchParams.get('code'));
 }
 
 /** Log out of one MCP server URL: delete its stored tokens and client
@@ -113,6 +209,7 @@ export function createMcpOAuth({
   credentialStore = keychain,
   interactive = false,
   isTransportEndpoint = () => false,
+  serverName,
   ...options
 }) {
   url = normalizeMcpTransportUrl(url);
@@ -130,30 +227,59 @@ export function createMcpOAuth({
   const lifetime = new AbortController();
   let onStart = () => {};
   let loginAllowed = interactive === true;
+  let loginStarted = false;
+  let loginCompleted = false;
   return {
     provider: entry.oauth.provider,
     signal: lifetime.signal,
     set onStart(value) {
       onStart = value;
     },
+    /** Whether this connection was opened by an explicit sign-in. */
+    get interactive() {
+      return interactive === true;
+    },
+    /** Whether this connection started an interactive (browser) login. */
+    get loginStarted() {
+      return loginStarted;
+    },
+    /** Whether that login obtained tokens (the sign-in itself completed). */
+    get loginCompleted() {
+      return loginCompleted;
+    },
     finishConnect() {
       loginAllowed = false;
     },
     /** Every OAuth token this connection held, for scrubbing errors and results. */
     secrets: () => entry.oauth.secrets(),
+    /** Answer the browser login this connection started with the redirect URL
+     *  pasted from the browser, exactly as the loopback callback would. */
+    completeCallback(pasted) {
+      if (!loginStarted || loginCompleted || lifetime.signal.aborted) throw new Error(MCP_OAUTH_CALLBACK_NOT_PENDING);
+      entry.oauth.completeCallback(pasted);
+    },
     async fetch(input, init = {}) {
       const signal = anySignal(lifetime.signal, init.signal);
+      let startedHere = false;
       return entry.oauth.fetch(
         input,
         { ...init, signal },
         () => {
           if (!loginAllowed) return false;
           loginAllowed = false;
+          loginStarted = startedHere = true;
           onStart();
           return true;
         },
         options.openBrowser,
-        isTransportEndpoint
+        isTransportEndpoint,
+        serverName,
+        // The login this request started stored tokens (a cancel, denial,
+        // timeout or failed exchange never gets here); the retry after it may
+        // still fail on its own.
+        () => {
+          if (startedHere) loginCompleted = true;
+        }
       );
     },
     close() {
@@ -236,7 +362,7 @@ function createSharedOAuth({
         observed = null;
       } else {
         const revision = randomBytes(16).toString('hex');
-        await writeRevisionMarker(account, revision);
+        await writeRevisionMarker(account, revision, Boolean(tokens));
         await credentialStore.setSecretAsync(
           account,
           JSON.stringify({ url, revision, tokens, clientInformation, redirectUrl, discovery })
@@ -249,12 +375,15 @@ function createSharedOAuth({
   // Before a cached token is sent: adopt a change another process made (a
   // refresh, a log-out) since this process last read or wrote the entry.
   async function observeStoredRevision() {
-    if ((await readRevisionMarker(account)) === markerOf(observed)) return;
+    if ((await readRevisionMarker(account)) === markerOf(observed, Boolean(tokens))) return;
     await withCredentialLock(account, async () => {
       adopt(await readStoredCredentials(credentialStore, account));
-      // Repair a missing or stale marker (an entry stored before markers
-      // existed, an interrupted change) so the next request reads no keychain.
-      if ((await readRevisionMarker(account)) !== markerOf(observed)) await writeRevisionMarker(account, observed);
+      // Repair a missing or stale marker (an entry stored before markers or
+      // the tokens flag existed, an interrupted change) so the next request
+      // reads no keychain.
+      if ((await readRevisionMarker(account)) !== markerOf(observed, Boolean(tokens))) {
+        await writeRevisionMarker(account, observed, Boolean(tokens));
+      }
     });
   }
   // The SDK saves only inside a login, which holds the lock and has just
@@ -278,6 +407,10 @@ function createSharedOAuth({
     state: () => state,
     clientInformation: async () => {
       await ready();
+      // A connect that cannot open a sign-in never registers a client (the
+      // SDK registers one after dropping a rejected registration): the next
+      // explicit sign-in registers it.
+      if (!clientInformation && !allowBrowser) throw reauthenticationRequired();
       return clientInformation;
     },
     saveClientInformation: (value) =>
@@ -306,6 +439,12 @@ function createSharedOAuth({
       save(() => {
         discovery = value;
       }),
+    // The SDK invalidates 'all' when the token endpoint rejects the client
+    // (invalid_client / unauthorized_client) and 'tokens' when it rejects the
+    // grant (invalid_grant). The registration goes in both cases: an
+    // authorization server that forgot its clients (a restart) may answer the
+    // refresh with invalid_grant, and reusing that registration would fail
+    // every later sign-in at the authorization endpoint; re-registering is cheap.
     invalidateCredentials: async (scope) => {
       if (scope === 'all' || scope === 'verifier') verifier = undefined;
       if (scope === 'discovery') discovery = undefined;
@@ -313,7 +452,7 @@ function createSharedOAuth({
       await update(
         () => {
           if (scope !== 'client') tokens = undefined;
-          if (scope !== 'tokens') clientInformation = undefined;
+          clientInformation = undefined;
           if (scope === 'all') discovery = undefined;
         },
         { remove: scope === 'all' }
@@ -332,14 +471,23 @@ function createSharedOAuth({
       await launchBrowser(target.href);
     },
   };
-  function closeListener() {
+  function stopListening() {
     listener?.close();
     listener?.closeAllConnections();
     listener = undefined;
+  }
+  function closeListener() {
+    stopListening();
     verifier = undefined;
     state = undefined;
   }
-  async function login(challenge, requestSignal, interactive, browser, attemptedToken) {
+  // The login's callback is answered once, by the loopback or a paste.
+  function answerCallback(code) {
+    const finish = finishCallback;
+    finishCallback = undefined;
+    finish?.(code);
+  }
+  async function login(challenge, requestSignal, interactive, browser, attemptedToken, serverName) {
     allowBrowser = interactive;
     browserOpened = false;
     launchBrowser = browser || openBrowser;
@@ -352,8 +500,9 @@ function createSharedOAuth({
       });
     let abort;
     const callback = new Promise((resolve, reject) => {
-      finishCallback = (code) => (code ? resolve(code) : reject(fail()));
-      abort = () => finishCallback();
+      const finish = (code) => (code ? resolve(code) : reject(fail()));
+      finishCallback = finish;
+      abort = () => finish();
       signal.addEventListener('abort', abort, { once: true });
     });
     // A discovery/registration error can precede waiting for the callback.
@@ -372,7 +521,7 @@ function createSharedOAuth({
           throw reauthenticationRequired();
         }
         state = randomBytes(32).toString('base64url');
-        if (interactive) await listenForCallback();
+        if (interactive) await listenForCallback(serverName);
         signal.throwIfAborted();
         return auth(provider, options);
       });
@@ -401,9 +550,9 @@ function createSharedOAuth({
       finishCallback = undefined;
     }
   }
-  async function listenForCallback() {
+  async function listenForCallback(serverName) {
     listener = createServer((req, res) =>
-      answerOAuthCallback(req, res, { redirectUrl, state, finish: finishCallback })
+      answerOAuthCallback(req, res, { redirectUrl, state, finish: finishCallback && answerCallback, serverName })
     );
     await new Promise((resolve, reject) => {
       listener.once('error', reject);
@@ -416,7 +565,15 @@ function createSharedOAuth({
   return {
     provider,
     signal: lifetime.signal,
-    async fetch(input, init = {}, requestLogin = () => false, browser, isTransportEndpoint = () => false) {
+    async fetch(
+      input,
+      init = {},
+      requestLogin = () => false,
+      browser,
+      isTransportEndpoint = () => false,
+      serverName = undefined,
+      onAuthorized = () => {}
+    ) {
       // An unreadable (e.g. locked) keychain must not block a server that
       // needs no authentication; credentials are required only on challenge.
       let storeUnreadable = false;
@@ -460,7 +617,14 @@ function createSharedOAuth({
       if (storeUnreadable) throw reauthenticationRequired();
       if (!flight && tokens === attemptedToken) {
         flightController = new AbortController();
-        flight = login(challenge, flightController.signal, requestLogin(), browser, attemptedToken).finally(() => {
+        flight = login(
+          challenge,
+          flightController.signal,
+          requestLogin(),
+          browser,
+          attemptedToken,
+          serverName
+        ).finally(() => {
           flight = undefined;
         });
       }
@@ -476,6 +640,8 @@ function createSharedOAuth({
               if (signal.aborted) abort();
             }),
           ]);
+          // The login settled with tokens stored, before the retry is sent.
+          onAuthorized();
         } finally {
           signal.removeEventListener('abort', abort);
           if (--waiters === 0 && flight) {
@@ -502,6 +668,18 @@ function createSharedOAuth({
       return retried;
     },
     secrets: () => [...held],
+    /** Answer the pending browser login with a pasted redirect URL: the same
+     *  state check, PKCE exchange and persistence as the loopback callback,
+     *  whose listener closes. An invalid paste leaves the login pending. */
+    completeCallback(pasted) {
+      if (!finishCallback || !browserOpened || !state || !redirectUrl) {
+        throw new Error(MCP_OAUTH_CALLBACK_NOT_PENDING);
+      }
+      const { code } = parsePastedMcpOAuthCallback(pasted, { redirectUrl, state });
+      stopListening();
+      // A denial (no code) fails the login without echoing its description.
+      answerCallback(code);
+    },
     /** Forget in-memory credentials (after a log-out) and cancel a login in
      *  progress; the next request re-reads the keychain. */
     clear() {

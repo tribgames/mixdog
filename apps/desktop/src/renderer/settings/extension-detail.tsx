@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, X } from 'lucide-react';
-import { useMemo, type FormEvent, type ReactNode } from 'react';
+import { useMemo, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 
 import type { DesktopProjectSummary } from '../../shared/contract';
 import { t } from '../i18n';
@@ -323,7 +323,7 @@ export function ExtensionAction({
   ariaLabel?: string;
   /** Hover label, for icon-only actions. */
   tooltip?: string;
-  onClick?(): void;
+  onClick?(event: MouseEvent<HTMLButtonElement>): void;
 }) {
   return (
     <button

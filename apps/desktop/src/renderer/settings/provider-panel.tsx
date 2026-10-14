@@ -1,16 +1,15 @@
-import { ExternalLink, X, Plus } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ExternalLink, Plus } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
 import { ErrorNotice, verificationUrlOf } from '../ErrorNotice';
-import { registerMobileBack } from '../mobile-back';
 import { record } from '../record-utils';
-import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
+import { OAuthLoginDialog, pasteErrorText, useOAuthLoginFlow } from './oauth-login-flow';
 import { useOAuthUsageRefresh } from './use-oauth-usage-refresh';
 import { ProviderAccountsList, PROVIDER_ACCOUNTS_CHANGED, preloadProviderAccounts } from '../ProviderAccountsList';
-import { ActionButton, Group, ListEmpty, ResourceRow, settingsStatus } from './capability-controls';
+import { ActionButton, Group, ListEmpty, ResourceRow } from './capability-controls';
 import { QuotaAutoResumeToggle } from './quota-auto-resume-toggle';
 import { CustomProvidersSection, isCustomProvider } from './custom-provider-section';
 import {
@@ -21,7 +20,6 @@ import {
   type PanelContext,
   type RecordValue,
 } from './capability-data';
-import { errorMessage } from '../editor-pane-session-errors';
 
 export function preloadProviderPanel(api: PanelContext['api']): Promise<unknown> {
   return preloadCapabilitySettings(api).then((next) =>
@@ -228,133 +226,55 @@ export function OAuthControl({
   addAccount?: boolean;
   accountId?: string;
 }) {
-  const [flow, setFlow] = useState<RecordValue | null>(null);
-  const [error, setError] = useState('');
-  const completedFlowRef = useRef('');
-  const onCompleteRef = useRef(onComplete);
-  const runRef = useRef(run);
   const providerId = String(provider.id || '');
-  const flowId = String(flow?.flowId || '');
-  const flowOpen = Boolean(flow);
-  const flowState = String(flow?.state || '');
-  useOAuthUsageRefresh(api, flowId, flowState);
-  // A remote client signs in on its own machine, so every provider that can
-  // take the final redirect (or code) back gets a paste step.
-  const remote = isRemoteHostRenderer();
-  const manualCodeFlow =
-    providerId === 'anthropic-oauth' || providerId === 'mimo-oauth' || providerId === 'command-code-oauth' || remote;
-  const openSignInPage = (url: unknown) => {
-    if (typeof url === 'string' && url) void window.mixdogDesktop?.openExternal?.(url).catch(() => undefined);
-  };
-  // Provider labels such as "OpenAI OAuth" already name the method.
-  const baseLabel = providerId === 'cursor-oauth' ? 'Cursor' : providerLabel(provider);
-  const loginLabel = /\bOAuth$/u.test(baseLabel) ? baseLabel : `${baseLabel} OAuth`;
-  const status = settingsStatus(flowState || 'pending');
-  useEffect(() => {
-    onCompleteRef.current = onComplete;
-  }, [onComplete]);
-  useEffect(() => {
-    runRef.current = run;
-  }, [run]);
-  useEffect(() => {
-    if (!flowId || flowState !== 'pending') return undefined;
-    let cancelled = false;
-    let timer = 0;
-    const poll = async () => {
-      const next = await runRef.current<RecordValue>(
-        'getOAuthProviderLoginStatus',
-        [flowId],
-        `oauth-status-${providerId}`,
-        false,
-        true
-      );
-      if (cancelled) return;
-      if (!next) {
-        setError(
-          providerId === 'cursor-oauth'
-            ? t('Cursor OAuth status could not be checked.')
-            : t('OAuth status could not be checked.')
-        );
-        return;
-      }
-      const nextFlow = record(next);
-      setFlow(nextFlow);
-      if (String(nextFlow.state || 'pending') === 'pending') {
-        timer = window.setTimeout(() => void poll(), 500);
-      }
-    };
-    timer = window.setTimeout(() => void poll(), 500);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [flowId, flowState, providerId]);
-  useEffect(() => {
-    if (!flowId || flowState !== 'complete' || completedFlowRef.current === flowId) return;
-    completedFlowRef.current = flowId;
+  const { flow, setFlow, error, pasteError, setPasteError, remote, start: beginFlow, close } = useOAuthLoginFlow({
+    run,
+    keyId: providerId,
+    statusCapability: 'getOAuthProviderLoginStatus',
+    cancelCapability: 'cancelOAuthProviderLogin',
+    statusError:
+      providerId === 'cursor-oauth'
+        ? t('Cursor OAuth status could not be checked.')
+        : t('OAuth status could not be checked.'),
     // A browser-callback login completes through status polling, never through
     // completeOAuthProviderLogin, so it invalidates the provider-derived caches
     // (setup snapshot and model pickers) itself. The daemon reports `complete`
     // only after it adopted the new credentials.
-    invalidateSidebarReferenceForMutation('completeOAuthProviderLogin');
-    void runRef
-      .current<RecordValue>('getProviderSetup', [{ force: true }], `oauth-refresh-${providerId}`, true, true)
-      .then((next) => {
-        if (completedFlowRef.current !== flowId) return;
-        if (!next) {
-          completedFlowRef.current = '';
-          setError(t('Connected, but provider status could not be refreshed.'));
-          return;
-        }
-        setFlow((current) => (String(current?.flowId || '') === flowId ? null : current));
-        window.dispatchEvent(new window.Event(PROVIDER_ACCOUNTS_CHANGED));
-        onCompleteRef.current?.();
-      });
-  }, [flowId, flowState, providerId]);
-  const start = async () => {
-    setError('');
-    completedFlowRef.current = '';
-    // The host must not open a browser nobody is sitting at for a remote client.
-    const hostBrowser = remote ? { openBrowser: false } : {};
-    let loginArgs: unknown[] = remote ? [providerId, hostBrowser] : [providerId];
-    if (addAccount) loginArgs = [providerId, { addAccount: true, ...hostBrowser }];
-    else if (accountId) loginArgs = [providerId, { accountId, ...hostBrowser }];
-    try {
+    refresh: async () => {
+      invalidateSidebarReferenceForMutation('completeOAuthProviderLogin');
       const next = await run<RecordValue>(
-        'beginOAuthProviderLogin',
-        loginArgs,
-        `oauth-begin-${providerId}`,
-        false,
-        false,
-        'throw'
+        'getProviderSetup',
+        [{ force: true }],
+        `oauth-refresh-${providerId}`,
+        true,
+        true
       );
-      if (next) {
-        const started = record(next);
-        setFlow(started);
-        if (remote) openSignInPage(started.manualUrl || started.url);
-      }
-    } catch (reason) {
-      setError(errorMessage(reason));
-    }
-  };
-  const close = () => {
-    const currentFlowId = String(flow?.flowId || '');
-    const currentState = String(flow?.state || '');
-    setFlow(null);
-    setError('');
-    if (currentFlowId && currentState !== 'complete' && currentState !== 'cancelled') {
-      void run('cancelOAuthProviderLogin', [currentFlowId], `oauth-cancel-${providerId}`, false);
-    }
-  };
+      return next ? undefined : t('Connected, but provider status could not be refreshed.');
+    },
+    onDone: () => {
+      window.dispatchEvent(new window.Event(PROVIDER_ACCOUNTS_CHANGED));
+      onComplete?.();
+    },
+  });
+  const flowId = String(flow?.flowId || '');
+  const flowState = String(flow?.state || '');
+  useOAuthUsageRefresh(api, flowId, flowState);
+  // A remote client signs in on its own machine, so every provider that can
+  // take the final redirect (or code) back gets a paste step.
+  const manualCodeFlow =
+    providerId === 'anthropic-oauth' || providerId === 'mimo-oauth' || providerId === 'command-code-oauth' || remote;
+  const start = () =>
+    beginFlow((isRemote) => {
+      // The host must not open a browser nobody is sitting at for a remote client.
+      const hostBrowser = isRemote ? { openBrowser: false } : {};
+      let loginArgs: unknown[] = isRemote ? [providerId, hostBrowser] : [providerId];
+      if (addAccount) loginArgs = [providerId, { addAccount: true, ...hostBrowser }];
+      else if (accountId) loginArgs = [providerId, { accountId, ...hostBrowser }];
+      return run<RecordValue>('beginOAuthProviderLogin', loginArgs, `oauth-begin-${providerId}`, false, false, 'throw');
+    });
   // Google can end the sign-in with an account check of its own: a one-time
   // verification link, after which the login has to be started over.
   const verificationUrl = flow ? verificationUrlOf(flow.error) : '';
-  const closeRef = useRef(close);
-  closeRef.current = close;
-  useEffect(() => {
-    if (!flowOpen) return undefined;
-    return registerMobileBack(() => closeRef.current());
-  }, [flowOpen]);
   return (
     <>
       {addAccount && (
@@ -376,78 +296,23 @@ export function OAuthControl({
       )}
       {!flow && error && <ErrorNotice error={error} />}
       {flow && (
-        // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the dialog's close button and Escape.
-        <div
-          className="settings-oauth-layer"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) close();
-          }}
-        >
-          <section
-            className="settings-oauth-dialog"
-            role="dialog"
-            aria-modal="true"
-            data-settings-nested-dialog
-            aria-labelledby={`settings-oauth-title-${providerId}`}
-            aria-describedby={`settings-oauth-description-${providerId}`}
-          >
-            <header>
-              <div>
-                <h3 id={`settings-oauth-title-${providerId}`}>{loginLabel}</h3>
-                <p id={`settings-oauth-description-${providerId}`}>
-                  {remote && flow.manualCodeSupported
-                    ? t(
-                        'Sign in on the opened page. When it ends on a page that cannot load, paste that page address here.'
-                      )
-                    : manualCodeFlow
-                      ? t('Complete the browser login, then paste the authorization code.')
-                      : t('Finish signing in in your browser. This window updates automatically.')}
-                </p>
-              </div>
-              <button
-                type="button"
-                aria-label={t(providerId === 'cursor-oauth' ? 'Close Cursor OAuth' : 'Close OAuth login')}
-                data-settings-nested-close
-                // biome-ignore lint/a11y/noAutofocus: the dialog's close button takes focus on open.
-                autoFocus
-                onClick={close}
-              >
-                <X aria-hidden="true" size={16} />
-              </button>
-            </header>
-            <div className="settings-oauth-body">
-              <div className="settings-oauth-status" role="status">
-                <span>{t('Status')}</span>
-                <b className={`tone-${status.tone}`}>{t(status.label)}</b>
-              </div>
-              {Boolean(flow.userCode) && flow.state !== 'complete' && (
-                <label className="settings-oauth-url">
-                  {t('Enter this code on the sign-in page')}
-                  <input readOnly value={String(flow.userCode)} />
-                </label>
-              )}
-              {/* A remote client opens the URL on its own machine: the host's browser is not in front of it. */}
-              {(manualCodeFlow || remote) && Boolean(flow.manualUrl || flow.url) && (
-                <label className="settings-oauth-url">
-                  {t('Manual login URL')}
-                  <textarea readOnly value={String(flow.manualUrl || flow.url)} />
-                </label>
-              )}
-              {remote && Boolean(flow.manualUrl || flow.url) && flow.state !== 'complete' && (
-                <button type="button" className="primary" onClick={() => openSignInPage(flow.manualUrl || flow.url)}>
-                  <ExternalLink size={14} aria-hidden="true" />
-                  {t('Open sign-in page')}
-                </button>
-              )}
-              {manualCodeFlow && Boolean(flow.manualCodeSupported) && flow.state !== 'complete' && (
-                <form
-                  className="settings-oauth-code"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    const form = event.currentTarget;
-                    const code = new FormData(form).get('code');
+        <OAuthLoginDialog
+          id={providerId}
+          closeLabel={t(providerId === 'cursor-oauth' ? 'Close Cursor OAuth' : 'Close OAuth login')}
+          flow={flow}
+          error={error}
+          paste={
+            manualCodeFlow && flow.manualCodeSupported
+              ? {
+                  title: remote ? t('Sign-in redirect URL or code') : t('Anthropic authorization code'),
+                  placeholder: remote
+                    ? t('Paste the final redirect URL or code')
+                    : t('Authorization code or code#state'),
+                  ariaLabel: remote ? t('Sign-in redirect URL or code') : t('Anthropic authorization code'),
+                  error: pasteError,
+                  onSubmit: (code, form) => {
                     form.reset();
-                    setError('');
+                    setPasteError('');
                     void run<RecordValue>(
                       'completeOAuthProviderLogin',
                       [flow.flowId, code],
@@ -458,24 +323,16 @@ export function OAuthControl({
                     )
                       .then((next) => {
                         if (next) setFlow(record(next));
-                        else setError(t('The authorization code could not be completed.'));
+                        else setPasteError(t('The authorization code could not be completed.'));
                       })
-                      .catch((reason) => setError(errorMessage(reason)));
-                  }}
-                >
-                  <input
-                    name="code"
-                    placeholder={
-                      remote ? t('Paste the final redirect URL or code') : t('Authorization code or code#state')
-                    }
-                    aria-label={remote ? t('Sign-in redirect URL or code') : t('Anthropic authorization code')}
-                    required
-                  />
-                  <button type="submit" className="primary" disabled={disabled}>
-                    {t('Complete')}
-                  </button>
-                </form>
-              )}
+                      .catch((reason) => setPasteError(pasteErrorText(reason)));
+                  },
+                }
+              : undefined
+          }
+          disabled={disabled}
+          onClose={close}
+        >
               {verificationUrl && (
                 <section className="settings-oauth-verify" role="alert">
                   <b>{t('Additional verification required')}</b>
@@ -499,15 +356,7 @@ export function OAuthControl({
                   </div>
                 </section>
               )}
-              <ErrorNotice errors={[flow.error, error]} />
-            </div>
-            <footer>
-              <button type="button" disabled={disabled} onClick={close}>
-                {flow.state === 'pending' ? t('Cancel') : t('Close')}
-              </button>
-            </footer>
-          </section>
-        </div>
+        </OAuthLoginDialog>
       )}
     </>
   );

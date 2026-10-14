@@ -26,7 +26,9 @@ import {
   ExtensionSection,
   scopeOf,
 } from './extension-detail';
+import { errorMessage } from '../editor-pane-session-errors';
 import { McpEditorDialog, mcpRowDescription, mcpStatus } from './mcp-editor-dialog';
+import { useMcpOAuthLogin } from './mcp-oauth-login';
 import { capabilityBlockedRemotely, manageOnHostNote } from './remote-capability-guard';
 
 function PluginInstallDialog({
@@ -131,8 +133,27 @@ function SkillExtensionCreateDialog({
 
 const REMOVAL_IN_FLIGHT = Symbol('mcp-removal-in-flight');
 
-export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
+export function McpPanel({
+  api,
+  data,
+  pending,
+  run,
+  confirm,
+  refreshExtensions,
+  createOpen,
+  closeCreate,
+}: PanelContext) {
   const status = record(data.mcp);
+  const oauthLogin = useMcpOAuthLogin({ run, refreshExtensions });
+  // Probing is a read: no busy state, no list refresh, and a failure comes back
+  // as the result instead of a toast.
+  const probeAuth = async (config: RecordValue) => {
+    try {
+      return await run<RecordValue>('probeMcpServerAuth', [config], 'probeMcpServerAuth', false, true, 'throw');
+    } catch (reason) {
+      return { auth: 'unreachable', error: errorMessage(reason) };
+    }
+  };
   // A confirmed removal hides its row while the call is in flight. Once it
   // resolves, the first MCP snapshot that arrives after that point is
   // authoritative and drops the tombstone; a failed removal drops it at once.
@@ -163,6 +184,18 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
   const [editor, setEditor] = useState<{ name: string; server: RecordValue | null } | null>(null);
   const openName = editor?.name || '';
   const openServer = editor?.server || null;
+  const openRow = servers.find((server) => String(server.name) === openName);
+  const liveOpenServer =
+    openServer && openRow
+      ? {
+          ...openServer,
+          status: openRow.status,
+          error: openRow.error,
+          connected: openRow.connected,
+          authRequired: openRow.authRequired,
+          oauth: openRow.oauth,
+        }
+      : openServer;
   const openEditor = (name: string) => {
     closeCreate?.();
     setEditor({ name, server: null });
@@ -233,6 +266,8 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
           busy={busy}
           takenNames={servers.map((server) => String(server.name))}
           onClose={() => closeCreate?.()}
+          onConnect={(serverName) => void oauthLogin.connect(serverName)}
+          onProbe={probeAuth}
           // Creation must never overwrite: the host rejects a name that exists
           // by now (the dialog's takenNames can be stale) and the dialog shows it.
           onSave={async (payload) => {
@@ -265,6 +300,7 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
         );
       })}
       <ScmContextMenu state={menu} onClose={() => setMenu(null)} />
+      {oauthLogin.dialog}
       {editor && !openServer && (
         <SidebarLoadingDialog
           title={openName}
@@ -275,9 +311,13 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
       {openName && openServer && (
         <McpEditorDialog
           key={openName}
-          server={openServer}
+          // The card follows the live list row: a finished sign-in or sign-out
+          // changes its status while the editor stays open.
+          server={liveOpenServer}
           busy={busy}
           onClose={closeEditor}
+          onConnect={(serverName) => void oauthLogin.connect(serverName)}
+          onDisconnect={(serverName) => void oauthLogin.disconnect(serverName)}
           scopeField={
             <ExtensionScopeField
               api={api}

@@ -38,6 +38,60 @@ test('an extension change holds the command lock and announces the result', asyn
   assert.equal(h.getState().commandBusy, false);
 });
 
+test('MCP OAuth sign-in actions forward to the runtime; sign-out holds the command lock', async () => {
+  const calls = [];
+  let state = { commandBusy: false, stats: {} };
+  const runtime = {
+    beginMcpOAuthLogin: async (name, options) => {
+      calls.push(['begin', name, options]);
+      return { flowId: 'mcp_oauth_1', state: 'pending', url: 'https://auth.example/authorize' };
+    },
+    getMcpOAuthLoginStatus: (flowId) => ({ flowId, state: 'pending' }),
+    cancelMcpOAuthLogin: async (flowId) => ({ flowId, state: 'cancelled' }),
+    completeMcpOAuthLogin: async (flowId, callbackUrl) => {
+      calls.push(['complete', flowId, callbackUrl, state.commandBusy]);
+      return { flowId, state: 'complete' };
+    },
+    signOutMcpServer: async (name) => {
+      calls.push(['signOut', name, state.commandBusy]);
+      return { servers: [] };
+    },
+    probeMcpServerAuth: async (cfg) => ({ auth: cfg.url ? 'oauth' : 'none' }),
+  };
+  const api = createSessionExtensionsApi({
+    runtime,
+    getState: () => state,
+    set: (patch) => {
+      state = { ...state, ...patch };
+    },
+    pushNotice: (text) => calls.push(['notice', text]),
+    resetStatsAndSyncContext: () => {},
+    routeState: () => ({}),
+  });
+  assert.deepEqual(await api.beginMcpOAuthLogin('docs', { openBrowser: false }), {
+    flowId: 'mcp_oauth_1',
+    state: 'pending',
+    url: 'https://auth.example/authorize',
+  });
+  assert.deepEqual(api.getMcpOAuthLoginStatus('mcp_oauth_1'), { flowId: 'mcp_oauth_1', state: 'pending' });
+  assert.deepEqual(await api.cancelMcpOAuthLogin('mcp_oauth_1'), { flowId: 'mcp_oauth_1', state: 'cancelled' });
+  assert.deepEqual(await api.completeMcpOAuthLogin('mcp_oauth_1', 'http://127.0.0.1:1/oauth/callback?code=c'), {
+    flowId: 'mcp_oauth_1',
+    state: 'complete',
+  });
+  await api.signOutMcpServer('docs');
+  assert.deepEqual(await api.probeMcpServerAuth({ type: 'http', url: 'https://x' }), { auth: 'oauth' });
+  assert.deepEqual(calls, [
+    ['begin', 'docs', { openBrowser: false }],
+    ['notice', 'mcp sign-in started: docs'],
+    ['complete', 'mcp_oauth_1', 'http://127.0.0.1:1/oauth/callback?code=c', false],
+    ['signOut', 'docs', true],
+    ['notice', 'mcp signed out: docs'],
+  ]);
+  delete runtime.probeMcpServerAuth;
+  assert.throws(() => api.probeMcpServerAuth({}), /MCP sign-in is unavailable/);
+});
+
 test('an extension change refused by a running command rejects instead of reporting success', async () => {
   const h = createHarness({ commandBusy: true });
   await assert.rejects(h.api.removeMcpServer('docs'), /Another command is still running/);
