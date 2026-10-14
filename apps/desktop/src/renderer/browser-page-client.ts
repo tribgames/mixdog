@@ -123,8 +123,8 @@ export function createBrowserPageClient(options: {
     const previous = current;
     // frameId owns pixel identity. An unchanged sample still refreshes host
     // state, but must not make React redraw the pane at display cadence.
-    const { image: _image, ...metadata } = frame;
-    const key = JSON.stringify(metadata);
+    const { image: _image, ...presentation } = frame;
+    const key = JSON.stringify(presentation);
     if (key !== presentationKey) {
       options.update(frame);
       presentationKey = key;

@@ -1074,8 +1074,8 @@ test('dock header tab lists behave like the pane tab strip for 2-6 browser and t
   assert.match(rule('.browser-tab'), /flex: 0 1 160px;/);
   assert.match(rule('.browser-tab'), /min-width: 30px;/);
   assert.match(rule('.browser-tab.is-active'), /min-width: 56px;/);
-  assert.match(rule('.browser-tab-select span'), /text-overflow: ellipsis;/);
-  assert.match(rule('.browser-tab-select span'), /overflow: hidden;/);
+  assert.match(rule('.browser-tab-select > span:not(.progress-spinner-turn)'), /text-overflow: ellipsis;/);
+  assert.match(rule('.browser-tab-select > span:not(.progress-spinner-turn)'), /overflow: hidden;/);
   // + and the row controls are fixed: the list is the only shrinking/scrolling part.
   assert.match(rule('.browser-tab-new'), /flex: 0 0 30px;/);
   assert.match(rule('.dock-header-controls'), /flex: none;/);

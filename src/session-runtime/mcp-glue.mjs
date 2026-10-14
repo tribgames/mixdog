@@ -37,11 +37,13 @@ export function createMcpGlue({
   return {
     mcpStatus: catalog.mcpStatus,
     resolveMcpCatalog: catalog.resolveCatalog,
+    resolveConfiguredMcpCatalog: catalog.resolveConfiguredCatalog,
     pluginMcpServer: catalog.pluginServer,
     pluginMcpSummary: catalog.pluginMcpSummary,
     getMcpServerConfig: catalog.getMcpServerConfig,
     connectConfiguredMcp: connect.connectConfiguredMcp,
     awaitInitialMcpConnect: connect.awaitInitialMcpConnect,
+    cancelMcpLogin: connect.cancelMcpLogin,
     normalizeMcpServerInput,
   };
 }

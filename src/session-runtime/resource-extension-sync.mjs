@@ -5,6 +5,7 @@ import { publishGlobalExtensionChange, subscribeGlobalExtensionChanges } from '.
 
 export function createExtensionSync({
   connectConfiguredMcp,
+  cancelMcpLogin,
   invalidatePreSessionToolSurface,
   refreshEmptySessionToolPolicy,
   reloadFullConfig,
@@ -60,6 +61,9 @@ export function createExtensionSync({
     const chain = mcpToggleChains.get(serverName) || { desired: enabled, running: null };
     chain.desired = enabled;
     mcpToggleChains.set(serverName, chain);
+    // A disable riding the chain would otherwise wait out an interactive
+    // login of the enable still in flight.
+    if (enabled === false) cancelMcpLogin?.(serverName);
     if (!chain.running) {
       chain.running = (async () => {
         let status;

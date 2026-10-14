@@ -8,7 +8,7 @@ import { createMcpGlue } from './mcp-glue.mjs';
 import { createResourceApi } from './resource-api.mjs';
 import { createPluginStatus } from './cwd-plugins/plugin-status.mjs';
 import { createSetupToolExecutor } from './setup-tool/executor.mjs';
-import { addPlugin, listRegisteredPlugins, pluginAdminStatus } from './services/plugin-admin.mjs';
+import { addPlugin, listRegisteredPlugins, pluginAdminStatus, setPluginEnabled } from './services/plugin-admin.mjs';
 import { PLUGIN_MCP_NAME_MAX, pluginMcpServerBaseName, resolveMcpServerCatalog } from './mcp-glue/plugin-servers.mjs';
 import { countSkillFiles, pluginManifest } from '../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
 import { applyConfigPatch, diffConfig } from '../runtime/shared/config-patch.mjs';
@@ -82,7 +82,7 @@ function fakeClient() {
 
 /** One session runtime: its own cwd, MCP scope, and config snapshot whose
  *  saves land on the shared disk as field patches (like config-lifecycle). */
-function runtime(t, shared, client, { cwd, scopeId, mcpClient = client }) {
+function runtime(t, shared, client, { cwd, scopeId, mcpClient = client, clearMcpServerOAuth = async () => {} }) {
   const rt = { config: clone(shared.disk), cwd };
   const state = { mcpFailures: [], mcpConnectGeneration: 0, mcpConnectInFlight: null };
   const glue = createMcpGlue({
@@ -123,12 +123,14 @@ function runtime(t, shared, client, { cwd, scopeId, mcpClient = client }) {
       baseline = clone(rt.config);
     },
     connectConfiguredMcp: glue.connectConfiguredMcp,
+    clearMcpServerOAuth,
     invalidatePreSessionToolSurface: () => {},
     refreshEmptySessionToolPolicy: async () => {},
     normalizeMcpServerInput: glue.normalizeMcpServerInput,
     mcpStatus: glue.mcpStatus,
     getMcpServerConfig: glue.getMcpServerConfig,
     resolveMcpCatalog: glue.resolveMcpCatalog,
+    resolveConfiguredMcpCatalog: glue.resolveConfiguredMcpCatalog,
     pluginMcpServer: glue.pluginMcpServer,
     skillsStatus: () => ({ skills: [] }),
     pluginsStatus,
@@ -621,6 +623,32 @@ test('without a kept name, removing the conflicting server moves the plugin serv
     assert.equal(rt.live('plugin-demo').command, 'node', 'connected with the plugin config');
   }
   assert.equal(one.row('plugin-demo').source, 'plugin');
+});
+
+test('with MCP disabled, removing a server keeps OAuth credentials a disabled plugin server still uses', async (t) => {
+  const shared = workspace(t);
+  addPlugin(shared.plugin('tools', toolsFiles), { dataDir: shared.dataDir });
+  setPluginEnabled('tools', false, { dataDir: shared.dataDir });
+  const other = 'https://other.example.test/mcp';
+  shared.disk = {
+    mcpServers: { mine: { type: 'http', url: 'https://tools.example.test/mcp' }, other: { type: 'http', url: other } },
+  };
+  const previous = process.env.MIXDOG_DISABLE_MCP;
+  process.env.MIXDOG_DISABLE_MCP = '1';
+  t.after(() => {
+    if (previous === undefined) delete process.env.MIXDOG_DISABLE_MCP;
+    else process.env.MIXDOG_DISABLE_MCP = previous;
+  });
+  const cleared = [];
+  const one = runtime(t, shared, fakeClient(), {
+    cwd: shared.dir('a'), scopeId: 'one', clearMcpServerOAuth: async (cfg) => cleared.push(cfg.url),
+  });
+  assert.deepEqual(one.glue.resolveMcpCatalog().servers, {}, 'nothing connects with MCP disabled');
+  await one.api.removeMcpServer('mine');
+  assert.deepEqual(cleared, []);
+  await one.api.removeMcpServer('other');
+  assert.deepEqual(cleared, [other]);
+  assert.deepEqual(shared.disk.mcpServers, {});
 });
 
 test('a server declared enabled:false starts off; the user can turn it on and back', async (t) => {

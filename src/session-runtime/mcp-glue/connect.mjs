@@ -24,6 +24,8 @@ export function createMcpConnect({
   const fingerprint = (cfg) => JSON.stringify(cfg);
   // Roots advertised by cwd-following servers track this runtime's cwd.
   const syncScopeRoot = () => mcpClient.setMcpScopeRoot?.(getMcpScopeId(), clean(getCurrentCwd?.()));
+  // Abort the pending interactive OAuth login of one server's connect.
+  const cancelMcpLogin = (name) => mcpClient.cancelMcpLogin?.(clean(name), scopeOptions());
 
   // Connect/disconnect exactly one server in the live registry, leaving all
   // others untouched. Used by the enable/disable toggle so a single-server
@@ -87,6 +89,9 @@ export function createMcpConnect({
     // been requested in the meantime. Registering as in-flight makes a later
     // reset serialize behind us instead of interleaving disconnect/connect.
     if (only || reconcile) {
+      // A disable/remove must not wait out an interactive login of the
+      // connect it queues behind: cancel that login first.
+      if (only && enabled === false) cancelMcpLogin(only);
       // Atomically capture the current generation AND the prior in-flight
       // promise in the same synchronous step, then chain our op onto it. No
       // await sits between the capture and the `state.mcpConnectInFlight = run`
@@ -207,5 +212,5 @@ export function createMcpConnect({
     }
   }
 
-  return { connectConfiguredMcp, awaitInitialMcpConnect };
+  return { connectConfiguredMcp, awaitInitialMcpConnect, cancelMcpLogin };
 }

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { JSDOM } from 'jsdom';
 import { createBrowserPageClient } from './browser-page-client.ts';
+import { createBrowserPixelPresentation } from './browser-pixel-presentation.ts';
 
 const frame = (documentId = 'p1:1') => ({
   documentId,
@@ -97,6 +99,71 @@ test('new native metadata cannot retarget input from old visible pixels or publi
   await read;
   assert.deepEqual(updates, []);
   assert.equal(parked.metadata(), null);
+});
+
+test('a pixel read without a native metadata read attaches the page', async () => {
+  const client = createBrowserPageClient({
+    sessionId: 's', update() {}, failure: (error) => assert.fail(error),
+    api: { browserPageFrame: async () => frame() },
+  });
+  const node = new EventTarget();
+  const events = [];
+  node.addEventListener('did-attach', () => events.push('did-attach'));
+  client.bind(node, () => {});
+  await client.poll();
+  assert.equal(client.metadata().documentId, 'p1:1');
+  assert.equal(node.getWebContentsId(), 1);
+  assert.deepEqual(events, ['did-attach']);
+  client.dispose();
+});
+
+test('a delayed pixel capture never rolls back a newer dialog, and unchanged metadata keeps it', async (t) => {
+  const dom = new JSDOM('<div id="pixels"></div>');
+  for (const name of ['document', 'Image', 'HTMLCanvasElement', 'Event']) {
+    const old = Object.getOwnPropertyDescriptor(globalThis, name);
+    Object.defineProperty(globalThis, name, { configurable: true, value: dom.window[name] });
+    t.after(() => (old ? Object.defineProperty(globalThis, name, old) : delete globalThis[name]));
+  }
+  dom.window.Image.prototype.decode = async () => {};
+  t.after(() => dom.window.close());
+  // What the view renders: whatever was last handed to setFrame.
+  let shown = null;
+  const setFrame = (value) => { shown = value; };
+  const presentation = createBrowserPixelPresentation({
+    container: () => dom.window.document.getElementById('pixels'),
+    image: { current: null },
+    canvasId: 'gpu',
+    metadata: setFrame,
+  });
+  const dialog = { id: 'd1', type: 'alert', message: 'Hello' };
+  let facts = frame();
+  let finish;
+  const pixel = (id) => ({ ...frame(), frameId: id, image: { mimeType: 'image/png', data: id } });
+  const client = createBrowserPageClient({
+    sessionId: 's',
+    prepare: presentation.prepare,
+    update: presentation.update,
+    updateMetadata: setFrame,
+    failure: (error) => assert.fail(error),
+    api: {
+      browserPageMetadata: async () => facts,
+      browserPageFrame: (_session, known) =>
+        known === undefined ? Promise.resolve(pixel('one')) : new Promise((resolve) => { finish = resolve; }),
+    },
+  });
+  await client.pollMetadata();
+  await client.poll();
+  const capture = client.poll();
+  facts = { ...frame(), dialog };
+  await client.pollMetadata();
+  assert.equal(shown.dialog?.id, 'd1');
+  finish({ ...pixel('two'), width: 1600, height: 1200 });
+  await capture;
+  assert.equal(client.frame().frameId, 'two');
+  assert.equal(shown.dialog?.id, 'd1');
+  await client.pollMetadata();
+  assert.equal(shown.dialog?.id, 'd1');
+  client.dispose();
 });
 
 test('a stalled pixel read does not block metadata refresh after a tab change', async () => {

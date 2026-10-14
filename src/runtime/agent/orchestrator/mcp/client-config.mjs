@@ -79,20 +79,41 @@ export function mcpUrlForLog(raw) {
 
 function replaceSecret(text, value) {
   const secret = String(value || '');
-  return secret.length >= 4 ? text.split(secret).join('[redacted]') : text;
+  return secret ? text.split(secret).join('[redacted]') : text;
 }
 
-export function scrubMcpConnectionMessage(value, cfg = {}) {
-  let text = String(value || '');
+// Configured URL parts and header values shorter than 4 characters are left
+// alone: redacting e.g. the `1` of `?v=1` would mangle every message. Known
+// connection secrets (OAuth tokens) are redacted at any length.
+function replaceConfiguredSecret(text, value) {
+  return String(value || '').length >= 4 ? replaceSecret(text, value) : text;
+}
+
+/** `value` with every one of `secrets` redacted from its strings, recursing
+ *  into arrays and plain objects (tool results, JSON-RPC error data). */
+export function scrubMcpSecrets(value, secrets) {
+  if (secrets.length === 0) return value;
+  if (typeof value === 'string') return secrets.reduce(replaceSecret, value);
+  if (Array.isArray(value)) return value.map((item) => scrubMcpSecrets(item, secrets));
+  const proto = value && typeof value === 'object' ? Object.getPrototypeOf(value) : undefined;
+  if (proto !== Object.prototype && proto !== null) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [scrubMcpSecrets(key, secrets), scrubMcpSecrets(item, secrets)])
+  );
+}
+
+/** `secrets` are values known only to the live connection (its OAuth tokens). */
+export function scrubMcpConnectionMessage(value, cfg = {}, secrets = []) {
+  let text = scrubMcpSecrets(String(value || ''), secrets);
   const rawUrl = expandEnvVars(String(cfg?.url || ''));
   if (rawUrl) {
     text = text.split(rawUrl).join(mcpUrlForLog(rawUrl));
     try {
       const parsed = new URL(rawUrl);
-      text = replaceSecret(text, parsed.username);
-      text = replaceSecret(text, parsed.password);
+      text = replaceConfiguredSecret(text, parsed.username);
+      text = replaceConfiguredSecret(text, parsed.password);
       for (const paramValue of parsed.searchParams.values()) {
-        text = replaceSecret(text, paramValue);
+        text = replaceConfiguredSecret(text, paramValue);
       }
     } catch {
       /* invalid URL is reported without echoing it */
@@ -101,7 +122,7 @@ export function scrubMcpConnectionMessage(value, cfg = {}) {
   const headers = resolveMcpHttpHeaders(cfg);
   for (const [name, headerValue] of Object.entries(headers)) {
     if (/authorization|cookie|token|secret|api[-_]?key|signature/i.test(name)) {
-      text = replaceSecret(text, headerValue);
+      text = replaceConfiguredSecret(text, headerValue);
     }
   }
   return text
@@ -284,6 +305,14 @@ export function resolveMcpTransportKind(cfg) {
   if (cfg?.command) return 'stdio';
   if (cfg?.url) return 'http';
   throw new Error(`Invalid config: need autoDetect, type (stdio/http/sse/ws), url (http), or command (stdio)`);
+}
+
+/** The exact URL OAuth credentials of an HTTP/SSE server config are stored
+ *  under; null for other transports. */
+export function resolveMcpOAuthUrl(cfg) {
+  const kind = resolveMcpTransportKind(cfg);
+  if (kind !== 'http' && kind !== 'sse') return null;
+  return normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), kind);
 }
 
 // MCP per-tool-call timeout. Default 2min: a hung/unresponsive MCP server

@@ -12,6 +12,7 @@ import {
   mcpUrlForLog,
   normalizeMcpTransportUrl,
   resolveMcpHttpHeaders,
+  resolveMcpOAuthUrl,
   resolveMcpStdioEnvironment,
   resolveMcpTransportKind,
   scrubMcpConnectionMessage,
@@ -48,6 +49,15 @@ export function appendMcpStderrTail(message, tail) {
 function requestInitFor(cfg) {
   const headers = resolveMcpHttpHeaders(cfg);
   return headers && Object.keys(headers).length > 0 ? { requestInit: { headers } } : undefined;
+}
+
+// Configured authentication stays authoritative even when its variables are
+// unset or resolve empty: the server then fails as configured instead of
+// turning into an OAuth login.
+function hasConfiguredMcpAuth(cfg) {
+  const configured = (value) =>
+    value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
+  return Boolean(String(cfg.bearer_token_env_var || '').trim()) || configured(cfg.headers) || configured(cfg.env_http_headers);
 }
 
 // The SDK's WebSocket transport opens its socket without a way to set request
@@ -114,12 +124,12 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOption
   }
   if (kind === 'http' || kind === 'sse') {
     const Transport = kind === 'http' ? StreamableHTTPClientTransport : SSEClientTransport;
-    const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), kind);
+    const url = resolveMcpOAuthUrl(cfg);
     const opts = requestInitFor(cfg);
     // Explicit authentication remains authoritative (including custom API-key
     // headers). Never forward those credentials to OAuth discovery endpoints.
     let transport;
-    const oauth = opts ? null : createMcpOAuth({
+    const oauth = hasConfiguredMcpAuth(cfg) ? null : createMcpOAuth({
       url, ...oauthOptions,
       // SSE advertises its POST endpoint on the authenticated event stream.
       // No other path on the origin is allowed to receive this server's token.

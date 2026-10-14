@@ -104,6 +104,8 @@ mock.module('@modelcontextprotocol/sdk/types.js', {
 process.env.MIXDOG_QUIET_MCP_LOG = '1';
 
 const {
+  _registerMcpServerForTest,
+  cancelMcpLogin,
   connectMcpServers,
   disconnectAll,
   disconnectMcpServer,
@@ -253,6 +255,109 @@ test('disconnect cancels pending OAuth before waiting for the server operation q
   await rejected;
   assert.equal(transports[0].oauth.signal.aborted, true);
   assert.equal(getMcpServerStatus(scopeId).length, 0);
+});
+
+test('cancelMcpLogin aborts only the named pending OAuth connect', async () => {
+  const scopeId = freshScope();
+  behavior = { connect: () => new Promise(() => {}) };
+  const cfg = { type: 'http', url: 'https://mcp.example/mcp' };
+  const target = reconnectSingleMcpServer(scopeId, 'target', cfg);
+  const rejected = assert.rejects(target, /MCP OAuth login failed, cancelled, or timed out/);
+  reconnectSingleMcpServer(scopeId, 'other', cfg).catch(() => {});
+  await waitUntil(() => transports.filter((transport) => transport.oauth).length === 2);
+  cancelMcpLogin('target', { scopeId });
+  await rejected;
+  const [targetTransport, otherTransport] = transports;
+  assert.equal(targetTransport.oauth.signal.aborted, true);
+  assert.equal(otherTransport.oauth.signal.aborted, false);
+  cancelMcpLogin('other', { scopeId });
+});
+
+test('OAuth tokens are scrubbed from connect failures, liveness errors, tool-call errors and results', async () => {
+  const scopeId = freshScope();
+  const secret = 'oauth-access-secret';
+  const withSecret = (transport) => {
+    transport.oauth.secrets = () => [secret];
+  };
+  behavior = {
+    connect: (client) => {
+      withSecret(client.transport);
+      throw new Error(`Error POSTing to endpoint (HTTP 500): echoed Authorization: Bearer ${secret}`);
+    },
+  };
+  const cfg = { type: 'http', url: 'https://mcp.example/mcp' };
+  await assert.rejects(reconnectSingleMcpServer(scopeId, 'leaky', cfg), (error) => {
+    assert.doesNotMatch(error.message, new RegExp(secret));
+    assert.match(error.message, /Bearer \[redacted\]/);
+    return true;
+  });
+
+  behavior = { connect: (client) => withSecret(client.transport) };
+  await reconnectSingleMcpServer(scopeId, 'leaky', cfg);
+  try {
+    const client = clients.at(-1);
+    client.onerror(new Error(`HTTP 500: Bearer ${secret}`));
+    client.onclose();
+    const [row] = getMcpServerStatus(scopeId);
+    assert.equal(row.connected, false);
+    assert.equal(row.error, 'HTTP 500: Bearer [redacted]');
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+
+  _registerMcpServerForTest(scopeId, 'leaky', [{ name: 'echo' }, { name: 'failed' }, { name: 'ok' }], {
+    transport: { oauth: { secrets: () => [secret], close() {} } },
+    callTool: async ({ name }) => {
+      if (name === 'echo') {
+        // A JSON-RPC error whose data echoes the request.
+        throw Object.assign(new Error(`invalid params: Bearer ${secret}`), {
+          code: -32602,
+          data: { request: { headers: { authorization: `Bearer ${secret}` } }, [secret]: [secret] },
+        });
+      }
+      return { content: [{ type: 'text', text: `${name}: Bearer ${secret}` }], isError: name === 'failed' };
+    },
+  });
+  try {
+    await assert.rejects(executeMcpTool('mcp__leaky__echo', {}, { scopeId }), (error) => {
+      assert.equal(error.message, 'invalid params: Bearer [redacted]');
+      assert.deepEqual(error.data, {
+        request: { headers: { authorization: 'Bearer [redacted]' } },
+        '[redacted]': ['[redacted]'],
+      });
+      return true;
+    });
+    assert.equal(await executeMcpTool('mcp__leaky__failed', {}, { scopeId }), 'Error: failed: Bearer [redacted]');
+    assert.equal(await executeMcpTool('mcp__leaky__ok', {}, { scopeId }), 'ok: Bearer [redacted]');
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+});
+
+test('OAuth tokens are scrubbed at any length; short configured URL values are not', async () => {
+  const scopeId = freshScope();
+  behavior = {
+    connect: (client) => {
+      client.transport.oauth.secrets = () => ['abc'];
+    },
+  };
+  await reconnectSingleMcpServer(scopeId, 'short', { type: 'http', url: 'https://mcp.example/mcp?v=1' });
+  try {
+    clients.at(-1).onerror(new Error('HTTP 500 for v=1: Bearer abc'));
+    clients.at(-1).onclose();
+    assert.equal(getMcpServerStatus(scopeId)[0].error, 'HTTP 500 for v=1: Bearer [redacted]');
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+  _registerMcpServerForTest(scopeId, 'short', [{ name: 'echo' }], {
+    transport: { oauth: { secrets: () => ['abc'], close() {} } },
+    callTool: async () => ({ content: [{ type: 'text', text: 'Bearer abc' }], isError: true }),
+  });
+  try {
+    assert.equal(await executeMcpTool('mcp__short__echo', {}, { scopeId }), 'Error: Bearer [redacted]');
+  } finally {
+    await disconnectAll({ scopeId });
+  }
 });
 
 test('a hung handshake fails on the startup budget and tears the pending transport down', async () => {

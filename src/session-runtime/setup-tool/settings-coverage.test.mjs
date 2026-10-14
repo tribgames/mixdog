@@ -302,17 +302,17 @@ test('adding, removing or reconnecting one MCP server only addresses that server
   const { api, calls } = mcpScopedFixture(t, { keep: { command: 'node' }, other: { command: 'node' } });
   await run(api, { action: 'add_mcp_server', server: { name: 'fresh', command: 'node' } });
   // Each scoped change ends with a reconcile, which reconnects only servers
-  // whose resolved config changed.
-  assert.deepEqual(calls, [{ only: 'fresh', enabled: true }, { reconcile: true }]);
+  // whose resolved config changed. Only an explicit enable may log in.
+  assert.deepEqual(calls, [{ only: 'fresh', enabled: true, interactive: true }, { reconcile: true }]);
   calls.length = 0;
   await run(api, { action: 'reconnect_mcp', name: 'other' });
-  assert.deepEqual(calls, [{ only: 'other', enabled: true }, { reconcile: true }]);
+  assert.deepEqual(calls, [{ only: 'other', enabled: true, interactive: true }, { reconcile: true }]);
   calls.length = 0;
   await run(api, { action: 'remove_mcp_server', name: 'fresh' });
-  assert.deepEqual(calls, [{ only: 'fresh', enabled: false }, { reconcile: true }]);
+  assert.deepEqual(calls, [{ only: 'fresh', enabled: false, interactive: false }, { reconcile: true }]);
   calls.length = 0;
   await run(api, { action: 'reconnect_mcp' });
-  assert.deepEqual(calls, [{ reset: true }]);
+  assert.deepEqual(calls, [{ reset: true, interactive: true }]);
 });
 
 test('typed MCP input rejects misspellings, wrong types, credentials and conflicting transports before mutation', async () => {

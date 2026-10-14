@@ -55,6 +55,35 @@ test('only a local enabled toggle grants interactive authentication', async () =
   }
 });
 
+test('disabling during a pending enable cancels its login instead of waiting it out', async () => {
+  const calls = [];
+  let finishLogin;
+  const runtime = createExtensionSync({
+    connectConfiguredMcp: async (options) => {
+      calls.push(options);
+      if (options.enabled) await new Promise((resolve) => (finishLogin = resolve));
+      return { servers: [] };
+    },
+    cancelMcpLogin: (name) => {
+      calls.push(['cancel', name]);
+      finishLogin();
+    },
+    invalidatePreSessionToolSurface() {},
+  });
+  try {
+    const enable = runtime.scheduleMcpToggle('server', true);
+    const disable = runtime.scheduleMcpToggle('server', false);
+    await Promise.all([enable, disable]);
+    assert.deepEqual(calls, [
+      { only: 'server', enabled: true, interactive: true },
+      ['cancel', 'server'],
+      { only: 'server', enabled: false, interactive: false },
+    ]);
+  } finally {
+    runtime.dispose();
+  }
+});
+
 test('global extension changes fan out to every runtime except the writer', async () => {
   const events = [];
   const writer = subscribeGlobalExtensionChanges((kind) => events.push(['writer', kind]));

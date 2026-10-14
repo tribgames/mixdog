@@ -41,6 +41,38 @@ test('startup and reconciliation stay noninteractive while explicit local reconn
   assert.deepEqual(calls, [['all', false], ['remote', true], ['remote', false], ['remote', false]]);
 });
 
+test('a disable cancels the pending login of the connect it queues behind before waiting', async () => {
+  const calls = [];
+  let finishLogin;
+  const { connectConfiguredMcp } = createMcpConnect({
+    mcpClient: {
+      reconnectSingleMcpServer: async (_scope, name) => {
+        calls.push(['connect', name]);
+        await new Promise((resolve) => {
+          finishLogin = resolve;
+        });
+      },
+      cancelMcpLogin: (name, options) => {
+        calls.push(['cancel', name, options.scopeId]);
+        finishLogin?.();
+      },
+      disconnectMcpServer: async (name) => calls.push(['disconnect', name]),
+    },
+    getMcpScopeId: () => 'test',
+    state: { mcpConnectGeneration: 0, mcpFailures: [] },
+    resolveEffectiveMcpServers: () => ({ servers: { remote: { url: 'https://example.test/mcp' } } }),
+    mcpStatus: () => ({}),
+  });
+  const enable = connectConfiguredMcp({ only: 'remote', interactive: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  await Promise.all([enable, connectConfiguredMcp({ only: 'remote', enabled: false })]);
+  assert.deepEqual(calls, [
+    ['connect', 'remote'],
+    ['cancel', 'remote', 'test'],
+    ['disconnect', 'remote'],
+  ]);
+});
+
 test('awaitInitialMcpConnect waits for the largest per-server startup budget', async () => {
   const seen = [];
   const state = { mcpFailures: [], mcpConnectGeneration: 0, mcpConnectInFlight: new Promise((r) => setTimeout(r, 60)) };

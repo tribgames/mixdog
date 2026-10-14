@@ -57,7 +57,6 @@ export const IsolatedBrowserView = forwardRef<
           if (!present) throw new Error('Browser GPU display is unavailable.');
           present(sessionId, id, canvas);
         },
-        metadata: setFrame,
       }),
     [sessionId, canvasId]
   );

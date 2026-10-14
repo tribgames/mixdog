@@ -1,17 +1,16 @@
 import type { DesktopBrowserPageFrame } from '../shared/contract';
 
-/** Publish already-decoded pixels and input geometry in one JS task, without
- * making React render at compositor cadence. */
+/** Present already-decoded pixels without making React render at compositor
+ * cadence. Pixels never publish chrome or prompt facts: those come only from
+ * the newest metadata read, so a delayed capture cannot roll them back. */
 export function createBrowserPixelPresentation(host: {
   container(): HTMLDivElement | null;
   image: { current: HTMLElement | null };
   canvasId: string;
   texture?(id: string, canvasId: string): void;
-  metadata(frame: DesktopBrowserPageFrame): void;
 }) {
   const prepared = new WeakMap<DesktopBrowserPageFrame, HTMLImageElement>();
   let current: DesktopBrowserPageFrame | null = null;
-  let metadataKey = '';
   let surface: { width: number; height: number } | undefined;
   const visibility = () => {
     if (host.image.current)
@@ -68,12 +67,6 @@ export function createBrowserPixelPresentation(host: {
       }
       current = frame;
       visibility();
-      const { image: _image, frameId: _id, textureId: _texture, ...metadata } = frame;
-      const key = JSON.stringify(metadata);
-      if (metadataKey !== key) {
-        metadataKey = key;
-        host.metadata({ ...frame, image: undefined });
-      }
       if (changed) container.dispatchEvent(new Event('browser-frame-presented', { bubbles: true }));
     },
   };
