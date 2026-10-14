@@ -282,6 +282,15 @@ test('keyboard hook restores history, inserts mentions, and scrolls only appende
           setDismissed() {},
           setResults() {},
         },
+        skillMention: {
+          match: null,
+          open: false,
+          signature: '',
+          results: [],
+          index: 0,
+          setIndex() {},
+          setDismissed() {},
+        },
         selector: {
           open: false,
           setOpen() {},

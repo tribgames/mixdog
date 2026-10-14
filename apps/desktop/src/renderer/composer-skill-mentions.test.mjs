@@ -1,0 +1,241 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { installTestDom } from './test-support/test-dom.mjs';
+
+const { restore } = installTestDom(null, {
+  html: '<!doctype html><body><main></main></body>',
+  jsdom: { pretendToBeVisual: true },
+  expose: ['navigator', 'Node', 'Element', 'HTMLElement', 'MutationObserver', 'sessionStorage'],
+  globals: {
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  },
+});
+test.after(() => restore());
+window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+window.HTMLElement.prototype.scrollIntoView = () => {};
+
+const { default: React, act } = await import('react');
+const { createRoot } = await import('react-dom/client');
+const { skillMentionMatchAt } = await import('./use-composer-palettes.ts');
+const { appliedSkillsOf, composerSkillCatalog, disabledMentionedSkills, filterSkillMentions, skillMentionSegments } =
+  await import('./composer-skill-mentions.tsx');
+const { Composer } = await import('./Composer.tsx');
+
+const STATUS = {
+  skills: [
+    { name: 'release-notes', enabled: true, description: 'Write release notes from changes' },
+    { name: 'api-review', enabled: true, description: 'Review public API changes' },
+    { name: 'figma-handoff', enabled: false, description: 'Turn designs into specs' },
+    { name: 'pptx', enabled: true, source: 'builtin', description: 'MODEL_ONLY' },
+  ],
+};
+
+test('$ matches at the caret after start, whitespace, brackets and quotes, never inside a word', () => {
+  assert.deepEqual(skillMentionMatchAt('$', 1), { start: 0, end: 1, query: '' });
+  assert.deepEqual(skillMentionMatchAt('정리해서 $rel', 9), { start: 5, end: 9, query: 'rel' });
+  for (const opener of ['(', '[', '{', '"', "'", '`', '\n']) {
+    assert.equal(skillMentionMatchAt(`a ${opener}$x`, 5)?.query, 'x', opener);
+  }
+  // Caret in the middle: only the text before it counts.
+  assert.deepEqual(skillMentionMatchAt('$release later', 4), { start: 0, end: 4, query: 'rel' });
+  for (const text of ['price$3', 'a $HOME', '$a b', '@x$y', 'a $rel-notes!']) {
+    assert.equal(skillMentionMatchAt(text, text.length), null, text);
+  }
+});
+
+test('palette filter: prefix matches first, then contains, in catalog order', () => {
+  const skills = ['api-review', 'release-notes', 'pre-release', 'review'].map((name) => ({ name, description: '' }));
+  assert.deepEqual(
+    filterSkillMentions(skills, 'rel').map(({ skill, start }) => [skill.name, start]),
+    [
+      ['release-notes', 0],
+      ['pre-release', 4],
+    ]
+  );
+  assert.deepEqual(
+    filterSkillMentions(skills, 'review').map(({ skill }) => skill.name),
+    ['review', 'api-review']
+  );
+  assert.equal(filterSkillMentions(skills, '').length, 4);
+});
+
+test('catalog: enabled includes built-ins, the palette lists only custom skills, off skills are tracked', () => {
+  const catalog = composerSkillCatalog(STATUS);
+  assert.deepEqual(
+    catalog.selectable.map((skill) => skill.name),
+    ['release-notes', 'api-review']
+  );
+  assert.deepEqual([...catalog.enabled].sort(), ['api-review', 'pptx', 'release-notes']);
+  assert.deepEqual([...catalog.disabled], ['figma-handoff']);
+  assert.deepEqual(disabledMentionedSkills('$figma-handoff 로 $figma-handoff $api-review', catalog), ['figma-handoff']);
+  assert.deepEqual(disabledMentionedSkills('figma$figma-handoff', catalog), []);
+});
+
+test('highlight segments keep the text verbatim and mark only recognised names', () => {
+  const enabled = composerSkillCatalog(STATUS).enabled;
+  const text = '$api-review 기준, 결과는 $pptx. 경로 $HOME/reports, 예산 $300, $unknown-skill, $figma-handoff';
+  const segments = skillMentionSegments(text, (name) => enabled.has(name));
+  assert.equal(segments.map((segment) => segment.text).join(''), text);
+  assert.deepEqual(
+    segments.filter((segment) => segment.skill).map((segment) => [segment.skill, segment.text]),
+    [
+      ['api-review', '$api-review'],
+      ['pptx', '$pptx'],
+    ]
+  );
+  assert.deepEqual(skillMentionSegments('', () => true), [{ text: '' }]);
+});
+
+test('appliedSkills is read defensively', () => {
+  assert.deepEqual(appliedSkillsOf({ appliedSkills: ['pptx', 'pptx', '', 3, 'api-review'] }), ['pptx', 'api-review']);
+  for (const item of [{}, null, { appliedSkills: 'pptx' }]) assert.deepEqual(appliedSkillsOf(item), []);
+});
+
+test('composer: $ palette opens, filters, inserts; tokens highlight; off skills get a status line', async () => {
+  const reads = [];
+  window.mixdogDesktop = {
+    invokeCapability: async (request) =>
+      request.capability === 'getVoiceStatus' ? { value: { installed: false } } : { value: {} },
+    readCapabilities: async (requests) => {
+      reads.push(requests);
+      return [{ ok: true, value: STATUS }];
+    },
+    searchProjectFiles: async () => ['src/app.ts'],
+    rendererDiagnostic() {},
+  };
+  const props = {
+    turnBusy: false,
+    commandBusy: false,
+    transitioning: false,
+    focusRequest: 0,
+    historyScope: 'skill-mention-test',
+    identityScope: 'skill-mention-test',
+    recoveryScope: 'skill-mention-test',
+    projectScope: 'C:/project',
+    sessionId: 'skill-mention-test',
+    hasConversation: true,
+    provider: 'openai-oauth',
+    model: 'test-model',
+    effort: 'medium',
+    fast: false,
+    fastCapable: false,
+    paneActive: true,
+    submit: async () => true,
+    abort: async () => {},
+    invokeResult: (action) => action(),
+    applySnapshot() {},
+    onNewTask() {},
+    onResumeSession() {},
+    onOpenSessions() {},
+    onOpenProjects() {},
+    onOpenSettings() {},
+    onOpenCommandSurface() {},
+    dropTargetRef: { current: null },
+  };
+  const host = document.querySelector('main');
+  const root = createRoot(host);
+  const palette = () => document.getElementById('composer-skill-mention-palette');
+  const rows = () =>
+    Array.from(palette()?.querySelectorAll('[role="option"] .skill-mention-name') || [], (node) => node.textContent);
+  const tokens = () =>
+    Array.from(document.querySelectorAll('.composer-skill-highlight .skill-mention-token'), (node) => node.textContent);
+  const status = () => document.querySelector('.composer-skill-status')?.textContent || '';
+  let input;
+  const type = async (value, caret = value.length) => {
+    await act(async () => {
+      input.focus();
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, value);
+      input.setSelectionRange(caret, caret);
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+  };
+  const key = async (name) => {
+    await act(async () => {
+      input.dispatchEvent(new window.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+  };
+  try {
+    await act(async () => root.render(React.createElement(Composer, props)));
+    input = document.querySelector('textarea');
+    assert.equal(reads[0][0].capability, 'skillsStatus');
+
+    // A: mid-sentence `$` lists the custom skills only (pptx is typed, not listed).
+    await type('이번 주 커밋 정리해서 $');
+    assert.ok(palette(), 'skill palette opens mid-sentence');
+    assert.equal(palette().getAttribute('aria-label'), 'Skills');
+    assert.equal(palette().querySelector('header').textContent, 'Skills');
+    assert.deepEqual(rows(), ['$release-notes', '$api-review']);
+    assert.match(palette().querySelector('.skill-mention-hint').textContent, /Move .* Insert .* Close/);
+    assert.equal(input.getAttribute('aria-controls'), 'composer-skill-mention-palette');
+    assert.equal(input.getAttribute('aria-expanded'), 'true');
+    assert.equal(input.getAttribute('aria-activedescendant'), 'composer-skill-mention-option-0');
+    await key('ArrowDown');
+    assert.equal(input.getAttribute('aria-activedescendant'), 'composer-skill-mention-option-1');
+
+    // B: the query narrows the list and bolds the matched part.
+    await type('이번 주 커밋 정리해서 $rel');
+    assert.deepEqual(rows(), ['$release-notes']);
+    assert.equal(palette().querySelector('[role="option"] b').textContent, 'rel');
+    assert.match(palette().querySelector('.skill-mention-hint').textContent, /full name.*\$pptx/);
+    await type('이번 주 커밋 정리해서 $zzz');
+    assert.deepEqual(rows(), []);
+    assert.equal(palette().querySelector('p[role="status"]').textContent, 'No matching skills.');
+
+    // C: Tab inserts `$name ` over the fragment and keeps the caret after it.
+    await type('이번 주 커밋 정리해서 $rel 형식으로', '이번 주 커밋 정리해서 $rel'.length);
+    await key('Tab');
+    assert.equal(input.value, '이번 주 커밋 정리해서 $release-notes 형식으로');
+    assert.equal(input.selectionStart, '이번 주 커밋 정리해서 $release-notes '.length);
+    assert.equal(palette(), null);
+    assert.deepEqual(tokens(), ['$release-notes']);
+    assert.ok(input.classList.contains('has-skill-mentions'));
+    assert.equal(document.querySelector('.composer-skill-highlight').textContent.replace('\u200b', ''), input.value);
+
+    // Mouse selection inserts the same way; Escape dismisses.
+    await type('보고 $');
+    await act(async () => palette().querySelectorAll('[role="option"]')[1].click());
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)));
+    assert.equal(input.value, '보고 $api-review ');
+    await type('보고 $a');
+    await key('Escape');
+    assert.equal(palette(), null);
+    assert.equal(input.value, '보고 $a');
+
+    // D: built-ins are recognised when typed; $HOME, prices and unknown names stay plain.
+    await type('$api-review 기준, $pptx 한 장. $HOME/reports, $300, $unknown-skill도 ');
+    assert.deepEqual(tokens(), ['$api-review', '$pptx']);
+    assert.equal(status(), '');
+
+    // `@` and `$` never open together.
+    await type('see @src');
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 150)));
+    assert.ok(document.getElementById('composer-mention-palette'));
+    assert.equal(palette(), null);
+
+    // F: an existing-but-off skill stays plain and gets the status line.
+    await type('$figma-handoff 로 스펙 정리해 줘');
+    assert.deepEqual(tokens(), []);
+    assert.equal(input.classList.contains('has-skill-mentions'), false);
+    assert.equal(
+      status(),
+      'figma-handoff skill is off, so it is sent as plain text. Turn it on in Settings › Skills.'
+    );
+    assert.equal(document.querySelector('button.send-button').disabled, false);
+
+    // IME composition hands the ink back to the textarea.
+    await type('$pptx ');
+    assert.ok(input.classList.contains('has-skill-mentions'));
+    await act(async () => input.dispatchEvent(new window.CompositionEvent('compositionstart', { bubbles: true })));
+    assert.equal(input.classList.contains('has-skill-mentions'), false);
+    assert.equal(document.querySelector('.composer-skill-highlight'), null);
+    await act(async () => input.dispatchEvent(new window.CompositionEvent('compositionend', { bubbles: true })));
+    assert.ok(input.classList.contains('has-skill-mentions'));
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

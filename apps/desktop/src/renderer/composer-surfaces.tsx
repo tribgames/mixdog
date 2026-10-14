@@ -6,6 +6,8 @@ import React, { useEffect, useRef, type CSSProperties, type MutableRefObject, ty
 import { composerAttachmentSource } from './attachment-menu';
 import { AttachmentCard, composerCardKind, composerCardMeta } from './attachment-card';
 import { useAttachmentContextMenu, type AttachmentOpenFile } from './attachment-context-menu';
+import { CapabilityIcon } from './CapabilityIcon';
+import type { SkillMentionResult } from './composer-skill-mentions';
 import { queuedFollowupPreview, type ComposerAttachment } from './composer-support';
 import { ComposerPalette } from './ComposerPalette';
 import { t } from './i18n';
@@ -185,6 +187,100 @@ export function MentionPalette({
         );
       })}
       {results.length === 0 && <p role="status">{loading ? t('Searching project files…') : t('No matching files.')}</p>}
+    </ComposerPalette>
+  );
+}
+
+// The built-in hint names `$pptx` as its example; the example is drawn as a
+// key cap wherever the translation places it.
+const BUILT_IN_EXAMPLE = '$pptx';
+
+function SkillMentionHint({ query }: { query: string }) {
+  if (!query) {
+    return (
+      <p className="skill-mention-hint">
+        <kbd>↑</kbd> <kbd>↓</kbd> {t('Move')} · <kbd>Enter</kbd>·<kbd>Tab</kbd> {t('Insert')} · <kbd>Esc</kbd>{' '}
+        {t('Close')}
+      </p>
+    );
+  }
+  const [lead, ...rest] = t('Built-in skills are recognized when you type the full name (e.g. {{example}})', {
+    example: BUILT_IN_EXAMPLE,
+  }).split(BUILT_IN_EXAMPLE);
+  return (
+    <p className="skill-mention-hint">
+      {lead}
+      {rest.map((part, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: positional pieces of one translated sentence
+        <React.Fragment key={index}>
+          <kbd>{BUILT_IN_EXAMPLE}</kbd>
+          {part}
+        </React.Fragment>
+      ))}
+    </p>
+  );
+}
+
+/** `$` palette: the user's enabled custom skills. Built-ins are recognised
+ *  when typed in full but not listed. */
+export function SkillMentionPalette({
+  anchor,
+  panel,
+  results,
+  available,
+  query,
+  index,
+  setIndex,
+  onSelect,
+}: {
+  anchor: Anchor;
+  panel: Panel;
+  results: SkillMentionResult[];
+  /** Whether the user has any enabled custom skill at all. */
+  available: boolean;
+  query: string;
+  index: number;
+  setIndex: (index: number) => void;
+  onSelect: (name: string) => void;
+}) {
+  return (
+    <ComposerPalette
+      anchor={anchor}
+      panel={panel}
+      id="composer-skill-mention-palette"
+      className="mention-palette skill-mention-palette"
+      label={t('Skills')}
+    >
+      <header>
+        <CapabilityIcon name="skill" size={14} />
+        <span>{t('Skills')}</span>
+      </header>
+      {results.map(({ skill, start }, rowIndex) => (
+        <button
+          type="button"
+          role="option"
+          aria-selected={rowIndex === index}
+          key={skill.name}
+          id={`composer-skill-mention-option-${rowIndex}`}
+          title={skill.description ? `$${skill.name} — ${skill.description}` : `$${skill.name}`}
+          onMouseDown={preventFocusSteal}
+          onMouseEnter={() => setIndex(rowIndex)}
+          onClick={() => onSelect(skill.name)}
+        >
+          <CapabilityIcon name={skill.name} size={14} />
+          <span className="skill-mention-name">
+            <span className="skill-mention-sigil">$</span>
+            {skill.name.slice(0, start)}
+            {query ? <b>{skill.name.slice(start, start + query.length)}</b> : null}
+            {skill.name.slice(start + query.length)}
+          </span>
+          <span className="skill-mention-description">{skill.description}</span>
+        </button>
+      ))}
+      {results.length === 0 && (
+        <p role="status">{available ? t('No matching skills.') : t('No enabled skills.')}</p>
+      )}
+      <SkillMentionHint query={query} />
     </ComposerPalette>
   );
 }

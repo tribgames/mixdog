@@ -6,6 +6,7 @@ import type { ComposerAttachment, ComposerHistoryEntry } from './composer-suppor
 import type { DesktopSlashCommand } from './slash-commands';
 import { t } from './i18n';
 import { isMobileRemoteSurface } from './mobile-surface';
+import type { SkillMentionResult } from './composer-skill-mentions';
 import { classifyPromptEscape } from '../../../../src/tui/components/prompt-input/escape-policy.mjs';
 import { paletteOwnsPromptVerticalArrow } from '../../../../src/tui/components/prompt-input/restore-policy.mjs';
 
@@ -15,6 +16,7 @@ export function useComposerKeyboard({
   draft,
   slash,
   mention,
+  skillMention,
   selector,
   history,
   queue,
@@ -45,6 +47,15 @@ export function useComposerKeyboard({
     setIndex: Dispatch<SetStateAction<number>>;
     setDismissed(value: string): void;
     setResults(paths: string[]): void;
+  };
+  skillMention: {
+    match: { start: number; end: number; query: string } | null;
+    open: boolean;
+    signature: string;
+    results: SkillMentionResult[];
+    index: number;
+    setIndex: Dispatch<SetStateAction<number>>;
+    setDismissed(value: string): void;
   };
   selector: {
     open: boolean;
@@ -121,6 +132,73 @@ export function useComposerKeyboard({
       }, 0);
     },
     [draft, history.navigation, mention]
+  );
+
+  // Replaces the typed `$fragment` with `$name ` and parks the caret after it.
+  const selectSkillMention = useCallback(
+    (name: string | undefined) => {
+      if (!name || !skillMention.match) return;
+      const before = draft.value.slice(0, skillMention.match.start);
+      const after = draft.value.slice(skillMention.match.end);
+      // The caret lands past the separating space (an existing one is reused),
+      // so the finished mention does not reopen the palette.
+      const separated = after && /^\s/.test(after);
+      const inserted = `$${name}${separated ? '' : ' '}`;
+      const next = `${before}${inserted}${after}`;
+      const caret = before.length + inserted.length + (separated ? 1 : 0);
+      draft.ref.current = next;
+      draft.set(next);
+      draft.setCaretOffset(caret);
+      skillMention.setDismissed('');
+      history.navigation.current = { index: -1, seed: '' };
+      window.setTimeout(() => {
+        draft.textarea.current?.focus();
+        draft.textarea.current?.setSelectionRange(caret, caret);
+        // A selection event from the value swap can report the old caret
+        // first; settle the tracked caret on the placed one.
+        draft.setCaretOffset(caret);
+      }, 0);
+    },
+    [draft, history.navigation, skillMention]
+  );
+
+  const navigateSkillMentionPalette = useCallback(
+    (event: TextareaKeyEvent) => {
+      if (!skillMention.open) return false;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        skillMention.setDismissed(skillMention.signature);
+        return true;
+      }
+      const { results } = skillMention;
+      if (!results.length) return false;
+      if (
+        (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
+        !paletteOwnsPromptVerticalArrow(results.length)
+      )
+        return false;
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return false;
+        event.preventDefault();
+        selectSkillMention((results[skillMention.index] || results[0]).skill.name);
+        return true;
+      }
+      const last = results.length - 1;
+      const moves: Record<string, (index: number) => number> = {
+        ArrowDown: (index) => (index + 1) % results.length,
+        ArrowUp: (index) => (index - 1 + results.length) % results.length,
+        Home: () => 0,
+        End: () => last,
+        PageUp: (index) => Math.max(0, index - 8),
+        PageDown: (index) => Math.min(last, index + 8),
+      };
+      const move = moves[event.key];
+      if (!move) return false;
+      event.preventDefault();
+      skillMention.setIndex(move);
+      return true;
+    },
+    [selectSkillMention, skillMention]
   );
 
   const navigateSlashPalette = useCallback(
@@ -360,6 +438,7 @@ export function useComposerKeyboard({
       if (navigateMessageSelector(event)) return;
       if (navigateSlashPalette(event)) return;
       if (navigateMentionPalette(event)) return;
+      if (navigateSkillMentionPalette(event)) return;
       if (event.key === 'Escape') {
         handleEscape(event);
         return;
@@ -423,11 +502,12 @@ export function useComposerKeyboard({
       insertNewline,
       navigateMentionPalette,
       navigateMessageSelector,
+      navigateSkillMentionPalette,
       navigateSlashPalette,
       queue,
       runtime,
     ]
   );
 
-  return { selectMention, onKeyDown };
+  return { selectMention, selectSkillMention, onKeyDown };
 }

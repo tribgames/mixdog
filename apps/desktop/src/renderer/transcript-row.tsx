@@ -23,6 +23,7 @@ import { CopyControl } from './transcript-primitives';
 import { type BackgroundWorkCounts, CompletionStatus } from './transcript-status';
 import { shouldSuppressFullyFailedToolItem } from './transcript-tool-model';
 import { ToolCard } from './transcript-tool-ui';
+import { AppliedSkills, SkillMentionText, appliedSkillsOf } from './composer-skill-mentions';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
@@ -533,6 +534,9 @@ export const TranscriptRow = memo(
     const fileFold = user ? extractFileMarkers(pastedFold.text) : { text: pastedFold.text, chips: [] };
     const webhookFold = user ? extractWebhookPayload(fileFold.text) : { text: fileFold.text, payload: '' };
     const tweaksFold = user ? extractTweaksLines(webhookFold.text) : { text: webhookFold.text, lines: [] as string[] };
+    // The runtime reports which `$name` mentions it applied; only those are
+    // marked, so `$HOME` or a skill that was off stays prose.
+    const appliedSkills = user ? appliedSkillsOf(item) : [];
     return (
       <>
         <article
@@ -560,7 +564,11 @@ export const TranscriptRow = memo(
           {(!user || tweaksFold.text || tweaksFold.lines.length > 0) && (
             // biome-ignore lint/a11y/noStaticElementInteractions: only suppresses native drag; the body is not an interactive control.
             <div className="message-body" onDragStart={(event) => event.preventDefault()}>
-              {user && tweaksFold.text ? <p>{tweaksFold.text}</p> : null}
+              {user && tweaksFold.text ? (
+                <p>
+                  <SkillMentionText text={tweaksFold.text} isSkill={(name) => appliedSkills.includes(name)} />
+                </p>
+              ) : null}
               {tweaksFold.lines.map((line, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: lines are parsed from a sent message and never reorder.
                 <p key={`tweaks-${index}`} className="message-tweaks-line">
@@ -575,6 +583,7 @@ export const TranscriptRow = memo(
               )}
             </div>
           )}
+          {user && <AppliedSkills names={appliedSkills} />}
           {user && multiDevice && isOtherDevice(item.device, viewerDevice) && (
             <small className="message-device">{t('from {{device}}', { device: item.device })}</small>
           )}

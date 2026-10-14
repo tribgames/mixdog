@@ -1710,6 +1710,121 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
 .mention-palette .mention-path strong {
   color: var(--mx-text);
 }
+/* `$` skill mentions. A recognised token is accent ink on a soft accent
+   fill, in the composer (painted on the layer behind the textarea) and in the
+   sent user message alike. */
+:root {
+  --mx-skill-token-ink: var(--mx-text-accent);
+  --mx-skill-token-fill: rgba(91, 176, 255, 0.14);
+}
+:root[data-mixdog-theme="light"] {
+  --mx-skill-token-fill: rgba(10, 95, 209, 0.1);
+}
+.skill-mention-token {
+  /* The fill reaches 2px past the glyphs without moving them: the padding
+     and the negative margin cancel, so wrapping matches unstyled text. */
+  margin: 0 -2px;
+  padding: 0 2px;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-skill-token-ink);
+  background: var(--mx-skill-token-fill);
+}
+.slash-palette.mention-palette.skill-mention-palette button {
+  grid-template-columns: 18px 128px minmax(0, 1fr);
+}
+.skill-mention-palette .skill-mention-name {
+  overflow: hidden;
+  color: var(--mx-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-mention-palette .skill-mention-name b {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-semibold);
+}
+.skill-mention-palette .skill-mention-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slash-palette.skill-mention-palette .skill-mention-hint {
+  margin: 2px 0 0;
+  padding: 6px 12px 4px;
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  text-align: left;
+}
+.skill-mention-hint kbd {
+  padding: 0 4px;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-2);
+  font: 12px var(--mx-font-mono);
+}
+@media (max-width: 520px) {
+  .slash-palette.mention-palette.skill-mention-palette button {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+  .skill-mention-palette .skill-mention-description {
+    display: none;
+  }
+}
+/* The highlight layer sits behind the textarea in the same box; the layer
+   copies the textarea's live type and padding (composer-skill-mentions.tsx).
+   While it paints, the textarea keeps only its caret and selection. */
+.composer-text-field {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.composer-text-field > textarea {
+  position: relative;
+}
+.composer-skill-highlight {
+  position: absolute;
+  overflow: hidden;
+  margin: 0;
+  border-color: transparent;
+  color: var(--mx-text);
+  pointer-events: none;
+  user-select: none;
+}
+.composer textarea.has-skill-mentions {
+  color: transparent;
+}
+/* State F: a mentioned skill that is switched off. One line under the card;
+   sending is not blocked. */
+.composer-skill-status {
+  margin: 8px var(--composer-text-inset, 18px) 0;
+  color: var(--mx-danger);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+/* State E: the skills a sent message applied, under the bubble. */
+.message.user .message-applied-skills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin: 6px 6px 0 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.message-applied-skill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+}
 .slash-palette code {
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
