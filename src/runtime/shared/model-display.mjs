@@ -3,6 +3,19 @@
  * No I/O, catalog, or gateway imports — safe for static TUI bundling.
  */
 
+const titleCaseOption = (value) =>
+  String(value || '')
+    .split(/([\s_-]+)/)
+    .map((part) => (/^[\s_-]+$/.test(part) ? part : `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`))
+    .join('');
+
+export const effortDisplayLabel = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (text.toLowerCase() === 'xhigh') return 'XHigh';
+  return titleCaseOption(text);
+};
+
 export function titleModelPart(part) {
   const text = String(part || '').trim();
   if (!text) return '';

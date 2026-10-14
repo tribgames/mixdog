@@ -235,6 +235,7 @@ export function renderAppView(ctx) {
           model={state.model}
           effort={state.effort}
           fast={state.fast}
+          ultra={state.fast === true && state.modelParameters?.serviceTier === 'ultrafast'}
           cwd={state.cwd}
           stats={statuslineStats}
           contextWindow={state.contextWindow}

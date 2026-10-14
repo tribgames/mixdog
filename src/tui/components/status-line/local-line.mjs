@@ -4,7 +4,7 @@
  */
 import { rgbSgr } from '../../../runtime/shared/statusline/ansi.mjs';
 import { measuredContextUsage, contextMeasurementLabel } from '../../../runtime/shared/context-measurement.mjs';
-import { displayModelName, shortenModelName } from '../../../runtime/shared/model-display.mjs';
+import { displayModelName, effortDisplayLabel, shortenModelName } from '../../../runtime/shared/model-display.mjs';
 import { theme } from '../../theme.mjs';
 import { normalizeStatuslineAnsi } from '../../statusline-ansi-bridge.mjs';
 // Cache-only synchronous read (never touches fs on the render path), so the
@@ -160,6 +160,7 @@ export function localBootStatusLine(args = {}) {
     model = '',
     effort = '',
     fast = false,
+    ultra = false,
     stats = null,
     contextWindow = 0,
     displayContextWindow = 0,
@@ -168,7 +169,7 @@ export function localBootStatusLine(args = {}) {
   const raw = String(model || '').trim();
   const { STATUS, SUBTLE } = statusColors();
   const display = shortenModelName(displayModelName(raw, provider, ''), terminalColumns());
-  const flags = [effort ? String(effort).toUpperCase() : '', fast === true ? 'FAST' : ''].filter(Boolean);
+  const flags = [effort ? effortDisplayLabel(effort) : '', fast === true ? (ultra === true ? 'Ultrafast' : 'Fast') : ''].filter(Boolean);
   const modelBits = [display, ...flags].join(` ${SUBTLE}·${RESET} `);
   const ctxPct = measuredContextUsage({
     stats,
