@@ -217,6 +217,13 @@ test('Browser Use keyboard input cannot read or overwrite the system clipboard',
   assert.throws(() => assertBrowserKeyDoesNotAccessClipboard('Shift+Insert'), /cannot access the system clipboard/);
 });
 
+test('agent copy shortcuts are rejected before any input is dispatched', async () => {
+  const driver = createBrowserInputDriver(async () => assert.fail('agent clipboard input must not dispatch'));
+  for (const key of ['Control+c', 'Control+C', 'Meta+c', 'Meta+C']) {
+    await assert.rejects(driver.pressKey({}, key), /cannot access the system clipboard/);
+  }
+});
+
 test('remote Browser Use maps screenshot pixels through pane zoom for every gesture', () => {
   assert.deepEqual(browserImagePointToCss({ x: 300, y: 200 }, 0.5), { x: 600, y: 400 });
   assert.deepEqual(browserImagePointToCss({ x: 300, y: 200 }, Number.NaN), { x: 300, y: 200 });
