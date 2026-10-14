@@ -21,10 +21,9 @@ export function createAccountApi(
       await Promise.all(
         accounts.slice(offset, offset + 4).map((account) => {
           const target = { provider: providerId, accountId: account.id };
-          const measured = force
-            ? fetchOAuthUsageSnapshot(target, provider.forAccount(account.id), () => {}, { force: true })
-            : fetchOAuthUsageSnapshot(target, provider.forAccount(account.id));
-          return measured.catch(() => null);
+          return fetchOAuthUsageSnapshot(target, provider.forAccount(account.id), () => {}, { force }).catch(
+            () => null
+          );
         })
       );
     }

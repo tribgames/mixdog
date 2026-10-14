@@ -177,7 +177,7 @@ test('the account roster paints immediately and one bounded usage sweep runs per
   await setImmediate();
   const usage = calls.filter(([name]) => name === 'usage');
   assert.equal(usage.length, 5);
-  assert.deepEqual(usage[0], ['usage', { provider: 'oauth', accountId: 'a1' }, { account: 'a1' }, undefined]);
+  assert.deepEqual(usage[0], ['usage', { provider: 'oauth', accountId: 'a1' }, { account: 'a1' }, { force: false }]);
   calls.length = 0;
   api.getProviderAccounts('plain');
   await setImmediate();
