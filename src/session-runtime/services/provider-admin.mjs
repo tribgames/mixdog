@@ -535,7 +535,7 @@ async function modelProxyProviderSetup(options) {
       });
   const custom = Object.entries(providers)
     .filter(([id, entry]) => isCustomProviderId(id) && entry?.type === 'custom')
-    .map(([id]) => ({ id, name: id }));
+    .map(([id, entry]) => ({ id, name: typeof entry.name === 'string' && entry.name.trim() ? entry.name : id }));
   return {
     managedByClient: true,
     api: [...project(API_PROVIDERS, 'api', 'api-key'), ...project(custom, 'api', 'custom')],

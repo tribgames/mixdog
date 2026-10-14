@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { createModelProxyHost, createModelProxyRuntime } from './model-proxy-host.ts';
 import {
   MODEL_PROXY_REQUEST_EVENT,
+  MODEL_PROXY_OPERATIONS,
   ModelProxyChannel,
 } from '../../../../src/runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
 import {
@@ -454,4 +455,110 @@ test('a call payload over the request cap is refused before any provider runs', 
     { code: 'MODEL_PROXY_REQUEST_TOO_LARGE' }
   );
   assert.equal(sent, false);
+});
+
+
+test('the last disabled or removed provider is not advertised even when the registry preserves its instance', async () => {
+  const available = { openai: { enabled: true } };
+  const modules = pcModules(available);
+  const init = modules.initProviders;
+  modules.initProviders = async (config) => {
+    // Match the real registry's all-disabled preservation guard.
+    if (!Object.values(config).some((entry) => entry.enabled === true)) {
+      throw Object.assign(new Error('all disabled'), { code: 'PROVIDERS_NONE_ENABLED' });
+    }
+    return init(config);
+  };
+  const runtime = createModelProxyRuntime(modules);
+  assert.equal((await runtime.providerConfig()).providers.openai.enabled, true);
+  available.openai.enabled = false;
+  assert.equal((await runtime.providerConfig()).providers.openai.enabled, false);
+  assert.equal(modules.live.has('openai'), true);
+  assert.equal(await runtime.provider('openai'), undefined);
+  delete available.openai;
+  assert.equal((await runtime.providerConfig()).providers.openai.enabled, false);
+  assert.equal(await runtime.provider('openai'), undefined);
+  assert.deepEqual(modules.keyReads, []);
+});
+
+
+for (const claimed of [false, true]) {
+  test(`provider config deadline aborts a stalled request (claimed=${claimed})`, async (t) => {
+    _resetModelProxyProviderConfigForTest();
+    t.after(_resetModelProxyProviderConfigForTest);
+    const channel = new ModelProxyChannel();
+    let requestId;
+    const detach = channel.attachPublisher((snapshot) => {
+      for (const { id } of snapshot.requests) {
+        requestId = id;
+        if (claimed) channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id]);
+      }
+    });
+    t.after(detach);
+    const loading = loadModelProxyProviderConfig({ channel, waitMs: 30 });
+    await assert.rejects(settledWhileAlive(loading, 1_000), (error) => error.code === 'MODEL_PROXY_UNAVAILABLE');
+    assert.ok(requestId);
+  });
+}
+
+test('forced and short-budget reads do not join an older request or let it overwrite the fresh cache', async (t) => {
+  _resetModelProxyProviderConfigForTest();
+  t.after(_resetModelProxyProviderConfigForTest);
+  const replies = [];
+  const channel = {
+    connected: true, generation: 1,
+    request: () => new Promise((resolve) => replies.push(resolve)),
+  };
+  const old = loadModelProxyProviderConfig({ channel });
+  const fresh = loadModelProxyProviderConfig({ channel, force: true });
+  assert.equal(replies.length, 2);
+  replies[1]({ ready: true, providers: { gemini: { enabled: true } } });
+  assert.equal((await fresh).gemini.enabled, true);
+  replies[0]({ ready: true, providers: { gemini: { enabled: false } } });
+  await old;
+  assert.equal((await loadModelProxyProviderConfig({ channel })).gemini.enabled, true);
+
+  _resetModelProxyProviderConfigForTest();
+  const long = loadModelProxyProviderConfig({ channel, waitMs: 15_000 });
+  const short = loadModelProxyProviderConfig({ channel, waitMs: 1_000 });
+  assert.equal(replies.length, 4);
+  replies[3]({ ready: true, providers: {} });
+  replies[2]({ ready: true, providers: {} });
+  await Promise.all([long, short]);
+});
+
+
+test('all built-in provider families and custom protocols use the same PC catalog and send path', async (t) => {
+  const names = ['openai', 'anthropic', 'gemini', 'deepseek', 'xai', 'opencode-go', 'openrouter',
+    'openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth',
+    'mimo-oauth', 'cursor-oauth', 'antigravity-oauth', 'mixdog-local'];
+  const custom = ['openai-chat', 'openai-responses', 'anthropic'].flatMap((protocol, i) =>
+    ['key', 'none'].map((auth, j) => ({
+      id: `custom-00000000-0000-4000-8000-0000000000${i}${j}`, protocol, auth,
+    }))
+  );
+  const available = Object.fromEntries([
+    ...names.map((id) => [id, { enabled: true }]),
+    ...custom.map(({ id, ...config }) => [id, { ...config, type: 'custom', enabled: true }]),
+  ]);
+  const modules = pcModules(available);
+  const init = modules.initProviders;
+  modules.initProviders = async (config) => {
+    await init(config);
+    for (const [name, provider] of modules.live) {
+      provider.listModels = async () => [{ id: `${name}-model` }];
+    }
+  };
+  const runtime = createModelProxyRuntime(modules);
+  let clock = 0;
+  const { channel } = connect(t, runtime, { now: () => clock });
+  const advertised = await channel.request({ provider: '', method: 'providerConfig' });
+  assert.deepEqual(Object.keys(advertised.providers).sort(), Object.keys(available).sort());
+  for (const name of Object.keys(available)) {
+    clock += 60_000; // Each independent provider check receives a fresh rate-limit window.
+    assert.equal(advertised.providers[name].enabled, true, name);
+    const proxy = new ModelProxyProvider(name, {}, channel);
+    assert.deepEqual(await proxy.listModels(), [{ id: `${name}-model` }]);
+    assert.equal((await proxy.send([], `${name}-model`, [], {})).content, `${name}:no-key`);
+  }
 });

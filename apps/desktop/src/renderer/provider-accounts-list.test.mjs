@@ -827,3 +827,21 @@ test('credit line renders only with credits, formats Codex count vs Claude USD, 
   assert.match(line.textContent, /Monthly limit \$10/);
   assert.equal(line.querySelector('[role="switch"]').getAttribute('aria-checked'), 'true');
 });
+
+
+test('model filtering accepts every advertised provider kind and removes disabled entries', () => {
+  const groups = {
+    api: ['openai', 'anthropic', 'gemini', 'deepseek', 'xai', 'opencode-go', 'openrouter',
+      'custom-00000000-0000-4000-8000-000000000001'],
+    oauth: ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth',
+      'mimo-oauth', 'cursor-oauth', 'antigravity-oauth'],
+    local: ['mixdog-local'],
+  };
+  const models = Object.values(groups).flat().map((provider) => ({ provider, model: 'test-model' }));
+  for (const enabled of [true, false]) {
+    const setup = { managedByClient: true, ...Object.fromEntries(Object.entries(groups).map(([group, ids]) =>
+      [group, ids.map((id) => ({ id, enabled, authenticated: enabled, usable: enabled, detected: enabled }))]
+    )) };
+    assert.deepEqual(filterConfiguredModels(models, setup), enabled ? models : []);
+  }
+});

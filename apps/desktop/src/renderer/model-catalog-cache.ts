@@ -310,7 +310,15 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
             args: [],
           })
         )
-        .then((result) => result.value)
+        .then((result) => {
+          const setup = result.value as { managedByClient?: boolean; unavailable?: boolean } | null;
+          // Settings may render the offline snapshot, but a picker must retry it
+          // instead of caching an empty authenticated-provider set for a day.
+          if (setup?.managedByClient === true && setup.unavailable === true) {
+            throw new Error('Desktop model providers are unavailable');
+          }
+          return result.value;
+        })
     : Promise.resolve(null);
   const request: SharedModelCatalogRequest = {
     api,

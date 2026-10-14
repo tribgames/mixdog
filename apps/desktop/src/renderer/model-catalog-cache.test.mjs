@@ -244,3 +244,20 @@ test('one API object cannot share a catalog across device routes', async () => {
     delete window.location;
   }
 });
+
+
+test('an unavailable desktop snapshot is retryable even with a warm model catalog', async () => {
+  const api = stubApi();
+  let offline = true;
+  api.invokeCapability = async () => ({ value: offline
+    ? { managedByClient: true, unavailable: true, api: [], oauth: [], local: [] }
+    : { managedByClient: true, api: [{ id: 'openai', authenticated: true }] } });
+  const first = requestModelCatalog(api);
+  await assert.rejects(first.setup, /Desktop model providers are unavailable/);
+  await first.full;
+  offline = false;
+  const next = requestModelCatalog(api);
+  assert.notEqual(next, first);
+  assert.equal((await next.setup).api[0].authenticated, true);
+  await next.full;
+});

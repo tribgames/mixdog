@@ -1242,7 +1242,7 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
         providers[name] = {
           ...(stripModelProxySecrets(record(available[name])) as Record<string, unknown>),
           // Availability is what this PC can actually run right now.
-          enabled: Boolean(instance),
+          enabled: record(available[name]).enabled === true && Boolean(instance),
           modelProxy: traits,
         };
       }

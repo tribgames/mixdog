@@ -11,6 +11,7 @@ import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cach
 import { useOAuthUsageRefresh } from './use-oauth-usage-refresh';
 import { ProviderAccountsList, PROVIDER_ACCOUNTS_CHANGED, preloadProviderAccounts } from '../ProviderAccountsList';
 import { ActionButton, Group, ListEmpty, ResourceRow, settingsStatus } from './capability-controls';
+import { ClientManagedProviders } from './client-managed-providers';
 import { QuotaAutoResumeToggle } from './quota-auto-resume-toggle';
 import { CustomProvidersSection, isCustomProvider } from './custom-provider-section';
 import {
@@ -135,24 +136,10 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   }, []);
   const keychainState = String(keychainIssue.state || '');
   if (setup.managedByClient === true) {
-    const renderClientProvider = (provider: RecordValue) => (
-      <ResourceRow key={String(provider.id)} title={providerLabel(provider)} status={providerStatus(provider)} />
-    );
     return (
       <>
         <QuotaAutoResumeToggle />
-        <p>{t('This server uses providers connected on your desktop. Manage sign-ins and accounts in the local window.')}</p>
-        {setup.unavailable === true ? (
-          <ListEmpty text={t('Connect the desktop to view its providers.')} />
-        ) : (
-          <>
-            <Group title={t('OAuth providers')}>{oauthProviders.map(renderClientProvider)}</Group>
-            <Group title={t('API-key providers')}>{allApiProviders.map(renderClientProvider)}</Group>
-            {rows(setup.local).length > 0 && (
-              <Group title={t('Local Provider')}>{rows(setup.local).map(renderClientProvider)}</Group>
-            )}
-          </>
-        )}
+        <ClientManagedProviders setup={setup} />
       </>
     );
   }

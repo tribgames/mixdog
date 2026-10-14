@@ -12,6 +12,10 @@ import { createProviderUsage } from '../provider-usage.mjs';
 import { createSetupApi } from './setup.mjs';
 
 test('SSH setup uses PC availability through the session API and follows refresh, disconnect and reconnect', async (t) => {
+  // The real daemon owns sockets; isolated CI tests need a handle while the
+  // channel's intentionally unref'ed disconnect timeout is pending.
+  const keepAlive = setInterval(() => {}, 1_000);
+  t.after(() => clearInterval(keepAlive));
   const prior = process.env.MIXDOG_MODEL_PROXY;
   process.env.MIXDOG_MODEL_PROXY = 'client';
   t.after(() => {
@@ -86,4 +90,66 @@ test('SSH setup uses PC availability through the session API and follows refresh
   const reconnected = await api.getProviderSetup();
   assert.deepEqual(reconnected.oauth.map((row) => row.id), ['cursor-oauth'], 'respect the new PC/host allow-list');
   assert.equal(reconnected.unavailable, undefined);
+});
+
+
+test('SSH setup covers every built-in API, OAuth, local and custom provider, enabled and disabled', async (t) => {
+  const prior = process.env.MIXDOG_MODEL_PROXY;
+  process.env.MIXDOG_MODEL_PROXY = 'client';
+  t.after(() => {
+    if (prior === undefined) delete process.env.MIXDOG_MODEL_PROXY;
+    else process.env.MIXDOG_MODEL_PROXY = prior;
+    _resetModelProxyProviderConfigForTest();
+  });
+  const channel = new ModelProxyChannel();
+  t.after(installModelProxyChannel(channel));
+  _resetModelProxyProviderConfigForTest();
+  const customProviders = ['openai-chat', 'openai-responses', 'anthropic'].flatMap((protocol, i) =>
+    ['key', 'none'].map((auth, j) => ({
+      id: `custom-00000000-0000-4000-8000-0000000000${i}${j}`,
+      type: 'custom', name: `${protocol} ${auth} gateway`, protocol, auth,
+    }))
+  );
+  const groups = {
+    api: ['opencode-go', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'xai', ...customProviders.map(({ id }) => id)],
+    oauth: ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth',
+      'mimo-oauth', 'cursor-oauth', 'antigravity-oauth'],
+    local: ['mixdog-local'],
+  };
+  let enabled = true;
+  const detach = channel.attachPublisher((snapshot) => {
+    for (const { id } of snapshot.requests) {
+      if (!channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id])) continue;
+      const providers = Object.fromEntries(Object.values(groups).flat().map((name) => [name, {
+        enabled,
+        ...(customProviders.find(({ id }) => id === name) || {}),
+        apiKey: 'secret-must-stay-on-desktop', accountId: 'private-identity',
+      }]));
+      queueMicrotask(() => channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [
+        id, true, encodeModelProxyWire({ providers, ready: true }), null,
+      ]));
+    }
+  });
+  t.after(detach);
+  for (const state of [true, false]) {
+    enabled = state;
+    const setup = await providerSetup({}, { force: true });
+    assert.equal(setup.managedByClient, true);
+    for (const [group, ids] of Object.entries(groups)) {
+      assert.deepEqual(setup[group].map((row) => row.id), ids);
+      for (const row of setup[group]) {
+        assert.equal(row.enabled, state, row.id);
+        assert.equal(row.authenticated, state, row.id);
+        assert.equal(row.usable, state, row.id);
+        assert.equal(row.status, state ? 'Connected' : 'Not connected', row.id);
+      }
+    }
+    for (const custom of customProviders) {
+      const row = setup.api.find(({ id }) => id === custom.id);
+      assert.equal(row.name, custom.name);
+      assert.equal(row.custom, true);
+    }
+    assert.equal(setup.local[0].detected, state);
+    assert.doesNotMatch(JSON.stringify(setup), /secret-must-stay|private-identity|apiKey|accountId/);
+  }
 });

@@ -26,6 +26,7 @@ import { providerDisplayName } from '../provider-display';
 import { record, rows } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { acquireTitleBarDim } from '../titlebar-dim';
+import { ClientManagedProviders } from './client-managed-providers';
 import { OAuthControl } from './CapabilitySettings';
 import { FOCUSABLE_SELECTOR, inertBackground, portaledMenuOpen, trapTab } from './dialog-modality';
 import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
@@ -537,6 +538,7 @@ function ProviderStep({
   onSaveApiKey(event: FormEvent<HTMLFormElement>, provider: string): void;
   onReload(): void;
 }) {
+  if (setup.managedByClient === true) return <ClientManagedProviders setup={setup} />;
   // OpenCode Go leads the API list (user decision).
   const apiProviders = [...rows(setup.api)].sort(
     (left, right) => Number(String(right.id) === 'opencode-go') - Number(String(left.id) === 'opencode-go')
