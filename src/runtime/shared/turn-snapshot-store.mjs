@@ -264,6 +264,75 @@ export async function loadTurnSnapshotRecord(sessionId) {
   return null;
 }
 
+// ── Last computed review summary ────────────────────────────────────────────
+//
+// Rebuilding a recorded review rescans the whole worktree behind every other
+// capture of that repository. Entering a session reads the last computed
+// files and counts instead and lets the refreshing read follow. Keyed to the
+// turn record it was computed from, so a newer turn never shows an older one.
+
+let summarySweepDone = false;
+
+function summariesRoot() {
+  return join(recordRoot(), 'review-summaries');
+}
+
+/** Identity of the paths a record turn scopes its review to. */
+function summaryToolFilesKey(turn) {
+  return (Array.isArray(turn?.toolFiles) ? turn.toolFiles : []).map(rootKey).sort().join('\0');
+}
+
+function summaryPath(sessionId) {
+  const hash = createHash('sha256').update(sessionId).digest('hex').slice(0, 24);
+  return join(summariesRoot(), `${hash}.json`);
+}
+
+/** Keep the files and counts last computed for `turn` (a loaded record turn). */
+export async function saveTurnReviewSummary(sessionId, turn, review) {
+  const id = clean(sessionId);
+  if (!id || !turn?.baselineTree || !Array.isArray(review?.files)) return false;
+  return await chain(`summary:${id}`, async () => {
+    try {
+      await mkdir(summariesRoot(), { recursive: true });
+      if (!summarySweepDone) {
+        summarySweepDone = true;
+        void sweepDirectory(summariesRoot(), RECORD_TTL_MS, MAX_RECORD_FILES);
+      }
+      await writeJsonAtomically(summaryPath(id), {
+        version: RECORD_VERSION,
+        sessionId: id,
+        generation: Number(turn.generation) || 0,
+        baselineTree: clean(turn.baselineTree),
+        checkpointId: clean(turn.checkpointId),
+        toolFilesKey: summaryToolFilesKey(turn),
+        files: review.files,
+        patchTruncated: review.patchTruncated === true,
+        savedAt: Date.now(),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** The summary saved for exactly this record turn, else null. */
+export async function loadTurnReviewSummary(sessionId, turn) {
+  const id = clean(sessionId);
+  if (!id || !turn?.baselineTree) return null;
+  try {
+    const parsed = JSON.parse(await readFile(summaryPath(id), 'utf8'));
+    if (parsed?.version !== RECORD_VERSION || parsed.sessionId !== id || !Array.isArray(parsed.files)) return null;
+    if (parsed.baselineTree !== clean(turn.baselineTree)) return null;
+    if (parsed.generation !== (Number(turn.generation) || 0)) return null;
+    if (parsed.checkpointId !== clean(turn.checkpointId)) return null;
+    if (parsed.toolFilesKey !== summaryToolFilesKey(turn)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 /** Earliest retained baseline plus every path attributed to this session,
  * grouped by repository root. This is the durable source for the pane's
  * session-wide Diff and is intentionally separate from latest-turn Undo. */

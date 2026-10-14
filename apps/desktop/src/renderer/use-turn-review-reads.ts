@@ -43,7 +43,10 @@ type ReadContext = {
   reviewBoundaryKey: string;
   detailShown: MutableRefObject<boolean>;
   activeScope: MutableRefObject<string>;
-  capabilityRequestInFlight: MutableRefObject<boolean>;
+  /** The read this pane has outstanding for its current scope. */
+  capabilityRequestInFlight: MutableRefObject<ReadRequest | null>;
+  /** The newest read issued per scope; an older answer of that scope is dropped. */
+  latestReads: MutableRefObject<Map<string, ReadRequest>>;
   sameCommitRequest: MutableRefObject<ReadRequest | null>;
   pendingCapabilityRefresh: MutableRefObject<ReadRequest | null>;
   refreshAgentReviewsRef: MutableRefObject<RefreshAgentReviews>;
@@ -91,7 +94,11 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
   if (!sessionId || !api?.invokeCapability) return;
   if (document.visibilityState === 'hidden') return;
   const summary = !ctx.detailShown.current;
-  if (capabilityRequestInFlight.current) {
+  // Only a read for the same scope coalesces. The pane keeps this hook across
+  // session switches: queueing the incoming session's entry read behind the
+  // previous session's worktree capture held its review bar (and the pane's
+  // reveal) for seconds. The outgoing read still answers its own cache.
+  if (capabilityRequestInFlight.current?.scopeKey === requestedScope) {
     // The boundary effect and the busy poll both ask when one commit moves
     // a boundary: the read already sent for it answers both, so a queued
     // follow-up would only repeat it.
@@ -117,9 +124,11 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
     };
     return;
   }
-  capabilityRequestInFlight.current = true;
   const issued = { scopeKey: requestedScope, boundaryKey: reviewBoundaryKey, refreshWorktree, summary, background };
+  capabilityRequestInFlight.current = issued;
+  ctx.latestReads.current.set(requestedScope, issued);
   let recorded = false;
+  let cachedAnswer = false;
   sameCommitRequest.current = issued;
   queueMicrotask(() => {
     if (sameCommitRequest.current === issued) sameCommitRequest.current = null;
@@ -150,8 +159,12 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
       sessionId,
     });
     const value = (result?.value ?? null) as TurnReviewCapabilityValue;
+    // Leaving and re-entering a scope issues a newer read of it while this
+    // one runs; that read owns the scope's cache and state.
+    if (ctx.latestReads.current.get(requestedScope) !== issued) return;
     if (value?.unchanged === true) return;
     recorded = value?.reason === 'recorded';
+    cachedAnswer = value?.reason === 'cached';
     const decoded = decodeTurnReviewCapabilityValue(value);
     if (!decoded) {
       return;
@@ -170,7 +183,9 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
         files,
         snapshotKind,
         checkpointId,
-        typeof value?.etag === 'string' ? value.etag : ''
+        // No tag for a cached summary: a later read must get it again (and
+        // queue its refresh), never an `unchanged` that skips the refresh.
+        !cachedAnswer && typeof value?.etag === 'string' ? value.etag : ''
       );
     }
     if (ctx.lastAgentReviewSignature.current === signature) return;
@@ -189,21 +204,29 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
     // The next turn boundary, visibility change, expansion, or bounded idle
     // refresh retries. A transient read must never permanently lock Revert.
   } finally {
-    if (ctx.activeScope.current === requestedScope) ctx.setAnsweredSession(String(sessionId));
-    capabilityRequestInFlight.current = false;
-    const pending = pendingCapabilityRefresh.current;
-    pendingCapabilityRefresh.current = null;
-    // A recorded review already reflects the current worktree: the
-    // refreshing read queued behind it for the same boundary (an idle
-    // entry asks twice) would only compute it again. A summary cannot
-    // satisfy an expansion that asked for the actual patch while it ran.
-    const repeatsRecorded =
-      recorded &&
-      pending?.scopeKey === requestedScope &&
-      pending.boundaryKey === issued.boundaryKey &&
-      (!issued.summary || pending.summary);
-    if (pending && !repeatsRecorded && ctx.activeScope.current === pending.scopeKey) {
-      void ctx.refreshAgentReviewsRef.current(pending.refreshWorktree, pending.background);
+    const latest = ctx.latestReads.current.get(requestedScope) === issued;
+    if (latest) ctx.latestReads.current.delete(requestedScope);
+    if (latest && ctx.activeScope.current === requestedScope) ctx.setAnsweredSession(String(sessionId));
+    // A superseded read neither releases nor drains the newer scope's lane.
+    if (capabilityRequestInFlight.current === issued) {
+      capabilityRequestInFlight.current = null;
+      let pending = pendingCapabilityRefresh.current;
+      pendingCapabilityRefresh.current = null;
+      // A cached summary is the last computed answer, not the worktree now:
+      // a refreshing read always follows it (entry and idle backoff alike).
+      if (cachedAnswer && !pending?.refreshWorktree) pending = { ...(pending ?? issued), refreshWorktree: true };
+      // A recorded review already reflects the current worktree: the
+      // refreshing read queued behind it for the same boundary (an idle
+      // entry asks twice) would only compute it again. A summary cannot
+      // satisfy an expansion that asked for the actual patch while it ran.
+      const repeatsRecorded =
+        recorded &&
+        pending?.scopeKey === requestedScope &&
+        pending.boundaryKey === issued.boundaryKey &&
+        (!issued.summary || pending.summary);
+      if (pending && !repeatsRecorded && ctx.activeScope.current === pending.scopeKey) {
+        void ctx.refreshAgentReviewsRef.current(pending.refreshWorktree, pending.background);
+      }
     }
   }
 }
@@ -297,7 +320,8 @@ export function useTurnReviewReads({
   // effects run when the user switches sessions or opens New task.
   const reviewState =
     agentReviewState.scopeKey === turnScopeKey ? agentReviewState : cachedTurnReviewState(turnScopeKey);
-  const capabilityRequestInFlight = useRef(false);
+  const capabilityRequestInFlight = useRef<ReadRequest | null>(null);
+  const latestReads = useRef(new Map<string, ReadRequest>());
   // The read issued in the current synchronous pass (one commit's effects),
   // cleared at the next microtask.
   const sameCommitRequest = useRef<ReadRequest | null>(null);
@@ -370,6 +394,7 @@ export function useTurnReviewReads({
           detailShown,
           activeScope,
           capabilityRequestInFlight,
+          latestReads,
           sameCommitRequest,
           pendingCapabilityRefresh,
           refreshAgentReviewsRef,

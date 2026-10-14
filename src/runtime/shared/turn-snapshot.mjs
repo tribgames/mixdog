@@ -19,7 +19,9 @@ import {
   loadSessionSnapshotRecords,
   loadTurnChangeRecord,
   loadTurnChangeRecords,
+  loadTurnReviewSummary,
   loadTurnSnapshotRecord,
+  saveTurnReviewSummary,
   saveTurnSnapshotRecord,
   sessionChangeHistoryCleared,
   updateTurnChangeRecord,
@@ -1113,6 +1115,7 @@ async function resumeRecordedSnapshot(ownerSessionId, { omitPatch = false } = {}
 async function scopedReviewFromRecord(ownerSessionId, { omitPatch = false } = {}) {
   const resumed = await resumeRecordedSnapshot(ownerSessionId, { omitPatch });
   if (!resumed) return null;
+  void saveTurnReviewSummary(ownerSessionId, resumed.record, resumed.snapshot);
   return {
     supported: true,
     files: resumed.snapshot.files || [],
@@ -1125,6 +1128,28 @@ async function scopedReviewFromRecord(ownerSessionId, { omitPatch = false } = {}
     authoritative: true,
     agents: publicAgentReviews(ownerSessionId),
     reason: 'recorded',
+  };
+}
+
+/** The files and counts last computed from the durable record, without
+ *  rescanning the worktree. `cached` (not `recorded`): the caller's
+ *  refreshing read still follows and replaces it. */
+async function cachedReviewFromRecord(ownerSessionId) {
+  const record = await loadTurnSnapshotRecord(ownerSessionId).catch(() => null);
+  const cached = record ? await loadTurnReviewSummary(ownerSessionId, record) : null;
+  if (!cached) return null;
+  return {
+    supported: true,
+    files: cached.files,
+    patch: '',
+    patchOmitted: true,
+    snapshotKind: 'scoped',
+    revertMode: 'scoped',
+    checkpointId: clean(record.checkpointId),
+    patchTruncated: cached.patchTruncated === true,
+    authoritative: true,
+    agents: publicAgentReviews(ownerSessionId),
+    reason: 'cached',
   };
 }
 
@@ -1181,6 +1206,12 @@ export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
     // turn cache evicted it, or the runtime restarted. The recorded baseline is
     // still on disk and still exact. Rebuilt per read and then discarded, so a
     // summary read skips its patch text instead of dropping it afterwards.
+    // A collapsed read that asked for no refresh (entering the session) takes
+    // the last computed summary instead of queueing a rescan.
+    if (options.refresh === false && options.summary === true) {
+      const cached = await cachedReviewFromRecord(ownerSessionId);
+      if (cached) return cached;
+    }
     const recorded = await scopedReviewFromRecord(ownerSessionId, { omitPatch: options.summary === true });
     if (recorded) return recorded;
   }
