@@ -133,29 +133,66 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
   recoverStaleLeadRows();
   function flushLeadIndexOnExit() {
     flushActiveLeadRows();
-    // Writes are persisted by an async queue; the loop is gone at exit.
+    // Writes are persisted by an async queue; the loop is gone at exit. This
+    // is the best-effort last resort: a persist still running is left alone
+    // (the graceful shutdown path drains before exit).
     index.flushSync();
   }
   const unregisterExitFlush = registerExitFlush(flushLeadIndexOnExit);
   let disposed = false;
+  let disposePromise = null;
+
+  function teardown() {
+    reaps.cancelAll();
+    unregisterExitFlush();
+  }
+
+  async function drainThenTeardown() {
+    await index.flush();
+    teardown();
+  }
 
   /** Persist queued rows, drop owned reap timers, unregister. `settle` (a real
    *  teardown) also idles this runtime's own active Lead rows; a dispose that
-   *  keeps background work (idle eviction) leaves them for the next owner. */
+   *  keeps background work (idle eviction) leaves them for the next owner.
+   *  If the sync flush cannot run (our async writer holds the lock), the exit
+   *  hook stays until the async drain settles. */
   function dispose({ settle = false } = {}) {
     if (disposed) return;
     disposed = true;
+    let flushed = false;
     try {
       if (settle) flushActiveLeadRows();
-      index.flushSync();
-    } finally {
-      reaps.cancelAll();
-      unregisterExitFlush();
+      flushed = index.flushSync();
+    } catch {}
+    if (flushed) {
+      teardown();
+      return;
     }
+    disposePromise = drainThenTeardown().catch(reopenAfterFailedDrain);
+  }
+
+  /** A failed drain tears nothing down; allow a later dispose to retry it. */
+  function reopenAfterFailedDrain() {
+    disposed = false;
+    disposePromise = null;
+  }
+
+  function disposeAsync({ settle = false } = {}) {
+    if (!disposePromise) {
+      disposed = true;
+      if (settle) flushActiveLeadRows();
+      disposePromise = drainThenTeardown().catch((error) => {
+        reopenAfterFailedDrain();
+        throw error;
+      });
+    }
+    return disposePromise;
   }
 
   return {
     dispose,
+    disposeAsync,
     leadWorkerIndexPath: index.path,
     readLeadWorkerRows: index.read,
     /** Resolves once every queued Lead index write is on disk. */

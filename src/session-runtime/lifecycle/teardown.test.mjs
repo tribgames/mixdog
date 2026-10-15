@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { withFileLock } from '../../runtime/shared/file-lock.mjs';
+import { exitFlushCount } from '../services/agent-tool/helpers.mjs';
+import { createWorkerIndex } from '../services/agent-tool/worker-index.mjs';
+import { createCloseAll } from '../services/agent-tool/close-flow/close-all.mjs';
 import { createTeardown } from './teardown.mjs';
 
 function fixture({
   session = { id: 's1', messages: [{ role: 'user', content: 'hi' }] },
   flushConfig,
   onCloseSurface,
+  agentTool,
+  withTeardownDeadline,
 } = {}) {
   const calls = [];
   const state = { session, closeRequested: false };
@@ -44,12 +53,12 @@ function fixture({
         return Promise.resolve();
       },
     },
-    agentTool: { closeAll: record('agentTool.closeAll') },
+    agentTool: agentTool || { closeAll: record('agentTool.closeAll') },
     mcpClient: { disconnectAll: record('mcp.disconnectAll') },
     warmupTimers: { providerWarmupTimer: setTimeout(() => {}, 60_000) },
     prewarmTimers: { channelStartTimer: setTimeout(() => {}, 60_000) },
     flushAllConfigSavesAsync: flushConfig || (async () => calls.push(['flushConfig'])),
-    withTeardownDeadline: async (work) => await work,
+    withTeardownDeadline: withTeardownDeadline || (async (work) => await work),
     closePatchRuntimeIfLoaded: (...args) => {
       calls.push(['closePatchRuntime', ...args]);
       return null;
@@ -109,6 +118,340 @@ test("close on process exit reaps every session's work and tombstones only a scr
   f.cleanup();
 });
 
+function rowFor(id, owner) {
+  return (byKey) =>
+    byKey.set(id, {
+      tag: id,
+      sessionId: id,
+      ownerSessionId: owner,
+      agent: 'worker',
+      status: 'idle',
+      stage: 'idle',
+      updatedAt: new Date().toISOString(),
+    });
+}
+
+function realWorkerIndex() {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-teardown-'));
+  mkdirSync(join(root, 'sessions'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  const worker = createWorkerIndex({
+    dataDir: root,
+    cfgMod: { loadConfig: () => ({}) },
+    mgr: { getSessionRuntime: () => null },
+    tags: new Map(),
+    tagAgents: new Map(),
+    tagCwds: new Map(),
+  });
+  const file = join(root, 'agent-workers.json');
+  const readRows = () => JSON.parse(readFileSync(file, 'utf8')).workers;
+  // Hold this process's index lock with an async holder until released.
+  const holdLock = async () => {
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let locked;
+    const lockTaken = new Promise((resolve) => {
+      locked = resolve;
+    });
+    const holder = withFileLock(`${file}.lock`, async () => {
+      locked();
+      await gate;
+    });
+    await lockTaken;
+    return async () => {
+      release();
+      await holder;
+    };
+  };
+  const cleanup = () => {
+    worker.dispose();
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  };
+  return { worker, readRows, holdLock, cleanup };
+}
+
+const shortDeadline = (work, _ms, fallback) =>
+  Promise.race([Promise.resolve(work), new Promise((resolve) => setTimeout(() => resolve(fallback), 20))]);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test('close waits for agent closing to finish before draining the index writers', async () => {
+  const events = [];
+  let finishClose;
+  const f = fixture({
+    agentTool: {
+      closeAll: () =>
+        new Promise((resolve) => {
+          events.push('closeAll:start');
+          finishClose = () => {
+            events.push('closeAll:final-write');
+            resolve();
+          };
+        }),
+      flushIndexWrites: async () => {
+        events.push('drain');
+      },
+      disposeAsync: async () => {
+        events.push('disposeAsync');
+      },
+    },
+  });
+  const closing = f.teardown.close('dispose', { detach: true });
+  await sleep(20);
+  assert.deepEqual(events, ['closeAll:start'], 'no drain while closing is still producing writes');
+  finishClose();
+  await closing;
+  assert.deepEqual(events, ['closeAll:start', 'closeAll:final-write', 'drain', 'disposeAsync'], 'drain only after closing, then release');
+  f.cleanup();
+});
+
+test('a close that outlives the teardown deadline drains only after it settles', async () => {
+  const events = [];
+  let finishClose;
+  const f = fixture({
+    withTeardownDeadline: shortDeadline,
+    agentTool: {
+      closeAll: () =>
+        new Promise((resolve) => {
+          events.push('closeAll:start');
+          finishClose = () => {
+            events.push('closeAll:final-write');
+            resolve();
+          };
+        }),
+      flushIndexWrites: async () => {
+        events.push('drain');
+      },
+      disposeAsync: async () => {
+        events.push('disposeAsync');
+      },
+    },
+  });
+  await f.teardown.close('cli-exit', { detach: true });
+  await sleep(40);
+  assert.deepEqual(events, ['closeAll:start'], 'teardown returned past the deadline without draining or disposing');
+  finishClose();
+  await sleep(20);
+  assert.deepEqual(events, ['closeAll:start', 'closeAll:final-write', 'drain', 'disposeAsync']);
+  f.cleanup();
+});
+
+test('overlapping closes each run their own closeAll and their rows reach disk', async () => {
+  const idx = realWorkerIndex();
+  let closeCalls = 0;
+  const f = fixture({
+    withTeardownDeadline: shortDeadline,
+    agentTool: {
+      closeAll: async () => {
+        closeCalls += 1;
+        const id = `row${closeCalls}`;
+        await sleep(closeCalls === 1 ? 60 : 0); // close #1 outlives its deadline
+        idx.worker.queueWorkerIndexMutation(rowFor(id, 'lead-a'));
+      },
+      flushIndexWrites: () => idx.worker.flushWorkerIndexWrites(),
+      disposeAsync: () => idx.worker.disposeAsync(),
+    },
+  });
+  try {
+    await f.teardown.close('dispose', { detach: true }); // returns past its deadline
+    await f.teardown.close('cli-exit', { detach: true });
+    await sleep(120);
+    assert.equal(closeCalls, 2, 'each close ran its own closeAll');
+    const rows = idx.readRows();
+    assert.equal(rows.row1?.sessionId, 'row1');
+    assert.equal(rows.row2?.sessionId, 'row2');
+  } finally {
+    f.cleanup();
+    idx.cleanup();
+  }
+});
+
+test("a process-exit close after a Lead A scoped close still closes Lead B's worker", async () => {
+  const idx = realWorkerIndex();
+  const before = exitFlushCount();
+  const entries = [
+    { tag: 'wa', session: { id: 'wa' }, owner: 'lead-a' },
+    { tag: 'wb', session: { id: 'wb' }, owner: 'lead-b' },
+  ];
+  const closedSessions = [];
+  const registry = {
+    tags: new Map(),
+    tagAgents: new Map(),
+    tagCwds: new Map(),
+    reapTimers: new Map(),
+    clearScheduledReaps: () => {},
+    refreshTagsFromSessions: () => {},
+    agentSessionEntries: ({ context }) =>
+      entries.filter((entry) => !context?.callerSessionId || entry.owner === context.callerSessionId),
+    flushWorkerIndexMutations: idx.worker.flushWorkerIndexMutations,
+    writeWorkerRows: idx.worker.writeWorkerRows,
+  };
+  const closeAll = createCloseAll({
+    registry,
+    close: async ({ sessionId }) => {
+      closedSessions.push(sessionId);
+      return { closed: true, sessionId };
+    },
+  });
+  const f = fixture({
+    session: { id: 'lead-a', messages: [{ role: 'user', content: 'hi' }] },
+    agentTool: {
+      closeAll,
+      flushIndexWrites: () => idx.worker.flushWorkerIndexWrites(),
+      disposeAsync: () => idx.worker.disposeAsync(),
+    },
+  });
+  try {
+    idx.worker.queueWorkerIndexMutation(rowFor('wa', 'lead-a'));
+    idx.worker.queueWorkerIndexMutation(rowFor('wb', 'lead-b'));
+    await idx.worker.flushWorkerIndexWrites();
+    const releaseLock = await idx.holdLock(); // the scoped close's drain blocks on the lock
+    const scoped = f.teardown.close('dispose', { detach: true }); // Lead A's scoped teardown
+    await sleep(50);
+    f.state.session = { id: 'lead-b', messages: [] };
+    const exit = f.teardown.close('cli-exit'); // process exit while the scoped drain is blocked
+    await sleep(30);
+    assert.equal(exitFlushCount(), before, 'exit hook kept until the final drain');
+    await releaseLock();
+    await Promise.all([scoped, exit]);
+    assert.deepEqual(closedSessions, ['wa', 'wa', 'wb'], 'the scoped close closed A, the exit close closed A and B');
+    assert.deepEqual(idx.readRows(), {}, "Lead B's worker row is purged, not left indexed");
+    assert.equal(exitFlushCount(), before - 1, 'exit hook released at final shutdown');
+  } finally {
+    f.cleanup();
+    idx.cleanup();
+  }
+});
+test('repeated idle evictions leave no growth in exit callbacks or registrations', async () => {
+  const idx = realWorkerIndex();
+  const baseline = exitFlushCount() - 1; // the helper's own worker index
+  const exitListeners = process.listenerCount('exit');
+  const fixtures = [];
+  const indexes = [];
+  try {
+    for (let i = 0; i < 30; i += 1) {
+      const evicted = createWorkerIndex({
+        dataDir: process.env.MIXDOG_DATA_DIR,
+        cfgMod: { loadConfig: () => ({}) },
+        mgr: { getSessionRuntime: () => null },
+        tags: new Map(),
+        tagAgents: new Map(),
+        tagCwds: new Map(),
+      });
+      indexes.push(evicted);
+      evicted.queueWorkerIndexMutation(rowFor(`evicted${i}`, 'lead-a'));
+      const f = fixture({
+        agentTool: {
+          closeAll: () => {},
+          flushIndexWrites: () => evicted.flushWorkerIndexWrites(),
+          disposeAsync: () => evicted.disposeAsync(),
+        },
+      });
+      fixtures.push(f);
+      await f.teardown.close('idle-evict', { keepBackgroundWork: true });
+    }
+    assert.equal(exitFlushCount(), baseline + 1, 'evicted runtimes released their exit callbacks');
+    assert.equal(process.listenerCount('exit'), exitListeners, 'no per-runtime process exit listeners');
+    assert.equal(Object.keys(idx.readRows()).length, 30, 'every evicted runtime drained its rows first');
+  } finally {
+    for (const f of fixtures) f.cleanup();
+    for (const evicted of indexes) evicted.dispose();
+    idx.cleanup();
+  }
+});
+
+test('a failed drain keeps the registrations until a later drain succeeds', async () => {
+  const idx = realWorkerIndex();
+  const before = exitFlushCount();
+  let failDrain = true;
+  const f = fixture({
+    agentTool: {
+      closeAll: () => {},
+      flushIndexWrites: async () => {},
+      disposeAsync: async () => {
+        if (failDrain) throw new Error('drain failed');
+        return idx.worker.disposeAsync();
+      },
+    },
+  });
+  try {
+    await f.teardown.close('idle-evict', { keepBackgroundWork: true });
+    assert.equal(exitFlushCount(), before, 'kept after a failed drain');
+    failDrain = false;
+    await f.teardown.close('idle-evict', { keepBackgroundWork: true });
+    assert.equal(exitFlushCount(), before - 1, 'released by the later successful drain');
+  } finally {
+    f.cleanup();
+    idx.cleanup();
+  }
+});
+
+test('two overlapping timed-out process-exit closes dispose once, after both settle', async () => {
+  const idx = realWorkerIndex();
+  const before = exitFlushCount();
+  const finishers = [];
+  let disposals = 0;
+  const f = fixture({
+    withTeardownDeadline: shortDeadline,
+    agentTool: {
+      closeAll: () =>
+        new Promise((resolve) => {
+          const n = finishers.length + 1;
+          finishers.push(() => {
+            idx.worker.queueWorkerIndexMutation(rowFor(`exit${n}`, 'lead-a'));
+            resolve();
+          });
+        }),
+      flushIndexWrites: () => idx.worker.flushWorkerIndexWrites(),
+      disposeAsync: () => {
+        disposals += 1;
+        return idx.worker.disposeAsync();
+      },
+    },
+  });
+  try {
+    await f.teardown.close('cli-exit', { detach: true }); // times out
+    await f.teardown.close('cli-exit', { detach: true }); // times out
+    assert.equal(finishers.length, 2);
+    finishers[0]();
+    await sleep(60);
+    assert.equal(disposals, 0, 'no disposal while the second close is still pending');
+    assert.equal(exitFlushCount(), before, 'exit hook kept while a close is outstanding');
+    finishers[1]();
+    await sleep(60);
+    assert.equal(disposals, 1, 'disposal ran exactly once');
+    assert.equal(exitFlushCount(), before - 1);
+    const rows = idx.readRows();
+    assert.equal(rows.exit1?.sessionId, 'exit1');
+    assert.equal(rows.exit2?.sessionId, 'exit2', "the second close's final write reached disk");
+  } finally {
+    f.cleanup();
+    idx.cleanup();
+  }
+});
+test('a synchronous dispose (or none) does not wedge later closes behind a stale disposal slot', async () => {
+  const events = [];
+  const f = fixture({
+    agentTool: {
+      closeAll: () => {},
+      dispose: () => {
+        events.push('dispose');
+      },
+    },
+  });
+  await f.teardown.close('idle-evict', { keepBackgroundWork: true });
+  await f.teardown.close('idle-evict', { keepBackgroundWork: true });
+  assert.deepEqual(events, ['dispose', 'dispose']);
+  f.cleanup();
+  const none = fixture({ agentTool: { closeAll: () => {} } });
+  await none.teardown.close('idle-evict', { keepBackgroundWork: true });
+  await none.teardown.close('cli-exit');
+  none.cleanup();
+});
 test("a non-exit close reaps only this session's work, with notification", async () => {
   const f = fixture();
   await f.teardown.close('dispose', { detach: true });

@@ -7,11 +7,13 @@
  */
 import { SessionClosedError } from '../../runtime/agent/orchestrator/session/manager/session-errors.mjs';
 import { forgetSessionSaveBaseline } from '../../runtime/agent/orchestrator/session/store/save-worker.mjs';
+import { flushAllIndexWrites } from '../services/agent-tool/index-write-queue.mjs';
 import { unregisterLiveSession } from '../../runtime/shared/staged-update.mjs';
 import { abortRuntime, closeCanonicalSession, closeOwnSession, dispatchSessionEnd } from './teardown/session-close.mjs';
 import { settleAll, settleDetached, startRuntimeStops, startWorkStops } from './teardown/runtime-stops.mjs';
 
-const PROCESS_EXIT_REASON = /exit|quit|shutdown|sighup|sigint|sigterm/;
+const CLOSE_ALL_DEADLINE_MS = 5000;
+const PROCESS_EXIT_REASON =/exit|quit|shutdown|sighup|sigint|sigterm/;
 const WARMUP_TIMER_KEYS = [
   'providerSetupWarmupTimer',
   'providerWarmupTimer',
@@ -118,6 +120,45 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
     } catch {}
   }
 
+  // Agent closes that have not settled yet (one per close invocation, kept
+  // past the bounded wait if it overran).
+  const outstandingCloses = new Set();
+
+  /** Persist every queued index write. A close only ever drains: the shared
+   *  indexes stay registered (exit hook included) for the closes still to come. */
+  async function drainIndexWrites() {
+    try {
+      await agentTool.flushIndexWrites?.();
+      await flushAllIndexWrites();
+    } catch {}
+  }
+
+  // The disposal in progress (if any). New closes wait for it before starting
+  // their own closeAll, so no close produces writes while registrations are
+  // being released.
+  let indexDisposal = null;
+
+  /** Release this runtime's per-runtime index registrations (exit callbacks,
+   *  approval writer, store refs) once its drain has completed. Idempotent. A
+   *  drain that cannot complete tears nothing down: the registrations stay until
+   *  a later close drains successfully. Exit flushing itself is process-owned. */
+  function disposeIndexes(settle) {
+    // Assign before disposal runs (deferred), clear on settlement: a synchronous
+    // dispose must not clear the slot before it is assigned.
+    indexDisposal ??= Promise.resolve()
+      .then(async () => {
+        if (typeof agentTool.disposeAsync === 'function') await agentTool.disposeAsync({ settle });
+        else agentTool.dispose?.({ settle });
+      })
+      .catch(() => {
+        /* drain failed: registrations are kept for a later retry */
+      })
+      .finally(() => {
+        indexDisposal = null;
+      });
+    return indexDisposal;
+  }
+
   async function close(reason = 'cli-exit', options = {}) {
     quiesce(reason);
     const scope = teardownScope(reason, options, String(getSession()?.id || ''));
@@ -160,16 +201,40 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
     // memory and must leave workers/rows for the re-materialized owner.
     // Scoped teardown closes only THIS session's workers — the worker index
     // is shared across every Lead in the process.
+    let closing = null;
+    while (indexDisposal) await indexDisposal;
     if (scope.teardownReapsWork) {
+      // Every close runs its OWN scope's closeAll: a scoped close for one Lead
+      // never stands in for a process-wide close. Closing produces final index
+      // writes (settled rows, tombstones); the deadline only bounds how long
+      // teardown waits and does not stop the close.
+      const settled = () => {
+        outstandingCloses.delete(closing);
+      };
+      closing = new Promise((resolve) =>
+        resolve(agentTool.closeAll(reason, scope.scopedTeardown ? { callerSessionId: scope.closingSessionId } : {}))
+      ).then(settled, settled);
+      outstandingCloses.add(closing);
       try {
-        agentTool.closeAll(reason, scope.scopedTeardown ? { callerSessionId: scope.closingSessionId } : {});
+        await withTeardownDeadline(closing, CLOSE_ALL_DEADLINE_MS, false);
       } catch {}
     }
-    // Release the worker/lead index exit registrations (persists pending rows
-    // first). Idempotent, so repeated closes of one runtime dispose once.
-    try {
-      agentTool.dispose?.({ settle: scope.teardownReapsWork === true });
-    } catch {}
+    // Drain after the closes settle, then release this runtime's index
+    // registrations. A close that overran its deadline chains this onto its
+    // settlement (teardown may return before then). The live outstanding set is
+    // re-checked after every wait and drain, so the single disposal runs only
+    // when no close is outstanding; the check and the disposal start share one
+    // tick, and closes admitted afterwards wait for it.
+    const finish = async () => {
+      for (;;) {
+        while (outstandingCloses.size > 0) await Promise.allSettled([...outstandingCloses]);
+        await drainIndexWrites();
+        if (outstandingCloses.size === 0) break;
+      }
+      await disposeIndexes(scope.teardownReapsWork === true);
+    };
+    if (outstandingCloses.size > 0) void finish();
+    else await finish();
     const { ok, stops } = await inOwnLoopTurn(() => {
       const runtimeStops = startRuntimeStops(deps, reason, scope);
       const closed = closeOwnSession(deps, closeSurfaceSession, reason);

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { withFileLock } from '../../../runtime/shared/file-lock.mjs';
 import { flushAllIndexWrites, flushAllIndexWritesSync } from './index-write-queue.mjs';
 import { createLeadIndexFile } from './lead-worker-index/index-file.mjs';
 import { createWorkerRowStore } from './worker-index/row-store.mjs';
@@ -118,6 +119,50 @@ test('flushSync (exit path) persists what is still queued', async () => {
     assert.deepEqual(storedSessionIds(file), ['sess-a']);
     await store.flush();
     assert.deepEqual(storedSessionIds(file), ['sess-a']);
+  } finally {
+    await flushAllIndexWrites();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the exit flush never replays a running persist: a conditional update applies once', async () => {
+  const root = tempRoot();
+  try {
+    const file = join(root, 'agent-workers.json');
+    const store = createWorkerRowStore(file);
+    store.write((byKey) => byKey.set('sess-a', workerRow('sess-a', { clientHostPid: 1 })));
+    await store.flush();
+
+    // This process's own async holder keeps the lock, so the persist job of
+    // the update below is running (blocked on it) when the exit flush fires.
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let locked;
+    const lockTaken = new Promise((resolve) => {
+      locked = resolve;
+    });
+    const holder = withFileLock(`${file}.lock`, async () => {
+      locked();
+      await gate;
+    });
+    await lockTaken;
+
+    // A non-idempotent conditional update: +1 on whatever row it is applied to.
+    store.update((byKey) => {
+      const row = byKey.get('sess-a');
+      if (row) byKey.set('sess-a', { ...row, clientHostPid: row.clientHostPid + 1 });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30)); // the job is running
+    assert.equal(store.flushSync(), false, 'a running persist is left alone');
+    flushAllIndexWritesSync();
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).workers['sess-a'].clientHostPid, 1, 'nothing written yet');
+
+    release();
+    await holder;
+    await store.flush();
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).workers['sess-a'].clientHostPid, 2, 'applied exactly once');
   } finally {
     await flushAllIndexWrites();
     rmSync(root, { recursive: true, force: true });

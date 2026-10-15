@@ -173,7 +173,9 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   function flushWorkerIndexOnExit() {
     batch.flush();
     flushActiveWorkerRows();
-    // Writes are persisted by an async queue; the loop is gone at exit.
+    // Writes are persisted by an async queue; the loop is gone at exit. This
+    // is the best-effort last resort: a persist still running is left alone
+    // (the graceful shutdown path drains before exit).
     store.flushSync();
   }
 
@@ -181,25 +183,62 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   const unregisterExitFlush = registerExitFlush(flushWorkerIndexOnExit);
   const unregisterApprovalWaits = registerApprovalWaitWriter(file, setAwaitingUser);
   let disposed = false;
+  let disposePromise = null;
+
+  function teardown() {
+    unregisterExitFlush();
+    unregisterApprovalWaits();
+    releaseStore();
+  }
+
+  async function drainThenTeardown() {
+    batch.flush();
+    await store.flush();
+    teardown();
+  }
 
   /** Persist queued rows, then release the exit registration. Active rows are
    *  NOT settled: they are keyed by process pid, which every inline runtime in
-   *  the daemon shares, so settling here would idle other runtimes' workers. */
+   *  the daemon shares, so settling here would idle other runtimes' workers.
+   *  When the sync flush cannot run (this process's async writer holds the
+   *  lock) the exit hook and store ref stay until the async drain settles. */
   function dispose() {
     if (disposed) return;
     disposed = true;
+    let flushed = false;
     try {
       batch.flush();
-      store.flushSync();
-    } finally {
-      unregisterExitFlush();
-      unregisterApprovalWaits();
-      releaseStore();
+      flushed = store.flushSync();
+    } catch {}
+    if (flushed) {
+      teardown();
+      return;
     }
+    disposePromise = drainThenTeardown().catch(reopenAfterFailedDrain);
+  }
+
+  /** A failed drain tears nothing down; allow a later dispose to retry it. */
+  function reopenAfterFailedDrain() {
+    disposed = false;
+    disposePromise = null;
+  }
+
+  /** Awaitable dispose: drain everything, then tear down. A failed drain
+   *  rejects and leaves the registrations in place. */
+  function disposeAsync() {
+    if (!disposePromise) {
+      disposed = true;
+      disposePromise = drainThenTeardown().catch((error) => {
+        reopenAfterFailedDrain();
+        throw error;
+      });
+    }
+    return disposePromise;
   }
 
   return {
     dispose,
+    disposeAsync,
     workerIndexPath: () => file,
     invalidateWorkerRowsCache: store.invalidate,
     readAllWorkerRows: store.readAll,

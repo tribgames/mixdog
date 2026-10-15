@@ -89,6 +89,7 @@ import { createLagProfiler } from './daemon-lag-profiler.mjs';
 import { createChannelsRuntimeLoader } from './daemon-channels-loader.mjs';
 import { createDesktopRuntime } from './daemon-desktop-runtime.mjs';
 import { createCanonicalAgentControl } from './daemon-agent-control.mjs';
+import { flushAllIndexWrites } from '../session-runtime/services/agent-tool/index-write-queue.mjs';
 import { registerAutomationAgentTool } from '../session-runtime/automation-agents.mjs';
 import {
   compareRuntimeVersions,
@@ -133,6 +134,7 @@ let sessionTransport = null;
 let sessionService = null;
 let sessionRuntimeHost = null;
 let localSessionBridge = null;
+let canonicalAgentControl = null;
 let memoryRuntime = null;
 let agentDispatchBroker = null;
 let remoteSessionState = { enabled: false, sessionId: null };
@@ -241,6 +243,15 @@ async function shutdown(reason, code = 0) {
     await sessionRuntimeHost?.close?.(reason);
   } catch (e) {
     log(`session runtime host stop failed: ${e?.message || e}`);
+  }
+  // Every runtime is closed: drain the canonical agent's index writers (and any
+  // other queued index write) before process.exit, whose 'exit' hook cannot
+  // finish async work.
+  try {
+    await canonicalAgentControl?.dispose?.();
+    await flushAllIndexWrites();
+  } catch (e) {
+    log(`agent index drain failed: ${e?.message || e}`);
   }
   // Host-side Computer Use workers and target claims are reaped only on an
   // explicit release; the runtime's deferred timer is unref'd and never fires
@@ -849,6 +860,7 @@ async function main() {
     getSessionRuntimeHost: () => sessionRuntimeHost,
     cwd: CWD,
   });
+  canonicalAgentControl = agentControl;
   // Schedules and webhooks run headless here; their sessions reach the same
   // canonical agent control through the automation tool scope.
   registerAutomationAgentTool(agentControl.execute);

@@ -157,6 +157,7 @@ export function createWorkerRowStore(file) {
     flush: queue.flush,
     /** Exit path: persist what is still queued, synchronously. */
     flushSync: queue.flushSync,
+    hasUnpersisted: queue.hasUnpersisted,
     invalidate: () => {
       dirty = true;
     },
@@ -183,7 +184,15 @@ export function acquireWorkerRowStore(file) {
       if (released) return;
       released = true;
       entry.refs -= 1;
-      if (entry.refs === 0 && sharedStores.get(key) === entry) sharedStores.delete(key);
+      const dropIfIdle = () => {
+        if (entry.refs === 0 && !entry.store.hasUnpersisted() && sharedStores.get(key) === entry) {
+          sharedStores.delete(key);
+        }
+      };
+      // A store still holding unpersisted writes stays shared (a new holder
+      // must see them) until its queue drains.
+      if (entry.refs === 0 && entry.store.hasUnpersisted()) entry.store.flush().then(dropIfIdle, () => {});
+      else dropIfIdle();
     },
   };
 }

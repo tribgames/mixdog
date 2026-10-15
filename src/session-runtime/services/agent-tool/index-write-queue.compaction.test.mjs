@@ -68,7 +68,7 @@ for (const synchronous of [false, true]) {
   });
 }
 
-test('process exit preserves both the in-flight and newer pending state', () => {
+test('flushSync refuses while an async job runs, and the drain keeps in-flight and newer state', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-queue-exit-'));
   const file = join(root, 'index.json');
   const moduleUrl = new URL('./index-write-queue.mjs', import.meta.url).href;
@@ -89,7 +89,9 @@ test('process exit preserves both the in-flight and newer pending state', () => 
     void queue.flush();
     queue.write((map) => map.set('worker', { status: 'completed' }));
     queue.write((map) => map.set('other', { status: 'idle' }));
-    process.exit(queue.flushSync() ? 0 : 2);
+    const syncOk = queue.flushSync();
+    await queue.flush();
+    process.exit(syncOk === false ? 0 : 2);
   `;
   try {
     writeFileSync(file, '{}');

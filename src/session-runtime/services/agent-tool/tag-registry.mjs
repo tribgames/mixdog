@@ -39,6 +39,17 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     }
   }
 
+  /** Drain every queued index write (batches included) without disposing. */
+  async function flushIndexWrites() {
+    await Promise.all([index.flushWorkerIndexWrites(), leadIndex.flushLeadWorkerIndexWrites()]);
+  }
+
+  async function disposeAsync(options) {
+    const results = await Promise.allSettled([index.disposeAsync(), leadIndex.disposeAsync(options)]);
+    const failed = results.find((result) => result.status === 'rejected');
+    if (failed) throw failed.reason;
+  }
+
   function getLiveSession(sessionId) {
     if (!sessionId) return null;
     const session = mgr.getSession(sessionId);
@@ -95,6 +106,8 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
 
   return {
     dispose,
+    disposeAsync,
+    flushIndexWrites,
     readAllTagTombstones: index.readAllTagTombstones,
     readTagTombstones: index.readTagTombstones,
     readWorkerRows,

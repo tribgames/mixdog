@@ -15,19 +15,25 @@ export function createRoutedAgentTool({ rt, agentTool, executeAgentControl = nul
       if (typeof executeAgentControl !== 'function') {
         return agentTool.closeAll(reason, scope);
       }
-      void executeAgentControl(
-        {
-          type: '__close_all',
-          reason: String(reason || 'agent owner closed'),
-        },
-        {
-          callerCwd: rt.currentCwd,
-          invocationSource: 'runtime-lifecycle',
-          callerSessionId: scope?.callerSessionId || rt.session?.id || null,
-          clientHostPid: rt.session?.clientHostPid || process.pid,
-        }
-      ).catch(() => {});
-      return undefined;
+      // The promise is returned so teardown can wait for closing to finish
+      // producing its final index writes before it drains them.
+      return Promise.resolve(
+        executeAgentControl(
+          {
+            type: '__close_all',
+            reason: String(reason || 'agent owner closed'),
+          },
+          {
+            callerCwd: rt.currentCwd,
+            invocationSource: 'runtime-lifecycle',
+            callerSessionId: scope?.callerSessionId || rt.session?.id || null,
+            clientHostPid: rt.session?.clientHostPid || process.pid,
+          }
+        )
+      ).then(
+        () => undefined,
+        () => undefined
+      );
     },
   };
   const agentStatusState = () => {

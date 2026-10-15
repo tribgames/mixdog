@@ -68,5 +68,13 @@ export function createCanonicalAgentControl({ getSessionService, getSessionRunti
     return await tool.execute(args, scopedContext);
   }
 
-  return { canonicalAgentTool, execute };
+  /** Graceful shutdown: drain and release the canonical agent's index writers.
+   *  Never builds the tool just to dispose it. */
+  async function dispose() {
+    if (!canonicalAgentToolPromise) return;
+    const tool = await canonicalAgentToolPromise.catch(() => null);
+    await tool?.disposeAsync?.({ settle: true });
+  }
+
+  return { canonicalAgentTool, execute, dispose };
 }
