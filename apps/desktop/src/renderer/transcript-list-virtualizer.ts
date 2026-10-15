@@ -7,27 +7,32 @@ import {
   type VirtualizerOptions,
 } from '@tanstack/react-virtual';
 import { type MutableRefObject, type RefObject, useMemo, useRef } from 'react';
+import { holdsWaitingAskUser } from './ask-user-record';
 import { useTranscriptRowEstimates } from './transcript-list-estimates';
-import { SCROLL_END_THRESHOLD_PX, type TranscriptVirtualizer } from './transcript-list-geometry';
+import { coreScrollState, SCROLL_END_THRESHOLD_PX, type TranscriptVirtualizer } from './transcript-list-geometry';
 import { useProvisionalRowResize } from './transcript-list-provisional-resize';
+import type { TouchScrollDeviation } from './transcript-list-touch-deviation';
 import type { TranscriptRowModel } from './transcript-rows';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 import { TRANSCRIPT_BOTTOM_SPACER, TRANSCRIPT_VIRTUAL_OVERSCAN } from './transcript-virtual-cache';
 
 type TranscriptVirtualizerOptions = VirtualizerOptions<HTMLDivElement, HTMLDivElement>;
 
-/** The live row's index stays in the rendered range however far the reader
- *  scrolls away (see rangeExtractor below). */
+/** The live row's index, and any row holding a question that waits for its
+ *  answer (its card keeps its picks), stay in the
+ *  rendered range however far the reader scrolls away (see rangeExtractor). */
 export function useActiveRowIndexes(rows: readonly TranscriptRowModel[]) {
   const activeIndexesRef = useRef<number[]>([]);
-  const activeIndex = useMemo(() => {
-    let found = -1;
+  const activeIndexes = useMemo(() => {
+    let live = -1;
+    const held: number[] = [];
     rows.forEach((row, index) => {
-      if ('active' in row && row.active) found = index;
+      if ('active' in row && row.active) live = index;
+      if (row._tag === 'ToolActivity' && row.items.some(holdsWaitingAskUser)) held.push(index);
     });
-    return found;
+    return live < 0 || held.includes(live) ? held : [...held, live].sort((a, b) => a - b);
   }, [rows]);
-  activeIndexesRef.current = activeIndex < 0 ? [] : [activeIndex];
+  activeIndexesRef.current = activeIndexes;
   return activeIndexesRef;
 }
 
@@ -51,6 +56,7 @@ export function useTranscriptVirtualizer({
   noteScrollOffset,
   domTop,
   markProgrammaticScrollRef,
+  deviation,
 }: {
   count: number;
   viewport: RefObject<HTMLDivElement | null>;
@@ -67,6 +73,7 @@ export function useTranscriptVirtualizer({
   noteScrollOffset: MutableRefObject<(top: number) => void>;
   domTop: MutableRefObject<number | null>;
   markProgrammaticScrollRef: MutableRefObject<((top: number, intended?: number) => void) | undefined>;
+  deviation: TouchScrollDeviation;
 }) {
   const {
     timelineWidth,
@@ -144,8 +151,8 @@ export function useTranscriptVirtualizer({
         cb(rect);
         if (rect.height !== previous) requestEndPin();
       }),
-    observeElementOffset: observeTranscriptOffset(noteScrollOffset, domTop),
-    scrollToFn: transcriptScrollTo({ viewport, spacer, domTop, markProgrammaticScrollRef, requestEndPin }),
+    observeElementOffset: observeTranscriptOffset(noteScrollOffset, domTop, deviation),
+    scrollToFn: transcriptScrollTo({ viewport, spacer, domTop, markProgrammaticScrollRef, requestEndPin, deviation }),
   });
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
@@ -166,15 +173,17 @@ export function useTranscriptVirtualizer({
  *  carries the offset as last observed OR written. */
 function observeTranscriptOffset(
   noteScrollOffset: MutableRefObject<(top: number) => void>,
-  domTop: MutableRefObject<number | null>
+  domTop: MutableRefObject<number | null>,
+  deviation: TouchScrollDeviation
 ): TranscriptVirtualizerOptions['observeElementOffset'] {
   return (instance, cb) => {
     const element = instance.scrollElement;
     if (!element) return undefined;
     let idle = 0;
     const onScroll = () => {
-      // The one offset read per scroll event.
-      const top = element.scrollTop;
+      // The one offset read per scroll event. A correction held during a
+      // touch scroll shifts the rows, so the logical offset carries it.
+      const top = element.scrollTop + deviation.amount();
       noteScrollOffset.current(top);
       cb(top, true);
       window.clearTimeout(idle);
@@ -196,12 +205,14 @@ function transcriptScrollTo({
   domTop,
   markProgrammaticScrollRef,
   requestEndPin,
+  deviation,
 }: {
   viewport: RefObject<HTMLDivElement | null>;
   spacer: RefObject<HTMLDivElement | null>;
   domTop: MutableRefObject<number | null>;
   markProgrammaticScrollRef: MutableRefObject<((top: number, intended?: number) => void) | undefined>;
   requestEndPin: () => void;
+  deviation: TouchScrollDeviation;
 }): TranscriptVirtualizerOptions['scrollToFn'] {
   return (offset, options, instance: TranscriptVirtualizer) => {
     if (instance.options.anchorTo === 'end' || instance.options.followOnAppend) {
@@ -213,6 +224,19 @@ function transcriptScrollTo({
       return;
     }
     if (spacer.current) spacer.current.style.height = `${instance.getTotalSize()}px`;
+    const intended = offset + (options?.adjustments ?? 0);
+    // A measured-size correction during a touch scroll moves the rows, never
+    // the native offset (see transcript-list-touch-deviation). Navigation
+    // writes carry no adjustment and always land natively.
+    if (options?.adjustments && options.behavior !== 'smooth' && deviation.hold(intended)) {
+      coreScrollState(instance)._intendedScrollOffset = null;
+      domTop.current = intended;
+      if (transcriptScrollDiagnosticsEnabled()) {
+        logTranscriptScroll('touch-hold', { offset, adjust: options.adjustments, held: deviation.amount() });
+      }
+      return;
+    }
+    deviation.drop();
     // Reading scrollTop right after the spacer write — and again after the
     // core write — forces a synchronous layout of the whole virtual list on
     // every programmatic scroll. Resolve those reads only when diagnostics
@@ -232,7 +256,6 @@ function transcriptScrollTo({
     // smooth write only reaches later) so the follow hook can tell this
     // write apart from a reader scroll.
     const element = viewport.current;
-    const intended = offset + (options?.adjustments ?? 0);
     // The write above already laid out; this read is free.
     const landed = element ? element.scrollTop : intended;
     domTop.current = landed;

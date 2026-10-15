@@ -236,6 +236,14 @@
 .mixdog-settings-v2 .settings-resource > div:first-child {
   flex: none;
 }
+/* Narrow window or phone: the fixed 160-280px value column above loads after
+   settings.css and took the whole row, squeezing every label to 0px. Restore
+   the narrow layout's 45% value column so the label keeps the rest. */
+@media (max-width: 640px) {
+  .mixdog-settings-v2 :is(.mixdog-settings__row, .settings-form-row, .settings-resource) {
+    grid-template-columns: minmax(0, 1fr) var(--settings-narrow-value-column);
+  }
+}
 .mixdog-settings-v2 .settings-form-controls,
 .mixdog-settings-v2 .settings-resource-control {
   width: 100%;
@@ -396,7 +404,7 @@
 .settings-form-controls input,
 .core-memory-edit input,
 .settings-provider-secret input,
-.settings-custom-provider-form input,
+.settings-custom-provider-form input:not([type="checkbox"]),
 .settings-custom-provider-form select,
 .settings-oauth-code input,
 .settings-oauth-url textarea {
@@ -423,6 +431,42 @@
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
 }
+.settings-custom-provider-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings-custom-provider-key-row:not(:first-child) {
+  margin-top: 6px;
+}
+.settings-custom-provider-key-row > label {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+}
+.settings-custom-provider-form > input.settings-custom-provider-env {
+  font-family: var(--mx-font-mono);
+  font-size: 13px;
+}
+.settings-custom-provider-form > input.settings-custom-provider-env[aria-invalid="true"] {
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-danger);
+}
+.settings-custom-provider-hint {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+.settings-custom-provider-hint.ok {
+  color: var(--mx-success);
+}
+.settings-custom-provider-hint.warn {
+  color: var(--mx-warning);
+}
+.settings-custom-provider-hint code {
+  font-family: var(--mx-font-mono);
+  font-size: 12px;
+}
 .settings-oauth-dialog.settings-custom-provider-dialog {
   width: min(520px, calc(100vw - 32px));
 }
@@ -435,7 +479,7 @@
 }
 .settings-form-controls input:focus,
 .core-memory-edit input:focus,
-.settings-custom-provider-form input:focus,
+.settings-custom-provider-form input:not([type="checkbox"]):focus,
 .settings-provider-secret input:focus {
   outline-color: var(--mx-focus);
   box-shadow: none;

@@ -8,6 +8,12 @@ import { ACCOUNT_PROVIDERS, providerAccountPath, readProviderAccountPool } from 
 import { AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey } from './provider-api-key.mjs';
 import { platformEntryKey } from './native-asset.mjs';
 import { clean } from './clean.mjs';
+import { MODEL_PROXY_ENV, modelProxyClientMode } from './model-proxy-mode.mjs';
+import { installModelProxyChannel } from '../agent/orchestrator/providers/model-proxy-channel.mjs';
+import {
+  ModelProxyBridgeChannel,
+  readModelProxyBridgeDiscovery,
+} from '../agent/orchestrator/providers/model-proxy-bridge.mjs';
 
 const contractPath = fileURLToPath(new URL('./pristine-execution-contract.json', import.meta.url));
 
@@ -205,6 +211,12 @@ export function createPristineExecutionBoundary({
 
   const contract = PRISTINE_EXECUTION_CONTRACT;
   const hostEnv = { ...env };
+  // Remote (SSH) mode: this server holds no model credentials, so the child
+  // runtime's model calls go through the daemon's model proxy bridge. Its
+  // endpoint is read from the HOST runtime root, before it is retargeted
+  // below; a missing or stale one fails closed (never a local credential).
+  const proxyMode = modelProxyClientMode(hostEnv);
+  const bridgeEndpoint = proxyMode ? readModelProxyBridgeDiscovery(hostEnv.MIXDOG_RUNTIME_ROOT) : null;
   const originalEnv = new Map();
   const touchedKeys = new Set();
   const rememberEnv = (name) => {
@@ -227,6 +239,8 @@ export function createPristineExecutionBoundary({
   mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 });
   let cleaned = false;
   let restoreAuthBindings = () => {};
+  let bridgeChannel = null;
+  let restoreModelProxyChannel = () => {};
   // rmSync backs off linearly (retryDelay × attempt), so 50 retries at 100ms
   // is a ≈128s budget per attempt. Callers whose result is already complete
   // (headless exec) pass a smaller budget and leave stragglers to the sweep.
@@ -238,6 +252,8 @@ export function createPristineExecutionBoundary({
       else env[name] = value;
     }
     restoreAuthBindings();
+    restoreModelProxyChannel();
+    bridgeChannel?.dispose('the headless run finished');
     const removal = { recursive: true, force: true, maxRetries: rootRemovalRetries, retryDelay: 100 };
     // Windows releases file handles (pg.log, sockets) a beat after the owning
     // process exits; rmSync retries absorb that EBUSY/EPERM window.
@@ -280,7 +296,7 @@ export function createPristineExecutionBoundary({
     const oauth = contract.oauthProviders[selectedProvider];
     const apiKeyEnv = contract.apiKeyProviders[selectedProvider];
     let selectedApiKey = null;
-    if (apiKeyEnv) {
+    if (apiKeyEnv && !proxyMode) {
       // Resolve before scrubbing so the selected provider may use its standard,
       // MIXDOG_AGENT_*, alias, or one provider-scoped keychain account. No
       // general config loader or all-provider credential scan is involved.
@@ -311,7 +327,15 @@ export function createPristineExecutionBoundary({
 
     let authMode = 'provider-managed';
     let catalogCount = 0;
-    if (oauth) {
+    if (proxyMode) {
+      // No API key, OAuth account or credential binding: the PC behind the
+      // daemon runs every call. The runtime root stays the pristine one, for
+      // the services this run owns; only model calls reach the daemon.
+      setEnv(MODEL_PROXY_ENV, 'client');
+      bridgeChannel = new ModelProxyBridgeChannel(bridgeEndpoint);
+      restoreModelProxyChannel = installModelProxyChannel(bridgeChannel);
+      authMode = 'model-proxy-bridge';
+    } else if (oauth) {
       // Sign-in writes the selected account of the host's provider-accounts
       // pool; the single legacy file remains for hosts that predate the pool.
       // An explicit credential path still overrides both. Read the pool from
@@ -340,8 +364,8 @@ export function createPristineExecutionBoundary({
         [selectedProvider]: sourceCredential,
       });
       authMode = 'in-process-host-oauth-binding';
-      const sourceCatalog = join(sourceDataDir, oauth.modelCatalogFile);
-      if (oauth.modelCatalogFile && existsSync(sourceCatalog)) {
+      const sourceCatalog = oauth.modelCatalogFile && join(sourceDataDir, oauth.modelCatalogFile);
+      if (sourceCatalog && existsSync(sourceCatalog)) {
         copyFileSync(sourceCatalog, join(dataDir, oauth.modelCatalogFile));
         catalogCount = 1;
       }

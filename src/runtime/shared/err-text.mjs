@@ -180,9 +180,34 @@ export function isCancelLikeError(error) {
   );
 }
 
+// One-line reason per provider kind. Fixed sentences (optionally with a
+// parenthesised value) are the renderer's translation keys.
+const KIND_LINES = {
+  overloaded: 'Provider is busy at capacity.',
+  rate_limited: ({ retryAfterMs }) =>
+    retryAfterMs ? `Provider is rate-limited (retry in ${formatDurationMs(retryAfterMs)}).` : 'Provider is rate-limited.',
+  quota_exhausted: 'Provider usage limit reached.',
+  entitlement: 'Not included in your plan.',
+  billing: 'Out of credits or at spend limit.',
+  permission: 'Access denied by the provider.',
+  policy: 'Refused by the provider safety policy.',
+  auth: 'Provider authentication failed.',
+};
+
+// Typed evidence: a persisted descriptor or structured status/code fields.
+// A bare message carries none, so its wording keeps the legacy text path.
+function hasTypedEvidence(error) {
+  if (!error || typeof error !== 'object') return false;
+  return Boolean(error.errorKind?.kind) || errorHttpStatus(error) > 0 || Boolean(error.code) || Boolean(error.retryAfterMs);
+}
+
 export function presentErrorText(error, options = {}) {
   const presentation = describeError(error);
   if (['image-size', 'payload-size', 'request'].includes(presentation.kind)) return presentation.summary;
+  const kindLine = hasTypedEvidence(error) ? KIND_LINES[presentation.providerKind] : null;
+  if (kindLine && presentation.kind !== 'unknown') {
+    return typeof kindLine === 'function' ? kindLine(presentation) : kindLine;
+  }
   const surface = options.surface || options.tool || '';
   const subject = subjectForSurface(surface);
   const max = options.max ?? 240;

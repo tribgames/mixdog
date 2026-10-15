@@ -196,6 +196,7 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
     runInBackground: boolean,
     turnNotifications: boolean,
     usagePinned: boolean,
+    usageRailShortLong: boolean,
     computerObserveOnly: boolean,
     notificationVolume: {
       type: 'integer',

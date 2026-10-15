@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import type { DesktopSessionContentMatch, DesktopSessionSummary } from '../shared/contract';
 import { t } from './i18n';
 import { acquireModalLayer } from './modal-layer';
+import { useMobileBack } from './mobile-back';
 import { sessionLabel } from './session-sidebar-rows';
 import {
   SESSION_SEARCH_OPEN_EVENT,
@@ -39,6 +40,7 @@ function SessionSearchDialog({ sessions, onOpenSession, onClose }: SessionSearch
   const listRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  useMobileBack(true, onClose);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [rowLimit, setRowLimit] = useState(PAGE_ROWS);

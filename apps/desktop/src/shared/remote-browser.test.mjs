@@ -100,6 +100,35 @@ test('remote browser controls admit only bounded navigation and document-bound h
   );
 });
 
+test('a dialog answer is admitted for the shown document only, bounded like the pane\'s', () => {
+  const documentId = 'p2:17';
+  assert.deepEqual(
+    normalizeRemoteBrowserControl({ type: 'answer-dialog', documentId, requestId: 'leave_3', accept: true, extra: 1 }),
+    { type: 'answer-dialog', documentId, requestId: 'leave_3', accept: true, promptText: undefined }
+  );
+  assert.deepEqual(
+    normalizeRemoteBrowserControl({
+      type: 'answer-dialog',
+      documentId,
+      requestId: 'prompt_1',
+      accept: true,
+      promptText: 'name',
+      keepDefault: true,
+    }),
+    { type: 'answer-dialog', documentId, requestId: 'prompt_1', accept: true, promptText: 'name', keepDefault: true }
+  );
+  for (const bad of [
+    { documentId: undefined },
+    { requestId: '' },
+    { accept: 'yes' },
+    { promptText: 'x'.repeat(2_001) },
+  ]) {
+    assert.throws(() =>
+      normalizeRemoteBrowserControl({ type: 'answer-dialog', documentId, requestId: 'leave_3', accept: false, ...bad })
+    );
+  }
+});
+
 test('a viewport control carries only a bounded integer size and device scale', () => {
   assert.deepEqual(
     normalizeRemoteBrowserControl({ type: 'viewport', width: 390, height: 780, deviceScaleFactor: 2.625, extra: 1 }),

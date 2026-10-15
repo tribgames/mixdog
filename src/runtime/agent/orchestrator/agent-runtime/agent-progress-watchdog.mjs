@@ -59,6 +59,25 @@ function assistantMessageText(content) {
     .join('\n');
 }
 
+// Visible assistant text inside a providerReplay envelope. Item shapes by
+// provider: anthropic `{type:'text',text}`; openai/xai responses
+// `{type:'message',content:[{type:'output_text',text}]}`; gemini/antigravity
+// parts `{text}` (reasoning is `{thought:true,text}`). Reasoning/thinking and
+// tool items are skipped.
+function replayItemText(item) {
+  if (!item || typeof item !== 'object') return '';
+  if (item.type === 'message') return assistantMessageText(item.content);
+  if (item.type === 'text' || item.type === 'output_text' || (item.type === undefined && item.thought !== true)) {
+    return typeof item.text === 'string' ? item.text : '';
+  }
+  return '';
+}
+
+function providerReplayText(replay) {
+  const items = Array.isArray(replay?.items) ? replay.items : [];
+  return items.map(replayItemText).filter(Boolean).join('\n');
+}
+
 /** Message index at askSession start — salvage only assistant rows appended this run. */
 export function resolveHandoffMessageStartIndex(session) {
   const messages = Array.isArray(session?.messages) ? session.messages : [];
@@ -72,7 +91,8 @@ function collectSessionAssistantHandoffText(session, messageStartIndex = 0) {
   for (let i = start; i < messages.length; i += 1) {
     const m = messages[i];
     if (m?.role !== 'assistant') continue;
-    const t = assistantMessageText(m.content).trim();
+    const contentText = assistantMessageText(m.content).trim();
+    const t = contentText || providerReplayText(m.providerReplay).trim();
     if (t && t !== '.') parts.push(t);
   }
   return parts.length ? parts.join('\n\n') : '';
@@ -80,9 +100,14 @@ function collectSessionAssistantHandoffText(session, messageStartIndex = 0) {
 
 export function watchdogPartialHandoffFromError(error, session, messageStartIndex = 0) {
   if (!isAgentProgressWatchdogAbortError(error)) return null;
-  // A canonical agent turn cannot expose its live transcript here, so it
-  // reads the text itself and carries it on the stall error.
-  if (typeof error.partialHandoff === 'string') return error.partialHandoff;
+  return turnPartialHandoff(error, session, messageStartIndex);
+}
+
+/** Assistant text a stopped turn produced before it stopped. A canonical agent
+ *  turn cannot expose its live transcript here, so it reads the text itself
+ *  and carries it on the turn's error. */
+export function turnPartialHandoff(error, session, messageStartIndex = 0) {
+  if (typeof error?.partialHandoff === 'string') return error.partialHandoff;
   return partialHandoffTextFromSession(session, messageStartIndex);
 }
 

@@ -25,6 +25,9 @@ const EFFORT_OPTIONS_BY_PROVIDER = {
   // xAI Grok 4.6+: low/medium/high/xhigh. Reasoning cannot be disabled.
   xai: ['low', 'medium', 'high', 'xhigh'],
   'mimo-oauth': ['minimal', 'low', 'medium', 'high'],
+  // Command Code relays several vendors over Chat Completions; the common
+  // `reasoning_effort` levels are the fallback when no catalog row declares any.
+  'command-code-oauth': ['low', 'medium', 'high'],
 };
 const EFFORT_BY_FAMILY = {
   opus: ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -109,6 +112,21 @@ function catalogEffortOptions(provider, model) {
     return [...EFFORT_BY_FAMILY[family]];
   }
   return providerAllowed ? [...providerAllowed] : [];
+}
+
+const warnedEmptyLadders = new Set();
+
+/**
+ * Auto effort skipped a judgment because the base is off the model's ladder.
+ * A user-chosen max/ultra is expected to skip; any other base means the route
+ * has no usable ladder, so say so once per provider/model per process.
+ */
+export function warnEmptyAutoEffortLadder(provider, model, base) {
+  if (base === 'max' || base === 'ultra') return;
+  const key = `${provider}/${model}`;
+  if (warnedEmptyLadders.has(key)) return;
+  warnedEmptyLadders.add(key);
+  process.stderr.write(`[auto-effort] no effort ladder for ${key}; judge skipped\n`);
 }
 
 export function coerceEffortFor(provider, model, effort) {

@@ -252,7 +252,7 @@ export function dropRejectedGeminiCache(cachedContent, opts) {
 // the model-specific minimum. Skip the POST entirely when the estimate
 // is under threshold so we don't spam 400 responses turn-after-turn.
 export function geminiPrefixBelowMinimum({ model, systemInstruction, geminiTools, contents, opts, currentIter }) {
-  const minTokens = _geminiCacheMinTokens(model);
+  const minTokens = _geminiCacheMinTokens();
   const estimatedTokens = _estimateGeminiCacheTokens(systemInstruction, geminiTools, contents);
   if (estimatedTokens >= minTokens) return false;
   traceGeminiCache(opts, currentIter, 'gemini_cache_skip', {

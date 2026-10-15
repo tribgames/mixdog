@@ -218,20 +218,23 @@ function wireWebhookHandlers() {
   webhookServer.setEventPipeline(eventPipeline);
   // Webhook fires run as sessions (schedules parity); the Automations
   // session row is the only surface (channel relay retired).
-  webhookServer.setBridgeDispatch(async ({ prompt, model, cwd, workflow, attachments, context, signal }) => {
-    const { runWebhookSession } = await import('../../../session-runtime/webhook-session-run.mjs');
-    const run = await runWebhookSession({
-      name: context?.endpoint || 'webhook',
-      model: model || null,
-      cwd: cwd || null,
-      workflow: workflow || null,
-      attachments: attachments || null,
-      // Dispatch-timeout cancellation only works if the signal reaches the run.
-      signal: signal || null,
-      prompt,
-    });
-    return run;
-  });
+  webhookServer.setBridgeDispatch(
+    async ({ prompt, skillSelection, model, cwd, workflow, attachments, context, signal }) => {
+      const { runWebhookSession } = await import('../../../session-runtime/webhook-session-run.mjs');
+      const run = await runWebhookSession({
+        name: context?.endpoint || 'webhook',
+        model: model || null,
+        cwd: cwd || null,
+        workflow: workflow || null,
+        attachments: attachments || null,
+        // Dispatch-timeout cancellation only works if the signal reaches the run.
+        signal: signal || null,
+        prompt,
+        skillSelection,
+      });
+      return run;
+    }
+  );
 }
 function wireEventQueueHandlers(eventQueue) {
   if (!eventQueue) return;

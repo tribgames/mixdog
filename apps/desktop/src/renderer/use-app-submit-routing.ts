@@ -1,4 +1,4 @@
-import { useCallback, useRef, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import type {
   DesktopPromptContent,
   DesktopSessionSummary,
@@ -80,6 +80,15 @@ export function useAppSubmitRouting({
       settle(sessionId);
     };
   };
+  // Drafts whose session is minted; their mapping is retired once the draft tab leaves every pane.
+  const endedDrafts = useRef(new Set<string>());
+  useEffect(() => {
+    for (const draftKey of endedDrafts.current) {
+      if (paneLeavesRef.current.some((leaf) => leaf.tabs.some((tab) => navigationKey(tab) === draftKey))) continue;
+      endedDrafts.current.delete(draftKey);
+      draftSubmissions.current.delete(draftKey);
+    }
+  });
   // biome-ignore lint/correctness/useExhaustiveDependencies: refs and stable setters are read at call time; the listed callbacks are the only inputs that change the identity
   const submitFromRoute = useCallback(
     async (route: SubmitRoute, content: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<unknown> => {
@@ -115,23 +124,21 @@ export function useAppSubmitRouting({
         // The draft's "Worktree" choice rides with its first prompt; it is
         // given back when the task was not started, so a retry keeps it.
         try {
-          const result = (await sendDraftWithWorktreeIntent(
-            draftPrefsKey,
-            (choice) =>
-              host.submitNewTask(content, options, {
-                ...(submittedProjectPath ? { projectPath: submittedProjectPath } : {}),
-                ...(draftPrefs?.modelSelection ? { route: draftPrefs.modelSelection } : {}),
-                ...(draftPrefs?.workflow?.id ? { workflowId: draftPrefs.workflow.id } : {}),
-                ...(draftPrefs?.orchestrationMode ? { orchestrationMode: draftPrefs.orchestrationMode } : {}),
-                ...(choice ? { worktree: choice } : {}),
-              })
+          const result = (await sendDraftWithWorktreeIntent(draftPrefsKey, (choice) =>
+            host.submitNewTask(content, options, {
+              ...(submittedProjectPath ? { projectPath: submittedProjectPath } : {}),
+              ...(draftPrefs?.modelSelection ? { route: draftPrefs.modelSelection } : {}),
+              ...(draftPrefs?.workflow?.id ? { workflowId: draftPrefs.workflow.id } : {}),
+              ...(draftPrefs?.orchestrationMode ? { orchestrationMode: draftPrefs.orchestrationMode } : {}),
+              ...(choice ? { worktree: choice } : {}),
+            })
           )) ?? { accepted: false, sessionId: '', snapshot: null };
           accepted = result.accepted;
           startedSessionId = result.accepted ? String(result.sessionId || '') : '';
           if (result.accepted && !startedSessionId) {
             throw new Error('New task submission was accepted without a session id.');
           }
-          if (result.accepted && startedSessionId) {
+          if (startedSessionId) {
             const resultSessionId = String(asRecord(result.snapshot)?.sessionId || '');
             if (resultSessionId !== startedSessionId) {
               throw new Error('New task session returned a mismatched session snapshot.');
@@ -186,6 +193,17 @@ export function useAppSubmitRouting({
             }
           }
         }
+      }
+      // The draft ends here: promoted to its session, or closed in flight.
+      // `new:default` recurs (every emptied workspace reopens it), so a later
+      // draft under the same key must mint its own session instead of joining
+      // this one (user: 탭 다 닫고 남은 새 작업에서 입력하면 이전 세션으로 감).
+      // The mapping stays while the draft tab is still on screen, so a retained
+      // draft callback keeps routing to its session; it is retired once the tab
+      // is gone (immediately if already closed, else by the effect above).
+      if (startedSessionId) {
+        if (draftRouteStillExists()) endedDrafts.current.add(draftKey);
+        else draftSubmissions.current.delete(draftKey);
       }
       return accepted;
     },

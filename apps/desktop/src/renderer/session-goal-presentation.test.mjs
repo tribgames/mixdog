@@ -129,17 +129,42 @@ test('collapsed trigger shows minute-format time and finished glyphs', async () 
   }
 });
 
-test('task pips count every task but dropped ones, and long lists fall back to the bar', async () => {
+test('task progress is five fixed cells: the finished share, then the work in hand', async () => {
   const task = (status, index) => ({ id: `t${index}`, text: `Task ${index}`, status });
   const few = [task('completed', 1), task('in_progress', 2), task('dropped', 3), task('awaiting_approval', 4)];
+  // Dropped work is not counted, and the answer the user owes outranks work in hand.
   assert.deepEqual(goalTaskProgress({ tasks: few, tasksTotal: 4 }), {
     completed: 1,
     total: 3,
-    pips: ['completed', 'in_progress', 'awaiting_approval'],
+    pips: ['completed', 'awaiting_approval', 'pending', 'pending', 'pending'],
   });
-  const many = Array.from({ length: 9 }, (_, index) => task('pending', index));
-  assert.equal(goalTaskProgress({ tasks: many, tasksTotal: 9 }).pips, null);
-  assert.equal(goalTaskProgress({ tasks: [], tasksTotal: 4, tasksCompleted: 2 }).total, 4);
+  const twenty = Array.from({ length: 20 }, (_, index) => task(index < 13 ? 'completed' : 'pending', index));
+  twenty[13].status = 'in_progress';
+  assert.deepEqual(goalTaskProgress({ tasks: twenty, tasksTotal: 20 }).pips, [
+    'completed',
+    'completed',
+    'completed',
+    'in_progress',
+    'pending',
+  ]);
+  // Only a finished list fills every cell: 19 of 20 rounds down to four.
+  for (const row of twenty.slice(13, 19)) row.status = 'completed';
+  assert.deepEqual(goalTaskProgress({ tasks: twenty, tasksTotal: 20 }).pips, [
+    'completed',
+    'completed',
+    'completed',
+    'completed',
+    'pending',
+  ]);
+  twenty[19].status = 'completed';
+  assert.deepEqual(goalTaskProgress({ tasks: twenty, tasksTotal: 20 }).pips, Array(5).fill('completed'));
+  // A summary count alone still fills its share; no tasks fill nothing.
+  assert.deepEqual(goalTaskProgress({ tasks: [], tasksTotal: 4, tasksCompleted: 2 }), {
+    completed: 2,
+    total: 4,
+    pips: ['completed', 'completed', 'pending', 'pending', 'pending'],
+  });
+  assert.deepEqual(goalTaskProgress({ tasks: [] }).pips, Array(5).fill('pending'));
   assert.equal(goalStateKind({ status: 'paused', pauseReason: 'waiting' }, 'paused'), 'waiting');
   assert.equal(goalStateKind({ status: 'usage_limited' }, 'usage_limited'), 'blocked');
 
@@ -158,14 +183,17 @@ test('task pips count every task but dropped ones, and long lists fall back to t
       );
     });
     const trigger = host.querySelector('.session-goal-trigger');
-    assert.equal(trigger.getAttribute('aria-label'), t('Goal: {{objective}}, {{status}}, {{completed}} of {{total}} tasks done', {
-      objective: 'Ship it',
-      status: t('Blocked'),
-      completed: 1,
-      total: 3,
-    }));
+    assert.equal(
+      trigger.getAttribute('aria-label'),
+      t('Goal: {{objective}}, {{status}}, {{completed}} of {{total}} tasks done', {
+        objective: 'Ship it',
+        status: t('Blocked'),
+        completed: 1,
+        total: 3,
+      })
+    );
     assert.equal(trigger.querySelector('.session-goal-objective').textContent, t('Blocked'));
-    assert.equal(trigger.querySelectorAll('.session-goal-pips > i').length, 3);
+    assert.equal(trigger.querySelectorAll('.session-goal-pips > i').length, 5);
     assert.equal(host.querySelector('.session-goal-badge[data-tone="blocked"]').textContent, t('Blocked'));
     assert.equal(host.querySelector('.session-goal-badge[data-tone="waiting"]').textContent, t('Needs your answer'));
   } finally {

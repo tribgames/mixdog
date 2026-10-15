@@ -22,6 +22,7 @@ import {
   setCell,
 } from './editor-delimited';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 
 type Row = string[];
 interface Loaded {
@@ -305,6 +306,7 @@ function GridContextMenu({
   items: Array<{ label: string; run(): void; column?: boolean }>;
   onClose(): void;
 }) {
+  useMobileBack(true, onClose);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && onClose();
     window.addEventListener('pointerdown', onClose);

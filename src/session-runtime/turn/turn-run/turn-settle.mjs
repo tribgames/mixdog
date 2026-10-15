@@ -28,6 +28,8 @@ export function createTurnSettlement({
   setFirstTurnCompleted,
   scheduleProviderWarmup,
   scheduleProviderModelWarmup,
+  takePendingCompact,
+  runPendingCompact,
 }) {
   async function completeTurn(turn, session0, result) {
     throwIfAborted(turn.signal);
@@ -99,6 +101,14 @@ export function createTurnSettlement({
       /* lead pool must never break turn teardown */
     }
     setActiveTurnCount(Math.max(0, getActiveTurnCount() - 1));
+    // A compaction the model scheduled (session tool) runs once the turn is over.
+    // Only while the settled session is still the live one; otherwise it stays
+    // pending for that session and never compacts another. The runner chains
+    // the compaction so the next turn waits on it.
+    const settledId = turn.session0?.id;
+    if (getActiveTurnCount() === 0 && settledId && getSession()?.id === settledId && takePendingCompact?.(settledId)) {
+      runPendingCompact?.(settledId);
+    }
     if (!isFirstTurnCompleted()) {
       setFirstTurnCompleted(true);
       scheduleProviderWarmup();

@@ -19,7 +19,7 @@
 // Every call is idempotent (the first terminal state wins, so the outer reject
 // path cannot double-notify) and absorbs its own errors, so reporting on a
 // turn can never break the turn.
-import { reconcileBackgroundTask } from '../../../runtime/shared/background-tasks.mjs';
+import { reconcileBackgroundTask, settleCancelledBackgroundTask } from '../../../runtime/shared/background-tasks.mjs';
 
 function reconcileJobTerminalResult(job, value) {
   if (!job?.taskId) return;
@@ -50,6 +50,8 @@ export function terminalResultHook({ job, turnReview, completionValue, notifyEar
     turnReview.complete();
     const value = completionValue(terminalResult);
     job._terminalResultValue = value;
+    // A cancelled job reports once, as `cancelled`, when its turn settles.
+    if (job.status === 'cancelled') return;
     notifyEarly(job, value, notifyContext || {});
     reconcileJobTerminalResult(job, value);
   };
@@ -64,6 +66,16 @@ export function reconcileJobWatchdogPartial(job, value) {
       result: value,
       terminalReason: 'agent-watchdog-partial',
     });
+  } catch {}
+}
+
+/** The cancelled turn stopped: deliver the owner's single `cancelled`
+ *  notification, carrying the output the turn produced before it stopped
+ *  (header-only when it produced none). */
+export function reconcileJobCancelled(job, value) {
+  if (!job?.taskId) return;
+  try {
+    settleCancelledBackgroundTask(job.taskId, value?.content ? { result: value } : {});
   } catch {}
 }
 

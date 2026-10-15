@@ -26,7 +26,7 @@ test('channel inbound submits directly to its pinned session without a UI client
     {
       sessionId: 'sess_linked',
       prompt: 'answer discord inbound',
-      options: { source: 'channel' },
+      options: { source: 'channel', mode: 'task-notification' },
     },
   ]);
 });

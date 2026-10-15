@@ -1,0 +1,113 @@
+{
+    "id": "8fda4380-e4ff-4ae9-aad8-422d88c8ceda",
+    "task_name": "terminal-bench/model-extraction-relu-logits",
+    "trial_name": "model-extraction-relu-logits__ZY6tbJe",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-sol61-20261015-052653/2026-10-15__14-26-57/model-extraction-relu-logits__ZY6tbJe",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "model-extraction-relu-logits",
+        "ref": "sha256:1ae5045ad68b5d34c3398b612066a07c4a08b6dc330d28868ec4021e17c94b17"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "8b3048320aa04676089f9240563c2d7d381be03d8810bcf5f5d336cab538f523",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/model-extraction-relu-logits",
+            "ref": "sha256:1ae5045ad68b5d34c3398b612066a07c4a08b6dc330d28868ec4021e17c94b17",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "model-extraction-relu-logits__ZY6tbJe",
+        "trials_dir": "C:\\Project\\mixdog\\benchmarks\\terminal-bench-2.1\\jobs-full-sol61-20261015-052653\\2026-10-15__14-26-57",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.mixdog_agent:MixdogAgent",
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "effort_judge": "steps",
+                "route_profile": "sol61-xhigh"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "a6bcb92a-ff34-47c2-8f3e-5d85fa19be62"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-1.2.2",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": 55018,
+        "n_cache_tokens": 34304,
+        "n_output_tokens": 4005,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-10-15T05:32:15.959738Z",
+    "finished_at": "2026-10-15T05:35:34.341647Z",
+    "environment_setup": {
+        "started_at": "2026-10-15T05:32:16.002312Z",
+        "finished_at": "2026-10-15T05:32:17.997098Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-10-15T05:32:17.997115Z",
+        "finished_at": "2026-10-15T05:32:29.723175Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-10-15T05:32:29.723222Z",
+        "finished_at": "2026-10-15T05:35:02.144235Z"
+    },
+    "verifier": {
+        "started_at": "2026-10-15T05:35:02.145050Z",
+        "finished_at": "2026-10-15T05:35:22.787282Z"
+    },
+    "step_results": null
+}

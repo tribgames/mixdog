@@ -7,10 +7,19 @@
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { readJsonSafe } from './json-file.mjs';
 
-/** `.codex-plugin/plugin.json` wins over a root-level `plugin.json`; a plugin
- *  without either is an empty manifest, never an error. */
+/** Manifest files in precedence order: `.codex-plugin/plugin.json`, a
+ *  root-level `plugin.json`, then Claude Code's `.claude-plugin/plugin.json`. */
+export const PLUGIN_MANIFEST_FILES = ['.codex-plugin/plugin.json', 'plugin.json', '.claude-plugin/plugin.json'];
+
+/** First readable manifest in `PLUGIN_MANIFEST_FILES` order; a plugin without
+ *  any is an empty manifest, never an error. A Claude Code manifest's `skills`
+ *  is a plugin-relative path (e.g. `./.claude/skills/`). */
 export function pluginManifest(root) {
-  return readJsonSafe(join(root, '.codex-plugin', 'plugin.json')) || readJsonSafe(join(root, 'plugin.json')) || {};
+  for (const rel of PLUGIN_MANIFEST_FILES) {
+    const manifest = readJsonSafe(join(root, ...rel.split('/')));
+    if (manifest) return manifest;
+  }
+  return {};
 }
 
 /** Resolve a manifest-relative path, refusing absolute paths and anything
@@ -21,22 +30,22 @@ export function resolveContainedPluginPath(root, rel) {
   const base = resolve(root);
   const abs = resolve(base, trimmed);
   const relToBase = relative(base, abs);
-  if (relToBase.startsWith('..') || isAbsolute(relToBase)) return null;
+  if (relToBase.split(/[\\/]/)[0] === '..' || isAbsolute(relToBase)) return null;
   return abs;
 }
 
-/** Skill roots a plugin contributes: the conventional `<root>/skills/` plus an
- *  optional manifest `skills` path. Deduplicated, absolute, root-contained. */
+/** Skill roots a plugin contributes: the conventional `<root>/skills/` plus the
+ *  manifest `skills` field, a path or a list of paths. Deduplicated, absolute,
+ *  root-contained. */
 export function pluginSkillsRoots(root) {
   const manifest = pluginManifest(root);
   const roots = new Set();
   const add = (rel) => {
+    if (typeof rel !== 'string' || !rel.trim()) return;
     const abs = resolveContainedPluginPath(root, rel);
     if (abs) roots.add(abs);
   };
   add('./skills/');
-  if (typeof manifest.skills === 'string' && manifest.skills.trim()) {
-    add(manifest.skills.trim());
-  }
+  for (const rel of Array.isArray(manifest.skills) ? manifest.skills : [manifest.skills]) add(rel);
   return [...roots];
 }

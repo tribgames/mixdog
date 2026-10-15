@@ -1,0 +1,278 @@
+/* Import conversations: rides the shared settings-confirm layer/dialog skin;
+   only the picker, progress and summary bodies are styled here. */
+.settings-import-dialog {
+  width: min(600px, 100%);
+  --mx-dialog-max-height: 720px;
+}
+.settings-import-toolbar,
+.settings-import-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--mx-dialog-inset) 12px;
+}
+.settings-import-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.settings-import-filters > .settings-select.mx-select-root {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+.settings-import-seg {
+  display: inline-flex;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 2px;
+  border-radius: var(--mx-radius-lg);
+  background: var(--mx-chip-bg);
+}
+.settings-import-seg > button {
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.settings-import-seg > button[aria-pressed="true"] {
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-2);
+}
+.settings-import-seg > button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+}
+.settings-import-seg > button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.settings-import-search {
+  flex: 1;
+  min-width: 160px;
+  box-sizing: border-box;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  font: inherit;
+}
+.settings-import-search:focus {
+  outline-color: var(--mx-focus);
+}
+.settings-import-search::placeholder {
+  color: var(--mx-text-faint);
+}
+.settings-import-select-all {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px var(--mx-dialog-inset);
+  border-top: 1px solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.settings-import-select-all > label,
+.settings-import-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+.settings-import-select-all input,
+.settings-import-item > input {
+  flex: none;
+  margin: 0;
+  accent-color: var(--mx-accent-bg);
+}
+.settings-import-count {
+  margin-left: auto;
+}
+/* Reserved list height (the mockup's 330px): the loading line, the first page
+   and a filtered-down list all fill the same box, so the dialog never resizes
+   when the scan result arrives. A short window still shrinks it. */
+.settings-import-list {
+  flex: 0 1 330px;
+  min-height: 120px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 6px 8px;
+  border-top: 1px solid var(--mx-border-muted);
+}
+.settings-import-item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 10px 12px;
+  border-radius: var(--mx-radius-lg);
+}
+.settings-import-item > input {
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+.settings-import-item:hover {
+  background: var(--mx-hover);
+}
+.settings-import-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text);
+}
+.settings-import-item-time {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  text-align: right;
+}
+.settings-import-item-meta {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-minor);
+}
+.settings-import-item-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mx-font-mono);
+  font-size: 12px;
+}
+.settings-import-note,
+.settings-import-error {
+  margin: 0;
+  padding: 8px var(--mx-dialog-inset);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.settings-import-list > .settings-import-note {
+  padding: 12px;
+}
+.settings-import-error {
+  color: var(--mx-danger);
+}
+/* The scan status row keeps its line whether or not a scan is running. */
+.settings-import-scanning {
+  min-height: 36px;
+  box-sizing: border-box;
+}
+.settings-import-empty {
+  display: grid;
+  align-content: center;
+  /* Filters (~44) + select-all (~38) + reserved list (330): the empty result
+     takes the loading layout's height instead of collapsing the dialog. */
+  min-height: 412px;
+  box-sizing: border-box;
+  justify-items: center;
+  gap: 8px;
+  padding: 32px var(--mx-dialog-inset) 28px;
+  border-top: 1px solid var(--mx-border-muted);
+  text-align: center;
+}
+.settings-import-empty > b {
+  color: var(--mx-text);
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+}
+.settings-import-empty > p {
+  max-width: 380px;
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.settings-import-empty > code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--mx-text);
+  font-family: var(--mx-font-mono);
+  font-size: 12px;
+}
+.settings-import-secondary {
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  font: inherit;
+  cursor: pointer;
+}
+.settings-import-progress,
+.settings-import-result {
+  padding: 24px;
+  border-top: 1px solid var(--mx-border-muted);
+}
+.settings-import-progress-line {
+  margin-bottom: 8px;
+}
+.settings-import-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--mx-chip-bg);
+}
+.settings-import-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mx-accent);
+}
+.settings-import-progress > small {
+  display: block;
+  margin-top: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.settings-import-result > b {
+  display: block;
+  margin-bottom: 6px;
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+}
+.settings-import-result > ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.settings-import-dialog > footer {
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings-import-dialog > footer > small {
+  min-width: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.settings-import-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+/* "Import" / "Import 12" / "Import and continue" share one width. */
+.settings-import-actions > .primary {
+  min-width: 152px;
+}
+@media (max-width: 520px) {
+  .settings-import-dialog > footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .settings-import-actions {
+    justify-content: flex-end;
+  }
+}

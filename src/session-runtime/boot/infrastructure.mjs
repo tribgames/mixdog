@@ -7,17 +7,15 @@ import { createStandaloneHookBus } from '../services/hook-bus.mjs';
 import { updateCurrentCwdOverride, writeLastSessionCwd } from '../../runtime/shared/user-cwd.mjs';
 import { listRegisteredPlugins, pluginAdminStatus } from '../services/plugin-admin.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
-import {
-  countSkillFiles,
-  pluginManifest,
-  pluginMcpServerName,
-} from '../../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
+import { countSkillFiles, pluginManifest } from '../../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { createMcpGlue } from '../mcp-glue.mjs';
 import { createSelfUpdateController } from '../self-update.mjs';
 import { createCompletionWakeScheduler, createNotificationBus } from '../notification-bus.mjs';
 import { createSkillsApi } from '../skills-api.mjs';
 import { createCwdPlugins } from '../cwd-plugins.mjs';
+import { listProjectsStrict } from '../../runtime/shared/projects.mjs';
+import { isWithin } from '../../runtime/shared/worktrees/paths.mjs';
 import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
 import { SessionAddressError, isAdmissionOpen, ownerLifecycle } from '../session-address.mjs';
 import { dataDirOf } from './shared.mjs';
@@ -41,23 +39,39 @@ function wireMcp(boot) {
     mcpConnectGeneration: 0,
     mcpConnectInFlight: null,
   };
-  const { mcpStatus, getMcpServerConfig, connectConfiguredMcp, awaitInitialMcpConnect, normalizeMcpServerInput } =
-    createMcpGlue({
-      mcpClient,
-      getConfig: () => rt.config,
-      getCurrentCwd: () => rt.currentCwd,
-      getMcpScopeId: () => rt.mcpScopeId,
-      getDesktopSession: () => rt.desktopSession,
-      setDesktopSession: (v) => {
-        rt.desktopSession = v;
-      },
-      state: mcpState,
-    });
-  Object.assign(boot, {
+  const {
     mcpStatus,
+    resolveMcpCatalog,
+    resolveConfiguredMcpCatalog,
+    pluginMcpServer,
+    pluginMcpSummary,
     getMcpServerConfig,
     connectConfiguredMcp,
     awaitInitialMcpConnect,
+    cancelMcpLogin,
+    completeMcpLogin,
+    normalizeMcpServerInput,
+  } = createMcpGlue({
+    mcpClient,
+    getConfig: () => rt.config,
+    getCurrentCwd: () => rt.currentCwd,
+    getMcpScopeId: () => rt.mcpScopeId,
+    // Plugin-declared servers are derived from the registry on every resolve.
+    getPluginDataDir: () => dataDirOf(boot.cfgMod),
+    listPlugins: () => listRegisteredPlugins({ dataDir: boot.cfgMod.getPluginData() }),
+    state: mcpState,
+  });
+  Object.assign(boot, {
+    mcpStatus,
+    resolveMcpCatalog,
+    resolveConfiguredMcpCatalog,
+    pluginMcpServer,
+    pluginMcpSummary,
+    getMcpServerConfig,
+    connectConfiguredMcp,
+    awaitInitialMcpConnect,
+    cancelMcpLogin,
+    completeMcpLogin,
     normalizeMcpServerInput,
   });
 }
@@ -176,10 +190,12 @@ export function sessionAdopter(boot) {
       // Bind every adopted session, including a cold resume and a session
       // materialized before ask(). The shared tool executor must never fall
       // back to changing only a detached session object's cwd.
+      // The Lead's own `session set-project` call: the Project switch
+      // authority, tolerating the calling turn.
       Object.defineProperty(v, '_applyResolvedCwdForCaller', {
         value: (nextCwd) => {
           if (rt.session?.id !== v.id) throw new Error('cwd: the calling session is no longer active');
-          return boot.applyResolvedCwd(nextCwd, { persistProjectSelection: true });
+          return boot.workspaceApi.switchProject(nextCwd, { ownTurn: true });
         },
         enumerable: false,
         configurable: true,
@@ -250,7 +266,13 @@ function wireCwdPlugins(boot) {
     listRegisteredPlugins,
     pluginAdminStatus,
     pluginManifest,
-    pluginMcpServerName,
+    pluginMcpSummary: boot.pluginMcpSummary,
+    // Plugin MCP servers without a declared cwd follow this runtime's cwd:
+    // reconnect just those (and refresh advertised roots) in place.
+    onCwdChanged: () => {
+      void boot.connectConfiguredMcp({ reconcile: true }).catch(() => {});
+    },
+    isProjectFolder: (cwd) => listProjectsStrict().some((project) => isWithin(project.path, cwd)),
     countSkillFiles,
     writeLastSessionCwd,
     updateCurrentCwdOverride,

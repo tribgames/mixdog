@@ -83,7 +83,11 @@
   width: 100%;
   height: 100%;
   border: 0;
-  background: #fff;
+  /* Transparent, not white: until the page paints, the frame shows the pane's
+     own sheet instead of flashing white (user: 사이드패널 흰색 프레임 깜빡임).
+     A page without a background still renders light: under the shell's dark
+     color-scheme Chromium backs a light-scheme frame with an opaque canvas. */
+  background: transparent;
 }
 .visualize-pane-content img,
 .visualize-pane-content video {
@@ -117,7 +121,7 @@
   color: var(--mx-text-strong, inherit);
   background: color-mix(in srgb, var(--mx-danger, #d9534f) 22%, transparent);
 }
-.visualize-problem-badge[aria-expanded='true'] {
+.visualize-problem-badge[aria-expanded="true"] {
   background: color-mix(in srgb, var(--mx-danger, #d9534f) 40%, transparent);
 }
 .visualize-problems {
@@ -223,7 +227,7 @@
 .visualize-version-action:hover {
   background: color-mix(in srgb, currentColor 10%, transparent);
 }
-.visualize-version-action[aria-pressed='true'] {
+.visualize-version-action[aria-pressed="true"] {
   border-color: var(--mx-border);
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
@@ -254,7 +258,7 @@
 }
 
 /* Outside network toggle in the toolbar: highlighted once something was blocked. */
-.visualize-pane .browser-pane-nav-button[data-attention='true'] {
+.visualize-pane .browser-pane-nav-button[data-attention="true"] {
   color: var(--mx-warning, #e0a030);
   background: color-mix(in srgb, var(--mx-warning, #e0a030) 16%, transparent);
 }

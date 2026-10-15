@@ -27,6 +27,14 @@ ${payload}
 <<<${_UNTRUSTED}_END>>>`;
 }
 
+/** The run's model-visible prompt (endpoint instructions + fenced external
+ *  payload) and its trusted skill-selection input: the endpoint-authored
+ *  instructions alone, so nothing in the payload or headers selects a skill. */
+function webhookRunPrompt(instructions, body, headers) {
+  const trusted = String(instructions ?? '');
+  return { prompt: `${trusted}\n\n${buildFencedPayload(body, headers)}`, skillSelection: trusted };
+}
+
 function trackDispatch({ name, deliveryId, dispatchP, controller }) {
   let settled = false;
   const timeoutHandle = setTimeout(
@@ -89,6 +97,10 @@ function createWebhookSessionDispatcher({ getConfig, getBridgeDispatch }) {
         workflow: extra.workflow || null,
         attachments: extra.attachments || null,
         delivery: extra.delivery || null,
+        // Trusted skill-selection input: only the endpoint-authored
+        // instructions, never the fenced external body/headers that share
+        // the model-visible prompt.
+        skillSelection: String(extra.skillSelection ?? ''),
         context: {
           source: 'webhook',
           endpoint: name,
@@ -105,14 +117,14 @@ function createWebhookSessionDispatcher({ getConfig, getBridgeDispatch }) {
   async function dispatchEndpoint({ name, body, headers, res, deliveryId, endpoint }) {
     try {
       const { model, instructions, cwd, workflow, attachments, delivery } = endpoint;
-      const payloadContent = buildFencedPayload(body, headers);
+      const run = webhookRunPrompt(instructions, body, headers);
       if (!getBridgeDispatch()) throw new Error(`[webhook] session dispatch requires bridgeDispatch`);
-      const fullPrompt = `${instructions}\n\n${payloadContent}`;
-      await dispatchSessionRun(name, model || null, fullPrompt, headers, deliveryId, res, {
+      await dispatchSessionRun(name, model || null, run.prompt, headers, deliveryId, res, {
         cwd: cwd || null,
         workflow: workflow || null,
         attachments: attachments || null,
         delivery: delivery || null,
+        skillSelection: run.skillSelection,
       });
       return true;
     } catch (err) {
@@ -125,4 +137,4 @@ function createWebhookSessionDispatcher({ getConfig, getBridgeDispatch }) {
   return { dispatchEndpoint };
 }
 
-export { buildFencedPayload, createWebhookSessionDispatcher };
+export { buildFencedPayload, createWebhookSessionDispatcher, webhookRunPrompt };

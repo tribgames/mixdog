@@ -14,7 +14,7 @@ import { appendAgentTrace } from '../agent-trace.mjs';
 import { resolveProviderCacheKey, resolveProviderPromptCacheLane } from '../agent-runtime/cache-strategy.mjs';
 import { shouldFallbackTransport } from './retry-classifier.mjs';
 import { envFlag as _envFlag } from '../../../shared/env.mjs';
-import { getModelsDevRowSync } from '../../../shared/llm/model-catalog.mjs';
+import { getModelMetadataSync, getModelsDevRowSync } from '../../../shared/llm/model-catalog.mjs';
 import {
   traceHash,
   stableTraceStringify,
@@ -166,26 +166,35 @@ export function normalizeXaiReasoningEffort(value) {
   return ['low', 'medium', 'high', 'xhigh'].includes(effort) ? effort : null;
 }
 
-// grok-3, grok-4 and grok-4-fast REJECT reasoning_effort outright (HTTP 400
-// "does not support parameter reasoningEffort"), so the parameter ships only
-// for the families that document it. An unknown/absent model id keeps the
-// parameter — a custom xAI-compatible deployment that never saw the 400 must
-// not silently lose the caller's effort choice.
+const hasEffortValues = (modelOptions) =>
+  (modelOptions || []).some((option) => option?.type === 'effort' && option.values?.length > 0);
+
+// The first Grok generations (grok-3, grok-4, grok-4-fast, grok-code-fast)
+// REJECT reasoning_effort outright (HTTP 400 "does not support parameter
+// reasoningEffort"). That generation is closed: it is told apart by a bare
+// major with no minor version, so a later release never matches.
+const LEGACY_NO_EFFORT_GROK = /^grok[-_]?(?:[123]|4|code)(?![.\d])/;
+
+// The parameter ships when the catalog says the model takes it. A model the
+// catalog does not list yet is sent the caller's effort (the server decides),
+// as is an unknown/absent model id — a custom xAI-compatible deployment that
+// never saw the 400 must not silently lose the caller's effort choice. Only
+// the closed legacy generation above is held back offline, because sending to
+// it hard-fails.
 export function xaiModelSupportsReasoningEffort(model) {
   const id = String(model || '')
     .trim()
     .toLowerCase();
   if (!id) return true;
   if (!id.startsWith('grok')) return true;
-  // The catalog answers first: a listed model takes the parameter exactly
-  // when it publishes effort values (grok-4.3 does, grok-4.20-*-reasoning
-  // does not), so a new release needs no edit here.
+  // The catalog answers first, from the live roster and the pricing catalogs:
+  // a model that publishes effort values takes the parameter.
+  if (hasEffortValues(getModelMetadataSync(id, 'xai')?.reasoningOptions)) return true;
+  // A listed model takes the parameter exactly when it publishes effort
+  // values (grok-4.3 does, grok-4.20-*-reasoning does not).
   const listed = getModelsDevRowSync(id, 'xai');
-  if (listed) {
-    return (listed.reasoning_options || []).some((option) => option?.type === 'effort' && option.values?.length > 0);
-  }
-  // grok-4.5 / grok-4.6 and anything newer in that line.
-  return /grok[-_]?4\.(?:[5-9]|\d{2,})/.test(id);
+  if (listed) return hasEffortValues(listed.reasoning_options);
+  return !LEGACY_NO_EFFORT_GROK.test(id);
 }
 
 function opencodeGoReasoningEffortValues(modelInfo) {

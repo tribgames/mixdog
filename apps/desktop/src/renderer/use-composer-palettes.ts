@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useMobileBack } from './mobile-back';
 import { desktopComposerSlashCommands } from './slash-commands';
+import type { ComposerSkill } from './composer-skill';
+import { filterSkillMentions } from './composer-skill-mentions';
+import { isInMarkdownCode } from '../../../../src/runtime/shared/skill-mentions.mjs';
 
 type MentionMatch = { start: number; end: number; query: string };
 
@@ -20,6 +23,20 @@ function mentionMatchAt(draft: string, caretOffset: number): MentionMatch | null
   return { start, end: beforeCaret.length, query: match[2] || '' };
 }
 
+/** A `$` skill mention being typed at the caret: the same openers as `@`
+ *  (plus the backtick the shared parser accepts) and only skill-name
+ *  characters after it, so `$HOME` or `@x$y` never open the skill palette.
+ *  A `$` inside Markdown code (judged on the whole draft, as the runtime
+ *  will) is never a mention, so the palette stays shut there. */
+export function skillMentionMatchAt(draft: string, caretOffset: number): MentionMatch | null {
+  const beforeCaret = draft.slice(0, Math.max(0, Math.min(caretOffset, draft.length)));
+  const match = /(^|[\s([{"'`])\$([a-z0-9-]*)$/.exec(beforeCaret);
+  if (!match) return null;
+  const start = match.index + match[1].length;
+  if (isInMarkdownCode(draft, start)) return null;
+  return { start, end: beforeCaret.length, query: match[2] };
+}
+
 export function useComposerPalettes({
   draft,
   projectScope,
@@ -27,6 +44,7 @@ export function useComposerPalettes({
   transitioning,
   composerFocused,
   selectorOpen,
+  skills,
 }: {
   draft: string;
   projectScope: string;
@@ -34,6 +52,8 @@ export function useComposerPalettes({
   transitioning: boolean;
   composerFocused: boolean;
   selectorOpen: boolean;
+  /** The user's enabled custom skills (built-ins are typed, not listed). */
+  skills: ComposerSkill[];
 }) {
   const [caretOffset, setCaretOffset] = useState(0);
   const [slashIndex, setSlashIndex] = useState(0);
@@ -42,8 +62,11 @@ export function useComposerPalettes({
   const [mentionResults, setMentionResults] = useState<string[]>([]);
   const [mentionLoading, setMentionLoading] = useState(false);
   const [mentionDismissed, setMentionDismissed] = useState('');
+  const [skillIndex, setSkillIndex] = useState(0);
+  const [skillDismissed, setSkillDismissed] = useState('');
   const slashPalette = useRef<HTMLDivElement>(null);
   const mentionPalette = useRef<HTMLDivElement>(null);
+  const skillPalette = useRef<HTMLDivElement>(null);
   const mentionSearchGeneration = useRef(0);
   // Only frequent commands appear here; direct input still uses the full registry.
   const slashCommands = useMemo(() => desktopComposerSlashCommands(draft), [draft]);
@@ -65,10 +88,30 @@ export function useComposerPalettes({
   // dismissal its own Escape performs.
   useMobileBack(slashOpen, () => setSlashDismissed(draft));
   useMobileBack(mentionOpen, () => setMentionDismissed(mentionSignature));
+  const skillMatch = useMemo(() => skillMentionMatchAt(draft, caretOffset), [caretOffset, draft]);
+  const skillSignature = skillMatch ? `${skillMatch.start}:${skillMatch.end}:${skillMatch.query}` : '';
+  const skillResults = useMemo(
+    () => (skillMatch ? filterSkillMentions(skills, skillMatch.query) : []),
+    [skillMatch, skills]
+  );
+  // `@` and `$` never open together, and neither does `$` over the slash list
+  // or the message selector.
+  const skillOpen = Boolean(
+    composerFocused &&
+      skillMatch &&
+      !transitioning &&
+      !slashOpen &&
+      !mentionOpen &&
+      !selectorOpen &&
+      skillDismissed !== skillSignature
+  );
+  useMobileBack(skillOpen, () => setSkillDismissed(skillSignature));
   // biome-ignore lint/correctness/useExhaustiveDependencies: draft is the trigger that resets the highlighted slash row
   useEffect(() => setSlashIndex(0), [draft]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the mention query is the trigger that resets the highlighted row
   useEffect(() => setMentionIndex(0), [mentionMatch?.query]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the skill query is the trigger that resets the highlighted row
+  useEffect(() => setSkillIndex(0), [skillMatch?.query]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: depends on the match's start/end/query fields, not on the match object identity (recomputed each draft change)
   useEffect(() => {
     if (!mentionOpen || !mentionMatch) {
@@ -107,6 +150,10 @@ export function useComposerPalettes({
   useEffect(() => {
     if (mentionOpen) scrollSelectedOptionIntoView(mentionPalette);
   }, [mentionIndex, mentionOpen, mentionResults]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: skillIndex and skillResults are the triggers that re-scroll the selected option into view
+  useEffect(() => {
+    if (skillOpen) scrollSelectedOptionIntoView(skillPalette);
+  }, [skillIndex, skillOpen, skillResults]);
   const reset = useCallback(() => {
     setCaretOffset(0);
     setSlashIndex(0);
@@ -115,6 +162,8 @@ export function useComposerPalettes({
     setMentionResults([]);
     setMentionLoading(false);
     setMentionDismissed('');
+    setSkillIndex(0);
+    setSkillDismissed('');
   }, []);
   const invalidateSearch = useCallback(() => {
     mentionSearchGeneration.current += 1;
@@ -122,9 +171,11 @@ export function useComposerPalettes({
   let paletteId: string | undefined;
   if (slashOpen) paletteId = 'composer-slash-palette';
   else if (mentionOpen) paletteId = 'composer-mention-palette';
+  else if (skillOpen) paletteId = 'composer-skill-mention-palette';
   let activeDescendant: string | undefined;
   if (slashOpen) activeDescendant = `composer-slash-option-${slashIndex}`;
   else if (mentionOpen && mentionResults.length) activeDescendant = `composer-mention-option-${mentionIndex}`;
+  else if (skillOpen && skillResults.length) activeDescendant = `composer-skill-mention-option-${skillIndex}`;
   return {
     caretOffset,
     setCaretOffset,
@@ -153,6 +204,19 @@ export function useComposerPalettes({
       setDismissed: setMentionDismissed,
       setResults: setMentionResults,
       palette: mentionPalette,
+    },
+    skillMention: {
+      match: skillMatch,
+      open: skillOpen,
+      signature: skillSignature,
+      results: skillResults,
+      /** Whether any skill is selectable at all (empty-state copy). */
+      available: skills.length > 0,
+      index: skillIndex,
+      dismissed: skillDismissed,
+      setIndex: setSkillIndex,
+      setDismissed: setSkillDismissed,
+      palette: skillPalette,
     },
   };
 }

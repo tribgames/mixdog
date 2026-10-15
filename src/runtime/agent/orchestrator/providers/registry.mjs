@@ -7,6 +7,7 @@ import { isInclusiveProvider } from '../../../shared/llm/cost.mjs';
 import { noEnabledProvidersError } from './registry-errors.mjs';
 import { providerTakesNativePdf } from '../../../attachments/store.mjs';
 import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
+import { getModelProxyChannel } from './model-proxy-channel.mjs';
 // OpenAI-compat provider names are self-declared by openai-compat-presets.mjs via
 // OPENAI_COMPAT_PRESETS. No parallel list maintained here.
 const providers = new Map();
@@ -28,6 +29,7 @@ const OAUTH_PROVIDER_NAMES = new Set([
   'openai-oauth',
   'grok-oauth',
   'muse-code-oauth',
+  'command-code-oauth',
   'mimo-oauth',
   'cursor-oauth',
   'antigravity-oauth',
@@ -96,6 +98,28 @@ function configSignature(cfg) {
   }
 }
 
+// Remote mode: a proxy provider sends through the channel it was built on. A
+// headless boundary installs a fresh channel per run (model-proxy-bridge.mjs)
+// and closes it afterwards, so the channel's identity is part of every reuse
+// signature — an identical PC config behind a new channel is a rebuild, never
+// a provider bound to a closed channel. Local mode: '' (signatures unchanged).
+const _proxyChannelIds = new WeakMap();
+let _proxyChannelSeq = 0;
+function proxyChannelTag(channel) {
+  if (!channel) return '';
+  let id = _proxyChannelIds.get(channel);
+  if (!id) {
+    _proxyChannelSeq += 1;
+    id = _proxyChannelSeq;
+    _proxyChannelIds.set(channel, id);
+  }
+  return `\u0000model-proxy-channel:${id}`;
+}
+function reuseSignature(cfg, proxyChannel) {
+  const sig = configSignature(cfg);
+  return sig === null ? null : sig + proxyChannelTag(proxyChannel);
+}
+
 function abortError(signal) {
   return signal?.reason instanceof Error
     ? signal.reason
@@ -147,6 +171,7 @@ const PROVIDER_MODULES = {
   'anthropic-oauth': ['./anthropic-oauth.mjs', 'AnthropicOAuthProvider'],
   'grok-oauth': ['./grok-oauth.mjs', 'GrokOAuthProvider'],
   'muse-code-oauth': ['./muse-code-oauth.mjs', 'MuseCodeOAuthProvider'],
+  'command-code-oauth': ['./command-code-oauth.mjs', 'CommandCodeOAuthProvider'],
   'mimo-oauth': ['./mimo-oauth.mjs', 'MimoOAuthProvider'],
   'cursor-oauth': ['./cursor.mjs', 'CursorOAuthProvider'],
   'antigravity-oauth': ['./antigravity-oauth.mjs', 'AntigravityOAuthProvider'],
@@ -176,12 +201,12 @@ async function loadProviderCtor(name, signal = null, cfg = null) {
   throw new Error(`unknown enabled provider: ${name}`);
 }
 
-async function instantiateProvider(name, Ctor, cfg) {
+async function instantiateProvider(name, Ctor, cfg, proxyChannel = null) {
   // Remote mode: the client PC executes the call with its own credentials.
   // Admission and usage accounting still wrap the daemon-side stand-in.
   if (modelProxyClientMode()) {
     const { createModelProxyProvider } = await import('./model-proxy-provider.mjs');
-    return wrapProviderAdmission(createModelProxyProvider(name, cfg), name);
+    return wrapProviderAdmission(createModelProxyProvider(name, cfg, proxyChannel ?? getModelProxyChannel()), name);
   }
   if (isCustomProviderConfig(name, cfg)) return wrapProviderAdmission(await Ctor(name, cfg), name);
   if (Object.hasOwn(OPENAI_COMPAT_PRESETS, name) && name !== 'opencode-go') {
@@ -194,11 +219,12 @@ export async function initProviders(config, { signal = null } = {}) {
   throwIfAborted(signal);
   // Remote mode: provider availability and config are the PC's, never this
   // server's credential probes. No connected client fails here, clearly.
-  if (modelProxyClientMode()) {
+  const proxyChannel = modelProxyClientMode() ? getModelProxyChannel() : null;
+  if (proxyChannel) {
     const { loadModelProxyProviderConfig } = await import('./model-proxy-provider.mjs');
-    config = await awaitWithAbort(loadModelProxyProviderConfig(), signal);
+    config = await awaitWithAbort(loadModelProxyProviderConfig({ channel: proxyChannel }), signal);
   }
-  const sig = configSignature(config);
+  const sig = reuseSignature(config, proxyChannel);
   // Coalesce: an identical config is already mid-init — attach to it.
   if (sig !== null && _inFlightPromise && _inFlightSig === sig) {
     return awaitWithAbort(_inFlightPromise, signal);
@@ -212,7 +238,7 @@ export async function initProviders(config, { signal = null } = {}) {
   // signatures can never run their clear()+rebuild concurrently, regardless
   // of caller-side gating (agent-tool gateOnPrior may release a queued init
   // before the prior one settled). Errors do not poison the chain.
-  const run = () => _initProvidersUnsynchronized(config, signal);
+  const run = () => _initProvidersUnsynchronized(config, signal, proxyChannel);
   const next = _initChain.then(run, run);
   _initChain = next.then(
     () => {},
@@ -241,7 +267,7 @@ export async function initProviders(config, { signal = null } = {}) {
   return awaitWithAbort(tracked, signal);
 }
 
-async function _initProvidersUnsynchronized(config, signal = null) {
+async function _initProvidersUnsynchronized(config, signal = null, proxyChannel = null) {
   throwIfAborted(signal);
   // Invariant: never wipe the live registry based on an empty / all-disabled
   // config. Without this guard, a stale `loadAgentConfig()` (e.g. mid-reload
@@ -262,7 +288,7 @@ async function _initProvidersUnsynchronized(config, signal = null) {
       // Idempotent reuse: an enabled provider whose config signature is
       // unchanged from the live registry is carried forward as-is. Only
       // added or changed providers are (re)constructed below.
-      const sig = configSignature(cfg);
+      const sig = reuseSignature(cfg, proxyChannel);
       if (sig !== null && providers.has(name) && signatures.get(name) === sig) {
         return { name, inst: providers.get(name), sig };
       }
@@ -270,7 +296,7 @@ async function _initProvidersUnsynchronized(config, signal = null) {
         // A proxied provider never loads the real adapter module.
         const Ctor = modelProxyClientMode() ? null : await loadProviderCtor(name, signal, cfg);
         throwIfAborted(signal);
-        const inst = await instantiateProvider(name, Ctor, cfg);
+        const inst = await instantiateProvider(name, Ctor, cfg, proxyChannel);
         return { name, inst, sig };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

@@ -10,6 +10,7 @@ import type {
 import { t, uiFormatLocale } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { watchBrowserDialogFocus } from './browser-dialog-focus';
+import { useMobileBack } from './mobile-back';
 
 interface BrowserImportDialogProps {
   open: boolean;
@@ -74,6 +75,8 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
   const requestClose = useCallback(() => {
     if (!busyRef.current) onClose();
   }, [onClose]);
+
+  useMobileBack(open, requestClose);
 
   useEffect(() => {
     if (!open) return undefined;

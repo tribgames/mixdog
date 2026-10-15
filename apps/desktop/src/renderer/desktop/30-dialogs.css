@@ -46,7 +46,8 @@
   animation: mx-scrim-in var(--mx-motion-chrome);
 }
 /* A confirmation always paints above the card that raised it. */
-.settings-confirm-layer {
+.settings-confirm-layer,
+.settings-oauth-layer[data-over-dialog] {
   z-index: calc(var(--mx-dialog-z-index) + 10);
 }
 /* The topbar's drag region ignores paint order: a scrim covering it still
@@ -564,9 +565,9 @@
    중구난방): 32px, 8px radius, hairline at rest, and the canonical keyboard
    ring tucked one pixel off the field instead of floating around it. The
    guided-setup fields declare the same skin in their own layer. */
-.schedules-dialog input,
-.settings-oauth-dialog input,
-.mx-dialog input {
+.schedules-dialog input:where(:not([type="checkbox"], [type="radio"])),
+.settings-oauth-dialog input:where(:not([type="checkbox"], [type="radio"])),
+.mx-dialog input:where(:not([type="checkbox"], [type="radio"])) {
   box-sizing: border-box;
   height: 32px;
   min-height: 32px;
@@ -581,14 +582,14 @@
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
 }
-.schedules-dialog input:hover:not(:disabled),
-.settings-oauth-dialog input:hover:not(:disabled),
-.mx-dialog input:hover:not(:disabled) {
+.schedules-dialog input:where(:not([type="checkbox"], [type="radio"])):hover:not(:disabled),
+.settings-oauth-dialog input:where(:not([type="checkbox"], [type="radio"])):hover:not(:disabled),
+.mx-dialog input:where(:not([type="checkbox"], [type="radio"])):hover:not(:disabled) {
   box-shadow: var(--mx-button-contrast);
 }
-.schedules-dialog input:focus,
-.settings-oauth-dialog input:focus,
-.mx-dialog input:focus {
+.schedules-dialog input:where(:not([type="checkbox"], [type="radio"])):focus,
+.settings-oauth-dialog input:where(:not([type="checkbox"], [type="radio"])):focus,
+.mx-dialog input:where(:not([type="checkbox"], [type="radio"])):focus {
   /* Quiet focus (user: 호버나 선택 시 강조 최소화): a single hairline ring
      tight to the field instead of a thick detached halo. */
   outline: 1px solid var(--mx-focus);

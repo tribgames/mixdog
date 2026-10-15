@@ -119,7 +119,7 @@ export async function finishCapture(
       maxOcrWords: command.max_ocr_words,
     });
   }
-  image = persistCaptureImage(payload, image, { command, sessionId });
+  image = await persistCaptureImage(payload, image, { command, sessionId });
   return {
     payload,
     ...(image ? { image } : {}),

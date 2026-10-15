@@ -1,16 +1,23 @@
-import { Check, GripVertical, Pencil } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, GripVertical, Pencil, RefreshCw } from 'lucide-react';
 import {
   useCallback,
   useEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import type { DesktopCapability } from '../shared/contract';
 import { ErrorNotice } from './ErrorNotice';
-import { t } from './i18n';
+import { t, uiFormatLocale } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { record } from './record-utils';
+import { captureRowMenuAnchor, positionRowMenu } from './row-menu-geometry';
+import { displayUsagePercent, usageToneClass } from './usage-percent';
+import { usageResetPresentation } from './usage-reset-time';
+import { usageResetShortText, usageResetText, usageTimestamp, usageWindowLabel } from './usage-window-text';
 import {
   applyAccountUsageWindows,
   refreshUsageDashboard,
@@ -33,9 +40,225 @@ type ProviderAccount = {
   /** Sign-in email of the real account, when the provider exposes one. */
   email?: string;
   blockedUntil?: number;
-  usage?: { windows?: { label?: string; usedPct: number | null; resetAt?: number }[] };
+  usage?: { windows?: UsageWindow[]; checkedAt?: number } | null;
+  /** The limit holding the account: account-wide, or only one model family's
+   *  meter ("7D Fable") while other models still run. */
+  limit?: { scope: 'account' } | { scope: 'model'; families: string[] } | null;
 };
-type Pool = { accounts: ProviderAccount[]; selectedId: string | null; auto: boolean };
+type UsageWindow = { label?: string; usedPct: number | null; resetAt?: number | null };
+type AccountPolicy = 'manual' | 'limit' | 'headroom';
+/** `auto` predates `policy`; a roster without `policy` maps auto off → manual. */
+type Pool = { accounts: ProviderAccount[]; selectedId: string | null; auto: boolean; policy?: AccountPolicy };
+
+const poolPolicy = (pool: Pool): AccountPolicy => pool.policy ?? (pool.auto === false ? 'manual' : 'limit');
+const lastCheckedAt = (pool: Pool): number | null => {
+  const times = pool.accounts.map((row) => Number(row.usage?.checkedAt) || 0).filter((at) => at > 0);
+  return times.length ? Math.max(...times) : null;
+};
+
+function checkedAge(at: number | null): string {
+  if (!at) return '';
+  const seconds = Math.max(0, (Date.now() - at) / 1000);
+  if (seconds < 60) return t('Just now');
+  const format = new Intl.RelativeTimeFormat(uiFormatLocale(), { numeric: 'auto' });
+  if (seconds < 3600) return format.format(-Math.floor(seconds / 60), 'minute');
+  if (seconds < 86_400) return format.format(-Math.floor(seconds / 3600), 'hour');
+  return format.format(-Math.floor(seconds / 86_400), 'day');
+}
+
+/** One row per quota window the account carries, in the sidebar usage flyout's
+ *  grammar: label | meter | percent | short reset time. */
+function AccountUsage({ account }: { account: ProviderAccount }) {
+  const windows = account.usage?.windows ?? [];
+  const refreshedAt = Number(account.usage?.checkedAt) || 0;
+  let emptyNote = '';
+  if (account.reauthRequired) emptyNote = t('Shown after signing in again');
+  else if (windows.length === 0) emptyNote = t('Usage not checked yet');
+  return (
+    <div className="provider-account-usage">
+      {emptyNote ? (
+        <small className="empty">{emptyNote}</small>
+      ) : (
+        windows.map((window, index) => {
+          const used = typeof window.usedPct === 'number' ? Math.max(0, Math.min(100, window.usedPct)) : null;
+          const presentation = usageResetPresentation({
+            percent: used,
+            resetAt: usageTimestamp(window.resetAt),
+            refreshedAt,
+            verificationFailed: false,
+          });
+          const percent = presentation.percent;
+          const displayed = displayUsagePercent(percent);
+          const label = usageWindowLabel(window);
+          const sentence = presentation.resetTextOverride === null ? usageResetText(window.resetAt) : '';
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: windows carry no id and a provider may repeat a label; the list is replaced whole, never reordered.
+            <span className={usageToneClass(percent).trim() || undefined} key={`${label}:${index}`}>
+              <small title={label}>{label}</small>
+              <i>
+                <i style={{ width: `${percent ?? 0}%` }} />
+              </i>
+              <b>{displayed === null ? '—' : `${displayed}%`}</b>
+              <em title={sentence || undefined}>
+                {presentation.resetTextOverride ?? usageResetShortText(window.resetAt)}
+              </em>
+            </span>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+const POLICY_ITEMS = "[role='menuitemradio']:not(:disabled), [role='menuitem']:not(:disabled)";
+
+/** Header control: which account the roster sends from, plus a usage refresh. */
+function AccountPolicyMenu({
+  policy,
+  disabled,
+  refreshing,
+  checkedAt,
+  onPolicy,
+  onRefresh,
+}: {
+  policy: AccountPolicy;
+  disabled: boolean;
+  refreshing: boolean;
+  checkedAt: number | null;
+  onPolicy(policy: AccountPolicy): void;
+  onRefresh(): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const anchor = useRef<ReturnType<typeof captureRowMenuAnchor> | null>(null);
+  useMobileBack(open, () => setOpen(false));
+  useEffect(() => {
+    if (!open) return undefined;
+    queueMicrotask(() =>
+      (
+        panel.current?.querySelector<HTMLButtonElement>("[aria-checked='true']") ??
+        panel.current?.querySelector<HTMLButtonElement>(POLICY_ITEMS)
+      )?.focus()
+    );
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!panel.current?.contains(target) && !trigger.current?.contains(target)) setOpen(false);
+    };
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    const close = () => setOpen(false);
+    document.addEventListener('pointerdown', dismiss, true);
+    document.addEventListener('keydown', keydown, true);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss, true);
+      document.removeEventListener('keydown', keydown, true);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [open]);
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Tab') {
+      setOpen(false);
+      return;
+    }
+    const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(POLICY_ITEMS) ?? [])];
+    if (!entries.length) return;
+    const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
+    let next: number;
+    if (event.key === 'ArrowDown') next = (current + 1) % entries.length;
+    else if (event.key === 'ArrowUp') next = (current - 1 + entries.length) % entries.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = entries.length - 1;
+    else return;
+    event.preventDefault();
+    entries[next]?.focus();
+  };
+  const options: [AccountPolicy, string, string][] = [
+    ['manual', t('Manual'), t('Uses only the selected account.')],
+    ['limit', t('Switch at limit'), t('Moves to the account with the most headroom when a limit is reached.')],
+    ['headroom', t('Most headroom first'), t('Each new conversation starts on the account with the most usage left.')],
+  ];
+  const current = options.find(([value]) => value === policy) ?? options[1];
+  const choose = (value: AccountPolicy) => {
+    setOpen(false);
+    trigger.current?.focus();
+    if (value !== policy) onPolicy(value);
+  };
+  const Chevron = open ? ChevronUp : ChevronDown;
+  return (
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        className="settings-action provider-accounts-policy"
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`${t('Account switching')}: ${current[1]}`}
+        onClick={(event) => {
+          anchor.current = captureRowMenuAnchor(event.currentTarget);
+          setOpen((value) => !value);
+        }}
+      >
+        <span className="k">{t('Switch')}</span>
+        {current[1]}
+        <Chevron aria-hidden="true" />
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={panel}
+            className="row-overflow-menu provider-accounts-policy-menu"
+            role="menu"
+            aria-label={t('Account switching')}
+            onKeyDown={onKeyDown}
+            style={positionRowMenu(anchor.current, 7, 1, window.innerWidth, window.innerHeight)}
+          >
+            {options.map(([value, title, description]) => (
+              <button
+                key={value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={value === policy}
+                data-account-policy={value}
+                onClick={() => choose(value)}
+              >
+                <span className="provider-accounts-policy-check" aria-hidden="true">
+                  {value === policy && <Check size={14} />}
+                </span>
+                <span className="provider-accounts-policy-copy">
+                  <b>{title}</b>
+                  <small>{description}</small>
+                </span>
+              </button>
+            ))}
+            <div className="usage-menu-separator" aria-hidden="true" />
+            <button
+              type="button"
+              role="menuitem"
+              className="provider-accounts-policy-refresh"
+              disabled={refreshing}
+              onClick={() => {
+                setOpen(false);
+                onRefresh();
+              }}
+            >
+              <span className="row-overflow-label">{t('Refresh usage')}</span>
+              {checkedAt && <small>{checkedAge(checkedAt)}</small>}
+            </button>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
 
 // Last roster per provider. The rail picker remounts on every open; seeding
 // from here paints instantly and the fresh read merely revalidates.
@@ -111,6 +334,7 @@ export function ProviderAccountsList({
     [provider]
   );
   const [pending, setPending] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -172,7 +396,7 @@ export function ProviderAccountsList({
         applyAccountUsageWindows(provider, next.accounts.find((row) => row.id === next.selectedId)?.usage?.windows);
         void refreshUsageDashboardAfterAuth(api, [provider]);
       } else {
-        // Order / auto-switch / rename change no quota: revalidate only when the
+        // Order / switching policy / rename change no quota: revalidate only when the
         // shared snapshot is already stale.
         void refreshUsageDashboard(api);
       }
@@ -182,6 +406,25 @@ export function ProviderAccountsList({
     } finally {
       mutating.current = false;
       setPending(false);
+    }
+  };
+  // Re-measures every account's quota; the roster itself is unchanged.
+  const refreshUsage = async () => {
+    if (refreshing) return;
+    const stamp = ++generation.current;
+    setRefreshing(true);
+    setError('');
+    try {
+      const next = await invoke('updateProviderAccounts', [provider, { refreshUsage: true }]);
+      if (generation.current !== stamp) return;
+      setPool(next);
+      // The selection is unchanged, so the sidebar keeps its metadata (credits,
+      // reset credits) and the shared dashboard re-measures to settle `checking`.
+      void refreshUsageDashboard(api, { force: true, providers: [provider] });
+    } catch (cause) {
+      if (generation.current === stamp) setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRefreshing(false);
     }
   };
   const reorder = (from: number, to: number) => {
@@ -325,19 +568,26 @@ export function ProviderAccountsList({
           )}
           <span className="provider-accounts-heading-actions">
             {!listOnly && pool && pool.accounts.length > 1 && (
-              <label className="provider-accounts-auto" title={t('Switch accounts automatically')}>
-                <span>{t('Auto-switch')}</span>
-                <span className="mixdog-settings__switch compact-switch">
-                  <input
-                    type="checkbox"
-                    aria-label={t('Switch accounts automatically')}
-                    checked={pool.auto}
-                    disabled={pending}
-                    onChange={(event) => void change({ auto: event.target.checked })}
-                  />
-                  <span aria-hidden="true" />
-                </span>
-              </label>
+              <AccountPolicyMenu
+                policy={poolPolicy(pool)}
+                disabled={pending}
+                refreshing={refreshing}
+                checkedAt={lastCheckedAt(pool)}
+                onPolicy={(policy) => void change({ policy })}
+                onRefresh={() => void refreshUsage()}
+              />
+            )}
+            {!listOnly && pool && pool.accounts.length > 0 && (
+              <button
+                type="button"
+                className={`provider-account-add-button provider-accounts-refresh ${pool.accounts.length > 1 ? 'is-in-menu' : ''}`.trim()}
+                disabled={refreshing}
+                aria-label={t('Refresh usage')}
+                title={t('Refresh usage')}
+                onClick={() => void refreshUsage()}
+              >
+                <RefreshCw size={14} aria-hidden="true" />
+              </button>
             )}
             {headerAction}
           </span>
@@ -358,7 +608,13 @@ export function ProviderAccountsList({
             <li
               key={account.id}
               data-account-id={account.id}
-              className={`${selected ? 'is-selected' : ''} ${lifted ? 'is-lifted' : ''}`.trim()}
+              className={[
+                selected && 'is-selected',
+                lifted && 'is-lifted',
+                !listOnly && account.reauthRequired && 'is-dim',
+              ]
+                .filter(Boolean)
+                .join(' ')}
               style={rowStyle(index)}
             >
               <div className="provider-account-row">
@@ -454,6 +710,14 @@ export function ProviderAccountsList({
                               {t('In use')}
                             </span>
                           )}
+                          {!account.reauthRequired && account.limit && (
+                            <span className="settings-status settings-status--danger">
+                              <i aria-hidden="true" />
+                              {account.limit.scope === 'model'
+                                ? t('{{name}} limit', { name: account.limit.families.join(', ') })
+                                : t('Limit reached')}
+                            </span>
+                          )}
                           {account.reauthRequired && (
                             <span className="settings-status settings-status--danger">
                               <i aria-hidden="true" />
@@ -467,11 +731,12 @@ export function ProviderAccountsList({
                           )}
                       </div>
                     </div>
+                    <AccountUsage account={account} />
                     <div className="settings-resource-actions">
                       {selectable && (
                         <button
                           type="button"
-                          className="settings-action"
+                          className="settings-action provider-account-use"
                           disabled={pending}
                           onClick={() => void change({ selectedId: account.id })}
                         >

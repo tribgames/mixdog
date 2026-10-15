@@ -34,7 +34,7 @@ async function apply_patch(rawArgs, cwd, options = {}) {
   }
   const rejectedV4AHunks = [];
   const v4aConvertOpts = { rejectPartial, rejectedHunks: rejectedV4AHunks, fuzzy, dryRun, readStateScope };
-  const route = selectApplyPatchRoute({ args, patchStr, requestedFormat, basePath });
+  const route = await selectApplyPatchRoute({ args, patchStr, requestedFormat, basePath });
   if (route.useSequence) {
     const seqOut = await applyPatchSequence(patchStr, requestedFormat, basePath, {
       v4aConvertOpts,

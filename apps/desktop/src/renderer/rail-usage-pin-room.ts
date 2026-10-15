@@ -9,9 +9,17 @@ const PIN_ROW_HEIGHT = 16 + 2 + 3 + 2 + 11;
 const PIN_ROW_GAP = 10;
 const PIN_STACK_PADDING = 9 + 8;
 
-export function usagePinStackHeight(rowCount: number): number {
+/** A second 3px meter plus its 2px gap. */
+const PIN_EXTRA_BAR_HEIGHT = 3 + 2;
+
+export function usagePinStackHeight(rowCount: number, doubleBarCount = 0): number {
   if (rowCount <= 0) return 0;
-  return PIN_STACK_PADDING + rowCount * PIN_ROW_HEIGHT + (rowCount - 1) * PIN_ROW_GAP;
+  return (
+    PIN_STACK_PADDING +
+    rowCount * PIN_ROW_HEIGHT +
+    (rowCount - 1) * PIN_ROW_GAP +
+    Math.min(doubleBarCount, rowCount) * PIN_EXTRA_BAR_HEIGHT
+  );
 }
 
 /** True when every rail part fits at its natural height with the stack shown. */
@@ -20,8 +28,10 @@ export function usagePinStackFits(input: {
   navHeight: number;
   settingsHeight: number;
   rowCount: number;
+  /** Rows drawing two meters (short + long mode). */
+  doubleBarCount?: number;
 }): boolean {
   if (input.rowCount <= 0) return true;
-  const needed = input.navHeight + usagePinStackHeight(input.rowCount) + input.settingsHeight;
+  const needed = input.navHeight + usagePinStackHeight(input.rowCount, input.doubleBarCount) + input.settingsHeight;
   return input.railHeight >= needed;
 }

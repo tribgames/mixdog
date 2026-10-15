@@ -1,6 +1,7 @@
 // Session lifecycle and submit methods for one remote connection. Device
 // identity and the stale-view check stay with the methods that use them.
 import type { DesktopService } from './desktop-service-contract';
+import { REMOTE_ORIGINAL_MAX_BYTES, readAttachmentThumbnail } from './attachment-thumbnail';
 import { requiredSessionId } from './desktop-state';
 import {
   requiredAbortOptions,
@@ -15,6 +16,7 @@ import {
   sessionDisplayName,
 } from './ipc-validation';
 import { STALE_SESSION_VIEW_MARKER } from '../shared/session-devices';
+import { sessionSidebarActions } from './session-sidebar-actions';
 import type { RemoteMethod, RemoteMethodClient, RemoteMethodDependencies } from './remote-methods';
 
 export const STALE_SESSION_VIEW_MESSAGE = `${STALE_SESSION_VIEW_MARKER} Review the latest messages, then send again.`;
@@ -25,6 +27,7 @@ export function sessionRemoteMethods(
   browserRemote: RemoteMethodDependencies['browserRemote']
 ): Record<string, RemoteMethod> {
   const connectionDevice = async (): Promise<string> => (await client?.deviceName?.()) || 'Web app';
+  const sidebar = sessionSidebarActions(host);
   return {
     // The name this connection's own actions are stamped with, so the client
     // can tell which transcript rows it sent itself.
@@ -39,6 +42,8 @@ export function sessionRemoteMethods(
         consumedUnread === true
       );
     },
+    readAttachmentThumbnail: ([attachmentRef]) =>
+      readAttachmentThumbnail(attachmentRef, (ref) => host.readAttachmentImage(ref), null, REMOTE_ORIGINAL_MAX_BYTES),
     renameSession: ([sessionId, title]) => host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)),
     continueSessionInModel: ([sessionId, route]) =>
       host.continueSessionInModel(requiredSessionId(sessionId), requiredModelSelection(route)),
@@ -51,18 +56,9 @@ export function sessionRemoteMethods(
       if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
       return host.setQuotaAutoResume(enabled);
     },
-    setSessionArchived: ([sessionId, archived]) => {
-      if (typeof archived !== 'boolean') throw new TypeError('archived must be a boolean.');
-      return host.setSessionArchived(requiredSessionId(sessionId), archived);
-    },
-    setSessionFavorite: ([sessionId, favorite]) => {
-      if (typeof favorite !== 'boolean') throw new TypeError('favorite must be a boolean.');
-      return host.setSessionFavorite(requiredSessionId(sessionId), favorite);
-    },
-    setSessionProject: ([sessionId, projectPath]) => {
-      if (projectPath !== null && typeof projectPath !== 'string') throw new TypeError('projectPath must be a string.');
-      return host.setSessionProject(requiredSessionId(sessionId), projectPath);
-    },
+    setSessionArchived: ([sessionId, archived]) => sidebar.setSessionArchived(sessionId, archived),
+    setSessionFavorite: ([sessionId, favorite]) => sidebar.setSessionFavorite(sessionId, favorite),
+    setSessionProject: ([sessionId, projectPath]) => sidebar.setSessionProject(sessionId, projectPath),
     deleteSession: async ([sessionId]) => {
       const ownerSessionId = requiredSessionId(sessionId);
       const snapshot = await host.deleteSession(ownerSessionId);

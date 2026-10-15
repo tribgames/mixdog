@@ -189,6 +189,7 @@ export function forgetOpenAIOAuthCredentials() {
 }
 
 // --- Token refresh ---
+const PERMANENT_REFRESH_FAILURE_RE = /invalid_grant|revoked|reused|refresh_token_(?:expired|invalidated)/i;
 async function exchangeRefreshToken(refreshToken, previousIdentity = null) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TOKEN_REFRESH_TIMEOUT_MS);
@@ -214,10 +215,17 @@ async function exchangeRefreshToken(refreshToken, previousIdentity = null) {
       // CLI's single-use lineage) from transient failures, so the caller can
       // re-read disk and retry once with a newer token instead of
       // collapsing every failure to a generic null.
-      if (res.status === 400 || res.status === 401 || /invalid_grant|revoked|reused/i.test(text)) {
+      // Only a CONFIRMED permanent refusal sets reauthRequired: a 401, or a
+      // typed refresh-token code. A bare 400/5xx/429 is not evidence the
+      // refresh token is dead.
+      if (res.status === 401 || PERMANENT_REFRESH_FAILURE_RE.test(text)) {
         throw Object.assign(new Error(`OpenAI OAuth token refresh ${res.status} (invalid_grant)`), {
           isInvalidGrant: true,
           reauthRequired: true,
+          status: res.status,
+          httpStatus: res.status,
+          code: 'invalid_grant',
+          headers: res.headers,
         });
       }
       return null;
@@ -312,7 +320,19 @@ async function refreshUnderLock({ currentToken, force, reason, startingTokens })
       process.stderr.write(`[openai-oauth] Refresh failed (${msg}); using still-valid current token\n`);
       return { tokens: reusable, coastOnCurrent: true };
     }
-    throw new Error(`OpenAI OAuth token refresh failed (${msg}). Re-authenticate via provider login.`);
+    const failure = new Error(`OpenAI OAuth token refresh failed (${msg}). Re-authenticate via provider login.`);
+    // The wrapper must not hide a confirmed permanent refusal from the account pool.
+    if (err?.reauthRequired === true) {
+      Object.assign(failure, {
+        reauthRequired: true,
+        isInvalidGrant: true,
+        status: err.status,
+        httpStatus: err.httpStatus,
+        code: err.code,
+        headers: err.headers,
+      });
+    }
+    throw failure;
   }
 }
 

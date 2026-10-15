@@ -4,6 +4,88 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
+Đã thêm đăng nhập OAuth MCP rõ ràng, chuyển đổi mô hình tại chỗ và biểu ngữ giới hạn một dòng.
+
+### Tính năng mới
+
+- **Đăng nhập MCP** — Đã thêm đăng nhập OAuth rõ ràng cho máy chủ MCP với trạng thái, hộp thoại đăng nhập dùng chung, dán từ xa và lệnh TUI (#74, thanks @oh1701).
+- **Chuyển mô hình tại chỗ** — Đã thêm tính năng chuyển đổi mô hình của đoạn chat mà không cần bắt đầu phiên mới, và Fork trong menu phiên (#73, #52, thanks @grapefruit0205).
+- **Biểu ngữ giới hạn** — Đã thêm biểu ngữ một dòng phía trên trình soạn thảo khi đạt giới hạn; Tiếp tục sẽ đặt trước lần chạy tiếp theo cho thời điểm đặt lại.
+- **Menu tệp** — Đã thêm số lượng tệp trên đảo theo dõi các thay đổi chưa cam kết của phiên, với Xem thay đổi và Xóa lịch sử.
+- **Kích thước chữ chat** — Đã thêm cài đặt kích thước chữ chat cho từng thiết bị.
+
+### Thay đổi
+
+- Đã thay đổi số lần thử lại của nhà cung cấp để tuân theo các giới hạn và thời gian chờ riêng của từng nhà cung cấp, hiển thị thời gian chờ còn lại cùng cách hủy.
+- Đã thay đổi thông báo lỗi để nêu rõ nguyên nhân cùng bước tiếp theo, và ẩn Thử lại khi việc thử lại không thể giải quyết.
+- Đã thay đổi các lệnh shell để duy trì ở chế độ nền trước mặc định 10 giây, tối đa 30 giây, trước khi chuyển sang nền sau.
+- Đã điều chỉnh ứng dụng máy tính để bàn, suy luận tự động và dịch vụ nền để giảm thăm dò, kết xuất và bộ nhớ trong các phiên dài.
+
+### Sửa lỗi
+
+- Đã sửa lỗi dịch vụ nền bị đơ từ một đến hai giây mỗi 30 phút.
+- Đã sửa lỗi thông báo hoàn thành của Agent bị bỏ qua khi một lượt đã có kết quả đầu ra bị hủy.
+- Đã sửa lỗi đảo trình soạn thảo hiển thị các Agent đang chạy thành không hoạt động hoặc đã xong.
+- Đã sửa lỗi chuyển đổi phiên bị treo khi chờ quét thay đổi từ các phiên khác.
+- Đã sửa lỗi hộp thoại trang trình duyệt rời khỏi ngăn, xác nhận rời trang không hoàn tất và phím tắt sao chép trong trình duyệt bị lỗi.
+- Đã sửa lỗi lưu bộ nhớ cache prompt trên các nhà cung cấp Responses tùy chỉnh và các dự án phiên kế thừa không khớp với thanh bên (#70, #75, thanks @sukjong2002).
+- Đã sửa lỗi bảng phát trực tuyến bị nhấp nháy, bản ghi bị giật khi một lượt đang hoạt động và thẻ giới hạn vẫn hiển thị sau khi đổi nhà cung cấp.
+
+### Khác
+
+- Đã xóa các hàm trợ giúp không sử dụng (#67, thanks @22nsuk).
+
+## v1.2.1 - 2026-10-14
+
+Đã thêm tính năng nhập cuộc trò chuyện từ Codex và Claude Code, nhà cung cấp Command Code, đề cập kỹ năng bằng `$`, và đã sửa lỗi theo dõi nhập liệu của Computer Use, tập lệnh kỹ năng, suy luận tự động cùng một số lỗi phiên.
+
+### Tính năng mới
+
+- **Nhập cuộc trò chuyện** — Đã thêm Cài đặt > Chung > Nhập cuộc trò chuyện để đưa các đoạn chat Codex và Claude Code trên PC này vào Mixdog.
+- **Command Code** — Đã thêm Command Code làm nhà cung cấp đăng nhập bằng tài khoản Command Code của bạn.
+- **Chính sách chuyển đổi tài khoản** — Đã thêm Thủ công, Chuyển khi chạm giới hạn và Ưu tiên còn nhiều nhất cho nhà cung cấp có nhiều tài khoản.
+- **Đề cập kỹ năng bằng `$`** — Đã thêm `$` trong trình soạn thảo và TUI để chọn kỹ năng và áp dụng cho tin nhắn đó.
+- **Thanh sử dụng 5 giờ** — Đã thêm tùy chọn menu sử dụng hiển thị thanh 5 giờ cạnh khoảng thời gian dài nhất trên thanh bên (#66).
+- **Thẻ phản hồi trực quan hóa** — Đã thêm thẻ trình soạn thảo cho ghim, lựa chọn và tinh chỉnh trong hàng đợi, cùng ghim trên ảnh, video và vùng kéo.
+- **Đóng Goal** — Đã thêm nút để đóng một Goal đã hoàn thành.
+
+### Thay đổi
+
+- Đã thay đổi các máy chủ MCP plugin Claude Code và Codex để tự động kết nối mà không cần bật thủ công, và thêm tải kỹ năng plugin (#58).
+- Đã thay đổi danh sách phiên để tải từ cơ sở dữ liệu cục bộ và bộ nhớ đệm giúp mở nhanh hơn.
+- Đã thay đổi các kỹ năng trên máy chủ SSH để định tuyến lệnh gọi mô hình qua PC của bạn, giúp máy chủ không cần thông tin xác thực.
+- Đã thay đổi việc nhắc đến tệp bằng `@` để liệt kê các thư mục trước.
+- Đã thay đổi Muse Code và MiMo sang biểu tượng riêng của chúng.
+- Đã thay đổi hình thu nhỏ ảnh đã gửi để tải dưới dạng bản xem trước thu nhỏ trên PC và điện thoại được ghép nối.
+- Đã điều chỉnh việc tải công cụ MCP, tìm kiếm tệp và lưu tài khoản để không còn chặn dịch vụ nền trong các phiên dài.
+- Đã điều chỉnh chỉ báo tiến độ Goal để luôn hiển thị năm ô.
+- Đã điều chỉnh đảo trình soạn thảo nằm cách thẻ prompt 12px và khôi phục các dòng hoạt động công cụ 14px.
+
+### Sửa lỗi
+
+- Đã sửa lỗi Computer Use bị treo với "foreground input observation is unavailable"; thao tác bỏ lỡ nay tính là đầu vào của người dùng, quan sát tự phục hồi và chẩn đoán nêu rõ nguyên nhân (#66).
+- Đã sửa lỗi thêm máy chủ SSH trong ứng dụng đã cài đặt bị kẹt ở "Đang kết nối…" vô thời hạn bằng cách đóng gói tệp khóa máy chủ (#69, cảm ơn @victorwon2001).
+- Đã sửa lỗi liên kết trong đoạn chat mở trình duyệt trong ứng dụng trên trang `about:blank` trống thay vì liên kết (#63).
+- Đã sửa lỗi các tập lệnh kỹ năng đi kèm, bao gồm trình xác thực, bị lỗi trên một số bản cài đặt và shell (#62).
+- Đã sửa lỗi các tác vụ mới từng ghi nhớ quy trình đã xóa để khởi động với Default (#64).
+- Đã sửa lỗi suy luận tự động không áp dụng trên tuyến Claude trong 1.2.0 và một lần phán đoán chậm khiến các lần tiếp theo bị quá thời gian.
+- Đã sửa lỗi nhà cung cấp Gemini, Anthropic, OpenAI và tương thích OpenAI không liệt kê mô hình khi khóa được thêm sau khi khởi động.
+- Đã sửa lỗi tin nhắn thứ hai gửi ngay sau khi bắt đầu tác vụ mới mở ra một phiên riêng biệt.
+- Đã sửa lỗi cuộn nhanh lên trên ở điện thoại bị khựng lại rồi nhảy vọt lên ở lần chạm tiếp theo.
+- Đã sửa lỗi trình chỉnh sửa đổi tên đóng ngay lập tức đối với các phiên xuất hiện ở cả thư mục dự án lẫn mục Gần đây.
+- Đã sửa lỗi hình thu nhỏ hiển thị sai ảnh trong các cuộc trò chuyện được khôi phục có nhiều ảnh.
+- Đã sửa lỗi các lệnh hook kế thừa cài đặt runtime nội bộ của Mixdog.
+- Đã sửa lỗi các lần chạy headless, chẳng hạn như gọi mô hình từ tập lệnh kỹ năng, không thể sử dụng Muse Code hoặc MiMo.
+- Đã sửa lỗi hộp thoại xác nhận không xuất hiện khi xóa máy chủ MCP hoặc plugin.
+- Đã sửa lỗi runtime ONNX không thể tải trên các PC Windows thiếu runtime Visual C++ bằng cách đóng gói runtime này kèm theo ứng dụng.
+
+### Khác
+
+- Đã rà soát bản dịch trên toàn bộ 11 ngôn ngữ.
+- Đã loại bỏ các helper không sử dụng và định dạng lại các bài kiểm thử desktop (#68, cảm ơn @22nsuk).
+
 ## v1.2.0 - 2026-10-13
 
 Bản phát hành này giới thiệu bảng thay đổi và thẻ thay đổi theo lượt với các nút hoàn tác và áp dụng lại theo lượt, giữ lại lịch sử cuộc trò chuyện trước đó sau khi nén và bổ sung công cụ trực quan hóa tích hợp cho các bản dựng giao diện và sơ đồ tương tác. Quy trình làm việc từ xa được mở rộng với kết nối máy chủ SSH, các phiên Git worktree riêng biệt, quản lý lệnh shell nền và tải tệp trực tiếp trên điện thoại đã ghép nối. Giao diện cũng mang lại độ tương phản cao hơn, cuộn mượt mà hơn trên thiết bị di động và tổ chức phiên linh hoạt.

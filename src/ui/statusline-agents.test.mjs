@@ -13,6 +13,24 @@ test('a live worker stays authoritative over its own spawn job', () => {
   assert.deepEqual(payload.sessions.roles, ['worker-a']);
 });
 
+test('a worker whose status is running stays running while its runtime phase reads idle/done/error', () => {
+  for (const stage of ['idle', 'done', 'error']) {
+    const payload = agentStatuslinePayload(
+      [{ tag: 'worker-p', status: 'running', stage, startedAt: 1000 }],
+      [{ tag: 'worker-p', status: 'running', stage, task_id: 'task-p' }]
+    );
+    assert.equal(payload.workers.length, 1, stage);
+    assert.equal(payload.workers[0].status, 'running', stage);
+  }
+  for (const [status, stage] of [
+    ['idle', 'streaming'],
+    ['running', 'cancelled'],
+  ]) {
+    const [worker] = agentStatuslinePayload([{ tag: 'w', status, stage }], []).workers;
+    assert.equal(worker.status, 'idle', `${status}/${stage}`);
+  }
+});
+
 test('a queued job replaces an idle worker until the new worker starts', () => {
   const payload = agentStatuslinePayload(
     [{ tag: 'worker-b', status: 'idle' }],

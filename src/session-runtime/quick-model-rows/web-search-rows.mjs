@@ -2,8 +2,11 @@
 // main model, cached or built-in quick models per capable provider, and the
 // configured/current routes, deduplicated per provider:model.
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
-import { QUICK_WEB_SEARCH_MODELS } from '../quick-web-search-models.mjs';
-import { WEB_SEARCH_DEFAULT_PROVIDER, WEB_SEARCH_DEFAULT_MODEL } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import { quickWebSearchModels } from '../quick-web-search-models.mjs';
+import {
+  WEB_SEARCH_DEFAULT_PROVIDER,
+  WEB_SEARCH_DEFAULT_MODEL,
+} from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { providerCachedModelsSync } from '../../runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
 import { hydratedModel } from './model-meta.mjs';
 
@@ -33,7 +36,12 @@ export function createQuickWebSearchRows({
       contextWindow: resolved?.contextWindow || null,
       outputTokens: resolved?.outputTokens || null,
       latest: resolved?.latest === true,
-      supportsWebSearch: true,
+      // Only what the source row itself declares; webSearchCapableFor adds the
+      // provider catalog's row and the id fallback. Never forced on.
+      ...(typeof model?.supportsWebSearch === 'boolean' ? { supportsWebSearch: model.supportsWebSearch } : {}),
+      ...(Array.isArray(model?.supportedTools) ? { supportedTools: model.supportedTools } : {}),
+      ...(Array.isArray(model?.tools) ? { tools: model.tools } : {}),
+      ...(model?.capabilities && typeof model.capabilities === 'object' ? { capabilities: model.capabilities } : {}),
       supportsFunctionCalling: resolved?.supportsFunctionCalling === true,
       supportsPromptCaching: resolved?.supportsPromptCaching === true,
       supportsReasoning: resolved?.supportsReasoning === true,
@@ -95,7 +103,7 @@ export function createQuickWebSearchRows({
       const providerName = normalizeWebSearchProviderId(name);
       if (!providerConfig?.enabled || !isWebSearchCapableProvider(providerName)) continue;
       const cachedModels = providerCachedModelsSync(providerName);
-      const quickModels = cachedModels.length ? cachedModels : QUICK_WEB_SEARCH_MODELS[providerName] || [];
+      const quickModels = cachedModels.length ? cachedModels : quickWebSearchModels(providerName);
       for (const model of quickModels) {
         addQuickWebSearchModel(rows, seen, providerName, model);
       }
@@ -110,10 +118,7 @@ export function createQuickWebSearchRows({
     }
     const mainModel = currentMainWebSearchModelMeta();
     if (mainModel && webSearchCapableFor(route.provider, mainModel)) {
-      addQuickWebSearchModel(rows, seen, route.provider, {
-        id: route.model,
-        display: route.model,
-      });
+      addQuickWebSearchModel(rows, seen, route.provider, mainModel);
     }
     return webSearchModelsFromRows(rows);
   }

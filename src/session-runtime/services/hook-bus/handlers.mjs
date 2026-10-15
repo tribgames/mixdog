@@ -1,6 +1,7 @@
 import { readResponseBuffer } from '../../../runtime/shared/bounded-download.mjs';
 import { runAbortable, throwIfAborted } from '../../../runtime/shared/abort-race.mjs';
 import { assertPublicUrl, pinnedFetch } from '../../../runtime/web-search/lib/ssrf-guard.mjs';
+import { providerSafeMcpToolName } from '../../../runtime/agent/orchestrator/mcp/client-config.mjs';
 import { handlerTimeoutS } from './handler-timeout.mjs';
 export { handlerTimeoutS } from './handler-timeout.mjs';
 export { defaultShellKind, runCommandHandler } from './command-handler.mjs';
@@ -216,8 +217,9 @@ export async function runMcpToolHandler(handler, payload, eventName, mcpToolRunn
   throwIfAborted(signal);
   const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
   let name = String(handler.tool || '').trim();
-  if (handler.server && !name.startsWith('mcp__')) {
-    name = `mcp__${String(handler.server).trim()}__${name}`;
+  if (handler.server && name && !name.startsWith('mcp__')) {
+    // The same provider-safe name the server's tool was registered under.
+    name = providerSafeMcpToolName(String(handler.server).trim(), name);
   }
   if (!name) {
     return {
@@ -241,7 +243,9 @@ export async function runMcpToolHandler(handler, payload, eventName, mcpToolRunn
         onTimeout: () => {
           try {
             controller.abort(new Error(`mcp_tool hook timed out: ${name}`));
-          } catch {}
+          } catch {
+            // Abort is best-effort; the timeout error below is what callers see.
+          }
           return new Error(`mcp_tool hook timed out: ${name}`);
         },
       }

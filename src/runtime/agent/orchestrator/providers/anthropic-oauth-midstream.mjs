@@ -21,8 +21,16 @@ export function createMidState(attemptIndex) {
  * @param {ReturnType<import('./anthropic-oauth-recovery.mjs').createAnthropicOAuthRecovery>} deps.recovery
  * @param {Function|null} [deps.onStageChange]
  * @param {boolean} [deps.retry529]
+ * @param {object|null} [deps.overload]  the send's shared overload counter
  */
-export function createMidstreamRecovery({ maxRetries, totalSignal, recovery, onStageChange = null, retry529 = true }) {
+export function createMidstreamRecovery({
+  maxRetries,
+  totalSignal,
+  recovery,
+  onStageChange = null,
+  retry529 = true,
+  overload = null,
+}) {
   return createAnthropicMidstreamRecovery({
     label: 'anthropic-oauth',
     outcomeProvider: 'anthropic-oauth',
@@ -33,5 +41,6 @@ export function createMidstreamRecovery({ maxRetries, totalSignal, recovery, onS
     recovery,
     onStageChange,
     retry529,
+    overload,
   });
 }

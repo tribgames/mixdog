@@ -84,6 +84,14 @@ export function useTranscriptRows({
       }),
     [failedTurns, identity, sessionKey, settledRowItems, settledTurnKeys]
   );
+  // The busy band reserves its row for the whole turn, through activity that
+  // briefly reads null. A turn whose completion already folded into its reply
+  // is over, though: that reply's footer took the band's place, and a band
+  // kept below it for a lingering busy flag moved the settled reply by the
+  // band's height, twice. Visible activity (a wake's spinner, a command) or a
+  // waiting prompt still brings the band back.
+  const turnSettled =
+    settledProjection.endsWithFoldedCompletion && !commandActivityVisible && pendingItems.length === 0;
   const transcriptRows = useMemo(
     () =>
       appendLiveTranscriptRows({
@@ -91,7 +99,9 @@ export function useTranscriptRows({
         settled: settledProjection,
         pendingItems,
         liveItem,
-        thinking: Boolean(busy || (commandBusy && commandActivityVisible) || liveItem || optimisticActivityStartedAt),
+        thinking: Boolean(
+          (busy && !turnSettled) || (commandBusy && commandActivityVisible) || liveItem || optimisticActivityStartedAt
+        ),
       }),
     [
       identity,
@@ -99,6 +109,7 @@ export function useTranscriptRows({
       settledProjection,
       pendingItems,
       busy,
+      turnSettled,
       commandBusy,
       commandActivityVisible,
       liveItem,

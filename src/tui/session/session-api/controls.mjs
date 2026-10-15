@@ -91,8 +91,8 @@ export function createSessionControlsApi(bag) {
       );
       return result;
     },
-    setCwd: (path, options = {}) => {
-      const next = runtime.setCwd(path);
+    setCwd: async (path, options = {}) => {
+      const next = await runtime.setCwd(path);
       // Republish up-arrow history for the NEW project: current session prompts
       // merged with the cwd-scoped persisted store for the new cwd.
       const sessionList = recomputePromptHistory(getState().items);

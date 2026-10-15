@@ -5,6 +5,7 @@ export const SUBSCRIPTIONS = [
   { key: 'claude', label: 'Claude', provider: 'anthropic-oauth' },
   { key: 'grok', label: 'Grok', provider: 'grok-oauth' },
   { key: 'muse-code', label: 'Muse Code', provider: 'muse-code-oauth' },
+  { key: 'command-code', label: 'Command Code', provider: 'command-code-oauth' },
   { key: 'mimo', label: 'MiMo', provider: 'mimo-oauth' },
   { key: 'cursor', label: 'Cursor', provider: 'cursor-oauth' },
   { key: 'antigravity', label: 'Antigravity', provider: 'antigravity-oauth' },

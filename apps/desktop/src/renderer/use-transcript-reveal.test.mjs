@@ -31,9 +31,10 @@ function mount(t) {
   });
   const hasScrollGesture = () => false;
   let revealed = false;
+  let identity = 'entry';
   function Harness() {
     revealed = useTranscriptReveal({
-      identity: 'entry',
+      identity,
       enabled: true,
       draft: false,
       viewport,
@@ -63,8 +64,30 @@ function mount(t) {
       marker.setAttribute('data-entry-pending', '');
       scope.current.append(marker);
     },
+    visit: (next) => {
+      identity = next;
+      act(() => root.render(React.createElement(Harness)));
+    },
   };
 }
+
+test('returning to a session after an interrupted entry waits for its own reveal again', (t) => {
+  const entry = mount(t);
+  entry.ready();
+  entry.tick(16);
+  entry.tick(32);
+  assert.equal(entry.revealed(), true);
+  entry.pending();
+  entry.visit('other');
+  entry.tick(48);
+  assert.equal(entry.revealed(), false, 'the incoming entry is still pending');
+  entry.visit('entry');
+  assert.equal(entry.revealed(), false, 'an earlier reveal never carries over to a new visit');
+  document.querySelector('[data-entry-pending]').remove();
+  entry.tick(64);
+  entry.tick(80);
+  assert.equal(entry.revealed(), true);
+});
 
 test('entry waits past one second for dock chrome, then reveals only after stable frames', (t) => {
   const entry = mount(t);

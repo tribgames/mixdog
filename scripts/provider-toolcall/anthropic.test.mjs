@@ -27,6 +27,9 @@ test('Anthropic API-key gates deferred beta to requests that carry deferred tool
   provider.name = 'anthropic';
   provider.config = {};
   provider.fastModeBetaHeaderLatched = false;
+  // Pin the stub client: _currentClient() otherwise swaps in a real SDK client
+  // whenever the machine has a resolvable Anthropic key.
+  provider._currentClient = () => provider.client;
   const calls = [];
   provider.client = {
     messages: {
@@ -487,7 +490,9 @@ test('anthropic effort: bare pre-5 aliases stay on the legacy budget path', () =
   setModelEffortCapabilities([]);
   assert.equal(modelSupportsEffort('claude-opus-4'), false);
   assert.equal(modelSupportsEffort('claude-sonnet-4'), false);
-  assert.equal(modelSupportsEffort('claude-haiku-5'), false);
+  // Capabilities follow the release generation, not the family: haiku-5 is past
+  // the adaptive-effort floor (4.6), so an undescribed haiku-5 inherits effort.
+  assert.equal(modelSupportsEffort('claude-haiku-5'), true);
 });
 
 test('anthropic effort: catalog capabilities outrank the regex ladder', () => {

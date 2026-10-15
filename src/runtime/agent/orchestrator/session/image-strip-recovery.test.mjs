@@ -243,8 +243,13 @@ test('an image-strip retry that still overflows re-sends the compacted transcrip
   const provider = {
     async send(sentMessages) {
       sentImages.push(imageParts(sentMessages).map((part) => part.data.slice(0, 3)));
-      if (sentImages.length < 3) {
+      if (sentImages.length === 1) {
         throw Object.assign(new Error('Request exceeds the maximum allowed size of 32 MB'), { httpStatus: 413 });
+      }
+      // A byte-size 413 never compacts; the stripped request still overflows
+      // the token context, which does.
+      if (sentImages.length === 2) {
+        throw Object.assign(new Error('prompt is too long: 210000 tokens > 200000 maximum'), { httpStatus: 400 });
       }
       return { content: 'done', toolCalls: [], stopReason: 'end_turn' };
     },

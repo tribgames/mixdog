@@ -4,10 +4,7 @@ import { mergeStoredProviders } from './config-providers-merge.mjs';
 import { normalizeExtensionScopes } from '../../shared/extension-scopes.mjs';
 import { applyConfigPatch, diffConfig } from '../../shared/config-patch.mjs';
 import { normalizeWorkflowSelection } from '../../shared/orchestration.mjs';
-import {
-  DEFAULT_INSTRUCTION_FILES_MODE,
-  normalizeInstructionFilesMode,
-} from '../../shared/instruction-files-mode.mjs';
+import { DEFAULT_INSTRUCTION_FILES_MODE, normalizeInstructionFilesMode } from '../../shared/instruction-files-mode.mjs';
 import {
   DEFAULT_DISABLED_AGENT_ROSTER,
   canonicalizeAgentRouteStorage,
@@ -45,6 +42,7 @@ import {
 import { oauthCredentialProbeState, isOAuthProviderAvailable } from './providers/oauth-credential-probes.mjs';
 import { normalizeDeveloperConfig } from '../../shared/developer-options.mjs';
 import { normalizeWorktreeSettings } from '../../shared/worktrees/settings.mjs';
+import { normalizePluginMcpIntents } from './runtime-core/plugin-mcp.mjs';
 
 export const {
   PROFILE_LANGUAGES,
@@ -114,6 +112,8 @@ export function buildDefaultConfig(options = {}) {
   providers['grok-oauth'] = oauthEntry('grok-oauth');
   // Muse Code subscription (Meta Muse Spark), enabled from its stored key.
   providers['muse-code-oauth'] = oauthEntry('muse-code-oauth');
+  // Command Code Provider API, enabled from its stored Studio API key.
+  providers['command-code-oauth'] = oauthEntry('command-code-oauth');
   // Dev-only providers (Settings → Developer → Providers, one option each):
   // omitted entirely from the default config while their option is off so
   // they never surface in settings.
@@ -253,6 +253,7 @@ export function loadConfig(options = {}) {
       const loaded = canonicalizeAgentRouteStorage({
         providers: mergedProviders,
         mcpServers,
+        pluginMcp: normalizePluginMcpIntents(raw.pluginMcp),
         presets: withDefaultPresets(normalizedPresets),
         default: raw.default || null,
         maintenance: { ...DEFAULT_MAINTENANCE, ...normalizedMaint },
@@ -279,6 +280,8 @@ export function loadConfig(options = {}) {
         shell: raw.shell && typeof raw.shell === 'object' ? raw.shell : {},
         update: raw.update && typeof raw.update === 'object' ? { ...raw.update } : {},
         recap: recapConfig,
+        // The model may title the session (session tool, action=rename); default on.
+        aiSessionTitles: raw.aiSessionTitles !== false,
         worktree: normalizeWorktreeSettings(raw.worktree),
         developer: normalizeDeveloperConfig(raw.developer),
         modules: canonicalizeModulesStorage(raw.modules) || {},
@@ -305,6 +308,7 @@ export function loadConfig(options = {}) {
   return {
     ...defaults,
     mcpServers: {},
+    pluginMcp: {},
     presets: DEFAULT_PRESETS.map((p) => ({ ...p })),
     default: null,
     maintenance: { ...DEFAULT_MAINTENANCE },
@@ -432,6 +436,10 @@ function buildAgentSaveBuilder(config) {
       modules,
       builtins,
     };
+    // Per-server intent for plugin-declared MCP servers; empty stays absent.
+    const pluginMcp = normalizePluginMcpIntents(config.pluginMcp);
+    if (Object.keys(pluginMcp).length) next.pluginMcp = pluginMcp;
+    else delete next.pluginMcp;
     // Developer options (developer-options.mjs); an empty set stays absent.
     if (Object.keys(developer).length) next.developer = developer;
     else if (Object.hasOwn(config, 'developer')) delete next.developer;
@@ -444,6 +452,9 @@ function buildAgentSaveBuilder(config) {
     } else Object.assign(next, disabledAgentDelta(canonicalRoutes.disabledAgents));
     if (config.memoryTools && typeof config.memoryTools === 'object') next.memoryTools = { ...config.memoryTools };
     else delete next.memoryTools;
+    // Default true lives in code: only the opt-out is stored.
+    if (config.aiSessionTitles === false) next.aiSessionTitles = false;
+    else delete next.aiSessionTitles;
     delete next.instructionFiles;
     Object.assign(next, storedInstructionFiles(config));
     delete next.workflowRoutes;

@@ -69,7 +69,7 @@ async function run(): Promise<void> {
       <body style="margin:0;height:3000px;background:rgb(20,120,200)">
       <label>Agent input <input id="agent"></label>
       <button onclick="document.getElementById('agent').focus()">Focus field</button>
-      <iframe src="http://127.0.0.2:${address.port}/frame"></iframe></body>`);
+      <iframe src="http://localhost:${address.port}/frame"></iframe></body>`);
   });
   let parent: BrowserWindow | undefined;
   let host: BrowserHost | undefined;
@@ -189,9 +189,7 @@ async function run(): Promise<void> {
     try {
       await eventually(async () => presented(), Boolean);
     } catch (error) {
-      log(
-        `not presented: last requests ${presentCalls.slice(-3).join(' ')}; view ${JSON.stringify(view.getBounds())}`
-      );
+      log(`not presented: last requests ${presentCalls.slice(-3).join(' ')}; view ${JSON.stringify(view.getBounds())}`);
       throw error;
     }
     const initialBounds = view.getBounds();

@@ -3,6 +3,8 @@
 export const DESKTOP_IPC = {
   chooseProject: 'mixdog:choose-project',
   chooseFile: 'mixdog:choose-file',
+  chooseConversationImportFile: 'mixdog:choose-conversation-import-file',
+  conversationImportProgress: 'mixdog:conversation-import-progress',
   chooseFiles: 'mixdog:choose-files',
   chooseWorkspace: 'mixdog:choose-workspace',
   saveWorkspace: 'mixdog:save-workspace',
@@ -274,6 +276,7 @@ export const DESKTOP_IPC = {
   revealFile: 'mixdog:reveal-file',
   openFilePath: 'mixdog:open-file-path',
   openAttachmentImage: 'mixdog:open-attachment-image',
+  readAttachmentThumbnail: 'mixdog:read-attachment-thumbnail',
   openAttachmentFile: 'mixdog:open-attachment-file',
   stageAttachmentFile: 'mixdog:stage-attachment-file',
   saveFileAs: 'mixdog:save-file-as',

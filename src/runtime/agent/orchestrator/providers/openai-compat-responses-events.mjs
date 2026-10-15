@@ -2,6 +2,7 @@
 // wire event type maps to one handler over the shared stream `state`; `ctx`
 // carries the label, the caller callbacks and the leaked-text relay.
 import { typedStatusFrom } from './retry-classifier.mjs';
+import { applyCompatErrorContract } from './openai-compat-error-contract.mjs';
 import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from './custom-tool-wire.mjs';
 import { emitCompatToolCallOnce } from './openai-compat-stream-common.mjs';
 import { truncatedCompatStreamError, parseCompletedToolCallArgumentsJson } from './lib/openai-tool-args.mjs';
@@ -41,8 +42,10 @@ function typedResponsesFailure(message, event) {
   if (code != null && code !== '') err.providerErrorCode = String(code);
   if (detail) err.providerError = detail;
   err.providerWireError = true;
-  return err;
+  return applyCompatErrorContract(err, detail || (event?.code != null ? { code: event.code } : null));
 }
+
+const streamLabel = (ctx) => ctx?.label || 'compat Responses';
 
 // Reconcile a COMPLETED function_call item into state.toolCalls: fill in the
 // id/name a streamed call may still be missing, or adopt the item as a new
@@ -289,6 +292,7 @@ function onCompleted(event, state, ctx) {
 }
 
 function onDone(event, state, ctx) {
+  const label = streamLabel(ctx);
   if (!event.response || event.response.status === 'completed') {
     state.completed = true;
     // A stream that never emits response.completed: this frame carries usage.
@@ -298,7 +302,7 @@ function onDone(event, state, ctx) {
   if (event.response.status === 'failed') {
     const msg = event.response?.error?.message || 'response.done failed';
     throw withIncompleteUsage(
-      typedResponsesFailure(`xAI Responses stream response.done failed: ${msg}`, event),
+      typedResponsesFailure(`${label} stream response.done failed: ${msg}`, event),
       event,
       state
     );
@@ -306,27 +310,31 @@ function onDone(event, state, ctx) {
   if (event.response.status === 'incomplete') {
     const reason = incompleteReasonFromEvent(event);
     if (isMaxOutputIncompleteReason(reason)) return settleMaxOutputIncomplete(event, state, ctx, reason);
-    throw withIncompleteUsage(new Error(`xAI Responses stream response.done incomplete: ${reason}`), event, state);
+    throw withIncompleteUsage(new Error(`${label} stream response.done incomplete: ${reason}`), event, state);
   }
 }
 
-function onFailed(event, state) {
+function onFailed(event, state, ctx) {
   const msg = event.response?.error?.message || event.error?.message || event.message || 'response.failed';
   // The wire event's OWN typed status/code is preserved verbatim. A
   // forbidden/unknown failure is never coerced into a synthetic 500:
   // without typed evidence it stays unclassified and is surfaced.
-  throw withIncompleteUsage(typedResponsesFailure(`xAI Responses stream response.failed: ${msg}`, event), event, state);
+  throw withIncompleteUsage(
+    typedResponsesFailure(`${streamLabel(ctx)} stream response.failed: ${msg}`, event),
+    event,
+    state
+  );
 }
 
 function onIncomplete(event, state, ctx) {
   const reason = incompleteReasonFromEvent(event);
   if (isMaxOutputIncompleteReason(reason)) return settleMaxOutputIncomplete(event, state, ctx, reason);
-  throw withIncompleteUsage(new Error(`xAI Responses stream response.incomplete: ${reason}`), event, state);
+  throw withIncompleteUsage(new Error(`${streamLabel(ctx)} stream response.incomplete: ${reason}`), event, state);
 }
 
-function onError(event) {
+function onError(event, _state, ctx) {
   const msg = event.message || event.error?.message || 'unknown';
-  throw typedResponsesFailure(`xAI Responses stream error: ${msg}`, event);
+  throw typedResponsesFailure(`${streamLabel(ctx)} stream error: ${msg}`, event);
 }
 
 const RESPONSES_EVENT_HANDLERS = new Map([

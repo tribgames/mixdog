@@ -10,7 +10,7 @@
 //
 // This script recomputes EVERY task from the trace, verifies it reproduces
 // `usage.json` on the tasks that have one, and writes the recovered rows to
-// `analysis/trace-recovered-cost.json`.
+// `records/trace-recovered-cost.json`.
 //
 // Usage: node analysis/trace-cost.mjs <jobs-dir> [--write]
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -165,7 +165,7 @@ console.log(`trace-only total (${rows.length} tasks): $${total.toFixed(2)}`);
 console.log(`published total (snapshot + recovered, ${rows.length} tasks): $${authoritative.toFixed(2)}`);
 
 if (process.argv.includes('--write')) {
-    const out = join(here, 'trace-recovered-cost.json');
+    const out = join(here, '..', 'records', 'trace-recovered-cost.json');
     const existing = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : { schemaVersion: 1, runs: {} };
     existing.runs[jobsArg] = {
         model,
@@ -180,6 +180,15 @@ if (process.argv.includes('--write')) {
             requests: row.requests,
             tokens: row.tokens,
             costUsd: Number(row.costUsd.toFixed(6)),
+        })),
+        // Tasks whose snapshot disagrees with the trace, with the trace's own
+        // accounting, so a trace-priced figure can be checked from the archive.
+        mismatched: mismatches.map((row) => ({
+            task: row.task,
+            requests: row.requests,
+            tokens: row.tokens,
+            costUsd: Number(row.costUsd.toFixed(6)),
+            snapshotCostUsd: Number(row.snapshot.costUsd.toFixed(6)),
         })),
     };
     existing.generated = new Date().toISOString().slice(0, 10);

@@ -258,7 +258,7 @@ test('a relay model without its own row guesses vendor capabilities and ladder, 
     }
   }
   for (const [path, meta] of Object.entries(await bothPaths('cursor-oauth', 'claude-registry-1'))) {
-    assert.equal(meta.supportsWebSearch, true, path);
+    assert.equal(meta.supportsWebSearch ?? null, null, `${path}: web search is the relay endpoint's own`);
   }
 });
 
@@ -447,7 +447,7 @@ test('MiMo OAuth: a coerced roster false is filled from the xiaomi row; roster l
   }
 });
 
-test('Antigravity keeps its roster ladder (empty included) and gains vendor web search', async () => {
+test('Antigravity keeps its roster ladder (empty included) and never borrows vendor web search', async () => {
   writeFileSync(
     join(dir, 'antigravity-oauth-models.json'),
     JSON.stringify({
@@ -461,13 +461,13 @@ test('Antigravity keeps its roster ladder (empty included) and gains vendor web 
   try {
     for (const [path, meta] of Object.entries(await bothPaths('antigravity-oauth', 'claude-registry-1'))) {
       assert.deepEqual(effortValues(meta), [], `${path}: no effort surface on this route`);
-      assert.equal(meta.supportsWebSearch, true, path);
+      assert.equal(meta.supportsWebSearch ?? null, null, path);
       assert.equal(meta.supportsVision, true, path);
       assert.equal(meta.inputCostPerM, 3, path);
     }
     for (const [path, meta] of Object.entries(await bothPaths('antigravity-oauth', 'gemini-registry-pro'))) {
       assert.deepEqual(effortValues(meta), ['low', 'high'], `${path}: the roster’s own ladder`);
-      assert.equal(meta.supportsWebSearch, true, path);
+      assert.equal(meta.supportsWebSearch ?? null, null, path);
       assert.equal(meta.supportsFunctionCalling, true, path);
       assert.equal(meta.contextWindow, null, path);
     }

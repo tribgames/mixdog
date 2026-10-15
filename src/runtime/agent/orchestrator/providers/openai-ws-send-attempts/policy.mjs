@@ -2,12 +2,13 @@
  * policy.mjs — the WS send retry budget, its backoff curves and the
  * classification wrappers shared by the handshake and stream resolvers.
  */
+import { CODEX_RETRY_JITTER_RATIO, CODEX_STREAM_BACKOFF_MS } from '../openai-retry-policy.mjs';
 import {
   classifyHandshakeError,
   classifyMidstreamError,
   isWsMessageTooBigClose,
-  jitterDelayMs,
   MIDSTREAM_RETRY_POLICY,
+  midstreamBackoffFor as sharedMidstreamBackoffFor,
   sleepWithAbort,
 } from '../retry-classifier.mjs';
 
@@ -15,23 +16,26 @@ import {
 // by connect/handshake and pre-output stream failures.
 export const MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT = MIDSTREAM_RETRY_POLICY.ws.transientCloseRetries;
 const MIDSTREAM_DEFAULT_RETRY_LIMIT = MIDSTREAM_RETRY_POLICY.ws.defaultRetries;
-// The reference client uses a 200ms base, factor 2, and symmetric ±10%
-// jitter for each of its five stream retries.
-const MIDSTREAM_BACKOFF_MS = Object.freeze([200, 400, 800, 1600, 3200]);
-const CODEX_RETRY_JITTER_RATIO = 0.1;
+// The stream retry schedule (200ms base, factor 2, ±10%) lives in
+// openai-retry-policy.mjs, shared with the HTTP request loop.
+// Advice-gated retry (OAuth and API-key WS alike): an overload and an untyped 429
+// retry only when the server gave advice.
+const ADVICE_GATES = Object.freeze({
+  overloadRetryRequiresAdvice: true,
+  generic429RetryRequiresAdvice: true,
+});
 // Policy object passed to the shared classifyMidstreamError for the WS path.
 const WS_MIDSTREAM_POLICY = {
   mode: 'ws',
   transientCloseRetries: MIDSTREAM_RETRY_POLICY.ws.transientCloseRetries,
   defaultRetries: MIDSTREAM_RETRY_POLICY.ws.defaultRetries,
+  ...ADVICE_GATES,
 };
 
 // Kept for the _acquireWithRetry test seam and non-Codex callers.
 // sendViaWebSocket deliberately invokes it with maxAttempts:1 so handshake
 // failures consume the same stream budget as pre-output disconnects.
 export const HANDSHAKE_MAX_ATTEMPTS = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT + 1;
-const HANDSHAKE_BACKOFF_BASE_MS = 200;
-const HANDSHAKE_BACKOFF_CAP_MS = 3200;
 // These statuses are decisions made by the CURRENT attempt. They must never
 // be replaced by a stale transient from an earlier retry: auth recovery,
 // transport fallback, and Retry-After handling all depend on the live error.
@@ -47,8 +51,15 @@ export function _mustSurfaceCurrentAttempt(err, externalSignal) {
   );
 }
 
-export function _classifyHandshakeError(err, { retry429 = true } = {}) {
-  return classifyHandshakeError(err, { retry429 });
+export function _classifyHandshakeError(
+  err,
+  {
+    retry429 = true,
+    overloadRetryRequiresAdvice = ADVICE_GATES.overloadRetryRequiresAdvice,
+    generic429RetryRequiresAdvice = ADVICE_GATES.generic429RetryRequiresAdvice,
+  } = {}
+) {
+  return classifyHandshakeError(err, { retry429, overloadRetryRequiresAdvice, generic429RetryRequiresAdvice });
 }
 
 /**
@@ -103,15 +114,15 @@ export function midstreamRetryLimit(classifier) {
     : MIDSTREAM_DEFAULT_RETRY_LIMIT;
 }
 
-export function midstreamBackoffFor(retryNumber) {
-  const raw = MIDSTREAM_BACKOFF_MS[Math.min(Math.max(retryNumber, 1), MIDSTREAM_BACKOFF_MS.length) - 1];
-  return jitterDelayMs(raw, CODEX_RETRY_JITTER_RATIO);
+// Passing the failure makes server advice replace the step for retryable
+// kinds only (midstreamRetryDelayMs).
+export function midstreamBackoffFor(retryNumber, err = null) {
+  return sharedMidstreamBackoffFor(retryNumber, CODEX_STREAM_BACKOFF_MS, err, CODEX_RETRY_JITTER_RATIO);
 }
 
 export function _backoffFor(attempt) {
   // attempt is 1-based; exponential backoff is capped before jitter.
-  const raw = HANDSHAKE_BACKOFF_BASE_MS * (1 << (attempt - 1));
-  return jitterDelayMs(Math.min(raw, HANDSHAKE_BACKOFF_CAP_MS), CODEX_RETRY_JITTER_RATIO);
+  return midstreamBackoffFor(attempt);
 }
 
 export const _defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));

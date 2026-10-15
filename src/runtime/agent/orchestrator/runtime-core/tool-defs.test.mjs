@@ -33,7 +33,7 @@ test('only admitted tool names from the optional modules reach the session surfa
   assert.deepEqual(names, [
     'load_tool',
     'Skill',
-    'cwd',
+    'session',
     'web_search',
     'memory',
     'recall',

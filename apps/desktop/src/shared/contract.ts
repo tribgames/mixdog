@@ -31,6 +31,7 @@ import type {
   DesktopCapabilityResult,
 } from './contract-capabilities';
 import type { DesktopSettingKey, DesktopSettings } from './contract-settings';
+import type { ConversationImportJob } from './contract-import';
 import type { ActivityRailPinsState } from './activity-rail-pins';
 import type { ProviderModelsChange } from './provider-models';
 import type { SettingsChange } from './settings-changed';
@@ -147,6 +148,7 @@ export * from './contract-git';
 export * from './contract-computer';
 export * from './contract-workspace';
 export * from './contract-worktree';
+export * from './contract-import';
 export * from './contract-ssh';
 export * from './contract-connection-link';
 
@@ -166,6 +168,10 @@ export interface DesktopApi {
    *  remote host, which rejects both. */
   readonly routeAutoEffort?: boolean;
   chooseProject(): Promise<string | null>;
+  /** Native open-file dialog for a `.jsonl` conversation export; the chosen path or null. */
+  chooseConversationImportFile?(): Promise<string | null>;
+  /** Fires with each changed conversation-import job snapshot while a job is active. */
+  subscribeConversationImportProgress?(listener: (job: ConversationImportJob) => void): () => void;
   chooseFile?(defaultPath?: string | null): Promise<{
     projectPath: string;
     relPath: string;
@@ -421,9 +427,10 @@ export interface DesktopApi {
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
   setSessionFavorite?(sessionId: string, favorite: boolean): Promise<void>;
-  /** Sidebar membership only: a registered project path, '' for no project,
-   *  null to follow the session's folder again. Never touches the cwd. */
-  setSessionProject?(sessionId: string, projectPath: string | null): Promise<void>;
+  /** Move a session to a registered project path ('' = no project, the task
+   *  workspace) by changing its working folder. Refused while its turn runs
+   *  or while it works in a managed worktree. */
+  setSessionProject?(sessionId: string, projectPath: string): Promise<void>;
   deleteSession(sessionId: string): Promise<SessionSnapshot>;
   /** /inherit — copy this conversation into a NEW session id that runs on the
    *  supplied (currently selected) model. The source session is left as it is,
@@ -707,6 +714,11 @@ export interface DesktopApi {
    *  renderer holds those bytes only as a session-lifetime preview data URL, so
    *  they travel here and the main process owns the temp file. */
   openAttachmentImage?(dataUrl: string, name?: string): Promise<void>;
+  /** Image data URL of a stored attachment blob by its content-addressed ref,
+   *  for a thumbnail: downscaled (longest side ≤ 320 px) on the desktop, the
+   *  bounded original for a paired phone; null when missing, unreadable or not
+   *  an image. */
+  readAttachmentThumbnail?(attachmentRef: string): Promise<string | null>;
   /** Any `data:` attachment → OS app, keeping the (safe) extension of `name`. */
   openAttachmentFile?(dataUrl: string, name: string): Promise<void>;
   /** Writes a `data:` attachment to the temp dir and returns a one-file access

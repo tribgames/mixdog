@@ -49,6 +49,7 @@ import {
   startOwnerLivenessListener,
 } from './daemon-owner.mjs';
 import { remoteIntentPath } from '../runtime/shared/remote-intent.mjs';
+import { modelProxyClientMode } from '../runtime/shared/model-proxy-mode.mjs';
 import { setChannelNotifySink } from '../runtime/channels/lib/parent-bridge.mjs';
 import { setOwnerContext } from '../runtime/channels/lib/runtime-paths.mjs';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
@@ -64,7 +65,7 @@ import {
 } from '../runtime/agent/orchestrator/providers/stream-json-pool.mjs';
 import { createAgentDispatchBroker } from './agent-dispatch-broker.mjs';
 import { createChannelTransport } from './channel-transport.mjs';
-import { drainDeferral } from './daemon-drain-policy.mjs';
+import { drainDeferral, idleGcEligible } from './daemon-drain-policy.mjs';
 import { createChannelSessionRouter } from '../session-runtime/services/channel-session-router.mjs';
 import { createSessionTransport } from './session-transport.mjs';
 import { createSessionService } from './session-service.mjs';
@@ -144,6 +145,11 @@ let ownerLiveness = null;
 // The endpoints daemon.json carries once published; a heartbeat re-publishes
 // them when the file goes missing (TEMP cleanup).
 let publishedEndpoints = null;
+// Remote mode only: the loopback relay that lets headless runs started from
+// model shells (skill scripts) reach the PC behind this daemon's model proxy
+// channel (providers/model-proxy-bridge.mjs), and its running-call count.
+let modelProxyBridge = null;
+let modelProxyBridgeActive = 0;
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
 let idleGc = null;
@@ -218,6 +224,13 @@ async function shutdown(reason, code = 0) {
   try {
     setChannelNotifySink(null);
   } catch {}
+  // Abort every relayed model call, close the bridge sockets and wait for the
+  // calls to settle before anything they depend on goes away.
+  try {
+    await modelProxyBridge?.close(`daemon shutdown: ${reason}`);
+  } catch (e) {
+    log(`model proxy bridge stop failed: ${e?.message || e}`);
+  }
   try {
     await sessionService?.stop?.(reason);
   } catch (e) {
@@ -292,10 +305,11 @@ async function shutdown(reason, code = 0) {
  *  asks whether this process may exit; idle GC asks whether a pause is safe. */
 function inFlightWork() {
   return {
-    activeCalls: (transport?.activeCount ?? 0) + (sessionTransport?.activeCount ?? 0),
+    activeCalls: (transport?.activeCount ?? 0) + (sessionTransport?.activeCount ?? 0) + modelProxyBridgeActive,
     queuedCalls: (transport?.queuedCount ?? 0) + (sessionTransport?.queuedCount ?? 0),
     busySessions: sessionService?.busyCount ?? 0,
     busyMemoryAgents: agentDispatchBroker?.snapshot?.().inFlight ?? 0,
+    turnBusySessions: sessionService?.turnBusyCount ?? 0,
   };
 }
 
@@ -339,11 +353,6 @@ daemonTelemetry = createDaemonTelemetry({
     eventLoopDelay.reset();
   },
 });
-
-function daemonHasWorkInFlight() {
-  const work = inFlightWork();
-  return work.activeCalls > 0 || work.queuedCalls > 0 || work.busySessions > 0 || work.busyMemoryAgents > 0;
-}
 
 /** One process, two front doors (channels + sessions): an idle side must never
  *  evict a busy one, so every self-shutdown trigger checks BOTH registries. */
@@ -562,9 +571,9 @@ function daemonStatusSnapshot() {
 
 /** The file every attacher reads to find this daemon: wire identity plus both
  *  loopback endpoints and their privileged tokens. */
-function publishDaemonDiscovery({ channel, session }) {
+function publishDaemonDiscovery({ channel, session, modelProxy = null }) {
   // A re-publish keeps the first publication's startedAt.
-  publishedEndpoints = { channel, session, startedAt: publishedEndpoints?.startedAt ?? Date.now() };
+  publishedEndpoints = { channel, session, modelProxy, startedAt: publishedEndpoints?.startedAt ?? Date.now() };
   writeJsonAtomicSync(
     DAEMON_DISCOVERY_PATH,
     {
@@ -577,10 +586,32 @@ function publishDaemonDiscovery({ channel, session }) {
       endpoints: {
         channel: { port: channel.port, token: channel.token },
         session: { port: session.port, token: session.token },
+        ...(modelProxy ? { modelProxy: { port: modelProxy.port, token: modelProxy.token } } : {}),
       },
     },
     { compact: true, secret: true }
   );
+}
+
+/** Remote mode only: the model proxy bridge endpoint to publish, or null. */
+async function startModelProxyBridge(bootPhases) {
+  if (!modelProxyClientMode()) return null;
+  const [{ createModelProxyBridgeServer }, { getModelProxyChannel }] = await Promise.all([
+    import('../runtime/agent/orchestrator/providers/model-proxy-bridge.mjs'),
+    import('../runtime/agent/orchestrator/providers/model-proxy-channel.mjs'),
+  ]);
+  modelProxyBridge = createModelProxyBridgeServer({
+    channel: getModelProxyChannel(),
+    // Fenced or shutting down: no new relayed call.
+    admit: () => !shuttingDown && admitOwnerWork(),
+    trackWork: (active) => {
+      modelProxyBridgeActive = active;
+    },
+    log,
+  });
+  const endpoint = await bootPhases.measure('model-proxy-bridge-start', () => modelProxyBridge.start());
+  log(`model proxy bridge on 127.0.0.1:${endpoint.port}`);
+  return endpoint;
 }
 
 /** Asked by both front doors before every register/call: an expired lease
@@ -598,6 +629,7 @@ function fenceDaemon(reason) {
   log(`${reason} — refusing new work and stopping so only one daemon serves`);
   sessionTransport?.commitDrain?.(reason);
   transport?.commitDrain?.(reason);
+  modelProxyBridge?.abortAll(reason);
   try {
     if (discoveryPid(DAEMON_DISCOVERY_PATH) === process.pid) rmSync(DAEMON_DISCOVERY_PATH, { force: true });
   } catch (e) {
@@ -787,7 +819,7 @@ async function main() {
   // Reclaim deferred garbage while nothing is in flight. V8 keeps a long-lived
   // daemon's dead transcripts resident for as long as the heap limit stays out
   // of sight; a measured sweep on this daemon returned 140MB in 98ms.
-  idleGc = createIdleGc({ isBusy: daemonHasWorkInFlight, log });
+  idleGc = createIdleGc({ isBusy: () => !idleGcEligible(inFlightWork()), log });
   if (idleGc.arm()) log('idle gc armed');
 
   const channelsRuntime = createChannelsRuntimeLoader({
@@ -890,6 +922,7 @@ async function main() {
     admitWork: admitOwnerWork,
   });
   const sessionEndpoint = await bootPhases.measure('session-transport-start', () => sessionTransport.start());
+  const modelProxyEndpoint = await startModelProxyBridge(bootPhases);
   // A boot whose holder stopped answering may have been superseded by a
   // contender between beats; never publish over the winner's endpoint. An
   // unreadable record (an antivirus lock) is not a takeover.
@@ -900,7 +933,7 @@ async function main() {
     exitRecorder.setReason(`owner claim superseded by pid=${ownerPid} before publish`, 0);
     process.exit(0);
   }
-  publishDaemonDiscovery({ channel: { port, token }, session: sessionEndpoint });
+  publishDaemonDiscovery({ channel: { port, token }, session: sessionEndpoint, modelProxy: modelProxyEndpoint });
   bootPhases.mark('discovery-published');
   log(`session front door on 127.0.0.1:${sessionEndpoint.port}`);
 

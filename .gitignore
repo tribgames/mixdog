@@ -71,9 +71,9 @@ baseline-dom.txt
 apps/desktop/scripts/tmp-*.mjs
 benchmarks/terminal-bench-2.1/jobs-*
 # Published verification artifacts (analysis/export-raw.mjs) live under
-# <harness>/<model>/<date>/ and are committed, so they must survive the generic artifacts/
+# records/<harness>/<model>/<date>/ and are committed, so they must survive the generic artifacts/
 # rule above.
-!benchmarks/terminal-bench-2.1/*/*/**/artifacts/
+!benchmarks/terminal-bench-2.1/records/**/artifacts/
 # One-off probe scripts written during a run investigation; the published
 # metric scripts next to them are committed under their own names.
 benchmarks/terminal-bench-2.1/analysis/_tmp-*
@@ -179,7 +179,3 @@ benchmarks/terminal-bench-2.1/mixdog-prebake/
 benchmarks/terminal-bench-2.1/.runtime-build/
 # Task corpora fetched by the harness (upstream content, never committed).
 benchmarks/terminal-bench-2.1/benchmarks/
-
-# independent bench working repos (own git history)
-benchmarks/deep-swe/
-benchmarks/deep-swe-lf/

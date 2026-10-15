@@ -42,5 +42,6 @@ export function createLifecycleApi(deps) {
     resume: switching.resume,
     inheritancePreflight: inheritance.inheritancePreflight,
     inheritFrom: inheritance.inheritFrom,
+    inheritToNewSession: inheritance.inheritToNewSession,
   };
 }

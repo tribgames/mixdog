@@ -3,9 +3,15 @@ import { type ReactNode, useState } from 'react';
 // @ts-expect-error Shared runtime module is plain ESM.
 import { describeError, safeErrorDetails } from '../../../../src/runtime/shared/error-presentation.mjs';
 import { t } from './i18n';
-import { localizeErrorCopy } from './error-notice-copy';
+import { localizeErrorCopy, localizeErrorRecovery } from './error-notice-copy';
 
 export { describeError, safeErrorDetails };
+
+/** The failure as ErrorNotice reads it: the persisted provider-kind descriptor
+ *  rides along with the text so only legacy items are classified from wording. */
+export function errorWithKind(text: string, errorKind: unknown): unknown {
+  return errorKind && typeof errorKind === 'object' ? { message: text, errorKind } : text;
+}
 
 /** The message a failure carried, without Electron's IPC envelope
  *  (`Error invoking remote method '…': Error: …`). */
@@ -62,7 +68,7 @@ export function ErrorNotice({
   const latest = describeError(reasons.at(-1));
   const total = count ?? reasons.length;
   const summary = summaryOverride || localizeErrorCopy(latest.summary);
-  const recovery = summaryOverride ? '' : latest.recovery;
+  const recovery = summaryOverride ? '' : localizeErrorRecovery(latest);
   const details = reasons
     .slice(-50)
     .map((reason) => describeError(reason).details)
@@ -89,7 +95,7 @@ export function ErrorNotice({
           </button>
         )}
       </div>
-      {recovery && <p className="error-notice-recovery">{localizeErrorCopy(recovery)}</p>}
+      {recovery && <p className="error-notice-recovery">{recovery}</p>}
       {(hasDetails || onRetry || action || verificationUrl) && (
         <div className="error-notice-actions">
           {hasDetails && (

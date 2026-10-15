@@ -66,49 +66,6 @@ function splitGeminiToolContent(content) {
   };
 }
 
-const GEMINI_FUNCTION_RESPONSE_MIME = /^(?:image\/(?:png|jpeg|webp)|application\/pdf|text\/plain)$/i;
-
-function geminiFunctionCapabilities(model) {
-  const match = String(model || '')
-    .toLowerCase()
-    .match(/(?:^|\/)gemini(?:-live)?-(\d+)/);
-  const major = match ? Number.parseInt(match[1], 10) : null;
-  const modern = major == null || major >= 3;
-  return {
-    functionPartIds: modern,
-    multimodalFunctionResponse: modern,
-  };
-}
-
-function toGeminiFunctionResponseMedia(mediaParts) {
-  const parts = [];
-  const refs = [];
-  const external = [];
-  const omitted = [];
-  for (const media of mediaParts || []) {
-    const payload = media?.inlineData || media?.fileData;
-    const mimeType = String(payload?.mimeType || '').trim();
-    if (!GEMINI_FUNCTION_RESPONSE_MIME.test(mimeType)) {
-      if (mimeType) omitted.push(mimeType);
-      continue;
-    }
-    const displayName = `tool_media_${parts.length + 1}`;
-    if (media.inlineData) {
-      parts.push({ inlineData: { ...media.inlineData, mimeType, displayName } });
-      refs.push({ $ref: displayName });
-    } else {
-      // FunctionResponse.parts currently documents inlineData only.
-      // fileData is valid in ordinary Content parts but can 400 when
-      // nested here, so retain file-backed media as plain JSON metadata.
-      external.push({
-        mimeType,
-        fileUri: String(media.fileData?.fileUri || ''),
-      });
-    }
-  }
-  return { parts, refs, external, omitted };
-}
-
 /**
  * Convert JSON Schema type string to Gemini SchemaType.
  * Gemini SDK uses its own enum instead of plain strings.
@@ -647,27 +604,18 @@ export function toGeminiToolConfig(toolChoice) {
   return undefined;
 }
 
-function toGeminiToolContent(message, toolNameByCallId, capabilities) {
+// One tool result: its functionResponse part, plus any media it carried as
+// ordinary content parts. The ids pair a call with its response (the Claude
+// models behind Antigravity require them) and are harmless for Gemini.
+function toGeminiToolResult(message, toolNameByCallId) {
   const functionName = toolNameByCallId?.get(message.toolCallId) || message.toolCallId || '';
   const { response, mediaParts } = splitGeminiToolContent(message.content);
-  const media = toGeminiFunctionResponseMedia(mediaParts);
-  if (media.refs.length) response.media = media.refs;
-  if (media.external.length) response.externalMedia = media.external;
-  if (media.omitted.length) response.omittedMediaTypes = media.omitted;
   const functionResponse = { name: functionName, response };
-  if (capabilities.functionPartIds && typeof message.toolCallId === 'string' && message.toolCallId) {
-    functionResponse.id = message.toolCallId;
-  }
-  if (capabilities.multimodalFunctionResponse && media.parts.length) {
-    functionResponse.parts = media.parts;
-  }
-  return {
-    content: { role: 'user', parts: [{ functionResponse }] },
-    trailingMediaParts: capabilities.multimodalFunctionResponse ? [] : media.parts,
-  };
+  if (typeof message.toolCallId === 'string' && message.toolCallId) functionResponse.id = message.toolCallId;
+  return { functionResponsePart: { functionResponse }, mediaParts };
 }
 
-function toGeminiContent(message, capabilities) {
+function toGeminiContent(message) {
   if (!message || message.role === 'system') return null;
   const orderedReplay =
     message.role === 'assistant' ? providerReplayItems(message, ['gemini', 'antigravity']) : undefined;
@@ -689,7 +637,7 @@ function toGeminiContent(message, capabilities) {
         functionCall: {
           name: tc.name,
           args: tc.arguments,
-          ...(capabilities.functionPartIds && typeof tc.id === 'string' && tc.id ? { id: tc.id } : {}),
+          ...(typeof tc.id === 'string' && tc.id ? { id: tc.id } : {}),
         },
       };
       if (
@@ -765,7 +713,6 @@ function geminiThoughtPartsFromMetadata(message) {
 
 export function toGeminiContents(messages, model = '', { repairToolSignatures = true } = {}) {
   const contents = [];
-  const capabilities = geminiFunctionCapabilities(model);
   // Map synthetic toolCallId -> function name from prior assistant
   // tool_calls so each functionResponse part carries the real function name.
   const toolNameByCallId = new Map();
@@ -776,34 +723,26 @@ export function toGeminiContents(messages, model = '', { repairToolSignatures = 
       }
     }
   }
-  let pendingToolMediaParts = [];
-  const flushToolMedia = () => {
-    if (!pendingToolMediaParts.length) return;
-    contents.push({ role: 'user', parts: pendingToolMediaParts });
-    pendingToolMediaParts = [];
-  };
+  // Consecutive tool results share one user turn: every functionResponse part
+  // first (one per call, in call order), then the media the results carried as
+  // sibling inlineData/fileData parts.
+  let toolTurn = null;
   for (const message of messages) {
     if (message?.role === 'tool') {
-      const { content, trailingMediaParts } = toGeminiToolContent(message, toolNameByCallId, capabilities);
-      const last = contents[contents.length - 1];
-      if (
-        last?.role === 'user' &&
-        Array.isArray(last.parts) &&
-        last.parts.length &&
-        last.parts.every((part) => part?.functionResponse)
-      ) {
-        last.parts.push(...content.parts);
-      } else {
-        contents.push(content);
+      const { functionResponsePart, mediaParts } = toGeminiToolResult(message, toolNameByCallId);
+      if (!toolTurn) {
+        toolTurn = { content: { role: 'user', parts: [] }, responseCount: 0 };
+        contents.push(toolTurn.content);
       }
-      pendingToolMediaParts.push(...trailingMediaParts);
+      toolTurn.content.parts.splice(toolTurn.responseCount, 0, functionResponsePart);
+      toolTurn.responseCount += 1;
+      toolTurn.content.parts.push(...mediaParts);
       continue;
     }
-    flushToolMedia();
-    const content = toGeminiContent(message, capabilities);
+    toolTurn = null;
+    const content = toGeminiContent(message);
     if (content) contents.push(content);
   }
-  flushToolMedia();
   return repairToolSignatures ? ensureGeminiToolCallSignatures(contents, model) : contents;
 }
 

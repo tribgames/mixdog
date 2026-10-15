@@ -98,7 +98,7 @@ export const observationActions = defineBrowserActions({
       }
       const data = printed.toString('base64');
       if (!data) throw new Error('the page could not be printed to PDF');
-      const stored = persistFrameImage('browser', String(command.session_id || 'browser'), state.pageId(guest), {
+      const stored = await persistFrameImage('browser', String(command.session_id || 'browser'), state.pageId(guest), {
         mimeType: 'application/pdf',
         data,
       });

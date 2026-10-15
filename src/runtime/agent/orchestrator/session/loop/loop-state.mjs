@@ -146,7 +146,7 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
     messages,
     opts,
     sessionId,
-    onSkillPrompt: (content) => state.pendingSkillPrompts.push(content),
+    onSkillPrompt: (content, message) => state.pendingSkillPrompts.push({ content, message }),
   });
   // Bounded recovery for provider turns that returned no client tool calls
   // (max-output ladder, refusal retry, provider continuation, empty-turn

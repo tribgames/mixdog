@@ -290,16 +290,33 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
 function ContextPanel({ data, pending, run }: PanelContext) {
   const autoClear = record(data.autoClear);
   const compaction = record(data.compaction);
+  const sessionTitles = record(data.sessionTitles);
   const providerDefaults = rows(autoClear.providerDefaults);
   const busy = Boolean(pending);
   return (
     <Group title={t('Session lifecycle')}>
+      <ToggleRow
+        title={t('Let AI rename sessions')}
+        description={t('Allow the assistant to give a session a descriptive title.')}
+        checked={sessionTitles.aiSessionTitles !== false}
+        disabled={busy}
+        onChange={(enabled) => void run('setAiSessionTitles', [enabled])}
+      />
       <ToggleRow
         title={t('Auto-compact')}
         description={t('Compact automatically as the active context reaches its limit.')}
         checked={compaction.auto !== false}
         disabled={busy}
         onChange={(enabled) => void run('setCompactionSettings', [{ auto: enabled }])}
+      />
+      <ToggleRow
+        title={t('Auto-compact on model change')}
+        description={t(
+          'Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.'
+        )}
+        checked={compaction.onModelChange !== false}
+        disabled={busy}
+        onChange={(enabled) => void run('setCompactionSettings', [{ onModelChange: enabled }])}
       />
       <ToggleRow
         title={t('Auto-clear')}

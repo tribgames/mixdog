@@ -34,6 +34,28 @@ test('a favorite flag persists across a reload and is cleared when removed', asy
   assert.equal(JSON.parse(await readFile(target, 'utf8')).favorites, undefined, 'empty map is omitted from the file');
 });
 
+test('a write from one service never persists its stale cache over another service sharing the directory', async (t) => {
+  const { metadata, reload } = await fixture(t);
+  const other = await reload(); // second desktop service, same metadata directory
+  await other.setName('session-b', 'Saved by the other service');
+  await other.setFavorite('session-c', true);
+
+  assert.equal(await metadata.setFavorite('session-a', true), true);
+  const reloaded = await reload();
+  assert.equal(reloaded.names['session-b'], 'Saved by the other service');
+  assert.deepEqual(reloaded.withFavoriteFlags([{ id: 'session-a' }, { id: 'session-c' }]), [
+    { id: 'session-a', favorite: true },
+    { id: 'session-c', favorite: true },
+  ]);
+
+  // An entry this service removes is removed on disk, while the other's stays.
+  await metadata.setFavorite('session-a', false);
+  assert.deepEqual((await reload()).withFavoriteFlags([{ id: 'session-a' }, { id: 'session-c' }]), [
+    { id: 'session-a' },
+    { id: 'session-c', favorite: true },
+  ]);
+});
+
 test('archiving keeps the favorite flag and deleting a session forgets it', async (t) => {
   const { metadata, reload } = await fixture(t);
   await metadata.setFavorite('session-a', true);

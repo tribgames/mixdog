@@ -1,5 +1,11 @@
 import { useCallback, useEffect } from 'react';
 import { OPEN_CONNECTION_SETTINGS_EVENT } from '../remote-claim-events';
+import {
+  IMPORT_CATALOGS_CHANGED_EVENT,
+  OPEN_IMPORTED_SESSION_EVENT,
+  type OpenImportedSessionDetail,
+} from '../import-conversation-events';
+import { startImportJobStore } from '../import-job-store';
 import { requestSessionRead } from '../app-snapshot-views';
 import { createProjectActions } from '../app-project-actions';
 import { useAppSessionActions } from '../use-app-session-actions';
@@ -117,6 +123,32 @@ export function useAppSessionCommands(
     window.addEventListener(OPEN_CONNECTION_SETTINGS_EVENT, open);
     return () => window.removeEventListener(OPEN_CONNECTION_SETTINGS_EVENT, open);
   }, [openSettings]);
+
+  const { setSettingsOpen } = shellPanels;
+  // Batch imports register their projects; refresh both catalogs, leaving the active chat alone.
+  useEffect(() => {
+    startImportJobStore();
+    const refresh = () => {
+      refreshSessionsBestEffort();
+      void Promise.resolve(refreshProjects()).catch(() => undefined);
+    };
+    window.addEventListener(IMPORT_CATALOGS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(IMPORT_CATALOGS_CHANGED_EVENT, refresh);
+  }, [refreshProjects, refreshSessionsBestEffort]);
+  // A finished single import: refresh the catalog, then open it like any other
+  // existing session (no prompt is submitted).
+  useEffect(() => {
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<OpenImportedSessionDetail>).detail;
+      if (!detail?.sessionId) return;
+      setSettingsOpen(false);
+      void refreshSessions()
+        .catch(() => undefined)
+        .then(() => openSessionRef.current(detail.sessionId));
+    };
+    window.addEventListener(OPEN_IMPORTED_SESSION_EVENT, open);
+    return () => window.removeEventListener(OPEN_IMPORTED_SESSION_EVENT, open);
+  }, [openSessionRef, refreshSessions, setSettingsOpen]);
 
   return {
     startProject,

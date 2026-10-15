@@ -65,7 +65,19 @@ function renderBatchItems(batch, pushUserOrSyntheticItem) {
   }
 }
 
-function turnOptionsForBatch(batch, steering) {
+const COMPLETION_WAKE_MODES = new Set(['task-notification', 'pending-resume']);
+
+// Trusted provenance of a drained batch: Goal turns keep their own source; a
+// batch made only of completion wakes (task notifications, pending resumes)
+// is the runtime reporting, carried as a task notification so the runtime
+// stores it as one and never treats its text as a user skill selection.
+function batchPromptSource(batch) {
+  if (isGoalQueuedEntry(batch[0])) return batch[0].mode;
+  if (batch.length > 0 && batch.every((entry) => COMPLETION_WAKE_MODES.has(entry?.mode))) return 'task-notification';
+  return undefined;
+}
+
+export function turnOptionsForBatch(batch, steering) {
   const nonEditable = batch.filter((entry) => !isQueuedEntryEditable(entry));
   // A completion resume is owned by the completion that woke it. Esc
   // consumes that ownership; unlike ordinary notifications it must never
@@ -75,7 +87,7 @@ function turnOptionsForBatch(batch, steering) {
     (entry) => entry?.abortDiscardOnAbort === true || entry?.mode === 'pending-resume'
   );
   return {
-    promptSource: isGoalQueuedEntry(batch[0]) ? batch[0].mode : undefined,
+    promptSource: batchPromptSource(batch),
     retryFailedTurn: batch[0]?.retryFailedTurn === true,
     displayText: batch
       .map((entry) => entry.text)
@@ -113,8 +125,6 @@ function turnOptionsForBatch(batch, steering) {
     },
   };
 }
-
-const COMPLETION_WAKE_MODES = new Set(['task-notification', 'pending-resume']);
 
 export function createDrainLoop(
   bag,
@@ -238,6 +248,12 @@ export function createDrainLoop(
       while (pending.length > 0) {
         if (flags.drainEpoch !== drainEpoch) return;
         if (admission() !== 'open') return;
+        // Admission is rechecked before every batch: a command that took the
+        // lock while the previous turn settled (an in-place model switch and
+        // its pre-compaction, a reset) runs before the next turn starts. The
+        // finally below re-enters drain(), which waits on the same gate, and
+        // the commandBusy release re-kicks the queue.
+        if (flags.autoClearRunning || getState().commandBusy) return;
         // Drain one priority/mode bucket at a time (unified command queue):
         // prompt steering stays editable and task notifications stay
         // non-editable but model-visible.
@@ -257,7 +273,7 @@ export function createDrainLoop(
         // after a long idle is compacted first; the wake runs regardless.
         if (autoClearBeforeWake && batch.every((entry) => COMPLETION_WAKE_MODES.has(entry.mode))) {
           await autoClearBeforeWake();
-          if (flags.drainEpoch !== drainEpoch || admission() !== 'open') {
+          if (flags.drainEpoch !== drainEpoch || admission() !== 'open' || getState().commandBusy) {
             queue.requeueEntriesFront(batch);
             return;
           }

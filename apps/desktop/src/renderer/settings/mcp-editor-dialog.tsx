@@ -1,14 +1,16 @@
 // MCP server editor: transport/row helpers, the string and pair list editors
 // and the create/edit dialog.
 import { Check, Plug, X } from 'lucide-react';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { t } from '../i18n';
-import { ErrorNotice, errorSummary } from '../ErrorNotice';
+import { describeError, ErrorNotice, errorSummary } from '../ErrorNotice';
+import { errorMessage } from '../editor-pane-session-errors';
 import { record } from '../record-utils';
 import type { SidebarResourceTagTone } from '../sidebar-resource-row';
 import { CompactSwitch } from './capability-controls';
 import type { RecordValue } from './capability-data';
 import {
+  ExtensionAction,
   ExtensionDetailDialog,
   ExtensionField,
   ExtensionItemList,
@@ -37,6 +39,29 @@ export function mcpRowDescription(server: RecordValue): string {
 }
 
 type McpPair = { key: string; value: string };
+
+/** True when the config already carries its own credentials (a bearer
+ *  variable or headers), so explicit OAuth sign-in does not apply. */
+function mcpHasConfiguredAuth(config: RecordValue): boolean {
+  return Boolean(
+    String(config.bearer_token_env_var || '').trim() ||
+      Object.keys(record(config.headers)).length ||
+      Object.keys(record(config.env_http_headers)).length
+  );
+}
+
+function validHttpUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** Wait after the last keystroke before the add dialog asks the server how it
+ *  authenticates. */
+const PROBE_TYPING_DELAY_MS = 500;
 
 function mcpStringValues(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
@@ -204,6 +229,9 @@ export function McpEditorDialog({
   onSave,
   onToggle,
   onRemove,
+  onConnect,
+  onDisconnect,
+  onProbe,
 }: {
   server: RecordValue | null;
   busy: boolean;
@@ -214,6 +242,12 @@ export function McpEditorDialog({
   onSave(payload: RecordValue): unknown;
   onToggle?(): void;
   onRemove?(): void;
+  /** Starts the explicit OAuth login of a saved server. */
+  onConnect?(name: string): void;
+  /** Deletes the saved OAuth sign-in of a server. */
+  onDisconnect?(name: string): void;
+  /** Asks a not yet saved HTTP server how it authenticates. */
+  onProbe?(config: RecordValue): Promise<RecordValue | undefined>;
 }) {
   const editing = Boolean(server);
   const name = String(server?.name || '');
@@ -226,8 +260,105 @@ export function McpEditorDialog({
   const [headers, setHeaders] = useState(() => mcpPairValues(config.headers));
   const [envHeaders, setEnvHeaders] = useState(() => mcpPairValues(config.env_http_headers));
   const [formError, setFormError] = useState('');
+  const [url, setUrl] = useState(String(config.url || ''));
+  const [bearer, setBearer] = useState(String(config.bearer_token_env_var || ''));
   const autoDetect = initialTransport === 'autoDetect';
   const connection = server ? mcpStatus(server) : null;
+  const oauth = record(server?.oauth);
+  const signedIn = oauth.signedIn === true;
+  // An enabled HTTP server that carries no credentials of its own signs in
+  // with explicit OAuth. Anything not connected can retry with Connect, so a
+  // failed first login never leaves the server without a way back in.
+  const oauthEligible =
+    editing &&
+    initialTransport === 'http' &&
+    server?.enabled !== false &&
+    !mcpHasConfiguredAuth(config) &&
+    (signedIn || !connection?.connected);
+  const oauthActions = oauthEligible;
+
+  // Add dialog: once the URL settles, ask the server how it authenticates.
+  const authFilled =
+    bearer.trim() !== '' || [...headers, ...envHeaders].some((row) => row.key.trim() !== '' || row.value.trim() !== '');
+  const probeUrl =
+    !editing && onProbe && transport === 'http' && !authFilled && validHttpUrl(url.trim()) ? url.trim() : '';
+  const [probe, setProbe] = useState<{ url: string; auth: string; error: string } | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [blurTick, setBlurTick] = useState(0);
+  const flushProbeRef = useRef(false);
+  const probedUrlRef = useRef('');
+  const onProbeRef = useRef(onProbe);
+  onProbeRef.current = onProbe;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: blurTick re-runs the check immediately when the URL field loses focus.
+  useEffect(() => {
+    const flush = flushProbeRef.current;
+    flushProbeRef.current = false;
+    setProbing(false);
+    if (!probeUrl) {
+      probedUrlRef.current = '';
+      setProbe(null);
+      return undefined;
+    }
+    if (probedUrlRef.current === probeUrl) return undefined;
+    let cancelled = false;
+    const timer = window.setTimeout(
+      async () => {
+        setProbing(true);
+        let result: RecordValue | undefined;
+        try {
+          result = await onProbeRef.current?.({ type: 'http', url: probeUrl });
+        } catch (reason) {
+          result = { auth: 'unreachable', error: errorMessage(reason) };
+        }
+        if (cancelled) return;
+        setProbing(false);
+        if (!result) return;
+        probedUrlRef.current = probeUrl;
+        setProbe({ url: probeUrl, auth: String(result.auth || ''), error: String(result.error || '') });
+      },
+      flush ? 0 : PROBE_TYPING_DELAY_MS
+    );
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [probeUrl, blurTick]);
+  const probeResult = probeUrl && probe?.url === probeUrl ? probe : null;
+  const save = (form: HTMLFormElement, connectAfter: boolean) => {
+    if (autoDetect) return;
+    const data = new FormData(form);
+    const fail = (error: unknown) => setFormError(error instanceof Error ? error.message : String(error));
+    try {
+      const payload: RecordValue = {
+        ...(editing ? { originalName: name } : {}),
+        name: String(data.get('mcp-name') || '').trim(),
+        type: transport,
+      };
+      if (!editing && takenNames.includes(String(payload.name))) {
+        throw new Error(t('MCP server "{{name}}" already exists.', { name: String(payload.name) }));
+      }
+      if (transport === 'stdio') {
+        payload.command = String(data.get('mcp-command') || '').trim();
+        payload.args = args.map((value) => value.trim()).filter(Boolean);
+        payload.env = mcpPairRecord(env, t('Environment'));
+        payload.env_vars = envVars.map((value) => value.trim()).filter(Boolean);
+        payload.cwd = String(data.get('mcp-cwd') || '').trim();
+      } else {
+        payload.url = String(data.get('mcp-url') || '').trim();
+        payload.headers = mcpPairRecord(headers, t('Headers'));
+        payload.bearer_token_env_var = String(data.get('mcp-bearer-token-env') || '').trim();
+        payload.env_http_headers = mcpPairRecord(envHeaders, t('Environment-backed headers'));
+      }
+      setFormError('');
+      void Promise.resolve(onSave(payload))
+        .then(() => {
+          if (connectAfter) onConnect?.(String(payload.name));
+        })
+        .catch(fail);
+    } catch (error) {
+      fail(error);
+    }
+  };
   return (
     <ExtensionDetailDialog
       width="editor"
@@ -247,37 +378,9 @@ export function McpEditorDialog({
           />
         ) : null
       }
-      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+      onSubmit={(event) => {
         event.preventDefault();
-        if (autoDetect) return;
-        const data = new FormData(event.currentTarget);
-        const fail = (error: unknown) => setFormError(error instanceof Error ? error.message : String(error));
-        try {
-          const payload: RecordValue = {
-            ...(editing ? { originalName: name } : {}),
-            name: String(data.get('mcp-name') || '').trim(),
-            type: transport,
-          };
-          if (!editing && takenNames.includes(String(payload.name))) {
-            throw new Error(t('MCP server "{{name}}" already exists.', { name: String(payload.name) }));
-          }
-          if (transport === 'stdio') {
-            payload.command = String(data.get('mcp-command') || '').trim();
-            payload.args = args.map((value) => value.trim()).filter(Boolean);
-            payload.env = mcpPairRecord(env, t('Environment'));
-            payload.env_vars = envVars.map((value) => value.trim()).filter(Boolean);
-            payload.cwd = String(data.get('mcp-cwd') || '').trim();
-          } else {
-            payload.url = String(data.get('mcp-url') || '').trim();
-            payload.headers = mcpPairRecord(headers, t('Headers'));
-            payload.bearer_token_env_var = String(data.get('mcp-bearer-token-env') || '').trim();
-            payload.env_http_headers = mcpPairRecord(envHeaders, t('Environment-backed headers'));
-          }
-          setFormError('');
-          void Promise.resolve(onSave(payload)).catch(fail);
-        } catch (error) {
-          fail(error);
-        }
+        save(event.currentTarget, false);
       }}
       footer={
         <>
@@ -303,8 +406,25 @@ export function McpEditorDialog({
           <ExtensionItemRow
             icon={<Plug size={16} aria-hidden="true" />}
             title={t('Connection')}
-            description={server.error ? errorSummary(server.error) : mcpRowDescription(server)}
+            description={server.error ? mcpErrorSummary(server.error) : mcpRowDescription(server)}
             tone={connection.tone}
+            control={
+              oauthActions &&
+              (!signedIn ? (
+                <ExtensionAction disabled={busy} onClick={() => onConnect?.(name)}>
+                  {t('Connect')}
+                </ExtensionAction>
+              ) : (
+                <>
+                  <ExtensionAction disabled={busy} onClick={() => onConnect?.(name)}>
+                    {t('Reconnect')}
+                  </ExtensionAction>
+                  <ExtensionAction danger disabled={busy} onClick={() => onDisconnect?.(name)}>
+                    {t('Disconnect')}
+                  </ExtensionAction>
+                </>
+              ))
+            }
           />
         </ExtensionItemList>
       )}
@@ -330,7 +450,7 @@ export function McpEditorDialog({
         {autoDetect && <ExtensionNote>{t('Auto-detect')}</ExtensionNote>}
         {!autoDetect && (
           // biome-ignore lint/a11y/useSemanticElements: a div button group; <fieldset> would change the element tag.
-          <div className="extensions-mcp-transport" role="group" aria-label={t('Transport')}>
+          <div className="mx-segmented extensions-mcp-transport" role="group" aria-label={t('Transport')}>
             <button
               type="button"
               className={transport === 'stdio' ? 'active' : ''}
@@ -355,7 +475,8 @@ export function McpEditorDialog({
         )}
       </ExtensionField>
       {transport === 'stdio' ? (
-        <>
+        // Keyed so a transport switch remounts the fields: the stdio and HTTP inputs sit at the same positions.
+        <Fragment key="stdio">
           <ExtensionField label={t('Command')} note={t('Executable used to start the stdio server.')}>
             <input
               name="mcp-command"
@@ -399,30 +520,67 @@ export function McpEditorDialog({
               spellCheck={false}
             />
           </ExtensionField>
-        </>
+        </Fragment>
       ) : (
         !autoDetect && (
-          <>
+          <Fragment key="http">
             <ExtensionField label={t('URL')} note={t('Streamable HTTP server endpoint.')}>
               <input
                 name="mcp-url"
                 type="url"
-                defaultValue={String(config.url || '')}
+                value={url}
                 required
                 disabled={busy}
                 spellCheck={false}
+                onChange={(event) => setUrl(event.currentTarget.value)}
+                onBlur={() => {
+                  flushProbeRef.current = true;
+                  setBlurTick((tick) => tick + 1);
+                }}
               />
             </ExtensionField>
+            {probeUrl && probing && <ExtensionNote role="status">{t('Checking…')}</ExtensionNote>}
+            {probeResult?.auth === 'unreachable' && (
+              <ExtensionNote tone="danger" role="status">
+                {probeResult.error
+                  ? mcpErrorSummary(probeResult.error)
+                  : t('Could not verify the connection. Try again.')}
+              </ExtensionNote>
+            )}
+            {probeResult?.auth === 'oauth' && (
+              <ExtensionItemList>
+                <ExtensionItemRow
+                  icon={<Plug size={16} aria-hidden="true" />}
+                  title={t('Connection')}
+                  description={mcpRowDescription({ type: 'http', url: probeResult.url })}
+                  status={t('Sign-in required')}
+                  tone="warn"
+                  dataAttributes={{ 'data-mcp-oauth-probe': 'oauth' }}
+                  control={
+                    <ExtensionAction
+                      disabled={busy}
+                      onClick={(event) => {
+                        const form = event.currentTarget.form;
+                        if (form?.reportValidity()) save(form, true);
+                      }}
+                    >
+                      {t('Connect')}
+                    </ExtensionAction>
+                  }
+                />
+              </ExtensionItemList>
+            )}
             <ExtensionField
               label={t('Bearer token environment variable')}
               note={t('Environment variable containing the bearer token. The token is not stored.')}
             >
               <input
                 name="mcp-bearer-token-env"
-                defaultValue={String(config.bearer_token_env_var || '')}
+                value={bearer}
                 placeholder="MCP_BEARER_TOKEN"
                 disabled={busy}
                 spellCheck={false}
+                onChange={(event) => setBearer(event.currentTarget.value)}
               />
             </ExtensionField>
             <McpPairListEditor
@@ -443,7 +601,7 @@ export function McpEditorDialog({
               busy={busy}
               onChange={setEnvHeaders}
             />
-          </>
+          </Fragment>
         )
       )}
       {autoDetect && (
@@ -465,7 +623,16 @@ export function mcpStatus(server: RecordValue): { label: string; tone: SidebarRe
   const connected = server.connected === true || raw.toLowerCase() === 'connected';
   if (server.enabled === false) return { label: t('Disabled'), tone: 'muted', connected: false };
   if (connected) return { label: t('Connected'), tone: 'ok', connected: true };
+  // A server waiting for explicit OAuth sign-in is not a failure.
+  if (server.authRequired === true) return { label: t('Sign-in required'), tone: 'warn', connected: false };
   if (server.error) return { label: t('Failed'), tone: 'danger', connected: false };
-  if (raw) return { label: `${raw.charAt(0).toUpperCase()}${raw.slice(1)}`, tone: 'muted', connected: false };
+  // Runtime statuses are English identifiers: only known ones are shown, translated.
+  if (raw.toLowerCase() === 'pending') return { label: t('Pending'), tone: 'muted', connected: false };
   return { label: t('Not connected'), tone: 'warn', connected: false };
+}
+
+/** A failure on an MCP row. The shared transport wording names "the provider",
+ *  which is wrong for an MCP server, so a connection failure gets a neutral line. */
+export function mcpErrorSummary(error: unknown): string {
+  return describeError(error).kind === 'connection' ? t('Connection failed') : errorSummary(error);
 }

@@ -6,9 +6,18 @@
  */
 import type { WebContents } from 'electron';
 
-import { onConsoleApiCalled, onExceptionThrown, onLoadingFailed, onLogEntryAdded } from './cdp-events-console';
+import {
+  onConsoleApiCalled,
+  onExceptionThrown,
+  onExecutionContextCreated,
+  onExecutionContextDestroyed,
+  onExecutionContextsCleared,
+  onLoadingFailed,
+  onLogEntryAdded,
+} from './cdp-events-console';
 import { onRequestPaused, type RequestPauseHost } from './cdp-events-fetch';
 import { onAttachedToTarget, type TargetAttachHost } from './cdp-events-target';
+import { parseDialogBridgeNotice } from './dialog-bridge';
 import type { BrowserGuestStateStore } from './guest-state';
 import { redactBrowserText } from './redaction';
 
@@ -59,8 +68,8 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
   const routes: Record<string, Route> = {
     'Target.attachedToTarget': ({ guest, cdp, params, sessionId }) =>
       onAttachedToTarget(host, guest, cdp, params, sessionId),
-    'Target.detachedFromTarget': ({ diagnostics, params, sessionId }) => {
-      diagnostics.cdpSessions.delete(String(params.sessionId || sessionId || ''));
+    'Target.detachedFromTarget': ({ guest, params, sessionId }) => {
+      state.endTargetSession(guest, String(params.sessionId || sessionId || ''));
     },
     'Fetch.requestPaused': ({ guest, cdp, params, sessionId }) => onRequestPaused(host, guest, cdp, params, sessionId),
     // The page answered a press-and-move with its own HTML5 drag, so
@@ -81,9 +90,9 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
         sessionId,
       };
     },
-    'Page.javascriptDialogClosed': ({ diagnostics }) => {
-      diagnostics.pendingDialog = null;
-    },
+    // Only the native dialog of the closing session: a bridged one is
+    // answered through its held request, never by this event.
+    'Page.javascriptDialogClosed': ({ guest, sessionId }) => state.nativeDialogClosed(guest, sessionId),
     'Page.fileChooserOpened': ({ diagnostics, params, sessionId }) => {
       const backendNodeId = Number(params.backendNodeId);
       diagnostics.pendingFileChooser = {
@@ -94,8 +103,24 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
         openedAt: Date.now(),
       };
     },
-    'Runtime.exceptionThrown': ({ guest, params }) => onExceptionThrown(state, guest, params),
-    'Runtime.consoleAPICalled': ({ guest, params }) => onConsoleApiCalled(state, guest, params),
+    'Runtime.executionContextCreated': ({ guest, params, sessionId }) =>
+      onExecutionContextCreated(state, guest, params, sessionId),
+    'Runtime.executionContextDestroyed': ({ guest, params, sessionId }) =>
+      onExecutionContextDestroyed(state, guest, params, sessionId),
+    'Runtime.executionContextsCleared': ({ guest, sessionId }) => onExecutionContextsCleared(state, guest, sessionId),
+    'Runtime.exceptionThrown': ({ guest, params, sessionId }) => onExceptionThrown(state, guest, params, sessionId),
+    // The bridge reports a dialog that never reached the host through the
+    // console; that call is the host's notice, not something the page logged.
+    'Runtime.consoleAPICalled': ({ guest, params, sessionId }) => {
+      const dismissed = parseDialogBridgeNotice(params);
+      if (dismissed) {
+        state.noteDismissedDialog(
+          guest,
+          { ...dismissed, message: redactBrowserText(dismissed.message) },
+          'unreachable'
+        );
+      } else onConsoleApiCalled(state, guest, params, sessionId);
+    },
     'Log.entryAdded': ({ guest, params }) => onLogEntryAdded(state, guest, params),
     'Network.loadingFailed': ({ guest, params, sessionId }) => onLoadingFailed(state, guest, params, sessionId),
     'Tracing.dataCollected': ({ diagnostics, params }) => {

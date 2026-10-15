@@ -1,6 +1,7 @@
 import type { MutableRefObject } from 'react';
-import { useRef } from 'react';
+import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { createTranscriptEndPin } from './transcript-end-pin';
+import { createHeldRowShrinks, type HeldRowShrinks } from './transcript-list-held-shrinks';
 import {
   shouldDeferTranscriptScrollAdjustment,
   type TranscriptVirtualizer,
@@ -51,6 +52,24 @@ export function useVirtualizerResizePatch({
   // React re-renders reuse one virtualizer instance. Patch resizeItem exactly
   // once instead of wrapping the previous wrapper again on every render.
   const patchedVirtualizer = useRef<TranscriptVirtualizer | null>(null);
+  // Streaming rows whose shorter reflow is held at their tallest slot.
+  const heldShrinks = useRef<HeldRowShrinks | null>(null);
+  heldShrinks.current ??= createHeldRowShrinks();
+  const held = heldShrinks.current;
+  // A held row that stopped streaming may never be observed again if its box
+  // no longer changes: its real size lands in the commit that ends it. The
+  // reader's release and the measurement snapshot land holds imperatively
+  // (settleHeldShrinks), without waiting for a render.
+  const settleHeldShrinks = useCallback(
+    (force = false) => {
+      const instance = patchedVirtualizer.current;
+      if (instance) held.settle(instance, instance.resizeItem, force);
+    },
+    [held]
+  );
+  useLayoutEffect(() => {
+    settleHeldShrinks();
+  });
   if (patchedVirtualizer.current !== virtualizer) {
     patchedVirtualizer.current = virtualizer;
     const resizeItem = virtualizer.resizeItem;
@@ -88,6 +107,8 @@ export function useVirtualizerResizePatch({
       }
       pendingResizes.current.delete(measured?.key ?? index);
       const previous = measured ? (virtualizer.itemSizeCache.get(measured.key) ?? measured.size) : undefined;
+      // A followed streaming row's momentary reflow dip keeps its slot.
+      if (measured && held.hold(virtualizer, measured.key, size)) return;
       if (transcriptScrollDiagnosticsEnabled() && previous !== undefined && Math.abs(size - previous) >= 4) {
         logTranscriptScroll('row-resize', {
           index,
@@ -116,6 +137,9 @@ export function useVirtualizerResizePatch({
         });
       }
       resizeItem(index, size);
+      // A pending row's learned estimate may have replaced `size` (provisional
+      // resize): only an observed slot may later be held.
+      if (measured) held.measured(virtualizer, measured.key, size);
       if (virtualizer.options.followOnAppend || virtualizer.options.anchorTo === 'end') {
         endPin.request();
       } else if (anchoredAbove) {
@@ -158,4 +182,5 @@ export function useVirtualizerResizePatch({
     // the finger.
     return item.start < top && (applyingDeferred.current || !instance.itemSizeCache.has(item.key));
   };
+  return { settleHeldShrinks };
 }

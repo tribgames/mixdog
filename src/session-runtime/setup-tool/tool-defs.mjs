@@ -227,7 +227,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           type: 'string',
           enum: [...INSTRUCTION_FILES_MODES],
           description:
-            'set_instruction_files: which user instruction files new sessions load (global ~/.codex/AGENTS.md, ~/.claude/CLAUDE.md, then the Project root\'s AGENTS.md/CLAUDE.md).',
+            "set_instruction_files: which user instruction files new sessions load (global ~/.codex/AGENTS.md, ~/.claude/CLAUDE.md, then the Project root's AGENTS.md/CLAUDE.md).",
         },
         name: {
           type: 'string',
@@ -244,6 +244,12 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           properties: {
             selectedId: { type: 'string', description: 'Account to use now.' },
             auto: { type: 'boolean', description: 'Automatic switching to another account when one is exhausted.' },
+            policy: {
+              type: 'string',
+              enum: ['manual', 'limit', 'headroom'],
+              description:
+                'Account switching: manual = selected account only; limit = switch when it reaches a limit; headroom = each new session starts on the account with the most headroom.',
+            },
             useCredits: { type: 'boolean', description: 'Allow paid credits once plan limits are reached.' },
             order: {
               type: 'array',

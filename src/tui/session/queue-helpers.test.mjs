@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { mergePromptContents, promptDisplayText } from './queue-helpers.mjs';
+import { mergePromptContents, promptContentImageMeta, promptDisplayText } from './queue-helpers.mjs';
+
+test('image meta carries attachmentRef only for reference parts', () => {
+  const ref = 'b'.repeat(64);
+  const meta = promptContentImageMeta(
+    [
+      { type: 'image', attachmentRef: ref, mimeType: 'image/jpeg', sizeBytes: 5 },
+      { type: 'image', data: 'abc', mimeType: 'image/png' },
+      { type: 'image', attachmentRef: 'bad', data: 'x' },
+    ],
+    null
+  );
+  assert.equal(meta[0].attachmentRef, ref);
+  assert.equal(meta[0].bytes, 5);
+  assert.equal('attachmentRef' in meta[1], false);
+  assert.equal('attachmentRef' in meta[2], false);
+  assert.equal(promptContentImageMeta([{ type: 'text', text: 'hi' }], null), null);
+});
 
 test('merging keeps an externalized single text part as a parts array', () => {
   // Prompts over the attachment externalization threshold arrive as

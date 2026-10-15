@@ -14,13 +14,16 @@ import {
   ANTHROPIC_RETRY_JITTER_RATIO,
   anthropicMaxAttempts,
   anthropicRequestTimeoutMs,
+  AnthropicFallbackTriggeredError,
   emitProviderRetryStage,
   withRetry,
-  retryAfterMsFromError,
   retryDelayLabel,
 } from './retry-classifier.mjs';
+import { ANTHROPIC_MAX_CONSECUTIVE_529 } from './retry-backoff.mjs';
 import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, createTimeoutSignal } from '../stall-policy.mjs';
-import { noteFastModeCapacityError } from './anthropic-fast-mode.mjs';
+import { fastModeDowngraded, noteFastModeCapacityError } from './anthropic-fast-mode.mjs';
+import { adjustMaxTokensForContextOverflow } from './anthropic-max-tokens-recovery.mjs';
+import { applyAnthropicErrorContract, retryAfterMsFromHeaders } from './anthropic-error-contract.mjs';
 import { noteRequestServiceTier } from '../../../shared/llm/usage-context.mjs';
 import { notifyCurrentAnthropicRateLimit } from './admission-scheduler.mjs';
 
@@ -78,12 +81,61 @@ export function armFirstByteWatchdog(streamController, midState) {
  * @param {object} deps.params  the streaming request body (mutated on fast-pool de-latch)
  * @param {object|null} deps.requestHeaders  per-call beta/extra headers
  * @param {AbortSignal|null} deps.totalSignal  session-lifetime pass-through
+ * @param {{ state: { consecutive529Errors: number } }|null} [deps.overload]  the send's shared overload counter
  */
-export function createAnthropicApiTransport({ client, label, opts, useModel, params, requestHeaders, totalSignal }) {
+export function createAnthropicApiTransport({
+  client,
+  label,
+  opts,
+  useModel,
+  params,
+  requestHeaders,
+  totalSignal,
+  overload = null,
+}) {
   const requestOptions = (attemptSignal) => ({
     signal: attemptSignal,
     ...(requestHeaders ? { headers: requestHeaders } : {}),
   });
+  // The SDK throws a non-2xx before `.asResponse()` resolves, so an HTTP
+  // failure arrives as an APIError rather than a Response. Stamp the
+  // provider-boundary error contract on it (status, lowercased error type as
+  // `code`, preserved headers, uncapped retryAfterMs / resetAt).
+  const annotateHttpFailure = (err) => {
+    if (err && typeof err === 'object' && Number(err.status || err.httpStatus || 0) > 0) {
+      applyAnthropicErrorContract(err, { status: err.status || err.httpStatus, headers: err.headers });
+    }
+    return err;
+  };
+  // A fast-pool refusal (or a "Fast mode is not enabled" 400) says nothing
+  // about standard-speed capacity: drop `speed` and let the caller replay at
+  // once instead of waiting out a window that only the fast pool owns.
+  const dropFastSpeedAfter = (body, err) => {
+    if (body.speed !== 'fast') return false;
+    if (!fastModeDowngraded(noteFastModeCapacityError(err, { fast: true }))) return false;
+    delete body.speed;
+    return true;
+  };
+  // In-attempt body repairs, each replayed once: drop speed after a fast-pool
+  // refusal, and shrink max_tokens after the "input length and max_tokens
+  // exceed context limit" 400.
+  const withBodyRecovery = (body, attempt) => async (ctx) => {
+    let speedDropped = false;
+    let tokensAdjusted = false;
+    for (;;) {
+      try {
+        return await attempt(ctx);
+      } catch (err) {
+        if (!speedDropped && dropFastSpeedAfter(body, err)) {
+          speedDropped = true;
+        } else if (!tokensAdjusted && adjustMaxTokensForContextOverflow(body, err?.status, err?.message)) {
+          tokensAdjusted = true;
+        } else {
+          throw err;
+        }
+      }
+    }
+  };
   // Initial-response retry policy shared by the streaming request and the
   // non-streaming fallback.
   const retryPolicy = (signal, perAttemptLabel, recoveryOwner) => ({
@@ -95,23 +147,27 @@ export function createAnthropicApiTransport({ client, label, opts, useModel, par
     perAttemptTimeoutMs: anthropicRequestTimeoutMs(),
     perAttemptLabel,
     provider: 'anthropic',
+    // This transport honors the positive x-should-retry override.
+    honorShouldRetryTrue: true,
     recoveryOwner,
     retry529: opts.retry529,
     model: useModel,
     fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
+    // One overload counter for the send: SSE overloads count toward the same
+    // limit as request-loop 529s.
+    overloadState: overload?.state,
+    overloadFallbackAfter: ANTHROPIC_MAX_CONSECUTIVE_529,
+    stopAfterRepeated529: overload?.stopAfterRepeated529 === true,
   });
 
-  const requestStreamingResponse = () =>
-    withRetry(
-      async ({ signal: attemptSignal }) => {
-        noteRequestServiceTier(params.speed);
+  const requestStreamingResponse = async () => {
+    const attempt = async ({ signal: attemptSignal }) => {
+      noteRequestServiceTier(params.speed);
+      try {
         const res = await client.messages.create(params, requestOptions(attemptSignal)).asResponse();
         if (!res.ok) {
           const text = await res.text().catch(() => '');
           const err = new Error(`Anthropic API ${res.status}: ${text.slice(0, 200)}`);
-          err.status = res.status;
-          err.httpStatus = res.status;
-          err.initialResponseError = true;
           // Carry response headers so withRetry can honor a
           // short Retry-After and upstream can read quota hints.
           err.headers = res.headers;
@@ -120,48 +176,55 @@ export function createAnthropicApiTransport({ client, label, opts, useModel, par
           // output/tool exposure, so the request-local
           // withRetry loop may retry it with jitter.
           if (res.status === 429) {
-            const retryAfterMs = retryAfterMsFromError({
-              headers: res.headers,
-              response: { headers: res.headers },
-            });
             err.name = 'ProviderQuotaError';
-            err.code = 'PROVIDER_QUOTA';
-            err.retryAfterMs = retryAfterMs;
+            err.retryAfterMs = retryAfterMsFromHeaders(res.headers);
             err.providerQuota = true;
             err.quotaExceeded = true;
           }
-          throw err;
+          throw applyAnthropicErrorContract(err, { status: res.status, headers: res.headers, bodyText: text });
         }
         if (!res.body) {
           throw new Error('Anthropic streaming response has no body');
         }
         return res;
-      },
-      {
+      } catch (err) {
+        throw annotateHttpFailure(err);
+      }
+    };
+    try {
+      return await withRetry(withBodyRecovery(params, attempt), {
         ...retryPolicy(totalSignal, `${label} Anthropic streaming response`, `${label}-initial-response`),
-        onRetry: ({ attempt, maxAttempts, lastErr, delayMs, delayReason }) => {
-          emitProviderRetryStage(opts.onStageChange, { attempt: attempt + 1, maxAttempts, lastErr, delayMs });
-          // Long/unknown fast-pool window: replay at
-          // standard speed rather than waiting it out.
-          if (params?.speed === 'fast' && noteFastModeCapacityError(lastErr, { fast: true }) !== 'retry-fast') {
-            delete params.speed;
-          }
+        onRetry: ({ attempt: retryNo, maxAttempts, lastErr, delayMs, delayReason }) => {
+          emitProviderRetryStage(opts.onStageChange, { attempt: retryNo + 1, maxAttempts, lastErr, delayMs });
           const status = Number(lastErr?.httpStatus || lastErr?.status || lastErr?.response?.status || 0);
           if (status === 429) notifyCurrentAnthropicRateLimit(lastErr);
           const delayLabel = retryDelayLabel(delayMs, delayReason);
           process.stderr.write(
-            `[${label}] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`
+            `[${label}] retry attempt ${retryNo + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`
           );
         },
+      });
+    } catch (err) {
+      // Whatever escapes withRetry failed before any stream existed and has
+      // already spent the request-level budget: mark it so mid-stream
+      // recovery never grants it a second, SSE-sized retry budget.
+      if (err && typeof err === 'object' && !(err instanceof AnthropicFallbackTriggeredError)) {
+        err.initialResponseError = true;
       }
-    );
+      throw err;
+    }
+  };
 
   const requestNonStreamingMessage = (nonStreamingParams, signal) =>
     withRetry(
-      async ({ signal: attemptSignal }) => {
+      withBodyRecovery(nonStreamingParams, async ({ signal: attemptSignal }) => {
         noteRequestServiceTier(nonStreamingParams.speed);
-        return client.messages.create(nonStreamingParams, requestOptions(attemptSignal));
-      },
+        try {
+          return await client.messages.create(nonStreamingParams, requestOptions(attemptSignal));
+        } catch (err) {
+          throw annotateHttpFailure(err);
+        }
+      }),
       {
         ...retryPolicy(signal, `${label} Anthropic non-streaming fallback`, `${label}-nonstreaming-request`),
         onRetry: ({ attempt, maxAttempts, lastErr, delayMs }) =>

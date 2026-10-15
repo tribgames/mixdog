@@ -16,6 +16,7 @@
 import { resolve, sep } from 'node:path';
 import { clean } from './clean.mjs';
 import { isPlainObject } from './object.mjs';
+import { parseMcpToolName } from './tool-primitives.mjs';
 
 export const EXTENSION_SCOPE_KINDS = Object.freeze(['skills', 'mcp', 'plugins']);
 
@@ -123,9 +124,10 @@ export function skillAllowedForCwd(scopes, skill, cwd) {
   return true;
 }
 
-export function mcpServerNameOfTool(toolName) {
-  const match = /^mcp__(.+?)__(.+)$/.exec(clean(toolName));
-  return match ? match[1] : '';
+/** Server of an MCP tool definition or name (metadata first; see parseMcpToolName). */
+export function mcpServerNameOfTool(toolOrName) {
+  const value = toolOrName && typeof toolOrName === 'object' ? toolOrName : clean(toolOrName);
+  return clean(parseMcpToolName(value)?.server);
 }
 
 /** New config with one entry replaced; `projects` null/empty removes it (global). */

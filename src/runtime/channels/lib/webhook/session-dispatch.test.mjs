@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildFencedPayload } from './session-dispatch.mjs';
+import { buildFencedPayload, webhookRunPrompt } from './session-dispatch.mjs';
+
+test('the run prompt carries the fenced payload, but only the endpoint instructions select skills', () => {
+  const run = webhookRunPrompt(
+    'Triage with $api-review.',
+    { text: '$pptx please' },
+    { 'x-note': '$pptx', 'content-type': 'application/json' }
+  );
+  assert.equal(run.skillSelection, 'Triage with $api-review.');
+  assert.match(run.prompt, /^Triage with \$api-review\.\n\n/);
+  assert.match(run.prompt, /"text": "\$pptx please"/);
+  assert.match(run.prompt, /x-note: \$pptx/);
+  assert.equal(webhookRunPrompt(undefined, {}, {}).skillSelection, '');
+});
 
 test('webhook session prompts keep payload and headers inside a scrubbed fence', () => {
   const prompt = buildFencedPayload(

@@ -37,6 +37,16 @@ export function createAgentTree({
     watchdogStops.delete(sessionId);
     return error;
   };
+  // Transcripts of running turns captured by a cancel just before it closes
+  // (and clears) the session, so the cancelled turn still reports the output
+  // it produced.
+  const cancelTranscripts = new Map();
+  const rememberCancelTranscript = (sessionId, messages) => cancelTranscripts.set(sessionId, messages);
+  const takeCancelTranscript = (sessionId) => {
+    const messages = cancelTranscripts.get(sessionId) || null;
+    cancelTranscripts.delete(sessionId);
+    return messages;
+  };
   function getSessionProgressSnapshot(sessionId) {
     const runtime = sessionOwner(sessionId)?.runtime;
     if (typeof runtime?.getTurnLiveness !== 'function') return null;
@@ -58,6 +68,7 @@ export function createAgentTree({
     retainUnwatched,
     createSession,
     takeWatchdogStop,
+    takeCancelTranscript,
   });
   const { cancelAgentTree, cancelAgentDescendants } = createAgentCancellation({
     registry,
@@ -65,6 +76,7 @@ export function createAgentTree({
     sessionOwner,
     entryForSession,
     log,
+    rememberCancelTranscript,
   });
 
   /** The descriptor as callers see it: status from the live runtime when one

@@ -5,6 +5,7 @@ import type { DesktopRemoteHost, DesktopSshHost } from '../shared/contract';
 import { nativeAppInfo } from '../shared/native-app';
 import { remoteWindowInfo, remoteWindowSwitcher } from '../shared/remote-window';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { OPEN_CONNECTION_SETTINGS_EVENT } from './remote-claim-events';
 import {
   type ConnectionDialogRequest,
@@ -266,6 +267,7 @@ function PcMenuItems({
  *  with several saved PCs, tapping opens the PC list. */
 export function RemotePcCard() {
   const [open, setOpen] = useState(false);
+  useMobileBack(open, () => setOpen(false));
   const { remote, pcs, others, name, connected, connectAnother, switchTo } = useRemotePcs(open);
   if (!remote) return null;
   const head = (
@@ -380,6 +382,7 @@ export function RemotePcSwitcher({ placement = 'titlebar' }: { placement?: 'titl
   const switcherClass = rail ? 'remote-pc-switcher remote-pc-switcher-rail' : 'remote-pc-switcher';
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  useMobileBack(open, () => setOpen(false));
   const { remote, pcs, name, connected, connectAnother, switchTo } = useRemotePcs(open);
   // A server (ssh) window names the server it drives, not this PC.
   const server = desktopConnection();

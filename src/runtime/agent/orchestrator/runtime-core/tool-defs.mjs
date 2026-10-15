@@ -27,34 +27,50 @@ export const TOOL_SEARCH_TOOL = {
   },
 };
 
-export const CWD_TOOL = {
-  name: 'cwd',
-  title: 'Project',
+export const SESSION_TOOL = {
+  name: 'session',
+  title: 'Session',
   annotations: {
-    title: 'Project',
+    title: 'Session',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
     openWorldHint: false,
     agentHidden: true,
   },
-  trigger: 'Show or switch the active Project; not a shell-local cd.',
+  trigger: 'Session status, rename the title, compact, fork into a new session, switch Project, worktrees.',
   description:
-    'Show or switch the active Project. list returns the registered projects (name, path); a project name instead of a path → list first, then set the matching path, ask only if several match. path must be an existing directory. A shell-local cd does not change the Project. merge-worktree / remove-worktree act on this session’s git worktree only when the user explicitly asks.',
+    'Manage the current session. status shows session id, title, Project and model; rename sets the session title; compact runs after this turn ends; fork copies this conversation into a new session. set-project switches the active Project; list-projects returns the registered projects (name, path); a project name instead of a path → list-projects first, then set-project with the matching path, ask only if several match. path must be an existing directory. A shell-local cd does not change the Project. Worktree actions act on this session’s git worktree only when the user explicitly asks.',
   inputSchema: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        enum: ['get', 'set', 'list', 'merge-worktree', 'remove-worktree', 'list-worktrees', 'prune-worktrees'],
+        enum: [
+          'status',
+          'rename',
+          'compact',
+          'fork',
+          'set-project',
+          'list-projects',
+          'favorite',
+          'archive',
+          'merge-worktree',
+          'remove-worktree',
+          'list-worktrees',
+          'prune-worktrees',
+        ],
         description:
-          'get shows the active Project (default without path), set switches to path, list returns registered projects; merge-worktree merges this session’s worktree into the project folder’s checked-out branch, remove-worktree deletes it (returning to the project folder; call again if it reports WORKTREE_REMOVAL_INCOMPLETE); list-worktrees lists every managed worktree and who retains it; prune-worktrees removes clean, merged ones no session retains.',
+          'status (default without path) shows the session; rename sets title; compact schedules a compaction right after this turn; fork creates a new session copying this conversation (returns its sessionId; this session stays current); set-project switches to path; list-projects returns registered projects; favorite/archive set this session’s sidebar flag to value; merge-worktree merges this session’s worktree into the project folder’s checked-out branch, remove-worktree deletes it (returning to the project folder; call again if it reports WORKTREE_REMOVAL_INCOMPLETE); list-worktrees lists every managed worktree and who retains it; prune-worktrees removes clean, merged ones no session retains.',
       },
-      path: { type: 'string', description: 'Existing directory to switch to (implies action=set).' },
+      title: { type: 'string', description: 'rename: the new session title.' },
+      path: { type: 'string', description: 'Existing directory to switch to (implies action=set-project).' },
+      compact: { type: 'boolean', description: 'fork: compact the copied conversation.' },
       force: {
         type: 'boolean',
         description: 'remove-worktree: delete even with uncommitted or unmerged work (only when the user says so).',
       },
+      value: { type: 'boolean', description: 'favorite/archive: on or off.' },
     },
     additionalProperties: false,
   },
@@ -121,6 +137,7 @@ export function collectStandaloneToolDefs({
   tidyToolDefs = [],
   visualizeToolDefs = [],
   setupToolDefs = [],
+  askUserToolDefs = [],
   goalTools = [],
   agentTools = [],
   skillToolEnabled = true,
@@ -129,7 +146,7 @@ export function collectStandaloneToolDefs({
   const standaloneTools = [
     TOOL_SEARCH_TOOL,
     ...(skillToolEnabled ? [SKILL_TOOL] : []),
-    CWD_TOOL,
+    SESSION_TOOL,
     ...webSearchRuntimeTools.filter((tool) => tool?.public !== false),
     ...admitted(memoryToolDefs?.TOOL_DEFS, MEMORY_RUNTIME_TOOLS),
     ...admitted(codeGraphToolDefs?.CODE_GRAPH_TOOL_DEFS, CODE_GRAPH_RUNTIME_TOOLS),
@@ -141,6 +158,7 @@ export function collectStandaloneToolDefs({
     ...admitted(tidyToolDefs, TIDY_RUNTIME_TOOLS),
     ...admitted(visualizeToolDefs, VISUALIZE_RUNTIME_TOOLS),
     ...setupToolDefs,
+    ...askUserToolDefs,
     ...goalTools,
     ...agentTools,
   ];

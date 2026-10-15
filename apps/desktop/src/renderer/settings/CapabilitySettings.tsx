@@ -15,13 +15,17 @@ import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
 import { record } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
+import { invalidateSkillCatalogForMutation } from '../composer-skill-mentions';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { SettingsConfirmDialog } from './capability-controls';
 import {
   type CapabilitySettingsProps,
   type PanelContext,
   type SettingsConfirmation,
+  EXTENSION_SECTIONS,
+  applySectionRefresh,
   getCachedCapabilitySettings,
+  refreshCapabilitySections,
   invalidateCapabilitySettings,
   preloadCapabilitySettings,
 } from './capability-data';
@@ -44,6 +48,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
   onOpenCategory,
   createOpen = false,
   onCreateOpenChange,
+  portalConfirm = false,
 }: CapabilitySettingsProps) {
   const initialCache = getCachedCapabilitySettings(api);
   const [data, setData] = useState<Record<string, unknown>>(() => initialCache?.data || {});
@@ -159,6 +164,27 @@ export const CapabilitySettings = memo(function CapabilitySettings({
     };
   }, [api]);
 
+  const extensionCategory = category === 'plugins' || category === 'skills' || category === 'mcp';
+  const refreshExtensions = useCallback(async () => {
+    const sections = await refreshCapabilitySections(api, EXTENSION_SECTIONS);
+    if (Object.keys(sections).length) setData((previous) => applySectionRefresh(previous, sections));
+  }, [api]);
+  // Plugin folders change outside the app: re-read the extension sections the
+  // moment the window is back instead of waiting for the next opening.
+  useEffect(() => {
+    if (!active || !extensionCategory) return;
+    const onFocus = () => void refreshExtensions();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshExtensions();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [active, extensionCategory, refreshExtensions]);
+
   const run = useCallback(
     async <T,>(
       capability: DesktopCapability,
@@ -189,10 +215,18 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           // a resolved call invalidates the sidebar reference keys it makes
           // untrue (provider setup/model catalogs, search route, agents).
           invalidateSidebarReferenceForMutation(capability);
+          // The composer's `$` palette, mention highlight and off-skill notice
+          // read their own skill catalog; a skill change re-reads it.
+          invalidateSkillCatalogForMutation(capability);
           // The next load must re-read past the write instead of adopting a
           // cached or still-running sweep that predates it.
           invalidateCapabilitySettings(api, capability);
-          if (refresh) setRevision((value) => value + 1);
+          if (refresh) {
+            // Extension lists update from a section read right away; the full
+            // sweep below only reconciles the rest.
+            if (extensionCategory) await refreshExtensions();
+            setRevision((value) => value + 1);
+          }
           return result.value;
         } catch (rawReason) {
           const reason = friendlyCapabilityError(rawReason);
@@ -209,7 +243,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       );
       return task;
     },
-    [api, hydrating]
+    [api, extensionCategory, hydrating, refreshExtensions]
   );
 
   const checkDesktopUpdate = useCallback(async (): Promise<void> => {
@@ -327,6 +361,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       snapshot: liveSnapshot,
       pending: effectivePending,
       run,
+      refreshExtensions,
       route,
       setFast,
       confirm,
@@ -352,6 +387,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       onCompose,
       onOpenCategory,
       pushNotice,
+      refreshExtensions,
       route,
       run,
       setFast,
@@ -364,7 +400,9 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       <div className="capability-settings-content">
         {loadError && <ErrorNotice error={loadError} role="status" onRetry={() => void load(true)} />}
         <CategoryPanel category={category} context={context} />
-        {confirmation && <SettingsConfirmDialog options={confirmation} onClose={() => setConfirmation(null)} />}
+        {confirmation && (
+          <SettingsConfirmDialog options={confirmation} portal={portalConfirm} onClose={() => setConfirmation(null)} />
+        )}
       </div>
     </PaneSurfaceGate>
   );

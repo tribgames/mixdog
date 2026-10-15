@@ -113,7 +113,7 @@ function makeProvider(name, { token = 'tok', connect } = {}) {
   };
 }
 
-function makeHarness(t, { provider = makeProvider('discord'), config = makeConfig() } = {}) {
+function makeHarness(t, { provider = makeProvider('primary'), config = makeConfig() } = {}) {
   t.mock.method(process.stderr, 'write', () => true);
   calls.length = 0;
   const state = {
@@ -231,10 +231,10 @@ test('stopOwnedRuntime tears automation down, drains then disconnects a connecte
 
 test('a stop landing mid-connect makes the in-flight start bail without arming automation', async (t) => {
   let releaseConnect;
-  const provider = makeProvider('discord', {
+  const provider = makeProvider('primary', {
     connect: () =>
       new Promise((resolve) => {
-        record('provider.connect', 'discord');
+        record('provider.connect', 'primary');
         releaseConnect = resolve;
       }),
   });
@@ -261,9 +261,9 @@ test('a stop landing mid-connect makes the in-flight start bail without arming a
 
 test('a connect failure degrades to automation-only, and a later reconnect does not re-arm the scheduler', async (t) => {
   let fail = true;
-  const provider = makeProvider('discord', {
+  const provider = makeProvider('primary', {
     connect: async () => {
-      record('provider.connect', 'discord');
+      record('provider.connect', 'primary');
       if (fail) throw new Error('gateway down');
     },
   });
@@ -305,10 +305,10 @@ test('a connect failure degrades to automation-only, and a later reconnect does 
 });
 
 test('reloadRuntimeConfig swaps a provider whose credentials changed and reconnects the new one', async (t) => {
-  const previous = makeProvider('discord', { token: 'old' });
+  const previous = makeProvider('primary', { token: 'old' });
   const { state, runtime } = makeHarness(t, { provider: previous });
   await runtime.startOwnedRuntime();
-  const next = makeProvider('discord', { token: 'new' });
+  const next = makeProvider('primary', { token: 'new' });
   fixtures.loadedConfig = makeConfig({ channelId: 'chan-2' });
   fixtures.nextProvider = next;
   calls.length = 0;
@@ -318,7 +318,7 @@ test('reloadRuntimeConfig swaps a provider whose credentials changed and reconne
   assert.equal(state.connected, true);
   assert.deepEqual(calls[0], ['loadConfig', true]);
   assert.deepEqual(calls[1], ['scheduler.reload', true]);
-  assert.equal(calls.filter((c) => c[0] === 'provider.disconnect' && c[1] === 'discord').length, 1);
+  assert.equal(calls.filter((c) => c[0] === 'provider.disconnect' && c[1] === 'primary').length, 1);
   assert.ok(names().includes('provider.connect'));
   assert.ok(!names().includes('status.update'), 'same provider type keeps the routing snapshot');
   assert.deepEqual(
@@ -328,10 +328,10 @@ test('reloadRuntimeConfig swaps a provider whose credentials changed and reconne
 });
 
 test('reloadRuntimeConfig with an unchanged provider discards the fresh instance and hot-reloads automation services', async (t) => {
-  const current = makeProvider('discord');
+  const current = makeProvider('primary');
   const { state, runtime } = makeHarness(t, { provider: current });
   await runtime.startOwnedRuntime();
-  const duplicate = makeProvider('discord');
+  const duplicate = makeProvider('primary');
   duplicate.disconnect = async () => record('provider.disconnect', 'duplicate');
   fixtures.loadedConfig = makeConfig({ channelId: 'chan-3' });
   fixtures.nextProvider = duplicate;
@@ -357,7 +357,7 @@ test('reloadRuntimeConfig with an unchanged provider discards the fresh instance
 });
 
 test('reloadRuntimeConfig with a provider type change clears the routing snapshot', async (t) => {
-  const { state, runtime } = makeHarness(t, { provider: makeProvider('discord') });
+  const { state, runtime } = makeHarness(t, { provider: makeProvider('primary') });
   await runtime.startOwnedRuntime();
   const other = makeProvider('telegram');
   fixtures.loadedConfig = makeConfig();

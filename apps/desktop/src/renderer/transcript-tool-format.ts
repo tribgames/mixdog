@@ -591,6 +591,7 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
       shortMachineId(toolActivityFirstText(args, 'description', 'tag', 'role', 'model') || fallback),
   ],
   [['github'], (args, _path, fallback) => githubSubject(args, fallback)],
+  [['session'], (args, _path, fallback) => sessionSubject(args, fallback)],
   [['request_user_input'], questionsSubject],
   // "open · example.com/path": the scheme says nothing on a browser row.
   [
@@ -622,6 +623,42 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
     (args, _path, fallback) => localizeActionSubject(args, fallback),
   ],
 ]);
+
+/** "Rename session: Fix login", "Fork into new session", "Set project · C:\repo":
+ *  the session tool's action as a short label, with what it acted on. */
+function sessionSubject(args: Record<string, unknown>, fallback: string): string {
+  const action = toolActivityFirstText(args, 'action').toLowerCase();
+  const title = toolActivityFirstText(args, 'title');
+  const path = toolActivityFirstText(args, 'path');
+  switch (action) {
+    case 'status':
+      return t('Session status');
+    case 'rename':
+      return title ? `${t('Rename session')}: ${title}` : t('Rename session');
+    case 'compact':
+      return t('Compact session');
+    case 'fork':
+      return t('Fork into new session');
+    case 'set-project':
+      return path || t('Set project');
+    case 'list-projects':
+      return t('List projects');
+    case 'favorite':
+      return args.value === false ? t('Remove from favorites') : t('Add to favorites');
+    case 'archive':
+      return args.value === false ? t('Unarchive session') : t('Archive session');
+    case 'merge-worktree':
+      return path ? `${t('Merge worktree')} · ${path}` : t('Merge worktree');
+    case 'remove-worktree':
+      return path ? `${t('Remove worktree')} · ${path}` : t('Remove worktree');
+    case 'list-worktrees':
+      return t('List worktrees');
+    case 'prune-worktrees':
+      return t('Prune worktrees');
+    default:
+      return action ? toolActivityActionLabel(action) : fallback;
+  }
+}
 
 /** The visualize tool's actions as past-tense verbs in the active language. */
 function visualizeActionLabel(action: string): string {
@@ -856,6 +893,7 @@ const TOOL_REPRESENTED_KEYS = byToolName<readonly string[]>([
     ['mode', 'action', 'symbols', 'symbol', 'query', 'files', 'file', 'path', 'body', 'limit', 'depth', 'cwd'],
   ],
   [['cwd'], ['action', 'type', 'path', 'cwd', 'dir']],
+  [['session'], ['action', 'title', 'path']],
   [['list_mcp_resources', 'list_mcp_resource_templates'], ['server']],
 ]);
 

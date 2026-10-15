@@ -65,7 +65,7 @@ export async function runScheduleSession(schedule, { config = null, prompt: prom
   const result = await runAutomationTurns(
     session.id,
     () => askSession(session.id, content, null, null, cwd || undefined),
-    (completions) => askSession(session.id, completions, null, null, cwd || undefined)
+    (completions, askOpts) => askSession(session.id, completions, null, null, cwd || undefined, undefined, askOpts)
   );
   return { sessionId: session.id, result: String(result?.content || '') };
 }

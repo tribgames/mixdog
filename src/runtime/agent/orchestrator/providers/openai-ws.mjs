@@ -18,12 +18,13 @@ import { withEffortConfigurationFallback } from './effort-configuration.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { sendViaHttpSse, _envFlag } from './openai-oauth-http-sse.mjs';
+import { waitForRetryDeadline } from './openai-error-contract.mjs';
 import { isWsMessageTooBigClose, shouldFallbackTransport } from './retry-classifier.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
 import { applyOpenAIDirectCachePolicy } from './openai-direct-request.mjs';
 import { streamCallbacks } from './lib/send-callbacks.mjs';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
-import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
+import { reloadProviderApiKey, resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { noteRequestServiceTier } from '../../../shared/llm/usage-context.mjs';
 import { resolveProviderCacheKey, resolveProviderPromptCacheLane } from '../agent-runtime/cache-strategy.mjs';
@@ -77,6 +78,9 @@ export class OpenAIDirectProvider {
   // input_tokens INCLUDES cached tokens (OpenAI convention). See registry.mjs.
   static inputExcludesCache = false;
   name = 'openai';
+  // Loop retry policy (send-with-recovery loopRetryPolicy): a connect failure waits for
+  // the network, and a content_filter refusal is replayed under the budget.
+  retryPolicy = Object.freeze({ unboundedConnectionRetry: true, contentFilterRetryable: true });
   config;
   // Sessions (WS pool keys) the server refused with close 1009. Every later
   // full frame of such a session would be refused again, so it stays on
@@ -86,7 +90,7 @@ export class OpenAIDirectProvider {
     this.config = config || {};
   }
   _ensureKey() {
-    const k = this.config.apiKey;
+    const k = resolveProviderApiKey('openai', this.config);
     if (!k) throw new Error('OPENAI_API_KEY not configured (providers.openai.apiKey)');
     return k;
   }
@@ -97,7 +101,7 @@ export class OpenAIDirectProvider {
   // the WS/HTTP transports take the key per-call via the `auth` object.
   reloadApiKey() {
     try {
-      const newKey = getAgentApiKey('openai') || this.config.apiKey;
+      const newKey = reloadProviderApiKey('openai', this.config);
       if (newKey) {
         this.config = { ...(this.config || {}), apiKey: newKey };
         return newKey;
@@ -190,26 +194,14 @@ export class OpenAIDirectProvider {
     // any liveTextEmitted/emittedToolCall/unsafeToRetry outcome.
     const transportPolicy = resolveOpenAiTransportPolicy();
     const httpFallbackEnabled = transportPolicy.allowHttpFallback && _envFlag('MIXDOG_OPENAI_HTTP_FALLBACK', true);
-    const dispatchHttp = (a) => {
-      if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) {
-        process.stderr.write('[openai-ws] WebSocket unhealthy; falling back to HTTP/SSE\n');
-      }
-      return sendHttp({ ...common, auth: a, opts, fetchFn: opts._fetchFn });
-    };
-    // Transport-policy switch (MIXDOG_OAI_TRANSPORT). 'http-sse' forces the
-    // HTTP/SSE transport directly — no WS attempt, so skip the fallback log
-    // that dispatchHttp emits (it is not a fallback here). All other modes
-    // ('auto'/'ws-full'/'ws-delta') keep the WS-first path below; ws-full vs
-    // ws-delta only affects the delta gate inside openai-ws-delta.mjs.
-    if (
-      transportPolicy.transport === 'http' ||
-      (poolKey && httpFallbackEnabled && this._httpFallbackPoolKeys.has(poolKey))
-    ) {
+    // One HTTP/SSE send with the single replay-safe 401 key reload. `reload`
+    // is false when the key was already reloaded earlier in this send.
+    const sendHttpWithKeyReload = async (a, reload = true) => {
       try {
-        return await sendHttp({ ...common, auth, opts, fetchFn: opts._fetchFn });
+        return await sendHttp({ ...common, auth: a, opts, fetchFn: opts._fetchFn });
       } catch (err) {
         const unsafe = err?.liveTextEmitted === true || err?.emittedToolCall === true || err?.unsafeToRetry === true;
-        if (err?.httpStatus !== 401 || unsafe) throw err;
+        if (!reload || err?.httpStatus !== 401 || unsafe) throw err;
         // The replay discards this attempt; its reported usage stays billed.
         noteErrorUsage(err);
         process.stderr.write('[openai-ws] 401 — reloading apiKey and retrying once over HTTP\n');
@@ -222,10 +214,29 @@ export class OpenAIDirectProvider {
           fetchFn: opts._fetchFn,
         });
       }
+    };
+    const dispatchHttp = (a, reload = true) => {
+      if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) {
+        process.stderr.write('[openai-ws] WebSocket unhealthy; falling back to HTTP/SSE\n');
+      }
+      return sendHttpWithKeyReload(a, reload);
+    };
+    // Transport-policy switch (MIXDOG_OAI_TRANSPORT). 'http-sse' forces the
+    // HTTP/SSE transport directly — no WS attempt, so skip the fallback log
+    // that dispatchHttp emits (it is not a fallback here). All other modes
+    // ('auto'/'ws-full'/'ws-delta') keep the WS-first path below; ws-full vs
+    // ws-delta only affects the delta gate inside openai-ws-delta.mjs.
+    if (
+      transportPolicy.transport === 'http' ||
+      (poolKey && httpFallbackEnabled && this._httpFallbackPoolKeys.has(poolKey))
+    ) {
+      return await sendHttpWithKeyReload(auth);
     }
-    const fallbackHttp = (a, error) => {
+    const fallbackHttp = async (a, error, reload = true) => {
       if (poolKey && isWsMessageTooBigClose(error)) this._httpFallbackPoolKeys.add(poolKey);
-      return dispatchHttp(a);
+      // Changing transport must not bypass the server's retry deadline.
+      await waitForRetryDeadline(error, externalSignal, opts._sleepFn);
+      return dispatchHttp(a, reload);
     };
     try {
       return await dispatchWs(auth);
@@ -254,7 +265,7 @@ export class OpenAIDirectProvider {
             return await dispatchWs(retryAuth);
           } catch (retryErr) {
             if (shouldFallbackDirectTransport(retryErr, { signal: externalSignal, enabled: httpFallbackEnabled })) {
-              return await fallbackHttp(retryAuth, retryErr);
+              return await fallbackHttp(retryAuth, retryErr, false);
             }
             throw retryErr;
           }
@@ -295,6 +306,6 @@ export class OpenAIDirectProvider {
     }
   }
   async isAvailable() {
-    return !!this.config.apiKey;
+    return !!resolveProviderApiKey('openai', this.config);
   }
 }

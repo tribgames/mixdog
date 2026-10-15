@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { createCompactionSettings } from './settings-compaction-api.mjs';
 import {
   normalizeAutoClearConfig,
+  normalizeCompactionConfig,
   autoClearIdleMsForProvider,
   resolveAutoClearIdleMs,
   parseDurationMs,
@@ -61,6 +62,29 @@ test('auto-clear changes also retarget other live Lead sessions in the process',
   } finally {
     _clearLiveSession(other.id);
   }
+});
+
+test('auto-compact on model change defaults on and persists with the compaction settings', () => {
+  let config = {};
+  const session = { id: 's1', compaction: {} };
+  const api = createCompactionSettings({
+    getConfig: () => config,
+    getRoute: () => ({}),
+    getSession: () => session,
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
+    hasOwn: (o, k) => Object.hasOwn(o, k),
+    normalizeCompactionConfig,
+    invalidateContextStatusCache() {},
+  });
+  assert.equal(api.getCompactionSettings().onModelChange, true);
+  assert.equal(api.setCompactionSettings({ onModelChange: false }).onModelChange, false);
+  assert.equal(config.compaction.onModelChange, false);
+  assert.equal(config.compaction.auto, true, 'auto-compact itself is untouched');
+  assert.equal(session.compaction.onModelChange, false);
+  assert.equal(api.setCompactionSettings({ auto: false }).onModelChange, false, 'kept across other edits');
+  assert.equal(api.setCompactionSettings({ onModelChange: true }).onModelChange, true);
 });
 
 test('explicit and non-Lead cache policies are not refreshed by auto-clear changes', () => {

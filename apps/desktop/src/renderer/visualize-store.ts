@@ -7,7 +7,6 @@ import { useSyncExternalStore } from 'react';
 import type {
   DesktopVisualizeEvent,
   VisualizeCommandResult,
-  VisualizeInlineContent,
   VisualizeSessionState,
 } from '../shared/visualize';
 import { requestBrowserPage } from './browser-page-request';
@@ -82,11 +81,58 @@ function requestReveal(sessionId: string): void {
   for (const listener of revealListeners) listener(sessionId);
 }
 
+/** `next` with every part equal to the same part of `prev` replaced by
+ *  `prev`'s own object, so unchanged data keeps its identity (and `prev`
+ *  itself comes back when nothing differs). Plain JSON data only. */
+function shareStructure<T>(prev: unknown, next: T): T {
+  if (prev === next || !prev || !next || typeof prev !== 'object' || typeof next !== 'object') return next;
+  if (Array.isArray(next)) {
+    if (!Array.isArray(prev)) return next;
+    const items = next.map((item, index) => shareStructure(prev[index], item));
+    return (items.length === prev.length && items.every((item, index) => item === prev[index]) ? prev : items) as T;
+  }
+  if (Array.isArray(prev)) return next;
+  const before = prev as Record<string, unknown>;
+  const keys = Object.keys(next);
+  const shared: Record<string, unknown> = {};
+  for (const key of keys) shared[key] = shareStructure(before[key], (next as Record<string, unknown>)[key]);
+  const same =
+    keys.length === Object.keys(before).length && keys.every((key) => key in before && shared[key] === before[key]);
+  return (same ? prev : shared) as T;
+}
+
+/** `state` sharing everything unchanged with `prev`; tabs are matched by id,
+ *  so a reorder or an insert keeps the other tabs' objects. */
+function shareSession(prev: VisualizeSessionState | undefined, state: VisualizeSessionState): VisualizeSessionState {
+  if (!prev) return state;
+  const prevTabs = new Map(prev.tabs.map((tab) => [tab.id, tab]));
+  const tabs = state.tabs.map((tab) => shareStructure(prevTabs.get(tab.id), tab));
+  const sameTabs = tabs.length === prev.tabs.length && tabs.every((tab, index) => tab === prev.tabs[index]);
+  const shared: Record<string, unknown> = { tabs: sameTabs ? prev.tabs : tabs };
+  const before = prev as unknown as Record<string, unknown>;
+  const keys = Object.keys(state).filter((key) => key !== 'tabs');
+  for (const key of keys) shared[key] = shareStructure(before[key], (state as unknown as Record<string, unknown>)[key]);
+  const same =
+    sameTabs &&
+    keys.length === Object.keys(before).filter((key) => key !== 'tabs').length &&
+    keys.every((key) => key in before && shared[key] === before[key]);
+  return (same ? prev : shared) as unknown as VisualizeSessionState;
+}
+
+/** Put `state` into `map`; false when it changes nothing. A session with
+ *  nothing open keeps its "All visuals" list. */
+function putState(map: Map<string, VisualizeSessionState>, state: VisualizeSessionState): boolean {
+  const prev = map.get(state.sessionId);
+  if (!(state.tabs.length || state.history?.length)) return map.delete(state.sessionId);
+  const shared = shareSession(prev, state);
+  if (shared === prev) return false;
+  map.set(state.sessionId, shared);
+  return true;
+}
+
 function setState(state: VisualizeSessionState): void {
   const next = new Map(states);
-  // A session with nothing open keeps its "All visuals" list.
-  if (state.tabs.length || state.history?.length) next.set(state.sessionId, state);
-  else next.delete(state.sessionId);
+  if (!putState(next, state)) return;
   states = next;
   emit();
 }
@@ -106,13 +152,19 @@ export function applyVisualizeEvent(event: DesktopVisualizeEvent): void {
  *  visualize view the new tabs make available. */
 export function hydrateVisualizeStates(snapshot: readonly VisualizeSessionState[] | null | undefined): void {
   const reopen: string[] = [];
+  const next = new Map(states);
+  let changed = false;
   for (const state of snapshot ?? []) {
     if (!state?.sessionId || states.has(state.sessionId)) continue;
-    setState(state);
+    changed = putState(next, state) || changed;
     const memory = panelMemory();
     if (state.tabs.length && memory.open.has(state.sessionId) && !memory.closed.has(state.sessionId)) {
       reopen.push(state.sessionId);
     }
+  }
+  if (changed) {
+    states = next;
+    emit();
   }
   if (reopen.length) setTimeout(() => reopen.forEach(requestReveal), 0);
 }
@@ -123,8 +175,12 @@ export function hydrateVisualizeStates(snapshot: readonly VisualizeSessionState[
 export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[] | null | undefined): void {
   const next = new Map<string, VisualizeSessionState>();
   for (const state of snapshot ?? []) {
-    if (state?.sessionId && (state.tabs.length || state.history?.length)) next.set(state.sessionId, state);
+    if (state?.sessionId && (state.tabs.length || state.history?.length)) {
+      next.set(state.sessionId, shareSession(states.get(state.sessionId), state));
+    }
   }
+  const same = next.size === states.size && [...next].every(([id, state]) => states.get(id) === state);
+  if (same) return;
   states = next;
   emit();
 }
@@ -152,7 +208,8 @@ function connect(): void {
   window.addEventListener('mixdog:remote-state-gap', resync);
 }
 
-function subscribe(listener: Listener): () => void {
+/** Subscribe to store changes (exported for tests). */
+export function subscribe(listener: Listener): () => void {
   connect();
   listeners.add(listener);
   return () => {
@@ -251,7 +308,10 @@ interface VisualizeHeaderAction {
 /** The panel's header actions at `panelWidth` (0 = unmeasured: as wide).
  *  Folded toggles lead the ⋯ menu as checkbox items, ahead of the menu's
  *  own items (exports) behind a separator; attention and badges ride along. */
-export function visualizeHeaderActions<T extends VisualizeHeaderAction>(actions: readonly T[], panelWidth: number): T[] {
+export function visualizeHeaderActions<T extends VisualizeHeaderAction>(
+  actions: readonly T[],
+  panelWidth: number
+): T[] {
   if (!(panelWidth > 0 && panelWidth < VISUALIZE_HEADER_FOLD_WIDTH)) return [...actions];
   const folds = (action: T) => Boolean(action.inline) && !VISUALIZE_HEADER_PINNED.has(action.id);
   const folded = actions
@@ -289,33 +349,15 @@ export function revealVisualizeTab(sessionId: string, tabId: string): void {
 export function reopenVisualizeTargets(sessionId: string, tabId: string, targets: string[], label = ''): Promise<void> {
   allowVisualizeReveal(sessionId);
   return (
-    window.mixdogDesktop?.visualizeCommand?.({
-      sessionId,
-      tabId,
-      action: 'reopen',
-      targets,
-      ...(label ? { label } : {}),
-    })?.then(() => undefined) ?? Promise.resolve()
-  );
-}
-
-/** The same for a closed inline tab: open its stored content again. */
-export function reopenVisualizeContent(
-  sessionId: string,
-  tabId: string,
-  content: VisualizeInlineContent,
-  label = ''
-): Promise<void> {
-  allowVisualizeReveal(sessionId);
-  return (
-    window.mixdogDesktop?.visualizeCommand?.({
-      sessionId,
-      tabId,
-      action: 'reopen',
-      targets: [],
-      content,
-      ...(label ? { label } : {}),
-    })?.then(() => undefined) ?? Promise.resolve()
+    window.mixdogDesktop
+      ?.visualizeCommand?.({
+        sessionId,
+        tabId,
+        action: 'reopen',
+        targets,
+        ...(label ? { label } : {}),
+      })
+      ?.then(() => undefined) ?? Promise.resolve()
   );
 }
 
@@ -339,7 +381,9 @@ export async function exportVisualizeTab(
   format: 'png' | 'pdf' | 'project',
   pane: number
 ): Promise<VisualizeCommandResult | undefined> {
-  return (await window.mixdogDesktop?.visualizeCommand?.({ sessionId, tabId, action: 'export', format, pane })) || undefined;
+  return (
+    (await window.mixdogDesktop?.visualizeCommand?.({ sessionId, tabId, action: 'export', format, pane })) || undefined
+  );
 }
 
 /** The displayed pane the toolbar's export acts on: the live one while a
@@ -472,12 +516,14 @@ export function restoreVisualizeVersion(
   assets: string[] = []
 ): Promise<void> {
   return (
-    window.mixdogDesktop?.visualizeCommand?.({
-      sessionId,
-      tabId,
-      action: 'restore',
-      version,
-      ...(assets.length ? { assets } : {}),
-    })?.then(() => undefined) ?? Promise.resolve()
+    window.mixdogDesktop
+      ?.visualizeCommand?.({
+        sessionId,
+        tabId,
+        action: 'restore',
+        version,
+        ...(assets.length ? { assets } : {}),
+      })
+      ?.then(() => undefined) ?? Promise.resolve()
   );
 }

@@ -112,7 +112,7 @@ test('an HTTP/SSE request retry waits the server-advised time', async () => {
     },
     fetchFn: async () => {
       requests += 1;
-      if (requests === 1) return new Response('busy', { status: 503, headers: { 'retry-after-ms': '7' } });
+      if (requests === 1) return new Response('busy', { status: 503, headers: { 'retry-after-ms': '7000' } });
       return new Response(
         new ReadableStream({
           start(controller) {
@@ -126,7 +126,9 @@ test('an HTTP/SSE request retry waits the server-advised time', async () => {
   });
   assert.equal(result.content, 'ok');
   assert.equal(requests, 2);
-  assert.deepEqual(waits, [7]);
+  // The advice is a deadline: time spent before the sleep is deducted, never added.
+  assert.equal(waits.length, 1);
+  assert.ok(waits[0] > 6_500 && waits[0] <= 7_000, `waited ${waits[0]}ms`);
 });
 
 test('an HTTP/SSE body cut mid-stream carries the finished tool call for the loop', async () => {
@@ -178,4 +180,75 @@ test('an HTTP/SSE body cut mid-stream carries the finished tool call for the loo
     }
   );
   assert.deepEqual(delivered, ['call-cut']);
+});
+
+test('HTTP/SSE response.incomplete content_filter throws a typed policy error', async () => {
+  const frame = (event) => `data: ${JSON.stringify(event)}\n\n`;
+  const bytes = new TextEncoder().encode(
+    [
+      frame({ type: 'response.created', response: { id: 'resp-cf', model: 'gpt-fixture' } }),
+      frame({
+        type: 'response.incomplete',
+        response: { id: 'resp-cf', model: 'gpt-fixture', incomplete_details: { reason: 'content_filter' } },
+      }),
+    ].join('')
+  );
+  await assert.rejects(
+    sendViaHttpSse({
+      auth: { type: 'openai-direct', apiKey: 'fixture-key' },
+      body: { model: 'gpt-fixture' },
+      useModel: 'gpt-fixture',
+      fetchFn: async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(bytes);
+              controller.close();
+            },
+          }),
+          { headers: { 'Content-Type': 'text/event-stream' } }
+        ),
+    }),
+    (error) => {
+      assert.equal(error.code, 'content_filter');
+      assert.equal(error.providerErrorCode, 'content_filter');
+      return true;
+    }
+  );
+});
+
+test('HTTP/SSE response.failed carries the typed code, nested headers and reset time', async () => {
+  const error = {
+    type: 'usage_limit_reached',
+    message: 'limit',
+    resets_at: 1893456000,
+    headers: { 'retry-after': '9' },
+  };
+  const bytes = new TextEncoder().encode(
+    `data: ${JSON.stringify({ type: 'response.failed', response: { id: 'r', error } })}\n\n`
+  );
+  await assert.rejects(
+    sendViaHttpSse({
+      auth: { type: 'openai-direct', apiKey: 'fixture-key' },
+      body: { model: 'gpt-fixture' },
+      useModel: 'gpt-fixture',
+      fetchFn: async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(bytes);
+              controller.close();
+            },
+          }),
+          { headers: { 'Content-Type': 'text/event-stream' } }
+        ),
+    }),
+    (err) => {
+      assert.equal(err.code, 'usage_limit_reached');
+      assert.deepEqual(err.headers, error.headers);
+      assert.equal(err.retryAfterMs, 9000);
+      assert.equal(err.resetAt, 1893456000 * 1000);
+      return true;
+    }
+  );
 });

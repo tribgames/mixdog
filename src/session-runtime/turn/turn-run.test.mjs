@@ -5,7 +5,16 @@
 // forwarding.
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createTurnRunner } from './turn-run.mjs';
+import { runHeadlessExec } from '../../headless-exec.mjs';
+import { createNativeWebSearch } from '../native-web-search.mjs';
+import { reportNativeWebSearchUsage } from '../native-web-search-usage.mjs';
+import { dispatchWebSearchRuntimeTool } from '../runtime-tool-routing.mjs';
+import { setInternalToolsProvider } from '../../runtime/agent/orchestrator/internal-tools.mjs';
+import { executeTool } from '../../runtime/agent/orchestrator/session/loop/tool-exec.mjs';
 
 function makeHarness(overrides = {}) {
   const calls = [];
@@ -369,4 +378,146 @@ test('getTurnLiveness projects the manager progress snapshot for the current ses
     toolSelfDeadlineMs: 9,
     extra: 1,
   });
+});
+
+test('headless usage totals include a native web search run through ask and the tool executor', async (t) => {
+  const h = makeHarness();
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-web-search-usage-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const usageLogPath = join(root, 'usage.json');
+  const route = { provider: 'grok-oauth', model: 'search-model' };
+  const config = { providers: {}, webSearchRoute: route };
+  const { runNativeWebSearch } = createNativeWebSearch({
+    getRoute: () => route,
+    getWebSearchRoute: () => route,
+    setWebSearchRoute: () => {},
+    getConfig: () => config,
+    getSession: () => h.state.session,
+    getReg: () => ({
+      getProvider: () => ({
+        send: async () => ({
+          content: 'found it',
+          model: 'search-model-resolved',
+          usage: { inputTokens: 80449, cachedTokens: 1000, cacheWriteTokens: 50, outputTokens: 2923 },
+        }),
+      }),
+    }),
+    ensureFullConfig: () => config,
+    awaitKeychainPrewarm: async () => {},
+    ensureProvidersReady: async () => {},
+    ensureProviderEnabled: (cfg) => cfg.providers,
+    normalizeWebSearchProviderId: (value) => value,
+    webSearchProviderFamily: () => 'xai',
+    normalizeWebSearchRouteConfig: (value) => value,
+    isDefaultWebSearchRouteConfig: () => false,
+    isWebSearchCapableProvider: () => true,
+    webSearchCapableFor: () => true,
+  });
+  const toolSession = { id: 'sess_new', mcpScopeId: 'web-search-usage-scope', cwd: process.cwd() };
+  t.after(
+    setInternalToolsProvider({
+      scopeId: toolSession.mcpScopeId,
+      tools: [{ name: 'web_search', inputSchema: { type: 'object', properties: {} } }],
+      executor: (name, args, callerCtx) =>
+        dispatchWebSearchRuntimeTool(name, args, callerCtx, {
+          getWebSearchModule: async () => ({
+            handleToolCall: (_name, input, options) => options.nativeWebSearch(input),
+          }),
+          getCurrentCwd: () => toolSession.cwd,
+          getSession: () => h.state.session,
+          notifyFnForSession: () => () => {},
+          runNativeWebSearch,
+        }),
+    })
+  );
+  h.askResult = async (callbacks) => {
+    callbacks.onProviderSendStarted();
+    callbacks.onUsageDelta({ model: 'gpt-test', deltaInput: 100, deltaCachedRead: 20, deltaCacheWrite: 5, deltaOutput: 10 });
+    // Run the tool from a context detached from this ask, as a pooled
+    // transport's stream callback would.
+    await new Promise((resolve) => setImmediate(resolve));
+    await executeTool('web_search', { prompt: 'q' }, toolSession.cwd, toolSession.id, toolSession);
+    callbacks.onUsageDelta({ model: 'gpt-test', deltaInput: 30, deltaCachedRead: 0, deltaCacheWrite: 0, deltaOutput: 4 });
+    return { content: 'done' };
+  };
+  const code = await runHeadlessExec({
+    message: 'search it',
+    provider: 'openai-oauth',
+    model: 'gpt-test',
+    webSearch: true,
+    usageLogPath,
+    write: () => {},
+    writeErr: () => {},
+    boundaryFactory: () => ({
+      loadConfig: () => ({ providers: { 'openai-oauth': { enabled: true } } }),
+      cleanup() {},
+    }),
+    runtimeFactory: async () => ({
+      id: 'sess_new',
+      model: 'gpt-test',
+      ask: (prompt, options) => h.runner.ask(prompt, options),
+      async close() {},
+    }),
+    hasActiveTasks: () => false,
+    installSignalCleanupFn: () => ({ uninstall() {} }),
+  });
+  assert.equal(code, 0);
+  const usage = JSON.parse(readFileSync(usageLogPath, 'utf8'));
+  assert.deepEqual(usage.totals, {
+    inputTokens: 100 + 30 + 80449,
+    cacheTokens: 20 + 1000,
+    cacheWriteTokens: 5 + 50,
+    outputTokens: 10 + 4 + 2923,
+    toolCallCountApprox: 0,
+  });
+  assert.deepEqual(usage.sessions[0].models, ['gpt-test', 'search-model-resolved']);
+});
+
+test('a turn queued behind another on the same session id does not receive the running turn search usage', async () => {
+  const h = makeHarness();
+  const first = [];
+  const second = [];
+  const report = (usage) =>
+    reportNativeWebSearchUsage({ ownerSessionId: 'sess_new', sessionId: 'sess_new:ws', model: 'm', usage });
+  let releaseLock;
+  const lock = new Promise((resolve) => {
+    releaseLock = resolve;
+  });
+  let turns = 0;
+  let resolveFirstDone;
+  const firstDone = new Promise((resolve) => {
+    resolveFirstDone = resolve;
+  });
+  let firstOwnsSession;
+  const firstOwned = new Promise((resolve) => {
+    firstOwnsSession = resolve;
+  });
+  h.askResult = async (callbacks) => {
+    turns += 1;
+    if (turns === 1) {
+      callbacks.onProviderSendStarted();
+      firstOwnsSession();
+      await lock;
+      report({ inputTokens: 7, outputTokens: 1 });
+      return { content: 'first' };
+    }
+    // The real askSession waits on the session lock here.
+    await firstDone;
+    callbacks.onProviderSendStarted();
+    report({ inputTokens: 3, outputTokens: 2 });
+    return { content: 'second' };
+  };
+  const firstTurn = h.runner
+    .ask('one', { id: 'a', onNativeWebSearchUsage: (d) => first.push(d.deltaInput) })
+    .finally(() => resolveFirstDone());
+  await firstOwned;
+  // Queued behind the first: registers nothing until its own lock is held.
+  const secondTurn = h.runner.ask('two', { id: 'b', onNativeWebSearchUsage: (d) => second.push(d.deltaInput) });
+  await new Promise((resolve) => setImmediate(resolve));
+  report({ inputTokens: 5, outputTokens: 1 });
+  releaseLock();
+  await firstTurn;
+  await secondTurn;
+  assert.deepEqual(first, [5, 7]);
+  assert.deepEqual(second, [3]);
 });

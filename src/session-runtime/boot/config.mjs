@@ -87,7 +87,8 @@ function initRuntimeState(rt, params) {
   rt.activeTurnAbortControllers = new Set();
   rt.firstTurnCompleted = false;
   rt.codeGraphFirstTurnPrewarmDone = false;
-  rt.startupProviderCatalogRefreshStarted = false;
+  // Last registry catalog-refresh promise this runtime attached handling to.
+  rt.startupProviderCatalogRefreshObserved = null;
   // True while the boot-time provider-catalog refresh is in flight: warming a
   // model cache it is about to invalidate only burns the load twice.
   rt.startupProviderCatalogRefreshPending = false;
@@ -106,7 +107,9 @@ function activeTurnControls(rt) {
         aborted = true;
         try {
           controller.abort(reason);
-        } catch {}
+        } catch {
+          // Best-effort: one throwing abort listener must not stop the others.
+        }
       }
       return aborted;
     },

@@ -3,6 +3,7 @@
  * to `ctx.out`; only `/exit` and `/quit` return 'exit'.
  */
 import { dim, green, red, yellow, colorEnabled } from '../runtime/shared/statusline/ansi.mjs';
+import { switchesSessionModel } from '../session-runtime/model-route/model-switch-target.mjs';
 import { createSessionStats } from '../ui/session-stats.mjs';
 import { statuslineFor } from './turn-output.mjs';
 
@@ -65,7 +66,21 @@ async function setModel(ctx, arg) {
     return;
   }
   const runtime = await ctx.ensureRuntime();
-  await runtime.setRoute({ model: arg });
+  const request = { model: arg };
+  // The user's model choice switches this conversation in place; with
+  // auto-compact on model change (default on) the history is compacted on the
+  // current model first. A failed compaction never blocks the switch.
+  if (switchesSessionModel(runtime, request) && runtime.getCompactionSettings?.()?.onModelChange !== false) {
+    // An invalid or unavailable selector is rejected before anything compacts.
+    await runtime.setRoute(request, { validateOnly: true });
+    out.write(`${dim('compacting conversation before the model change…')}\n`);
+    try {
+      await runtime.compact();
+    } catch {
+      /* next-turn auto-compaction fits the new window */
+    }
+  }
+  await runtime.setRoute(request, { switchEstablished: true });
   out.write(`${green(`✓ model → ${runtime.provider}/${runtime.model}`)}\n`);
 }
 

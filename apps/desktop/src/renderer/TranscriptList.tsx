@@ -11,6 +11,7 @@ import { useMountedRowMeasurement } from './transcript-list-row-measure';
 import { useTranscriptRowRegistration } from './transcript-list-row-registration';
 import { useTranscriptScrollGeometry } from './transcript-list-scroll-geometry';
 import { useSelectionPin } from './transcript-list-selection-pin';
+import { useTouchScrollDeviation } from './transcript-list-touch-deviation';
 import { useActiveRowIndexes, useTranscriptVirtualizer } from './transcript-list-virtualizer';
 import type { TranscriptRowModel } from './transcript-rows';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
@@ -35,6 +36,9 @@ type TranscriptListProps = {
   markProgrammaticScroll?: (top: number, intended?: number) => void;
   /** True from the first wheel/touch/drag intent through its inertial tail. */
   hasScrollGesture: () => boolean;
+  /** True while a touch scroll (finger down, then its fling) owns the
+   *  viewport: corrections are held off the native offset until it ends. */
+  hasTouchScroll?: () => boolean;
   /** Claims reader ownership before this list writes selection auto-scroll. */
   onSelectionAutoScroll(delta: number): void;
 };
@@ -60,6 +64,7 @@ export function TranscriptList({
   renderRow,
   markProgrammaticScroll,
   hasScrollGesture,
+  hasTouchScroll = noTouchScroll,
   onSelectionAutoScroll,
 }: TranscriptListProps) {
   const spacer = useRef<HTMLDivElement>(null);
@@ -78,6 +83,9 @@ export function TranscriptList({
   markProgrammaticScrollRef.current = markProgrammaticScroll;
   const hasScrollGestureRef = useRef(hasScrollGesture);
   hasScrollGestureRef.current = hasScrollGesture;
+  const hasTouchScrollRef = useRef(hasTouchScroll);
+  hasTouchScrollRef.current = hasTouchScroll;
+  const deviation = useTouchScrollDeviation({ viewport, spacer, hasTouchScrollRef, domTop, markProgrammaticScrollRef });
   // Rows that changed size by more than a viewport stay in the range for two
   // frames: a rewrap must never unmount the rows the reader is looking at.
   const resizePinned = useRef<number[]>([]);
@@ -105,6 +113,7 @@ export function TranscriptList({
     noteScrollOffset,
     domTop,
     markProgrammaticScrollRef,
+    deviation,
   });
   // Where the timeline starts inside the scroll content (the thread's top
   // padding). Static CSS, read once on the first frame the pane has a box.
@@ -132,6 +141,7 @@ export function TranscriptList({
     domTop,
     markProgrammaticScrollRef,
     bottomInset,
+    deviation,
   });
   const { laidOutRows, pendingAnchor, anchorHold, readingAnchorHeld, restoreReadingAnchor, queueAnchorRestore } =
     useReadingAnchor({
@@ -147,6 +157,7 @@ export function TranscriptList({
       noteScrollOffset,
       flushDeferredResizes,
       indexForPendingKey,
+      deviation,
     });
   useMountedRowMeasurement({
     rows,
@@ -160,7 +171,7 @@ export function TranscriptList({
     anchorHold,
     restoreReadingAnchor,
   });
-  useVirtualizerResizePatch({
+  const { settleHeldShrinks } = useVirtualizerResizePatch({
     virtualizer,
     viewport,
     hasScrollGestureRef,
@@ -180,9 +191,16 @@ export function TranscriptList({
   });
   const { measureRow, bindSpacer } = useTranscriptRowRegistration({ viewport, spacer, content, virtualizerRef });
 
-  useTranscriptScrollGeometry({ viewport, spacer, virtualizerRef, domTop, scrollInset, contentHeight });
-  useRememberVirtualMeasurements({ sessionKey, viewport, virtualizerRef, flushDeferredResizes });
-  useTranscriptHandles({ endPin, scrollToEndRef, setAnchorBottomRef, virtualizerRef, anchorOverride });
+  useTranscriptScrollGeometry({ viewport, spacer, virtualizerRef, domTop, scrollInset, contentHeight, deviation });
+  useRememberVirtualMeasurements({ sessionKey, viewport, virtualizerRef, flushDeferredResizes, settleHeldShrinks });
+  useTranscriptHandles({
+    endPin,
+    scrollToEndRef,
+    setAnchorBottomRef,
+    virtualizerRef,
+    anchorOverride,
+    settleHeldShrinks,
+  });
   useSelectionDrag({ viewport, sessionKey, bottomInsetRef, rowsRef, setSelectionPin, onSelectionAutoScroll });
 
   useEffect(
@@ -206,6 +224,8 @@ export function TranscriptList({
   );
 }
 
+const noTouchScroll = () => false;
+
 function renderVirtualRow(
   virtualRow: VirtualItem,
   rows: readonly TranscriptRowModel[],
@@ -216,6 +236,9 @@ function renderVirtualRow(
   if (!row) return null;
   const next = rows[virtualRow.index + 1];
   const turnEnd = !next || next._tag === 'TurnGap';
+  // The live band under a reply part stands where that reply's completion
+  // footer lands (12-transcript.css).
+  const bandUnderPart = row._tag === 'Thinking' && rows[virtualRow.index - 1]?._tag === 'AssistantPart';
   return (
     // A row binds position AND measurement to one element.
     // Position and measurement therefore share the
@@ -236,6 +259,7 @@ function renderVirtualRow(
         data-index={virtualRow.index}
         data-tag={row._tag}
         data-turn-end={turnEnd ? 'true' : undefined}
+        data-under-part={bandUnderPart ? 'true' : undefined}
       >
         {renderRow(row)}
       </div>

@@ -10,6 +10,7 @@ import { type CSSProperties, useEffect, useId, useLayoutEffect, useRef, useState
 import { createPortal } from 'react-dom';
 
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { record, rows } from './record-utils';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import { getCachedConnectionInfo } from './settings/connection-info';
@@ -444,6 +445,7 @@ export function StarterGuide({
     }
   }, [api, finished, loading, diskRead]);
 
+  useMobileBack(expanded, () => setExpanded(false));
   // An open checklist folds away when anything outside the guide is pressed.
   useEffect(() => {
     if (!expanded) return undefined;

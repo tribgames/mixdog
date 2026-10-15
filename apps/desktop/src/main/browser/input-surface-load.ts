@@ -28,7 +28,7 @@ export async function measureBrowserSurfaceLoad(
       () =>
         shell.executeJavaScript(`(() => {
       const image = document.querySelector('.browser-isolated-pixels > :first-child');
-      return image?.naturalWidth || image?.width;
+      return image?.getBoundingClientRect().width;
     })()`),
       (width) => width === 1366
     );

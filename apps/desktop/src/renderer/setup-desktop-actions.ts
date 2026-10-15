@@ -95,7 +95,14 @@ async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActio
       continue;
     }
     if (
-      !['keepAwake', 'runInBackground', 'turnNotifications', 'usagePinned', 'computerObserveOnly'].includes(key) ||
+      ![
+        'keepAwake',
+        'runInBackground',
+        'turnNotifications',
+        'usagePinned',
+        'usageRailShortLong',
+        'computerObserveOnly',
+      ].includes(key) ||
       typeof value !== 'boolean'
     ) {
       throw new Error(`Unsupported Desktop setting: ${key}`);

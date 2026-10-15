@@ -5,8 +5,12 @@
 // prompt, so a continuation prompt or a merged batch never removes rows.
 const TURN_CHROME_KINDS = new Set(['user', 'turndone', 'notice']);
 
-/** The items with the trailing failed, output-less turn removed, or null
- *  when nothing qualifies. */
+// An in-place model switch made after the stop (the quota "switch model"
+// path) is not the failed turn's output and outlives its rewind.
+const isModelSwitchDivider = (item) => item?.kind === 'statusdone' && item.status === 'model-switched';
+
+/** The items with the trailing failed, output-less turn removed (a later
+ *  model switch divider kept), or null when nothing qualifies. */
 export function rewoundFailedTurnItems(items, text) {
   const list = Array.isArray(items) ? items : [];
   const resubmitted = String(text || '').trim();
@@ -16,6 +20,8 @@ export function rewoundFailedTurnItems(items, text) {
   const tail = list.slice(start + 1);
   const failed = tail.some((item) => item?.kind === 'turndone' && String(item.status || '').toLowerCase() === 'failed');
   if (!failed) return null;
-  if (tail.some((item) => !TURN_CHROME_KINDS.has(String(item?.kind || '')))) return null;
-  return list.slice(0, start);
+  if (tail.some((item) => !TURN_CHROME_KINDS.has(String(item?.kind || '')) && !isModelSwitchDivider(item))) {
+    return null;
+  }
+  return [...list.slice(0, start), ...tail.filter(isModelSwitchDivider)];
 }

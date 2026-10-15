@@ -14,8 +14,11 @@ import { parentPort, Worker } from 'node:worker_threads';
  * worker is detached before it is terminated, so no request is ever sent to
  * (or lost with) a worker that is shutting down.
  * `request.running()` reports whether a worker thread is currently attached.
+ *
+ * `onEvent` (optional): receives what the worker sends with postWorkerEvent
+ * (messages that answer no request).
  */
-export function createWorkerRequestClient(url, { idleExitMs = 0, ...workerOptions } = {}) {
+export function createWorkerRequestClient(url, { idleExitMs = 0, onEvent = null, ...workerOptions } = {}) {
   let worker = null;
   let nextRequestId = 0;
   // Requests belong to the worker they were posted to: a replacement worker
@@ -50,7 +53,12 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, ...workerOption
       owned.clear();
       for (const entry of entries) entry.reject(error);
     };
-    created.on('message', ({ id, result, error }) => {
+    created.on('message', (message) => {
+      if (message && Object.hasOwn(message, 'event')) {
+        onEvent?.(message.event);
+        return;
+      }
+      const { id, result, error } = message;
       const entry = owned.get(id);
       if (!entry) return;
       owned.delete(id);
@@ -107,6 +115,11 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, ...workerOption
   }
   request.running = () => worker !== null;
   return request;
+}
+
+/** Worker side: send `event` to the client's `onEvent`, outside any request. */
+export function postWorkerEvent(event) {
+  parentPort.postMessage({ event });
 }
 
 /** Worker side: answer every request with `handler(payload)` (sync or async). */

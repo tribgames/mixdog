@@ -1,11 +1,9 @@
-// Durable thumbnails for images the user sent. Stored history keeps no image
-// bytes, so after a restart or a session reload a sent image would be an
-// empty placeholder card. The composer saves a small downscaled thumbnail in
-// IndexedDB at send time, keyed by the `[Image: …]` metadata line that stays
-// in the stored message text (visualize pin N + label + dims, or
-// `source: <name>` + dims), scoped by session. The store is per device/profile:
-// a phone shows the images it sent itself; images sent elsewhere stay icon
-// cards there. Total size is capped and least-recently-used entries go first.
+// A cache of thumbnails for images the user sent. Stored history keeps no image
+// bytes, so the thumbnails are refilled from the host: on a miss the row asks
+// the host to rebuild the thumbnail from the stored original (keyed by its
+// attachment ref, scoped by session) and puts the result here in IndexedDB.
+// The store is per device/profile and only a cache: an entry that is gone is
+// fetched again. Total size is capped and least-recently-used entries go first.
 
 import { loadImage } from './load-image';
 
@@ -208,7 +206,20 @@ export const persistentImagePreviews: ImagePreviewStore = createImagePreviewStor
 /** Downscales a data URL to at most 320 px on its longest side, re-encoded
  *  (WebP, else JPEG) to roughly 40 KB. */
 export async function makeImageThumbnail(dataUrl: string): Promise<string> {
+  return drawThumbnail(await loadImage(dataUrl));
+}
+
+/** `dataUrl` itself when it already is thumbnail-sized (sides and bytes), else
+ *  its `makeImageThumbnail` downscale. Rejects when it is not a picture. */
+export async function fitImageThumbnail(dataUrl: string): Promise<string> {
   const image = await loadImage(dataUrl);
+  const fits =
+    Math.max(image.naturalWidth, image.naturalHeight) <= PREVIEW_MAX_SIDE &&
+    dataUrl.length * 0.75 <= PREVIEW_MAX_BYTES * 2;
+  return fits ? dataUrl : drawThumbnail(image);
+}
+
+function drawThumbnail(image: HTMLImageElement): string {
   const scale = Math.min(1, PREVIEW_MAX_SIDE / Math.max(image.naturalWidth, image.naturalHeight, 1));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
@@ -227,77 +238,6 @@ export async function makeImageThumbnail(dataUrl: string): Promise<string> {
     if (out.length * 0.75 <= PREVIEW_MAX_BYTES) break;
   }
   return out;
-}
-
-/** The picture's identity inside a session: the submission id the host keeps as
- *  the message id (so it is there again after a restart), the image's position
- *  in that message, and its metadata line. Pictures sharing a name and size no
- *  longer share a key. The model-visible message text is untouched. */
-export function sentImageIdentity(messageId: string, index: number, metadataLine: string): string {
-  return `sent:${messageId}#${index}|${metadataLine.trim()}`;
-}
-
-interface StagedSentImage {
-  index: number;
-  line: string;
-  thumbnail: Promise<string | undefined>;
-}
-
-// Thumbnails of sent images waiting for the session that the send creates (a
-// new chat has none yet). Claimed by the message's row once it renders in it.
-const STAGED_LIMIT = 16;
-const staged = new Map<string, StagedSentImage[]>();
-
-/** Thumbnails the images of one submission, ready to be committed to the
- *  session the submission lands in. Best effort. */
-export function stageSentImages(
-  submissionId: string,
-  images: Array<{ line: string; dataUrl: string }>,
-  make: (dataUrl: string) => Promise<string> = makeImageThumbnail
-): void {
-  // `index` counts the images that have a metadata line: the order of the
-  // `[Image: …]` lines a rendered message shows.
-  const entries = images
-    .filter(({ line }) => line.trim())
-    .map(
-      ({ line, dataUrl }, index): StagedSentImage => ({
-        index,
-        line,
-        thumbnail: make(dataUrl).catch(() => undefined),
-      })
-    );
-  if (!entries.length) return;
-  staged.delete(submissionId);
-  staged.set(submissionId, entries);
-  while (staged.size > STAGED_LIMIT) staged.delete(staged.keys().next().value as string);
-}
-
-/** The send was refused: nothing to keep. */
-export function discardSentImages(submissionId: string): void {
-  staged.delete(submissionId);
-}
-
-/** A rendered message found no stored thumbnail: take the staged one of this
- *  exact submission and image, if this window just sent it. */
-export async function claimSentImage(
-  session: string,
-  submissionId: string,
-  messageId: string,
-  index: number,
-  line: string
-): Promise<string | undefined> {
-  const entry = staged.get(submissionId)?.find((e) => e.index === index && e.line.trim() === line.trim());
-  if (!session || !messageId || !entry) return undefined;
-  const thumbnail = await entry.thumbnail;
-  if (!thumbnail) return undefined;
-  await persistentImagePreviews
-    .put(previewKey(session, sentImageIdentity(messageId, index, line)), session, thumbnail)
-    .catch(() => undefined);
-  // Left staged until saved, so a concurrent claim still finds it.
-  const rest = (staged.get(submissionId) ?? []).filter((e) => e !== entry);
-  if (rest.length) staged.set(submissionId, rest);
-  else staged.delete(submissionId);
-  return thumbnail;
 }
 
 export type SessionPreviewsListener = (session: string) => void;

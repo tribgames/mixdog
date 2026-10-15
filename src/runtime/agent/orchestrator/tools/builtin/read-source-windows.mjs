@@ -104,9 +104,10 @@ async function scanSourceWindows(path, intervals, signal) {
       position += bytesRead;
       // Deep windows still validate coordinates from current bytes. Amortize
       // positional IO while skipping, then return to small reads in a window.
-      chunkBytes = interval < intervals.length && line < intervals[interval].start
-        ? Math.min(maxChunkBytes, chunkBytes * 2)
-        : minChunkBytes;
+      chunkBytes =
+        interval < intervals.length && line < intervals[interval].start
+          ? Math.min(maxChunkBytes, chunkBytes * 2)
+          : minChunkBytes;
     }
     // Publication checks after its async stats, immediately before committing.
     // An unpublished result still owes a final deadline/cancellation check.

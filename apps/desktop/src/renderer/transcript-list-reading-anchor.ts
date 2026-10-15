@@ -9,6 +9,7 @@ import {
   type TranscriptVirtualizer,
   viewportSize,
 } from './transcript-list-geometry';
+import type { TouchScrollDeviation } from './transcript-list-touch-deviation';
 import type { TranscriptRowModel } from './transcript-rows';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 
@@ -34,6 +35,7 @@ export function useReadingAnchor({
   noteScrollOffset,
   flushDeferredResizes,
   indexForPendingKey,
+  deviation,
 }: {
   rows: readonly TranscriptRowModel[];
   virtualizer: TranscriptVirtualizer;
@@ -47,12 +49,17 @@ export function useReadingAnchor({
   noteScrollOffset: MutableRefObject<(top: number) => void>;
   flushDeferredResizes: (only?: (index: number) => boolean) => void;
   indexForPendingKey: (key: unknown, hint: number) => number;
+  deviation: TouchScrollDeviation;
 }) {
   // One pre-paint write of a corrected reading offset. The spacer grows FIRST:
   // virtualizer.scrollToOffset clamped the target against the previous
   // scrollHeight, and older pages then dropped the reader a whole page.
+  // A page landing always writes natively: held as a row offset near the top,
+  // it would leave the fling no native room toward the page it just loaded.
+  // Late sizes of landed rows during a touch scroll are held instead (see
+  // transcript-list-touch-deviation).
   const writeReadingOffset = useCallback(
-    (instance: TranscriptVirtualizer, target: number) => {
+    (instance: TranscriptVirtualizer, target: number, landing: boolean) => {
       const element = viewport.current;
       if (!element) return;
       if (spacer.current) spacer.current.style.height = `${instance.getTotalSize()}px`;
@@ -60,15 +67,20 @@ export function useReadingAnchor({
       const core = coreScrollState(instance);
       core.scrollAdjustments = 0;
       core.scrollOffset = top;
-      core._intendedScrollOffset = top;
-      element.scrollTop = top;
+      if (!landing && deviation.hold(top)) {
+        core._intendedScrollOffset = null;
+      } else {
+        deviation.drop();
+        core._intendedScrollOffset = top;
+        element.scrollTop = top;
+        markProgrammaticScrollRef.current?.(top, target);
+      }
       domTop.current = top;
-      markProgrammaticScrollRef.current?.(top, target);
       // The range on screen was resolved at the previous offset. Never a sync
       // notify: flushSync cannot run inside a layout effect.
       core.notify(false);
     },
-    [maxScrollTop, viewport, spacer, domTop, markProgrammaticScrollRef]
+    [maxScrollTop, viewport, spacer, domTop, markProgrammaticScrollRef, deviation]
   );
   const laidOutRows = useRef(rows);
   const pendingAnchor = useRef<{ base: readonly TranscriptRowModel[]; anchor: ReadingAnchor | null } | null>(null);
@@ -114,6 +126,7 @@ export function useReadingAnchor({
       const start = instance.measurementsCache[at]?.start ?? 0;
       const reading = logicalScrollOffset(instance);
       let target = reading;
+      const absolute = landing || hold.start === null;
       if (landing || hold.start === null) target = start - hold.offset;
       else if (Math.abs(start - hold.start) >= 0.5) {
         target = reading + (start - hold.start);
@@ -125,7 +138,7 @@ export function useReadingAnchor({
       if (transcriptScrollDiagnosticsEnabled()) {
         logTranscriptScroll('reading-anchor', { from: reading, to: target, index: at, start, landing });
       }
-      writeReadingOffset(instance, target);
+      writeReadingOffset(instance, target, absolute);
     },
     [flushDeferredResizes, indexForPendingKey, readingAnchorHeld, writeReadingOffset, virtualizerRef]
   );

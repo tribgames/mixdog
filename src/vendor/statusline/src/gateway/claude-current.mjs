@@ -1,6 +1,8 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { getModelMetadataSync } from '../../../../runtime/shared/llm/model-catalog.mjs';
+import { providerCachedModelsSync } from '../../../../runtime/shared/llm/provider-catalog-cache.mjs';
 
 export const CLAUDE_CURRENT_MODE = 'claude-current';
 export const CLAUDE_CURRENT_CHOICE_ID = 'claude-current';
@@ -95,11 +97,21 @@ function snapshotEquivalent(a, b) {
   return keys.every(k => (a[k] ?? null) === (b[k] ?? null));
 }
 
+// The newest roster model of a family, by the roster's own release stamps.
+function newestRosterModel(family) {
+  const stamp = (row) => Date.parse(row.releaseDate) || (Number(row.created) > 0 ? Number(row.created) : 0);
+  const rows = providerCachedModelsSync('anthropic-oauth').filter((row) =>
+    String(row.id).toLowerCase().startsWith(`claude-${family}-`)
+  );
+  rows.sort((a, b) => stamp(b) - stamp(a));
+  return rows[0]?.id || null;
+}
+
 function familyDefaultModel(family) {
   const f = String(family || '').toLowerCase();
   if (!f) return null;
   const envName = `ANTHROPIC_DEFAULT_${f.toUpperCase()}_MODEL`;
-  return cleanString(process.env[envName]) || DEFAULT_FAMILY_MODEL[f] || null;
+  return cleanString(process.env[envName]) || newestRosterModel(f) || DEFAULT_FAMILY_MODEL[f] || null;
 }
 
 export function stripClaudeContextSuffix(model) {
@@ -109,9 +121,7 @@ export function stripClaudeContextSuffix(model) {
 function contextWindowFromRawModel(raw, resolved) {
   const s = cleanString(raw).toLowerCase();
   if (/\[1m\]/.test(s)) return 1000000;
-  if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/i.test(resolved || '')) return 1000000;
-  if (/^claude-haiku-4-5/i.test(resolved || '')) return 200000;
-  return null;
+  return (resolved && getModelMetadataSync(resolved, 'anthropic-oauth')?.contextWindow) || null;
 }
 
 export function resolveClaudeModelAlias(model) {

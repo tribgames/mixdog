@@ -79,10 +79,10 @@ export function resolveAggregateAnchorRoot(name, args, baseCwd, { explicitCwdArg
  * One `file` anchor: an error string when it does not exist, otherwise the
  * root it re-homes the call to (null keeps the current cwd).
  */
-export function resolveFileAnchorRoot(name, args, fileArg, baseCwd) {
+export async function resolveFileAnchorRoot(name, args, fileArg, baseCwd) {
   const abs = _absFrom(baseCwd, fileArg);
   if (!existsSync(abs)) {
-    const elsewhere = findFileByBasename(pathResolve(baseCwd), abs);
+    const elsewhere = await findFileByBasename(pathResolve(baseCwd), abs);
     const hint = elsewhere.length
       ? ` Same filename exists at: ${elsewhere.map((p) => `"${toDisplayPath(p, baseCwd).replace(/\\/g, '/')}"`).join(', ')}. Use that path.`
       : '';
@@ -136,7 +136,7 @@ export function resolveDirectoryRoot(name, effectiveCwd, { filesystemRootCwd }) 
       `${_PROJECT_ROOT_SENTINELS.join('/')} at it or any ancestor)` +
       `${childRoots.length > 1 ? ` and holds ${childRoots.length} separate project roots (${listed})` : ''}. ` +
       `${boundaryRoot ? `The nearest sentinel is at '${boundaryRoot}' (home/temp), which is never auto-adopted. ` : ''}` +
-      `Refusing to index an arbitrary tree. Run 'cwd set <repo>', or pass an explicit ` +
+      `Refusing to index an arbitrary tree. Switch Project with the session tool (set-project), or pass an explicit ` +
       `'cwd' (repo root) or a 'file' anchor.`
   );
 }

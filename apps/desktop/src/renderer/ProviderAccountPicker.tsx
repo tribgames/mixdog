@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ProviderAccountsList } from './ProviderAccountsList';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import type { UsageApi } from './usage-dashboard-store';
 
 export function ProviderAccountPicker({ api, provider }: { api?: UsageApi; provider: string }) {
@@ -10,6 +11,7 @@ export function ProviderAccountPicker({ api, provider }: { api?: UsageApi; provi
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  useMobileBack(open, () => setOpen(false));
   useLayoutEffect(() => {
     if (!open) return;
     const place = () => {

@@ -1,13 +1,19 @@
 // The user's visualize feedback waiting for the next message, per session:
-// numbered pins (an element of an HTML pane, or a dragged region of a PDF or
-// image pane) and `data-choice` picks. The composer shows them as chips and
-// sends them with the next user message; the panes draw the pins' numbers.
-// A pin's number is its position in the session's list, so removing one
-// renumbers the rest in the chips and on the pages alike.
+// numbered pins (an element of an HTML pane, or a dragged region of any
+// commentable pane, see shared/visualize-comment-kinds.ts) and `data-choice`
+// picks. The composer shows them and sends them with the next user message;
+// the panes draw the pins' numbers. A pin's number is its position in the
+// session's list, so removing one renumbers the rest everywhere alike.
 import { useSyncExternalStore } from 'react';
 
-import type { VisualizePaneView } from '../shared/visualize';
-import type { VisualizeFeedbackRect } from '../shared/visualize-feedback';
+import type { VisualizePaneKind, VisualizePaneView } from '../shared/visualize';
+import {
+  formatVisualizeTime,
+  VISUALIZE_TAG_ROLES,
+  visualizeCommentKind,
+  visualizeCommentLabel,
+} from '../shared/visualize-comment-kinds';
+import { type VisualizeFeedbackRect, type VisualizePageMarker, visualizeUnitRect } from '../shared/visualize-feedback';
 import type { VisualizeTweakChange } from '../shared/visualize-tweaks';
 
 /** The file a pin names: project-relative on the desktop (`file`), and the
@@ -15,11 +21,6 @@ import type { VisualizeTweakChange } from '../shared/visualize-tweaks';
 export function visualizePaneFile(pane: VisualizePaneView): string {
   const file = pane.file ?? pane.target;
   return pane.version === undefined ? file : `${file} (kept version v${pane.version}, read-only)`;
-}
-
-/** Pane kinds that take a dragged region instead of an element. */
-export function visualizeRegionPane(kind: string): boolean {
-  return kind === 'pdf' || kind === 'document' || kind === 'image';
 }
 
 export interface VisualizePinImage {
@@ -30,19 +31,39 @@ export interface VisualizePinImage {
   height: number;
 }
 
-export interface VisualizeElementPin {
-  selector: string;
-  html: string;
-  styles: Record<string, string>;
-  /** Page (document) CSS px. */
-  box: VisualizeFeedbackRect;
-}
+/** What a pin is about. An element of an HTML page: its selector and markup,
+ *  `box` in page (document) CSS px, `path` its ancestors' human names
+ *  (outermost first). A region: `view` in fractions (0-1) of the pane's
+ *  visible view, `image` the same area in the image's (video frame's) own
+ *  pixels, `time` the video time in seconds, `elements` how many HTML
+ *  elements lie wholly inside it, `anchor` (HTML) the element it lies in:
+ *  the page draws it from there. */
+export type VisualizePinTarget =
+  | {
+      type: 'element';
+      selector: string;
+      html: string;
+      styles: Record<string, string>;
+      box: VisualizeFeedbackRect;
+      path: string[];
+    }
+  | {
+      type: 'region';
+      view: VisualizeFeedbackRect;
+      image?: VisualizeFeedbackRect;
+      time?: number;
+      elements?: number;
+      anchor?: VisualizeRegionAnchor;
+    };
+export type VisualizeRegionTarget = Extract<VisualizePinTarget, { type: 'region' }>;
 
-export interface VisualizeRegionPin {
-  /** Fractions (0-1) of the pane's visible view. */
-  view: VisualizeFeedbackRect;
-  /** Image panes: the same area in the image's own pixels. */
-  image?: VisualizeFeedbackRect;
+/** The smallest page element wholly holding an HTML region: its selector,
+ *  the region as fractions (0-1) of its border box, and (when it is not
+ *  body/html) its human path, outermost first. */
+export interface VisualizeRegionAnchor {
+  selector: string;
+  rect: VisualizeFeedbackRect;
+  path?: string[];
 }
 
 export interface VisualizePin {
@@ -50,15 +71,138 @@ export interface VisualizePin {
   tabId: string;
   tabLabel: string;
   pane: number;
-  paneKind: string;
+  paneKind: VisualizePaneKind;
   /** Project-relative file of the pane (never a host path on a remote client). */
   file: string;
   note: string;
-  /** Chip label: `tag#id.class` for an element, `<file> region` for a region. */
+  /** Human label from the pane kind's registry entry ("Button · Save"). */
   label: string;
-  element?: VisualizeElementPin;
-  region?: VisualizeRegionPin;
+  target: VisualizePinTarget;
   image?: VisualizePinImage;
+}
+
+// ── Stored pins: this shape, or the one before `target` (element / region) ──
+
+const record = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+const finiteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
+function storedRect(value: unknown): VisualizeFeedbackRect | null {
+  const raw = record(value);
+  if (!raw || ![raw.x, raw.y, raw.width, raw.height].every(finiteNumber)) return null;
+  return { x: raw.x as number, y: raw.y as number, width: raw.width as number, height: raw.height as number };
+}
+
+function storedStyles(value: unknown): Record<string, string> {
+  const raw = record(value) ?? {};
+  return Object.fromEntries(
+    Object.entries(raw).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  );
+}
+
+function storedElement(raw: Record<string, unknown>, path: unknown): VisualizePinTarget | null {
+  const box = storedRect(raw.box);
+  if (typeof raw.selector !== 'string' || !raw.selector || !box) return null;
+  return {
+    type: 'element',
+    selector: raw.selector,
+    html: typeof raw.html === 'string' ? raw.html : '',
+    styles: storedStyles(raw.styles),
+    box,
+    path: stringList(path),
+  };
+}
+
+const stringList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+
+/** An anchor only an HTML pane's region keeps; a broken one is dropped (the
+ *  pin stays, drawn from its view). */
+function storedAnchor(value: unknown): VisualizeRegionAnchor | null {
+  const raw = record(value);
+  const rect = raw ? storedRect(raw.rect) : null;
+  const area = rect ? visualizeUnitRect(rect) : null;
+  if (!raw || typeof raw.selector !== 'string' || !raw.selector || !area) return null;
+  const path = stringList(raw.path);
+  return { selector: raw.selector, rect: area, ...(path.length ? { path } : {}) };
+}
+
+function storedRegion(raw: Record<string, unknown>, paged: boolean): VisualizePinTarget | null {
+  const view = storedRect(raw.view);
+  if (!view) return null;
+  const image = storedRect(raw.image);
+  const anchor = paged ? storedAnchor(raw.anchor) : null;
+  return {
+    type: 'region',
+    view,
+    ...(image ? { image } : {}),
+    ...(finiteNumber(raw.time) && raw.time >= 0 ? { time: raw.time } : {}),
+    ...(finiteNumber(raw.elements) && raw.elements >= 0 ? { elements: Math.round(raw.elements) } : {}),
+    ...(anchor ? { anchor } : {}),
+  };
+}
+
+function storedImage(value: unknown): VisualizePinImage | undefined {
+  const raw = record(value);
+  if (!raw || typeof raw.data !== 'string' || raw.mimeType !== 'image/png') return undefined;
+  if (!finiteNumber(raw.width) || !finiteNumber(raw.height)) return undefined;
+  return { data: raw.data, mimeType: 'image/png', width: raw.width, height: raw.height };
+}
+
+/** A stored pin in today's shape: one written before `target` existed
+ *  (`element` / `region`, a `tag#id.class` label) is converted and relabelled;
+ *  anything that cannot be a pin of a commentable pane is dropped (null). */
+function storedCurrentTarget(current: Record<string, unknown>, page: boolean) {
+  if (current.type === 'element') return storedElement(current, current.path);
+  if (current.type === 'region') return storedRegion(current, page);
+  return null;
+}
+
+function storedLegacyTarget(raw: Record<string, unknown>) {
+  const legacyElement = record(raw.element);
+  if (legacyElement) return storedElement(legacyElement, []);
+  const legacyRegion = record(raw.region);
+  return legacyRegion ? storedRegion(legacyRegion, false) : null;
+}
+
+export function visualizeStoredPin(value: unknown): VisualizePin | null {
+  const raw = record(value);
+  if (!raw) return null;
+  const { id, tabId, tabLabel, pane, paneKind, file, note } = raw;
+  if (typeof id !== 'string' || !/^p\d+$/.test(id) || typeof tabId !== 'string' || typeof tabLabel !== 'string')
+    return null;
+  if (!Number.isInteger(pane) || (pane as number) < 0 || typeof file !== 'string') return null;
+  if (typeof note !== 'string' || !note.trim() || typeof paneKind !== 'string') return null;
+  const kind = visualizeCommentKind(paneKind);
+  if (!kind) return null;
+  const current = record(raw.target);
+  const target = current ? storedCurrentTarget(current, kind.page) : storedLegacyTarget(raw);
+  if (!target || !kind.select.includes(target.type)) return null;
+  let label = current && typeof raw.label === 'string' && raw.label ? raw.label : '';
+  if (!label) {
+    const pane = { kind: paneKind as VisualizePaneKind };
+    if (target.type === 'element') {
+      // The old label began with the tag: `button#go.primary`.
+      const tag = (typeof raw.label === 'string' ? raw.label : '').split(/[#.\s]/)[0].toLowerCase();
+      const role = Object.hasOwn(VISUALIZE_TAG_ROLES, tag) ? VISUALIZE_TAG_ROLES[tag] : 'box';
+      label = visualizeCommentLabel({ type: 'element', role, name: '' }, pane);
+    } else {
+      label = visualizeCommentLabel({ type: 'region', time: target.time, elements: target.elements }, pane);
+    }
+  }
+  const image = storedImage(raw.image);
+  return {
+    id,
+    tabId,
+    tabLabel,
+    pane: pane as number,
+    paneKind: paneKind as VisualizePaneKind,
+    file,
+    note,
+    label,
+    target,
+    ...(image ? { image } : {}),
+  };
 }
 
 export interface VisualizeChoice {
@@ -108,8 +252,17 @@ function storedFeedback(): Map<string, VisualizeFeedback> {
             Array.isArray(entry[1]?.pins) &&
             Array.isArray(entry[1]?.choices)
         )
-        // A queue stored before tweaks existed has none.
-        .map(([id, value]): [string, VisualizeFeedback] => [id, { ...value, tweaks: Array.isArray(value.tweaks) ? value.tweaks : [] }])
+        // Pins are migrated or dropped one by one; a queue stored before
+        // tweaks existed has none.
+        .map(([id, value]): [string, VisualizeFeedback] => [
+          id,
+          {
+            ...value,
+            pins: (value.pins as unknown[]).map(visualizeStoredPin).filter((pin): pin is VisualizePin => pin !== null),
+            tweaks: Array.isArray(value.tweaks) ? value.tweaks : [],
+          },
+        ])
+        .filter(([, value]) => value.pins.length || value.choices.length || value.tweaks.length)
     );
   } catch {
     return new Map();
@@ -208,6 +361,14 @@ export function setVisualizePinImage(sessionId: string, id: string, image: Visua
   update(sessionId, { ...current, pins: current.pins.map((pin) => (pin.id === id ? { ...pin, image } : pin)) });
 }
 
+/** Rewrite a queued pin's note (its card reopened); an empty note keeps the old one. */
+export function updateVisualizePinNote(sessionId: string, id: string, note: string): void {
+  const text = note.trim();
+  const current = visualizeFeedbackFor(sessionId);
+  if (!text || !current.pins.some((pin) => pin.id === id)) return;
+  update(sessionId, { ...current, pins: current.pins.map((pin) => (pin.id === id ? { ...pin, note: text } : pin)) });
+}
+
 export function removeVisualizePin(sessionId: string, id: string): void {
   const current = visualizeFeedbackFor(sessionId);
   update(sessionId, { ...current, pins: current.pins.filter((pin) => pin.id !== id) });
@@ -246,38 +407,111 @@ export function clearVisualizeTweaks(sessionId: string): void {
 }
 
 /** After a send: drop exactly what that message carried (anything queued
- *  while it travelled stays for the next one). */
+ *  while it travelled stays for the next one). A pin whose note was edited
+ *  meanwhile stays too: the message carried its old note, not this one. */
 export function consumeVisualizeFeedback(sessionId: string, sent: VisualizeFeedback): void {
-  const pins = new Set(sent.pins.map((pin) => pin.id));
+  const notes = new Map(sent.pins.map((pin) => [pin.id, pin.note]));
   const choices = new Set(sent.choices);
   const tweaks = new Set(sent.tweaks);
   const current = visualizeFeedbackFor(sessionId);
   update(sessionId, {
-    pins: current.pins.filter((pin) => !pins.has(pin.id)),
+    pins: current.pins.filter((pin) => notes.get(pin.id) !== pin.note),
     choices: current.choices.filter((choice) => !choices.has(choice)),
     tweaks: current.tweaks.filter((set) => !tweaks.has(set)),
   });
 }
 
+// A click on a pin's composer card asks the panel to open that pin's comment
+// card. One pending slot: only the composer fills it (a user click), and only
+// the Comment layer of the pin's pane takes it, once and while still fresh.
+export const VISUALIZE_PIN_OPEN_TTL_MS = 5_000;
+
+let pinOpen: { sessionId: string; pinId: string; at: number } | null = null;
+
+export function requestVisualizePinOpen(sessionId: string, pinId: string, now = performance.now()): void {
+  pinOpen = { sessionId, pinId, at: now };
+  for (const listener of listeners) listener();
+}
+
+/** The queued pin the pending request names, if it is in this tab (and pane, when given). */
+function pendingPinOpen(sessionId: string, tabId: string, pane?: number): VisualizePin | null {
+  if (!pinOpen || pinOpen.sessionId !== sessionId) return null;
+  const { pinId } = pinOpen;
+  const pin = visualizeFeedbackFor(sessionId).pins.find((candidate) => candidate.id === pinId);
+  return pin && pin.tabId === tabId && (pane === undefined || pin.pane === pane) ? pin : null;
+}
+
+/** The pin a fresh request for this pane names, left pending (an element pin
+ *  waits for its page to describe it); an expired request is dropped. */
+export function peekVisualizePinOpen(
+  sessionId: string,
+  tabId: string,
+  pane: number,
+  now = performance.now()
+): VisualizePin | null {
+  const pin = pendingPinOpen(sessionId, tabId, pane);
+  if (!pin || !pinOpen) return null;
+  if (now - pinOpen.at <= VISUALIZE_PIN_OPEN_TTL_MS) return pin;
+  pinOpen = null;
+  for (const listener of listeners) listener();
+  return null;
+}
+
+/** The pin to open, once, if the request is for this pane and still fresh. */
+export function takeVisualizePinOpen(
+  sessionId: string,
+  tabId: string,
+  pane: number,
+  now = performance.now()
+): VisualizePin | null {
+  const pin = pendingPinOpen(sessionId, tabId, pane);
+  const fresh = pinOpen !== null && now - pinOpen.at <= VISUALIZE_PIN_OPEN_TTL_MS;
+  if (!pin) return null;
+  pinOpen = null;
+  for (const listener of listeners) listener();
+  return fresh ? pin : null;
+}
+
+/** Re-renders when a request for a pin of this tab (and pane, when given) arrives. */
+export function useVisualizePinOpenPending(sessionId: string, tabId: string, pane?: number): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => pendingPinOpen(sessionId, tabId, pane) !== null,
+    () => false
+  );
+}
+
 /** Test seam. */
 export function resetVisualizeFeedback(): void {
   feedback = new Map();
+  pinOpen = null;
   store(feedback);
   for (const listener of listeners) listener();
 }
 
-/** The numbered markers one pane draws, and the number its next pin gets. */
+/** The numbered markers one pane's page draws (element pins and anchored
+ *  regions), its region pins, and the number its next pin gets. */
 export function visualizePaneMarkers(
   value: VisualizeFeedback,
   tabId: string,
   pane: number
-): { markers: Array<{ n: number; selector: string }>; regions: Array<{ n: number; pin: VisualizePin }>; next: number } {
-  const markers: Array<{ n: number; selector: string }> = [];
-  const regions: Array<{ n: number; pin: VisualizePin }> = [];
+): {
+  markers: VisualizePageMarker[];
+  regions: Array<{ n: number; pin: VisualizePin; target: VisualizeRegionTarget }>;
+  next: number;
+} {
+  const markers: VisualizePageMarker[] = [];
+  const regions: Array<{ n: number; pin: VisualizePin; target: VisualizeRegionTarget }> = [];
   value.pins.forEach((pin, index) => {
     if (pin.tabId !== tabId || pin.pane !== pane) return;
-    if (pin.element) markers.push({ n: index + 1, selector: pin.element.selector });
-    else if (pin.region) regions.push({ n: index + 1, pin });
+    const n = index + 1;
+    if (pin.target.type === 'element') {
+      markers.push({ n, selector: pin.target.selector });
+      return;
+    }
+    regions.push({ n, pin, target: pin.target });
+    const { anchor } = pin.target;
+    if (anchor) markers.push({ n, selector: anchor.selector, region: { pin: pin.id, rect: anchor.rect } });
   });
   return { markers, regions, next: value.pins.length + 1 };
 }
@@ -294,7 +528,7 @@ export function visualizePaneChoices(
 }
 
 export function visualizePinChip(pin: VisualizePin, n: number): string {
-  return `📌 ${n} · ${pin.label}`;
+  return `${n} · ${pin.label}`;
 }
 
 export function visualizeChoicesChip(choices: readonly VisualizeChoice[]): string {
@@ -347,24 +581,30 @@ export function visualizeFeedbackPrompt(
     const n = index + 1;
     lines.push(`pin ${n} · ${pin.label}`);
     lines.push(`  note: ${indent(pin.note)}`);
-    lines.push(`  tab: ${pin.tabId} ${quoted(pin.tabLabel)} · pane ${pin.pane + 1} (${pin.paneKind}) · file: ${pin.file}`);
-    if (pin.element) {
-      const { selector, html, styles, box } = pin.element;
+    lines.push(`  tab: ${pin.tabId} ${quoted(pin.tabLabel)} · pane ${pin.pane + 1} · file: ${pin.file}`);
+    lines.push(`  kind: ${pin.paneKind} ${pin.target.type}`);
+    const { target } = pin;
+    if (target.type === 'element') {
+      const { selector, html, styles, box, path } = target;
       lines.push(`  selector: ${selector}`);
+      if (path.length) lines.push(`  inside: ${path.join(' › ')}`);
       if (html) lines.push(`  html: ${html}`);
       const styleText = Object.entries(styles)
         .map(([key, style]) => `${key}: ${style}`)
         .join('; ');
       if (styleText) lines.push(`  styles: ${styleText}`);
       lines.push(`  box: x ${box.x}, y ${box.y}, ${box.width}×${box.height} (CSS px, page coordinates)`);
-    }
-    if (pin.region) {
-      const { view, image } = pin.region;
+    } else {
+      const { view, image, time, elements, anchor } = target;
+      if (time !== undefined) lines.push(`  time: ${formatVisualizeTime(time)} (${time} s into the video)`);
       lines.push(
         `  region: x ${percent(view.x)}, y ${percent(view.y)}, ${percent(view.width)}×${percent(view.height)} of the pane's visible view`
       );
+      if (anchor?.path?.length) lines.push(`  inside: ${anchor.path.join(' › ')}`);
+      if (elements !== undefined) lines.push(`  elements: ${elements} wholly inside the region`);
       if (image) {
-        lines.push(`  image area: x ${image.x}, y ${image.y}, ${image.width}×${image.height} (image px)`);
+        const [area, space] = time !== undefined ? ['frame area', 'video px'] : ['image area', 'image px'];
+        lines.push(`  ${area}: x ${image.x}, y ${image.y}, ${image.width}×${image.height} (${space})`);
       }
     }
     if (pin.image) {
@@ -394,11 +634,12 @@ export function visualizeFeedbackPrompt(
   }
   if (value.tweaks.length) {
     lines.push(
-      'tweaks (the user adjusted these in the panel; make them the new defaults in the file — the CSS variable / data attribute named, or the control default in the page\'s mx-tweaks block):'
+      "tweaks (the user adjusted these in the panel; make them the new defaults in the file — the CSS variable / data attribute named, or the control default in the page's mx-tweaks block):"
     );
     for (const set of value.tweaks) {
       lines.push(`  - tab: ${set.tabId} ${quoted(set.tabLabel)} · pane ${set.pane + 1} · file: ${set.file}`);
-      for (const change of set.changes) lines.push(`    ${change.id} (${change.target}): ${change.value} (was ${change.was})`);
+      for (const change of set.changes)
+        lines.push(`    ${change.id} (${change.target}): ${change.value} (was ${change.was})`);
     }
     display.push(visualizeTweaksChip(value.tweaks));
   }

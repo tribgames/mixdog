@@ -8,9 +8,14 @@
 // model declares effort levels (the effort is sent with each request).
 import { readSection } from '../../../../shared/config.mjs';
 import { autoEffortModel, turnEffortConfigurationMode } from '../../providers/effort-configuration.mjs';
-import { autoEffortBase, normalizeAutoEffortMode, resolveAutoEffort } from '../../providers/auto-effort.mjs';
+import {
+  autoEffortApplicable,
+  autoEffortBase,
+  normalizeAutoEffortMode,
+  resolveAutoEffort,
+} from '../../providers/auto-effort.mjs';
 import { builtinFeatureActive } from '../../runtime-core/builtin-features.mjs';
-import { effortOptionsFor } from '../../runtime-core/effort.mjs';
+import { effortOptionsFor, warnEmptyAutoEffortLadder } from '../../runtime-core/effort.mjs';
 import { effortJudgeSupportsSteps, judgeTurn, recordEffortDecision } from '../../../../effort-judge/judge-client.mjs';
 import { promptContentText } from './prompt-utils.mjs';
 
@@ -78,12 +83,6 @@ export async function resolveTurnAutoEffort({ sessionId, session, provider, inpu
   if (!turnEffortConfigurationMode(session, provider)) return null;
   const chosen = String(session.effort || '').toLowerCase();
   const base = autoEffortBase(chosen);
-  // The previous user request shows the work a short follow-up continues.
-  const judged = await judgeTurn({
-    request,
-    prev: lastText(session.messages, 'assistant'),
-    prevRequest: lastText(session.messages, 'user'),
-  });
   const record = {
     at: new Date().toISOString(),
     sessionId,
@@ -94,15 +93,25 @@ export async function resolveTurnAutoEffort({ sessionId, session, provider, inpu
     base,
     requestChars: request.length,
   };
+  const options = effortOptionsFor(session.provider, autoEffortModel(session.provider, provider, session.model));
+  // No judged outcome can apply when the base is off the model's ladder, so
+  // the judge is not asked (in observe mode too: nothing would be logged).
+  if (!autoEffortApplicable({ base, options })) {
+    recordEffortDecision({ ...record, skipped: 'default-outside-auto-range' });
+    warnEmptyAutoEffortLadder(session.provider, session.model, base);
+    return null;
+  }
+  // The previous user request shows the work a short follow-up continues.
+  const judged = await judgeTurn({
+    request,
+    prev: lastText(session.messages, 'assistant'),
+    prevRequest: lastText(session.messages, 'user'),
+  });
   if (!judged.probs) {
     recordEffortDecision({ ...record, skipped: judged.skipped });
     return null;
   }
-  const resolved = resolveAutoEffort({
-    base,
-    options: effortOptionsFor(session.provider, autoEffortModel(session.provider, provider, session.model)),
-    probs: judged.probs,
-  });
+  const resolved = resolveAutoEffort({ base, options, probs: judged.probs });
   recordEffortDecision({
     ...record,
     ...(resolved || { skipped: 'default-outside-auto-range' }),

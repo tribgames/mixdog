@@ -3,12 +3,14 @@
 // The Git-repository integration cases live in turn-changes.slow.test.mjs.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -29,7 +31,10 @@ process.on('exit', () => {
 const snapshotModule = await import('./turn-snapshot.mjs');
 const {
   _resetTurnSnapshotForTest,
+  beginAgentTurnReview,
   beginTurnSnapshot,
+  clearSessionChangeHistory,
+  completeAgentTurnReview,
   completeTurnSnapshot,
   getSessionReviewDiff,
   getTurnChanges,
@@ -45,8 +50,8 @@ const {
   MERGED_PATCH_MAX_BYTES,
   NET_TEXT_MAX_BYTES,
   TURN_CHANGE_FILE_PATCH_MAX_BYTES,
+  changePathKey,
   currentText,
-  mergeRecordedSessionChanges,
   storedChangeFile,
   trackedChangeFile,
   turnChangesReply,
@@ -54,6 +59,16 @@ const {
 const { _setTurnChangeRecordWriteHookForTest, loadTurnChangeRecord, upsertTurnChangeRecord } = await import(
   './turn-snapshot-store.mjs'
 );
+const {
+  _rowCacheBytesForTest,
+  _pendingCapturesForTest,
+  _settleSessionBaselinesForTest,
+  _unsavedBytesForTest,
+  captureSessionBaselines,
+  clearSessionBaselines,
+  loadSessionBaselines,
+  recordReviewOwner,
+} = await import('./session-baseline-store.mjs');
 
 let seq = 0;
 
@@ -487,6 +502,196 @@ test('the session review lists a non-Git session from its records, outside files
   assert.deepEqual(restarted.files.map((file) => file.path).sort(), turn.files.map((file) => file.path).sort());
 });
 
+test('a non-Git session review lists its workers’ edits beside the Lead’s, after a restart too', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const lead = 'review-with-worker';
+  const root = sessionRoot(lead);
+  writeFileSync(join(root, 'lead.txt'), 'lead\n');
+  writeFileSync(join(root, 'worker.txt'), 'worker\n');
+  const token = await beginTurnSnapshot(root, lead, { checkpointId: 'cp' });
+  const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
+  // The worker runs its own session turn, which records its own change.
+  await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'worker.txt', before: null, after: 'worker\n' }]);
+  await completeAgentTurnReview(worker);
+  recordTurnDiffChanges(lead, [
+    { path: join(root, 'lead.txt'), displayPath: 'lead.txt', before: null, after: 'lead\n' },
+  ]);
+  await completeTurnSnapshot(lead, token);
+  const [live, restarted] = await reviewTwice(root, lead);
+  assert.deepEqual(live.files.map((file) => file.path).sort(), ['lead.txt', 'worker.txt']);
+  assert.deepEqual(reviewShape(live), reviewShape(restarted));
+});
+
+test('worker delete → Lead recreate nets to one M against the first-seen state', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const lead = 'review-worker-first';
+  const root = sessionRoot(lead);
+  writeFileSync(join(root, 'note.txt'), 'new\n');
+  const token = await beginTurnSnapshot(root, lead, { checkpointId: 'cp' });
+  const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
+  // The worker deletes the file, then the Lead recreates it with new content.
+  await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'note.txt', before: 'old\n', after: null }]);
+  await completeAgentTurnReview(worker);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  recordTurnDiffChanges(lead, [
+    { path: join(root, 'note.txt'), displayPath: 'note.txt', before: null, after: 'new\n' },
+  ]);
+  await completeTurnSnapshot(lead, token);
+  const review = await getSessionReviewDiff(root, lead);
+  assert.deepEqual(
+    review.files.map((file) => [file.path, file.status]),
+    [['note.txt', 'M']]
+  );
+});
+
+const netStatuses = (review) => review.files.map((file) => [file.path, file.status]);
+
+test('Lead delete → worker recreate (its own session turn) → Lead delete nets to one D', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const lead = 'baseline-delete-recreate-delete';
+  const root = sessionRoot(lead);
+  const note = join(root, 'note.txt');
+  writeFileSync(note, 'original\n');
+  const token = await beginTurnSnapshot(root, lead, { checkpointId: 'cp' });
+  rmSync(note);
+  recordTurnDiffChanges(lead, [{ path: note, displayPath: 'note.txt', before: 'original\n', after: null }]);
+  const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
+  writeFileSync(note, 'worker\n');
+  await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'note.txt', before: null, after: 'worker\n' }]);
+  await completeAgentTurnReview(worker);
+  rmSync(note);
+  recordTurnDiffChanges(lead, [{ path: note, displayPath: 'note.txt', before: 'worker\n', after: null }]);
+  await completeTurnSnapshot(lead, token);
+  const [live, restarted] = await reviewTwice(root, lead);
+  for (const review of [live, restarted]) {
+    assert.deepEqual(reviewShape(review), [['note.txt', '', 'D', 0, 1]]);
+    assert.equal(review.complete, true);
+    assert.match(review.patch, /^-original$/m);
+  }
+});
+
+test('a worker rename old→middle and a Lead rename middle→new net to one R from the original path', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const lead = 'baseline-rename-chain';
+  const root = sessionRoot(lead);
+  const [oldFile, middle, newFile] = ['old.txt', 'middle.txt', 'new.txt'].map((name) => join(root, name));
+  writeFileSync(oldFile, 'content\n');
+  const token = await beginTurnSnapshot(root, lead, { checkpointId: 'cp' });
+  // The worker's edits arrive through the tracker bound to the Lead's turn.
+  const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
+  renameSync(oldFile, middle);
+  recordTurnDiffChanges(`${lead}-worker`, [
+    {
+      path: oldFile,
+      displayPath: 'old.txt',
+      newPath: middle,
+      newDisplayPath: 'middle.txt',
+      before: 'content\n',
+      after: 'content\n',
+    },
+  ]);
+  await completeAgentTurnReview(worker);
+  renameSync(middle, newFile);
+  writeFileSync(newFile, 'content\nmore\n');
+  recordTurnDiffChanges(lead, [
+    {
+      path: middle,
+      displayPath: 'middle.txt',
+      newPath: newFile,
+      newDisplayPath: 'new.txt',
+      before: 'content\n',
+      after: 'content\nmore\n',
+    },
+  ]);
+  await completeTurnSnapshot(lead, token);
+  const [live, restarted] = await reviewTwice(root, lead);
+  for (const review of [live, restarted]) {
+    assert.deepEqual(reviewShape(review), [['new.txt', 'old.txt', 'R', 1, 0]]);
+    assert.equal(review.complete, true);
+    assert.ok(review.patch.includes('rename from old.txt\nrename to new.txt'));
+    assert.equal(review.patch.includes('middle.txt'), false);
+  }
+});
+
+test('a worker resumed after a restart still credits the Lead it was attributed to', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const lead = 'baseline-attribution';
+  const root = sessionRoot(lead);
+  const token = await beginTurnSnapshot(root, lead, { checkpointId: 'cp' });
+  beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
+  await completeTurnSnapshot(lead, token);
+  const ownerFile = join(
+    process.env.MIXDOG_DATA_DIR,
+    'turn-snapshots',
+    'review-owners',
+    `${createHash('sha256').update(`${lead}-worker`).digest('hex').slice(0, 24)}.json`
+  );
+  for (let tries = 0; tries < 200 && !existsSync(ownerFile); tries += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  // Restart: the in-memory attribution and trackers are gone.
+  _resetTurnSnapshotForTest();
+  writeFileSync(join(root, 'w.txt'), 'w\n');
+  await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'w.txt', before: null, after: 'w\n' }]);
+  assert.deepEqual(reviewShape(await getSessionReviewDiff(root, lead)), [['w.txt', '', 'A', 1, 0]]);
+});
+
+test('a Lead record re-sealed after its worker nets the Lead’s later edit last', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const lead = 'review-order-resealed';
+  const root = sessionRoot(lead);
+  writeFileSync(join(root, 'note.txt'), 'new\n');
+  // The Lead turn seals first: its record's createdAt predates the worker's.
+  const token = await beginTurnSnapshot(root, lead, { checkpointId: 'cp' });
+  await completeTurnSnapshot(lead, token);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
+  await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'note.txt', before: 'old\n', after: null }]);
+  await completeAgentTurnReview(worker);
+  // A completion wake reopens the turn; the Lead recreates the file and the
+  // re-seal keeps the record's first createdAt.
+  const wake = await beginTurnSnapshot(root, lead, { checkpointId: 'cp', continueTurn: true });
+  recordTurnDiffChanges(lead, [
+    { path: join(root, 'note.txt'), displayPath: 'note.txt', before: null, after: 'new\n' },
+  ]);
+  await completeTurnSnapshot(lead, wake);
+  const leadRecord = await loadTurnChangeRecord(lead, 'cp');
+  const workerRecord = await loadTurnChangeRecord(`${lead}-worker`, 'worker-cp');
+  assert.deepEqual(
+    leadRecord.files.map((file) => [file.path, file.status]),
+    [['note.txt', 'A']]
+  );
+  assert.ok(leadRecord.createdAt < workerRecord.createdAt);
+  const [live, restarted] = await reviewTwice(root, lead);
+  assert.deepEqual(netStatuses(live), [['note.txt', 'M']]);
+  assert.deepEqual(netStatuses(restarted), [['note.txt', 'M']]);
+});
+
+test('a Lead edit that landed before its worker’s nets first in the session review', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const lead = 'review-lead-first';
+  const root = sessionRoot(lead);
+  writeFileSync(join(root, 'note.txt'), 'new\n');
+  const token = await beginTurnSnapshot(root, lead, { checkpointId: 'cp' });
+  // The Lead deletes the file, then a worker recreates it; the Lead's record
+  // is sealed last.
+  recordTurnDiffChanges(lead, [
+    { path: join(root, 'note.txt'), displayPath: 'note.txt', before: 'old\n', after: null },
+  ]);
+  const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
+  await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'note.txt', before: null, after: 'new\n' }]);
+  await completeAgentTurnReview(worker);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await completeTurnSnapshot(lead, token);
+  const [live, restarted] = await reviewTwice(root, lead);
+  assert.deepEqual(netStatuses(live), [['note.txt', 'M']]);
+  assert.deepEqual(netStatuses(restarted), [['note.txt', 'M']]);
+});
+
 test('session review nets turns: create then delete leaves nothing, edits across turns are one diff', {
   skip,
 }, async () => {
@@ -623,81 +828,180 @@ test('session review keys by root: two roots with the same relative path stay tw
   }
 });
 
-test('an old record without before-text or display patch still lists its file for the island fallback', {
+test('a session recorded before baselines existed is listed from its records, never as complete', {
   skip,
 }, async () => {
-  const legacy = {
-    checkpointId: 'old',
-    kind: 'tracked',
-    root: join(base, 'legacy-root'),
-    files: [
-      {
-        path: 'C:/x/legacy.txt',
-        status: 'A',
-        additions: 0,
-        deletions: 0,
-        revertable: false,
-        reason: 'file is outside the recorded root',
-        patch: null,
-        state: 'applied',
-      },
-      {
-        path: 'kept.txt',
-        status: 'A',
-        additions: 3,
-        deletions: 0,
-        revertable: true,
-        patch:
-          'diff --git a/kept.txt b/kept.txt\nnew file mode 100644\n--- /dev/null\n+++ b/kept.txt\n@@ -0,0 +1,3 @@\n+a\n+b\n+c\n',
-        patchEncoding: 'utf8',
-        state: 'applied',
-      },
-    ],
-  };
-  const merged = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'absent' }, [
-    legacy,
-  ]);
-  const byPath = Object.fromEntries(merged.files.map((file) => [file.path, file]));
-  assert.equal(byPath['C:/x/legacy.txt'].unmeasured, true);
-  assert.equal(byPath['kept.txt'].additions, 3);
-  assert.equal(merged.complete, true);
-  // Absent history with nothing recorded is neither complete nor an invented
-  // empty set: the transcript may still know more.
-  const absent = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'absent' }, []);
-  assert.deepEqual([absent.supported, absent.files, absent.complete], [true, [], undefined]);
-  const emptyKnown = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'empty' }, []);
-  assert.equal(emptyKnown.complete, true);
-  // A missing baseline with nothing recorded stays unavailable, not empty.
-  const unavailable = await mergeRecordedSessionChanges(
-    { supported: false, files: [], patch: '', source: 'unavailable', reason: 'r' },
-    []
-  );
-  assert.equal(unavailable.supported, false);
-});
-test('the merged review stays under its patch budget and lists a file past it without its diff', { skip }, async () => {
-  const big = (name) => ({
-    path: name,
+  _resetTurnSnapshotForTest();
+  const sessionId = 'baseline-legacy';
+  const root = sessionRoot(sessionId);
+  const unmeasured = join(base, 'legacy-missing', 'legacy.txt').replaceAll('\\', '/');
+  writeTree(root, { 'kept.txt': 'a\nb\nc\n', 'twice.txt': 'two\n' });
+  const kept = {
+    path: 'kept.txt',
     status: 'A',
-    additions: 1,
+    additions: 3,
     deletions: 0,
     revertable: true,
-    patch: `diff --git a/${name} b/${name}\nnew file mode 100644\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1 @@\n+${'x'.repeat(1_500_000)}\n`,
+    patch:
+      'diff --git a/kept.txt b/kept.txt\nnew file mode 100644\n--- /dev/null\n+++ b/kept.txt\n@@ -0,0 +1,3 @@\n+a\n+b\n+c\n',
     patchEncoding: 'utf8',
-    state: 'applied',
+  };
+  const twice = (line) => ({
+    path: 'twice.txt',
+    status: 'M',
+    additions: 1,
+    deletions: 1,
+    revertable: false,
+    patch: null,
+    reason: line,
   });
-  const merged = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'absent' }, [
-    { checkpointId: 'big', kind: 'tracked', root: join(base, 'big-root'), files: [big('a.txt'), big('b.txt')] },
-  ]);
-  assert.equal(merged.files.length, 2);
-  assert.equal(merged.files.filter((file) => file.patchOmitted === true).length, 1);
-  assert.equal(merged.patchTruncated, true);
-  assert.ok(Buffer.byteLength(merged.patch, 'utf8') <= MERGED_PATCH_MAX_BYTES);
+  const outside = {
+    path: unmeasured,
+    status: 'A',
+    additions: 0,
+    deletions: 0,
+    revertable: false,
+    reason: 'file is outside the recorded root',
+    patch: null,
+  };
+  await upsertTurnChangeRecord(sessionId, {
+    checkpointId: 'old-1',
+    kind: 'tracked',
+    root,
+    files: [kept, outside, twice('1')],
+  });
+  await upsertTurnChangeRecord(sessionId, { checkpointId: 'old-2', kind: 'tracked', root, files: [twice('2')] });
+  const review = await getSessionReviewDiff(root, sessionId);
+  const byPath = Object.fromEntries(review.files.map((file) => [file.path, file]));
+  assert.deepEqual(Object.keys(byPath).sort(), ['kept.txt', 'twice.txt', unmeasured].sort());
+  assert.equal(byPath['kept.txt'].additions, 3);
+  assert.ok(review.patch.includes('+++ b/kept.txt'));
+  assert.equal(byPath[unmeasured].unmeasured, true);
+  // Edited in two old turns: listed, but no net diff is invented for it.
+  assert.equal(byPath['twice.txt'].unmeasured, true);
+  assert.ok(review.files.every((file) => file.baseline === 'missing'));
+  assert.deepEqual([review.complete, review.partial, review.authoritative], [undefined, true, true]);
+
+  // With nothing recorded at all the review claims neither completeness nor
+  // an authoritative empty set: the transcript may still know more.
+  _resetTurnSnapshotForTest();
+  const absent = await getSessionReviewDiff(sessionRoot('baseline-absent'), 'baseline-absent');
+  assert.deepEqual(
+    [absent.supported, absent.files, absent.complete, absent.authoritative],
+    [true, [], undefined, false]
+  );
+});
+
+test('the session review stays under its patch budget and lists a file past it without its diff', {
+  skip,
+}, async () => {
   // The budget counts bytes, not characters: multi-byte text fills it sooner.
-  const wide = (name) => ({ ...big(name), patch: big(name).patch.replace(/x{100,}/, '한'.repeat(500_000)) });
-  const wideMerged = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'absent' }, [
-    { checkpointId: 'wide', kind: 'tracked', root: join(base, 'wide-root'), files: [wide('a.txt'), wide('b.txt')] },
+  for (const [name, body] of [
+    ['ascii', 'x'.repeat(1_000_000)],
+    ['wide', '한'.repeat(340_000)],
+  ]) {
+    _resetTurnSnapshotForTest();
+    const sessionId = `baseline-budget-${name}`;
+    const root = sessionRoot(sessionId);
+    const edits = ['a.txt', 'b.txt', 'c.txt'].map((path) => ({ path, before: null, after: `${body}\n` }));
+    writeTree(root, Object.fromEntries(edits.map(({ path, after }) => [path, after])));
+    await trackedTurn(sessionId, root, 'cp', edits);
+    const review = await getSessionReviewDiff(root, sessionId);
+    assert.equal(review.files.length, 3, name);
+    assert.equal(review.files.filter((file) => file.patchOmitted === true).length, 1, name);
+    assert.equal(review.patchTruncated, true, name);
+    assert.equal(review.complete, true, name);
+    assert.ok(Buffer.byteLength(review.patch, 'utf8') <= MERGED_PATCH_MAX_BYTES, name);
+  }
+});
+
+test('a binary or oversized first state is listed as such and never reported complete', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'baseline-omitted';
+  const root = sessionRoot(sessionId);
+  writeTree(root, { 'blob.bin': Buffer.from([1, 2, 3]), 'huge.txt': 'h'.repeat(NET_TEXT_MAX_BYTES + 10) });
+  await beginTurnSnapshot(root, sessionId, { checkpointId: 'cp' });
+  recordTurnDiffChanges(sessionId, [
+    {
+      path: join(root, 'blob.bin'),
+      displayPath: 'blob.bin',
+      before: { omitted: true, size: 4, reason: 'binary' },
+      after: Buffer.from([1, 2, 3]),
+    },
+    {
+      path: join(root, 'huge.txt'),
+      displayPath: 'huge.txt',
+      before: { omitted: true, size: 5_000_000, reason: 'oversized' },
+      after: { omitted: true, size: NET_TEXT_MAX_BYTES + 10, reason: 'oversized' },
+    },
   ]);
-  assert.equal(wideMerged.files.filter((file) => file.patchOmitted === true).length, 1);
+  await completeTurnSnapshot(sessionId);
+  const shape = (review) => review.files.map((file) => [file.path, file.status, file.baseline, file.binary === true]);
+  for (const review of await reviewTwice(root, sessionId)) {
+    assert.deepEqual(shape(review), [
+      ['blob.bin', 'M', 'omitted-binary', true],
+      ['huge.txt', 'M', 'omitted-oversized', false],
+    ]);
+    assert.deepEqual([review.complete, review.partial, review.authoritative], [undefined, true, true]);
+  }
+
+  // A large first state the tool did read keeps its hash: unchanged, it nets
+  // away; changed, it is listed without a diff and the set is not complete.
+  _resetTurnSnapshotForTest();
+  const large = 'baseline-large';
+  const largeRoot = sessionRoot(large);
+  const original = 'l'.repeat(NET_TEXT_MAX_BYTES + 1);
+  writeTree(largeRoot, { 'large.txt': original });
+  await trackedTurn(large, largeRoot, 'cp', [{ path: 'large.txt', before: original, after: `${original}more` }]);
+  let review = await getSessionReviewDiff(largeRoot, large);
+  // Only a hash says it is unchanged: hidden, but not vouched for.
+  assert.deepEqual([review.files, review.complete, review.partial, review.authoritative], [[], undefined, true, false]);
+  writeTree(largeRoot, { 'large.txt': `${original}more` });
+  review = await getSessionReviewDiff(largeRoot, large);
+  assert.deepEqual(shape(review), [['large.txt', 'M', 'omitted-oversized', false]]);
+  assert.equal(review.complete, undefined);
+});
+
+test('a file restored to its first-seen state after the session leaves the review, whoever restored it', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'baseline-external';
+  const root = sessionRoot(sessionId);
+  writeTree(root, { 'doc.txt': 'a\nB\nc\n' });
+  await trackedTurn(sessionId, root, 'cp-1', [{ path: 'doc.txt', before: 'a\nb\nc\n', after: 'a\nB\nc\n' }]);
+  writeTree(root, { 'doc.txt': 'a\nB\nc\nd\n' });
+  await trackedTurn(sessionId, root, 'cp-2', [{ path: 'doc.txt', before: 'a\nB\nc\n', after: 'a\nB\nc\nd\n' }]);
+  const [live, restarted] = await reviewTwice(root, sessionId);
+  assert.deepEqual(reviewShape(restarted), [['doc.txt', '', 'M', 2, 1]]);
+  assert.deepEqual(reviewShape(live), reviewShape(restarted));
+  // An external editor changes it again: the review follows the disk and keeps
+  // the session's first state as its original.
+  writeTree(root, { 'doc.txt': 'totally\ndifferent\n' });
+  assert.deepEqual(reviewShape(await getSessionReviewDiff(root, sessionId)), [['doc.txt', '', 'M', 2, 3]]);
+  // The user restores the original: nothing is left to review.
+  writeTree(root, { 'doc.txt': 'a\nb\nc\n' });
+  for (const review of await reviewTwice(root, sessionId)) {
+    assert.deepEqual([review.files, review.patch, review.complete], [[], '', true]);
+  }
+});
+
+test('Delete history clears the session baselines; later edits start a fresh one', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'baseline-delete';
+  const root = await plainTurn(sessionId, { 'a.txt': 'a\n' }, { 'a.txt': 'b\n' });
+  assert.notEqual(await loadSessionBaselines(sessionId), null);
+  assert.deepEqual(await clearSessionChangeHistory(sessionId), { turns: 1 });
+  assert.equal(await loadSessionBaselines(sessionId), null);
+  _resetTurnSnapshotForTest();
+  assert.equal(await loadSessionBaselines(sessionId), null);
+  assert.deepEqual(readTree(root, ['a.txt']), { 'a.txt': 'b\n' });
+  writeTree(root, { 'a.txt': 'c\n' });
+  await trackedTurn(sessionId, root, 'cp-next', [{ path: 'a.txt', before: 'b\n', after: 'c\n' }]);
+  const review = await getSessionReviewDiff(root, sessionId);
+  assert.deepEqual(reviewShape(review), [['a.txt', '', 'M', 1, 1]]);
+  assert.match(review.patch, /^-b\n\+c$/m);
+  assert.equal(review.complete, true);
 });
 
 test('a legacy outside file is measured from disk for the session review and the turn card', { skip }, async () => {
@@ -770,33 +1074,12 @@ test('no before-text is persisted in a change record', { skip }, async () => {
   const text = JSON.stringify(record);
   assert.equal(/baseText|baseKnown/.test(text), false);
   assert.ok(record.files.every((file) => !('baseText' in file) && !('baseKnown' in file)));
-  // An old record that still carries one is ignored, and the file still nets.
-  const legacy = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'empty' }, [
-    { ...record, files: record.files.map((file) => ({ ...file, baseKnown: true, baseText: 'WRONG\n' })) },
+  // The session review nets both files from the session baselines.
+  const review = await getSessionReviewDiff(root, sessionId);
+  assert.deepEqual(review.files.map((file) => [file.path === 'a.txt', file.additions, file.deletions]).sort(), [
+    [false, 1, 0],
+    [true, 1, 1],
   ]);
-  assert.deepEqual(
-    legacy.files.filter((file) => file.path === 'a.txt').map((file) => [file.additions, file.deletions]),
-    [[1, 1]]
-  );
-  assert.equal(legacy.patch.includes('WRONG'), false);
-});
-
-test('the net review rebuilds the original by reverse-applying the recorded patches', { skip }, async () => {
-  _resetTurnSnapshotForTest();
-  const sessionId = 'review-reverse';
-  const root = sessionRoot(sessionId);
-  writeTree(root, { 'doc.txt': 'a\nB\nc\nd\n' });
-  await trackedTurn(sessionId, root, 'cp-1', [{ path: 'doc.txt', before: 'a\nb\nc\n', after: 'a\nB\nc\n' }]);
-  writeTree(root, { 'doc.txt': 'a\nB\nc\nd\n' });
-  await trackedTurn(sessionId, root, 'cp-2', [{ path: 'doc.txt', before: 'a\nB\nc\n', after: 'a\nB\nc\nd\n' }]);
-  const [live, restarted] = await reviewTwice(root, sessionId);
-  assert.deepEqual(reviewShape(restarted), [['doc.txt', '', 'M', 2, 1]]);
-  assert.deepEqual(reviewShape(live), reviewShape(restarted));
-  // The file changed behind the records' back: the patches no longer match,
-  // so the review falls back to the per-turn diffs instead of inventing one.
-  writeTree(root, { 'doc.txt': 'totally\ndifferent\n' });
-  const fallback = await getSessionReviewDiff(root, sessionId);
-  assert.deepEqual(reviewShape(fallback), [['doc.txt', '', 'M', 2, 1]]);
 });
 
 test('the net review never reads through a link out of the root, and reads files only up to a bound', {
@@ -831,36 +1114,6 @@ test('the net review never reads through a link out of the root, and reads files
   assert.equal(await currentText(root, '.'), undefined);
 });
 
-test('the per-turn fallback re-heads each patch with the emitted path, so two roots stay two rows', {
-  skip,
-}, async () => {
-  const patch = (line) =>
-    `diff --git a/x.txt b/x.txt\nnew file mode 100644\n--- /dev/null\n+++ b/x.txt\n@@ -0,0 +1 @@\n+${line}\n`;
-  const entry = (line) => ({
-    path: 'x.txt',
-    status: 'A',
-    additions: 1,
-    deletions: 0,
-    revertable: true,
-    patch: patch(line),
-    patchEncoding: 'utf8',
-    state: 'applied',
-  });
-  const first = join(base, 'fallback-a');
-  const second = join(base, 'fallback-b');
-  const merged = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'empty' }, [
-    { checkpointId: 'fa', kind: 'tracked', root: first, files: [entry('one')] },
-    { checkpointId: 'fb', kind: 'tracked', root: second, files: [entry('two')] },
-  ]);
-  assert.equal(merged.files.length, 2);
-  for (const file of merged.files) {
-    assert.ok(file.path.endsWith('/x.txt') && file.path !== 'x.txt');
-    assert.ok(merged.patch.includes(`diff --git a/${file.path} b/${file.path}\n`));
-    assert.ok(merged.patch.includes(`+++ b/${file.path}\n`));
-  }
-  assert.equal(merged.patch.includes('a/x.txt b/x.txt'), false);
-});
-
 test('a file under a parent junction is not read, nor is NUL content diffed as text', { skip }, async () => {
   const root = sessionRoot('parent-link');
   const real = join(base, 'parent-link-real');
@@ -877,7 +1130,832 @@ test('a file under a parent junction is not read, nor is NUL content diffed as t
   if (linked) assert.equal(await currentText(root, join(alias, 'f.txt')), undefined);
   writeFileSync(join(root, 'bin.dat'), Buffer.from('text\0more\n'));
   assert.equal(await currentText(root, 'bin.dat'), undefined);
-  const file = trackedChangeFile({ oldPath: 'bin.dat', newPath: 'bin.dat', before: null, after: Buffer.from('a\0b') });
+  const file = await trackedChangeFile({ oldPath: 'bin.dat', newPath: 'bin.dat', before: null, after: Buffer.from('a\0b') });
   assert.equal(file.binary, true);
   assert.equal(file.revertable, false);
+});
+
+// ── Island count (uncommitted vs HEAD) and Delete history ──────────────────
+
+function git(cwd, ...args) {
+  const result = spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], {
+    cwd,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout;
+}
+
+/** A committed repository holding `files`. */
+function gitRepo(name, files) {
+  const repo = join(base, `repo-${name}`);
+  mkdirSync(repo, { recursive: true });
+  git(repo, 'init', '-q');
+  git(repo, 'config', 'core.autocrlf', 'false');
+  writeTree(repo, files);
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'seed');
+  return realpathSync.native(repo);
+}
+
+/** One sealed Git turn that writes `edits` while it runs. */
+async function gitTurn(repo, sessionId, checkpointId, edits) {
+  await beginTurnSnapshot(repo, sessionId, { checkpointId });
+  writeTree(repo, edits);
+  await completeTurnSnapshot(sessionId);
+}
+
+const islandShape = (review) =>
+  (review.uncommittedFiles || []).map((file) => [file.path, file.status, file.additions, file.deletions]);
+const gitState = (repo) => [
+  git(repo, 'rev-parse', 'HEAD'),
+  git(repo, 'status', '--porcelain'),
+  git(repo, 'diff', '--cached'),
+];
+
+test('the island counts only session files still differing from HEAD; the session review keeps them all', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'island-head';
+  const repo = gitRepo(sessionId, { 'a.txt': 'a\n', 'b.txt': 'b\n', 'user.txt': 'u\n' });
+  // Dirty before the session touched anything: never the session's.
+  writeTree(repo, { 'user.txt': 'user edit\n' });
+  await gitTurn(repo, sessionId, 'cp', { 'a.txt': 'a\nA2\n', 'b.txt': 'b\nB2\nB3\n', 'new.txt': 'n\n' });
+  let review = await getSessionReviewDiff(repo, sessionId);
+  assert.deepEqual(islandShape(review), [
+    ['a.txt', 'M', 1, 0],
+    ['b.txt', 'M', 2, 0],
+    ['new.txt', 'A', 1, 0],
+  ]);
+  assert.equal(review.historyTurns, 1);
+
+  // Committing a file removes it; staging alone does not.
+  git(repo, 'add', 'a.txt', 'new.txt');
+  git(repo, 'commit', '-qm', 'take a');
+  git(repo, 'add', 'b.txt');
+  review = await getSessionReviewDiff(repo, sessionId);
+  assert.deepEqual(islandShape(review), [['b.txt', 'M', 2, 0]]);
+  // The Changes panel's session-wide set is unchanged by the commit.
+  assert.deepEqual(review.files.map((file) => file.path).sort(), ['a.txt', 'b.txt', 'new.txt']);
+
+  // A file returned to its HEAD bytes disappears, across a restart too.
+  writeTree(repo, { 'b.txt': 'b\n' });
+  _resetTurnSnapshotForTest();
+  review = await getSessionReviewDiff(repo, sessionId);
+  assert.deepEqual(islandShape(review), []);
+  assert.equal(review.complete, true);
+});
+
+test('a non-Git session keeps its session-based count (no HEAD set)', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'island-plain';
+  const root = await plainTurn(sessionId, { 'a.txt': 'a\n' }, { 'a.txt': 'A\n' });
+  const review = await getSessionReviewDiff(root, sessionId);
+  assert.equal(review.uncommittedFiles, undefined);
+  assert.deepEqual(reviewShape(review), [['a.txt', '', 'M', 1, 1]]);
+});
+
+test('Delete history empties the records for good, never touches files or Git, and tracks later edits', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delete-history';
+  const repo = gitRepo(sessionId, { 'a.txt': 'a\n', 'c.txt': 'c\n' });
+  await gitTurn(repo, sessionId, 'cp-1', { 'a.txt': 'a\nA2\n' });
+  await gitTurn(repo, sessionId, 'cp-2', { 'a.txt': 'a\nA2\nA3\n' });
+  assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp-2' })).status, 'ready');
+  const before = gitState(repo);
+  const disk = readTree(repo, ['a.txt', 'c.txt']);
+
+  // Refused while a turn runs.
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-busy' });
+  await assert.rejects(clearSessionChangeHistory(sessionId), /running a turn/);
+  await completeTurnSnapshot(sessionId);
+
+  assert.deepEqual(await clearSessionChangeHistory(sessionId), { turns: 3 });
+  assert.deepEqual(gitState(repo), before, 'HEAD, index and status are untouched');
+  assert.deepEqual(readTree(repo, ['a.txt', 'c.txt']), disk, 'files are untouched');
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const review = await getSessionReviewDiff(repo, sessionId);
+    // Complete and empty: nothing (the transcript included) may resurface it.
+    assert.deepEqual([review.files, review.complete, review.historyTurns], [[], true, 0]);
+    assert.deepEqual(islandShape(review), []);
+    assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp-1' })).status, 'missing');
+    assert.deepEqual((await getTurnReviewDiff(repo, sessionId)).files, []);
+  }
+
+  // Edits from the next turn on are tracked again; the old ones stay forgotten.
+  await gitTurn(repo, sessionId, 'cp-3', { 'c.txt': 'c\nC2\n' });
+  const review = await getSessionReviewDiff(repo, sessionId);
+  assert.deepEqual(
+    review.files.map((file) => file.path),
+    ['c.txt']
+  );
+  assert.deepEqual(islandShape(review), [['c.txt', 'M', 1, 0]]);
+  assert.equal(review.historyTurns, 1);
+});
+
+test('a worker finishing while history is being deleted cannot write the old turn back', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const { beginAgentTurnReview, completeAgentTurnReview } = snapshotModule;
+  const sessionId = 'delete-history-race';
+  const repo = gitRepo(sessionId, { 'a.txt': 'a\n', 'w.txt': 'w\n' });
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-old' });
+  const worker = beginAgentTurnReview(sessionId, `${sessionId}-worker`, { agent: 'worker' });
+  writeTree(repo, { 'a.txt': 'a\nA2\n' });
+  await completeTurnSnapshot(sessionId);
+  assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp-old' })).status, 'ready');
+
+  // The deletion starts; before it lands the late worker completes and
+  // queues a re-seal of the old turn with its tracker.
+  const clearing = clearSessionChangeHistory(sessionId);
+  writeTree(repo, { 'w.txt': 'w\nW2\n' });
+  await completeAgentTurnReview(worker, ['diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1 +1,2 @@\n w\n+W2\n']);
+  assert.deepEqual(await clearing, { turns: 1 });
+  // Drain the session's change lock: anything queued behind the delete has run.
+  await revertTurnChanges(sessionId, 'drain', null, 1).catch(() => {});
+
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp-old' })).status, 'missing');
+    const review = await getSessionReviewDiff(repo, sessionId);
+    assert.deepEqual([review.files, review.complete, review.historyTurns], [[], true, 0]);
+  }
+});
+
+test('Delete history of a non-Git session stays empty after a restart', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delete-history-plain';
+  const root = await plainTurn(sessionId, { 'a.txt': 'a\n' }, { 'a.txt': 'A\n' });
+  assert.deepEqual(await clearSessionChangeHistory(sessionId), { turns: 1 });
+  _resetTurnSnapshotForTest();
+  const review = await getSessionReviewDiff(root, sessionId);
+  assert.deepEqual([review.files, review.complete], [[], true]);
+  assert.deepEqual(readTree(root, ['a.txt']), { 'a.txt': 'A\n' });
+  await trackedTurn(sessionId, root, 'cp-next', [{ path: 'b.txt', before: null, after: 'b\n' }]);
+  writeTree(root, { 'b.txt': 'b\n' });
+  assert.deepEqual(reviewShape(await getSessionReviewDiff(root, sessionId)), [['b.txt', '', 'A', 1, 0]]);
+});
+
+// ── Session baseline store: ordering, merging and bounds ───────────────────
+
+const baselineIndexPath = (sessionId) =>
+  join(
+    process.env.MIXDOG_DATA_DIR,
+    'turn-snapshots',
+    'baselines',
+    `${createHash('sha256').update(sessionId).digest('hex').slice(0, 24)}.json`
+  );
+const baselineKeys = (baselines) => (baselines?.files || []).map((entry) => entry.path).sort();
+
+test('a restarted worker’s capture stays ahead of a later Lead capture whose owner lookup is faster', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const lead = 'order-restart';
+  const worker = `${lead}-worker`;
+  const root = sessionRoot(lead);
+  const note = join(root, 'note.txt');
+  recordReviewOwner(worker, lead);
+  await _settleSessionBaselinesForTest();
+  // Restart: the attribution must come back from disk.
+  _resetTurnSnapshotForTest();
+  writeFileSync(note, 'new\n');
+  // The worker deletes the file, then the Lead recreates it — no await between.
+  captureSessionBaselines(worker, [{ path: note, root, before: 'old\n', replaced: true }]);
+  captureSessionBaselines(lead, [{ path: note, root, before: null, replaced: true }]);
+  // A load issued right after the captures sees them.
+  assert.deepEqual(baselineKeys(await loadSessionBaselines(lead)), [note]);
+  const review = await getSessionReviewDiff(root, lead);
+  assert.deepEqual(reviewShape(review), [['note.txt', '', 'M', 1, 1]]);
+  assert.match(review.patch, /^-old\n\+new$/m);
+});
+
+test('a clear wins over every capture issued before it, and later captures start fresh', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const lead = 'order-clear';
+  const worker = `${lead}-worker`;
+  const root = sessionRoot(lead);
+  recordReviewOwner(worker, lead);
+  await _settleSessionBaselinesForTest();
+  _resetTurnSnapshotForTest();
+  // The worker's owner lookup is still pending when the clear is issued.
+  captureSessionBaselines(worker, [{ path: join(root, 'old.txt'), root, before: 'old\n' }]);
+  const cleared = clearSessionBaselines(lead);
+  captureSessionBaselines(lead, [{ path: join(root, 'new.txt'), root, before: 'new\n' }]);
+  await cleared;
+  await _settleSessionBaselinesForTest();
+  assert.deepEqual(baselineKeys(await loadSessionBaselines(lead)), [join(root, 'new.txt')]);
+  _resetTurnSnapshotForTest();
+  assert.deepEqual(baselineKeys(await loadSessionBaselines(lead)), [join(root, 'new.txt')]);
+});
+
+test('a baseline first seen after an older recorded edit never makes an empty review authoritative', {
+  skip,
+}, async () => {
+  for (const variant of ['earlier', 'missing-createdAt']) {
+    _resetTurnSnapshotForTest();
+    const sessionId = `late-${variant}`;
+    const root = sessionRoot(sessionId);
+    writeTree(root, { 'x.txt': 'cur\n' });
+    if (variant === 'missing-createdAt') {
+      _setTurnChangeRecordWriteHookForTest((_id, records) => {
+        for (const record of records) delete record.createdAt;
+      });
+    }
+    try {
+      await upsertTurnChangeRecord(sessionId, {
+        checkpointId: 'old',
+        kind: 'tracked',
+        root,
+        files: [{ path: 'x.txt', status: 'M', additions: 1, deletions: 1, revertable: false, patch: null }],
+      });
+    } finally {
+      _setTurnChangeRecordWriteHookForTest(null);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    // The baseline is first recorded later, while the disk matches it.
+    captureSessionBaselines(sessionId, [{ path: join(root, 'x.txt'), root, before: 'cur\n' }]);
+    const review = await getSessionReviewDiff(root, sessionId);
+    assert.deepEqual(
+      [review.files, review.complete, review.partial, review.authoritative],
+      [[], undefined, true, false],
+      variant
+    );
+  }
+});
+
+test('a hash-equal evicted or oversized baseline hides its row but never certifies the review', {
+  skip,
+}, async () => {
+  for (const status of ['evicted', 'omitted-oversized']) {
+    _resetTurnSnapshotForTest();
+    const sessionId = `hash-equal-${status}`;
+    const root = sessionRoot(sessionId);
+    const content = 'same\n';
+    writeTree(root, { 'f.txt': content });
+    const file = join(root, 'f.txt');
+    mkdirSync(dirname(baselineIndexPath(sessionId)), { recursive: true });
+    writeFileSync(
+      baselineIndexPath(sessionId),
+      JSON.stringify({
+        version: 1,
+        sessionId,
+        createdAt: 1,
+        files: [
+          {
+            key: changePathKey(file),
+            path: file,
+            root,
+            state: 'present',
+            status,
+            size: Buffer.byteLength(content),
+            sha256: createHash('sha256').update(content).digest('hex'),
+            at: 1,
+          },
+        ],
+        renames: [],
+      })
+    );
+    const review = await getSessionReviewDiff(root, sessionId);
+    assert.deepEqual(
+      [review.files, review.complete, review.partial, review.authoritative],
+      [[], undefined, true, false],
+      status
+    );
+  }
+});
+
+test('two processes capturing different files of one session keep both', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'cross-process';
+  const root = sessionRoot(sessionId);
+  const [a, b, c] = ['a.txt', 'b.txt', 'c.txt'].map((name) => join(root, name));
+  captureSessionBaselines(sessionId, [{ path: a, root, before: 'a\n' }]);
+  await _settleSessionBaselinesForTest();
+  // A second process writes the same index while this one has it cached.
+  const child = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `const store = await import(${JSON.stringify(new URL('./session-baseline-store.mjs', import.meta.url).href)});
+       store.captureSessionBaselines(${JSON.stringify(sessionId)}, [{ path: ${JSON.stringify(b)}, root: ${JSON.stringify(root)}, before: 'b\\n' }]);
+       await store._settleSessionBaselinesForTest();`,
+    ],
+    { encoding: 'utf8', env: process.env, windowsHide: true }
+  );
+  assert.equal(child.status, 0, child.stderr);
+  captureSessionBaselines(sessionId, [{ path: c, root, before: 'c\n' }]);
+  assert.deepEqual(baselineKeys(await loadSessionBaselines(sessionId)), [a, b, c]);
+  _resetTurnSnapshotForTest();
+  const reloaded = await loadSessionBaselines(sessionId);
+  assert.deepEqual(baselineKeys(reloaded), [a, b, c]);
+  assert.deepEqual((await reloaded.readBlob(reloaded.files.find((entry) => entry.path === b))).toString(), 'b\n');
+});
+
+test('entries merged in from another process are bounded on the next write', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'merge-bounds';
+  const root = sessionRoot(sessionId);
+  captureSessionBaselines(sessionId, [{ path: join(root, 'own.txt'), root, before: null }]);
+  await _settleSessionBaselinesForTest();
+  // Another process filled the index up to the bound meanwhile.
+  const foreign = Array.from({ length: 4096 }, (_, index) => {
+    const path = join(root, `foreign-${index}.txt`);
+    return { key: changePathKey(path), path, root, state: 'absent', status: 'captured', size: 0, at: 2 };
+  });
+  writeFileSync(
+    baselineIndexPath(sessionId),
+    JSON.stringify({ version: 1, sessionId, createdAt: 1, files: foreign, renames: [] })
+  );
+  captureSessionBaselines(sessionId, [{ path: join(root, 'later.txt'), root, before: null }]);
+  await _settleSessionBaselinesForTest();
+  const stored = JSON.parse(readFileSync(baselineIndexPath(sessionId), 'utf8'));
+  assert.ok(stored.files.length <= 4096);
+  assert.equal(stored.incomplete, true);
+  assert.ok(stored.files.some((entry) => entry.path === join(root, 'foreign-0.txt')));
+});
+
+test('renamed paths are bounded like files and mark the baselines incomplete past it', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'rename-bounds';
+  const root = sessionRoot(sessionId);
+  const changes = Array.from({ length: 10_000 }, (_, index) => ({
+    path: join(root, `from-${index}.txt`),
+    newPath: join(root, `to-${index}.txt`),
+    root,
+    before: '',
+  }));
+  captureSessionBaselines(sessionId, changes);
+  const baselines = await loadSessionBaselines(sessionId);
+  assert.ok(baselines.renames.size <= 4096, String(baselines.renames.size));
+  assert.ok(baselines.files.length <= 4096);
+  assert.equal(baselines.incomplete, true);
+  const stored = JSON.parse(readFileSync(baselineIndexPath(sessionId), 'utf8'));
+  assert.ok(stored.renames.length <= 4096);
+});
+
+test('measured review rows share one byte budget across sessions', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const budget = 16 * 1024 * 1024;
+  for (const sessionId of ['rows-a', 'rows-b']) {
+    const root = sessionRoot(sessionId);
+    const changes = [];
+    for (let index = 0; index < 50; index += 1) {
+      const path = join(root, `big-${index}.txt`);
+      writeFileSync(path, `${String(index).repeat(1)}${'x'.repeat(190_000)}\n`);
+      changes.push({ path, root, before: null });
+    }
+    captureSessionBaselines(sessionId, changes);
+    const review = await getSessionReviewDiff(root, sessionId);
+    assert.equal(review.files.length, 50);
+  }
+  assert.ok(_rowCacheBytesForTest() > 0);
+  assert.ok(_rowCacheBytesForTest() <= budget, String(_rowCacheBytesForTest()));
+});
+
+const storeUrl = new URL('./session-baseline-store.mjs', import.meta.url).href;
+/** Run `body` in a second process, with the store imported as `store`. */
+function inOtherProcess(body) {
+  const child = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `const store = await import(${JSON.stringify(storeUrl)});\n${body}\nawait store._settleSessionBaselinesForTest();`,
+    ],
+    { encoding: 'utf8', env: process.env, windowsHide: true }
+  );
+  assert.equal(child.status, 0, child.stderr);
+}
+/** A capture call in another process, issued at `at` (its clock stubbed). */
+const captureIssuedAt = (at, sessionId, changes) =>
+  `{ const now = Date.now; Date.now = () => ${at};
+     store.captureSessionBaselines(${JSON.stringify(sessionId)}, ${JSON.stringify(changes)});
+     Date.now = now; }`;
+
+test('a capture another process issued before Delete history never brings the cleared baseline back', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'clear-cross-process';
+  const root = sessionRoot(sessionId);
+  const [gone, later] = ['gone.txt', 'later.txt'].map((name) => join(root, name));
+  const issued = Date.now();
+  captureSessionBaselines(sessionId, [{ path: gone, root, before: 'old\n' }]);
+  await _settleSessionBaselinesForTest();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await clearSessionBaselines(sessionId);
+  // Issued before the clear, held up (its owner lookup) until after it.
+  inOtherProcess(captureIssuedAt(issued, sessionId, [{ path: gone, root, before: 'old\n' }]));
+  assert.equal(await loadSessionBaselines(sessionId), null);
+  _resetTurnSnapshotForTest();
+  assert.equal(await loadSessionBaselines(sessionId), null);
+  // Issued after the clear: a fresh baseline.
+  inOtherProcess(captureIssuedAt(Date.now() + 5, sessionId, [{ path: later, root, before: null }]));
+  assert.deepEqual(baselineKeys(await loadSessionBaselines(sessionId)), [later]);
+});
+
+test('renames two processes publish out of order net by when they were observed: one R', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'rename-cross-process';
+  const root = sessionRoot(sessionId);
+  const [oldFile, middle, newFile] = ['old.txt', 'middle.txt', 'new.txt'].map((name) => join(root, name));
+  writeFileSync(newFile, 'body\n');
+  const workerIssued = Date.now();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  // The Lead's later rename middle→new is published first ...
+  captureSessionBaselines(sessionId, [{ path: middle, newPath: newFile, root, before: 'body\n' }]);
+  await _settleSessionBaselinesForTest();
+  // ... then the worker's earlier rename old→middle, from another process.
+  inOtherProcess(
+    captureIssuedAt(workerIssued, sessionId, [{ path: oldFile, newPath: middle, root, before: 'body\n' }])
+  );
+  for (const review of await reviewTwice(root, sessionId)) {
+    assert.deepEqual(reviewShape(review), [['new.txt', 'old.txt', 'R', 0, 0]]);
+    assert.equal(review.complete, true);
+  }
+});
+
+/** Make every baseline write of the session fail (a file where its blob
+ *  directory goes); returns the undo. */
+function refuseBaselineWrites(sessionId) {
+  const blocker = baselineIndexPath(sessionId).replace(/\.json$/, '');
+  mkdirSync(dirname(blocker), { recursive: true });
+  writeFileSync(blocker, '');
+  return () => rmSync(blocker);
+}
+
+test('a capture the disk refused is written with the next capture, even of the same file', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'retry-capture';
+  const root = sessionRoot(sessionId);
+  const file = join(root, 'kept.txt');
+  writeFileSync(file, 'edited\n');
+  const restore = refuseBaselineWrites(sessionId);
+  captureSessionBaselines(sessionId, [{ path: file, root, before: 'first\n' }]);
+  await _settleSessionBaselinesForTest();
+  restore();
+  // Nothing new to record for the file; the refused capture is still unwritten.
+  captureSessionBaselines(sessionId, [{ path: file, root, before: 'edited\n' }]);
+  await _settleSessionBaselinesForTest();
+  _resetTurnSnapshotForTest();
+  const reloaded = await loadSessionBaselines(sessionId);
+  assert.deepEqual(baselineKeys(reloaded), [file]);
+  assert.equal((await reloaded.readBlob(reloaded.files[0])).toString(), 'first\n');
+});
+
+test('a later capture whose first state a foreign clear removed is listed as missing, never dropped', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'redundant-after-clear';
+  const root = sessionRoot(sessionId);
+  const file = join(root, 'kept.txt');
+  writeFileSync(file, 'now\n');
+  const restore = refuseBaselineWrites(sessionId);
+  // Refused by the disk: still unwritten when the clear lands.
+  captureSessionBaselines(sessionId, [{ path: file, root, before: 'first\n' }]);
+  await _settleSessionBaselinesForTest();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const clearIssued = Date.now();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  // After the clear was issued; this process recorded the path already.
+  captureSessionBaselines(sessionId, [{ path: file, root, before: 'second\n' }]);
+  await _settleSessionBaselinesForTest();
+  restore();
+  // The other process's clear, issued before that capture, is published now.
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${clearIssued};
+    const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+    Date.now = now; await cleared; }`);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const baselines = await loadSessionBaselines(sessionId);
+    assert.equal(baselines?.incomplete, true);
+    const review = await getSessionReviewDiff(root, sessionId);
+    assert.deepEqual(
+      review.files.map((row) => [row.path, row.status, row.baseline]),
+      [['kept.txt', 'M', 'missing']]
+    );
+    assert.deepEqual([review.partial, review.complete], [true, undefined]);
+  }
+});
+
+test('an edit after a foreign clear stays listed even when an earlier edit of the file was held', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'redundant-twice-after-clear';
+  const root = sessionRoot(sessionId);
+  const file = join(root, 'kept.txt');
+  writeFileSync(file, 'now\n');
+  const restore = refuseBaselineWrites(sessionId);
+  captureSessionBaselines(sessionId, [{ path: file, root, before: 'first\n' }]);
+  // A second edit before the clear: recorded nothing, held for the file.
+  captureSessionBaselines(sessionId, [{ path: file, root, before: 'second\n' }]);
+  await _settleSessionBaselinesForTest();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const clearIssued = Date.now();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  // The edit after the clear was issued must survive it.
+  captureSessionBaselines(sessionId, [{ path: file, root, before: 'third\n' }]);
+  await _settleSessionBaselinesForTest();
+  restore();
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${clearIssued};
+    const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+    Date.now = now; await cleared; }`);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const review = await getSessionReviewDiff(root, sessionId);
+    assert.deepEqual(
+      review.files.map((row) => [row.path, row.status, row.baseline]),
+      [['kept.txt', 'M', 'missing']]
+    );
+    assert.deepEqual([review.partial, review.complete], [true, undefined]);
+  }
+});
+
+test('a refused capture is reported, never complete, until a load writes it', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'retry-load';
+  const root = sessionRoot(sessionId);
+  const file = join(root, 'kept.txt');
+  writeFileSync(file, 'edited\n');
+  const restore = refuseBaselineWrites(sessionId);
+  captureSessionBaselines(sessionId, [{ path: file, root, before: 'first\n' }]);
+  assert.equal((await loadSessionBaselines(sessionId)).unsaved, true);
+  const refused = await getSessionReviewDiff(root, sessionId);
+  assert.deepEqual(reviewShape(refused), [['kept.txt', '', 'M', 1, 1]]);
+  assert.deepEqual([refused.baselinesUnsaved, refused.partial, refused.complete], [true, true, undefined]);
+  restore();
+  assert.equal((await loadSessionBaselines(sessionId)).unsaved, undefined);
+  _resetTurnSnapshotForTest();
+  const reloaded = await loadSessionBaselines(sessionId);
+  assert.deepEqual(baselineKeys(reloaded), [file]);
+  const review = await getSessionReviewDiff(root, sessionId);
+  assert.deepEqual([review.baselinesUnsaved, review.complete], [undefined, true]);
+});
+
+test('unsaved captures hold only first-seen bytes, within the session byte budget', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'unsaved-bytes';
+  const root = sessionRoot(sessionId);
+  const file = join(root, 'churn.txt');
+  const restore = refuseBaselineWrites(sessionId);
+  // One path deleted and recreated over and over: only its first state counts.
+  const body = Buffer.alloc(512 * 1024, 'x');
+  for (let index = 0; index < 192; index += 1) {
+    captureSessionBaselines(sessionId, [
+      { path: file, root, before: index % 2 === 0 ? Buffer.from(body) : null, replaced: true },
+    ]);
+  }
+  await _settleSessionBaselinesForTest();
+  assert.ok(_unsavedBytesForTest(sessionId) <= body.length, String(_unsavedBytesForTest(sessionId)));
+  // Distinct first states past the session budget: bounded, and incomplete.
+  const budget = 64 * 1024 * 1024;
+  for (let index = 0; index < 70; index += 1) {
+    const before = Buffer.alloc(1024 * 1024, 'y');
+    before.write(`file ${index}\n`);
+    captureSessionBaselines(sessionId, [{ path: join(root, `big-${index}.txt`), root, before }]);
+  }
+  await _settleSessionBaselinesForTest();
+  assert.ok(_unsavedBytesForTest(sessionId) <= budget, String(_unsavedBytesForTest(sessionId)));
+  assert.equal((await loadSessionBaselines(sessionId)).incomplete, true);
+  restore();
+  assert.equal((await loadSessionBaselines(sessionId)).unsaved, undefined);
+  _resetTurnSnapshotForTest();
+  const reloaded = await loadSessionBaselines(sessionId);
+  assert.equal(reloaded.incomplete, true);
+  // The churned path keeps its first state (the oldest bytes, evicted first).
+  const churn = reloaded.files.find((entry) => entry.path === file);
+  assert.deepEqual([churn.state, churn.status, churn.size], ['present', 'evicted', body.length]);
+});
+
+test('a delayed clear keeps the baselines captured after it was issued, and their bytes', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delayed-clear';
+  const root = sessionRoot(sessionId);
+  const before = join(root, 'before.txt');
+  const after = join(root, 'after.txt');
+  writeFileSync(before, 'now\n');
+  writeFileSync(after, 'now\n');
+  captureSessionBaselines(sessionId, [{ path: before, root, before: 'old\n' }]);
+  await _settleSessionBaselinesForTest();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const clearIssued = Date.now();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  // Captured and written after the clear was issued, before it finishes.
+  captureSessionBaselines(sessionId, [{ path: after, root, before: 'newer\n' }]);
+  await _settleSessionBaselinesForTest();
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${clearIssued};
+    const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+    Date.now = now; await cleared; }`);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const baselines = await loadSessionBaselines(sessionId);
+    assert.deepEqual(baselineKeys(baselines), [after]);
+    assert.equal((await baselines.readBlob(baselines.files[0])).toString(), 'newer\n');
+  }
+});
+
+test('a delayed clear lists a path captured before it and edited again after it as missing', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delayed-clear-retouched';
+  const root = sessionRoot(sessionId);
+  const file = join(root, 'again.txt');
+  writeFileSync(file, 'now\n');
+  const t0 = Date.now() + 1000;
+  const [t1, t2] = [t0 + 10, t0 + 20];
+  // Two captures of one path, the second after the clear was issued.
+  inOtherProcess(`${captureIssuedAt(t0, sessionId, [{ path: file, root, before: 'old\n' }])}
+    await store._settleSessionBaselinesForTest();
+    ${captureIssuedAt(t2, sessionId, [{ path: file, root, before: 'newer\n' }])}`);
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${t1};
+    const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+    Date.now = now; await cleared; }`);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const baselines = await loadSessionBaselines(sessionId);
+    assert.ok(baselines, 'the post-clear edit is not forgotten');
+    assert.deepEqual(baselineKeys(baselines), []);
+    assert.deepEqual(
+      baselines.missing.map((entry) => entry.path),
+      [file]
+    );
+    assert.equal(baselines.incomplete, true);
+  }
+});
+
+test('two delayed clears keep a path edited after both', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delayed-double-clear';
+  const root = sessionRoot(sessionId);
+  const file = join(root, 'twice.txt');
+  const other = join(root, 'older.txt');
+  writeFileSync(file, 'now\n');
+  const t0 = Date.now() + 1000;
+  const [t1, t2, t3] = [t0 + 10, t0 + 20, t0 + 30];
+  inOtherProcess(`${captureIssuedAt(t0, sessionId, [
+    { path: file, root, before: 'old\n' },
+    { path: other, root, before: 'old\n' },
+  ])}
+    await store._settleSessionBaselinesForTest();
+    ${captureIssuedAt(t3, sessionId, [{ path: file, root, before: 'newer\n' }])}`);
+  const clearAt = (at) =>
+    inOtherProcess(`{ const now = Date.now; Date.now = () => ${at};
+      const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+      Date.now = now; await cleared; }`);
+  clearAt(t1);
+  clearAt(t2);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const baselines = await loadSessionBaselines(sessionId);
+    assert.ok(baselines, 'the edit after both clears is not forgotten');
+    assert.deepEqual(baselineKeys(baselines), []);
+    // `other` was last touched before the second clear: it is not carried.
+    assert.deepEqual(
+      baselines.missing.map((entry) => entry.path),
+      [file]
+    );
+    assert.equal(baselines.incomplete, true);
+  }
+  // A clear issued after the edit ends it.
+  clearAt(t3 + 10);
+  _resetTurnSnapshotForTest();
+  assert.equal(await loadSessionBaselines(sessionId), null);
+});
+
+test('a delayed clear keeps the incompleteness of a capture the entry limit rejected after it', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delayed-clear-limit-rejected';
+  const root = sessionRoot(sessionId);
+  const t0 = Date.now() + 1000;
+  const [t1, t2] = [t0 + 10, t0 + 20];
+  // 4,096 entries before the clear, then one more path after it: rejected by
+  // the limit. The capture clock runs ahead of the clock the index is written
+  // with, so only the capture times can order them.
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${t0};
+    const root = ${JSON.stringify(root)};
+    const changes = Array.from({ length: 4096 }, (_, index) => ({ path: root + '/full-' + index + '.txt', root, before: null }));
+    store.captureSessionBaselines(${JSON.stringify(sessionId)}, changes);
+    Date.now = now; }
+    await store._settleSessionBaselinesForTest();
+    ${captureIssuedAt(t2, sessionId, [{ path: join(root, 'rejected.txt'), root, before: null }])}`);
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${t1};
+    const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+    Date.now = now; await cleared; }`);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const baselines = await loadSessionBaselines(sessionId);
+    assert.ok(baselines, 'the rejected post-clear edit is not forgotten');
+    assert.deepEqual([baselines.files.length, baselines.incomplete], [0, true]);
+  }
+  // A clear issued after that capture starts clean.
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${t2 + 10};
+    const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+    Date.now = now; await cleared; }`);
+  _resetTurnSnapshotForTest();
+  assert.equal(await loadSessionBaselines(sessionId), null);
+});
+
+test('a clear drops an older index’s missing path and incompleteness that no capture after it explains', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'legacy-missing';
+  const root = sessionRoot(sessionId);
+  const path = join(root, 'old.txt');
+  mkdirSync(dirname(baselineIndexPath(sessionId)), { recursive: true });
+  // An index written before missing paths carried an edit time.
+  writeFileSync(
+    baselineIndexPath(sessionId),
+    JSON.stringify({
+      version: 1,
+      sessionId,
+      createdAt: 1,
+      incomplete: true,
+      files: [],
+      missing: [{ key: changePathKey(path), path, root }],
+    })
+  );
+  assert.deepEqual((await loadSessionBaselines(sessionId)).missing.map((entry) => entry.path), [path]);
+  await clearSessionBaselines(sessionId);
+  await clearSessionBaselines(sessionId);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    assert.equal(await loadSessionBaselines(sessionId), null);
+    const stored = JSON.parse(readFileSync(baselineIndexPath(sessionId), 'utf8'));
+    assert.deepEqual([stored.missing, stored.incomplete], [undefined, undefined]);
+  }
+});
+
+test('repeat edits of one path keep a bounded number of unwritten captures', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'touch-coalesce';
+  const root = sessionRoot(sessionId);
+  const file = join(root, 'churn.txt');
+  const restore = refuseBaselineWrites(sessionId);
+  for (let index = 0; index < 200; index += 1) {
+    captureSessionBaselines(sessionId, [{ path: file, root, before: `v${index}\n` }]);
+  }
+  await _settleSessionBaselinesForTest();
+  assert.ok(_pendingCapturesForTest(sessionId) <= 2, String(_pendingCapturesForTest(sessionId)));
+  restore();
+  const baselines = await loadSessionBaselines(sessionId);
+  assert.equal(baselines.unsaved, undefined);
+  assert.equal((await baselines.readBlob(baselines.files[0])).toString(), 'v0\n');
+  const [entry] = JSON.parse(readFileSync(baselineIndexPath(sessionId), 'utf8')).files;
+  assert.ok(entry.touched > entry.at, 'the latest edit time is kept');
+});
+
+test('a delayed clear keeps the incompleteness of the post-clear entries it carries', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'delayed-clear-incomplete';
+  const root = sessionRoot(sessionId);
+  const at = Date.now() + 1000;
+  // Built in the child: 4,097 changes do not fit a command line.
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${at + 10};
+    const root = ${JSON.stringify(root)};
+    const changes = Array.from({ length: 4097 }, (_, index) => ({ path: root + '/many-' + index + '.txt', root, before: null }));
+    store.captureSessionBaselines(${JSON.stringify(sessionId)}, changes);
+    Date.now = now; }`);
+  const before = await loadSessionBaselines(sessionId);
+  assert.deepEqual([before.files.length, before.incomplete], [4096, true]);
+  inOtherProcess(`{ const now = Date.now; Date.now = () => ${at};
+    const cleared = store.clearSessionBaselines(${JSON.stringify(sessionId)});
+    Date.now = now; await cleared; }`);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const after = await loadSessionBaselines(sessionId);
+    assert.deepEqual([after.files.length, after.incomplete], [4096, true]);
+  }
+});
+
+test('a capture tied with another process’s clear is kept, but the review is never complete', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'clear-tie';
+  const root = sessionRoot(sessionId);
+  const file = join(root, 'tied.txt');
+  writeFileSync(file, 'now\n');
+  captureSessionBaselines(sessionId, [{ path: join(root, 'old.txt'), root, before: 'old\n' }]);
+  await clearSessionBaselines(sessionId);
+  const { clearedAt } = JSON.parse(readFileSync(baselineIndexPath(sessionId), 'utf8'));
+  // Issued in the clear's very millisecond, after it completed: order unknown.
+  inOtherProcess(captureIssuedAt(clearedAt, sessionId, [{ path: file, root, before: 'then\n' }]));
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const baselines = await loadSessionBaselines(sessionId);
+    assert.deepEqual([baselineKeys(baselines), baselines?.incomplete], [[file], true]);
+    const review = await getSessionReviewDiff(root, sessionId);
+    assert.deepEqual(reviewShape(review), [['tied.txt', '', 'M', 1, 1]]);
+    assert.deepEqual([review.partial, review.complete], [true, undefined]);
+  }
 });

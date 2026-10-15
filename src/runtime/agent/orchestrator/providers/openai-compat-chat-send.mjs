@@ -21,6 +21,7 @@ import { normalizeCompatChatResponse } from './openai-compat-response-normalizat
 import { applyCompatToolChoice, compatStreamRetryReporter } from './compat-request-policy.mjs';
 import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import { xaiCacheRouting } from './openai-compat-xai.mjs';
+import { compatRetryOptions, withCompatRetryProfile } from './openai-compat-retry-profile.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
 
@@ -38,7 +39,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
   // global catalog must not shape a user-defined endpoint's request.
   let modelInfo = null;
   if (isCustom) modelInfo = provider.getCachedModelInfo(useModel) || null;
-  else if (provider.name === 'opencode-go')
+  else if (provider.name === 'opencode-go' || provider.name === 'command-code-oauth')
     modelInfo = provider.getCachedModelInfo(useModel) || getModelMetadataSync(useModel, provider.name);
   else if (profile?.resolveModelInfo) modelInfo = profile.resolveModelInfo(provider, useModel) || null;
   // Resolved before lowering: replay eligibility depends on the snapped level
@@ -85,7 +86,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
   try {
     try {
       assembled = await withRetry(
-        refineAttemptErrors(profile, async ({ signal: attemptSignal }) => {
+        withCompatRetryProfile(provider.name, refineAttemptErrors(profile, async ({ signal: attemptSignal }) => {
           try {
             opts.onStageChange?.('requesting');
           } catch {
@@ -139,11 +140,12 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
             }
             throw error;
           }
-        }),
+        })),
         {
           signal: totalSignal.signal,
           onRetry: compatStreamRetryReporter(provider.name, opts),
           retry529: opts.retry529,
+          ...compatRetryOptions(provider.name),
         }
       );
     } catch (streamErr) {

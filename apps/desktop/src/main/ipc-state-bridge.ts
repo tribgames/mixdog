@@ -1,5 +1,6 @@
 import type { BrowserWindow, IpcMainEvent, PowerMonitor } from 'electron';
 import {
+  CONVERSATION_IMPORT_PROGRESS_EVENT,
   DESKTOP_IPC,
   type DesktopSessionStateUpdate,
   type DesktopUpdaterState,
@@ -108,6 +109,8 @@ export class DesktopStateBridge {
           this.send(DESKTOP_IPC.remoteClientClaim, value);
         } else if (name === 'remote-access-settings-changed') {
           this.send(DESKTOP_IPC.remoteAccessSettingsChanged, value);
+        } else if (name === CONVERSATION_IMPORT_PROGRESS_EVENT) {
+          this.send(DESKTOP_IPC.conversationImportProgress, value);
         }
       }) ?? (() => {});
 

@@ -248,9 +248,25 @@ interface TranscriptScrollGeometry {
   contentHeight(): number;
   /** Offset as last seen in a scroll event or written by the timeline. */
   scrollTop(): number;
+  /** Logical offset minus the native scrollTop: a correction the timeline
+   *  holds as a row offset while a touch scroll owns the viewport. */
+  deviation?(): number;
+  /** Lands nothing; a native write that targets a logical offset directly
+   *  must drop the held row offset first. */
+  dropDeviation?(): void;
 }
 
 const scrollGeometries = new WeakMap<Element, TranscriptScrollGeometry>();
+
+/** Add to a native scrollTop for the timeline's logical offset. Programmatic
+ *  write attribution stays native; reading position and extent are logical. */
+export function transcriptScrollDeviation(element: Element): number {
+  return scrollGeometries.get(element)?.deviation?.() ?? 0;
+}
+
+export function dropTranscriptScrollDeviation(element: Element): void {
+  scrollGeometries.get(element)?.dropDeviation?.();
+}
 
 export function registerTranscriptScrollGeometry(viewport: Element, geometry: TranscriptScrollGeometry): () => void {
   scrollGeometries.set(viewport, geometry);

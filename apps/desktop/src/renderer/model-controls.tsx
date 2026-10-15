@@ -26,7 +26,6 @@ import {
 } from './model-route-utils';
 import { RouteEditor } from './RouteEditor';
 import { routedExactContextTokens } from './route-editor-context';
-import { cancelQuotaContinue, takeQuotaContinue } from './quota-continue';
 import { hostRouteAutoEffort, routeAutoEffortCapable, useAutoEffortRoute } from './auto-effort-store';
 import { OpenSelect } from './OpenSelect';
 import { InitialSurface } from './InitialSurface';
@@ -631,13 +630,6 @@ export const ModelSelector = memo(function ModelSelector({
       ...(optionMaxWindow > 0 ? { contextPercent: nextContextPercent } : {}),
       ...(optionMaxWindow > 0 && sameModel ? exactContextField : {}),
     };
-    // "Continue in another model" after a quota stop: this explicit pick goes
-    // to the continue flow instead of the ordinary route change.
-    const continueInModel = sessionId ? takeQuotaContinue(sessionId) : null;
-    if (continueInModel) {
-      continueInModel(selection);
-      return true;
-    }
     return route(selection, !sameModel);
   };
   const changeFast = async (enabled: boolean) => {
@@ -861,9 +853,6 @@ export const ModelSelector = memo(function ModelSelector({
         onChangeAutoEffort={autoEffortRoute.onChangeAutoEffort}
         onOpenSheet={autoEffortRoute.onOpenSheet}
         answersModelPickerRequests={answersModelPickerRequests}
-        onClosed={() => {
-          if (sessionId) cancelQuotaContinue(sessionId);
-        }}
       />
     </div>
   );

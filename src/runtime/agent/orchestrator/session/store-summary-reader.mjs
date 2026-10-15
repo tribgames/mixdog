@@ -6,7 +6,6 @@
  * unless a durable turn checkpoint exists; only then does it lazily enter the
  * reconnect recovery boundary so restored panes never paint a stale prompt.
  */
-import { readdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 // Leaf helpers only (no store.mjs, no workers, no config): the three-way
@@ -14,8 +13,15 @@ import { join } from 'node:path';
 // authoritative store uses, so the cold catalog cannot disagree with it.
 import { probePath, readTextFile, PROBE_PRESENT, PROBE_ABSENT } from './store/fs-probe.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
-import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './store-summary-visibility.mjs';
-import { applySummaryLogText, readSummaryLogText } from './store-summary-log.mjs';
+import { sessionVisibility } from './store-summary-visibility.mjs';
+import {
+  STAMP_ABSENT_CODES,
+  createOrdinaryCatalog,
+  indexListing,
+  observeStamp,
+  scanSessionFiles,
+  stampedDerivation,
+} from './store-summary-catalog.mjs';
 import { createStoredTranscriptCache, nextProjectionStamp } from './store-transcript-cache.mjs';
 import {
   OFFLOAD_MIN_CHARS,
@@ -24,9 +30,11 @@ import {
 } from './store-transcript-worker.mjs';
 import { projectStoredTranscript } from './store-transcript-projection.mjs';
 import { dataDir, sessionHeartbeatMtimes } from './store-summary-locations.mjs';
-import { desktopSession, isStoredSessionId, positiveNumber, workspaceSummary } from './store-summary-fields.mjs';
+import { isStoredSessionId, workspaceSummary } from './store-summary-fields.mjs';
 import { readArchivedAgentResult } from './store-summary-archived-agent.mjs';
 import { compactionArchivePath, readCompactionArchivePage } from './compaction-archive.mjs';
+import { currentSessionCatalogDb, onSessionCatalogDbChange, sessionCatalogDb } from './catalog-db/index.mjs';
+import { decodeCatalogCursor, encodeCatalogCursor, isAfterCursor } from './catalog-db/schema.mjs';
 import {
   readCanonicalSessionRecord as readCanonicalLifecycle,
   offerStrictSessionRecord,
@@ -65,326 +73,120 @@ export function storedTranscriptCacheStats() {
   return storedTranscriptCache.stats();
 }
 
-// ── Stamp-keyed strict derivations ──────────────────────────────────────────
-// Session metadata and catalog rows are small values derived from a strict
-// parse of the whole record. They are reused only while the file still has
-// the FULL stamp { dev, ino, size, mtimeNs, ctimeNs } the parsed bytes were
-// proven to come from (stat → read → stat) and that stamp is past the racy
-// window. Any other file — changed, replaced by another writer, unreadable —
-// is read and strictly parsed again.
-const STAMPED_DERIVATION_LIMIT = 2048;
-const stampedDerivations = new Map(); // `${kind}|${path}` → { stamp, value }
+// ── Ordinary catalog ────────────────────────────────────────────────────────
+// The JSON path is the catalog engine of store-summary-catalog.mjs on this
+// thread: every process but the daemon, and the daemon whenever its session
+// catalog DB cannot answer (gate, off-switch, backfill, rebuild, any error).
+// In the daemon, the catalog DB worker runs the same engine off this thread
+// and an ordinary listing is one request to it (catalog-db/index.mjs).
+const ordinaryCatalog = createOrdinaryCatalog();
+const catalogListeners = new Set();
 
-function observeStamp(path) {
-  try {
-    return statSessionStamp(path);
-  } catch {
-    return null;
-  }
-}
-
-/** `{ state, value }`: `derive(text)` for the record at `path`, or its cached
- *  result while the file is provably unchanged. */
-function stampedDerivation(kind, path, derive) {
-  const key = `${kind}|${path}`;
-  const before = observeStamp(path);
-  const cached = stampedDerivations.get(key);
-  if (before && cached && sameSessionStamp(cached.stamp, before)) {
-    stampedDerivations.delete(key);
-    stampedDerivations.set(key, cached);
-    return { state: PROBE_PRESENT, value: cached.value };
-  }
-  stampedDerivations.delete(key);
-  const read = readTextFile(path);
-  if (read.state !== PROBE_PRESENT) return { state: read.state, value: null };
-  const value = derive(read.text);
-  if (isSettledSessionStamp(before) && sameSessionStamp(before, observeStamp(path))) {
-    stampedDerivations.set(key, { stamp: before, value });
-    if (stampedDerivations.size > STAMPED_DERIVATION_LIMIT) {
-      stampedDerivations.delete(stampedDerivations.keys().next().value);
+function notifyCatalogListeners() {
+  for (const listener of catalogListeners) {
+    try {
+      listener();
+    } catch {
+      /* a listener's failure is its own */
     }
   }
-  return { state: PROBE_PRESENT, value };
 }
 
-const SESSION_SUMMARY_INDEX_VERSION = 2;
+ordinaryCatalog.subscribe(notifyCatalogListeners);
+onSessionCatalogDbChange(notifyCatalogListeners);
 
-// Mirror of lifecycle-api.mjs listLeadSessions visibility: the cold catalog
-// must never surface worker/agent dispatches (memory ingest chunks, judges,
-// spawned agents) — the authoritative engine excludes them, so a click on
-// such a row dead-ends in "Session is not available." (user report).
-const LEAD_OWNERS = new Set(['cli', 'user', 'mixdog']);
-
-function isLeadVisibleRow(row) {
-  const owner = String(row.owner || 'user')
-    .trim()
-    .toLowerCase();
-  if (isAgentOnlySession(row)) return false;
-  if (!isRootLeadSession(row) && owner && !LEAD_OWNERS.has(owner)) return false;
-  // Mirror listLeadSessions: a previewless zero-message row is an unusable
-  // scratch (desktop boot leftovers, crashed first turns) — resuming it
-  // shows an empty conversation, so the catalog hides it.
-  if (!row.preview && row.messageCount === 0) return false;
-  const sourceType = String(row.sourceType || '')
-    .trim()
-    .toLowerCase();
-  // Mirror listLeadSessions: one-shot `mixdog exec` runs stay out of Recent.
-  if (sourceType === 'exec') return false;
-  const sourceName = String(row.sourceName || '')
-    .trim()
-    .toLowerCase();
-  const agent = String(row.agent || '')
-    .trim()
-    .toLowerCase();
-  return (
-    agent === 'lead' ||
-    sourceType === 'lead' ||
-    sourceType === 'cli' ||
-    sourceType === 'schedule' ||
-    sourceType === 'webhook' ||
-    (!sourceType && !sourceName && owner !== 'agent')
-  );
+/** `listener()` runs when a background pass finds a session file that changed
+ *  without a directory or index change, i.e. when an ordinary listing would
+ *  now differ from the last one. Returns the unsubscribe function. */
+export function subscribeStoredSessionCatalogChanges(listener) {
+  catalogListeners.add(listener);
+  return () => catalogListeners.delete(listener);
 }
 
-function cleanText(value, maximum = 240) {
-  return (
-    String(value || '')
-      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, ' ')
-      .replace(/<mcp-instructions>[\s\S]*?<\/mcp-instructions>/gi, ' ')
-      // Session-context envelope (mirror of session-text.mjs
-      // stripSessionDisplayEnvelope): the "# Session / Cwd / Model /
-      // Workflow" header must never become a Recent title.
-      .replace(/^\s*# Session\r?\n(?:(?:Cwd|Model|Workflow):[^\r\n]*(?:\r?\n|$))+(?:\r?\n)?/i, ' ')
-      .replace(/^\s*#\s*Session\s+Cwd:\s+\S+(?:\s+Model:[^\r\n]*?)?(?:\s+Workflow:\s+\S+)?\s*/i, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, maximum)
-  );
+/** Run a background verification of the ordinary catalog now (or join the
+ *  running one) — here and in the catalog DB worker; resolves when done. */
+export async function verifyStoredSessionCatalog() {
+  await Promise.all([ordinaryCatalog.verify(), currentSessionCatalogDb(dataDir())?.verifyFiles()]);
 }
 
-function messageText(content) {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .map((part) => (typeof part === 'string' ? part : String(part?.text || part?.content || '')))
-    .filter(Boolean)
-    .join(' ');
-}
-
-function normalizedRow(row, heartbeatAt = 0) {
-  if (!row || typeof row.id !== 'string' || !isStoredSessionId(row.id)) return null;
-  return {
-    id: row.id,
-    updatedAt: positiveNumber(row.updatedAt, 0),
-    // Conversation-activity timestamp (mirror of listLeadSessions):
-    // detach/resume bookkeeping bumps updatedAt in bulk on restarts, so
-    // Recent must order by lastUsedAt or every restart reshuffles rows.
-    lastUsedAt: positiveNumber(row.lastUsedAt, 0),
-    createdAt: positiveNumber(row.createdAt, 0),
-    lastHeartbeatAt: positiveNumber(row.lastHeartbeatAt, 0),
-    // Liveness comes from the .hb sidecar mtime alone: stored row fields
-    // (summary index / final session save) survive completion and must not
-    // keep the desktop working indicator on after the sidecar is deleted.
-    heartbeatAt: positiveNumber(heartbeatAt, 0),
-    closed: row.closed === true,
-    status: String(row.status || (row.closed === true ? 'closed' : 'idle')),
-    owner: row.owner || 'user',
-    agent: row.agent || null,
-    sourceType: row.sourceType || null,
-    sourceName: row.sourceName || null,
-    scopeKey: row.scopeKey || null,
-    ownerSessionId: row.ownerSessionId || row.parentSessionId || null,
-    visibility: sessionVisibility(row),
-    clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
-    cwd: row.cwd || '',
-    desktopSession: desktopSession(row.desktopSession, row.cwd),
-    ...(workspaceSummary(row.workspace) ? { workspace: workspaceSummary(row.workspace) } : {}),
-    provider: row.provider || null,
-    model: row.model || null,
-    agentTag: row.agentTag || null,
-    task_id: row.task_id || row.taskId || null,
-    permission: row.permission || null,
-    toolPermission: row.toolPermission || null,
-    messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
-    title: cleanText(row.title, 100),
-    preview: cleanText(row.preview),
-    generation: typeof row.generation === 'number' ? row.generation : 0,
-    storageMtimeMs: positiveNumber(row.storageMtimeMs, 0),
-    storageSize: positiveNumber(row.storageSize, 0),
-    detachedReason: row.detachedReason || null,
-  };
-}
-
-function leadRowsWithAgentHeartbeat(rows) {
-  const agentHeartbeatByOwner = new Map();
-  for (const row of rows) {
-    const heartbeatAt = positiveNumber(row?.heartbeatAt, 0);
-    const ownerSessionId = String(row?.ownerSessionId || '').trim();
-    const owner = String(row?.owner || '')
-      .trim()
-      .toLowerCase();
-    const agent = String(row?.agent || '')
-      .trim()
-      .toLowerCase();
-    if (!heartbeatAt || !ownerSessionId || (owner !== 'agent' && (!agent || agent === 'lead'))) continue;
-    agentHeartbeatByOwner.set(ownerSessionId, Math.max(agentHeartbeatByOwner.get(ownerSessionId) || 0, heartbeatAt));
-  }
-  return rows
-    .filter((row) => row && isLeadVisibleRow(row))
-    .map((row) => {
-      const agentHeartbeatAt = agentHeartbeatByOwner.get(row.id) || 0;
-      return agentHeartbeatAt > 0 ? { ...row, agentHeartbeatAt } : row;
-    });
-}
-
-function rowFromSession(session, heartbeatAt = 0) {
-  const messages = Array.isArray(session?.messages) ? session.messages : [];
-  const preview =
-    messages
-      .filter((message) => message?.role === 'user')
-      // Cold-path mirror of isSessionPreviewNoise's synthetic skips: compact
-      // handoffs and runtime notices must not become session titles.
-      .filter(
-        (message) =>
-          !/^\s*(?:a previous model worked on this task|re-attached after compaction\b|reference files:\s|\[mixdog-runtime\]|the async (?:agent|shell) task\b)/i.test(
-            messageText(message.content)
-          )
-      )
-      .map((message) => cleanText(messageText(message.content)))
-      .find(Boolean) || '';
-  return normalizedRow(
-    {
-      ...session,
-      messageCount: messages.filter((message) => message?.role === 'user' || message?.role === 'assistant').length,
-      preview,
-    },
-    heartbeatAt
-  );
-}
-
-/**
- * Read-only scan of the authoritative session files.
- * Returns `null` when the directory itself is NOT enumerable (unreadable
- * stat / readdir): that is not "no sessions", and the caller must keep the
- * authority it already has (the index rows) instead of publishing an empty
- * catalog. `indexRowsById` carries those rows so unchanged files can reuse the
- * durable summary and a single UNREADABLE file retains its last known row
- * instead of vanishing.
- */
-function scanSessionFiles(
-  heartbeatMtimes = sessionHeartbeatMtimes(),
-  indexRowsById = new Map(),
-  { forceRead = false } = {}
-) {
-  const directory = join(dataDir(), 'sessions');
-  const dirProbe = probePath(directory);
-  if (dirProbe.state === PROBE_ABSENT) return [];
-  if (dirProbe.state !== PROBE_PRESENT) return null;
-  let entries;
-  try {
-    entries = readdirSync(directory);
-  } catch {
-    return null;
-  }
-  const rows = [];
-  for (const filename of entries) {
-    if (!filename.endsWith('.json')) continue;
-    const storageId = filename.slice(0, -5);
-    const path = join(directory, filename);
-    const retained = indexRowsById.get(storageId);
-    const probe = probePath(path);
-    // Provably gone: the row legitimately disappears with the file.
-    if (probe.state === PROBE_ABSENT) continue;
-    if (probe.state !== PROBE_PRESENT) {
-      if (retained) rows.push(retained);
-      continue;
-    }
-    if (!forceRead && retained) {
-      const exactFingerprint =
-        retained.storageMtimeMs > 0 &&
-        retained.storageSize > 0 &&
-        retained.storageMtimeMs === probe.mtimeMs &&
-        retained.storageSize === probe.size;
-      if (exactFingerprint) {
-        rows.push(retained);
-        continue;
-      }
-    }
-    // A file the index does not describe (never saved by the store, or
-    // saved after the index was written) is parsed once per full stamp.
-    const read = stampedDerivation('row', path, (text) => {
-      // Same strict authority as the store: a duplicate/ambiguous top-level
-      // record or a foreign identity is not this file's session.
-      const record = readTopLevelLifecycleRecord(text);
-      if (isLifecycleUnreadable(record) || record.id !== storageId) return null;
-      return rowFromSession(record.doc, 0);
-    });
-    // Provably gone: the row legitimately disappears with the file.
-    if (read.state === PROBE_ABSENT) continue;
-    if (read.state !== PROBE_PRESENT) {
-      // Exists and could not be read (EACCES/EIO): retain the last known
-      // row rather than let a transient IO error delete it from view.
-      if (retained) rows.push(retained);
-      continue;
-    }
-    if (read.value) {
-      rows.push({
-        ...structuredClone(read.value),
-        heartbeatAt: positiveNumber(heartbeatMtimes.get(storageId), 0),
-        storageMtimeMs: probe.mtimeMs,
-        storageSize: probe.size,
-      });
-    }
-  }
-  return leadRowsWithAgentHeartbeat(rows).sort(byRecentActivity);
-}
-
-// Newest conversation activity first (see normalizedRow's lastUsedAt note).
-function byRecentActivity(left, right) {
-  return (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0);
+/** Test seam: forget the ordinary catalog and the parsed summary index. */
+export function clearStoredSessionCatalog() {
+  ordinaryCatalog.clear();
 }
 
 export function listStoredSessionSummaries(options = {}) {
-  const heartbeatMtimes = sessionHeartbeatMtimes();
-  const indexPath = join(dataDir(), 'session-summaries.json');
-  // The index is read on EVERY path (it is one small file): its rows are the
-  // authority that must be retained whenever storage cannot be enumerated or
-  // an individual session file cannot be read.
-  const indexRowsById = new Map();
-  let indexRows = null;
-  // The delta log (per-session updates since the last compaction) is read
-  // before the base; see store-summary-log.mjs.
-  const logText = readSummaryLogText(indexPath);
-  const indexRead = readTextFile(indexPath);
-  if (indexRead.state === PROBE_PRESENT) {
-    try {
-      const index = applySummaryLogText(JSON.parse(indexRead.text), logText);
-      if (Number(index?.version) === SESSION_SUMMARY_INDEX_VERSION) {
-        const normalizedRows = (Array.isArray(index.rows) ? index.rows : [])
-          .map((row) => normalizedRow(row, heartbeatMtimes.get(row?.id) || 0))
-          .filter(Boolean);
-        for (const row of normalizedRows) indexRowsById.set(row.id, row);
-        indexRows = leadRowsWithAgentHeartbeat(normalizedRows).sort(byRecentActivity);
-      }
-    } catch {
-      /* malformed sidecar: the files below are the authority */
-    }
-  }
+  // The index is consulted on EVERY path: its rows are the authority that
+  // must be retained whenever storage cannot be enumerated or an individual
+  // session file cannot be read.
+  const index = ordinaryCatalog.loadIndex();
   // An index that EXISTS but is unreadable (EACCES/EIO) is neither missing
-  // nor empty: the scan below still runs, and when IT cannot enumerate
-  // either, the catalog reports nothing rather than inventing an empty truth.
-  const scan = (forceRead = false) => scanSessionFiles(heartbeatMtimes, indexRowsById, { forceRead });
-  if (options.refreshFromStorage === true) return scan(true) ?? indexRows ?? [];
-  if (indexRows) {
-    if (options.rebuildIfMissing === false) return indexRows;
-    // Enumerate identities to detect deletions, stat known files, and parse
-    // only rows newer than the index. Cold-start cost therefore scales with
-    // changed transcripts rather than total transcript bytes.
-    return scan(false) ?? indexRows;
+  // nor empty: the scan still runs, and when IT cannot enumerate either, the
+  // catalog reports nothing rather than inventing an empty truth.
+  if (options.refreshFromStorage === true) {
+    const heartbeatMtimes = sessionHeartbeatMtimes();
+    return scanSessionFiles(heartbeatMtimes, index.rowsById, true) ?? indexListing(index, heartbeatMtimes) ?? [];
   }
-  // Missing/malformed index is the sole cold path that must rebuild every
-  // summary from canonical session bytes.
-  return options.rebuildIfMissing === false ? [] : (scan(true) ?? indexRows ?? []);
+  if (options.rebuildIfMissing === false) return indexListing(index, sessionHeartbeatMtimes()) ?? [];
+  // A missing/malformed index leaves every file to be parsed (once per
+  // stamp); a present one lets unchanged files reuse their durable summary.
+  return ordinaryCatalog.refresh(index).rows ?? indexListing(index, sessionHeartbeatMtimes()) ?? [];
+}
+
+/** The catalog DB's answer to an ordinary listing (`{ rows, more }`), or
+ *  null when this process has none or it cannot answer. No filesystem work
+ *  on this thread: the worker checks storage, applies changes, answers. */
+async function catalogDbListing(page) {
+  const db = sessionCatalogDb(dataDir());
+  if (!db) return null;
+  const answer = await db.list(page);
+  // While the DB answers, the JSON path's reconcile state is dead weight.
+  if (answer) ordinaryCatalog.clear();
+  return answer;
+}
+
+/**
+ * listStoredSessionSummaries for async callers (the daemon's session views).
+ * In the daemon the ordinary listing comes from the session catalog DB
+ * worker; anywhere else, and whenever the DB cannot answer, it is the JSON
+ * path. `refreshFromStorage` and `rebuildIfMissing: false` always take the
+ * JSON/file path.
+ */
+export async function listStoredSessionSummariesAsync(options = {}) {
+  if (options.refreshFromStorage === true || options.rebuildIfMissing === false) {
+    return listStoredSessionSummaries(options);
+  }
+  const answer = await catalogDbListing(null);
+  return answer ? answer.rows : listStoredSessionSummaries();
+}
+
+const DEFAULT_PAGE_LIMIT = 50;
+const MAX_PAGE_LIMIT = 1000;
+
+/**
+ * One page of the ordinary listing: `{ sessions, nextCursor }` in catalog
+ * order (newest activity first, ties by id), `limit` rows (default 50, at
+ * most 1000) after the keyset `cursor` (an earlier page's `nextCursor`;
+ * absent = first page). Answered like listStoredSessionSummariesAsync; from
+ * the DB only the requested rows are transferred.
+ */
+export async function listStoredSessionSummaryPage(options = {}) {
+  const requested = Math.floor(Number(options.limit));
+  const limit = requested > 0 ? Math.min(requested, MAX_PAGE_LIMIT) : DEFAULT_PAGE_LIMIT;
+  const after = decodeCatalogCursor(options.cursor);
+  const answer = await catalogDbListing({ limit, after });
+  if (answer) {
+    return {
+      sessions: answer.rows,
+      nextCursor: answer.more && answer.rows.length ? encodeCatalogCursor(answer.rows.at(-1)) : null,
+    };
+  }
+  // The JSON listing is already in catalog order.
+  const ordered = listStoredSessionSummaries().filter((row) => isAfterCursor(row, after));
+  const sessions = ordered.slice(0, limit);
+  return {
+    sessions,
+    nextCursor: ordered.length > limit ? encodeCatalogCursor(sessions.at(-1)) : null,
+  };
 }
 
 /** Exact, fail-closed existence check for a durable session address.
@@ -459,8 +261,6 @@ function storedTranscriptInputPaths(sessionId) {
   };
 }
 
-const STAMP_ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
-
 /** Settled identity of the files readStoredSessionTranscript projects from:
  *  the canonical record and its turn-checkpoint sidecar. Null while either is
  *  too fresh to vouch for by stat alone (isSettledSessionStamp), unreadable,
@@ -483,6 +283,72 @@ export function storedSessionTranscriptStamp(id) {
   const checkpoint = record && settled(checkpointPath, 'absent');
   const archive = checkpoint && settled(archivePath, 'absent');
   return archive ? `${record}|${checkpoint}|${archive}` : null;
+}
+
+/** Projects the strictly parsed record `text` (read at full stamp `stamp`, or
+ *  null when not provably stable) into the cached transcript value. */
+async function produceStoredTranscript(text, stamp, context) {
+  const { sessionId, recordPath, itemLimit, includeMessages, mode, offloadable, checkpointAbsent, timing } = context;
+  // A large record with no checkpoint sidecar parses and projects on a
+  // worker thread: the same pipeline, off the daemon event loop. It hands
+  // no parse to the load cache (a later resume reads the file itself).
+  if (offloadable && text.length >= OFFLOAD_MIN_CHARS) {
+    try {
+      timing.worker = storedTranscriptWorkerRunning() ? 'warm' : 'cold';
+      const workerStartedAt = performance.now();
+      const answer = await projectStoredTranscriptOffThread({ sessionId, text, itemLimit });
+      timing.workerMs = performance.now() - workerStartedAt;
+      Object.assign(timing, answer.timing);
+      if (answer.unreadable) return null;
+      if (stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, stamp, answer.lifecycle);
+      // Stamps are process-unique per module realm; re-issue in this one.
+      answer.value.projectionStamp = nextProjectionStamp();
+      return answer.value;
+    } catch {
+      // Worker unavailable: fall through to the in-process pipeline.
+    }
+  }
+  const parseStartedAt = performance.now();
+  const record = readTopLevelLifecycleRecord(text);
+  timing.parseMs = performance.now() - parseStartedAt;
+  if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
+  // The same strict verdict the lifecycle authority would reach for these
+  // bytes (storedSessionExists runs next when the pane's runtime loads).
+  if (stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, stamp, record);
+  // Hand the parse to the session load cache BEFORE projecting: a resume
+  // that runs while this projection is still being built (the daemon
+  // resumes the panes it restores) claims it instead of reading the file
+  // again. The projection path loads the store anyway, so loading its
+  // cache first costs nothing and gives the hand-off somewhere to go on
+  // the process's first read.
+  let handedOver = false;
+  if (stamp) {
+    await import('./store/load-cache.mjs');
+    handedOver = offerStrictSessionRecord(recordPath, stamp, record, text.length);
+  }
+  // Once handed over, the record is a runtime's mutable session. The
+  // projection is then built from a private parse of the same bytes, so
+  // nothing it retains aliases that session and it needs no copying. With
+  // a turn checkpoint the projection recovers through loadSession, the very
+  // load the hand-off serves, and projects the load cache's session
+  // exactly as before; only that projection is detached.
+  const projectStartedAt = performance.now();
+  const value = await projectStoredTranscript(
+    sessionId,
+    handedOver && checkpointAbsent ? JSON.parse(text) : record.doc,
+    {
+      itemLimit,
+      includeMessages,
+      checkpointAbsent,
+    }
+  );
+  timing.projectMs = performance.now() - projectStartedAt;
+  if (!handedOver || checkpointAbsent || !value || mode !== 'items') return value;
+  try {
+    return structuredClone(value);
+  } catch {
+    return value;
+  }
 }
 
 /** Read exactly one persisted session for a visible desktop pane. This never
@@ -521,10 +387,21 @@ export async function readStoredSessionTranscript(id, options = {}) {
   let readStamp = null;
   // The strict record parse (full JSON + duplicate-key scan) is itself a
   // large share of a cold read, so it only runs when the content is new.
-  const mode = options.includeMessages === true ? 'messages' : 'items';
+  const includeMessages = options.includeMessages === true;
+  const mode = includeMessages ? 'messages' : 'items';
+  const checkpointAbsent = checkpoint.state === PROBE_ABSENT;
   // Large, checkpoint-free item projections run off the daemon event loop.
-  const offloadable =
-    options.includeMessages !== true && checkpoint.state === PROBE_ABSENT && recordStat.size >= OFFLOAD_MIN_CHARS;
+  const offloadable = !includeMessages && checkpointAbsent && recordStat.size >= OFFLOAD_MIN_CHARS;
+  const produceContext = {
+    sessionId,
+    recordPath,
+    itemLimit,
+    includeMessages,
+    mode,
+    offloadable,
+    checkpointAbsent,
+    timing,
+  };
   const { value, hit, read } = await storedTranscriptCache.read({
     key: `${sessionId}|${itemLimit}|${mode}`,
     // Growing history windows of one session replace each other.
@@ -561,70 +438,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
       readStamp = before && sameSessionStamp(before, observeStamp(recordPath)) ? before : null;
       return body.text;
     },
-    produce: async (text) => {
-      const stamp = readStamp;
-      // A large record with no checkpoint sidecar parses and projects on a
-      // worker thread: the same pipeline, off the daemon event loop. It hands
-      // no parse to the load cache (a later resume reads the file itself).
-      if (offloadable && text.length >= OFFLOAD_MIN_CHARS) {
-        try {
-          timing.worker = storedTranscriptWorkerRunning() ? 'warm' : 'cold';
-          const workerStartedAt = performance.now();
-          const answer = await projectStoredTranscriptOffThread({ sessionId, text, itemLimit });
-          timing.workerMs = performance.now() - workerStartedAt;
-          Object.assign(timing, answer.timing);
-          if (answer.unreadable) return null;
-          if (stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, stamp, answer.lifecycle);
-          // Stamps are process-unique per module realm; re-issue in this one.
-          answer.value.projectionStamp = nextProjectionStamp();
-          return answer.value;
-        } catch {
-          // Worker unavailable: fall through to the in-process pipeline.
-        }
-      }
-      const parseStartedAt = performance.now();
-      const record = readTopLevelLifecycleRecord(text);
-      timing.parseMs = performance.now() - parseStartedAt;
-      if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
-      // The same strict verdict the lifecycle authority would reach for these
-      // bytes (storedSessionExists runs next when the pane's runtime loads).
-      if (stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, stamp, record);
-      const checkpointAbsent = checkpoint.state === PROBE_ABSENT;
-      // Hand the parse to the session load cache BEFORE projecting: a resume
-      // that runs while this projection is still being built (the daemon
-      // resumes the panes it restores) claims it instead of reading the file
-      // again. The projection path loads the store anyway, so loading its
-      // cache first costs nothing and gives the hand-off somewhere to go on
-      // the process's first read.
-      let handedOver = false;
-      if (stamp) {
-        await import('./store/load-cache.mjs');
-        handedOver = offerStrictSessionRecord(recordPath, stamp, record, text.length);
-      }
-      // Once handed over, the record is a runtime's mutable session. The
-      // projection is then built from a private parse of the same bytes, so
-      // nothing it retains aliases that session and it needs no copying. With
-      // a turn checkpoint the projection recovers through loadSession, the very
-      // load the hand-off serves, and projects the load cache's session
-      // exactly as before; only that projection is detached.
-      const projectStartedAt = performance.now();
-      const value = await projectStoredTranscript(
-        sessionId,
-        handedOver && checkpointAbsent ? JSON.parse(text) : record.doc,
-        {
-          itemLimit,
-          includeMessages: options.includeMessages === true,
-          checkpointAbsent,
-        }
-      );
-      timing.projectMs = performance.now() - projectStartedAt;
-      if (!handedOver || checkpointAbsent || !value || mode !== 'items') return value;
-      try {
-        return structuredClone(value);
-      } catch {
-        return value;
-      }
-    },
+    produce: (text) => produceStoredTranscript(text, readStamp, produceContext),
   });
   // The record vanished between stat and read: same answer as an absent probe.
   if (readState === PROBE_ABSENT) return readArchivedAgentResult(sessionId);

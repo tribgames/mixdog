@@ -1,0 +1,50 @@
+Traceback (most recent call last):
+  File "C:\Users\tempe\AppData\Roaming\uv\tools\harbor\Lib\site-packages\harbor\trial\trial.py", line 291, in run
+    await self._prepare()
+  File "C:\Users\tempe\AppData\Roaming\uv\tools\harbor\Lib\site-packages\harbor\trial\trial.py", line 322, in _prepare
+    await self._setup_agent()
+  File "C:\Users\tempe\AppData\Roaming\uv\tools\harbor\Lib\site-packages\harbor\trial\trial.py", line 812, in _setup_agent
+    await asyncio.wait_for(
+    ...<2 lines>...
+    )
+  File "C:\Users\tempe\AppData\Local\Programs\Python\Python313\Lib\asyncio\tasks.py", line 507, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "C:\Users\tempe\AppData\Roaming\uv\tools\harbor\Lib\site-packages\harbor\agents\installed\base.py", line 380, in setup
+    await self.install(environment)
+  File "C:\Users\tempe\AppData\Roaming\uv\tools\harbor\Lib\site-packages\harbor\agents\installed\codex.py", line 77, in install
+    await self.exec_as_root(
+    ...<13 lines>...
+    )
+  File "C:\Users\tempe\AppData\Roaming\uv\tools\harbor\Lib\site-packages\harbor\agents\installed\base.py", line 341, in exec_as_root
+    return await self._exec(
+           ^^^^^^^^^^^^^^^^^
+        environment, command, user="root", env=env, cwd=cwd, timeout_sec=timeout_sec
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\tempe\AppData\Roaming\uv\tools\harbor\Lib\site-packages\harbor\agents\installed\base.py", line 317, in _exec
+    raise NonZeroAgentExitCodeError(
+    ...<3 lines>...
+    )
+harbor.agents.installed.base.NonZeroAgentExitCodeError: Command failed (exit 100): if ldd --version 2>&1 | grep -qi musl || [ -f /etc/alpine-release ]; then  apk add --no-cache curl bash nodejs npm ripgrep; elif command -v apt-get &>/dev/null; then  apt-get update && apt-get install -y curl ripgrep; elif command -v yum &>/dev/null; then  yum install -y curl ripgrep; else  echo "Warning: No known package manager found, assuming curl is available" >&2; fi
+stdout: Hit:1 http://deb.debian.org/debian bullseye InRelease
+Get:2 http://deb.debian.org/debian-security bullseye-security InRelease [27.1 kB]
+Hit:3 http://deb.debian.org/debian bullseye-updates InRelease
+Get:4 http://deb.debian.org/debian-security bullseye-security/main amd64 Packages [475 kB]
+Fetched 502 kB in 1s (506 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  libcurl4 libldap-2.4-2 libldap-common libnghttp2-14 librtmp1 libssh2-1
+The following NEW packages will be installed:
+  curl libcurl4 libldap-2.4-2 libldap-common libnghttp2-14 librtmp1 libssh2-1
+  ripgrep
+0 upgraded, 8 newly installed, 0 to remove and 69 not upgraded.
+Need to get 2473 kB of archives.
+After this operation, 7015 kB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian bullseye/main amd64 libldap-2.4-2 amd64 2.4.57+dfsg-3+deb11u1 [232 kB]
+Err:2 http://deb.debian.org/debian-secur ... [truncated]
+stderr: None

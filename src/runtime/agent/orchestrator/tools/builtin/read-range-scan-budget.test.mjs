@@ -27,7 +27,7 @@ async function fixture(t, size, suffixPosition, suffix, onRead = () => {}) {
   let closes = 0;
   const open = fs.open;
   const stat = fs.stat;
-  t.mock.method(fs, 'stat', (file, ...args) => file === path ? Promise.resolve(st) : stat(file, ...args));
+  t.mock.method(fs, 'stat', (file, ...args) => (file === path ? Promise.resolve(st) : stat(file, ...args)));
   t.mock.method(fs, 'open', async (file, ...args) => {
     const handle = await open(file, ...args);
     if (file === path) {
@@ -119,8 +119,10 @@ test('a deep grep context budget failure preserves the match without claiming co
     requestedContext: 1,
     maxContext: 1,
   });
-  assert.ok(f.reads.some(({ position, bytesRead }) => position + bytesRead > READ_MAX_SCAN_BYTES),
-    'the real source scanner must reach its byte budget');
+  assert.ok(
+    f.reads.some(({ position, bytesRead }) => position + bytesRead > READ_MAX_SCAN_BYTES),
+    'the real source scanner must reach its byte budget'
+  );
   assert.equal(result.sourceComplete, false);
   assert.equal(result.shown, 1);
   assert.match(result.text, /\[lines 3-3\]\nTARGET/);
@@ -132,12 +134,21 @@ test('deep source seeking amortizes IO and completes within the deadline on a hi
   let now = 1000;
   t.mock.method(Date, 'now', () => now);
   const suffix = '\nBEFORE\nTARGET\nAFTER\n';
-  const f = await fixture(t, READ_MAX_SCAN_BYTES + 65536,
-    READ_MAX_SCAN_BYTES - 65521, suffix, () => { now += 3; });
+  const f = await fixture(t, READ_MAX_SCAN_BYTES + 65536, READ_MAX_SCAN_BYTES - 65521, suffix, () => {
+    now += 3;
+  });
   const result = await expandGrepAnchorContextOutput({
-    allLines: ['3:TARGET'], workDir: root, rgSpawnCwd: root,
-    grepResolvedPath: f.path, searchPath: f.path, outputMode: 'content',
-    filenameOmitted: true, headLimit: 10, offset: 0, requestedContext: 1, maxContext: 1,
+    allLines: ['3:TARGET'],
+    workDir: root,
+    rgSpawnCwd: root,
+    grepResolvedPath: f.path,
+    searchPath: f.path,
+    outputMode: 'content',
+    filenameOmitted: true,
+    headLimit: 10,
+    offset: 0,
+    requestedContext: 1,
+    maxContext: 1,
   });
   assert.equal(result.sourceComplete, true);
   assert.match(result.text, /BEFORE\nTARGET\nAFTER/);

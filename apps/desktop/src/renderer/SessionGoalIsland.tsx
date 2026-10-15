@@ -29,24 +29,6 @@ export {
   goalTimeLabel,
 } from './session-goal-presentation';
 
-/** Task progress as a short static bar: the island segment's leading mark.
- *  It never animates; activity is named by its label, not by motion. */
-function GoalBar({ completed, total, label }: { completed: number; total: number; label?: string }) {
-  const progress = total > 0 ? Math.min(1, completed / total) : 0;
-  return (
-    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role="img" is set whenever label (the aria-label) is defined
-    <span
-      className="session-goal-bar"
-      role={label ? 'img' : undefined}
-      aria-label={label}
-      aria-hidden={label ? undefined : 'true'}
-      title={label}
-    >
-      <i style={{ width: `${progress * 100}%` }} />
-    </span>
-  );
-}
-
 const TERMINAL_STATE_ICONS: Partial<Record<GoalStateKind, string>> = { complete: 'check', stopped: 'stop' };
 
 /** The segment's leading mark: one glyph whose shape names the state. */
@@ -66,13 +48,13 @@ function GoalStateIcon({ kind, label }: { kind: GoalStateKind; label?: string })
   );
 }
 
-/** Task progress: one pip per counted task, or the thin bar for a long list. */
-function GoalProgress({ progress, label }: { progress: GoalTaskProgress; label?: string }) {
-  if (!progress.pips) return <GoalBar completed={progress.completed} total={progress.total} label={label} />;
+/** Task progress: five fixed cells, one shape for every Goal. It never
+ *  animates; activity is named by its label, not by motion. */
+function GoalProgress({ progress }: { progress: GoalTaskProgress }) {
   return (
     <span className="session-goal-pips" aria-hidden="true">
       {progress.pips.map((status, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: pips are positional and carry no identity
+        // biome-ignore lint/suspicious/noArrayIndexKey: cells are positional and carry no identity
         <i key={index} data-status={status} />
       ))}
     </span>
@@ -238,8 +220,22 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
           {elapsedMinutes && <span className="session-goal-trigger-time">{elapsedMinutes}</span>}
         </span>
       </button>
+      {/* A finished Goal lets go of its segment in one click; the open tab
+          carries the same action. */}
+      {terminal && (
+        <button
+          type="button"
+          className="session-goal-dismiss"
+          disabled={pending}
+          aria-label={t('Dismiss goal')}
+          title={t('Dismiss goal')}
+          onClick={() => void control('dismiss')}
+        >
+          <MxIcon name="close-small" size={14} />
+        </button>
+      )}
       {/* The Goal tab of the expanded island: the task drawer and its
-          pause / edit / stop controls. */}
+          pause / edit / stop controls, or dismiss once the Goal has finished. */}
       <div className="session-goal-drawer" aria-hidden={open ? 'false' : 'true'} inert={!open}>
         {/* biome-ignore lint/a11y/noRedundantRoles: the region role is spelled out for the drawer contract the Goal tests read. */}
         <section id={drawerId} className="session-goal-panel" role="region" aria-label={t('Goal tasks')}>
@@ -384,6 +380,18 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
                   onClick={() => setConfirmStop(true)}
                 >
                   {t('Stop')}
+                </button>
+              </div>
+            )}
+            {terminal && (
+              <div className="session-goal-controls">
+                <button
+                  type="button"
+                  className="session-goal-control"
+                  disabled={pending}
+                  onClick={() => void control('dismiss')}
+                >
+                  {t('Dismiss goal')}
                 </button>
               </div>
             )}

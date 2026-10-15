@@ -47,6 +47,109 @@ test('a new document reports only its own network failures and console errors', 
   assert.deepEqual(record.console.newErrors(10), [], 'a cleared log has nothing left to report');
 });
 
+test('prompts and typed-in state end with the document, the renderer or the frame that owned them', () => {
+  const store = new BrowserGuestStateStore();
+  const page = guest();
+  const record = store.for(page);
+  const dialog = (sessionId) => ({ type: 'alert', message: 'x', defaultPrompt: '', openedAt: 0, sessionId });
+
+  record.pendingDialog = dialog(undefined);
+  record.userInput = true;
+  store.beginDocument(page, true);
+  store.beginDocument(page);
+  assert.ok(record.pendingDialog, 'a started navigation may still end as a download or be cancelled');
+  assert.equal(record.userInput, true);
+  store.commitDocument(page);
+  assert.equal(record.pendingDialog, null, 'the committed document has no dialog');
+  assert.equal(record.userInput, false, 'nor anything typed into the old one');
+
+  record.pendingDialog = dialog('frame-1');
+  record.pendingFileChooser = { mode: 'selectSingle', sessionId: 'frame-1', openedAt: 0 };
+  record.cdpSessions.set('frame-1', {});
+  store.endTargetSession(page, 'frame-2');
+  assert.ok(record.pendingDialog, "another frame's detach leaves it");
+  store.endTargetSession(page, 'frame-1');
+  assert.equal(record.pendingDialog, null, 'the detached frame took its dialog');
+  assert.equal(record.pendingFileChooser, null);
+  assert.equal(record.cdpSessions.has('frame-1'), false);
+
+  record.pendingDialog = dialog(undefined);
+  store.markCrashed(page, 'renderer crashed');
+  assert.equal(record.pendingDialog, null, 'the dead renderer took its dialog');
+});
+
+test('a debugger gone ends every session under it and settles every prompt it held', () => {
+  const store = new BrowserGuestStateStore();
+  const page = guest();
+  const record = store.for(page);
+  record.cdpSessions.set('frame-1', {});
+  record.pendingDialog = { type: 'confirm', message: 'x', openedAt: 0, sessionId: 'frame-1', bridgeRequestId: 'r1' };
+  record.pendingFileChooser = { mode: 'selectSingle', openedAt: 0 };
+  store.endTargetSession(page);
+  assert.equal(record.cdpSessions.size, 0);
+  assert.equal(record.pendingDialog, null, 'a held bridge request no controller can answer is not left pending');
+  assert.equal(record.pendingFileChooser, null);
+});
+
+test("a page waits on its own dialog first, else on a renderer peer's, and on nothing else", () => {
+  const page = guest();
+  const peer = guest();
+  const stranger = guest();
+  const store = new BrowserGuestStateStore((of) => (of === page ? [peer] : of === peer ? [page] : []));
+  const open = (owner, type) => {
+    const dialog = { type, message: type, openedAt: 0 };
+    store.for(owner).pendingDialog = dialog;
+    return dialog;
+  };
+  assert.equal(store.blockingDialog(page), null);
+  const peers = open(peer, 'alert');
+  assert.deepEqual(store.blockingDialog(page), { owner: peer, dialog: peers });
+  assert.equal(store.dialogOwner(page), peer);
+  assert.deepEqual(store.blockingDialog(peer), { owner: peer, dialog: peers }, 'the dialog page itself');
+  assert.equal(store.dialogOwner(peer), null, 'the dialog page has no other owner');
+  open(stranger, 'confirm');
+  assert.deepEqual(store.blockingDialog(page), { owner: peer, dialog: peers }, 'another process blocks nothing here');
+  const own = open(page, 'prompt');
+  assert.deepEqual(store.blockingDialog(page), { owner: page, dialog: own });
+});
+
+test('a native dialog closing unanswered is kept as a dismissed notice; an answered or bridged one is not', () => {
+  const store = new BrowserGuestStateStore();
+  const page = guest();
+  const record = store.for(page);
+  const open = (extra = {}) => {
+    record.pendingDialog = { type: 'alert', message: 'early', openedAt: 0, ...extra };
+    return record.pendingDialog;
+  };
+
+  open({ sessionId: 'frame-1' });
+  store.nativeDialogClosed(page, undefined);
+  assert.ok(record.pendingDialog, "another session's close leaves it");
+  store.nativeDialogClosed(page, 'frame-1');
+  assert.equal(record.pendingDialog, null);
+  assert.deepEqual(record.dismissedDialog, { type: 'alert', message: 'early', reason: 'early' });
+
+  record.dismissedDialog = null;
+  open({ answering: true });
+  store.nativeDialogClosed(page, undefined);
+  assert.equal(record.pendingDialog, null);
+  assert.equal(record.dismissedDialog, null, 'that close was the answer landing');
+
+  const bridged = open({ bridgeRequestId: 'r1' });
+  store.nativeDialogClosed(page, undefined);
+  assert.equal(record.pendingDialog, bridged, 'a bridged dialog is answered through its request only');
+
+  open({ type: 'beforeunload' });
+  store.nativeDialogClosed(page, undefined);
+  assert.equal(record.dismissedDialog, null, 'a leave confirmation is not a dialog the bridge carries');
+
+  store.noteDismissedDialog(page, { type: 'confirm', message: 'csp' }, 'unreachable');
+  store.beginDocument(page);
+  assert.ok(record.dismissedDialog, 'a navigation that only started keeps it');
+  store.commitDocument(page);
+  assert.equal(record.dismissedDialog, null, 'the committed document has none');
+});
+
 test('a page opened after a download does not announce it as news', () => {
   const store = new BrowserGuestStateStore();
   const older = { id: 'older', startedAt: Date.now() - 5_000, completedAt: Date.now() - 4_000 };

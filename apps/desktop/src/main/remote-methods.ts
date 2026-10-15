@@ -85,6 +85,15 @@ import {
 // no filesystem paths on the client.
 export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = REMOTE_BLOCKED_CAPABILITY_NAMES;
 
+/** Session-addressed capabilities a phone gets value-only: the daemon answers
+ *  with the session's whole snapshot (transcript included), which these
+ *  callers never apply and which would otherwise cross the relay per re-read. */
+const VALUE_ONLY_SESSION_CAPABILITIES: ReadonlySet<string> = new Set([
+  'getTurnReviewDiff',
+  'getTurnChanges',
+  'skillsStatus',
+]);
+
 export function assertRemoteCapability(capability: string): void {
   if (REMOTE_BLOCKED_CAPABILITIES.has(capability)) {
     throw new TypeError(`capability ${capability} is not available over remote access.`);
@@ -904,7 +913,7 @@ function hostCapabilityRemoteMethods(
       // only and the phone mirrors the session on its own lane, so each
       // re-read crossed the relay carrying the entire conversation. The
       // transcript card's turn-changes read is value-only for the same reason.
-      if (request.capability !== 'getTurnReviewDiff' && request.capability !== 'getTurnChanges') return result;
+      if (!VALUE_ONLY_SESSION_CAPABILITIES.has(request.capability)) return result;
       return result.then(({ value }) => ({ value }));
     },
     readCapabilities: ([input]) => {
@@ -1044,6 +1053,7 @@ const SECRET_CAPABILITY_NAMES: ReadonlySet<string> = new Set([
   'removeCustomProvider',
   'updateCustomProviderModel',
   'testCustomProvider',
+  'checkCustomProviderKeyEnv',
   'discoverCustomProviderModels',
   'getMcpServerConfig',
   'addMcpServer',
@@ -1056,6 +1066,10 @@ const SECRET_CAPABILITY_NAMES: ReadonlySet<string> = new Set([
   'cancelOAuthProviderLogin',
   'loginOAuthProvider',
   'authenticateProvider',
+  // A pasted MCP OAuth redirect URL carries the authorization code.
+  'completeMcpOAuthLogin',
+  // A probed MCP config may carry header credentials.
+  'probeMcpServerAuth',
 ]);
 
 /** Every string a secret-bearing capability call carried. An upstream failure

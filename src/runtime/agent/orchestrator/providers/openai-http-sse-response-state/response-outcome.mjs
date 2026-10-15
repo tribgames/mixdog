@@ -8,7 +8,6 @@ import { traceAgentSse, traceAgentUsage } from '../../agent-trace.mjs';
 import { dedupeToolCallList } from '../lib/leaked-toolcall.mjs';
 import { _displayCodexModel } from '../openai-codex-model.mjs';
 import { createProviderReplay } from '../lib/provider-replay.mjs';
-import { LABEL } from './response-state.mjs';
 import { createResponseStamps } from './response-stamps.mjs';
 
 export function createResponseOutcome({ state }) {
@@ -50,7 +49,7 @@ export function createResponseOutcome({ state }) {
       throw stampOutcome(
         stampToolSafety(
           new Error(
-            `${LABEL} function_call salvage failed: missing call_id/name for item_id=${unresolved._pendingItemId || '?'}`
+            `${state.label} function_call salvage failed: missing call_id/name for item_id=${unresolved._pendingItemId || '?'}`
           )
         )
       );

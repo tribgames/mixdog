@@ -193,6 +193,39 @@ test('cold-view refresh skips an in-flight session and stops when none remain co
   assert.equal(lane.reads.length, 1, 'an empty cold set clears the timer');
 });
 
+test('a store-side catalog correction schedules a refresh; close unsubscribes', async (t) => {
+  t.mock.timers.enable({
+    apis: ['Date', 'setInterval', 'setTimeout'],
+    now: 1_800_000_000_000,
+  });
+  const lane = catalogOwner();
+  const watch = fakeWatch();
+  let changed = null;
+  let subscriptions = 0;
+  let unsubscribed = 0;
+  const catalog = new SessionHostCatalog(lane, {
+    directory: () => 'data',
+    watch: watch.watch,
+    subscribeStoreChanges: async (listener) => {
+      subscriptions++;
+      changed = listener;
+      return () => unsubscribed++;
+    },
+  });
+  catalog.ensureStoreWatcher();
+  catalog.ensureStoreWatcher();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(subscriptions, 1, 'subscribed once');
+  changed();
+  const first = lane.whenSessionCount(1);
+  t.mock.timers.tick(catalogRefreshDelay(0));
+  await first;
+  assert.equal(lane.published.sessions.length, 1, 'the correction republished the catalog');
+  catalog.close();
+  assert.equal(unsubscribed, 1);
+});
+
 test('dispose closes the watcher and pending refresh timers', async (t) => {
   t.mock.timers.enable({
     apis: ['Date', 'setInterval', 'setTimeout'],

@@ -1,5 +1,6 @@
 import { type MutableRefObject, useEffect, useLayoutEffect, useRef } from 'react';
 import { logicalScrollOffset, type TranscriptVirtualizer, viewportSize } from './transcript-list-geometry';
+import type { TouchScrollDeviation } from './transcript-list-touch-deviation';
 import { registerTranscriptScrollGeometry } from './use-transcript-follow';
 
 /** The follow hook, reveal and history fill read this viewport's extent and
@@ -14,6 +15,7 @@ export function useTranscriptScrollGeometry({
   domTop,
   scrollInset,
   contentHeight,
+  deviation,
 }: {
   viewport: { readonly current: HTMLDivElement | null };
   spacer: MutableRefObject<HTMLDivElement | null>;
@@ -21,6 +23,7 @@ export function useTranscriptScrollGeometry({
   domTop: MutableRefObject<number | null>;
   scrollInset: MutableRefObject<number>;
   contentHeight: () => number;
+  deviation: TouchScrollDeviation;
 }) {
   const geometry = useRef<{ root: HTMLDivElement; release(): void } | null>(null);
   const ensureScrollGeometry = () => {
@@ -42,6 +45,8 @@ export function useTranscriptScrollGeometry({
       viewportHeight: () => viewportSize(virtualizerRef.current),
       contentHeight,
       scrollTop: () => domTop.current ?? logicalScrollOffset(virtualizerRef.current),
+      deviation: () => deviation.amount(),
+      dropDeviation: () => deviation.drop(),
     });
     geometry.current = { root, release: unregister };
   };

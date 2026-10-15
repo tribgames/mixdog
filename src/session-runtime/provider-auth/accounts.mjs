@@ -1,6 +1,10 @@
 // provider-auth/accounts.mjs — the per-provider account roster and account
 // switching, with the bounded background usage sweep that refreshes quotas.
-import { listProviderAccounts, updateProviderAccounts } from '../services/provider-admin.mjs';
+import {
+  listProviderAccounts,
+  materializeProviderAccounts,
+  updateProviderAccounts,
+} from '../services/provider-admin.mjs';
 import { getProvider } from '../../runtime/agent/orchestrator/providers/registry.mjs';
 import { fetchOAuthUsageSnapshot } from '../../runtime/agent/orchestrator/providers/oauth-usage.mjs';
 
@@ -11,21 +15,23 @@ export function createAccountApi(
   // One in-flight usage sweep per provider; a reopened picker reuses it.
   const accountUsageSweeps = new Map();
 
+  async function measureAccountUsage(providerId, provider, accounts, force = false) {
+    await awaitKeychainPrewarm();
+    for (let offset = 0; offset < accounts.length; offset += 4) {
+      await Promise.all(
+        accounts.slice(offset, offset + 4).map((account) => {
+          const target = { provider: providerId, accountId: account.id };
+          return fetchOAuthUsageSnapshot(target, provider.forAccount(account.id), () => {}, { force }).catch(
+            () => null
+          );
+        })
+      );
+    }
+  }
+
   async function sweepAccountUsage(providerId, provider, accounts) {
     try {
-      await awaitKeychainPrewarm();
-      for (let offset = 0; offset < accounts.length; offset += 4) {
-        await Promise.all(
-          accounts
-            .slice(offset, offset + 4)
-            .map((account) =>
-              fetchOAuthUsageSnapshot(
-                { provider: providerId, accountId: account.id },
-                provider.forAccount(account.id)
-              ).catch(() => null)
-            )
-        );
-      }
+      await measureAccountUsage(providerId, provider, accounts);
     } finally {
       accountUsageSweeps.delete(providerId);
     }
@@ -69,8 +75,20 @@ export function createAccountApi(
       return pool;
     },
     async updateProviderAccounts(providerId, change) {
+      // `{ refreshUsage: true }` re-measures every account now (the roster's
+      // "Refresh usage") and changes nothing else in the roster. The implicit
+      // signed-in account is stored first so its measurement has a row to land on.
+      if (change?.refreshUsage === true && Object.keys(change).length === 1) {
+        const provider = getProvider(providerId);
+        if (typeof provider?.forAccount === 'function') {
+          await awaitKeychainPrewarm();
+          const { accounts } = await materializeProviderAccounts(providerId);
+          await measureAccountUsage(providerId, provider, accounts, true);
+        }
+        return listProviderAccounts(providerId);
+      }
       await awaitKeychainPrewarm();
-      const result = updateProviderAccounts(providerId, change);
+      const result = await updateProviderAccounts(providerId, change);
       reloadFullConfig();
       invalidateProviderCaches();
       warmProviderModelCache();

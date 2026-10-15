@@ -63,7 +63,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   const turn = useTurnReviewSummaries({ items, reviewScope, reviewState, revertedBoundary, turnBoundaryKey });
   const { authoritativeWorktreeSnapshot, transcriptSummary, agentSources, agentSummary } = turn;
   const sessionScoped = variant === 'segment';
-  const { shownSummary, headlineStats, sources } = useShownTurnReview({
+  const { shownSummary, headlineStats, sources, islandSummary, historyTurns } = useShownTurnReview({
     sessionScoped,
     sessionId,
     active,
@@ -73,7 +73,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     cwd,
     turn,
   });
-  const reviewVisible = !entryPending && shownSummary.files.size > 0;
+  // The island shows (and counts) only its own set: a Git project's
+  // uncommitted session files, else the session's.
+  const reviewVisible = !entryPending && (sessionScoped ? islandSummary : shownSummary).files.size > 0;
   // An island tab whose files went away closes with them.
   const closeEmptyTab = islandTab && expanded && !reviewVisible;
   // biome-ignore lint/correctness/useExhaustiveDependencies: closeEmptyTab is the trigger; setExpanded is rebuilt each render
@@ -94,11 +96,13 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   if (!reviewVisible) return entryPending ? <span hidden data-entry-pending /> : null;
   if (variant === 'segment' && !expanded) {
     return turnReviewSegment({
-      fileCount: shownSummary.files.size,
-      headlineStats,
-      islandTab,
+      fileCount: islandSummary.files.size,
+      headlineStats: islandSummary,
       onOpenChanges,
       setExpanded,
+      sessionId,
+      historyTurns,
+      busy,
     });
   }
   return (

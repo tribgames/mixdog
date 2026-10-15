@@ -6,6 +6,8 @@ import React, { useEffect, useRef, type CSSProperties, type MutableRefObject, ty
 import { composerAttachmentSource } from './attachment-menu';
 import { AttachmentCard, composerCardKind, composerCardMeta } from './attachment-card';
 import { useAttachmentContextMenu, type AttachmentOpenFile } from './attachment-context-menu';
+import { CapabilityIcon } from './CapabilityIcon';
+import type { SkillMentionResult } from './composer-skill-mentions';
 import { queuedFollowupPreview, type ComposerAttachment } from './composer-support';
 import { ComposerPalette } from './ComposerPalette';
 import { t } from './i18n';
@@ -185,6 +187,87 @@ export function MentionPalette({
         );
       })}
       {results.length === 0 && <p role="status">{loading ? t('Searching project files…') : t('No matching files.')}</p>}
+    </ComposerPalette>
+  );
+}
+
+/** `$` palette, built like the `@` file palette: the user's enabled custom
+ *  skills. Built-ins are recognised when typed in full but not listed. */
+export function SkillMentionPalette({
+  anchor,
+  panel,
+  results,
+  available,
+  query,
+  index,
+  setIndex,
+  onSelect,
+  onOpenSkillSettings,
+}: {
+  anchor: Anchor;
+  panel: Panel;
+  results: SkillMentionResult[];
+  /** Whether the user has any enabled custom skill at all. */
+  available: boolean;
+  query: string;
+  index: number;
+  setIndex: (index: number) => void;
+  onSelect: (name: string) => void;
+  /** Settings › Skills, the same destination as the + menu's manage entry. */
+  onOpenSkillSettings: () => void;
+}) {
+  return (
+    <ComposerPalette
+      anchor={anchor}
+      panel={panel}
+      id="composer-skill-mention-palette"
+      className="mention-palette skill-mention-palette"
+      label={t('Skills')}
+    >
+      <header>
+        <CapabilityIcon name="skill" size={14} />
+        <span>{t('Skills')}</span>
+      </header>
+      {results.map(({ skill, start }, rowIndex) => (
+        <button
+          type="button"
+          role="option"
+          aria-selected={rowIndex === index}
+          key={skill.name}
+          id={`composer-skill-mention-option-${rowIndex}`}
+          title={skill.description ? `$${skill.name} — ${skill.description}` : `$${skill.name}`}
+          onMouseDown={preventFocusSteal}
+          onMouseEnter={() => setIndex(rowIndex)}
+          onClick={() => onSelect(skill.name)}
+        >
+          <CapabilityIcon name={skill.name} size={14} />
+          <span className="skill-mention-name">
+            <span className="skill-mention-sigil">$</span>
+            {skill.name.slice(0, start)}
+            {query ? <b>{skill.name.slice(start, start + query.length)}</b> : null}
+            {skill.name.slice(start + query.length)}
+          </span>
+          <span className="skill-mention-description">{skill.description}</span>
+        </button>
+      ))}
+      {results.length === 0 && available && (
+        <p className="skill-mention-empty" role="status">
+          {t('No matching skills.')}
+        </p>
+      )}
+      {!available && (
+        <p className="skill-mention-empty" role="status">
+          {t('No skills are on.')}{' '}
+          <button
+            type="button"
+            className="skill-mention-settings"
+            onMouseDown={preventFocusSteal}
+            onClick={onOpenSkillSettings}
+          >
+            {t('Open skill settings')}
+          </button>
+        </p>
+      )}
     </ComposerPalette>
   );
 }

@@ -33,7 +33,7 @@ import { historyRunDir } from './run-dir.mjs';
 const HERE = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const BENCH_ROOT = resolve(HERE, '..');
 const REPO_ROOT = resolve(BENCH_ROOT, '..', '..');
-const PROVENANCE_PATH = join(BENCH_ROOT, 'source-provenance.json');
+const PROVENANCE_PATH = join(BENCH_ROOT, 'records', 'source-provenance.json');
 
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 
@@ -43,7 +43,7 @@ function optionValue(name) {
 }
 
 // The archived digests are the run's own record; the exported copy under
-// <harness>/<model>/<date>/ is the committed one (found through index.json) and the local jobs directory is the original.
+// records/<harness>/<model>/<date>/ is the committed one (found through records/index.json) and the local jobs directory is the original.
 function recordedContract(jobsDir) {
   const archived = historyRunDir(jobsDir, BENCH_ROOT);
   const candidates = [

@@ -7,6 +7,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { FOCUSABLE_SELECTOR, trapTab } from './settings/dialog-modality';
 import './starter-tour.css';
 
@@ -151,6 +152,7 @@ function shieldClip(target: Box | null, live: boolean): string | undefined {
 function useModalKeys(root: { current: HTMLElement | null }, onEscape: () => void, enabled = true) {
   const handler = useRef(onEscape);
   handler.current = onEscape;
+  useMobileBack(enabled, onEscape);
   useEffect(() => {
     if (!enabled) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -259,7 +261,11 @@ export function StarterTour({
       // (Settings panels load their rows a beat after the dialog opens).
       const precise = findTarget(selectors.slice(0, 1));
       const fallbackAllowed = performance.now() - startedAt > FALLBACK_AFTER_MS;
-      const next = precise ?? (element?.isConnected ? element : fallbackAllowed ? findTarget(selectors) : null);
+      let next = precise;
+      if (!next) {
+        if (element?.isConnected) next = element;
+        else next = fallbackAllowed ? findTarget(selectors) : null;
+      }
       if (next !== element) {
         element = next;
         targetRef.current = element;

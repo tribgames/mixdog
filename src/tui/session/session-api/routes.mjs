@@ -3,6 +3,9 @@
  * the serialized optimistic setRoute, web-search route, workflows, agent
  * definitions, output style and orchestration mode.
  */
+import { modelSwitchItem } from '../../../runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
+import { selectedModel, switchesSessionModel } from '../../../session-runtime/model-route/model-switch-target.mjs';
+import { latestQuotaFailure } from '../quota-resume.mjs';
 import { createApiHelpers } from './shared.mjs';
 
 // Optimistic route preview: the requested provider/model/effort/fast are
@@ -47,6 +50,12 @@ function optimisticRoutePatch(requested = {}, current = {}) {
   return patch;
 }
 
+/** The live divider of an in-place model switch (restored from message meta
+ *  after a reload); every switch path publishes it the same way. */
+export function publishModelSwitch(bag, modelSwitch) {
+  if (modelSwitch) bag.pushItem(modelSwitchItem(bag.nextId(), modelSwitch));
+}
+
 export function createSessionRouteApi(bag) {
   const {
     runtime,
@@ -68,32 +77,84 @@ export function createSessionRouteApi(bag) {
   let routeWrite = null;
   let routeSequence = 0;
 
+  // A preset selector previews as the preset's model, never as its id.
+  const previewedRequest = (routeOpts) => {
+    if (routeOpts.provider || !routeOpts.model) return routeOpts;
+    const target = selectedModel(runtime, routeOpts, '', '');
+    return target.provider ? { ...routeOpts, ...target } : routeOpts;
+  };
+
+  // Auto-compact on model change (default on): compact on the CURRENT model,
+  // whose cache and window still hold the history, before the switch. A model
+  // stopped on its quota cannot run it; the next turn's auto-compaction on the
+  // new model fits the history instead. A failure never blocks the switch.
+  const compactBeforeModelSwitch = async () => {
+    if (runtime.getCompactionSettings?.()?.onModelChange === false) return;
+    if (latestQuotaFailure(getState().items)) return;
+    if (typeof bag.compactBeforeModelSwitch !== 'function') return;
+    set({
+      commandStatus: { active: true, verb: 'Compacting conversation', startedAt: Date.now(), mode: 'compacting' },
+    });
+    flushEmitImmediate();
+    try {
+      await bag.compactBeforeModelSwitch();
+    } catch {
+      /* the switch goes ahead; next-turn auto-compaction fits the window */
+    } finally {
+      set({ commandStatus: null });
+    }
+  };
+
   const setRoute = async (opts) => {
     if (getState().commandBusy && !routeWrite) return false;
+    const routeOpts = opts && typeof opts === 'object' ? opts : {};
+    // Every user model choice on this surface (composer picker, /model,
+    // presets, the TUI picker) switches the conversation itself in place.
+    const switchesModel = switchesSessionModel(runtime, routeOpts);
+    // A running turn keeps the route it started on.
+    if (switchesModel && getState().busy) {
+      throw new Error('The model cannot change while a response is running. Try again when it finishes.');
+    }
     // Any route change supersedes waiting for the old route's quota reset.
     bag.supersedeQuotaResume?.(getState().sessionId);
     const token = ++routeSequence;
     const previousWrite = routeWrite;
-    const routeOpts = opts && typeof opts === 'object' ? opts : {};
-    const preview = optimisticRoutePatch(routeOpts, getState());
+    const preview = optimisticRoutePatch(previewedRequest(routeOpts), getState());
     // Preview immediately, serialize persistence without dropping a later
     // click. Earlier completions cannot replace the newest visible choice.
-    set({ commandBusy: true, ...(preview || {}) });
+    // A model switch previews once its pre-compaction (which republishes the
+    // current route) is done.
+    set({ commandBusy: true, ...(switchesModel ? {} : preview || {}) });
     flushEmitImmediate();
     const write = (async () => {
       if (previousWrite) await previousWrite.catch(() => {});
       const previousRoute = routeState();
       try {
-        // Explicit addressing initializes an empty session in place; the
-        // runtime continues to own established-session route policy.
+        // Explicit addressing applies the route to this session: an empty
+        // one is initialized in place. Either way an established
+        // conversation follows the user's choice in place.
         const applyToCurrentSession = routeOpts.applyToCurrentSession === true;
         const keepMainModel = routeOpts.keepMainModel === true;
         const { applyToCurrentSession: _drop, keepMainModel: _keep, ...nextRoute } = routeOpts;
-        const resolvedRoute = await runtime.setRoute(nextRoute, { applyToCurrentSession, keepMainModel });
+        if (switchesModel) {
+          // The destination must be accepted before the history is compacted.
+          await runtime.setRoute(nextRoute, { validateOnly: true });
+          await compactBeforeModelSwitch();
+          if (token === routeSequence && preview) {
+            set(preview);
+            flushEmitImmediate();
+          }
+        }
+        const resolvedRoute = await runtime.setRoute(nextRoute, {
+          applyToCurrentSession,
+          keepMainModel,
+          switchEstablished: true,
+        });
         if (token === routeSequence) {
-          if (applyToCurrentSession) syncContextStats({ allowEstimated: true });
+          if (applyToCurrentSession || resolvedRoute?.modelSwitch) syncContextStats({ allowEstimated: true });
           publishRoute();
         }
+        publishModelSwitch(bag, resolvedRoute?.modelSwitch);
         return resolvedRoute;
       } catch (error) {
         if (token === routeSequence && preview) {
@@ -116,6 +177,9 @@ export function createSessionRouteApi(bag) {
       if (routeWrite === write) routeWrite = null;
     }
   };
+  // The settings surface's setModel (/model, presets) is the same user
+  // model choice and runs through this one path.
+  bag.setSessionRoute = setRoute;
 
   const setWebSearchRoute = async (opts) => {
     if (getState().commandBusy) return null;

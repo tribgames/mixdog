@@ -1,10 +1,15 @@
+import { isGeminiFamilyModel } from './gemini-family.mjs';
+
 const SYNTHETIC_TOOL_SIGNATURE = 'skip_thought_signature_validator';
 
-// Gemini 3 validates the first functionCall in every step of the current turn.
-// Foreign/interrupted histories may not have a native signature for that call.
-// Preserve real signatures and unsigned siblings of a signed parallel batch.
+// Gemini models that validate thought signatures check the first functionCall
+// in every step of the current turn. Foreign/interrupted histories may not have
+// a native signature for that call. Preserve real signatures and unsigned
+// siblings of a signed parallel batch. The validator-bypass token is a Gemini
+// wire token: it is only fabricated for the Gemini family, because the other
+// families an Antigravity gateway serves reject it.
 export function ensureGeminiToolCallSignatures(contents, model) {
-  if (!/^(?:models\/)?gemini-3(?:[.-]|$)/i.test(String(model || ''))) return contents;
+  if (!isGeminiFamilyModel(model)) return contents;
   let activeTurnStart = 0;
   for (let index = contents.length - 1; index >= 0; index -= 1) {
     const content = contents[index];

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -39,4 +40,49 @@ test('the model refresh starts on the first judged turn, once, and not on import
   await client.judgeTurn({ request: 'second' });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(installs, 1, 'later turns do not start another');
+});
+
+test('a judgment that missed its deadline holds the next request until the worker answers it', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-queue-'));
+  for (const file of ['model.onnx', 'tokenizer.json']) writeFileSync(join(dir, file), '');
+  const saved = { dir: process.env.MIXDOG_EFFORT_JUDGE_DIR, timeout: process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS };
+  process.env.MIXDOG_EFFORT_JUDGE_DIR = dir;
+  process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS = '50';
+  t.after(() => {
+    for (const [key, value] of [
+      ['MIXDOG_EFFORT_JUDGE_DIR', saved.dir],
+      ['MIXDOG_EFFORT_JUDGE_TIMEOUT_MS', saved.timeout],
+    ]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const posted = [];
+  let judge;
+  class FakeWorker extends EventEmitter {
+    constructor() {
+      super();
+      judge = this;
+      setImmediate(() => this.emit('message', { type: 'ready' }));
+    }
+    postMessage(msg) {
+      posted.push(msg);
+    }
+    unref() {}
+    async terminate() {}
+  }
+  t.mock.module('node:worker_threads', { namedExports: { Worker: FakeWorker } });
+  const client = await import(`./judge-client.mjs?queue=${Date.now()}`);
+  const answer = (msg) => judge.emit('message', { type: 'result', id: msg.id, probs: [1, 0, 0, 0] });
+
+  assert.deepEqual(await client.judgeTurn({ request: 'slow' }), { skipped: 'timeout' });
+  const next = client.judgeTurn({ request: 'next' });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(posted.length, 1, 'the next request waits while the worker is still busy');
+  answer(posted[0]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(posted.length, 2, 'the late answer frees the worker for the next request');
+  answer(posted[1]);
+  assert.deepEqual((await next).probs, [1, 0, 0, 0]);
 });

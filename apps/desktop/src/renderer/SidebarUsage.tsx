@@ -1,11 +1,12 @@
 import { Info, Plus } from 'lucide-react';
-import { RailPinIcon } from './RailPinIcon';
+import { SidebarUsageMenu } from './SidebarUsageMenu';
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 
 import { PaneSurfaceGate } from './PaneSurfaceGate';
 import { InitialSurface } from './InitialSurface';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { ProviderIcon } from './provider-display';
 import { record } from './record-utils';
 import {
@@ -19,7 +20,14 @@ import {
   type UsageRecord,
 } from './usage-dashboard-store';
 import { displayUsagePercent, usageToneClass } from './usage-percent';
-import { formatUsageResetRemaining, usageResetPresentation } from './usage-reset-time';
+import { usageResetPresentation } from './usage-reset-time';
+import {
+  usageResetSchedule as resetSchedule,
+  usageResetShortText as resetShortText,
+  usageResetText as resetText,
+  usageTimestamp as timestamp,
+  usageWindowLabel as windowLabel,
+} from './usage-window-text';
 import { useUsageResetVerification } from './use-usage-reset-verification';
 import { ProviderAccountPicker } from './ProviderAccountPicker';
 import { focusQuotaUsage } from './usage-surface-mode';
@@ -37,12 +45,6 @@ function rows(value: unknown): UsageRecord[] {
 function number(value: unknown): number | null {
   const parsed = Number(value);
   return value === null || value === undefined || value === '' || !Number.isFinite(parsed) ? null : parsed;
-}
-
-function timestamp(value: unknown): number | null {
-  const parsed = number(value);
-  if (parsed === null || parsed <= 0) return null;
-  return parsed < 1_000_000_000_000 ? parsed * 1_000 : parsed;
 }
 
 /** Subscriptions matched by row id or label whatever the row's group. */
@@ -93,24 +95,34 @@ function subscriptionConnected(row: UsageRecord): boolean {
   return row.authenticated === true || quotaWindows(row).length > 0;
 }
 
-function windowLabel(window: UsageRecord): string {
-  const label = String(window.label || 'Quota').trim();
-  if (/^(?:w|wk|week|weekly)$/i.test(label)) return 'W';
-  if (/^(?:mo|mon|month|monthly)$/i.test(label)) return 'M';
-  if (/^flsh$/i.test(label)) return 'FLASH';
-  return label.toUpperCase();
-}
-
 function usedPercent(window: UsageRecord): number | null {
   const value = number(window.usedPct);
   return value === null ? null : Math.max(0, Math.min(100, value));
+}
+
+/** Which quota bars a pinned brand draws on the rail. */
+export type UsageRailBars = 'long' | 'short-long';
+
+interface UsagePinWindow {
+  label: string;
+  percent: number;
+  resetAt: number | null;
 }
 
 interface UsagePinEntry {
   key: string;
   label: string;
   provider: string;
+  /** The figure shown under the bars: the higher of the drawn bars. */
   percent: number;
+  /** Drawn bars, short window first. */
+  bars: UsagePinWindow[];
+  /** Every window the tooltip names (short window first when there is one). */
+  windows: UsagePinWindow[];
+  /** Index in `bars` of the bar that drives the figure and the tone. */
+  hot: number;
+  /** Rail hover text naming the provider and every window. */
+  tooltip: string;
 }
 
 const PIN_WINDOW_PRIORITY = [
@@ -119,59 +131,103 @@ const PIN_WINDOW_PRIORITY = [
   /^(?:\d+H|\d+D|D|DAY|DAILY)$/i,
 ];
 
-function pinPercent(windows: UsageRecord[], provider: string): number | null {
-  const candidates = windows.flatMap((window) => {
+/** Window length in hours from its label; null for non-duration labels. */
+function windowHours(label: string): number | null {
+  const text = label.trim();
+  const hours = /^(\d+)H$/i.exec(text);
+  if (hours) return Number(hours[1]);
+  const days = /^(\d+)D$/i.exec(text);
+  if (days) return Number(days[1]) * 24;
+  if (/^(?:D|DAY|DAILY)$/i.test(text)) return 24;
+  if (/^(?:W|WK|WEEK|WEEKLY)$/i.test(text)) return 168;
+  if (/^(?:M|MO|MON|MONTH|MONTHLY)$/i.test(text)) return 720;
+  return null;
+}
+
+function pinWindows(
+  windows: UsageRecord[],
+  provider: string
+): { long: UsagePinWindow; short: UsagePinWindow | null } | null {
+  const candidates = windows.flatMap((window): UsagePinWindow[] => {
     const percent = usedPercent(window);
-    return percent === null ? [] : [{ label: String(window.label || '').trim(), percent }];
+    return percent === null
+      ? []
+      : [{ label: String(window.label || '').trim(), percent, resetAt: timestamp(window.resetAt) }];
   });
   if (!candidates.length) return null;
+  let long: UsagePinWindow | undefined;
   const preferredLabel = provider === 'cursor-oauth' ? 'Basic' : '';
   if (preferredLabel) {
-    const preferred = candidates.find((candidate) => candidate.label.toLowerCase() === preferredLabel.toLowerCase());
-    if (preferred) return preferred.percent;
+    long = candidates.find((candidate) => candidate.label.toLowerCase() === preferredLabel.toLowerCase());
   }
   for (const pattern of PIN_WINDOW_PRIORITY) {
-    const hit = candidates.find((candidate) => pattern.test(candidate.label));
-    if (hit) return hit.percent;
+    if (long) break;
+    long = candidates.find((candidate) => pattern.test(candidate.label));
   }
-  return candidates[candidates.length - 1].percent;
+  long ||= candidates[candidates.length - 1];
+  const longHours = windowHours(long.label);
+  let short: UsagePinWindow | null = null;
+  let shortHours = Number.POSITIVE_INFINITY;
+  for (const candidate of candidates) {
+    const hours = windowHours(candidate.label);
+    if (candidate === long || hours === null || (longHours !== null && hours >= longHours)) continue;
+    if (hours < shortHours) {
+      short = candidate;
+      shortHours = hours;
+    }
+  }
+  return { long, short };
 }
 
 /** Rail pin mode: one entry per brand that has quota data —
  *  its icon plus the final quota window's usage, picked by longest period:
  *  monthly (M) → weekly (7D/W) → daily/hourly. Unknown windows fall back to
- *  the provider's final entry. */
-export function usagePinEntries(dashboard: unknown): UsagePinEntry[] {
+ *  the provider's final entry. In `short-long` mode the shortest-duration
+ *  window joins as a second bar (none for a provider without one) and the
+ *  figure/tone follow the higher of the two. */
+export function usagePinEntries(dashboard: unknown, mode: UsageRailBars = 'long'): UsagePinEntry[] {
   return SUBSCRIPTIONS.flatMap((subscription) => {
-    const percent = pinPercent(quotaWindows(subscriptionRow(dashboard, subscription)), subscription.provider);
-    if (percent === null) return [];
+    const picked = pinWindows(quotaWindows(subscriptionRow(dashboard, subscription)), subscription.provider);
+    if (!picked) return [];
+    const windows = picked.short ? [picked.short, picked.long] : [picked.long];
+    const bars = mode === 'short-long' ? windows : [picked.long];
+    let hot = 0;
+    bars.forEach((bar, index) => {
+      if (bar.percent >= bars[hot].percent) hot = index;
+    });
     return [
       {
         key: subscription.key,
         label: subscription.label,
         provider: subscription.provider,
-        percent,
+        percent: bars[hot].percent,
+        bars,
+        windows,
+        hot,
+        tooltip: usagePinTooltip(subscription.label, windows),
       },
     ];
   });
 }
 
-// Lowercase duration units read as time, not as quota-window labels
-// (5H/W/M stay uppercase).
-function resetSchedule(value: unknown): { state: 'due' | 'soon' | 'in' | ''; time: string } {
-  const resetAt = timestamp(value);
-  if (resetAt === null) return { state: '', time: '' };
-  const remaining = resetAt - Date.now();
-  if (remaining <= 0) return { state: 'due', time: '' };
-  const time = formatUsageResetRemaining(remaining);
-  return time ? { state: 'in', time } : { state: 'soon', time: '' };
+function pinWindowName(label: string): string {
+  const hours = windowHours(label);
+  if (hours === 168) return t('weekly');
+  if (hours === 720) return t('monthly');
+  if (hours === 24) return t('daily');
+  const count = /^(\d+)([HD])$/i.exec(label.trim());
+  if (count) return t(count[2].toUpperCase() === 'H' ? '{{n}}-hour' : '{{n}}-day', { n: count[1] });
+  return label;
 }
 
-function resetText(value: unknown): string {
-  const schedule = resetSchedule(value);
-  if (schedule.state === 'due') return t('Reset due');
-  if (schedule.state === 'in') return t('Resets in {{time}}', { time: schedule.time });
-  return schedule.state === 'soon' ? t('Resets soon') : '';
+/** Rail hover text: the provider plus every window's usage and reset time. */
+function usagePinTooltip(label: string, windows: UsagePinWindow[]): string {
+  const parts = windows.map((window) => {
+    const schedule = resetSchedule(window.resetAt);
+    const reset = schedule.state === 'in' ? ` (${t('resets in {{time}}', { time: schedule.time })})` : '';
+    return `${pinWindowName(window.label)} ${displayUsagePercent(window.percent)}%${reset}`;
+  });
+  return [label, ...parts].join(' · ');
 }
 
 function resetExpiryText(value: unknown): string {
@@ -179,18 +235,6 @@ function resetExpiryText(value: unknown): string {
   if (schedule.state === 'due') return t('Expiry due');
   if (schedule.state === 'in') return t('Expires in {{time}}', { time: schedule.time });
   return schedule.state === 'soon' ? t('Expires soon') : '';
-}
-
-/** Every quota window carries its OWN schedule: a compact duration that closes
- *  the meter row after the percentage, with the full sentence kept in the row
- *  tooltip.
- *  The duration units are notation, not prose, so they stay untranslated like
- *  the 5d/13h reading itself. */
-function resetShortText(value: unknown): string {
-  const schedule = resetSchedule(value);
-  if (schedule.state === 'due') return '—';
-  if (schedule.state === 'in') return schedule.time;
-  return schedule.state === 'soon' ? '<1h' : '—';
 }
 
 function resetCredits(row: UsageRecord): UsageRecord {
@@ -328,6 +372,8 @@ export function SidebarUsage({
   sidebarOpen = true,
   pinned = false,
   onTogglePin,
+  railBars = 'long',
+  onRailBarsChange,
   onOpenStats,
   onAddProviders,
 }: {
@@ -337,6 +383,9 @@ export function SidebarUsage({
    *  per-brand icon + % stack. */
   pinned?: boolean;
   onTogglePin?(): void;
+  /** Which bars the pinned rail draws per brand. */
+  railBars?: UsageRailBars;
+  onRailBarsChange?(next: UsageRailBars): void;
   /** Opens the usage surface: this panel answers what is LEFT, that one how
    *  it was spent — in tokens, or on a subscription's own meter. */
   onOpenStats?(): void;
@@ -430,6 +479,10 @@ export function SidebarUsage({
   }, [codexResetKeySignature, resetConfirming]);
   const [resetInfoOpen, setResetInfoOpen] = useState(false);
   const resetRef = useRef<HTMLDivElement | null>(null);
+  useMobileBack(resetConfirming !== null, () => {
+    if (!resetting) setResetConfirming(null);
+  });
+  useMobileBack(resetInfoOpen, () => setResetInfoOpen(false));
   useEffect(() => {
     if (!sidebarOpen) setResetInfoOpen(false);
   }, [sidebarOpen]);
@@ -539,16 +592,12 @@ export function SidebarUsage({
         <div className="session-panel-header-actions">
           {/* Nothing to pin without a connected subscription. */}
           {onTogglePin && anyConnected && (
-            <button
-              type="button"
-              className={`session-panel-action sidebar-usage-pin ${pinned ? 'is-active' : ''}`}
-              aria-pressed={pinned}
-              aria-label={pinned ? t('Unpin usage from the rail') : t('Pin usage to the rail')}
-              data-tooltip={pinned ? t('Unpin usage from the rail') : t('Pin usage to the rail')}
-              onClick={onTogglePin}
-            >
-              <RailPinIcon pinned={pinned} size={14} />
-            </button>
+            <SidebarUsageMenu
+              pinned={pinned}
+              onTogglePin={onTogglePin}
+              railBars={railBars}
+              onRailBarsChange={onRailBarsChange}
+            />
           )}
           {onOpenStats && (
             <button

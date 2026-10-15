@@ -7,6 +7,9 @@ import { useRef, useState } from 'react';
 export function usePromptState() {
   const [promptDraft, setPromptDraft] = useState('');
   const [promptDraftOverride, setPromptDraftOverride] = useState(null);
+  // The prompt caret offset as reported by PromptInput (null = end of draft);
+  // the `$name` skill palette reads the mention before it.
+  const [promptCaret, setPromptCaret] = useState(null);
   const promptLayoutValueRef = useRef('');
   const [, setPromptLayoutRows] = useState(1);
   const [textEntryLayoutRows, setTextEntryLayoutRows] = useState(1);
@@ -26,6 +29,8 @@ export function usePromptState() {
     setPromptDraft,
     promptDraftOverride,
     setPromptDraftOverride,
+    promptCaret,
+    setPromptCaret,
     promptLayoutValueRef,
     setPromptLayoutRows,
     textEntryLayoutRows,

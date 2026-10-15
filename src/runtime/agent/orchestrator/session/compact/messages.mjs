@@ -3,6 +3,7 @@
 import { SUMMARY_PREFIX, SUMMARY_PREFIX_ANCHOR } from './constants.mjs';
 import { sha16, roleCounts } from './text-utils.mjs';
 import { carryMessageId, withoutMessageIdsReplacer } from '../message-ids.mjs';
+import { isImportedMessage } from '../imported-message.mjs';
 import {
   isInternalRuntimeNotificationText,
   isModelVisibleToolCompletionWrapper,
@@ -30,6 +31,7 @@ export function makeSummaryMessage(content) {
 export function isSummaryMessage(m) {
   return (
     m?.role === 'user' &&
+    !isImportedMessage(m) &&
     (String(m?.meta?.source || '') === 'compact-summary' ||
       (typeof m.content === 'string' &&
         m.content.startsWith(SUMMARY_PREFIX_ANCHOR) &&
@@ -38,7 +40,7 @@ export function isSummaryMessage(m) {
 }
 
 export function isProtectedContextUserMessage(m) {
-  if (m?.role !== 'user' || typeof m.content !== 'string') return false;
+  if (m?.role !== 'user' || typeof m.content !== 'string' || isImportedMessage(m)) return false;
   let content = m.content.trim();
   if (!content.toLowerCase().startsWith('<system-reminder>')) return false;
   const closingTag = '</system-reminder>';
@@ -62,7 +64,7 @@ export function isProtectedContextUserMessage(m) {
 // "latest human request" selection (deriveCurrentRequest). The `meta:'skill'`
 // marker is also honoured.
 export function isInjectedSkillBodyMessage(m) {
-  if (m?.role !== 'user') return false;
+  if (m?.role !== 'user' || isImportedMessage(m)) return false;
   if (m.meta === 'skill') return true;
   return typeof m.content === 'string' && m.content.trimStart().startsWith('<skill>');
 }
@@ -96,6 +98,8 @@ export function isActualUserInstructionMessage(message) {
     return false;
   }
   const text = userMessageText(message);
+  // Imported prose is the user's own words whatever it looks like.
+  if (isImportedMessage(message)) return text.trim().length > 0;
   if (/^Reference files:\s*/i.test(text.trimStart())) return false;
   if (
     SYNTHETIC_USER_CONTROL_RE.test(text.trimStart()) ||

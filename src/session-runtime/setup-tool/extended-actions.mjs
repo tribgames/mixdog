@@ -34,6 +34,7 @@ function publicMcpConfig(row) {
   return {
     name: row.name,
     source: row.source,
+    ...(row.owner?.kind === 'plugin' ? { plugin: row.owner.id, pluginServer: row.owner.key, readOnly: true } : {}),
     enabled: row.enabled !== false,
     type: config.type || 'stdio',
     cwd: config.cwd || '',

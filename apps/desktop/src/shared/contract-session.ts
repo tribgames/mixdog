@@ -30,6 +30,9 @@ export interface DesktopTranscriptItem extends Readonly<Record<string, unknown>>
   /** The turn's change-record key (the outer prompt id) on `user` and
    *  `turndone` rows: what getTurnChanges/revertTurnChanges address. */
   checkpointId?: string;
+  /** Skills this prompt explicitly loaded (`Skill:` header or inline `$name`),
+   *  in selection order; `user` rows only, absent when none loaded. */
+  appliedSkills?: readonly string[];
 }
 
 export interface DesktopAgentWorker extends Readonly<Record<string, unknown>> {
@@ -313,6 +316,8 @@ export type DesktopSessionStateWireUpdate = Omit<DesktopSessionStateUpdate, 'sna
 export interface ToolApprovalDecision {
   approved: boolean;
   reason?: string;
+  /** ask_user answers, aligned by index with the questions; null = unanswered. */
+  answers?: Array<{ selected: string[]; text?: string } | null>;
   /** Host-stamped name of the device that answered. */
   device?: string;
 }

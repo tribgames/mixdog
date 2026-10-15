@@ -31,6 +31,7 @@ import { bumpUsageMetricsEpoch } from './manager/usage-metrics.mjs';
 import { resetReadStateAfterCompaction } from './read-dedup.mjs';
 import { scheduleCompactionArchive, stampCompactionMessageIds } from './compaction-archive-capture.mjs';
 import { writeStderrBestEffort } from '../../../shared/best-effort-stderr.mjs';
+import { applyPendingWorkspaceReroot } from './manager/prompt-utils.mjs';
 import {
   acknowledgePendingGoalReminder,
   markPendingGoalReminder,
@@ -388,6 +389,9 @@ function adoptCompactedTranscript(ctx, run) {
   ctx.droppedMessages = archived?.dropped ?? 0;
   ctx.droppedIdentities = archived?.identities ?? null;
   acknowledgeGoalReminder(sessionRef, run);
+  // The compacted transcript breaks the cache anyway: a staged working-folder
+  // change re-roots the system prompt now and needs no notice any more.
+  if (sessionRef) applyPendingWorkspaceReroot(sessionRef, messages);
   resetReadStateAfterCompaction(sessionId);
   // Cross-turn receipts reference tool results that compaction just removed
   // from context; a stub for them would point at nothing. Clear in place so
@@ -408,9 +412,10 @@ function adoptCompactedTranscript(ctx, run) {
   // providerState so the next send starts a fresh chain.
   ctx.providerState = undefined;
   ctx.providerStateCleared = true;
-  // Compaction shrank the transcript, so prior turns no longer pressure the
-  // window — reset the iteration counter so a steadily-compacting long task
-  // isn't killed by the cap, while a non-compacting tight loop still hits it.
+  // Compaction starts a new loop epoch: the iteration counter restarts at 0
+  // so iteration indices (traces, usage metrics, cross-turn dedup windows)
+  // count from the compacted transcript. The counter bounds nothing — the
+  // loop has no iteration cap.
   ctx.iterations = 0;
   // New loop epoch so persistIterationMetrics idempotency keys do not
   // collide when iteration indices restart at 1 (incl. iter 1 → iter 1).

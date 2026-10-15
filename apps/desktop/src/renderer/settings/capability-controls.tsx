@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { registerMobileBack } from '../mobile-back';
 import { OpenSelect } from '../OpenSelect';
@@ -8,7 +9,7 @@ import { OpenSelect } from '../OpenSelect';
 import { t } from '../i18n';
 import { acquireTitleBarDim } from '../titlebar-dim';
 
-import { type SettingsConfirmation } from './capability-data';
+import type { SettingsConfirmation } from './capability-data';
 
 export function Group({
   title,
@@ -57,15 +58,14 @@ export function ToggleRow({
   optimistic?: boolean;
   onChange(value: boolean): void;
 }) {
-  const displayTitle = title;
   return (
     <div className="mixdog-settings__row">
       <div className="mixdog-settings__copy">
-        <span className="mixdog-settings__row-title">{displayTitle}</span>
+        <span className="mixdog-settings__row-title">{title}</span>
       </div>
       <div className="settings-row-control">
         <CompactSwitch
-          label={displayTitle}
+          label={title}
           checked={checked}
           disabled={disabled}
           optimistic={optimistic}
@@ -141,16 +141,15 @@ export function SelectRow({
   const normalized = options.some((entry) => entry.value === value)
     ? options
     : [{ value, label: value || t('Select…') }, ...options];
-  const displayTitle = title;
   return (
     <div className="mixdog-settings__row">
       <div className="mixdog-settings__copy">
-        <span className="mixdog-settings__row-title">{displayTitle}</span>
+        <span className="mixdog-settings__row-title">{title}</span>
       </div>
       <div className="settings-row-control">
         <OpenSelect
           className="settings-select"
-          ariaLabel={displayTitle}
+          ariaLabel={title}
           value={value}
           disabled={disabled}
           options={normalized}
@@ -185,17 +184,16 @@ export function AutoSaveRow({
     if (required && !input.reportValidity()) return;
     onSave(input.value);
   };
-  const displayTitle = title;
   return (
     <div className="settings-form-row">
       <div>
-        <b>{displayTitle}</b>
+        <b>{title}</b>
       </div>
       <div className="settings-form-controls">
         <input
           key={value}
           name={name}
-          aria-label={displayTitle}
+          aria-label={title}
           defaultValue={value}
           placeholder={placeholder}
           required={required}
@@ -236,7 +234,18 @@ export function ActionButton({
   );
 }
 
-export function SettingsConfirmDialog({ options, onClose }: { options: SettingsConfirmation; onClose(): void }) {
+export function SettingsConfirmDialog({
+  options,
+  onClose,
+  portal = false,
+}: {
+  options: SettingsConfirmation;
+  onClose(): void;
+  /** Render into document.body. A sidebar host must: the sidebar scroll's
+   *  fade mask and isolation clip a fixed layer to the sidebar, which left
+   *  only a dimmed sidebar with the dialog itself invisible. */
+  portal?: boolean;
+}) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
@@ -251,12 +260,18 @@ export function SettingsConfirmDialog({ options, onClose }: { options: SettingsC
     onClose();
     void options.onConfirm();
   };
-  return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the dialog's Escape handling.
+  const layer = (
+    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; Escape closes it here unless the settings dialog's capture handler already did.
     <div
       className="settings-confirm-layer"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
       }}
     >
       <section
@@ -285,6 +300,7 @@ export function SettingsConfirmDialog({ options, onClose }: { options: SettingsC
       </section>
     </div>
   );
+  return portal ? createPortal(layer, document.body) : layer;
 }
 
 type SettingsStatusTone = 'positive' | 'warning' | 'danger' | 'neutral';

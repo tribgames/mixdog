@@ -53,12 +53,47 @@
 .sidebar-usage-heading.session-panel-header::after {
   display: none;
 }
-/* Same pin as the rail More menu: muted when off, plain text when pinned. */
-.sidebar-usage-heading .sidebar-usage-pin {
+/* The ··· menu trigger: muted ink, lifted while its menu is open. */
+.sidebar-usage-heading .sidebar-usage-menu {
   color: var(--mx-text-muted);
 }
-.sidebar-usage-heading .sidebar-usage-pin.is-active {
+.sidebar-usage-heading .sidebar-usage-menu[aria-expanded="true"] {
   color: var(--mx-text);
+  background: var(--mx-hover);
+}
+/* ··· menu panel (portaled, row-overflow-menu grammar): pin check row, group
+   label, then the rail bar mode as check-marked radios (hints are tooltips). */
+.row-overflow-menu.usage-menu {
+  width: 220px;
+  --mx-menu-row-height: 30px;
+}
+/* Long translations wrap instead of truncating; the check stays on the first
+   line. */
+.row-overflow-menu.usage-menu > button {
+  align-items: flex-start;
+}
+.row-overflow-menu.usage-menu .row-overflow-label {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.row-overflow-menu.usage-menu .row-overflow-check {
+  margin-top: -1px;
+}
+.row-overflow-menu.usage-menu > button[role="menuitemradio"][aria-checked="true"] {
+  font-weight: var(--mx-weight-semibold);
+}
+.usage-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--mx-border-muted);
+}
+.usage-menu-group {
+  padding: 6px 10px 2px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting);
+  font-weight: var(--mx-weight-semibold);
 }
 /* The roster is ONE grid: label | track | percentage | reset. Every provider
    row and quota line subgrids these columns, so the label column is exactly
@@ -545,6 +580,61 @@
      hard-clipping into the border (user request). */
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+}
+/* Session rows fade only a title that overflows (data-overflow is measured in
+   the row); a title that fits keeps its full ink to the edge. */
+.session-row-main .session-row-copy b {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.session-row-main .session-row-copy b[data-overflow="true"] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+}
+/* Fork groups: the original leads with a fork glyph and ends its title with a
+   disclosure chevron; each fork starts its title where the original's does
+   (16px glyph + the row's 8px gap). */
+.session-row-fork-icon {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  color: var(--mx-icon-muted);
+}
+.session-row-fork-icon[data-fork="root"] {
+  color: var(--mx-text-accent);
+}
+.session-row-fork-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text);
+  cursor: pointer;
+}
+.session-row-fork-toggle:hover {
+  background: var(--mx-hover);
+}
+.session-row-fork-toggle:focus-visible {
+  outline: 1px solid var(--mx-focus);
+}
+/* The title hugs its text so the chevron sits right after it; the trailing
+   clearance the other rows give their copy moves to the whole button. */
+.session-sidebar .session-row .session-row-main:has(.session-row-fork-toggle) .session-row-copy {
+  flex: 0 1 auto;
+  padding-right: 0;
+}
+.session-sidebar .session-row.working .session-row-main:has(.session-row-fork-toggle),
+.session-sidebar .session-row:has(.session-row-unread-dot) .session-row-main:has(.session-row-fork-toggle) {
+  padding-right: 18px;
+}
+.session-sidebar .session-row:hover:has(.session-row-favorite) .session-row-main:has(.session-row-fork-toggle),
+.session-sidebar
+  .session-row:has(:focus-visible):has(.session-row-favorite)
+  .session-row-main:has(.session-row-fork-toggle) {
+  padding-right: 52px;
 }
 /* Unread activity dot: the session gained messages while it
    was not the viewed conversation. */

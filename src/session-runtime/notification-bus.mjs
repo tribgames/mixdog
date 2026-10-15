@@ -3,7 +3,10 @@
 // pending queue so the model sees it next turn. The delivered registry keeps
 // those two paths from double-injecting the same completion.
 import { modelVisibleToolCompletionMessage } from '../runtime/shared/tool-execution-contract.mjs';
-import { markCompletionEntry } from '../runtime/agent/orchestrator/session/manager/pending-messages.mjs';
+import {
+  PENDING_MODE_TASK_NOTIFICATION,
+  markCompletionEntry,
+} from '../runtime/agent/orchestrator/session/manager/pending-messages.mjs';
 import {
   isDeliveredCompletion,
   logDuplicateSkip,
@@ -144,7 +147,11 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued, getO
     if (!open) return false;
     if (typeof mgr.enqueuePendingMessage !== 'function') return false;
     try {
-      return mgr.enqueuePendingMessage(targetSessionId, content) > 0;
+      // A channel notification (webhook event rules, schedule injects, relays)
+      // is the runtime reporting, exactly as an attached TUI queues it: a
+      // task notification, so text inside it — fenced external webhook values
+      // included — never drives explicit skill selection.
+      return mgr.enqueuePendingMessage(targetSessionId, { content, mode: PENDING_MODE_TASK_NOTIFICATION }) > 0;
     } catch {
       return false;
     }

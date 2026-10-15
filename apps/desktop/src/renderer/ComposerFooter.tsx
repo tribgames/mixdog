@@ -37,6 +37,7 @@ export function ComposerFooter({
   textarea,
   paletteAnchor,
   recoveryScope,
+  projectScope,
   goalDialogOpen,
   setGoalDialogOpen,
   addMenuRequest,
@@ -66,6 +67,8 @@ export function ComposerFooter({
   textarea: RefObject<HTMLTextAreaElement | null>;
   paletteAnchor: RefObject<HTMLFormElement | null>;
   recoveryScope: string;
+  /** A new-task draft's selected Project: its skills are read for it. */
+  projectScope: string;
   goalDialogOpen: boolean;
   setGoalDialogOpen: (open: boolean) => void;
   /** Bumped by /skills to open the add menu. */
@@ -117,6 +120,7 @@ export function ComposerFooter({
         key={recoveryScope}
         anchor={paletteAnchor}
         sessionId={sessionId}
+        projectPath={projectScope}
         disabled={transitioning || !paneActive}
         goalDisabled={goalDisabled}
         openRequest={addMenuRequest}

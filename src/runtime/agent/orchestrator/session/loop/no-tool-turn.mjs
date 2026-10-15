@@ -34,8 +34,9 @@ export function createNoToolTurnResolver({
     refusalRetryUsed: false,
     emptyNudgeStreak: 0,
     // Structured provider continuation signals honored this turn. Diagnostic
-    // only; the hard iteration cap remains the sole bound on how long a
-    // provider may keep declaring "not done" inside one user turn.
+    // only: the loop has no iteration cap, so this count bounds nothing. A
+    // text-only continuation runaway is bounded by continuationsSinceToolBatch
+    // below; continuations interleaved with tool batches are not limited.
     providerContinuationCount: 0,
     // Continuations since the last executed tool batch — bounds the text-only
     // continuation runaway (see PROVIDER_CONTINUATION_NO_TOOL_LIMIT).

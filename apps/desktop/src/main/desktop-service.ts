@@ -1,6 +1,9 @@
 import { dirname, join } from 'node:path';
 
+import type { ConversationImportJob } from '../shared/contract-import';
+import { createConversationImportProgress } from './conversation-import-progress';
 import type {
+  DesktopCapability,
   DesktopRemoteAccessSettings,
   DesktopRemoteClientInfo,
   DesktopBrowserImportProgress,
@@ -53,6 +56,8 @@ import {
   MODEL_PROXY_REQUEST_EVENT,
 } from '../../../../src/runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
 import { modelProxyClientMode } from '../../../../src/runtime/shared/model-proxy-mode.mjs';
+import { registerSessionSidebarHost } from '../../../../src/runtime/shared/session-sidebar-host.mjs';
+import { sessionSidebarChangeHandler } from './session-sidebar-actions';
 
 // Slightly under the relay's own claim TTL: a dialog left open must never
 // outlive the request it answers.
@@ -272,11 +277,23 @@ export async function createDesktopService({
     loadDocumentPreview: runtime.loadDocumentPreview ? () => runtime.loadDocumentPreview!() : undefined,
     emit: (event) => publishDesktopEvent(event.name, event.value),
   });
+  const importProgress = createConversationImportProgress({
+    fetchJobs: async () => {
+      const { value } = await host.invokeCapability<{ jobs?: ConversationImportJob[] }>('getConversationImportJobs', [
+        {},
+      ]);
+      return value?.jobs ?? [];
+    },
+    publish: publishDesktopEvent,
+  });
   const unregisterTerminalReleaser = await registerWorktreeTerminalReleaser(
     runtime,
     (root) => operations.invoke('termDisposeUnder', [root]),
     (root) => operations.invoke('lspDisposeUnder', [root])
   );
+  // The Lead's `session` tool (favorite / archive) runs
+  // in this daemon and applies its change through the same host methods.
+  const unregisterSessionSidebarHost = registerSessionSidebarHost(sessionSidebarChangeHandler(host));
   const settingsStore = operations.settingsStore;
   // A deleted session takes its server-window upload staging folder with it.
   const deleteSessionWithUploads = async (sessionId: unknown): Promise<unknown> => {
@@ -614,6 +631,15 @@ export async function createDesktopService({
         return stateSync.setDeliveryFilter(args);
       }
       if (method === 'deleteSession') return deleteSessionWithUploads(args[0]);
+      if (method === 'invokeCapability') {
+        const result = await host.invokeCapability(
+          args[0] as DesktopCapability,
+          args[1] as unknown[],
+          args[2] as string
+        );
+        importProgress.observe(String(args[0]), result.value);
+        return result;
+      }
       const target = (host as unknown as Record<DesktopServiceMethod, (...values: unknown[]) => unknown>)[
         method as DesktopServiceMethod
       ];
@@ -630,6 +656,8 @@ export async function createDesktopService({
     },
     async dispose(): Promise<void> {
       unregisterTerminalReleaser();
+      unregisterSessionSidebarHost();
+      importProgress.dispose();
       stateSync.dispose();
       desktopEventListeners.clear();
       browserRemoteRequests.rejectAll('Desktop service is closing.');

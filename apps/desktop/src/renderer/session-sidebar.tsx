@@ -34,6 +34,7 @@ import {
   groupProjectSessions,
 } from './session-sidebar-sections';
 import { withOpen, type OpenMap } from './sidebar-open-state';
+import type { ForkRowRole } from './session-fork-groups';
 import { usePersistedListOrder } from './use-persisted-list-order';
 import {
   applySessionOrder,
@@ -131,19 +132,21 @@ function useSessionEditor(
   sessions: readonly DesktopSessionSummary[],
   onRenameSession: (sessionId: string, title: string) => Promise<void>
 ) {
-  const [editingSessionId, setEditingSessionId] = useState('');
+  // One session can render in several lists (a project folder and Recent);
+  // the editor belongs to the one row the user started it from.
+  const [editingRowKey, setEditingRowKey] = useState('');
   const [sessionTitleDraft, setSessionTitleDraft] = useState('');
   const [sessionTitleInvalid, setSessionTitleInvalid] = useState(false);
   const [confirmingSessionId, setConfirmingSessionId] = useState('');
   const [deletingSessionId, setDeletingSessionId] = useState('');
-  const openSessionEditor = useCallback((session: DesktopSessionSummary) => {
+  const openSessionEditor = useCallback((session: DesktopSessionSummary, rowKey: string) => {
     setConfirmingSessionId('');
-    setEditingSessionId(session.id);
+    setEditingRowKey(rowKey);
     setSessionTitleDraft(sessionLabel(session));
     setSessionTitleInvalid(false);
   }, []);
   const closeSessionEditor = useCallback(() => {
-    setEditingSessionId('');
+    setEditingRowKey('');
     setSessionTitleDraft('');
     setSessionTitleInvalid(false);
   }, []);
@@ -167,7 +170,7 @@ function useSessionEditor(
     }
   }, [confirmingSessionId, sessions]);
   return {
-    editingSessionId,
+    editingRowKey,
     sessionTitleDraft,
     setSessionTitleDraft,
     sessionTitleInvalid,
@@ -345,6 +348,12 @@ function useProjectGroups({
     );
     if (!group) return;
     revealedSelectionRef.current = selectedSessionId;
+    // A session already on screen (e.g. clicked in Recent) needs no reveal;
+    // opening a folder above it would shift the row out from under the pointer.
+    const shown = [
+      ...document.querySelectorAll<HTMLElement>('.session-sidebar-sessions .session-row[data-session-id]'),
+    ].some((row) => row.dataset.sessionId === selectedSessionId && row.getClientRects().length > 0);
+    if (shown) return;
     updateProjectOpen((current) => withOpen(current, group.key, true));
   }, [activityProjectGroups, selectedSessionId, updateProjectOpen]);
   // A project added from the Projects header menu opens and scrolls into view
@@ -654,11 +663,12 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     onArchiveSession,
     onFavoriteSession,
     openSessionMenu,
+    onToggleFork: openState.toggleFork,
     setDraggedSessionId,
     setSessionDropKey,
   };
-  const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string) =>
-    renderSessionRow(session, listKey, rowContext);
+  const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string, rowScope?: string, fork?: ForkRowRole) =>
+    renderSessionRow(session, listKey, rowContext, rowScope, fork);
   const sectionContext: SidebarSectionContext = {
     sectionOrder,
     openState,

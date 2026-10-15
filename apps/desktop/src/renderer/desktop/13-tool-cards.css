@@ -133,8 +133,8 @@
   padding: 26px 10px 8px;
   color: rgb(255 255 255 / 78%);
   background: linear-gradient(to bottom, transparent, rgb(0 0 0 / 40%) 42%, rgb(0 0 0 / 68%));
-  font-size: 12px;
-  line-height: 16px;
+  font-size: calc(12px * var(--mx-content-scale, 1));
+  line-height: calc(16px * var(--mx-content-scale, 1));
   pointer-events: none;
 }
 .transcript-artifact-media figcaption > span {
@@ -142,13 +142,13 @@
   color: #fff;
   font-size: var(--mx-font-meta);
   font-weight: 500;
-  line-height: 18px;
+  line-height: calc(18px * var(--mx-content-scale, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .transcript-artifact-media figcaption > small {
   overflow: hidden;
-  font-size: 12px;
+  font-size: calc(12px * var(--mx-content-scale, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -251,9 +251,9 @@
 }
 .transcript-artifact-body > span {
   overflow: hidden;
-  font-size: 14px;
+  font-size: calc(14px * var(--mx-content-scale, 1));
   font-weight: var(--mx-weight-medium);
-  line-height: 20px;
+  line-height: calc(20px * var(--mx-content-scale, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -263,8 +263,8 @@
   gap: 6px;
   min-width: 0;
   color: var(--mx-text-muted);
-  font-size: 12.5px;
-  line-height: 18px;
+  font-size: calc(12.5px * var(--mx-content-scale, 1));
+  line-height: calc(18px * var(--mx-content-scale, 1));
   white-space: nowrap;
 }
 .transcript-artifact-body > small > span {
@@ -534,124 +534,6 @@
 .image-lightbox-nav.next {
   right: 4px;
 }
-/* A `visualize` open: the tab's picture, label, version and page problems;
-   a press shows it in the session's side panel (or opens it again). Same
-   plate as the browser page card. */
-.transcript-visualize-cards {
-  display: grid;
-  gap: 6px;
-  margin: 8px 0 4px;
-}
-.transcript-visualize-card-wrap {
-  display: grid;
-  gap: 2px;
-}
-.transcript-visualize-card {
-  width: min(100%, 460px);
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px 8px 8px;
-  border: 0;
-  border-radius: var(--mx-radius-lg);
-  color: var(--mx-text);
-  font: inherit;
-  text-align: left;
-  background: transparent;
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
-  cursor: pointer;
-}
-button.transcript-visualize-card:hover {
-  background: color-mix(in srgb, currentColor 5%, transparent);
-}
-.transcript-visualize-card.is-pending {
-  cursor: default;
-}
-.transcript-visualize-card.is-closed .transcript-visualize-thumb {
-  opacity: 0.55;
-}
-.transcript-visualize-thumb {
-  flex: 0 0 auto;
-  width: 40px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border-radius: 6px;
-  color: var(--mx-icon-muted);
-}
-.transcript-visualize-monogram {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  font-size: 15px;
-  font-weight: 650;
-  color: hsl(var(--monogram-hue, 220) 55% 45%);
-  background: hsl(var(--monogram-hue, 220) 60% 50% / 0.14);
-}
-.has-thumbnail .transcript-visualize-thumb {
-  width: 104px;
-  height: 66px;
-  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
-}
-.transcript-visualize-thumb > img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: top left;
-}
-.transcript-visualize-copy {
-  min-width: 0;
-  flex: 1 1 auto;
-  display: grid;
-  gap: 1px;
-}
-.transcript-visualize-copy > b,
-.transcript-visualize-copy > small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.transcript-visualize-copy > b {
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-medium);
-  line-height: var(--mx-line-ui);
-}
-.transcript-visualize-copy > small {
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-.transcript-visualize-badges {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.transcript-visualize-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0 6px;
-  border-radius: 8px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: 18px;
-  font-variant-numeric: tabular-nums;
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
-}
-.transcript-visualize-badge.is-problem {
-  color: var(--mx-warning, #b7791f);
-}
-.transcript-visualize-error {
-  color: var(--mx-danger, #d9534f);
-  font-size: var(--mx-font-meta);
-  overflow-wrap: anywhere;
-}
 /* The page a turn left open in the browser pane: site, path, and one button
    that brings the pane back to it. It wears the file artifact's plate so a
    produced page and a produced file read as the same class of object. */
@@ -740,8 +622,8 @@ button.transcript-visualize-card:hover {
   align-items: center;
   gap: 6px;
   color: var(--mx-text-muted);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: calc(12px * var(--mx-content-scale, 1));
+  line-height: calc(16px * var(--mx-content-scale, 1));
 }
 .transcript-browser-page-site > span {
   min-width: 0;
@@ -750,7 +632,7 @@ button.transcript-visualize-card:hover {
   white-space: nowrap;
 }
 .has-thumbnail .transcript-browser-page-copy > small {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--mx-content-scale, 1));
 }
 .has-thumbnail .transcript-browser-page-open {
   align-self: center;
@@ -813,8 +695,7 @@ button.transcript-visualize-card:hover {
 .tool-activity[data-surface="desktop"] .tool-activity-title b,
 .tool-activity[data-surface="desktop"] .tool-activity-title small {
   font-family: var(--mx-font-sans);
-  /* The 13px step: tool lines sit one rung under the 14px conversation. */
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
 }
 /* Level 1 of three (summary → call rows → call detail): the roll-up line
@@ -930,7 +811,7 @@ button.transcript-visualize-card:hover {
   text-overflow: clip;
   color: var(--mx-text-muted);
   font-family: var(--mx-font-sans);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   letter-spacing: var(--mx-tracking-tight);
 }
@@ -954,15 +835,15 @@ button.transcript-visualize-card:hover {
 /* A description, a query or an agent's task is plain words. */
 .tool-title.tool-activity-item-title small[data-kind="text"] {
   font-family: var(--mx-font-sans);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-ui);
 }
 /* A file (or a count of them) is a name: UI face, full ink, medium weight. */
 .tool-title.tool-activity-item-title small[data-kind="target"] {
   max-width: none;
   color: var(--mx-text);
   font-family: var(--mx-font-sans);
-  font-size: var(--mx-font-meta);
-  /* The row-title tier at the tool lines' 13px step (500 weight):
+  font-size: var(--mx-font-ui);
+  /* The app's row-title tier (14/500, as a Settings row or a resource name):
      semibold is the group-heading tier and outweighed the summary above. */
   font-weight: var(--mx-weight-medium);
 }
@@ -1037,10 +918,10 @@ button.transcript-visualize-card:hover {
   overflow: hidden;
   border-radius: 4px;
   font-family: var(--mx-font-sans);
-  font-size: 11px;
+  font-size: calc(11px * var(--mx-content-scale, 1));
   font-weight: var(--mx-weight-medium);
   font-variant-numeric: tabular-nums lining-nums;
-  line-height: 16px;
+  line-height: calc(16px * var(--mx-content-scale, 1));
   white-space: nowrap;
 }
 .tool-diff-counts > i,
@@ -1553,7 +1434,7 @@ button.transcript-visualize-card:hover {
   color: var(--mx-text-muted);
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-code);
-  line-height: 22px;
+  line-height: calc(22px * var(--mx-content-scale, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1918,7 +1799,7 @@ button.transcript-visualize-card:hover {
    out in the code face). */
 .tool-title.tool-activity-item-title b {
   font-family: var(--mx-font-sans);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-ui);
 }
 /* Narrow windows: the title must ellipsize instead of shoving the elapsed
    readout/chevron sideways.
@@ -1961,7 +1842,7 @@ button.transcript-visualize-card:hover {
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
-  line-height: 12px;
+  line-height: calc(12px * var(--mx-content-scale, 1));
 }
 .tool-chevron {
   width: 20px;

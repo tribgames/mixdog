@@ -30,6 +30,7 @@ import { _saveAsyncQueued, _saveWorkerPending } from './save-worker.mjs';
 import { STORED_SESSION_UNREADABLE, _ensureLifecycleFields, _storedSessionFromFile } from './serialize.mjs';
 import { _savePending } from './pending-saves.mjs';
 import { isOrdinarySession } from '../store-summary-visibility.mjs';
+import { closeSessionCatalogDb } from '../catalog-db/index.mjs';
 
 // Disk mtime of the summary index when the in-memory cache was last refreshed
 // from it — the cross-process staleness detector.
@@ -145,8 +146,9 @@ function scheduleSessionSummaryIndexRebuild() {
 
 /**
  * Resolves once no summary-index writer of this process is running: the
- * background rebuild worker a cold listing (or sweep) spawned has exited and
- * every queued index mutation has landed. Both write the index, its lock and
+ * background rebuild worker a cold listing (or sweep) spawned has exited,
+ * every queued index mutation has landed and the session catalog DB is
+ * closed. Both write the index, its lock and
  * temp files into the data dir after the listing/sweep/save that caused them
  * has returned, so an owner that removes or switches the data dir awaits this
  * first.
@@ -159,6 +161,8 @@ export async function settleSessionSummaryIndex() {
     await new Promise((resolve) => worker.once('exit', resolve));
   }
   await settleSummaryIndexWrites();
+  // The daemon's session catalog DB holds its file, WAL and lock open.
+  await closeSessionCatalogDb();
 }
 
 export function listStoredSessionSummaries(options = {}) {

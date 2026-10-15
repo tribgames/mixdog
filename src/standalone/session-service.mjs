@@ -296,6 +296,7 @@ export function createSessionService({
     },
     getSize: () => sessions.size,
     getBusyCount: retention.liveBusyCount,
+    getTurnBusyCount: retention.liveTurnBusyCount,
     getStatus,
     getExternalClientCount: () => desktopServices.externalClientCount,
   });

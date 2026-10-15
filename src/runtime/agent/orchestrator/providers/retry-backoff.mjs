@@ -5,6 +5,7 @@ import {
   PROVIDER_RETRY_JITTER_RATIO,
   PROVIDER_RETRY_MAX_ATTEMPTS,
 } from '../stall-policy.mjs';
+import { providerErrorKind } from './provider-error-kind.mjs';
 
 /** Anthropic request budget: 10 retries (11 attempts).
  * CLAUDE_CODE_MAX_RETRIES is intentionally read per request for reload/tests.
@@ -32,16 +33,22 @@ export function anthropicRequestTimeoutMs() {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 600_000;
 }
 
+// Consecutive overloads after which Anthropic switches to its fallback model
+// (passed to withRetry as `overloadFallbackAfter`).
 export const ANTHROPIC_MAX_CONSECUTIVE_529 = 3;
 
-export class AnthropicFallbackTriggeredError extends Error {
+/** Thrown by withRetry when `overloadFallbackAfter` consecutive overloads hand the send to `fallbackModel`. */
+export class ModelFallbackTriggeredError extends Error {
   constructor(originalModel, fallbackModel, cause) {
-    super(`Anthropic model fallback triggered: ${originalModel} -> ${fallbackModel}`, { cause });
-    this.name = 'AnthropicFallbackTriggeredError';
+    super(`Model fallback triggered: ${originalModel} -> ${fallbackModel}`, { cause });
+    this.name = 'ModelFallbackTriggeredError';
     this.originalModel = originalModel;
     this.fallbackModel = fallbackModel;
   }
 }
+
+// Existing provider imports keep working: the same class under its old name.
+export const AnthropicFallbackTriggeredError = ModelFallbackTriggeredError;
 
 // Default backoff schedule used by withRetry when caller does not override.
 // Mirrors anthropic-oauth's 5-attempt curve (immediate + 1s/2s/4s/8s) so the
@@ -51,9 +58,36 @@ export const DEFAULT_MAX_ATTEMPTS = PROVIDER_RETRY_MAX_ATTEMPTS;
 
 const MIDSTREAM_BACKOFF_MS = [250, 1000, 2000, 4000];
 
-export function midstreamBackoffFor(retryNumber, schedule = MIDSTREAM_BACKOFF_MS) {
-  const raw = schedule[Math.min(Math.max(retryNumber, 1), schedule.length) - 1];
-  return jitterDelayMs(raw);
+const ADVICE_RETRYABLE_KINDS = new Set(['overloaded', 'rate_limited', 'transient']);
+
+/**
+ * The wait before a mid-stream re-issue: the server's advice (Retry-After /
+ * retryAfterMs) in full for a retryable kind — never capped below its value —
+ * else the caller's bounded backoff step. Advice never makes a terminal kind
+ * retryable; that is the classifier's verdict, not this wait's. The retry
+ * COUNT stays the caller's budget; the sleep stays the caller's abortable one.
+ */
+export function midstreamRetryDelayMs(err, backoffMs) {
+  const { kind, retryAfterMs } = providerErrorKind(err);
+  if (retryAfterMs != null && ADVICE_RETRYABLE_KINDS.has(kind)) return Math.max(0, retryAfterMs);
+  return Math.max(0, Number(backoffMs) || 0);
+}
+
+/** The mid-stream wait for `retryNumber`; pass the failure as `err` so server
+ *  advice on a retryable kind replaces the jittered step (midstreamRetryDelayMs). */
+// `schedule` / `jitterRatio` default to the shared values; a provider passes
+// its own (e.g. openai-retry-policy.mjs).
+export function midstreamBackoffFor(
+  retryNumber,
+  schedule = MIDSTREAM_BACKOFF_MS,
+  err = null,
+  jitterRatio,
+  jitterMode = 'symmetric'
+) {
+  const steps = schedule || MIDSTREAM_BACKOFF_MS;
+  const raw = steps[Math.min(Math.max(retryNumber, 1), steps.length) - 1];
+  const step = jitterDelayMs(raw, jitterRatio ?? PROVIDER_RETRY_JITTER_RATIO, jitterMode);
+  return err ? midstreamRetryDelayMs(err, step) : step;
 }
 
 export function jitterDelayMs(ms, ratio = PROVIDER_RETRY_JITTER_RATIO, mode = 'symmetric') {
@@ -62,7 +96,12 @@ export function jitterDelayMs(ms, ratio = PROVIDER_RETRY_JITTER_RATIO, mode = 's
   const r = Math.min(Math.max(Number(ratio) || 0, 0), 1);
   if (!r) return Math.round(base);
   const spread = base * r;
-  const offset = mode === 'positive' ? Math.random() * spread : (Math.random() * 2 - 1) * spread;
+  // 'positive': upward only; 'negative': downward only, base × (1 − r·rand);
+  // otherwise symmetric ±r.
+  let offset;
+  if (mode === 'positive') offset = Math.random() * spread;
+  else if (mode === 'negative') offset = -Math.random() * spread;
+  else offset = (Math.random() * 2 - 1) * spread;
   return Math.max(0, Math.round(base + offset));
 }
 

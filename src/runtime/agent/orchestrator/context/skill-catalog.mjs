@@ -3,15 +3,16 @@
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { maxMtimeRecursive } from '../cache-mtime.mjs';
+import { maxMtimeRecursive, mtimeSignatureRecursive } from '../cache-mtime.mjs';
 import { mixdogHome, resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
-import { pluginSkillsRoots } from '../../../shared/plugin-manifest.mjs';
+import { PLUGIN_MANIFEST_FILES, pluginSkillsRoots } from '../../../shared/plugin-manifest.mjs';
 import {
   parseSkillDocument,
   SKILL_TRIGGER_LISTING_MAX,
   SKILL_TRIGGER_LISTING_MIN,
 } from '../../../shared/skill-document.mjs';
 import { readSkillToolDependencies, skillToolDependenciesRoot } from '../../../shared/skill-tool-dependencies.mjs';
+import { SKILL_LAUNCHER_COMMAND } from '../../../shared/skill-script-runtime.mjs';
 import { loadConfig, normalizeSkillsConfig } from '../config.mjs';
 import { builtinFeatureActive, withGrandfatheredBuiltins } from '../runtime-core/builtin-features.mjs';
 import { SKILL_TOOL } from '../runtime-core/tool-defs.mjs';
@@ -86,6 +87,32 @@ function pluginSkillDirs() {
     }
   }
   return dirs;
+}
+
+/** Paths whose own mtime (no recursion) gates the skill list for enabled
+ *  registered plugins: every manifest file, plus the nearest existing ancestor
+ *  of each candidate skills root (so a skills dir created later is noticed). */
+function pluginShallowWatchPaths() {
+  const registryPath = pluginRegistryPath();
+  let registry;
+  try {
+    registry = JSON.parse(readFileSync(registryPath, 'utf-8'));
+  } catch {
+    return [];
+  }
+  const paths = [];
+  for (const entry of Array.isArray(registry?.plugins) ? registry.plugins : []) {
+    if (entry?.enabled === false) continue;
+    const root = entry && typeof entry.root === 'string' ? entry.root : null;
+    if (!root || !existsSync(root)) continue;
+    for (const rel of PLUGIN_MANIFEST_FILES) paths.push(join(root, ...rel.split('/')));
+    for (const skillsDir of pluginSkillsRoots(root)) {
+      let dir = skillsDir;
+      while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
+      paths.push(dir);
+    }
+  }
+  return paths;
 }
 
 export function readSafe(path) {
@@ -216,22 +243,37 @@ function followsBuiltinFeature(skill) {
   return skill?.source === 'builtin' && Array.isArray(skill.requires) && skill.requires.length > 0;
 }
 
-function findCachedSkillByKey(key) {
-  return collectSkillsCached(null).find((entry) => normalizeSkillNameKey(entry.name) === key);
+function findCachedSkillByKey(key, skills = null) {
+  return (skills || collectSkillsCached(null)).find((entry) => normalizeSkillNameKey(entry.name) === key);
 }
 
-export function isSkillDisabled(name, config = null) {
+/** `skills`: optional snapshot from one collectSkillsCached() call, reused so a
+ *  batch of per-skill checks scans the disk once. */
+export function isSkillDisabled(name, config = null, skills = null) {
   const n = normalizeSkillNameKey(name);
   if (!n) return false;
-  const skill = findCachedSkillByKey(n);
+  const skill = findCachedSkillByKey(n, skills);
   if (!followsBuiltinFeature(skill) && getDisabledSkillNameSet(config).has(n)) return true;
   return Boolean(skill && missingFeature(skill, featureConfig(config)));
 }
 
 /** The built-in feature a skill needs that is not active, or null. */
-export function skillMissingFeature(name, config = null) {
-  const skill = findCachedSkillByKey(normalizeSkillNameKey(name));
+export function skillMissingFeature(name, config = null, skills = null) {
+  const skill = findCachedSkillByKey(normalizeSkillNameKey(name), skills);
   return skill ? missingFeature(skill, featureConfig(config)) : null;
+}
+
+/** True when an installed skill exists but its (or its plugin's) project scope
+ *  excludes `cwd` — the same scope rule filterSkillsExcludingDisabled applies. */
+export function skillOutsideScope(name, cwd, config = null, skills = null) {
+  const skill = findCachedSkillByKey(normalizeSkillNameKey(name), skills);
+  if (!skill) return false;
+  return !skillAllowedForCwd(extensionScopesFromConfig(featureConfig(config)), skill, cwd);
+}
+
+/** The Skill tool result for a skill skillOutsideScope refuses. */
+export function skillOutsideScopeError(name) {
+  return `Error: skill "${name}" is not available in this project (its project scope excludes the current folder)`;
 }
 
 /**
@@ -260,8 +302,6 @@ export function collectPromptSkillsCached(cwd, config = null) {
 }
 // --- Global skill cache (mtime-based) ---
 const _skillsCache = new Map();
-const _mtimeCache = new Map();
-const _MTIME_TTL_MS = 2000;
 
 export function collectSkillsCached(cwd) {
   if (skillsDisabled()) return [];
@@ -273,32 +313,41 @@ export function collectSkillsCached(cwd) {
   skillsDirs.push(...pluginSkillDirs().map(({ dir }) => dir), ...builtinSkillDirs());
   // registry.json itself gates plugin add/remove: removal deletes the
   // plugin's skills dir (so no dir mtime advances), but saveRegistry()
-  // always rewrites this file. maxMtimeRecursive stats plain files directly.
+  // always rewrites this file. mtimeSignatureRecursive stats plain files directly.
   const registryPath = pluginRegistryPath();
   if (registryPath) skillsDirs.push(registryPath);
-  const mtime = mtimeWithTtl(_mtimeCache, key, skillsDirs, _MTIME_TTL_MS);
+  // Exact, un-timed gate: stat every call. The shallow watch list covers
+  // manifest edits and skill roots that do not exist yet.
+  const signature = `${mtimeSignatureRecursive(skillsDirs)}|${mtimeSignatureRecursive(pluginShallowWatchPaths(), 0)}`;
   const entry = _skillsCache.get(key);
-  if (entry && entry.mtime >= mtime) {
+  if (entry && entry.signature === signature) {
     return entry.value;
   }
   const skills = collectSkills(cwd);
-  _skillsCache.set(key, { value: skills, mtime });
+  _skillsCache.set(key, { value: skills, signature });
   capMapSize(_skillsCache);
   return skills;
 }
 export function invalidateSkillsCache(cwd) {
   void cwd;
   _skillsCache.clear();
-  _mtimeCache.clear();
-}
-/** Drop only the mtime TTL so the next call re-stats the skill roots while the
- *  cached list stays — lets a test prove the gate itself notices an edit. */
-export function invalidateSkillsMtimeGate() {
-  _mtimeCache.clear();
 }
 
 /**
- * Load full skill content plus its on-disk directory (for base-dir + ${MIXDOG_SKILL_DIR}).
+ * Directory the model hands to external processes for a skill. A packaged
+ * desktop runtime reads built-in skills from inside `runtime.asar`, which only
+ * Electron can open; the build ships them as real files beside the archive
+ * under `runtime.asar.unpacked`, so a built-in skill's directory points there.
+ * Every other source keeps its own on-disk directory.
+ */
+export function skillExecutionDir(dir, source) {
+  if (source !== 'builtin') return dir;
+  return String(dir).replace(/([\\/])runtime\.asar(?=[\\/]|$)/, '$1runtime.asar.unpacked');
+}
+
+/**
+ * Load full skill content plus its on-disk directory (for base-dir + ${MIXDOG_SKILL_DIR};
+ * ${MIXDOG_SKILL_NODE} is resolved at render time in buildSkillResultEnvelope).
  */
 export function loadSkillResource(name, cwd) {
   const skillName = String(name || '').trim();
@@ -311,7 +360,7 @@ export function loadSkillResource(name, cwd) {
   try {
     return {
       content: parseSkillDocument(content).body,
-      dir: dirname(skill.filePath),
+      dir: skillExecutionDir(dirname(skill.filePath), skill.source),
       filePath: skill.filePath,
       source: skill.source || 'global',
       toolDependencies: skill.toolDependencies || [],
@@ -335,6 +384,10 @@ export function buildSkillResultEnvelope(name, content, skillDir) {
   const escapedName = escapeSkillXmlText(name);
   let body = String(content == null ? '' : content);
   let dirLine = '';
+  // `${MIXDOG_SKILL_NODE}` runs a bundled script on this daemon's own runtime
+  // (plain node cannot load runtime internals from a packaged archive). It is
+  // one shell-neutral command name that model shells find on their PATH.
+  body = body.replace(/\$\{MIXDOG_SKILL_NODE\}/g, SKILL_LAUNCHER_COMMAND);
   if (skillDir) {
     const normDir = String(skillDir).replace(/\\/g, '/');
     body = body.replace(/\$\{MIXDOG_SKILL_DIR\}/g, normDir);

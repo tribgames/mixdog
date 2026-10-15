@@ -6,6 +6,10 @@ function normalizedModelId(value) {
   return typeof raw === 'string' ? raw.trim() : '';
 }
 
+// Kept as an id pattern: no catalog field declares server-side fallback, and
+// `fallbacks` is a beta-gated body field other models reject (a wrong "yes" is
+// a 400, a wrong "no" only skips an optional refusal fallback), so unknown ids
+// stay off.
 export function supportsAnthropicServerFallback(model) {
   const id = normalizeClaudeModelId(normalizedModelId(model));
   return /^claude-(?:opus|fable)-5(?:$|[-@])/.test(id);

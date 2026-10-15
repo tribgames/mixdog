@@ -262,6 +262,9 @@ interface SettledTranscriptProjection {
   currentTurnKey: string;
   previousRowWasUser: boolean;
   itemCount: number;
+  /** The last settled item is a successful completion folded into its
+   *  assistant row: that row's footer now stands where the live band was. */
+  endsWithFoldedCompletion: boolean;
   hasSettledItem(id: unknown): boolean;
 }
 
@@ -476,6 +479,7 @@ export function projectSettledTranscriptRows({
     currentTurnKey: builder.currentTurnKey,
     previousRowWasUser: builder.previousRowWasUser,
     itemCount: items.length,
+    endsWithFoldedCompletion: items.length > 0 && foldedCompletions.has(items.length - 1),
     hasSettledItem: settledItemLookup(items),
   };
 }

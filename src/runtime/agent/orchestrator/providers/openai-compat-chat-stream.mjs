@@ -71,6 +71,7 @@ export async function consumeCompatChatCompletionStream(
         idleDeadlineAt: state.semanticIdleDeadlineAt,
         idleEnabled: state.sawFirstEvent && idleEnabled && state.semanticIdleDeadlineAt > 0,
         idleLabel: `${label} SSE idle`,
+        streamLabel: label,
         emittedToolCall: () => toolWorkStarted(state),
       });
       if (done) {

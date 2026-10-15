@@ -8,6 +8,7 @@ import { createSessionResetActions } from './lifecycle/session-reset.mjs';
 import { createInheritanceActions } from './lifecycle/inheritance.mjs';
 import { createResumeAction } from './lifecycle/resume.mjs';
 import { createDisposeAction } from './lifecycle/dispose.mjs';
+import { publishModelSwitch } from './routes.mjs';
 
 export function createSessionLifecycleApi(bag, { restoreTranscriptItems, oauthFlows }) {
   const { runtime, pushNotice, removeNotice, setProgressHint, finishToolApproval } = bag;
@@ -55,7 +56,8 @@ export function createSessionLifecycleApi(bag, { restoreTranscriptItems, oauthFl
         id,
         approved,
         decision?.reason || (approved ? 'approved by user' : 'denied by user'),
-        typeof decision?.device === 'string' ? decision.device : ''
+        typeof decision?.device === 'string' ? decision.device : '',
+        decision?.answers
       );
     },
     pushNotice,
@@ -85,9 +87,12 @@ export function createSessionLifecycleApi(bag, { restoreTranscriptItems, oauthFl
       bag.supersedeQuotaResume?.(sessionId);
       bag.set({ commandBusy: true });
       try {
-        await runtime.continueSessionInModel(sessionId, route);
+        const result = await runtime.continueSessionInModel(sessionId, route);
         bag.set({ ...bag.routeState(), stats: { ...bag.getState().stats } });
         bag.syncContextStats?.({ allowEstimated: true });
+        // The same live divider as a picker switch; IPC and remote callers
+        // see it through the published snapshot.
+        publishModelSwitch(bag, result?.modelSwitch);
         return true;
       } finally {
         bag.set({ commandBusy: false });

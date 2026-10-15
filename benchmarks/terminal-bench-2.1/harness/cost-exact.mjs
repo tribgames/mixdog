@@ -27,7 +27,7 @@ import { resolveRunDir } from '../analysis/run-dir.mjs';
 
 const [runArg, ccPath] = process.argv.slice(2);
 if (!runArg) { console.error('usage: node cost-exact.mjs <runDir> [ccBaseline.json]'); process.exit(1); }
-// Falls back to the committed <harness>/<model>/<date>/ export, whose usage.json snapshots
+// Falls back to the committed records/<harness>/<model>/<date>/ export, whose usage.json snapshots
 // carry the priced totals (rows then read [usage-only]).
 const runDir = resolveRunDir(runArg);
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };

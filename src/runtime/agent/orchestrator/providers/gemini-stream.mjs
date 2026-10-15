@@ -26,6 +26,7 @@ import { createSdkStreamReader } from './gemini-sdk-stream/reader.mjs';
 import { createRestStreamWatchdogs } from './gemini-rest-stream/watchdogs.mjs';
 import { drainSseDataLines, sseDataPayload } from './gemini-rest-stream/sse-lines.mjs';
 import { noteAbandonedUsage } from '../../../shared/llm/usage-context.mjs';
+import { applyGeminiErrorContract, assertNoGeminiInBandError } from './gemini-error-contract.mjs';
 
 export const GEMINI_FIRST_BYTE_TIMEOUT_MS = resolveTimeoutMs(
   'MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS',
@@ -132,9 +133,16 @@ export function normalizeGeminiSdkError(err, label) {
   const transport = geminiSdkTransportError(err, label);
   if (transport) return transport;
   const stamped = stampGeminiRpcError(err);
-  return isGeminiSdkStreamParseError(stamped)
-    ? geminiStreamCorruptionError(`${label} corrupt SDK SSE JSON`, stamped)
-    : stamped;
+  if (isGeminiSdkStreamParseError(stamped)) {
+    return geminiStreamCorruptionError(`${label} corrupt SDK SSE JSON`, stamped);
+  }
+  if (!stamped || typeof stamped !== 'object') return stamped;
+  return applyGeminiErrorContract(stamped, {
+    details: stamped.details,
+    errorDetails: stamped.errorDetails,
+    googleStatus: stamped.geminiStatus,
+    message: stamped.message,
+  });
 }
 
 // CC-rule safety stamp for Gemini stream failures (provider-stall audit):
@@ -225,7 +233,10 @@ export function geminiChunkProgressKind(chunk) {
  * (same shape as a non-streaming generateContent JSON body).
  * Mirrors @google/generative-ai aggregateResponses().
  */
-function aggregateGeminiStreamChunks(responses) {
+function aggregateGeminiStreamChunks(responses, label = 'Gemini stream') {
+  // An error envelope anywhere in the stream — including after STOP — fails
+  // the turn instead of aggregating into a success.
+  for (const response of responses) assertNoGeminiInBandError(response, label);
   const lastResponse = responses[responses.length - 1];
   const aggregatedResponse = {
     promptFeedback: lastResponse?.promptFeedback,
@@ -270,11 +281,28 @@ function aggregateGeminiStreamChunks(responses) {
   return aggregatedResponse;
 }
 
-function assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label }) {
+// A response with neither text nor a tool call (thoughts alone are not text).
+function hasNoAnswerContent(aggregated) {
+  const parts = aggregated?.candidates?.[0]?.content?.parts;
+  return !(Array.isArray(parts) ? parts : []).some(
+    (part) => part?.functionCall || (part?.thought !== true && typeof part?.text === 'string' && part.text.trim())
+  );
+}
+
+function assertGeminiStreamCompleted({
+  sawStreamChunk,
+  finishReason,
+  promptBlockReason,
+  label,
+  acceptEmptyNoFinish = false,
+  aggregated = null,
+}) {
   if (!sawStreamChunk) {
     throw geminiTruncatedStreamError(`${label} truncated: empty stream`);
   }
   if (!finishReason && !promptBlockReason) {
+    // Right after a tool result the model may end with nothing at all.
+    if (acceptEmptyNoFinish && hasNoAnswerContent(aggregated)) return;
     throw geminiTruncatedStreamError(`${label} truncated: no finishReason`);
   }
 }
@@ -436,7 +464,17 @@ function createLeakGuardFinalizer(textLeakGuard) {
 // aggregation, leak guard, watchdogs — stays shared.
 export async function consumeGeminiRestStreamResponse(
   response,
-  { signal, onStreamDelta, onTextDelta, textLeakGuard, label, unwrapChunk = null, onChunk = null, failureUsage = null }
+  {
+    signal,
+    onStreamDelta,
+    onTextDelta,
+    textLeakGuard,
+    label,
+    unwrapChunk = null,
+    onChunk = null,
+    failureUsage = null,
+    acceptEmptyNoFinish = false,
+  }
 ) {
   const unwrap =
     typeof unwrapChunk === 'function'
@@ -464,7 +502,10 @@ export async function consumeGeminiRestStreamResponse(
   });
   // One decoded chunk: collected for aggregation and relayed to every sink.
   const relayChunk = (rawChunk) => {
+    // In-band errors stay top level even on a transport that nests payloads.
+    assertNoGeminiInBandError(rawChunk, label);
     const parsed = unwrap(rawChunk);
+    assertNoGeminiInBandError(parsed, label);
     if (!sawStreamChunk) {
       sawStreamChunk = true;
       watchdogs.clearFirstByte();
@@ -530,12 +571,13 @@ export async function consumeGeminiRestStreamResponse(
     }
     const tail = sseDataPayload(buffer.trim());
     if (tail) {
+      let rawTail;
       try {
-        const [rawTail] = await parseProviderJsonBatch([tail]);
-        relayChunk(rawTail);
+        [rawTail] = await parseProviderJsonBatch([tail]);
       } catch (cause) {
         throw geminiStreamCorruptionError(`${label} corrupt SSE tail JSON`, cause);
       }
+      relayChunk(rawTail);
     }
   } catch (err) {
     finalizeLeakGuard();
@@ -558,7 +600,7 @@ export async function consumeGeminiRestStreamResponse(
     finalizeLeakGuard();
   }
 
-  const aggregated = aggregateGeminiStreamChunks(allChunks);
+  const aggregated = aggregateGeminiStreamChunks(allChunks, label);
   const finishReason = aggregated.candidates?.[0]?.finishReason || null;
   const promptBlockReason = aggregated.promptFeedback?.blockReason || null;
   // Truncation (no finishReason) after visible output must carry the same
@@ -566,7 +608,14 @@ export async function consumeGeminiRestStreamResponse(
   // above, so stamp here too (review High: transient TRUNCATED_STREAM would
   // otherwise replay/double-render live text via withRetry).
   try {
-    assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label });
+    assertGeminiStreamCompleted({
+      sawStreamChunk,
+      finishReason,
+      promptBlockReason,
+      label,
+      acceptEmptyNoFinish,
+      aggregated,
+    });
   } catch (err) {
     throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, chunks: allChunks, failureUsage });
   }
@@ -585,6 +634,7 @@ export async function consumeGeminiSdkStream(
     firstByteTimeoutMs = GEMINI_FIRST_BYTE_TIMEOUT_MS,
     cancellationGraceMs = 250,
     failureUsage = null,
+    acceptEmptyNoFinish = false,
   }
 ) {
   let relayedText = '';
@@ -636,6 +686,7 @@ export async function consumeGeminiSdkStream(
       if (signal?.aborted) throw abortError();
       if (step.done) break;
       reader.noteChunk();
+      assertNoGeminiInBandError(step.value, label);
       if (step.value) collectedChunks.push(step.value);
       try {
         onStreamDelta?.(geminiChunkProgressKind(step.value));
@@ -652,7 +703,7 @@ export async function consumeGeminiSdkStream(
     // locally; retain the SDK response path only for an empty collection.
     let raw;
     if (collectedChunks.length > 0) {
-      raw = aggregateGeminiStreamChunks(collectedChunks);
+      raw = aggregateGeminiStreamChunks(collectedChunks, label);
     } else {
       let response;
       try {
@@ -661,10 +712,18 @@ export async function consumeGeminiSdkStream(
         throw normalizeGeminiSdkError(err, label);
       }
       raw = response?.candidates ? response : response?.response || response;
+      assertNoGeminiInBandError(raw, label);
     }
     const finishReason = raw?.candidates?.[0]?.finishReason || null;
     const promptBlockReason = raw?.promptFeedback?.blockReason || null;
-    assertGeminiStreamCompleted({ sawStreamChunk: reader.sawStreamChunk, finishReason, promptBlockReason, label });
+    assertGeminiStreamCompleted({
+      sawStreamChunk: reader.sawStreamChunk,
+      finishReason,
+      promptBlockReason,
+      label,
+      acceptEmptyNoFinish,
+      aggregated: raw,
+    });
     return raw;
   } catch (err) {
     reader?.clearFirstByte();

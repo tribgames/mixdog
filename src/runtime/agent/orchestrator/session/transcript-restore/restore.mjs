@@ -6,7 +6,7 @@
  */
 import { contextMeasurementStats } from '../../../../shared/context-measurement.mjs';
 import { toolResultText } from './tool-result-text.mjs';
-import { restoredUserText } from './user-text.mjs';
+import { restoredUserImageRefs, restoredUserText } from './user-text.mjs';
 import {
   completionCardFromExecution,
   parseModelVisibleCompletionWrapper,
@@ -38,6 +38,7 @@ import {
 } from '../../../../shared/tool-execution-contract.mjs';
 import { toolResultTerminalStatus } from '../../../../shared/tool-status.mjs';
 import { transcriptRouteMetadataFields } from '../../../../shared/transcript-metadata.mjs';
+import { isImportedMessage } from '../imported-message.mjs';
 
 function restoredTranscriptMetadata(message) {
   const value = message?.meta?.transcript;
@@ -62,6 +63,10 @@ function restoredTranscriptMetadata(message) {
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
     ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
     ...(typeof value.checkpointId === 'string' && value.checkpointId ? { checkpointId: value.checkpointId } : {}),
+    // Skills this user turn explicitly loaded (header selection or `$name`).
+    ...(Array.isArray(value.appliedSkills) && value.appliedSkills.length
+      ? { appliedSkills: value.appliedSkills.filter((name) => typeof name === 'string' && name) }
+      : {}),
     ...(completion ? { completion } : {}),
   };
 }
@@ -281,7 +286,9 @@ function mergeRestoredToolItems(items) {
 }
 
 function restoredMessageItemUpperBound(message) {
-  const boundaries = Array.isArray(message?.meta?.sessionInheritances) ? message.meta.sessionInheritances.length : 0;
+  const boundaries =
+    (Array.isArray(message?.meta?.sessionInheritances) ? message.meta.sessionInheritances.length : 0) +
+    (Array.isArray(message?.meta?.modelSwitches) ? message.meta.modelSwitches.length : 0);
   if (message?.role === 'user') return 1 + boundaries;
   if (message?.role !== 'assistant') return boundaries;
   const calls = restoredMessageToolCalls(message);
@@ -322,6 +329,11 @@ function restoredUserTranscriptItems(message, nextId) {
   // skill bodies (meta:'skill'), hook/system reminders, and tag-wrapped context
   // blocks must not restore as user bubbles in any client.
   if (message?.meta === 'skill' || message?.meta === 'hook') return [];
+  // Imported prose renders verbatim: never a control row, card or display rewrite.
+  if (isImportedMessage(message)) {
+    const text = (typeof message.content === 'string' ? message.content : toolResultText(message.content)).trim();
+    return text ? [{ kind: 'user', id: nextId(), text, ...restoredTranscriptMetadata(message) }] : [];
+  }
   const text = restoredUserText(message?.content).trim();
   // Persisted async-completion wrappers ("Async shell task ... finished. Result:
   // > ...") are the only durable record of a background completion — the live
@@ -353,9 +365,31 @@ function restoredUserTranscriptItems(message, nextId) {
   }
   const synthetic = parseSyntheticAgentMessage(text);
   if (!synthetic) {
-    return [{ kind: 'user', id: nextId(), text, ...restoredTranscriptMetadata(message) }];
+    const imageRefs = restoredUserImageRefs(message?.content);
+    return [
+      {
+        kind: 'user',
+        id: nextId(),
+        text,
+        ...restoredTranscriptMetadata(message),
+        ...(imageRefs.length ? { imageRefs } : {}),
+      },
+    ];
   }
   return [restoredNotificationToolItem(synthetic, text, message, nextId, /^(failed|error|killed|cancelled)$/i)];
+}
+
+/** The transcript row of an in-place model switch (live and restored). */
+export function modelSwitchItem(id, boundary) {
+  return {
+    kind: 'statusdone',
+    id,
+    status: 'model-switched',
+    label: 'Model switched',
+    provider: boundary.provider,
+    modelId: boundary.modelId,
+    at: boundary.at,
+  };
 }
 
 function restoreTranscriptRange(messages, start, sessionId) {
@@ -388,6 +422,10 @@ function restoreTranscriptRange(messages, start, sessionId) {
         modelId: boundary.modelId,
         at: boundary.at,
       });
+    }
+    for (const boundary of Array.isArray(message?.meta?.modelSwitches) ? message.meta.modelSwitches : []) {
+      if (!boundary?.provider || !boundary?.modelId) continue;
+      items.push(modelSwitchItem(restoredId(), boundary));
     }
   }
   return mergeRestoredToolItems(items);

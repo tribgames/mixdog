@@ -32,7 +32,7 @@
    scrolling repaint the masked content. The measured dock height includes
    the floating island, so the fade ends at whichever sits on top. */
 .conversation {
-  --transcript-fade: 48px;
+  --transcript-fade: 24px;
 }
 .conversation > .transcript-shell::after {
   content: "";
@@ -65,19 +65,21 @@
    One island above a session's composer carries every status (Goal, jobs,
    changed files, model mismatch), expands upward in place, grows into the
    tool approval card and flashes short notices. Its slot reserves the
-   pill's 36px + 12px gap while something shows and collapses to 0 when empty;
-   everything taller overlays upward. */
+   pill's 34px + 12px gap once something has shown (it then stays held open,
+   see ComposerIsland) and is 0 before that; everything taller overlays
+   upward. The slot opens in one step: the island draws at its final place at
+   once, so an animated slot let the end-pinned transcript glide up under the
+   new segment for 180ms, the segment covering the last rows meanwhile. */
 .composer-island-slot {
   position: relative;
   z-index: 9;
-  height: 42px;
+  height: 46px;
   pointer-events: none;
-  transition: height 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-/* Nothing to carry: the slot collapses too. Same content test as the
+/* Nothing carried yet: the slot is collapsed. Same content test as the
    island's hidden rule below; :root outranks the mobile slot height. */
 :root
-.composer-island-slot:not(
+.composer-island-slot:not([data-held]):not(
   :has(
     .composer-island-seg,
     .session-goal-island,
@@ -88,24 +90,13 @@
   )
 ) {
   height: 0;
-  /* Grace period: the collapse waits 1.5s so one job ending and another
-     starting right after does not close and reopen the slot. The delay lives
-     on the collapsed state, so content returning in time cancels it, and
-     opening carries no delay. */
-  transition-delay: 1500ms;
-}
-@media (prefers-reduced-motion: reduce) {
-  /* No height animation, but the grace delay still applies. */
-  .composer-island-slot {
-    transition-duration: 0s;
-  }
 }
 .composer-island-stage {
   position: absolute;
   inset-inline: 0;
-  /* 8px above the input: close enough to read as the composer's own chrome
-. */
-  bottom: 8px;
+  /* 12px above the input: close enough to read as the composer's own chrome
+     while leaving it room to breathe (the mobile dock uses the same gap). */
+  bottom: 12px;
   display: flex;
   justify-content: center;
   pointer-events: none;
@@ -267,16 +258,11 @@
   background: var(--composer-island-rule);
   transform: translateY(-50%);
 }
-/* Only text that can ellipsize gives way on a narrow island: the model label,
-   and the Goal while it still shows its title. Counts never shrink. */
-.composer-island-pill > .composer-island-seg:not(.composer-island-seg-model),
+/* Only text that can ellipsize gives way on a narrow island: the Goal while
+   it still shows its title. Counts never shrink. */
+.composer-island-pill > .composer-island-seg,
 .composer-island-pill:has(> .composer-island-seg ~ .composer-island-seg) > .session-goal-island {
   flex-shrink: 0;
-}
-/* Status reads as text, a dot and numbers, not coloured icons
-   (island-icons.html): only the dot carries the warning hue. */
-.composer-island-seg-model {
-  color: var(--mx-text-muted);
 }
 .composer-island-seg-warning svg {
   color: var(--mx-warning);
@@ -369,26 +355,27 @@
   flex: none;
   color: var(--mx-text-muted);
 }
-@container composer-island (max-width: 419px) {
-  .composer-island-seg-word,
-  .composer-island-seg.turn-review-segment .diff-stats,
-  .composer-island-seg-model > .composer-island-seg-text {
-    display: none;
-  }
-  .composer-island-seg-num {
-    display: inline-block;
-  }
-  .composer-island-seg-state[data-kind="waiting"] > .composer-island-dot {
-    display: inline-block;
-  }
-  .composer-island-seg-state + .composer-island-seg-state::before {
-    content: none;
-  }
-  .composer-island-seg,
-  .composer-island .session-goal-trigger {
-    gap: 5px;
-    padding-inline: 8px;
-  }
+/* The fit check (ComposerIsland's useIslandFit) reads the pill at its
+   full-label width; only when that overflows the island's room does
+   data-compact swap the words for bare counts. */
+.composer-island[data-measuring] > .composer-island-pill {
+  width: max-content;
+}
+.composer-island[data-compact] :is(.composer-island-seg-word, .composer-island-seg.turn-review-segment .diff-stats) {
+  display: none;
+}
+.composer-island[data-compact] .composer-island-seg-num {
+  display: inline-block;
+}
+.composer-island[data-compact] .composer-island-seg-state[data-kind="waiting"] > .composer-island-dot {
+  display: inline-block;
+}
+.composer-island[data-compact] .composer-island-seg-state + .composer-island-seg-state::before {
+  content: none;
+}
+.composer-island[data-compact] :is(.composer-island-seg, .session-goal-trigger) {
+  gap: 5px;
+  padding-inline: 8px;
 }
 /* Inline, so the literal space between +a and −b shows. */
 .turn-review-segment .diff-stats {
@@ -513,10 +500,6 @@ button.composer-island-tab {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.composer-island-row .agent-route-meta {
-  flex: none;
-  white-space: nowrap;
-}
 .composer-island-row .composer-island-shell-command {
   font-family: var(--mx-font-mono);
 }
@@ -623,13 +606,96 @@ button.composer-island-tab {
   flex: none;
   text-align: right;
 }
-.composer-island-model .composer-island-pbody,
 .composer-island-quota .composer-island-pbody {
   padding: 14px 16px 12px;
 }
 .composer-island-quota .composer-island-ptitle svg {
   color: var(--mx-warning);
   flex: none;
+}
+/* The quota banner: one pill line in the island's material at the
+   composer's width, between the island and the prompt input. Only the icon
+   carries the warning hue. */
+.composer-quota-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 5px 5px 5px 14px;
+  border-radius: 999px;
+  color: var(--mx-text);
+  background: var(--mx-island-frame);
+  box-shadow:
+    inset 0 0 0 0.5px var(--mx-border),
+    var(--mx-raised);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-label);
+  line-height: var(--mx-line-ui);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  transform-origin: 50% 100%;
+  animation: composer-island-pop 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.composer-quota-card-icon {
+  flex: none;
+  color: var(--mx-warning);
+}
+/* Title, reset and guidance never wrap. Title and reset keep their full
+   width (the text block cannot shrink below them); only the guidance takes
+   the remaining room, and when it runs out it is hidden (keeping its box, so
+   the overflow measurement stays stable). */
+.composer-quota-card-text {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.composer-quota-card-text > * {
+  flex: none;
+}
+/* `contain: inline-size` keeps the guidance's text out of the line's
+   minimum width, so it is the only part that gives way. */
+.composer-quota-card-text > .composer-quota-card-guide {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  contain: inline-size;
+}
+.composer-quota-card-title {
+  font-weight: var(--mx-weight-semibold);
+}
+.composer-quota-card-reset,
+.composer-quota-card-guide {
+  color: var(--mx-text-muted);
+}
+.composer-quota-card[data-guidance-hidden="true"] .composer-quota-card-guide {
+  visibility: hidden;
+}
+/* The island's primary button, as a pill: a still clock while off, a
+   spinning loader while the resume is reserved. */
+.composer-quota-card .composer-quota-card-resume {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px 0 10px;
+  border-radius: 999px;
+  font-weight: var(--mx-weight-semibold);
+}
+.composer-quota-card-resume-icon {
+  flex: none;
+}
+.composer-quota-card-resume[data-reserved="true"] .composer-quota-card-resume-icon {
+  animation: var(--mx-motion-spin);
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-quota-card,
+  .composer-quota-card-resume[data-reserved="true"] .composer-quota-card-resume-icon {
+    animation: none;
+  }
 }
 .composer-island-ptitle {
   display: flex;
@@ -662,9 +728,13 @@ button.composer-island-tab {
   font: inherit;
   cursor: pointer;
 }
-.composer-island-button:hover,
+.composer-island-button:hover:not(:disabled),
 .composer-island .session-goal-control:hover:not(:disabled) {
   background: var(--mx-hover);
+}
+.composer-island-button:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
 }
 .composer-island .session-goal-control:disabled {
   opacity: var(--mx-op-disabled);
@@ -681,6 +751,217 @@ button.composer-island-tab {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+}
+/* ask_user question card (design/mockups/ask-user-question): it sits in the
+   transcript where its call is, like a reply. The composer stays open; a
+   message sent from it closes the question. */
+.question-card {
+  display: block;
+  max-width: 560px;
+  margin: 4px 0 12px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  font-size: var(--mx-font-minor);
+  line-height: 20px;
+  outline: none;
+}
+.question-head {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 4px;
+}
+.question-step {
+  flex: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.question-close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mx-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+}
+.question-close:hover {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+.question-text {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+/* Options sit in one box, split by hairlines; free text gets its own box. */
+.question-options {
+  display: grid;
+  margin-top: 8px;
+  border-radius: 8px;
+  background: var(--mx-bg-layer-2);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  overflow: hidden;
+}
+.question-option {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.question-option + .question-option {
+  border-top: 0.5px solid var(--mx-border-muted);
+}
+.question-option:hover {
+  background: var(--mx-hover);
+}
+.question-option[data-selected] {
+  background: color-mix(in srgb, var(--mx-accent) 12%, transparent);
+}
+.question-card :is(button, input):focus-visible {
+  outline: 2px solid var(--mx-accent);
+  outline-offset: -2px;
+}
+.question-key {
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--mx-radius-sm);
+  background: var(--mx-chip-bg);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border);
+  color: var(--mx-text-muted);
+  font: 500 11px/16px var(--mx-font-mono);
+}
+.question-option[data-selected] .question-key {
+  background: var(--mx-accent);
+  box-shadow: none;
+  color: var(--mx-bg-base);
+}
+.question-card[data-multi] .question-option[data-selected] .question-key {
+  position: relative;
+  color: transparent;
+}
+.question-card[data-multi] .question-option[data-selected] .question-key::after {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--mx-bg-base);
+  font: 700 12px/1 var(--mx-font-sans, inherit);
+}
+/* One line per option: a long label ends in an ellipsis. */
+.question-option-text {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+.question-option-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.question-rec {
+  margin-left: 6px;
+  color: var(--mx-accent);
+  font-size: 12px;
+  font-weight: 400;
+}
+.question-other {
+  display: flex;
+  height: 36px;
+  margin-top: 8px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--mx-bg-layer-2);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  cursor: text;
+}
+.question-other:focus-within {
+  box-shadow: inset 0 0 0 1px var(--mx-accent);
+}
+.question-other input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--mx-text);
+  font: inherit;
+  font-weight: 400;
+}
+.question-card .question-other input:focus-visible {
+  outline: none;
+}
+.question-other input::placeholder {
+  color: var(--mx-text-muted);
+}
+/* An answered ask_user call stays in the transcript as a summary: each
+   question with only what was picked or typed, as chips. */
+.ask-user-record {
+  max-width: 560px;
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.ask-user-record-question + .ask-user-record-question {
+  margin-top: 10px;
+}
+.ask-user-record-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.ask-user-record-answers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.ask-user-record-chip {
+  max-width: 100%;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--mx-accent) 16%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-accent) 50%, transparent);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.ask-user-record-none {
+  color: var(--mx-text-muted);
+}
+.ask-user-record-note {
+  margin-top: 8px;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+}
+.question-card :disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .composer-island-flash {
   height: 34px;
@@ -752,7 +1033,7 @@ html[data-mixdog-mobile-tabs] .composer-island-button {
 html[data-mixdog-mobile-tabs] .composer-island-pbody {
   padding: 10px 14px 12px;
 }
-html[data-mixdog-mobile-tabs] :is(.composer-island-model, .composer-island-quota) .composer-island-pbody {
+html[data-mixdog-mobile-tabs] .composer-island-quota .composer-island-pbody {
   padding: 14px 16px 12px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-pfoot {
@@ -1697,6 +1978,128 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
 .mention-palette .mention-path strong {
   color: var(--mx-text);
 }
+/* `$` skill mentions. A recognised token is accent ink on a soft accent
+   fill, in the composer (painted on the layer behind the textarea) and in the
+   sent user message alike. */
+:root {
+  --mx-skill-token-ink: var(--mx-text-accent);
+  --mx-skill-token-fill: rgba(91, 176, 255, 0.14);
+}
+:root[data-mixdog-theme="light"] {
+  --mx-skill-token-fill: rgba(10, 95, 209, 0.1);
+}
+.skill-mention-token {
+  /* The fill reaches 2px past the glyphs without moving them: the padding
+     and the negative margin cancel, so wrapping matches unstyled text. */
+  margin: 0 -2px;
+  padding: 0 2px;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-skill-token-ink);
+  background: var(--mx-skill-token-fill);
+}
+.slash-palette.mention-palette.skill-mention-palette button[role="option"] {
+  grid-template-columns: 18px 150px minmax(0, 1fr);
+}
+.skill-mention-palette .skill-mention-name {
+  overflow: hidden;
+  color: var(--mx-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-mention-palette .skill-mention-name b {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-semibold);
+}
+.skill-mention-palette .skill-mention-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Empty and no-match states: one left-aligned muted line, the settings
+   link inline in accent ink. */
+.slash-palette.skill-mention-palette .skill-mention-empty {
+  padding: 4px 12px 6px;
+  color: var(--mx-text-muted);
+  text-align: left;
+}
+.slash-palette.skill-mention-palette .skill-mention-settings,
+.slash-palette.skill-mention-palette .skill-mention-settings:hover {
+  display: inline;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  color: var(--mx-text-accent);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.slash-palette.skill-mention-palette .skill-mention-settings:hover {
+  text-decoration: underline;
+}
+@media (max-width: 520px) {
+  .slash-palette.mention-palette.skill-mention-palette button[role="option"] {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+  .skill-mention-palette .skill-mention-description {
+    display: none;
+  }
+}
+/* The highlight layer sits behind the textarea in the same box; the layer
+   copies the textarea's live type and padding (composer-skill-mentions.tsx).
+   While it paints, the textarea keeps only its caret and selection. */
+.composer-text-field {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.composer-text-field > textarea {
+  position: relative;
+}
+.composer-skill-highlight {
+  position: absolute;
+  overflow: hidden;
+  margin: 0;
+  border-color: transparent;
+  color: var(--mx-text);
+  pointer-events: none;
+  user-select: none;
+}
+.composer textarea.has-skill-mentions {
+  color: transparent;
+}
+/* State F: a mentioned skill that is switched off. One line under the card;
+   sending is not blocked. */
+.composer-skill-status {
+  margin: 8px var(--composer-text-inset, 18px) 0;
+  color: var(--mx-danger);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+/* State E: the skills a sent message applied, under the bubble. */
+.message.user .message-applied-skills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin: 6px 6px 0 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.message-applied-skill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+}
 .slash-palette code {
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
@@ -1730,7 +2133,6 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   margin-bottom: -2px;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-color: var(--mx-scrollbar-thumb) transparent;
 }
 
 /* Attachment cards (composer, automation editors, sent messages): one size

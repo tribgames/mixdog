@@ -32,8 +32,3 @@ export function compact(value, maximum = 120) {
     .replace(/\s+/g, ' ')
     .slice(0, maximum);
 }
-
-export function imageBuffer(image) {
-  if (Buffer.isBuffer(image?.data)) return image.data;
-  return Buffer.from(String(image?.data || ''), 'base64');
-}

@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, providerTimeoutError, streamStalledError } from '../stall-policy.mjs';
 import { typedStatusFrom } from './retry-classifier.mjs';
+import { applyCompatErrorContract } from './openai-compat-error-contract.mjs';
+import { truncatedCompatStreamError } from './lib/openai-tool-args.mjs';
 
 // Shared lifecycle and replay boundaries for both OpenAI-compatible protocols.
 
@@ -22,8 +24,66 @@ function markInBandWireError(err) {
     if (typed && !err.httpStatus) err.httpStatus = typed;
     const code = detail.code ?? detail.type ?? null;
     if (code != null && code !== '' && !err.providerErrorCode) err.providerErrorCode = String(code);
+    applyCompatErrorContract(err, detail);
   } catch {}
   return err;
+}
+
+/**
+ * A frame the SDK failed to JSON-decode. Raised only at the wire-decoding
+ * boundary (the iterator's own next()); consumers stamp the exposure evidence
+ * (partial output, replay safety) on it in their failure path.
+ */
+export function malformedCompatStreamError(label, cause) {
+  const err = new Error(`${label || 'compat SSE'} malformed stream frame: ${cause?.message || 'invalid JSON'}`, {
+    cause,
+  });
+  err.name = 'MalformedStreamError';
+  err.code = 'malformed_stream';
+  err.malformedStream = true;
+  return err;
+}
+
+/**
+ * A chat `finish_reason: network_error` is an interruption the gateway reports
+ * in-band, never a completion. Typed as a truncated stream so the shared
+ * classifier treats it as transient; exposure gates decide replay.
+ */
+export function networkInterruptedCompatStreamError(label) {
+  const err = truncatedCompatStreamError(label, 'finish_reason=network_error');
+  err.name = 'StreamInterruptedError';
+  err.streamInterrupted = true;
+  err.finishReason = 'network_error';
+  return err;
+}
+
+export function isNetworkErrorFinishReason(finishReason) {
+  return typeof finishReason === 'string' && finishReason.trim().toLowerCase() === 'network_error';
+}
+
+/**
+ * A chat `finish_reason: error` means the upstream failed the generation
+ * (gateways surface it as a 502 upstream_error). Typed like the network interruption, with the gateway status.
+ */
+export function upstreamErrorCompatStreamError(label) {
+  const err = truncatedCompatStreamError(label, 'finish_reason=error');
+  err.name = 'StreamInterruptedError';
+  err.streamInterrupted = true;
+  err.finishReason = 'error';
+  err.status = 502;
+  err.code = 'upstream_error';
+  return err;
+}
+
+export function isErrorFinishReason(finishReason) {
+  return typeof finishReason === 'string' && finishReason.trim().toLowerCase() === 'error';
+}
+
+/** The typed interruption for a failing chat finish_reason, or null for any other value. */
+export function failingFinishReasonError(finishReason, label) {
+  if (isNetworkErrorFinishReason(finishReason)) return networkInterruptedCompatStreamError(label);
+  if (isErrorFinishReason(finishReason)) return upstreamErrorCompatStreamError(label);
+  return null;
 }
 
 export function synthLeakedOpenAICall(recovered) {
@@ -59,7 +119,7 @@ export function closeCompatStream(stream, iterator) {
 
 export async function nextAsyncWithWatchdog(
   iterator,
-  { signal, idleMs, idleDeadlineAt, idleEnabled, idleLabel, emittedToolCall } = {}
+  { signal, idleMs, idleDeadlineAt, idleEnabled, idleLabel, streamLabel, emittedToolCall } = {}
 ) {
   let idleTimer = null;
   let idleReject = null;
@@ -106,7 +166,11 @@ export async function nextAsyncWithWatchdog(
         };
         signal.addEventListener('abort', onAbort, { once: true });
       }
-      iterator.next().then(resolve, reject);
+      // The SDK JSON-decodes each frame inside next(): a SyntaxError here is a
+      // malformed wire frame, typed at this boundary and nowhere else.
+      iterator.next().then(resolve, (error) =>
+        reject(error instanceof SyntaxError ? malformedCompatStreamError(streamLabel || idleLabel, error) : error)
+      );
     });
   } catch (err) {
     if (idleTimedOut)

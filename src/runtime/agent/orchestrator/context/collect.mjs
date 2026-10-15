@@ -13,11 +13,12 @@ export {
   collectSkillsCached,
   filterSkillsExcludingDisabled,
   invalidateSkillsCache,
-  invalidateSkillsMtimeGate,
   isSkillDisabled,
   loadSkillResource,
   skillBodyPresentInSession,
   skillMissingFeature,
+  skillOutsideScope,
+  skillOutsideScopeError,
 } from './skill-catalog.mjs';
 export {
   composeSystemPrompt,

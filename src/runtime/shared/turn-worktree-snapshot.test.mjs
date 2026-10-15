@@ -1,9 +1,18 @@
 import assert from 'node:assert/strict';
 import childProcess, { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import fs, {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import test from 'node:test';
 
 const gitAvailable = spawnSync('git', ['--version'], { encoding: 'utf8', windowsHide: true }).status === 0;
@@ -15,8 +24,13 @@ process.on('exit', () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const { createTurnWorktreeSnapshot, noteTurnWorktreeChange, refreshTurnWorktreeSnapshot, revertTurnWorktreeSnapshot } =
-  await import('./turn-worktree-snapshot.mjs');
+const {
+  _resetTurnWorktreeSnapshotsForTest,
+  createTurnWorktreeSnapshot,
+  noteTurnWorktreeChange,
+  refreshTurnWorktreeSnapshot,
+  revertTurnWorktreeSnapshot,
+} = await import('./turn-worktree-snapshot.mjs');
 
 function git(cwd, ...args) {
   const result = spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], {
@@ -230,4 +244,133 @@ test('a directory outside any repository yields no snapshot', {
   const plain = join(root, 'plain');
   mkdirSync(plain, { recursive: true });
   assert.equal(await createTurnWorktreeSnapshot(plain), null);
+});
+
+// HEAD's canonicalPath, kept as the oracle for which states a note must dirty.
+function referenceCanonical(value) {
+  const full = resolve(value);
+  let head = full;
+  while (!fs.existsSync(head)) {
+    const parent = dirname(head);
+    if (parent === head) return full;
+    head = parent;
+  }
+  return join(fs.realpathSync(head), relative(head, full));
+}
+
+function referenceKey(value) {
+  const text = referenceCanonical(value).replace(/\\/g, '/');
+  return process.platform === 'win32' ? text.toLowerCase() : text;
+}
+
+function referenceHits(snapshot, paths) {
+  const keys = paths.map(referenceKey);
+  const rootKey = referenceKey(snapshot.root);
+  return keys.length === 0 || keys.some((key) => key === rootKey || key.startsWith(`${rootKey}/`));
+}
+
+test('a change burst with no tracked state performs no filesystem calls', (t) => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const calls = [];
+  for (const name of ['existsSync', 'lstatSync', 'realpathSync', 'statSync']) {
+    const original = fs[name];
+    t.mock.method(fs, name, (...args) => {
+      calls.push(name);
+      return original(...args);
+    });
+  }
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  noteTurnWorktreeChange([join(root, 'x', 'a.txt'), join(root, 'y')]);
+  noteTurnWorktreeChange(null);
+  assert.deepEqual(calls, []);
+});
+
+test('a note dirties exactly the states HEAD canonicalization would', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  const repoA = seedRepo('equiv-a');
+  const repoB = seedRepo('equiv-b');
+  const other = join(root, 'equiv-other');
+  mkdirSync(join(other, 'dir'), { recursive: true });
+  writeFileSync(join(other, 'dir', 'x.txt'), 'x');
+  mkdirSync(join(repoA, 'sub'), { recursive: true });
+  writeFileSync(join(repoA, 'sub', 'f.txt'), 'f');
+  const linkA = join(root, 'equiv-link-a');
+  symlinkSync(repoA, linkA, 'junction');
+  const linkOut = join(root, 'equiv-link-out');
+  symlinkSync(other, linkOut, 'junction');
+  const fileLink = join(repoB, 'to-a');
+  let fileLinked = true;
+  try {
+    symlinkSync(join(repoA, 'a.txt'), fileLink, 'file');
+  } catch {
+    fileLinked = false; // creating file symlinks needs a privilege on Windows
+  }
+  const snapshots = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
+  const many = Array.from({ length: 30 }, (_, i) => join(repoB, 'sub', `m${i}.txt`));
+  const cases = {
+    'path in root': [join(repoA, 'sub', 'f.txt')],
+    'junction into root': [join(linkA, 'a.txt')],
+    'deleted file': [join(repoB, 'gone.txt')],
+    'deleted path under junction': [join(linkA, 'no', 'such.txt')],
+    'unrelated existing path': [join(other, 'dir', 'x.txt')],
+    'unrelated missing path': [join(other, 'dir', 'missing', 'y.txt')],
+    'junction out of roots': [join(linkOut, 'dir', 'x.txt')],
+    'root itself': [repoA],
+    'many files in one directory': many,
+    'mixed burst': [join(other, 'dir', 'x.txt'), join(linkA, 'a.txt'), ...many],
+    'empty list': [],
+    null: null,
+  };
+  if (fileLinked) cases['file link into other root'] = [fileLink];
+  if (process.platform === 'win32') cases['differing case'] = [join(repoA, 'SUB', 'F.TXT'), join(repoB, 'A.TXT')];
+  for (const [name, paths] of Object.entries(cases)) {
+    const expected = snapshots.map((snapshot) => referenceHits(snapshot, paths ?? []));
+    const before = snapshots.map((snapshot) => snapshot.state.changeStamp);
+    noteTurnWorktreeChange(paths);
+    const actual = snapshots.map((snapshot, i) => snapshot.state.changeStamp !== before[i]);
+    assert.deepEqual(actual, expected, name);
+  }
+});
+
+test('a 200-file burst in 5 directories canonicalizes each directory once', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  const repo = seedRepo('burst-repo');
+  const paths = [];
+  for (let d = 0; d < 5; d += 1) {
+    mkdirSync(join(repo, `d${d}`), { recursive: true });
+    for (let i = 0; i < 40; i += 1) {
+      const file = join(repo, `d${d}`, `f${i}.txt`);
+      writeFileSync(file, 'x');
+      paths.push(file);
+    }
+  }
+  const snapshot = await createTurnWorktreeSnapshot(repo);
+  const counts = { existsSync: 0, lstatSync: 0, realpathSync: 0 };
+  for (const name of Object.keys(counts)) {
+    const original = fs[name];
+    t.mock.method(fs, name, (...args) => {
+      counts[name] += 1;
+      return original(...args);
+    });
+  }
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  const total = () => counts.existsSync + counts.lstatSync + counts.realpathSync;
+  paths.forEach(referenceCanonical);
+  const headCalls = total();
+  counts.existsSync = counts.lstatSync = counts.realpathSync = 0;
+  const before = snapshot.state.changeStamp;
+  noteTurnWorktreeChange(paths);
+  const newCalls = total();
+  assert.equal(snapshot.state.changeStamp, before + 1);
+  assert.ok(newCalls < headCalls * 0.6, `${newCalls} vs ${headCalls}`);
 });

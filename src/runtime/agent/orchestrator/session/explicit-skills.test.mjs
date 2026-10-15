@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { skillSelectionHeader, selectedSkillName } from '../../../shared/skill-selection.mjs';
 import { invalidateSkillsCache } from '../context/collect.mjs';
 import { latestSkillBodies } from '../context/skill-state.mjs';
-import { prepareExplicitSkills } from './explicit-skills.mjs';
+import { prepareExplicitSkills, recordAppliedSkills } from './explicit-skills.mjs';
+import { restoreTranscriptItems } from './transcript-restore/restore.mjs';
 import { SKILL_TOOL } from '../runtime-core/tool-defs.mjs';
 import { applyDeferredToolSurface, snapshotProviderRequestTools } from '../runtime-core/tool-catalog.mjs';
 import { buildRequestBody } from '../providers/openai-responses-payload.mjs';
@@ -295,18 +296,273 @@ test('queued selections are prepared before continuation, while task notificatio
   });
 });
 
-test('missing, denied and cancelled selections never become successful skill bodies or schema grants', async () => {
+function addSkill(root, name, frontmatter = '') {
+  const dir = join(root, 'skills', name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: Skill ${name}.\n${frontmatter}---\n# ${name} body\nFollow ${name}.\n`
+  );
+  invalidateSkillsCache(root);
+}
+
+const skillBodyNames = (session) => bodies(session).map((message) => /<name>([^<]+)<\/name>/.exec(message.content)[1]);
+
+test('inline $name mentions load every named skill in first-mention order, deduplicated with the header', async () => {
   await withSkill(async ({ root }) => {
-    for (const setup of [
+    addSkill(root, 'second-guide');
+    for (const provider of ['openai-oauth', 'anthropic-oauth']) {
+      // A mid-text mention selects the skill; the prompt itself is not rewritten.
+      let session = newSession(provider, root);
+      const midText = 'Please follow $selected-guide while you work.';
+      session.messages.push({ role: 'user', content: midText });
+      const promptIndex = session.messages.length - 1;
+      assert.deepEqual(await prepareExplicitSkills(midText, session.messages, session), ['selected-guide']);
+      assert.equal(session.messages[promptIndex].content, midText);
+      assert.deepEqual(skillBodyNames(session), ['selected-guide']);
+
+      // Two mentions (one inside brackets, one in a later text part) load both, in order.
+      session = newSession(provider, root);
+      const parts = [
+        { type: 'text', text: 'First ($second-guide),' },
+        { type: 'text', text: '$selected-guide next.' },
+      ];
+      assert.deepEqual(await prepareExplicitSkills(parts, session.messages, session), [
+        'second-guide',
+        'selected-guide',
+      ]);
+      assert.deepEqual(skillBodyNames(session), ['second-guide', 'selected-guide']);
+
+      // A header selection plus a mention of the same skill loads it once; header first.
+      session = newSession(provider, root);
+      const executed = [];
+      session.beforeToolHook = async (call) => {
+        executed.push(call.args.name);
+        return { action: 'allow' };
+      };
+      const mixed = `${skillSelectionHeader('selected-guide')}Use $second-guide and $selected-guide again.`;
+      assert.deepEqual(await prepareExplicitSkills(mixed, session.messages, session), [
+        'selected-guide',
+        'second-guide',
+      ]);
+      assert.deepEqual(executed, ['selected-guide', 'second-guide']);
+      assert.deepEqual(skillBodyNames(session), ['selected-guide', 'second-guide']);
+    }
+  });
+});
+
+test('unknown, shell-like, embedded, disabled and unavailable mentions stay prose', async () => {
+  await withSkill(async ({ root }) => {
+    addSkill(root, 'off-guide');
+    addSkill(root, 'needs-feature', 'metadata:\n  requires: no-such-feature\n');
+    const { patchSkillsDisabled } = await import('../config.mjs');
+    const backupRoot = process.env.MIXDOG_USER_DATA_BACKUP_ROOT;
+    process.env.MIXDOG_USER_DATA_BACKUP_ROOT = join(root, 'backups');
+    try {
+      patchSkillsDisabled(['off-guide']);
+    } finally {
+      if (backupRoot === undefined) delete process.env.MIXDOG_USER_DATA_BACKUP_ROOT;
+      else process.env.MIXDOG_USER_DATA_BACKUP_ROOT = backupRoot;
+    }
+    const session = newSession('openai-oauth', root);
+    const prompt =
+      'Echo $HOME and pay $300 to $unknown-skill; mail me@$selected-guide or a$selected-guide; ' +
+      'also $off-guide and $needs-feature and $Selected-guide.';
+    const before = structuredClone(session.messages);
+    const applied = await prepareExplicitSkills(prompt, session.messages, session, {
+      execute() {
+        assert.fail('prose mentions must not execute Skill');
+      },
+    });
+    assert.deepEqual(applied, []);
+    assert.deepEqual(session.messages, before);
+  });
+});
+
+test('token boundaries, code and reserved names: prose stays prose, chip selection still works', async () => {
+  await withSkill(async ({ root }) => {
+    addSkill(root, 'path');
+    const session = newSession('openai-oauth', root);
+    const executed = [];
+    const execute = async (_tool, args) => {
+      executed.push(args.name);
+      return `Loaded skill: ${args.name}`;
+    };
+    const prose =
+      'Set $path and $PATH, $selected-guide_env, $selected-guideX, `$selected-guide`:\n' + '```\n$selected-guide\n```';
+    assert.deepEqual(await prepareExplicitSkills(prose, session.messages, session, { execute }), []);
+    assert.deepEqual(executed, []);
+    assert.deepEqual(
+      await prepareExplicitSkills('결과는 $selected-guide로 정리', session.messages, session, { execute }),
+      ['selected-guide']
+    );
+    // A reserved-name skill is never an inline mention but the header chip selects it.
+    assert.deepEqual(
+      await prepareExplicitSkills(`${skillSelectionHeader('path')}Work on $path.`, session.messages, session, {
+        execute,
+      }),
+      ['path']
+    );
+    // Pristine `mixdog exec` isolation: with skills disabled nothing selects.
+    const previous = process.env.MIXDOG_DISABLE_SKILLS;
+    process.env.MIXDOG_DISABLE_SKILLS = '1';
+    try {
+      executed.length = 0;
+      assert.deepEqual(
+        await prepareExplicitSkills(
+          `${skillSelectionHeader('selected-guide')}Use $selected-guide.`,
+          session.messages,
+          session,
+          {
+            execute,
+          }
+        ),
+        []
+      );
+      assert.deepEqual(executed, []);
+    } finally {
+      if (previous === undefined) delete process.env.MIXDOG_DISABLE_SKILLS;
+      else process.env.MIXDOG_DISABLE_SKILLS = previous;
+    }
+  });
+});
+
+test('at most five explicit skills are prepared per turn', async () => {
+  await withSkill(async ({ root }) => {
+    const names = ['g-one', 'g-two', 'g-three', 'g-four', 'g-five', 'g-six', 'g-seven'];
+    for (const name of names) addSkill(root, name);
+    const session = newSession('openai-oauth', root);
+    const executed = [];
+    const applied = await prepareExplicitSkills(names.map((name) => `$${name}`).join(' '), session.messages, session, {
+      async execute(_tool, args) {
+        executed.push(args.name);
+        return `Loaded skill: ${args.name}`;
+      },
+    });
+    assert.deepEqual(executed, names.slice(0, 5));
+    assert.deepEqual(applied, names.slice(0, 5));
+  });
+});
+
+test('applied skills are recorded on the steered user row, reported live and restored', async () => {
+  await withSkill(async ({ root }) => {
+    const session = newSession('openai-oauth', root);
+    session.messages.push({ role: 'user', content: 'First task' });
+    const reported = [];
+    let sends = 0;
+    let drained = false;
+    await agentLoop(
+      {
+        name: 'openai-oauth',
+        async send() {
+          sends += 1;
+          return { content: 'Done.', toolCalls: [], stopReason: 'end_turn' };
+        },
+      },
+      session.messages,
+      'fake-model',
+      session.tools,
+      null,
+      root,
+      {
+        session,
+        onSkillsApplied: (names, detail) => reported.push({ names, detail }),
+        drainSteering() {
+          if (sends !== 1 || drained) return [];
+          drained = true;
+          return [
+            {
+              mode: 'prompt',
+              content: 'Next: use $selected-guide and $unknown-skill.',
+              transcriptMeta: { messageId: 'msg_steered' },
+            },
+          ];
+        },
+      }
+    );
+    const steered = session.messages.find((message) => message.meta?.transcript?.messageId === 'msg_steered');
+    assert.deepEqual(steered.meta.transcript.appliedSkills, ['selected-guide']);
+    assert.equal(steered.content, 'Next: use $selected-guide and $unknown-skill.');
+    assert.deepEqual(reported, [{ names: ['selected-guide'], detail: { messageId: 'msg_steered' } }]);
+    const restored = restoreTranscriptItems(JSON.parse(JSON.stringify(session.messages)));
+    const rows = restored.filter((item) => item.kind === 'user');
+    assert.deepEqual(rows.find((item) => item.messageId === 'msg_steered').appliedSkills, ['selected-guide']);
+    assert.equal(
+      rows.some((item) => item.messageId !== 'msg_steered' && item.appliedSkills),
+      false
+    );
+  });
+});
+
+test('header-only selections populate appliedSkills; failed loads never do', async () => {
+  await withSkill(async ({ root }) => {
+    const message = { role: 'user', content: 'x', meta: { transcript: { messageId: 'msg_header', at: 1 } } };
+    const session = newSession('openai-oauth', root);
+    const applied = await prepareExplicitSkills(
+      `${skillSelectionHeader('selected-guide')}Work`,
+      session.messages,
+      session
+    );
+    const list = [message];
+    const stamped = recordAppliedSkills(list, message, applied);
+    assert.notEqual(stamped, message, 'a new message object, so the delta save re-sends it');
+    assert.equal(list[0], stamped);
+    assert.deepEqual(stamped.meta.transcript, { messageId: 'msg_header', at: 1, appliedSkills: ['selected-guide'] });
+    assert.equal(recordAppliedSkills(list, stamped, []), stamped, 'nothing loaded: unchanged');
+    const denied = newSession('openai-oauth', root);
+    denied.beforeToolHook = async () => ({ action: 'deny', reason: 'policy' });
+    assert.deepEqual(
+      await prepareExplicitSkills(`${skillSelectionHeader('selected-guide')}$selected-guide`, denied.messages, denied),
+      []
+    );
+    assert.deepEqual(await prepareExplicitSkills(skillSelectionHeader('not-installed'), denied.messages, denied), []);
+  });
+});
+
+test('a session that cannot call Skill skips explicit selection entirely and records nothing', async () => {
+  await withSkill(async ({ root }) => {
+    addSkill(root, 'setup');
+    addSkill(root, 'image');
+    const prompt = `${skillSelectionHeader('selected-guide')}Use $setup $image $HOME today.`;
+    for (const restrict of [
       (session) => {
-        session.beforeToolHook = async () => ({ action: 'deny', reason: 'policy' });
+        session.schemaAllowedTools = ['read', 'office']; // headless allowlist without Skill
       },
       (session) => {
-        session.schemaAllowedTools = ['read'];
+        session.disallowedTools = ['Skill']; // a role that denies it
       },
     ]) {
       const session = newSession('openai-oauth', root);
-      setup(session);
+      restrict(session);
+      const user = { role: 'user', content: prompt, meta: { transcript: { messageId: 'm1' } } };
+      session.messages.push(user);
+      const before = structuredClone(session.messages);
+      const applied = await prepareExplicitSkills(prompt, session.messages, session, {
+        execute() {
+          assert.fail('a session without Skill must not attempt it');
+        },
+      });
+      assert.deepEqual(applied, []);
+      assert.deepEqual(session.messages, before, 'no reminder, tool pair or body is pushed');
+      assert.equal(recordAppliedSkills(session.messages, user, applied), user);
+      assert.equal(user.meta.transcript.appliedSkills, undefined);
+    }
+    // Control: the same prompt on a session that has Skill loads all three.
+    const session = newSession('openai-oauth', root);
+    assert.deepEqual(await prepareExplicitSkills(prompt, session.messages, session), [
+      'selected-guide',
+      'setup',
+      'image',
+    ]);
+    assert.deepEqual(skillBodyNames(session), ['selected-guide', 'setup', 'image']);
+  });
+});
+
+test('missing, denied and cancelled selections never become successful skill bodies or schema grants', async () => {
+  await withSkill(async ({ root }) => {
+    {
+      const session = newSession('openai-oauth', root);
+      session.beforeToolHook = async () => ({ action: 'deny', reason: 'policy' });
       const originalTools = structuredClone(session.tools);
       await prepareExplicitSkills(skillSelectionHeader('selected-guide'), session.messages, session);
       assert.equal(bodies(session).length, 0);
@@ -318,9 +574,17 @@ test('missing, denied and cancelled selections never become successful skill bod
       );
     }
     const session = newSession('openai-oauth', root);
-    await prepareExplicitSkills(skillSelectionHeader('not-installed'), session.messages, session);
-    assert.equal(bodies(session).length, 0);
-    assert.match(session.messages.at(-1).content, /not found/);
+    // A header naming no loadable skill is not a selection: nothing executes.
+    const untouched = structuredClone(session.messages);
+    assert.deepEqual(
+      await prepareExplicitSkills(skillSelectionHeader('not-installed'), session.messages, session, {
+        execute() {
+          assert.fail('an unknown header selection must not execute Skill');
+        },
+      }),
+      []
+    );
+    assert.deepEqual(session.messages, untouched);
     const before = structuredClone(session.messages);
     await assert.rejects(
       prepareExplicitSkills(skillSelectionHeader('selected-guide'), session.messages, session, {
@@ -334,5 +598,63 @@ test('missing, denied and cancelled selections never become successful skill bod
     assert.equal(bodies(session).length, 1);
     assert.ok(session.messages.some((message) => /Required tools unavailable/.test(message.content)));
     assert.equal(session.deferredCallableTools?.includes('office') || false, false);
+  });
+});
+
+test('out-of-scope skills are refused for header, inline and model-requested loads', async () => {
+  await withSkill(async ({ root }) => {
+    addSkill(root, 'scoped-guide');
+    const elsewhere = join(root, 'elsewhere');
+    mkdirSync(elsewhere, { recursive: true });
+    const { loadConfig, saveConfig } = await import('../config.mjs');
+    const backupRoot = process.env.MIXDOG_USER_DATA_BACKUP_ROOT;
+    process.env.MIXDOG_USER_DATA_BACKUP_ROOT = join(root, 'backups');
+    try {
+      saveConfig({
+        ...loadConfig({ secrets: false }),
+        extensionScopes: { skills: { 'scoped-guide': [elsewhere] } },
+      });
+    } finally {
+      if (backupRoot === undefined) delete process.env.MIXDOG_USER_DATA_BACKUP_ROOT;
+      else process.env.MIXDOG_USER_DATA_BACKUP_ROOT = backupRoot;
+    }
+    invalidateSkillsCache(root);
+    const prompt = `${skillSelectionHeader('scoped-guide')}Use $scoped-guide and $selected-guide.`;
+
+    // Header and inline selection outside the scope: not selected, not executed.
+    const outside = newSession('openai-oauth', root);
+    const executed = [];
+    const applied = await prepareExplicitSkills(prompt, outside.messages, outside, {
+      async execute(_tool, args) {
+        executed.push(args.name);
+        return `Loaded skill: ${args.name}`;
+      },
+    });
+    assert.deepEqual(executed, ['selected-guide']);
+    assert.deepEqual(applied, ['selected-guide']);
+
+    // Inside the scope the same prompt selects it, header first.
+    const inside = newSession('openai-oauth', elsewhere);
+    assert.deepEqual(await prepareExplicitSkills(prompt, inside.messages, inside, { cwd: elsewhere }), [
+      'scoped-guide',
+      'selected-guide',
+    ]);
+
+    // The loading boundary itself refuses a model-requested out-of-scope load
+    // with a clear result, and still loads in-scope skills.
+    const { viewSkill } = await import('./loop/tool-helpers.mjs');
+    assert.match(
+      String(viewSkill(root, 'scoped-guide')),
+      /^Error: skill "scoped-guide" is not available in this project/
+    );
+    assert.doesNotMatch(String(viewSkill(elsewhere, 'scoped-guide')), /^Error:/);
+    assert.doesNotMatch(String(viewSkill(root, 'selected-guide')), /^Error:/);
+    const contextMod = await import('../context/collect.mjs');
+    const { createSkillsApi } = await import('../../../../session-runtime/skills-api.mjs');
+    const here = createSkillsApi({ contextMod, getCwd: () => root });
+    assert.match(String(here.skillToolContent('scoped-guide', null)), /is not available in this project/);
+    assert.equal(typeof here.skillToolContent('selected-guide', null), 'object');
+    const there = createSkillsApi({ contextMod, getCwd: () => elsewhere });
+    assert.equal(typeof there.skillToolContent('scoped-guide', null), 'object');
   });
 });

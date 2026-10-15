@@ -67,16 +67,17 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
     await awaitKeychainPrewarm();
     if (rt.closeRequested) throw new Error('runtime is closing');
     const initKey = providerInitCacheKey(providerConfig);
-    const existing = providerInitPromises.get(initKey);
-    if (existing) return await existing;
     // Provider initialization is idempotent for one normalized config. Keep
     // the fulfilled promise, not only the in-flight one: session resume used
     // to rerun registry/keychain setup on every click even though neither the
     // provider config nor the registry had changed. Auth/config mutations call
     // invalidateProviderCaches(), which clears this gate and preserves the
     // existing refresh semantics.
-    const providerInitPromise = Promise.resolve().then(() => getReg().initProviders(providerConfig));
-    providerInitPromises.set(initKey, providerInitPromise);
+    let providerInitPromise = providerInitPromises.get(initKey);
+    if (!providerInitPromise) {
+      providerInitPromise = Promise.resolve().then(() => getReg().initProviders(providerConfig));
+      providerInitPromises.set(initKey, providerInitPromise);
+    }
     let result;
     try {
       result = await providerInitPromise;
@@ -84,13 +85,18 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
       if (providerInitPromises.get(initKey) === providerInitPromise) providerInitPromises.delete(initKey);
       throw error;
     }
-    if (!rt.startupProviderCatalogRefreshStarted && !rt.closeRequested) {
-      rt.startupProviderCatalogRefreshStarted = true;
-      rt.startupProviderCatalogRefreshPending = true;
+    if (!rt.closeRequested) {
       try {
-        void Promise.resolve(getReg().refreshProviderCatalogsOnStartup())
+        // The registry memoizes the refresh per catalog epoch; a provider set
+        // change yields a new promise, which gets its own completion handling.
+        const refresh = getReg().refreshProviderCatalogsOnStartup();
+        if (refresh === rt.startupProviderCatalogRefreshObserved) return result;
+        rt.startupProviderCatalogRefreshObserved = refresh;
+        rt.startupProviderCatalogRefreshPending = true;
+        const isLatest = () => rt.startupProviderCatalogRefreshObserved === refresh;
+        void Promise.resolve(refresh)
           .then(() => {
-            rt.startupProviderCatalogRefreshPending = false;
+            if (isLatest()) rt.startupProviderCatalogRefreshPending = false;
             if (rt.closeRequested) return;
             // Fresh catalog rows invalidate model-derived caches, but the
             // already initialized provider registry remains valid.
@@ -103,7 +109,7 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
             bootProfile('provider-catalogs:refresh-ready');
           })
           .catch((error) => {
-            rt.startupProviderCatalogRefreshPending = false;
+            if (isLatest()) rt.startupProviderCatalogRefreshPending = false;
             bootProfile('provider-catalogs:refresh-failed', { error: error?.message || String(error) });
           });
         bootProfile('provider-catalogs:refresh-started');

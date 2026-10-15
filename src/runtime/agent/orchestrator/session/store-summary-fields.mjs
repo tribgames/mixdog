@@ -48,6 +48,18 @@ export function workspaceSummary(value) {
   };
 }
 
+/** Dedupe key of an imported conversation: a session's `importOrigin.key`,
+ *  or a summary row's projected `importKey`; null for ordinary sessions. */
+export function inheritedFromSessionId(value) {
+  const id = typeof value?.inheritedFromSessionId === 'string' ? value.inheritedFromSessionId.trim() : '';
+  return id || null;
+}
+
+export function importKey(value) {
+  const key = typeof value?.importKey === 'string' ? value.importKey : value?.importOrigin?.key;
+  return typeof key === 'string' && key.trim() ? key : null;
+}
+
 export function desktopSession(value, cwd = '') {
   if (!value || typeof value !== 'object') return null;
   if (value.classification === 'task') return { classification: 'task', projectPath: null };

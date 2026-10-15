@@ -175,7 +175,7 @@ html[data-mixdog-mobile-tabs] .composer textarea {
   max-height: 180px;
   padding-top: 10px;
   padding-bottom: 10px;
-  line-height: 24px;
+  line-height: calc(24px * var(--mx-content-scale, 1));
 }
 html[data-mixdog-mobile-tabs] .composer-tool,
 html[data-mixdog-mobile-tabs] .send-button,
@@ -1109,7 +1109,6 @@ html[data-mixdog-mobile-tabs] .message .message-actions,
 html[data-mixdog-mobile-tabs] .message.assistant .response-footer .message-actions,
 html[data-mixdog-mobile-tabs] .dock-pr-row-actions {
   opacity: 1;
-  visibility: visible;
   pointer-events: auto;
   transition: none;
 }
@@ -1198,6 +1197,27 @@ html[data-mixdog-mobile-tabs] .markdown-code > header {
 html[data-mixdog-mobile-tabs] .turn-review-action-slot {
   width: auto;
 }
+/* Turn changes header: on a phone the two labelled buttons took the title's
+   whole width, so they collapse to compact icon marks and the title stays. */
+html[data-mixdog-mobile-tabs] .turn-changes-action,
+html[data-mixdog-mobile-tabs] .turn-changes-view {
+  width: var(--mx-touch-fixed-main);
+  height: var(--mx-touch-fixed-main);
+  justify-content: center;
+  padding: 0;
+}
+html[data-mixdog-mobile-tabs] .turn-changes-label {
+  display: none;
+}
+html[data-mixdog-mobile-tabs] .turn-changes-view svg {
+  display: block;
+}
+/* The totals drop under the title only when both no longer fit on one line
+   (the smallest phones at the largest chat text size); otherwise unchanged. */
+html[data-mixdog-mobile-tabs] .turn-changes-title {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
 
 /* ── 4. Session drawer ─────────────────────────────────────────────────────
    Primary links keep the full touch tier; session rows use the compact row
@@ -1230,7 +1250,7 @@ html[data-mixdog-mobile-tabs] .session-row-status {
 html[data-mixdog-mobile-tabs] .row-overflow-trigger,
 html[data-mixdog-mobile-tabs] .session-sidebar-panels .row-overflow-trigger,
 html[data-mixdog-mobile-tabs] .queue-list .queue-remove,
-html[data-mixdog-mobile-tabs] .sidebar-usage-heading > .sidebar-usage-pin {
+html[data-mixdog-mobile-tabs] .sidebar-usage-heading > .sidebar-usage-menu {
   width: var(--mx-touch-row);
   height: var(--mx-touch-row);
   flex-basis: var(--mx-touch-row);
@@ -1392,7 +1412,7 @@ html[data-mixdog-mobile-tabs]
 html[data-mixdog-mobile-tabs]
   :is(
     .row-overflow-trigger,
-    .sidebar-usage-pin,
+    .sidebar-usage-menu,
     .dock-pr-toolbar > button,
     .dock-pr-row-actions > button,
     .dock-scm-list-actions > button,

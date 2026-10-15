@@ -2,6 +2,7 @@ import { createElement, type ComponentType, type SVGProps } from 'react';
 import {
   createLucideIcon,
   AlertTriangle,
+  ArrowLeftRight,
   Bot,
   Check,
   CircleAlert,
@@ -103,6 +104,7 @@ const GLYPHS: Record<string, ComponentType<SVGProps<SVGSVGElement> & { size?: nu
   'step-out': SkipForward,
   'step-over': StepForward,
   stop: Square,
+  swap: ArrowLeftRight,
   tasks: ListChecks,
   terminal: Terminal,
   'shell-prompt': ShellPrompt,

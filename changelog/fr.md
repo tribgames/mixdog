@@ -5,6 +5,88 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
+Ajout de la connexion OAuth MCP explicite, du changement de modèle sur place et d'une bannière de quota sur une seule ligne.
+
+### Nouvelles fonctionnalités
+
+- **Connexion MCP** — Ajout d'une connexion OAuth explicite pour les serveurs MCP avec état, boîte de dialogue partagée, collage à distance et commandes TUI (#74, thanks @oh1701).
+- **Changer de modèle sur place** — Ajout du changement de modèle d'un chat sans ouvrir de nouvelle session, et de l'option Bifurquer dans le menu de session (#73, #52, thanks @grapefruit0205).
+- **Bannière de quota** — Ajout d'une bannière d'une ligne au-dessus du compositeur lorsqu'une limite est atteinte ; Reprendre réserve la prochaine exécution pour l'heure de réinitialisation.
+- **Menu fichiers** — Ajout d'un compteur de fichiers sur l'îlot suivant les modifications de session non validées, avec Voir les modifications et Supprimer l'historique.
+- **Taille du texte du chat** — Ajout d'un réglage de taille de police du chat par appareil.
+
+### Modifications
+
+- Modification des nouvelles tentatives des fournisseurs pour respecter les limites et délais propres à chacun, en affichant l'attente restante avec possibilité d'annuler.
+- Modification des messages d'erreur pour indiquer la cause et l'étape suivante, et masquer Réessayer lorsqu'une nouvelle tentative ne peut pas aider.
+- Modification des commandes shell pour rester au premier plan pendant 10 secondes par défaut, jusqu'à 30 secondes, avant de passer en arrière-plan.
+- Ajustement de l'application de bureau, du raisonnement automatique et du service en arrière-plan pour réduire les requêtes périodiques, le rendu et la mémoire lors des longues sessions.
+
+### Corrections de bugs
+
+- Correction du gel d'une à deux secondes du service en arrière-plan toutes les 30 minutes.
+- Correction de la perte des notifications de fin des agents lors de l'annulation d'un tour ayant déjà produit une sortie.
+- Correction de l'îlot du compositeur affichant les agents en cours d'exécution comme inactifs ou terminés.
+- Correction du blocage lors du changement de session pendant l'attente de l'analyse des modifications d'autres sessions.
+- Correction des boîtes de dialogue du navigateur sortant du volet, de l'impossibilité de finaliser la confirmation de départ et de l'échec des raccourcis de copie du navigateur.
+- Correction de l'échec de mise en cache des invites chez les fournisseurs personnalisés Responses et des projets de session hérités ne correspondant pas à la barre latérale (#70, #75, thanks @sukjong2002).
+- Correction du scintillement des tableaux en streaming, des sauts de la transcription pendant l'exécution d'un tour et de la persistance de la carte de quota après un changement de fournisseur.
+
+### Divers
+
+- Suppression des helpers non utilisés (#67, thanks @22nsuk).
+
+## v1.2.1 - 2026-10-14
+
+Ajout de l'importation de conversations depuis Codex et Claude Code, du fournisseur Command Code et des mentions de skills avec `$`, et correction de l'observation des entrées de Computer Use, des scripts de skills, du raisonnement automatique et de plusieurs problèmes de session.
+
+### Nouvelles fonctionnalités
+
+- **Importer des conversations** — Ajout de Réglages > Général > Importer des conversations pour importer les discussions Codex et Claude Code de ce PC dans Mixdog.
+- **Command Code** — Ajout de Command Code comme fournisseur permettant de se connecter avec votre compte Command Code.
+- **Règles de changement de compte** — Ajout des options Manuel, Changer à la limite et Plus de marge d’abord pour les fournisseurs ayant plusieurs comptes.
+- **Mentions de skills avec `$`** — Ajout de `$` dans le compositeur et le TUI pour sélectionner un skill et l'appliquer au message.
+- **Barre d'utilisation de 5 heures** — Ajout d'une option du menu d'utilisation affichant une barre de 5 heures à côté de la période la plus longue sur le rail latéral (#66).
+- **Cartes de retour de visualisation** — Ajout de cartes dans le compositeur pour les épingles, sélections et ajustements en file, ainsi que des épingles sur images, vidéos et zones.
+- **Fermer Goal** — Ajout d'un bouton pour fermer un Goal terminé.
+
+### Modifications
+
+- Modification des serveurs MCP des plugins Claude Code et Codex pour se connecter automatiquement sans activation manuelle, et ajout du chargement des skills de plugins (#58).
+- Modification de la liste des sessions pour se charger depuis une base de données locale et des caches afin de s'ouvrir plus rapidement.
+- Modification des skills sur serveurs SSH pour router les appels de modèles via votre PC, évitant d'enregistrer des identifiants sur le serveur.
+- Modification des mentions de fichiers avec `@` pour afficher les dossiers en premier.
+- Modification des icônes de Muse Code et MiMo pour afficher leurs propres icônes.
+- Modification des miniatures d'images envoyées pour se charger sous forme d'aperçus réduits sur le PC et les téléphones jumelés.
+- Ajustement du chargement des outils MCP, des recherches de fichiers et des sauvegardes de compte pour ne plus bloquer le service d'arrière-plan dans les longues sessions.
+- Ajustement de l'indicateur de progression de Goal pour toujours afficher cinq cellules.
+- Ajustement de l'îlot du compositeur pour se positionner 12px au-dessus de la carte de prompt et rétablissement des lignes d'activité des outils à 14px.
+
+### Corrections de bugs
+
+- Correction de Computer Use restant indisponible avec "foreground input observation is unavailable" ; les entrées manquées comptent comme utilisateur, l'observation récupère seule et le diagnostic indique la cause (#66).
+- Correction de l'ajout d'un serveur SSH dans l'application installée qui restait bloqué sur "Connexion…" en intégrant le fichier lock du serveur (#69, merci à @victorwon2001).
+- Correction des liens du chat qui ouvraient le navigateur intégré sur une page `about:blank` vierge au lieu du lien (#63).
+- Correction des scripts de skills intégrés, dont le validateur, qui échouaient sur certaines installations et shells (#62).
+- Correction des nouvelles tâches mémorisant un flux supprimé afin qu'elles démarrent sur Default (#64).
+- Correction du raisonnement automatique ne s'appliquant pas sur les routes Claude en 1.2.0, et d'une évaluation lente provoquant le dépassement de délai des suivantes.
+- Correction des fournisseurs Gemini, Anthropic, OpenAI et compatibles OpenAI ne listant pas les modèles lorsque la clé était ajoutée après le démarrage.
+- Correction d'un second message envoyé juste après le début d'une nouvelle tâche ouvrant une session distincte.
+- Correction du défilement rapide vers le haut sur téléphone qui se bloquait puis sautait loin au toucher suivant.
+- Correction de l'éditeur de renommage se fermant immédiatement pour les sessions listées à la fois dans un dossier de projet et dans Récents.
+- Correction des miniatures affichant la mauvaise image dans les conversations restaurées comportant plusieurs images.
+- Correction des commandes de hook héritant des réglages de runtime internes de Mixdog.
+- Correction des exécutions headless, comme les appels de modèles depuis des scripts de skills, incapables d'utiliser Muse Code ou MiMo.
+- Correction de la boîte de dialogue de confirmation qui n'apparaissait pas lors de la suppression d'un serveur MCP ou plugin.
+- Correction du runtime ONNX qui échouait à se charger sur les PC Windows sans le runtime Visual C++ en intégrant ce dernier à l'application.
+
+### Divers
+
+- Révision des traductions dans l'ensemble des 11 langues.
+- Suppression des helpers inutilisés et formatage des tests de bureau (#68, merci à @22nsuk).
+
 ## v1.2.0 - 2026-10-13
 
 Cette version introduit le panneau des modifications et les cartes de changements par tour avec commandes d'annulation et de réapplication par tour, conserve l'historique antérieur lisible après compactage et ajoute un outil de visualisation intégré pour les maquettes interactives et diagrammes. Les flux à distance s'étendent avec les connexions de serveur SSH, les sessions d'arbres de travail Git isolées, le contrôle des shells en arrière-plan et le téléchargement direct de fichiers sur les téléphones associés. L'interface propose également un contraste accru, un défilement mobile plus fluide et une organisation flexible des sessions.

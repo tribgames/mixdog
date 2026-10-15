@@ -7,17 +7,16 @@ import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { retryReasonText, retryStatusLine } from '../../../shared/err-text.mjs';
 import {
   TERMINAL_EDGE_STATUSES,
-  headerValue,
   boundedCauseChain,
   classifyError,
-  isPermanentQuotaError,
   isStaleKeepAliveError,
   isToolInputCut,
   retryAfterMsFromError,
 } from './retry-classification.mjs';
+import { DETERMINISTIC_KINDS, QUOTA_KINDS, errorHeaderValue, providerErrorKind } from './provider-error-kind.mjs';
+import { adviceGatedRetry } from './retry-midstream.mjs';
 import {
-  ANTHROPIC_MAX_CONSECUTIVE_529,
-  AnthropicFallbackTriggeredError,
+  ModelFallbackTriggeredError,
   DEFAULT_BACKOFF_MS,
   DEFAULT_MAX_ATTEMPTS,
   jitterDelayMs,
@@ -64,11 +63,16 @@ export function createStreamSafetyStamps() {
 
 const providerRecoveryExhaustedErrors = new WeakSet();
 
-export function markProviderRecoveryExhausted(error, { owner = 'provider', attempts = null } = {}) {
+// `terminal: true` records a provider VERDICT that recovery is over (a policy
+// veto such as an unadvised advice-gated overload, or the repeated-overload
+// stop), not merely a spent ladder: outer layers end recovery on it instead
+// of opening another budget.
+export function markProviderRecoveryExhausted(error, { owner = 'provider', attempts = null, terminal = false } = {}) {
   if (!error || (typeof error !== 'object' && typeof error !== 'function')) return error;
   providerRecoveryExhaustedErrors.add(error);
   try {
     error.providerRecoveryExhausted = true;
+    if (terminal) error.providerRecoveryTerminal = true;
     if (owner) error.providerRecoveryOwner = String(owner);
     const count = Number(attempts);
     if (Number.isFinite(count) && count > 0) error.providerRecoveryAttempts = Math.floor(count);
@@ -85,18 +89,25 @@ export function isProviderRecoveryExhausted(error) {
   );
 }
 
+/** True when a provider layer ruled that no further recovery may run (see markProviderRecoveryExhausted). */
+export function isProviderRecoveryTerminal(error) {
+  if (!error || (typeof error !== 'object' && typeof error !== 'function')) return false;
+  return boundedCauseChain(error).some((candidate) => candidate?.providerRecoveryTerminal === true);
+}
+
 function throwIfRetryAborted(signal) {
   if (!signal?.aborted) return;
   const reason = signal.reason;
   throw reason instanceof Error ? reason : new Error('withRetry: aborted');
 }
 
-// A stale keep-alive socket, or (Grok) the first 5xx, rebuilds the HTTP
-// client to escape a poisoned HTTP/2 keep-alive pool (CF 522/523/524
-// included). 525/526 stay fatal.
-function recycleDispatcherAfter(caught, status) {
+// Before a retry: a stale keep-alive socket rebuilds the HTTP client to escape
+// a poisoned keep-alive pool. A caller whose upstream poisons its HTTP/2 pool
+// on server faults (`recycleDispatcherOn5xx`) also rebuilds it on a retried
+// 5xx (edge 522/523/524 included). Never runs for a failure that is not retried.
+function recycleDispatcherAfter(caught, status, opts) {
   const poisoned =
-    isStaleKeepAliveError(caught) || (status >= 500 && status < 600 && !TERMINAL_EDGE_STATUSES.has(status));
+    isStaleKeepAliveError(caught) || (opts.recycleDispatcherOn5xx === true && status >= 500 && status < 600);
   if (!poisoned) return;
   try {
     recycleLlmDispatcher();
@@ -105,23 +116,71 @@ function recycleDispatcherAfter(caught, status) {
   }
 }
 
+// Opt-in: without a fallback model, the request loop stops after
+// `overloadFallbackAfter` overloads instead of spending the whole
+// attempt budget. A provider verdict: no outer layer re-opens recovery.
+function repeated529Error(caught, opts, maxAttempts) {
+  const error = new Error('Repeated 529 Overloaded errors', { cause: caught });
+  error.name = 'Repeated529Error';
+  error.repeated529 = true;
+  error.status = Number(caught?.status || caught?.httpStatus || 529) || 529;
+  error.httpStatus = error.status;
+  error.code = 'overloaded_error';
+  if (caught?.headers) error.headers = caught.headers;
+  return markProviderRecoveryExhausted(error, {
+    owner: opts.recoveryOwner || 'withRetry',
+    attempts: maxAttempts,
+    terminal: true,
+  });
+}
+
+// Deterministic refusals of this request (auth, permission, policy, invalid
+// request, context/size) end the loop before any status, header or overload
+// rule may re-issue it. Quota kinds are judged separately below.
+function deterministicRefusal(errorKind, kind, status, opts) {
+  if (!DETERMINISTIC_KINDS.has(errorKind) || QUOTA_KINDS.has(errorKind)) return false;
+  // Opt-in: a status-only 499 is retried (classifyError's retry499 verdict;
+  // a typed code on the 499 keeps it final).
+  return !(status === 499 && opts.retry499 === true && kind === 'transient');
+}
+
+// The overload counter (`overloadFallbackAfter`) counts every overload of the
+// send; intervening non-overload failures do not reset it.
+function isOverloadFailure(status, errorKind) {
+  return status === 529 || errorKind === 'overloaded';
+}
+
 // Decides whether `caught` may be re-issued: returns the error to throw (the
 // caught one, the exhausted-marked one on the last attempt, or the model
-// fallback trigger) or null when the next attempt may run.
-function retryVeto(caught, { opts, attempt, maxAttempts, state }) {
+// fallback trigger) or null when the next attempt may run — and only then
+// rebuilds a poisoned HTTP pool for it.
+function retryVeto(caught, context) {
+  const verdict = retryVerdict(caught, context);
+  if (verdict === null) {
+    const status = Number(caught?.httpStatus || caught?.status || caught?.response?.status || 0);
+    recycleDispatcherAfter(caught, status, context.opts);
+  }
+  return verdict;
+}
+
+function retryVerdict(caught, { opts, attempt, maxAttempts, state }) {
   const lastAttempt = attempt === maxAttempts - 1;
+  // `finalOnExhaust`: the caller's ladder is the whole recovery, so a spent
+  // ladder is a provider-terminal verdict no outer layer re-opens.
   const exhaustedError = () =>
-    maxAttempts > 1
+    maxAttempts > 1 || opts.finalOnExhaust === true
       ? markProviderRecoveryExhausted(caught, {
           owner: opts.recoveryOwner || 'withRetry',
           attempts: maxAttempts,
+          terminal: opts.finalOnExhaust === true,
         })
       : caught;
   // A nested provider layer already spent its complete recovery budget.
   // Never multiply that budget by replaying it from an outer withRetry.
   if (isProviderRecoveryExhausted(caught)) return caught;
   const status = Number(caught?.httpStatus || caught?.status || caught?.response?.status || 0);
-  const kind = classifyError(caught);
+  const kind = classifyError(caught, { retry499: opts.retry499 === true });
+  const errorKind = providerErrorKind(caught).kind;
   // Hard replay boundary: a retry RE-ISSUES the request, so it is denied
   // once visible output was relayed or a tool call was dispatched. Whether
   // an eligible failure is actually retried remains the typed question
@@ -131,40 +190,67 @@ function retryVeto(caught, { opts, attempt, maxAttempts, state }) {
   // split-call notice; re-issuing the identical request here would tend to be
   // cut at the same place again.
   if (isToolInputCut(caught)) return caught;
-  recycleDispatcherAfter(caught, status);
+  const overload = isOverloadFailure(status, errorKind);
+  // Deterministic refusals first: no status, header (x-should-retry:true
+  // included) or overload rule below may re-issue them.
+  if (deterministicRefusal(errorKind, kind, status, opts)) return caught;
+  // An origin-TLS edge failure (525/526) is final whatever header, advice or
+  // overload code accompanies it.
+  if (TERMINAL_EDGE_STATUSES.has(status)) return caught;
+  // An explicit quota / plan / billing refusal cannot recover by replaying
+  // the same request, whatever Retry-After the server attached. A 429 whose
+  // only quota evidence is header-derived (providerQuota / quotaExceeded) is
+  // still retried for non-subscriber callers (Enterprise/PAYG
+  // 429s); a typed quota/billing code never is.
+  if (QUOTA_KINDS.has(errorKind)) {
+    const typedQuota = QUOTA_KINDS.has(providerErrorKind(caught, { quotaFlags: false }).kind);
+    if (typedQuota || opts.retry429 === false || status !== 429) return caught;
+  }
   // Background calls (titles and the like) never retry an overload: during a
   // capacity cascade every retry multiplies gateway load, and nobody is
   // waiting on the result.
   if (status === 529 && opts.retry529 === false) return caught;
-  // x-should-retry:false is an explicit server veto on retrying and is
-  // honored as-is. Keep this ahead of status defaults, including the
-  // request-local 429 path.
-  const shouldRetryHeader = String(
-    headerValue(caught?.headers || caught?.response?.headers || caught?.data?.responseHeaders, 'x-should-retry') || ''
-  ).toLowerCase();
-  if (shouldRetryHeader === 'false') return caught;
-  // Anthropic's non-standard positive override outranks ordinary status
-  // classification. Keep subscription OAuth 429 fail-fast ownership:
-  // retry429:false is the Max/Pro gate and must not wait for that window.
-  if (opts.provider === 'anthropic' && shouldRetryHeader === 'true' && !(status === 429 && opts.retry429 === false)) {
+  // A caller may opt into advice-gated overload / generic-429 retries. The
+  // denial is the provider's verdict: outer recovery layers honor it.
+  if (adviceGatedRetry(caught, opts) === false) {
+    return markProviderRecoveryExhausted(caught, {
+      owner: opts.recoveryOwner || 'withRetry',
+      attempts: attempt + 1,
+      terminal: true,
+    });
+  }
+  // Overload first: counted and retried ahead of the x-should-retry veto.
+  // The optional model fallback fires after `overloadFallbackAfter`
+  // overloads in the send (opt-in: providers pass fallbackModel only when
+  // the caller set one); without one, `stopAfterRepeated529` ends the loop
+  // there instead. The hard progress veto above runs first so neither can
+  // replay partial thinking/tool output. `overloadState` shares the count
+  // across a send.
+  if (overload) {
+    // Subscriber 429 fail-fast ownership also covers an overload-coded 429.
+    if (status === 429 && opts.retry429 === false) return caught;
+    state.consecutive529Errors += 1;
+    const limit = Number(opts.overloadFallbackAfter);
+    if (Number.isFinite(limit) && limit > 0 && state.consecutive529Errors >= limit) {
+      if (opts.fallbackModel && opts.fallbackModel !== opts.model) {
+        return new ModelFallbackTriggeredError(opts.model, opts.fallbackModel, caught);
+      }
+      if (opts.stopAfterRepeated529 === true) return repeated529Error(caught, opts, maxAttempts);
+    }
     return lastAttempt ? exhaustedError() : null;
   }
-  // The optional model fallback fires on the third 529. This remains opt-in:
-  // providers pass fallbackModel only when the caller set one. The hard
-  // progress veto above must run first so fallback can never replay partial
-  // thinking/tool output.
-  if (status === 529 && opts.fallbackModel && opts.fallbackModel !== opts.model) {
-    state.consecutive529Errors += 1;
-    if (state.consecutive529Errors >= ANTHROPIC_MAX_CONSECUTIVE_529) {
-      return new AnthropicFallbackTriggeredError(opts.model, opts.fallbackModel, caught);
-    }
+  // x-should-retry:false is an explicit server veto on retrying and is
+  // honored as-is, ahead of status defaults including the 429 path.
+  const shouldRetryHeader = String(errorHeaderValue(caught, 'x-should-retry') || '').toLowerCase();
+  if (shouldRetryHeader === 'false') return caught;
+  // A transport that opts in (honorShouldRetryTrue) lets the non-standard
+  // positive override outrank ordinary status classification — except for
+  // subscribers (retry429:false), whose fail-fast ownership holds for every status.
+  if (opts.honorShouldRetryTrue === true && shouldRetryHeader === 'true' && opts.retry429 !== false) {
+    return lastAttempt ? exhaustedError() : null;
   }
   if (status === 429) {
     if (opts.retry429 === false) return caught;
-    // A deterministic quota refusal cannot recover by replaying the same
-    // request. An explicit server retry window outranks message-text quota
-    // heuristics: RESOURCE_EXHAUSTED + Retry-After/RetryInfo is transient.
-    if (retryAfterMsFromError(caught) == null && isPermanentQuotaError(caught)) return caught;
     // Retry only this request. Admission concurrency is fixed and is never
     // reduced by rate limits. Output/tool stamps above remain a hard replay
     // boundary.
@@ -184,8 +270,12 @@ function retryOptions(opts) {
     perAttemptTimeoutMs: Number(opts.perAttemptTimeoutMs || 0),
     perAttemptLabel: opts.perAttemptLabel || 'provider request',
     retryJitterRatio: Number(opts.retryJitterRatio ?? PROVIDER_RETRY_JITTER_RATIO),
-    retryJitterMode: opts.retryJitterMode === 'positive' ? 'positive' : 'symmetric',
+    retryJitterMode: ['positive', 'negative'].includes(opts.retryJitterMode) ? opts.retryJitterMode : 'symmetric',
     sleepFn: typeof opts.sleepFn === 'function' ? opts.sleepFn : undefined,
+    // Opt-in: positive jitter on server advice, and advice as a
+    // floor under — never a replacement for — the current backoff step.
+    retryAfterJitterRatio: Math.max(0, Number(opts.retryAfterJitterRatio) || 0),
+    adviceAtLeastBackoff: opts.adviceAtLeastBackoff === true,
   };
 }
 
@@ -193,11 +283,17 @@ function retryOptions(opts) {
 // the jittered backoff step. Retry-After is a server-mandated minimum. Do
 // not cap, shorten, or jitter it; cancellation remains active throughout
 // the full wait.
-function retryWaitMs(attempt, { nextDelayMs, nextDelayReason }, { backoffMs, retryJitterRatio, retryJitterMode }) {
-  const rawWait = nextDelayMs ?? backoffMs[Math.min(attempt, backoffMs.length - 1)] ?? 0;
-  return nextDelayReason === 'retry-after'
-    ? Math.max(0, rawWait)
-    : jitterDelayMs(rawWait, retryJitterRatio, retryJitterMode);
+function retryWaitMs(
+  attempt,
+  { nextDelayMs, nextDelayReason },
+  { backoffMs, retryJitterRatio, retryJitterMode, retryAfterJitterRatio = 0, adviceAtLeastBackoff = false }
+) {
+  const step = backoffMs[Math.min(attempt, backoffMs.length - 1)] ?? 0;
+  if (nextDelayReason !== 'retry-after') return jitterDelayMs(nextDelayMs ?? step, retryJitterRatio, retryJitterMode);
+  let wait = Math.max(0, nextDelayMs ?? 0);
+  if (adviceAtLeastBackoff) wait = Math.max(wait, jitterDelayMs(step, retryJitterRatio, retryJitterMode));
+  // Positive-only jitter never shortens the advice.
+  return retryAfterJitterRatio > 0 ? jitterDelayMs(wait, retryAfterJitterRatio, 'positive') : wait;
 }
 
 /**
@@ -260,7 +356,14 @@ export async function withRetry(fn, opts = {}) {
   let lastErr = null;
   let nextDelayMs = null;
   let nextDelayReason = null;
-  const state = { consecutive529Errors: Math.max(0, Number(opts.initialConsecutive529Errors) || 0) };
+  // `opts.overloadState` ({ consecutive529Errors }) lets one logical send share
+  // its overload count across every withRetry it runs (streaming, recovery
+  // cycles, non-streaming fallback), so the configured fallback still fires.
+  const shared = opts.overloadState && typeof opts.overloadState === 'object' ? opts.overloadState : null;
+  const state = shared || {};
+  if (!Number.isFinite(state.consecutive529Errors)) {
+    state.consecutive529Errors = Math.max(0, Number(opts.initialConsecutive529Errors) || 0);
+  }
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     throwIfRetryAborted(signal);
     if (attempt > 0) {

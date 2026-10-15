@@ -60,6 +60,10 @@ import { createGoalFacadeApi } from '../goal-facade-api.mjs';
 import { createRuntimeReviewApi } from '../runtime-review-api.mjs';
 import { createWorkspaceTransitions, refreshWorkspacePrompt } from '../workspace/transitions.mjs';
 import { saveSession } from '../../runtime/agent/orchestrator/session/store.mjs';
+import { modelToolSchemaAllowlist } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
+import { sessionOptions } from '../session-create/session-options.mjs';
+import { createConversationImportApi } from '../conversation-import/service.mjs';
+import { importError } from '../conversation-import/discovery.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
 import {
@@ -88,12 +92,22 @@ export function wireApis(boot) {
   });
   boot.providerAuthApi = providerAuthApiFor(boot);
   boot.mediaApi = createMediaApi();
+  boot.conversationImportApi = conversationImportApiFor(boot);
   boot.sessionTitles = createSessionTitleController({
     dataRoot: () => dataDirOf(boot.cfgMod),
     promoteGeneratedTitle: (sessionId, title, stage) => boot.mgr.updateSessionGeneratedTitle(sessionId, title, stage),
   });
   boot.lifecycleApi = lifecycleApiFor(boot);
   boot.resourceApi = resourceApiFor(boot);
+  // Plugin MCP servers are derived live; copies an earlier enable action wrote
+  // into mcpServers are adopted once (an injected headless config is left as is).
+  if (!boot.params.initialConfig || typeof boot.params.initialConfig !== 'object') {
+    try {
+      boot.resourceApi.migratePluginMcpCopies();
+    } catch (error) {
+      bootProfile('plugin-mcp:adopt-failed', { error: error?.message || String(error) });
+    }
+  }
   boot.disposeGlobalExtensionSubscription = () => {
     boot.disposeConfigSync?.();
     boot.resourceApi.disposeGlobalExtensionSubscription?.();
@@ -282,6 +296,45 @@ function settingsApiFor(boot) {
   });
 }
 
+// Conversation import: imported sessions are built with the Lead options a new
+// session of this runtime would get (current route, tools, workflow, memory),
+// minus its reservation, profile ownership and desktop placement.
+function conversationImportApiFor(boot) {
+  const { rt, mgr } = boot;
+  return createConversationImportApi({
+    // The async catalog (the daemon's SQLite catalog worker, else JSON),
+    // loaded on first use so boot does not pull in the cold reader.
+    listSessionSummaries: async () => {
+      const reader = await import('../../runtime/agent/orchestrator/session/store-summary-reader.mjs');
+      return reader.listStoredSessionSummariesAsync();
+    },
+    createSession: (options) => mgr.createSession(options),
+    prepareLeadOptions: async () => {
+      await boot.awaitKeychainPrewarm();
+      const route = rt.route?.provider && rt.route?.model ? rt.route : resolveRoute(rt.config, {});
+      if (!route?.provider || !route?.model) throw importError('noModelRoute');
+      await boot.ensureProvidersReady(rt.config.providers || {});
+      const coreMemoryContext = await boot.loadCoreMemoryContext();
+      const leadView = Object.assign(Object.create(rt), {
+        route,
+        reservedSessionId: null,
+        sessionProfile: null,
+        desktopSession: null,
+      });
+      return sessionOptions(
+        {
+          rt: leadView,
+          cfgMod: boot.cfgMod,
+          activeWorkflowContext: workflowHelpers.activeWorkflowContext,
+          schemaAllowedTools: modelToolSchemaAllowlist(rt.toolProfile),
+          featureDisallowedTools: boot.featureDisallowedTools,
+        },
+        coreMemoryContext
+      );
+    },
+  });
+}
+
 function providerAuthApiFor(boot) {
   const { rt, cfgMod, reg, ensureProvidersReady } = boot;
   return createProviderAuthApi({
@@ -398,11 +451,19 @@ function resourceApiFor(boot) {
     STANDALONE_DATA_DIR,
     saveConfigAndAdopt: boot.saveConfigAndAdopt,
     connectConfiguredMcp: boot.connectConfiguredMcp,
+    cancelMcpLogin: boot.cancelMcpLogin,
+    completeMcpLogin: boot.completeMcpLogin,
+    clearMcpServerOAuth: (cfg) => boot.mcpClient.clearMcpServerOAuth(cfg),
+    getMcpServerOAuthState: (cfg) => boot.mcpClient.getMcpServerOAuthState(cfg),
+    probeMcpServerAuth: (cfg) => boot.mcpClient.probeMcpServerAuth(cfg),
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
     refreshEmptySessionToolPolicy: boot.refreshEmptySessionToolPolicy,
     normalizeMcpServerInput: boot.normalizeMcpServerInput,
     mcpStatus: boot.mcpStatus,
     getMcpServerConfig: boot.getMcpServerConfig,
+    resolveMcpCatalog: boot.resolveMcpCatalog,
+    resolveConfiguredMcpCatalog: boot.resolveConfiguredMcpCatalog,
+    pluginMcpServer: boot.pluginMcpServer,
     skillsStatus: boot.skillsStatus,
     skillContent: boot.skillContent,
     addGlobalSkill: boot.addGlobalSkill,
@@ -501,9 +562,12 @@ function workspaceApiFor(boot) {
     getReservedSessionId: () => rt.reservedSessionId,
     getCurrentCwd: () => rt.currentCwd,
     getDesktopSession: () => rt.desktopSession,
+    setDesktopSession: (next) => {
+      rt.desktopSession = next;
+    },
     getConfig: () => rt.config,
     createCurrentSession: (reason) => boot.createCurrentSession(reason),
-    applyResolvedCwd: (cwd) => boot.applyResolvedCwd(cwd),
+    applyResolvedCwd: (cwd, options) => boot.applyResolvedCwd(cwd, options),
     persistSession: (session) => saveSession(session, { immediate: true }),
     refreshWorkspaceContext: (session, cwd) =>
       refreshWorkspacePrompt(session, cwd, { loadCoreMemoryContext: boot.loadCoreMemoryContext }),
@@ -533,6 +597,7 @@ function sessionTurnApiFor(boot) {
       rt.mode = v;
     },
     getActiveTurnCount: () => rt.activeTurnCount,
+    takePendingCompact: (sessionId) => rt.pendingCompactSessionIds?.delete(sessionId) === true,
     setActiveTurnCount: (v) => {
       rt.activeTurnCount = v;
     },
@@ -570,7 +635,7 @@ function sessionTurnApiFor(boot) {
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
     refreshEmptySessionToolPolicy: boot.refreshEmptySessionToolPolicy,
     activeToolSurface: boot.activeToolSurface,
-    applyResolvedCwd: boot.applyResolvedCwd,
+    switchProject: boot.workspaceApi.switchProject,
     resolveCwdPath: boot.resolveCwdPath,
     agentStatusState: boot.agentStatusState,
     notificationListeners: boot.notificationListeners,

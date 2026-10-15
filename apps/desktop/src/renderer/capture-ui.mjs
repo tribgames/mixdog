@@ -383,16 +383,12 @@ try {
         );
       }
       const delayedReview = summary.delayedReview || {};
-      assert.equal(delayedReview.appeared, true, 'the delayed review bar must appear during the probe.');
-      assert.equal(
-        Number(delayedReview.height),
-        32,
-        'the collapsed review bar must retain its readable 32px head row.'
-      );
+      assert.equal(delayedReview.appeared, true, 'the delayed review segment must appear during the probe.');
+      assert.equal(Number(delayedReview.height), 26, 'the composer island Files segment must keep its 26px height.');
       assert.equal(
         Number(delayedReview.maxOverlap),
         0,
-        'the delayed review bar must not overlap the transcript viewport.'
+        'the delayed review segment must not cover the visible transcript rows.'
       );
       assert.ok(
         Number(delayedReview.settledThinkingGap) >= 18,
@@ -416,57 +412,20 @@ try {
         `the bottom-stack expansion moved across ${delayedReview.motion?.movingFrames} frames.`
       );
       assert.ok(
-        Number(delayedReview.motion?.maxRowShift) <= 40,
+        // The island slot opens in one step of its desktop height (46px,
+        // `.composer-island-slot` in desktop/15-composer.css).
+        Number(delayedReview.motion?.maxRowShift) <= 46,
         `the bottom-stack expansion moved rows ${delayedReview.motion?.maxRowShift}px.`
       );
       assert.ok(
         Number(delayedReview.motion?.offBottomFrames) <= 1,
         'the delayed review bar must correct its pre-paint layout within one sample.'
       );
-      for (const [label, pass, expanded] of [
-        ['review expand', summary.reviewExpand || {}, true],
-        ['review collapse', summary.reviewCollapse || {}, false],
-      ]) {
-        assert.equal(pass.clicked, true, `${label}: the review control was not found.`);
-        assert.equal(pass.expanded, expanded, `${label}: the review did not reach its target state.`);
-        assert.equal(Number(pass.maxOverlap), 0, `${label}: the review panel overlapped the transcript viewport.`);
-        assert.ok(
-          Number(pass.settledThinkingGap) >= 18,
-          `${label}: the settled review panel left only ${pass.settledThinkingGap}px below thinking.`
-        );
-        assert.ok(
-          Number(pass.settledComposerGap) >= 7,
-          `${label}: the settled review panel left only ${pass.settledComposerGap}px above the composer.`
-        );
-        assert.ok(
-          Number(pass.settledMaxDistance) <= 8,
-          `${label}: the transcript settled ${pass.settledMaxDistance}px off bottom.`
-        );
-        assert.equal(
-          Number(pass.motion?.reversals),
-          0,
-          `${label}: the transcript bounced during the review transition.`
-        );
-        assert.ok(
-          Number(pass.motion?.movingFrames) <= 1,
-          `${label}: the review disclosure spread geometry over ${pass.motion?.movingFrames} frames.`
-        );
-        assert.ok(
-          Number(pass.motion?.offBottomFrames) <= 1,
-          `${label}: the review disclosure stayed off-bottom for ${pass.motion?.offBottomFrames} samples.`
-        );
-        assert.equal(pass.followingAfter, true, `${label}: the review disclosure released transcript auto-follow.`);
-        assert.ok(
-          Math.abs(Number(pass.finalDistance)) <= 8,
-          `${label}: the review disclosure finished ${pass.finalDistance}px off bottom.`
-        );
-      }
       const expandedReentry = summary.expandedToolReentry || {};
-      assert.equal(
-        Number(expandedReentry.openTools),
-        1,
-        'a touched tool card must restore its disclosure state after session re-entry.'
-      );
+      // Session entry resets the visit's tool disclosures on purpose
+      // (resetToolDisclosureScope in use-conversation-transcript-identity.ts):
+      // tool cards always start collapsed after re-entry.
+      assert.equal(Number(expandedReentry.openTools), 0, 'tool cards must start collapsed after session re-entry.');
       assert.ok(
         Number(expandedReentry.motion?.maxRowShift) <= 2,
         `expanded-tool re-entry moved rows ${expandedReentry.motion?.maxRowShift}px.`
@@ -496,9 +455,18 @@ try {
           `${key}: bottom scrollTop missed the height delta by ${pass.scrollError}px.`
         );
         assert.equal(Number(pass.motion?.reversals), 0, `${key}: the toggle bounced ${pass.motion?.reversals} times.`);
+        // The disclosure is an intended smooth animation (grid-template-rows on
+        // .tool-activity-item / .tool-activity-reveal, desktop/13-tool-cards.css),
+        // so it legitimately spans several frames. A smooth reveal moves in small
+        // steps and travels exactly the card's height change; a jump would show
+        // as one large per-frame shift or a total that misses the delta.
         assert.ok(
-          Number(pass.motion?.movingFrames) <= 1,
-          `${key}: the toggle moved the transcript across ${pass.motion?.movingFrames} frames.`
+          Number(pass.motion?.maxRowShift) <= 16,
+          `${key}: the toggle jumped ${pass.motion?.maxRowShift}px in one frame.`
+        );
+        assert.ok(
+          Math.abs(Number(pass.motion?.totalTravel) - Math.abs(Number(pass.cardHeightDelta))) <= 2,
+          `${key}: the toggle travelled ${pass.motion?.totalTravel}px for a ${pass.cardHeightDelta}px card height change.`
         );
         assert.equal(
           Number(pass.motion?.offBottomFrames),

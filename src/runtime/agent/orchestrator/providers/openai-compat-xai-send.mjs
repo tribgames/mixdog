@@ -1,4 +1,6 @@
+import { resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { markProviderRecoveryExhausted, withRetry } from './retry-classifier.mjs';
+import { compatRetryOptions, withCompatRetryProfile } from './openai-compat-retry-profile.mjs';
 import { consumeCompatResponsesStream } from './openai-compat-stream.mjs';
 import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, createPassthroughSignal } from '../stall-policy.mjs';
 import {
@@ -90,7 +92,7 @@ export async function sendXaiResponses(provider, messages, useModel, tools, opts
   let streamed;
   try {
     streamed = await withRetry(
-      async ({ signal: attemptSignal }) => {
+      withCompatRetryProfile(provider.name, async ({ signal: attemptSignal }) => {
         const stream = await withRetry(
           ({ signal: openSignal }) => provider.client.responses.create(params, { signal: openSignal }),
           {
@@ -126,11 +128,12 @@ export async function sendXaiResponses(provider, messages, useModel, tools, opts
           }
           throw error;
         }
-      },
+      }),
       {
         signal: totalSignal.signal,
         onRetry: compatStreamRetryReporter('xai:responses', opts),
         retry529: opts.retry529,
+        ...compatRetryOptions(provider.name),
       }
     );
   } finally {
@@ -158,7 +161,7 @@ export async function sendXaiResponsesWebSocket(provider, messages, useModel, to
     const reason = signal.reason;
     throw reason instanceof Error ? reason : new Error('xAI Responses WebSocket request aborted by session close');
   }
-  const apiKey = provider.config?.apiKey || process.env.XAI_API_KEY;
+  const apiKey = resolveProviderApiKey('xai', provider.config);
   if (!apiKey) throw new Error('xAI API key not configured');
   messages = await preparePdfTextForProvider(messages, provider);
   const chatMessagesForTrace = toOpenAIMessages(messages, provider.name, { nativePdf: provider.nativePdf });

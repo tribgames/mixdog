@@ -231,6 +231,7 @@ export function ConversationTranscript({
                 shouldAnchorBottom={timeline.shouldAnchorTranscriptBottom}
                 markProgrammaticScroll={follow.markProgrammaticScroll}
                 hasScrollGesture={follow.hasScrollGesture}
+                hasTouchScroll={follow.hasTouchScroll}
                 onSelectionAutoScroll={follow.handleSelectionAutoScroll}
                 setAnchorBottomRef={view.setTranscriptAnchorBottomRef}
                 scrollToEndRef={view.scrollToEndRef}

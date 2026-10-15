@@ -150,6 +150,32 @@ test('theme versions and memo-busting props repaint unchanged ANSI, markdown and
   assert.match(user.text, /same user text/);
 });
 
+test('a user row marks applied $skill tokens, lists the applied skills and matches its row estimate', async (context) => {
+  const { estimateTranscriptItemRows } = await import('../app/transcript-row-estimate.mjs');
+  const show = mountSurface(context, 40);
+  context.after(() => surfaces.setThemeSetting(initialTheme, { persist: false }));
+  surfaces.theme.panelTitle = 'rgb(1,99,2)';
+  const mark = foreground('rgb(1,99,2)');
+  const text = 'Use $api-review, not $pptx or `$api-review`; path $HOME, $300.';
+  const item = { kind: 'user', id: 'u1', text, appliedSkills: ['api-review'] };
+  const shown = await show(surfaces.Item, { item, prevKind: 'assistant', columns: 40 });
+  assert.match(shown.text, /Skills applied: api-review/);
+  assert.match(shown.text.replace(/\s+/g, ' '), /Use \$api-review, not \$pptx or `\$api-review`; path \$HOME, \$300\./);
+  // Exactly one mark: the applied mention, not the unapplied $pptx nor the code span.
+  assert.equal(shown.frame.split(mark).length - 1, 1);
+  const marked = stripVTControlCharacters(shown.frame.slice(shown.frame.indexOf(mark)));
+  assert.ok(marked.startsWith('$api-review'));
+  const rows = shown.text.split('\n').length;
+  assert.equal(estimateTranscriptItemRows(item, 40), rows);
+
+  const plainItem = { kind: 'user', id: 'u2', text };
+  const plain = await show(surfaces.Item, { item: plainItem, prevKind: 'assistant', columns: 40 });
+  assert.doesNotMatch(plain.text, /Skills applied/);
+  assert.ok(!plain.frame.includes(mark));
+  assert.equal(estimateTranscriptItemRows(plainItem, 40), plain.text.split('\n').length);
+  assert.equal(estimateTranscriptItemRows(item, 40), estimateTranscriptItemRows(plainItem, 40) + 1);
+});
+
 test('streaming chunks, assistant windows and forced-width tables keep visible text through rerenders', async (context) => {
   const show = mountSurface(context, 40);
   const prefix = '**stable**\n\n```txt\nlive';

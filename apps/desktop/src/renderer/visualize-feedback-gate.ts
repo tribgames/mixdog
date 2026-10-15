@@ -24,7 +24,12 @@
 
 import { useSyncExternalStore } from 'react';
 
-import type { VisualizeFeedbackRect, VisualizePagePick } from '../shared/visualize-feedback';
+import {
+  sameRect,
+  type VisualizeFeedbackRect,
+  type VisualizePageMeasure,
+  type VisualizePagePick,
+} from '../shared/visualize-feedback';
 import type { VisualizeChoice } from './visualize-feedback-store';
 
 export const VISUALIZE_PICK_TTL_MS = 2_000;
@@ -95,8 +100,8 @@ export function visualizeFreshCrop(
   return { view: fresh.view, masks: fresh.masks };
 }
 
-const sameRect = (a: VisualizeFeedbackRect, b: VisualizeFeedbackRect): boolean =>
-  a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+const sameMasks = (a: VisualizeFeedbackRect[], b: VisualizeFeedbackRect[]): boolean =>
+  a.length === b.length && a.every((mask, index) => sameRect(mask, b[index]));
 
 /** A crop is kept only when the page answers again after the shot with
  *  exactly the element, boxes and secret-field masks it gave right before
@@ -104,8 +109,14 @@ const sameRect = (a: VisualizeFeedbackRect, b: VisualizeFeedbackRect): boolean =
 export function visualizeSameDescription(before: VisualizePagePick, after: VisualizePagePick | null): boolean {
   if (!after || after.masksOverflow || before.masksOverflow || after.selector !== before.selector) return false;
   if (!sameRect(after.view, before.view) || !sameRect(after.box, before.box)) return false;
-  if (after.masks.length !== before.masks.length) return false;
-  return after.masks.every((mask, index) => sameRect(mask, before.masks[index]));
+  return sameMasks(after.masks, before.masks);
+}
+
+/** The same rule for a dragged HTML area: the page must report the same
+ *  contents and exactly the same secret-field masks before and after the shot. */
+export function visualizeSameMeasure(before: VisualizePageMeasure, after: VisualizePageMeasure | null): boolean {
+  if (!after || after.masksOverflow || before.masksOverflow || after.count !== before.count) return false;
+  return sameMasks(after.masks, before.masks);
 }
 
 let capturesInFlight = 0;

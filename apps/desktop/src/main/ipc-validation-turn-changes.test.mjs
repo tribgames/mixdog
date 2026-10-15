@@ -45,4 +45,16 @@ test('turn changes capabilities accept exactly the transcript card contract', ()
       assert.throws(() => requiredDesktopCapabilityRequest({ capability, args }), TypeError);
     }
   }
+  // Delete history: a session mutation with no arguments, never a read.
+  assert.doesNotThrow(() =>
+    requiredDesktopCapabilityRequest({ capability: 'clearSessionChangeHistory', args: [], sessionId: 's' })
+  );
+  assert.throws(
+    () => requiredDesktopCapabilityRequest({ capability: 'clearSessionChangeHistory', args: ['cp'] }),
+    TypeError
+  );
+  assert.throws(
+    () => requiredDesktopCapabilityReadRequests([{ capability: 'clearSessionChangeHistory', args: [] }]),
+    /not read-only/
+  );
 });

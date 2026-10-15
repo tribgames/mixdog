@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createResourceApi } from './resource-api.mjs';
+import { resolveMcpServerCatalog } from './mcp-glue/plugin-servers.mjs';
 
 function resourceApi(overrides = {}) {
   return createResourceApi({
@@ -32,7 +33,7 @@ function resourceApi(overrides = {}) {
   });
 }
 
-test('a plugin named only by its name toggles, removes, and scopes its registered MCP entries', async (t) => {
+test('a plugin named only by its name toggles, removes, and scopes by registry id without copying MCP entries', async (t) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-plugin-name-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const row = { id: 'demo-plugin-1a2b3c4d', name: 'demo-plugin', root: join(dataDir, 'src'), managed: false };
@@ -56,10 +57,10 @@ test('a plugin named only by its name toggles, removes, and scopes its registere
   });
   t.after(() => api.disposeGlobalExtensionSubscription());
 
+  const before = structuredClone(config.mcpServers);
   await api.setPluginEnabled('demo-plugin', false);
-  assert.equal(config.mcpServers['plugin-demo-plugin']._mixdogPluginDisabled, true);
-  assert.equal(config.mcpServers['plugin-demo-plugin--extra']._mixdogPluginDisabled, true);
-  assert.equal(config.mcpServers.unrelated._mixdogPluginDisabled, undefined);
+  // The registry holds the plugin state; mcpServers is never rewritten.
+  assert.deepEqual(config.mcpServers, before);
 
   // Scope is stored under the registry id, the key every reader matches.
   await api.setExtensionScope('plugins', 'demo-plugin', [dataDir]);
@@ -71,7 +72,7 @@ test('a plugin named only by its name toggles, removes, and scopes its registere
 
   await api.removePlugin('demo-plugin');
   registered = [];
-  assert.deepEqual(Object.keys(config.mcpServers), ['unrelated']);
+  assert.deepEqual(config.mcpServers, before);
 });
 
 test('a global MCP toggle reloads and reconnects peer session runtimes', async () => {
@@ -128,11 +129,73 @@ test('a global MCP toggle reloads and reconnects peer session runtimes', async (
     assert.equal(writerConfig.mcpServers.demo.enabled, false);
     assert.equal(peerConfig.mcpServers.demo.enabled, false);
     assert.equal(peerReloads, 1);
-    assert.equal(peerConnects, 1);
+    // The scoped toggle, then the fingerprint reconcile (a no-op for unchanged servers).
+    assert.equal(peerConnects, 2);
     assert.equal(lifecycleCalls, 0);
   } finally {
     writer.disposeGlobalExtensionSubscription();
     peer.disposeGlobalExtensionSubscription();
+  }
+});
+
+test('removing an MCP server disconnects it, then clears its stored OAuth credentials', async () => {
+  const remote = { type: 'http', url: 'https://mcp.example/mcp' };
+  let config = { mcpServers: { remote, other: { command: 'other' } } };
+  const calls = [];
+  const api = resourceApi({
+    getConfig: () => config,
+    saveConfigAndAdopt: (next) => {
+      config = structuredClone(next);
+    },
+    connectConfiguredMcp: async (options) => {
+      calls.push(['connect', options.only ?? null, options.enabled ?? null]);
+      return { servers: [] };
+    },
+    clearMcpServerOAuth: async (cfg) => calls.push(['clear', cfg]),
+  });
+  try {
+    await api.removeMcpServer('remote');
+    assert.deepEqual(Object.keys(config.mcpServers), ['other']);
+    assert.deepEqual(calls, [
+      ['connect', 'remote', false],
+      ['connect', null, null],
+      ['clear', remote],
+    ]);
+  } finally {
+    api.disposeGlobalExtensionSubscription();
+  }
+});
+
+test('removing a server keeps OAuth credentials another configured server uses through the same URL', async () => {
+  const url = 'https://mcp.example/mcp';
+  const servers = {
+    a: { type: 'http', url },
+    b: { type: 'sse', url, enabled: false },
+    c: { type: 'http', url: `${url}?tenant=other` },
+    local: { command: 'node' },
+  };
+  let config = { mcpServers: structuredClone(servers) };
+  const cleared = [];
+  const api = resourceApi({
+    getConfig: () => config,
+    saveConfigAndAdopt: (next) => {
+      config = structuredClone(next);
+    },
+    resolveMcpCatalog: () => resolveMcpServerCatalog({ config }),
+    clearMcpServerOAuth: async (cfg) => cleared.push(cfg),
+  });
+  try {
+    // The disabled SSE alias still uses the credentials of its exact URL.
+    await api.removeMcpServer('a');
+    assert.deepEqual(cleared, []);
+    // Another query is another credential set; stdio servers have none.
+    await api.removeMcpServer('c');
+    await api.removeMcpServer('local');
+    assert.deepEqual(cleared, [servers.c]);
+    await api.removeMcpServer('b');
+    assert.deepEqual(cleared, [servers.c, servers.b]);
+  } finally {
+    api.disposeGlobalExtensionSubscription();
   }
 });
 

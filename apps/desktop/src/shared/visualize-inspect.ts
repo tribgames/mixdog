@@ -120,6 +120,10 @@ const INSPECT_SOURCE = String.raw`(function () {
   var MAX_FINDINGS = 60;
   var PER_KIND = 12;
   var MAX_TEXT_CHECKS = 800;
+  var GRID_CELL = 128;
+  var MAX_GRID_CELLS = 64;
+  var MAX_SCANS = 4000000;
+  var MAX_PAIRS = 1000000;
   var INTERACTIVE_ROLES = /^(button|link|checkbox|radio|tab|menuitem|menuitemcheckbox|menuitemradio|switch|slider|textbox|combobox|searchbox|spinbutton|option|treeitem)$/;
   var LANDMARK_ROLES = /^(banner|navigation|main|complementary|contentinfo|region|search|form)$/;
   var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1, HEAD: 1, META: 1, LINK: 1, TITLE: 1, BR: 1 };
@@ -345,21 +349,27 @@ const INSPECT_SOURCE = String.raw`(function () {
     var de = document.documentElement;
     var vw = de.clientWidth || window.innerWidth || 0;
     var vh = window.innerHeight || de.clientHeight || 0;
-    var all = root.querySelectorAll('*');
+    // Walk lazily and stop at the cap: a huge document is never materialized.
     var nodes = [root];
-    for (var n = 0; n < all.length && n < MAX_NODES; n++) nodes.push(all[n]);
+    var partial = false;
+    var walker = document.createTreeWalker(root, 1);
+    for (var step = walker.nextNode(); step; step = walker.nextNode()) {
+      if (nodes.length > MAX_NODES) { partial = true; break; }
+      nodes.push(step);
+    }
     var result = {
       viewport: { width: Math.round(window.innerWidth || vw), height: Math.round(vh) },
       page: { width: Math.round(de.scrollWidth || 0), height: Math.round(de.scrollHeight || 0) },
       scope: opts.selector ? cut(redact(String(opts.selector)), 200) : '',
       outline: [], elements: [], elementCount: 0, findings: [], findingCount: 0, contrastUnknown: 0,
-      partial: all.length > MAX_NODES
+      partial: partial
     };
     var counts = {};
     function find(kind, severity, message, el, box) {
       result.findingCount += 1;
       counts[kind] = (counts[kind] || 0) + 1;
       if (counts[kind] > PER_KIND || result.findings.length >= MAX_FINDINGS) return;
+      if (typeof message === 'function') message = message();
       result.findings.push({ kind: kind, severity: severity, message: cut(redact(message), 200), selector: selectorOf(el), x: box.x, y: box.y, w: box.w, h: box.h });
     }
     function boxOf(el) {
@@ -402,7 +412,8 @@ const INSPECT_SOURCE = String.raw`(function () {
         if (named.source === 'placeholder') flags.push('placeholder-only');
         if (el.checked === true) flags.push('checked');
         if (faint) flags.push('invisible');
-        var record = { role: role, name: cut(redact(named.name), 60), selector: selectorOf(el), tag: tag, x: box.x, y: box.y, w: box.w, h: box.h, flags: flags };
+        // The selector is only needed for the listed elements; overlaps compute theirs on demand.
+        var record = { role: role, name: cut(redact(named.name), 60), selector: result.elements.length < MAX_ELEMENTS ? selectorOf(el) : '', tag: tag, x: box.x, y: box.y, w: box.w, h: box.h, flags: flags };
         if (tag === 'input' || tag === 'textarea') {
           var type = (el.getAttribute('type') || 'text').toLowerCase();
           if (secret || inside) record.value = '[redacted]';
@@ -483,24 +494,83 @@ const INSPECT_SOURCE = String.raw`(function () {
         overflowers[0] || de, overflowers.length ? boxOf(overflowers[0]) : { x: 0, y: 0, w: de.scrollWidth, h: 0 });
     }
 
+    // Overlaps: targets are bucketed by the grid cells their box covers, so each
+    // one is only compared with its neighbours (not all pairs). A box spanning
+    // many cells goes in a shared "wide" list; the visit budget bounds the rest.
+    var cells = {};
+    var wide = { list: [], from: 0 };
+    var cellsOf = [];
+    for (var g = 0; g < interactive.length; g++) {
+      var gb = interactive[g].record;
+      var cx0 = Math.floor(gb.x / GRID_CELL);
+      var cx1 = Math.floor((gb.x + gb.w - 1) / GRID_CELL);
+      var cy0 = Math.floor(gb.y / GRID_CELL);
+      var cy1 = Math.floor((gb.y + gb.h - 1) / GRID_CELL);
+      if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > MAX_GRID_CELLS) {
+        wide.list.push(g);
+        cellsOf.push(null);
+        continue;
+      }
+      var mine = [];
+      for (var cx = cx0; cx <= cx1; cx++) {
+        for (var cy = cy0; cy <= cy1; cy++) {
+          var key = cx + ',' + cy;
+          var bucket = cells[key] || (cells[key] = { list: [], from: 0 });
+          bucket.list.push(g);
+          mine.push(bucket);
+        }
+      }
+      cellsOf.push(mine);
+    }
+    // Two budgets bound the work: bucket entries scanned and distinct pairs
+    // compared. Running out leaves later rows unchecked, so the result says partial.
+    var scans = 0;
+    var pairs = 0;
+    var exhausted = false;
+    var stamp = [];
+    function byIndex(p, q) { return p - q; }
+
     for (var a = 0; a < interactive.length; a++) {
       var first = interactive[a];
       var fb = first.record;
       if (!first.inlineLink && (fb.w < 24 || fb.h < 24)) {
         find('small-target', 'warning', 'tap target is ' + fb.w + 'x' + fb.h + 'px (WCAG minimum 24x24)', first.el, fb);
       }
-      for (var b = a + 1; b < interactive.length; b++) {
-        var second = interactive[b];
+      if (exhausted) continue;
+      var candidates = [];
+      if (cellsOf[a]) {
+        var buckets = cellsOf[a].concat([wide]);
+        for (var u = 0; u < buckets.length; u++) {
+          var bk = buckets[u];
+          while (bk.from < bk.list.length && bk.list[bk.from] <= a) bk.from += 1;
+          scans += bk.list.length - bk.from;
+          if (scans > MAX_SCANS) { exhausted = true; break; }
+          for (var k = bk.from; k < bk.list.length; k++) {
+            var near = bk.list[k];
+            // A pair sharing several cells is still checked once per row.
+            if (stamp[near] !== a) { stamp[near] = a; candidates.push(near); }
+          }
+        }
+        candidates.sort(byIndex);
+      } else {
+        for (var all = a + 1; all < interactive.length; all++) candidates.push(all);
+      }
+      if (exhausted) continue;
+      pairs += candidates.length;
+      if (pairs > MAX_PAIRS) { exhausted = true; continue; }
+      for (var c = 0; c < candidates.length; c++) {
+        var second = interactive[candidates[c]];
         var sb = second.record;
-        if (first.el.contains(second.el) || second.el.contains(first.el)) continue;
         var width = Math.min(fb.x + fb.w, sb.x + sb.w) - Math.max(fb.x, sb.x);
         var height = Math.min(fb.y + fb.h, sb.y + sb.h) - Math.max(fb.y, sb.y);
         if (width <= 0 || height <= 0) continue;
         if (width * height > 0.2 * Math.min(fb.w * fb.h, sb.w * sb.h)) {
-          find('overlap', 'warning', 'overlaps ' + sb.role + ' "' + sb.name + '" (' + sb.selector + ')', first.el, fb);
+          if (first.el.contains(second.el) || second.el.contains(first.el)) continue;
+          find('overlap', 'warning', function () { return 'overlaps ' + sb.role + ' "' + sb.name + '" (' + (sb.selector || selectorOf(second.el)) + ')'; }, first.el, fb);
         }
       }
     }
+    if (exhausted) result.partial = true;
     // Last pass: no string that leaves the page carries a token-like value.
     (function scrub(value) {
       for (var key in value) {
@@ -558,13 +628,17 @@ export function visualizePageInspection(value: unknown): PageInspection | { erro
       selector: text(item.selector, 200),
       tag: text(item.tag, 24),
       ...(typeof item.value === 'string' ? { value: secret ? '[redacted]' : text(item.value, 60) } : {}),
-      flags: list(item.flags, 6).map((flag) => text(flag, 24)).filter(Boolean),
+      flags: list(item.flags, 6)
+        .map((flag) => text(flag, 24))
+        .filter(Boolean),
       ...box(item),
     };
   });
   const findings = list(raw.findings, MAX_INSPECT_FINDINGS).flatMap((entry): InspectFinding[] => {
     const item = record(entry);
-    const kind = (INSPECT_FINDING_KINDS as readonly string[]).includes(item.kind as string) ? (item.kind as InspectFindingKind) : null;
+    const kind = (INSPECT_FINDING_KINDS as readonly string[]).includes(item.kind as string)
+      ? (item.kind as InspectFindingKind)
+      : null;
     if (!kind) return [];
     return [
       {
@@ -611,7 +685,9 @@ function fit(lines: string[], budget: number, noun: string): string[] {
     kept.push(line);
     used += line.length + 1;
   }
-  return kept.length < lines.length ? [...kept, `  …${lines.length - kept.length} more ${noun} omitted (output capped)`] : kept;
+  return kept.length < lines.length
+    ? [...kept, `  …${lines.length - kept.length} more ${noun} omitted (output capped)`]
+    : kept;
 }
 
 /** The agent's text read-out of one pane's inspection: findings first, then
@@ -621,10 +697,13 @@ export function formatPageInspection(inspection: PageInspection, title: string):
     `${title}: viewport ${inspection.viewport.width}×${inspection.viewport.height}, page ${inspection.page.width}×${inspection.page.height}${inspection.scope ? `, scope ${inspection.scope}` : ''}${inspection.partial ? ' (very large page: only the first part was read)' : ''}`,
   ];
   if (inspection.contrastUnknown) {
-    head.push(`${inspection.contrastUnknown} text element${inspection.contrastUnknown === 1 ? '' : 's'} over images or gradients: contrast not checked.`);
+    head.push(
+      `${inspection.contrastUnknown} text element${inspection.contrastUnknown === 1 ? '' : 's'} over images or gradients: contrast not checked.`
+    );
   }
   const findings = inspection.findings.map(
-    (finding) => `  - [${finding.severity}] ${finding.kind}: ${finding.message} · ${finding.selector} (${boxText(finding)})`
+    (finding) =>
+      `  - [${finding.severity}] ${finding.kind}: ${finding.message} · ${finding.selector} (${boxText(finding)})`
   );
   const unlisted = inspection.findingCount - inspection.findings.length;
   const unlistedLine = unlisted > 0 ? [`  …${unlisted} more not listed`] : [];
@@ -642,9 +721,13 @@ export function formatPageInspection(inspection: PageInspection, title: string):
   const sections = [
     head.join('\n'),
     inspection.findingCount
-      ? [`Layout findings (${inspection.findingCount}):`, ...fit(findings, 3_200, 'findings'), ...unlistedLine].join('\n')
+      ? [`Layout findings (${inspection.findingCount}):`, ...fit(findings, 3_200, 'findings'), ...unlistedLine].join(
+          '\n'
+        )
       : 'Layout findings: none.',
-    outline.length ? ['Outline:', ...fit(outline, 1_800, 'outline rows')].join('\n') : 'Outline: no landmarks or headings.',
+    outline.length
+      ? ['Outline:', ...fit(outline, 1_800, 'outline rows')].join('\n')
+      : 'Outline: no landmarks or headings.',
     elements.length
       ? [
           `Interactive elements (${inspection.elementCount}${inspection.elementCount > inspection.elements.length ? `, first ${inspection.elements.length} listed` : ''}):`,
@@ -653,7 +736,9 @@ export function formatPageInspection(inspection: PageInspection, title: string):
       : 'Interactive elements: none.',
   ];
   const out = sections.join('\n');
-  return out.length > MAX_INSPECT_TEXT ? `${out.slice(0, MAX_INSPECT_TEXT - 40)}\n…output capped at ${MAX_INSPECT_TEXT} characters` : out;
+  return out.length > MAX_INSPECT_TEXT
+    ? `${out.slice(0, MAX_INSPECT_TEXT - 40)}\n…output capped at ${MAX_INSPECT_TEXT} characters`
+    : out;
 }
 
 /** "3 layout findings — run inspect", or '' when there are none. */

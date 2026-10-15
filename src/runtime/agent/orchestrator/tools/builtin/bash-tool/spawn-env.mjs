@@ -1,4 +1,5 @@
 import { resourceAdmission } from '../../../../../shared/resource-admission.mjs';
+import { withSkillLauncherPath } from '../../../../../shared/skill-script-runtime.mjs';
 import {
   applyShellEgressPolicy,
   scrubLoaderVars,
@@ -24,5 +25,8 @@ export function buildShellSpawnEnv(cwd, baseEnv = process.env) {
   scrubLoaderVars(spawnEnv);
   scrubRuntimeRootVars(spawnEnv);
   applyShellEgressPolicy(spawnEnv);
+  // `mixdog-skill-node` (a skill's ${MIXDOG_SKILL_NODE}) resolves in every
+  // model shell; only this env gets the entry, never the daemon's own.
+  withSkillLauncherPath(spawnEnv);
   return spawnEnv;
 }

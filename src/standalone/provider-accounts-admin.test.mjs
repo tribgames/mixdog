@@ -19,7 +19,7 @@ const { forgetProviderAuth, beginOAuthProviderLogin, listProviderAccounts } = aw
 );
 after(() => rmSync(dir, { recursive: true, force: true }));
 
-function mockTokenExchange(t, response) {
+async function mockTokenExchange(t, response) {
   t.mock.method(
     globalThis,
     'fetch',
@@ -40,7 +40,7 @@ test('disconnect removes only the requested account, without selecting it or dis
       { access_token: `access-${id}`, refresh_token: `refresh-${id}`, expires_at: Date.now() + 3600_000 },
       { mode: 0o600, secret: true }
     );
-    registerProviderAccount(provider, id);
+    await registerProviderAccount(provider, id);
   }
   let config = { providers: { [provider]: { enabled: true } } };
   const cfg = {
@@ -60,9 +60,9 @@ test('disconnect removes only the requested account, without selecting it or dis
     [ids[0]]
   );
   await assert.rejects(() => forgetProviderAuth(cfg, provider, '../outside'), /no longer connected/);
-  changeProviderAccounts(provider, { rename: { id: ids[0], label: 'Personal' } });
+  await changeProviderAccounts(provider, { rename: { id: ids[0], label: 'Personal' } });
   assert.equal(listProviderAccounts(provider).accounts[0].label, 'Personal');
-  assert.throws(
+  await assert.rejects(
     () => changeProviderAccounts(provider, { rename: { id: ids[0], label: '  ' } }),
     /Invalid account name/
   );

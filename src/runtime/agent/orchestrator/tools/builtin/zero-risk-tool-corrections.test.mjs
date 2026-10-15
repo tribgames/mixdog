@@ -19,8 +19,8 @@ import { closeNativePatchServerForTests } from '../patch/native-server.mjs';
 test('shell wait_ms above the ceiling clamps; the message states the schema range', () => {
   const clamped = { command: 'echo x', wait_ms: 500000 };
   assert.equal(validateBuiltinArgs('shell', clamped), null);
-  assert.equal(clamped.wait_ms, 120000);
-  assert.match(validateBuiltinArgs('shell', { command: 'echo x', wait_ms: 5 }), /15000 to 120000/);
+  assert.equal(clamped.wait_ms, 30000);
+  assert.match(validateBuiltinArgs('shell', { command: 'echo x', wait_ms: 5 }), /10000 to 30000/);
 });
 
 test('read limit:0 reads the default window instead of failing', () => {

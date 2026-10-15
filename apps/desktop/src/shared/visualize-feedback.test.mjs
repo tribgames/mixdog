@@ -44,12 +44,22 @@ function page(t, body) {
   return { window, document: window.document, sent, api, click, frames, at, overlay: () => window.__overlay };
 }
 
-const box = (left, top, width, height) => () => ({ left, top, width, height, right: left + width, bottom: top + height });
+const box = (left, top, width, height) => () => ({
+  left,
+  top,
+  width,
+  height,
+  right: left + width,
+  bottom: top + height,
+});
 
 test('the page script announces itself and stays out of a top-level window', async (t) => {
   const { sent, document, frames } = page(t, '<p>hi</p>');
   await frames();
-  assert.deepEqual(sent, [{ type: 'ready', ...tag }, { type: 'tweaks', raw: null, ...tag }]);
+  assert.deepEqual(sent, [
+    { type: 'ready', ...tag },
+    { type: 'tweaks', raw: null, ...tag },
+  ]);
   // The default selected style is the first (lowest-priority) sheet, zero specificity.
   const style = document.head.firstElementChild;
   assert.equal(style.getAttribute('data-mixdog-visualize'), '');
@@ -99,17 +109,26 @@ test('the page never makes a pin: it only describes the element under a pick poi
   const { pick } = message;
   assert.deepEqual(Object.keys(pick).sort(), [
     'box',
+    'child',
     'html',
-    'label',
     'masks',
     'masksOverflow',
+    'name',
+    'path',
+    'role',
     'selector',
     'styles',
     'view',
   ]);
   assert.equal(pick.selector, 'body > main > div > form');
   assert.equal(document.querySelector(pick.selector), form);
-  assert.equal(pick.label, 'form.login');
+  assert.equal(pick.role, 'form');
+  assert.doesNotMatch(pick.name, /hunter2|tok-plain-value/);
+  assert.deepEqual(pick.path, [
+    { selector: 'body > main', role: 'section', name: pick.path[0].name },
+    { selector: 'body > main > div', role: 'box', name: pick.path[1].name },
+  ]);
+  assert.doesNotMatch(JSON.stringify(pick.path), new RegExp(`${OPENAI_KEY}|${LONG_TOKEN}`), 'names are redacted');
   assert.ok(pick.html.length <= 600);
   assert.match(pick.html, /^<form class="login">/);
   assert.doesNotMatch(pick.html, /hunter2|tok-plain-value/);
@@ -127,7 +146,8 @@ test('the page never makes a pin: it only describes the element under a pick poi
   at(document.getElementById('go'));
   api.apply({ type: 'pick', id: 'req-2', x: 1, y: 1 });
   assert.equal(sent.at(-1).pick.selector, '#go');
-  assert.equal(sent.at(-1).pick.label, 'button#go.rename.primary');
+  assert.equal(sent.at(-1).pick.role, 'button');
+  assert.equal(sent.at(-1).pick.name, 'Rename [redacted]');
   assert.match(sent.at(-1).pick.html, /Rename \[redacted\]/);
 
   // Nothing under the point (or the overlay itself): no answer.
@@ -139,6 +159,209 @@ test('the page never makes a pin: it only describes the element under a pick poi
   // Esc inside the page leaves Comment mode through the panel.
   document.body.dispatchEvent(new document.defaultView.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   assert.equal(sent.at(-1).type, 'exit-comment');
+});
+
+test('names and the inside path never carry what a secret field holds', async (t) => {
+  const { document, sent, api, frames, at } = page(
+    t,
+    `<main><form class="notes"><label>Notes</label><textarea name="api_token">s3cr3t-note-value</textarea><button id="save">Save</button></form></main>`
+  );
+  await frames();
+  api.apply({ type: 'state', comment: true, markers: [] });
+  at(document.getElementById('save'));
+  api.apply({ type: 'pick', id: 'r1', x: 1, y: 1 });
+  const { pick } = sent.at(-1);
+  assert.equal(pick.name, 'Save');
+  assert.equal(pick.path.at(-1).role, 'form');
+  assert.equal(pick.path.at(-1).name, 'NotesSave', 'the form keeps its own text');
+  assert.doesNotMatch(JSON.stringify(pick.path), /s3cr3t/);
+
+  at(document.querySelector('form'));
+  api.apply({ type: 'pick', id: 'r2', x: 1, y: 1 });
+  assert.doesNotMatch(sent.at(-1).pick.name, /s3cr3t/);
+  assert.doesNotMatch(JSON.stringify(sent.at(-1).pick.path), /s3cr3t/);
+  assert.match(sent.at(-1).pick.html, /\[redacted\]/);
+});
+
+test('hover shows a human label; Alt+Up/Down move the target, and a pick takes it', async (t) => {
+  const { document, sent, api, frames, at, overlay } = page(
+    t,
+    '<section id="card"><div class="foot"><button id="save"><span id="label">Save</span></button></div></section>'
+  );
+  const label = document.getElementById('label');
+  const button = document.getElementById('save');
+  const foot = button.parentElement;
+  label.getBoundingClientRect = box(10, 10, 30, 12);
+  button.getBoundingClientRect = box(5, 5, 60, 24);
+  foot.getBoundingClientRect = box(0, 0, 200, 40);
+  api.apply({ type: 'state', comment: true, markers: [], nouns: { button: '버튼', text: '글자', box: '상자' } });
+  at(label);
+  api.apply({ type: 'hover', x: 12, y: 12 });
+  await frames();
+  assert.equal(overlay().querySelector('.tag').textContent, '글자 · Save30×12');
+
+  api.apply({ type: 'hover-step', dir: 'up' });
+  await frames();
+  assert.equal(overlay().querySelector('.tag').textContent, '버튼 · Save60×24', 'Alt+Up: the button');
+  api.apply({ type: 'pick', id: 'r1', x: 12, y: 12 });
+  const pick = sent.at(-1).pick;
+  assert.equal(pick.selector, '#save', 'the pick takes the lifted target, not the span under the point');
+  assert.deepEqual(
+    pick.path.map((node) => [node.selector, node.role]),
+    [
+      ['#card', 'section'],
+      ['#card > div', 'box'],
+    ]
+  );
+  assert.deepEqual(pick.child, { selector: '#label', role: 'text', name: 'Save' });
+
+  api.apply({ type: 'hover-step', dir: 'up' });
+  api.apply({ type: 'hover-step', dir: 'down' });
+  await frames();
+  assert.match(overlay().querySelector('.tag').textContent, /^버튼/, 'Alt+Down walks back toward the point');
+  api.apply({ type: 'hover-step', dir: 'down' });
+  await frames();
+  assert.match(overlay().querySelector('.tag').textContent, /^글자/);
+
+  // The element a comment is written for is outlined as selected, without a hover label.
+  api.apply({ type: 'select', selector: '#save' });
+  await frames();
+  assert.equal(overlay().querySelectorAll('.box.sel').length, 1);
+  assert.equal(overlay().querySelector('.tag'), null);
+
+  // A click on a pin's number picks that pin's element.
+  api.apply({ type: 'select', selector: null });
+  api.apply({ type: 'state', comment: true, markers: [{ n: 1, selector: '#card > div' }] });
+  await frames();
+  at(label);
+  api.apply({ type: 'pick', id: 'r2', x: 5, y: 5 });
+  assert.equal(sent.at(-1).pick.selector, '#card > div');
+});
+
+test('measure counts the outermost elements inside an area and masks the secret fields it touches', (t) => {
+  const { document, sent, api } = page(
+    t,
+    '<div id="a"><p id="p1">One</p></div><div id="b"><input type="password" id="pw"></div><div id="c">Out</div>'
+  );
+  const boxes = {
+    a: box(0, 0, 100, 20),
+    p1: box(0, 0, 50, 10),
+    b: box(0, 20, 100, 20),
+    pw: box(10, 25, 50, 10),
+    c: box(0, 200, 100, 20),
+  };
+  for (const [id, rect] of Object.entries(boxes)) document.getElementById(id).getBoundingClientRect = rect;
+  document.body.getBoundingClientRect = box(0, 0, 300, 300);
+  api.apply({ type: 'measure', id: 'm1', rect: { x: 0, y: 0, width: 120, height: 50 } });
+  assert.deepEqual(sent.at(-1), {
+    type: 'measured',
+    id: 'm1',
+    count: 2,
+    masks: [{ x: 10, y: 25, width: 50, height: 10 }],
+    masksOverflow: false,
+    // Only the body holds the whole area.
+    anchor: { selector: 'body', rect: { x: 0, y: 0, width: 0.4, height: 0.1667 }, path: [] },
+    ...tag,
+  });
+  const count = sent.length;
+  api.apply({ type: 'measure', id: 'm2', rect: { x: 'no' } });
+  assert.equal(sent.length, count, 'a malformed area gets no answer');
+
+  const parsed = visualizeFeedbackPageMessage({ ...tag, type: 'measured', id: 'm', count: 1e9, masks: 'x' });
+  assert.deepEqual(parsed, { type: 'measured', id: 'm', count: 10_000, masks: [], masksOverflow: true, anchor: null });
+  const anchored = (anchor) =>
+    visualizeFeedbackPageMessage({ ...tag, type: 'measured', id: 'm', count: 1, masks: [], anchor }).anchor;
+  assert.deepEqual(
+    anchored({
+      selector: '#card',
+      rect: { x: 0.123456, y: -0.25, width: 2, height: 0.75 },
+      path: [{ selector: '#card' }],
+    }),
+    {
+      selector: '#card',
+      rect: { x: 0.1235, y: 0, width: 0.8765, height: 0.5 },
+      path: [{ selector: '#card', role: 'box', name: '' }],
+    },
+    'fractions are clamped into the element'
+  );
+  for (const broken of [
+    { selector: '', rect: { x: 0, y: 0, width: 1, height: 1 } },
+    { selector: '#a', rect: { x: 0, y: 0, width: 'wide', height: 1 } },
+    { selector: '#a', rect: { x: 1, y: 0, width: 1, height: 1 } },
+    'body',
+  ]) {
+    assert.equal(anchored(broken), null);
+  }
+});
+
+test('a dragged area is anchored to the smallest element holding it; the page draws it from that element now', async (t) => {
+  const { document, window, sent, api, frames, overlay } = page(
+    t,
+    '<main id="main"><section id="card"><p id="txt">Hello</p></section></main>'
+  );
+  const card = document.getElementById('card');
+  document.documentElement.getBoundingClientRect = box(0, 0, 800, 2000);
+  document.body.getBoundingClientRect = box(0, 0, 800, 2000);
+  document.getElementById('main').getBoundingClientRect = box(0, 0, 800, 1000);
+  card.getBoundingClientRect = box(100, 100, 400, 300);
+  document.getElementById('txt').getBoundingClientRect = box(110, 110, 100, 20);
+  api.apply({ type: 'measure', id: 'm1', rect: { x: 150, y: 175, width: 200, height: 150 } });
+  const { anchor } = sent.at(-1);
+  assert.equal(anchor.selector, '#card');
+  assert.deepEqual(anchor.rect, { x: 0.125, y: 0.25, width: 0.5, height: 0.5 });
+  assert.deepEqual(
+    anchor.path.map((node) => node.selector),
+    ['#main', '#card'],
+    'its human path: ancestors, then itself'
+  );
+
+  // The page draws the region and its number from the element's live box.
+  api.apply({
+    type: 'state',
+    comment: true,
+    markers: [{ n: 2, selector: '#card', region: { pin: 'p5', rect: anchor.rect } }],
+  });
+  await frames();
+  const drawn = () => {
+    const pin = overlay().querySelector('.box.pin');
+    const number = overlay().querySelector('.num');
+    return [
+      pin.style.left,
+      pin.style.top,
+      pin.style.width,
+      pin.style.height,
+      number.textContent,
+      number.style.left,
+      number.style.top,
+    ];
+  };
+  assert.deepEqual(drawn(), ['150px', '175px', '200px', '150px', '2', '140px', '165px']);
+
+  // A scroll or reflow moves the element: the region follows it.
+  card.getBoundingClientRect = box(20, -50, 200, 300);
+  window.dispatchEvent(new window.Event('resize'));
+  await frames();
+  assert.deepEqual(drawn(), ['45px', '25px', '100px', '150px', '2', '35px', '15px']);
+
+  // Its number reopens that pin; the element named is its anchor.
+  api.apply({ type: 'pick', id: 'r1', x: 40, y: 20 });
+  assert.equal(sent.at(-1).pin, 'p5');
+  assert.equal(sent.at(-1).pick.selector, '#card');
+  assert.equal(visualizeFeedbackPageMessage(sent.at(-1)).pin, 'p5');
+
+  // Written for: outlined as selected instead.
+  api.apply({ type: 'select', selector: null, pin: 'p5' });
+  await frames();
+  assert.equal(overlay().querySelectorAll('.box.sel').length, 1);
+  assert.equal(overlay().querySelectorAll('.box.pin').length, 0);
+});
+
+test('saved pins are outlined in the full pin colour with a light halo', (t) => {
+  const { overlay } = page(t, '<p>x</p>');
+  // jsdom has no constructed sheets: the overlay falls back to a <style>.
+  const css = [...overlay().querySelectorAll('style')].map((sheet) => sheet.textContent).join('\n');
+  assert.match(css, /\.pin\{outline:1\.5px solid #ff3b6b;[^}]*box-shadow:0 0 0 1px rgba\(255,255,255,\.55\)\}/);
+  assert.match(css, /\.hover\{outline:2px solid #ff3b6b;/, 'hover stays stronger than a saved pin');
 });
 
 test('a describe request re-reads the pinned element now: its current box and secret fields', (t) => {
@@ -168,10 +391,13 @@ test('a describe request re-reads the pinned element now: its current box and se
 });
 
 test('more secret fields than masks: the page reports none and flags the overflow', (t) => {
-  const fields = Array.from({ length: MAX_VISUALIZE_MASKS + 1 }, (_, i) => `<input type="password" name="p${i}">`).join('');
+  const fields = Array.from({ length: MAX_VISUALIZE_MASKS + 1 }, (_, i) => `<input type="password" name="p${i}">`).join(
+    ''
+  );
   const { document, sent, api, at } = page(t, `<form id="many">${fields}</form>`);
   const form = document.getElementById('many');
-  for (const [i, input] of [...form.querySelectorAll('input')].entries()) input.getBoundingClientRect = box(0, i * 12, 80, 10);
+  for (const [i, input] of [...form.querySelectorAll('input')].entries())
+    input.getBoundingClientRect = box(0, i * 12, 80, 10);
   at(form);
   api.apply({ type: 'pick', id: 'r', x: 1, y: 1 });
   assert.equal(sent.at(-1).pick.masksOverflow, true);
@@ -193,7 +419,14 @@ test('data-choice clicks mark one choice per group and post the pick, never in C
   const [a, b, dark] = document.querySelectorAll('[data-choice]');
   click(b.querySelector('span'));
   assert.equal(b.hasAttribute('data-choice-selected'), true);
-  assert.deepEqual(sent.at(-1), { type: 'choice', group: 'layout', choice: 'b', label: 'Two columns', selected: true, ...tag });
+  assert.deepEqual(sent.at(-1), {
+    type: 'choice',
+    group: 'layout',
+    choice: 'b',
+    label: 'Two columns',
+    selected: true,
+    ...tag,
+  });
   click(a);
   assert.equal(b.hasAttribute('data-choice-selected'), false);
   assert.equal(a.hasAttribute('data-choice-selected'), true);
@@ -223,15 +456,25 @@ test('page messages are shape-checked, bounded, and fail closed on masks', () =>
   assert.equal(visualizeFeedbackPageMessage({ ...tag, type: 'pin', pin: { note: 'x', selector: 'a' } }), null);
   assert.equal(visualizeFeedbackPageMessage({ ...tag, type: 'choice', choice: '' }), null);
   assert.equal(visualizeFeedbackPageMessage({ ...tag, type: 'picked', pick: { selector: 'a' } }), null, 'needs its id');
-  const picked = (pick) => visualizeFeedbackPageMessage({ ...tag, type: 'picked', id: 'r', pick: { selector: 'a', ...pick } }).pick;
+  const picked = (pick) =>
+    visualizeFeedbackPageMessage({ ...tag, type: 'picked', id: 'r', pick: { selector: 'a', ...pick } }).pick;
   const pick = picked({
+    role: 'spaceship',
+    name: 'n'.repeat(200),
     html: 'x'.repeat(2000),
     styles: { color: 'red', 'bad key!': 'x', width: 3 },
     box: { x: 1.234, y: 'no', width: -5, height: 4 },
     view: null,
     masks: [{ x: 1, y: 1, width: 1, height: 1 }],
+    path: [{ selector: 'main', role: 'section', name: 'Main' }],
+    child: { selector: '', role: 'text' },
   });
-  assert.equal(pick.label, 'element');
+  assert.equal(pick.role, 'box', 'an unknown kind reads as a box');
+  assert.equal(pick.name.length, 80);
+  assert.deepEqual(pick.path, [{ selector: 'main', role: 'section', name: 'Main' }]);
+  assert.equal(pick.child, null, 'a node needs its selector');
+  assert.deepEqual(picked({ path: [{ selector: 'main' }, 'junk'] }).path, [], 'a broken path is dropped whole');
+  assert.equal(picked({ path: Array.from({ length: 9 }, (_, i) => ({ selector: `s${i}` })) }).path.length, 4);
   assert.equal(pick.html.length, 600);
   assert.deepEqual(pick.styles, { color: 'red' });
   assert.deepEqual(pick.box, { x: 1.23, y: 0, width: 0, height: 4 });
@@ -253,7 +496,9 @@ test('page messages are shape-checked, bounded, and fail closed on masks', () =>
 });
 
 test('a remote pane page carries the script first in its head', () => {
-  const html = withVisualizeFeedbackScript('<!doctype html><html lang="en"><head data-x="1"><title>t</title></head><body></body></html>');
+  const html = withVisualizeFeedbackScript(
+    '<!doctype html><html lang="en"><head data-x="1"><title>t</title></head><body></body></html>'
+  );
   assert.match(html, /^<!doctype html><html lang="en"><head data-x="1"><script>\(\(function \(target\)/);
   assert.match(html, /\(window\.parent\)<\/script><title>/);
   assert.doesNotMatch(html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>')), /<\/script/i);
@@ -289,7 +534,13 @@ test('the page reports its mx-tweaks block and applies root overrides the panel 
   assert.equal(root.hasAttribute('onclick'), false);
 
   // Back to the default removes the override; an attribute the page itself set returns to that.
-  api.apply({ type: 'tweaks', ops: [{ var: '--accent', value: null }, { attr: 'data-density', value: null }] });
+  api.apply({
+    type: 'tweaks',
+    ops: [
+      { var: '--accent', value: null },
+      { attr: 'data-density', value: null },
+    ],
+  });
   assert.equal(root.style.getPropertyValue('--accent'), '');
   assert.equal(root.getAttribute('data-density'), 'cozy');
 
@@ -306,11 +557,21 @@ test('page messages: a tweaks report is bounded text or null', () => {
   assert.equal(visualizeFeedbackPageMessage({ ...tag, type: 'tweaks', raw: 'x'.repeat(50_000) }).raw.length, 20_000);
 });
 test('the page answers inspect with a bounded reading and highlights an element for the Elements list', async (t) => {
-  const { window, sent, api, frames, overlay } = page(t, '<main><button id="go" aria-label="Go">Go</button><input type="password" aria-label="Pass" value="hunter2"></main>');
+  const { window, sent, api, frames, overlay } = page(
+    t,
+    '<main><button id="go" aria-label="Go">Go</button><input type="password" aria-label="Pass" value="hunter2"></main>'
+  );
   await frames();
   sent.length = 0;
   // jsdom has no layout: give every element a box.
-  window.Element.prototype.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 30, right: 100, bottom: 30 });
+  window.Element.prototype.getBoundingClientRect = () => ({
+    left: 0,
+    top: 0,
+    width: 100,
+    height: 30,
+    right: 100,
+    bottom: 30,
+  });
   api.apply({ type: 'inspect', id: 'i1', selector: 'main' });
   const answer = sent.find((message) => message.type === 'inspected');
   assert.equal(answer.id, 'i1');
@@ -324,7 +585,14 @@ test('the page answers inspect with a bounded reading and highlights an element 
   api.apply({ type: 'inspect', id: 'i2', selector: ':::' });
   assert.deepEqual(sent.at(-1).inspection, { error: 'invalid selector' });
 
-  window.document.getElementById('go').getBoundingClientRect = () => ({ left: 5, top: 6, width: 40, height: 20, right: 45, bottom: 26 });
+  window.document.getElementById('go').getBoundingClientRect = () => ({
+    left: 5,
+    top: 6,
+    width: 40,
+    height: 20,
+    right: 45,
+    bottom: 26,
+  });
   api.apply({ type: 'highlight', selector: '#go' });
   await frames();
   assert.equal(overlay().querySelectorAll('.hover').length, 1);

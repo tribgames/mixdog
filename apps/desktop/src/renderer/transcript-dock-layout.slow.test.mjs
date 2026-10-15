@@ -158,7 +158,7 @@ async function checkScrollFade(page) {
     };
   });
   assert.equal(fade.mask, 'none', 'the scrolling content needs no per-frame viewport mask');
-  assert.equal(fade.ramp, 48, 'retain the bottom fade distance');
+  assert.equal(fade.ramp, 24, 'retain the bottom fade distance');
   assert.ok(Math.abs(fade.top + fade.ramp - fade.dockTop) <= 1, 'the fade ends at the measured dock top');
   assert.equal(fade.pointerEvents, 'none', 'the fade cannot intercept scrolling or selection');
   assert.equal(fade.belowJump, true, 'jump-to-latest is not washed out');
@@ -282,8 +282,7 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
     const empty = await geometry(page, before.key);
     await page.evaluate(() => window.fixture.change({ goal: true, review: true }));
     await page.waitForSelector('.turn-review-segment');
-    // The slot opens over 180ms; measure the settled height.
-    await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+    // The slot opens in one step; measure the settled height.
     await stable();
     const collapsed = await geometry(page, before.key);
     await checkScrollFade(page);
@@ -311,24 +310,21 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
 
     await page.evaluate(() => window.fixture.change({ goal: false, review: false, composer: 84 }));
     await stable();
-    // Grace period: the last item left, yet the slot stays open (so a job that
-    // starts right after does not flicker the dock) …
+    // The slot opens in one step and stays open for the rest of the session
+    // visit, so the last item leaving never moves the transcript …
     assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'the slot outlives its last item');
-    // … a new item inside the window cancels the collapse …
+    // … and returning content reuses the open slot.
     await page.evaluate(() => window.fixture.change({ goal: true, review: true }));
     await page.waitForSelector('.turn-review-segment');
-    await new Promise((resolve) => setTimeout(resolve, 1_800));
     await settle(page);
     assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'returning content keeps the slot open');
-    // … and only an empty slot past the grace period collapses.
     await page.evaluate(() => window.fixture.change({ goal: false, review: false }));
-    await page.waitForFunction(
-      (height) => document.querySelector('.composer-region').getBoundingClientRect().height === height,
-      { timeout: 5_000 },
-      empty.dockHeight
-    );
     await stable();
-    assert.equal((await geometry(page)).dockHeight, empty.dockHeight, 'the empty slot collapses after the grace');
+    assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'the held slot never collapses');
+    // Longer than the 1.5s grace period the slot used to collapse after.
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await settle(page);
+    assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'the slot is still held after the old grace');
     await page.evaluate(() => window.fixture.follow());
     await settle(page);
     const tail = await geometry(page);
@@ -344,12 +340,21 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
         assert.ok(Math.abs(now.lastBottom - (now.dockTop - 24)) <= 1, `${label}: the tail stays pinned`);
       }
     };
-    // The opening animation is sampled where a user can see it: once per
-    // painted frame, after the dock's own resize observer has pinned the tail
-    // and before paint. A sample taken from a Node round trip is not that
-    // frame: Blink advances the animation clock per task, so a task between
-    // frames reads the next animation value before the frame's observers have
-    // run (up to the full last step on a slow runner).
+    // The held slot keeps the dock height, so the pinned tail does not move
+    // while content comes and goes.
+    await page.evaluate(() => window.fixture.change({ goal: true, review: true }));
+    await page.waitForSelector('.turn-review-segment');
+    await pinned('content returns');
+    await page.evaluate(() => window.fixture.change({ goal: false, review: false }));
+    await pinned('content leaves');
+
+    // A fresh fixture follows the tail with a not-yet-held slot: the first
+    // content opens the slot in one step and the tail must stay pinned above
+    // the grown dock, on every painted frame and once settled.
+    await page.evaluate((session) => window.mountFixture(session), `fresh-${width}-${height}`);
+    await settle(page);
+    const fresh = await geometry(page);
+    assert.ok(Math.abs(fresh.lastBottom - (fresh.dockTop - 24)) <= 1, 'fresh fixture follows the tail');
     await page.evaluate(() => {
       const dock = document.querySelector('.composer-region');
       const misses = [];
@@ -364,47 +369,19 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
     });
     await page.evaluate(() => window.fixture.change({ goal: true, review: true }));
     await page.waitForSelector('.turn-review-segment');
-    await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
     await settle(page);
     const opening = await page.evaluate(() => {
       window.openingPins.stop();
       return window.openingPins.misses;
     });
-    assert.ok(opening.length >= 3, 'the slot opening is observed frame by frame');
+    assert.ok(opening.length >= 1, 'the one-step opening resizes the dock while following');
     for (const miss of opening) {
-      // The clearance is the dock height rounded to a whole pixel (up to 0.5
-      // off while it animates) and the end sits on a device pixel (under 1px
-      // off fractional content). A frame behind misses by several pixels.
-      assert.ok(
-        Math.abs(miss) <= 1.5,
-        `slot opening: the tail stays pinned on every frame (missed by ${miss.toFixed(2)}px)`
-      );
+      assert.ok(Math.abs(miss) <= 1.5, `first opening: the tail is pinned on the resize frame (missed by ${miss.toFixed(2)}px)`);
     }
-    await pinned('slot open');
-    await page.evaluate(() => window.fixture.change({ goal: false, review: false }));
-    await page.waitForFunction(
-      (height) => document.querySelector('.composer-region').getBoundingClientRect().height === height,
-      { timeout: 5_000 },
-      tail.dockHeight
-    );
-    await pinned('slot closed');
-
-    // Reduced motion: no height animation, but the grace period still holds.
-    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-    await page.evaluate(() => window.fixture.change({ goal: true, review: true }));
-    await page.waitForSelector('.turn-review-segment');
-    await settle(page);
-    const reducedOpen = (await geometry(page)).dockHeight;
-    await page.evaluate(() => window.fixture.change({ goal: false, review: false }));
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    assert.equal((await geometry(page)).dockHeight, reducedOpen, 'reduced motion keeps the grace period');
-    await page.waitForFunction(
-      (height) => document.querySelector('.composer-region').getBoundingClientRect().height === height,
-      { timeout: 5_000 },
-      tail.dockHeight
-    );
-    await pinned('reduced motion');
-    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+    const opened = await geometry(page);
+    assert.ok(opened.dockHeight > fresh.dockHeight, 'the first content opens the slot');
+    assert.ok(Math.abs(opened.lastBottom - (opened.dockTop - 24)) <= 1, 'the tail clears the opened dock');
+    await pinned('first opening');
   }
   assert.deepEqual(errors, []);
 });

@@ -18,6 +18,7 @@ import {
 import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from './custom-tool-wire.mjs';
 import { providerReplayItems } from './lib/provider-replay.mjs';
 import { ensureResponsesCallOutputs } from './lib/wire-pairing.mjs';
+import { responsesEffortUpdates } from './effort-configuration.mjs';
 
 function positiveTokenInt(value) {
   const n = Number(value);
@@ -423,10 +424,14 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
     if (!pendingToolMedia.length) return;
     input.push({ role: 'user', content: pendingToolMedia.splice(0) });
   };
+  // `options.effortProjection` (custom GPT-6+ routes) carries wire-ready effort updates.
+  const effortUpdates = responsesEffortUpdates(options.effortProjection);
   for (let messageIndex = startIndex; messageIndex < messages.length; messageIndex += 1) {
     const m = messages[messageIndex];
     if (!includeSystem && m.role === 'system') continue;
+    const updates = effortUpdates.before(m);
     if (m.role !== 'tool') flushToolMedia();
+    input.push(...updates);
     const orderedReplay = m.role === 'assistant' ? providerReplayItems(m, replayProvider) : undefined;
     if (orderedReplay?.length) {
       input.push(...orderedReplay);
@@ -444,6 +449,7 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
   flushToolMedia();
   const trailingReasoning = reasoningByMessageIndex.get(messages.length);
   if (trailingReasoning) input.push(...trailingReasoning);
+  input.push(...effortUpdates.end());
   // Wire-level pairing guard: replay envelopes can carry a call whose
   // result never committed (cancel/abort). The provider hard-rejects the
   // unpaired call, so synthesize the missing outputs here.

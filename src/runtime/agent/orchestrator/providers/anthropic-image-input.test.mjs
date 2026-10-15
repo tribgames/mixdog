@@ -84,7 +84,8 @@ function sender(kind, bodies) {
     Object.create(oauth ? AnthropicOAuthProvider.prototype : AnthropicProvider.prototype),
     {
       name: kind,
-      config: {},
+      config: { apiKey: 'test-key' },
+      apiKey: 'test-key',
       fastModeBetaHeaderLatched: false,
       ensureAuth: async () => ({ accessToken: 'test-images-token' }),
       scrubTokens: (text) => String(text || ''),

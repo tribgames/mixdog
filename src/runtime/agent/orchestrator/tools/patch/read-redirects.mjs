@@ -6,7 +6,7 @@ import { resolve as pathResolve, relative as pathRelative, isAbsolute } from 'no
 import { findBySuffixStrip, findFileByBasename } from '../builtin/path-diagnostics.mjs';
 import { resolveEntryPath, resolveV4AEntryPath, classifyEntry, pathKey } from './paths.mjs';
 
-function uniqueExistingPatchTarget(basePath, requestedFullPath) {
+async function uniqueExistingPatchTarget(basePath, requestedFullPath) {
   // Auto-relocation is only valid for a missing target lexically inside the
   // patch root. An explicit outside-root path must never be pulled back into
   // the project merely because a basename happens to match.
@@ -23,14 +23,14 @@ function uniqueExistingPatchTarget(basePath, requestedFullPath) {
   };
   const suffix = asFile(findBySuffixStrip(basePath, requestedFullPath));
   if (suffix) return suffix;
-  const basenameHits = findFileByBasename(basePath, requestedFullPath, { limit: 2 });
+  const basenameHits = await findFileByBasename(basePath, requestedFullPath, { limit: 2 });
   return basenameHits.length === 1 ? asFile(basenameHits[0]) : null;
 }
 
-function redirectedPatchPath(requestedFullPath, basePath) {
+async function redirectedPatchPath(requestedFullPath, basePath) {
   // An existing requested path always wins over relocation.
   if (!requestedFullPath || existsSync(requestedFullPath)) return requestedFullPath;
-  return uniqueExistingPatchTarget(basePath, requestedFullPath) || requestedFullPath;
+  return (await uniqueExistingPatchTarget(basePath, requestedFullPath)) || requestedFullPath;
 }
 
 export function patchHeaderPathForResolved(basePath, fullPath) {
@@ -41,33 +41,37 @@ export function patchHeaderPathForResolved(basePath, fullPath) {
   return fullPath;
 }
 
-export function rewriteV4AReadRedirects(sections, basePath) {
-  return (sections || []).map((section) => {
-    if (!section || section.kind === 'add' || !section.path) return section;
-    const requested = resolveV4AEntryPath(basePath, section.path);
-    const redirected = redirectedPatchPath(requested, basePath);
-    if (pathKey(redirected) === pathKey(requested)) return section;
-    return { ...section, path: patchHeaderPathForResolved(basePath, redirected) };
-  });
+export async function rewriteV4AReadRedirects(sections, basePath) {
+  return Promise.all(
+    (sections || []).map(async (section) => {
+      if (!section || section.kind === 'add' || !section.path) return section;
+      const requested = resolveV4AEntryPath(basePath, section.path);
+      const redirected = await redirectedPatchPath(requested, basePath);
+      if (pathKey(redirected) === pathKey(requested)) return section;
+      return { ...section, path: patchHeaderPathForResolved(basePath, redirected) };
+    })
+  );
 }
 
-export function rewriteParsedReadRedirects(parsed, basePath) {
-  return (parsed || []).map((entry) => {
-    const kind = classifyEntry(entry);
-    if (kind === 'create' || !entry?.oldFileName) return entry;
-    const requested = resolveEntryPath(basePath, entry.oldFileName);
-    const redirected = redirectedPatchPath(requested, basePath);
-    if (pathKey(redirected) === pathKey(requested)) return entry;
-    const rewritten = {
-      ...entry,
-      oldFileName: patchHeaderPathForResolved(basePath, redirected),
-    };
-    if (kind === 'modify' && entry.newFileName) {
-      const newRequested = resolveEntryPath(basePath, entry.newFileName);
-      if (pathKey(newRequested) === pathKey(requested)) {
-        rewritten.newFileName = rewritten.oldFileName;
+export async function rewriteParsedReadRedirects(parsed, basePath) {
+  return Promise.all(
+    (parsed || []).map(async (entry) => {
+      const kind = classifyEntry(entry);
+      if (kind === 'create' || !entry?.oldFileName) return entry;
+      const requested = resolveEntryPath(basePath, entry.oldFileName);
+      const redirected = await redirectedPatchPath(requested, basePath);
+      if (pathKey(redirected) === pathKey(requested)) return entry;
+      const rewritten = {
+        ...entry,
+        oldFileName: patchHeaderPathForResolved(basePath, redirected),
+      };
+      if (kind === 'modify' && entry.newFileName) {
+        const newRequested = resolveEntryPath(basePath, entry.newFileName);
+        if (pathKey(newRequested) === pathKey(requested)) {
+          rewritten.newFileName = rewritten.oldFileName;
+        }
       }
-    }
-    return rewritten;
-  });
+      return rewritten;
+    })
+  );
 }

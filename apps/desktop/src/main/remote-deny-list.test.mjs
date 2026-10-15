@@ -4,11 +4,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { DESKTOP_CAPABILITIES } from '../shared/contract.ts';
+import { DESKTOP_IMPORT_CAPABILITIES } from '../shared/contract-import.ts';
 import { assertRemoteCapability, redactRemoteError, REMOTE_BLOCKED_CAPABILITIES } from './remote-methods.ts';
 
-test('only the media resolver is denied over remote access', () => {
-  assert.deepEqual([...REMOTE_BLOCKED_CAPABILITIES], ['resolveMediaFile']);
-  assert.throws(() => assertRemoteCapability('resolveMediaFile'), /is not available over remote access/);
+test('only the media resolver and local conversation import are denied over remote access', () => {
+  assert.deepEqual([...REMOTE_BLOCKED_CAPABILITIES], ['resolveMediaFile', ...DESKTOP_IMPORT_CAPABILITIES]);
+  for (const capability of REMOTE_BLOCKED_CAPABILITIES) {
+    assert.throws(() => assertRemoteCapability(capability), /is not available over remote access/, capability);
+  }
 });
 
 test('secret, OAuth, MCP and developer capabilities are allowed for every paired client', () => {
@@ -26,10 +29,17 @@ test('secret, OAuth, MCP and developer capabilities are allowed for every paired
     'removeCustomProvider',
     'updateCustomProviderModel',
     'testCustomProvider',
+    'checkCustomProviderKeyEnv',
     'discoverCustomProviderModels',
     'getMcpServerConfig',
     'addMcpServer',
     'saveMcpServer',
+    'beginMcpOAuthLogin',
+    'getMcpOAuthLoginStatus',
+    'cancelMcpOAuthLogin',
+    'completeMcpOAuthLogin',
+    'signOutMcpServer',
+    'probeMcpServerAuth',
     'setDeveloperOption',
     'forgetProviderAuth',
   ]) {
@@ -58,6 +68,17 @@ test('secret-bearing capability errors are redacted for every client', () => {
     redactRemoteError('failed http://localhost/cb?code=abcdef123', 'invokeCapability', oauth),
     /abcdef123/
   );
+  const mcpPaste = [
+    { capability: 'completeMcpOAuthLogin', args: ['mcp_oauth_1', 'http://127.0.0.1:1/oauth/callback?code=mcpcode1234'] },
+  ];
+  assert.doesNotMatch(
+    redactRemoteError('failed http://127.0.0.1:1/oauth/callback?code=mcpcode1234', 'invokeCapability', mcpPaste),
+    /mcpcode1234/
+  );
+  const probe = [
+    { capability: 'probeMcpServerAuth', args: [{ type: 'http', url: 'https://x.test', headers: { 'X-Key': secret } }] },
+  ];
+  assert.equal(redactRemoteError(`bad ${secret}`, 'invokeCapability', probe), 'bad [redacted]');
   assert.equal(
     redactRemoteError(`bad ${secret}`, 'invokeCapability', [{ capability: 'getSnapshot', args: [secret] }]),
     `bad ${secret}`

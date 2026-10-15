@@ -5,6 +5,88 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
+Added explicit MCP OAuth sign-in, in-place model switching, and a one-line quota banner.
+
+### New features
+
+- **MCP sign-in** — Added explicit OAuth sign-in for MCP servers with status, a shared login dialog, remote paste, and TUI commands (#74, thanks @oh1701).
+- **Switch model in place** — Added switching a chat's model without starting a new session, and Fork in the session menu (#73, #52, thanks @grapefruit0205).
+- **Quota banner** — Added a one-line banner above the composer when a limit is reached; Resume reserves the next run for the reset time.
+- **Files menu** — Added an island Files count that tracks uncommitted session changes, with View changes and Delete history.
+- **Chat text size** — Added a per-device chat text size setting.
+
+### Changes
+
+- Changed provider retries to follow each provider's own limits and wait times, showing the remaining wait with a way to cancel.
+- Changed error messages to name the cause and next step, and to hide Retry when retrying cannot help.
+- Changed shell commands to stay in the foreground for 10 seconds by default, up to 30 seconds, before moving to the background.
+- Adjusted the desktop app, auto reasoning, and the background service to use less polling, rendering, and memory in long sessions.
+
+### Bug fixes
+
+- Fixed the background service freezing for one to two seconds every 30 minutes.
+- Fixed Agent completion notices being dropped when a turn that already had output was cancelled.
+- Fixed the composer island showing running Agents as idle or done.
+- Fixed switching sessions stalling when waiting on other sessions' change scans.
+- Fixed browser page dialogs leaving the pane, leave confirmation failing to complete, and browser copy shortcuts failing.
+- Fixed prompt caching failing on custom Responses providers and inherited session projects not matching the sidebar (#70, #75, thanks @sukjong2002).
+- Fixed streaming tables flickering, the transcript bouncing while a turn works, and the quota card staying after switching providers.
+
+### Other
+
+- Removed unused helpers (#67, thanks @22nsuk).
+
+## v1.2.1 - 2026-10-14
+
+Added conversation import from Codex and Claude Code, the Command Code provider, and `$` skill mentions, and fixed Computer Use input observation, skill scripts, auto reasoning, and several session issues.
+
+### New features
+
+- **Conversation import** — Added Settings > General > Import conversations to bring Codex and Claude Code chats on this PC into Mixdog.
+- **Command Code** — Added Command Code as a provider that signs in with your Command Code account.
+- **Account switching policies** — Added Manual, Switch at limit, and Most headroom first for providers with several accounts.
+- **`$` skill mentions** — Added `$` in the composer and TUI to pick a skill and apply it to that message.
+- **5-hour usage bar** — Added a usage menu option that shows a 5-hour bar next to the longest period on the sidebar rail (#66).
+- **Visualize feedback cards** — Added composer cards for queued visualize pins, picks, and tweaks, and pins on images, video frames, and dragged regions.
+- **Dismiss Goal** — Added a button to dismiss a finished Goal.
+
+### Changes
+
+- Changed Claude Code and Codex plugin MCP servers to connect automatically without a manual enable step, and added Claude Code plugin skill loading (#58).
+- Changed the session list to load from a local database and caches so it opens faster.
+- Changed skills on SSH servers to route model calls through your PC, so the server needs no credentials.
+- Changed `@` file mentions to list folders first.
+- Changed Muse Code and MiMo to their own icons.
+- Changed sent image thumbnails to load as downscaled previews on the PC and paired phones.
+- Adjusted MCP tool loading, file searches, and account saves so they no longer block the background service in long sessions.
+- Adjusted the Goal progress mark to always show five cells.
+- Adjusted the composer island to sit 12px above the prompt card and restored 14px tool activity lines.
+
+### Bug fixes
+
+- Fixed Computer Use staying unavailable with "foreground input observation is unavailable"; missed input now counts as user input, observation recovers on its own, and diagnose names the cause (#66).
+- Fixed adding an SSH server in the installed app staying on "Connecting…" forever by packaging the server lockfile (#69, thanks @victorwon2001).
+- Fixed chat links opening the in-app browser on a blank `about:blank` page instead of the link (#63).
+- Fixed bundled skill scripts, including the skill validator, failing in some installs and shells (#62).
+- Fixed new tasks that remembered a deleted workflow so they start on Default (#64).
+- Fixed auto reasoning not applying on Claude routes in 1.2.0, and one slow judgment timing out the ones after it.
+- Fixed Gemini, Anthropic, OpenAI, and OpenAI-compatible providers not listing models when the key was added after startup.
+- Fixed a second message sent right after a new task started opening a separate session.
+- Fixed fast upward scrolling on phones stopping short and then jumping far up on the next touch.
+- Fixed the rename editor closing at once for sessions listed in both a project folder and Recent.
+- Fixed thumbnails showing the wrong image in restored conversations with several images.
+- Fixed hook commands inheriting Mixdog's internal runtime settings.
+- Fixed headless runs, such as model calls from skill scripts, being unable to use Muse Code or MiMo.
+- Fixed the confirmation dialog not appearing when removing an MCP server or plugin.
+- Fixed the ONNX runtime failing to load on Windows PCs without the Visual C++ runtime by shipping that runtime with the app.
+
+### Other
+
+- Reviewed translations across all 11 languages.
+- Removed unused helpers and formatted desktop tests (#68, thanks @22nsuk).
+
 ## v1.2.0 - 2026-10-13
 
 This release introduces the Changes panel and per-turn change cards with per-turn undo and reapply controls, keeps earlier conversation history visible after compaction, and adds a built-in visualization tool for interactive UI mockups and diagrams. Remote workflows expand with SSH server connections, isolated Git worktree sessions, background shell management, and direct file downloads on paired phones. The interface also brings higher contrast styling, smoother mobile scrolling, and flexible session organization.

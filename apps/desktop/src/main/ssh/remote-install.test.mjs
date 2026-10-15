@@ -21,10 +21,10 @@ import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { remoteServerDependencies } from '../../../scripts/remote-server-deps.mjs';
+import { REMOTE_SERVER_LOCKFILE, remoteServerDependencies } from '../../../scripts/remote-server-deps.mjs';
 import { RemoteBootstrapError } from './remote-install-errors.ts';
 import { encodePayloadArchive, manifestBuildHash, sha256Hex } from './remote-install-manifest.ts';
-import { createServerPayload, localPayloadLayout } from './remote-install-payload.ts';
+import { createServerPayload, localPayloadLayout, runtimeSources, SERVER_DEPS_FILES } from './remote-install-payload.ts';
 import { classifyRemotePlatform, isWindowsShellFailure, parsePlatformLine } from './remote-install-platform.ts';
 import { REMOTE_SERVER_LIBRARY } from './remote-install-program.ts';
 import { REMOTE_PTY_PACKAGE } from './remote-install-versioned.ts';
@@ -775,6 +775,33 @@ test('the local payload layout is the packaged runtime or the source checkout', 
   assert.equal(packaged.serverDepsDir, join(resources, 'app.asar', 'out', 'server', 'deps'));
   const checkout = localPayloadLayout(join(desktopDir, 'out', 'main'));
   assert.equal(checkout.runtimePackageDir, join(desktopDir, '..', '..'));
+});
+
+test('the built server lockfile survives packaging and ships as server-deps/package-lock.json', () => {
+  // electron-builder drops every file named package-lock.json from app.asar by default.
+  assert.notEqual(REMOTE_SERVER_LOCKFILE, 'package-lock.json');
+  assert.deepEqual(
+    SERVER_DEPS_FILES.map(({ local }) => local),
+    ['package.json', REMOTE_SERVER_LOCKFILE]
+  );
+  const root = scratch();
+  try {
+    const layout = { runtimePackageDir: join(root, 'runtime'), serverDepsDir: join(root, 'deps') };
+    mkdirSync(join(layout.runtimePackageDir, 'src'), { recursive: true });
+    mkdirSync(layout.serverDepsDir);
+    writeFileSync(join(layout.runtimePackageDir, 'package.json'), '{}');
+    writeFileSync(join(layout.runtimePackageDir, 'src', 'index.mjs'), '');
+    writeFileSync(join(layout.serverDepsDir, 'package.json'), '{}');
+    assert.throws(
+      () => runtimeSources(layout),
+      (error) => error.code === 'install-failed' && /lockfile is missing/.test(error.message)
+    );
+    writeFileSync(join(layout.serverDepsDir, REMOTE_SERVER_LOCKFILE), '{}');
+    const lock = runtimeSources(layout).find((entry) => entry.path === 'server-deps/package-lock.json');
+    assert.equal(lock?.source, join(layout.serverDepsDir, REMOTE_SERVER_LOCKFILE));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('the server lockfile adds the bundle externals with their closure, nesting conflicts', () => {

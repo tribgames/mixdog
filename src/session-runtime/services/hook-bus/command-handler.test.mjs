@@ -78,6 +78,35 @@ test('command output preserves UTF-8 characters split across stdout and stderr c
   assert.equal(result.stderr, stderr);
 });
 
+test('hook commands never inherit the host runtime root, identity or Electron node mode', async (t) => {
+  const child = controlledChild(t);
+  let env;
+  childProcess.spawn.mock.mockImplementation((_command, _args, options) => {
+    env = options.env;
+    return child;
+  });
+  const leaked = { ELECTRON_RUN_AS_NODE: '1', MIXDOG_ROOT: '/app/resources/runtime.asar', NODE_ENV: 'production' };
+  const saved = Object.fromEntries(Object.keys(leaked).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, leaked);
+  t.after(() => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  const running = runCommandHandler(
+    { type: 'command', command: 'fixture', args: [], timeout: 2 },
+    { cwd: tmpdir() },
+    'Stop',
+    null
+  );
+  child.emit('close', 0, null);
+  await running;
+  for (const key of Object.keys(leaked)) assert.equal(env[key], undefined, key);
+  assert.equal(env.MIXDOG_PROJECT_DIR, tmpdir());
+  assert.equal(process.env.ELECTRON_RUN_AS_NODE, '1', 'the host process env is not mutated');
+});
+
 test('a signal-terminated command is not reported as a successful hook', async () => {
   const result = await runCommandHandler(
     {

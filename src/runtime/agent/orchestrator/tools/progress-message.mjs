@@ -105,8 +105,25 @@ export function formatToolStartProgress(name, args = {}) {
     // ── host_input / cwd ─────────────────────────────────────────────
     case 'inject_input':
       return 'injecting input';
-    case 'cwd':
+    case 'cwd': // legacy: old transcripts
       return a.action === 'set' ? 'setting cwd' : 'resolving cwd';
+    case 'session':
+      switch (a.action) {
+        case 'set-project':
+          return 'setting project';
+        case 'rename':
+          return 'renaming session';
+        case 'compact':
+          return 'scheduling compaction';
+        case 'fork':
+          return 'forking into a new session';
+        case 'favorite':
+          return a.value === false ? 'unfavoriting session' : 'favoriting session';
+        case 'archive':
+          return a.value === false ? 'unarchiving session' : 'archiving session';
+        default:
+          return 'checking session';
+      }
 
     default:
       return `running ${name}`;

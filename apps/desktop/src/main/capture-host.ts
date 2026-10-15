@@ -51,6 +51,7 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   getAutoClear: { enabled: true, idleMs: 3_600_000, providerDefaults: [] },
   getCompactionSettings: { auto: true },
   getRecapSettings: { enabled: true },
+  getSessionTitleSettings: { aiSessionTitles: true },
   getChannelSetup: {
     webhook: { status: 'Not configured' },
     channel: {},
@@ -502,6 +503,10 @@ export class CaptureService implements DesktopService {
       ...(this.snapshot || {}),
       toasts: [{ id: 'capture-toast', tone: 'error', text: 'Capture stacking check' }],
     };
+  }
+
+  async readAttachmentImage(): Promise<null> {
+    return null;
   }
 
   async readSessionFinalAnswer(): Promise<null> {

@@ -14,14 +14,16 @@ import type {
   SessionSnapshot,
 } from '../shared/contract';
 import { t } from './i18n';
-import { describeError, ErrorNotice } from './ErrorNotice';
+import { describeError, ErrorNotice, errorWithKind } from './ErrorNotice';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 import { submissionIdentity, transcriptRowArchived, turnPromptText, type TranscriptRowModel } from './transcript-rows';
 import { TranscriptRow } from './transcript-row';
 import { backgroundWorkCounts, completionActivityKey, hadLiveActivity, LiveActivity } from './transcript-status';
+import { dropTranscriptScrollDeviation } from './transcript-follow-rules';
 import { ToolActivityGroup } from './transcript-tool-ui';
+import { AskUserRecord, splitAskUser } from './ask-user-record';
 import { TurnChangesCard } from './TurnChangesCard';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
 import { nextComposerSubmissionId } from './composer-draft';
@@ -282,6 +284,9 @@ export function conversationKeyDownCapture(
         const direction = event.key === 'PageDown' ? 1 : -1;
         element.scrollBy({ top: Math.round(element.clientHeight * 0.9) * direction, behavior: 'auto' });
       } else {
+        // An absolute target is logical: a row offset the timeline still
+        // holds from a touch scroll ends with this write.
+        dropTranscriptScrollDeviation(element);
         element.scrollTo({ top: event.key === 'Home' ? 0 : element.scrollHeight, behavior: 'auto' });
       }
     }
@@ -325,10 +330,16 @@ function errorRowNode(
   const retryKey = [...row.failures]
     .reverse()
     .find((failure) => turnPromptText(settledItems, settledTurnKeys, failure.turnKey))?.turnKey;
-  const errors = row.failures.map(
-    ({ item }) => item?.errorDetails || item?.detail || item?.message || item?.text || item?.label || t('Failed')
+  const errors = row.failures.map(({ item }) =>
+    errorWithKind(
+      String(item?.errorDetails || item?.detail || item?.message || item?.text || item?.label || t('Failed')),
+      item?.errorKind
+    )
   );
-  const reauth = describeError(errors.at(-1)).kind === 'reauth';
+  const failureKind = describeError(errors.at(-1)).kind;
+  const reauth = failureKind === 'reauth' || failureKind === 'authentication';
+  // A retry of these would only repeat the same refusal.
+  const retryable = !reauth && !['policy', 'entitlement', 'billing', 'service-tier'].includes(failureKind);
   const notice = (
     <ErrorNotice
       className="transcript-error-notice"
@@ -341,7 +352,7 @@ function errorRowNode(
         ) : undefined
       }
       onRetry={
-        !reauth && !readOnly && retryKey && !transcriptRowArchived(row) ? () => onRetryTurn(retryKey) : undefined
+        retryable && !readOnly && retryKey && !transcriptRowArchived(row) ? () => onRetryTurn(retryKey) : undefined
       }
       retryDisabled={retryDisabled}
       role="status"
@@ -373,6 +384,7 @@ export function transcriptRowNode(
     snapshot,
     onRetryTurn,
     onOpenSettings,
+    questionCard,
   }: {
     disclosureScope: string;
     optimisticActivityStartedAt: number;
@@ -386,6 +398,8 @@ export function transcriptRowNode(
     snapshot: Snapshot;
     onRetryTurn(turnKey: string): void;
     onOpenSettings(section?: SettingsSection | null): void;
+    /** The pending ask_user card, shown where its tool call sits. */
+    questionCard?: ReactNode;
   }
 ): ReactNode {
   if (row._tag === 'TurnGap') {
@@ -409,7 +423,21 @@ export function transcriptRowNode(
     return <TranscriptRow item={row.item} disclosureScope={disclosureScope} attachedUser={row.attachedUser} />;
   }
   if (row._tag === 'ToolActivity') {
-    return <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} turnKey={row.turnKey} />;
+    // Questions leave the tool roll-up: a waiting one is the live card, an
+    // answered one stays as its summary.
+    const { rest, asked, waiting } = splitAskUser(row.items, Boolean(questionCard));
+    if (!asked.length && !waiting) {
+      return <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} turnKey={row.turnKey} />;
+    }
+    return (
+      <>
+        {rest.length > 0 && <ToolActivityGroup items={rest} disclosureScope={disclosureScope} turnKey={row.turnKey} />}
+        {asked.map((item, index) => (
+          <AskUserRecord key={String(item.id ?? index)} item={item} />
+        ))}
+        {waiting && questionCard}
+      </>
+    );
   }
   const completionRow = row.completion ?? (row.item?.kind === 'turndone' ? row.item : undefined);
   const isLatestCompletion =
@@ -417,16 +445,15 @@ export function transcriptRowNode(
     !snapshot.busy &&
     Boolean(latestCompletion) &&
     (row.completion === latestCompletion || row.item === latestCompletion);
+  const sessionId = String(snapshot.sessionId || '').trim();
+  const turnIdentity = submissionIdentity(row.turnKey);
   const assistantProps: TranscriptAssistantRowProps = {
     item: row.item,
     live: Boolean(row.live),
     completion: row.completion,
     backgroundWork: isLatestCompletion ? backgroundWorkCounts(snapshot) : undefined,
-    animateComplete: hadLiveActivity(String(snapshot.sessionId || '').trim(), submissionIdentity(row.turnKey)),
-    completionActivityKey: completionActivityKey(
-      String(snapshot.sessionId || '').trim(),
-      submissionIdentity(row.turnKey)
-    ),
+    animateComplete: hadLiveActivity(sessionId, turnIdentity),
+    completionActivityKey: completionActivityKey(sessionId, turnIdentity),
     disclosureScope,
   };
   const assistant = renderAssistantRow ? (

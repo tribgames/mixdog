@@ -52,8 +52,10 @@ export function renderAppView(ctx) {
     inputHint,
     inputHintTone,
     liveSpinner,
+    onPromptCaretChange,
     onPromptDraftChange,
     onSubmit,
+    paletteKind,
     panelTransitionClearRows,
     picker,
     promptBoxRectRef,
@@ -85,6 +87,7 @@ export function renderAppView(ctx) {
       onSubmit={onSubmit}
       disabled={exiting || !!picker || !!contextPanel || !!toolApproval || !tuiReady}
       onDraftChange={onPromptDraftChange}
+      onCaretChange={onPromptCaretChange}
       interruptActive={state.busy}
       onInterrupt={handlePromptInterrupt}
       initialValue={promptDraft}
@@ -108,6 +111,9 @@ export function renderAppView(ctx) {
       commandPaletteActive={slashPaletteOpen && slashCommands.length > 0}
       commandPaletteOpen={slashPaletteOpen}
       commandPaletteOptionCount={slashCommands.length}
+      // The `$name` skill palette leaves Left/Right to the caret: the
+      // mention follows it.
+      commandPaletteMovesCaret={paletteKind === 'skills'}
       onCommandPaletteNavigate={(direction) => {
         setSlashIndex((index) => stepPaletteIndex(index, direction, slashCommands.length));
       }}
@@ -229,6 +235,7 @@ export function renderAppView(ctx) {
           model={state.model}
           effort={state.effort}
           fast={state.fast}
+          ultra={state.fast === true && state.modelParameters?.serviceTier === 'ultrafast'}
           cwd={state.cwd}
           stats={statuslineStats}
           contextWindow={state.contextWindow}

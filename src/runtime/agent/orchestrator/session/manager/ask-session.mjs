@@ -148,7 +148,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
     // queued send always lands AFTER the in-flight prompt here, ordering is
     // preserved and the spawn/connecting startup race disappears.
     for (;;) {
-      const input = queue.nextTurn({ prompt, context, explicitPrefetch });
+      // `skillSelection` (askOpts) is the trusted selection input of the
+      // caller's own prompt only; drained follow-up turns never inherit it.
+      const input = queue.nextTurn({ prompt, context, explicitPrefetch, skillSelection: askOpts.skillSelection });
       if (!input) {
         void takeoverHydration.then((count) => {
           if (count <= 0) return;
@@ -176,6 +178,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         ...claimed,
         ...armTurnDurability({ sessionId, ...claimed, pendingEntries: input.pendingEntries }),
       };
+      // From here the turn's own unwind (ask-turn-failure) acks or releases
+      // its entries; the queue keeps owning only the not-yet-started ones.
+      queue.markStarted();
       const turn = await runAskTurn({
         sessionId,
         opened,
@@ -191,9 +196,12 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
       // that arrived while this turn was in flight runs next, in order, as a
       // follow-up user turn. The mutex is still held, so a send racing this
       // drain either landed before (picked up here) or enqueues for the next
-      // loop. When the queue is empty we return the latest turn's result.
+      // loop. Follow-ups an idle ask already drained wait in the queue's
+      // tail and run before anything new. When both are empty we return the
+      // latest turn's result.
       const drained = turn.drained.length > 0 ? turn.drained : drainPendingMessages(sessionId);
-      if (queue.pushDrained(drained)) {
+      queue.pushDrained(drained);
+      if (queue.hasQueuedTurns()) {
         // Carry the just-committed in-memory session into the follow-up
         // turn so the queued tail sees the preceding assistant/tool
         // context. loadSession() would return this same live snapshot
@@ -214,6 +222,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
       return result;
     }
   } finally {
+    // A failed/cancelled turn ends the ask: the follow-up turns drained
+    // behind it never ran, so their entries go back to the pending queue.
+    queue.releaseUnstarted();
     // A thrown setup/provider path must never leave a delayed checkpoint
     // writer alive after the turn lock is released.
     // Clear the controller only if it's still ours (closeSession may have

@@ -10,15 +10,21 @@ import android.webkit.WebView;
 import androidx.activity.OnBackPressedCallback;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
-import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+  // One back press closes exactly one web layer: while that layer's
+  // history.back() traversal is still in flight, history.state still shows
+  // the popped sentinel, so a quick second press is swallowed instead of
+  // traversing past the last sentinel. The timer only unsticks a lost echo.
   private static final String BACK_SCRIPT =
-      "(function(){if(history.state&&history.state.mixdogBack){history.back();return 'web'}"
+      "(function(){var w=window;if(w.__mixdogBackBusy)return 'web';"
+          + "if(history.state&&history.state.mixdogBack){w.__mixdogBackBusy=true;"
+          + "var done=function(){w.__mixdogBackBusy=false};"
+          + "w.addEventListener('popstate',done,{once:true});setTimeout(done,1000);"
+          + "history.back();return 'web'}"
           + "return location.origin==='https://localhost'?'local':'none'})()";
 
   private MixdogNativeHost nativeHost;
@@ -137,16 +143,4 @@ public class MainActivity extends BridgeActivity {
     intent.removeExtra(MixdogNotifications.EXTRA_ACTION);
   }
 
-  // Immersive shell (user request): hide the system navigation bar; a swipe
-  // from the edge shows it transiently. The status bar stays visible.
-  @Override
-  public void onWindowFocusChanged(boolean hasFocus) {
-    super.onWindowFocusChanged(hasFocus);
-    if (!hasFocus) return;
-    WindowInsetsControllerCompat controller =
-        WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-    controller.setSystemBarsBehavior(
-        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-    controller.hide(WindowInsetsCompat.Type.navigationBars());
-  }
 }

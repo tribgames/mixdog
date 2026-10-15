@@ -72,6 +72,7 @@ export type DesktopSettingKey =
   | 'runInBackground'
   | 'turnNotifications'
   | 'usagePinned'
+  | 'usageRailShortLong'
   | 'computerControl'
   | 'computerObserveOnly'
   | 'browserControl'
@@ -94,6 +95,9 @@ export interface DesktopSettings {
   notificationVolume: number;
   /** Activity-rail usage pin mode, shared by desktop and remote surfaces. */
   usagePinned: boolean;
+  /** Pinned rail bars: false = the longest period only (default), true = the
+   *  shortest plus the longest period as two bars. */
+  usageRailShortLong: boolean;
   /** Opt-in: expose the agent `computer` tool that controls the local desktop
    *  (Windows). Default off — full-PC control is high risk. */
   computerControl: boolean;

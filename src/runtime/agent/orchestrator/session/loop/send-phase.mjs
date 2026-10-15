@@ -5,9 +5,10 @@
  */
 import { traceCacheBreak } from '../../cache-break-trace.mjs';
 import { resolveLiveToolCwd } from './tool-exec.mjs';
-import { prepareExplicitSkills } from '../explicit-skills.mjs';
+import { notifySkillsApplied, prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
 import { addUsage, usageDeltaEvent } from './usage.mjs';
 import { prepareProviderRequest } from './request-boundary.mjs';
+import { applyStepEffort } from './step-auto-effort.mjs';
 import { projectProviderRequest } from './request-projection.mjs';
 import { traceProviderSend, traceOutputTruncation } from './diagnostics.mjs';
 import { createEagerDispatcher } from '../eager-dispatch.mjs';
@@ -44,10 +45,13 @@ export async function beginIteration(state) {
   // policy-checked selection before the next provider snapshot instead of
   // starting detached work from a drain callback.
   while (state.pendingSkillPrompts.length) {
-    await prepareExplicitSkills(state.pendingSkillPrompts.shift(), messages, sessionRef, {
+    const { content, message: queued } = state.pendingSkillPrompts.shift();
+    const applied = await prepareExplicitSkills(content, messages, sessionRef, {
       cwd: state.cwd,
       signal: opts.signal,
     });
+    const message = recordAppliedSkills(messages, queued, applied);
+    notifySkillsApplied(opts.onSkillsApplied, applied, message);
   }
   const boundary = await prepareProviderRequest({
     provider,
@@ -129,6 +133,9 @@ export async function sendProviderRequest(state, round) {
   const sendStartedAt = Date.now();
   const preSendMs = sendStartedAt - round.iterT0;
   const toolResumeMs = state.lastToolBatchEndedAt ? sendStartedAt - state.lastToolBatchEndedAt : null;
+  // The step judgment ran beside opening the iteration; wait for it only up to
+  // its grace, then it rides on this request or on the next.
+  await applyStepEffort(state);
   // Every attempt is built from the live transcript, so a compaction between
   // attempts reaches the provider; a pending image strip only filters it.
   const messageSource = state.imageStrip
@@ -263,8 +270,7 @@ function traceActualCacheMiss(state, sent, response, { previousGuardState, previ
   const ttlMs = MESSAGES_CACHE_TTL_MS[sessionRef.providerCacheOpts?.cacheStrategy?.messages];
   const idleMs = sent.sendStartedAt - previousSendAt;
   const requestPrefixChanged =
-    !!previousGuardState &&
-    previousGuardState.requestPrefixHash !== sent.prefixGuardCandidate?.requestPrefixHash;
+    !!previousGuardState && previousGuardState.requestPrefixHash !== sent.prefixGuardCandidate?.requestPrefixHash;
   if (
     baseline > 0 &&
     ttlMs &&

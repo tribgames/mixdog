@@ -69,13 +69,16 @@ export function createBrowserPagePower<T extends PowerGuest>(host: { isDisplayed
 }
 
 /** Unload every session whose pages are all undisplayed, undriven, not kept
- *  alive, and idle past their threshold: user pages after USER_PAGE_IDLE_MS,
- *  agent pages after BACKGROUND_PAGE_IDLE_MS. The unload keeps each page's URL
- *  so the panel restores it on the next show. */
+ *  alive, free of anything a person entered, and idle past their threshold:
+ *  user pages after USER_PAGE_IDLE_MS, agent pages after
+ *  BACKGROUND_PAGE_IDLE_MS. The unload keeps each page's URL so the panel
+ *  restores it on the next show; it cannot restore what was typed. */
 export function reclaimIdleUserSessions<T extends PowerGuest>(host: {
   sessions: BrowserSessionRegistry;
   power: Pick<ReturnType<typeof createBrowserPagePower<T>>, 'isActive' | 'lastActiveAt'>;
   isBackgroundBusy(sessionId: string, name: string): boolean;
+  /** A person clicked or typed into the page's current document. */
+  holdsUserInput(guest: T): boolean;
   unload(sessionId: string): void;
   now?: number;
 }): void {
@@ -92,7 +95,10 @@ export function reclaimIdleUserSessions<T extends PowerGuest>(host: {
     if (background.some(([name, page]) => page.keepAlive || host.isBackgroundBusy(sessionId, name))) continue;
     if (
       pages.some(
-        ([guest, idleMs]) => power.isActive(guest) || !backgroundPageIdle(power.lastActiveAt(guest), now, idleMs)
+        ([guest, idleMs]) =>
+          power.isActive(guest) ||
+          host.holdsUserInput(guest) ||
+          !backgroundPageIdle(power.lastActiveAt(guest), now, idleMs)
       )
     ) {
       continue;

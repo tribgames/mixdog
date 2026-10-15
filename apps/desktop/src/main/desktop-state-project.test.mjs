@@ -22,6 +22,26 @@ test('the session catalog follows execution cwd instead of a stale project label
   assert.equal(summaries.find((row) => row.id === 'task').projectPath, null);
 });
 
+test('a forked session carries its source id and creation time; older rows omit them', () => {
+  const summaries = desktopSessionSummaries([
+    { id: 'orig', title: 'Orig', cwd: '', desktopSession: { classification: 'task', projectPath: null } },
+    {
+      id: 'fork',
+      title: 'Orig',
+      cwd: '',
+      createdAt: 123,
+      inheritedFromSessionId: 'orig',
+      desktopSession: { classification: 'task', projectPath: null },
+    },
+  ]);
+  const fork = summaries.find((row) => row.id === 'fork');
+  assert.equal(fork.inheritedFromSessionId, 'orig');
+  assert.equal(fork.createdAt, 123);
+  const original = summaries.find((row) => row.id === 'orig');
+  assert.equal('inheritedFromSessionId' in original, false);
+  assert.equal('createdAt' in original, false);
+});
+
 test('a worktree-bound session stays grouped under its registered project', () => {
   const summaries = desktopSessionSummaries([
     {

@@ -39,13 +39,17 @@ export function desktopAgentStatus(value: unknown): string {
   return statusValues(value)[0] || '';
 }
 
+/** `status` is the worker's lifecycle; `stage` is only the runtime phase the
+ *  progress sweep copies in. That phase is read straight off the live runtime,
+ *  so mid-work it can briefly say `idle`/`done`/`error` (a fresh or just
+ *  settled runtime entry) beside a worker whose status is still `running`.
+ *  The status therefore decides alone; the stage decides only for a row that
+ *  carries no status. A cancel in either field still ends the row's work. */
 export function isActiveDesktopAgentEntry(value: unknown): boolean {
   const statuses = statusValues(value);
-  return (
-    statuses.length > 0 &&
-    !statuses.some((status) => DESKTOP_TERMINAL_AGENT_STATUS.test(status)) &&
-    statuses.some((status) => DESKTOP_ACTIVE_AGENT_STATUS.test(status))
-  );
+  if (statuses.length === 0 || statuses.some((status) => DESKTOP_CANCELLED_AGENT_STATUS.test(status))) return false;
+  const lifecycle = String(record(value).status || '').trim() || statuses[0];
+  return !DESKTOP_TERMINAL_AGENT_STATUS.test(lifecycle) && DESKTOP_ACTIVE_AGENT_STATUS.test(lifecycle);
 }
 
 export function isQueuedDesktopAgentEntry(value: unknown): boolean {

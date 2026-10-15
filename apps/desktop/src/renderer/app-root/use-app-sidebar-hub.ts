@@ -1,5 +1,6 @@
 import type React from 'react';
-import { useLayoutEffect, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useMemo } from 'react';
+import { SHOW_IMPORTED_CHATS_EVENT } from '../import-conversation-events';
 import { useAppSidebarSurface } from '../use-app-sidebar-surface';
 import { useAppMobileBack, useAppMobileInitialClose } from '../app-shell-mobile-back';
 import { useSideViewPrefetch, useSideViewSelection, useSideViewReordering } from '../app-shell-side-views';
@@ -227,6 +228,19 @@ export function useAppSidebarHub({
     setSessionSideSurface,
     setSessionPanelView,
   });
+
+  // "View chats" after a batch import lands on the Sessions list without
+  // toggling it closed when it is already showing; the open chat stays.
+  useEffect(() => {
+    const show = () => {
+      setSettingsOpen(false);
+      const showing =
+        workbenchSideLayout.sideOf('sessions') !== 'right' && activeSideViews.left === 'sessions' && sidebarOpen;
+      if (!showing) selectWorkbenchSideView('sessions');
+    };
+    window.addEventListener(SHOW_IMPORTED_CHATS_EVENT, show);
+    return () => window.removeEventListener(SHOW_IMPORTED_CHATS_EVENT, show);
+  }, [activeSideViews.left, selectWorkbenchSideView, setSettingsOpen, sidebarOpen, workbenchSideLayout.sideOf]);
 
   const { moveWorkbenchSideGroup, moveWorkbenchSideView } = useSideViewReordering(
     workbenchSideLayout.sideOf,

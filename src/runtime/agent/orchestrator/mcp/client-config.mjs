@@ -3,6 +3,8 @@
  * kind, URL policy, env expansion, stdio environment, HTTP headers, timeouts,
  * and the log scrubbing that keeps credentials out of connection messages.
  */
+import { createHash } from 'node:crypto';
+import { rememberMcpToolIdentity } from '../../../shared/tool-primitives.mjs';
 
 /** Known auto-detect targets: the discovery-advert service name and the MCP
  *  endpoint path on its port.
@@ -77,20 +79,41 @@ export function mcpUrlForLog(raw) {
 
 function replaceSecret(text, value) {
   const secret = String(value || '');
-  return secret.length >= 4 ? text.split(secret).join('[redacted]') : text;
+  return secret ? text.split(secret).join('[redacted]') : text;
 }
 
-export function scrubMcpConnectionMessage(value, cfg = {}) {
-  let text = String(value || '');
+// Configured URL parts and header values shorter than 4 characters are left
+// alone: redacting e.g. the `1` of `?v=1` would mangle every message. Known
+// connection secrets (OAuth tokens) are redacted at any length.
+function replaceConfiguredSecret(text, value) {
+  return String(value || '').length >= 4 ? replaceSecret(text, value) : text;
+}
+
+/** `value` with every one of `secrets` redacted from its strings, recursing
+ *  into arrays and plain objects (tool results, JSON-RPC error data). */
+export function scrubMcpSecrets(value, secrets) {
+  if (secrets.length === 0) return value;
+  if (typeof value === 'string') return secrets.reduce(replaceSecret, value);
+  if (Array.isArray(value)) return value.map((item) => scrubMcpSecrets(item, secrets));
+  const proto = value && typeof value === 'object' ? Object.getPrototypeOf(value) : undefined;
+  if (proto !== Object.prototype && proto !== null) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [scrubMcpSecrets(key, secrets), scrubMcpSecrets(item, secrets)])
+  );
+}
+
+/** `secrets` are values known only to the live connection (its OAuth tokens). */
+export function scrubMcpConnectionMessage(value, cfg = {}, secrets = []) {
+  let text = scrubMcpSecrets(String(value || ''), secrets);
   const rawUrl = expandEnvVars(String(cfg?.url || ''));
   if (rawUrl) {
     text = text.split(rawUrl).join(mcpUrlForLog(rawUrl));
     try {
       const parsed = new URL(rawUrl);
-      text = replaceSecret(text, parsed.username);
-      text = replaceSecret(text, parsed.password);
+      text = replaceConfiguredSecret(text, parsed.username);
+      text = replaceConfiguredSecret(text, parsed.password);
       for (const paramValue of parsed.searchParams.values()) {
-        text = replaceSecret(text, paramValue);
+        text = replaceConfiguredSecret(text, paramValue);
       }
     } catch {
       /* invalid URL is reported without echoing it */
@@ -99,7 +122,7 @@ export function scrubMcpConnectionMessage(value, cfg = {}) {
   const headers = resolveMcpHttpHeaders(cfg);
   for (const [name, headerValue] of Object.entries(headers)) {
     if (/authorization|cookie|token|secret|api[-_]?key|signature/i.test(name)) {
-      text = replaceSecret(text, headerValue);
+      text = replaceConfiguredSecret(text, headerValue);
     }
   }
   return text
@@ -108,28 +131,104 @@ export function scrubMcpConnectionMessage(value, cfg = {}) {
 }
 
 /**
- * Expand `${VAR}` and `${env:VAR}` references in string values using the
- * provided env map (defaults to process.env). Recurses into arrays/objects.
- * Unknown vars expand to an empty string. No shell execution.
+ * Expand `${VAR}`, `${env:VAR}` and `${VAR:-default}` references in string
+ * values using the provided env map (defaults to process.env). Recurses into
+ * arrays/objects. The default (possibly empty) applies only when the variable
+ * is unset, and runs to the first `}`. An unset variable without a default
+ * expands to an empty string and, when `missing` (a Set) is given, its name is
+ * recorded there. No shell execution.
  */
-export function expandEnvVars(value, env = process.env) {
+export function expandEnvVars(value, env = process.env, missing) {
   if (typeof value === 'string') {
-    return value.replace(/\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}/g, (_m, name) => {
+    return value.replace(/\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_m, name, fallback) => {
       const v = env?.[name];
-      return v == null ? '' : String(v);
+      if (v != null) return String(v);
+      if (fallback !== undefined) return fallback;
+      missing?.add(name);
+      return '';
     });
   }
   if (Array.isArray(value)) {
-    return value.map((v) => expandEnvVars(v, env));
+    return value.map((v) => expandEnvVars(v, env, missing));
   }
   if (value && typeof value === 'object') {
     const out = {};
     for (const [k, v] of Object.entries(value)) {
-      out[k] = expandEnvVars(v, env);
+      out[k] = expandEnvVars(v, env, missing);
     }
     return out;
   }
   return value;
+}
+
+/**
+ * Names (deduplicated, first-seen order) of variables a server config needs
+ * that are unset: `${VAR}` references without a default in command, args,
+ * env, url, headers and cwd, plus the variables named directly by
+ * `bearer_token_env_var`, `env_http_headers` values and `env_vars`. Names
+ * only — never values.
+ */
+export function findMissingMcpEnvVars(cfg = {}, env = process.env) {
+  const missing = new Set();
+  expandEnvVars([cfg.command, cfg.args, cfg.env, cfg.url, cfg.headers, cfg.cwd], env, missing);
+  const named = [
+    cfg.bearer_token_env_var,
+    ...(cfg.env_http_headers && typeof cfg.env_http_headers === 'object' && !Array.isArray(cfg.env_http_headers)
+      ? Object.values(cfg.env_http_headers)
+      : []),
+    ...(Array.isArray(cfg.env_vars) ? cfg.env_vars : []),
+  ];
+  for (const value of named) {
+    const name = typeof value === 'string' ? value.trim() : '';
+    if (name && envValue(env, name) == null) missing.add(name);
+  }
+  return [...missing];
+}
+
+// Windows variable names are case-insensitive.
+function envValue(env, name) {
+  if (process.platform !== 'win32') return env?.[name];
+  const actual = Object.keys(env || {}).find((key) => key.toLowerCase() === name.toLowerCase());
+  return actual ? env[actual] : undefined;
+}
+
+// Provider tool names: at most 64 characters of [A-Za-z0-9_-] (the strictest
+// limit among the providers Mixdog talks to).
+const PROVIDER_TOOL_NAME_MAX = 64;
+const PROVIDER_TOOL_NAME_RE = /^[A-Za-z0-9_-]+$/;
+const KEPT_SERVER_PART_MAX = 40;
+
+/**
+ * `mcp__<server>__<tool>` when that already fits provider limits (unchanged
+ * for every name that fits today). Otherwise a deterministic short form:
+ * the server part kept when it is safe (sanitized and cut short when not),
+ * the tool part sanitized and cut, and a hash of the full name appended so
+ * distinct tools never meet. Callers keep the original tool name alongside
+ * to dispatch the call.
+ */
+export function providerSafeMcpToolName(serverName, toolName) {
+  const server = String(serverName || '');
+  const tool = String(toolName || '');
+  const full = `mcp__${server}__${tool}`;
+  if (full.length <= PROVIDER_TOOL_NAME_MAX && PROVIDER_TOOL_NAME_RE.test(full)) return full;
+  const hash = createHash('sha1').update(full).digest('hex').slice(0, 8);
+  const serverPart =
+    /^[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*$/.test(server) && server.length <= KEPT_SERVER_PART_MAX
+      ? server
+      : server
+          .replace(/[^A-Za-z0-9-]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 24)
+          .replace(/-+$/, '') || 'server';
+  const room = PROVIDER_TOOL_NAME_MAX - `mcp__${serverPart}__`.length - hash.length - 1;
+  const toolPart = tool
+    .replace(/[^A-Za-z0-9_-]+/g, '_')
+    .slice(0, Math.max(0, room))
+    .replace(/_+$/, '');
+  const safe = `mcp__${serverPart}__${toolPart ? `${toolPart}_` : ''}${hash}`;
+  // Name-only consumers in this process (display, guards) resolve it back.
+  rememberMcpToolIdentity(safe, server, tool);
+  return safe;
 }
 
 const DEFAULT_STDIO_ENV_KEYS =
@@ -206,6 +305,14 @@ export function resolveMcpTransportKind(cfg) {
   if (cfg?.command) return 'stdio';
   if (cfg?.url) return 'http';
   throw new Error(`Invalid config: need autoDetect, type (stdio/http/sse/ws), url (http), or command (stdio)`);
+}
+
+/** The exact URL OAuth credentials of an HTTP/SSE server config are stored
+ *  under; null for other transports. */
+export function resolveMcpOAuthUrl(cfg) {
+  const kind = resolveMcpTransportKind(cfg);
+  if (kind !== 'http' && kind !== 'sse') return null;
+  return normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), kind);
 }
 
 // MCP per-tool-call timeout. Default 2min: a hung/unresponsive MCP server

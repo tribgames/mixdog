@@ -89,29 +89,26 @@ export function ignoredPath(path: string, directory: boolean, rules: readonly Ig
   return ignored;
 }
 
-function fuzzyIndex(value: string, query: string): number {
+function fuzzyMatches(value: string, query: string): boolean {
   let queryIndex = 0;
-  let first = -1;
   for (let index = 0; index < value.length && queryIndex < query.length; index += 1) {
-    if (value[index] !== query[queryIndex]) continue;
-    if (first < 0) first = index;
-    queryIndex += 1;
+    if (value[index] === query[queryIndex]) queryIndex += 1;
   }
-  return queryIndex === query.length ? first : -1;
+  return queryIndex === query.length;
 }
 
-function matchScore(path: string, query: string): number | null {
-  if (!query) return 10_000 + path.length;
+/** Match tier, best first; one tier lists folders first, then by name. An
+ *  empty query lists only the root's own entries. */
+function matchTier(path: string, query: string): number | null {
   const normalized = path.toLowerCase();
+  if (!query) return normalized.includes('/') ? null : 0;
   const basename = normalized.slice(normalized.lastIndexOf('/') + 1);
   if (normalized === query) return 0;
   if (basename === query) return 1;
-  if (normalized.startsWith(query)) return 10 + normalized.length - query.length;
-  if (basename.startsWith(query)) return 20 + basename.length - query.length;
-  const contained = normalized.indexOf(query);
-  if (contained >= 0) return 100 + contained + normalized.length - query.length;
-  const fuzzy = fuzzyIndex(normalized, query);
-  return fuzzy < 0 ? null : 1_000 + fuzzy + normalized.length;
+  if (normalized.startsWith(query)) return 2;
+  if (basename.startsWith(query)) return 3;
+  if (normalized.includes(query)) return 4;
+  return fuzzyMatches(normalized, query) ? 5 : null;
 }
 
 export interface ProjectFileSearchOptions {
@@ -229,15 +226,22 @@ export async function searchProjectDirectory(
   const files = usesCache
     ? await projectFilesFor(root, Boolean(options.includeIgnored))
     : await collectProjectFiles(root, options);
-  const matches: Array<{ path: string; score: number }> = [];
+  const matches: Array<{ path: string; name: string; tier: number; directory: boolean }> = [];
   for (const path of files) {
     const directory = path.endsWith('/');
     if (directory && !options.includeDirectories) continue;
-    const score = matchScore(directory ? path.slice(0, -1) : path, normalizedQuery);
-    if (score !== null) matches.push({ path, score });
+    const entry = directory ? path.slice(0, -1) : path;
+    const tier = matchTier(entry, normalizedQuery);
+    if (tier !== null) matches.push({ path, name: entry.slice(entry.lastIndexOf('/') + 1), tier, directory });
   }
   return matches
-    .sort((left, right) => left.score - right.score || left.path.localeCompare(right.path))
+    .sort(
+      (left, right) =>
+        left.tier - right.tier ||
+        Number(right.directory) - Number(left.directory) ||
+        left.name.localeCompare(right.name) ||
+        left.path.localeCompare(right.path)
+    )
     .slice(0, limit)
     .map((match) => match.path);
 }

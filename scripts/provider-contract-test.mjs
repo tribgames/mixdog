@@ -505,7 +505,7 @@ test('provider setup lists every OAuth row in order and leads the API rows with 
   // its Settings → Developer option is on; this scratch data dir turns none on.
   assert.deepEqual(
     setup.oauth.map((provider) => provider.id),
-    ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth']
+    ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth']
   );
   assert.equal(setup.api[0].id, 'opencode-go');
   assert.equal(setup.api[1].id, 'openrouter');

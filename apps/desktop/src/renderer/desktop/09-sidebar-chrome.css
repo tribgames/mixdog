@@ -62,10 +62,12 @@
      warning/danger tones below take over. */
   background: var(--mx-meter-fill);
 }
-.rail-usage-pin-brand.tone-warning > i > i {
+/* Short + long mode stacks two meters (the brand's 2px gap separates them);
+   the tone colors only the bar that drives the figure. */
+.rail-usage-pin-brand.tone-warning > i:not(.is-cool) > i {
   background: var(--mx-meter-warning);
 }
-.rail-usage-pin-brand.tone-danger > i > i {
+.rail-usage-pin-brand.tone-danger > i:not(.is-cool) > i {
   background: var(--mx-meter-danger);
 }
 .rail-usage-pin-brand > small {

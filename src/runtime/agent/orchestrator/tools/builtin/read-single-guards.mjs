@@ -108,7 +108,9 @@ async function symlinkTargetGuard(fullPath, filePath, helpers) {
     if (typeof isSpecialFileStat === 'function' && isSpecialFileStat(targetStat)) {
       return guardResponse('special', helpers, filePath, realTarget);
     }
-  } catch {}
+  } catch {
+    /* vanished target: see above */
+  }
   return null;
 }
 
@@ -138,7 +140,9 @@ export async function statReadTarget(fullPath, filePath, options, helpers) {
       const error = await symlinkTargetGuard(fullPath, filePath, helpers);
       if (error) return { st, error };
     }
-  } catch {}
+  } catch {
+    /* lstat failure is non-fatal: see above */
+  }
   return { st };
 }
 
@@ -148,12 +152,12 @@ export async function statReadTarget(fullPath, filePath, options, helpers) {
  * recovery mode for an ordinary absence probe. Genuine not-found only —
  * EACCES/EPERM etc. keep failure semantics.
  */
-export function readNotFoundResponse(err, { fullPath, filePath, workDir }, helpers) {
+export async function readNotFoundResponse(err, { fullPath, filePath, workDir }, helpers) {
   const { findSimilarFile, normalizeErrorMessage, normalizeOutputPath } = helpers;
   const similar = findSimilarFile(fullPath);
   let hint = similar
     ? appendNotFoundCwdNote(` Did you mean "${normalizeOutputPath(similar)}"?`, workDir, err?.code)
-    : buildNotFoundHint(workDir, fullPath, 'Read', err?.code);
+    : await buildNotFoundHint(workDir, fullPath, 'Read', err?.code);
   hint = finalizeReadFamilyEnoentTail(hint, filePath, err?.code);
   const safeMsg = normalizeErrorMessage(err instanceof Error ? err.message : String(err), workDir);
   if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') return `[path absent] ${safeMsg}${hint}`;

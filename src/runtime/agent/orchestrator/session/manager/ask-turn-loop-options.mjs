@@ -152,6 +152,10 @@ export function buildAgentLoopOptions({
       checkpoint.schedule(true);
       relay(askOpts?.onSteerMessage, text, detail);
     },
+    onSkillsApplied: (names, detail) => {
+      checkpoint.schedule(true);
+      relay(askOpts?.onSkillsApplied, names, detail);
+    },
     notifyFn: optionalFn(askOpts?.notifyFn),
     // Same projection compaction uses, so a session presents one identity on
     // every request it makes.

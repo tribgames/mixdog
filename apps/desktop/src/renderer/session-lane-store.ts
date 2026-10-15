@@ -520,6 +520,8 @@ export function createSessionLaneStore({
       }
     }
     if (prior) snapshots.delete(sessionId);
+    // A genuine teardown ends the session's identity baseline and failure scope.
+    if (!update.snapshot && update.laneEnd === 'gone') decorator.forget?.(sessionId);
     if (update.snapshot) {
       const incoming = decorator.decorate(update.snapshot);
       const decision = decideSessionLaneFrame(priorSnapshot, prior?.revision ?? null, incoming, provenance);
@@ -578,6 +580,9 @@ export function createSessionLaneStore({
           if (key) cancelLayoutFrame(key);
           notificationKeys.delete(sessionId);
           snapshots.release(sessionId);
+          // An unmounted lane that is no longer cached has nothing displayed
+          // to keep stable; a cached one keeps its baseline for re-entry.
+          if (!snapshots.get(sessionId)) decorator.forget?.(sessionId);
         }
       };
     },

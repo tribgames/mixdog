@@ -7,6 +7,7 @@
  * store state, so they can't be pure. openMcpPicker is exposed for the
  * plugin-detail enable-mcp path (also aliased on the App body).
  */
+import { createMcpLogin } from './extension-pickers/mcp-login.mjs';
 import { createMcpServersPicker } from './extension-pickers/mcp-servers-picker.mjs';
 import { createPluginsPickers } from './extension-pickers/plugins-pickers.mjs';
 import { createSkillsPickers } from './extension-pickers/skills-pickers.mjs';
@@ -43,5 +44,5 @@ export function createExtensionPickers({
     setSettingsPrompt,
     openMcpPicker: mcp.openMcpPicker,
   });
-  return { ...mcp, ...skills, ...plugins };
+  return { ...mcp, ...createMcpLogin({ store, setProviderPrompt }), ...skills, ...plugins };
 }

@@ -5,27 +5,33 @@ import { rememberTranscriptVirtualMeasurements } from './transcript-virtual-cach
 import type { TranscriptRowModel } from './transcript-rows';
 import { attachTranscriptSelectionDrag, type TranscriptSelectionPin } from './transcript-selection-drag';
 
-/** On leave, replays gesture-deferred sizes and remembers the measurements. */
+/** On leave, lands held and gesture-deferred sizes and remembers the
+ *  measurements. */
 export function useRememberVirtualMeasurements({
   sessionKey,
   viewport,
   virtualizerRef,
   flushDeferredResizes,
+  settleHeldShrinks,
 }: {
   sessionKey: string;
   viewport: { readonly current: HTMLDivElement | null };
   virtualizerRef: MutableRefObject<TranscriptVirtualizer>;
   flushDeferredResizes: () => void;
+  settleHeldShrinks: (force?: boolean) => void;
 }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: viewport is an intentional re-run trigger (the snapshot is taken when the pane element changes); the virtualizer is read through its ref
   useLayoutEffect(
     () => () => {
-      // Pending gesture-deferred sizes are part of the truth this snapshot
-      // promises to replay on re-entry.
+      // A streaming row's held slot is not its size: re-entry would replay
+      // the stale slot. Its real size lands first (a deferral it meets is
+      // replayed just below), then pending gesture-deferred sizes — both
+      // part of the truth this snapshot promises to replay on re-entry.
+      settleHeldShrinks(true);
       flushDeferredResizes();
       rememberTranscriptVirtualMeasurements(sessionKey, virtualizerRef.current.takeSnapshot());
     },
-    [flushDeferredResizes, sessionKey, viewport]
+    [flushDeferredResizes, settleHeldShrinks, sessionKey, viewport]
   );
 }
 
@@ -36,12 +42,14 @@ export function useTranscriptHandles({
   setAnchorBottomRef,
   virtualizerRef,
   anchorOverride,
+  settleHeldShrinks,
 }: {
   endPin: ReturnType<typeof createTranscriptEndPin>;
   scrollToEndRef: MutableRefObject<(behavior?: ScrollBehavior) => void>;
   setAnchorBottomRef?: MutableRefObject<(bottom: boolean) => void>;
   virtualizerRef: MutableRefObject<TranscriptVirtualizer>;
   anchorOverride: MutableRefObject<boolean | null>;
+  settleHeldShrinks: () => void;
 }) {
   useLayoutEffect(() => {
     const scrollToEnd = () => {
@@ -62,17 +70,20 @@ export function useTranscriptHandles({
       const instance = virtualizerRef.current;
       const anchorTo = bottom ? 'end' : 'start';
       if (
-        instance.options.anchorTo === anchorTo &&
-        instance.options.followOnAppend === bottom &&
-        instance.options.scrollEndThreshold === SCROLL_END_THRESHOLD_PX
-      )
-        return;
-      instance.setOptions({
-        ...instance.options,
-        anchorTo,
-        followOnAppend: bottom,
-        scrollEndThreshold: SCROLL_END_THRESHOLD_PX,
-      });
+        instance.options.anchorTo !== anchorTo ||
+        instance.options.followOnAppend !== bottom ||
+        instance.options.scrollEndThreshold !== SCROLL_END_THRESHOLD_PX
+      ) {
+        instance.setOptions({
+          ...instance.options,
+          anchorTo,
+          followOnAppend: bottom,
+          scrollEndThreshold: SCROLL_END_THRESHOLD_PX,
+        });
+      }
+      // A slot held for the followed tail is the reader's geometry now: its
+      // real size lands in this same task, not at the next render.
+      if (!bottom) settleHeldShrinks();
     };
     setAnchorBottomRef.current = setAnchorBottom;
     return () => {
@@ -80,7 +91,7 @@ export function useTranscriptHandles({
         setAnchorBottomRef.current = () => {};
       }
     };
-  }, [setAnchorBottomRef, anchorOverride, virtualizerRef]);
+  }, [setAnchorBottomRef, anchorOverride, virtualizerRef, settleHeldShrinks]);
 }
 
 /** Chromium owns the drag range; transcript-selection-drag.ts only pins the

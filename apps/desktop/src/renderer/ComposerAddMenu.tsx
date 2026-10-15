@@ -5,28 +5,11 @@ import { CapabilityIcon } from './CapabilityIcon';
 import { ErrorNotice } from './ErrorNotice';
 import { MxIcon } from './MxIcon';
 import { t } from './i18n';
-import { selectableComposerSkills, skillTitle, type ComposerSkill } from './composer-skill';
+import { useMobileBack } from './mobile-back';
+import { skillTitle, type ComposerSkill } from './composer-skill';
+import { cachedSkillCatalog, refreshSkillCatalog } from './composer-skill-mentions';
 import { wrappedNavigationIndex } from './list-navigation';
 import './desktop/composer-add-menu.css';
-
-// Last skill list per session, kept for the renderer's lifetime. Opening the
-// menu paints it at once and refreshes behind it, instead of emptying the list
-// and waiting on a renderer → main → daemon control-session round trip every
-// time (user: 로딩까지 시간이 엄청 오래 걸림). skillsStatus is already cached
-// daemon-side, so the refresh only ever moves the list when skills changed.
-const skillCache = new Map<string, ComposerSkill[]>();
-
-// One capability read per open; the cache it fills is what the next open paints
-// before this read resolves.
-async function readComposerSkills(cacheKey: string, sessionId?: string | null): Promise<ComposerSkill[]> {
-  const [result] = await window.mixdogDesktop.readCapabilities([
-    { capability: 'skillsStatus', ...(sessionId ? { sessionId } : {}) },
-  ]);
-  if (!result?.ok) throw new Error(result && !result.ok ? result.error : 'Skills unavailable.');
-  const next = selectableComposerSkills(result.value);
-  skillCache.set(cacheKey, next);
-  return next;
-}
 
 // Roving focus over the enabled menu items, wrapping at both ends.
 function moveComposerAddMenuFocus(
@@ -204,6 +187,7 @@ export function ComposerAddMenu({
   disabled,
   goalDisabled,
   sessionId,
+  projectPath,
   openRequest = 0,
   onAttach,
   onSkill,
@@ -214,6 +198,8 @@ export function ComposerAddMenu({
   disabled: boolean;
   goalDisabled: boolean;
   sessionId?: string | null;
+  /** Without a session (a new-task draft): the Project whose skills apply. */
+  projectPath?: string | null;
   /** Each change opens the menu (/skills); the value at mount is already handled. */
   openRequest?: number;
   onAttach(): void;
@@ -222,8 +208,10 @@ export function ComposerAddMenu({
   onMore(): void;
 }) {
   const [open, setOpen] = useState(false);
-  const cacheKey = sessionId || '';
-  const [skills, setSkills] = useState<ComposerSkill[]>(() => skillCache.get(cacheKey) || []);
+  const session = sessionId || '';
+  const project = session ? '' : projectPath || '';
+  // Paint the cached catalog at once and refresh behind it (see composer-skill-mentions).
+  const [skills, setSkills] = useState<ComposerSkill[]>(() => cachedSkillCatalog(session, project)?.selectable || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const panel = useRef<HTMLDivElement>(null);
@@ -236,13 +224,13 @@ export function ComposerAddMenu({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    const cached = skillCache.get(cacheKey);
-    setSkills(cached || []);
+    const cached = cachedSkillCatalog(session, project);
+    setSkills(cached?.selectable || []);
     setLoading(!cached);
     setError('');
-    void readComposerSkills(cacheKey, sessionId)
+    void refreshSkillCatalog(session, project)
       .then((next) => {
-        if (!cancelled) setSkills(next);
+        if (!cancelled) setSkills(next.selectable);
       })
       .catch((reason: unknown) => {
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
@@ -253,7 +241,8 @@ export function ComposerAddMenu({
     return () => {
       cancelled = true;
     };
-  }, [open, sessionId, cacheKey]);
+  }, [open, session, project]);
+  useMobileBack(open, () => setOpen(false));
   useComposerAddMenuDismiss({ open, panel, trigger, close, setOpen });
   useEffect(() => {
     if (disabled) setOpen(false);

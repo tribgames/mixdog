@@ -217,6 +217,9 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
       '/node_modules/mixdog/src/runtime/office/com/office-word-formatting.ps1',
       '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
       '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
+      ...entries.filter(
+        (entry) => entry.startsWith('/node_modules/mixdog/src/defaults/skills/') && /\.\w+$/.test(entry)
+      ),
     ]),
   ];
   assert.ok(

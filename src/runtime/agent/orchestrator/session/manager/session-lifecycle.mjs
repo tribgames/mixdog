@@ -37,7 +37,7 @@ import { getAgentRuntimeSync, warnAgentRuntimeResolveFailureOnce } from './agent
 import { ensureCodexWireSessionId, mintSessionId } from './session-id.mjs';
 import { providerCacheKey } from './provider-cache-key.mjs';
 import { buildSessionRecord, normalizeDesktopSessionMetadata, sessionOriginFields } from './session-record.mjs';
-import { refreshSessionBp3Environment } from './prompt-utils.mjs';
+import { applyPendingWorkspaceReroot, refreshSessionBp3Environment } from './prompt-utils.mjs';
 import { isWorktreeBound } from '../../../../shared/worktrees/contract.mjs';
 
 // Owner liveness (attach-on-resume guard) and the durable turn-checkpoint
@@ -436,6 +436,9 @@ export function updateSessionRoute(id, route = {}, options = {}) {
   // route and set sessionStartMetaInjected, so the ask-time refresh guard
   // skips it and an empty-session route change would otherwise keep the old
   // model line in the system prompt (model self-identity confusion).
+  // A new route starts a cold cache: a staged working-folder change re-roots
+  // the prompt now instead of riding a notice.
+  if (routeChanged) applyPendingWorkspaceReroot(session);
   refreshSessionBp3Environment(session, session.cwd);
   session.updatedAt = Date.now();
   setLiveSession(session);

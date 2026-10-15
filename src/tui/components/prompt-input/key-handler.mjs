@@ -42,6 +42,14 @@ function gridSelectionActive(suppressShiftNavRef) {
   return Boolean(suppressShiftNavRef?.current);
 }
 
+// A palette accept/complete may hand back the next draft: a string (caret at
+// its end) or { value, cursor } (a `$name` skill mention completed at the caret).
+export function paletteResultDraft(result) {
+  if (typeof result === 'string') return { value: result, cursor: result.length, selectionAnchor: null };
+  if (typeof result?.value === 'string') return { value: result.value, cursor: result.cursor, selectionAnchor: null };
+  return null;
+}
+
 export function createPromptKeyHandler(ctx) {
   const {
     disabled,
@@ -55,6 +63,7 @@ export function createPromptKeyHandler(ctx) {
     submitDraft,
     commandPaletteActive,
     commandPaletteOptionCount,
+    commandPaletteMovesCaret,
     onCommandPaletteNavigate,
     onCommandPaletteAccept,
     onCommandPaletteComplete,
@@ -177,8 +186,12 @@ export function createPromptKeyHandler(ctx) {
       }
 
       if (commandPaletteActive) {
-        const accepted = onCommandPaletteAccept?.(draftRef.current.value);
-        if (accepted !== false) {
+        const accepted = onCommandPaletteAccept?.(draftRef.current.value, draftRef.current.cursor);
+        // A draft-shaped accept (skill mention completion) replaces the draft.
+        const replacement = paletteResultDraft(accepted);
+        if (replacement) {
+          commitDraft(replacement);
+        } else if (accepted !== false) {
           commitDraft({ value: '', cursor: 0, selectionAnchor: null });
         }
         return;
@@ -276,10 +289,10 @@ export function createPromptKeyHandler(ctx) {
 
     if (key.tab) {
       if (commandPaletteActive) {
-        const completed = onCommandPaletteComplete?.(draftRef.current.value);
-        if (typeof completed === 'string') {
-          commitDraft({ value: completed, cursor: completed.length, selectionAnchor: null });
-        }
+        const completed = paletteResultDraft(
+          onCommandPaletteComplete?.(draftRef.current.value, draftRef.current.cursor)
+        );
+        if (completed) commitDraft(completed);
         return;
       }
       if (onTab?.(draftRef.current.value) === true) return;
@@ -291,7 +304,7 @@ export function createPromptKeyHandler(ctx) {
     }
 
     if (key.leftArrow || rawShiftLeft) {
-      if (commandPaletteActive) {
+      if (commandPaletteActive && !commandPaletteMovesCaret) {
         onCommandPaletteNavigate?.('left');
         return;
       }
@@ -301,7 +314,7 @@ export function createPromptKeyHandler(ctx) {
       return;
     }
     if (key.rightArrow || rawShiftRight) {
-      if (commandPaletteActive) {
+      if (commandPaletteActive && !commandPaletteMovesCaret) {
         onCommandPaletteNavigate?.('right');
         return;
       }

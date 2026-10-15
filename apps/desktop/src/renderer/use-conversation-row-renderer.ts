@@ -19,6 +19,7 @@ export function useConversationRowRenderer({
   settledTurnKeys,
   optimisticActivityStartedAt,
   submit,
+  questionCard,
 }: {
   snapshot: Snapshot;
   disclosureScope: string;
@@ -30,8 +31,10 @@ export function useConversationRowRenderer({
   settledTurnKeys: string[];
   optimisticActivityStartedAt: number;
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
+  /** The pending ask_user card; it renders in place of its tool call. */
+  questionCard: ReactNode;
 }) {
-  const { retryTurn, retryTurnRef } = useConversationRetry(settledItems, settledTurnKeys, submit);
+  const { retryTurn } = useConversationRetry(settledItems, settledTurnKeys, submit);
   const latestCompletion = useMemo(() => {
     for (let index = settledItems.length - 1; index >= 0; index -= 1) {
       if (settledItems[index]?.kind === 'turndone') return settledItems[index];
@@ -52,6 +55,7 @@ export function useConversationRowRenderer({
       snapshot,
       onRetryTurn: retryTurn,
       onOpenSettings,
+      questionCard,
     });
-  return { renderTranscriptRow, retryTurnRef };
+  return { renderTranscriptRow };
 }

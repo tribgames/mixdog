@@ -9,6 +9,7 @@
 import { useCallback } from 'react';
 import { slashCommandTokenForPaletteAccept } from './slash-commands.mjs';
 import { withPickerEnterLatch } from './picker-enter-latch.mjs';
+import { completeSkillMention } from './skill-mention-palette.mjs';
 import { applyPromptDraftChange } from './use-prompt-draft-flow/draft-change.mjs';
 import { cancelProviderPromptFlow, cancelSettingsPromptFlow } from './use-prompt-draft-flow/prompt-cancels.mjs';
 
@@ -85,9 +86,12 @@ export function usePromptDraftFlow({
   );
 
   const acceptSlashPalette = useCallback(
-    (draftValue = '') => {
+    (draftValue = '', caret) => {
       const command = slashCommands[slashIndex];
       if (!command) return false;
+      // A skill row completes the `$name` mention at the caret (the returned
+      // { value, cursor } replaces the draft) instead of running anything.
+      if (command.kind === 'skill') return completeSkillMention(draftValue, command.name, caret) ?? false;
       return withPickerEnterLatch(pickerOpenedFromEnterRef, pickerOpenedFromEnterTimerRef, () =>
         runSlashCommand(slashCommandTokenForPaletteAccept(command, draftValue), '')
       );
@@ -96,9 +100,10 @@ export function usePromptDraftFlow({
   );
 
   const completeSlashPalette = useCallback(
-    (draftValue = '') => {
+    (draftValue = '', caret) => {
       const command = slashCommands[slashIndex];
       if (!command) return undefined;
+      if (command.kind === 'skill') return completeSkillMention(draftValue, command.name, caret);
       const token = slashCommandTokenForPaletteAccept(command, draftValue);
       return token ? `/${token} ` : undefined;
     },

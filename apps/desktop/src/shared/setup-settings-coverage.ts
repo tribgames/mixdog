@@ -10,6 +10,7 @@ export const DESKTOP_SETUP_SETTING_ACTIONS: Record<DesktopSettingKey | 'notifica
   runInBackground: 'set_desktop_settings',
   turnNotifications: 'set_desktop_settings',
   usagePinned: 'set_desktop_settings',
+  usageRailShortLong: 'set_desktop_settings',
   computerObserveOnly: 'set_desktop_settings',
   computerControl: 'set_builtin_enabled',
   browserControl: 'set_builtin_enabled',

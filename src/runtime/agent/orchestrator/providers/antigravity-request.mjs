@@ -2,10 +2,15 @@ import { randomUUID, createHash } from 'node:crypto';
 import { createProviderReplay, providerReplayItems } from './lib/provider-replay.mjs';
 import { toGeminiContents, toGeminiRequestTools, toGeminiToolConfig } from './gemini-schema.mjs';
 import { geminiThinkingConfig } from './gemini-thinking.mjs';
+import { isGeminiFamilyModel } from './gemini-family.mjs';
 
 const THOUGHT_SIGNATURE_SENTINEL = 'skip_thought_signature_validator';
 const CLAUDE_MAX_OUTPUT_TOKENS = 64000;
 
+// Claude models behind the gateway speak a different thinking/replay dialect
+// (token budgets, anthropic-beta header, their own signatures). The roster
+// carries no protocol marker, and a wrong guess is rejected upstream, so the
+// vendor prefix of the wire id decides.
 export function isAntigravityClaude(model) {
   return /^claude-/i.test(String(model || ''));
 }
@@ -59,33 +64,44 @@ function sessionId(contents) {
   return `-${digest.readBigUInt64BE(0) % 9223372036854775807n}`;
 }
 
+// The gateway validates Claude's level against Google's ThinkingLevel enum,
+// whose highest value is `high`; anything it does not name is left out.
+const CLAUDE_GATEWAY_LEVELS = new Set(['low', 'medium', 'high']);
+function claudeGatewayLevel(value) {
+  const level = String(value ?? '').toLowerCase();
+  if (level === 'xhigh' || level === 'max' || level === 'ultra') return 'high';
+  return CLAUDE_GATEWAY_LEVELS.has(level) ? level : null;
+}
+
+// An explicit token budget is sent as-is; otherwise the chosen effort rides
+// on thinkingLevel with the wire id unchanged.
 function claudeThinkingConfig(opts) {
   const budget = opts.thinkingBudget ?? opts.thinkingBudgetTokens;
-  if (opts.thinkingLevel != null || (budget == null && opts.effort != null)) {
-    throw new TypeError(
-      'Antigravity Claude uses thinkingBudget; effort levels cannot be converted to a token budget automatically.'
-    );
-  }
   const thinkingConfig = { includeThoughts: true };
-  if (budget != null) {
-    const value = Number(budget);
-    if (!Number.isInteger(value) || value < 1024 || value >= CLAUDE_MAX_OUTPUT_TOKENS) {
-      throw new TypeError('Antigravity Claude thinkingBudget must be an integer from 1024 to 63999.');
-    }
-    thinkingConfig.thinkingBudget = value;
+  if (budget == null) {
+    const level = claudeGatewayLevel(opts.thinkingLevel ?? opts.effort);
+    if (level) thinkingConfig.thinkingLevel = level;
+    return thinkingConfig;
   }
+  const value = Number(budget);
+  if (!Number.isInteger(value) || value < 1024 || value >= CLAUDE_MAX_OUTPUT_TOKENS) {
+    throw new TypeError('Antigravity Claude thinkingBudget must be an integer from 1024 to 63999.');
+  }
+  thinkingConfig.thinkingBudget = value;
   return thinkingConfig;
 }
 
 // Tiered wire ids (gemini-3.8-flash-high) already encode the thinking
 // level; the provider resolves them from the catalog and clears the
 // effort, so only bare ids reach this field.
-// Thought summaries on by default for every Gemini family, matching the
+// Thought summaries on by default for every Gemini-family model, matching the
 // API-key provider. The gateway also serves GPT-OSS, which rejects the
-// thinking fields outright, so the flag stays Gemini-only.
+// thinking fields outright and which the roster's thinking flag does not
+// separate from Gemini, so the flag stays Gemini-only.
 function antigravityGeminiThinkingConfig(model, opts) {
   return geminiThinkingConfig(model, opts, {
-    includeThoughts: /^gemini-/i.test(model) ? true : undefined,
+    provider: 'antigravity-oauth',
+    includeThoughts: isGeminiFamilyModel(model) ? true : undefined,
   });
 }
 

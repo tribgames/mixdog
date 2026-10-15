@@ -12,6 +12,8 @@ import {
   filterSkillsExcludingDisabled,
   isSkillDisabled,
   skillMissingFeature,
+  skillOutsideScope,
+  skillOutsideScopeError,
 } from '../../context/collect.mjs';
 
 // Eager-dispatch: tools with readOnlyHint:true in their declaration are safe
@@ -96,6 +98,7 @@ export function viewSkill(cwd, name, session = null) {
     return `Error: skill "${skillName}" needs the ${missingFeature} built-in feature, which is not installed or is switched off in Extensions → Plugin → Built-in`;
   }
   if (isSkillDisabled(skillName)) return `Error: skill "${skillName}" is disabled`;
+  if (skillOutsideScope(skillName, cwd)) return skillOutsideScopeError(skillName);
   const res = loadSkillResource(skillName, cwd);
   if (!res) return `Error: skill "${skillName}" not found`;
   // Return the general tool envelope: the model-visible tool_result is the

@@ -2,15 +2,21 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import {
+  acknowledgeBackgroundTaskCompletion,
+  cancelBackgroundTask,
+  cancelBackgroundTasks,
   cleanupBackgroundTasks,
   completeBackgroundTask,
   getBackgroundTask,
+  reconcileBackgroundTask,
   registerBackgroundTask,
   renderBackgroundTask,
   renderBackgroundTaskNotification,
+  settleCancelledBackgroundTask,
+  startBackgroundTask,
 } from './background-tasks.mjs';
 import { modelVisibleToolCompletionMessage } from './tool-execution-contract.mjs';
 import { executeTaskTool } from '../agent/orchestrator/tools/builtin/task-tool.mjs';
@@ -168,6 +174,207 @@ test('the owner tool start notice drops surface and cwd while other envelopes ke
     const envelope = renderBackgroundTask(task);
     assert.match(envelope, /^surface: shell$/m);
     assert.match(envelope, /^cwd: C:\/work$/m);
+  } finally {
+    cleanupBackgroundTasks({ force: true });
+  }
+});
+
+const CANCEL_OWNER = 'sess_cancel_owner';
+
+function controlledRun() {
+  const run = {};
+  run.promise = new Promise((resolve, reject) => {
+    run.resolve = resolve;
+    run.reject = reject;
+  });
+  return run;
+}
+
+function startCancellableAgent(notifications, run) {
+  return startBackgroundTask({
+    surface: 'agent',
+    label: 'worker',
+    meta: { tag: 'worker' },
+    notifyOnCancel: true,
+    context: { callerSessionId: CANCEL_OWNER, notifyFn: (text) => notifications.push(text) },
+    run: () => run.promise,
+  });
+}
+
+test('a cancelled agent task notifies its owner once, as cancelled, carrying the partial result', async () => {
+  const notifications = [];
+  const run = controlledRun();
+  const task = startCancellableAgent(notifications, run);
+  try {
+    cancelBackgroundTask(task.taskId, 'cancelled by agent close');
+    assert.equal(task.status, 'cancelled');
+    assert.equal(notifications.length, 0, 'delivery waits for the run to stop');
+    settleCancelledBackgroundTask(task.taskId, { result: { content: 'partial work' } });
+    run.reject(new Error('Session closed'));
+    await task.promise;
+    // Later reconcile / settle windows never re-fire it.
+    reconcileBackgroundTask(task.taskId, { status: 'completed', result: { content: 'late' } });
+    settleCancelledBackgroundTask(task.taskId, { result: { content: 'later' } });
+    assert.equal(notifications.length, 1);
+    const parsed = parseTaskNotification(notifications[0]);
+    assert.equal(parsed.status, 'cancelled');
+    assert.equal(parsed.result, 'partial work');
+    assert.match(parsed.summary, /was cancelled \(cancelled by agent close\)/);
+    assert.equal(task.status, 'cancelled');
+  } finally {
+    cleanupBackgroundTasks({ force: true });
+  }
+});
+
+test('a cancelled agent run that resolves without partial output sends the header-only cancelled notification', async () => {
+  const notifications = [];
+  const run = controlledRun();
+  const task = startCancellableAgent(notifications, run);
+  try {
+    cancelBackgroundTasks({ surface: 'agent', callerSessionId: CANCEL_OWNER, reason: 'parent Agent turn aborted' });
+    run.resolve({ content: '' });
+    await task.promise;
+    assert.equal(notifications.length, 1);
+    const parsed = parseTaskNotification(notifications[0]);
+    assert.equal(parsed.status, 'cancelled');
+    assert.equal(parsed.result, '');
+    assert.match(parsed.summary, /\(parent Agent turn aborted\)/);
+  } finally {
+    cleanupBackgroundTasks({ force: true });
+  }
+});
+
+test('a cancelled agent run that never settles still notifies, header-only, after the grace period', async () => {
+  const notifications = [];
+  const run = controlledRun();
+  mock.timers.enable({ apis: ['setTimeout'] });
+  const task = startCancellableAgent(notifications, run);
+  try {
+    cancelBackgroundTask(task.taskId, 'cancelled by task control');
+    mock.timers.tick(9_999);
+    assert.equal(notifications.length, 0);
+    mock.timers.tick(1);
+    assert.equal(notifications.length, 1);
+    assert.equal(parseTaskNotification(notifications[0]).result, '');
+    settleCancelledBackgroundTask(task.taskId, { result: { content: 'too late' } });
+    run.reject(new Error('closed'));
+    await task.promise;
+    assert.equal(notifications.length, 1);
+  } finally {
+    mock.timers.reset();
+    cleanupBackgroundTasks({ force: true });
+  }
+});
+
+test('an acknowledged cancelled agent task is never notified', async () => {
+  const notifications = [];
+  const run = controlledRun();
+  const task = startCancellableAgent(notifications, run);
+  try {
+    cancelBackgroundTask(task.taskId, 'cancelled by agent close');
+    assert.ok(acknowledgeBackgroundTaskCompletion(task.taskId));
+    settleCancelledBackgroundTask(task.taskId, { result: { content: 'partial work' } });
+    run.reject(new Error('Session closed'));
+    await task.promise;
+    assert.equal(notifications.length, 0);
+  } finally {
+    cleanupBackgroundTasks({ force: true });
+  }
+});
+
+test('owner teardown and delete cancel agent tasks silently', async () => {
+  const notifications = [];
+  const runs = [controlledRun(), controlledRun()];
+  try {
+    const deleted = startCancellableAgent(notifications, runs[0]);
+    cancelBackgroundTasks({ reason: 'desktop-session-delete', notify: false, callerSessionId: CANCEL_OWNER });
+    const exited = startCancellableAgent(notifications, runs[1]);
+    cancelBackgroundTasks({ reason: 'cli-exit', notify: false });
+    assert.equal(deleted.status, 'cancelled');
+    assert.equal(exited.status, 'cancelled');
+    for (const task of [deleted, exited]) {
+      settleCancelledBackgroundTask(task.taskId, { result: { content: 'partial' } });
+      reconcileBackgroundTask(task.taskId, { status: 'completed', result: { content: 'late' } });
+    }
+    for (const run of runs) run.reject(new Error('closed'));
+    await Promise.all([deleted.promise, exited.promise]);
+    assert.equal(notifications.length, 0);
+  } finally {
+    cleanupBackgroundTasks({ force: true });
+  }
+});
+
+test('an owner delete silences an agent cancellation still waiting for its run to settle', async () => {
+  const notifications = [];
+  const runs = [controlledRun(), controlledRun()];
+  try {
+    const bulk = startCancellableAgent(notifications, runs[0]);
+    cancelBackgroundTask(bulk.taskId, 'cancelled by agent close');
+    cancelBackgroundTasks({ reason: 'desktop-session-delete', notify: false, callerSessionId: CANCEL_OWNER });
+    const single = startCancellableAgent(notifications, runs[1]);
+    cancelBackgroundTask(single.taskId, 'cancelled by agent close');
+    cancelBackgroundTask(single.taskId, 'desktop-session-delete', { notify: false });
+    for (const task of [bulk, single]) {
+      assert.equal(task.status, 'cancelled');
+      settleCancelledBackgroundTask(task.taskId, { result: { content: 'partial work' } });
+    }
+    for (const run of runs) run.reject(new Error('Session closed'));
+    await Promise.all([bulk.promise, single.promise]);
+    assert.equal(notifications.length, 0);
+  } finally {
+    cleanupBackgroundTasks({ force: true });
+  }
+});
+
+test('shell task cancellation keeps its notification behavior', async () => {
+  const notifications = [];
+  const shellTask = () =>
+    registerBackgroundTask({
+      surface: 'shell',
+      operation: 'shell',
+      label: 'sleep 100',
+      context: { callerSessionId: CANCEL_OWNER, notifyFn: (text) => notifications.push(text) },
+    });
+  try {
+    const single = shellTask();
+    cancelBackgroundTask(single.taskId, 'cancelled by task control');
+    const bulk = shellTask();
+    cancelBackgroundTasks({ surface: 'shell', callerSessionId: CANCEL_OWNER, reason: 'cancelled' });
+    assert.equal(single.status, 'cancelled');
+    assert.equal(bulk.status, 'cancelled');
+    assert.equal(notifications.length, 0);
+    shellTask();
+    cancelBackgroundTasks({ surface: 'shell', callerSessionId: CANCEL_OWNER, reason: 'dispose', notify: true });
+    assert.equal(notifications.length, 1);
+    assert.equal(parseTaskNotification(notifications[0]).status, 'cancelled');
+  } finally {
+    cleanupBackgroundTasks({ force: true });
+  }
+});
+
+test('a delivered result object is released (text and metadata kept) except for shell/agent readers', () => {
+  const sent = [];
+  const make = (surface) =>
+    registerBackgroundTask({
+      surface,
+      label: 'x',
+      meta: { tag: 'keep-me' },
+      context: { notifyFn: (text) => sent.push(text) },
+    });
+  const generic = make('github');
+  const shell = make('shell');
+  const agent = make('agent');
+  try {
+    for (const t of [generic, shell, agent]) {
+      completeBackgroundTask(t.taskId, { result: { content: 'body-' + t.surface, exit_code: 0 } });
+    }
+    assert.equal(sent.length, 3);
+    assert.equal(generic.result, undefined);
+    assert.ok(generic.resultText.includes('body-github'));
+    assert.equal(generic.meta.tag, 'keep-me');
+    assert.match(renderBackgroundTask(generic, { includeResult: true }), /body-github/);
+    assert.equal(shell.result.exit_code, 0);
+    assert.equal(agent.result.content, 'body-agent');
   } finally {
     cleanupBackgroundTasks({ force: true });
   }

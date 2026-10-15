@@ -868,7 +868,8 @@ async function measureUsage(provider, providerObj, routeInfo) {
     (provider === 'cursor-oauth' ||
       provider === 'cursor-api' ||
       provider === 'antigravity-oauth' ||
-      provider === 'muse-code-oauth') &&
+      provider === 'muse-code-oauth' ||
+      provider === 'command-code-oauth') &&
     typeof providerObj?.getUsageSnapshot === 'function'
   ) {
     return await providerObj.getUsageSnapshot();
@@ -893,12 +894,12 @@ async function measureUsageWithAuthRetry(provider, providerObj, routeInfo) {
 // refresh cannot vouch for the reading it last produced: keeping a 100% meter
 // earned by a dead token would hold the account out of the roster until its
 // reset time, so the recorded quota goes with the credential.
-function usageAfterFailure(err, provider, accountId, log) {
+async function usageAfterFailure(err, provider, accountId, log) {
   const snapshot = provider === 'anthropic-oauth' && accountId === 'default' ? latestClaudeStatuslineUsage() : null;
   if (snapshot) return snapshot;
   if (isUsageAuthRejection(err) && ACCOUNT_PROVIDERS.includes(provider)) {
     try {
-      clearProviderAccountQuotaState(provider, accountId);
+      await clearProviderAccountQuotaState(provider, accountId);
     } catch (error) {
       log(`Account usage could not be cleared: ${error.message}`);
     }
@@ -952,7 +953,7 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
     try {
       snapshot = await measureUsageWithAuthRetry(provider, providerObj, routeInfo);
     } catch (err) {
-      snapshot = usageAfterFailure(err, provider, accountId, log);
+      snapshot = await usageAfterFailure(err, provider, accountId, log);
     }
     if (!isContentfulSnapshot(snapshot)) {
       cacheNegative(key, 'empty');
@@ -961,7 +962,7 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
     }
     if (ACCOUNT_PROVIDERS.includes(provider)) {
       try {
-        recordProviderAccountUsage(provider, accountId, snapshot);
+        await recordProviderAccountUsage(provider, accountId, snapshot);
       } catch (error) {
         log(`Account usage could not be saved: ${error.message}`);
       }

@@ -1,15 +1,35 @@
-// Effective MCP server set and its status projection: config entries folded
-// with plugin ownership, per-server config reads, and the live/failed rollup.
+// Effective MCP server set and its status projection: the user's configured
+// servers plus the servers registered plugins declare (resolved live, with
+// explicit owner metadata), per-server config reads, and the live/failed rollup.
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { envFlag } from '../../runtime/shared/env.mjs';
+import { resolveMcpServerCatalog } from './plugin-servers.mjs';
 
-function mcpServerStatus(cfg, live, fail) {
+function mcpServerStatus(cfg, live, fail, loginPending) {
   if (cfg?.enabled === false) return 'disabled';
   if (live) return 'connected';
+  // Until an interactive sign-in completes the server still needs it.
+  if (loginPending || fail?.authRequired) return 'sign-in required';
   return fail ? 'failed' : 'disconnected';
 }
 
-export function createMcpServerCatalog({ mcpClient, getConfig, getMcpScopeId, state }) {
+const EMPTY_CATALOG = { servers: {}, sources: {}, entries: {}, plugins: {}, warnings: [], adoption: null };
+
+// Internal markers on a resolved plugin config; never part of an editable config.
+function withoutMarkers(cfg) {
+  const { _mixdogStrictEnv, _mixdogRootsFollowScope, _mixdogPlugin, ...rest } = cfg || {};
+  return rest;
+}
+
+export function createMcpServerCatalog({
+  mcpClient,
+  getConfig,
+  getCurrentCwd = () => '',
+  getMcpScopeId,
+  getPluginDataDir = () => '',
+  listPlugins = () => [],
+  state,
+}) {
   function mcpTransportLabel(cfg = {}) {
     if (cfg.autoDetect) return `autoDetect:${cfg.autoDetect}`;
     try {
@@ -19,33 +39,65 @@ export function createMcpServerCatalog({ mcpClient, getConfig, getMcpScopeId, st
     }
   }
 
-  function resolveEffectiveMcpServers() {
-    // MCP is machine-global. Project `.mcp.json` files and per-project
-    // overrides are intentionally outside the runtime resolution chain.
-    if (envFlag('MIXDOG_DISABLE_MCP')) return { servers: {}, sources: {} };
-    const config = getConfig();
-    const configured = config?.mcpServers && typeof config.mcpServers === 'object' ? config.mcpServers : {};
-    const servers = {};
-    // A plugin-owned server is installed by enablePluginMcp and carries the
-    // plugin root in its env; it belongs to the plugin's own toggle and stays
-    // out of the standalone MCP list.
-    const sources = {};
-    for (const [name, cfg] of Object.entries(configured)) {
-      servers[name] = {
-        ...cfg,
-        ...(cfg?._mixdogPluginDisabled === true ? { enabled: false } : {}),
-      };
-      sources[name] = cfg?.env?.MIXDOG_PLUGIN_ROOT ? 'plugin' : 'config';
+  /** Everything this runtime would connect, resolved now. MCP is
+   *  machine-global: project `.mcp.json` files and per-project overrides stay
+   *  outside the chain; only plugin servers without a declared cwd follow this
+   *  runtime's session cwd. */
+  function resolveCatalog() {
+    if (envFlag('MIXDOG_DISABLE_MCP')) return EMPTY_CATALOG;
+    return resolveConfiguredCatalog();
+  }
+
+  /** Every configured server (user config plus plugin declarations, disabled
+   *  ones included) whether or not this runtime connects MCP at all. */
+  function resolveConfiguredCatalog() {
+    let plugins = [];
+    let registryWarning = null;
+    try {
+      plugins = listPlugins() || [];
+    } catch (error) {
+      registryWarning = { message: `plugin MCP servers unavailable: ${error?.message || String(error)}` };
     }
+    const catalog = resolveMcpServerCatalog({
+      config: getConfig() || {},
+      plugins,
+      cwd: clean(getCurrentCwd?.()),
+      dataDir: clean(getPluginDataDir?.()),
+    });
+    if (registryWarning) catalog.warnings.unshift(registryWarning);
+    return catalog;
+  }
+
+  function resolveEffectiveMcpServers() {
+    const { servers, sources } = resolveCatalog();
     return { servers, sources };
+  }
+
+  /** Plugin owner of an effective server name, or null for a configured one. */
+  function pluginServer(name) {
+    const catalog = resolveCatalog();
+    const entry = catalog.entries[clean(name)];
+    return entry?.owner ? { ...entry, plugin: catalog.plugins[entry.owner.id] } : null;
   }
 
   function getMcpServerConfig(name) {
     const serverName = clean(name);
     if (!serverName) throw new Error('MCP server name is required');
-    const { servers, sources } = resolveEffectiveMcpServers();
+    const { servers, sources, entries } = resolveCatalog();
     const effective = servers[serverName];
     if (!effective) throw new Error(`MCP server not configured: ${serverName}`);
+    // An unadopted plugin copy has an owner but stays the user's editable config.
+    const owner = sources[serverName] === 'plugin' ? entries[serverName]?.owner || null : null;
+    if (owner) {
+      return {
+        name: serverName,
+        source: 'plugin',
+        enabled: effective.enabled !== false,
+        owner,
+        readOnly: true,
+        config: withoutMarkers({ ...effective, enabled: undefined }),
+      };
+    }
     const raw = getConfig()?.mcpServers?.[serverName];
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
       throw new Error(`MCP server config is unavailable: ${serverName}`);
@@ -58,11 +110,8 @@ export function createMcpServerCatalog({ mcpClient, getConfig, getMcpScopeId, st
     };
   }
 
-  function mcpStatus() {
-    if (envFlag('MIXDOG_DISABLE_MCP')) {
-      return { servers: [], configuredCount: 0, connectedCount: 0, failedCount: 0 };
-    }
-    const { servers: configured, sources } = resolveEffectiveMcpServers();
+  function statusRows(catalog) {
+    const { servers: configured, sources, entries } = catalog;
     const connected = new Map((mcpClient.getMcpServerStatus?.(getMcpScopeId()) || []).map((row) => [row.name, row]));
     const failures = new Map((state.mcpFailures || []).map((row) => [row.name, row]));
     const servers = [];
@@ -73,32 +122,85 @@ export function createMcpServerCatalog({ mcpClient, getConfig, getMcpScopeId, st
       const dead = live && (live.alive === false || live.connected === false);
       const fail =
         failures.get(name) || (dead ? { msg: live.error || live.lastError || 'MCP server is not alive' } : undefined);
-      servers.push({
+      const entry = entries[name] || {};
+      const loginPending = !(live && !dead) && mcpClient.isMcpLoginPending?.(name, getMcpScopeId()) === true;
+      const status = mcpServerStatus(cfg, live && !dead, fail, loginPending);
+      // Needing an OAuth sign-in is a state, not an error.
+      const authRequired = status === 'sign-in required';
+      const row = {
         name,
         configured: true,
         enabled: cfg?.enabled !== false,
         connected: Boolean(live) && !dead,
-        status: mcpServerStatus(cfg, live && !dead, fail),
+        status,
         transport: mcpTransportLabel(cfg),
         toolCount: live?.toolCount || 0,
         tools: live?.tools || [],
         capabilities: live?.capabilities || { tools: false, prompts: false, resources: false },
-        error: fail?.msg || null,
+        error: authRequired ? null : fail?.msg || null,
+        warnings: [...(entry.warnings || []), ...(live?.warnings || [])],
         source: sources[name] || 'config',
-      });
+      };
+      if (authRequired) row.authRequired = true;
+      const oauth = mcpClient.getMcpServerOAuthState?.(cfg);
+      // Why the last sign-in did not complete (already credential-scrubbed).
+      if (oauth) row.oauth = authRequired && fail?.msg ? { ...oauth, lastError: fail.msg } : oauth;
+      if (entry.owner) {
+        row.owner = entry.owner;
+        row.pluginEnabled = entry.pluginEnabled;
+        row.serverEnabled = entry.serverEnabled;
+        if (!entry.pluginEnabled) row.disabledReason = 'plugin disabled';
+        else if (!entry.serverEnabled) row.disabledReason = 'server disabled';
+      }
+      servers.push(row);
       connected.delete(name);
     }
     for (const live of connected.values()) {
       servers.push({ ...live, configured: false, status: 'connected' });
     }
     servers.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    return servers;
+  }
+
+  function mcpStatus() {
+    if (envFlag('MIXDOG_DISABLE_MCP')) {
+      return { servers: [], configuredCount: 0, connectedCount: 0, failedCount: 0 };
+    }
+    const catalog = resolveCatalog();
+    const servers = statusRows(catalog);
+    const declarationErrors = Object.values(catalog.plugins).flatMap((plugin) =>
+      plugin.errors.map((error) => ({ plugin: plugin.id, ...error }))
+    );
     return {
       servers,
-      configuredCount: Object.keys(configured).length,
+      configuredCount: Object.keys(catalog.servers).length,
       connectedCount: servers.filter((row) => row.connected).length,
       failedCount: servers.filter((row) => row.status === 'failed').length,
+      warnings: catalog.warnings,
+      declarationErrors,
     };
   }
 
-  return { mcpTransportLabel, resolveEffectiveMcpServers, getMcpServerConfig, mcpStatus };
+  /** Per plugin id: declaration format/errors and its server status rows. */
+  function pluginMcpSummary() {
+    const catalog = resolveCatalog();
+    const rows = new Map(statusRows(catalog).map((row) => [row.name, row]));
+    return new Map(
+      Object.values(catalog.plugins).map((plugin) => [
+        plugin.id,
+        { format: plugin.format, errors: plugin.errors, servers: plugin.servers.map((name) => rows.get(name)) },
+      ])
+    );
+  }
+
+  return {
+    mcpTransportLabel,
+    resolveCatalog,
+    resolveConfiguredCatalog,
+    resolveEffectiveMcpServers,
+    pluginServer,
+    getMcpServerConfig,
+    mcpStatus,
+    pluginMcpSummary,
+  };
 }

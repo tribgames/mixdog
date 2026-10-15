@@ -30,7 +30,7 @@ export async function applyPatchSequence(patchStr, requestedFormat, basePath, ct
     coalesceByFile = false,
   } = ctx;
 
-  const units = buildPatchUnits(patchStr, requestedFormat, basePath, {
+  const units = await buildPatchUnits(patchStr, requestedFormat, basePath, {
     v4aConvertOpts,
     dryRun,
     readStateScope,

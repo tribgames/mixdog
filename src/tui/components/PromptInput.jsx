@@ -24,7 +24,7 @@ import { createVerticalMover } from './prompt-input/edit-chords.mjs';
 import { cancelPromptImmediateFlush, schedulePromptImmediateFlush } from './prompt-input/immediate-render.mjs';
 import { renderSelectedText } from './prompt-input/selected-text.jsx';
 import { IME_LEFT_GUARD_COLUMNS, createCursorAnchor } from './prompt-input/cursor-anchor.mjs';
-import { createPromptKeyHandler } from './prompt-input/key-handler.mjs';
+import { createPromptKeyHandler, paletteResultDraft } from './prompt-input/key-handler.mjs';
 import { createPromptMouseSelection } from './prompt-input/mouse-selection.mjs';
 import { createUndoStack } from './prompt-input/undo-stack.mjs';
 
@@ -37,6 +37,8 @@ export function PromptInput({
   commandPaletteActive = false,
   commandPaletteOpen = commandPaletteActive,
   commandPaletteOptionCount = commandPaletteActive ? 2 : 0,
+  commandPaletteMovesCaret = false,
+  onCaretChange,
   mask = false,
   hint = '',
   hintTone = 'info',
@@ -66,6 +68,7 @@ export function PromptInput({
   const [, bumpCursorAnchorEpoch] = useState(0);
   const draftRef = useRef(draft);
   const lastReportedValueRef = useRef(draft.value);
+  const lastReportedCursorRef = useRef(null);
   // Bumped on every submit/draftOverride replace/unmount so an async paste
   // (clipboard read or onPasteText promise) that resolves after the draft
   // moved on can detect staleness and drop its result instead of mutating
@@ -171,8 +174,19 @@ export function PromptInput({
       lastReportedValueRef.current = next.value;
       onDraftChange?.(next.value);
     }
+    reportCaret(next.cursor);
     if (valueRef) valueRef.current = next.value;
   };
+
+  // The caret offset for caret-aware completion (`$name` skill mentions).
+  function reportCaret(nextCursor) {
+    if (nextCursor === lastReportedCursorRef.current) return;
+    lastReportedCursorRef.current = nextCursor;
+    onCaretChange?.(nextCursor);
+  }
+  // A (re)mounted input starts at the end of its initial value.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only report
+  useEffect(() => reportCaret(draftRef.current.cursor), []);
 
   const installCursorAnchor = () => {
     if (!boxRef.current || boxRef.current.internal_cursorAnchor) return false;
@@ -327,8 +341,11 @@ export function PromptInput({
     const current = draftRef.current;
     const next = prefix ? insertText(current, prefix) : current;
     if (commandPaletteActive) {
-      const accepted = onCommandPaletteAccept?.(next.value);
-      if (accepted !== false) {
+      const accepted = onCommandPaletteAccept?.(next.value, next.cursor);
+      const replacement = paletteResultDraft(accepted);
+      if (replacement) {
+        commitDraft(replacement);
+      } else if (accepted !== false) {
         commitDraft({ value: '', cursor: 0, selectionAnchor: null });
       } else if (next !== current) {
         commitDraft(next);
@@ -361,6 +378,7 @@ export function PromptInput({
     commandPaletteActive,
     commandPaletteOpen,
     commandPaletteOptionCount,
+    commandPaletteMovesCaret,
     onCommandPaletteNavigate,
     onCommandPaletteAccept,
     onCommandPaletteCancel,

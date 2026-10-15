@@ -50,6 +50,7 @@ export class ModelProxyChannel {
   attachPublisher(publish: (snapshot: ModelProxySnapshot) => void): () => void;
   disconnect(reason?: string): void;
   setClientPresent(present: boolean): void;
+  onStateChange(listener: () => void): () => void;
   request(
     call: Record<string, unknown>,
     options?: { signal?: AbortSignal | null; callbacks?: Record<string, (...args: unknown[]) => unknown> }
@@ -65,3 +66,17 @@ export class ModelProxyChannel {
 }
 
 export function getModelProxyChannel(): ModelProxyChannel;
+
+/** The channel surface model-proxy providers use; the bridge child implements only this. */
+export interface ModelProxyChannelLike {
+  readonly connected: boolean;
+  readonly generation: number;
+  whenConnected(timeoutMs: number): Promise<boolean>;
+  request(
+    call: Record<string, unknown>,
+    options?: { signal?: AbortSignal | null; callbacks?: Record<string, (...args: unknown[]) => unknown> }
+  ): Promise<unknown>;
+}
+
+/** Swap the process-wide channel; the returned function restores the previous one. */
+export function installModelProxyChannel(channel: ModelProxyChannel | ModelProxyChannelLike): () => void;

@@ -30,9 +30,10 @@ async function prefetchRawBody(fullPath, st, helpers, forceFresh = false) {
   const cachedRaw = !forceFresh && _rawContentCacheGet ? _rawContentCacheGet(fullPath, st) : null;
   if (cachedRaw) return { buf: cachedRaw, fromCache: true };
   try {
-    const buf = !forceFresh && _runRawContentInFlight
-      ? await _runRawContentInFlight(fullPath, readFile, st)
-      : await readFile(fullPath);
+    const buf =
+      !forceFresh && _runRawContentInFlight
+        ? await _runRawContentInFlight(fullPath, readFile, st)
+        : await readFile(fullPath);
     return { buf, fromCache: false };
   } catch {
     return { buf: null, fromCache: false };
@@ -84,7 +85,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     let widenNote = '';
     const target = await statReadTarget(fullPath, filePath, options, helpers);
     if (target.error) return target.error;
-    if (!target.st) return readNotFoundResponse(target.statErr, { fullPath, filePath, workDir }, helpers);
+    if (!target.st) return await readNotFoundResponse(target.statErr, { fullPath, filePath, workDir }, helpers);
     const st = target.st;
     // Reactive widen + window-history bookkeeping (ranged text reads only).
     if (

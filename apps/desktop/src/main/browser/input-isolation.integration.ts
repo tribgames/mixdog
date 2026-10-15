@@ -46,7 +46,7 @@ async function run(): Promise<void> {
     response.end(`<!doctype html><title>Input isolation</title>
       <label>Agent input <input id="agent" autofocus></label>
       <button onclick="document.getElementById('agent').focus()">Focus field</button>
-      <iframe src="http://127.0.0.2:${address.port}/frame"></iframe>
+      <iframe src="http://localhost:${address.port}/frame"></iframe>
       <script>window.keys = []; document.addEventListener('keydown', e => keys.push(e.key));</script>`);
   });
   let parent: BrowserWindow | undefined;

@@ -1,6 +1,11 @@
-import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
+import { reloadProviderApiKey, resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { sanitizeToolPairs } from '../session/context-utils.mjs';
 import { AnthropicFallbackTriggeredError } from './retry-classifier.mjs';
+import {
+  announceAnthropicModelFallback,
+  createAnthropicOverloadTracker,
+  isTerminalOverloadModel,
+} from './anthropic-overload-fallback.mjs';
 import { readStreamOutcome } from './lib/stream-outcome.mjs';
 import { createPassthroughSignal } from '../stall-policy.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
@@ -42,8 +47,18 @@ export class AnthropicProvider {
   constructor(config) {
     this.config = config || {};
     this.name = this.config.name || 'anthropic';
-    this.apiKey = this.config.apiKey || (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
+    this.apiKey = resolveProviderApiKey(this.name, this.config) || null;
     this.client = this._createClient(this.apiKey);
+  }
+  // Client for the currently resolved key; rebuilt when the key changed since
+  // it was built (e.g. a keyless-constructed instance).
+  _currentClient() {
+    const key = resolveProviderApiKey(this.name, this.config) || null;
+    if (key && key !== this.apiKey) {
+      this.apiKey = key;
+      this.client = this._createClient(key);
+    }
+    return this.client;
   }
   // Tool-search is a request capability, not an account capability. Keep it
   // off the client defaults and add it only on turns that actually serialize
@@ -55,8 +70,10 @@ export class AnthropicProvider {
     const custom = isCustomProviderName(this.name);
     const keyless = custom && this.config.keyless === true;
     const betaHeaders = this.config.disableBetaHeaders || custom ? null : buildAnthropicBetaHeaders();
+    let credentials = { apiKey };
+    if (custom) credentials = { apiKey: keyless ? '' : apiKey || '', authToken: null };
     return new (loadAnthropic())({
-      ...(custom ? { apiKey: keyless ? '' : apiKey || '', authToken: null } : { apiKey }),
+      ...credentials,
       ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
       defaultHeaders: {
         ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}),
@@ -68,10 +85,7 @@ export class AnthropicProvider {
   }
   reloadApiKey() {
     try {
-      const newKey =
-        getAgentApiKey(this.name) ||
-        this.config.apiKey ||
-        (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
+      const newKey = reloadProviderApiKey(this.name, this.config);
       if (newKey) {
         this.config = { ...(this.config || {}), apiKey: newKey };
         this.apiKey = newKey;
@@ -157,16 +171,24 @@ export class AnthropicProvider {
       } catch {}
     };
 
+    // Request-loop 529s and SSE overload events share one counter; at the
+    // limit the configured fallback model takes over the whole send.
+    const overload = createAnthropicOverloadTracker({
+      model: useModel,
+      fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
+      terminalAtLimit: !isCustomProviderName(this.name) && isTerminalOverloadModel(useModel),
+    });
     // The SDK calls and their initial-response retry policy
     // (anthropic-api-transport.mjs).
     const transport = createAnthropicApiTransport({
-      client: this.client,
+      client: this._currentClient(),
       label: this.name,
       opts,
       useModel,
       params,
       requestHeaders,
       totalSignal,
+      overload,
     });
     // Usage accounting + caller-visible projection, shared by the streaming
     // success path and the non-streaming fallback (anthropic-turn-result.mjs).
@@ -204,8 +226,10 @@ export class AnthropicProvider {
       recovery,
       onStageChange,
       retry529: opts.retry529 !== false,
+      overload,
     });
 
+    let streamingFallbackTried = false;
     try {
       for (let attemptIndex = 0; attemptIndex <= ANTHROPIC_MAX_MIDSTREAM_RETRIES; attemptIndex++) {
         const streamController = createAbortController();
@@ -265,13 +289,13 @@ export class AnthropicProvider {
 
           return buildTurnResult(parseResult);
         } catch (err) {
-          if (err instanceof AnthropicFallbackTriggeredError) {
-            process.stderr.write(`[${this.name}] ${err.message}\n`);
-            return this._doSend(messages, err.fallbackModel, tools, {
-              ...opts,
-              fallbackModel: undefined,
-              _fallbackTriggered: true,
-            });
+          // The fallback trigger is handled around the whole send below.
+          if (err instanceof AnthropicFallbackTriggeredError) throw err;
+          // Gateways that 404 the streaming endpoint but serve non-streaming:
+          // one non-streaming replay (nothing was streamed yet).
+          if (err?.initialResponseError === true && Number(err.status) === 404 && !streamingFallbackTried) {
+            streamingFallbackTried = true;
+            return await recovery.issueNonStreamingFallback(streamController, err);
           }
           // Ordered recovery ladder: canonical outcome stamp, acknowledged
           // non-streaming replay for exposed output, bounded streaming
@@ -291,13 +315,24 @@ export class AnthropicProvider {
         }
       }
       throw midstream.exhaustedError();
+    } catch (err) {
+      // The fallback trigger can surface from the request loop, a mid-stream
+      // overload, or the non-streaming recovery: handle it around the whole
+      // operation, not just the first request.
+      if (!(err instanceof AnthropicFallbackTriggeredError)) throw err;
+      process.stderr.write(`[${this.name}] ${err.message}\n`);
+      announceAnthropicModelFallback(onStageChange, useModel, err.fallbackModel);
+      return await this._doSend(messages, err.fallbackModel, tools, {
+        ...opts,
+        fallbackModel: undefined,
+        _fallbackTriggered: true,
+      });
     } finally {
       totalTimeout.cleanup();
     }
   }
   async listModels() {
-    const apiKey =
-      this.apiKey || this.config?.apiKey || (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
+    const apiKey = resolveProviderApiKey(this.name, this.config);
     if (!apiKey) return MODELS;
     try {
       const base = String(this.config?.baseURL || 'https://api.anthropic.com').replace(/\/+$/, '');
@@ -329,6 +364,6 @@ export class AnthropicProvider {
   async isAvailable() {
     // Availability probes must not spend tokens or depend on a live
     // network. Dispatch owns authentication validation and 401 reload.
-    return !!(this.apiKey || this.config?.apiKey || (this.name === 'anthropic' && process.env.ANTHROPIC_API_KEY));
+    return !!resolveProviderApiKey(this.name, this.config);
   }
 }

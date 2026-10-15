@@ -6,20 +6,22 @@ import test from 'node:test';
 
 import { flushAllIndexWritesSync } from './index-write-queue.mjs';
 import { createWorkerIndex } from './worker-index.mjs';
+import { isActiveWorkerRow } from './worker-index/row-liveness.mjs';
+import { isActiveWorkerRow as isActiveAgentListRow } from './job-views/agent-list.mjs';
 
 // The worker index as its callers see it: a session upsert projects into the
 // tag maps and the file, deferred upserts batch into one write, removals and
 // reads honour the caller context, lead-pool projections are purged from the
 // tag maps, and the parse cache follows the file.
 
-function workerIndex(root) {
+function workerIndex(root, runtimeStage = 'streaming') {
   const tags = new Map();
   const tagAgents = new Map();
   const tagCwds = new Map();
   const index = createWorkerIndex({
     dataDir: root,
     cfgMod: { loadConfig: () => ({}) },
-    mgr: { getSessionRuntime: () => ({ stage: 'streaming' }) },
+    mgr: { getSessionRuntime: () => ({ stage: runtimeStage }) },
     tags,
     tagAgents,
     tagCwds,
@@ -105,6 +107,41 @@ test('a session upsert projects into the tag maps and the file; deferred upserts
     assert.equal(index.readWorkerRows().length, 3);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a working status never stores an idle/done/error runtime phase as its stage; the status decides liveness', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-rows-phase-'));
+  try {
+    for (const phase of ['idle', 'done', 'error']) {
+      const { index } = workerIndex(root, phase);
+      index.upsertWorkerSession({ id: `sess-${phase}`, agentTag: phase, agent: 'worker' }, '', { status: 'running' });
+    }
+    const rows = Object.values(stored(root).workers);
+    assert.equal(rows.length, 3);
+    for (const row of rows) {
+      assert.equal(row.status, 'running');
+      assert.equal(row.stage, 'running', `runtime phase of ${row.tag}`);
+      assert.equal(isActiveWorkerRow(row), true);
+    }
+    // A settled status keeps the phase it was written with.
+    const { index } = workerIndex(root, 'done');
+    index.upsertWorkerSession({ id: 'sess-settled', agentTag: 'settled', agent: 'worker' }, '', { status: 'idle' });
+    assert.equal(Object.values(stored(root).workers).find((row) => row.tag === 'settled').stage, 'done');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('worker liveness predicates follow the status; the stage decides only without one; a cancel is never work', () => {
+  for (const isActive of [isActiveWorkerRow, isActiveAgentListRow]) {
+    for (const stage of ['idle', 'done', 'error']) assert.equal(isActive({ status: 'running', stage }), true, stage);
+    assert.equal(isActive({ status: 'idle', stage: 'streaming' }), false);
+    assert.equal(isActive({ status: 'running', stage: 'cancelled' }), false);
+    assert.equal(isActive({ status: 'cancelled', stage: 'running' }), false);
+    assert.equal(isActive({ stage: 'streaming' }), true);
+    assert.equal(isActive({ stage: 'idle' }), false);
+    assert.equal(isActive({ status: 'running', stage: 'cancelling' }), true);
   }
 });
 

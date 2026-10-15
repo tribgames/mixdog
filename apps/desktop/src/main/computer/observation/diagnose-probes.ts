@@ -97,6 +97,28 @@ export async function probeOcr(host: DiagnoseProbeHost, command: ComputerCommand
   }
 }
 
+/**
+ * Why the native observer refuses foreground input, by its metadata-only
+ * reason. Windows does not say whether it dropped a hook, so a missed input
+ * is reported as missed rather than as a removed hook.
+ */
+const OBSERVER_REASONS: Record<string, string> = {
+  hooks_unavailable: 'foreground input is unavailable: the input observation hooks could not be installed',
+  input_gap:
+    'foreground input is paused: input was missed (for example typed into an administrator window) and input ' +
+    'observation is recovering; try again after a moment without touching the keyboard or mouse',
+  monitor_unresponsive: 'foreground input is unavailable: the input observer is not responding',
+};
+const SECURE_DESKTOP_REASON =
+  'foreground input is unavailable while the secure desktop (lock screen or UAC prompt) is active';
+
+function inputObservationCause(result: Record<string, unknown> | undefined) {
+  if (result?.desktop_ready === false) return { cause: 'secure_desktop', reason: SECURE_DESKTOP_REASON };
+  const code = typeof result?.observer_reason === 'string' ? result.observer_reason : '';
+  if (result?.observer_ready !== true && OBSERVER_REASONS[code]) return { cause: code, reason: OBSERVER_REASONS[code] };
+  return {};
+}
+
 export async function probeInputObservation(host: DiagnoseProbeHost, command: ComputerCommand): Promise<ProbeReport> {
   try {
     const probe = await host.callPowerShell(
@@ -107,14 +129,16 @@ export async function probeInputObservation(host: DiagnoseProbeHost, command: Co
       },
       DIAGNOSE_ACCESSIBILITY_TIMEOUT_MS
     );
+    const ready =
+      probe.ok === true &&
+      probe.result?.observer_ready === true &&
+      probe.result?.ready === true &&
+      probe.result?.held === false;
     return {
-      ready:
-        probe.ok === true &&
-        probe.result?.observer_ready === true &&
-        probe.result?.ready === true &&
-        probe.result?.held === false,
+      ready,
       observer_ready: probe.result?.observer_ready === true,
-      desktop_ready: probe.result?.ready === true,
+      desktop_ready: probe.result?.desktop_ready === true,
+      ...(ready || !probe.ok ? {} : inputObservationCause(probe.result)),
       input_held: typeof probe.result?.held === 'boolean' ? probe.result.held : null,
       ...(typeof probe.result?.idleMs === 'number' ? { idle_ms: probe.result.idleMs } : {}),
       ...(!probe.ok ? { error: probe.error || 'input observation probe failed' } : {}),

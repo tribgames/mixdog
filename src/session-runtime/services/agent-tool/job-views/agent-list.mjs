@@ -5,6 +5,8 @@ import { ACTIVE_STAGES } from '../tool-def.mjs';
 import { isTerminalWorkerStatus } from '../worker-rows.mjs';
 import { sessionUsageTotals } from '../../../../runtime/shared/session-usage-totals.mjs';
 
+const CANCELLED_WORKER_STATUS = /^(?:cancelled|canceled|killed|cancel[-_\s]?(?:unconfirmed|pending))$/;
+
 // Idle, closed, errored and reaped/unknown rows are history and stay reachable
 // through the task section (status/read keep their terminal result).
 export function isActiveWorkerRow(row = {}) {
@@ -14,8 +16,11 @@ export function isActiveWorkerRow(row = {}) {
   const status = String(row.status ?? '')
     .trim()
     .toLowerCase();
-  if (ACTIVE_STAGES.has(stage) || ACTIVE_STAGES.has(status)) return true;
-  const effective = stage || status;
+  // `status` decides; the stage is the runtime phase and only stands in for a
+  // row with no status. A cancel in either field is not work.
+  if (CANCELLED_WORKER_STATUS.test(stage) || CANCELLED_WORKER_STATUS.test(status)) return false;
+  const effective = status || stage;
+  if (ACTIVE_STAGES.has(effective)) return true;
   if (!effective || effective === 'unknown') return false;
   return !isTerminalWorkerStatus(effective);
 }

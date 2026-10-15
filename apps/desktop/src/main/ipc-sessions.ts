@@ -2,6 +2,7 @@
 // and the Settings → Connection remote-access controls.
 import { DESKTOP_IPC, type DesktopRemoteAccessInfo } from '../shared/contract';
 import type { BrowserHost } from './browser/host';
+import { readAttachmentThumbnail } from './attachment-thumbnail';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
 import type { DesktopService } from './desktop-service-contract';
 import {
@@ -20,6 +21,7 @@ import {
 } from './ipc-validation';
 import type { IpcHandle as Handle } from './ipc';
 import { hostDeviceName } from './session-device';
+import { sessionSidebarActions } from './session-sidebar-actions';
 import type { RemoteHostWindows } from './remote-host-windows';
 
 interface SessionIpcOptions {
@@ -45,6 +47,13 @@ export function registerSessionIpc({
   remoteHosts,
 }: SessionIpcOptions): void {
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
+  handle(DESKTOP_IPC.readAttachmentThumbnail, (_event, attachmentRef) =>
+    readAttachmentThumbnail(
+      attachmentRef,
+      (ref) => host.readAttachmentImage(ref),
+      async (buffer) => (await import('electron')).nativeImage.createFromBuffer(buffer)
+    )
+  );
   handle(DESKTOP_IPC.markSessionRead, (_event, sessionId, messageCount, consumedUnread) => {
     if (consumedUnread !== undefined && typeof consumedUnread !== 'boolean') {
       throw new TypeError('consumedUnread must be a boolean.');
@@ -70,18 +79,16 @@ export function registerSessionIpc({
   handle(DESKTOP_IPC.renameSession, (_event, sessionId, title) =>
     host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title))
   );
-  handle(DESKTOP_IPC.setSessionArchived, (_event, sessionId, archived) => {
-    if (typeof archived !== 'boolean') throw new TypeError('archived must be a boolean.');
-    return host.setSessionArchived(requiredSessionId(sessionId), archived);
-  });
-  handle(DESKTOP_IPC.setSessionFavorite, (_event, sessionId, favorite) => {
-    if (typeof favorite !== 'boolean') throw new TypeError('favorite must be a boolean.');
-    return host.setSessionFavorite(requiredSessionId(sessionId), favorite);
-  });
-  handle(DESKTOP_IPC.setSessionProject, (_event, sessionId, projectPath) => {
-    if (projectPath !== null && typeof projectPath !== 'string') throw new TypeError('projectPath must be a string.');
-    return host.setSessionProject(requiredSessionId(sessionId), projectPath);
-  });
+  const sidebar = sessionSidebarActions(host);
+  handle(DESKTOP_IPC.setSessionArchived, (_event, sessionId, archived) =>
+    sidebar.setSessionArchived(sessionId, archived)
+  );
+  handle(DESKTOP_IPC.setSessionFavorite, (_event, sessionId, favorite) =>
+    sidebar.setSessionFavorite(sessionId, favorite)
+  );
+  handle(DESKTOP_IPC.setSessionProject, (_event, sessionId, projectPath) =>
+    sidebar.setSessionProject(sessionId, projectPath)
+  );
   handle(DESKTOP_IPC.deleteSession, async (_event, sessionId) => {
     const ownerSessionId = requiredSessionId(sessionId);
     const snapshot = await host.deleteSession(ownerSessionId);

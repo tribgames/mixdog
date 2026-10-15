@@ -44,7 +44,7 @@ test('bounded diffs keep every file, its operation, and complete small hunks', (
 
 test('tracked review over two million characters retains large and subsequent files with a truncation flag', async () => {
   try {
-    const patch = recordTurnDiffChanges('oversized-review', [
+    const patch = await recordTurnDiffChanges('oversized-review', [
       { path: '/probe/a.txt', displayPath: 'a.txt', before: null, after: `${'x'.repeat(2100000)}\n` },
       { path: '/probe/z.txt', displayPath: 'z.txt', before: 'old\n', after: 'new\n' },
     ]);
@@ -94,7 +94,7 @@ test('a completion wake continues the user turn review with its Lead edits and w
     recordTurnDiffChanges('wake-worker', [
       { path: join(root, 'worker.txt'), displayPath: 'worker.txt', before: null, after: 'w\n' },
     ]);
-    completeAgentTurnReview(worker);
+    await completeAgentTurnReview(worker);
 
     await beginTurnSnapshot(root, lead, { continueTurn: true });
     recordTurnDiffChanges(lead, [{ path: join(root, 'fix.txt'), displayPath: 'fix.txt', before: 'x\n', after: 'y\n' }]);
@@ -111,6 +111,29 @@ test('a completion wake continues the user turn review with its Lead edits and w
 
     await beginTurnSnapshot(root, lead, { checkpointId: 'prompt-2' });
     assert.deepEqual((await getTurnReviewDiff(root, lead)).agents, []);
+  } finally {
+    _resetTurnSnapshotForTest();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a worker running its own session turn still reports its edits to the Lead turn', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-turn-own-worker-'));
+  const lead = 'own-turn-lead';
+  try {
+    await beginTurnSnapshot(root, lead, { checkpointId: 'prompt-1' });
+    const worker = beginAgentTurnReview(lead, 'own-turn-worker', { tag: 'impl' });
+    // The worker's session turn opens its own tracker, replacing the bound one.
+    await beginTurnSnapshot(root, 'own-turn-worker', { checkpointId: 'worker-prompt' });
+    recordTurnDiffChanges('own-turn-worker', [
+      { path: join(root, 'worker.txt'), displayPath: 'worker.txt', before: 'a\n', after: 'b\n' },
+    ]);
+    await completeAgentTurnReview(worker);
+    const review = await getTurnReviewDiff(root, lead);
+    assert.deepEqual(
+      review.agents.map((agent) => [agent.tag, parseUnifiedDiff(agent.patch).map((file) => file.newFile.fileName)]),
+      [['impl', ['worker.txt']]]
+    );
   } finally {
     _resetTurnSnapshotForTest();
     await rm(root, { recursive: true, force: true });

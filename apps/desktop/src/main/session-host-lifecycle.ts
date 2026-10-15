@@ -21,6 +21,7 @@ import type {
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
+import { projectIdentity } from '../shared/project-identity';
 import { reportTranscriptRead, transcriptReadTraceId } from '../shared/transcript-read-diagnostics';
 import { normalizeSessionTitle, promptTitle } from '../shared/session-title.mjs';
 import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy';
@@ -60,6 +61,7 @@ export interface SessionHostLifecycleOwner {
   registeredProject(path: string): Promise<string>;
   touchProject(path: string): Promise<void>;
   resolveSessionWorkspace(projectPath?: string | null): Promise<SessionWorkspaceResolution>;
+  sessionProjectPath(session?: DesktopSessionSummary): Promise<string | null>;
   projectDirectory(projectPath: string): Promise<string>;
   openHints(sessionId: string): Record<string, unknown>;
   readSession(
@@ -163,7 +165,9 @@ export class SessionHostLifecycle {
   private async unsubscribeQuietly(sessionId: string): Promise<void> {
     try {
       await this.owner.client.unsubscribe({ sessionId }, this.owner.callOptions());
-    } catch {}
+    } catch {
+      // Best-effort: the subscription is abandoned either way.
+    }
   }
 
   async renameSession(sessionId: string, title: string): Promise<void> {
@@ -229,11 +233,28 @@ export class SessionHostLifecycle {
     await this.republishSessionCatalog();
   }
 
-  async setSessionProject(sessionId: string, projectPath: string | null): Promise<void> {
+  /** The sidebar's "move to project": a real working-folder change through the
+   *  runtime's project switch (the `session` tool's set-project path). A
+   *  registered project's folder, or '' for the task workspace; a session
+   *  already in that project stays put. */
+  async setSessionProject(sessionId: string, projectPath: string): Promise<void> {
     const id = sessionIdOf(sessionId);
-    await this.owner.sessionMetadata.load();
-    if (!(await this.owner.sessionMetadata.setProject(id, projectPath))) return;
-    await this.republishSessionCatalog();
+    const row = (await this.owner.listSessions()).find((entry) => entry.id === id);
+    if (!row) throw new Error('Session is not available.');
+    const target = projectPath.trim() ? await this.owner.registeredProject(projectPath) : null;
+    if (projectIdentity(await this.owner.sessionProjectPath(row)) === projectIdentity(target)) return;
+    const live = this.owner.publication.projections.get(id)?.snapshot;
+    if (row.leadWorking || live?.busy || live?.commandBusy) {
+      throw new Error('The session is running a turn; wait for it to finish before moving it to another project.');
+    }
+    if (row.workspace?.worktreeId) {
+      throw new Error(
+        'The session works in a managed worktree; merge or remove the worktree before moving it to another project.'
+      );
+    }
+    const cwd = target ? await this.owner.canonicalDirectory(target) : await this.owner.taskWorkspace();
+    await this.owner.invokeSession(id, 'setCwd', [cwd]);
+    await this.owner.publishCatalogs();
   }
 
   async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
@@ -454,7 +475,14 @@ export class SessionHostLifecycle {
    *  reserved session, before its first submission. */
   private async configureDraft(sessionId: string, draft: DesktopNewTaskDraft): Promise<void> {
     if (draft.workflowId) {
-      await this.owner.invokeSession(sessionId, 'setWorkflow', [draft.workflowId]);
+      try {
+        await this.owner.invokeSession(sessionId, 'setWorkflow', [draft.workflowId]);
+      } catch (error) {
+        // A draft can remember a workflow deleted since; it starts on the
+        // built-in Default, which cannot be deleted.
+        if (!/workflow ".*" not found/.test(error instanceof Error ? error.message : String(error))) throw error;
+        await this.owner.invokeSession(sessionId, 'setWorkflow', ['default']);
+      }
     }
     if (draft.orchestrationMode !== undefined) {
       await this.owner.invokeSession(sessionId, 'setOrchestrationMode', [draft.orchestrationMode]);
@@ -612,9 +640,8 @@ export class SessionHostLifecycle {
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
     const source = sessionIdOf(sourceSessionId);
     const rows = await this.owner.listSessions();
-    const { cwd, desktopSession } = await this.owner.resolveSessionWorkspace(
-      rows.find((entry) => entry.id === source)?.projectPath
-    );
+    const projectPath = await this.owner.sessionProjectPath(rows.find((entry) => entry.id === source));
+    const { cwd, desktopSession } = await this.owner.resolveSessionWorkspace(projectPath);
     const created = await this.owner.client.create(
       {
         cwd,
@@ -770,7 +797,7 @@ export class SessionHostLifecycle {
   ): Promise<DesktopCapabilityResult<T>> {
     let result: { value: unknown; snapshot: SessionSnapshot };
     try {
-      const forwarded = isProjectScopedCapability(capability) ? await this.projectScopedArgs(args) : args;
+      const forwarded = await this.forwardedArgs(capability, args);
       result = sessionId
         ? await this.owner.invokeSession(sessionId, capability, forwarded)
         : await this.owner.invokeControlResult(capability, forwarded);
@@ -781,6 +808,20 @@ export class SessionHostLifecycle {
       value: copyCapabilityValue(result.value) as T,
       snapshot: result.snapshot,
     };
+  }
+
+  /** Arguments as the daemon receives them. `skillsStatus({ projectPath })`
+   *  (a new-task draft) is resolved like a new task's workspace — a
+   *  registered Project or its managed worktree, anything else refused — and
+   *  forwarded as that folder (`{ cwd }`), which decides each skill's
+   *  `activeHere`. The renderer never names the folder itself. */
+  private async forwardedArgs(capability: DesktopCapability, args: unknown[]): Promise<unknown[]> {
+    if (isProjectScopedCapability(capability)) return this.projectScopedArgs(args);
+    if (capability === 'skillsStatus' && args.length) {
+      const { projectPath } = args[0] as { projectPath: string };
+      return [{ cwd: (await this.owner.resolveSessionWorkspace(projectPath)).cwd }];
+    }
+    return args;
   }
 
   /** The session-less worktree capabilities act on a registered Project only:
@@ -813,9 +854,7 @@ export class SessionHostLifecycle {
             value: copyCapabilityValue(
               await this.owner.invokeControl(
                 request.capability,
-                isProjectScopedCapability(request.capability)
-                  ? await this.projectScopedArgs(request.args || [])
-                  : request.args || []
+                await this.forwardedArgs(request.capability, request.args || [])
               )
             ),
           };

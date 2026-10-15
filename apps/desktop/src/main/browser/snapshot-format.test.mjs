@@ -203,7 +203,7 @@ test('snapshot names a PDF document instead of reporting an empty page', () => {
       network: { documentStatus: () => ({ status: 200, mimeType: 'application/pdf' }) },
     })
   );
-  assert.match(pdf, /This document is a PDF, which this browser cannot display/);
+  assert.match(pdf, /This document is a PDF shown in the browser's built-in viewer/);
   assert.match(pdf, /Read the file from this URL/);
   const html = formatSnapshot(
     payload(),

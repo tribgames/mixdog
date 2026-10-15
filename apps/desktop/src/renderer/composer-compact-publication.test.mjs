@@ -48,6 +48,8 @@ test('a late compact reply cannot reopen a completed pane without a focus change
       if (request.capability === 'getVoiceStatus') {
         return Promise.resolve({ value: { installed: false } });
       }
+      // The composer reads its session's skills on its own; not a command.
+      if (request.capability === 'skillsStatus') return Promise.resolve({ value: { skills: [] } });
       requests.push(request);
       publish(running);
       return new Promise((resolve) => {

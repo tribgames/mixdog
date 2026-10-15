@@ -4,12 +4,15 @@
  * WebSocket, or a stdio child.
  */
 import { readServicePort } from '../../../shared/service-discovery.mjs';
+import { createMcpOAuth } from './oauth.mjs';
 import {
   AUTO_DETECT_PORTS,
   expandEnvVars,
+  findMissingMcpEnvVars,
   mcpUrlForLog,
   normalizeMcpTransportUrl,
   resolveMcpHttpHeaders,
+  resolveMcpOAuthUrl,
   resolveMcpStdioEnvironment,
   resolveMcpTransportKind,
   scrubMcpConnectionMessage,
@@ -48,11 +51,71 @@ function requestInitFor(cfg) {
   return headers && Object.keys(headers).length > 0 ? { requestInit: { headers } } : undefined;
 }
 
-/** Returns { transport, autoDetectAdvert, stderrTail } — stderrTail() is the
- *  last ~4 KB of a stdio server's (scrubbed) stderr, '' for remote transports. */
-export function createMcpTransport({ name, cfg, sdk, log }) {
+// Configured authentication stays authoritative even when its variables are
+// unset or resolve empty: the server then fails as configured instead of
+// turning into an OAuth login.
+export function hasConfiguredMcpAuth(cfg) {
+  const configured = (value) =>
+    value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
+  return (
+    Boolean(String(cfg.bearer_token_env_var || '').trim()) ||
+    configured(cfg.headers) ||
+    configured(cfg.env_http_headers)
+  );
+}
+
+// The SDK's WebSocket transport opens its socket without a way to set request
+// headers. This subclass changes only socket creation: Node's WebSocket takes
+// `{ protocols, headers }`; the guard and event wiring match the stock start().
+function createHeaderWebSocketTransport(Base, messageSchema, url, headers) {
+  return new (class extends Base {
+    start() {
+      if (this._socket) {
+        throw new Error(
+          'WebSocketClientTransport already started! If using Client class, note that connect() calls start() automatically.'
+        );
+      }
+      return new Promise((resolve, reject) => {
+        this._socket = new globalThis.WebSocket(this._url, { protocols: 'mcp', headers });
+        this._socket.onerror = (event) => {
+          const error = 'error' in event ? event.error : new Error(`WebSocket error: ${JSON.stringify(event)}`);
+          reject(error);
+          this.onerror?.(error);
+        };
+        this._socket.onopen = () => resolve();
+        this._socket.onclose = () => this.onclose?.();
+        this._socket.onmessage = (event) => {
+          let message;
+          try {
+            message = messageSchema.parse(JSON.parse(event.data));
+          } catch (error) {
+            this.onerror?.(error);
+            return;
+          }
+          this.onmessage?.(message);
+        };
+      });
+    }
+  })(url);
+}
+/** Returns { transport, autoDetectAdvert, stderrTail, warnings } — stderrTail()
+ *  is the last ~4 KB of a stdio server's (scrubbed) stderr, '' for remote
+ *  transports. `strictEnv` (the caller passes it for plugin-declared servers)
+ *  makes unset variables without a default fail the server; otherwise they
+ *  expand to empty and are reported in `warnings` (names only). */
+export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOptions }) {
   const { StdioClientTransport, StreamableHTTPClientTransport, SSEClientTransport, WebSocketClientTransport } = sdk;
   const kind = resolveMcpTransportKind(cfg);
+  const warnings = [];
+  if (kind !== 'autoDetect') {
+    const missing = findMissingMcpEnvVars(cfg);
+    if (missing.length) {
+      const message = `missing environment variable(s): ${missing.join(', ')}`;
+      if (strictEnv === true) throw new Error(message);
+      warnings.push(message);
+      log(`[mcp-client] "${name}": ${message}\n`);
+    }
+  }
   if (kind === 'autoDetect') {
     const { url, advert } = resolveAutoDetectUrl(name, cfg);
     log(`[mcp-client] Connecting "${name}" via autoDetect HTTP: ${url}\n`);
@@ -60,30 +123,62 @@ export function createMcpTransport({ name, cfg, sdk, log }) {
       transport: new StreamableHTTPClientTransport(new URL(url)),
       autoDetectAdvert: advert,
       stderrTail: noStderrTail,
+      warnings,
     };
   }
   if (kind === 'http' || kind === 'sse') {
     const Transport = kind === 'http' ? StreamableHTTPClientTransport : SSEClientTransport;
-    const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), kind);
+    const url = resolveMcpOAuthUrl(cfg);
     const opts = requestInitFor(cfg);
+    // Explicit authentication remains authoritative (including custom API-key
+    // headers). Never forward those credentials to OAuth discovery endpoints.
+    let transport;
+    const oauth = hasConfiguredMcpAuth(cfg)
+      ? null
+      : createMcpOAuth({
+          url,
+          serverName: name,
+          ...oauthOptions,
+          // SSE advertises its POST endpoint on the authenticated event stream.
+          // No other path on the origin is allowed to receive this server's token.
+          isTransportEndpoint: (input) => kind === 'sse' && transport?._endpoint?.href === new URL(input).href,
+        });
+    transport = new Transport(new URL(url), oauth ? { fetch: oauth.fetch } : opts);
+    if (oauth) {
+      transport.oauth = oauth;
+      const close = transport.close.bind(transport);
+      transport.close = async () => {
+        oauth.close();
+        await close();
+      };
+    }
     log(`[mcp-client] Connecting "${name}" via ${kind.toUpperCase()}: ${mcpUrlForLog(url)}\n`);
     return {
-      transport: opts ? new Transport(new URL(url), opts) : new Transport(new URL(url)),
+      transport,
       autoDetectAdvert: null,
       stderrTail: noStderrTail,
+      warnings,
     };
   }
   if (kind === 'ws') {
-    // WebSocketClientTransport ctor takes only a URL; headers are ignored.
     const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'ws');
+    const opts = requestInitFor(cfg);
     log(`[mcp-client] Connecting "${name}" via WebSocket: ${mcpUrlForLog(url)}\n`);
-    return { transport: new WebSocketClientTransport(new URL(url)), autoDetectAdvert: null, stderrTail: noStderrTail };
+    const transport = opts
+      ? createHeaderWebSocketTransport(
+          WebSocketClientTransport,
+          sdk.JSONRPCMessageSchema,
+          new URL(url),
+          opts.requestInit.headers
+        )
+      : new WebSocketClientTransport(new URL(url));
+    return { transport, autoDetectAdvert: null, stderrTail: noStderrTail, warnings };
   }
   if (kind === 'stdio') {
     const transport = new StdioClientTransport({
       command: expandEnvVars(String(cfg.command ?? '')),
       args: Array.isArray(cfg.args) ? expandEnvVars(cfg.args) : cfg.args,
-      cwd: cfg.cwd,
+      cwd: cfg.cwd == null ? cfg.cwd : expandEnvVars(String(cfg.cwd)),
       env: resolveMcpStdioEnvironment(cfg),
       stderr: cfg.stderr ?? 'pipe',
     });
@@ -93,7 +188,7 @@ export function createMcpTransport({ name, cfg, sdk, log }) {
       tail = (tail + text).slice(-MCP_STDERR_TAIL_CHARS);
       log(`[mcp:${name}:stderr] ${text}`);
     });
-    return { transport, autoDetectAdvert: null, stderrTail: () => tail.trim() };
+    return { transport, autoDetectAdvert: null, stderrTail: () => tail.trim(), warnings };
   }
   throw new Error(
     `Invalid config for "${name}": need autoDetect, type (stdio/http/sse/ws), url (http), or command (stdio)`

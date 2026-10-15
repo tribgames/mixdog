@@ -808,6 +808,10 @@ export class DesktopServiceClient implements DesktopService {
   setQuotaAutoResume(enabled: boolean): Promise<boolean> {
     return this.invoke('setQuotaAutoResume', [enabled]);
   }
+  readAttachmentImage(attachmentRef: string): Promise<string | null> {
+    return this.invokeRead('readAttachmentImage', [attachmentRef]);
+  }
+
   readSessionFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null> {
     return this.invokeRead('readSessionFinalAnswer', [sessionId, startedAt]);
   }
@@ -815,7 +819,7 @@ export class DesktopServiceClient implements DesktopService {
     return this.invoke('setSessionFavorite', [sessionId, favorite]);
   }
 
-  setSessionProject(sessionId: string, projectPath: string | null): Promise<unknown> {
+  setSessionProject(sessionId: string, projectPath: string): Promise<unknown> {
     return this.invoke('setSessionProject', [sessionId, projectPath]);
   }
 

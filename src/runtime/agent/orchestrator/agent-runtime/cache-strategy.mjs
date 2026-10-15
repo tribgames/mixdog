@@ -210,6 +210,16 @@ export function resolveProviderCacheKey(opts, provider) {
   );
 }
 
+/** A cache identity as a prompt_cache_key: kept as is up to the 64-char wire
+ *  limit, a bounded hash identity beyond it, '' when empty. */
+export function normalizeCacheKey(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const wellFormed = text.toWellFormed();
+  if (wellFormed.length <= 64) return wellFormed;
+  return `pc_${createHash('sha256').update(wellFormed).digest('hex').slice(0, 32)}`;
+}
+
 function shortHash(value, chars = 18) {
   return createHash('sha256').update(stableHashStringify(value)).digest('hex').slice(0, chars);
 }

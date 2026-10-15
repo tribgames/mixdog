@@ -12,17 +12,16 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   rmdirSync,
   rmSync,
-  statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { readdir, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import { createConnection, createServer } from 'node:net';
 import { isPidAlive } from '../../../shared/pid-liveness.mjs';
 
@@ -607,22 +606,36 @@ export function classifyOrphanTempPostmaster({
   return Number(uptimeSec) >= Math.max(60, Number(minUptimeSec) || ORPHAN_TEMP_PG_MIN_UPTIME_SEC);
 }
 
-function tempPostmasterOwnerAlive(args) {
+async function tempPostmasterOwnerAlive(args) {
   const rawDataDir = pgDataDirFromArgs(args);
   if (!rawDataDir) return false;
   const dataRoot = join(rawDataDir, '..');
   for (const name of ['memory-runtime-owner.json', 'daemon-owner.json']) {
     try {
-      const owner = JSON.parse(readFileSync(join(dataRoot, name), 'utf8'));
+      const owner = JSON.parse(await readFile(join(dataRoot, name), 'utf8'));
       if (Number(owner?.pid) > 0 && isPidAlive(Number(owner.pid))) return true;
     } catch {}
   }
   return false;
 }
 
-function listPostmasterRows() {
+// Async child run: stdout on exit 0, null on any failure/timeout (the old
+// spawnSync `status !== 0` contract). Never blocks the event loop.
+function execFileText(file, args, options) {
+  return new Promise((resolve) => {
+    try {
+      execFile(file, args, { encoding: 'utf8', ...options }, (error, stdout) => {
+        resolve(error ? null : String(stdout || ''));
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function listPostmasterRows() {
   if (process.platform === 'win32') {
-    const result = spawnSync(
+    const stdout = await execFileText(
       'powershell',
       [
         '-NoProfile',
@@ -632,10 +645,10 @@ function listPostmasterRows() {
           'started = [int](New-TimeSpan -Start $_.CreationDate -End (Get-Date)).TotalSeconds; ' +
           'args = $_.CommandLine } }',
       ],
-      { encoding: 'utf8', timeout: 15_000, windowsHide: true }
+      { timeout: 15_000, windowsHide: true }
     );
-    if (result.status !== 0) return [];
-    return String(result.stdout || '')
+    if (stdout === null) return [];
+    return stdout
       .split(/\r?\n/)
       .filter(Boolean)
       .flatMap((line) => {
@@ -647,12 +660,9 @@ function listPostmasterRows() {
         }
       });
   }
-  const result = spawnSync('ps', ['-eo', 'pid=,etimes=,args='], {
-    encoding: 'utf8',
-    timeout: 15_000,
-  });
-  if (result.status !== 0) return [];
-  return String(result.stdout || '')
+  const stdout = await execFileText('ps', ['-eo', 'pid=,etimes=,args='], { timeout: 15_000 });
+  if (stdout === null) return [];
+  return stdout
     .split(/\r?\n/)
     .flatMap((line) => {
       const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*postgres.*)$/);
@@ -679,11 +689,11 @@ function pristineRootForArgs(args, tempRoot) {
 // (observed: 87 roots, 6.1GB, alongside 57 live postmasters). Roots a live
 // postmaster still owns are kept, and the same uptime margin that protects a
 // running harness from the process sweep protects its directory here.
-function sweepAbandonedPristineRoots(tempRoot, liveRoots, minAgeMs) {
+async function sweepAbandonedPristineRoots(tempRoot, liveRoots, minAgeMs) {
   let removed = 0;
   let entries;
   try {
-    entries = readdirSync(tempRoot, { withFileTypes: true });
+    entries = await readdir(tempRoot, { withFileTypes: true });
   } catch {
     return 0;
   }
@@ -693,12 +703,12 @@ function sweepAbandonedPristineRoots(tempRoot, liveRoots, minAgeMs) {
     const full = join(tempRoot, entry.name);
     if (liveRoots.has(normalizePathForMatch(full))) continue;
     try {
-      if (statSync(full).mtimeMs > cutoff) continue;
+      if ((await stat(full)).mtimeMs > cutoff) continue;
     } catch {
       continue;
     }
     try {
-      rmSync(full, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      await rm(full, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
       removed += 1;
     } catch {
       /* a process this sweep did not reap still holds it */
@@ -709,18 +719,18 @@ function sweepAbandonedPristineRoots(tempRoot, liveRoots, minAgeMs) {
 
 /** Best-effort machine hygiene: reap orphan temp postmasters, then drop the
  *  throwaway roots no live postmaster owns. Runs periodically, not once. */
-export function sweepOrphanTempPostmasters({ tempRoot, minUptimeSec } = {}) {
+export async function sweepOrphanTempPostmasters({ tempRoot, minUptimeSec } = {}) {
   let reaped = 0;
   try {
     const root = tempRoot || process.env.TMPDIR || process.env.TEMP || process.env.TMP || '/tmp';
     const liveRoots = new Set();
-    for (const row of listPostmasterRows()) {
+    for (const row of await listPostmasterRows()) {
       if (!row.pid || row.pid === process.pid) continue;
       if (
         !classifyOrphanTempPostmaster({
           ...row,
           tempRoot: root,
-          ownerAlive: tempPostmasterOwnerAlive(row.args),
+          ownerAlive: await tempPostmasterOwnerAlive(row.args),
           minUptimeSec,
         })
       ) {
@@ -737,7 +747,7 @@ export function sweepOrphanTempPostmasters({ tempRoot, minUptimeSec } = {}) {
       }
     }
     const minAgeMs = Math.max(60, Number(minUptimeSec) || ORPHAN_TEMP_PG_MIN_UPTIME_SEC) * 1000;
-    const removed = sweepAbandonedPristineRoots(root, liveRoots, minAgeMs);
+    const removed = await sweepAbandonedPristineRoots(root, liveRoots, minAgeMs);
     if (removed > 0) __mixdogMemoryLog(`[pg-process] removed ${removed} abandoned pristine root(s)\n`);
   } catch {
     /* hygiene is best-effort */

@@ -4,6 +4,88 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
+Aggiunti l'accesso OAuth esplicito per MCP, il cambio modello sul posto e un banner di quota a riga singola.
+
+### Nuove funzionalità
+
+- **Accesso MCP** — Aggiunto l'accesso OAuth esplicito per i server MCP con stato, finestra di dialogo condivisa, incolla remoto e comandi TUI (#74, thanks @oh1701).
+- **Cambio modello sul posto** — Aggiunta la possibilità di cambiare il modello di una chat senza avviare una nuova sessione e Fork nel menu di sessione (#73, #52, thanks @grapefruit0205).
+- **Banner di quota** — Aggiunto un banner a riga singola sopra il compositore al raggiungimento di un limite; Riprendi riserva la prossima esecuzione all'orario di ripristino.
+- **Menu file** — Aggiunto un conteggio file sull'isola che tiene traccia delle modifiche di sessione non salvate, con Mostra modifiche ed Elimina cronologia.
+- **Dimensione testo della chat** — Aggiunta un'impostazione per dispositivo per la dimensione del testo della chat.
+
+### Modifiche
+
+- Modificati i tentativi dei provider affinché rispettino limiti e tempi di attesa specifici di ciascun provider, mostrando il tempo rimanente e l'opzione di annullamento.
+- Modificati i messaggi di errore per indicare la causa e il passaggio successivo, nascondendo Riprova quando riprovare non è utile.
+- Modificati i comandi della shell per rimanere in primo piano per 10 secondi per impostazione predefinita, fino a 30 secondi, prima di passare in background.
+- Regolati l'app desktop, il ragionamento automatico e il servizio in background per ridurre polling, rendering e memoria nelle sessioni lunghe.
+
+### Correzioni di bug
+
+- Corretto il blocco di uno o due secondi del servizio in background ogni 30 minutes.
+- Corretta la perdita delle notifiche di completamento degli agent quando veniva annullato un turno che aveva già prodotto output.
+- Corretta l'isola del compositore che mostrava gli agent in esecuzione come inattivi o completati.
+- Corretto il blocco del passaggio tra sessioni durante l'attesa della scansione delle modifiche di altre sessioni.
+- Corretta l'uscita delle finestre di dialogo della pagina del browser dal riquadro, il mancato completamento della conferma di uscita e il malfunzionamento delle scorciatoie di copia del browser.
+- Corretto il fallimento del caching dei prompt sui provider Responses personalizzati e la mancata corrispondenza dei progetti di sessione ereditati nella barra laterale (#70, #75, thanks @sukjong2002).
+- Corretto lo sfarfallio delle tabelle in streaming, il rimbalzo della trascrizione durante l'attività di un turno e la persistenza della scheda quota dopo il cambio di provider.
+
+### Altro
+
+- Rimossi gli helper non utilizzati (#67, thanks @22nsuk).
+
+## v1.2.1 - 2026-10-14
+
+Aggiunta l'importazione di conversazioni da Codex e Claude Code, il provider Command Code e le menzioni di skill con `$`, e corretta l'osservazione dell'input di Computer Use, gli script di skill, il ragionamento automatico e diversi problemi di sessione.
+
+### Nuove funzionalità
+
+- **Importa conversazioni** — Aggiunta l'opzione Impostazioni > Generale > Importa conversazioni per trasferire le chat di Codex e Claude Code da questo PC in Mixdog.
+- **Command Code** — Aggiunto Command Code come provider che accede con il tuo account Command Code.
+- **Criteri di cambio account** — Aggiunte le opzioni Manuale, Cambia al limite e Più margine prima per i provider con più account.
+- **Menzioni di skill con `$`** — Aggiunto `$` nel compositore e nella TUI per selezionare una skill e applicarla a quel messaggio.
+- **Barra di utilizzo di 5 ore** — Aggiunta un'opzione nel menu di utilizzo che mostra una barra di 5 ore accanto al periodo più lungo sulla barra laterale (#66).
+- **Schede di feedback visualizzazione** — Aggiunte schede nel compositore per annotazioni, selezioni e modifiche in coda, nonché spille su immagini, fotogrammi video e aree trascinate.
+- **Chiudi Goal** — Aggiunto un pulsante per chiudere un Goal completato.
+
+### Modifiche
+
+- Modificati i server MCP dei plugin Claude Code e Codex per connettersi automaticamente senza abilitazione manuale e aggiunto il caricamento delle skill dei plugin (#58).
+- Modificato l'elenco delle sessioni per caricare da database locale e cache in modo da aprirsi più rapidamente.
+- Modificate le skill sui server SSH per instradare le chiamate ai modelli tramite il tuo PC, evitando credenziali sul server.
+- Modificate le menzioni di file con `@` per elencare prima le cartelle.
+- Modificate le icone di Muse Code e MiMo con icone dedicate.
+- Modificate le miniature delle immagini inviate per caricarsi come anteprime ridotte sul PC e sui telefoni associati.
+- Regolato il caricamento degli strumenti MCP, le ricerche di file e il salvataggio degli account per non bloccare più il servizio in background nelle sessioni lunghe.
+- Regolato l'indicatore di avanzamento di Goal per mostrare sempre cinque celle.
+- Regolata l'isola del compositore posizionandola 12px sopra la scheda prompt e ripristinate le righe di attività degli strumenti a 14px.
+
+### Correzioni di bug
+
+- Corretto il blocco di Computer Use su "foreground input observation is unavailable"; l'input mancato conta come input utente, l'osservazione si ripristina autonomamente e la diagnosi indica la causa (#66).
+- Corretto il blocco infinito su "Connessione…" durante l'aggiunta di un server SSH nell'app installata includendo il lockfile del server (#69, grazie a @victorwon2001).
+- Corretto l'errore per cui i collegamenti nella chat aprivano il browser integrato su una pagina `about:blank` vuota anziché sul collegamento (#63).
+- Corretti gli script di skill inclusi, compreso il validatore di skill, che fallivano su alcune installazioni e shell (#62).
+- Corrette le nuove attività che ricordavano un flusso di lavoro eliminato in modo da avviarsi su Default (#64).
+- Corretto il mancato funzionamento del ragionamento automatico sui percorsi Claude in 1.2.0 e il timeout delle valutazioni successive causato da una valutazione lenta.
+- Corretto il mancato elenco dei modelli per i provider Gemini, Anthropic, OpenAI e compatibili con OpenAI quando la chiave veniva inserita dopo l'avvio.
+- Corretto l'invio di un secondo messaggio subito dopo l'avvio di una nuova attività che apriva una sessione separata.
+- Corretto lo scorrimento rapido verso l'alto sui telefoni che si arrestava bruscamente per poi saltare in alto al tocco successivo.
+- Corretta la chiusura immediata dell'editor di ridenominazione per le sessioni presenti sia in una cartella di progetto che in Recenti.
+- Corretta la visualizzazione dell'immagine errata nelle miniature di conversazioni ripristinate con più immagini.
+- Corretti i comandi hook che ereditavano le impostazioni di runtime interne di Mixdog.
+- Corrette le esecuzioni headless, come le chiamate ai modelli da script di skill, che non riuscivano a usare Muse Code o MiMo.
+- Corretta la mancata comparsa della finestra di conferma durante la rimozione di un server MCP o plugin.
+- Corretto il mancato caricamento del runtime ONNX su PC Windows sprovvisti del runtime Visual C++ includendo tale runtime nell'applicazione.
+
+### Altro
+
+- Revisione delle traduzioni in tutte le 11 lingue.
+- Rimossi gli helper non utilizzati e formattati i test desktop (#68, grazie a @22nsuk).
+
 ## v1.2.0 - 2026-10-13
 
 Questa versione introduce il pannello delle modifiche e le schede delle modifiche per turno con controlli di annullamento e riapplicazione per turno, mantiene visibile la cronologia precedente dopo la compattazione e aggiunge uno strumento di visualizzazione integrato per mockup interattivi e diagrammi. I flussi di lavoro remoti si espandono con connessioni SSH ai server, sessioni isolate con Git worktree, gestione dei comandi shell in background e download diretto di file sui telefoni associati. L'interfaccia offre inoltre un contrasto maggiore, uno scorrimento più fluido sui dispositivi mobili e una gestione flessibile delle sessioni.

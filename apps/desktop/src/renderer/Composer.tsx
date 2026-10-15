@@ -60,14 +60,16 @@ import {
   DictationOverlay,
   MentionPalette,
   MessageSelectorPalette,
+  SkillMentionPalette,
   SlashPalette,
   composerPlaceholder,
 } from './composer-surfaces';
+import { disabledMentionedSkills, useComposerSkillHighlight, useSkillCatalog } from './composer-skill-mentions';
 import { ComposerBanners } from './ComposerBanners';
 import { ComposerFooter } from './ComposerFooter';
 import { CapabilityIcon } from './CapabilityIcon';
 import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
-import { VisualizeFeedbackChips } from './VisualizeFeedback';
+import { VisualizeFeedbackCards } from './VisualizeFeedbackCards';
 import { useVisualizeFeedback, visualizeFeedbackPending } from './visualize-feedback-store';
 
 // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency, logged
@@ -268,6 +270,8 @@ export type ComposerProps = {
   /** This pane is the focused, visible one. A payload shared into the app from
    *  outside (share sheet) may only land in a composer the user can see. */
   paneActive?: boolean;
+  /** Replaces the rotating placeholder (a pending question: sending closes it). */
+  placeholderOverride?: string;
 };
 
 export const Composer = memo(function Composer(props: ComposerProps) {
@@ -310,6 +314,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onOpenSettings,
     dropTargetRef,
     paneActive = true,
+    placeholderOverride,
   } = props;
   const [draft, setDraft] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -437,6 +442,8 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     historyNavigation: history.navigation,
     showNotice: showComposerNotice,
   });
+  const skillCatalog = useSkillCatalog(sessionId, projectScope);
+  const isEnabledSkill = useCallback((name: string) => skillCatalog.enabled.has(name), [skillCatalog]);
   const palettes = useComposerPalettes({
     draft,
     projectScope,
@@ -444,8 +451,16 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     transitioning,
     composerFocused,
     selectorOpen: selector.open,
+    skills: skillCatalog.selectable,
   });
-  const { setCaretOffset, slash, mention } = palettes;
+  const { setCaretOffset, slash, mention, skillMention } = palettes;
+  const skillHighlight = useComposerSkillHighlight({
+    textarea,
+    text: draft,
+    isSkill: isEnabledSkill,
+    disabled: transitioning,
+  });
+  const offSkills = disabledMentionedSkills(draft, skillCatalog);
   useComposerIme({ textarea, composingRef, suppressImeLineBreakRef, draftRef, setDraft, setCaretOffset });
   // biome-ignore lint/correctness/useExhaustiveDependencies: must switch only when identityScope changes; the other captures are read at that moment and a re-run on their identity would reset the composer
   useLayoutEffect(() => {
@@ -469,12 +484,14 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       setDraggingFiles,
     });
   }, [identityScope, resetAttachments, clearNotice, palettes.reset, palettes.invalidateSearch, selector.reset]);
-  const placeholder = composerPlaceholder({
-    hasConversation,
-    turnBusy,
-    commandBusy,
-    fallback: COMPOSER_PLACEHOLDERS[0],
-  });
+  const placeholder =
+    placeholderOverride ||
+    composerPlaceholder({
+      hasConversation,
+      turnBusy,
+      commandBusy,
+      fallback: COMPOSER_PLACEHOLDERS[0],
+    });
   // Autosize is CSS-native now (field-sizing: content). The old layout-effect
   // path forced TWO whole-document synchronous reflows per keystroke
   // (height:auto → scrollHeight read) — the measured source of typing lag on
@@ -568,7 +585,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     event.preventDefault();
     void send('', 'form-submit');
   };
-  const { selectMention, onKeyDown } = useComposerKeyboard({
+  const { selectMention, selectSkillMention, onKeyDown } = useComposerKeyboard({
     draft: {
       value: draft,
       set: setDraft,
@@ -578,6 +595,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     },
     slash,
     mention,
+    skillMention,
     selector,
     history: {
       entries: history.entries,
@@ -639,6 +657,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     setCaretOffset(event.currentTarget.selectionStart);
     if (slash.dismissed) slash.setDismissed('');
     if (mention.dismissed) mention.setDismissed('');
+    if (skillMention.dismissed) skillMention.setDismissed('');
     history.navigation.current = { index: -1, seed: '' };
   };
   const onTextareaBlur = () => {
@@ -694,7 +713,9 @@ export const Composer = memo(function Composer(props: ComposerProps) {
         ref={paletteAnchor}
         className="composer"
         onSubmit={onSubmit}
-        data-composer-palette-open={selector.open || slash.open || mention.open ? 'true' : undefined}
+        data-composer-palette-open={
+          selector.open || slash.open || mention.open || skillMention.open ? 'true' : undefined
+        }
         aria-busy={transitioning}
         onMouseDown={focusTextareaFromForm}
       >
@@ -729,6 +750,19 @@ export const Composer = memo(function Composer(props: ComposerProps) {
             onSelect={selectMention}
           />
         )}
+        {skillMention.open && (
+          <SkillMentionPalette
+            anchor={paletteAnchor}
+            panel={skillMention.palette}
+            results={skillMention.results}
+            available={skillMention.available}
+            query={skillMention.match?.query || ''}
+            index={skillMention.index}
+            setIndex={skillMention.setIndex}
+            onSelect={selectSkillMention}
+            onOpenSkillSettings={() => onOpenSettings('skills')}
+          />
+        )}
         {attachments.length > 0 && (
           <AttachmentChips
             attachments={attachments}
@@ -738,7 +772,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
             onOpenFile={onOpenFile}
           />
         )}
-        <VisualizeFeedbackChips sessionId={sessionId} />
+        <VisualizeFeedbackCards sessionId={sessionId} />
         {editingPaste && (
           <ComposerPastedTextDialog
             anchor={textarea}
@@ -765,27 +799,31 @@ export const Composer = memo(function Composer(props: ComposerProps) {
               </button>
             </span>
           )}
-          {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the textarea drives the slash/mention popup and reports whether it is open */}
-          <textarea
-            ref={textarea}
-            value={draft}
-            onChange={onTextareaChange}
-            onFocus={() => setComposerFocused(true)}
-            onBlur={onTextareaBlur}
-            onPointerDown={() => {
-              escapeClearAtRef.current = 0;
-            }}
-            onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)}
-            onKeyDown={onTextareaKeyDown}
-            onPaste={onTextareaPaste}
-            rows={1}
-            placeholder={placeholder}
-            disabled={transitioning}
-            aria-controls={palettes.paletteId}
-            aria-expanded={slash.open || mention.open}
-            aria-activedescendant={palettes.activeDescendant}
-            aria-label={t('Message Mixdog')}
-          />
+          <div className="composer-text-field">
+            {skillHighlight.layer}
+            {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the textarea drives the slash/mention popup and reports whether it is open */}
+            <textarea
+              ref={textarea}
+              className={skillHighlight.active ? 'has-skill-mentions' : undefined}
+              value={draft}
+              onChange={onTextareaChange}
+              onFocus={() => setComposerFocused(true)}
+              onBlur={onTextareaBlur}
+              onPointerDown={() => {
+                escapeClearAtRef.current = 0;
+              }}
+              onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)}
+              onKeyDown={onTextareaKeyDown}
+              onPaste={onTextareaPaste}
+              rows={1}
+              placeholder={placeholder}
+              disabled={transitioning}
+              aria-controls={palettes.paletteId}
+              aria-expanded={slash.open || mention.open || skillMention.open}
+              aria-activedescendant={palettes.activeDescendant}
+              aria-label={t('Message Mixdog')}
+            />
+          </div>
         </div>
         <ComposerFooter
           attachAccept={ATTACHMENT_ACCEPT}
@@ -794,6 +832,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           textarea={textarea}
           paletteAnchor={paletteAnchor}
           recoveryScope={recoveryScope}
+          projectScope={projectScope}
           goalDialogOpen={goalDialogOpen}
           setGoalDialogOpen={setGoalDialogOpen}
           addMenuRequest={addMenuRequest}
@@ -832,6 +871,13 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           onRoutePreferenceApplied={onRoutePreferenceApplied}
         />
       </form>
+      {offSkills.length > 0 && (
+        <p className="composer-skill-status" role="status">
+          {t('{{name}} skill is off, so it is sent as plain text. Turn it on in Settings › Skills.', {
+            name: offSkills.join(', '),
+          })}
+        </p>
+      )}
     </>
   );
 });

@@ -17,6 +17,12 @@ import {
 import type { DesktopApi, DesktopEditorSettings } from '../../shared/contract';
 import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../../shared/editor-settings';
 import { getLinkPreview, setLinkPreview, subscribeLinkPreview } from '../link-preview-preference';
+import {
+  getChatTextSize,
+  setChatTextSize,
+  subscribeChatTextSize,
+  type ChatTextSize,
+} from '../chat-text-size-preference';
 import { record } from '../record-utils';
 import { isRemoteBrowserRenderer, isRemoteHostRenderer } from '../remote-ui-projection';
 import {
@@ -28,6 +34,7 @@ import {
 import { followHostDisplay, HOST_DISPLAY_ADOPTED_EVENT } from '../host-display-sync';
 import { ActionButton, AutoSaveRow, Group, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import { label, rows, type PanelContext } from './capability-data';
+import { ImportConversationsDialog } from './import-conversations-dialog';
 import { DesktopNotificationToggle } from './desktop-notification-toggle';
 import { PushNotificationToggle } from './push-notification-toggle';
 import { WorktreeSettings } from './worktree-settings';
@@ -59,7 +66,28 @@ function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>)
         options={desktopThemeOptions().map((option) => ({ ...option, label: t(option.label) }))}
         onChange={choose}
       />
+      <ChatTextSizeRow pending={pending} />
     </Group>
+  );
+}
+
+/** Per-device scale of the conversation and the message box; applies live. */
+function ChatTextSizeRow({ pending }: Pick<PanelContext, 'pending'>) {
+  const size = useSyncExternalStore(subscribeChatTextSize, getChatTextSize, () => 'default');
+  return (
+    <SelectRow
+      title={t('Chat text size')}
+      description={t('Changes the size of chat messages and the message box on this device.')}
+      value={size}
+      disabled={Boolean(pending)}
+      options={[
+        { value: 'small', label: t('Small') },
+        { value: 'default', label: t('Default') },
+        { value: 'large', label: t('Large') },
+        { value: 'extra-large', label: t('Extra large') },
+      ]}
+      onChange={(next) => setChatTextSize(next as ChatTextSize)}
+    />
   );
 }
 
@@ -201,6 +229,25 @@ export function DisplayPanel({ data, pending }: PanelContext) {
   );
 }
 
+/** Opens the dialog that copies Codex / Claude Code conversations into new sessions. */
+function ImportConversationsRow({ pending }: Pick<PanelContext, 'pending'>) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <ResourceRow
+        title={t('Import conversations from other apps')}
+        meta={t('Bring in conversations from Codex or Claude Code and continue them here.')}
+        actions={
+          <ActionButton disabled={Boolean(pending)} onClick={() => setOpen(true)}>
+            {t('Import…')}
+          </ActionButton>
+        }
+      />
+      {open && <ImportConversationsDialog onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
 export function GeneralPanel({ data, pending, run, api }: PanelContext) {
   const remoteSurface = isRemoteHostRenderer();
   const profile = record(data.profile);
@@ -252,6 +299,7 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
           disabled={busy}
           onChange={(enabled) => void run('setWebSearchEnabled', [enabled])}
         />
+        {!remoteSurface && <ImportConversationsRow pending={pending} />}
         <SelectRow
           title={t('Load instruction files')}
           description={t(

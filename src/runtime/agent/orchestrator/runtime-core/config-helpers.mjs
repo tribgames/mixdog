@@ -351,6 +351,9 @@ export function normalizeCompactionConfig(value = {}) {
   return {
     ...next,
     auto: raw.auto !== false && raw.enabled !== false,
+    // Compact a conversation on its current model before switching it to
+    // another one in place (default on).
+    onModelChange: raw.onModelChange !== false,
   };
 }
 

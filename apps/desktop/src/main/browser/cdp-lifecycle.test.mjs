@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { createBrowserGuestCdp } from './cdp.ts';
+import { DIALOG_BRIDGE_SCRIPT } from './dialog-bridge.ts';
 import { BrowserGuestStateStore } from './guest-state.ts';
 import { MAX_CHILD_CDP_SESSIONS } from './command.ts';
+import { formatPageReport } from './snapshot-format.ts';
 import { waitUntil } from '../../../../../src/runtime/shared/wait-until.test-support.mjs';
 
-function fixture(send = async () => ({}), matchInterceptRule = () => undefined, pageGuardScripts = undefined) {
-  const state = new BrowserGuestStateStore();
+function fixture(
+  send = async () => ({}),
+  matchInterceptRule = () => undefined,
+  pageGuardScripts = undefined,
+  rendererPeers = undefined
+) {
+  const state = new BrowserGuestStateStore(rendererPeers);
   const calls = [];
   const guest = new EventEmitter();
   let attached = false;
@@ -362,13 +370,97 @@ test('frame removal during initialization does not start late observation domain
   await f.cdp.detach(f.guest);
 });
 
-test('bridge uninstall blocks concurrent reattachment until detach finishes', async () => {
-  const pending = Promise.withResolvers();
-  const f = fixture((method) => (method === 'Runtime.evaluate' ? pending.promise : Promise.resolve({})));
+test("a call against a page held by a renderer peer's dialog names that page, not its dialog's text", async () => {
+  const peer = {};
+  const f = fixture(
+    (method) => {
+      if (method === 'Runtime.evaluate') return new Promise(() => undefined);
+      // Held well past the input poll, as a blocked renderer holds it.
+      if (method.startsWith('Input.')) return new Promise((resolve) => setTimeout(() => resolve({}), 300));
+      return Promise.resolve({});
+    },
+    undefined,
+    undefined,
+    () => [peer]
+  );
   await f.cdp.guestDebugger(f.guest);
-  const closing = f.cdp.detach(f.guest, { uninstallScript: 'void 0' });
-  await assert.rejects(f.cdp.guestDebugger(f.guest), /unavailable/);
-  pending.resolve({});
-  await closing;
-  assert.equal(f.debug.isAttached(), false);
+  f.state.for(peer).pendingDialog = { type: 'confirm', message: 'Delete everything?', openedAt: 0 };
+  const error = await f.cdp.call(f.guest, 'Runtime.evaluate', {}, undefined, { timeoutMs: 10 }).catch((e) => e);
+  assert.match(
+    error.message,
+    new RegExp(`an open confirm dialog on page ${f.state.pageId(peer)}, which shares this page's renderer[\\s\\S]*handle_dialog on that page`)
+  );
+  assert.doesNotMatch(error.message, /Delete everything/, "the other page's text stays with it");
+  const input = await Promise.race([
+    f.cdp.sendCdpInput(f.guest, f.debug, 'Input.dispatchMouseEvent', { type: 'mousePressed' }),
+    new Promise((resolve) => setTimeout(() => resolve('timed out'), 1_000)),
+  ]);
+  assert.equal(input, 'dialog', 'input returns as soon as the blocking dialog is known');
+  await f.cdp.detach(f.guest);
 });
+
+test('a native dialog that closes by itself is reported once; a close never clears a bridged dialog', async () => {
+  const f = fixture();
+  await f.cdp.guestDebugger(f.guest);
+  const record = f.state.for(f.guest);
+  f.debug.emit('message', {}, 'Page.javascriptDialogOpening', { type: 'alert', message: 'too early' });
+  assert.equal(record.pendingDialog.type, 'alert');
+  f.debug.emit('message', {}, 'Page.javascriptDialogClosed', { result: false, userInput: '' });
+  assert.equal(record.pendingDialog, null);
+  assert.equal(record.dismissedDialog.reason, 'early');
+  const report = formatPageReport(record);
+  assert.match(report, /Dismissed alert dialog "too early": it opened before the browser was intercepting dialogs/);
+  assert.doesNotMatch(formatPageReport(record), /Dismissed/, 'said once');
+
+  const bridged = { type: 'confirm', message: 'held', openedAt: 0, bridgeRequestId: 'r1' };
+  record.pendingDialog = bridged;
+  f.debug.emit('message', {}, 'Page.javascriptDialogClosed', { result: false, userInput: '' });
+  assert.equal(record.pendingDialog, bridged);
+  await f.cdp.detach(f.guest);
+});
+
+test("a bridge request the page's policy refused becomes a dismissed notice, not a page log", async () => {
+  const f = fixture();
+  await f.cdp.guestDebugger(f.guest);
+  // The bridge script's own console call, as the page's renderer makes it.
+  const calls = [];
+  class Refused {
+    open() {}
+    send() {
+      throw new Error('Refused to connect: Content Security Policy');
+    }
+  }
+  const page = {
+    URL,
+    URLSearchParams,
+    XMLHttpRequest: Refused,
+    location: { href: 'https://csp.test/' },
+    console: { debug: (...args) => calls.push(args) },
+    window: {},
+  };
+  runInNewContext(DIALOG_BRIDGE_SCRIPT, page);
+  page.window.confirm('Proceed?');
+  const toEvent = (type, args) => ({ type, args: args.map((value) => ({ type: 'string', value })) });
+  f.debug.emit('message', {}, 'Runtime.consoleAPICalled', toEvent('debug', calls[0]));
+  f.debug.emit('message', {}, 'Runtime.consoleAPICalled', toEvent('debug', ['page says hi']));
+  const record = f.state.for(f.guest);
+  assert.deepEqual(record.dismissedDialog, { type: 'confirm', message: 'Proceed?', reason: 'unreachable' });
+  const logged = record.console.format('all', '', 10);
+  assert.match(logged, /page says hi/, 'ordinary console calls are still recorded');
+  assert.doesNotMatch(logged, /Proceed\?/, 'the notice is the host’s, not the page’s log');
+  assert.match(formatPageReport(record), /Dismissed confirm dialog "Proceed\?": its request never reached the browser/);
+  await f.cdp.detach(f.guest);
+});
+
+test('an unexpected debugger detach settles the prompts it held instead of leaving them pending', async () => {
+  const f = fixture();
+  await f.cdp.guestDebugger(f.guest);
+  const record = f.state.for(f.guest);
+  record.pendingDialog = { type: 'prompt', message: 'held', openedAt: 0, bridgeRequestId: 'r1' };
+  record.pendingFileChooser = { mode: 'selectSingle', openedAt: 0 };
+  f.debug.emit('detach', {}, 'replaced_with_devtools');
+  assert.equal(record.pendingDialog, null);
+  assert.equal(record.pendingFileChooser, null);
+  assert.match(record.fault, /CDP detached: replaced_with_devtools/);
+});
+

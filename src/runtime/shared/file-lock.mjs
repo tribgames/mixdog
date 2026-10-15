@@ -177,16 +177,38 @@ function warnLockRateLimited(warnedAt, lockPath, line) {
   }
 }
 
-function reportLockWait(lockPath, waitedMs, mode) {
+function formatLockTiming(timing) {
+  return Object.entries(timing || {})
+    .filter(([, ms]) => Number.isFinite(ms))
+    .map(([name, ms]) => ` ${name}=${ms}ms`)
+    .join('');
+}
+
+// Lets a lock owner's callback attribute its time (io gate wait, write) to the
+// held-warning of the lock it runs under.
+export function recordLockTiming(lockPath, fields) {
+  const lease = heldLockPaths.getStore()?.get(lockPath);
+  if (lease?.active) Object.assign(lease.timing, fields);
+}
+
+function reportLockWait(lockPath, waitedMs, mode, timing) {
   if (waitedMs < LOCK_WAIT_WARN_MS) return;
-  warnLockRateLimited(lockWaitWarnedAt, lockPath, `[atomic-file] ${mode} lock wait ${waitedMs}ms: ${lockPath}\n`);
+  warnLockRateLimited(
+    lockWaitWarnedAt,
+    lockPath,
+    `[atomic-file] ${mode} lock wait ${waitedMs}ms:${formatLockTiming(timing)} ${lockPath}\n`
+  );
 }
 
 // A lock held this long starves every waiter (they time out at 2s), so the
 // holder's duration is reported once released.
-function reportLockHeld(lockPath, heldMs, mode) {
+function reportLockHeld(lockPath, heldMs, mode, timing) {
   if (heldMs < LOCK_HELD_WARN_MS) return;
-  warnLockRateLimited(lockHeldWarnedAt, lockPath, `[atomic-file] ${mode} lock held ${heldMs}ms: ${lockPath}\n`);
+  warnLockRateLimited(
+    lockHeldWarnedAt,
+    lockPath,
+    `[atomic-file] ${mode} lock held ${heldMs}ms:${formatLockTiming(timing)} ${lockPath}\n`
+  );
 }
 
 function* tryAcquireReclaimGuard(lockPath) {
@@ -387,7 +409,7 @@ export function sweepStagedLockFiles(lockPath, now = Date.now()) {
   return removed;
 }
 
-function* acquireLock(lockPath, opts, mode, markHeld) {
+function* acquireLock(lockPath, opts, mode, markHeld, timing = null) {
   const timeoutMs = lockTimeoutMs(opts);
   const staleMs = lockStaleMs(opts);
   const deadline = Date.now() + timeoutMs;
@@ -415,7 +437,9 @@ function* acquireLock(lockPath, opts, mode, markHeld) {
       attempt += 1;
       continue;
     }
-    reportLockWait(lockPath, Date.now() - waitStartedAt, mode);
+    const osMs = Date.now() - waitStartedAt;
+    if (timing) timing.osAcquireMs = osMs;
+    reportLockWait(lockPath, osMs, mode, timing);
     return;
   }
   throw timeoutError(lockPath, timeoutMs, lastError, yield* describeLockHolder(lockPath));
@@ -444,13 +468,15 @@ export function withFileLockSync(lockPath, fn, opts = {}) {
 export async function withFileLock(lockPath, fn, opts = {}) {
   if (heldLockPaths.getStore()?.get(lockPath)?.active) return fn();
   if (lockTimeoutMs(opts) <= 0) return withOsFileLock(lockPath, fn, opts);
-  return lockQueue(lockPath, () => withOsFileLock(lockPath, fn, opts));
+  const enqueuedAt = Date.now();
+  return lockQueue(lockPath, () => withOsFileLock(lockPath, fn, opts, Date.now() - enqueuedAt));
 }
 
-async function withOsFileLock(lockPath, fn, opts = {}) {
-  await runAsync(acquireLock(lockPath, opts, 'async', true));
+async function withOsFileLock(lockPath, fn, opts = {}, queueWaitMs = 0) {
+  const timing = { queueWaitMs };
+  await runAsync(acquireLock(lockPath, opts, 'async', true, timing));
   const heldSince = Date.now();
-  const lease = { active: false };
+  const lease = { active: false, timing };
   try {
     if (opts.secret === true) await enforceOwnerOnlyAclWin32Async(lockPath, { fresh: true });
     // Async descendants inherit a reference to this lease, not permanent
@@ -464,7 +490,7 @@ async function withOsFileLock(lockPath, fn, opts = {}) {
     try {
       await runAsync(releaseLock(lockPath));
     } finally {
-      reportLockHeld(lockPath, Date.now() - heldSince, 'async');
+      reportLockHeld(lockPath, Date.now() - heldSince, 'async', timing);
       // Unmark only once the lock file is gone: a sync waiter arriving while
       // the release is still pending must fail fast, not block its completion.
       unmarkOsHeld(lockPath);

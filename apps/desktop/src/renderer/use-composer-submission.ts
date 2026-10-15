@@ -14,7 +14,6 @@ import { asRecord } from './text-format';
 import { hasSendablePromptContent, shouldBlockPromptSubmit } from './renderer-logic.mjs';
 import { registerSentAttachments, sentAttachmentData } from './attachment-menu';
 import { t } from './i18n';
-import { discardSentImages, stageSentImages } from './image-preview-store';
 import { registerImagePreview } from './transcript-metrics';
 import { MAX_SUBMIT_TEXT_LENGTH, type ComposerAttachment } from './composer-support';
 import {
@@ -317,15 +316,6 @@ export function useComposerSubmission({
           rejectComposerSubmissionRecovery(submissionId);
           if (mountedRef.current) setSubmissionRecoveryVersion((current) => current + 1);
         };
-        // Durable thumbnails wait here; the message's row saves them under its
-        // session and stable messageId once it renders.
-        stageSentImages(
-          submissionId,
-          imageAttachments.map((attachment) => ({
-            line: attachment.metadataText ?? '',
-            dataUrl: attachmentDataUrl(attachment),
-          }))
-        );
         let accepted: unknown;
         try {
           accepted = await submit(withSelectedSkill(content, selectedSkill), {
@@ -335,7 +325,6 @@ export function useComposerSubmission({
             ...(Object.keys(pastedTexts).length ? { pastedTexts } : {}),
           });
         } catch (error) {
-          discardSentImages(submissionId);
           submissionRetryRef.current = { key: retryKey, id: submissionId };
           restoreSubmitted();
           throw error;
@@ -351,7 +340,6 @@ export function useComposerSubmission({
         } else {
           // Refused: the draft comes back and the visualize chips stay; say
           // so, rather than leave an emptied composer and no message.
-          discardSentImages(submissionId);
           submissionRetryRef.current = { key: retryKey, id: submissionId };
           restoreSubmitted();
           setAttachmentError(t('The message was not sent. It has been kept for retry.'));

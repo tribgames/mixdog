@@ -18,6 +18,8 @@ import { enrichModels, getModelMetadataSync } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { OpenAICompatProvider, preloadOpenAICompatRuntime } from './openai-compat.mjs';
+import { xaiModelSupportsReasoningEffort } from './openai-compat-xai.mjs';
+import { XAI_COMPAT_RETRY_POLICY } from './openai-compat-retry-profile.mjs';
 import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { normalizeGrokToolSchemas } from './lib/grok-tool-schema.mjs';
@@ -48,19 +50,44 @@ export {
 } from './grok-oauth-tokens.mjs';
 export { beginOAuthLogin, loginOAuth } from './grok-oauth-login.mjs';
 
+// Typed wire codes that say the bearer itself expired or was revoked. An
+// ordinary permission 403 carries none of them and is never a refresh signal.
+const EXPIRED_TOKEN_CODES = new Set([
+  'token_expired',
+  'expired_token',
+  'access_token_expired',
+  'token_revoked',
+  'revoked_token',
+  'invalid_token',
+]);
+
+function hasExpiredTokenSignature(err) {
+  return [err?.code, err?.type, err?.providerErrorCode, err?.error?.code, err?.error?.type].some(
+    (field) => typeof field === 'string' && EXPIRED_TOKEN_CODES.has(field.trim().toLowerCase())
+  );
+}
+
 const _modelCache = makeModelCache({
   fileName: 'grok-oauth-models.json',
   ttlMs: MODEL_CACHE_TTL_MS,
   version: GROK_MODEL_CACHE_SCHEMA_VERSION,
 });
 
-function _grokModelSupportsEffort(id) {
+// A model takes a reasoning effort when its own roster row or the catalog
+// publishes effort values; otherwise the shared xAI rule decides (catalog row
+// first, then pass-through). Two id tokens are kept: xAI's own
+// `non-reasoning` variant marker, and the Build endpoint family. Neither
+// publishes capabilities, and both 400 on any effort.
+function _grokModelSupportsEffort(id, model = null) {
   const text = String(id || '').toLowerCase();
   if (!text) return false;
   if (NON_CHAT_MODEL_RE.test(text)) return false;
-  if (text.includes('non-reasoning')) return false;
-  if (text === 'grok-build' || text.startsWith('grok-build-')) return false;
-  return text.includes('reasoning') || /^grok-\d/.test(text);
+  if (_grokCatalogEffortValues(model).length || _grokApiEffortValues(model).length) return true;
+  if (/non[-_]?reasoning/.test(text)) return false;
+  // Build endpoint models reject reasoning_effort outright; a catalog or
+  // roster that publishes effort values has already answered above.
+  if (/^grok[-_]build/.test(text)) return false;
+  return xaiModelSupportsReasoningEffort(text);
 }
 
 // Pre-catalog fallback matches Grok 4.5 (low/medium/high). Grok 4.6 adds
@@ -86,7 +113,8 @@ function _grokApiEffortValues(model) {
     model?.reasoningEfforts ??
     model?.reasoning_efforts ??
     model?._meta?.reasoningEfforts ??
-    model?._meta?.reasoning_efforts;
+    model?._meta?.reasoning_efforts ??
+    model?.capabilities?.reasoning_effort;
   return Array.isArray(raw) ? _uniqueKnownGrokEfforts(raw) : [];
 }
 
@@ -103,7 +131,7 @@ function _grokCatalogEffortValues(model) {
 }
 
 function _grokReasoningLevels(id, model) {
-  if (!_grokModelSupportsEffort(id)) return [];
+  if (!_grokModelSupportsEffort(id, model)) return [];
   const catalog = _grokCatalogEffortValues(model);
   if (catalog.length) return catalog;
   const api = _grokApiEffortValues(model);
@@ -144,13 +172,14 @@ function _normalizeGrokModel(m) {
   const contextWindow = _grokApiContextWindow(m);
   const apiEfforts = _grokApiEffortValues(m);
   const reasoningOptions = apiEfforts.length ? [{ type: 'effort', values: apiEfforts }] : undefined;
+  const row = { ...m, reasoningOptions };
   return {
     id,
     name: id,
     display: _displayGrokModel(m),
     provider: 'grok-oauth',
-    family: _normalizeGrokFamily(id),
-    reasoningLevels: _grokReasoningLevels(id, { ...m, reasoningOptions }),
+    family: _normalizeGrokFamily(id, row),
+    reasoningLevels: _grokReasoningLevels(id, row),
     ...(reasoningOptions ? { reasoningOptions } : {}),
     tier: 'version',
     latest: false,
@@ -165,7 +194,7 @@ function _sanitizeGrokModels(models) {
   const next = models.map((m) => {
     let out = m;
     const display = _displayGrokModel(m);
-    const family = _normalizeGrokFamily(m?.id);
+    const family = _normalizeGrokFamily(m?.id, out);
     const reasoningLevels = _grokReasoningLevels(m?.id, out);
     // api.x.ai /models does not expose a max-output field. Historical
     // enrichment could persist contextWindow as outputTokens (for example
@@ -248,6 +277,15 @@ function resolveLatestGrokModel() {
   return _newestDatedGrokChatModel(cached)?.id || null;
 }
 
+// Whether a request for this model may carry an effort: the levels its cached
+// roster row already resolved from the roster and catalog answer, else the id
+// alone follows the catalog rule.
+function _grokSendSupportsEffort(id) {
+  const cached = _modelCache.loadSync();
+  const row = Array.isArray(cached) ? cached.find((m) => m?.id === id) : null;
+  return Array.isArray(row?.reasoningLevels) ? row.reasoningLevels.length > 0 : _grokModelSupportsEffort(id);
+}
+
 async function ensureLatestGrokModel(provider) {
   let m = resolveLatestGrokModel();
   if (m) return m;
@@ -265,6 +303,8 @@ export class GrokOAuthProvider {
   // OpenAI-compatible usage: prompt_tokens includes cached. See registry.mjs.
   static inputExcludesCache = false;
   name = 'grok-oauth';
+  // The inner xai profile's limits are final: no loop-level recovery cycles on top.
+  retryPolicy = XAI_COMPAT_RETRY_POLICY;
   config;
   tokens = null;
   _inner = null;
@@ -395,11 +435,12 @@ export class GrokOAuthProvider {
     });
     const inner = this._ensureInner(tokens.access_token, useModel, requestHeaders);
     const grokTools = normalizeGrokToolSchemas(tools);
-    // Effort-less models (grok-build, composer): the service 400s on ANY
-    // reasoningEffort parameter, and pinned model settings can carry one
-    // (e.g. the bench harness pins effort per route). Strip it here so a
-    // saved effort never breaks a model that cannot accept it.
-    if (!_grokModelSupportsEffort(useModel) && sendOpts) {
+    // Effort-less models: the service 400s on ANY reasoningEffort parameter,
+    // and pinned model settings can carry one (e.g. the bench harness pins
+    // effort per route). Strip it here so a saved effort never breaks a model
+    // that cannot accept it. The model's own roster row decides; a model not
+    // on the roster yet follows the catalog rule.
+    if (sendOpts && !_grokSendSupportsEffort(useModel)) {
       // 'none' (not null) so the ?? fallback chain in the xai builder
       // cannot fall through to a config/env effort; the normalizer maps
       // it to "omit the parameter".
@@ -414,9 +455,10 @@ export class GrokOAuthProvider {
       return await inner._doSend(messages, useModel, grokTools, sendOpts);
     } catch (err) {
       noteErrorUsage(err);
-      // Refresh-and-retry on a server-rejected OAuth session (401/403).
-      // TYPED status only: a rejection whose only evidence is message
-      // text is never treated as an auth failure worth re-issuing.
+      // Refresh-and-retry on a server-rejected OAuth session: 401, or a 403
+      // carrying an explicit expired/revoked-token code. TYPED evidence only:
+      // message text is never an auth verdict, and a plain permission 403 is
+      // surfaced as-is.
       const rejectedStatus = Number(err?.httpStatus || err?.status);
       // 426 = client version gate. Retry once only when the body stated a
       // minimum we did not already satisfy; nothing was emitted before it.
@@ -434,7 +476,7 @@ export class GrokOAuthProvider {
           sendOpts
         );
       }
-      if (rejectedStatus === 401 || rejectedStatus === 403) {
+      if (rejectedStatus === 401 || (rejectedStatus === 403 && hasExpiredTokenSignature(err))) {
         // A stream-level rejection after text/tool dispatch cannot be safely
         // replayed: the client has already observed output or may have
         // executed a side-effecting tool.
@@ -444,7 +486,14 @@ export class GrokOAuthProvider {
         process.stderr.write(`[grok-oauth] ${rejectedStatus}, force-refreshing token...\n`);
         const fresh = await this.ensureAuth({ forceRefresh: true });
         const retryInner = this._ensureInner(fresh.access_token, useModel, requestHeaders);
-        return await retryInner._doSend(messages, useModel, grokTools, sendOpts);
+        try {
+          return await retryInner._doSend(messages, useModel, grokTools, sendOpts);
+        } catch (retryErr) {
+          // Rejected again on a token that was just refreshed: re-login is the
+          // only remaining path.
+          if (Number(retryErr?.httpStatus || retryErr?.status) === 401) retryErr.reauthRequired = true;
+          throw retryErr;
+        }
       }
       throw err;
     }

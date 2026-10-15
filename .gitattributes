@@ -21,10 +21,8 @@
 
 # Published benchmark artifacts are evidence: keep every byte exactly as the
 # harness wrote it, with no end-of-line normalization on checkout or commit.
-benchmarks/terminal-bench-2.1/mixdog/** -text whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,cr-at-eol conflict-marker-size=1024
-benchmarks/terminal-bench-2.1/claude-code/** -text whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,cr-at-eol conflict-marker-size=1024
-benchmarks/terminal-bench-2.1/codex/** -text whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,cr-at-eol conflict-marker-size=1024
-benchmarks/terminal-bench-2.1/dsh/** -text whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,cr-at-eol conflict-marker-size=1024
+# Covers every run folder records/<harness>/<model>/<date>/, including new harnesses.
+benchmarks/terminal-bench-2.1/records/*/*/*/** -text whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,cr-at-eol conflict-marker-size=1024
 
 # Binary
 *.png binary

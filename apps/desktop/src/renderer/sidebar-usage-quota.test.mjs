@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { press } from './test-support/pointer-press.mjs';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { SidebarUsage, usagePinEntries } from './SidebarUsage.tsx';
 import { applyAccountUsageWindows, publishUsageDashboard } from './usage-dashboard-store.ts';
@@ -166,7 +167,7 @@ function meterRows() {
   ]);
 }
 
-test('Usage uses the same diagonal outline-to-filled pin without changing its toggle action', async (t) => {
+test('the pin toggle lives in the ··· menu and keeps its toggle action', async (t) => {
   let toggles = 0;
   const props = {
     pinned: false,
@@ -175,16 +176,16 @@ test('Usage uses the same diagonal outline-to-filled pin without changing its to
     },
   };
   const { root, api } = await renderUsage(t, [], props);
-  const button = document.querySelector('.sidebar-usage-pin');
-  assert.equal(button.getAttribute('aria-pressed'), 'false');
-  assert.equal(button.querySelector('svg').getAttribute('fill'), 'none');
-  assert.equal(button.querySelector('svg').style.transform, 'rotate(45deg)');
-  await act(async () => button.click());
+  assert.equal(document.querySelector('.sidebar-usage-pin'), null);
+  const button = document.querySelector('.sidebar-usage-menu');
+  assert.equal(button.getAttribute('aria-label'), 'Usage menu');
+  await press(button);
+  const item = document.querySelector('[role="menuitemcheckbox"]');
+  assert.equal(item.getAttribute('aria-checked'), 'false');
+  await press(item);
   assert.equal(toggles, 1);
   await act(async () => root.render(React.createElement(SidebarUsage, { api, ...props, pinned: true })));
-  assert.equal(button.getAttribute('aria-pressed'), 'true');
-  assert.equal(button.querySelector('svg').getAttribute('fill'), 'currentColor');
-  assert.equal(button.querySelector('svg').style.transform, 'rotate(45deg)');
+  assert.equal(document.querySelector('[role="menuitemcheckbox"]').getAttribute('aria-checked'), 'true');
 });
 
 test('Antigravity meters show distinct server 5H and 7D usage and reset times', async (t) => {

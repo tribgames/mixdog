@@ -97,7 +97,7 @@ export function createOwnedStarter({
     state.automationRunning = true;
   }
   // DEGRADED MODE: a messaging connect failure — packaged runtime without
-  // discord.js, bad token, gateway outage — must not take schedules/webhooks
+  // the provider library, bad token, gateway outage — must not take schedules/webhooks
   // down with it. Sends stay dead (connected=false) but session runs, the
   // webhook server and the relay tunnel keep working.
   async function degradeToAutomation() {

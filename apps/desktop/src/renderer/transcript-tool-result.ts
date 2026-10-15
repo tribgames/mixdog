@@ -86,8 +86,65 @@ export function toolActivityResultValue(item: TranscriptItem): unknown {
   }
 }
 
+const ASK_USER_RESULT_PREFIX = 'User has answered your questions: ';
+
+/** A JSON string literal starting at `at`: its value and the index after it. */
+function readQuoted(text: string, at: number): [string, number] | null {
+  if (text[at] !== '"') return null;
+  let end = at + 1;
+  while (end < text.length && text[end] !== '"') end += text[end] === '\\' ? 2 : 1;
+  if (end >= text.length) return null;
+  try {
+    return [JSON.parse(text.slice(at, end + 1)) as string, end + 1];
+  } catch {
+    return null;
+  }
+}
+
+/** The answers in an ask_user result, by question text: the picked labels (as
+ *  the runtime joined them) and the typed text. Grammar per question:
+ *  `"q"=(no answer)`, `"q"="picked"`, `"q"="typed" (typed)` or
+ *  `"q"="picked" + "typed" (typed)`, joined by `; `. */
+export function askUserAnswers(result: string): Map<string, { picked: string; typed: string }> {
+  const answers = new Map<string, { picked: string; typed: string }>();
+  if (!result.startsWith(ASK_USER_RESULT_PREFIX)) return answers;
+  const TYPED = ' (typed)';
+  let at = ASK_USER_RESULT_PREFIX.length;
+  for (;;) {
+    const key = readQuoted(result, at);
+    if (!key || result[key[1]] !== '=') break;
+    at = key[1] + 1;
+    let picked = '';
+    let typed = '';
+    if (result.startsWith('(no answer)', at)) at += '(no answer)'.length;
+    else {
+      const first = readQuoted(result, at);
+      if (!first) break;
+      at = first[1];
+      if (result.startsWith(' + ', at)) {
+        const second = readQuoted(result, at + 3);
+        if (!second) break;
+        picked = first[0];
+        typed = second[0];
+        at = second[1] + (result.startsWith(TYPED, second[1]) ? TYPED.length : 0);
+      } else if (result.startsWith(TYPED, at)) {
+        typed = first[0];
+        at += TYPED.length;
+      } else picked = first[0];
+    }
+    answers.set(key[0], { picked, typed });
+    if (!result.startsWith('; ', at)) break;
+    at += 2;
+  }
+  return answers;
+}
+
 function toolActivityAnswer(result: unknown, question: Record<string, unknown>, index: number, total: number): string {
   const secret = question.is_secret === true || question.isSecret === true;
+  if (typeof result === 'string' && result.startsWith(ASK_USER_RESULT_PREFIX)) {
+    const answer = askUserAnswers(result).get(toolActivityFirstText(question, 'question'));
+    return answer ? [answer.picked, answer.typed].filter(Boolean).join(', ') : '';
+  }
   const record = asRecord(result);
   const answers = record?.answers ?? record?.answer;
   let value: unknown;

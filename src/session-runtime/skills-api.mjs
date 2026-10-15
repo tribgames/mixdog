@@ -24,8 +24,8 @@ const DEFAULT_SKILL_BODY = '# Instructions\n\nDescribe how to use this skill.';
 export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
   const globalSkillsRoot = () => resolve(resolvePluginData(), 'skills');
 
-  function skillsStatus() {
-    const cwd = getCwd();
+  /** `cwd` overrides the session's folder (already validated by the caller). */
+  function skillsStatus({ cwd = getCwd() } = {}) {
     const skills = typeof contextMod.collectSkillsCached === 'function' ? contextMod.collectSkillsCached(cwd) : [];
     const norm = (value) =>
       String(value || '')
@@ -54,7 +54,10 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
         const source = sourceForSkill(skill);
         return {
           name: skill.name,
-          enabled: !(contextMod.isSkillDisabled?.(skill.name) || contextMod.skillMissingFeature?.(skill.name)),
+          enabled: !(
+            contextMod.isSkillDisabled?.(skill.name, null, skills) ||
+            contextMod.skillMissingFeature?.(skill.name, null, skills)
+          ),
           description: skill.description || '',
           whenToUse: skill.whenToUse || '',
           filePath: skill.filePath || null,
@@ -90,6 +93,7 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     if (typeof contextMod.isSkillDisabled === 'function' && contextMod.isSkillDisabled(skillName)) {
       return `Error: skill "${skillName}" is disabled`;
     }
+    if (contextMod.skillOutsideScope?.(skillName, getCwd())) return contextMod.skillOutsideScopeError(skillName);
     const skill = skillContent(skillName);
     // The general tool envelope keeps the main/Lead session identical to agent
     // loops: the model-visible tool_result is the short stub and the SKILL.md

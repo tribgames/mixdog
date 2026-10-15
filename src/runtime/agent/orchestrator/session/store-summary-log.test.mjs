@@ -187,7 +187,11 @@ test('try-lock failures are counted and reported at most once per interval, then
     _upsertSessionSummaryRow(summaryRow('b', 6_001, 'second'));
     await new Promise((resolve) => setTimeout(resolve, 60));
 
-    assert.ok(summaryLockFailureStats().total >= before + 2, 'each refused try-lock is counted');
+    assert.equal(
+      summaryLockFailureStats().total,
+      before + 1,
+      'the refused try-lock is counted; later saves join the retry'
+    );
     assert.equal(messages.length, 1, 'reported once inside the rate-limit window');
     assert.match(messages[0], /try-lock failure/);
     assert.equal(

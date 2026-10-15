@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseJsonText, updateJsonAtomicSync } from './atomic-file.mjs';
+import { parseJsonText, updateJsonAtomic } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 export const ACCOUNT_PROVIDERS = Object.freeze([
@@ -9,6 +9,7 @@ export const ACCOUNT_PROVIDERS = Object.freeze([
   'anthropic-oauth',
   'grok-oauth',
   'muse-code-oauth',
+  'command-code-oauth',
   'mimo-oauth',
   'cursor-oauth',
   'antigravity-oauth',
@@ -74,16 +75,39 @@ function normalizeLabels(pool) {
   return { ...pool, accounts };
 }
 
-export function readProviderAccountPool(provider, dataDir = resolvePluginData()) {
-  requireAccountProvider(provider);
-  return normalizeLabels(read(dataDir).providers[provider]) || { accounts: [], selectedId: null, auto: true };
+// How the roster picks an account. `manual` serves from the selected account
+// only; `limit` keeps the selected account until it reaches a limit and then
+// moves to the account with the most headroom; `headroom` starts every new
+// session on the account with the most headroom and keeps it for that session.
+export const ACCOUNT_POLICIES = Object.freeze(['manual', 'limit', 'headroom']);
+
+// `auto` predates `policy` and is still written beside it, so a build that
+// knows only `auto` reads the same switching on/off. Whenever the two
+// disagree (an older build toggled `auto`), `auto` decides whether switching
+// is on at all.
+export function providerAccountPolicy(pool) {
+  if (pool?.auto === false) return 'manual';
+  return pool?.policy === 'headroom' ? 'headroom' : 'limit';
 }
 
-function update(provider, mutate) {
+function normalizePool(pool) {
+  if (!pool) return pool;
+  const policy = providerAccountPolicy(pool);
+  return { ...normalizeLabels(pool), policy, auto: policy !== 'manual' };
+}
+
+export function readProviderAccountPool(provider, dataDir = resolvePluginData()) {
+  requireAccountProvider(provider);
+  return (
+    normalizePool(read(dataDir).providers[provider]) || { accounts: [], selectedId: null, auto: true, policy: 'limit' }
+  );
+}
+
+async function update(provider, mutate) {
   requireAccountProvider(provider);
   // Read failures must not be interpreted as an empty account roster.
   read();
-  const result = updateJsonAtomicSync(
+  const result = await updateJsonAtomic(
     file(),
     (raw) => {
       const state = validate(raw);
@@ -94,7 +118,7 @@ function update(provider, mutate) {
     },
     { mode: 0o600, secret: true, fsyncDir: true }
   );
-  return normalizeLabels(result.providers[provider]);
+  return normalizePool(result.providers[provider]);
 }
 
 /**
@@ -117,7 +141,7 @@ export function newProviderAccountId() {
   return randomUUID();
 }
 
-export function registerProviderAccount(provider, id, { label = '', includeDefault = false } = {}) {
+export async function registerProviderAccount(provider, id, { label = '', includeDefault = false } = {}) {
   requireAccountId(id);
   return update(provider, (pool) => {
     if (includeDefault && !pool.accounts.some((row) => row.id === 'default')) {
@@ -131,12 +155,12 @@ export function registerProviderAccount(provider, id, { label = '', includeDefau
   });
 }
 
-export function changeProviderAccounts(provider, change) {
+export async function changeProviderAccounts(provider, change) {
   if (
     !change ||
     typeof change !== 'object' ||
     Array.isArray(change) ||
-    Object.keys(change).some((key) => !['selectedId', 'order', 'auto', 'useCredits', 'rename'].includes(key))
+    Object.keys(change).some((key) => !['selectedId', 'order', 'auto', 'policy', 'useCredits', 'rename'].includes(key))
   ) {
     throw new TypeError('Invalid provider account change.');
   }
@@ -175,7 +199,18 @@ export function changeProviderAccounts(provider, change) {
     }
     if (change.auto !== undefined) {
       if (typeof change.auto !== 'boolean') throw new TypeError('Automatic account switching must be boolean.');
+      // Turning switching on keeps a non-manual policy; on from manual is the
+      // classic switch-at-limit behaviour.
+      const current = providerAccountPolicy(pool);
+      if (!change.auto) pool.policy = 'manual';
+      else if (current === 'manual') pool.policy = 'limit';
+      else pool.policy = current;
       pool.auto = change.auto;
+    }
+    if (change.policy !== undefined) {
+      if (!ACCOUNT_POLICIES.includes(change.policy)) throw new TypeError('Unknown account switching policy.');
+      pool.policy = change.policy;
+      pool.auto = change.policy !== 'manual';
     }
     if (change.useCredits !== undefined) {
       if (typeof change.useCredits !== 'boolean') throw new TypeError('Credit use must be boolean.');
@@ -184,7 +219,24 @@ export function changeProviderAccounts(provider, change) {
   });
 }
 
-export function removeProviderAccount(provider, id) {
+// Selects `id` only while the selection is still `expectedSelectedId`, checked
+// under the write's own lock, so a newer selection (a manual switch) wins. A
+// given `expectedPolicy` must also still hold: a policy change while the
+// request ran (e.g. to Manual) cancels the commit.
+// Returns the pool when the selection moved, otherwise null.
+export async function selectProviderAccountIf(provider, expectedSelectedId, id, expectedPolicy) {
+  requireAccountId(id);
+  let moved = false;
+  const pool = await update(provider, (pool) => {
+    if (pool.selectedId !== expectedSelectedId || !pool.accounts.some((row) => row.id === id)) return;
+    if (expectedPolicy && providerAccountPolicy(pool) !== expectedPolicy) return;
+    pool.selectedId = id;
+    moved = true;
+  });
+  return moved ? pool : null;
+}
+
+export async function removeProviderAccount(provider, id) {
   requireAccountId(id);
   return update(provider, (pool) => {
     pool.accounts = pool.accounts.filter((row) => row.id !== id);
@@ -192,7 +244,7 @@ export function removeProviderAccount(provider, id) {
   });
 }
 
-export function recordProviderAccountUsage(provider, id, snapshot) {
+export async function recordProviderAccountUsage(provider, id, snapshot) {
   if (!snapshot || !Array.isArray(snapshot.quotaWindows)) return;
   const windows = snapshot.quotaWindows.slice(0, 12).map((row) => ({
     label: String(row.label || '').slice(0, 40),
@@ -200,7 +252,7 @@ export function recordProviderAccountUsage(provider, id, snapshot) {
     resetAt: typeof row.resetAt === 'number' && Number.isFinite(row.resetAt) ? row.resetAt : null,
   }));
   if (!readProviderAccountPool(provider).accounts.some((row) => row.id === id)) return;
-  update(provider, (pool) => {
+  await update(provider, (pool) => {
     const row = pool.accounts.find((entry) => entry.id === id);
     if (!row) return;
     row.usage = { windows, checkedAt: Date.now() };
@@ -225,7 +277,7 @@ const MAX_BLOCK_MS = 6 * 60 * 60_000;
 // early can tell us anything.
 // `options.quota` records that the block came from a typed quota refusal or an
 // exhausted usage window, so later sends still count it as quota evidence.
-export function blockProviderAccount(provider, id, until, model = '', source = 'inferred', options = {}) {
+export async function blockProviderAccount(provider, id, until, model = '', source = 'inferred', options = {}) {
   return update(provider, (pool) => {
     const row = pool.accounts.find((entry) => entry.id === id);
     if (!row) return;
@@ -245,7 +297,7 @@ export function blockProviderAccount(provider, id, until, model = '', source = '
 // the refusal window and the meter recorded against the OLD subscription would
 // otherwise outlive it and refuse a request the provider would have served.
 // Both are dropped; the next usage reading refills them.
-export function clearProviderAccountQuotaState(provider, id) {
+export async function clearProviderAccountQuotaState(provider, id) {
   return update(provider, (pool) => {
     const row = pool.accounts.find((entry) => entry.id === id);
     if (!row) return;
@@ -318,14 +370,53 @@ export function providerAccountsResetAt(rows, now = Date.now(), model = '', opti
   return known.length ? Math.min(...known) : null;
 }
 
+function windowFull(row, window, now) {
+  return window.usedPct >= 100 && (window.resetAt ? window.resetAt > now : now - row.usage.checkedAt < 60_000);
+}
+
 export function providerAccountExhausted(row, now = Date.now(), model = '', options = {}) {
   if (row?.blockedUntil > now && blockAppliesToModel(row, model)) return true;
   if (options.useCredits === true) return false;
   return (row?.usage?.windows || []).some(
-    (window) =>
-      window.usedPct >= 100 &&
-      quotaWindowAppliesToModel(window, model) &&
-      (window.resetAt ? window.resetAt > now : now - row.usage.checkedAt < 60_000)
+    (window) => quotaWindowAppliesToModel(window, model) && windowFull(row, window, now)
+  );
+}
+
+function quotaWindowFamily(window) {
+  return FAMILY_QUOTA_WINDOW.exec(String(window?.label || '').trim())?.[1] || '';
+}
+
+// Which limit currently holds the account, independent of any one model:
+// `{ scope: 'account' }` when every request is refused (an unscoped window is
+// full, or a block with no narrower meter to attribute it to), `{ scope:
+// 'model', families }` when only model-family meters ("7D Fable") or a block
+// attributed to one are spent, so other models still run — else null.
+export function providerAccountLimit(row, now = Date.now(), options = {}) {
+  if (!row) return null;
+  const windows = row.usage?.windows || [];
+  const blocked = row.blockedUntil > now;
+  const scope = String(row.blockedModel || '').trim();
+  const scopedWindows = windows.filter((window) => quotaWindowFamily(window));
+  // A block counts as family-scoped only when a family meter covers the model
+  // that earned it; any other refusal is treated as the account's.
+  const covering = scope ? scopedWindows.filter((window) => quotaWindowAppliesToModel(window, scope)) : [];
+  if (blocked && !covering.length) return { scope: 'account' };
+  const credits = options.useCredits === true;
+  if (!credits && windows.some((window) => !quotaWindowFamily(window) && windowFull(row, window, now))) {
+    return { scope: 'account' };
+  }
+  const families = new Set(blocked ? covering.map(quotaWindowFamily) : []);
+  if (!credits) {
+    for (const window of scopedWindows) if (windowFull(row, window, now)) families.add(quotaWindowFamily(window));
+  }
+  return families.size ? { scope: 'model', families: [...families] } : null;
+}
+
+// The account refuses `model` only through a model-scoped limit: it still
+// serves other models, so it remains the provider's account of record.
+export function providerAccountExhaustedForModelOnly(row, now = Date.now(), model = '', options = {}) {
+  return (
+    providerAccountExhausted(row, now, model, options) && providerAccountLimit(row, now, options)?.scope === 'model'
   );
 }
 
@@ -347,15 +438,28 @@ function accountHeadroom(row, now, model) {
   return used.length ? 100 - Math.max(...used) : null;
 }
 
-export function chooseProviderAccount(pool, excluded = new Set(), now = Date.now(), model = '') {
+// `sessionAccountId` is the account the requesting session already runs on
+// (headroom policy only): kept while usable, so a session switches only on a
+// limit. Without one, the session's first request takes the account with the
+// most headroom.
+export function chooseProviderAccount(
+  pool,
+  excluded = new Set(),
+  now = Date.now(),
+  model = '',
+  { sessionAccountId } = {}
+) {
   const options = { useCredits: pool.useCredits === true };
   const usable = (row) => row && !excluded.has(row.id) && !providerAccountExhausted(row, now, model, options);
   const selected = pool.accounts.find((row) => row.id === pool.selectedId);
-  if (pool.auto === false) {
+  const policy = providerAccountPolicy(pool);
+  if (policy === 'manual') {
     if (excluded.has(selected?.id)) return null;
     return options.useCredits || usable(selected) ? selected || null : null;
   }
-  if (usable(selected)) return selected;
+  const preferred =
+    policy === 'headroom' ? pool.accounts.find((row) => sessionAccountId && row.id === sessionAccountId) : selected;
+  if (usable(preferred)) return preferred;
   // Falling back in roster order is blind: the account after the one that just
   // refused may itself be nearly spent, so the request pays a second switch to
   // learn what a recorded meter already knew. Ranking needs evidence for EVERY

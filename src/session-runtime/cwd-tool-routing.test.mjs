@@ -27,6 +27,10 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
   process.env.MIXDOG_CONFIG_DIR = join(root, 'config');
   process.env.MIXDOG_SESSION_CWD = 'process-global-must-not-change';
   process.env.MIXDOG_DISABLE_MCP = '1';
+  // Importing the patch tool schedules a native-binary prewarm that downloads
+  // the prebuilt engine when no local build exists (e.g. a clean gate
+  // checkout). This test must stay offline either way.
+  process.env.MIXDOG_PATCH_NATIVE_PREWARM = '0';
 
   const noop = () => {};
   const keychain = {
@@ -125,11 +129,11 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
   // call still belongs to runtimeA and must neither report nor mutate B.
   const callerSession = runtimeA.session;
   callerSession.messages.push({ role: 'user', content: 'Keep this conversation across reentry.' });
-  const getResult = JSON.parse(await executeTool('cwd', {}, cwdA, callerSession.id, callerSession));
+  const getResult = JSON.parse(await executeTool('session', {}, cwdA, callerSession.id, callerSession));
   assert.equal(getResult.cwd, cwdA);
   assert.equal(getResult.sessionId, callerSession.id);
 
-  const setResult = JSON.parse(await executeTool('cwd', { path: cwdNext }, cwdA, callerSession.id, callerSession));
+  const setResult = JSON.parse(await executeTool('session', { path: cwdNext }, cwdA, callerSession.id, callerSession));
   assert.equal(setResult.cwd, cwdNext);
   assert.equal(setResult.sessionId, callerSession.id);
   assert.equal(runtimeA.cwd, cwdNext);
@@ -154,7 +158,7 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
   await restored.resume(callerSession.id);
   assert.equal(restored.cwd, cwdNext);
   assert.deepEqual(restored.session.desktopSession, { classification: 'project', projectPath: cwdNext });
-  const returned = JSON.parse(await executeTool('cwd', { path: cwdA }, cwdNext, restored.id, restored.session));
+  const returned = JSON.parse(await executeTool('session', { path: cwdA }, cwdNext, restored.id, restored.session));
   assert.equal(returned.cwd, cwdA);
   assert.equal(restored.cwd, cwdA);
   assert.deepEqual(restored.session.desktopSession, { classification: 'project', projectPath: cwdA });

@@ -1,7 +1,8 @@
 /**
  * src/session-runtime/lifecycle/inheritance.mjs - session inheritance
  * (/inherit): fit preflight and the carry of another session's conversation
- * into the freshly created heir.
+ * into the freshly created heir — the live one (inheritFrom) or a cold sibling
+ * persisted without switching (inheritToNewSession), through one carry core.
  */
 import { hasUserConversationMessage } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { stripEffortConfiguration } from '../../runtime/agent/orchestrator/providers/effort-configuration.mjs';
@@ -14,6 +15,7 @@ import {
   inheritanceRouteTarget,
 } from '../inheritance-fit.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { buildColdHeir, committedSource, persistColdHeir } from './cold-heir.mjs';
 
 export function createInheritance(deps, { compactConversation, saveSession }) {
   const { getSession, getRoute, mgr, createCurrentSession, invalidateContextStatusCache, getReservedSessionId } = deps;
@@ -144,6 +146,44 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
   }
 
   /**
+   * The ONE carry every inheritance path shares: measure the source's
+   * conversation on the heir's scale, compact it for the heir when asked to
+   * or when it cannot fit, and append it to the (empty) heir with its
+   * inheritance boundary. Refusals throw before the heir is touched; the
+   * source is never mutated.
+   */
+  async function carryConversation(source, target, { compact = false } = {}) {
+    // System blocks belong to the session that BUILT them: the target's own
+    // prompt was composed for the current model, tool surface, and workflow.
+    // Only the conversation itself travels.
+    let carried = inheritableMessages(source.messages);
+    if (!hasUserConversationMessage(carried)) {
+      throw new Error('inheritFrom: the source session has no conversation to carry');
+    }
+    // Decide BEFORE anything moves, on the heir's own scale. This is the
+    // same function inheritancePreflight() answers with, so the surface that
+    // offered the carry and the runtime that performs it cannot disagree —
+    // and a refusal no longer has to unwind a half-filled transcript.
+    const fit = inheritanceFit(carried, target);
+    let compacted = false;
+    // compact:true summarizes even a conversation that fits; otherwise only
+    // one that cannot fit is compacted.
+    if (compact || (fit.known && !fit.fits)) {
+      const next = await fitConversationForHeir(source, target, carried, fit, { required: compact });
+      compacted = next !== carried;
+      carried = next;
+    }
+    target.messages.push(
+      ...stripEffortConfiguration(inheritedCompatReplayMessages(structuredClone(carried), source.provider))
+    );
+    target.inheritedFromSessionId = source.id;
+    target.updatedAt = Date.now();
+    recordInheritanceBoundary(target, source);
+    if (!clean(target.title) && clean(source.title)) target.title = source.title;
+    return { messages: carried.length, compacted };
+  }
+
+  /**
    * Session inheritance (/inherit): carry another session's conversation
    * into THIS freshly created session, so the transcript continues under a
    * new id on the currently selected model.
@@ -174,41 +214,45 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
     }
     const source = mgr.getSession(id);
     if (!source) throw new Error(`inheritFrom: session ${id} was not found`);
-    // System blocks belong to the session that BUILT them: the target's own
-    // prompt was composed for the current model, tool surface, and workflow.
-    // Only the conversation itself travels.
-    let carried = inheritableMessages(source.messages);
-    if (!hasUserConversationMessage(carried)) {
-      throw new Error('inheritFrom: the source session has no conversation to carry');
-    }
-    // Decide BEFORE anything moves, on the heir's own scale. This is the
-    // same function inheritancePreflight() answers with, so the surface that
-    // offered the carry and the runtime that performs it cannot disagree —
-    // and a refusal no longer has to unwind a half-filled transcript.
-    const fit = inheritanceFit(carried, target);
-    // compact:true summarizes even a conversation that fits; otherwise only
-    // one that cannot fit is compacted.
-    if (compact || (fit.known && !fit.fits)) {
-      carried = await fitConversationForHeir(source, target, carried, fit, { required: compact });
-    }
-    target.messages.push(
-      ...stripEffortConfiguration(inheritedCompatReplayMessages(structuredClone(carried), source.provider))
-    );
+    const { messages } = await carryConversation(source, target, { compact });
     invalidateContextStatusCache();
-    target.inheritedFromSessionId = source.id;
-    target.updatedAt = Date.now();
-    recordInheritanceBoundary(target, source);
-    if (!clean(target.title) && clean(source.title)) target.title = source.title;
     saveSession(target, { immediate: true });
     invalidateContextStatusCache();
     return {
       sessionId: target.id,
       sourceSessionId: source.id,
-      messages: carried.length,
+      messages,
       provider: target.provider,
       model: target.model,
     };
   }
 
-  return { inheritancePreflight, inheritFrom };
+  /**
+   * Inheritance WITHOUT switching: carry a session's conversation (normally
+   * the live one, possibly mid-turn) into a NEW session on the same route,
+   * cwd and Project, persisted cold for a later resume. The live session
+   * stays the current one and is never mutated; only its committed turns
+   * travel. Same carry, compaction and refusals as inheritFrom().
+   */
+  async function inheritToNewSession(sourceSessionId, { compact = false, titleSuffix = '' } = {}) {
+    const live = getSession();
+    const id = clean(sourceSessionId) || clean(live?.id);
+    if (!id) throw new TypeError('inheritToNewSession: source session id is required');
+    const stored = id === clean(live?.id) ? live : mgr.getSession(id);
+    if (!stored) throw new Error(`inheritFrom: session ${id} was not found`);
+    const source = committedSource(stored);
+    const heir = buildColdHeir(source);
+    const { messages, compacted } = await carryConversation(source, heir, { compact: compact === true });
+    // A suffixed title ("… (Fork)") tells the copy apart in session lists;
+    // locked as a model title so auto-titling keeps it, renames still win.
+    if (titleSuffix && clean(heir.title)) {
+      heir.title = `${clean(heir.title)}${titleSuffix}`;
+      heir.titleLocked = true;
+      heir.titleSource = 'ai';
+    }
+    await persistColdHeir(heir);
+    return { sessionId: heir.id, messages, compacted };
+  }
+
+  return { inheritancePreflight, inheritFrom, inheritToNewSession };
 }

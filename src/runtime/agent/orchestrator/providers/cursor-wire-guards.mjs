@@ -1,4 +1,6 @@
 import { mergeFlatSchemaProperty } from './lib/flat-schema-merge.mjs';
+import { REAUTH_GUIDANCE } from './cursor-auth.mjs';
+import { isTransientErrorCode } from './provider-error-kind.mjs';
 
 const SCHEMA_ANNOTATIONS = new Set([
   '$comment',
@@ -32,6 +34,15 @@ export function resolveCursorStreamTuning(env = process.env) {
     idleTimeoutMs: boundedInteger(env.MIXDOG_CURSOR_STREAM_IDLE_TIMEOUT_MS, 180_000),
     parkTimeoutMs: boundedInteger(env.MIXDOG_CURSOR_STREAM_PARK_TIMEOUT_MS, 45_000, { min: 1_000 }),
     maxRetries: boundedInteger(env.MIXDOG_CURSOR_STREAM_IDLE_MAX_RETRIES, 5, { max: 10 }),
+    // Transport retry: 250ms base, 2s ceiling.
+    retryBaseDelayMs: boundedInteger(env.MIXDOG_CURSOR_STREAM_RETRY_BASE_MS, 250, { max: 60_000 }),
+    retryMaxDelayMs: boundedInteger(env.MIXDOG_CURSOR_STREAM_RETRY_MAX_MS, 2_000, { max: 120_000 }),
+    // A rate limit gets one recovery (min(1, maxRetries)).
+    maxThrottleRetries: boundedInteger(env.MIXDOG_CURSOR_THROTTLE_MAX_RETRIES, 1, { max: 5 }),
+    // One credential-refresh retry; the outer provider layer adds none for a
+    // stream that already ran, and re-sending a rejected credential only
+    // hammers the token endpoint.
+    maxAuthRetries: boundedInteger(env.MIXDOG_CURSOR_AUTH_MAX_RETRIES, 1, { max: 5 }),
   };
 }
 
@@ -221,6 +232,13 @@ export function createCursorStreamWatchdog({ idleTimeoutMs, parkTimeoutMs, onTim
       if (kind === 'work') arm(idleTimeoutMs, 'idle');
       else if (kind === 'park') arm(parkTimeoutMs, 'park');
     },
+    // Suspend both deadlines during an intentional retry wait; the next
+    // start()/progress('work'|'park') re-arms them, so only real stream
+    // silence is ever counted.
+    pause() {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    },
     stop() {
       stopped = true;
       if (timer) clearTimeout(timer);
@@ -251,8 +269,85 @@ export function cursorInteractionProgress(update) {
   return 'none';
 }
 
+// Codes that describe a transient server verdict or a recognized transport
+// truncation. Everything else (protocol/decoding errors, 4xx verdicts,
+// unknown failures) is deterministic and is never replayed in place.
+const TRANSIENT_STREAM_CODES = new Set([
+  'unavailable',
+  'internal',
+  'deadline_exceeded',
+  'stream_aborted',
+  'goaway',
+  'connection_timeout',
+  'stream_idle_timeout',
+  'stream_park_timeout',
+  'incomplete_stream',
+  'ERR_HTTP2_STREAM_CANCEL',
+  'ERR_HTTP2_GOAWAY_SESSION',
+]);
+
+// Protocol-mismatch check: Cursor wraps a wire mismatch in `internal`, and
+// re-sending a request the schema cannot decode only burns the retry budget.
+// Tested on the server's own detail, before the transient code is trusted.
+const PROTOCOL_DRIFT_RE = /\b(protocol|protobuf|wire drift|invalid argument|failed_precondition)\b/i;
+
+export function isCursorProtocolDrift(error) {
+  if (error?.code === 'protocol_error') return true;
+  return PROTOCOL_DRIFT_RE.test(String(error?.cursorDetail ?? ''));
+}
+
 export function isRetryableCursorStreamError(error) {
-  const status = Number(error?.httpStatus || error?.status || 0);
   if (error?.name === 'AbortError') return false;
-  return status === 0 || status >= 500;
+  const code = String(error?.code || '');
+  if (!TRANSIENT_STREAM_CODES.has(code) && !isTransientErrorCode(code)) return false;
+  return !isCursorProtocolDrift(error);
+}
+
+// Rejected credentials: worth one forced token refresh before giving up.
+export function isCursorAuthError(error) {
+  if (error?.name === 'AbortError') return false;
+  return error?.code === 'unauthenticated' || error?.code === 'permission_denied';
+}
+
+// Credentials for in-place restarts. Every retry force-refreshes and keeps the
+// previous token if the refresh fails; a rejected credential is
+// only retried when the refresh produced a different token.
+export function createCursorCredentialRefresher(initialToken, getAccessToken) {
+  let current = initialToken;
+  return {
+    async refresh(reason, error) {
+      let next = current;
+      if (getAccessToken) {
+        try {
+          next = (await getAccessToken({ forceRefresh: true })) || current;
+        } catch {
+          /* keep the previous token */
+        }
+      }
+      if (reason === 'auth' && next === current) throw error;
+      current = next;
+      return current;
+    },
+  };
+}
+
+// Final-failure guidance appended once to the original Cursor detail
+// (transport-failure hint).
+export function withCursorFailureHint(error) {
+  if (!(error instanceof Error) || error.cursorHintApplied) return error;
+  const hint = isCursorAuthError(error)
+    ? REAUTH_GUIDANCE
+    : isCursorProtocolDrift(error)
+      ? 'Cursor may have changed its wire protocol; update Mixdog or set MIXDOG_CURSOR_CLIENT_VERSION if this persists.'
+      : '';
+  if (!hint) return error;
+  error.cursorHintApplied = true;
+  error.message = `${error.message} ${hint}`;
+  return error;
+}
+
+// resource_exhausted / 429 that is a throttle, not an oversized request.
+export function isCursorThrottleError(error) {
+  if (error?.name === 'AbortError' || error?.code === 'request_too_large') return false;
+  return error?.code === 'resource_exhausted' || Number(error?.httpStatus || error?.status || 0) === 429;
 }

@@ -12,17 +12,20 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
 
   function normalizeToolApprovalRequest(input = {}, id = nextId()) {
     const now = Date.now();
+    const requestTimeoutMs =
+      Number.isFinite(Number(input?.timeoutMs)) && Number(input.timeoutMs) > 0 ? Number(input.timeoutMs) : timeoutMs;
     return {
       id,
       name: String(input?.name || input?.tool_name || 'tool'),
+      kind: typeof input?.kind === 'string' ? input.kind : '',
       args: input?.args ?? input?.tool_input ?? null,
       cwd: input?.cwd || null,
       sessionId: input?.sessionId || input?.session_id || null,
       toolCallId: input?.toolCallId || input?.tool_use_id || null,
       reason: String(input?.reason || input?.message || 'approval requested by hook').trim(),
       requestedAt: now,
-      timeoutMs,
-      expiresAt: now + timeoutMs,
+      timeoutMs: requestTimeoutMs,
+      expiresAt: now + requestTimeoutMs,
     };
   }
   // Every request expires from ITS OWN requestedAt, queued or active. Arming
@@ -39,10 +42,10 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
   // Settle one entry: drop its timeout, then hand the waiter its answer. The
   // resolve stays guarded — a waiter whose caller already went away must never
   // take the rest of the queue down with it.
-  function settleToolApproval(entry, approved, reason) {
+  function settleToolApproval(entry, approved, reason, answers) {
     if (entry?.timer) clearTimeout(entry.timer);
     try {
-      entry.resolve({ approved, reason });
+      entry.resolve(answers === undefined ? { approved, reason } : { approved, reason, answers });
     } catch {}
   }
   function presentNextToolApproval() {
@@ -56,7 +59,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     armToolApprovalTimeout(entry);
     set({ toolApproval: entry.request });
   }
-  function finishToolApproval(id, approved, reason = '', device = '') {
+  function finishToolApproval(id, approved, reason = '', device = '', answers = undefined) {
     const targetId = String(id || '');
     if (activeToolApproval && activeToolApproval.id === targetId) {
       const entry = activeToolApproval;
@@ -67,14 +70,14 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
         ? { id: targetId, approved: approved === true, device: String(device), at: Date.now() }
         : null;
       set({ toolApproval: null, toolApprovalResult });
-      settleToolApproval(entry, approved === true, String(reason || ''));
+      settleToolApproval(entry, approved === true, String(reason || ''), answers);
       presentNextToolApproval();
       return true;
     }
     const index = toolApprovalQueue.findIndex((entry) => entry.id === targetId);
     if (index >= 0) {
       const [entry] = toolApprovalQueue.splice(index, 1);
-      settleToolApproval(entry, approved === true, String(reason || ''));
+      settleToolApproval(entry, approved === true, String(reason || ''), answers);
       return true;
     }
     return false;

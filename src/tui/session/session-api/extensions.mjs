@@ -28,6 +28,13 @@ export function createSessionExtensionsApi(bag) {
       { busyError: 'Another command is still running; try again when it finishes.' }
     );
   const pluginLabel = (result, plugin) => result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin;
+  // MCP OAuth sign-in methods the runtime must implement (no silent fallback).
+  const mcpOAuth =
+    (name) =>
+    (...args) => {
+      if (typeof runtime[name] !== 'function') throw new Error('MCP sign-in is unavailable');
+      return runtime[name](...args);
+    };
 
   return {
     mcpStatus: () => {
@@ -55,6 +62,19 @@ export function createSessionExtensionsApi(bag) {
       (name) => runtime.removeMcpServer?.(name),
       (_status, name) => [`mcp removed: ${name}`]
     ),
+    // Explicit OAuth sign-in: no command lock, the flow runs on the server's
+    // own connect lane and the caller polls its status. The caller (TUI app)
+    // owns the sign-in completion notice; the store never posts one.
+    beginMcpOAuthLogin: async (name, options) => {
+      const result = await mcpOAuth('beginMcpOAuthLogin')(name, options);
+      if (result?.state === 'pending') pushNotice(`mcp sign-in started: ${name}`, 'info');
+      return result;
+    },
+    getMcpOAuthLoginStatus: mcpOAuth('getMcpOAuthLoginStatus'),
+    cancelMcpOAuthLogin: mcpOAuth('cancelMcpOAuthLogin'),
+    completeMcpOAuthLogin: mcpOAuth('completeMcpOAuthLogin'),
+    signOutMcpServer: lockedChange(mcpOAuth('signOutMcpServer'), (_status, name) => [`mcp signed out: ${name}`]),
+    probeMcpServerAuth: mcpOAuth('probeMcpServerAuth'),
     setMcpServerEnabled: async (name, enabled) => {
       // No global commandBusy: the runtime adopts config synchronously and
       // serializes the heavy connect/close/recreate per server name, so rapid
@@ -70,6 +90,8 @@ export function createSessionExtensionsApi(bag) {
       const row = status?.servers?.find((s) => s.name === name);
       if (enabled && row && (row.status === 'failed' || row.error)) {
         pushNotice(`mcp enable failed: ${name}${row.error ? ` — ${row.error}` : ''}`, 'error');
+      } else if (enabled && row?.authRequired) {
+        pushNotice(`mcp enabled: ${name} — sign-in required`, 'warn');
       } else {
         pushNotice(`mcp ${enabled ? 'enabled' : 'disabled'}: ${name}`, 'info');
       }
@@ -83,8 +105,10 @@ export function createSessionExtensionsApi(bag) {
       }
       return await runtime.setExtensionScope(kind, name, projects);
     },
-    skillsStatus: () => {
-      return runtime.skillsStatus?.() || { cwd: getState().cwd, count: 0, skills: [] };
+    // `options.cwd`: list and scope skills for that folder instead of this
+    // session's (the desktop resolves a new-task draft's Project to it).
+    skillsStatus: (options) => {
+      return runtime.skillsStatus?.(options) || { cwd: getState().cwd, count: 0, skills: [] };
     },
     skillContent: (name) => {
       return runtime.skillContent?.(name);

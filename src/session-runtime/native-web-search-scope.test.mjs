@@ -17,11 +17,11 @@ function createSearchRuntime(t, id, model) {
   const rt = {
     closeRequested: false,
     config: { providers: {}, webSearchRoute: route },
-    startupProviderCatalogRefreshStarted: true,
   };
   const requests = [];
   const reg = {
     initProviders: async () => {},
+    refreshProviderCatalogsOnStartup: () => Promise.resolve(),
     getProvider: () => ({
       send: async (messages, selectedModel, _tools, options) => {
         options.signal?.throwIfAborted();

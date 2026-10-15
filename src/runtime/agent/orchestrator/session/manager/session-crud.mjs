@@ -91,12 +91,29 @@ export async function updateSessionManualTitle(id, title) {
   if (!session || session.closed === true) return false;
   const normalized = normalizeSessionTitle(title);
   if (!normalized) return false;
-  if (session.title === normalized && session.titleLocked === true) return false;
+  if (session.title === normalized && session.titleLocked === true && session.titleSource === 'user') return false;
   session.title = normalized;
   session.titleLocked = true;
+  session.titleSource = 'user';
   session.titleUpdatedAt = Date.now();
   await saveSessionAsync(session, { expectedGeneration: session.generation });
   return true;
+}
+// A title the model chose (session tool). Never overwrites a user title; a
+// legacy locked session without titleSource counts as user-titled. It locks
+// the title against auto-generated ones but stays replaceable by the model.
+export async function updateSessionAiTitle(id, title) {
+  const session = loadSession(id);
+  if (!session || session.closed === true) return { ok: false, reason: 'not-found' };
+  const normalized = normalizeSessionTitle(title);
+  if (!normalized) return { ok: false, reason: 'empty-title' };
+  if (session.titleLocked === true && session.titleSource !== 'ai') return { ok: false, reason: 'user-title' };
+  session.title = normalized;
+  session.titleLocked = true;
+  session.titleSource = 'ai';
+  session.titleUpdatedAt = Date.now();
+  await saveSessionAsync(session, { expectedGeneration: session.generation });
+  return { ok: true, title: normalized };
 }
 // --- Clear messages (keep system prompt + provider/model/cwd) ---
 // Token/provider accounting a cleared transcript starts from; shared by the

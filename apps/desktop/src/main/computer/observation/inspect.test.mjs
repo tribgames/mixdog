@@ -200,14 +200,22 @@ test('diagnose reports the structured Linux readiness from an asynchronous permi
     session: 'wayland',
     desktop: 'kde',
     capabilities: {
-      capture: { state: 'unknown' }, windows: { state: 'unsupported' }, accessibility: ready,
-      semanticActions: { state: 'unsupported' }, pointer: ready, keyboard: ready,
-      clipboard: { ...ready, optional: true }, ocr: { state: 'needs_setup', fix: 'install_package', package: 'tesseract-ocr', optional: true },
+      capture: { state: 'unknown' },
+      windows: { state: 'unsupported' },
+      accessibility: ready,
+      semanticActions: { state: 'unsupported' },
+      pointer: ready,
+      keyboard: ready,
+      clipboard: { ...ready, optional: true },
+      ocr: { state: 'needs_setup', fix: 'install_package', package: 'tesseract-ocr', optional: true },
     },
   };
   const permissions = { screen_capture: 'unknown', accessibility: 'ready', input: 'ready', linux };
   const reader = createInspection({
-    callPowerShell: async () => ({ ok: true, result: { available: true, observer_ready: true, ready: true, held: false } }),
+    callPowerShell: async () => ({
+      ok: true,
+      result: { available: true, observer_ready: true, ready: true, held: false },
+    }),
     sessionIdFor: () => 'diagnose-linux',
     assertExecutionNotAborted() {},
     readComputerWindows: async () => [],
@@ -219,6 +227,91 @@ test('diagnose reports the structured Linux readiness from an asynchronous permi
   const result = JSON.parse((await reader.diagnoseComputer({ action: 'diagnose' })).text);
   assert.deepEqual(result.permissions, permissions);
   assert.equal(result.permissions.linux.capabilities.ocr.package, 'tesseract-ocr');
+});
+
+test('diagnose names each input observation cause independently and reports the desktop truthfully', async () => {
+  const diagnose = async (native) => {
+    const reader = createInspection({
+      callPowerShell: async (request) =>
+        request.action === 'input_idle_state'
+          ? { ok: true, result: native }
+          : { ok: true, result: { elements: [{}], available: true, interactive: true } },
+      sessionIdFor: () => 'diagnose-input-cause',
+      assertExecutionNotAborted() {},
+      readComputerWindows: async () => [{ id: 'hwnd:0x1', focused: true }],
+      readDisplays: () => [],
+      readPermissions: () => WINDOWS_PERMISSIONS,
+      isObserveOnly: () => false,
+      readInputState: () => ({ userControlActive: false, cleanupState: 'ready' }),
+    });
+    return JSON.parse((await reader.diagnoseComputer({ action: 'diagnose' })).text);
+  };
+  for (const [native, cause, pattern] of [
+    [
+      { observer_ready: false, observer_reason: 'hooks_unavailable', desktop_ready: true, ready: false, held: false },
+      'hooks_unavailable',
+      /hooks could not be installed/,
+    ],
+    [
+      { observer_ready: false, observer_reason: 'input_gap', desktop_ready: true, ready: false, held: false },
+      'input_gap',
+      /input was missed.*administrator window.*recovering.*without touching the keyboard or mouse/,
+    ],
+    [
+      {
+        observer_ready: false,
+        observer_reason: 'monitor_unresponsive',
+        desktop_ready: true,
+        ready: false,
+        held: false,
+      },
+      'monitor_unresponsive',
+      /observer is not responding/,
+    ],
+    [
+      { observer_ready: true, observer_reason: '', desktop_ready: false, ready: false, held: false },
+      'secure_desktop',
+      /secure desktop \(lock screen or UAC prompt\)/,
+    ],
+    // A missed input on the secure desktop is resolved by leaving it first.
+    [
+      { observer_ready: false, observer_reason: 'input_gap', desktop_ready: false, ready: false, held: false },
+      'secure_desktop',
+      /secure desktop/,
+    ],
+    [
+      {
+        observer_ready: false,
+        observer_reason: 'unknown_future_reason',
+        desktop_ready: true,
+        ready: false,
+        held: false,
+      },
+      undefined,
+      /^foreground input observation is unavailable$/,
+    ],
+  ]) {
+    const result = await diagnose(native);
+    const observation = result.capabilities.input_observation;
+    assert.equal(observation.ready, false);
+    assert.equal(observation.observer_ready, native.observer_ready);
+    assert.equal(observation.desktop_ready, native.desktop_ready, 'desktop readiness was derived from the observer');
+    assert.equal(observation.cause, cause);
+    const issues = result.issues.filter((issue) => /input|observ|desktop/.test(issue));
+    assert.equal(issues.length, 1, JSON.stringify(result.issues));
+    assert.match(issues[0], pattern);
+    assert.doesNotMatch(issues[0], /silently removed/);
+  }
+  const ready = await diagnose({
+    observer_ready: true,
+    observer_reason: '',
+    desktop_ready: true,
+    ready: true,
+    held: false,
+  });
+  assert.equal(ready.capabilities.input_observation.ready, true);
+  assert.equal(ready.capabilities.input_observation.cause, undefined);
+  assert.equal(ready.issues.length, 0);
 });
 
 test('diagnose probes native input readiness instead of inferring it from usable accessibility', async () => {

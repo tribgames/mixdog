@@ -30,7 +30,8 @@
   grid-column: 2;
   grid-row: 1 / span 2;
 }
-.extensions-mcp-transport {
+/* Shared segmented control skin (MCP transport picker, custom provider key source). */
+.mx-segmented {
   display: inline-flex;
   align-self: center;
   padding: 3px;
@@ -38,7 +39,16 @@
   background: var(--mx-hover);
   box-shadow: none;
 }
-.extensions-mcp-transport button {
+.mx-segmented.mx-segmented-compact {
+  padding: 2px;
+}
+.mx-segmented.mx-segmented-compact button {
+  min-height: 24px;
+  font-size: 13px;
+  line-height: 16px;
+  padding: 0 10px;
+}
+.mx-segmented button {
   min-height: 26px;
   display: inline-flex;
   align-items: center;
@@ -54,32 +64,32 @@
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
 }
-.extensions-mcp-transport button > svg {
+.mx-segmented button > svg {
   flex: 0 0 auto;
   color: transparent;
 }
-.extensions-mcp-transport button:hover:not(:disabled) {
+.mx-segmented button:hover:not(:disabled) {
   color: var(--mx-text);
   background: var(--mx-hover);
 }
-/* The chosen transport is a persistent selection: the rail's .selected plate
+/* The chosen option is a persistent selection: the rail's .selected plate
    (pressed wash + the -active hairline) with its check in text ink. */
-.extensions-mcp-transport button.active,
-.extensions-mcp-transport button[aria-pressed="true"] {
+.mx-segmented button.active,
+.mx-segmented button[aria-pressed="true"] {
   color: var(--mx-bg-base);
   background: var(--mx-text);
   box-shadow: none;
   font-weight: var(--mx-weight-semibold);
 }
-.extensions-mcp-transport button.active > svg,
-.extensions-mcp-transport button[aria-pressed="true"] > svg {
+.mx-segmented button.active > svg,
+.mx-segmented button[aria-pressed="true"] > svg {
   color: currentColor;
 }
-.extensions-mcp-transport button:focus-visible {
+.mx-segmented button:focus-visible {
   outline: 1px solid var(--mx-focus);
   outline-offset: -1px;
 }
-.extensions-mcp-transport button:disabled {
+.mx-segmented button:disabled {
   cursor: default;
   opacity: var(--mx-op-disabled);
 }

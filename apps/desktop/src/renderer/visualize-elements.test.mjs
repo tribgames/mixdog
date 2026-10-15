@@ -15,9 +15,8 @@ installTestDom(null, {
 const { createRoot } = await import('react-dom/client');
 const { startElementPin, useVisualizeInspection, VisualizeElements } = await import('./VisualizeElements.tsx');
 const { VisualizeCommentLayer } = await import('./VisualizeFeedback.tsx');
-const { resetVisualizeElementPins, requestVisualizeElementPin, takeVisualizeElementPin, VISUALIZE_ELEMENT_PIN_TTL_MS } = await import(
-  './visualize-elements-store.ts'
-);
+const { resetVisualizeElementPins, requestVisualizeElementPin, takeVisualizeElementPin, VISUALIZE_ELEMENT_PIN_TTL_MS } =
+  await import('./visualize-elements-store.ts');
 const { resetVisualizeFeedback } = await import('./visualize-feedback-store.ts');
 
 const jsdomUtils = createRequire(import.meta.url)('jsdom/lib/jsdom/living/generated/utils.js');
@@ -26,7 +25,8 @@ async function userClick(node) {
   jsdomUtils.implForWrapper(event).isTrusted = true;
   await act(async () => jsdomUtils.implForWrapper(node)._dispatch(jsdomUtils.implForWrapper(event)));
 }
-const scriptClick = (node) => act(async () => node.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })));
+const scriptClick = (node) =>
+  act(async () => node.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })));
 
 const tab = {
   id: 'v1',
@@ -43,13 +43,24 @@ const inspection = {
   outline: [{ depth: 0, kind: 'heading', role: 'heading', level: 1, name: 'Dashboard', selector: 'h1' }],
   elements: [{ role: 'button', name: 'Save', selector: '#save', tag: 'button', x: 1, y: 2, w: 3, h: 4, flags: [] }],
   elementCount: 1,
-  findings: [{ kind: 'overflow-x', severity: 'error', message: 'page scrolls horizontally', selector: 'html', x: 0, y: 0, w: 500, h: 0 }],
+  findings: [
+    {
+      kind: 'overflow-x',
+      severity: 'error',
+      message: 'page scrolls horizontally',
+      selector: 'html',
+      x: 0,
+      y: 0,
+      w: 500,
+      h: 0,
+    },
+  ],
   findingCount: 1,
   contrastUnknown: 0,
   partial: false,
 };
 
-async function mount(t) {
+async function mount(t, { enabled = true } = {}) {
   resetVisualizeFeedback();
   resetVisualizeElementPins();
   const state = { findingCount: -1, comment: false };
@@ -57,7 +68,7 @@ async function mount(t) {
     const [body, setBody] = useState(null);
     const [comment, setComment] = useState(false);
     state.comment = comment;
-    const reading = useVisualizeInspection({ body, tab });
+    const reading = useVisualizeInspection({ body, tab, enabled });
     state.findingCount = reading.findingCount;
     state.refresh = reading.refresh;
     return React.createElement(
@@ -130,12 +141,28 @@ test('a ready page is read and its findings, outline and elements are listed', a
   assert.match(text, /button.*Save.*#save/);
 });
 
+test('no page is read on ready while the Elements view is closed, but an explicit refresh still reads', async (t) => {
+  const page = await mount(t, { enabled: false });
+  const reads = () => page.toPage.filter((message) => message.type === 'inspect');
+  await page.fromPage({ type: 'ready' });
+  await page.fromPage({ type: 'ready' });
+  await settle(450);
+  assert.equal(reads().length, 0, 'ready alone reads nothing');
+  await act(async () => page.state.refresh());
+  assert.equal(reads().length, 1, 'refresh reads');
+  await page.fromPage({ type: 'inspected', id: reads()[0].id, inspection });
+  assert.equal(page.state.findingCount, 1);
+});
+
 test('answers from other windows, with another id, or malformed are ignored', async (t) => {
   const page = await mount(t);
   await page.fromPage({ type: 'ready' });
   await settle(350);
   const request = page.toPage.find((message) => message.type === 'inspect');
-  const stranger = new window.MessageEvent('message', { data: tagged({ type: 'inspected', id: request.id, inspection }), source: window });
+  const stranger = new window.MessageEvent('message', {
+    data: tagged({ type: 'inspected', id: request.id, inspection }),
+    source: window,
+  });
   await act(async () => window.dispatchEvent(stranger));
   await page.fromPage({ type: 'inspected', id: 'guessed', inspection });
   await page.fromPage({ type: 'inspected', id: request.id, inspection: { elements: 'nope' } });
@@ -159,7 +186,9 @@ test('a page that never answers is unavailable, and an error answer is shown', a
 test('hovering a row outlines the element in the page, leaving clears it', async (t) => {
   const page = await mount(t);
   await readPage(page);
-  const row = [...page.host.querySelectorAll('.visualize-elements-row')].find((node) => node.textContent.includes('Save'));
+  const row = [...page.host.querySelectorAll('.visualize-elements-row')].find((node) =>
+    node.textContent.includes('Save')
+  );
   await act(async () => row.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })));
   await act(async () => row.dispatchEvent(new window.MouseEvent('mouseout', { bubbles: true })));
   const highlights = page.toPage.filter((message) => message.type === 'highlight').map((message) => message.selector);
@@ -169,10 +198,15 @@ test('hovering a row outlines the element in the page, leaving clears it', async
 test('only a trusted click on a row starts a pin: Comment mode comes on and the page describes that element', async (t) => {
   const page = await mount(t);
   await readPage(page);
-  const row = [...page.host.querySelectorAll('.visualize-elements-row')].find((node) => node.textContent.includes('Save'));
+  const row = [...page.host.querySelectorAll('.visualize-elements-row')].find((node) =>
+    node.textContent.includes('Save')
+  );
   await scriptClick(row);
   assert.equal(page.state.comment, false, 'a script-made click does nothing');
-  assert.equal(page.toPage.some((message) => message.type === 'describe'), false);
+  assert.equal(
+    page.toPage.some((message) => message.type === 'describe'),
+    false
+  );
 
   await userClick(row);
   await settle();
@@ -193,12 +227,23 @@ test('the pin request slot is single, scoped to its pane and expires', () => {
   assert.deepEqual(takeVisualizeElementPin('v1', 0, 1001), { tabId: 'v1', pane: 0, selector: '#a' });
   assert.equal(takeVisualizeElementPin('v1', 0, 1002), null, 'taken once');
   requestVisualizeElementPin({ tabId: 'v1', pane: 0, selector: '#b' }, 1000);
-  assert.equal(takeVisualizeElementPin('v1', 0, 1000 + VISUALIZE_ELEMENT_PIN_TTL_MS + 1), null, 'stale requests are dropped');
+  assert.equal(
+    takeVisualizeElementPin('v1', 0, 1000 + VISUALIZE_ELEMENT_PIN_TTL_MS + 1),
+    null,
+    'stale requests are dropped'
+  );
 });
 test('a flood of ready messages makes a bounded number of reads, one in flight, trailing-debounced', async (t) => {
   const page = await mount(t);
   const reads = () => page.toPage.filter((message) => message.type === 'inspect');
-  for (let i = 0; i < 40; i += 1) await page.fromPage({ type: 'ready' });
+  // One burst: per-message waits would let the debounce pass mid-flood on a coarse timer.
+  await act(async () => {
+    for (let i = 0; i < 40; i += 1) {
+      window.dispatchEvent(
+        new window.MessageEvent('message', { data: tagged({ type: 'ready' }), source: page.frame.contentWindow })
+      );
+    }
+  });
   assert.equal(reads().length, 0, 'nothing is read before the debounce passes');
   await settle(450);
   assert.equal(reads().length, 1, 'the flood collapses to one read');

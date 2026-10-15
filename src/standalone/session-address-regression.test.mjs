@@ -57,6 +57,7 @@ test('a cancelled canonical worker never gets a new conversation from its own sh
       return { content: `answer ${sends.length}`, usage: { inputTokens: 10, outputTokens: 5 } };
     },
   };
+  const startupRefresh = Promise.resolve();
   const realRegistry = await import('../runtime/agent/orchestrator/providers/registry.mjs?real=1');
   t.mock.module('../runtime/agent/orchestrator/providers/registry.mjs', {
     namedExports: {
@@ -64,7 +65,9 @@ test('a cancelled canonical worker never gets a new conversation from its own sh
       initProviders: async () => {},
       getProvider: () => provider,
       getAllProviders: () => new Map([['openai', provider]]),
-      refreshProviderCatalogsOnStartup: async () => {},
+      // The real registry memoizes the startup refresh per catalog epoch; a fresh promise per call
+      // would make the readiness gate re-observe it forever.
+      refreshProviderCatalogsOnStartup: () => startupRefresh,
       refreshCatalogs: async () => {},
     },
   });

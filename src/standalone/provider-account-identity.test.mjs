@@ -28,12 +28,12 @@ const jwt = (claims) =>
   `${Buffer.from('{"alg":"none"}').toString('base64url')}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.sig`;
 const future = () => Date.now() + 3600_000;
 
-function writeAccount(provider, id, body) {
+async function writeAccount(provider, id, body) {
   writeJsonAtomicSync(providerAccountPath(provider, id), body, { mode: 0o600, secret: true });
-  registerProviderAccount(provider, id);
+  await registerProviderAccount(provider, id);
 }
 
-test('OpenAI identity comes from the id_token and access token claims', () => {
+test('OpenAI identity comes from the id_token and access token claims', async () => {
   const idToken = jwt({ sub: 'user-1', email: 'name@example.com' });
   const accessToken = jwt({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-1' } });
   assert.deepEqual(identityFromTokens(idToken, accessToken), { id: 'user-1:acct-1', email: 'name@example.com' });
@@ -42,7 +42,7 @@ test('OpenAI identity comes from the id_token and access token claims', () => {
   });
   assert.equal(identityFromTokens('opaque'), null);
   const id = newProviderAccountId();
-  writeAccount('openai-oauth', id, {
+  await writeAccount('openai-oauth', id, {
     access_token: accessToken,
     refresh_token: 'refresh',
     expires_at: future(),
@@ -54,9 +54,9 @@ test('OpenAI identity comes from the id_token and access token claims', () => {
   assert.equal(JSON.stringify(described).includes(accessToken), false);
 });
 
-test('Antigravity, Grok and Cursor report the identity their stored tokens carry', () => {
+test('Antigravity, Grok and Cursor report the identity their stored tokens carry', async () => {
   const antigravity = newProviderAccountId();
-  writeAccount('antigravity-oauth', antigravity, {
+  await writeAccount('antigravity-oauth', antigravity, {
     access_token: 'a',
     refresh_token: 'r',
     expires_at: future(),
@@ -64,13 +64,13 @@ test('Antigravity, Grok and Cursor report the identity their stored tokens carry
     user_id: 'google-1',
   });
   const grokId = newProviderAccountId();
-  writeAccount('grok-oauth', grokId, {
+  await writeAccount('grok-oauth', grokId, {
     access_token: jwt({ sub: 'xai-user', email: 'grok@example.com', exp: Math.floor(future() / 1000) }),
     refresh_token: 'r',
     expires_at: future(),
   });
   const cursorId = newProviderAccountId();
-  writeAccount('cursor-oauth', cursorId, {
+  await writeAccount('cursor-oauth', cursorId, {
     access_token: jwt({ sub: 'auth0|user_1', exp: Math.floor(future() / 1000) }),
     refresh_token: 'r',
     expires_at: future(),
@@ -147,7 +147,7 @@ test('signing the same Anthropic account in again reuses its roster id; another 
 
   // A removed account leaves nothing to restore: only roster matches count.
   const { removeProviderAccount } = await import('../runtime/shared/provider-accounts.mjs');
-  removeProviderAccount(provider, other.accountId);
+  await removeProviderAccount(provider, other.accountId);
   const readded = await signIn(t, { uuid: 'acct-b', email: 'b@example.com', access: 'access-4' });
   assert.notEqual(readded.accountId, other.accountId);
 });

@@ -1,6 +1,11 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
-import { canFallbackNonStreaming, emitProviderRetryStage, withRetry } from './retry-classifier.mjs';
+import { reloadProviderApiKey, resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
+import {
+  canFallbackNonStreaming,
+  emitProviderRetryStage,
+  markProviderRecoveryExhausted,
+  withRetry,
+} from './retry-classifier.mjs';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { traceNonStreamingFallback } from './lib/transport-fallback-trace.mjs';
 import {
@@ -12,6 +17,13 @@ import {
 } from '../stall-policy.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { GEMINI_FIRST_BYTE_TIMEOUT_MS, consumeGeminiRestStreamResponse } from './gemini-stream.mjs';
+import { applyGeminiErrorContract } from './gemini-error-contract.mjs';
+import {
+  GEMINI_MIDSTREAM_MAX_ATTEMPTS,
+  geminiEndsWithFunctionResponse,
+  geminiInvalidStreamReason,
+  runGeminiStreamAttempts,
+} from './gemini-retry-policy.mjs';
 import { geminiTextLeakGuardFor, streamGeminiSdkAttempt } from './gemini-sdk-request.mjs';
 import { emitGeminiToolCalls } from './gemini-schema.mjs';
 import { buildGeminiRequest, geminiCachedRestBody } from './gemini-request-body.mjs';
@@ -32,6 +44,8 @@ import {
   GEMINI_GLOBAL_CACHE_DELETE_GRACE_MS,
   _geminiCredentialFingerprint,
   _invalidateGeminiCachesForCredentialFingerprint,
+  geminiExplicitCacheRefused,
+  markGeminiExplicitCacheRefused,
 } from './gemini-cache.mjs';
 import {
   awaitSharedCreate,
@@ -59,7 +73,7 @@ import {
 let _modelRefreshInFlight = null;
 const GEMINI_AVAILABILITY_TIMEOUT_MS = 1_000;
 
-function geminiRestError(res, text, label) {
+export function geminiRestError(res, text, label) {
   let payload = null;
   try {
     payload = text ? JSON.parse(text) : null;
@@ -78,16 +92,11 @@ function geminiRestError(res, text, label) {
     err.error = detail;
     err.data = payload;
     if (detail.status) err.geminiStatus = detail.status;
-    if (Array.isArray(detail.details)) err.details = detail.details;
-    const retryAfter = res.headers?.get?.('retry-after') ?? res.headers?.get?.('retry-after-ms');
-    // RESOURCE_EXHAUSTED without a server retry window is deterministic
-    // quota exhaustion. With Retry-After present, leave it request-local
-    // so withRetry can honor the mandated delay.
-    // A 429 RESOURCE_EXHAUSTED is a request-local rate limit even without
-    // Retry-After (Google/LiteLLM retry). Do not stamp it as a quota code.
-    if (detail.status && (retryAfter == null || retryAfter === '') && res.status !== 429) {
-      err.code = detail.status;
-    }
+    const details = detail.details ?? detail.errorDetails;
+    if (Array.isArray(details)) err.details = details;
+    // Typed contract (code/retryAfterMs/resetAt/quotaScope); the core decides
+    // whether a 429 RESOURCE_EXHAUSTED is request-local or a quota refusal.
+    applyGeminiErrorContract(err, { details, googleStatus: detail.status, message: detail.message });
   }
   return err;
 }
@@ -139,6 +148,9 @@ export class GeminiProvider {
   // input already includes cache. See registry.mjs.
   static inputExcludesCache = false;
   name = 'gemini';
+  // The two-phase ladder (gemini-retry-policy.mjs) is the whole recovery:
+  // a spent ladder surfaces instead of parking on loop recovery cycles.
+  retryPolicy = Object.freeze({ recoveryCycles: false });
   genAI;
   config;
   _fetch;
@@ -153,8 +165,9 @@ export class GeminiProvider {
     this._createGenAI =
       typeof config.createGenAI === 'function' ? config.createGenAI : (apiKey) => new GoogleGenerativeAI(apiKey);
     this._modelCache = config.modelCache || _modelCache;
-    const apiKey = config.apiKey || process.env.GEMINI_API_KEY || '';
-    this.genAI = config.genAI || this._createGenAI(apiKey);
+    this._injectedGenAI = Boolean(config.genAI);
+    this._genAIKey = resolveProviderApiKey('gemini', config);
+    this.genAI = config.genAI || this._createGenAI(this._genAIKey);
     // Warm a kept-alive socket to the Gemini REST API so the first cache/
     // generateContent request skips the cold TLS handshake. Best-effort.
     this._preconnect('https://generativelanguage.googleapis.com');
@@ -162,12 +175,13 @@ export class GeminiProvider {
 
   reloadApiKey() {
     try {
-      const newKey = getAgentApiKey('gemini') || this.config?.apiKey || process.env.GEMINI_API_KEY;
+      const newKey = reloadProviderApiKey('gemini', this.config);
       if (newKey) {
-        // Keep this.config in sync so REST/cache paths (which read the
-        // key via _getApiKey() → this.config.apiKey) don't keep using
-        // the stale key after a rotation; genAI alone is not enough.
+        // Keep this.config in sync so REST/cache paths don't keep using the
+        // stale key after a rotation; genAI alone is not enough.
         this.config = { ...(this.config || {}), apiKey: newKey };
+        this._injectedGenAI = false;
+        this._genAIKey = newKey;
         this.genAI = this._createGenAI(newKey);
       }
       return newKey || '';
@@ -178,7 +192,18 @@ export class GeminiProvider {
   }
 
   _getApiKey() {
-    return this.config?.apiKey || process.env.GEMINI_API_KEY || '';
+    return resolveProviderApiKey('gemini', this.config);
+  }
+
+  // SDK client for the currently resolved key; rebuilt when the key changed
+  // since construction (e.g. a keyless-constructed instance).
+  _currentGenAI() {
+    const key = this._getApiKey();
+    if (!this._injectedGenAI && key !== this._genAIKey) {
+      this._genAIKey = key;
+      this.genAI = this._createGenAI(key);
+    }
+    return this.genAI;
   }
 
   /**
@@ -250,7 +275,7 @@ export class GeminiProvider {
     if (decision.canReuseState) {
       return state.cacheName;
     }
-    if (!apiKey) return null;
+    if (!apiKey || geminiExplicitCacheRefused(model)) return null;
     const { canAttachState } = decision;
     if (geminiPrefixBelowMinimum({ model, systemInstruction, geminiTools, contents, opts, currentIter })) {
       return canAttachState ? state.cacheName : null;
@@ -430,6 +455,7 @@ export class GeminiProvider {
       _setGeminiGlobalCache(globalCacheKey, entry);
       return entry;
     } catch (err) {
+      markGeminiExplicitCacheRefused(model, err);
       process.stderr.write(`[gemini] cachedContents.create error: ${err?.message || err}\n`);
       return null;
     }
@@ -561,7 +587,18 @@ export class GeminiProvider {
     emitGeminiToolCalls(parsed.nativeToolCalls, callbacks.onToolCall);
     const usage = resolveGeminiUsage(response, opts, cachedContent, useModel);
     const incomplete = geminiIncompleteError(response, parsed, useModel, usage);
-    if (incomplete) throw incomplete;
+    if (incomplete) {
+      // A malformed / unexpected tool call that survived the stream ladder
+      // (4 attempts) is spent; the loop must not multiply that budget.
+      if (
+        geminiInvalidStreamReason(response, textLeakGuard, {
+          afterToolResult: geminiEndsWithFunctionResponse(request.contents),
+        })
+      ) {
+        markProviderRecoveryExhausted(incomplete, { owner: 'gemini-stream', attempts: GEMINI_MIDSTREAM_MAX_ATTEMPTS });
+      }
+      throw incomplete;
+    }
     return geminiSendResult(parsed, useModel, opts, usage);
   }
 
@@ -630,12 +667,19 @@ export class GeminiProvider {
     const restPassthrough = createPassthroughSignal(signal);
     const totalSignal = restPassthrough.signal;
     try {
-      return await withRetry(
-        async ({ signal: attemptSignal }) => {
+      const afterToolResult = geminiEndsWithFunctionResponse(contents);
+      return await runGeminiStreamAttempts({
+        signal: totalSignal,
+        sleepFn: this.config?.sleepFn,
+        onRetry: geminiRetryLogger(opts, '[gemini-rest]'),
+        afterToolResult,
+        run: async ({ signal: attemptSignal, connected }) => {
           signalRequesting(opts);
           const res = await this._openRestStream(genUrl, body, attemptSignal);
+          connected();
           const textLeakGuard = geminiTextLeakGuardFor(stream);
           const response = await consumeGeminiRestStreamResponse(res, {
+            acceptEmptyNoFinish: afterToolResult,
             signal: attemptSignal,
             onStreamDelta: callbacks.onStreamDelta,
             onTextDelta: callbacks.onTextDelta,
@@ -645,8 +689,7 @@ export class GeminiProvider {
           });
           return { response, textLeakGuard };
         },
-        { signal: totalSignal, onRetry: geminiRetryLogger(opts, '[gemini-rest]') }
-      );
+      });
     } catch (err) {
       if (
         !internal.skipExplicitCache &&
@@ -673,7 +716,7 @@ export class GeminiProvider {
 
   async _streamViaSdk(stream) {
     const { opts, signal, useModel, systemInstruction, geminiTools, toolConfig, generationConfig, contents } = stream;
-    const genModel = this.genAI.getGenerativeModel({
+    const genModel = this._currentGenAI().getGenerativeModel({
       model: useModel,
       systemInstruction,
       tools: geminiTools,
@@ -685,13 +728,16 @@ export class GeminiProvider {
     const sdkPassthrough = createPassthroughSignal(signal);
     const totalSignal = sdkPassthrough.signal;
     try {
-      return await withRetry(
-        async ({ signal: attemptSignal }) => {
+      return await runGeminiStreamAttempts({
+        signal: totalSignal,
+        sleepFn: this.config?.sleepFn,
+        onRetry: geminiRetryLogger(opts, '[gemini]'),
+        afterToolResult: geminiEndsWithFunctionResponse(contents),
+        run: async ({ signal: attemptSignal, connected }) => {
           signalRequesting(opts);
-          return await streamGeminiSdkAttempt(genModel, stream, attemptSignal);
+          return await streamGeminiSdkAttempt(genModel, stream, attemptSignal, connected);
         },
-        { signal: totalSignal, onRetry: geminiRetryLogger(opts, '[gemini]') }
-      );
+      });
     } catch (err) {
       const recovered = await this._recoverGeminiNonStreaming({
         streamErr: err,
@@ -714,7 +760,7 @@ export class GeminiProvider {
     const cached = this._modelCache.loadSync();
     if (cached) return cached;
     // Dynamic lookup via Gemini v1beta /models. Requires API key.
-    const apiKey = this.config.apiKey || process.env.GEMINI_API_KEY;
+    const apiKey = this._getApiKey();
     if (!apiKey) return MODELS; // no key — return minimal static list
     try {
       return await this._fetchAndCacheModels(apiKey);
@@ -738,26 +784,26 @@ export class GeminiProvider {
 
   // Force a catalog refresh (ignores the 24h disk TTL). De-duped via
   // _modelRefreshInFlight so concurrent callers share one HTTP round-trip.
-  // Fire-and-forget context: failures are caught/logged, returning null.
+  // Resolves null when there is no key; fetch/normalize failures reject so
+  // callers (registry refresh) report them.
   async _refreshModelCache() {
     if (_modelRefreshInFlight) return _modelRefreshInFlight;
-    _modelRefreshInFlight = (async () => {
-      try {
-        const apiKey = this.config.apiKey || process.env.GEMINI_API_KEY;
-        if (!apiKey) return null; // no key — nothing to refresh
-        const enriched = await this._fetchAndCacheModels(apiKey);
-        if (!process.env.MIXDOG_QUIET_PROVIDER_LOG)
-          process.stderr.write(`[gemini] catalog refreshed (${enriched.length} models)\n`);
-        return enriched;
-      } catch (err) {
-        if (!process.env.MIXDOG_QUIET_PROVIDER_LOG)
-          process.stderr.write(`[gemini] catalog refresh failed (${err.message})\n`);
-        return null;
-      } finally {
-        _modelRefreshInFlight = null;
-      }
+    const refresh = (async () => {
+      const apiKey = this._getApiKey();
+      if (!apiKey) return null; // no key — nothing to refresh
+      const enriched = await this._fetchAndCacheModels(apiKey);
+      if (!process.env.MIXDOG_QUIET_PROVIDER_LOG)
+        process.stderr.write(`[gemini] catalog refreshed (${enriched.length} models)\n`);
+      return enriched;
     })();
-    return _modelRefreshInFlight;
+    // Clear only after the shared promise is published: a refresh that settles
+    // synchronously (no key) must not leave its settled promise memoized.
+    _modelRefreshInFlight = refresh;
+    try {
+      return await refresh;
+    } finally {
+      if (_modelRefreshInFlight === refresh) _modelRefreshInFlight = null;
+    }
   }
 
   async isAvailable() {
@@ -766,7 +812,7 @@ export class GeminiProvider {
       controller.abort(providerTimeoutError('Gemini availability probe', GEMINI_AVAILABILITY_TIMEOUT_MS));
     }, GEMINI_AVAILABILITY_TIMEOUT_MS);
     try {
-      const model = this.genAI.getGenerativeModel({ model: DEFAULT_MODEL });
+      const model = this._currentGenAI().getGenerativeModel({ model: DEFAULT_MODEL });
       const generation = Promise.resolve(model.generateContent('hi', { signal: controller.signal }));
       generation.catch(() => {});
       await Promise.race([

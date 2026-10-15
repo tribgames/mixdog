@@ -88,7 +88,7 @@ test('unknown-state and measurement timestamp changes repaint header-only frames
   );
 });
 
-test('a model switch repaints the context card and offers session inheritance', (context) => {
+test('a model switch repaints the context card, which only offers compaction', (context) => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
@@ -118,8 +118,8 @@ test('a model switch repaints the context card and offers session inheritance', 
   assert.equal(desktopHeaderSnapshotsEqual(spoken, switched), false);
   const cardText = (snapshot) =>
     JSDOM.fragment(
-      renderToStaticMarkup(React.createElement(ContextUsageIndicator, { snapshot, onInherit: async () => {} }))
+      renderToStaticMarkup(React.createElement(ContextUsageIndicator, { snapshot }))
     ).textContent;
-  assert.ok(cardText(switched).includes(t('Inherit session')));
+  assert.ok(cardText(switched).includes(t('Compact context')));
   assert.ok(cardText(spoken).includes(t('Compact context')));
 });

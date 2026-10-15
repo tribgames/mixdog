@@ -7,6 +7,25 @@
 import { createHash } from 'node:crypto';
 import { createServer, type Server, type ServerResponse } from 'node:http';
 
+/** A one-page PDF with a valid cross-reference table, so the viewer renders it. */
+const MINIMAL_PDF = (() => {
+  const objects = [
+    '<</Type/Catalog/Pages 2 0 R>>',
+    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
+    '<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>',
+  ];
+  let body = '%PDF-1.4\n';
+  const offsets = objects.map((object, index) => {
+    const offset = body.length;
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    return offset;
+  });
+  const xref = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) body += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  return `${body}trailer\n<</Size ${objects.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF\n`;
+})();
+
 /** Accepts one upgrade and echoes back every unmasked text frame it receives. */
 export function createBrowserSocketFixture(): Server {
   const socketFixture = createServer();
@@ -231,11 +250,10 @@ export function createBrowserPageFixture(frameOrigin: () => string): {
       return;
     }
     if (path === '/paper.pdf') {
-      // Served for display rather than as an attachment: the guest carries no
-      // PDF viewer, so the browser has to turn the link into something the
-      // caller can still read instead of an empty page.
+      // Served for display rather than as an attachment, so Chromium's PDF
+      // viewer renders it.
       response.setHeader('content-type', 'application/pdf');
-      response.end('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n');
+      response.end(MINIMAL_PDF);
       return;
     }
     if (path === '/initial-dialog') {

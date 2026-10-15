@@ -4,6 +4,7 @@
  * builder returns a tagged Error the stream loop stores as terminalError.
  */
 import { typedStatusFrom } from './retry-classifier.mjs';
+import { applyErrorContract, markContentFilter } from './openai-error-contract.mjs';
 import { _httpStatusFromWsClose } from './openai-ws-events.mjs';
 
 /** A server `event.error` on any frame. Same wire-error contract as
@@ -17,10 +18,9 @@ export function serverErrorEventError(error, event) {
   try {
     err.payload = error;
     err.responseFailed = event;
-    const typed = typedStatusFrom(error, event);
-    if (typed) err.httpStatus = typed;
     const code = error.code ?? error.type ?? null;
     if (typeof code === 'string' && code) err.providerErrorCode = code;
+    applyErrorContract(err, { status: typedStatusFrom(error, event), error, event });
   } catch {}
   return err;
 }
@@ -32,23 +32,27 @@ export function serverErrorEventError(error, event) {
 export function responseFailedError(event, { label, fallbackMessage, providerErrorCode = false }) {
   const msg = event.response?.error?.message || event.error?.message || event.message || fallbackMessage;
   const err = Object.assign(new Error(`${label}: ${msg}`), { responseFailed: event });
-  const typed = typedStatusFrom(event.response?.error, event.error, event);
-  if (typed) err.httpStatus = typed;
+  const detail = event.response?.error || event.error || null;
   if (providerErrorCode) {
-    const detail = event.response?.error || event.error || null;
     const code = detail?.code ?? detail?.type ?? null;
     if (typeof code === 'string' && code) err.providerErrorCode = code;
   }
-  return err;
+  return applyErrorContract(err, {
+    status: typedStatusFrom(event.response?.error, event.error, event),
+    error: detail,
+    event,
+  });
 }
 
 /** response.incomplete (or response.done status 'incomplete') for a reason
- *  other than max_output_tokens. */
+ *  other than max_output_tokens. A content_filter stop is a typed policy
+ *  refusal (code 'content_filter'), not an untyped failure. */
 export function responseIncompleteError(event, reasonStr, label) {
-  return Object.assign(new Error(`${label}: ${reasonStr}`), {
+  const err = Object.assign(new Error(`${label}: ${reasonStr}`), {
     responseIncomplete: event,
     incompleteReason: reasonStr,
   });
+  return markContentFilter(err, reasonStr);
 }
 
 /** response.done with a status that is neither completed, failed nor incomplete. */
@@ -63,11 +67,14 @@ export function errorFrameError(event, label) {
   const errMsg = String(event.message || event.error?.message || 'unknown');
   const err = new Error(`${label}: ${errMsg}`);
   err.responseFailed = event;
-  const typed = typedStatusFrom(event.error, event);
-  if (typed) err.httpStatus = typed;
   const code = event.error?.code ?? event.error?.type ?? event.code ?? null;
   if (typeof code === 'string' && code) err.providerErrorCode = code;
-  return err;
+  return applyErrorContract(err, {
+    status: typedStatusFrom(event.error, event),
+    code: typeof code === 'string' ? code : undefined,
+    error: event.error,
+    event,
+  });
 }
 
 /** The socket closed before a terminal frame. */

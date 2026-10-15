@@ -1,5 +1,5 @@
 import { Blocks, ChevronRight, Plug, Sparkles } from 'lucide-react';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { t } from '../i18n';
 import { CapabilityIcon } from '../CapabilityIcon';
 import { skillDisplayDescription } from '../skill-presentation';
@@ -26,7 +26,9 @@ import {
   ExtensionSection,
   scopeOf,
 } from './extension-detail';
+import { errorMessage } from '../editor-pane-session-errors';
 import { McpEditorDialog, mcpRowDescription, mcpStatus } from './mcp-editor-dialog';
+import { useMcpOAuthLogin } from './mcp-oauth-login';
 import { capabilityBlockedRemotely, manageOnHostNote } from './remote-capability-guard';
 
 function PluginInstallDialog({
@@ -129,13 +131,71 @@ function SkillExtensionCreateDialog({
   );
 }
 
-export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
+const REMOVAL_IN_FLIGHT = Symbol('mcp-removal-in-flight');
+
+export function McpPanel({
+  api,
+  data,
+  pending,
+  run,
+  confirm,
+  refreshExtensions,
+  createOpen,
+  closeCreate,
+}: PanelContext) {
   const status = record(data.mcp);
-  const servers = rows(status, 'servers').filter((server) => server.source !== 'plugin');
+  const oauthLogin = useMcpOAuthLogin({ run, refreshExtensions });
+  // Probing is a read: no busy state, no list refresh, and a failure comes back
+  // as the result instead of a toast.
+  const probeAuth = async (config: RecordValue) => {
+    try {
+      return await run<RecordValue>('probeMcpServerAuth', [config], 'probeMcpServerAuth', false, true, 'throw');
+    } catch (reason) {
+      return { auth: 'unreachable', error: errorMessage(reason) };
+    }
+  };
+  // A confirmed removal hides its row while the call is in flight. Once it
+  // resolves, the first MCP snapshot that arrives after that point is
+  // authoritative and drops the tombstone; a failed removal drops it at once.
+  // Each entry holds REMOVAL_IN_FLIGHT or the snapshot current at resolve.
+  const [removed, setRemoved] = useState<ReadonlyMap<string, unknown>>(() => new Map());
+  const latestMcp = useRef<unknown>(data.mcp);
+  const listed = rows(status, 'servers').filter((server) => server.source !== 'plugin');
+  const servers = listed.filter((server) => !removed.has(String(server.name)));
   const busy = Boolean(pending);
+  const forgetRemoved = (name: string) =>
+    setRemoved((current) => {
+      if (!current.has(name)) return current;
+      const next = new Map(current);
+      next.delete(name);
+      return next;
+    });
+  const settleRemoved = (name: string) =>
+    setRemoved((current) =>
+      current.get(name) === REMOVAL_IN_FLIGHT ? new Map(current).set(name, latestMcp.current) : current
+    );
+  useEffect(() => {
+    latestMcp.current = data.mcp;
+    setRemoved((current) => {
+      const next = new Map([...current].filter(([, seen]) => seen === REMOVAL_IN_FLIGHT || seen === data.mcp));
+      return next.size === current.size ? current : next;
+    });
+  }, [data.mcp]);
   const [editor, setEditor] = useState<{ name: string; server: RecordValue | null } | null>(null);
   const openName = editor?.name || '';
   const openServer = editor?.server || null;
+  const openRow = servers.find((server) => String(server.name) === openName);
+  const liveOpenServer =
+    openServer && openRow
+      ? {
+          ...openServer,
+          status: openRow.status,
+          error: openRow.error,
+          connected: openRow.connected,
+          authRequired: openRow.authRequired,
+          oauth: openRow.oauth,
+        }
+      : openServer;
   const openEditor = (name: string) => {
     closeCreate?.();
     setEditor({ name, server: null });
@@ -155,9 +215,12 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
       description: t('{{name}} will be removed from Mixdog.', { name }),
       confirmLabel: t('Remove'),
       danger: true,
-      onConfirm: () => {
+      onConfirm: async () => {
         setEditor((current) => (current?.name === name ? null : current));
-        void run('removeMcpServer', [name]);
+        setRemoved((current) => new Map(current).set(name, REMOVAL_IN_FLIGHT));
+        const result = await run('removeMcpServer', [name]);
+        if (result === undefined) forgetRemoved(name);
+        else settleRemoved(name);
       },
     });
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
@@ -203,11 +266,15 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
           busy={busy}
           takenNames={servers.map((server) => String(server.name))}
           onClose={() => closeCreate?.()}
+          onConnect={(serverName) => void oauthLogin.connect(serverName)}
+          onProbe={probeAuth}
           // Creation must never overwrite: the host rejects a name that exists
           // by now (the dialog's takenNames can be stale) and the dialog shows it.
           onSave={async (payload) => {
             const added = await run('addMcpServer', [payload], 'addMcpServer', true, false, 'throw');
-            if (added !== undefined) closeCreate?.();
+            if (added === undefined) return;
+            forgetRemoved(String(payload.name || ''));
+            closeCreate?.();
           }}
         />
       )}
@@ -233,6 +300,7 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
         );
       })}
       <ScmContextMenu state={menu} onClose={() => setMenu(null)} />
+      {oauthLogin.dialog}
       {editor && !openServer && (
         <SidebarLoadingDialog
           title={openName}
@@ -243,9 +311,13 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
       {openName && openServer && (
         <McpEditorDialog
           key={openName}
-          server={openServer}
+          // The card follows the live list row: a finished sign-in or sign-out
+          // changes its status while the editor stays open.
+          server={liveOpenServer}
           busy={busy}
           onClose={closeEditor}
+          onConnect={(serverName) => void oauthLogin.connect(serverName)}
+          onDisconnect={(serverName) => void oauthLogin.disconnect(serverName)}
           scopeField={
             <ExtensionScopeField
               api={api}
@@ -272,7 +344,7 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
   );
 }
 
-function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: PanelContext) {
+function SkillsPanel({ api, data, pending, run, refreshExtensions, createOpen, closeCreate }: PanelContext) {
   const status = record(data.skills);
   const skills = rows(status, 'skills').filter(
     (skill) => record(skill.owner).kind !== 'builtin' && record(skill.owner).kind !== 'plugin'
@@ -286,6 +358,7 @@ function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: Panel
   const openDetail = (name: string) => {
     closeCreate?.();
     setDetail({ name, content: null });
+    void refreshExtensions();
     void run<RecordValue>('skillContent', [name], `skill-content-${name}`, false).then((value) => {
       setDetail((current) => {
         if (current?.name !== name) return current;
@@ -382,18 +455,40 @@ function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: Panel
   );
 }
 
+function pluginRowStatus(enabled: boolean, warning: boolean) {
+  if (!enabled) return { label: t('Disabled'), tone: 'muted' as const };
+  if (warning) return { label: t('No skills found.'), tone: 'warn' as const };
+  return null;
+}
+
 function pluginSkillRows(data: PanelContext['data'], pluginId: string): RecordValue[] {
   return rows(record(data.skills), 'skills').filter(
     (skill) => record(skill.owner).kind === 'plugin' && String(record(skill.owner).id || '') === pluginId
   );
 }
 
+// A plugin's MCP servers are the status rows whose owner metadata names it.
 function pluginMcpServers(data: PanelContext['data'], plugin: RecordValue): RecordValue[] {
-  const base = String(plugin.mcpServerName || '');
-  if (!base) return [];
-  return rows(record(data.mcp), 'servers').filter(
-    (server) => String(server.name) === base || String(server.name).startsWith(`${base}--`)
+  const id = String(plugin.id || plugin.name || '');
+  if (!id) return [];
+  return rows(record(data.mcp), 'servers').filter((server) => {
+    const owner = record(server.owner);
+    return owner.kind === 'plugin' && String(owner.id || '') === id;
+  });
+}
+
+function pluginMcpProblems(plugin: RecordValue, servers: RecordValue[]): string[] {
+  const declared = (Array.isArray(plugin.mcpErrors) ? plugin.mcpErrors : []).map((error) => {
+    const row = record(error);
+    const key = String(row.key || '');
+    return key ? `${key}: ${String(row.message || '')}` : String(row.message || '');
+  });
+  const warned = servers.flatMap((server) =>
+    [...(Array.isArray(server.warnings) ? server.warnings : []), ...(server.error ? [server.error] : [])].map(
+      (warning) => `${String(server.name)}: ${String(warning)}`
+    )
   );
+  return [...declared, ...warned].filter(Boolean);
 }
 
 function confirmPluginRemoval(
@@ -420,26 +515,30 @@ function PluginDetailDialog({
   busy,
   run,
   confirm,
+  refreshExtensions,
   openSkillTools,
   onClose,
-}: Pick<PanelContext, 'api' | 'data' | 'run' | 'confirm'> & {
+}: Pick<PanelContext, 'api' | 'data' | 'run' | 'confirm' | 'refreshExtensions'> & {
   plugin: RecordValue;
   busy: boolean;
   openSkillTools(name: string): void;
   onClose(): void;
 }) {
   const id = String(open.id || open.name);
+  // Opening the dialog shows what is on disk now, not the last sweep.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per opened plugin.
+  useEffect(() => {
+    void refreshExtensions();
+  }, [id]);
   const skills = pluginSkillRows(data, id);
   const servers = pluginMcpServers(data, open);
+  const mcpProblems = pluginMcpProblems(open, servers);
+  const pluginOn = open.enabled !== false;
   const disabledSkills = disabledSkillNames(data);
   const contents = skills.length + servers.length;
-  // Adding or reconfiguring an MCP server writes its config, which is host-only
-  // on an older host.
-  useRemoteHostOpenAccess();
-  const remote = capabilityBlockedRemotely('saveMcpServer');
-  // Footer keeps the plugin's real actions only — Remove (parked left),
-  // Update, and Reconfigure MCP when the plugin ships one. The root path and
-  // MCP name sit in Info as selectable text.
+  // Footer keeps the plugin's real actions only — Remove (parked left) and
+  // Update. Its MCP servers appear on their own from its declarations; the
+  // root path and MCP names sit in Info as selectable text.
   return (
     <ExtensionDetailDialog
       className="extensions-plugin-detail-dialog"
@@ -462,12 +561,6 @@ function PluginDetailDialog({
           >
             {t('Remove')}
           </button>
-          {remote && Boolean(open.mcpScript) && <small className="extensions-note">{manageOnHostNote()}</small>}
-          {Boolean(open.mcpScript && open.mcpEnabled) && (
-            <button type="button" disabled={busy || remote} onClick={() => void run('enablePluginMcp', [open])}>
-              {t('Reconfigure MCP')}
-            </button>
-          )}
           <button type="button" disabled={busy} onClick={() => void run('updatePlugin', [open])}>
             {open.sourceType === 'local' ? t('Update metadata') : t('Update plugin')}
           </button>
@@ -487,7 +580,22 @@ function PluginDetailDialog({
         currentPath={currentProjectPath(data)}
         busy={busy}
       />
+      {Boolean(open.warning) && (
+        <ExtensionNote tone="danger">
+          {t('No skills or MCP server found. Searched: {{paths}}', {
+            paths: (Array.isArray(open.searchedSkillRoots) ? open.searchedSkillRoots : []).map(String).join(', '),
+          })}
+        </ExtensionNote>
+      )}
+      {mcpProblems.map((problem) => (
+        <ExtensionNote key={problem} tone="danger">
+          {t('MCP problem: {{message}}', { message: problem })}
+        </ExtensionNote>
+      ))}
       <ExtensionSection title={t('Contents')} count={contents}>
+        {!pluginOn && servers.length > 0 && (
+          <ExtensionNote>{t('Turn the plugin on to connect its MCP servers.')}</ExtensionNote>
+        )}
         {contents > 0 && (
           <ExtensionItemList>
             {skills.map((skill) => {
@@ -518,7 +626,9 @@ function PluginDetailDialog({
             })}
             {servers.map((server) => {
               const name = String(server.name);
-              const enabled = server.enabled !== false;
+              // The switch is the server's own intent; the plugin toggle above
+              // still gates whether it runs.
+              const serverOn = server.serverEnabled !== false;
               const status = mcpStatus(server);
               return (
                 <ExtensionItemRow
@@ -531,7 +641,7 @@ function PluginDetailDialog({
                   control={
                     <CompactSwitch
                       label={`${name} · ${t('Enabled')}`}
-                      checked={enabled}
+                      checked={serverOn}
                       disabled={busy}
                       onChange={(next) => void run('setMcpServerEnabled', [name, next])}
                     />
@@ -541,35 +651,14 @@ function PluginDetailDialog({
             })}
           </ExtensionItemList>
         )}
-        {Boolean(open.mcpScript && !open.mcpEnabled) && (
-          <ExtensionItemList>
-            <ExtensionItemRow
-              icon={<Plug size={16} aria-hidden="true" />}
-              title={String(open.mcpServerName || t('MCP server'))}
-              description={t('This plugin ships an MCP server. Enable MCP to connect it.')}
-              tone="muted"
-              control={
-                remote ? (
-                  <ExtensionNote>{manageOnHostNote()}</ExtensionNote>
-                ) : (
-                  <ExtensionAction disabled={busy} onClick={() => void run('enablePluginMcp', [open])}>
-                    {t('Enable MCP')}
-                  </ExtensionAction>
-                )
-              }
-            />
-          </ExtensionItemList>
-        )}
-        {!contents && !(open.mcpScript && !open.mcpEnabled) && (
-          <ExtensionNote>{t('Nothing installed by this plugin yet.')}</ExtensionNote>
-        )}
+        {!contents && <ExtensionNote>{t('Nothing installed by this plugin yet.')}</ExtensionNote>}
       </ExtensionSection>
       <PluginInfo plugin={open} />
     </ExtensionDetailDialog>
   );
 }
 
-function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
+function PluginsPanel({ api, data, pending, run, confirm, refreshExtensions, createOpen, closeCreate }: PanelContext) {
   const { openSkillTools, skillToolsDialog } = useSkillToolLinks({ data, pending, run });
   const status = record(data.plugins);
   const plugins = rows(status, 'plugins');
@@ -636,7 +725,7 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
             icon={<Blocks size={16} aria-hidden="true" />}
             title={label(plugin)}
             description={description}
-            status={!enabled ? { label: t('Disabled'), tone: 'muted' } : null}
+            status={pluginRowStatus(enabled, Boolean(plugin.warning))}
             enabled={enabled}
             busy={busy}
             onOpen={() => setOpenId(id)}
@@ -653,6 +742,7 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
           busy={busy}
           run={run}
           confirm={confirm}
+          refreshExtensions={refreshExtensions}
           openSkillTools={openSkillTools}
           onClose={() => setOpenId('')}
         />

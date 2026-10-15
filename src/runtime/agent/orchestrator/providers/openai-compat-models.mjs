@@ -1,3 +1,4 @@
+import { resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { PROVIDER_GENERATE_TOTAL_TIMEOUT_MS, createTimeoutSignal, resolveTimeoutMs } from '../stall-policy.mjs';
@@ -10,12 +11,15 @@ const MODEL_LIST_TIMEOUT_MS = resolveTimeoutMs('MIXDOG_COMPAT_MODEL_LIST_TIMEOUT
 // `keyless` omits the Authorization header entirely (keyless endpoints);
 // `signal` aborts the request together with the list timeout.
 export async function fetchCompatModelItems(provider, { signal = null, keyless = false } = {}) {
-  const timeout = createTimeoutSignal(signal, MODEL_LIST_TIMEOUT_MS, `${provider.name} model list`);
+  const name = provider.name;
+  const timeout = createTimeoutSignal(signal, MODEL_LIST_TIMEOUT_MS, `${name} model list`);
   try {
     const res = await fetch(`${String(provider.baseURL || '').replace(/\/+$/, '')}/models`, {
       method: 'GET',
       headers: {
-        ...(keyless ? {} : { Authorization: `Bearer ${provider.apiKey || 'no-key'}` }),
+        ...(keyless
+          ? {}
+          : { Authorization: `Bearer ${resolveProviderApiKey(name, provider.config || provider) || 'no-key'}` }),
         ...(provider.defaultHeaders || {}),
       },
       signal: timeout.signal,

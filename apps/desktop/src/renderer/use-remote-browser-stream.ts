@@ -14,6 +14,28 @@ const FALLBACK_STREAM_BOX = { maxWidth: 1280, maxHeight: 720 };
 
 export type StreamFrameMeta = Omit<DesktopRemoteBrowserStreamFrame, 'image'>;
 
+const NO_INPUT_GEOMETRY = { width: 0, height: 0, viewportWidth: 0, viewportHeight: 0 };
+
+/** Input maps through the image shown only while it is the picture the
+ *  newest frame describes. A frame describing none (0×0: its size's first
+ *  image is still to come) or another size than the one shown refuses input
+ *  (0×0) rather than mapping it through stale geometry; the old image may
+ *  stay on screen meanwhile. */
+function inputGeometry(
+  described: Pick<DesktopRemoteBrowserStreamFrame, 'width' | 'height' | 'viewportWidth' | 'viewportHeight'>,
+  shown: { width: number; height: number } | null
+): Omit<RemoteInputFrame, 'documentId'> {
+  const { width, height, viewportWidth, viewportHeight } = described;
+  const valid =
+    width > 0 &&
+    height > 0 &&
+    viewportWidth > 0 &&
+    viewportHeight > 0 &&
+    shown?.width === width &&
+    shown.height === height;
+  return valid ? { width, height, viewportWidth, viewportHeight } : NO_INPUT_GEOMETRY;
+}
+
 async function decodeImage(url: string): Promise<void> {
   const image = new Image();
   image.src = url;
@@ -60,6 +82,8 @@ export function useRemoteBrowserStream({
     if (!active || !api?.onRemoteBrowserFrame) return undefined;
     let disposed = false;
     let imageToken = 0;
+    /** The newest frame's facts; its described picture gates input. */
+    let latest: StreamFrameMeta | null = null;
     /** Metadata is applied the moment a frame arrives, image or not. */
     const applyMetadata = (next: DesktopRemoteBrowserStreamFrame) => {
       const { image: _image, ...meta } = next;
@@ -70,14 +94,8 @@ export function useRemoteBrowserStream({
         resetDocumentInput();
         setActionFailure('');
       }
-      const size = imageSize.current ?? next;
-      frameRef.current = {
-        documentId: next.documentId,
-        width: size.width,
-        height: size.height,
-        viewportWidth: next.viewportWidth,
-        viewportHeight: next.viewportHeight,
-      };
+      latest = meta;
+      frameRef.current = { documentId: next.documentId, ...inputGeometry(next, imageSize.current) };
       setFrame(meta);
       setFailure('');
       if (!addressFocused.current) setAddress(next.url === 'about:blank' ? '' : next.url);
@@ -94,9 +112,8 @@ export function useRemoteBrowserStream({
       const present = () => {
         if (disposed || token !== imageToken) return;
         imageSize.current = { width: next.width, height: next.height };
-        if (frameRef.current?.documentId === next.documentId) {
-          frameRef.current = { ...frameRef.current, width: next.width, height: next.height };
-        }
+        // The newest frame's picture may be this one, now shown.
+        if (latest) frameRef.current = { documentId: latest.documentId, ...inputGeometry(latest, imageSize.current) };
         setImageUrl(url);
         api.remoteBrowserStreamAck?.(ownerSessionId, next.seq);
       };

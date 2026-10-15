@@ -3,6 +3,30 @@ import test from 'node:test';
 import { createBrowserPageSurface } from './page-surface.ts';
 import { normalizeBrowserPageControl } from '../../shared/browser-page-control.ts';
 
+test('human copy shortcuts use the selected page native edit command without typing or retargeting', async () => {
+  for (const key of ['Control+c', 'Control+C', 'Meta+c', 'Meta+C']) {
+    const record = { documentGeneration: 1 };
+    let copies = 0;
+    let changeDuringWait = false;
+    const guest = { isDestroyed: () => false, copy: () => { copies++; } };
+    const surface = createBrowserPageSurface({
+      ensureGuest: async () => guest,
+      currentGuest: () => guest,
+      state: { pageId: () => 'p1', for: () => record, invalidateInteraction() {} },
+      cdp: {
+        waitForIdle: async () => { if (changeDuringWait) record.documentGeneration++; },
+        guestDebugger: async () => ({}),
+        sendCdpInput: async () => assert.fail('copy must not become a synthetic key or text input'),
+      },
+    });
+    await surface.control('owner', { type: 'key', key, documentId: 'p1:1' });
+    assert.equal(copies, 1);
+    changeDuringWait = true;
+    await assert.rejects(surface.control('owner', { type: 'key', key, documentId: 'p1:1' }), /page changed/);
+    assert.equal(copies, 1);
+  }
+});
+
 test('GPU reads transfer exact frame identities, including a newly attached client facing a dialog', async () => {
   const record = { documentGeneration: 1 };
   const guest = {
@@ -52,6 +76,55 @@ test('GPU reads transfer exact frame identities, including a newly attached clie
   assert.equal((await surface.frame('owner', '', undefined, true)).textureId, 'gpu1');
   assert.equal(transfers, 2);
   assert.equal(releases, 2);
+});
+
+test('a popup whose opener shows a dialog is presented without asking its blocked renderer', async () => {
+  const record = { documentGeneration: 1, pendingDialog: null };
+  const guest = {
+    id: 8,
+    isDestroyed: () => false,
+    getURL: () => 'https://a/doc.pdf',
+    getTitle: () => 'Viewer',
+    isLoadingMainFrame: () => false,
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+  };
+  let blocked = true;
+  const opener = { id: 7 };
+  const surface = createBrowserPageSurface({
+    ensureGuest: async () => guest,
+    currentGuest: () => guest,
+    dialogOwner: () => (blocked ? opener : null),
+    // The prompts resolve the page's renderer peers themselves (local-prompts).
+    prompts: {
+      describe: (page) => {
+        assert.equal(page, guest, 'prompts are those of the page shown');
+        return {
+          ...(blocked ? { dialog: { id: 'prompt_1', type: 'alert', message: 'Saved' } } : {}),
+          fileChooser: { id: 'prompt_2', multiple: false },
+        };
+      },
+    },
+    state: { pageId: () => 'p2', for: () => record },
+    cdp: {
+      guestDebugger: async () => {
+        if (blocked) throw new Error('the blocked renderer must not be asked for layout metrics');
+        return { sendCommand: async () => ({ cssVisualViewport: { scale: 1 } }) };
+      },
+      bounded: async (work) => work,
+    },
+    viewport: () => ({ width: 800, height: 600, zoom: 1, pixels: { width: 800, height: 600 } }),
+    capture: async () => ({ width: 800, height: 600, data: 'png', mimeType: 'image/png', fullPage: false }),
+  });
+  const frame = await surface.frame('owner');
+  assert.equal(frame.url, 'https://a/doc.pdf');
+  assert.equal(frame.width, 800);
+  assert.deepEqual(frame.dialog, { id: 'prompt_1', type: 'alert', message: 'Saved' });
+  assert.deepEqual(frame.fileChooser, { id: 'prompt_2', multiple: false });
+  blocked = false;
+  const unblocked = await surface.frame('owner');
+  assert.equal(unblocked.image.data, 'png');
+  assert.equal(unblocked.dialog, undefined);
+  assert.deepEqual(unblocked.fileChooser, { id: 'prompt_2', multiple: false });
 });
 
 test('viewport changes discard old captures and cached images instead of stretching them into new geometry', async () => {

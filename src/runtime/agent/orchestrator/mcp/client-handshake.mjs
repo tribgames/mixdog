@@ -6,6 +6,7 @@
 import { markServiceUnreachable, isConnRefuseError } from '../../../shared/service-discovery.mjs';
 import { MCP_MAX_TIMER_MS, resolveMcpStartupTimeoutMs } from './client-config.mjs';
 import { appendMcpStderrTail } from './client-transport.mjs';
+import { MCP_OAUTH_TIMEOUT_MS } from './oauth.mjs';
 
 // tools/list pagination bounds: a server that never stops handing out cursors
 // (or repeats one) cannot loop the client forever.
@@ -15,12 +16,15 @@ const MAX_MCP_TOOL_PAGES = 100;
  * Every tool of a server: follows `nextCursor` until it is exhausted, repeats,
  * or MAX_MCP_TOOL_PAGES is reached. A page with an invalid shape is returned
  * as-is so the caller's shape validation reports it.
+ * The SDK rebuilds its output validators from each page alone, so after a
+ * paginated listing they are rebuilt once from every page's tools.
  */
 export async function listAllMcpTools(client, requestOptions = undefined) {
   const tools = [];
   const seen = new Set();
   let cursor = null;
-  for (let page = 0; page < MAX_MCP_TOOL_PAGES; page += 1) {
+  let pages = 0;
+  for (; pages < MAX_MCP_TOOL_PAGES; pages += 1) {
     const result = await client.listTools(cursor ? { cursor } : undefined, requestOptions);
     if (!result || !Array.isArray(result.tools)) return result;
     tools.push(...result.tools);
@@ -29,6 +33,7 @@ export async function listAllMcpTools(client, requestOptions = undefined) {
     seen.add(next);
     cursor = next;
   }
+  if (pages > 0) client.cacheToolMetadata?.(tools);
   return { tools };
 }
 
@@ -47,6 +52,15 @@ function startupTimeoutError(name, startupTimeoutMs) {
   );
   err.code = 'EMCPSTARTUPTIMEOUT';
   return err;
+}
+
+const oauthLoginError = () => new Error('MCP OAuth login failed, cancelled, or timed out');
+
+/** Code of a connect cancelled (login cancel, disconnect, shutdown) before any
+ *  interactive login started. */
+export const MCP_CONNECT_CANCELLED = 'EMCPCONNECTCANCELLED';
+function connectCancelledError(name) {
+  return Object.assign(new Error(`MCP server "${name}" connect cancelled`), { code: MCP_CONNECT_CANCELLED });
 }
 
 /**
@@ -69,17 +83,43 @@ export async function runBoundedHandshake({
 }) {
   const startupTimeoutMs = resolveMcpStartupTimeoutMs(cfg);
   const guard = { timer: null, timedOut: false };
+  let rejectDeadline;
+  // True once an interactive login actually started (the server challenged
+  // and a browser sign-in was allowed).
+  let loginStarted = false;
+  const armDeadline = (ms, error = () => startupTimeoutError(name, ms)) => {
+    if (guard.timer) clearTimeout(guard.timer);
+    guard.timer = setTimeout(() => {
+      guard.timedOut = true;
+      rejectDeadline(error());
+    }, ms);
+  };
+  const deadline = new Promise((_, reject) => {
+    rejectDeadline = reject;
+  });
+  // A closed OAuth connection (login cancel, disconnect, shutdown) settles a
+  // handshake that would otherwise wait forever (an SSE stream closed while
+  // starting never settles). The SDK also closes the transport — and with it
+  // the OAuth connection — right before rethrowing a connect failure of its
+  // own (e.g. connection refused): deferring past the pending microtasks lets
+  // that real failure settle the race first.
+  const cancelOAuth = () =>
+    setImmediate(() => rejectDeadline(loginStarted ? oauthLoginError() : connectCancelledError(name)));
+  transport.oauth?.signal.addEventListener('abort', cancelOAuth, { once: true });
+  if (transport.oauth?.signal.aborted) cancelOAuth();
+  if (startupTimeoutMs > 0) armDeadline(startupTimeoutMs);
+  // Human authorization gets a separate, finite budget. The ordinary startup
+  // budget still applies until the server actually challenges authentication.
+  if (transport.oauth) {
+    transport.oauth.onStart = () => {
+      loginStarted = true;
+      armDeadline(MCP_OAUTH_TIMEOUT_MS, oauthLoginError);
+    };
+  }
   const handshake = performHandshake(client, transport, {
-    timeout: startupTimeoutMs > 0 ? startupTimeoutMs : MCP_MAX_TIMER_MS,
+    timeout: !transport.oauth && startupTimeoutMs > 0 ? startupTimeoutMs : MCP_MAX_TIMER_MS,
   });
   try {
-    if (startupTimeoutMs <= 0) return await handshake;
-    const deadline = new Promise((_, rej) => {
-      guard.timer = setTimeout(() => {
-        guard.timedOut = true;
-        rej(startupTimeoutError(name, startupTimeoutMs));
-      }, startupTimeoutMs);
-    });
     return await Promise.race([handshake, deadline]);
   } catch (err) {
     // A discovery-advert port that fails to connect is a corpse (recycled
@@ -88,7 +128,7 @@ export async function runBoundedHandshake({
     // ONLY — a startup/handshake timeout is a slow-but-alive server.
     if (autoDetectAdvert && isConnRefuseError(err))
       markServiceUnreachable(autoDetectAdvert.service, autoDetectAdvert.port);
-    if (guard.timedOut) {
+    if (guard.timedOut || transport.oauth?.signal.aborted) {
       // Tear down the pending transport/child so a hung handshake never
       // leaks a stdio process or socket — fire-and-forget (like the
       // tool-call timeout path) so a slow tree-kill never delays this
@@ -96,7 +136,7 @@ export async function runBoundedHandshake({
       try {
         closeServer({ client, transport }).catch(() => {});
       } catch {
-        /* ignore */
+        // Teardown is best effort: the handshake failure below is what gets reported.
       }
       // Never let the late handshake settle into an unhandled rejection.
       handshake.catch(() => {});
@@ -108,6 +148,9 @@ export async function runBoundedHandshake({
     }
     throw tail ? new Error(appendMcpStderrTail(String(err), tail)) : err;
   } finally {
+    transport.oauth?.finishConnect();
     if (guard.timer) clearTimeout(guard.timer);
+    transport.oauth?.signal.removeEventListener('abort', cancelOAuth);
+    if (transport.oauth) transport.oauth.onStart = () => {};
   }
 }

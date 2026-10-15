@@ -48,18 +48,31 @@ export function shouldRemoveSelectedSkill(input: {
   );
 }
 
+/** The runtime's scope decoration on a skillsStatus entry
+ *  (src/session-runtime/resource-scope-decorate.mjs): `scope` / `inheritedScope`
+ *  are project root lists (null = everywhere), `activeHere` whether the
+ *  answering session's cwd sees the skill. */
+type ScopedSkill = { enabled?: unknown; activeHere?: unknown; scope?: unknown; inheritedScope?: unknown };
+
+/** Whether the runtime would use `skill` for this composer: switched on AND in
+ *  scope. The status is always read for the composer's own folder (its
+ *  session's, or a draft's selected Project), so `activeHere` decides. */
+export function skillAvailable(skill: ScopedSkill | null | undefined): boolean {
+  return skill?.enabled === true && skill.activeHere !== false;
+}
+
 // The menu offers only the user's own skills, in the order the daemon
 // reported. Shipped skills stay off it: the model loads them when a request
 // matches, so pinning one to a message adds nothing.
 export function selectableComposerSkills(value: unknown): ComposerSkill[] {
   const status = value as {
-    skills?: Array<{ name?: unknown; description?: unknown; enabled?: boolean; source?: unknown; owner?: unknown }>;
+    skills?: Array<ScopedSkill & { name?: unknown; description?: unknown; source?: unknown; owner?: unknown }>;
   } | null;
   const seen = new Set<string>();
   const custom: ComposerSkill[] = [];
   for (const skill of Array.isArray(status?.skills) ? status.skills : []) {
     const name = typeof skill?.name === 'string' ? skill.name.trim() : '';
-    if (!name || skill.enabled !== true || seen.has(name) || isBuiltInSkill(skill)) continue;
+    if (!name || !skillAvailable(skill) || seen.has(name) || isBuiltInSkill(skill)) continue;
     seen.add(name);
     custom.push({ name, description: skillDisplayDescription(skill) });
   }

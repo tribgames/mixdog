@@ -175,7 +175,9 @@ export function mergePastedImages(entries) {
 
 // Byte-free image metadata for the user transcript item. Prompt content carries
 // only a content-addressed attachment ref after daemon intake; transcript items
-// and desktop snapshots carry just name/mime/size.
+// and desktop snapshots carry name/mime/size plus, for attachment-reference
+// parts, the `attachmentRef` so the desktop can rebuild thumbnails from the
+// stored original.
 export function promptContentImageMeta(content, pastedImages) {
   const parts = Array.isArray(content) ? content.filter((part) => part?.type === 'image') : [];
   if (parts.length === 0) return null;
@@ -190,6 +192,7 @@ export function promptContentImageMeta(content, pastedImages) {
       name: String(meta?.filename || `Image ${index + 1}`),
       mimeType: String(part.mimeType || part.mediaType || meta?.mediaType || 'image/png'),
       bytes: Number(part.sizeBytes) || data.length,
+      ...(isAttachmentReference(part) ? { attachmentRef: part.attachmentRef } : {}),
     };
   });
 }
@@ -202,6 +205,8 @@ export function callCommitCallbacks(entries) {
   for (const entry of entries || []) {
     try {
       entry?.onCommitted?.();
-    } catch {}
+    } catch {
+      // A throwing commit callback must not block the remaining entries.
+    }
   }
 }

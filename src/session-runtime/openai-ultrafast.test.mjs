@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -54,7 +54,33 @@ test('OAuth payload sends ultrafast only when the catalog advertises it', async 
   assert.equal(row('fast-only-model').modelParameterOptions?.some((o) => o.id === 'serviceTier') ?? false, false);
 });
 
-test('direct API payload sends ultrafast for astra and 6.1-sol only', async () => {
+test('direct API payload sends ultrafast for astra and 6.1-sol only', async (t) => {
+  // Seed the catalog explicitly: gpt-5's Priority eligibility comes from its
+  // published Priority rate, which must not depend on a developer's cache.
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-ultrafast-direct-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  t.after(() => {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  writeFileSync(
+    join(dataDir, 'litellm-catalog.json'),
+    JSON.stringify({
+      fetchedAt: Date.now(),
+      data: {
+        'gpt-5': {
+          litellm_provider: 'openai',
+          mode: 'chat',
+          input_cost_per_token: 1.25e-6,
+          output_cost_per_token: 10e-6,
+          input_cost_per_token_priority: 2.5e-6,
+          output_cost_per_token_priority: 20e-6,
+        },
+      },
+    })
+  );
   const { buildRequestBody } = await import('../runtime/agent/orchestrator/providers/openai-oauth.mjs');
   const direct = { ...ultra, promptCacheProvider: 'openai' };
   for (const model of ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-sol-2026-10-01']) {
@@ -63,7 +89,8 @@ test('direct API payload sends ultrafast for astra and 6.1-sol only', async () =
   for (const model of ['gpt-6-sol', 'gpt-5.5']) {
     assert.equal(buildRequestBody(messages, model, [], direct).service_tier, 'priority', model);
   }
-  assert.equal(buildRequestBody(messages, 'gpt-5', [], direct).service_tier, undefined);
+  // gpt-5 has a published Priority rate in the catalog, so Fast applies to it.
+  assert.equal(buildRequestBody(messages, 'gpt-5', [], direct).service_tier, 'priority');
   assert.equal(
     buildRequestBody(messages, 'gpt-6-astra', [], { ...direct, modelParameters: {} }).service_tier,
     'priority'

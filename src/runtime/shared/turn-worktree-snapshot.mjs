@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { access, copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { PATCH_EDIT_MAX_BYTES } from './bounded-file-read.mjs';
 import { cleanString as clean } from './clean.mjs';
 import { runGitOffThread } from './git-runner.mjs';
@@ -44,8 +44,26 @@ function pathKey(value) {
 
 /** `resolve` plus symlinks of the nearest existing ancestor: git reports the
  *  worktree root canonically (macOS /var -> /private/var), callers may not. */
-function canonicalPath(value) {
+function canonicalPath(value, dirs = null) {
   const full = resolve(value);
+  if (dirs) {
+    // Same result as the walk below without repeating it per file: the parent
+    // directory is canonicalized once per call; the final component only
+    // matters when it is itself a link (or its state is unknown).
+    const parent = dirname(full);
+    if (parent !== full) {
+      let canonicalParent = dirs.get(parent);
+      if (canonicalParent === undefined) {
+        canonicalParent = canonicalPath(parent);
+        dirs.set(parent, canonicalParent);
+      }
+      try {
+        if (!lstatSync(full).isSymbolicLink()) return join(canonicalParent, basename(full));
+      } catch (error) {
+        if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return join(canonicalParent, basename(full));
+      }
+    }
+  }
   let head = full;
   while (!existsSync(head)) {
     const parent = dirname(head);
@@ -139,8 +157,10 @@ function stateForRoot(root) {
 /** Report written paths (or `null`: anything may have changed). The next
  *  review poll of an affected worktree captures instead of reusing. */
 export function noteTurnWorktreeChange(paths = null) {
+  if (states.size === 0) return;
   const list = Array.isArray(paths) ? paths.filter((value) => clean(value)) : [];
-  const keys = list.map((value) => pathKey(canonicalPath(value)));
+  const dirs = new Map();
+  const keys = list.map((value) => pathKey(canonicalPath(value, dirs)));
   for (const state of states.values()) {
     const root = pathKey(state.root);
     if (keys.length === 0 || keys.some((key) => key === root || key.startsWith(`${root}/`))) {
@@ -149,8 +169,30 @@ export function noteTurnWorktreeChange(paths = null) {
   }
 }
 
-function withStateLock(state, task) {
-  const next = state.lock.then(task, task);
+// A lock hold (queue wait plus work) at least this long is logged, so a slow
+// review bar can be told apart as waiting behind other captures or slow git.
+const SLOW_LOCK_LOG_MS = 1_000;
+
+function withStateLock(state, task, op = 'task') {
+  const queuedAt = Date.now();
+  const queuedBehind = state.lockDepth || 0;
+  state.lockDepth = queuedBehind + 1;
+  let startedAt = 0;
+  const timed = async () => {
+    startedAt = Date.now();
+    return await task();
+  };
+  const next = state.lock.then(timed, timed).finally(() => {
+    state.lockDepth -= 1;
+    const finishedAt = Date.now();
+    const waitMs = (startedAt || finishedAt) - queuedAt;
+    if (finishedAt - queuedAt >= SLOW_LOCK_LOG_MS) {
+      console.info(
+        `[turn-snapshot-lock] op=${op} waitMs=${waitMs} workMs=${finishedAt - (startedAt || finishedAt)} ` +
+          `queuedBehind=${queuedBehind} root=${state.root}`
+      );
+    }
+  });
   state.lock = next.then(
     () => undefined,
     () => undefined
@@ -318,6 +360,7 @@ async function ensureState(state) {
 }
 
 async function resetShadowIndex(state) {
+  state.lastCapture = null;
   state.sourceIndexPath ??= await sourceGitPath(state.root, 'index');
   const sourceIndex = state.sourceIndexPath;
   const target = join(state.gitDir, 'index');
@@ -380,10 +423,33 @@ async function changedWorktreePaths(state) {
   };
 }
 
-async function captureTreeUnlocked(state, toolPaths = []) {
+/** The capture sequence a caller observes before queueing on the lock. */
+function captureSequence(state) {
+  return state.captureSeq || 0;
+}
+
+/** `after` (a captureSequence() read before queueing): a capture of this root
+ *  that began after that point, with no reported write since and covering
+ *  every explicit path, already is a capture that began after the call. Many
+ *  sessions of one repository queue reads together; they share that capture
+ *  instead of each re-scanning the worktree in turn. */
+async function captureTreeUnlocked(state, toolPaths = [], { after = -1 } = {}) {
   await ensureState(state);
-  const { paths, excludedUntracked } = await changedWorktreePaths(state);
   const explicit = new Set(toolPaths);
+  const last = state.lastCapture;
+  if (
+    after >= 0 &&
+    last &&
+    last.seq > after &&
+    last.stamp === state.changeStamp &&
+    [...explicit].every((rel) => last.explicit.has(rel))
+  ) {
+    return last.tree;
+  }
+  state.captureSeq = captureSequence(state) + 1;
+  const capture = { seq: state.captureSeq, stamp: state.changeStamp, explicit, tree: '' };
+  state.lastCapture = null;
+  const { paths, excludedUntracked } = await changedWorktreePaths(state);
   for (const rel of explicit) {
     try {
       const stat = await lstat(resolve(state.root, rel));
@@ -412,7 +478,9 @@ async function captureTreeUnlocked(state, toolPaths = []) {
     });
   }
   const tree = await runGit(shadowArgs(state, ['write-tree']), { cwd: state.root });
-  return clean(tree.stdout);
+  capture.tree = clean(tree.stdout);
+  state.lastCapture = capture;
+  return capture.tree;
 }
 
 /** Only explicit tool targets bypass ignore/size filters. Their first-before
@@ -781,7 +849,7 @@ function scheduleShadowGc(state) {
 async function removeShadowDir(gitDir, removed, kept) {
   if (!(await exists(gitDir))) return;
   await rm(gitDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
-  (await exists(gitDir) ? kept : removed).push(gitDir);
+  ((await exists(gitDir)) ? kept : removed).push(gitDir);
 }
 
 /** Drop every trace of one worktree root: serialize behind its pending capture
@@ -855,39 +923,74 @@ export async function resumeTurnWorktreeSnapshot(
   const root = await repositoryRoot(worktree).catch(() => null);
   if (!root) return null;
   const state = stateForRoot(root);
-  return await withStateLock(state, async () => {
-    await ensureState(state);
-    // A collected or never-written baseline restores nothing. Report that as
-    // "no snapshot" instead of failing every later call made against it.
-    const kind = await runGit(shadowArgs(state, ['cat-file', '-t', tree]), {
+  const after = captureSequence(state);
+  return await withStateLock(
+    state,
+    async () => {
+      await ensureState(state);
+      // A collected or never-written baseline restores nothing. Report that as
+      // "no snapshot" instead of failing every later call made against it.
+      const kind = await runGit(shadowArgs(state, ['cat-file', '-t', tree]), {
+        cwd: state.root,
+        allowFailure: true,
+      });
+      if (kind.code !== 0 || clean(kind.stdout) !== 'tree') return null;
+      const scopePaths = Array.isArray(paths) && paths.length > 0 ? [...new Set(paths)] : null;
+      const applied = await applyBaselineFilesUnlocked(state, tree, baselineFiles || []);
+      const snapshot = {
+        state,
+        root,
+        baselineTree: applied.tree,
+        currentTree: tree,
+        patch: '',
+        files: [],
+        patchTruncated: false,
+        scopePaths,
+        toolPaths: new Set(scopePaths || []),
+        pendingBaselines: new Map(),
+        baselineFiles: new Map(applied.files.map((entry) => [pathKey(entry.path), entry])),
+      };
+      const currentTree = await captureTreeUnlocked(state, snapshot.toolPaths, { after });
+      Object.assign(
+        snapshot,
+        withOmittedBaselines(
+          snapshot,
+          await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths, { omitPatch })
+        )
+      );
+      return snapshot;
+    },
+    'resume'
+  );
+}
+
+// Git's well-known empty tree: what an unborn HEAD (no commit yet) compares as.
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+/** The files among `paths` whose bytes in the snapshot's last capture still
+ *  differ from the source repository's current HEAD (staged or not), with
+ *  their counts against HEAD; no patch text. An ignored file that HEAD does
+ *  not hold is no uncommitted change and is left out. */
+export async function diffTurnWorktreeHead(snapshot, paths) {
+  const scope = [...new Set((paths || []).filter(Boolean))];
+  if (!snapshot?.state || !snapshot.currentTree || scope.length === 0) return [];
+  return await withStateLock(snapshot.state, async () => {
+    const { state } = snapshot;
+    const head = await runGit(['rev-parse', '--verify', '--quiet', 'HEAD^{tree}'], {
       cwd: state.root,
       allowFailure: true,
     });
-    if (kind.code !== 0 || clean(kind.stdout) !== 'tree') return null;
-    const scopePaths = Array.isArray(paths) && paths.length > 0 ? [...new Set(paths)] : null;
-    const applied = await applyBaselineFilesUnlocked(state, tree, baselineFiles || []);
-    const snapshot = {
-      state,
-      root,
-      baselineTree: applied.tree,
-      currentTree: tree,
-      patch: '',
-      files: [],
-      patchTruncated: false,
-      scopePaths,
-      toolPaths: new Set(scopePaths || []),
-      pendingBaselines: new Map(),
-      baselineFiles: new Map(applied.files.map((entry) => [pathKey(entry.path), entry])),
-    };
-    const currentTree = await captureTreeUnlocked(state, snapshot.toolPaths);
-    Object.assign(
-      snapshot,
-      withOmittedBaselines(
-        snapshot,
-        await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths, { omitPatch })
-      )
-    );
-    return snapshot;
+    const headTree = head.code === 0 ? clean(head.stdout) : EMPTY_TREE;
+    const { files } = await diffTreesUnlocked(state, headTree, snapshot.currentTree, scope, { omitPatch: true });
+    const added = files.filter((file) => file.status === 'A').map((file) => file.path);
+    if (added.length === 0) return files;
+    const ignored = await runGit(['check-ignore', '-z', '--stdin'], {
+      cwd: state.root,
+      input: `${added.join('\0')}\0`,
+      allowFailure: true,
+    });
+    const skip = new Set(splitNulList(ignored.stdout).map(pathKey));
+    return files.filter((file) => file.status !== 'A' || !skip.has(pathKey(file.path)));
   });
 }
 
@@ -910,17 +1013,22 @@ function startRefresh(snapshot) {
   const flight = { seq: (snapshot.refreshSeq || 0) + 1, promise: null };
   snapshot.refreshSeq = flight.seq;
   snapshot.refreshing = flight;
-  flight.promise = withStateLock(snapshot.state, async () => {
-    const mark = await captureMark(snapshot.state);
-    await materializeToolBaselines(snapshot);
-    const currentTree = await captureTreeUnlocked(snapshot.state, snapshot.toolPaths);
-    if (currentTree !== snapshot.currentTree) {
-      const review = await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths);
-      Object.assign(snapshot, withOmittedBaselines(snapshot, review));
-    }
-    snapshot.captured = mark;
-    return snapshot;
-  }).finally(() => {
+  const after = captureSequence(snapshot.state);
+  flight.promise = withStateLock(
+    snapshot.state,
+    async () => {
+      const mark = await captureMark(snapshot.state);
+      await materializeToolBaselines(snapshot);
+      const currentTree = await captureTreeUnlocked(snapshot.state, snapshot.toolPaths, { after });
+      if (currentTree !== snapshot.currentTree) {
+        const review = await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths);
+        Object.assign(snapshot, withOmittedBaselines(snapshot, review));
+      }
+      snapshot.captured = mark;
+      return snapshot;
+    },
+    'refresh'
+  ).finally(() => {
     if (snapshot.refreshing === flight) snapshot.refreshing = null;
   });
   return flight.promise;
@@ -962,6 +1070,7 @@ function safeRelativePath(root, value) {
 }
 
 async function restorePathFromTree(snapshot, rel) {
+  snapshot.state.lastCapture = null;
   const listed = await runGit(
     shadowArgs(snapshot.state, ['ls-tree', '-z', '--name-only', snapshot.baselineTree, '--', rel]),
     { cwd: snapshot.root }

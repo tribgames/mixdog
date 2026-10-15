@@ -3,6 +3,7 @@ import { type KeyboardEvent, useId, useState } from 'react';
 import type { DesktopSshConfigHost } from '../../shared/contract-ssh';
 import { parseSshTarget, sshTargetLabel } from '../../main/ssh/ssh-command';
 import { t } from '../i18n';
+import { useMobileBack } from '../mobile-back';
 import { ConnDialog } from './connection-dialogs';
 
 function validTarget(text: string): boolean {
@@ -86,6 +87,9 @@ export function SshAddressDialog({
 }) {
   const listId = useId();
   const { target, valid, suggestions, showMenu, activeIndex } = field;
+  // Registered after the dialog frame's own layer, so back folds the
+  // suggestion list first (same order as Escape).
+  useMobileBack(showMenu, field.closeMenu);
 
   const connect = (): void => {
     if (!valid) return;

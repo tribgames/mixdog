@@ -31,12 +31,30 @@ test('a session whose route turned Auto effort off is never judged; an absent fl
       .some((line) => JSON.parse(line).sessionId === sessionId);
   const input = { prompt: 'fix the failing test' };
   try {
-    assert.equal(await resolveTurnAutoEffort({ sessionId: 'off', session: session({ autoEffort: false }), input }), null);
+    assert.equal(
+      await resolveTurnAutoEffort({ sessionId: 'off', session: session({ autoEffort: false }), input }),
+      null
+    );
     assert.equal(judged('off'), false, 'the off route never reaches the judge');
     await resolveTurnAutoEffort({ sessionId: 'absent', session: session({}), input });
     assert.equal(judged('absent'), true, 'an absent flag keeps auto effort on');
     await resolveTurnAutoEffort({ sessionId: 'on', session: session({ autoEffort: true }), input });
     assert.equal(judged('on'), true);
+    // An Anthropic Opus route is eligible: the skip comes from the empty judge, not the ladder.
+    const rows = readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.notEqual(rows.find((row) => row.sessionId === 'on').skipped, 'default-outside-auto-range');
+    // A chosen max keeps its base off the ladder: no judge request, a skip record.
+    assert.equal(await resolveTurnAutoEffort({ sessionId: 'max', session: session({ effort: 'max' }), input }), null);
+    const skip = readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+      .find((row) => row.sessionId === 'max');
+    assert.equal(skip.skipped, 'default-outside-auto-range');
+    assert.equal(skip.ms, undefined);
   } finally {
     for (const key of ENV_KEYS) {
       if (previous[key] === undefined) delete process.env[key];

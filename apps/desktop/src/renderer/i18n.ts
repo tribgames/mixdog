@@ -149,6 +149,7 @@ i18next.addResourceBundle('en', 'translation', {
   'Island: {{count}} shells_other': '{{count}} shells',
   'Island: {{count}} files': '{{count}} files',
   'Island: {{count}} files_other': '{{count}} files',
+  'Island: View changes': 'View changes',
   'Turn changes: {{count}} files changed': '{{count}} files changed',
   'Turn changes: {{count}} files changed_other': '{{count}} files changed',
 });

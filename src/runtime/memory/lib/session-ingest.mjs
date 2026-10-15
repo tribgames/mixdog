@@ -201,8 +201,8 @@ function isExcludedUserIngestText(m, text) {
   if (metaSource === 'task-notification') return true;
   // `Reference files:` synthetic user rows (manager.mjs isReferenceFilesMessage).
   if (/^Reference files:\s*/i.test(trimmedStart)) return true;
-  // Attachment-only placeholder rows (e.g. Discord provider discord.mjs:724
-  // `"(attachment)"` fallback when a message carries no text, only files).
+  // Attachment-only placeholder rows (`"(attachment)"` fallback written by the
+  // former channel provider when a message carried no text, only files).
   if (text.trim() === '(attachment)') return true;
   // Compaction summary user rows (compact.mjs isSummaryMessage / SUMMARY_PREFIX).
   if (metaSource === 'compact-summary') return true;

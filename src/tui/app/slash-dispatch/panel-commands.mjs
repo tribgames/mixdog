@@ -14,6 +14,8 @@ const desktopOnlyNotice = (ctx) => {
   return true;
 };
 
+const openMcpPanel = panelCommand('mcp', 'MCP Servers', (deps) => deps.openMcpPicker());
+
 const openSettings = panelCommand('settings', 'Settings', (deps) => deps.openSettingsPicker());
 
 export const panelCommands = {
@@ -26,7 +28,20 @@ export const panelCommands = {
     ctx.openSlashPanel('project', 'Projects', () => ctx.deps.openProjectPicker());
     return true;
   },
-  mcp: panelCommand('mcp', 'MCP Servers', (deps) => deps.openMcpPicker()),
+  mcp(ctx, arg) {
+    const [sub, ...rest] = arg.trim().split(/\s+/);
+    const action = sub?.toLowerCase();
+    if (action === 'login' || action === 'logout') {
+      const name = rest.join(' ');
+      if (!name) {
+        ctx.store.pushNotice(`usage: /mcp ${action} <name>`, 'warn');
+        return true;
+      }
+      void (action === 'login' ? ctx.deps.loginMcpServer(name) : ctx.deps.logoutMcpServer(name));
+      return true;
+    }
+    return openMcpPanel(ctx);
+  },
   skills: panelCommand('skills', 'Skills', (deps) => deps.openSkillsPicker()),
   plugins: panelCommand('plugins', 'Plugins', (deps) => deps.openPluginsPicker()),
   providers: panelCommand('providers', 'Providers', (deps) => deps.openProviderSetupPicker()),

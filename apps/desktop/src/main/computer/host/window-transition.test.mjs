@@ -5,10 +5,7 @@ import {
   filterComputerUseWindowListText,
   registerComputerUseInternalWindow,
 } from '../overlay/internal-windows.ts';
-import {
-  computeComputerWindowTransition,
-  launchTransitionConfirmsTarget,
-} from '../shared/window-transition.ts';
+import { computeComputerWindowTransition, launchTransitionConfirmsTarget } from '../shared/window-transition.ts';
 
 function windowRecord(id, overrides = {}) {
   return {

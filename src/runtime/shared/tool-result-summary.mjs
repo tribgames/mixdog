@@ -640,8 +640,14 @@ function summarizeAgentResult({ text, trimmed, translate }) {
 
 const summarizeGeneric = ({ text, translate }) => summarizeGenericResult(text, translate);
 
+const summarizeAskUserResult = ({ text }) => {
+  const answers = /^User has answered your questions:\s*(.*?)(?:\s*You can now continue with these answers in mind\.)?$/s.exec(String(text ?? '').trim());
+  return truncateSingleLine(answers ? answers[1] : String(text ?? '').trim(), AGENT_SURFACE_BRIEF_MAX) || null;
+};
+
 const TOOL_RESULT_SUMMARIZERS = new Map(
   [
+    [['ask_user'], summarizeAskUserResult],
     [['read', 'view_image', 'read_mcp_resource'], summarizeReadResult],
     [['apply_patch'], summarizePatchResult],
     [['grep'], summarizeGrepResult],
@@ -662,7 +668,8 @@ const TOOL_RESULT_SUMMARIZERS = new Map(
         'update_memory',
         'request_user_input',
         'update_plan',
-        'cwd',
+        'cwd', // legacy: old transcripts
+        'session',
         'list_mcp_resources',
         'list_mcp_resource_templates',
       ],

@@ -100,7 +100,7 @@ test('metadata of an unchanged record is served from its stamp; a change or a fo
   assert.equal(reads(id), 3);
 });
 
-test('catalog rows of never-indexed records are parsed once per stamp', (t) => {
+test('catalog rows of never-indexed records are parsed once per stamp', async (t) => {
   const id = ids[2];
   const reads = countReads(t);
   const row = () => reader.listStoredSessionSummaries().find((entry) => entry.id === id);
@@ -109,10 +109,14 @@ test('catalog rows of never-indexed records are parsed once per stamp', (t) => {
   assert.ok(first <= 1);
   for (let round = 0; round < 3; round++) assert.ok(row());
   assert.equal(reads(id), first, 'no read while the stamp is unchanged');
+  // A replacement under the same name by a writer that skips the index is
+  // found by the catalog's background pass.
   replace(id, record(id, { messages: [{ role: 'user', content: 'changed preview' }] }));
+  await reader.verifyStoredSessionCatalog();
   assert.equal(row()?.preview, 'changed preview');
   assert.equal(reads(id), first + 1);
   replace(id, record(`${id}_other`));
+  await reader.verifyStoredSessionCatalog();
   assert.equal(row(), undefined, 'a foreign record yields no row');
 });
 

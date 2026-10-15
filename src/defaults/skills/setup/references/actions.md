@@ -57,7 +57,7 @@ Read this when choosing a `setup` mutation.
 | Refresh a plugin checkout | `update_plugin` |
 | Enable or disable a plugin | `set_plugin_enabled` |
 | Remove a plugin | `remove_plugin` |
-| Install or reconfigure the MCP server a plugin ships | `enable_plugin_mcp` |
+| Turn back on and reconnect every MCP server a plugin declares | `enable_plugin_mcp` |
 | Available hosted models and their options; optionally one provider, native-search capable only, or a refreshed catalog | `list_models` |
 | Agent orchestration, independent of workflow instructions | `set_orchestration_mode` |
 | Safe MCP edit metadata, excluding raw connection/credential values | `get_mcp_server` |
@@ -204,8 +204,18 @@ markers are read with `status desktop`.
 - Environment/header maps are partial patches. Omitted keys are preserved;
   `null` explicitly removes one key, including a stored credential.
 - Plugin enablement moves its contributed skills and MCP integrations together.
-- `enable_plugin_mcp` writes the MCP server a plugin ships and reconnects; it
-  fails for a plugin without an MCP script.
+- A registered plugin's MCP servers (its `.mcp.json` and manifest
+  `mcpServers`) appear automatically with `source: "plugin"` and `plugin` /
+  `pluginServer` in `status mcp`; nothing is copied into the MCP list. A plugin
+  server runs only while both the plugin and the server are enabled;
+  `set_mcp_enabled` toggles the server, `set_plugin_enabled` the plugin, and
+  `set_extension_scope` limits it (the plugin's scope still applies).
+  `add_mcp_server`, `save_mcp_server`, and `remove_mcp_server` refuse plugin
+  servers. Declaration problems and naming conflicts are reported as
+  `declarationErrors` and `warnings`.
+- `enable_plugin_mcp` turns every server the plugin declares back on and
+  reconnects them; a disabled plugin stays disabled, and it fails for a plugin
+  that declares no MCP servers.
 
 ## Desktop, Projects, and automation
 

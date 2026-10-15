@@ -26,8 +26,8 @@ import { createResponseEvents } from './openai-http-sse-response-state/response-
  * @param {(kind: string) => void} deps.meaningful  semantic progress (re-arms the idle watchdog)
  * @param {() => void} deps.onServerEvent  first-event → semantic-idle handover
  */
-export function createHttpSseResponseState({ body, onToolCall, onTextDelta, meaningful, onServerEvent }) {
-  const state = createResponseState();
+export function createHttpSseResponseState({ body, onToolCall, onTextDelta, meaningful, onServerEvent, label }) {
+  const state = createResponseState(label);
   const outcome = createResponseOutcome({ state });
   const items = createResponseItems({ state, onToolCall });
   const text = createTextRelay({ state, body, onTextDelta, meaningful, emitToolCall: items.emitToolCall });

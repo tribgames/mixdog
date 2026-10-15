@@ -26,34 +26,3 @@ export function agentElapsedText(
   if (state === 'unknown') return t('Unknown');
   return t('Idle');
 }
-
-/** 999 → "999", 128_400 → "128.4k", 1_250_000 → "1.3M". */
-export function compactCount(value: number): string {
-  const n = Math.max(0, Math.round(value));
-  if (n < 1_000) return String(n);
-  let scaled = n / 1_000;
-  for (const suffix of ['k', 'M', 'B']) {
-    const rounded = Math.round(scaled * 10) / 10;
-    if (rounded < 1_000 || suffix === 'B') return `${rounded}${suffix}`;
-    scaled /= 1_000;
-  }
-  return String(n);
-}
-
-function finiteCount(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-/** "128.4k tokens · 48 tool calls", leaving out whichever is unknown ('' when
- *  neither is). */
-export function agentUsageMeta(agent: Pick<DesktopAgentPoolRow, 'usage' | 'toolCalls'> | undefined): string {
-  if (!agent) return '';
-  const tokens = finiteCount(agent.usage?.totalTokens);
-  const calls = finiteCount(agent.toolCalls);
-  return [
-    tokens === null ? '' : t('{{tokens}} tokens', { tokens: compactCount(tokens) }),
-    calls === null ? '' : t('Island: {{count}} tool calls', { count: calls }),
-  ]
-    .filter(Boolean)
-    .join(' · ');
-}

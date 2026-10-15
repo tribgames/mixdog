@@ -23,10 +23,10 @@ const { createAccountPoolProvider, isAccountQuotaError } = await import('./accou
 const { cloneProviderReplay } = await import('./lib/provider-replay.mjs');
 after(() => rmSync(dir, { recursive: true, force: true }));
 
-function setup(provider) {
+async function setup(provider) {
   const ids = [newProviderAccountId(), newProviderAccountId(), newProviderAccountId()];
-  for (const [i, id] of ids.entries()) registerProviderAccount(provider, id, { label: `Account ${i + 1}` });
-  changeProviderAccounts(provider, { selectedId: ids[0] });
+  for (const [i, id] of ids.entries()) await registerProviderAccount(provider, id, { label: `Account ${i + 1}` });
+  await changeProviderAccounts(provider, { selectedId: ids[0] });
   return ids;
 }
 function quotaError() {
@@ -42,8 +42,8 @@ function deferred() {
 
 test('persisted order controls quota failover and preserves selection across reloads', async () => {
   const provider = 'openai-oauth';
-  const ids = setup(provider);
-  changeProviderAccounts(provider, { order: [ids[0], ids[2], ids[1]] });
+  const ids = await setup(provider);
+  await changeProviderAccounts(provider, { order: [ids[0], ids[2], ids[1]] });
   const calls = [];
   const accountChanges = [];
   const gateway = createAccountPoolProvider(provider, () => ({
@@ -91,14 +91,14 @@ test('persisted order controls quota failover and preserves selection across rel
     JSON.parse(readFileSync(join(dir, 'provider-accounts.json'), 'utf8')).providers[provider].selectedId,
     ids[2]
   );
-  assert.throws(() => changeProviderAccounts(provider, { order: [ids[0], ids[0], ids[2]] }), /exactly once/);
-  assert.throws(() => changeProviderAccounts(provider, { selectedId: '../../credentials' }), /Invalid/);
+  await assert.rejects(() => changeProviderAccounts(provider, { order: [ids[0], ids[0], ids[2]] }), /exactly once/);
+  await assert.rejects(() => changeProviderAccounts(provider, { selectedId: '../../credentials' }), /Invalid/);
   assert.throws(() => providerAccountPath(provider, '../outside'), /Invalid/);
 });
 
 test('a 429 whose Retry-After spans a quota window switches accounts without a usage probe', async () => {
   const provider = 'anthropic-oauth';
-  const ids = setup(provider);
+  const ids = await setup(provider);
   const calls = [];
   const windowRefusal = () =>
     Object.assign(new Error('Anthropic OAuth API 429 quota/rate limit'), {
@@ -132,7 +132,7 @@ test('a 429 whose Retry-After spans a quota window switches accounts without a u
 
   // A burst throttle answers in seconds; without a usage-endpoint confirmation
   // it keeps the account and surfaces the error.
-  changeProviderAccounts(provider, { selectedId: ids[2] });
+  await changeProviderAccounts(provider, { selectedId: ids[2] });
   calls.length = 0;
   const burst = createAccountPoolProvider(provider, () => ({
     async send() {
@@ -146,7 +146,7 @@ test('a 429 whose Retry-After spans a quota window switches accounts without a u
 
 test('manual switching never changes authentication inside an in-flight request', async () => {
   const provider = 'anthropic-oauth';
-  const ids = setup(provider);
+  const ids = await setup(provider);
   const entered = deferred();
   const release = deferred();
   const gateway = createAccountPoolProvider(provider, () => {
@@ -164,7 +164,7 @@ test('manual switching never changes authentication inside an in-flight request'
   });
   const first = gateway.send([], 'model', [], { wait: true });
   await entered.promise;
-  changeProviderAccounts(provider, { selectedId: ids[1] });
+  await changeProviderAccounts(provider, { selectedId: ids[1] });
   assert.equal((await gateway.send([], 'model', [])).content, ids[1]);
   release.resolve();
   assert.equal((await first).content, ids[0]);
@@ -179,14 +179,14 @@ test('manual switching never changes authentication inside an in-flight request'
   );
 });
 
-test('quota snapshots skip exhausted windows, and an elapsed reset becomes eligible', () => {
+test('quota snapshots skip exhausted windows, and an elapsed reset becomes eligible', async () => {
   const provider = 'grok-oauth';
-  const ids = setup(provider);
+  const ids = await setup(provider);
   const now = Date.now();
-  recordProviderAccountUsage(provider, ids[0], {
+  await recordProviderAccountUsage(provider, ids[0], {
     quotaWindows: [{ label: '7D', usedPct: 100, resetAt: now + 60_000 }],
   });
-  recordProviderAccountUsage(provider, ids[1], {
+  await recordProviderAccountUsage(provider, ids[1], {
     quotaWindows: [{ label: '5H', usedPct: 100, resetAt: now + 120_000 }],
   });
   const pool = readProviderAccountPool(provider);
@@ -197,19 +197,19 @@ test('quota snapshots skip exhausted windows, and an elapsed reset becomes eligi
 
 test('a full Fable weekly window only exhausts Fable-series models', async () => {
   const provider = 'anthropic-oauth';
-  const ids = setup(provider);
+  const ids = await setup(provider);
   const now = Date.now();
-  const stamp = (quotaWindows) => {
+  const stamp = async (quotaWindows) => {
     for (const row of readProviderAccountPool(provider).accounts) {
-      recordProviderAccountUsage(provider, row.id, { quotaWindows });
+      await recordProviderAccountUsage(provider, row.id, { quotaWindows });
     }
   };
-  stamp([
+  await stamp([
     { label: '5H', usedPct: 2, resetAt: now + 60_000 },
     { label: '7D', usedPct: 53, resetAt: now + 120_000 },
     { label: '7D Fable', usedPct: 100, resetAt: now + 120_000 },
   ]);
-  changeProviderAccounts(provider, { selectedId: ids[0] });
+  await changeProviderAccounts(provider, { selectedId: ids[0] });
   let pool = readProviderAccountPool(provider);
   assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-opus-5').id, ids[0]);
   assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-sonnet-4-6').id, ids[0]);
@@ -226,7 +226,7 @@ test('a full Fable weekly window only exhausts Fable-series models', async () =>
   await assert.rejects(gateway.send([], 'claude-fable-5-1', []), /plan limit is reached and credit use is off/);
   assert.deepEqual(calls, ['claude-opus-5']);
 
-  stamp([
+  await stamp([
     { label: '5H', usedPct: 2, resetAt: now + 60_000 },
     { label: '7D Opus', usedPct: 100, resetAt: now + 120_000 },
   ]);
@@ -234,20 +234,20 @@ test('a full Fable weekly window only exhausts Fable-series models', async () =>
   assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-fable-5-1').id, ids[0]);
   assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-opus-5'), null);
 
-  stamp([{ label: '7D', usedPct: 100, resetAt: now + 120_000 }]);
+  await stamp([{ label: '7D', usedPct: 100, resetAt: now + 120_000 }]);
   pool = readProviderAccountPool(provider);
   assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-opus-5'), null);
-  stamp([{ label: '7D OAuth apps', usedPct: 100, resetAt: now + 120_000 }]);
+  await stamp([{ label: '7D OAuth apps', usedPct: 100, resetAt: now + 120_000 }]);
   pool = readProviderAccountPool(provider);
   assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-opus-5'), null);
 });
 
 test('no replay after emitted output, cancellation, auth failure, or disabled automatic switching', async () => {
   const provider = 'cursor-oauth';
-  const ids = setup(provider);
+  const ids = await setup(provider);
   for (const kind of ['text', 'tool', 'unsafe', 'auth', 'cancel', 'manual']) {
-    changeProviderAccounts(provider, { selectedId: ids[0], auto: kind !== 'manual' });
-    recordProviderAccountUsage(provider, ids[0], { quotaWindows: [{ usedPct: 0 }] });
+    await changeProviderAccounts(provider, { selectedId: ids[0], auto: kind !== 'manual' });
+    await recordProviderAccountUsage(provider, ids[0], { quotaWindows: [{ usedPct: 0 }] });
     let calls = 0;
     const controller = new AbortController();
     const gateway = createAccountPoolProvider(provider, () => ({
@@ -271,7 +271,7 @@ test('no replay after emitted output, cancellation, auth failure, or disabled au
 
 test('all accounts exhausted stop without cycling, and explicit host bindings bypass the pool', async () => {
   const provider = 'antigravity-oauth';
-  const ids = setup(provider);
+  const ids = await setup(provider);
   let calls = 0;
   const gateway = createAccountPoolProvider(provider, () => ({
     async send() {
@@ -298,15 +298,15 @@ test('all accounts exhausted stop without cycling, and explicit host bindings by
   }
 });
 
-test('removing a selected account picks a remaining account; corrupt metadata is not overwritten', () => {
+test('removing a selected account picks a remaining account; corrupt metadata is not overwritten', async () => {
   const provider = 'openai-oauth';
   const before = readProviderAccountPool(provider);
-  removeProviderAccount(provider, before.selectedId);
+  await removeProviderAccount(provider, before.selectedId);
   assert.notEqual(readProviderAccountPool(provider).selectedId, before.selectedId);
   const path = join(dir, 'provider-accounts.json');
   const saved = readFileSync(path, 'utf8');
   writeFileSync(path, '{invalid');
-  assert.throws(() => changeProviderAccounts(provider, { auto: false }));
+  await assert.rejects(() => changeProviderAccounts(provider, { auto: false }));
   assert.equal(readFileSync(path, 'utf8'), '{invalid');
   writeFileSync(path, saved);
 });
@@ -370,24 +370,26 @@ test('usage caches never return a different account quota after selection change
       )
     )
   );
-  changeProviderAccounts(provider, { selectedId: a });
+  await changeProviderAccounts(provider, { selectedId: a });
   assert.equal(readCachedOAuthUsageSnapshot({ provider }).quotaWindows[0].usedPct, 14);
-  changeProviderAccounts(provider, { selectedId: b });
+  await changeProviderAccounts(provider, { selectedId: b });
   assert.equal(readCachedOAuthUsageSnapshot({ provider }).quotaWindows[0].usedPct, 87);
 });
 
 test('fallback prefers the most headroom, and an exhausted roster re-measures before refusing', async () => {
   const provider = 'cursor-oauth';
-  for (const row of readProviderAccountPool(provider).accounts) removeProviderAccount(provider, row.id);
-  const ids = setup(provider);
-  changeProviderAccounts(provider, { auto: true });
+  for (const row of readProviderAccountPool(provider).accounts) await removeProviderAccount(provider, row.id);
+  const ids = await setup(provider);
+  await changeProviderAccounts(provider, { auto: true });
   const [first, second, third] = ids;
   const now = Date.now();
-  const stamp = (id, usedPct) =>
-    recordProviderAccountUsage(provider, id, { quotaWindows: [{ label: '5H', usedPct, resetAt: now + 3_600_000 }] });
-  stamp(first, 100);
-  stamp(second, 96);
-  stamp(third, 12);
+  const stamp = async (id, usedPct) =>
+    await recordProviderAccountUsage(provider, id, {
+      quotaWindows: [{ label: '5H', usedPct, resetAt: now + 3_600_000 }],
+    });
+  await stamp(first, 100);
+  await stamp(second, 96);
+  await stamp(third, 12);
   const calls = [];
   const gateway = createAccountPoolProvider(provider, () => ({
     async send() {
@@ -411,14 +413,14 @@ test('fallback prefers the most headroom, and an exhausted roster re-measures be
       return { quotaWindows: [{ label: '5H', usedPct: id === third ? 4 : 100, resetAt: now + 3_600_000 }] };
     },
   }));
-  for (const id of ids) stamp(id, 100);
+  for (const id of ids) await stamp(id, 100);
   calls.length = 0;
   assert.equal((await measured.send([], 'model', [])).content, 'recovered');
   assert.deepEqual(calls, [third]);
   assert.equal(probes, 3);
 
   // Pacing: a second refusal inside the same window measures nothing again.
-  for (const id of ids) stamp(id, 100);
+  for (const id of ids) await stamp(id, 100);
   probes = 0;
   calls.length = 0;
   await assert.rejects(measured.send([], 'model', []), /plan limit is reached and credit use is off/);
@@ -428,14 +430,14 @@ test('fallback prefers the most headroom, and an exhausted roster re-measures be
 
 test('failed free-account fallback retains the paid selection; successful fallback respects manual selection', async () => {
   const provider = 'openai-oauth';
-  const [paid, free, manual] = setup(provider);
+  const [paid, free, manual] = await setup(provider);
   const others = readProviderAccountPool(provider)
     .accounts.map((row) => row.id)
     .filter((id) => ![paid, free, manual].includes(id));
-  changeProviderAccounts(provider, { order: [paid, free, manual, ...others] });
+  await changeProviderAccounts(provider, { order: [paid, free, manual, ...others] });
   for (const outcome of ['unavailable', 'cancel', 'manual']) {
-    changeProviderAccounts(provider, { selectedId: paid });
-    recordProviderAccountUsage(provider, paid, { quotaWindows: [{ usedPct: 0 }] });
+    await changeProviderAccounts(provider, { selectedId: paid });
+    await recordProviderAccountUsage(provider, paid, { quotaWindows: [{ usedPct: 0 }] });
     const entered = deferred();
     const release = deferred();
     const controller = new AbortController();
@@ -464,7 +466,7 @@ test('failed free-account fallback retains the paid selection; successful fallba
     const completion = outcome === 'manual' ? pending : assert.rejects(pending, rejection);
     await entered.promise;
     assert.equal(gateway.providerAccountId, paid);
-    if (outcome === 'manual') changeProviderAccounts(provider, { selectedId: manual });
+    if (outcome === 'manual') await changeProviderAccounts(provider, { selectedId: manual });
     if (outcome === 'cancel') controller.abort();
     release.resolve();
     await completion;
@@ -476,9 +478,9 @@ test('failed free-account fallback retains the paid selection; successful fallba
 
 test('a dead sign-in fails over to the next account in auto mode without blocking it, and surfaces in manual mode', async () => {
   const provider = 'openai-oauth';
-  for (const row of readProviderAccountPool(provider).accounts) removeProviderAccount(provider, row.id);
-  const ids = setup(provider);
-  changeProviderAccounts(provider, { selectedId: ids[0], auto: true });
+  for (const row of readProviderAccountPool(provider).accounts) await removeProviderAccount(provider, row.id);
+  const ids = await setup(provider);
+  await changeProviderAccounts(provider, { selectedId: ids[0], auto: true });
   const calls = [];
   const stages = [];
   const dead = () => Object.assign(new Error('Sign-in expired'), { reauthRequired: true });
@@ -499,7 +501,7 @@ test('a dead sign-in fails over to the next account in auto mode without blockin
   assert.ok(stages.some(([s, m]) => s === 'reconnecting' && /Sign-in expired/.test(m)));
   assert.equal(readProviderAccountPool(provider).selectedId, ids[1]);
 
-  changeProviderAccounts(provider, { selectedId: ids[0], auto: false });
+  await changeProviderAccounts(provider, { selectedId: ids[0], auto: false });
   calls.length = 0;
   await assert.rejects(
     gateway.send([{ role: 'user', content: 'hi' }], 'm', [], { sessionId: 's' }),
@@ -512,10 +514,10 @@ test('useCredits=false blocks a 100% account before the request; useCredits=true
   const provider = 'cursor-oauth';
   for (const auto of [true, false]) {
     for (const useCredits of [false, true]) {
-      const ids = setup(provider);
-      changeProviderAccounts(provider, { auto, useCredits, selectedId: ids[0] });
+      const ids = await setup(provider);
+      await changeProviderAccounts(provider, { auto, useCredits, selectedId: ids[0] });
       for (const id of ids) {
-        recordProviderAccountUsage(provider, id, {
+        await recordProviderAccountUsage(provider, id, {
           quotaWindows: [{ label: '5H', usedPct: 100, resetAt: Date.now() + 600_000 }],
         });
       }
@@ -540,12 +542,12 @@ test('useCredits=false blocks a 100% account before the request; useCredits=true
         });
         assert.equal(calls.length, 0);
       }
-      for (const id of ids) removeProviderAccount(provider, id);
-      changeProviderAccounts(provider, { auto: true, useCredits: false });
+      for (const id of ids) await removeProviderAccount(provider, id);
+      await changeProviderAccounts(provider, { auto: true, useCredits: false });
     }
   }
 });
 
-test('changeProviderAccounts rejects a non-boolean useCredits', () => {
-  assert.throws(() => changeProviderAccounts('openai-oauth', { useCredits: 'yes' }), TypeError);
+test('changeProviderAccounts rejects a non-boolean useCredits', async () => {
+  await assert.rejects(() => changeProviderAccounts('openai-oauth', { useCredits: 'yes' }), TypeError);
 });

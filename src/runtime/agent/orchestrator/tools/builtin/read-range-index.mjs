@@ -19,6 +19,15 @@ const READ_RANGE_INDEX_SWEEP_CONCURRENCY = 8;
 const READ_RANGE_INDEX_CACHE = new Map();
 const READ_RANGE_INDEX_DRAFTS = new WeakMap();
 const READ_RANGE_INDEX_PERSIST_PENDING = new Map();
+const READ_RANGE_INDEX_INFLIGHT = new Map();
+const READ_RANGE_INDEX_LAST_PERSISTED = new Map();
+// key -> outstanding deletes whose unlink / cancelled write has not settled.
+const READ_RANGE_INDEX_DELETING = new Map();
+let readRangeIndexDeleteSeq = 0;
+const READ_RANGE_INDEX_LAST_PERSISTED_MAX = 256;
+const READ_RANGE_INDEX_WRITE_CONCURRENCY = 2;
+const READ_RANGE_INDEX_WRITE_WAITERS = [];
+let readRangeIndexWritesActive = 0;
 let readRangeIndexDiskSwept = false;
 
 let traceReadRangeIndex = () => {};
@@ -99,7 +108,9 @@ async function computePrefixHashForIndex(fullPath, st, handle = null, prefixBuff
       if (!handle) {
         try {
           await fh.close();
-        } catch {}
+        } catch {
+          /* close failure after a completed read is irrelevant */
+        }
       }
     }
   } catch {
@@ -123,14 +134,21 @@ async function loadReadRangeIndexFromDisk(fullPath, st, handle, prefixBuffer) {
   // No existsSync preflight: a missing file surfaces as an ENOENT from
   // readFile below, caught by the same try/catch — one FS pass, not two.
   if (!file || !st) return null;
+  // A delete wins over any disk content: while a cancelled write may still be
+  // landing the file is invisible, and a read that straddled a delete is void.
+  const key = canonicalCachePath(fullPath);
+  const deleteSeq = readRangeIndexDeleteSeq;
+  const deleted = () => READ_RANGE_INDEX_DELETING.has(key) || readRangeIndexDeleteSeq !== deleteSeq;
+  if (deleted()) return null;
   try {
     const row = JSON.parse(await readFile(file, 'utf-8'));
-    if (!readRangeIndexMatches(row, fullPath, st)) return null;
+    if (deleted() || !readRangeIndexMatches(row, fullPath, st)) return null;
     // The prefix is an extra check, not proof that later byte offsets survived.
     if (typeof row.prefixHash === 'string' && row.prefixHash) {
       const cur = await computePrefixHashForIndex(fullPath, st, handle, prefixBuffer);
       if (!cur || cur !== row.prefixHash) return null;
     }
+    if (deleted()) return null;
     const anchors = new Map([[0, 0]]);
     for (const entry of row.anchors) {
       if (!Array.isArray(entry) || entry.length < 2) continue;
@@ -161,35 +179,133 @@ function currentReadRangeIndex(index) {
   return !!index?.published && READ_RANGE_INDEX_CACHE.get(canonicalCachePath(index.fullPath)) === index;
 }
 
-function persistReadRangeIndexSync(index) {
-  const file = readRangeIndexFilePath(index?.fullPath);
-  if (!file || !currentReadRangeIndex(index)) return;
-  try {
-    if (!sameFileVersion(index.fileVersion, statSync(index.fullPath))) return;
-    const row = serialiseReadRangeIndex(index);
-    if (row) writeJsonAtomicSync(file, row, { compact: true, lock: true, fsync: false });
-  } catch {}
+function rememberPersisted(key, text) {
+  READ_RANGE_INDEX_LAST_PERSISTED.delete(key);
+  READ_RANGE_INDEX_LAST_PERSISTED.set(key, text);
+  if (READ_RANGE_INDEX_LAST_PERSISTED.size > READ_RANGE_INDEX_LAST_PERSISTED_MAX) {
+    READ_RANGE_INDEX_LAST_PERSISTED.delete(READ_RANGE_INDEX_LAST_PERSISTED.keys().next().value);
+  }
 }
 
-async function persistReadRangeIndex(index, evictedRow = null) {
+// job = { index, row }: row is a pre-serialised evicted row (index no longer cached).
+// Returns false only when a write was needed but failed (e.g. lock contended).
+function persistReadRangeIndexSync(job) {
+  const { index, row: evictedRow } = job;
+  const file = readRangeIndexFilePath(index?.fullPath);
+  if (!file || (!evictedRow && !currentReadRangeIndex(index))) return true;
+  try {
+    if (!sameFileVersion(evictedRow?.fileVersion || index.fileVersion, statSync(index.fullPath))) return true;
+    const row = evictedRow || serialiseReadRangeIndex(index);
+    if (!row) return true;
+    const key = canonicalCachePath(index.fullPath);
+    const text = JSON.stringify(row);
+    if (READ_RANGE_INDEX_LAST_PERSISTED.get(key) === text) return true;
+    writeJsonAtomicSync(file, row, { compact: true, lock: true, fsync: false });
+    rememberPersisted(key, text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function acquireReadRangeIndexWriteSlot() {
+  if (readRangeIndexWritesActive < READ_RANGE_INDEX_WRITE_CONCURRENCY) {
+    readRangeIndexWritesActive += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => READ_RANGE_INDEX_WRITE_WAITERS.push(resolve));
+}
+
+function releaseReadRangeIndexWriteSlot() {
+  const next = READ_RANGE_INDEX_WRITE_WAITERS.shift();
+  if (next) next();
+  else readRangeIndexWritesActive -= 1;
+}
+
+// One write attempt. `state.epoch` changes when the path is deleted: a write
+// that straddles a delete removes what it just wrote instead of resurrecting it.
+async function persistReadRangeIndexOnce(key, job, state) {
+  const { index, row: evictedRow } = job;
   const file = readRangeIndexFilePath(index?.fullPath);
   if (!file || (!evictedRow && !currentReadRangeIndex(index))) return;
+  const epoch = state.epoch;
+  // Admission precedes every stat/lock so waiting writers hold no file lock.
+  await acquireReadRangeIndexWriteSlot();
   try {
+    if (state.epoch !== epoch || (!evictedRow && !currentReadRangeIndex(index))) return;
     if (!sameFileVersion(evictedRow?.fileVersion || index.fileVersion, await stat(index.fullPath))) return;
     await mkdir(READ_RANGE_INDEX_DISK_DIR, { recursive: true });
-    if (!evictedRow && !currentReadRangeIndex(index)) return;
+    if (state.epoch !== epoch || (!evictedRow && !currentReadRangeIndex(index))) return;
     const row = evictedRow || serialiseReadRangeIndex(index);
-    if (row) await writeJsonAtomicAsync(file, row, { compact: true, lock: true, fsync: false });
-  } catch {}
+    if (!row) return;
+    const text = JSON.stringify(row);
+    if (READ_RANGE_INDEX_LAST_PERSISTED.get(key) === text) return;
+    readRangeIndexPersistStats.concurrent += 1;
+    readRangeIndexPersistStats.maxConcurrent = Math.max(
+      readRangeIndexPersistStats.maxConcurrent,
+      readRangeIndexPersistStats.concurrent
+    );
+    try {
+      await writeJsonAtomicAsync(file, row, { compact: true, lock: true, fsync: false });
+      readRangeIndexPersistStats.writes += 1;
+    } finally {
+      readRangeIndexPersistStats.concurrent -= 1;
+    }
+    if (state.epoch !== epoch) {
+      await unlink(file).catch(() => {});
+      return;
+    }
+    rememberPersisted(key, text);
+  } catch {
+    /* persisting the index is best-effort */
+  } finally {
+    releaseReadRangeIndexWriteSlot();
+  }
+}
+
+// Single-flight per cache file: a request during an in-flight write only
+// replaces the pending job; one follow-up write persists the latest state.
+function requestReadRangeIndexPersist(key, job) {
+  const state = READ_RANGE_INDEX_INFLIGHT.get(key);
+  if (state) {
+    state.next = job;
+    return;
+  }
+  const fresh = { epoch: 0, next: null, cancelWaiters: [] };
+  READ_RANGE_INDEX_INFLIGHT.set(key, fresh);
+  const settleCancelled = () => {
+    for (const resolve of fresh.cancelWaiters.splice(0)) resolve();
+  };
+  void (async () => {
+    try {
+      let cur = job;
+      while (cur) {
+        await persistReadRangeIndexOnce(key, cur, fresh);
+        // A cancelled write has finished (and cleaned up) once Once returns.
+        settleCancelled();
+        cur = fresh.next;
+        fresh.next = null;
+      }
+    } finally {
+      settleCancelled();
+      READ_RANGE_INDEX_INFLIGHT.delete(key);
+    }
+  })();
 }
 
 export function scheduleReadRangeIndexPersist(index) {
   if (!READ_RANGE_INDEX_DISK_DIR || !currentReadRangeIndex(index)) return;
   const key = canonicalCachePath(index.fullPath);
+  const inflight = READ_RANGE_INDEX_INFLIGHT.get(key);
+  if (inflight) {
+    inflight.next = { index, row: null };
+    return;
+  }
   if (READ_RANGE_INDEX_PERSIST_PENDING.has(key)) return;
   const t = setTimeout(() => {
     READ_RANGE_INDEX_PERSIST_PENDING.delete(key);
-    void persistReadRangeIndex(index);
+    const latest = READ_RANGE_INDEX_CACHE.get(key);
+    if (latest) requestReadRangeIndexPersist(key, { index: latest, row: null });
   }, READ_RANGE_INDEX_PERSIST_DEBOUNCE_MS);
   t.unref();
   READ_RANGE_INDEX_PERSIST_PENDING.set(key, t);
@@ -199,10 +315,19 @@ export function flushReadRangeIndexesSync() {
   for (const [key, timer] of READ_RANGE_INDEX_PERSIST_PENDING) {
     try {
       clearTimeout(timer);
-    } catch {}
+    } catch {
+      /* a timer that cannot be cleared must not block the flush */
+    }
     READ_RANGE_INDEX_PERSIST_PENDING.delete(key);
     const index = READ_RANGE_INDEX_CACHE.get(key);
-    if (index) persistReadRangeIndexSync(index);
+    if (index) persistReadRangeIndexSync({ index, row: null });
+  }
+  // Writes queued behind an in-flight one are still pending state at exit.
+  for (const state of READ_RANGE_INDEX_INFLIGHT.values()) {
+    // Keep the job unless it was durably handled: when the async writer holds
+    // the lock, its follow-up still persists it if the process keeps running.
+    const job = state.next;
+    if (job && persistReadRangeIndexSync(job) && state.next === job) state.next = null;
   }
 }
 
@@ -213,10 +338,31 @@ function dropReadRangeIndexSlot(key) {
 }
 
 export function deleteReadRangeIndexForPath(fullPath) {
-  dropReadRangeIndexSlot(canonicalCachePath(fullPath));
+  const key = canonicalCachePath(fullPath);
+  dropReadRangeIndexSlot(key);
+  READ_RANGE_INDEX_LAST_PERSISTED.delete(key);
+  readRangeIndexDeleteSeq += 1;
+  // Disk loads for this path are void until the unlink and any cancelled
+  // in-flight write (which removes its own output) have settled.
+  READ_RANGE_INDEX_DELETING.set(key, (READ_RANGE_INDEX_DELETING.get(key) || 0) + 1);
+  const inflight = READ_RANGE_INDEX_INFLIGHT.get(key);
+  let cancelled = Promise.resolve();
+  if (inflight) {
+    inflight.epoch += 1;
+    inflight.next = null;
+    cancelled = new Promise((resolve) => inflight.cancelWaiters.push(resolve));
+  }
   const file = readRangeIndexFilePath(fullPath);
-  if (file) void unlink(file).catch(() => {});
+  const unlinked = file ? unlink(file).catch(() => {}) : Promise.resolve();
+  void Promise.all([unlinked, cancelled]).then(() => {
+    const left = (READ_RANGE_INDEX_DELETING.get(key) || 1) - 1;
+    if (left > 0) READ_RANGE_INDEX_DELETING.set(key, left);
+    else READ_RANGE_INDEX_DELETING.delete(key);
+  });
 }
+
+// Test observability for write coalescing and the concurrency cap.
+export const readRangeIndexPersistStats = { writes: 0, concurrent: 0, maxConcurrent: 0 };
 
 export async function sweepStaleReadRangeIndexes(directory = READ_RANGE_INDEX_DISK_DIR) {
   if (!directory) return;
@@ -235,8 +381,14 @@ export async function sweepStaleReadRangeIndexes(directory = READ_RANGE_INDEX_DI
       const full = join(directory, name);
       try {
         const st = await stat(full);
-        if (now - st.mtimeMs > READ_RANGE_INDEX_DISK_STALE_MS) await unlink(full);
-      } catch {}
+        if (now - st.mtimeMs > READ_RANGE_INDEX_DISK_STALE_MS) {
+          await unlink(full);
+          // A removed file invalidates the unchanged-content skip.
+          READ_RANGE_INDEX_LAST_PERSISTED.clear();
+        }
+      } catch {
+        /* best-effort sweep: a file that vanished or cannot be removed is skipped */
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(READ_RANGE_INDEX_SWEEP_CONCURRENCY, entries.length) }, worker));
@@ -255,7 +407,7 @@ function refreshReadRangeIndexSlot(key, index) {
     // their slot immediately. Disk IO must not delay the foreground lookup.
     const row = serialiseReadRangeIndex(evicted);
     dropReadRangeIndexSlot(oldest);
-    if (row) void persistReadRangeIndex(evicted, row);
+    if (row) requestReadRangeIndexPersist(oldest, { index: evicted, row });
   }
   return index;
 }
@@ -346,8 +498,7 @@ export async function publishReadRangeIndex(index, handle, signal = null, before
   // result requesting producer certification still owes its terminal stats.
   if (slot && READ_RANGE_INDEX_CACHE.get(key) !== slot && !onValidated) return false;
   try {
-    if (!sameFileVersion(version, await handle.stat()) || !sameFileVersion(version, await stat(fullPath)))
-      return false;
+    if (!sameFileVersion(version, await handle.stat()) || !sameFileVersion(version, await stat(fullPath))) return false;
   } catch {
     return false;
   }

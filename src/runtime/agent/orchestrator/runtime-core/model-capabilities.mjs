@@ -7,6 +7,7 @@ import { modelSupportsServiceTier } from '../providers/model-service-tiers.mjs';
 import { openAiDirectSupportsFast, openAiDirectSupportsUltrafast } from '../providers/openai-direct-request.mjs';
 import { supportsAnthropicFastMode } from '../../../shared/llm/anthropic-betas.mjs';
 import { normalizeContextTokens } from '../../../shared/llm/default-context-window.mjs';
+import { getModelMetadataSync } from '../../../shared/llm/model-catalog.mjs';
 
 const FAST_CAPABLE_PROVIDERS = new Set([
   'anthropic',
@@ -24,40 +25,58 @@ export function routeFastKey(provider, model) {
   return p && m ? `${p}/${m}` : '';
 }
 
-function openAiModelSupportsHostedWebSearch(model) {
-  const id = clean(model?.id || model).toLowerCase();
-  if (!id) return false;
-  if (model?.supportsWebSearch === true) return true;
+// What one catalog row states about hosted web search: its own
+// `supportsWebSearch` flag (true or false), else a web_search tool in its tool
+// lists. Null when the row says nothing, which leaves the answer to the id
+// fallback of each family.
+function rowWebSearchDeclaration(row) {
+  if (!row || typeof row !== 'object') return null;
+  if (typeof row.supportsWebSearch === 'boolean') return row.supportsWebSearch;
   const tools = [
-    ...(Array.isArray(model?.supportedTools) ? model.supportedTools : []),
-    ...(Array.isArray(model?.tools) ? model.tools : []),
-    ...(Array.isArray(model?.capabilities?.tools) ? model.capabilities.tools : []),
+    ...(Array.isArray(row.supportedTools) ? row.supportedTools : []),
+    ...(Array.isArray(row.tools) ? row.tools : []),
+    ...(Array.isArray(row.capabilities?.tools) ? row.capabilities.tools : []),
   ].map((tool) => clean(tool?.type || tool?.name || tool).toLowerCase());
-  if (tools.some((tool) => tool === 'web_search' || tool === 'web_search_preview')) return true;
-  if (/codex|image|audio|tts|stt|embedding|rerank|moderation|search-preview/.test(id)) return false;
-  return /^gpt-(5(?:\.|$|-)|4\.1(?:-|$)|4o(?:-|$)|4\.5(?:-|$))/.test(id) || /^o[34](?:-|$)/.test(id);
+  return tools.some((tool) => tool === 'web_search' || tool === 'web_search_preview') ? true : null;
 }
 
-function grokModelSupportsHostedWebSearch(model) {
-  const id = clean(model?.id || model).toLowerCase();
-  if (!id || /imagine|image|video|composer/.test(id)) return false;
-  if (id === 'grok-build') return false;
-  return /^grok-/.test(id);
+// The route's own row first, then the provider catalog's row for the model.
+function hostedWebSearchDeclared(model, catalogRow) {
+  return rowWebSearchDeclaration(model) ?? rowWebSearchDeclaration(catalogRow);
 }
 
-function geminiModelSupportsHostedWebSearch(model) {
-  const id = clean(model?.id || model).toLowerCase();
-  if (!id || /embedding|aqa|imagen|veo|tts|image|computer-use|customtools/.test(id)) return false;
-  return /^gemini-(3(?:\.|-|$)|2\.5-|2\.0-flash)/.test(id);
-}
-
-function anthropicModelSupportsHostedWebSearch(model) {
+// When neither the route row nor the catalog states hosted web search, the
+// vendor family (already fixed by the provider) is taken as capable unless the
+// id names a non-chat modality or a retired generation. Only those closed,
+// frozen sets are matched by id, so a model released later needs no entry here;
+// guessing "capable" wrongly would hard-fail the request, which is why the
+// retired generations stay excluded.
+function hostedWebSearchFallback(model, catalogRow, unsupportedId) {
   const id = clean(model?.id || model).toLowerCase();
   if (!id) return false;
-  const match = id.match(/^claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d+))?/);
-  if (!match) return false;
-  return (Number(match[2]) || 0) >= 4;
+  const declared = hostedWebSearchDeclared(model, catalogRow);
+  if (declared !== null) return declared;
+  return !unsupportedId.test(id);
 }
+
+const NON_CHAT_ID = 'embedding|rerank|moderation|image|imagen|imagine|video|veo|audio|tts|stt|aqa|search-preview';
+
+const OPENAI_UNSUPPORTED = new RegExp(
+  `${NON_CHAT_ID}|codex|^gpt-(?:3|4(?:$|-))|^o[12](?:-|$)|^(?:babbage|davinci|text-)`
+);
+const GROK_UNSUPPORTED = new RegExp(`${NON_CHAT_ID}|composer|^grok-build$|^grok-[123](?:[.-]|$)`);
+// The Gemini family is also reached through a relay serving other vendors'
+// models, whose hosted search is Gemini's alone, so a non-Gemini id is out.
+const GEMINI_UNSUPPORTED = new RegExp(
+  `${NON_CHAT_ID}|^(?!gemini-)|computer-use|customtools|^gemini-(?:1[.-]|pro|ultra)|^gemini-2\\.0-(?!flash)`
+);
+const ANTHROPIC_UNSUPPORTED = /^claude-(?:\d|instant)|^claude-[a-z]+-[123](?:[-.]|$)/;
+
+const openAiModelSupportsHostedWebSearch = (model, row) => hostedWebSearchFallback(model, row, OPENAI_UNSUPPORTED);
+const grokModelSupportsHostedWebSearch = (model, row) => hostedWebSearchFallback(model, row, GROK_UNSUPPORTED);
+const geminiModelSupportsHostedWebSearch = (model, row) => hostedWebSearchFallback(model, row, GEMINI_UNSUPPORTED);
+const anthropicModelSupportsHostedWebSearch = (model, row) =>
+  hostedWebSearchFallback(model, row, ANTHROPIC_UNSUPPORTED);
 
 export function fastCapableFor(provider, model, effort = null, modelParameters = {}) {
   const p = clean(provider);
@@ -77,8 +96,13 @@ export function fastCapableFor(provider, model, effort = null, modelParameters =
     }
     return !selectedEffort || fastEfforts.length === 0 || fastEfforts.includes(selectedEffort);
   }
-  if (p === 'openai') return openAiDirectSupportsFast(model);
   if (p === 'openai-oauth') return modelSupportsServiceTier(model, 'priority');
+  // The route row's own declaration first, then the catalog via the helpers.
+  if (typeof model?.supportsFastMode === 'boolean') return model.supportsFastMode;
+  const modelId = clean(model?.id || model);
+  const declaredFast = modelId ? getModelMetadataSync(modelId, p)?.supportsFastMode : undefined;
+  if (typeof declaredFast === 'boolean') return declaredFast;
+  if (p === 'openai') return openAiDirectSupportsFast(model);
   if (p === 'anthropic' || p === 'anthropic-oauth') return supportsAnthropicFastMode(clean(model?.id || model));
   return false;
 }
@@ -100,10 +124,15 @@ const HOSTED_WEB_SEARCH_BY_FAMILY = {
 // webSearchCapableFor needs the web-search family mapping, which lives in
 // workflow.mjs and is pure. Wire it in via a factory to keep this module free
 // of a circular import at load time.
-export function makeWebSearchCapableFor(webSearchProviderFamily) {
+// `catalogRowFor(provider, id)` is the provider catalog's row for the model;
+// callers that hold only a bare id (or a row the provider list left silent)
+// still get the catalog's answer before the id fallback applies.
+export function makeWebSearchCapableFor(webSearchProviderFamily, catalogRowFor = getModelMetadataSync) {
   return function webSearchCapableFor(provider, model) {
     const supports = HOSTED_WEB_SEARCH_BY_FAMILY[webSearchProviderFamily(provider)];
-    return supports ? supports(model) : false;
+    if (!supports) return false;
+    const id = clean(model?.id || model);
+    return supports(model, id ? catalogRowFor(id, provider) : null);
   };
 }
 

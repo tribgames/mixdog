@@ -1,16 +1,15 @@
 // cwd-plugins/plugin-status.mjs — the registered-plugin status list with its
-// per-root caches (manifest keyed on mtime, MCP discovery and skill-file count
-// on a short TTL).
+// manifest cache (keyed on mtime); skill count and MCP discovery are live.
 import { readFileSync } from 'node:fs';
 import { discoverPluginMcp } from '../../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
+import { PLUGIN_MANIFEST_FILES, pluginSkillsRoots } from '../../runtime/shared/plugin-manifest.mjs';
 import { pluginMetadata } from '../../runtime/shared/plugin-metadata.mjs';
 
 export function createPluginStatus({
-  getConfig,
   listRegisteredPlugins,
   pluginAdminStatus,
   pluginManifest,
-  pluginMcpServerName,
+  pluginMcpSummary = () => new Map(),
   countSkillFiles,
   clean,
   resolve,
@@ -18,16 +17,13 @@ export function createPluginStatus({
   existsSync,
   cfgMod,
 }) {
-  // Per-plugin-root caches for pluginsStatus(): manifest + MCP discovery keyed
-  // by root path + manifest mtime (invalidated on manifest edit); recursive
-  // skill-file count keyed by root with a ~5s TTL fallback (the walk has no
-  // single mtime to key on).
+  // Per-plugin-root manifest cache keyed by root path + manifest mtimes
+  // (invalidated on manifest edit). Skill count and MCP discovery are
+  // recomputed on every call so file add/remove shows up immediately.
   const pluginRootCache = new Map();
-  const skillCountCache = new Map();
-  const mcpDiscoveryCache = new Map();
   function manifestMtimeKey(root) {
     let key = '';
-    for (const rel of ['.codex-plugin/plugin.json', 'plugin.json']) {
+    for (const rel of PLUGIN_MANIFEST_FILES) {
       try {
         key += `${statSync(resolve(root, rel)).mtimeMs}:`;
       } catch {
@@ -38,7 +34,7 @@ export function createPluginStatus({
   }
   // A manifest file that exists but is not a JSON object is breakage.
   function manifestInvalid(root) {
-    for (const rel of ['.codex-plugin/plugin.json', 'plugin.json']) {
+    for (const rel of PLUGIN_MANIFEST_FILES) {
       const file = resolve(root, rel);
       if (!existsSync(file)) continue;
       try {
@@ -58,33 +54,20 @@ export function createPluginStatus({
     pluginRootCache.set(root, entry);
     return entry;
   }
-  // MCP discovery probes candidate script files (.mcp.json, scripts/run-mcp.mjs,
-  // ...) whose add/remove is NOT reflected in the manifest mtime, so key it on a
-  // short TTL instead (~5s, like the skill-file count).
-  function cachedMcpDiscovery(root) {
-    const now = Date.now();
-    const hit = mcpDiscoveryCache.get(root);
-    if (hit && now - hit.at < 5000) return hit.mcp;
-    const mcp = discoverPluginMcp(root);
-    mcpDiscoveryCache.set(root, { at: now, mcp });
-    return mcp;
-  }
-  function cachedSkillCount(root) {
-    const now = Date.now();
-    const hit = skillCountCache.get(root);
-    if (hit && now - hit.at < 5000) return hit.count;
-    const count = countSkillFiles(root);
-    skillCountCache.set(root, { at: now, count });
-    return count;
-  }
 
-  function registeredPlugin(entry, configuredMcp) {
+  function registeredPlugin(entry, mcpByPlugin) {
     const root = clean(entry.root);
     if (!root) return null;
-    if (!existsSync(root)) return { missing: true, id: clean(entry.id) || clean(entry.name) || root, name: clean(entry.name) || clean(entry.id) || root.split(/[\\/]/).pop() || root };
+    if (!existsSync(root))
+      return {
+        missing: true,
+        id: clean(entry.id) || clean(entry.name) || root,
+        name: clean(entry.name) || clean(entry.id) || root.split(/[\\/]/).pop() || root,
+      };
     const { manifest, invalid } = cachedPluginData(root);
     const name = clean(manifest.name) || clean(manifest.id) || clean(entry.name) || root.split(/[\\/]/).pop() || root;
-    const { mcpScript, mcpInline } = cachedMcpDiscovery(root);
+    const { mcpScript, mcpInline } = discoverPluginMcp(root);
+    const skillCount = countSkillFiles(root);
     const plugin = {
       id: clean(entry.id) || name,
       name,
@@ -101,26 +84,48 @@ export function createPluginStatus({
       root,
       installedAt: entry.installedAt || null,
       updatedAt: entry.updatedAt || null,
-      skillCount: cachedSkillCount(root),
+      skillCount,
       mcpScript,
       mcpInline,
     };
     if (invalid) plugin.invalid = true;
-    plugin.mcpServerName = pluginMcpServerName(plugin);
-    plugin.mcpEnabled =
-      Object.hasOwn(configuredMcp, plugin.mcpServerName) ||
-      Object.keys(configuredMcp).some((k) => k.startsWith(`${plugin.mcpServerName}--`));
+    if (plugin.enabled && skillCount === 0 && !mcpScript && !mcpInline) {
+      plugin.searchedSkillRoots = pluginSkillsRoots(root);
+      plugin.warning = `No skills or MCP server found. Searched skill roots: ${plugin.searchedSkillRoots.join(', ')}`;
+    }
+    // Servers the plugin declares, live: name, declared key, intent/effective
+    // state, connection, and declaration problems.
+    const mcp = mcpByPlugin.get(plugin.id) || { format: 'none', errors: [], servers: [] };
+    plugin.mcpFormat = mcp.format;
+    plugin.mcpErrors = mcp.errors;
+    plugin.mcpServers = mcp.servers.filter(Boolean).map((row) => ({
+      name: row.name,
+      key: row.owner?.key || '',
+      enabled: row.enabled !== false,
+      serverEnabled: row.serverEnabled !== false,
+      connected: row.connected === true,
+      status: row.status,
+      error: row.error || null,
+      warnings: row.warnings || [],
+      cwdDependent: row.owner?.cwdDependent === true,
+    }));
+    plugin.mcpServerName = plugin.mcpServers[0]?.name || '';
+    plugin.mcpEnabled = plugin.mcpServers.some((server) => server.serverEnabled);
     return plugin;
   }
 
   function pluginsStatus() {
-    const config = getConfig();
     const dataDir = cfgMod.getPluginData?.();
-    const configuredMcp = config?.mcpServers && typeof config.mcpServers === 'object' ? config.mcpServers : {};
+    let mcpByPlugin = new Map();
+    try {
+      mcpByPlugin = pluginMcpSummary();
+    } catch {
+      /* status still lists plugins without their MCP rows */
+    }
     const plugins = [];
     const missing = [];
     for (const entry of listRegisteredPlugins({ dataDir })) {
-      const plugin = registeredPlugin(entry, configuredMcp);
+      const plugin = registeredPlugin(entry, mcpByPlugin);
       if (plugin?.missing) missing.push({ id: plugin.id, name: plugin.name, enabled: entry.enabled !== false });
       else if (plugin) plugins.push(plugin);
     }

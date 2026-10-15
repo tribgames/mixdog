@@ -87,6 +87,7 @@ function panelContext(overrides = {}) {
     snapshot: null,
     pending: '',
     async run() {},
+    async refreshExtensions() {},
     async route() {},
     async setFast() {},
     confirm() {},
@@ -576,8 +577,9 @@ test('plugin detail toggles each bundled skill and MCP server on its own', async
             name: 'Bundle',
             enabled: true,
             mcpServerName: 'plugin-bundle',
-            mcpScript: 'mcp.mjs',
+            mcpScript: '.mcp.json',
             mcpEnabled: true,
+            mcpErrors: [{ key: 'broken', message: 'stdio server requires "command"' }],
           },
         ],
       },
@@ -589,7 +591,23 @@ test('plugin detail toggles each bundled skill and MCP server on its own', async
       },
       disabledSkills: { disabled: ['loose-skill'] },
       mcp: {
-        servers: [{ name: 'plugin-bundle', enabled: true, source: 'plugin', config: { type: 'stdio', command: 'x' } }],
+        servers: [
+          {
+            name: 'plugin-bundle',
+            enabled: true,
+            serverEnabled: true,
+            source: 'plugin',
+            owner: { kind: 'plugin', id: 'bundle', key: 'bundle' },
+            config: { type: 'stdio', command: 'x' },
+          },
+          // Same name prefix, other owner: never listed under this plugin.
+          {
+            name: 'plugin-bundle-other',
+            enabled: true,
+            source: 'plugin',
+            owner: { kind: 'plugin', id: 'other', key: 'x' },
+          },
+        ],
       },
     },
     async run(capability, args) {
@@ -600,6 +618,8 @@ test('plugin detail toggles each bundled skill and MCP server on its own', async
     await act(async () => {
       document.querySelector('[data-extension-row="Bundle"]').click();
     });
+    assert.equal(document.querySelector('[data-extension-item="plugin-bundle-other"]'), null);
+    assert.match(document.querySelector('.extensions-dialog').textContent, /broken: stdio server requires "command"/);
     await act(async () => {
       document.querySelector('[data-extension-item="bundled-skill"] input').click();
     });

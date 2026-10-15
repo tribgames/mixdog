@@ -1,7 +1,7 @@
 import { SlidersHorizontal } from 'lucide-react';
 import { Suspense, createContext, memo, useContext, useEffect, useRef, useState } from 'react';
 import { submissionIdentity } from './transcript-rows';
-import { claimSentImage, persistentImagePreviews, previewKey, sentImageIdentity } from './image-preview-store';
+import { fitImageThumbnail, onSessionPreviewsDeleted, persistentImagePreviews, previewKey } from './image-preview-store';
 import { AttachmentCard, composerCardMeta } from './attachment-card';
 import { extractFileMarkers, fileChipKind, sentFileSource, sentPastedTextSource } from './attachment-menu';
 import { useAttachmentContextMenu } from './attachment-context-menu';
@@ -23,6 +23,7 @@ import { CopyControl } from './transcript-primitives';
 import { type BackgroundWorkCounts, CompletionStatus } from './transcript-status';
 import { shouldSuppressFullyFailedToolItem } from './transcript-tool-model';
 import { ToolCard } from './transcript-tool-ui';
+import { AppliedSkills, SkillMentionText, appliedSkillsOf } from './composer-skill-mentions';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
@@ -132,51 +133,93 @@ interface ImageMarkerChip {
   name: string;
   dims: string;
   title: string;
-  /** The full `[Image: …]` metadata line: the key of the durable thumbnail. */
+  /** The `[Image: …]` line the chip comes from: restored rows name each
+   *  image's stored original by it. */
   line?: string;
 }
 
-/** The durable thumbnail saved when this exact image was sent: this session,
- *  this message (its submission id), this image. A thumbnail this window just
- *  staged for a new chat is saved under the session on first sight. Loaded
- *  async; the card keeps its size meanwhile. */
-function useStoredImagePreview(
+/** Each marker chip's stored original: the next unused `imageRefs` entry drawn
+ *  by the chip's line. Chips with no such entry (omitted images, bare `#N`
+ *  references) get none. */
+function markerChipRefs(
+  chips: readonly ImageMarkerChip[],
+  refs: TranscriptItem['imageRefs']
+): Array<string | undefined> {
+  const pool = Array.isArray(refs) ? [...refs] : [];
+  return chips.map((chip) => {
+    const at = chip.line ? pool.findIndex((entry) => entry?.line === chip.line) : -1;
+    return at < 0 ? undefined : pool.splice(at, 1)[0]?.ref;
+  });
+}
+
+const inflightThumbnails = new Map<string, Promise<string | undefined>>();
+const failedThumbnails = new Set<string>();
+
+// A deleted session's attachments are gone with it: forget their misses.
+onSessionPreviewsDeleted((session) => {
+  const prefix = previewKey(session, '');
+  for (const key of failedThumbnails) if (key.startsWith(prefix)) failedThumbnails.delete(key);
+});
+
+/** The cached thumbnail of a stored attachment; on a miss it is rebuilt from
+ *  the stored original through the host (one host call per ref at a time). A
+ *  ref the host has no picture for is not asked again in this run; a failed
+ *  call (host unreachable) is retried on the next render that needs it. */
+export function loadAttachmentThumbnail(
   session: string,
-  submissionId: string | number | undefined,
-  messageId: string | undefined,
-  index: number,
-  line: string | undefined
-): string | undefined {
-  const identity = line && messageId ? sentImageIdentity(messageId, index, line) : '';
-  const key = identity ? previewKey(session, identity) : '';
+  ref: string,
+  fit: (dataUrl: string) => Promise<string> = fitImageThumbnail
+): Promise<string | undefined> {
+  const key = previewKey(session, `attachment:${ref}`);
+  const pending = inflightThumbnails.get(key);
+  if (pending) return pending;
+  const request = (async () => {
+    const cached = await persistentImagePreviews.get(key).catch(() => undefined);
+    if (cached) return cached;
+    if (failedThumbnails.has(key)) return undefined;
+    const read = window.mixdogDesktop?.readAttachmentThumbnail;
+    if (!read) return undefined;
+    let picture: string | null;
+    try {
+      picture = await read(ref);
+    } catch {
+      return undefined;
+    }
+    // A phone gets the original: fit it to thumbnail size before it is cached.
+    const url = picture ? await fit(picture).catch(() => undefined) : undefined;
+    if (!url) {
+      failedThumbnails.add(key);
+      return undefined;
+    }
+    await persistentImagePreviews.put(key, session, url).catch(() => undefined);
+    return url;
+  })().finally(() => inflightThumbnails.delete(key));
+  inflightThumbnails.set(key, request);
+  return request;
+}
+
+/** The thumbnail of a sent image, by its stored attachment ref. Loaded async;
+ *  the card keeps its size meanwhile. */
+function useStoredImagePreview(session: string, attachmentRef: string | undefined): string | undefined {
+  const key = attachmentRef ? previewKey(session, `attachment:${attachmentRef}`) : '';
   const sync = key ? persistentImagePreviews.peek(key) : undefined;
   const [loaded, setLoaded] = useState<{ key: string; url: string } | null>(null);
   useEffect(() => {
-    if (!key || !line || !messageId) return;
+    if (!key || !attachmentRef) return;
     let active = true;
-    void (async () => {
-      const url =
-        (await persistentImagePreviews.get(key).catch(() => undefined)) ??
-        (submissionId === undefined
-          ? undefined
-          : await claimSentImage(session, submissionIdentity(String(submissionId)), messageId, index, line).catch(
-              () => undefined
-            ));
+    void loadAttachmentThumbnail(session, attachmentRef).then((url) => {
       if (url && active) setLoaded({ key, url });
-    })();
+    });
     return () => {
       active = false;
     };
-  }, [key, session, submissionId, messageId, index, line]);
+  }, [key, session, attachmentRef]);
   return sync ?? (loaded?.key === key ? loaded.url : undefined);
 }
 
 function SentImageCard({
   session,
-  submissionId,
-  messageId,
-  index,
-  line,
+  attachmentRef,
   live,
   name,
   dims,
@@ -184,20 +227,15 @@ function SentImageCard({
   menuProps,
 }: {
   session: string;
-  /** The live row's id: the composer's submission id (to claim its staged thumbnail). */
-  submissionId?: string | number;
-  /** The message's stable id, the same live and after a restore: keys the saved picture. */
-  messageId?: string;
-  /** The picture's position among the message's `[Image: …]` lines. */
-  index: number;
-  line?: string;
+  /** Reference of the stored original, from which the host rebuilds the thumbnail. */
+  attachmentRef?: string;
   live?: string;
   name: string;
   dims?: string;
   tooltip?: string;
   menuProps: ReturnType<typeof useAttachmentContextMenu>['menuProps'];
 }) {
-  const stored = useStoredImagePreview(session, submissionId, messageId, index, line);
+  const stored = useStoredImagePreview(session, attachmentRef);
   const preview = live || stored;
   return (
     <AttachmentCard
@@ -220,9 +258,9 @@ function SentImageCard({
 // from its source path and its dimensions.
 function imageMetaChip(meta: string, line: string): ImageMarkerChip {
   // A visualize pin's crop (`[Image: visualize pin N · label, WxH]`): named
-  // like its 📌 chip. Restored history has no crop thumbnail to show.
+  // like its composer card (number · label; history written before the emoji went still reads this way). Restored history has no crop thumbnail to show.
   const pin = /^visualize pin (\d+) · (.+), (\d+)x(\d+)$/.exec(meta);
-  if (pin) return { name: `📌 ${pin[1]} · ${pin[2]}`, dims: `${pin[3]}\u00D7${pin[4]}`, title: line, line };
+  if (pin) return { name: `${pin[1]} · ${pin[2]}`, dims: `${pin[3]}\u00D7${pin[4]}`, title: line, line };
   const parts = meta.split(/,\s*/);
   const source =
     (parts.find((part) => part.startsWith('source: ')) || '').slice(8).trim() ||
@@ -351,7 +389,6 @@ function SentAttachments({
   item,
   session,
   images,
-  imageLines,
   markerChips,
   pastedChips,
   fileChips,
@@ -360,12 +397,12 @@ function SentAttachments({
   item: TranscriptItem;
   session: string;
   images: NonNullable<TranscriptItem['images']>;
-  imageLines: readonly ImageMarkerChip[];
   markerChips: readonly ImageMarkerChip[];
   pastedChips: readonly PastedTextChip[];
   fileChips: ReturnType<typeof extractFileMarkers>['chips'];
   menuProps: ReturnType<typeof useAttachmentContextMenu>['menuProps'];
 }) {
+  const markerRefs = markerChipRefs(markerChips, item.imageRefs);
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the card row.
     <div className="message-attachments" role="group" aria-label={t('Attachments')}>
@@ -379,10 +416,7 @@ function SentAttachments({
             // biome-ignore lint/suspicious/noArrayIndexKey: a sent message's attachments never reorder; the index separates images without an id.
             key={`${image.id ?? 'img'}-${index}`}
             session={session}
-            submissionId={item.id}
-            messageId={item.messageId}
-            index={index}
-            line={imageLines[index]?.line}
+            attachmentRef={image.attachmentRef}
             live={preview || undefined}
             name={preview ? name : image.name || 'Image'}
             menuProps={menuProps}
@@ -394,10 +428,7 @@ function SentAttachments({
           // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
           key={`marker-${index}`}
           session={session}
-          submissionId={item.id}
-          messageId={item.messageId}
-          index={index}
-          line={chip.line}
+          attachmentRef={markerRefs[index]}
           name={chip.name}
           tooltip={chip.title}
           dims={chip.dims}
@@ -509,6 +540,9 @@ export const TranscriptRow = memo(
     const fileFold = user ? extractFileMarkers(pastedFold.text) : { text: pastedFold.text, chips: [] };
     const webhookFold = user ? extractWebhookPayload(fileFold.text) : { text: fileFold.text, payload: '' };
     const tweaksFold = user ? extractTweaksLines(webhookFold.text) : { text: webhookFold.text, lines: [] as string[] };
+    // The runtime reports which `$name` mentions it applied; only those are
+    // marked, so `$HOME` or a skill that was off stays prose.
+    const appliedSkills = user ? appliedSkillsOf(item) : [];
     return (
       <>
         <article
@@ -526,7 +560,6 @@ export const TranscriptRow = memo(
                 item={item}
                 session={sessionScope}
                 images={attachedImages}
-                imageLines={imageMarkers.chips}
                 markerChips={markerChips}
                 pastedChips={pastedFold.chips}
                 fileChips={fileFold.chips}
@@ -537,7 +570,11 @@ export const TranscriptRow = memo(
           {(!user || tweaksFold.text || tweaksFold.lines.length > 0) && (
             // biome-ignore lint/a11y/noStaticElementInteractions: only suppresses native drag; the body is not an interactive control.
             <div className="message-body" onDragStart={(event) => event.preventDefault()}>
-              {user && tweaksFold.text ? <p>{tweaksFold.text}</p> : null}
+              {user && tweaksFold.text ? (
+                <p>
+                  <SkillMentionText text={tweaksFold.text} isSkill={(name) => appliedSkills.includes(name)} />
+                </p>
+              ) : null}
               {tweaksFold.lines.map((line, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: lines are parsed from a sent message and never reorder.
                 <p key={`tweaks-${index}`} className="message-tweaks-line">
@@ -552,6 +589,7 @@ export const TranscriptRow = memo(
               )}
             </div>
           )}
+          {user && <AppliedSkills names={appliedSkills} />}
           {user && multiDevice && isOtherDevice(item.device, viewerDevice) && (
             <small className="message-device">{t('from {{device}}', { device: item.device })}</small>
           )}

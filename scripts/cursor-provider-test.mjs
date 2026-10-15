@@ -1816,6 +1816,7 @@ test('Cursor resumes a partially visible stream only from a checkpoint', async (
   const second = bridgeFixture();
   const conversation = { blobs: new Map(), checkpoint: null };
   const restarts = [];
+  const delays = [];
   const response = __cursorWireInternals.createStreamResponse({
     bridge: first,
     heartbeat: setInterval(() => {}, 10_000),
@@ -1824,6 +1825,9 @@ test('Cursor resumes a partially visible stream only from a checkpoint', async (
     cloudRule: undefined,
     model: 'composer-2.5',
     key: 'checkpoint-retry-fixture',
+    sleep: async (ms) => {
+      delays.push(ms);
+    },
     restart(options) {
       restarts.push(options);
       return {
@@ -1848,8 +1852,13 @@ test('Cursor resumes a partially visible stream only from a checkpoint', async (
       })
     )
   );
-  first.close(new Error('simulated GOAWAY'));
+  first.close(Object.assign(new Error('simulated GOAWAY'), { code: 'goaway' }));
 
+  // The transient retry waits out its backoff before restarting.
+  assert.equal(restarts.length, 0);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(delays.length, 1);
+  assert.ok(delays[0] > 0);
   assert.equal(restarts.length, 1);
   assert.equal(restarts[0].fromCheckpoint, true);
   assert.equal(restarts[0].visibleOutput, true);
@@ -1899,6 +1908,127 @@ test('Cursor never blindly replays a partially visible stream without a checkpoi
   bridge.close(new Error('simulated transport loss'));
   await assert.rejects(response.text(), /simulated transport loss/);
   assert.equal(restartCount, 0);
+});
+
+// A throttle retry rotates the conversation and drops the checkpoint
+// (pi-cursor), so visible output can never be replayed after one, with or
+// without a checkpoint; nothing visible restarts with reason 'throttle'.
+test('Cursor throttle recovery never replays visible output, checkpoint or not', async () => {
+  const run = async (checkpoint, { visible = true } = {}) => {
+    const first = bridgeFixture();
+    const delays = [];
+    let restartCount = 0;
+    let restartReason = null;
+    const response = __cursorWireInternals.createStreamResponse({
+      bridge: first,
+      heartbeat: setInterval(() => {}, 10_000).unref(),
+      conversation: { blobs: new Map(), checkpoint },
+      tools: [],
+      cloudRule: undefined,
+      model: 'auto',
+      key: `throttle-visible-${checkpoint ? 'checkpoint' : 'none'}-${visible}`,
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+      restart(options) {
+        restartCount += 1;
+        restartReason = options.reason;
+        return { bridge: bridgeFixture(), heartbeat: setInterval(() => {}, 10_000).unref() };
+      },
+    });
+    if (visible) {
+      first.emit(
+        __cursorWireInternals.connectFrame(
+          __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            interactionUpdate: { textDelta: { text: 'already visible' } },
+          })
+        )
+      );
+    }
+    first.close(
+      __cursorWireInternals.parseEndStream(
+        new TextEncoder().encode(
+          JSON.stringify({
+            error: { code: 'resource_exhausted', message: 'slow down' },
+            metadata: { 'retry-after': '1' },
+          })
+        )
+      )
+    );
+    const failure = visible ? assert.rejects(response.text(), (error) => error.retryAfterMs === 1_000) : null;
+    await new Promise((resolve) => setImmediate(resolve));
+    await failure;
+    return { restartCount, delays, restartReason };
+  };
+  const checkpoint = { stateBytes: new Uint8Array(1) };
+  assert.deepEqual(await run(null), { restartCount: 0, delays: [], restartReason: null });
+  assert.deepEqual(await run(checkpoint), { restartCount: 0, delays: [], restartReason: null });
+  assert.deepEqual(await run(checkpoint, { visible: false }), {
+    restartCount: 1,
+    delays: [1_000],
+    restartReason: 'throttle',
+  });
+});
+
+function postTurnEndedFixture(key) {
+  const bridge = bridgeFixture();
+  let restartCount = 0;
+  const response = __cursorWireInternals.createStreamResponse({
+    bridge,
+    heartbeat: setInterval(() => {}, 10_000).unref(),
+    conversation: { blobs: new Map(), checkpoint: null },
+    tools: [{ name: 'echo_value', inputSchemaObject: { type: 'object' } }],
+    cloudRule: undefined,
+    model: 'auto',
+    key,
+    sleep: async () => {},
+    restart() {
+      restartCount += 1;
+      throw new Error('must not restart');
+    },
+  });
+  const frame = (message) =>
+    __cursorWireInternals.connectFrame(__cursorWireInternals.encodeMessage('AgentServerMessage', message));
+  const endError = __cursorWireInternals.connectFrame(
+    new TextEncoder().encode(JSON.stringify({ error: { code: 'unavailable', message: 'goaway after turn' } })),
+    2
+  );
+  return { bridge, response, frame, endError, restarts: () => restartCount };
+}
+
+// pi-cursor: Cursor closes the connection right after turnEnded, and that
+// close ends a completed turn; retrying it duplicates the answer.
+test('Cursor end-stream error after turnEnded completes the turn without a retry', async () => {
+  const { bridge, response, frame, endError, restarts } = postTurnEndedFixture('post-turn-ended-fixture');
+  bridge.emit(frame({ interactionUpdate: { textDelta: { text: 'done' } } }));
+  bridge.emit(frame({ interactionUpdate: { turnEnded: {} } }));
+  bridge.emit(endError);
+  bridge.close();
+  const text = await response.text();
+  assert.match(text, /"content":"done"/);
+  assert.match(text, /"finish_reason":"stop"/);
+  assert.equal(restarts(), 0);
+});
+
+test('Cursor error close after turnEnded never drops a pending tool call', async () => {
+  const { bridge, response, frame, endError, restarts } = postTurnEndedFixture('post-turn-ended-tool-fixture');
+  bridge.emit(
+    Buffer.concat([
+      frame({
+        execServerMessage: {
+          id: 31,
+          execId: 'exec-post-turn',
+          mcpArgs: { name: 'echo_value', toolName: 'echo_value', toolCallId: 'call-post-turn', args: {} },
+        },
+      }),
+      frame({ interactionUpdate: { turnEnded: {} } }),
+      endError,
+    ])
+  );
+  const text = await response.text();
+  assert.match(text, /call-post-turn/);
+  assert.match(text, /"finish_reason":"tool_calls"/);
+  assert.equal(restarts(), 0);
 });
 
 // Descriptions, enums and required lists survive the Cursor schema binding.

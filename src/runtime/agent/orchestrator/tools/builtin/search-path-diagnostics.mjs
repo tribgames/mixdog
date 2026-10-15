@@ -65,10 +65,10 @@ const ENOENT_ABSENT =
 
 // Share diagnostic lookup results within one invocation without changing
 // the requested operand or executing a replacement operation.
-function cachedFileByBasename(workDir, missingPath, cache) {
+async function cachedFileByBasename(workDir, missingPath, cache) {
   if (!cache) return findFileByBasename(workDir, missingPath);
   if (!('fileHits' in cache)) cache.fileHits = findFileByBasename(workDir, missingPath);
-  return cache.fileHits;
+  return await cache.fileHits;
 }
 
 // A missing ABSOLUTE path that resolves outside the project cannot be
@@ -180,15 +180,15 @@ export function appendNotFoundCwdNote(hint, workDir, errCode = 'ENOENT') {
   return `${hint} (relative paths resolve from ${normalizeOutputPath(workDir)})`;
 }
 
-export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {
+export async function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {
   return appendNotFoundCwdNote(
-    buildNotFoundHintBody(workDir, missingPath, actionVerb, errCode, cache),
+    await buildNotFoundHintBody(workDir, missingPath, actionVerb, errCode, cache),
     workDir,
     errCode
   );
 }
 
-export function buildNotFoundHintBody(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {
+export async function buildNotFoundHintBody(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {
   if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return '';
   // `C:tmpsmp` shape: a Windows path whose separators were eaten by JSON
   // escaping (`"C:\\tmp\\smp"` written as `"C:\tmp\smp"`). Name the cause —
@@ -200,12 +200,12 @@ export function buildNotFoundHintBody(workDir, missingPath, actionVerb, errCode 
   if (missingPathIsOutsideProject(workDir, missingPath)) {
     return outsideProjectNotFoundHint(missingPath, actionVerb);
   }
-  const elsewhere = cachedFileByBasename(workDir, missingPath, cache);
+  const elsewhere = await cachedFileByBasename(workDir, missingPath, cache);
   if (elsewhere.length) {
     return ` Not found at this path; the same filename exists at: ${elsewhere.map((p) => `"${normalizeOutputPath(p)}"`).join(', ')}. ${actionVerb} that path directly.`;
   }
   if (isDirectoryPathGuess(missingPath)) {
-    const dirHits = findDirectoryByBasename(workDir, missingPath, { limit: 5 });
+    const dirHits = await findDirectoryByBasename(workDir, missingPath, { limit: 5 });
     if (dirHits.length > 1) {
       return ` Not found at this path; same-named directories exist at: ${dirHits
         .slice(0, 5)
@@ -268,9 +268,9 @@ export function uncRefusalMessage(toolName, original, resolved) {
   return `Error: ${toolName} refuses UNC/SMB path ${JSON.stringify(shown)}; remote share access is blocked to prevent NTLM credential leaks`;
 }
 
-export function basePathDiagnostic(basePaths, workDir, statCache = null) {
-  return basePaths
-    .map((basePath) => {
+export async function basePathDiagnostic(basePaths, workDir, statCache = null) {
+  const parts = await Promise.all(
+    basePaths.map(async (basePath) => {
       const resolved = resolveSearchScope(basePath, workDir);
       // Reuse the caller's call-scoped stat cache (glob preflight + per-group
       // rg runs already stat'd this same resolved root) instead of re-stating.
@@ -291,8 +291,13 @@ export function basePathDiagnostic(basePaths, workDir, statCache = null) {
       }
       return (
         `${normalizeOutputPath(basePath)}: path does not exist (${err?.code || 'ENOENT'})` +
-        finalizeReadFamilyEnoentTail(buildNotFoundHint(workDir, resolved, 'Search', err?.code), basePath, err?.code)
+        finalizeReadFamilyEnoentTail(
+          await buildNotFoundHint(workDir, resolved, 'Search', err?.code),
+          basePath,
+          err?.code
+        )
       );
     })
-    .join('; ');
+  );
+  return parts.join('; ');
 }

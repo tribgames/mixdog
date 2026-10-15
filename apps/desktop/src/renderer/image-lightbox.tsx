@@ -14,6 +14,7 @@ import { createPortal } from 'react-dom';
 import { t } from './i18n';
 import type { ResolvedLocalLink } from './local-link-resolver';
 import { MarkdownOpenFileContext } from './MarkdownLink';
+import { useMobileBack } from './mobile-back';
 
 export interface LightboxItem {
   id: string;
@@ -71,6 +72,7 @@ const MIN_SCALE = 0.25;
 const MAX_SCALE = 16;
 const ZOOM_STEP = 1.25;
 const clampScale = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
+const RESET_VIEW = { scale: 1, x: 0, y: 0 };
 
 /** Modal image viewer: zoom, pan, previous/next, and open actions. */
 export function ImageLightbox({
@@ -93,9 +95,10 @@ export function ImageLightbox({
       items.findIndex((item) => item.id === startId)
     )
   );
-  const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
+  const [view, setView] = useState(RESET_VIEW);
   const item = items[Math.min(index, items.length - 1)];
   const zoomed = view.scale !== 1;
+  const target = item.target;
 
   useEffect(() => {
     dialog.current?.showModal();
@@ -107,7 +110,7 @@ export function ImageLightbox({
     });
   const go = (step: number) => {
     setIndex((current) => (current + step + items.length) % items.length);
-    setView({ scale: 1, x: 0, y: 0 });
+    setView(RESET_VIEW);
   };
   // Wheel zoom needs a non-passive listener to keep the page from zooming.
   // biome-ignore lint/correctness/useExhaustiveDependencies: zoomBy is recreated every render and only calls the stable setView; one listener serves the dialog's life.
@@ -124,10 +127,11 @@ export function ImageLightbox({
   const toggleActualSize = () =>
     setView(
       zoomed
-        ? { scale: 1, x: 0, y: 0 }
+        ? RESET_VIEW
         : { scale: clampScale((image.current?.naturalWidth ?? 0) / (image.current?.offsetWidth || 1) || 1), x: 0, y: 0 }
     );
   const close = () => dialog.current?.close();
+  useMobileBack(true, close);
   const button = (label: string, icon: ReactNode, onClick: () => void, extra: { disabled?: boolean } = {}) => (
     <button type="button" className="icon-button" aria-label={label} data-tooltip={label} onClick={onClick} {...extra}>
       {icon}
@@ -149,7 +153,7 @@ export function ImageLightbox({
         else if (event.key === 'ArrowRight' && items.length > 1) go(1);
         else if (event.key === '+' || event.key === '=') zoomBy(ZOOM_STEP);
         else if (event.key === '-') zoomBy(1 / ZOOM_STEP);
-        else if (event.key === '0') setView({ scale: 1, x: 0, y: 0 });
+        else if (event.key === '0') setView(RESET_VIEW);
         else return;
         event.preventDefault();
       }}
@@ -166,10 +170,10 @@ export function ImageLightbox({
           zoomed ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />,
           toggleActualSize
         )}
-        {item.target &&
+        {target &&
           openFile &&
           button(t('Open in tab'), <PanelTop size={16} aria-hidden="true" />, () => {
-            const { project, path, accessToken } = item.target!;
+            const { project, path, accessToken } = target;
             if (accessToken) openFile(project, path, undefined, accessToken);
             else openFile(project, path);
             close();
@@ -183,7 +187,7 @@ export function ImageLightbox({
         ref={stage}
         className="image-lightbox-stage"
         data-zoomed={zoomed ? 'true' : undefined}
-        onDoubleClick={() => setView({ scale: 1, x: 0, y: 0 })}
+        onDoubleClick={() => setView(RESET_VIEW)}
         onPointerDown={(event) => {
           if (!zoomed) return;
           drag.current = { x: event.clientX, y: event.clientY, originX: view.x, originY: view.y };

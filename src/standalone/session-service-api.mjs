@@ -29,6 +29,7 @@ export function createSessionServiceApi({
   methods,
   getSize,
   getBusyCount,
+  getTurnBusyCount,
   getStatus,
   getExternalClientCount,
 }) {
@@ -45,6 +46,10 @@ export function createSessionServiceApi({
     },
     get busyCount() {
       return getBusyCount();
+    },
+    /** Sessions with a running turn; background-task-only sessions excluded. */
+    get turnBusyCount() {
+      return getTurnBusyCount();
     },
     get status() {
       return getStatus();

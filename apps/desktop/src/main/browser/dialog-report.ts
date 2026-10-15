@@ -18,6 +18,34 @@ export interface PendingBrowserDialog {
   openedAt: number;
   sessionId?: string;
   bridgeRequestId?: string;
+  /** An answer is on its way, so the dialog closing now is that answer
+   *  landing, not the dialog dismissed by itself. */
+  answering?: boolean;
+}
+
+/** A dialog the page opened that nobody was shown: its bridge request never
+ *  reached the host (`unreachable`, a page CSP refusing it, for one), or it
+ *  fired where the bridge was not yet installed and Chromium dismissed it
+ *  (`early`). The pane shows it as a notice; one reply reports it. */
+export interface DismissedBrowserDialog {
+  type: string;
+  message: string;
+  reason: 'unreachable' | 'early';
+  reported?: boolean;
+}
+
+const DISMISSED_BECAUSE: Record<DismissedBrowserDialog['reason'], string> = {
+  unreachable: 'its request never reached the browser (a page security policy can refuse it)',
+  early: 'it opened before the browser was intercepting dialogs on this page',
+};
+
+/** The page-report line for a dialog that was dismissed unseen. */
+export function describeDismissedDialog(dialog: DismissedBrowserDialog): string {
+  return (
+    `Dismissed ${dialog.type} dialog ${JSON.stringify(redactBrowserText(dialog.message))}: ` +
+    `${DISMISSED_BECAUSE[dialog.reason]}, so nobody saw it and the page received a dismissal ` +
+    '(confirm returns false, prompt returns null). handle_dialog has nothing to answer.'
+  );
 }
 
 interface BrowserDialogReportHost {
@@ -34,19 +62,21 @@ interface BrowserDialogReportHost {
 
 export function createBrowserDialogReport(host: BrowserDialogReportHost) {
   const { diagnostics: diagnosticsFor, cdp, pageId: stablePageId } = host;
-  const answering = new WeakSet<PendingBrowserDialog>();
   async function handleDialog(
     guest: WebContents,
     accept: boolean,
     promptText: string,
     signal?: AbortSignal,
-    beforeDispatch?: () => void
+    beforeDispatch?: () => void,
+    /** A person accepted the prompt's default untouched: the page keeps its
+     *  full default rather than the bounded copy it was shown. */
+    keepDefault = false
   ): Promise<void> {
     const diagnostics = diagnosticsFor(guest);
     const pending = diagnostics.pendingDialog;
     if (!pending) throw new Error('no JavaScript dialog is currently open');
-    if (answering.has(pending)) throw new Error('Browser dialog is already being answered.');
-    answering.add(pending);
+    if (pending.answering) throw new Error('Browser dialog is already being answered.');
+    pending.answering = true;
     const target = {
       sessionId: pending.sessionId,
       beforeDispatch: () => {
@@ -59,7 +89,7 @@ export function createBrowserDialogReport(host: BrowserDialogReportHost) {
         await cdp.call(
           guest,
           'Fetch.fulfillRequest',
-          dialogBridgeFulfillParams(pending.bridgeRequestId, accept, promptText),
+          dialogBridgeFulfillParams(pending.bridgeRequestId, accept, promptText, accept && keepDefault),
           signal,
           target
         );
@@ -68,7 +98,7 @@ export function createBrowserDialogReport(host: BrowserDialogReportHost) {
       }
       if (diagnostics.pendingDialog === pending) diagnostics.pendingDialog = null;
     } finally {
-      answering.delete(pending);
+      pending.answering = false;
     }
   }
 

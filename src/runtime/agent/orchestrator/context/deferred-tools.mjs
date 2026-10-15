@@ -1,4 +1,5 @@
 // Deferred-pool and MCP-instruction manifests injected into BP2.
+import { parseMcpToolName } from '../../../shared/tool-primitives.mjs';
 
 export function compactPromptManifestText(value, max = 250) {
   const text = String(value || '')
@@ -100,16 +101,21 @@ function sanitizeMcpInstructionText(text, max = MCP_INSTRUCTION_MAX_CHARS) {
  * names per server doubled the MCP share of the BP2 prefix (2026-08-05 audit).
  * Server membership stays evident from the mcp__<server>__ name prefix.
  */
-function buildMcpInstructionsManifest(mcpServerInstructions, poolNames) {
+function buildMcpInstructionsManifest(mcpServerInstructions, poolNames, catalog = []) {
   const map = mcpServerInstructions && typeof mcpServerInstructions === 'object' ? mcpServerInstructions : {};
   const pool = [
     ...new Set((Array.isArray(poolNames) ? poolNames : []).map((name) => sanitizeManifestName(name)).filter(Boolean)),
   ];
+  // Tool definitions carry their server (shortened names cannot be parsed).
+  const byName = new Map();
+  for (const tool of Array.isArray(catalog) ? catalog : []) {
+    const name = String(tool?.name || '').trim();
+    if (name && !byName.has(name)) byName.set(name, tool);
+  }
   const deferredServers = new Set();
   for (const name of pool) {
-    const match = name.match(/^mcp__(.+?)__(.+)$/);
-    if (!match) continue;
-    deferredServers.add(match[1]);
+    const server = parseMcpToolName(byName.get(name) || name)?.server;
+    if (server) deferredServers.add(server);
   }
   const servers = [...deferredServers]
     .filter((server) => sanitizeManifestName(server) && sanitizeMcpInstructionText(map[server]))
@@ -170,7 +176,7 @@ function composeDeferredBp2Manifest(session, pool) {
   const parts = [];
   const deferredManifest = buildDeferredToolManifest(deferredManifestEntries(session, pool));
   if (deferredManifest) parts.push(deferredManifest);
-  const mcpManifest = buildMcpInstructionsManifest(session.mcpServerInstructions, pool);
+  const mcpManifest = buildMcpInstructionsManifest(session.mcpServerInstructions, pool, session.deferredToolCatalog);
   if (mcpManifest) parts.push(mcpManifest);
   return parts.join('\n\n');
 }

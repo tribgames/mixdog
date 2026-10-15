@@ -233,12 +233,15 @@ test('step wiring is off without a step context and leaves the step unmarked whe
   });
 
   const off = state(null);
-  await markStepEffort(off, assistant);
+  markStepEffort(off, assistant);
   assert.equal(off.autoEffortSteps, undefined);
+  assert.equal(off.stepEffort, undefined);
 
   const on = state({ request: 'go', base: 'medium' });
-  await markStepEffort(on, assistant);
-  await markStepEffort(on, assistant);
+  markStepEffort(on, assistant);
+  await on.stepEffort.promise;
+  markStepEffort(on, assistant);
+  await on.stepEffort.promise;
   assert.equal(on.autoEffortSteps, 2);
   assert.equal(tool.meta, undefined);
   const log = readFileSync(join(data, 'effort-judge', 'decisions.jsonl'), 'utf8')

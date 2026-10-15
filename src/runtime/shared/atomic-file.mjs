@@ -21,7 +21,7 @@ import {
 } from 'node:fs/promises';
 import { dirname, basename, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { DEFAULT_BACKOFFS_MS, withFileLock, withFileLockSync } from './file-lock.mjs';
+import { DEFAULT_BACKOFFS_MS, recordLockTiming, withFileLock, withFileLockSync } from './file-lock.mjs';
 import {
   enforceOwnerOnlyAclWin32 as _enforceOwnerOnlyAclWin32,
   enforceOwnerOnlyAclWin32Async as _enforceOwnerOnlyAclWin32Async,
@@ -321,9 +321,30 @@ export async function writeFileAtomicAsync(filePath, data, opts = {}) {
   };
   // Acquire the file lock before occupying an I/O slot. Otherwise a waiter can
   // exhaust the gate while the current lock owner needs it to finish its write.
-  return opts.lock === true
-    ? withFileLock(`${filePath}.lock`, () => _runAdaptiveFileIo(run), opts)
-    : _runAdaptiveFileIo(run);
+  if (opts.lock !== true) return _runAdaptiveFileIo(run);
+  const lockPath = `${filePath}.lock`;
+  return withFileLock(
+    lockPath,
+    async () => {
+      const queuedAt = Date.now();
+      let startedAt = 0;
+      try {
+        return await _runAdaptiveFileIo(() => {
+          startedAt = Date.now();
+          return run();
+        });
+      } finally {
+        const now = Date.now();
+        // Recorded from this (lock-owner) context so the held warning can
+        // split the hold into gate wait vs. the write itself.
+        recordLockTiming(lockPath, {
+          ioGateWaitMs: (startedAt || now) - queuedAt,
+          writeMs: startedAt ? now - startedAt : 0,
+        });
+      }
+    },
+    opts
+  );
 }
 
 export function writeJsonAtomicAsync(filePath, value, opts = {}) {

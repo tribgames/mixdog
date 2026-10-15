@@ -91,6 +91,7 @@ export function createAskCallbacks({ transcript, notifyFnForSession, scheduleSea
       onStreamDelta: streamDelta(turn, options),
       drainSteering: options.drainSteering,
       onSteerMessage: options.onSteerMessage,
+      onSkillsApplied: options.onSkillsApplied,
       notifyFn: notifyFnForSession(session0.id),
       signal: turn.signal,
     };

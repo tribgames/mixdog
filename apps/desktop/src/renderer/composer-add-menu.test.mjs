@@ -33,19 +33,20 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
   const acceptGoal = false;
   let attached = 0;
   window.mixdogDesktop = {
-    readCapabilities: async (requests) => {
-      assert.equal(requests[0].sessionId, 'menu-session');
-      return [
-        {
-          ok: true,
-          value: {
-            skills: [
-              { name: 'pdf', enabled: true },
-              { name: 'off', enabled: false },
-            ],
-          },
+    // The session answers for its own project, so scope is decided there (a
+    // session ignores the draft-only projectPath).
+    invokeCapability: async (request) => {
+      assert.deepEqual(request, { capability: 'skillsStatus', sessionId: 'menu-session' });
+      return {
+        value: {
+          skills: [
+            { name: 'pdf', enabled: true },
+            { name: 'off', enabled: false },
+            { name: 'elsewhere', enabled: true, scope: ['C:/other'], activeHere: false },
+            { name: 'plugin-elsewhere', enabled: true, inheritedScope: ['C:/other'], activeHere: false },
+          ],
         },
-      ];
+      };
     },
   };
   function Harness() {
@@ -58,6 +59,7 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
         disabled: false,
         goalDisabled: false,
         sessionId: 'menu-session',
+        projectPath: 'C:/project',
         onAttach: () => {
           attached += 1;
         },
@@ -79,6 +81,12 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
     const trigger = host.querySelector('button');
     await click(trigger);
     assert.equal(document.querySelectorAll('[role="menuitem"]').length, 4);
+    for (const name of ['elsewhere', 'plugin-elsewhere']) {
+      assert.ok(
+        ![...document.querySelectorAll('[role="menuitem"]')].some((node) => node.textContent === name),
+        `${name} is out of scope here`
+      );
+    }
     assert.equal(goals.length, 0);
     const pdf = [...document.querySelectorAll('[role="menuitem"]')].find((node) => node.textContent === 'PDF');
     assert.ok(pdf.querySelector('svg'));
@@ -101,6 +109,58 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
     assert.deepEqual(goals, ['/goal']);
     assert.equal(document.querySelector('[role="menu"]'), null);
     assert.equal(document.querySelector('[role="dialog"]'), null);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("a new-task draft's add menu lists the skills its selected Project sees", async () => {
+  const reads = [];
+  window.mixdogDesktop = {
+    readCapabilities: async (requests) => {
+      reads.push(requests);
+      return [
+        {
+          ok: true,
+          value: {
+            skills: [
+              { name: 'team-only', enabled: true, scope: ['C:/project'], activeHere: true },
+              { name: 'elsewhere', enabled: true, scope: ['C:/other'], activeHere: false },
+            ],
+          },
+        },
+      ];
+    },
+  };
+  function Harness() {
+    const anchor = useRef(null);
+    return React.createElement(
+      'form',
+      { ref: anchor },
+      React.createElement(ComposerAddMenu, {
+        anchor,
+        disabled: false,
+        goalDisabled: false,
+        sessionId: '',
+        projectPath: 'C:/project',
+        onAttach() {},
+        onSkill() {},
+        onGoal: async () => false,
+        onMore() {},
+      })
+    );
+  }
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(async () => host.querySelector('button').click());
+    assert.deepEqual(reads, [[{ capability: 'skillsStatus', args: [{ projectPath: 'C:/project' }] }]]);
+    const names = [...document.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent);
+    assert.ok(names.includes('team-only'));
+    assert.ok(!names.includes('elsewhere'));
   } finally {
     await act(async () => root.unmount());
     host.remove();

@@ -1,7 +1,14 @@
+import { DESKTOP_IMPORT_CAPABILITIES } from './contract-import';
+
 /** Capabilities the host refuses over remote access: host-internal items that
- *  make no sense remotely. Shared so the host (`REMOTE_BLOCKED_CAPABILITIES` in
- *  `main/remote-methods.ts`) and the renderer read one list. */
-export const REMOTE_BLOCKED_CAPABILITY_NAMES: ReadonlySet<string> = new Set(['resolveMediaFile']);
+ *  make no sense remotely, and conversation import, which reads this PC's
+ *  Codex/Claude folders and is local desktop only. Shared so the host
+ *  (`REMOTE_BLOCKED_CAPABILITIES` in `main/remote-methods.ts`) and the
+ *  renderer read one list. */
+export const REMOTE_BLOCKED_CAPABILITY_NAMES: ReadonlySet<string> = new Set([
+  'resolveMediaFile',
+  ...DESKTOP_IMPORT_CAPABILITIES,
+]);
 
 /** Whether `capability` is refused for every remote client. */
 export function remoteCapabilityBlocked(capability: string): boolean {

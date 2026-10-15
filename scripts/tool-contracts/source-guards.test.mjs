@@ -87,9 +87,11 @@ const readMjsSources = (rel) => {
 
 // setRoute must default to "next session only": a bare
 // runtime.setRoute({model}) call (no options) must NOT rewrite a live
-// session's provider/model in place, or a mid-conversation model/provider
-// switch silently forces a full prompt-cache rewrite (seen as a
-// promptΔ spike + cache_ratio=0% turn in session-bench).
+// session's provider/model in place, or an unrequested mid-conversation
+// model/provider switch silently forces a full prompt-cache rewrite (seen as
+// a promptΔ spike + cache_ratio=0% turn in session-bench). Only a selection
+// addressed to the session (applyToCurrentSession) or the user's own model
+// choice from the session surface (switchEstablished) switches it in place.
 function assertSetRouteStaysNextSessionOnly() {
   const runtimeSrc = [
     readMjsSources('src/mixdog-session-runtime.mjs'),
@@ -108,8 +110,9 @@ function assertSetRouteStaysNextSessionOnly() {
     );
   }
   // A live session whose route is committed (a model reply, a compaction
-  // summary, or an in-flight turn) is never rewritten in place, whatever
-  // applyToCurrentSession says: only effort/Fast tuning may reach it, from its
+  // summary, or an in-flight turn) is never rewritten by a bare selection.
+  // An addressed one or the user's choice (switchEstablished) switches its model in place (the session
+  // surface refuses that while a turn runs) or tunes effort/Fast from its
   // next turn. Prompts that were all refused before any reply commit nothing.
   if (
     !/const currentSessionEmpty = !!session && !sessionRouteCommitted\(session\)/.test(setRouteBlock) ||
@@ -117,10 +120,14 @@ function assertSetRouteStaysNextSessionOnly() {
     !/hasRouteHistoryMessage\(session\?\.liveTurnMessages\) \|\|/.test(runtimeSrc) ||
     !/message\?\.role === 'assistant'/.test(runtimeSrc) ||
     !/if \(!currentSessionEmpty\) \{/.test(setRouteBlock) ||
+    !/const switchEstablished = applyToCurrentSession \|\| options\?\.switchEstablished === true;/.test(
+      setRouteBlock
+    ) ||
+    !/if \(!switchEstablished\) return getRoute\(\);/.test(setRouteBlock) ||
     !/return getRoute\(\);/.test(setRouteBlock)
   ) {
     throw new Error(
-      'setRoute must early-return before touching a live session that owns route history (model changes apply to the next session only)'
+      'setRoute must early-return before touching a live session that owns route history unless the selection is addressed to it'
     );
   }
   // Empty current session must apply live so /model before the first chat

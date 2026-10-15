@@ -15,6 +15,10 @@ import { preserveGoalStateAfterTurn } from './goal-turn-state.mjs';
 export { preserveGoalStateAfterTurn } from './goal-turn-state.mjs';
 export { transcriptToolCallDisplayMode } from './turn-tool-cards.mjs';
 import { isRejected429, safeErrorDetails } from '../../runtime/shared/error-presentation.mjs';
+import {
+  QUOTA_KINDS,
+  providerErrorKind,
+} from '../../runtime/agent/orchestrator/providers/provider-error-kind.mjs';
 import { registerTaskWaitSteeringCheck } from '../../runtime/agent/orchestrator/session/task-wait-control.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { yieldToRenderer } from './render-timing.mjs';
@@ -47,14 +51,11 @@ import {
   startLiveTail,
 } from './turn-tool-cards.mjs';
 
-function isUsageLimitError(error) {
+// A usage limit is exactly a spent quota, a plan-gated feature or a billing
+// refusal; overloads, rate limits and server faults recover by waiting.
+function isUsageLimitError(error, kind = providerErrorKind(error)) {
   if (!error || isRejected429(error)) return false;
-  const status = Number(error?.httpStatus || error?.status || error?.response?.status || 0);
-  if (error?.providerQuota === true || error?.quotaExceeded === true || status === 429) return true;
-  const text = String(error?.message || error);
-  return /\brate[_ -]?limit\b|\bquota\b|too many requests|resource exhausted|insufficient_quota|quota_exceeded/i.test(
-    text
-  );
+  return QUOTA_KINDS.has(kind.kind);
 }
 
 function turnOutcome(cancelled, failed) {
@@ -165,7 +166,7 @@ function promptRestoreFor(displayText, options, submittedIds, content = null) {
   };
 }
 
-function commitPromptRestore(flags, turn) {
+export function commitPromptRestore(flags, turn) {
   const restore = flags.activePromptRestore;
   if (!restore) return;
   if (!turn.promptCommitted && typeof restore.onCommitted === 'function') {
@@ -322,9 +323,26 @@ function applyTurnUsageDelta({ turn, getState, set, syncContextStats }, delta) {
   set({ stats: { ...getState().stats }, ...(spinner ? { spinner: { ...spinner, inputTokens, outputTokens } } : {}) });
 }
 
+// The runtime reports the skills a user turn actually loaded (`Skill:` header
+// or inline `$name`); the prompt row carries them as `appliedSkills`, the same
+// field a restored row reads from the persisted transcript metadata.
+function applySkillsToPromptRow({ turn, getState, patchItem }, names, detail = {}) {
+  const appliedSkills = (Array.isArray(names) ? names : []).filter((name) => typeof name === 'string' && name);
+  if (!appliedSkills.length) return;
+  const messageId = typeof detail?.messageId === 'string' ? detail.messageId : '';
+  const submitted = turn.submittedIds[0];
+  const row = getState().items.findLast(
+    (item) => item?.kind === 'user' && (messageId ? item.messageId === messageId : item.id === submitted)
+  );
+  if (row) patchItem(row.id, { appliedSkills });
+}
+
 function turnHandlers(ctx) {
   const { isCurrentTurn, drainPendingSteering } = ctx;
   return {
+    onSkillsApplied: (names, detail) => {
+      if (isCurrentTurn()) applySkillsToPromptRow(ctx, names, detail);
+    },
     drainSteering: (_sessionId, drainOptions) =>
       isCurrentTurn() ? drainPendingSteering({ ...drainOptions, turnEpoch: ctx.turn.epoch }) : [],
     onStreamDelta: () => {},
@@ -372,7 +390,7 @@ function toolHandlers(ctx) {
   };
 }
 
-function streamHandlers(ctx) {
+export function streamHandlers(ctx) {
   const { isCurrentTurn, stream } = ctx;
   return {
     onStageChange: async (stage, detail = null) => {
@@ -381,7 +399,10 @@ function streamHandlers(ctx) {
     onTextDelta: (chunk) => {
       const textChunk = String(chunk ?? '');
       if (!textChunk || !isCurrentTurn()) return;
-      ctx.markPromptCommitted();
+      // Same verdict as the runtime's interruption check (finalizeInterruptedTurn
+      // trims): whitespace-only text is not output, so it must not commit the
+      // prompt — the runtime would rewind it while the host skipped the requeue.
+      if (textChunk.trim()) ctx.markPromptCommitted();
       appendTextDelta(stream, textChunk);
     },
     onTextReset: (reset = {}) => (isCurrentTurn() ? resetStreamedText(stream, reset) : false),
@@ -431,13 +452,30 @@ export function failTurn(ctx, error) {
   }
   turn.failed = true;
   cards.aggregates.finalizeToolHeaders();
-  turn.usageLimited = isUsageLimitError(error);
+  // Presentation only: legacy untyped failure text may still name a usage limit.
+  const errorKind = providerErrorKind(error, { legacyQuotaWording: true });
+  // The UI reads this descriptor instead of re-parsing the error text.
+  turn.errorKind = {
+    kind: errorKind.kind,
+    code: errorKind.code,
+    status: errorKind.status,
+    retryAfterMs: errorKind.retryAfterMs,
+    resetAt: errorKind.resetAt,
+  };
+  turn.usageLimited = isUsageLimitError(error, errorKind);
   const exhausted = error?.quotaExhausted;
-  if (exhausted && typeof exhausted === 'object') {
+  // Quota metadata: the pool's validated exhaustion, or a spent quota whose
+  // provider named the real reset time.
+  const resetKnown = errorKind.kind === 'quota_exhausted' && Number.isFinite(errorKind.resetAt);
+  if ((exhausted && typeof exhausted === 'object') || resetKnown) {
+    const source = exhausted && typeof exhausted === 'object' ? exhausted : {};
+    let resetAt = null;
+    if (Number.isFinite(source.resetAt)) resetAt = source.resetAt;
+    else if (Number.isFinite(errorKind.resetAt)) resetAt = errorKind.resetAt;
     turn.quota = {
-      provider: String(exhausted.provider || turn.routeMeta?.provider || ''),
-      model: String(exhausted.model || turn.routeMeta?.model || ''),
-      resetAt: Number.isFinite(exhausted.resetAt) ? exhausted.resetAt : null,
+      provider: String(source.provider || turn.routeMeta?.provider || ''),
+      model: String(source.model || turn.routeMeta?.model || ''),
+      resetAt,
     };
   }
   turn.failureDetail = toolErrorDisplay(error, 'turn').replace(/^Error:\s*/i, '');
@@ -468,6 +506,7 @@ export function turnDoneItem({ turn, stream, cards, getState, nextId }) {
     ...(turn.failureDiagnostic ? { errorDetails: turn.failureDiagnostic } : {}),
     ...turn.routeMeta,
     ...(turn.failed && turn.quota ? { quota: turn.quota } : {}),
+    ...(turn.failed && turn.errorKind ? { errorKind: turn.errorKind } : {}),
   };
 }
 
@@ -547,6 +586,7 @@ async function settleTurn(ctx) {
     result: turn.askResult,
     session: runtime.session || null,
     error: turn.failureDetail || null,
+    errorKind: turn.failed ? turn.errorKind || null : null,
   };
   // Publish termination before optional Goal work can delay the caller.
   bag.settleSteeredSubmissions?.(turn.epoch, detail);

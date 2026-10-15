@@ -21,9 +21,7 @@ const FEEDBACK_BLOCK = /<visualize_feedback>\n([\s\S]*?)\n?<\/visualize_feedback
 // on the blob itself: the reference's claimed sizeBytes is not trusted.
 const FEEDBACK_MAX_BYTES = 128 * 1024;
 const QUOTED = '("(?:[^"\\\\]|\\\\.)*")';
-const CHOICE_LINE = new RegExp(
-  `· group: (?:${QUOTED}|\\(none\\)) → choice: ${QUOTED}(?: \\(${QUOTED}\\))?$`
-);
+const CHOICE_LINE = new RegExp(`· group: (?:${QUOTED}|\\(none\\)) → choice: ${QUOTED}(?: \\(${QUOTED}\\))?$`);
 
 function unquote(value) {
   if (!value) return '';
@@ -53,7 +51,7 @@ function feedbackDisplay(body) {
       continue;
     }
     if (tweaks) {
-      const change = /^    (.+?) \([^)]*\): (.*) \(was (.*)\)$/.exec(line);
+      const change = /^ {4}(.+?) \([^)]*\): (.*) \(was (.*)\)$/.exec(line);
       if (change) tweaks.push(`${change[1]}: ${change[2]} (was ${change[3]})`);
       else if (line.startsWith('  - tab: ')) {
         tweaks = [];
@@ -118,23 +116,46 @@ function referencedFeedbackText(part) {
   }
 }
 
+/** The display lines of a stored prompt's parts, and for each image part the
+ *  line that draws it: the composer's metadata line right before it, else a
+ *  bare line of its own (a bare line never stands for the next image). */
+function restoredUserParts(content) {
+  const texts = [];
+  const images = [];
+  let pendingMetadata = '';
+  for (const part of content) {
+    if (part?.type === 'image' || part?.type === 'input_image') {
+      let line = pendingMetadata;
+      if (!line) {
+        line = `[Image: ${part.mimeType || part.mediaType || 'image'}]`;
+        texts.push(line);
+      }
+      pendingMetadata = '';
+      images.push({ part, line });
+      continue;
+    }
+    const text = isAttachmentReference(part) ? referencedFeedbackText(part) : toolResultText([part]);
+    if (text) texts.push(text);
+    pendingMetadata = IMAGE_METADATA_LINE.test(text) ? text.trimEnd().split(/\r?\n/).pop().trim() : '';
+  }
+  return { texts, images };
+}
+
 export function restoredUserText(content) {
   if (!Array.isArray(content)) {
     return withVisualizeFeedbackDisplay(typeof content === 'string' ? content : toolResultText(content));
   }
-  const texts = [];
-  let previous = '';
-  for (const part of content) {
-    let text;
-    if (part?.type === 'image' || part?.type === 'input_image') {
-      text = IMAGE_METADATA_LINE.test(previous) ? '' : `[Image: ${part.mimeType || part.mediaType || 'image'}]`;
-    } else if (isAttachmentReference(part)) {
-      text = referencedFeedbackText(part);
-    } else {
-      text = toolResultText([part]);
-    }
-    previous = text;
-    if (text) texts.push(text);
-  }
-  return withVisualizeFeedbackDisplay(texts.join('\n'));
+  return withVisualizeFeedbackDisplay(restoredUserParts(content).texts.join('\n'));
+}
+
+/** The stored original of each image the restored bubble draws, by the
+ *  `[Image: …]` line that draws it. Every image keeps its slot (one without a
+ *  stored original has no `ref`) so later images do not shift onto it; empty
+ *  when no image has a stored original. */
+export function restoredUserImageRefs(content) {
+  if (!Array.isArray(content)) return [];
+  const slots = restoredUserParts(content).images.map(({ part, line }) =>
+    isAttachmentReference(part) ? { line, ref: part.attachmentRef } : { line }
+  );
+  return slots.some((slot) => slot.ref) ? slots : [];
 }

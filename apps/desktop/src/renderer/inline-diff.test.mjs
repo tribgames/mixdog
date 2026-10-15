@@ -236,7 +236,8 @@ test('code lines wrap in every shared diff: the session pane and tool cards neve
     stack.match(
       new RegExp(`:is\\(\\.session-diff-section, \\.tool-diff-frame\\) \\.${part}\\s*\\{([^}]*)\\}`, 'u')
     )?.[1] ?? '';
-  assert.match(shared('inline-diff'), /font-size:\s*13px/u);
+  // 13px at the default chat text size; tool-card diffs follow its scale.
+  assert.match(shared('inline-diff'), /font-size:\s*calc\(13px \* var\(--mx-content-scale, 1\)\)/u);
   assert.doesNotMatch(shared('inline-diff'), /overflow-x/u);
   assert.equal(shared('inline-diff-code'), '');
   assert.equal(shared('inline-diff-row'), '');

@@ -3,6 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { MAX_BUFFER_BYTES } from './constants.mjs';
 import { handlerTimeoutS } from './handler-timeout.mjs';
 import { abortReason, throwIfAborted } from '../../../runtime/shared/abort-race.mjs';
+import { scrubRuntimeRootVars } from '../../../runtime/agent/orchestrator/tools/env-scrub.mjs';
 
 function resolvePlaceholders(str, projectDir, pluginData, pluginRoot = null) {
   if (typeof str !== 'string') return str;
@@ -88,8 +89,10 @@ function hookEnv(projectDir, pluginData, payload, pluginRoot = null) {
   const resolvedProject = projectDir || process.cwd();
   const resolvedPluginRoot = pluginRoot || resolvedProject;
   const resolvedPluginData = pluginData || resolvedProject;
+  // Hooks are user commands like model shells: the host's runtime root,
+  // identity and Electron node-mode must not reach them.
   const env = {
-    ...process.env,
+    ...scrubRuntimeRootVars({ ...process.env }),
     MIXDOG_PROJECT_DIR: resolvedProject,
     MIXDOG_PLUGIN_ROOT: resolvedPluginRoot,
     MIXDOG_PLUGIN_DATA: resolvedPluginData,

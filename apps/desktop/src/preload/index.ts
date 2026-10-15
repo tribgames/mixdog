@@ -84,6 +84,8 @@ const api: DesktopApi = {
   routeAutoEffort: true,
   chooseProject: () => ipcRenderer.invoke(DESKTOP_IPC.chooseProject),
   chooseFile: (defaultPath) => ipcRenderer.invoke(DESKTOP_IPC.chooseFile, defaultPath),
+  chooseConversationImportFile: () => ipcRenderer.invoke(DESKTOP_IPC.chooseConversationImportFile),
+  subscribeConversationImportProgress: (listener) => subscribeIpc(DESKTOP_IPC.conversationImportProgress, listener),
   chooseFiles: (defaultPath) => ipcRenderer.invoke(DESKTOP_IPC.chooseFiles, defaultPath),
   chooseWorkspace: () => ipcRenderer.invoke(DESKTOP_IPC.chooseWorkspace),
   saveWorkspace: (workspaceFile, folders) => ipcRenderer.invoke(DESKTOP_IPC.saveWorkspace, workspaceFile, folders),
@@ -540,6 +542,7 @@ const api: DesktopApi = {
   openFilePath: (cwd, path, accessToken, confirmedPath) =>
     ipcRenderer.invoke(DESKTOP_IPC.openFilePath, cwd, path, accessToken, confirmedPath),
   openAttachmentImage: (dataUrl, name) => ipcRenderer.invoke(DESKTOP_IPC.openAttachmentImage, dataUrl, name),
+  readAttachmentThumbnail: (attachmentRef) => ipcRenderer.invoke(DESKTOP_IPC.readAttachmentThumbnail, attachmentRef),
   openAttachmentFile: (dataUrl, name) => ipcRenderer.invoke(DESKTOP_IPC.openAttachmentFile, dataUrl, name),
   stageAttachmentFile: (dataUrl, name) => ipcRenderer.invoke(DESKTOP_IPC.stageAttachmentFile, dataUrl, name),
   saveFileAs: (source, suggestedName) => ipcRenderer.invoke(DESKTOP_IPC.saveFileAs, source, suggestedName),

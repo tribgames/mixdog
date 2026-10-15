@@ -21,6 +21,7 @@ import { useApp, useStdin, useStdout } from 'ink';
 import { useSession } from './hooks/useSession.mjs';
 import { pickFolder } from '../standalone/folder-dialog.mjs';
 import { deriveSlashPalette } from './app/slash-palette.mjs';
+import { skillMentionQuery, useSkillMentionSkills } from './app/skill-mention-palette.mjs';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './app/panel-epoch.mjs';
 import { createPanelSurface } from './app/panel-surface.mjs';
 import { resolvePickerState } from './app/picker-index-mode.mjs';
@@ -215,6 +216,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     setPromptDraft,
     promptDraftOverride,
     setPromptDraftOverride,
+    promptCaret,
+    setPromptCaret,
     promptLayoutValueRef,
     setPromptLayoutRows,
     textEntryLayoutRows,
@@ -625,7 +628,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     pastedTextsRef,
   });
 
-  const { activeSlashQuery, slashCommands, slashPaletteOpen } = deriveSlashPalette({
+  const mentionSkills = useSkillMentionSkills(store, skillMentionQuery(promptDraft, promptCaret) !== null);
+  const { activeSlashQuery, slashCommands, slashPaletteOpen, paletteKind } = deriveSlashPalette({
     providerPrompt,
     settingsPrompt,
     toolApproval,
@@ -636,6 +640,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     commandBusy: state.commandBusy,
     promptDraft,
     slashDismissedFor,
+    skills: mentionSkills,
+    promptCaret,
   });
   slashPaletteRef.current = { open: slashPaletteOpen, count: slashCommands.length };
   scrollFocusRef.current = {
@@ -833,10 +839,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     hasUserMessages,
     initialStatusLine,
     onPromptDraftChange,
+    onPromptCaretChange: setPromptCaret,
     onSubmit,
     overlayHintAttachItemIndex,
     overlayHintFallbackRow,
     overlayHintOnLastItem,
+    paletteKind,
     panelInkMaskEpoch,
     panelTransitionEpoch,
     picker,

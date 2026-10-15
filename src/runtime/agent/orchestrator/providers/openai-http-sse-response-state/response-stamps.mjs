@@ -9,7 +9,7 @@
  */
 import { stampStreamOutcome, STREAM_TRANSPORTS } from '../lib/stream-outcome.mjs';
 import { createProviderReplay } from '../lib/provider-replay.mjs';
-import { LABEL, toolInputPending } from './response-state.mjs';
+import { toolInputPending } from './response-state.mjs';
 
 export function createResponseStamps({ state }) {
   const stampToolSafety = (err) => {
@@ -111,7 +111,7 @@ export function createResponseStamps({ state }) {
     const err = attachStreamPartial(
       stampToolSafety(
         new Error(
-          `${LABEL} ended before response.completed (text=${state.content.length} chars, toolCalls=${state.toolCalls.length})`
+          `${state.label} ended before response.completed (text=${state.content.length} chars, toolCalls=${state.toolCalls.length})`
         )
       )
     );

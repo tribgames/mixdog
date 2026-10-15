@@ -8,6 +8,18 @@ import { classifyCliInvocation } from './headless-command.mjs';
 import { prewarmHeadlessSearch, runHeadlessExec } from './headless-exec.mjs';
 import { resolveCursorOAuthAccessToken } from './runtime/agent/orchestrator/providers/cursor-auth.mjs';
 import { createPristineExecutionBoundary } from './runtime/shared/pristine-execution.mjs';
+import { spawnSync } from 'node:child_process';
+import {
+  MODEL_PROXY_OPERATIONS,
+  ModelProxyChannel,
+  decodeModelProxyWire,
+  encodeModelProxyWire,
+  getModelProxyChannel,
+} from './runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
+import {
+  ModelProxyBridgeChannel,
+  createModelProxyBridgeServer,
+} from './runtime/agent/orchestrator/providers/model-proxy-bridge.mjs';
 import { boundProviderAuthPath } from './runtime/shared/provider-auth-binding.mjs';
 import { newProviderAccountId } from './runtime/shared/provider-accounts.mjs';
 import {
@@ -86,6 +98,28 @@ test('pristine headless execution binds Cursor OAuth credentials in process', as
   }
 });
 
+for (const [provider, model] of [
+  ['muse-code-oauth', 'muse-spark-1.3'],
+  ['command-code-oauth', 'deepseek/deepseek-v4-flash'],
+  ['mimo-oauth', 'mimo-v2.5'],
+]) {
+  test(`pristine headless execution binds ${provider} credentials and copies its model catalog`, () => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-oauth-test-'));
+    const dataDir = join(root, 'data');
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(join(dataDir, `${provider}.json`), JSON.stringify({ apiKey: 'k', access_token: 'k' }));
+    writeFileSync(join(dataDir, `${provider}-models.json`), '{}');
+    const boundary = createPristineExecutionBoundary({ provider, model, env: { MIXDOG_HOME: root } });
+    try {
+      assert.equal(boundary.audit.authMode, 'in-process-host-oauth-binding');
+      assert.equal(boundary.audit.injectedModelCatalogFileCount, 1);
+    } finally {
+      boundary.cleanup();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
 test('pristine headless execution binds the selected provider-accounts credential', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-pool-auth-test-'));
   const dataDir = join(root, 'data');
@@ -131,6 +165,123 @@ test('pristine headless execution binds the selected provider-accounts credentia
   } finally {
     rmSync(emptyRoot, { recursive: true, force: true });
   }
+});
+
+// Remote (SSH) mode: a headless boundary in a skill-script process reaches the
+// PC through the daemon's model proxy bridge, published in the host runtime
+// root's daemon.json.
+async function remoteDaemonFixture(t, { endpoints } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-bridge-test-'));
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  const runtimeRoot = join(root, 'host-runtime');
+  mkdirSync(runtimeRoot, { recursive: true });
+  const channel = new ModelProxyChannel();
+  const server = createModelProxyBridgeServer({ channel });
+  const endpoint = await server.start();
+  t.after(() => server.close());
+  const writeDiscovery = (record) => writeFileSync(join(runtimeRoot, 'daemon.json'), JSON.stringify(record));
+  writeDiscovery({ pid: process.pid, endpoints: endpoints ?? { modelProxy: endpoint } });
+  return { root, runtimeRoot, channel, endpoint, writeDiscovery };
+}
+
+test('remote mode: the pristine boundary uses the daemon model proxy bridge and never a local credential', async (t) => {
+  const fx = await remoteDaemonFixture(t);
+  const methods = [];
+  const handled = new Set();
+  t.after(
+    fx.channel.attachPublisher((snapshot) => {
+      for (const { id } of snapshot.requests) {
+        if (handled.has(id)) continue;
+        handled.add(id);
+        queueMicrotask(() => {
+          const call = decodeModelProxyWire(fx.channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id]).payload);
+          methods.push(call.method);
+          fx.channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [id, true, encodeModelProxyWire(true), null]);
+        });
+      }
+    })
+  );
+  const env = {
+    MIXDOG_MODEL_PROXY: 'client',
+    MIXDOG_RUNTIME_ROOT: fx.runtimeRoot,
+    MIXDOG_HOME: join(fx.root, 'home'),
+    OPENAI_API_KEY: 'sk-host-key',
+    ANTHROPIC_OAUTH_CREDENTIALS_PATH: join(fx.root, 'anthropic.json'),
+    PATH: 'user-path',
+  };
+  const hostEnv = { ...env };
+  const original = getModelProxyChannel();
+  for (const provider of ['openai', 'anthropic-oauth']) {
+    const boundary = createPristineExecutionBoundary({
+      provider,
+      model: 'model-test',
+      env,
+      apiKeyResolver: () => {
+        throw new Error('a credential was looked up in model proxy mode');
+      },
+    });
+    let bridge = null;
+    try {
+      assert.equal(boundary.audit.authMode, 'model-proxy-bridge');
+      assert.equal(env.MIXDOG_MODEL_PROXY, 'client');
+      assert.equal(env.MIXDOG_RUNTIME_ROOT, boundary.runtimeRoot, 'child services keep the pristine runtime root');
+      assert.equal(env.OPENAI_API_KEY, undefined);
+      assert.equal(env.ANTHROPIC_OAUTH_CREDENTIALS_PATH, undefined);
+      assert.equal(env.PATH, 'user-path');
+      assert.deepEqual(boundary.loadConfig().providers, { [provider]: { enabled: true } });
+      assert.equal(boundary.audit.injectedModelCatalogFileCount, 0);
+      bridge = getModelProxyChannel();
+      assert.ok(bridge instanceof ModelProxyBridgeChannel);
+      assert.equal(await bridge.whenConnected(3_000), true);
+      assert.equal(await bridge.request({ provider, method: 'isAvailable' }), true);
+    } finally {
+      boundary.cleanup();
+    }
+    assert.deepEqual(env, hostEnv, 'cleanup restores the environment');
+    assert.equal(getModelProxyChannel(), original, 'cleanup restores the channel');
+    await assert.rejects(bridge.request({ provider, method: 'isAvailable' }), { code: 'MODEL_PROXY_UNAVAILABLE' });
+  }
+  assert.deepEqual(methods, ['isAvailable', 'isAvailable']);
+});
+
+test('remote mode: a missing or stale bridge endpoint fails closed, with no local-credential fallback', async (t) => {
+  const fx = await remoteDaemonFixture(t, { endpoints: { session: { port: 1, token: 'x' } } });
+  const original = getModelProxyChannel();
+  const attempt = (overrides = {}) => {
+    const env = {
+      MIXDOG_MODEL_PROXY: 'client',
+      MIXDOG_RUNTIME_ROOT: fx.runtimeRoot,
+      MIXDOG_HOME: join(fx.root, 'home'),
+      OPENAI_API_KEY: 'sk-host-key',
+      ...overrides,
+    };
+    const before = { ...env };
+    let thrown = null;
+    try {
+      createPristineExecutionBoundary({
+        provider: 'openai',
+        model: 'gpt-test',
+        env,
+        apiKeyResolver: () => 'sk-host-key',
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    assert.deepEqual(env, before, 'a refused boundary leaves the environment untouched');
+    assert.equal(getModelProxyChannel(), original);
+    return thrown;
+  };
+  assert.deepEqual(
+    { code: attempt()?.code, reason: attempt()?.reason },
+    { code: 'MODEL_PROXY_UNAVAILABLE', reason: 'endpoint-missing' }
+  );
+  const exited = spawnSync(process.execPath, ['-e', '']).pid;
+  fx.writeDiscovery({ pid: exited, endpoints: { modelProxy: fx.endpoint } });
+  assert.equal(attempt()?.reason, 'daemon-not-running');
+  rmSync(join(fx.runtimeRoot, 'daemon.json'));
+  assert.equal(attempt()?.reason, 'discovery-missing');
+  assert.equal(attempt({ MIXDOG_RUNTIME_ROOT: undefined })?.reason, 'runtime-root-missing');
+  assert.match(attempt()?.message || '', /^model proxy unavailable: /);
 });
 
 test('headless exec runs one implicit-approval session and waits for tracked tasks', async () => {

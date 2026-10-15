@@ -14,6 +14,7 @@ function installLayout(dom, heights) {
   const spacerHeight = () =>
     Number.parseFloat(viewport.querySelector('.transcript-virtual-space')?.style.height || '0') || 0;
   let top = 0;
+  let writes = 0;
   Object.defineProperties(viewport, {
     clientHeight: { configurable: true, get: () => VIEWPORT },
     offsetHeight: { configurable: true, get: () => VIEWPORT },
@@ -23,6 +24,7 @@ function installLayout(dom, heights) {
       configurable: true,
       get: () => top,
       set: (value) => {
+        writes += 1;
         top = Math.max(0, Math.min(Number(value) || 0, Math.max(0, spacerHeight() - VIEWPORT)));
       },
     },
@@ -69,14 +71,14 @@ function installLayout(dom, heights) {
       if (entries.length) observer.callback(entries, observer);
     }
   };
-  return { viewport, deliver, FakeResizeObserver };
+  return { viewport, deliver, FakeResizeObserver, writes: () => writes };
 }
 
-async function mountTranscript(heights, sessionKey, gesture = () => false) {
+async function mountTranscript(heights, sessionKey, gesture = () => false, touch = () => false) {
   const dom = new JSDOM("<div id='viewport'></div>", { url: 'http://localhost/', pretendToBeVisual: true });
   const keys = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT', 'ResizeObserver', 'HTMLElement', 'Element'];
   const previous = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
-  const { viewport, deliver, FakeResizeObserver } = installLayout(dom, heights);
+  const { viewport, deliver, FakeResizeObserver, writes } = installLayout(dom, heights);
   dom.window.ResizeObserver = FakeResizeObserver;
   for (const [key, value] of [
     ['window', dom.window],
@@ -103,6 +105,7 @@ async function mountTranscript(heights, sessionKey, gesture = () => false) {
           renderRow: (row) => React.createElement('div', null, row.key),
           markProgrammaticScroll: () => {},
           hasScrollGesture: gesture,
+          hasTouchScroll: touch,
           onSelectionAutoScroll: () => {},
         })
       );
@@ -135,9 +138,16 @@ async function mountTranscript(heights, sessionKey, gesture = () => false) {
     viewport.scrollTop = top;
     await settle();
   };
+  /** The row space's held touch offset (its translateY, negated). */
+  const deviation = () => {
+    const match = /translateY\((-?[\d.]+)px\)/.exec(
+      viewport.querySelector('.transcript-virtual-space')?.style.transform
+    );
+    return match ? -Number(match[1]) : 0;
+  };
   /** The first row in view that `keys` carries, and its offset from the top. */
   const firstVisible = (keys) => {
-    const top = viewport.scrollTop;
+    const top = viewport.scrollTop + deviation();
     const hit = [...viewport.querySelectorAll('.transcript-virtual-row')]
       .map((element) => ({
         key: element.dataset.timelineKey,
@@ -175,7 +185,21 @@ async function mountTranscript(heights, sessionKey, gesture = () => false) {
         top: Number.parseFloat(element.style.top),
       }))
       .sort((a, b) => a.index - b.index);
-  return { render, settle, scrollTo, firstVisible, overlaps, measure, idle, jump, positioned, viewport, cleanup };
+  return {
+    render,
+    settle,
+    scrollTo,
+    firstVisible,
+    deviation,
+    overlaps,
+    measure,
+    idle,
+    jump,
+    positioned,
+    viewport,
+    writes,
+    cleanup,
+  };
 }
 
 // Six items per turn: prompt, three tools, the reply, its "Worked for…" row.
@@ -308,6 +332,65 @@ test('a row above the reader that grows into view during a gesture is corrected,
     assert.equal(mount.overlaps(), 0, 'the grown row is not drawn over the rows in view');
     const after = mount.firstVisible(new Set([before.key]));
     assert.ok(Math.abs(after.offset - before.offset) <= 1, `after ${after.offset} vs ${before.offset}`);
+  } finally {
+    await mount.cleanup();
+  }
+});
+
+test('a touch fling never has scrollTop written under it: a correction is held as a row offset and lands once', async () => {
+  const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
+  const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
+  const items = turnItems(20).slice(6 * 10);
+  const { rows } = projectSettledTranscriptRows({
+    sessionKey: 'touch-hold',
+    items,
+    turnKeys: transcriptTurnKeys(items),
+    failedTurns: new Set(),
+  });
+  const heights = new Map(rows.map((row) => [row.key, rowHeight(row)]));
+  let touching = false;
+  const mount = await mountTranscript(
+    heights,
+    'touch-hold',
+    () => touching,
+    () => touching
+  );
+  try {
+    await mount.render(rows);
+    await mount.settle();
+    const reply = rows.find((row) => row._tag === 'AssistantPart' && row.item.kind === 'assistant');
+    const index = rows.indexOf(reply);
+    const start = rows.slice(0, index).reduce((sum, row) => sum + heights.get(row.key), 0);
+    await mount.scrollTo(start + heights.get(reply.key) + 5);
+    const before = mount.firstVisible();
+    const native = mount.viewport.scrollTop;
+    // The finger flings toward older rows; a row above grows into view.
+    touching = true;
+    const writesBefore = mount.writes();
+    heights.set(reply.key, heights.get(reply.key) + 400);
+    await mount.measure();
+    assert.equal(mount.writes(), writesBefore, 'no scrollTop write lands inside the fling');
+    assert.equal(mount.viewport.scrollTop, native);
+    assert.equal(mount.deviation(), 400, 'the correction is held as the row offset');
+    const held = mount.firstVisible(new Set([before.key]));
+    assert.ok(Math.abs(held.offset - before.offset) <= 1, `held ${held.offset} vs ${before.offset}`);
+    // The fling keeps moving natively; the held offset rides along.
+    await mount.jump(native - 100);
+    await mount.measure();
+    const flingWrites = mount.writes();
+    assert.equal(flingWrites, writesBefore + 1, 'only the fling itself moved the native offset');
+    assert.equal(mount.viewport.scrollTop, native - 100, 'the fling owns the native offset');
+    const moved = mount.firstVisible(new Set([before.key]));
+    assert.ok(Math.abs(moved.offset - (before.offset + 100)) <= 1, `moved ${moved.offset} vs ${before.offset + 100}`);
+    // scrollend: the hold lands as one write and the row offset is dropped.
+    touching = false;
+    await mount.settle();
+    assert.equal(mount.deviation(), 0, 'no row offset outlives the touch scroll');
+    assert.equal(mount.writes(), flingWrites + 1, 'the hold lands as exactly one write');
+    assert.equal(mount.viewport.scrollTop, native - 100 + 400);
+    const landed = mount.firstVisible(new Set([before.key]));
+    assert.ok(Math.abs(landed.offset - moved.offset) <= 1, `landed ${landed.offset} vs ${moved.offset}`);
+    assert.equal(mount.overlaps(), 0);
   } finally {
     await mount.cleanup();
   }

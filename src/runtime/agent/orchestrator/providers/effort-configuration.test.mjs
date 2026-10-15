@@ -11,16 +11,46 @@ import {
 
 test('effort updates follow the verified first version of each family and every later one', () => {
   const anthropic = (model) => effortConfigurationMode('anthropic-oauth', model);
-  for (const model of ['claude-opus-5', 'claude-opus-5-5', 'claude-opus-6', 'claude-sonnet-5-5', 'claude-sonnet-5-6',
-    'claude-haiku-5-5', 'claude-haiku-6-0', 'claude-fable-5-1', 'claude-mythos-5-1', 'claude-opus-5-5-20261001']) {
+  for (const model of [
+    'claude-opus-5',
+    'claude-opus-5-5',
+    'claude-opus-6',
+    'claude-sonnet-5-5',
+    'claude-sonnet-5-6',
+    'claude-haiku-5-5',
+    'claude-haiku-6-0',
+    'claude-fable-5-1',
+    'claude-mythos-5-1',
+    'claude-opus-5-5-20261001',
+  ]) {
     assert.equal(anthropic(model), 'anthropic', model);
   }
-  for (const model of ['claude-opus-4-8', 'claude-sonnet-5', 'claude-sonnet-5-0', 'claude-haiku-4-5', 'claude-fable-5', 'claude-newfamily-9']) {
+  for (const model of [
+    'claude-opus-4-8',
+    'claude-sonnet-5',
+    'claude-sonnet-5-0',
+    'claude-haiku-4-5',
+    'claude-fable-5',
+    'claude-newfamily-4',
+    'claude-instant-1-2',
+  ]) {
     assert.equal(anthropic(model), null, model);
   }
   const openai = (model) => effortConfigurationMode('openai', model);
-  for (const model of ['gpt-6-sol', 'gpt-6.1-sol', 'gpt-6.2-luna', 'gpt-7', 'gpt-7-astra']) assert.equal(openai(model), 'responses', model);
-  for (const model of ['gpt-5.6-sol', 'gpt-5.5', 'o4-mini']) assert.equal(openai(model), null, model);
+  for (const model of ['gpt-6-sol', 'gpt-6.1-sol', 'gpt-6.2-luna', 'gpt-7', 'gpt-7-astra', 'gpt-8-nova-mini', 'gpt-12'])
+    assert.equal(openai(model), 'responses', model);
+  for (const model of ['gpt-5.6-sol', 'gpt-5.5', 'o4-mini', 'gpt-oss-120b']) assert.equal(openai(model), null, model);
+});
+
+test('a family no one has measured yet is tried on the route that replays a rejection, and only there', () => {
+  // No code names the family: from the earliest checked major on, the oauth
+  // route sends the update and the rejection replay switches it off if refused.
+  assert.equal(effortConfigurationMode('anthropic-oauth', 'claude-newfamily-9'), 'anthropic');
+  assert.equal(effortConfigurationMode('anthropic-oauth', 'claude-newfamily-5-3-20270101'), 'anthropic');
+  // The direct API cannot recover from a rejected update, so it stays off.
+  assert.equal(effortConfigurationMode('anthropic', 'claude-newfamily-9'), null);
+  // Known families keep their measured floor on both routes.
+  assert.equal(effortConfigurationMode('anthropic-oauth', 'claude-sonnet-5'), null);
 });
 
 test('a model that rejects the effort update is replayed once without it and switched off', async () => {
@@ -29,10 +59,13 @@ test('a model that rejects the effort update is replayed once without it and swi
   const calls = [];
   const send = async (opts) => {
     calls.push(opts);
-    if (calls.length === 1) throw Object.assign(new Error('400 output_config.effort is not supported for this model'), { status: 400 });
+    if (calls.length === 1)
+      throw Object.assign(new Error('400 output_config.effort is not supported for this model'), { status: 400 });
     return { content: 'ok' };
   };
-  assert.deepEqual(await withEffortConfigurationFallback('anthropic-oauth', model, { effort: 'high' }, send), { content: 'ok' });
+  assert.deepEqual(await withEffortConfigurationFallback('anthropic-oauth', model, { effort: 'high' }, send), {
+    content: 'ok',
+  });
   assert.equal(calls.length, 2);
   assert.equal(calls[1].effortConfigurationEnabled, false);
   assert.equal(effortConfigurationMode('anthropic-oauth', model), null);
@@ -107,7 +140,8 @@ async function wire(session, opts = {}) {
     let headers;
     const provider = Object.assign(Object.create(AnthropicProvider.prototype), {
       name: 'anthropic',
-      config: {},
+      config: { apiKey: 'test-key' },
+      apiKey: 'test-key',
       fastModeBetaHeaderLatched: false,
       client: {
         messages: {

@@ -345,7 +345,7 @@ async function executeCodeGraphToolRaw(name, rawArgs, cwd, signal = null, option
     args = resolved.args;
   }
   if (fileArg && !hasAggregateFileArgs) {
-    const anchor = resolveFileAnchorRoot(name, args, fileArg, baseCwd);
+    const anchor = await resolveFileAnchorRoot(name, args, fileArg, baseCwd);
     if (anchor.error) return anchor.error;
     if (anchor.root) effectiveCwd = anchor.root;
   }

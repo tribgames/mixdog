@@ -86,6 +86,12 @@ jobs:
     if: ${{ !cancelled() && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    # onnxruntime-node's postinstall fetches the CUDA execution-provider
+    # libraries from NuGet on linux/x64 (a connect timeout there failed
+    # `npm ci`); the suites run the CPU provider, as in release-gate.yml. This
+    # job packages nothing, so the skip cannot reach a shipped app.
+    env:
+      ONNXRUNTIME_NODE_INSTALL: skip
     strategy:
       fail-fast: false
       matrix:
@@ -109,9 +115,9 @@ jobs:
             package-lock.json
             apps/desktop/package-lock.json
       - name: System packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
+        uses: ./.github/actions/apt-packages
+        with:
+          packages: xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
       - uses: actions/cache@v4
         with:
           path: |
@@ -133,12 +139,29 @@ jobs:
           echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
           # graph/patch must come from native-out: no silent fallback to the pinned download.
           echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
-      - name: Install root dependencies
-        run: npm ci --no-audit --no-fund
+      # The two trees are independent, so they install side by side; each PID
+      # is waited on so either failure fails the step. A transient registry
+      # failure is retried; a deterministic one fails all three attempts.
+      - name: Install root and desktop dependencies
+        run: |
+          npm_ci() {
+            local attempt
+            for attempt in 1 2 3; do
+              npm ci "$@" --prefer-offline --no-audit --no-fund && return 0
+              echo "npm ci $* failed (attempt ${attempt}/3)" >&2
+              sleep $((attempt * 10))
+            done
+            return 1
+          }
+          npm_ci &
+          root_pid=$!
+          npm_ci --prefix apps/desktop &
+          desktop_pid=$!
+          status=0
+          wait "$root_pid" || status=1
+          wait "$desktop_pid" || status=1
+          exit "$status"
       - uses: ./.github/actions/office-runtime
-      - name: Install desktop dependencies
-        run: npm ci --no-audit --no-fund
-        working-directory: apps/desktop
       - name: Build native spawn test binary
         run: npm run build:spawn:test
       - name: Root tests
@@ -146,7 +169,12 @@ jobs:
       - name: Chromium for browser-geometry tests (no Chrome on arm64 runners)
         if: matrix.arch == 'arm64'
         run: |
-          npx --yes playwright@1.55.0 install --with-deps chromium
+          for attempt in 1 2 3; do
+            npx --yes playwright@1.55.0 install --with-deps chromium && break
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "playwright install failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 10))
+          done
           bin=$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome | head -n1)
           printf '#!/bin/sh\nexec "%s" --no-sandbox "$@"\n' "$bin" > "$HOME/chrome-wrapper"
           chmod +x "$HOME/chrome-wrapper"
@@ -196,9 +224,9 @@ jobs:
             package-lock.json
             apps/desktop/package-lock.json
       - name: System packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
+        uses: ./.github/actions/apt-packages
+        with:
+          packages: xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
       - uses: actions/download-artifact@v5
         with:
           name: native-tools-glibc228-${{ matrix.arch }}
@@ -216,13 +244,47 @@ jobs:
             ~/.cache/electron
             ~/.cache/electron-builder
           key: electron-${{ matrix.arch }}-${{ hashFiles('apps/desktop/package-lock.json') }}
-      - name: Install root dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Install desktop dependencies
-        run: npm ci --no-audit --no-fund
-        working-directory: apps/desktop
+      # Side by side, each PID waited on, transient failures retried. The skip
+      # covers these two trees only: the packaged runtime comes from
+      # prepare-runtime's own staging `npm ci`, which keeps downloading the
+      # CUDA provider libraries the shipped linux-x64 app carries.
+      - name: Install root and desktop dependencies
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
+        run: |
+          npm_ci() {
+            local attempt
+            for attempt in 1 2 3; do
+              npm ci "$@" --prefer-offline --no-audit --no-fund && return 0
+              echo "npm ci $* failed (attempt ${attempt}/3)" >&2
+              sleep $((attempt * 10))
+            done
+            return 1
+          }
+          npm_ci &
+          root_pid=$!
+          npm_ci --prefix apps/desktop &
+          desktop_pid=$!
+          status=0
+          wait "$root_pid" || status=1
+          wait "$desktop_pid" || status=1
+          exit "$status"
       - name: GNOME extension source present (uuid == dir name, modes 0755/0644)
         run: bash apps/desktop/scripts/linux-gnome-extension-check.sh source .
+      # build:linux runs prepare:runtime itself; preparing first lets the
+      # network-bound part (staging npm ci, the NuGet CUDA download on x64)
+      # retry on its own, and build:linux then reuses the prepared runtime
+      # through prepare-runtime's input fingerprint. A failed attempt removes
+      # its partial state, and a deterministic failure fails all three.
+      - name: Prepare the Linux runtime
+        working-directory: apps/desktop
+        run: |
+          for attempt in 1 2 3; do
+            MIXDOG_RUNTIME_NPM_CACHE="$(npm config get cache)" npm run prepare:runtime && exit 0
+            echo "prepare:runtime failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 15))
+          done
+          exit 1
       - name: Build Linux package
         run: npm run build:linux -- --${{ matrix.arch }} --publish never
         working-directory: apps/desktop
@@ -256,7 +318,9 @@ jobs:
           dpkg-deb -c "$deb" > deb-contents.txt
           grep -q 'usr/share/icons/hicolor/256x256/apps/mixdog-desktop.png' deb-contents.txt
           grep -q 'usr/share/icons/hicolor/16x16/apps/mixdog-desktop.png' deb-contents.txt
-          dpkg-deb --fsys-tarfile "$deb" | tar -xO ./usr/share/applications/mixdog-desktop.desktop | tee desktop-entry.txt
+          # The payload check above already extracted this .deb (dpkg-deb -x);
+          # reading the entry there spares another pass over the xz data.
+          tee desktop-entry.txt < "${DEB_ROOT%/opt/Mixdog}/usr/share/applications/mixdog-desktop.desktop"
           grep -qx 'StartupWMClass=mixdog-desktop' desktop-entry.txt
       - name: Remove libfuse2 (stock Ubuntu 24.04 has none)
         run: |
@@ -279,9 +343,10 @@ jobs:
           grep -q 'wl-clipboard' deb-recommends.txt
           grep -q 'tesseract-ocr' deb-recommends.txt
           if dpkg-deb -f "$deb" Depends | grep -Eq 'wl-clipboard|tesseract-ocr'; then echo "must be Recommends, not Depends"; exit 1; fi
-          dpkg-deb -c "$deb" | tee deb-contents-uinput.txt | grep -E 'udev|modules-load'
-          grep -q 'usr/lib/udev/rules.d/70-mixdog-uinput.rules' deb-contents-uinput.txt
-          grep -q 'usr/lib/modules-load.d/mixdog-uinput.conf' deb-contents-uinput.txt
+          # deb-contents.txt is this .deb's listing from the feed/metadata step.
+          grep -E 'udev|modules-load' deb-contents.txt
+          grep -q 'usr/lib/udev/rules.d/70-mixdog-uinput.rules' deb-contents.txt
+          grep -q 'usr/lib/modules-load.d/mixdog-uinput.conf' deb-contents.txt
           dpkg-deb -I "$deb" postinst | tee deb-postinst.txt
           grep -q 'modprobe uinput' deb-postinst.txt
           grep -q 'udevadm trigger --action=add --subsystem-match=misc --sysname-match=uinput' deb-postinst.txt
@@ -382,9 +447,9 @@ jobs:
             ~/.cache/electron-builder
           key: electron-x64-${{ hashFiles('apps/desktop/package-lock.json') }}
       - name: System packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
+        uses: ./.github/actions/apt-packages
+        with:
+          packages: libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
       - uses: actions/download-artifact@v5
         with:
           name: native-tools-glibc228-x64
@@ -396,11 +461,40 @@ jobs:
           echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
           # graph/patch must come from native-out: no silent fallback to the pinned download.
           echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
-      - name: Install root dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Install desktop dependencies
-        run: npm ci --no-audit --no-fund
+      # As in the verify job: parallel, retried, and the CUDA skip stays out of
+      # the packaged runtime's own staging install.
+      - name: Install root and desktop dependencies
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
+        run: |
+          npm_ci() {
+            local attempt
+            for attempt in 1 2 3; do
+              npm ci "$@" --prefer-offline --no-audit --no-fund && return 0
+              echo "npm ci $* failed (attempt ${attempt}/3)" >&2
+              sleep $((attempt * 10))
+            done
+            return 1
+          }
+          npm_ci &
+          root_pid=$!
+          npm_ci --prefix apps/desktop &
+          desktop_pid=$!
+          status=0
+          wait "$root_pid" || status=1
+          wait "$desktop_pid" || status=1
+          exit "$status"
+      # The runtime does not depend on the package version; build:linux below
+      # reuses it (see the verify job's step of the same name).
+      - name: Prepare the Linux runtime
         working-directory: apps/desktop
+        run: |
+          for attempt in 1 2 3; do
+            MIXDOG_RUNTIME_NPM_CACHE="$(npm config get cache)" npm run prepare:runtime && exit 0
+            echo "prepare:runtime failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 15))
+          done
+          exit 1
       - name: Build N+1 Linux package (patch version bumped)
         working-directory: apps/desktop
         run: |
@@ -449,10 +543,12 @@ jobs:
         with:
           name: next-linux-packages-x64
           path: next
-      - name: System packages (no libfuse2)
+      - name: System packages
+        uses: ./.github/actions/apt-packages
+        with:
+          packages: xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1
+      - name: No libfuse2
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1
           sudo apt-get remove -y 'libfuse2*' || true
           ! ldconfig -p | grep -q 'libfuse.so.2'
       - name: Resolve versions
@@ -535,13 +631,31 @@ jobs:
         with:
           name: mixdog-linux-packages-${{ matrix.arch }}
           path: pkg
-      - name: Stage Node and the smoke script's ws dependency
+      # Every download here is retried: a dropped connection must not fail the
+      # distro smoke. The tarball lands on disk first, so a retried transfer
+      # never feeds tar a second copy.
+      - name: Stage Node, the smoke script's ws dependency and the distro image
         run: |
-          curl -fsSL "https://nodejs.org/dist/v22.19.0/node-v22.19.0-linux-${{ matrix.node }}.tar.xz" | tar -xJ
+          tarball=node-v22.19.0-linux-${{ matrix.node }}.tar.xz
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 --connect-timeout 30 -o "$tarball" "https://nodejs.org/dist/v22.19.0/$tarball"
+          tar -xJf "$tarball"
+          rm "$tarball"
           mv node-v22.19.0-linux-${{ matrix.node }} node
           mkdir ctr
           cp apps/desktop/scripts/linux-launch-smoke.mjs ctr/
-          (cd ctr && npm init -y >/dev/null && npm install --no-audit --no-fund ws@8)
+          (cd ctr && npm init -y >/dev/null)
+          for attempt in 1 2 3; do
+            (cd ctr && npm install --no-audit --no-fund ws@8) && break
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "npm install ws failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 10))
+          done
+          for attempt in 1 2 3; do
+            docker pull -q ${{ matrix.image }} && break
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "docker pull failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 10))
+          done
           mkdir -p out
       - name: Headless smoke in ${{ matrix.image }}
         timeout-minutes: 20

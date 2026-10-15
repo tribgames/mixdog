@@ -80,7 +80,15 @@ export const Item = React.memo(function Item({
   let node = null;
   switch (item.kind) {
     case 'user':
-      node = <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} themeEpoch={themeEpoch} />;
+      node = (
+        <UserMessage
+          text={item.text}
+          attached={prevKind === 'user'}
+          columns={columns}
+          appliedSkills={item.appliedSkills}
+          themeEpoch={themeEpoch}
+        />
+      );
       break;
     case 'assistant':
       node = (

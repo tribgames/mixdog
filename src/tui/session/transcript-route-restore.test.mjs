@@ -72,3 +72,43 @@ test('restoring old display-only records does not invent a historical model ID',
     assert.equal(Object.hasOwn(item, 'modelId'), false);
   }
 });
+
+test('restored user rows carry imageRefs keyed by the line that draws each image', () => {
+  const ref = 'c'.repeat(64);
+  const other = 'd'.repeat(64);
+  const meta = '[Image: source: a.png, 10x10]';
+  const [withRef, noRef, noImages, stringContent] = restoreTranscriptItems(
+    [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'a' },
+          { type: 'text', text: meta },
+          { type: 'image', mimeType: 'image/png', attachmentRef: ref },
+          { type: 'input_image', data: 'x' },
+          { type: 'image', mimeType: 'image/png', attachmentRef: other },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'b' },
+          { type: 'image', data: 'x' },
+        ],
+      },
+      { role: 'user', content: [{ type: 'text', text: 'c' }] },
+      { role: 'user', content: 'd' },
+    ],
+    { sessionId: 'image-refs' }
+  );
+  assert.deepEqual(withRef.imageRefs, [
+    { line: meta, ref },
+    { line: '[Image: image]' },
+    { line: '[Image: image/png]', ref: other },
+  ]);
+  // Consecutive images without a metadata line each get a line of their own.
+  assert.deepEqual(withRef.text.split('\n'), ['a', meta, '[Image: image]', '[Image: image/png]']);
+  assert.equal('imageRefs' in noRef, false);
+  assert.equal('imageRefs' in noImages, false);
+  assert.equal('imageRefs' in stringContent, false);
+});

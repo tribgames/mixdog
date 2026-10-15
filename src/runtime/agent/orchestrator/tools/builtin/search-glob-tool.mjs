@@ -254,8 +254,8 @@ function absolutePaths(lines, rgCwd) {
   return lines.map((line) => (isAbsolute(line) ? line : resolveAgainstCwd(line, rgCwd)));
 }
 
-function missingGlobRoot(scan, root, rgCwd, err) {
-  const hint = buildNotFoundHint(scan.workDir, rgCwd, 'Search', err?.code);
+async function missingGlobRoot(scan, root, rgCwd, err) {
+  const hint = await buildNotFoundHint(scan.workDir, rgCwd, 'Search', err?.code);
   return {
     error: `path does not exist: ${normalizeOutputPath(rgCwd)} (${err?.code || 'ENOENT'})${finalizeReadFamilyEnoentTail(hint, root, err?.code)}`,
     paths: [],
@@ -422,14 +422,14 @@ function globMoreSuffix({ rgWindowIncomplete, remaining, totalBeforeOffset, next
   return '';
 }
 
-function globEmptyDiagnostic(scan, { totalBeforeOffset }) {
+async function globEmptyDiagnostic(scan, { totalBeforeOffset }) {
   const { patterns, basePath, baseEntries, workDir, statCache, offset } = scan;
   const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);
   const baseLabel = normalizeOutputPath(basePath);
   if (totalBeforeOffset > 0 && offset >= totalBeforeOffset) {
     return `(no entries after offset=${offset}; total=${totalBeforeOffset}) pattern=${patternStr} path=${baseLabel}`;
   }
-  const diagnostic = basePathDiagnostic(
+  const diagnostic = await basePathDiagnostic(
     baseEntries.map((e) => e.root),
     workDir,
     statCache
@@ -473,7 +473,7 @@ async function scanGlobGroups(scan) {
     const shown = await directAbsoluteMatches({ patterns, headLimit, offset });
     if (shown.length > 0) return patternCapNote + shown.join('\n');
   }
-  const out = patternCapNote + renderGlobPage(scan, merged, { capped, remaining, totalBeforeOffset, miss });
+  const out = patternCapNote + (await renderGlobPage(scan, merged, { capped, remaining, totalBeforeOffset, miss }));
   settleGlobScanCache(scan, merged, out, remaining);
   reportToolProgress(options, `found ${totalBeforeOffset} files`);
   return out;
@@ -482,7 +482,7 @@ async function scanGlobGroups(scan) {
 // The page body with its more/integrity suffixes. Empty partials are not
 // proof of absence: diagnostics are preserved even when there is no path
 // body, rather than silently dropping the integrity suffix.
-function renderGlobPage(scan, merged, { capped, remaining, totalBeforeOffset, miss }) {
+async function renderGlobPage(scan, merged, { capped, remaining, totalBeforeOffset, miss }) {
   const { offset } = scan;
   const errSuffix = globIntegritySuffix(merged);
   const moreSuffix = globMoreSuffix({
@@ -492,7 +492,7 @@ function renderGlobPage(scan, merged, { capped, remaining, totalBeforeOffset, mi
     nextOffset: offset + capped.length,
   });
   if (capped.length > 0) return `${capped.join('\n')}${moreSuffix}${errSuffix}`;
-  const emptyDiag = miss ? globEmptyDiagnostic(scan, { totalBeforeOffset }) : '';
+  const emptyDiag = miss ? await globEmptyDiagnostic(scan, { totalBeforeOffset }) : '';
   const emptyBody = (emptyDiag || '(no files found)').replace(
     '(no files found)',
     merged.rgStdoutPartial || merged.rgWindowIncomplete ? '(no files found yet)' : '(no files found)'
@@ -608,9 +608,12 @@ export async function executeGlobTool(args, workDir, options = {}) {
   };
   return await runScopedSearchInFlight(
     cacheKey,
-    ({ signal: sharedSignal, scopedCacheOutcome }) => scanGlobGroups({
-      ...scan, sharedSignal, options: { ...options, scopedCacheOutcome },
-    }),
+    ({ signal: sharedSignal, scopedCacheOutcome }) =>
+      scanGlobGroups({
+        ...scan,
+        sharedSignal,
+        options: { ...options, scopedCacheOutcome },
+      }),
     { signal: options?.signal || options?.abortSignal || null, scopes },
     options?.scopedCacheOutcome
   );

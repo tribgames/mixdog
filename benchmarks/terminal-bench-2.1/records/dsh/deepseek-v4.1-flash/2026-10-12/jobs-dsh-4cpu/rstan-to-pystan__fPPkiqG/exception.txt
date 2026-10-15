@@ -1,0 +1,15 @@
+Traceback (most recent call last):
+  File "/opt/hive-benchmark/venv/lib/python3.12/site-packages/harbor/trial/trial.py", line 500, in run
+    await self._run()
+  File "/opt/hive-benchmark/venv/lib/python3.12/site-packages/harbor/trial/single_step.py", line 40, in _run
+    await self._run_agent()
+  File "/opt/hive-benchmark/venv/lib/python3.12/site-packages/harbor/trial/single_step.py", line 76, in _run_agent
+    await self._run_agent_phase(
+  File "/opt/hive-benchmark/venv/lib/python3.12/site-packages/harbor/trial/trial.py", line 651, in _run_agent_phase
+    await asyncio.wait_for(
+  File "/usr/lib/python3.12/asyncio/tasks.py", line 520, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "/opt/hive-benchmark/payload/aws_agents.py", line 48, in run
+    raise RuntimeError(f"{self.kind} exited with code {result.return_code}")
+RuntimeError: dsh exited with code 1

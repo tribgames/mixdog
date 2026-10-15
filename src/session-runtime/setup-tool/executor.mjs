@@ -146,6 +146,7 @@ function publicAccounts(pool) {
   return {
     selectedId: pool.selectedId,
     auto: pool.auto,
+    ...(pool.policy ? { policy: pool.policy } : {}),
     useCredits: pool.useCredits === true,
     accounts: pool.accounts.map(({ id, label, authenticated, reauthRequired }) => ({
       id,
@@ -166,9 +167,15 @@ function mcpRows(status) {
       transport: server.transport || server.type || '',
       toolCount: Number(server.toolCount || 0),
       source: server.source || '',
+      ...(server.owner?.kind === 'plugin'
+        ? { plugin: server.owner.id, pluginServer: server.owner.key, disabledReason: server.disabledReason || null }
+        : {}),
       error: server.error || null,
+      ...(server.warnings?.length ? { warnings: server.warnings } : {}),
       scope: Array.isArray(server.scope) ? server.scope : null,
     })),
+    ...(status?.warnings?.length ? { warnings: status.warnings } : {}),
+    ...(status?.declarationErrors?.length ? { declarationErrors: status.declarationErrors } : {}),
   };
 }
 
@@ -577,7 +584,11 @@ const SETUP_ACTION_HANDLERS = {
     const plugin = ((await rt.pluginsStatus())?.plugins || []).find((row) => row.name === name || row.id === name);
     if (!plugin) throw new Error(`plugin "${name}" not found`);
     const result = await rt.enablePluginMcp(plugin);
-    return { serverName: result.serverName, mcp: mcpRows(result.status) };
+    return {
+      serverName: result.serverName,
+      ...(result.serverNames ? { serverNames: result.serverNames } : {}),
+      mcp: mcpRows(result.status),
+    };
   },
 };
 

@@ -772,7 +772,9 @@ function DesktopBrowserPane({
             }}
             className={`browser-pane-webview${importOpen ? ' is-import-open' : ''}${historySuggestions.length ? ' is-history-open' : ''}${credentialMenuOpen ? ' is-credential-open' : ''}${pageFailure ? ' is-failed' : ''}`}
             sessionId={sessionId}
-            active={active && !importOpen && !pageFailure}
+            // A load failure only covers the page: the display keeps reading
+            // it, so a navigation from anywhere else clears the failure.
+            active={active && !importOpen}
             native={!fixedViewport}
           />
           {/* about:blank paints Chromium's default white; until a real page is

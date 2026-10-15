@@ -20,7 +20,7 @@ mock.module('./process.mjs', {
     stopPgSync: () => {},
     healthcheckPg: async () => false,
     reconcileConfV2: () => ({ applied: false, reloaded: false }),
-    sweepOrphanTempPostmasters: (...args) => {
+    sweepOrphanTempPostmasters: async (...args) => {
       sweepCalls.push(args);
       return 0;
     },

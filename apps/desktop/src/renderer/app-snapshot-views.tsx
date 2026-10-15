@@ -15,7 +15,6 @@ import React, {
 import { InitialSurface } from './InitialSurface';
 
 import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
-import type { DesktopModelSelection } from '../shared/contract';
 import { Conversation } from './Conversation';
 import {
   desktopConversationShellSnapshotsEqual,
@@ -302,11 +301,10 @@ export const PaneConversation = memo(function PaneConversation({
       <PaneContextIndicator
         sessionId={presentedSessionId}
         hidden={hidden}
-        onInherit={onInheritSession}
         onViewDetails={() => props.onOpenCommandSurface('context')}
       />
     ),
-    [hidden, onInheritSession, presentedSessionId, props.onOpenCommandSurface]
+    [hidden, presentedSessionId, props.onOpenCommandSurface]
   );
   return (
     <>
@@ -443,16 +441,14 @@ export function PaneGoalIsland({ sessionId, hidden }: { sessionId: string; hidde
 export function PaneContextIndicator({
   sessionId,
   hidden,
-  onInherit,
   onViewDetails,
 }: {
   sessionId: string;
   hidden: boolean;
-  onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
   onViewDetails?: () => void;
 }) {
   const visibleSnapshot = usePaneIslandSnapshot(sessionId, hidden);
-  return <ContextUsageIndicator snapshot={visibleSnapshot} onInherit={onInherit} onViewDetails={onViewDetails} />;
+  return <ContextUsageIndicator snapshot={visibleSnapshot} onViewDetails={onViewDetails} />;
 }
 
 type SnapshotUtilityDockProps = Omit<

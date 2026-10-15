@@ -1,13 +1,13 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, type Dispatch, type SetStateAction, useContext, useState } from 'react';
 
 /** The island's expandable tabs. Only one is open at a time; the files
  *  segment opens the pane's side dock instead, and is a tab only where the
  *  surface has no dock. */
-export type ComposerIslandTab = '' | 'goal' | 'jobs' | 'model' | 'files' | 'resume';
+export type ComposerIslandTab = '' | 'goal' | 'jobs' | 'files' | 'files-menu' | 'resume';
 
 export const ComposerIslandContext = createContext<{
   expanded: ComposerIslandTab;
-  setExpanded(tab: ComposerIslandTab): void;
+  setExpanded: Dispatch<SetStateAction<ComposerIslandTab>>;
 } | null>(null);
 
 /** Open state of one island tab. Inside the composer island the island owns
@@ -20,7 +20,9 @@ export function useComposerIslandTab(tab: Exclude<ComposerIslandTab, ''>): [bool
     island.expanded === tab,
     (open) => {
       if (open) island.setExpanded(tab);
-      else if (island.expanded === tab) island.setExpanded('');
+      // Against the current tab, not this render's: a close that lands after
+      // another tab opened (an unmounting segment) leaves that tab open.
+      else island.setExpanded((current) => (current === tab ? '' : current));
     },
   ];
 }

@@ -28,20 +28,11 @@ export function createSessionSettingsApi(bag) {
   const lockedRuntimeCall = (call) => withCommandLock(async (...args) => await call(...args));
 
   return {
-    // Model changes apply to the NEXT session only (default setRoute behavior)
-    // — never rewrite the live session's provider/model, which would force a
-    // full prompt-cache rewrite mid-conversation. RPC replies read the
-    // published snapshot, not the mutable draft: commit before the caller can
-    // acknowledge an older route.
-    setModel: withCommandLock(
-      async (m) => {
-        bag.supersedeQuotaResume?.(getState().sessionId);
-        await runtime.setRoute({ model: m });
-        publishRoute();
-        return true;
-      },
-      { busyResult: false, onRelease: flushEmitImmediate }
-    ),
+    // A model selector (/model, a preset) is the user's model choice like any
+    // picker selection: the route surface switches an established
+    // conversation in place (pre-compaction, busy refusal, divider). False
+    // while another command holds the lock.
+    setModel: async (m) => (await bag.setSessionRoute({ model: m })) !== false,
     setEffort: withCommandLock(
       async (value) => {
         await runtime.setEffort(value);
@@ -115,6 +106,12 @@ export function createSessionSettingsApi(bag) {
       deferStatsRefresh();
       return next;
     }),
+    getSessionTitleSettings: () => {
+      return runtime.getSessionTitleSettings?.() || { aiSessionTitles: true };
+    },
+    setAiSessionTitles: withCommandLock(async (enabled) => {
+      return await runtime.setAiSessionTitles?.(enabled);
+    }),
     getToolModuleSettings: () => {
       return (
         runtime.getToolModuleSettings?.() || {
@@ -154,6 +151,13 @@ export function createSessionSettingsApi(bag) {
     inspectHuggingFaceModel: (options) => runtime.inspectHuggingFaceModel(options),
     registerHuggingFaceModel: (previewId, licenseAccepted) =>
       runtime.registerHuggingFaceModel(previewId, licenseAccepted),
+    // Conversation import (advertised session actions; one object argument).
+    // Background jobs, so never behind commandBusy.
+    listImportableConversations: (params) => runtime.listImportableConversations(params),
+    getConversationImportJobs: (params) => runtime.getConversationImportJobs(params),
+    registerConversationImportFile: (params) => runtime.registerConversationImportFile(params),
+    startConversationImport: (params) => runtime.startConversationImport(params),
+    cancelConversationImport: (params) => runtime.cancelConversationImport(params),
     getChannelSettings: (options = {}) => {
       return (
         runtime.getChannelSettings?.(options) || {

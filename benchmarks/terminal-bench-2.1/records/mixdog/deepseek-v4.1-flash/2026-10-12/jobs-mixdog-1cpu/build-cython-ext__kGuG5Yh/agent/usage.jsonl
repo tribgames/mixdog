@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "sessions": [
+    {
+      "sessionId": "exec_f84c6d51a921473f8371b44efc66619f",
+      "agentRole": "primary",
+      "models": [
+        "deepseek-ai/deepseek-v4.1-flash"
+      ],
+      "inputTokens": 1343204,
+      "cacheTokens": 1283328,
+      "cacheWriteTokens": 0,
+      "outputTokens": 24401,
+      "toolCallCountApprox": 91
+    }
+  ],
+  "totals": {
+    "inputTokens": 1343204,
+    "cacheTokens": 1283328,
+    "cacheWriteTokens": 0,
+    "outputTokens": 24401,
+    "toolCallCountApprox": 91
+  }
+}

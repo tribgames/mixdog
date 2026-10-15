@@ -35,6 +35,10 @@ export async function runWebhookSession({
   workflow = null,
   attachments = null,
   signal = null,
+  // Endpoint-authored instructions: the run's ONLY skill-selection input.
+  // `prompt` also carries the fenced external payload, which must never
+  // select a skill; absent means nothing selects.
+  skillSelection = '',
 }) {
   const endpoint = String(name || '').trim();
   const body = String(prompt || '').trim();
@@ -63,9 +67,17 @@ export async function runWebhookSession({
   // askOpts.signal is the parent-abort link: it is cascaded onto the turn
   // controller, so aborting it stops the in-flight provider/tool work instead
   // of leaving a timed-out delivery's session running with live side effects.
-  const ask = (turnContent) =>
-    askSession(session.id, turnContent, null, null, projectCwd || undefined, undefined, signal ? { signal } : {});
-  // Agents the run delegates to report back; each result is the next turn.
-  const result = await runAutomationTurns(session.id, () => ask(content), ask);
+  const ask = (turnContent, askOpts) =>
+    askSession(session.id, turnContent, null, null, projectCwd || undefined, undefined, {
+      ...askOpts,
+      ...(signal ? { signal } : {}),
+    });
+  // Agents the run delegates to report back; each result is the next turn
+  // (runAutomationTurns marks those turns as task notifications).
+  const result = await runAutomationTurns(
+    session.id,
+    () => ask(content, { skillSelection: String(skillSelection ?? '') }),
+    ask
+  );
   return { sessionId: session.id, result: String(result?.content || '') };
 }

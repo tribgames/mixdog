@@ -5,19 +5,15 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import {
-  claimSentImage,
   createImagePreviewStore,
-  discardSentImages,
   memoryPreviewBackend,
   persistentImagePreviews,
   previewKey,
   purgeEmptySessionPreviews,
-  sentImageIdentity,
-  stageSentImages,
 } from './image-preview-store.ts';
 import { purgeRemovedSessionPreviews } from './session-catalog-cache.ts';
 import { MarkdownSessionContext } from './MarkdownLink.tsx';
-import { TranscriptRow } from './transcript-row.tsx';
+import { TranscriptRow, loadAttachmentThumbnail } from './transcript-row.tsx';
 import { registerImagePreview } from './transcript-metrics.ts';
 
 const url = (n, size = 10) => `data:image/webp;base64,${String(n).repeat(size)}`;
@@ -56,84 +52,109 @@ test('deleting a session removes only its entries', async () => {
   assert.equal(await restarted.get('b|1'), url('2'));
 });
 
-test('a restored message shows its stored thumbnail on marker chips', async () => {
-  const line = '[Image: visualize pin 1 · input, 177x21]';
-  await persistentImagePreviews.put(
-    previewKey('sess-1', sentImageIdentity('m-1', 0, line)),
-    'sess-1',
-    'data:image/webp;base64,AAAA'
+const renderRow = (session, item) =>
+  renderToStaticMarkup(
+    React.createElement(
+      MarkdownSessionContext.Provider,
+      { value: session },
+      React.createElement(TranscriptRow, { item })
+    )
   );
-  // Legacy shapes never show: another message id, and the empty-session copy.
-  await persistentImagePreviews.put(previewKey('sess-1', line), 'sess-1', 'data:image/webp;base64,LEGACY');
-  await persistentImagePreviews.put(
-    previewKey('', sentImageIdentity('m-1', 0, line)),
-    '',
-    'data:image/webp;base64,EMPTY'
-  );
-  const markup = (session, id, messageId) =>
-    renderToStaticMarkup(
-      React.createElement(
-        MarkdownSessionContext.Provider,
-        { value: session },
-        React.createElement(TranscriptRow, {
-          item: { kind: 'user', id, ...(messageId ? { messageId } : {}), text: `look\n${line}` },
-        })
-      )
-    );
+
+function stubHost(impl) {
   globalThis.window ??= {};
-  assert.match(markup('sess-1', 'u1', 'm-1'), /<img[^>]+src="data:image\/webp;base64,AAAA"/);
-  // The restored row of the same message has another id but the same messageId.
-  assert.match(markup('sess-1', 'hist_sess-1_4_0', 'm-1'), /<img[^>]+src="data:image\/webp;base64,AAAA"/);
-  assert.doesNotMatch(markup('other', 'u1', 'm-1'), /<img/);
-  assert.doesNotMatch(markup('sess-1', 'u1', 'm-2'), /<img/, 'a different message is a different picture');
-  assert.doesNotMatch(markup('sess-1', 'u1'), /<img/, 'old history without a messageId keeps the icon card');
+  const calls = [];
+  globalThis.window.mixdogDesktop = {
+    readAttachmentThumbnail: (ref) => {
+      calls.push(ref);
+      return impl(ref);
+    },
+  };
+  return calls;
+}
+
+const asIs = async (dataUrl) => dataUrl;
+
+test('a row with an attachmentRef and no live preview fetches the thumbnail and caches it', async () => {
+  const calls = stubHost(async () => url('F'));
+  const item = {
+    kind: 'user',
+    id: 'u-f',
+    text: 'hi',
+    images: [{ id: 1, bytes: 4, name: 'f.png', attachmentRef: 'ref-f' }],
+  };
+  assert.doesNotMatch(renderRow('chat-f', item), /<img/);
+  assert.equal(await loadAttachmentThumbnail('chat-f', 'ref-f', asIs), url('F'));
+  assert.deepEqual(calls, ['ref-f']);
+  assert.equal(persistentImagePreviews.peek(previewKey('chat-f', 'attachment:ref-f')), url('F'));
+  assert.match(renderRow('chat-f', item), new RegExp(`<img[^>]+src="${url('F')}"`));
 });
 
-test('same-named pictures of different messages or positions keep their own thumbnails', async () => {
-  const store = createImagePreviewStore(memoryPreviewBackend());
-  const line = '[Image: source: shot.png, 100x100]';
-  await store.put(previewKey('s', sentImageIdentity('m1', 0, line)), 's', url('1'));
-  await store.put(previewKey('s', sentImageIdentity('m1', 1, line)), 's', url('2'));
-  await store.put(previewKey('s', sentImageIdentity('m2', 0, line)), 's', url('3'));
-  assert.equal(await store.get(previewKey('s', sentImageIdentity('m1', 0, line))), url('1'));
-  assert.equal(await store.get(previewKey('s', sentImageIdentity('m1', 1, line))), url('2'));
-  assert.equal(await store.get(previewKey('s', sentImageIdentity('m2', 0, line))), url('3'));
+test('the host picture is fitted to thumbnail size before it is cached', async () => {
+  stubHost(async () => url('BIG'));
+  assert.equal(await loadAttachmentThumbnail('chat-z', 'ref-z', async () => url('SMALL')), url('SMALL'));
+  assert.equal(persistentImagePreviews.peek(previewKey('chat-z', 'attachment:ref-z')), url('SMALL'));
 });
 
-test('a new chat first send is saved under the session its row renders in, once', async () => {
-  const line = '[Image: source: first.png, 10x10]';
-  stageSentImages('sub-1', [{ line, dataUrl: 'data:image/png;base64,Z' }], async () => url('T'));
-  assert.equal(await claimSentImage('', 'sub-1', 'msg-1', 0, line), undefined, 'no session yet: nothing is saved');
-  assert.equal(await claimSentImage('chat-a', 'sub-1', '', 0, line), undefined, 'no messageId yet');
-  assert.equal(await claimSentImage('chat-a', 'sub-9', 'msg-1', 0, line), undefined, 'another submission');
-  assert.equal(await claimSentImage('chat-a', 'sub-1', 'msg-1', 0, line), url('T'));
-  assert.equal(await persistentImagePreviews.get(previewKey('chat-a', sentImageIdentity('msg-1', 0, line))), url('T'));
-  assert.equal(await persistentImagePreviews.get(previewKey('', sentImageIdentity('msg-1', 0, line))), undefined);
-  assert.equal(await claimSentImage('chat-b', 'sub-1', 'msg-1', 0, line), undefined, 'another chat cannot take it');
+test('a restored row finds each chip’s original by the line that draws it', async () => {
+  await persistentImagePreviews.put(previewKey('chat-m', 'attachment:ref-b'), 'chat-m', url('B'));
+  await persistentImagePreviews.put(previewKey('chat-m', 'attachment:ref-c'), 'chat-m', url('C'));
+  const omitted = '[Image omitted from stored history: too large]';
+  const text = `look\n${omitted}\n[Image: source: b.png, 20x20]\n[Image: image/png]\n[Image: image/png]`;
+  const imageRefs = [
+    { line: '[Image: source: b.png, 20x20]', ref: 'ref-b' },
+    { line: '[Image: image/png]', ref: 'ref-none' },
+    { line: '[Image: image/png]', ref: 'ref-c' },
+  ];
+  const markup = renderRow('chat-m', { kind: 'user', id: 'h1', text, imageRefs });
+  // The omitted chip takes no picture; b.png gets B; the bare lines get theirs in order.
+  const sources = [...markup.matchAll(/<img[^>]+src="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(sources, [url('B'), url('C')]);
+  assert.ok(markup.indexOf(url('B')) > markup.indexOf('Image'));
 });
 
-test('a preview saved by a live row is found by the restored row of the same message only', async () => {
-  const line = '[Image: source: live.png, 20x20]';
-  stageSentImages('sub-live', [{ line, dataUrl: 'x' }], async () => 'data:image/webp;base64,LIVE');
-  await claimSentImage('chat-l', 'sub-live', 'msg-live', 0, line);
-  const markup = (id, messageId) =>
-    renderToStaticMarkup(
-      React.createElement(
-        MarkdownSessionContext.Provider,
-        { value: 'chat-l' },
-        React.createElement(TranscriptRow, { item: { kind: 'user', id, messageId, text: `hi\n${line}` } })
-      )
-    );
-  globalThis.window ??= {};
-  assert.match(markup('hist_chat-l_2_0', 'msg-live'), /<img[^>]+src="data:image\/webp;base64,LIVE"/);
-  assert.doesNotMatch(markup('hist_chat-l_2_0', 'msg-other'), /<img/);
+test('an image without a stored original keeps an empty slot before one that has it', async () => {
+  await persistentImagePreviews.put(previewKey('chat-s', 'attachment:ref-2'), 'chat-s', url('TWO'));
+  const text = 'look\n[Image: image/png]\n[Image: image/png]';
+  const imageRefs = [{ line: '[Image: image/png]' }, { line: '[Image: image/png]', ref: 'ref-2' }];
+  const markup = renderRow('chat-s', { kind: 'user', id: 's1', text, imageRefs });
+  const sources = [...markup.matchAll(/<img[^>]+src="([^"]+)"/g)].map((match) => match[1]);
+  // The first chip claims the empty slot, so the picture belongs to the second card.
+  assert.deepEqual(sources, [url('TWO')]);
 });
 
-test('a refused send keeps no staged thumbnail', async () => {
-  const line = '[Image: source: r.png, 10x10]';
-  stageSentImages('sub-r', [{ line, dataUrl: 'x' }], async () => url('R'));
-  discardSentImages('sub-r');
-  assert.equal(await claimSentImage('chat-r', 'sub-r', 'msg-r', 0, line), undefined);
+test('a store hit makes no host call', async () => {
+  const calls = stubHost(async () => url('H'));
+  await persistentImagePreviews.put(previewKey('chat-h', 'attachment:ref-h'), 'chat-h', url('S'));
+  assert.equal(await loadAttachmentThumbnail('chat-h', 'ref-h', asIs), url('S'));
+  assert.deepEqual(calls, []);
+});
+
+test('two rows with the same ref make one host call; a missing picture is not asked again', async () => {
+  let release;
+  const calls = stubHost(() => new Promise((resolve) => (release = resolve)));
+  const a = loadAttachmentThumbnail('chat-s', 'ref-s', asIs);
+  const b = loadAttachmentThumbnail('chat-s', 'ref-s', asIs);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  release(url('D'));
+  assert.deepEqual(await Promise.all([a, b]), [url('D'), url('D')]);
+  assert.deepEqual(calls, ['ref-s']);
+  const failing = stubHost(async () => null);
+  assert.equal(await loadAttachmentThumbnail('chat-x', 'ref-x', asIs), undefined);
+  assert.equal(await loadAttachmentThumbnail('chat-x', 'ref-x', asIs), undefined);
+  assert.deepEqual(failing, ['ref-x']);
+});
+
+test('a failed host call is retried once the host answers again', async () => {
+  let down = true;
+  const calls = stubHost(async () => {
+    if (down) throw new Error('host unreachable');
+    return url('R');
+  });
+  assert.equal(await loadAttachmentThumbnail('chat-r', 'ref-r', asIs), undefined);
+  down = false;
+  assert.equal(await loadAttachmentThumbnail('chat-r', 'ref-r', asIs), url('R'));
+  assert.deepEqual(calls, ['ref-r', 'ref-r']);
 });
 
 test('the empty-session entries are purged once', async () => {

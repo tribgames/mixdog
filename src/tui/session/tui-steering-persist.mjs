@@ -15,11 +15,19 @@ const STALE_STEERING_RESTORE_TTL_MS = 30 * 60 * 1000;
 // Cross-process mutual exclusion still comes from the shared lock protocol;
 // this chain only orders same-process operations that were previously
 // naturally ordered by the synchronous call site.
-let _persistChain = Promise.resolve();
-function _serialize(task) {
-  const run = _persistChain.then(task, task);
+// One chain per session key so a slow write for one session never delays
+// another; an entry is removed once its chain is idle.
+const _persistChains = new Map();
+function _serialize(key, task) {
+  const prev = _persistChains.get(key) || Promise.resolve();
+  const run = prev.then(task, task);
   // Never let a rejection poison the chain; each op logs its own error.
-  _persistChain = run.catch(() => {});
+  const tail = run
+    .catch(() => {})
+    .then(() => {
+      if (_persistChains.get(key) === tail) _persistChains.delete(key);
+    });
+  _persistChains.set(key, tail);
   return run;
 }
 
@@ -159,7 +167,7 @@ export function appendTuiSteeringPersist(leadSessionId, entry) {
     ...(submissionId ? { submissionId } : {}),
     ...(Number.isFinite(submittedAt) && submittedAt > 0 ? { submittedAt } : {}),
   };
-  return _serialize(async () => {
+  return _serialize(key, async () => {
     try {
       await updatePendingShard(key, (raw) => {
         const next = normalizePendingStore(raw);
@@ -184,7 +192,7 @@ export function dropTuiSteeringPersist(leadSessionId, entries) {
   if (!key) return Promise.resolve();
   const batch = Array.isArray(entries) ? entries : [];
   if (batch.length === 0) return Promise.resolve();
-  return _serialize(async () => {
+  return _serialize(key, async () => {
     try {
       await updatePendingShard(key, (raw) => {
         const next = normalizePendingStore(raw);
@@ -207,8 +215,16 @@ export function dropTuiSteeringPersist(leadSessionId, entries) {
   });
 }
 
-export function flushTuiSteeringPersist() {
-  return _persistChain.catch(() => {});
+export async function flushTuiSteeringPersist() {
+  // Loop: chains started while waiting are awaited too.
+  while (_persistChains.size > 0) {
+    await Promise.all([..._persistChains.values()]);
+  }
+}
+
+// Test hook: number of live per-key chains.
+export function _steeringPersistChainCount() {
+  return _persistChains.size;
 }
 
 function drainedRowToRestore(row) {
@@ -233,7 +249,7 @@ function drainedRowToRestore(row) {
 export function drainTuiSteeringPersist(leadSessionId) {
   const key = tuiSteeringSessionKey(leadSessionId);
   if (!key) return Promise.resolve([]);
-  return _serialize(async () => {
+  return _serialize(key, async () => {
     let drained = [];
     let droppedStale = 0;
     try {

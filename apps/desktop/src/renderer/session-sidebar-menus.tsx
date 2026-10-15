@@ -20,7 +20,7 @@ interface SessionMenuActions {
   onFavoriteSession(sessionId: string, favorite: boolean): Promise<void>;
   onMoveSessionToProject?(sessionId: string, projectPath: string): Promise<void>;
   onAddProject?(onAdded?: (projectPath: string) => void): void;
-  openSessionEditor(session: DesktopSessionSummary): void;
+  openSessionEditor(session: DesktopSessionSummary, rowKey: string): void;
   closeSessionEditor(): void;
   setConfirmingSessionId(sessionId: string): void;
   sessionGroupKeys: ReadonlyMap<string, string>;
@@ -43,7 +43,11 @@ interface ProjectMenuActions {
 // that returning focus would blur (and commit) the new editor at once.
 const afterMenu = (action: () => void) => () => window.setTimeout(action, 0);
 
-function sessionMenuItems(session: DesktopSessionSummary, actions: SessionMenuActions): ScmContextMenuItem[] {
+function sessionMenuItems(
+  session: DesktopSessionSummary,
+  rowKey: string,
+  actions: SessionMenuActions
+): ScmContextMenuItem[] {
   const { onOpenSessionInSplit, onInheritSession, onArchiveSession, onFavoriteSession, onAddProject } = actions;
   const { projectGroups, moveSession } = actions;
   const label = sessionLabel(session);
@@ -62,10 +66,10 @@ function sessionMenuItems(session: DesktopSessionSummary, actions: SessionMenuAc
     id: 'rename',
     label: t('Rename'),
     separatorBefore: true,
-    onSelect: afterMenu(() => actions.openSessionEditor(session)),
+    onSelect: afterMenu(() => actions.openSessionEditor(session, rowKey)),
   });
   if (onInheritSession && !archived) {
-    items.push({ id: 'inherit', label: t('Inherit session'), onSelect: () => onInheritSession(session.id) });
+    items.push({ id: 'inherit', label: t('Fork session'), onSelect: () => onInheritSession(session.id) });
   }
   if (archived) {
     items.push({
@@ -85,7 +89,7 @@ function sessionMenuItems(session: DesktopSessionSummary, actions: SessionMenuAc
       { id: 'archive', label: t('Archive'), onSelect: () => void onArchiveSession(session.id, true).catch(() => {}) }
     );
   }
-  // Keyboard path of the drag-to-folder move; membership only (cwd stays).
+  // Keyboard path of the drag-to-folder move: changes the session's working folder.
   const currentProjectKey = actions.sessionGroupKeys.get(session.id) ?? '';
   if (actions.onMoveSessionToProject && !archived && (projectGroups.length > 0 || onAddProject)) {
     const destinations: ScmContextMenuItem[] = projectGroups
@@ -191,8 +195,8 @@ function projectMenuItems(
 export function useSidebarMenus(actions: SessionMenuActions & ProjectMenuActions) {
   const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
-  const openSessionMenu = (session: DesktopSessionSummary, point: MenuPoint) => {
-    setContextMenu({ label: sessionLabel(session), ...point, items: sessionMenuItems(session, actions) });
+  const openSessionMenu = (session: DesktopSessionSummary, point: MenuPoint, rowKey: string) => {
+    setContextMenu({ label: sessionLabel(session), ...point, items: sessionMenuItems(session, rowKey, actions) });
   };
   const [projectRename, setProjectRename] = useState<ProjectRename | null>(null);
   const projectRenameRef = useRef(projectRename);

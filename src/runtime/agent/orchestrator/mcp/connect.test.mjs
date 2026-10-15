@@ -14,6 +14,7 @@ class FakeTransport {
     this.args = args;
     transports.push(this);
   }
+  async close() {}
 }
 class FakeStdioTransport extends FakeTransport {
   constructor(options) {
@@ -35,6 +36,7 @@ class FakeWsTransport extends FakeTransport {
   constructor(...args) {
     super('ws', ...args);
   }
+  start() {}
 }
 
 let behavior = {};
@@ -102,6 +104,8 @@ mock.module('@modelcontextprotocol/sdk/types.js', {
 process.env.MIXDOG_QUIET_MCP_LOG = '1';
 
 const {
+  _registerMcpServerForTest,
+  cancelMcpLogin,
   connectMcpServers,
   disconnectAll,
   disconnectMcpServer,
@@ -109,6 +113,7 @@ const {
   getMcpServerInstructionsMap,
   getMcpServerStatus,
   getMcpTools,
+  isMcpLoginPending,
   reconnectSingleMcpServer,
 } = await import('./client.mjs');
 
@@ -171,7 +176,7 @@ test('a malformed listTools shape closes the client before the connect fails', a
   assert.equal(clients[0].closed, true);
 });
 
-test('remote transports receive the normalized URL; headers reach HTTP and SSE but never WebSocket', async () => {
+test('remote transports receive the normalized URL; headers reach HTTP, SSE and WebSocket', async () => {
   const scopeId = freshScope();
   behavior = { capabilities: { tools: {} } };
   await connectMcpServers(
@@ -236,6 +241,211 @@ test('disabled servers are skipped and every failed server is reported by name',
       getMcpServerStatus(scopeId).map((server) => server.name),
       ['fine']
     );
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+});
+
+test('disconnect cancels pending OAuth before waiting for the server operation queue', async () => {
+  const scopeId = freshScope();
+  behavior = { connect: () => new Promise(() => {}) };
+  const connect = reconnectSingleMcpServer(scopeId, 'oauth', { type: 'http', url: 'https://mcp.example/mcp' });
+  // No login had started yet: a plain cancelled connect, not a failed login.
+  const rejected = assert.rejects(connect, /MCP server "oauth" connect cancelled/);
+  await waitUntil(() => transports.some((transport) => transport.oauth));
+  await disconnectMcpServer('oauth', { scopeId });
+  await rejected;
+  assert.equal(transports[0].oauth.signal.aborted, true);
+  assert.equal(getMcpServerStatus(scopeId).length, 0);
+});
+
+test('cancelMcpLogin aborts only the named pending OAuth connect', async () => {
+  const scopeId = freshScope();
+  behavior = { connect: () => new Promise(() => {}) };
+  const cfg = { type: 'http', url: 'https://mcp.example/mcp' };
+  const target = reconnectSingleMcpServer(scopeId, 'target', cfg);
+  const rejected = assert.rejects(target, /MCP server "target" connect cancelled/);
+  reconnectSingleMcpServer(scopeId, 'other', cfg).catch(() => {});
+  await waitUntil(() => transports.filter((transport) => transport.oauth).length === 2);
+  cancelMcpLogin('target', { scopeId });
+  await rejected;
+  const [targetTransport, otherTransport] = transports;
+  assert.equal(targetTransport.oauth.signal.aborted, true);
+  assert.equal(otherTransport.oauth.signal.aborted, false);
+  cancelMcpLogin('other', { scopeId });
+});
+
+test('isMcpLoginPending reports only a pending connect whose interactive login started', async () => {
+  const scopeId = freshScope();
+  behavior = { connect: () => new Promise(() => {}) };
+  const cfg = { type: 'http', url: 'https://mcp.example/mcp' };
+  const login = reconnectSingleMcpServer(scopeId, 'login', cfg);
+  const quiet = reconnectSingleMcpServer(scopeId, 'quiet', cfg);
+  await waitUntil(() => transports.filter((transport) => transport.oauth).length === 2);
+  assert.equal(isMcpLoginPending('login', { scopeId }), false);
+  // The browser login of the first connect starts (oauth.test.mjs pins when
+  // the real flag flips).
+  Object.defineProperty(transports[0].oauth, 'loginStarted', { get: () => true });
+  assert.equal(isMcpLoginPending('login', { scopeId }), true);
+  assert.equal(isMcpLoginPending('quiet', { scopeId }), false);
+  assert.equal(isMcpLoginPending('login', { scopeId: `${scopeId}-other` }), false);
+  cancelMcpLogin('login', { scopeId });
+  cancelMcpLogin('quiet', { scopeId });
+  await assert.rejects(login, /connect cancelled/);
+  await assert.rejects(quiet, /connect cancelled/);
+  assert.equal(isMcpLoginPending('login', { scopeId }), false);
+});
+
+test('an explicit sign-in that times out, is denied or is cancelled is flagged authRequired', async () => {
+  const scopeId = freshScope();
+  const cfg = { type: 'http', url: 'https://mcp.example/mcp' };
+  // Login started, then the login deadline or a denied callback failed it.
+  for (const message of ['MCP OAuth login failed, cancelled, or timed out', 'access_denied']) {
+    behavior = {
+      connect: (client) => {
+        Object.defineProperty(client.transport.oauth, 'loginStarted', { get: () => true });
+        throw new Error(message);
+      },
+    };
+    await assert.rejects(reconnectSingleMcpServer(scopeId, 'login', cfg, { interactive: true }), (error) => {
+      assert.equal(error.message, message);
+      return error.authRequired === true;
+    });
+  }
+  // The sign-in obtained tokens, then the server failed: a real failure.
+  behavior = {
+    connect: (client) => {
+      Object.defineProperty(client.transport.oauth, 'loginStarted', { get: () => true });
+      Object.defineProperty(client.transport.oauth, 'loginCompleted', { get: () => true });
+      throw new Error('tools unavailable');
+    },
+  };
+  await assert.rejects(
+    reconnectSingleMcpServer(scopeId, 'login', cfg, { interactive: true }),
+    (error) => error.authRequired === undefined
+  );
+  // Cancelled before the login could start: only an explicit sign-in still
+  // needs one; a background connect cancelled that way is just cancelled.
+  behavior = { connect: () => new Promise(() => {}) };
+  for (const interactive of [true, false]) {
+    transports.length = 0;
+    const connect = reconnectSingleMcpServer(scopeId, 'early', cfg, { interactive });
+    await waitUntil(() => transports[0]?.oauth);
+    cancelMcpLogin('early', { scopeId });
+    await assert.rejects(connect, (error) => {
+      assert.match(error.message, /connect cancelled/);
+      return error.authRequired === (interactive ? true : undefined);
+    });
+  }
+});
+
+test('a connect that needs an OAuth sign-in is flagged authRequired for both connect paths', async () => {
+  const scopeId = freshScope();
+  behavior = {
+    connect: () => {
+      throw Object.assign(new Error('MCP OAuth reauthenticationRequired: sign in to connect'), {
+        code: 'reauthenticationRequired',
+      });
+    },
+  };
+  const cfg = { type: 'http', url: 'https://mcp.example/mcp' };
+  await assert.rejects(reconnectSingleMcpServer(scopeId, 'signin', cfg), (error) => error.authRequired === true);
+  await assert.rejects(connectMcpServers({ signin: cfg }, { scopeId }), (error) => {
+    assert.deepEqual(error.failures, [
+      { name: 'signin', msg: 'MCP OAuth reauthenticationRequired: sign in to connect', authRequired: true },
+    ]);
+    return true;
+  });
+  behavior = {
+    connect: () => {
+      throw new Error('fetch failed');
+    },
+  };
+  await assert.rejects(reconnectSingleMcpServer(scopeId, 'down', cfg), (error) => error.authRequired === undefined);
+});
+
+test('OAuth tokens are scrubbed from connect failures, liveness errors, tool-call errors and results', async () => {
+  const scopeId = freshScope();
+  const secret = 'oauth-access-secret';
+  const withSecret = (transport) => {
+    transport.oauth.secrets = () => [secret];
+  };
+  behavior = {
+    connect: (client) => {
+      withSecret(client.transport);
+      throw new Error(`Error POSTing to endpoint (HTTP 500): echoed Authorization: Bearer ${secret}`);
+    },
+  };
+  const cfg = { type: 'http', url: 'https://mcp.example/mcp' };
+  await assert.rejects(reconnectSingleMcpServer(scopeId, 'leaky', cfg), (error) => {
+    assert.doesNotMatch(error.message, new RegExp(secret));
+    assert.match(error.message, /Bearer \[redacted\]/);
+    return true;
+  });
+
+  behavior = { connect: (client) => withSecret(client.transport) };
+  await reconnectSingleMcpServer(scopeId, 'leaky', cfg);
+  try {
+    const client = clients.at(-1);
+    client.onerror(new Error(`HTTP 500: Bearer ${secret}`));
+    client.onclose();
+    const [row] = getMcpServerStatus(scopeId);
+    assert.equal(row.connected, false);
+    assert.equal(row.error, 'HTTP 500: Bearer [redacted]');
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+
+  _registerMcpServerForTest(scopeId, 'leaky', [{ name: 'echo' }, { name: 'failed' }, { name: 'ok' }], {
+    transport: { oauth: { secrets: () => [secret], close() {} } },
+    callTool: async ({ name }) => {
+      if (name === 'echo') {
+        // A JSON-RPC error whose data echoes the request.
+        throw Object.assign(new Error(`invalid params: Bearer ${secret}`), {
+          code: -32602,
+          data: { request: { headers: { authorization: `Bearer ${secret}` } }, [secret]: [secret] },
+        });
+      }
+      return { content: [{ type: 'text', text: `${name}: Bearer ${secret}` }], isError: name === 'failed' };
+    },
+  });
+  try {
+    await assert.rejects(executeMcpTool('mcp__leaky__echo', {}, { scopeId }), (error) => {
+      assert.equal(error.message, 'invalid params: Bearer [redacted]');
+      assert.deepEqual(error.data, {
+        request: { headers: { authorization: 'Bearer [redacted]' } },
+        '[redacted]': ['[redacted]'],
+      });
+      return true;
+    });
+    assert.equal(await executeMcpTool('mcp__leaky__failed', {}, { scopeId }), 'Error: failed: Bearer [redacted]');
+    assert.equal(await executeMcpTool('mcp__leaky__ok', {}, { scopeId }), 'ok: Bearer [redacted]');
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+});
+
+test('OAuth tokens are scrubbed at any length; short configured URL values are not', async () => {
+  const scopeId = freshScope();
+  behavior = {
+    connect: (client) => {
+      client.transport.oauth.secrets = () => ['abc'];
+    },
+  };
+  await reconnectSingleMcpServer(scopeId, 'short', { type: 'http', url: 'https://mcp.example/mcp?v=1' });
+  try {
+    clients.at(-1).onerror(new Error('HTTP 500 for v=1: Bearer abc'));
+    clients.at(-1).onclose();
+    assert.equal(getMcpServerStatus(scopeId)[0].error, 'HTTP 500 for v=1: Bearer [redacted]');
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+  _registerMcpServerForTest(scopeId, 'short', [{ name: 'echo' }], {
+    transport: { oauth: { secrets: () => ['abc'], close() {} } },
+    callTool: async () => ({ content: [{ type: 'text', text: 'Bearer abc' }], isError: true }),
+  });
+  try {
+    assert.equal(await executeMcpTool('mcp__short__echo', {}, { scopeId }), 'Error: Bearer [redacted]');
   } finally {
     await disconnectAll({ scopeId });
   }
@@ -373,7 +583,7 @@ test('a failure after send reconnects for the next call but is not replayed; "No
   const scopeId = freshScope();
   const calls = [];
   behavior = {
-    callTool: async (client, params) => {
+    callTool: async (client) => {
       calls.push(clients.indexOf(client));
       if (calls.length === 1) throw Object.assign(new Error('Connection closed'), { code: -32000 });
       if (calls.length === 2) throw new Error('Not connected');

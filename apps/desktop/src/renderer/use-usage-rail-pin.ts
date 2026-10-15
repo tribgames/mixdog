@@ -3,6 +3,7 @@ import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { usagePinStackFits } from './rail-usage-pin-room';
 import type { UsageDashboardSnapshot } from './usage-dashboard-store';
+import type { UsageRailBars } from './SidebarUsage';
 import { subscribeSetupChanges } from './setup-change-refresh';
 
 const USAGE_RAIL_PIN_KEY = 'mixdog.desktop.usage-rail-pin.v1';
@@ -54,6 +55,7 @@ export function useUsageRailPin(
     }
     return true;
   });
+  const [railBars, setRailBarsState] = useState<UsageRailBars>('long');
   const [settingsReady, setSettingsReady] = useState(false);
   const revision = useRef(0);
   useEffect(() => {
@@ -64,8 +66,11 @@ export function useUsageRailPin(
       void Promise.resolve()
         .then(() => window.mixdogDesktop?.readSettings?.())
         .then((settings) => {
-          if (!live || token !== revision.current || typeof settings?.usagePinned !== 'boolean') return;
-          setUsagePinned(settings.usagePinned);
+          if (!live || token !== revision.current) return;
+          if (typeof settings?.usageRailShortLong === 'boolean') {
+            setRailBarsState(settings.usageRailShortLong ? 'short-long' : 'long');
+          }
+          if (typeof settings?.usagePinned === 'boolean') setUsagePinned(settings.usagePinned);
         })
         .catch(() => {
           /* keep the code default */
@@ -101,6 +106,15 @@ export function useUsageRailPin(
       /* local state still applies */
     });
   };
+  // The bar mode is persisted beside the pin choice and applies at once.
+  const setRailBars = (next: UsageRailBars) => {
+    revision.current += 1;
+    setSettingsReady(true);
+    setRailBarsState(next);
+    void window.mixdogDesktop?.updateSetting?.('usageRailShortLong', next === 'short-long')?.catch(() => {
+      /* local state still applies */
+    });
+  };
   const [usagePinEntries, setUsagePinEntries] = useState<UsagePinEntries | null>(null);
   useEffect(() => {
     if (!usagePinned || usagePinEntries) return;
@@ -118,7 +132,8 @@ export function useUsageRailPin(
       live = false;
     };
   }, [usagePinEntries, usagePinned]);
-  const wanted = usagePinned && usagePinEntries ? usagePinEntries(snapshot.dashboard) : [];
+  const wanted = usagePinned && usagePinEntries ? usagePinEntries(snapshot.dashboard, railBars) : [];
+  const doubleBarCount = wanted.filter((entry) => entry.bars.length > 1).length;
   const [pinRoom, setPinRoom] = useState(true);
   const { rail, nav, settings } = refs;
   useLayoutEffect(() => {
@@ -131,6 +146,7 @@ export function useUsageRailPin(
           navHeight: nav.current?.scrollHeight ?? 0,
           settingsHeight: settings.current?.offsetHeight ?? 0,
           rowCount: wanted.length,
+          doubleBarCount,
         })
       );
     // Measure before paint, not after a provisional tall stack was visible.
@@ -138,7 +154,7 @@ export function useUsageRailPin(
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [nav, rail, settings, wanted.length]);
+  }, [nav, rail, settings, wanted.length, doubleBarCount]);
   const loading =
     enabled &&
     (!settingsReady ||
@@ -148,5 +164,5 @@ export function useUsageRailPin(
   useEffect(() => {
     if (enabled && !loading) reportBootSurfaceReady('usage-controls', 'pin');
   }, [enabled, loading]);
-  return { usagePinned, toggleUsagePin, loading, usagePinRows: pinRoom ? wanted : [] };
+  return { usagePinned, toggleUsagePin, railBars, setRailBars, loading, usagePinRows: pinRoom ? wanted : [] };
 }

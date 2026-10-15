@@ -40,7 +40,7 @@ test('a quota resume asks the pool over fresh forced readings of every account',
         const snapshot = {
           quotaWindows: [{ label: '5H', usedPct: meter.get(routeInfo.accountId), resetAt: Date.now() + 3_600_000 }],
         };
-        accounts.recordProviderAccountUsage(routeInfo.provider, routeInfo.accountId, snapshot);
+        await accounts.recordProviderAccountUsage(routeInfo.provider, routeInfo.accountId, snapshot);
         return snapshot;
       },
       readCachedOAuthUsageSnapshot: () => null,
@@ -50,10 +50,12 @@ test('a quota resume asks the pool over fresh forced readings of every account',
   t.mock.module('./registry.mjs', { namedExports: { getProvider: () => provider } });
   const { providerQuotaUsable } = await import('./quota-reading.mjs');
 
-  accounts.registerProviderAccount('openai-oauth', ACCOUNT_A);
-  accounts.registerProviderAccount('openai-oauth', ACCOUNT_B);
+  await accounts.registerProviderAccount('openai-oauth', ACCOUNT_A);
+  await accounts.registerProviderAccount('openai-oauth', ACCOUNT_B);
   for (const id of [ACCOUNT_A, ACCOUNT_B]) {
-    accounts.blockProviderAccount('openai-oauth', id, Date.now() + 3_600_000, 'gpt-x', 'retry-after', { quota: true });
+    await accounts.blockProviderAccount('openai-oauth', id, Date.now() + 3_600_000, 'gpt-x', 'retry-after', {
+      quota: true,
+    });
   }
 
   meter.set(ACCOUNT_A, 100).set(ACCOUNT_B, 100);
@@ -94,8 +96,8 @@ test('a quota resume asks the pool over fresh forced readings of every account',
   // block, an all-unknown meter and a balance-only snapshot both stay unusable.
   const ACCOUNT_C = '33333333-3333-4333-8333-333333333333';
   const ACCOUNT_D = '44444444-4444-4444-8444-444444444444';
-  accounts.registerProviderAccount('grok-oauth', ACCOUNT_C);
-  accounts.registerProviderAccount('grok-oauth', ACCOUNT_D);
+  await accounts.registerProviderAccount('grok-oauth', ACCOUNT_C);
+  await accounts.registerProviderAccount('grok-oauth', ACCOUNT_D);
   const unknownMeter = { quotaWindows: [{ label: '5H', usedPct: null, resetAt: 0 }] };
   const balanceOnly = { quotaWindows: [], balance: { unit: 'credits', remainingCredits: 25 } };
   snapshots.set(ACCOUNT_C, unknownMeter).set(ACCOUNT_D, unknownMeter);
@@ -103,7 +105,7 @@ test('a quota resume asks the pool over fresh forced readings of every account',
   snapshots.set(ACCOUNT_C, balanceOnly).set(ACCOUNT_D, balanceOnly);
   assert.equal(await providerQuotaUsable('grok-oauth', 'grok-x'), false, 'balance-only without credits');
   // Paying with credits, a positive measured balance is the evidence; a spent one is not.
-  accounts.changeProviderAccounts('grok-oauth', { useCredits: true });
+  await accounts.changeProviderAccounts('grok-oauth', { useCredits: true });
   assert.equal(await providerQuotaUsable('grok-oauth', 'grok-x'), true, 'positive credit balance');
   const spent = { quotaWindows: [], balance: { unit: 'credits', remainingCredits: 0 } };
   snapshots.set(ACCOUNT_C, spent).set(ACCOUNT_D, spent);

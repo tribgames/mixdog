@@ -43,11 +43,9 @@ export const ExtensionsPane = memo(function ExtensionsPane({
   }, [section]);
 
   // Extensions is a RAIL destination, so it renders the page grammar its
-  // siblings (Schedules, Webhooks) already share: surface → page → filters →
-  // list, with the title and primary actions in the panel header and detail
-  // views opening as popup dialogs. The pane used to hand-roll a tab
-  // strip and a second toolbar band, which is what made it read as a different
-  // product (user: 익스텐션창이 다른 UI랑 너무 동떨어져있다).
+  // siblings (Schedules, Webhooks) share: surface → page → filters → list,
+  // with the title and primary actions in the panel header and detail views
+  // opening as popup dialogs.
   return (
     <div
       className="extensions-pane schedules-pane stable-surface-preserved stable-takeover-surface"
@@ -76,6 +74,7 @@ export const ExtensionsPane = memo(function ExtensionsPane({
           active={active}
           createOpen={createOpen}
           onCreateOpenChange={setCreateOpen}
+          portalConfirm
         />
       </div>
     </div>

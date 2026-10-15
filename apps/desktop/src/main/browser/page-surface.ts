@@ -11,6 +11,7 @@ import type { BrowserScreenshotCapture } from './screenshot';
 import type { BrowserDisplayTexture } from './display-textures';
 import type { createBrowserInputDispatch } from './input-dispatch';
 import type { createBrowserLocalPrompts } from './local-prompts';
+import type { BrowserLeaveConfirmation } from './leave-confirmation';
 import { createPageSurfaceState, type Size } from './page-surface-state';
 import { createPageSurfaceFrame } from './page-surface-frame';
 import { createPageSurfaceControl, zoomGuest } from './page-surface-control';
@@ -43,6 +44,12 @@ export interface BrowserPageSurfaceHost {
   ): Promise<BrowserScreenshotCapture>;
   captureTexture?(guest: WebContents, documentId: string, pixels: Size): BrowserDisplayTexture | undefined;
   currentGuest?(sessionId: string): WebContents | null;
+  /** Another page sharing this page's renderer (its opener or a popup) whose
+   *  dialog blocks this page too; null when none does. */
+  dialogOwner?(guest: WebContents): WebContents | null;
+  /** Runs a person's request that may leave the page, so a beforeunload veto
+   *  becomes a question instead of a silent no-op. */
+  leave?: Pick<BrowserLeaveConfirmation, 'request'>;
   /** A streaming phone drives this page's viewport: pane resizes and zoom
    *  are remembered, not applied, until it stops. */
   remoteDriven?(guest: WebContents): boolean;

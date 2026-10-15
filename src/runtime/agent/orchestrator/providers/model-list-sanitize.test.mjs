@@ -24,6 +24,19 @@ const rows = (provider, ids) => ids.map((id) => ({ id, provider, mode: 'chat' })
 const keptIds = (provider, ids, models) =>
   sanitizeModelList(rows(provider, ids), { provider, _testCatalog: catalog(provider, models) }).map((r) => r.id);
 
+test('a Claude family is read from the id, so a new family supersedes without an edit', () => {
+  // The catalog labels each row with a different family; the id names one.
+  const models = {
+    'anthropic/claude-zenith-5': ['zenith-old', 3],
+    'anthropic/claude-zenith-6': ['zenith-new', 1],
+    'anthropic/claude-borealis-5': ['borealis', 3],
+  };
+  assert.deepEqual(keptIds('openrouter', Object.keys(models), models), [
+    'anthropic/claude-zenith-6',
+    'anthropic/claude-borealis-5',
+  ]);
+});
+
 test('rolling aliases survive newer concrete versions and the age cut; stable supersession still applies', () => {
   const models = {
     '~google/gemini-flash-latest': ['gemini-flash', 4],

@@ -5,6 +5,7 @@ test('a failing usage sweep never becomes an unhandled rejection', async (t) => 
   t.mock.module(new URL('../services/provider-admin.mjs', import.meta.url).href, {
     namedExports: {
       listProviderAccounts: () => ({ accounts: [{ id: 'a' }] }),
+      materializeProviderAccounts: async () => ({ accounts: [{ id: 'a' }] }),
       updateProviderAccounts: () => ({}),
     },
   });

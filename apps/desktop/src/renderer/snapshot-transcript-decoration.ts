@@ -9,43 +9,63 @@ import type { SessionSnapshot } from '../shared/contract';
 import { type Snapshot, type TranscriptItem, EMPTY_SNAPSHOT } from './desktop-types';
 import { createTranscriptIdentityReconciler } from './transcript-identity';
 import { reconcileTurnFailures, type TurnFailureModel } from './renderer-logic.mjs';
+import { RendererLruCache } from './renderer-lru-cache';
+import { registerIdleReclaim } from './idle-reclaim';
 
 const DECORATED_SCOPE_LIMIT = 12;
+const DECORATED_SCOPE_MAX_CHARS = 4 * 1024 * 1024;
 
+/** The failure model of one session's last decorated transcript. The items
+ *  array is held WEAKLY (it only answers "same array as last frame?"), so the
+ *  scope retains the derived turn keys, never the transcript itself. */
 interface FailureScope {
-  items: TranscriptItem[] | undefined;
+  scope: string;
+  items: WeakRef<TranscriptItem[]> | null;
   model: TurnFailureModel;
 }
 
 export interface TranscriptSnapshotDecorator {
   decorate(snapshot: SessionSnapshot | null): Snapshot;
   clear(): void;
+  /** Drop every per-session record for a session that ended or was forgotten. */
+  forget?(sessionId: string): void;
 }
 
-function createTranscriptSnapshotDecorator(): TranscriptSnapshotDecorator {
+const scopeChars = (failure: FailureScope): number =>
+  failure.model.turnKeys.reduce((sum: number, key: string) => sum + key.length, 0) +
+  failure.model.failedTurnKeys.reduce((sum: number, key: string) => sum + key.length, 0);
+
+export function createTranscriptSnapshotDecorator({ register = true } = {}): TranscriptSnapshotDecorator {
   let identity = createTranscriptIdentityReconciler();
-  const scopes = new Map<string, FailureScope>();
+  // Keyed by session: the project only labels the scope. Weighted LRU on the
+  // shared renderer budget; the models are recomputable from the transcript,
+  // so idle reclaim may drop them too.
+  const scopes = new RendererLruCache<string, FailureScope>({
+    name: 'transcript-failure-scopes',
+    maxEntries: DECORATED_SCOPE_LIMIT,
+    maxChars: DECORATED_SCOPE_MAX_CHARS,
+    measure: scopeChars,
+    register,
+  });
+  if (register) registerIdleReclaim(() => scopes.clear());
   return {
     decorate(next) {
       const raw = next && typeof next === 'object' ? (next as Snapshot) : EMPTY_SNAPSHOT;
       if (raw === EMPTY_SNAPSHOT) return raw;
       const state = identity.reconcile(raw);
-      const scope = `${String(state.currentProject || state.project || state.cwd || '')}\n${String(state.sessionId || '')}`;
-      let failure = scopes.get(scope);
-      if (!failure || failure.items !== state.items) {
+      const sessionId = String(state.sessionId || '');
+      const scope = `${String(state.currentProject || state.project || state.cwd || '')}\n${sessionId}`;
+      const items = Array.isArray(state.items) ? state.items : null;
+      let failure = scopes.get(sessionId);
+      const unchanged =
+        failure && failure.scope === scope && (items ? failure.items?.deref() === items : failure.items === null);
+      if (!failure || !unchanged) {
         failure = {
-          items: state.items,
+          scope,
+          items: items ? new WeakRef(items) : null,
           model: reconcileTurnFailures(failure?.model, state.items, state.toasts, scope),
         };
-      }
-      // LRU touch: split workspaces can keep several live sessions, but old
-      // closed lanes must not retain transcript arrays forever.
-      scopes.delete(scope);
-      scopes.set(scope, failure);
-      while (scopes.size > DECORATED_SCOPE_LIMIT) {
-        const oldest = scopes.keys().next().value;
-        if (oldest === undefined) break;
-        scopes.delete(oldest);
+        scopes.set(sessionId, failure);
       }
       return {
         ...state,
@@ -56,6 +76,10 @@ function createTranscriptSnapshotDecorator(): TranscriptSnapshotDecorator {
     clear() {
       scopes.clear();
       identity = createTranscriptIdentityReconciler();
+    },
+    forget(sessionId) {
+      scopes.delete(sessionId);
+      identity.forget(sessionId);
     },
   };
 }

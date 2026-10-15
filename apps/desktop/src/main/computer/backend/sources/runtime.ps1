@@ -133,9 +133,15 @@ function Handle($req) {
             'input_recovery_state' { return Get-InputRecoveryState $req }
             'input_idle_state' {
                 $state = [MixInputObservation]::Read()
+                # Each cause is reported on its own: the input desktop's
+                # accessibility does not depend on the observer, and the
+                # observer's reason is metadata only.
+                $desktop = [MixInputObservation]::IdleDesktopReady()
                 return @{
-                    ready          = ($state.Ready -and [MixInputObservation]::IdleDesktopReady())
-                    observer_ready = $state.Ready
+                    ready           = ($state.Ready -and $desktop)
+                    observer_ready  = $state.Ready
+                    observer_reason = [string]$state.Reason
+                    desktop_ready   = $desktop
                     monitor        = $state.Generation
                     sequence       = $state.Sequence
                     idleMs         = [Math]::Max(0, ([long][Environment]::TickCount - [long]$state.Tick + 4294967296) % 4294967296)

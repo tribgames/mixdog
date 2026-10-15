@@ -22,9 +22,24 @@ import { createKeyedSingleflight } from './reconnect-singleflight.mjs';
 import { createOwnerFairGate } from '../../../shared/owner-fair-gate.mjs';
 import { currentToolExecutionOwner } from '../../../shared/tool-execution-owner.mjs';
 import { positiveInt } from '../../../shared/numbers.mjs';
-import { resolveMcpRequestTimeouts, resolveMcpTransportKind, scrubMcpConnectionMessage } from './client-config.mjs';
-import { appendMcpStderrTail, createMcpTransport } from './client-transport.mjs';
-import { listAllMcpTools, runBoundedHandshake } from './client-handshake.mjs';
+import {
+  providerSafeMcpToolName,
+  resolveMcpOAuthUrl,
+  resolveMcpRequestTimeouts,
+  resolveMcpTransportKind,
+  scrubMcpConnectionMessage,
+  scrubMcpSecrets,
+} from './client-config.mjs';
+import { createLazyOutputValidator } from './lazy-output-validator.mjs';
+import { appendMcpStderrTail, createMcpTransport, hasConfiguredMcpAuth } from './client-transport.mjs';
+import { listAllMcpTools, MCP_CONNECT_CANCELLED, runBoundedHandshake } from './client-handshake.mjs';
+import {
+  clearMcpOAuth,
+  hasStoredMcpOAuthTokens,
+  isMcpOAuthReauthenticationRequired,
+  MCP_OAUTH_CALLBACK_NOT_PENDING,
+} from './oauth.mjs';
+export { probeMcpServerAuth } from './oauth-probe.mjs';
 
 // Config interpretation (transport kind, URL policy, env expansion, headers,
 // timeouts, log scrubbing) lives in client-config.mjs; re-exported so every
@@ -50,6 +65,8 @@ const MCP_TOOL_NAME_RE = /^mcp__(.+?)__(.+)$/;
 const _knownMcpScopes = new Set([DEFAULT_MCP_SCOPE_ID]);
 const _connectAbortGenerations = new Map();
 const _pendingConnects = new Set();
+// scopeId -> root path advertised by that scope's scope-following servers.
+const _scopeRoots = new Map();
 let mcpSdkPromise = null;
 // Memo for mcpToolHasField(name, field) — keyed by `${scopeId}|${toolName}|${field}`.
 // The lookup (regex parse + servers Map get + tools.find + schema property
@@ -58,8 +75,14 @@ let mcpSdkPromise = null;
 // mutation point (connectServer / disconnectAll) so a stale positive or
 // negative can never survive a tools-list change.
 const _mcpToolFieldMemo = new Map();
+let _mcpToolGeneration = 0;
 function _invalidateMcpToolFieldMemo() {
   _mcpToolFieldMemo.clear();
+  _mcpToolGeneration += 1;
+}
+/** Read-only counter bumped on every MCP tool registry mutation. */
+export function getMcpToolGeneration() {
+  return _mcpToolGeneration;
 }
 function normalizeMcpScopeId(value) {
   const raw = value && typeof value === 'object' ? value.scopeId : value;
@@ -89,6 +112,20 @@ function mcpLog(line) {
   if (process.env.MIXDOG_QUIET_MCP_LOG) return;
   process.stderr.write(line);
 }
+// OAuth tokens belong to the live connection, not to its config: a server may
+// echo the request (Authorization included) into an error body or result.
+function oauthSecrets(...transports) {
+  return transports.flatMap((transport) => transport?.oauth?.secrets() || []);
+}
+function scrubMcpOAuthError(error, cfg, secrets) {
+  if (secrets.length === 0) return error;
+  if (!(error instanceof Error)) return new Error(scrubMcpConnectionMessage(String(error), cfg, secrets));
+  error.message = scrubMcpConnectionMessage(error.message, cfg, secrets);
+  if (typeof error.stack === 'string') error.stack = scrubMcpConnectionMessage(error.stack, cfg, secrets);
+  // A JSON-RPC error carries the server's own payload (McpError.data).
+  if (error.data !== undefined) error.data = scrubMcpSecrets(error.data, secrets);
+  return error;
+}
 
 async function loadMcpSdk() {
   mcpSdkPromise ??= Promise.all([
@@ -98,12 +135,15 @@ async function loadMcpSdk() {
     import('@modelcontextprotocol/sdk/client/sse.js'),
     import('@modelcontextprotocol/sdk/client/websocket.js'),
     import('@modelcontextprotocol/sdk/types.js'),
-  ]).then(([clientMod, stdioMod, httpMod, sseMod, wsMod, typesMod]) => ({
+    import('@modelcontextprotocol/sdk/validation/ajv'),
+  ]).then(([clientMod, stdioMod, httpMod, sseMod, wsMod, typesMod, ajvMod]) => ({
     Client: clientMod.Client,
+    AjvJsonSchemaValidator: ajvMod.AjvJsonSchemaValidator,
     StdioClientTransport: stdioMod.StdioClientTransport,
     StreamableHTTPClientTransport: httpMod.StreamableHTTPClientTransport,
     SSEClientTransport: sseMod.SSEClientTransport,
     WebSocketClientTransport: wsMod.WebSocketClientTransport,
+    JSONRPCMessageSchema: typesMod.JSONRPCMessageSchema,
     ListRootsRequestSchema: typesMod.ListRootsRequestSchema,
     ToolListChangedNotificationSchema: typesMod.ToolListChangedNotificationSchema,
   }));
@@ -131,14 +171,16 @@ export async function connectMcpServers(config, options = {}) {
   });
   // Connect all servers in PARALLEL: a slow/hung server (bounded by its
   // per-server startup timeout) must never delay the others' handshakes.
-  const settled = await Promise.allSettled(entries.map(([name, cfg]) => connectServer(name, cfg, scopeId, genAtStart)));
+  const settled = await Promise.allSettled(
+    entries.map(([name, cfg]) => connectServer(name, cfg, scopeId, genAtStart, options))
+  );
   settled.forEach((res, i) => {
     if (res.status !== 'rejected') return;
     const [name, cfg] = entries[i];
     const rawMessage = res.reason instanceof Error ? res.reason.message : String(res.reason);
     const msg = scrubMcpConnectionMessage(rawMessage, cfg);
     mcpLog(`[mcp-client] Failed to connect "${name}": ${msg}\n`);
-    failures.push({ name, msg });
+    failures.push({ name, msg, ...(res.reason?.authRequired ? { authRequired: true } : {}) });
   });
   if (failures.length > 0) {
     const detail = failures.map((f) => `${f.name}: ${f.msg}`).join('; ');
@@ -163,8 +205,8 @@ function mcpFeatureTools(serverName, capabilities, protocolTools) {
   const tools = [];
   const used = new Set(protocolTools.map((tool) => tool.name));
   const add = (leaf, description, properties, required, operation) => {
-    let name = `mcp__${serverName}__${leaf}`;
-    while (used.has(name)) name += '_';
+    let name = providerSafeMcpToolName(serverName, leaf);
+    for (let suffix = '_'; used.has(name); suffix += '_') name = providerSafeMcpToolName(serverName, leaf + suffix);
     used.add(name);
     tools.push({
       name,
@@ -238,6 +280,7 @@ export function getMcpServerStatus(scopeId = DEFAULT_MCP_SCOPE_ID) {
           ),
         }
       : {}),
+    warnings: Array.isArray(server.warnings) ? server.warnings : [],
     toolCount: Array.isArray(server.tools) ? server.tools.length : 0,
     tools: (server.tools || []).map((tool) => ({
       name: tool.name,
@@ -312,7 +355,7 @@ export function getMcpServerInstructionsMap(scopeId = DEFAULT_MCP_SCOPE_ID) {
 // shutdown generation captured BEFORE the caller queued/closed anything: a
 // disconnectAll() landing during the close (or the connect) bumps it, and the
 // replacement must then never register (no resurrection after shutdown).
-async function replaceServerConnection(scopeId, name, current, cfg, genAtStart) {
+async function replaceServerConnection(scopeId, name, current, cfg, genAtStart, options = {}) {
   const registryKey = mcpServerRegistryKey(scopeId, name);
   if (current) {
     await _closeServer(current);
@@ -325,10 +368,12 @@ async function replaceServerConnection(scopeId, name, current, cfg, genAtStart) 
   try {
     // connectServer re-checks the same generation after loading the SDK and
     // again right before registering, so a shutdown mid-handshake also aborts.
-    await connectServer(name, cfg, scopeId, genAtStart);
+    await connectServer(name, cfg, scopeId, genAtStart, options);
   } catch (reason) {
     const rawMessage = reason instanceof Error ? reason.message : String(reason);
-    throw new Error(scrubMcpConnectionMessage(rawMessage, cfg));
+    const error = new Error(scrubMcpConnectionMessage(rawMessage, cfg));
+    if (reason?.authRequired) error.authRequired = true;
+    throw error;
   }
 }
 
@@ -338,6 +383,7 @@ async function replaceServerConnection(scopeId, name, current, cfg, genAtStart) 
 // connect per server is ever running (no doubly registered transports).
 async function runExclusiveServerOp(registryKey, task) {
   for (let pending = reconnects.wait(registryKey); pending; pending = reconnects.wait(registryKey)) {
+    // Only waiting for the reconnect to settle; its failure belongs to its caller.
     await pending.catch(() => {});
   }
   return reconnects.run(registryKey, task);
@@ -378,7 +424,7 @@ async function reconnectMcpServer(scopeId, serverName, failedServer) {
  * rejects (credential-scrubbed message) when the connect fails, leaving the
  * server unregistered.
  */
-export async function reconnectSingleMcpServer(scopeId, name, cfg = undefined) {
+export async function reconnectSingleMcpServer(scopeId, name, cfg = undefined, options = {}) {
   const normalized = normalizeMcpScopeId(scopeId);
   _knownMcpScopes.add(normalized);
   const registryKey = mcpServerRegistryKey(normalized, name);
@@ -397,7 +443,7 @@ export async function reconnectSingleMcpServer(scopeId, name, cfg = undefined) {
       closeCallAdmission(normalized, name, `MCP ${name} disabled`);
       return false;
     }
-    await replaceServerConnection(normalized, name, current, nextCfg, genAtStart);
+    await replaceServerConnection(normalized, name, current, nextCfg, genAtStart, options);
     return true;
   });
 }
@@ -409,106 +455,112 @@ export async function reconnectSingleMcpServer(scopeId, name, cfg = undefined) {
 export async function executeMcpTool(name, args, options = {}) {
   const match = name.match(MCP_TOOL_NAME_RE);
   if (!match) throw new Error(`Not an MCP tool name: ${name}`);
-  const [, serverName, toolName] = match;
   const scopeId = normalizeMcpScopeId(options);
-  const server = scopedServer(scopeId, serverName);
-  if (!server) throw new Error(`MCP server "${serverName}" not connected`);
-  const definition = (server.tools || []).find((tool) => tool.name === name);
+  const target = resolveMcpToolTarget(scopeId, name);
+  if (!target) throw new Error(`MCP server "${match[1]}" not connected`);
+  const { server, definition } = target;
+  const serverName = server.name;
+  const toolName = definition?.mcpToolName || match[2];
   const callSignal = options?.signal || null;
   const dispatch = (target) =>
     definition?.mcpOperation
       ? _callMcpFeatureWithTimeout(target, definition.mcpOperation, args, callSignal)
       : _callToolWithTimeout(target, toolName, args, callSignal);
+  let retryServer = null;
+  const secrets = () => oauthSecrets(server.transport, retryServer?.transport);
   const gate = callAdmissionFor(server);
-  return gate.run(
-    options?.ownerKey || currentToolExecutionOwner(),
-    async () => {
-      // The gate stops forwarding the caller's abort once this task is
-      // admitted, so the task itself observes the signal for its whole run.
-      if (callSignal?.aborted) {
-        throw mcpAbortError(
-          callSignal,
-          `MCP tool call aborted before dispatch (server="${serverName}", tool="${toolName}")`
-        );
-      }
-      let result;
-      try {
-        result = await dispatch(server);
-      } catch (firstErr) {
-        const firstMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
-        if (isMcpCallAbortError(firstErr) || callSignal?.aborted) {
-          // A cancelled call is not a transport failure: reconnecting and
-          // replaying it would duplicate the side effect the caller just
-          // walked away from.
-          mcpLog(`[mcp-client] Tool call aborted by caller for "${serverName}/${toolName}".\n`);
-          throw firstErr;
-        }
-        if (isMcpToolCallTimeoutError(firstErr)) {
-          mcpLog(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
-          throw firstErr;
-        }
-        const serverDead = server.liveness?.alive === false;
-        if (!serverDead && isMcpServerResponseError(firstErr)) {
-          // The server answered (JSON-RPC error): it is alive — nothing to
-          // reconnect, and the call already ran its course.
-          throw firstErr;
-        }
-        // Only a failure that proves the request never left this process
-        // may be replayed; anything else may already have run server-side.
-        const undelivered = isMcpUndeliveredError(firstErr);
-        const deadTail = serverDead ? server.stderrTail?.() : '';
-        mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
-        let retryServer;
-        try {
-          // The reconnect is SHARED (singleflight): the race only stops
-          // THIS caller from waiting on it — the reconnect keeps running
-          // for its other waiters. Without this, an abort mid-reconnect
-          // could not settle the call and the admission slot stayed held
-          // until the reconnect finished, or forever if it hung.
-          retryServer = await raceMcpAbort(
-            reconnectMcpServer(scopeId, serverName, server),
-            callSignal,
-            `MCP tool call aborted during reconnect (server="${serverName}", tool="${toolName}")`
-          );
-        } catch (reconnectErr) {
-          if (isMcpCallAbortError(reconnectErr) || callSignal?.aborted) throw reconnectErr;
-          const reconnectMsg = reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr);
-          throw new Error(
-            appendMcpStderrTail(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`, deadTail)
-          );
-        }
-        if (!undelivered) {
-          throw new Error(
-            appendMcpStderrTail(
-              `Tool call failed: ${firstMsg}; MCP server "${serverName}" was reconnected for the next call, but this call was not replayed because the request may already have reached the server`,
-              deadTail
-            )
-          );
-        }
-        // A reconnect that outlived the caller's abort must not dispatch the
-        // retry: that would run the side effect after cancellation.
+  return gate
+    .run(
+      options?.ownerKey || currentToolExecutionOwner(),
+      async () => {
+        // The gate stops forwarding the caller's abort once this task is
+        // admitted, so the task itself observes the signal for its whole run.
         if (callSignal?.aborted) {
           throw mcpAbortError(
             callSignal,
-            `MCP tool call aborted after reconnect (server="${serverName}", tool="${toolName}")`
+            `MCP tool call aborted before dispatch (server="${serverName}", tool="${toolName}")`
           );
         }
+        let result;
         try {
-          result = await dispatch(retryServer);
-        } catch (retryErr) {
-          if (isMcpCallAbortError(retryErr) || callSignal?.aborted) throw retryErr;
-          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          throw new Error(`Tool call failed: ${firstMsg}; retry after reconnect also failed: ${retryMsg}`);
+          result = await dispatch(server);
+        } catch (firstErr) {
+          const firstMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+          if (isMcpCallAbortError(firstErr) || callSignal?.aborted) {
+            // A cancelled call is not a transport failure: reconnecting and
+            // replaying it would duplicate the side effect the caller just
+            // walked away from.
+            mcpLog(`[mcp-client] Tool call aborted by caller for "${serverName}/${toolName}".\n`);
+            throw firstErr;
+          }
+          if (isMcpToolCallTimeoutError(firstErr)) {
+            mcpLog(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
+            throw firstErr;
+          }
+          const serverDead = server.liveness?.alive === false;
+          if (!serverDead && isMcpServerResponseError(firstErr)) {
+            // The server answered (JSON-RPC error): it is alive — nothing to
+            // reconnect, and the call already ran its course.
+            throw firstErr;
+          }
+          // Only a failure that proves the request never left this process
+          // may be replayed; anything else may already have run server-side.
+          const undelivered = isMcpUndeliveredError(firstErr);
+          const deadTail = serverDead ? server.stderrTail?.() : '';
+          mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
+          try {
+            // The reconnect is SHARED (singleflight): the race only stops
+            // THIS caller from waiting on it — the reconnect keeps running
+            // for its other waiters. Without this, an abort mid-reconnect
+            // could not settle the call and the admission slot stayed held
+            // until the reconnect finished, or forever if it hung.
+            retryServer = await raceMcpAbort(
+              reconnectMcpServer(scopeId, serverName, server),
+              callSignal,
+              `MCP tool call aborted during reconnect (server="${serverName}", tool="${toolName}")`
+            );
+          } catch (reconnectErr) {
+            if (isMcpCallAbortError(reconnectErr) || callSignal?.aborted) throw reconnectErr;
+            const reconnectMsg = reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr);
+            throw new Error(
+              appendMcpStderrTail(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`, deadTail)
+            );
+          }
+          if (!undelivered) {
+            throw new Error(
+              appendMcpStderrTail(
+                `Tool call failed: ${firstMsg}; MCP server "${serverName}" was reconnected for the next call, but this call was not replayed because the request may already have reached the server`,
+                deadTail
+              )
+            );
+          }
+          // A reconnect that outlived the caller's abort must not dispatch the
+          // retry: that would run the side effect after cancellation.
+          if (callSignal?.aborted) {
+            throw mcpAbortError(
+              callSignal,
+              `MCP tool call aborted after reconnect (server="${serverName}", tool="${toolName}")`
+            );
+          }
+          try {
+            result = await dispatch(retryServer);
+          } catch (retryErr) {
+            if (isMcpCallAbortError(retryErr) || callSignal?.aborted) throw retryErr;
+            const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            throw new Error(`Tool call failed: ${firstMsg}; retry after reconnect also failed: ${retryMsg}`);
+          }
         }
+        const normalized = normalizeToolEnvelope(await normalizeMcpToolResult(scrubMcpSecrets(result, secrets())));
+        const text = capMcpResult(normalized.result);
+        return normalized.explicitSuccess ? makeToolEnvelope(text, [], { explicitSuccess: true }) : text;
+      },
+      {
+        signal: callSignal,
       }
-      const normalized = normalizeToolEnvelope(await normalizeMcpToolResult(result));
-      const text = capMcpResult(normalized.result);
-      return normalized.explicitSuccess ? makeToolEnvelope(text, [], { explicitSuccess: true }) : text;
-    },
-    {
-      signal: callSignal,
-    }
-  );
+    )
+    .catch((error) => {
+      throw scrubMcpOAuthError(error, server.cfg, secrets());
+    });
 }
 
 const MCP_FEATURE_REQUESTS = {
@@ -884,6 +936,7 @@ export function raceMcpAbort(promise, signal, message) {
   if (!signal) return promise;
   allowConcurrentAbortListeners(signal);
   if (signal.aborted) {
+    // The abort wins; the abandoned promise's late rejection must not go unhandled.
     void Promise.resolve(promise).catch(() => {});
     return Promise.reject(mcpAbortError(signal, message));
   }
@@ -1022,12 +1075,7 @@ export function isMcpTool(name) {
 }
 /** True when the prefixed name exists on a connected MCP server. */
 export function isRegisteredMcpTool(name, scopeId = DEFAULT_MCP_SCOPE_ID) {
-  const match = name.match(MCP_TOOL_NAME_RE);
-  if (!match) return false;
-  const [, serverName] = match;
-  const server = scopedServer(scopeId, serverName);
-  if (!server || !Array.isArray(server.tools)) return false;
-  return server.tools.some((t) => t?.name === name);
+  return Boolean(resolveMcpToolTarget(scopeId, name)?.definition);
 }
 /**
  * Check whether the inputSchema for an MCP tool declares the given top-level
@@ -1040,9 +1088,7 @@ export function mcpToolHasField(name, field, scopeId = DEFAULT_MCP_SCOPE_ID) {
   const memoKey = `${normalizedScopeId}|${name}|${field}`;
   const memoized = _mcpToolFieldMemo.get(memoKey);
   if (memoized !== undefined) return memoized;
-  const match = name.match(MCP_TOOL_NAME_RE);
-  const server = match ? scopedServer(normalizedScopeId, match[1]) : null;
-  const tool = server ? server.tools.find((t) => t.name === name) : null;
+  const tool = resolveMcpToolTarget(normalizedScopeId, name)?.definition;
   const props = tool?.inputSchema?.properties;
   const result = Boolean(props && Object.hasOwn(props, field));
   _mcpToolFieldMemo.set(memoKey, result);
@@ -1078,6 +1124,7 @@ export async function disconnectAll(options = undefined) {
       /* ignore */
     }
     try {
+      entry.transport.oauth?.close();
       void entry.client.close().catch(() => {
         /* ignore */
       });
@@ -1106,6 +1153,9 @@ export async function disconnectAll(options = undefined) {
 export async function disconnectMcpServer(name, options = {}) {
   const scopeId = normalizeMcpScopeId(options);
   const registryKey = mcpServerRegistryKey(scopeId, name);
+  // An exclusive reconnect may currently be waiting for human authorization.
+  // Cancel before queueing the disconnect behind that operation.
+  cancelMcpLogin(name, options);
   return runExclusiveServerOp(registryKey, async () => {
     const server = servers.get(registryKey);
     if (!server) return false;
@@ -1121,6 +1171,73 @@ export async function disconnectMcpServer(name, options = {}) {
   });
 }
 /**
+ * Cancel the interactive OAuth login of a connect of `name` still in its
+ * handshake; that connect then fails. Callers that queue behind the connect
+ * (disable, remove) call this first so they never wait out the login.
+ */
+export function cancelMcpLogin(name, options = {}) {
+  const scopeId = normalizeMcpScopeId(options);
+  for (const entry of _pendingConnects) {
+    if (entry.scopeId === scopeId && entry.name === name) entry.transport.oauth?.close();
+  }
+}
+/**
+ * Answer the interactive OAuth login of a connect of `name` still in its
+ * handshake with the redirect URL pasted from the browser (remote / headless
+ * sign-in); that connect then proceeds as after the loopback callback. Throws
+ * a fixed message, never the pasted URL, for an invalid paste (the login stays
+ * pending) or when no login is waiting.
+ */
+export function completeMcpLogin(name, callbackUrl, options = {}) {
+  const scopeId = normalizeMcpScopeId(options);
+  for (const entry of _pendingConnects) {
+    if (entry.scopeId === scopeId && entry.name === name && entry.transport.oauth?.loginStarted) {
+      entry.transport.oauth.completeCallback(callbackUrl);
+      return;
+    }
+  }
+  throw new Error(MCP_OAUTH_CALLBACK_NOT_PENDING);
+}
+/** Whether a connect of `name` still in its handshake is waiting for an
+ *  interactive (browser) OAuth login. */
+export function isMcpLoginPending(name, options = {}) {
+  const scopeId = normalizeMcpScopeId(options);
+  for (const entry of _pendingConnects) {
+    if (entry.scopeId === scopeId && entry.name === name && entry.transport.oauth?.loginStarted) return true;
+  }
+  return false;
+}
+/**
+ * Stored OAuth sign-in state of an HTTP/SSE server without configured
+ * authentication: `{ signedIn }` (tokens stored for its exact URL), or null
+ * for servers that never use MCP OAuth.
+ */
+export function getMcpServerOAuthState(cfg) {
+  let url;
+  try {
+    url = resolveMcpOAuthUrl(cfg);
+  } catch {
+    return null;
+  }
+  if (!url || hasConfiguredMcpAuth(cfg)) return null;
+  return { signedIn: hasStoredMcpOAuthTokens(url) };
+}
+/**
+ * Log out of an HTTP/SSE server URL: delete the OAuth tokens and client
+ * registration stored for it, shared by every server configured with that
+ * exact URL, and drop them from live connections.
+ */
+export async function clearMcpServerOAuth(cfg) {
+  let url;
+  try {
+    url = resolveMcpOAuthUrl(cfg);
+  } catch {
+    // A config without a valid remote URL never connected, so never logged in.
+    return;
+  }
+  if (url) await clearMcpOAuth({ url });
+}
+/**
  * Close a single server: for stdio transports first shut down the full child
  * process tree (close stdin -> grace -> tree kill) so wrapper chains such as
  * uvx/npx/uv never orphan grandchildren, then release the SDK client. The
@@ -1131,6 +1248,7 @@ async function _closeServer(server) {
   // A deliberate close is not a crash: suppress the unexpected-close report.
   if (server?.liveness) server.liveness.closing = true;
   const transport = server?.transport;
+  transport?.oauth?.close();
   // Live stdio transports expose the spawned ChildProcess on _process.
   if (transport?._process) {
     try {
@@ -1153,7 +1271,8 @@ async function connectServer(
   name,
   cfg,
   scopeId = DEFAULT_MCP_SCOPE_ID,
-  genAtStart = currentConnectAbortGeneration(scopeId)
+  genAtStart = currentConnectAbortGeneration(scopeId),
+  options = {}
 ) {
   scopeId = normalizeMcpScopeId(scopeId);
   _knownMcpScopes.add(scopeId);
@@ -1163,9 +1282,21 @@ async function connectServer(
     // abort before creating a transport/child at all.
     throw new Error(`MCP server "${name}" connect aborted by shutdown`);
   }
-  const client = createMcpClient(sdk, name, cfg);
-  const { transport, autoDetectAdvert, stderrTail } = createMcpTransport({ name, cfg, sdk, log: mcpLog });
-  const liveness = trackMcpLiveness(client, name, cfg, stderrTail);
+  const client = createMcpClient(sdk, name, cfg, scopeId);
+  const { transport, autoDetectAdvert, stderrTail, warnings } = createMcpTransport({
+    name,
+    cfg,
+    sdk,
+    log: mcpLog,
+    strictEnv: cfg?._mixdogStrictEnv === true,
+    // Only an explicit sign-in (beginMcpOAuthLogin) is interactive; it may
+    // supply its own browser launcher to capture the authorization URL.
+    oauthOptions: {
+      interactive: options.interactive === true,
+      ...(typeof options.openBrowser === 'function' ? { openBrowser: options.openBrowser } : {}),
+    },
+  });
+  const liveness = trackMcpLiveness(client, name, cfg, stderrTail, transport);
   const pending = { scopeId, name, client, transport };
   _pendingConnects.add(pending);
   try {
@@ -1195,7 +1326,7 @@ async function connectServer(
       }
       throw new Error(`MCP server "${name}" connect aborted by shutdown`);
     }
-    const tools = mcpServerTools(name, capabilities, toolsResult.tools);
+    const tools = mcpServerTools(name, capabilities, toolsResult.tools, cfg);
     const registryKey = mcpServerRegistryKey(scopeId, name);
     servers.set(registryKey, {
       scopeId,
@@ -1209,6 +1340,7 @@ async function connectServer(
       capabilities,
       liveness,
       stderrTail,
+      warnings: warnings || [],
       generation: genAtStart,
     });
     if (capabilities?.tools?.listChanged && sdk.ToolListChangedNotificationSchema) {
@@ -1218,6 +1350,22 @@ async function connectServer(
     }
     _invalidateMcpToolFieldMemo();
     mcpLog(`[mcp] connected: ${tools.length} tools — ${tools.map((t) => t.name).join(', ')}\n`);
+  } catch (error) {
+    await _closeServer({ client, transport, liveness });
+    const scrubbed = scrubMcpOAuthError(error, cfg, oauthSecrets(transport));
+    // A server that only needs an OAuth sign-in is not a broken server: the
+    // sign-in was required, or an explicit one did not complete (cancelled,
+    // denied, timed out or a failed exchange after it started, or cancelled
+    // before it could). A failure after the sign-in obtained tokens is real.
+    const signInIncomplete =
+      transport.oauth &&
+      (isMcpOAuthReauthenticationRequired(error) ||
+        (transport.oauth.loginStarted && !transport.oauth.loginCompleted) ||
+        (transport.oauth.interactive && error?.code === MCP_CONNECT_CANCELLED));
+    if (signInIncomplete && scrubbed && typeof scrubbed === 'object') {
+      scrubbed.authRequired = true;
+    }
+    throw scrubbed;
   } finally {
     _pendingConnects.delete(pending);
   }
@@ -1230,7 +1378,7 @@ async function connectServer(
  * records the last error (parse/send hiccups do not mean the server died).
  * Handlers already installed on the client are chained, not replaced.
  */
-function trackMcpLiveness(client, name, cfg, stderrTail) {
+function trackMcpLiveness(client, name, cfg, stderrTail, transport) {
   const liveness = { alive: true, closing: false, closedAt: 0, lastError: '' };
   const priorClose = client.onclose;
   const priorError = client.onerror;
@@ -1244,22 +1392,35 @@ function trackMcpLiveness(client, name, cfg, stderrTail) {
     if (typeof priorClose === 'function') priorClose.apply(client, args);
   };
   client.onerror = (error, ...rest) => {
-    liveness.lastError = scrubMcpConnectionMessage(error instanceof Error ? error.message : String(error), cfg);
+    liveness.lastError = scrubMcpConnectionMessage(
+      error instanceof Error ? error.message : String(error),
+      cfg,
+      oauthSecrets(transport)
+    );
     if (typeof priorError === 'function') priorError.call(client, error, ...rest);
   };
   return liveness;
 }
 
-/** The SDK client for one server, advertising the project root when known. */
-function createMcpClient(sdk, name, cfg) {
-  const projectRoot = String(cfg?._mixdogProjectRoot || cfg?.cwd || '').trim();
+/** The SDK client for one server, advertising the project root when known.
+ *  A config marked `_mixdogRootsFollowScope` advertises its scope's current
+ *  root (setMcpScopeRoot) and is told when it changes. */
+function createMcpClient(sdk, name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID) {
+  const followScope = cfg?._mixdogRootsFollowScope === true;
+  const fixedRoot = String(cfg?._mixdogProjectRoot || cfg?.cwd || '').trim();
+  const currentRoot = () => (followScope ? _scopeRoots.get(normalizeMcpScopeId(scopeId)) || fixedRoot : fixedRoot);
   const client = new sdk.Client(
     { name: `mixdog-agent/${name}`, version: '1.0.0' },
-    { capabilities: projectRoot ? { roots: { listChanged: false } } : {} }
+    {
+      capabilities: followScope || fixedRoot ? { roots: { listChanged: followScope } } : {},
+      jsonSchemaValidator: createLazyOutputValidator(sdk.AjvJsonSchemaValidator),
+    }
   );
-  if (projectRoot && sdk.ListRootsRequestSchema) {
+  if ((followScope || fixedRoot) && sdk.ListRootsRequestSchema) {
     client.setRequestHandler(sdk.ListRootsRequestSchema, async () => {
-      const rootPath = resolve(projectRoot);
+      const root = currentRoot();
+      if (!root) return { roots: [] };
+      const rootPath = resolve(root);
       return {
         roots: [
           {
@@ -1273,15 +1434,63 @@ function createMcpClient(sdk, name, cfg) {
   return client;
 }
 
-/** Protocol tools under the `mcp__<server>__` prefix plus the feature tools. */
-function mcpServerTools(name, capabilities, rawTools) {
-  const protocolTools = (rawTools || []).map((t) => ({
-    name: `mcp__${name}__${t.name}`,
-    description: t.description || '',
-    inputSchema: t.inputSchema || { type: 'object', properties: {} },
-    ...(t.annotations && typeof t.annotations === 'object' ? { annotations: t.annotations } : {}),
-  }));
-  return [...protocolTools, ...mcpFeatureTools(name, capabilities, protocolTools)];
+/**
+ * Set the root advertised by `scopeId`'s scope-following servers (plugin
+ * servers, whose roots track the session cwd) and notify the connected ones
+ * when it changed. No reconnect: the connection and its tools stay as they are.
+ */
+export function setMcpScopeRoot(scopeId, root) {
+  const normalized = normalizeMcpScopeId(scopeId);
+  const next = String(root || '').trim();
+  if ((_scopeRoots.get(normalized) || '') === next) return;
+  if (next) _scopeRoots.set(normalized, next);
+  else _scopeRoots.delete(normalized);
+  for (const [, server] of scopedServerEntries(normalized)) {
+    if (server.cfg?._mixdogRootsFollowScope !== true) continue;
+    Promise.resolve()
+      .then(() => server.client?.sendRootsListChanged?.())
+      // A server that rejects the roots notification keeps its previous roots.
+      .catch(() => {});
+  }
+}
+
+/** The connected server and tool definition a prefixed tool name refers to.
+ *  The name's server part finds it directly; a name shortened to fit provider
+ *  limits is found by scanning this scope's servers. A known server without
+ *  the tool still resolves (definition null) so the call reaches the server. */
+function resolveMcpToolTarget(scopeId, name) {
+  const match = MCP_TOOL_NAME_RE.exec(String(name || ''));
+  if (!match) return null;
+  const direct = scopedServer(scopeId, match[1]);
+  const directTool = direct?.tools?.find((tool) => tool.name === name);
+  if (directTool) return { server: direct, definition: directTool };
+  for (const [, server] of scopedServerEntries(scopeId)) {
+    const definition = server.tools?.find((tool) => tool.name === name);
+    if (definition) return { server, definition };
+  }
+  return direct ? { server: direct, definition: null } : null;
+}
+
+/** Protocol tools under the `mcp__<server>__` prefix plus the feature tools.
+ *  Names that would exceed provider limits are shortened deterministically
+ *  (`providerSafeMcpToolName`); a tool whose name was shortened carries the
+ *  server's own tool name as `mcpToolName` and its server as `mcpServerName`.
+ *  A plugin-declared server's tools carry its owner as `mcpPluginId`, so
+ *  scope filtering never has to infer ownership from the server name. */
+function mcpServerTools(name, capabilities, rawTools, cfg) {
+  const protocolTools = (rawTools || []).map((t) => {
+    const safeName = providerSafeMcpToolName(name, t.name);
+    return {
+      name: safeName,
+      ...(safeName === `mcp__${name}__${t.name}` ? {} : { mcpToolName: t.name, mcpServerName: name }),
+      description: t.description || '',
+      inputSchema: t.inputSchema || { type: 'object', properties: {} },
+      ...(t.annotations && typeof t.annotations === 'object' ? { annotations: t.annotations } : {}),
+    };
+  });
+  const tools = [...protocolTools, ...mcpFeatureTools(name, capabilities, protocolTools)];
+  const pluginId = String(cfg?._mixdogPlugin?.id || '').trim();
+  return pluginId ? tools.map((tool) => ({ ...tool, mcpPluginId: pluginId })) : tools;
 }
 
 // tools/list_changed refreshes run one at a time per server connection, so an
@@ -1304,11 +1513,11 @@ async function runToolRefresh(registryKey, live, name, cfg, capabilities) {
       throw new Error('ListTools returned invalid shape: missing or non-array tools field');
     }
     if (servers.get(registryKey) !== live) return;
-    live.tools = mcpServerTools(name, capabilities, refreshed.tools);
+    live.tools = mcpServerTools(name, capabilities, refreshed.tools, cfg);
     _invalidateMcpToolFieldMemo();
   } catch (error) {
     mcpLog(
-      `[mcp-client] Failed to refresh tools for "${name}": ${scrubMcpConnectionMessage(error?.message || error, cfg)}\n`
+      `[mcp-client] Failed to refresh tools for "${name}": ${scrubMcpConnectionMessage(error?.message || error, cfg, oauthSecrets(live.transport))}\n`
     );
   }
 }
@@ -1317,25 +1526,34 @@ async function runToolRefresh(registryKey, live, name, cfg, capabilities) {
 export function _registerMcpServerForTest(scopeId, name, rawTools = [], options = {}) {
   const normalizedScopeId = normalizeMcpScopeId(scopeId);
   const registryKey = mcpServerRegistryKey(normalizedScopeId, name);
-  const tools = rawTools.map((tool) => ({
-    ...tool,
-    name: String(tool?.name || '').startsWith('mcp__')
-      ? String(tool.name)
-      : `mcp__${name}__${String(tool?.name || '')}`,
-    inputSchema: tool?.inputSchema || { type: 'object', properties: {} },
-  }));
+  const tools = rawTools.map((tool) => {
+    const prefixed = String(tool?.name || '').startsWith('mcp__');
+    const leaf = String(tool?.name || '');
+    const safeName = prefixed ? leaf : providerSafeMcpToolName(name, leaf);
+    const shortened = !prefixed && safeName !== `mcp__${name}__${leaf}`;
+    return {
+      ...tool,
+      name: safeName,
+      ...(shortened ? { mcpToolName: leaf, mcpServerName: name } : {}),
+      inputSchema: tool?.inputSchema || { type: 'object', properties: {} },
+    };
+  });
   const capabilities = options.capabilities || {};
+  const pluginId = String(options.cfg?._mixdogPlugin?.id || '').trim();
   const server = {
     scopeId: normalizedScopeId,
     registryKey,
     name,
-    tools: [...tools, ...mcpFeatureTools(name, capabilities, tools)],
+    tools: [...tools, ...mcpFeatureTools(name, capabilities, tools)].map((tool) =>
+      pluginId ? { ...tool, mcpPluginId: pluginId } : tool
+    ),
+    warnings: options.warnings || [],
     cfg: options.cfg || {},
     instructions: options.instructions || '',
     capabilities,
     liveness: { alive: true, closing: false, closedAt: 0, lastError: '' },
     stderrTail: typeof options.stderrTail === 'function' ? options.stderrTail : () => '',
-    transport: null,
+    transport: options.transport || null,
     client: {
       callTool:
         typeof options.callTool === 'function'

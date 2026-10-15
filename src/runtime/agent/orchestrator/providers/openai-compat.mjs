@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
-import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
+import { reloadProviderApiKey, resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { appendAgentTrace } from '../agent-trace.mjs';
 import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
@@ -13,7 +13,9 @@ import {
   _shouldFallbackXaiWsToHttp,
 } from './openai-compat-xai.mjs';
 import { withEffortRejectionFallback } from './effort-rejection.mjs';
+import { applyCompatErrorContract } from './openai-compat-error-contract.mjs';
 import { sendCompatResponses } from './openai-compat-responses.mjs';
+import { COMPAT_RETRY_POLICY, COMPAT_RETRY_PROFILES, XAI_COMPAT_RETRY_POLICY } from './openai-compat-retry-profile.mjs';
 import { sendCompatChat, recoverCompatNonStreaming } from './openai-compat-chat-send.mjs';
 import { sendXaiResponses, sendXaiResponsesWebSocket } from './openai-compat-xai-send.mjs';
 import {
@@ -69,8 +71,10 @@ export class OpenAICompatProvider {
   constructor(name, config) {
     const preset = PRESETS[name];
     const baseURL = assertSafeBaseURL(config.baseURL || preset?.baseURL || 'http://localhost:8080/v1', name);
-    const apiKey = config.apiKey || 'no-key';
+    const apiKey = resolveProviderApiKey(name, config) || 'no-key';
     this.name = name;
+    // A profiled provider's limits are final: no loop-level recovery cycles on top.
+    if (COMPAT_RETRY_PROFILES[name]) this.retryPolicy = name === 'xai' ? XAI_COMPAT_RETRY_POLICY : COMPAT_RETRY_POLICY;
     this.config = config;
     this.baseURL = baseURL;
     this.apiKey = apiKey;
@@ -121,7 +125,7 @@ export class OpenAICompatProvider {
   reloadApiKey() {
     try {
       const preset = PRESETS[this.name];
-      const newKey = getAgentApiKey(this.name) || this.config.apiKey;
+      const newKey = reloadProviderApiKey(this.name, this.config);
       const baseURL = assertSafeBaseURL(
         this.config.baseURL || preset?.baseURL || 'http://localhost:8080/v1',
         this.name
@@ -138,6 +142,12 @@ export class OpenAICompatProvider {
     }
   }
   async send(messages, model, tools, sendOpts) {
+    // A keyless-constructed instance picks up the key once it is available.
+    const resolvedKey = resolveProviderApiKey(this.name, this.config) || 'no-key';
+    if (resolvedKey !== this.apiKey) {
+      this.apiKey = resolvedKey;
+      this.client = this._createClient(resolvedKey);
+    }
     try {
       return await this._doSend(messages, model, tools, sendOpts);
     } catch (err) {
@@ -162,9 +172,19 @@ export class OpenAICompatProvider {
   }
   async _doSend(messages, model, tools, sendOpts) {
     const useModel = model || this.defaultModel;
-    return withEffortRejectionFallback(this.name, useModel, sendOpts || {}, this.config?.reasoningEffort, (opts) =>
-      this._sendWithOpts(messages, useModel, tools, opts)
-    );
+    try {
+      return await withEffortRejectionFallback(
+        this.name,
+        useModel,
+        sendOpts || {},
+        this.config?.reasoningEffort,
+        (opts) => this._sendWithOpts(messages, useModel, tools, opts)
+      );
+    } catch (err) {
+      // Every provider built on this transport (custom, grok, muse, mimo,
+      // command-code, local) leaves through here with the boundary contract.
+      throw applyCompatErrorContract(err);
+    }
   }
   async _sendWithOpts(messages, useModel, tools, opts) {
     // Re-warm a kept-alive socket to the provider origin before the turn so

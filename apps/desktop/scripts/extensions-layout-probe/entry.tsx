@@ -69,6 +69,7 @@ const servers = [
     name: 'plugin-example',
     enabled: true,
     source: 'plugin',
+    owner: { kind: 'plugin', id: 'example-plugin', key: 'example' },
     connected: true,
     config: { type: 'stdio', command: 'node' },
   },

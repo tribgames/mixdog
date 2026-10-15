@@ -15,14 +15,14 @@ type ReplyScreenshotHost = Pick<BrowserReplyHost, 'state' | 'captureScreenshot' 
 /** Where a screenshot goes: into the reply, or beside the run when the caller
  *  asked to keep pixels out of the conversation. A frame that cannot be
  *  written stays in the reply rather than disappearing. */
-export function attachFrame(
+export async function attachFrame(
   result: BrowserCommandResult,
   command: BrowserCommand,
   capture: { mimeType: string; data: string },
   frameId: string
-): BrowserCommandResult {
+): Promise<BrowserCommandResult> {
   if (String(command.image_output || 'inline') === 'file') {
-    const stored = persistFrameImage('browser', String(command.session_id || 'browser'), frameId, capture);
+    const stored = await persistFrameImage('browser', String(command.session_id || 'browser'), frameId, capture);
     if (stored) {
       result.text += `\n\nFrame written to ${stored.path} (${stored.bytes} bytes).`;
       return result;
@@ -52,5 +52,5 @@ export async function attachScreenshot(
     host.bindVisualGrounding(guest, refSet, capture);
     result.text += `\n\nVisual screenshot: ${refSet.snapshotId} is ${capture.width}x${capture.height} image px; viewport ${refSet.viewportWidth}x${refSet.viewportHeight} CSS px. Coordinate actions require this snapshotId and use image-pixel coordinates.`;
   }
-  attachFrame(result, command, capture, refSet.snapshotId);
+  await attachFrame(result, command, capture, refSet.snapshotId);
 }
