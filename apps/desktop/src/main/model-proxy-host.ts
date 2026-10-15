@@ -1205,6 +1205,12 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
   const now = modules.now ?? Date.now;
   const keys = new Map<string, { value: string | null; at: number }>();
   let chain: Promise<unknown> = Promise.resolve();
+  const keyEnvironment = (entry: Record<string, unknown>) =>
+    entry.type === 'custom' && entry.auth !== 'none' && typeof entry.apiKeyEnv === 'string' ? entry.apiKeyEnv : '';
+  const credentialState = (name: string, entry: Record<string, unknown>) => {
+    const environment = keyEnvironment(entry);
+    return environment ? (process.env[environment] ? 'present' : 'absent') : modules.probeAuth(name, entry);
+  };
 
   /** Applies the current availability plus the keys loaded so far; serialized
    *  so a call never observes another call's half-built registry. */
@@ -1213,7 +1219,7 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
       const available = record(modules.loadConfig({ secrets: 'presence' })?.providers);
       const config: Record<string, unknown> = {};
       for (const [name, entry] of Object.entries(available)) {
-        const key = keys.get(name)?.value;
+        const key = keyEnvironment(record(entry)) ? null : keys.get(name)?.value;
         config[name] = key ? { ...record(entry), apiKey: key } : entry;
       }
       try {
@@ -1243,7 +1249,7 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
         if (typeof excludes === 'boolean') traits.inputExcludesCache = excludes;
         if (typeof instance?.nativePdf === 'boolean') traits.nativePdf = instance.nativePdf;
         const configured = record(available[name]);
-        const authState = modules.probeAuth(name, configured);
+        const authState = credentialState(name, configured);
         const configuredEnabled = configured.enabled === true || configured.credentialProbeUnavailable === true;
         providers[name] = {
           ...(stripModelProxySecrets(record(available[name])) as Record<string, unknown>),
@@ -1259,9 +1265,12 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
     async provider(name) {
       const available = record(record(modules.loadConfig({ secrets: 'presence' })?.providers)[name]);
       if (available.enabled !== true && available.credentialProbeUnavailable !== true) return undefined;
-      if (modules.probeAuth(name, available) === 'absent') return undefined;
+      if (credentialState(name, available) === 'absent') return undefined;
       const cached = keys.get(name);
-      if (!cached || now() - cached.at > API_KEY_TTL_MS) {
+      // A named environment variable is the only key source for this route.
+      // The adapter resolves it on the PC; never read a fallback keychain key.
+      if (keyEnvironment(available)) keys.delete(name);
+      else if (!cached || now() - cached.at > API_KEY_TTL_MS) {
         keys.set(name, { value: await modules.readApiKey(name), at: now() });
       }
       await sync();

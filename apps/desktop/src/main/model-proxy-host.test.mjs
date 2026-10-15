@@ -592,3 +592,36 @@ test('proxy readiness distinguishes missing credentials, transient probes, and e
   assert.equal((await read()).enabled, false);
   assert.equal(await runtime.provider('openai-oauth'), undefined);
 });
+
+
+test('custom environment credentials drive proxy readiness without a stored-key fallback', async (t) => {
+  const variable = 'MIXDOG_PROXY_ENV_CREDENTIAL_TEST';
+  const previous = process.env[variable];
+  t.after(() => { if (previous === undefined) delete process.env[variable]; else process.env[variable] = previous; });
+  const name = 'custom-proxy-env';
+  const available = { [name]: { type: 'custom', auth: 'key', enabled: true, apiKeyEnv: variable } };
+  const modules = pcModules(available, { [name]: 'stored-key-must-not-be-used' });
+  modules.probeAuth = () => 'absent'; // No conventional environment alias or keychain credential.
+  const { resolveProviderApiKey } = await import('../../../../src/runtime/shared/provider-api-key.mjs');
+  const init = modules.initProviders;
+  modules.initProviders = async (config) => {
+    await init(config);
+    modules.live.set(name, { send: async () => ({ content: resolveProviderApiKey(name, config[name]) }) });
+  };
+  const runtime = createModelProxyRuntime(modules);
+  const { channel } = connect(t, runtime);
+  process.env[variable] = 'environment-key-one';
+  const first = await runtime.providerConfig();
+  assert.equal(first.providers[name].enabled, true);
+  assert.equal(first.providers[name].authState, 'present');
+  assert.equal(JSON.stringify(first).includes('environment-key-one'), false, 'no key value crosses the config boundary');
+  const provider = new ModelProxyProvider(name, {}, channel);
+  assert.equal((await provider.send([], 'test-model', undefined, {})).content, 'environment-key-one');
+  process.env[variable] = 'environment-key-two';
+  assert.equal((await provider.send([], 'test-model', undefined, {})).content, 'environment-key-two');
+  delete process.env[variable];
+  modules.probeAuth = () => 'present'; // A stored key must not satisfy a missing named variable.
+  assert.equal((await runtime.providerConfig()).providers[name].enabled, false);
+  assert.equal(await runtime.provider(name), undefined);
+  assert.deepEqual(modules.keyReads, []);
+});
