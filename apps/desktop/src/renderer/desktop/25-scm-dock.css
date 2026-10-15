@@ -3093,6 +3093,23 @@ button.inline-diff-fold:hover {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
 }
+/* "This file is too large to display here. · Open in editor": the action
+   reads as an inline link. */
+.session-diff-open-in-editor {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mx-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.session-diff-open-in-editor:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.session-diff-open-in-editor:disabled {
+  color: var(--mx-text-faint);
+  cursor: default;
+}
 /* Ctrl+Tab MRU switcher: most recent first; releasing
    Ctrl commits the highlighted row. */
 .workspace-tab-switcher {

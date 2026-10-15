@@ -1056,3 +1056,127 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
   await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
   assert.equal(segment(), null, 'an empty history hides the segment');
 });
+
+const worktreeWorkspace = (overrides = {}) => ({
+  projectPath: '/repo',
+  repoCommonDir: '/repo/.git',
+  cwd: '/data/worktrees/fix-login',
+  worktreeId: 'wt-1',
+  branch: 'mixdog/fix-login',
+  baseCommit: 'abc123',
+  mergeTarget: 'main',
+  revision: 4,
+  transition: { state: 'idle', txId: null },
+  ...overrides,
+});
+
+test('the worktree segment shows only while the session works in a worktree', async (t) => {
+  const { root, document } = mount(t);
+  const segment = () => document.querySelector('.composer-island-seg-worktree');
+  const render = (workspace) => act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace }))));
+  await render(null);
+  assert.equal(segment(), null, 'no workspace, no segment');
+  await render(worktreeWorkspace({ worktreeId: null, cwd: '/repo', branch: 'main', mergeTarget: null }));
+  assert.equal(segment(), null, 'a session in the project folder shows no branch');
+  // The same session entering its worktree: the branch, its prefix and the base.
+  await render(worktreeWorkspace());
+  assert.equal(segment().querySelector('.composer-island-seg-prefix').textContent, 'mixdog/');
+  assert.equal(segment().querySelector('.composer-island-seg-text').textContent, 'mixdog/fix-login');
+  assert.equal(segment().querySelector('.composer-island-seg-sub').textContent, 'main');
+  assert.equal(segment().getAttribute('aria-expanded'), 'false');
+  // A worktree folder that went missing names itself instead.
+  await render(worktreeWorkspace({ transition: { state: 'recovery', txId: null } }));
+  assert.ok(segment().classList.contains('composer-island-seg-warning'));
+  assert.equal(segment().querySelector('.composer-island-seg-text').textContent, 'Worktree missing');
+});
+
+test('the worktree menu runs Merge through the confirm popup, shows conflicts in a popup and flashes the result', async (t) => {
+  const { root, document, window } = mount(t);
+  const calls = [];
+  let reply = { merged: false, target: 'main', commit: null, conflicts: ['src/login.ts', 'src/session.ts'] };
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    calls.push(request);
+    return { value: reply };
+  };
+  await act(async () =>
+    root.render(React.createElement(ComposerDock, dockProps({ workspace: worktreeWorkspace() })))
+  );
+  const segment = () => document.querySelector('.composer-island-seg-worktree');
+  const menu = () => document.querySelector('.worktree-island-menu');
+  const item = (id) => menu().querySelector(`[data-action-id="${id}"]`);
+  await act(async () => segment().click());
+  // A ⋯ menu, not an expanded island: the island keeps its pill.
+  assert.equal(menu().getAttribute('role'), 'menu');
+  assert.equal(document.querySelector('.composer-island').dataset.expanded, undefined);
+  assert.equal(segment().getAttribute('aria-expanded'), 'true');
+  assert.deepEqual(
+    [...menu().querySelectorAll('[role="menuitem"]')].map((node) => node.textContent),
+    ['Merge into main', 'Remove worktree']
+  );
+  assert.ok(item('remove').classList.contains('danger'));
+  const popup = () => document.querySelector('.settings-confirm-dialog');
+  const footer = () => [...popup().querySelectorAll('footer button')];
+  // Merge closes the menu and asks in the confirm popup: nothing runs yet.
+  await act(async () => item('merge').click());
+  assert.equal(menu(), null);
+  assert.equal(calls.length, 0);
+  assert.equal(popup().querySelector('h3').textContent, 'Merge mixdog/fix-login into main?');
+  assert.deepEqual(
+    footer().map((node) => node.textContent),
+    ['Cancel', 'Merge']
+  );
+  await act(async () => footer()[1].click());
+  assert.deepEqual(calls, [
+    {
+      capability: 'mergeWorkspace',
+      args: [{ confirmed: true, target: 'main', expectedRevision: 4, cleanup: true }],
+      sessionId: 'island-session',
+    },
+  ]);
+  // A conflicting preflight changed nothing: a popup names the files, with Close only.
+  assert.equal(popup().querySelector('h3').textContent, "Couldn't merge");
+  assert.match(popup().querySelector('p').textContent, /src\/login\.ts, src\/session\.ts/);
+  assert.deepEqual(
+    footer().map((node) => node.textContent),
+    ['Close']
+  );
+  await act(async () => footer()[0].click());
+  assert.equal(popup(), null);
+  // A clean merge flashes the result on the island.
+  reply = { merged: true, target: 'main', commit: 'def456' };
+  await act(async () => segment().click());
+  await act(async () => item('merge').click());
+  await act(async () => footer()[1].click());
+  assert.equal(popup(), null);
+  assert.equal(document.querySelector('.composer-island-flash').textContent, 'Merged mixdog/fix-login into main');
+});
+
+test('removing the worktree asks in a danger popup and a refusal shows in a popup', async (t) => {
+  const { root, document, window } = mount(t);
+  const calls = [];
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    calls.push(request);
+    throw new Error('WORKTREE_DIRTY: The worktree has uncommitted changes.');
+  };
+  await act(async () =>
+    root.render(React.createElement(ComposerDock, dockProps({ workspace: worktreeWorkspace() })))
+  );
+  const menu = () => document.querySelector('.worktree-island-menu');
+  const segment = () => document.querySelector('.composer-island-seg-worktree');
+  const popup = () => document.querySelector('.settings-confirm-dialog');
+  // Escape closes the menu and hands focus back to the segment.
+  await act(async () => segment().click());
+  await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+  assert.equal(menu(), null);
+  assert.equal(document.activeElement, segment());
+  await act(async () => segment().click());
+  await act(async () => menu().querySelector('[data-action-id="remove"]').click());
+  assert.equal(calls.length, 0);
+  assert.equal(popup().querySelector('h3').textContent, 'Remove this worktree?');
+  const confirm = popup().querySelector('footer button.danger');
+  assert.equal(confirm.textContent, 'Remove');
+  await act(async () => confirm.click());
+  assert.deepEqual(calls, [{ capability: 'removeWorktree', args: [{ expectedRevision: 4 }], sessionId: 'island-session' }]);
+  assert.equal(popup().querySelector('h3').textContent, "Couldn't remove the worktree");
+  assert.equal(popup().querySelector('p').textContent, 'The worktree has uncommitted changes.');
+});

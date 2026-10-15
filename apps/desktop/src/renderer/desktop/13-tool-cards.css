@@ -1710,7 +1710,7 @@
   font-size: var(--mx-font-code);
   line-height: var(--mx-line-ui);
 }
-.tool-activity-markdown .markdown-table {
+.tool-activity-markdown .markdown-table-frame {
   margin: 4px 0;
 }
 .tool-activity:not([data-surface="desktop"]).failed > .tool-activity-header .tool-icon,

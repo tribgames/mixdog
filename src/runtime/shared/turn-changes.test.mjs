@@ -37,8 +37,10 @@ const {
   completeAgentTurnReview,
   completeTurnSnapshot,
   getSessionReviewDiff,
+  getSessionReviewFilePatch,
   getTurnChanges,
   getTurnReviewDiff,
+  getTurnReviewFilePatch,
   reapplyTurnChanges,
   recordTurnDiffChanges,
   revertTurnChanges,
@@ -409,26 +411,24 @@ test('a non-Git turn records exact tracker patches and replays them', { skip }, 
   });
   recordTurnDiffChanges(sessionId, changes);
   await completeTurnSnapshot(sessionId);
-  const paths = ['edit.txt', 'gone.txt', 'made.txt', 'old name.txt', 'new name.txt', 'sub dir/파일.txt'];
+  const paths = ['blob.bin', 'edit.txt', 'gone.txt', 'made.txt', 'old name.txt', 'new name.txt', 'sub dir/파일.txt'];
   let reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
   assert.equal(reply.root, root);
   assert.deepEqual(
-    reply.files.map((file) => [file.path, file.oldPath || '', file.status, file.revertable]),
+    reply.files.map((file) => [file.path, file.oldPath || '', file.status, file.revertable, file.binary === true]),
     [
-      ['blob.bin', '', 'M', false],
-      ['edit.txt', '', 'M', true],
-      ['gone.txt', '', 'D', true],
-      ['made.txt', '', 'A', true],
-      ['new name.txt', 'old name.txt', 'R', true],
-      ['sub dir/파일.txt', '', 'M', true],
+      ['blob.bin', '', 'M', true, true],
+      ['edit.txt', '', 'M', true, false],
+      ['gone.txt', '', 'D', true, false],
+      ['made.txt', '', 'A', true, false],
+      ['new name.txt', 'old name.txt', 'R', true, false],
+      ['sub dir/파일.txt', '', 'M', true, false],
     ]
   );
-  // A non-revertable applied file refuses the whole-turn Undo.
-  assert.equal(reply.canUndo, false);
-  assert.match(reply.reason, /blob\.bin cannot be undone/);
-  await assert.rejects(revertTurnChanges(sessionId, 'cp', null, reply.revision), /blob\.bin cannot be undone/);
+  // Binary content replays as an exact full-index binary patch.
+  assert.equal(reply.canUndo, true, reply.reason);
   const after = readTree(root, paths);
-  for (const path of paths.filter((path) => !['old name.txt', 'blob.bin'].includes(path))) {
+  for (const path of paths.filter((path) => path !== 'old name.txt')) {
     reply = await revertTurnChanges(sessionId, 'cp', path, reply.revision);
   }
   assert.deepEqual(
@@ -440,10 +440,40 @@ test('a non-Git turn records exact tracker patches and replays them', { skip }, 
       ])
     )
   );
-  for (const path of ['edit.txt', 'gone.txt', 'made.txt', 'new name.txt', 'sub dir/파일.txt']) {
-    reply = await reapplyTurnChanges(sessionId, 'cp', path, reply.revision);
-  }
+  reply = await reapplyTurnChanges(sessionId, 'cp', null, reply.revision);
   assert.deepEqual(readTree(root, paths), after);
+  // A binary file changed since the turn refuses its Undo and keeps its bytes.
+  writeFileSync(join(root, 'blob.bin'), Buffer.from([9, 9, 9]));
+  await assert.rejects(revertTurnChanges(sessionId, 'cp', 'blob.bin', reply.revision), /undo failed; the worktree was not changed/);
+  assert.deepEqual(readFileSync(join(root, 'blob.bin')), Buffer.from([9, 9, 9]));
+});
+
+test('a line diff cut short to its replacement hunk still records an exact, replayable patch', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  // Over the line limit, so never Myers-diffed: one hunk between the common
+  // prefix and suffix, CR bytes and the missing final newline kept exactly.
+  const lines = Array.from({ length: 20_010 }, (_, index) => `line ${index}\r`);
+  const before = `${lines.join('\n')}\n`;
+  const edited = [...lines];
+  edited[5] = 'changed 5\r';
+  edited[20_000] = 'changed 20000\r';
+  const after = edited.join('\n');
+  const sessionId = 'fallback-replay';
+  const root = await plainTurn(sessionId, { 'long.txt': before }, { 'long.txt': after });
+  const live = await getTurnReviewDiff(root, sessionId);
+  assert.match(live.patch, /^@@ -3,20008 \+3,20008 @@$/m);
+  assert.doesNotMatch(live.patch, /Binary files/);
+  let reply = await getTurnChanges(sessionId, { checkpointId: 'cp', patch: true });
+  assert.deepEqual(
+    reply.files.map((file) => [file.path, file.status, file.revertable, file.additions, file.deletions]),
+    [['long.txt', 'M', true, 20_005, 20_005]]
+  );
+  assert.match(reply.patch, /^@@ -3,20008 \+3,20008 @@\n line 2\r\n line 3\r\n line 4\r\n-line 5\r\n/m);
+  assert.ok(reply.patch.endsWith('+line 20009\r\n\\ No newline at end of file\n'));
+  reply = await revertTurnChanges(sessionId, 'cp', null, reply.revision);
+  assert.equal(readFileSync(join(root, 'long.txt'), 'utf8'), before);
+  await reapplyTurnChanges(sessionId, 'cp', null, reply.revision);
+  assert.equal(readFileSync(join(root, 'long.txt'), 'utf8'), after);
 });
 
 /** One sealed non-Git turn: `before` states are what the tool recorded, the
@@ -514,7 +544,7 @@ test('a non-Git session review lists its workers’ edits beside the Lead’s, a
   const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
   // The worker runs its own session turn, which records its own change.
   await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'worker.txt', before: null, after: 'worker\n' }]);
-  await completeAgentTurnReview(worker);
+  completeAgentTurnReview(worker);
   recordTurnDiffChanges(lead, [
     { path: join(root, 'lead.txt'), displayPath: 'lead.txt', before: null, after: 'lead\n' },
   ]);
@@ -533,7 +563,7 @@ test('worker delete → Lead recreate nets to one M against the first-seen state
   const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
   // The worker deletes the file, then the Lead recreates it with new content.
   await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'note.txt', before: 'old\n', after: null }]);
-  await completeAgentTurnReview(worker);
+  completeAgentTurnReview(worker);
   await new Promise((resolve) => setTimeout(resolve, 5));
   recordTurnDiffChanges(lead, [
     { path: join(root, 'note.txt'), displayPath: 'note.txt', before: null, after: 'new\n' },
@@ -560,7 +590,7 @@ test('Lead delete → worker recreate (its own session turn) → Lead delete net
   const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
   writeFileSync(note, 'worker\n');
   await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'note.txt', before: null, after: 'worker\n' }]);
-  await completeAgentTurnReview(worker);
+  completeAgentTurnReview(worker);
   rmSync(note);
   recordTurnDiffChanges(lead, [{ path: note, displayPath: 'note.txt', before: 'worker\n', after: null }]);
   await completeTurnSnapshot(lead, token);
@@ -594,7 +624,7 @@ test('a worker rename old→middle and a Lead rename middle→new net to one R f
       after: 'content\n',
     },
   ]);
-  await completeAgentTurnReview(worker);
+  completeAgentTurnReview(worker);
   renameSync(middle, newFile);
   writeFileSync(newFile, 'content\nmore\n');
   recordTurnDiffChanges(lead, [
@@ -651,7 +681,7 @@ test('a Lead record re-sealed after its worker nets the Lead’s later edit last
   await new Promise((resolve) => setTimeout(resolve, 5));
   const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
   await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'note.txt', before: 'old\n', after: null }]);
-  await completeAgentTurnReview(worker);
+  completeAgentTurnReview(worker);
   // A completion wake reopens the turn; the Lead recreates the file and the
   // re-seal keeps the record's first createdAt.
   const wake = await beginTurnSnapshot(root, lead, { checkpointId: 'cp', continueTurn: true });
@@ -661,9 +691,11 @@ test('a Lead record re-sealed after its worker nets the Lead’s later edit last
   await completeTurnSnapshot(lead, wake);
   const leadRecord = await loadTurnChangeRecord(lead, 'cp');
   const workerRecord = await loadTurnChangeRecord(`${lead}-worker`, 'worker-cp');
+  // The completed worker's delete joined the Lead's own changes first, so the
+  // Lead's recreate nets old → new.
   assert.deepEqual(
     leadRecord.files.map((file) => [file.path, file.status]),
-    [['note.txt', 'A']]
+    [['note.txt', 'M']]
   );
   assert.ok(leadRecord.createdAt < workerRecord.createdAt);
   const [live, restarted] = await reviewTwice(root, lead);
@@ -684,7 +716,7 @@ test('a Lead edit that landed before its worker’s nets first in the session re
   ]);
   const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
   await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'note.txt', before: null, after: 'new\n' }]);
-  await completeAgentTurnReview(worker);
+  completeAgentTurnReview(worker);
   await new Promise((resolve) => setTimeout(resolve, 5));
   await completeTurnSnapshot(lead, token);
   const [live, restarted] = await reviewTwice(root, lead);
@@ -908,10 +940,198 @@ test('the session review stays under its patch budget and lists a file past it w
     await trackedTurn(sessionId, root, 'cp', edits);
     const review = await getSessionReviewDiff(root, sessionId);
     assert.equal(review.files.length, 3, name);
-    assert.equal(review.files.filter((file) => file.patchOmitted === true).length, 1, name);
-    assert.equal(review.patchTruncated, true, name);
+    const omitted = review.files.filter((file) => file.patchOmitted === true);
+    assert.deepEqual(
+      omitted.map((file) => [file.reason, file.additions]),
+      [['too_large', 1]],
+      name
+    );
+    assert.equal(review.diffTooLarge, undefined, name);
     assert.equal(review.complete, true, name);
     assert.ok(Buffer.byteLength(review.patch, 'utf8') <= MERGED_PATCH_MAX_BYTES, name);
+  }
+});
+
+test('a file patch past the per-file cap is listed with its counts and read on its own', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'baseline-file-patch';
+  const root = sessionRoot(sessionId);
+  const before = 'a\n'.repeat(300_000);
+  const after = 'b\n'.repeat(300_000);
+  writeTree(root, { 'big.txt': after, 'small.txt': 'new\n' });
+  await trackedTurn(sessionId, root, 'cp', [
+    { path: 'big.txt', before, after },
+    { path: 'small.txt', before: 'old\n', after: 'new\n' },
+  ]);
+  const review = await getSessionReviewDiff(root, sessionId);
+  const byPath = Object.fromEntries(review.files.map((file) => [file.path, file]));
+  assert.deepEqual(
+    [byPath['big.txt'].patchOmitted, byPath['big.txt'].reason, byPath['big.txt'].additions, byPath['big.txt'].deletions],
+    [true, 'too_large', 300_000, 300_000]
+  );
+  assert.equal(byPath['small.txt'].patchOmitted, undefined);
+  assert.match(review.patch, /^-old\n\+new$/m);
+  assert.doesNotMatch(review.patch, /big\.txt/);
+  assert.equal(review.diffTooLarge, undefined);
+
+  const whole = await getSessionReviewFilePatch(root, sessionId, byPath['big.txt'].id);
+  assert.equal(whole.patchOmitted, undefined);
+  assert.equal(whole.path, 'big.txt');
+  assert.equal(whole.patch.match(/^\+b$/gm).length, 300_000);
+  assert.equal(whole.patch.match(/^-a$/gm).length, 300_000);
+  assert.deepEqual(await getSessionReviewFilePatch(root, sessionId, 'missing.txt'), {
+    supported: true,
+    path: 'missing.txt',
+    patch: '',
+  });
+
+  // With nothing else to show, the whole reply says so.
+  writeTree(root, { 'small.txt': 'old\n' });
+  const alone = await getSessionReviewDiff(root, sessionId);
+  assert.deepEqual(
+    alone.files.map((file) => file.path),
+    ['big.txt']
+  );
+  assert.equal(alone.patch, '');
+  assert.equal(alone.diffTooLarge, true);
+});
+
+test('a current file past the source-read ceiling keeps its counts and reads whole on its own', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'baseline-large-current';
+  const root = sessionRoot(sessionId);
+  // 1.2 MB of new lines: past the 1 MiB source ceiling of a first state.
+  const big = `${'y'.repeat(99)}\n`.repeat(12_000);
+  const huge = 'h'.repeat(9 * 1024 * 1024);
+  writeTree(root, { 'big.txt': big, 'huge.txt': huge });
+  await beginTurnSnapshot(root, sessionId, { checkpointId: 'cp' });
+  recordTurnDiffChanges(sessionId, [
+    { path: join(root, 'big.txt'), displayPath: 'big.txt', before: null, after: big },
+    {
+      path: join(root, 'huge.txt'),
+      displayPath: 'huge.txt',
+      before: null,
+      after: { omitted: true, size: huge.length, reason: 'oversized' },
+    },
+  ]);
+  await completeTurnSnapshot(sessionId);
+  const shape = (review) =>
+    review.files.map(({ path, additions, patchOmitted, reason }) => [path, additions, patchOmitted, reason]);
+  // Measured, then answered from the review's cache, then after a restart.
+  for (const review of [await getSessionReviewDiff(root, sessionId), ...(await reviewTwice(root, sessionId))]) {
+    assert.deepEqual(shape(review), [
+      ['big.txt', 12_000, true, 'too_large'],
+      ['huge.txt', 0, true, 'too_large'],
+    ]);
+    assert.equal(review.diffTooLarge, true);
+  }
+  const whole = await getSessionReviewFilePatch(root, sessionId, 'big.txt');
+  assert.equal(whole.patchOmitted, undefined);
+  assert.equal(whole.patch.match(/^\+y{99}$/gm).length, 12_000);
+  // Past even the file read's ceiling: explicitly too large, never empty.
+  assert.deepEqual(await getSessionReviewFilePatch(root, sessionId, 'huge.txt'), {
+    supported: true,
+    path: 'huge.txt',
+    patch: '',
+    patchOmitted: true,
+    reason: 'too_large',
+  });
+});
+
+test('a list keeps no patch text past the inline cap; a file read measures only its own baseline', async () => {
+  const root = sessionRoot('targeted-read');
+  const before = Buffer.from('old\n');
+  const sha = createHash('sha256').update(before).digest('hex');
+  const names = ['big-1.txt', 'big-2.txt', 'big-3.txt', 'small.txt'];
+  // 1.2 MB of new lines each for the big files: past the 1 MiB inline cap.
+  writeTree(
+    root,
+    Object.fromEntries(names.map((name) => [name, name === 'small.txt' ? 'new\n' : `${'z'.repeat(99)}\n`.repeat(12_000)]))
+  );
+  const reads = [];
+  const baselines = {
+    createdAt: 1,
+    files: names.map((name) => ({
+      key: changePathKey(join(root, name)),
+      path: join(root, name),
+      root,
+      state: 'present',
+      status: 'captured',
+      size: before.length,
+      sha256: sha,
+      blob: `${sha}:${name}`,
+      at: 1,
+    })),
+    missing: [],
+    renames: new Map(),
+    cache: new Map(),
+    readBlob: async (entry) => {
+      reads.push(entry.path);
+      return before;
+    },
+  };
+  const base = { supported: true, root, files: [], patch: '', source: 'empty' };
+  const { sessionChangeReview } = await import('./turn-changes.mjs');
+  const inlineCap = 1024 * 1024;
+  const cachedTextBytes = () =>
+    Math.max(...[...baselines.cache.values()].map((entry) => Buffer.byteLength(entry.change?.text || '', 'utf8')));
+
+  const review = await sessionChangeReview(base, { baselines });
+  assert.deepEqual(
+    review.files.map(({ path, additions, patchOmitted, reason }) => [path, additions, patchOmitted, reason]),
+    [
+      ['big-1.txt', 12_000, true, 'too_large'],
+      ['big-2.txt', 12_000, true, 'too_large'],
+      ['big-3.txt', 12_000, true, 'too_large'],
+      ['small.txt', 1, undefined, undefined],
+    ]
+  );
+  assert.ok(review.files.every((file) => !Object.hasOwn(file, 'patch')));
+  assert.doesNotMatch(review.patch, /z{99}/);
+  assert.ok(cachedTextBytes() <= inlineCap, 'no measurement past the inline cap is kept');
+  assert.equal(reads.length, 4);
+
+  // One file's read measures that file alone, with its whole text.
+  reads.length = 0;
+  const whole = await sessionChangeReview(base, { baselines, file: join(root, 'big-2.txt') });
+  assert.deepEqual(reads, [join(root, 'big-2.txt')]);
+  assert.equal(whole.path, 'big-2.txt');
+  assert.equal(whole.patch.match(/^\+z{99}$/gm).length, 12_000);
+  assert.ok(cachedTextBytes() <= inlineCap, 'the whole text is not kept either');
+  reads.length = 0;
+  assert.equal((await sessionChangeReview(base, { baselines, file: 'big-3.txt' })).path, 'big-3.txt');
+  assert.deepEqual(reads, [join(root, 'big-3.txt')]);
+});
+
+test('a turn patch dropped from its record for size stays too large after a restart', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'turn-record-too-large';
+  // Every line replaced: a ~10 MiB patch, past what a record keeps.
+  const before = `${'a'.repeat(1023)}\n`.repeat(5_000);
+  const after = `${'b'.repeat(1023)}\n`.repeat(5_000);
+  const root = await plainTurn(sessionId, { 'big.txt': before, 'small.txt': 'old\n' }, { 'big.txt': after, 'small.txt': 'new\n' });
+  const shape = (review) =>
+    review.files.map(({ path, additions, deletions, patchOmitted, reason }) => [path, additions, deletions, patchOmitted, reason]);
+  for (const restart of [false, true]) {
+    if (restart) _resetTurnSnapshotForTest();
+    const review = await getTurnReviewDiff(root, sessionId);
+    assert.deepEqual(
+      shape(review),
+      [
+        ['big.txt', 5_000, 5_000, true, 'too_large'],
+        ['small.txt', 1, 1, undefined, undefined],
+      ],
+      `restart: ${restart}`
+    );
+    assert.match(review.patch, /^-old\n\+new$/m);
+    assert.deepEqual(await getTurnReviewFilePatch(root, sessionId, 'big.txt'), {
+      supported: true,
+      path: 'big.txt',
+      patch: '',
+      patchOmitted: true,
+      reason: 'too_large',
+    });
+    assert.match((await getTurnReviewFilePatch(root, sessionId, 'small.txt')).patch, /^\+new$/m);
   }
 });
 
@@ -1130,12 +1350,14 @@ test('a file under a parent junction is not read, nor is NUL content diffed as t
   if (linked) assert.equal(await currentText(root, join(alias, 'f.txt')), undefined);
   writeFileSync(join(root, 'bin.dat'), Buffer.from('text\0more\n'));
   assert.equal(await currentText(root, 'bin.dat'), undefined);
-  const file = await trackedChangeFile({ oldPath: 'bin.dat', newPath: 'bin.dat', before: null, after: Buffer.from('a\0b') });
+  const file = trackedChangeFile({ oldPath: 'bin.dat', newPath: 'bin.dat', before: null, after: Buffer.from('a\0b') });
   assert.equal(file.binary, true);
-  assert.equal(file.revertable, false);
+  // Binary content replays as a git binary patch, never as text hunks.
+  assert.equal(file.revertable, true);
+  assert.match(file.patch.toString('utf8'), /^GIT binary patch$/m);
 });
 
-// ── Island count (uncommitted vs HEAD) and Delete history ──────────────────
+// ── Delete history ──────────────────────────────────────────────────────────
 
 function git(cwd, ...args) {
   const result = spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], {
@@ -1159,63 +1381,26 @@ function gitRepo(name, files) {
   return realpathSync.native(repo);
 }
 
-/** One sealed Git turn that writes `edits` while it runs. */
+/** One sealed Git turn whose own tools write `edits` while it runs. */
 async function gitTurn(repo, sessionId, checkpointId, edits) {
   await beginTurnSnapshot(repo, sessionId, { checkpointId });
+  const changes = Object.entries(edits).map(([path, after]) => ({
+    path: join(repo, path),
+    displayPath: path,
+    before: existsSync(join(repo, path)) ? readFileSync(join(repo, path)) : null,
+    after,
+  }));
   writeTree(repo, edits);
+  recordTurnDiffChanges(sessionId, changes);
   await completeTurnSnapshot(sessionId);
 }
 
-const islandShape = (review) =>
-  (review.uncommittedFiles || []).map((file) => [file.path, file.status, file.additions, file.deletions]);
 const gitState = (repo) => [
   git(repo, 'rev-parse', 'HEAD'),
   git(repo, 'status', '--porcelain'),
   git(repo, 'diff', '--cached'),
 ];
-
-test('the island counts only session files still differing from HEAD; the session review keeps them all', {
-  skip,
-}, async () => {
-  _resetTurnSnapshotForTest();
-  const sessionId = 'island-head';
-  const repo = gitRepo(sessionId, { 'a.txt': 'a\n', 'b.txt': 'b\n', 'user.txt': 'u\n' });
-  // Dirty before the session touched anything: never the session's.
-  writeTree(repo, { 'user.txt': 'user edit\n' });
-  await gitTurn(repo, sessionId, 'cp', { 'a.txt': 'a\nA2\n', 'b.txt': 'b\nB2\nB3\n', 'new.txt': 'n\n' });
-  let review = await getSessionReviewDiff(repo, sessionId);
-  assert.deepEqual(islandShape(review), [
-    ['a.txt', 'M', 1, 0],
-    ['b.txt', 'M', 2, 0],
-    ['new.txt', 'A', 1, 0],
-  ]);
-  assert.equal(review.historyTurns, 1);
-
-  // Committing a file removes it; staging alone does not.
-  git(repo, 'add', 'a.txt', 'new.txt');
-  git(repo, 'commit', '-qm', 'take a');
-  git(repo, 'add', 'b.txt');
-  review = await getSessionReviewDiff(repo, sessionId);
-  assert.deepEqual(islandShape(review), [['b.txt', 'M', 2, 0]]);
-  // The Changes panel's session-wide set is unchanged by the commit.
-  assert.deepEqual(review.files.map((file) => file.path).sort(), ['a.txt', 'b.txt', 'new.txt']);
-
-  // A file returned to its HEAD bytes disappears, across a restart too.
-  writeTree(repo, { 'b.txt': 'b\n' });
-  _resetTurnSnapshotForTest();
-  review = await getSessionReviewDiff(repo, sessionId);
-  assert.deepEqual(islandShape(review), []);
-  assert.equal(review.complete, true);
-});
-
-test('a non-Git session keeps its session-based count (no HEAD set)', { skip }, async () => {
-  _resetTurnSnapshotForTest();
-  const sessionId = 'island-plain';
-  const root = await plainTurn(sessionId, { 'a.txt': 'a\n' }, { 'a.txt': 'A\n' });
-  const review = await getSessionReviewDiff(root, sessionId);
-  assert.equal(review.uncommittedFiles, undefined);
-  assert.deepEqual(reviewShape(review), [['a.txt', '', 'M', 1, 1]]);
-});
+const historyTurns = async (repo, sessionId) => (await getTurnReviewDiff(repo, sessionId)).historyTurns;
 
 test('Delete history empties the records for good, never touches files or Git, and tracks later edits', {
   skip,
@@ -1226,6 +1411,7 @@ test('Delete history empties the records for good, never touches files or Git, a
   await gitTurn(repo, sessionId, 'cp-1', { 'a.txt': 'a\nA2\n' });
   await gitTurn(repo, sessionId, 'cp-2', { 'a.txt': 'a\nA2\nA3\n' });
   assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp-2' })).status, 'ready');
+  assert.equal(await historyTurns(repo, sessionId), 2);
   const before = gitState(repo);
   const disk = readTree(repo, ['a.txt', 'c.txt']);
 
@@ -1241,10 +1427,10 @@ test('Delete history empties the records for good, never touches files or Git, a
     if (restart) _resetTurnSnapshotForTest();
     const review = await getSessionReviewDiff(repo, sessionId);
     // Complete and empty: nothing (the transcript included) may resurface it.
-    assert.deepEqual([review.files, review.complete, review.historyTurns], [[], true, 0]);
-    assert.deepEqual(islandShape(review), []);
+    assert.deepEqual([review.files, review.complete], [[], true]);
     assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp-1' })).status, 'missing');
-    assert.deepEqual((await getTurnReviewDiff(repo, sessionId)).files, []);
+    const turnReview = await getTurnReviewDiff(repo, sessionId);
+    assert.deepEqual([turnReview.files, turnReview.historyTurns], [[], 0]);
   }
 
   // Edits from the next turn on are tracked again; the old ones stay forgotten.
@@ -1254,8 +1440,8 @@ test('Delete history empties the records for good, never touches files or Git, a
     review.files.map((file) => file.path),
     ['c.txt']
   );
-  assert.deepEqual(islandShape(review), [['c.txt', 'M', 1, 0]]);
-  assert.equal(review.historyTurns, 1);
+  assert.equal(Object.hasOwn(review, 'historyTurns'), false);
+  assert.equal(await historyTurns(repo, sessionId), 1);
 });
 
 test('a worker finishing while history is being deleted cannot write the old turn back', { skip }, async () => {
@@ -1266,14 +1452,20 @@ test('a worker finishing while history is being deleted cannot write the old tur
   await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-old' });
   const worker = beginAgentTurnReview(sessionId, `${sessionId}-worker`, { agent: 'worker' });
   writeTree(repo, { 'a.txt': 'a\nA2\n' });
+  recordTurnDiffChanges(sessionId, [
+    { path: join(repo, 'a.txt'), displayPath: 'a.txt', before: 'a\n', after: 'a\nA2\n' },
+  ]);
   await completeTurnSnapshot(sessionId);
   assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp-old' })).status, 'ready');
 
+  writeTree(repo, { 'w.txt': 'w\nW2\n' });
+  recordTurnDiffChanges(`${sessionId}-worker`, [
+    { path: join(repo, 'w.txt'), displayPath: 'w.txt', before: 'w\n', after: 'w\nW2\n' },
+  ]);
   // The deletion starts; before it lands the late worker completes and
   // queues a re-seal of the old turn with its tracker.
   const clearing = clearSessionChangeHistory(sessionId);
-  writeTree(repo, { 'w.txt': 'w\nW2\n' });
-  await completeAgentTurnReview(worker, ['diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1 +1,2 @@\n w\n+W2\n']);
+  completeAgentTurnReview(worker, ['diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1 +1,2 @@\n w\n+W2\n']);
   assert.deepEqual(await clearing, { turns: 1 });
   // Drain the session's change lock: anything queued behind the delete has run.
   await revertTurnChanges(sessionId, 'drain', null, 1).catch(() => {});
@@ -1282,7 +1474,8 @@ test('a worker finishing while history is being deleted cannot write the old tur
     if (restart) _resetTurnSnapshotForTest();
     assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp-old' })).status, 'missing');
     const review = await getSessionReviewDiff(repo, sessionId);
-    assert.deepEqual([review.files, review.complete, review.historyTurns], [[], true, 0]);
+    assert.deepEqual([review.files, review.complete], [[], true]);
+    assert.equal(await historyTurns(repo, sessionId), 0);
   }
 });
 

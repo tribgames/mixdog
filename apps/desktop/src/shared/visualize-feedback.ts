@@ -26,6 +26,7 @@ import {
   type VisualizeElementRole,
   visualizeElementRole,
 } from './visualize-comment-kinds';
+import { withHeadScript } from './sandbox-storage-shim';
 import { MAX_VISUALIZE_TWEAKS_CHARS, type VisualizeTweakOp } from './visualize-tweaks';
 
 export const VISUALIZE_FEEDBACK_TAG = '__mixdogVisualize';
@@ -928,9 +929,5 @@ export function visualizeFeedbackScriptFor(targetExpression: string): string {
  *  its head (the sandboxed frame runs inline scripts through the relay's
  *  /preview-frame page). */
 export function withVisualizeFeedbackScript(html: string): string {
-  const tag = `<script>${visualizeFeedbackScript()}</script>`;
-  const head = /<head(?:\s[^>]*)?>/i.exec(html);
-  if (!head) return `${tag}${html}`;
-  const at = head.index + head[0].length;
-  return `${html.slice(0, at)}${tag}${html.slice(at)}`;
+  return withHeadScript(html, visualizeFeedbackScript());
 }

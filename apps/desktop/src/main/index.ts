@@ -77,6 +77,7 @@ import { registerSshHostIpc } from './ipc-ssh-hosts';
 import { createBrowserHost, type BrowserHost } from './browser/host';
 import { createComputerHost, type ComputerHost } from './computer';
 import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
+import type { DesktopTerminalRunRequest } from '../shared/terminal-command';
 import { TerminalBridgeServer } from './terminal/bridge-server';
 import { requiredVisualizeTabCommand } from './ipc-validation';
 import { VisualizeBridgeServer } from './visualize/bridge-server';
@@ -668,15 +669,26 @@ let pendingPrimaryActivation = false;
 function activatePrimaryWindow(): void {
   pendingPrimaryActivation = !activateDesktopWindow(mainWindow);
 }
-// Agent `terminal` tool: a read-only loopback bridge over the daemon-owned
-// PTYs. A hidden always-on built-in (like Media Studio): it runs for the app's
-// lifetime, so headless runs without the desktop app never see the tool. It
-// serves this PC's agents, so it reads this PC's daemon.
+// Agent `terminal` tool: a loopback bridge over the daemon-owned PTYs that
+// lists, reads and runs commands in a session's side terminal. A hidden
+// always-on built-in (like Media Studio): it runs for the app's lifetime, so
+// headless runs without the desktop app never see the tool. It serves this
+// PC's agents, so it uses this PC's daemon.
+const requestTerminalRun = (request: DesktopTerminalRunRequest): boolean => {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return false;
+  mainWindow.webContents.send(DESKTOP_IPC.terminalRunRequested, request);
+  return true;
+};
 const terminalBridge = new TerminalBridgeServer<TerminalBridgeCommand>({
   dataDirectory: bridgeDiscoveryDirectory,
   execute: createTerminalCommandExecutor({
     sessionTabs: async (sessionId) =>
       (await localService.invokeDesktopOperation('termSessionTabs', [sessionId])) as SessionTerminalTab[],
+    write: async (id, data) => {
+      await localService.invokeDesktopOperation('termWrite', [id, data]);
+    },
+    revealTerminal: (sessionId) => requestTerminalRun({ sessionId }),
+    openTerminal: (sessionId, command) => requestTerminalRun({ sessionId, command }),
     snapshot: async (id, since) =>
       (await localService.invokeDesktopOperation('termSnapshot', since === undefined ? [id] : [id, since])) as {
         text: string;
@@ -1755,6 +1767,9 @@ function installLocalWindowFeatures(window: BrowserWindow): BrowserHost {
   // agent bridge (the runtime's `browser` tool) is opt-in and only serves
   // while the Browser Use setting is on, mirroring Computer Use.
   const windowBrowserHost = createBrowserHost(window, {
+    // Only this PC's own window has a browser host (server windows refuse the
+    // browser pane and agent bridge), so its sessions always work locally.
+    remoteSession: false,
     onDiagnostic: (event, data) => diagnostics?.write(event, data),
     // Live frames and explicit reveal/hide requests reach paired clients
     // through the service, which owns the relay and per-client pacing.

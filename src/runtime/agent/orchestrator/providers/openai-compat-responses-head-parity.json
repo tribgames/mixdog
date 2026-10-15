@@ -1,0 +1,2901 @@
+{
+ "compat/opencode-go/gpt-5.5/native": {
+  "model": "gpt-5.5",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/opencode-go/gpt-5.5/oauth": {
+  "model": "gpt-5.5",
+  "input": [
+   {
+    "role": "system",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "sys"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "working"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "looking"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "sk1",
+    "name": "Skill",
+    "arguments": "{\"name\":\"s\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "sk1",
+    "output": "skill"
+   },
+   {
+    "type": "function_call",
+    "call_id": "f2",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "f2",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/opencode-go/gpt-5.5/own-search-output": {
+  "model": "gpt-5.5",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/opencode-go/gpt-5.5/server-replay": {
+  "model": "gpt-5.5",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "find tools"
+     }
+    ]
+   },
+   {
+    "type": "reasoning",
+    "id": "rs_1",
+    "encrypted_content": "ENC",
+    "summary": []
+   },
+   {
+    "type": "tool_search_call",
+    "id": "ts_srv",
+    "call_id": null,
+    "execution": "server",
+    "arguments": {
+     "query": "q"
+    }
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts_srv",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "tool_search_output",
+    "id": "tso_srv",
+    "call_id": null,
+    "execution": "server",
+    "tools": []
+   },
+   {
+    "type": "function_call",
+    "call_id": "c1",
+    "name": "Read",
+    "arguments": "{}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "c1",
+    "output": "ok"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/muse-code/muse-spark/native": {
+  "model": "muse-spark",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/muse-code/muse-spark/oauth": {
+  "model": "muse-spark",
+  "input": [
+   {
+    "role": "system",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "sys"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "working"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "looking"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "sk1",
+    "name": "Skill",
+    "arguments": "{\"name\":\"s\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "sk1",
+    "output": "skill"
+   },
+   {
+    "type": "function_call",
+    "call_id": "f2",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "f2",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/muse-code/muse-spark/own-search-output": {
+  "model": "muse-spark",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/muse-code/muse-spark/server-replay": {
+  "model": "muse-spark",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "find tools"
+     }
+    ]
+   },
+   {
+    "type": "reasoning",
+    "id": "rs_1",
+    "encrypted_content": "ENC",
+    "summary": []
+   },
+   {
+    "type": "tool_search_call",
+    "id": "ts_srv",
+    "call_id": null,
+    "execution": "server",
+    "arguments": {
+     "query": "q"
+    }
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts_srv",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "tool_search_output",
+    "id": "tso_srv",
+    "call_id": null,
+    "execution": "server",
+    "tools": []
+   },
+   {
+    "type": "function_call",
+    "call_id": "c1",
+    "name": "Read",
+    "arguments": "{}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "c1",
+    "output": "ok"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/command-code/gpt-5.5/native": {
+  "model": "gpt-5.5",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/command-code/gpt-5.5/oauth": {
+  "model": "gpt-5.5",
+  "input": [
+   {
+    "role": "system",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "sys"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "working"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "looking"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "sk1",
+    "name": "Skill",
+    "arguments": "{\"name\":\"s\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "sk1",
+    "output": "skill"
+   },
+   {
+    "type": "function_call",
+    "call_id": "f2",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "f2",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/command-code/gpt-5.5/own-search-output": {
+  "model": "gpt-5.5",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/command-code/gpt-5.5/server-replay": {
+  "model": "gpt-5.5",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "find tools"
+     }
+    ]
+   },
+   {
+    "type": "reasoning",
+    "id": "rs_1",
+    "encrypted_content": "ENC",
+    "summary": []
+   },
+   {
+    "type": "tool_search_call",
+    "id": "ts_srv",
+    "call_id": null,
+    "execution": "server",
+    "arguments": {
+     "query": "q"
+    }
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts_srv",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "tool_search_output",
+    "id": "tso_srv",
+    "call_id": null,
+    "execution": "server",
+    "tools": []
+   },
+   {
+    "type": "function_call",
+    "call_id": "c1",
+    "name": "Read",
+    "arguments": "{}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "c1",
+    "output": "ok"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/custom-cmd/openai/gpt-5.6-sol/native": {
+  "model": "openai/gpt-5.6-sol",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true,
+  "prompt_cache_key": "sess-1"
+ },
+ "compat/custom-cmd/openai/gpt-5.6-sol/oauth": {
+  "model": "openai/gpt-5.6-sol",
+  "input": [
+   {
+    "role": "system",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "sys"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "working"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "looking"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "sk1",
+    "name": "Skill",
+    "arguments": "{\"name\":\"s\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "sk1",
+    "output": "skill"
+   },
+   {
+    "type": "function_call",
+    "call_id": "f2",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "f2",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true,
+  "prompt_cache_key": "sess-1"
+ },
+ "compat/custom-cmd/openai/gpt-5.6-sol/own-search-output": {
+  "model": "openai/gpt-5.6-sol",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true,
+  "prompt_cache_key": "sess-1"
+ },
+ "compat/custom-cmd/openai/gpt-5.6-sol/server-replay": {
+  "model": "openai/gpt-5.6-sol",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "find tools"
+     }
+    ]
+   },
+   {
+    "type": "reasoning",
+    "id": "rs_1",
+    "encrypted_content": "ENC",
+    "summary": []
+   },
+   {
+    "type": "tool_search_call",
+    "id": "ts_srv",
+    "call_id": null,
+    "execution": "server",
+    "arguments": {
+     "query": "q"
+    }
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts_srv",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "tool_search_output",
+    "id": "tso_srv",
+    "call_id": null,
+    "execution": "server",
+    "tools": []
+   },
+   {
+    "type": "function_call",
+    "call_id": "c1",
+    "name": "Read",
+    "arguments": "{}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "c1",
+    "output": "ok"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true,
+  "prompt_cache_key": "sess-1"
+ },
+ "compat/openrouter/openai/gpt-5.5/native": {
+  "model": "openai/gpt-5.5",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/openrouter/openai/gpt-5.5/oauth": {
+  "model": "openai/gpt-5.5",
+  "input": [
+   {
+    "role": "system",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "sys"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "working"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "looking"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "sk1",
+    "name": "Skill",
+    "arguments": "{\"name\":\"s\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "sk1",
+    "output": "skill"
+   },
+   {
+    "type": "function_call",
+    "call_id": "f2",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "f2",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/openrouter/openai/gpt-5.5/own-search-output": {
+  "model": "openai/gpt-5.5",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/openrouter/openai/gpt-5.5/server-replay": {
+  "model": "openai/gpt-5.5",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "find tools"
+     }
+    ]
+   },
+   {
+    "type": "reasoning",
+    "id": "rs_1",
+    "encrypted_content": "ENC",
+    "summary": []
+   },
+   {
+    "type": "tool_search_call",
+    "id": "ts_srv",
+    "call_id": null,
+    "execution": "server",
+    "arguments": {
+     "query": "q"
+    }
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts_srv",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "tool_search_output",
+    "id": "tso_srv",
+    "call_id": null,
+    "execution": "server",
+    "tools": []
+   },
+   {
+    "type": "function_call",
+    "call_id": "c1",
+    "name": "Read",
+    "arguments": "{}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "c1",
+    "output": "ok"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/xai/grok-4/native": {
+  "model": "grok-4",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/xai/grok-4/oauth": {
+  "model": "grok-4",
+  "input": [
+   {
+    "role": "system",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "sys"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "working"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "looking"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "sk1",
+    "name": "Skill",
+    "arguments": "{\"name\":\"s\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "sk1",
+    "output": "skill"
+   },
+   {
+    "type": "function_call",
+    "call_id": "f2",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "f2",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/xai/grok-4/own-search-output": {
+  "model": "grok-4",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/xai/grok-4/server-replay": {
+  "model": "grok-4",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "find tools"
+     }
+    ]
+   },
+   {
+    "type": "reasoning",
+    "id": "rs_1",
+    "encrypted_content": "ENC",
+    "summary": []
+   },
+   {
+    "type": "tool_search_call",
+    "id": "ts_srv",
+    "call_id": null,
+    "execution": "server",
+    "arguments": {
+     "query": "q"
+    }
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts_srv",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "tool_search_output",
+    "id": "tso_srv",
+    "call_id": null,
+    "execution": "server",
+    "tools": []
+   },
+   {
+    "type": "function_call",
+    "call_id": "c1",
+    "name": "Read",
+    "arguments": "{}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "c1",
+    "output": "ok"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/opencode-go/grok-4/native": {
+  "model": "grok-4",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/opencode-go/grok-4/oauth": {
+  "model": "grok-4",
+  "input": [
+   {
+    "role": "system",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "sys"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "working"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "looking"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "sk1",
+    "name": "Skill",
+    "arguments": "{\"name\":\"s\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "sk1",
+    "output": "skill"
+   },
+   {
+    "type": "function_call",
+    "call_id": "f2",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "f2",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/opencode-go/grok-4/own-search-output": {
+  "model": "grok-4",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "function_call",
+    "call_id": "ts1",
+    "name": "load_tool",
+    "arguments": "{\"names\":[\"x\"]}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "arguments": "{\"patch\":\"P\"}"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "ts1",
+    "output": "loaded"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "cu1",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "compat/opencode-go/grok-4/server-replay": {
+  "model": "grok-4",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "find tools"
+     }
+    ]
+   },
+   {
+    "type": "reasoning",
+    "id": "rs_1",
+    "encrypted_content": "ENC",
+    "summary": []
+   },
+   {
+    "type": "tool_search_call",
+    "id": "ts_srv",
+    "call_id": null,
+    "execution": "server",
+    "arguments": {
+     "query": "q"
+    }
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts_srv",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "tool_search_output",
+    "id": "tso_srv",
+    "call_id": null,
+    "execution": "server",
+    "tools": []
+   },
+   {
+    "type": "function_call",
+    "call_id": "c1",
+    "name": "Read",
+    "arguments": "{}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "c1",
+    "output": "ok"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "store": false,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "stream": true
+ },
+ "first-party/openai/native": {
+  "model": "gpt-5.5",
+  "instructions": "You are a helpful assistant.",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "tool_search_call",
+    "call_id": "ts1",
+    "execution": "client",
+    "arguments": {
+     "names": [
+      "x"
+     ]
+    }
+   },
+   {
+    "type": "custom_tool_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "input": "P"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts1",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "custom_tool_call_output",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "loaded"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": true,
+  "reasoning": {
+   "effort": "medium",
+   "summary": "auto"
+  },
+  "store": false,
+  "stream": true,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "prompt_cache_key": "mixdog-openai-dd85a2cac3a7facd7e",
+  "text": {
+   "verbosity": "low"
+  }
+ },
+ "first-party/openai/oauth": {
+  "model": "gpt-5.5",
+  "instructions": "sys",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "working"
+     }
+    ],
+    "phase": "commentary"
+   },
+   {
+    "type": "reasoning",
+    "id": "rs",
+    "encrypted_content": "ENC",
+    "summary": []
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "looking"
+     }
+    ],
+    "phase": "commentary"
+   },
+   {
+    "type": "tool_search_call",
+    "call_id": "ts1",
+    "execution": "client",
+    "arguments": {
+     "names": [
+      "x"
+     ]
+    }
+   },
+   {
+    "type": "custom_tool_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "input": "P"
+   },
+   {
+    "type": "function_call",
+    "call_id": "sk1",
+    "name": "Skill",
+    "arguments": "{\"name\":\"s\"}"
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts1",
+    "status": "completed",
+    "execution": "client",
+    "tools": [
+     {
+      "type": "function",
+      "name": "x",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {}
+      },
+      "strict": false
+     }
+    ]
+   },
+   {
+    "type": "custom_tool_call_output",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "sk1",
+    "output": "skill"
+   },
+   {
+    "type": "tool_search_call",
+    "call_id": "sk1_load",
+    "execution": "client",
+    "arguments": {
+     "names": [
+      "x"
+     ]
+    }
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "sk1_load",
+    "status": "completed",
+    "execution": "client",
+    "tools": [
+     {
+      "type": "function",
+      "name": "x",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {}
+      },
+      "strict": false
+     }
+    ]
+   },
+   {
+    "type": "tool_search_call",
+    "call_id": "ts9",
+    "execution": "client",
+    "arguments": {}
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts9",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "f2",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": true,
+  "reasoning": {
+   "effort": "medium",
+   "summary": "auto"
+  },
+  "store": false,
+  "stream": true,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "prompt_cache_key": "mixdog-openai-333154c75bf79502bd",
+  "text": {
+   "verbosity": "low"
+  }
+ },
+ "first-party/openai/own-search-output": {
+  "model": "gpt-5.5",
+  "instructions": "You are a helpful assistant.",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ]
+   },
+   {
+    "type": "tool_search_call",
+    "call_id": "ts1",
+    "execution": "client",
+    "arguments": {
+     "names": [
+      "x"
+     ]
+    }
+   },
+   {
+    "type": "custom_tool_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "input": "P"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts1",
+    "status": "completed",
+    "execution": "client",
+    "tools": [
+     {
+      "type": "function",
+      "name": "x",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {}
+      },
+      "strict": false
+     }
+    ]
+   },
+   {
+    "type": "custom_tool_call_output",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": true,
+  "reasoning": {
+   "effort": "medium",
+   "summary": "auto"
+  },
+  "store": false,
+  "stream": true,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "prompt_cache_key": "mixdog-openai-dd85a2cac3a7facd7e",
+  "text": {
+   "verbosity": "low"
+  }
+ },
+ "first-party/openai/server-replay": {
+  "model": "gpt-5.5",
+  "instructions": "You are a helpful assistant.",
+  "input": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "find tools"
+     }
+    ]
+   },
+   {
+    "type": "reasoning",
+    "id": "rs_1",
+    "encrypted_content": "ENC",
+    "summary": []
+   },
+   {
+    "type": "tool_search_call",
+    "id": "ts_srv",
+    "call_id": null,
+    "execution": "server",
+    "arguments": {
+     "query": "q"
+    }
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts_srv",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "tool_search_output",
+    "id": "tso_srv",
+    "call_id": null,
+    "execution": "server",
+    "tools": []
+   },
+   {
+    "type": "function_call",
+    "call_id": "c1",
+    "name": "Read",
+    "arguments": "{}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "c1",
+    "output": "ok"
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ]
+   }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": true,
+  "reasoning": {
+   "effort": "medium",
+   "summary": "auto"
+  },
+  "store": false,
+  "stream": true,
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "prompt_cache_key": "mixdog-openai-dd85a2cac3a7facd7e",
+  "text": {
+   "verbosity": "low"
+  }
+ },
+ "first-party/openai-oauth/native": {
+  "model": "gpt-5.5",
+  "instructions": "You are a helpful assistant.",
+  "input": [
+   {
+    "type": "message",
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ],
+    "internal_chat_message_metadata_passthrough": {}
+   },
+   {
+    "type": "tool_search_call",
+    "call_id": "ts1",
+    "execution": "client",
+    "arguments": {
+     "names": [
+      "x"
+     ]
+    }
+   },
+   {
+    "type": "custom_tool_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "input": "P"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts1",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "custom_tool_call_output",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "type": "message",
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "loaded"
+     }
+    ],
+    "internal_chat_message_metadata_passthrough": {}
+   },
+   {
+    "type": "message",
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ],
+    "internal_chat_message_metadata_passthrough": {}
+   }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": true,
+  "reasoning": {
+   "effort": "medium",
+   "summary": "auto"
+  },
+  "store": false,
+  "stream": true,
+  "stream_options": {
+   "reasoning_summary_delivery": "sequential_cutoff"
+  },
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "prompt_cache_key": "sess-1",
+  "text": {
+   "verbosity": "low"
+  }
+ },
+ "first-party/openai-oauth/oauth": {
+  "model": "gpt-5.5",
+  "instructions": "sys",
+  "input": [
+   {
+    "type": "message",
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ],
+    "internal_chat_message_metadata_passthrough": {}
+   },
+   {
+    "type": "message",
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "working"
+     }
+    ],
+    "phase": "commentary",
+    "internal_chat_message_metadata_passthrough": {}
+   },
+   {
+    "type": "reasoning",
+    "id": "rs",
+    "encrypted_content": "ENC",
+    "summary": []
+   },
+   {
+    "type": "message",
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "looking"
+     }
+    ],
+    "phase": "commentary",
+    "internal_chat_message_metadata_passthrough": {}
+   },
+   {
+    "type": "tool_search_call",
+    "call_id": "ts1",
+    "execution": "client",
+    "arguments": {
+     "names": [
+      "x"
+     ]
+    }
+   },
+   {
+    "type": "custom_tool_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "input": "P"
+   },
+   {
+    "type": "function_call",
+    "call_id": "sk1",
+    "name": "Skill",
+    "arguments": "{\"name\":\"s\"}"
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts1",
+    "status": "completed",
+    "execution": "client",
+    "tools": [
+     {
+      "type": "function",
+      "name": "x",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {}
+      },
+      "strict": false
+     }
+    ]
+   },
+   {
+    "type": "custom_tool_call_output",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "sk1",
+    "output": "skill"
+   },
+   {
+    "type": "tool_search_call",
+    "call_id": "sk1_load",
+    "execution": "client",
+    "arguments": {
+     "names": [
+      "x"
+     ]
+    }
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "sk1_load",
+    "status": "completed",
+    "execution": "client",
+    "tools": [
+     {
+      "type": "function",
+      "name": "x",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {}
+      },
+      "strict": false
+     }
+    ]
+   },
+   {
+    "type": "tool_search_call",
+    "call_id": "ts9",
+    "execution": "client",
+    "arguments": {}
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts9",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "f2",
+    "output": "file"
+   },
+   {
+    "type": "message",
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ],
+    "internal_chat_message_metadata_passthrough": {}
+   }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": true,
+  "reasoning": {
+   "effort": "medium",
+   "summary": "auto"
+  },
+  "store": false,
+  "stream": true,
+  "stream_options": {
+   "reasoning_summary_delivery": "sequential_cutoff"
+  },
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "prompt_cache_key": "sess-1",
+  "text": {
+   "verbosity": "low"
+  }
+ },
+ "first-party/openai-oauth/own-search-output": {
+  "model": "gpt-5.5",
+  "instructions": "You are a helpful assistant.",
+  "input": [
+   {
+    "type": "message",
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "go"
+     }
+    ],
+    "internal_chat_message_metadata_passthrough": {}
+   },
+   {
+    "type": "tool_search_call",
+    "call_id": "ts1",
+    "execution": "client",
+    "arguments": {
+     "names": [
+      "x"
+     ]
+    }
+   },
+   {
+    "type": "custom_tool_call",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "input": "P"
+   },
+   {
+    "type": "function_call",
+    "call_id": "fn1",
+    "name": "Read",
+    "arguments": "{\"path\":\"a\"}"
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts1",
+    "status": "completed",
+    "execution": "client",
+    "tools": [
+     {
+      "type": "function",
+      "name": "x",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {}
+      },
+      "strict": false
+     }
+    ]
+   },
+   {
+    "type": "custom_tool_call_output",
+    "call_id": "cu1",
+    "name": "apply_patch",
+    "output": "patched"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "fn1",
+    "output": "file"
+   },
+   {
+    "type": "message",
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ],
+    "internal_chat_message_metadata_passthrough": {}
+   }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": true,
+  "reasoning": {
+   "effort": "medium",
+   "summary": "auto"
+  },
+  "store": false,
+  "stream": true,
+  "stream_options": {
+   "reasoning_summary_delivery": "sequential_cutoff"
+  },
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "prompt_cache_key": "sess-1",
+  "text": {
+   "verbosity": "low"
+  }
+ },
+ "first-party/openai-oauth/server-replay": {
+  "model": "gpt-5.5",
+  "instructions": "You are a helpful assistant.",
+  "input": [
+   {
+    "type": "message",
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "find tools"
+     }
+    ],
+    "internal_chat_message_metadata_passthrough": {}
+   },
+   {
+    "type": "reasoning",
+    "id": "rs_1",
+    "encrypted_content": "ENC",
+    "summary": []
+   },
+   {
+    "type": "tool_search_call",
+    "id": "ts_srv",
+    "call_id": null,
+    "execution": "server",
+    "arguments": {
+     "query": "q"
+    }
+   },
+   {
+    "type": "tool_search_output",
+    "call_id": "ts_srv",
+    "status": "completed",
+    "execution": "client",
+    "tools": []
+   },
+   {
+    "type": "tool_search_output",
+    "id": "tso_srv",
+    "call_id": null,
+    "execution": "server",
+    "tools": []
+   },
+   {
+    "type": "function_call",
+    "call_id": "c1",
+    "name": "Read",
+    "arguments": "{}"
+   },
+   {
+    "type": "function_call_output",
+    "call_id": "c1",
+    "output": "ok"
+   },
+   {
+    "type": "message",
+    "role": "user",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "next"
+     }
+    ],
+    "internal_chat_message_metadata_passthrough": {}
+   }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": true,
+  "reasoning": {
+   "effort": "medium",
+   "summary": "auto"
+  },
+  "store": false,
+  "stream": true,
+  "stream_options": {
+   "reasoning_summary_delivery": "sequential_cutoff"
+  },
+  "include": [
+   "reasoning.encrypted_content"
+  ],
+  "prompt_cache_key": "sess-1",
+  "text": {
+   "verbosity": "low"
+  }
+ }
+}

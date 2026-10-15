@@ -680,7 +680,10 @@ test('desktop shell blocks zoom shortcuts and pinch without blocking normal scro
     actEnvironment: false,
   });
   const zoomCalls = [];
-  dom.window.mixdogDesktop = { setZoomFactor: async (factor) => zoomCalls.push(factor) };
+  dom.window.mixdogDesktop = {
+    bootContext: { bootId: 'boot-test' },
+    setZoomFactor: async (factor) => zoomCalls.push(factor),
+  };
   dom.window.localStorage.setItem('mixdog.web-zoom', '1.2');
   dom.window.document.documentElement.style.zoom = '1.2';
   try {
@@ -694,10 +697,12 @@ test('desktop shell blocks zoom shortcuts and pinch without blocking normal scro
         assert.equal(event.defaultPrevented, true, `${modifier} ${key}`);
       }
     }
+    // The main process pins the host window's zoom, so no blocking wheel
+    // listener holds every scroll on the main thread.
     for (const ctrlKey of [true, false]) {
       const event = new dom.window.WheelEvent('wheel', { ctrlKey, cancelable: true });
       dom.window.dispatchEvent(event);
-      assert.equal(event.defaultPrevented, ctrlKey);
+      assert.equal(event.defaultPrevented, false);
     }
     for (const name of ['gesturestart', 'gesturechange', 'gestureend']) {
       const event = new dom.window.Event(name, { cancelable: true });
@@ -734,9 +739,10 @@ async function blockingTouchListeners(userAgent, tag) {
   }
 }
 
-test('only iOS keeps a blocking document touch listener to stop pinch', async () => {
-  // Android honours user-scalable=no and the root touch-action; a blocking
-  // document listener there only delayed the start of every scroll.
+test('no phone keeps a blocking document touch listener', async () => {
+  // Pinch is refused by the viewport meta, the root touch-action and (iOS
+  // Safari) the gesture listeners; a blocking document touch listener only
+  // delayed the start of every scroll.
   assert.deepEqual(
     await blockingTouchListeners(
       'Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 Chrome/131 Mobile',
@@ -749,7 +755,7 @@ test('only iOS keeps a blocking document touch listener to stop pinch', async ()
       'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
       'ios-touch'
     ),
-    ['touchstart', 'touchmove']
+    []
   );
 });
 

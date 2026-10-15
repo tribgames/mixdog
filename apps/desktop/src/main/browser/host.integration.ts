@@ -163,6 +163,8 @@ async function run(): Promise<void> {
     });
     const remoteFrames: DesktopRemoteBrowserStreamFrame[] = [];
     host = createBrowserHost(parent, {
+      // Exercises the blocked (remote session) policy: 10.255.255.1 is refused.
+      remoteSession: true,
       requestApproval: async () => true,
       publishRemoteFrame: async (frame) => {
         remoteFrames.push(frame);

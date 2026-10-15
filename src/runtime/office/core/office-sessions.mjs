@@ -4,6 +4,7 @@ import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { assertOfficeOperationContracts } from '../capabilities.mjs';
+import { noteOfficeWrite } from './office-write-ledger.mjs';
 import {
   callMicrosoftOffice,
   detectMicrosoftOffice,
@@ -258,6 +259,7 @@ async function packageSource(path, signal) {
       `${path} is a legacy binary file and ${converted} already exists; open ${converted} directly, or move it aside to convert again.`
     );
   }
+  noteOfficeWrite(converted);
   await convertLegacyOffice(path, converted, { signal });
   return { source: converted, convertedFrom: path };
 }
@@ -280,6 +282,7 @@ export async function openSession(args, cwd, dataDir, { readOnly = false } = {})
   if (existing) return existing;
   if (copies) {
     await mkdir(dirname(target), { recursive: true });
+    noteOfficeWrite(target);
     await copyFile(source, target);
   }
   const designContext = await resolveOfficeDesignContext({
@@ -533,6 +536,7 @@ export async function createSession(args, cwd, dataDir) {
   // Whether this call brings the file into being decides what a failed create
   // may clean up afterwards: a file it wrote itself, never one already there.
   const targetExisted = await exists(target);
+  noteOfficeWrite(target);
   const designContext = await resolveOfficeDesignContext({ args, dataDir, target, format, created: true });
   const creation = { target, fileKind, format, dataDir, targetExisted, designContext };
   await releaseOverwrittenSession(target, args.overwrite);
@@ -645,6 +649,7 @@ export async function materializeWorkingCopy(session) {
     throw new Error('portable editing requires an output path different from the source');
   }
   await mkdir(dirname(target), { recursive: true });
+  noteOfficeWrite(target);
   await copyFile(session.source, target);
   if (documentSessions.get(documentSessionKey(session.target)) === session.id) {
     documentSessions.delete(documentSessionKey(session.target));

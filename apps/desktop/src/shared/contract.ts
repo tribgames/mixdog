@@ -36,6 +36,7 @@ import type { ProviderModelsChange } from './provider-models';
 import type { SettingsChange } from './settings-changed';
 import type { HostDisplayPreferences } from './host-display-preferences';
 import type { TerminalSizeOwnerEvent } from './terminal-size-owner';
+import type { DesktopTerminalRunRequest } from './terminal-command';
 import type {
   DesktopVisualizeEvent,
   DesktopVisualizeTabCommand,
@@ -89,6 +90,10 @@ import type {
   DesktopGitGlobalConfigKey,
   DesktopGitIgnoreScope,
   DesktopGitLogEntry,
+  DesktopGitReview,
+  DesktopGitReviewDiffRequest,
+  DesktopGitReviewDiffs,
+  DesktopGitReviewSource,
   DesktopGitStashEntry,
   DesktopGitStatus,
   DesktopGitStatusOptions,
@@ -687,19 +692,23 @@ export interface DesktopApi {
   gitCreateTag?(cwd: string, tag: string, hash: string): Promise<string>;
   gitDeleteTag?(cwd: string, tag: string): Promise<string>;
   /** Check out `hash` itself: a detached HEAD. */
-  /** Review pane: cumulative diff of the working tree vs merge-base(origin default branch, HEAD). */
-  gitReview?(cwd: string): Promise<{
-    base: string;
-    files: Array<{
-      path: string;
-      status: string;
-      additions: number;
-      deletions: number;
-      untracked: boolean;
-      uncommitted: boolean;
-    }>;
-  }>;
-  gitReviewDiff?(cwd: string, path: string, untracked?: boolean): Promise<string>;
+  /**
+   * Changes view: the working tree (incl. untracked) vs merge-base(default branch, HEAD)
+   * for `branch` (default), or vs `HEAD` for `uncommitted`. Paths are repo-root-relative.
+   */
+  gitReview?(cwd: string, source?: DesktopGitReviewSource): Promise<DesktopGitReview>;
+  gitReviewDiff?(
+    cwd: string,
+    path: string,
+    untracked?: boolean,
+    source?: DesktopGitReviewSource
+  ): Promise<string>;
+  /** Batch `gitReviewDiff` (at most 512 files): one git diff plus untracked reads. */
+  gitReviewDiffs?(
+    cwd: string,
+    files: DesktopGitReviewDiffRequest[],
+    source?: DesktopGitReviewSource
+  ): Promise<DesktopGitReviewDiffs>;
   /** Review file context menu: OS-level reveal/open for a project-relative file. */
   revealFile?(cwd: string, path: string, accessToken?: string): Promise<void>;
   openFilePath?(
@@ -771,6 +780,9 @@ export interface DesktopApi {
   /** Agent browser bridge (desktop host only): retain the owning session's
    *  Browser surface and optionally reveal its dock for a foreground call. */
   onBrowserOpenRequested?(listener: (request: DesktopBrowserOpenRequest) => void): () => void;
+  /** Agent `terminal` tool (desktop host only): reveal a session's terminal
+   *  dock, opening a tab and entering `command` when it has none. */
+  onTerminalRunRequested?(listener: (request: DesktopTerminalRunRequest) => void): () => void;
   /** Agent `visualize` tool (desktop host only): a session's side-panel tabs
    *  changed, a reveal was asked for, or a web URL goes to the browser panel. */
   onVisualizeChanged?(listener: (event: DesktopVisualizeEvent) => void): () => void;

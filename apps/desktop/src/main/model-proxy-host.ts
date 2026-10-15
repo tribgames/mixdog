@@ -47,6 +47,7 @@ export interface ModelProxyProviderInstance {
   listModels?(): Promise<unknown>;
   _refreshModelCache?(): Promise<unknown>;
   isAvailable?(): Promise<unknown>;
+  resolveWireRoute?(model: string, ctx: { agent: boolean; legacy: boolean }): Promise<unknown> | unknown;
   releaseTransportScope?(scope: string): void;
   getCachedModelInfo?(model: string): unknown;
 }
@@ -141,6 +142,7 @@ interface ProxyCall {
   tools?: unknown;
   toolsFinalized?: unknown;
   nativePrefixCount?: unknown;
+  context?: unknown;
   options?: unknown;
   callbacks?: unknown;
 }
@@ -248,6 +250,7 @@ export const MODEL_PROXY_SEND_OPTION_KEYS: ReadonlySet<string> = new Set([
   'nativeToolSearchProvider',
   'openRouterReasoningEffort',
   'outputTokens',
+  'parallelToolCalls',
   'parentSessionId',
   'perAttemptLabel',
   'perAttemptTimeoutMs',
@@ -273,6 +276,8 @@ export const MODEL_PROXY_SEND_OPTION_KEYS: ReadonlySet<string> = new Set([
   'replaysReasoningContent',
   'requestId',
   'requestKind',
+  'responsesNativeItems',
+  'responsesPromptCacheKey',
   'retry429',
   'retry529',
   'retryJitterMode',
@@ -304,6 +309,7 @@ export const MODEL_PROXY_SEND_OPTION_KEYS: ReadonlySet<string> = new Set([
   'usageSessionId',
   'verbosity',
   'windowId',
+  'wireRoute',
   'xaiApiMode',
   'xaiCacheLaneAuto',
   'xaiCacheLaneSeed',
@@ -316,6 +322,7 @@ export const MODEL_PROXY_SEND_OPTION_KEYS: ReadonlySet<string> = new Set([
   'xaiResponsesCacheLaneSlot',
   'xaiResponsesCacheScope',
   'xaiResponsesTransport',
+  'xaiServerToolSearch',
   'xaiTransport',
 ]);
 
@@ -358,6 +365,7 @@ export const MODEL_PROXY_SESSION_KEYS: ReadonlySet<string> = new Set([
   'toolPermission',
   'turnId',
   'windowId',
+  'wireRoute',
 ]);
 
 /** The server's send options reduced to the allowlist. */
@@ -659,6 +667,17 @@ async function execute(
   if (method === 'refreshModels') return catalog(provider, true);
   if (method === 'isAvailable') {
     return typeof provider.isAvailable === 'function' ? (await provider.isAvailable()) === true : true;
+  }
+  if (method === 'resolveWireRoute') {
+    // The wire is this PC's answer (its config and roster); the server only
+    // says whether the session is an agent session and an existing one.
+    if (typeof provider.resolveWireRoute !== 'function') return null;
+    const context = record(call.context);
+    const route = await provider.resolveWireRoute(String(call.model ?? ''), {
+      agent: context.agent === true,
+      legacy: context.legacy === true,
+    });
+    return route ?? null;
   }
   const options = serverSendOptions(call.options);
   // Whether model output (text, tool calls, stream progress) reached the server.

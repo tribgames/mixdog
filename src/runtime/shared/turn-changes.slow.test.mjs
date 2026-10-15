@@ -34,9 +34,14 @@ const {
   recordTurnDiffChanges,
   revertTurnChanges,
   revertTurnReview,
+  revertTurnReviewFile,
 } = snapshotModule;
 const { createSnapshotTrackerFactory } = await import('../../session-runtime/turn/turn-run/snapshot-tracker.mjs');
 const { loadTurnChangeRecord } = await import('./turn-snapshot-store.mjs');
+const { registerEditToolUiDiff } = await import('../agent/orchestrator/tools/patch/ui-diff.mjs');
+const { tryExecuteExternalToolAdapter } = await import(
+  '../agent/orchestrator/tools/builtin/external-tool-adapters.mjs'
+);
 
 let seq = 0;
 function git(cwd, ...args) {
@@ -75,6 +80,43 @@ function writeTree(root, files) {
   }
 }
 
+let callSeq = 0;
+/** Edit `files` through `sessionId`'s own file tools: each write reaches the
+ *  turn review with its before/after and its own line counts. */
+function editTree(sessionId, root, files) {
+  for (const [path, content] of Object.entries(files)) {
+    const fullPath = join(root, path);
+    const before = existsSync(fullPath) ? readFileSync(fullPath) : null;
+    writeTree(root, { [path]: content });
+    registerEditToolUiDiff({
+      callId: `edit-${++callSeq}`,
+      sessionId,
+      basePath: root,
+      fullPath,
+      before,
+      after: content === null ? null : Buffer.from(content),
+    });
+  }
+}
+
+/** An own-tool move of `from` to `to` with unchanged content. */
+function moveTree(sessionId, root, from, to) {
+  const content = readFileSync(join(root, from));
+  writeTree(root, { [from]: null, [to]: content });
+  recordTurnDiffChanges(sessionId, [
+    {
+      path: join(root, from),
+      displayPath: from,
+      newPath: join(root, to),
+      newDisplayPath: to,
+      before: content,
+      after: content,
+      additions: 0,
+      deletions: 0,
+    },
+  ]);
+}
+
 /** Every listed path's exact bytes (null = absent). */
 function readTree(root, paths) {
   return Object.fromEntries(
@@ -91,8 +133,9 @@ test('a sealed turn freezes a revisioned, exact per-file record keyed by checkpo
   const pending = await getTurnChanges('freeze', { checkpointId: 'cp-1' });
   assert.equal(pending.status, 'pending');
   assert.equal(pending.canUndo, false);
-  writeTree(repo, { 'a.txt': 'one\nTWO\n', 'b.txt': null, 'c.txt': null, 'd.txt': 'moved content\nline\nline\n' });
-  writeTree(repo, { 'bin.dat': Buffer.from([0, 1, 2, 255, 0, 10]) });
+  editTree('freeze', repo, { 'a.txt': 'one\nTWO\n', 'b.txt': null });
+  moveTree('freeze', repo, 'c.txt', 'd.txt');
+  editTree('freeze', repo, { 'bin.dat': Buffer.from([0, 1, 2, 255, 0, 10]) });
   assert.equal(await completeTurnSnapshot('freeze'), true);
 
   const reply = await getTurnChanges('freeze', { checkpointId: 'cp-1' });
@@ -145,7 +188,7 @@ test('whole-turn and per-file Undo/Reapply restore exact bytes and bump the revi
   const paths = ['a.txt', 'b.txt', 'new.txt', 'keep.txt'];
   const before = readTree(repo, paths);
   await beginTurnSnapshot(repo, 'undo', { checkpointId: 'cp' });
-  writeTree(repo, { 'a.txt': 'A\n', 'b.txt': null, 'new.txt': 'new\n' });
+  editTree('undo', repo, { 'a.txt': 'A\n', 'b.txt': null, 'new.txt': 'new\n' });
   await completeTurnSnapshot('undo');
   const after = readTree(repo, paths);
   let reply = await getTurnChanges('undo', { checkpointId: 'cp' });
@@ -190,7 +233,7 @@ test('a conflicting Undo refuses entirely and surfaces git’s error', { skip },
   _resetTurnSnapshotForTest();
   const repo = seedRepo({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
   await beginTurnSnapshot(repo, 'conflict', { checkpointId: 'cp' });
-  writeTree(repo, { 'a.txt': 'A\n', 'b.txt': 'B\n' });
+  editTree('conflict', repo, { 'a.txt': 'A\n', 'b.txt': 'B\n' });
   await completeTurnSnapshot('conflict');
   const reply = await getTurnChanges('conflict', { checkpointId: 'cp' });
   // A later edit conflicts with a.txt's recorded patch.
@@ -217,7 +260,7 @@ test('mutations are refused while the session runs a turn', { skip }, async () =
   _resetTurnSnapshotForTest();
   const repo = seedRepo({ 'a.txt': 'a\n' });
   await beginTurnSnapshot(repo, 'busy', { checkpointId: 'cp-1' });
-  writeTree(repo, { 'a.txt': 'A\n' });
+  editTree('busy', repo, { 'a.txt': 'A\n' });
   await completeTurnSnapshot('busy');
   const reply = await getTurnChanges('busy', { checkpointId: 'cp-1' });
   await beginTurnSnapshot(repo, 'busy', { checkpointId: 'cp-2' });
@@ -232,7 +275,7 @@ test('turn startup and Undo/Reapply share one per-session lock', { skip }, async
   _resetTurnSnapshotForTest();
   const repo = seedRepo({ 'a.txt': 'a\n' });
   await beginTurnSnapshot(repo, 'race', { checkpointId: 'cp-1' });
-  writeTree(repo, { 'a.txt': 'A\n' });
+  editTree('race', repo, { 'a.txt': 'A\n' });
   await completeTurnSnapshot('race');
   let reply = await getTurnChanges('race', { checkpointId: 'cp-1' });
 
@@ -261,7 +304,7 @@ test('Undo/Reapply refreshes the sealed Git turn review and the session diff', {
   _resetTurnSnapshotForTest();
   const repo = seedRepo({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
   await beginTurnSnapshot(repo, 'review-git', { checkpointId: 'cp' });
-  writeTree(repo, { 'a.txt': 'A\n', 'b.txt': 'B\n' });
+  editTree('review-git', repo, { 'a.txt': 'A\n', 'b.txt': 'B\n' });
   await completeTurnSnapshot('review-git');
   const reviewPaths = async () => (await getTurnReviewDiff(repo, 'review-git')).files.map((file) => file.path);
   const sessionPaths = async () => (await getSessionReviewDiff(repo, 'review-git')).files.map((file) => file.path);
@@ -312,7 +355,7 @@ test('the session diff lists a worker’s edits made in its own session turn', {
   };
   edit('own-turn-lead', 'lead.txt');
   edit('own-turn-worker', 'worker.txt');
-  await completeAgentTurnReview(worker);
+  completeAgentTurnReview(worker);
   await completeTurnSnapshot('own-turn-lead', token);
   const files = (await getSessionReviewDiff(repo, 'own-turn-lead')).files.map((file) => file.path);
   assert.deepEqual(files, ['lead.txt', 'worker.txt']);
@@ -342,7 +385,7 @@ async function settledChanges(sessionId, checkpointId) {
 const workerPatch = 'diff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-b\n+B\n';
 const statesOf = (reply) => reply.files.map((file) => [file.path, file.status, file.state]);
 
-test('composer whole-turn Undo on a contended worktree records only the Lead files it restored', { skip }, async () => {
+test('composer whole-turn Undo on a contended worktree undoes the Lead’s and its completed worker’s own files', { skip }, async () => {
   _resetTurnSnapshotForTest();
   const sessionId = 'contended-undo';
   const repo = seedRepo({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
@@ -355,7 +398,7 @@ test('composer whole-turn Undo on a contended worktree records only the Lead fil
   recordTurnDiffChanges('contended-undo-worker', [
     { path: join(repo, 'b.txt'), displayPath: 'b.txt', before: 'b\n', after: 'B\n' },
   ]);
-  assert.equal(await completeAgentTurnReview(worker), true);
+  assert.equal(completeAgentTurnReview(worker), true);
   await completeTurnSnapshot(sessionId);
   let reply = await settledChanges(sessionId, 'cp');
   assert.deepEqual(statesOf(reply), [
@@ -363,15 +406,15 @@ test('composer whole-turn Undo on a contended worktree records only the Lead fil
     ['b.txt', 'M', 'applied'],
   ]);
 
-  // The Lead's exact tracker owns a.txt only: the worker's b.txt stays.
+  // The completed worker's b.txt joined the Lead's own changes.
   await revertTurnReview(repo, sessionId, 'cp');
-  assert.deepEqual(readTree(repo, ['a.txt', 'b.txt']), { 'a.txt': 'a\n', 'b.txt': 'B\n' });
+  assert.deepEqual(readTree(repo, ['a.txt', 'b.txt']), { 'a.txt': 'a\n', 'b.txt': 'b\n' });
   reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
   assert.deepEqual(statesOf(reply), [
     ['a.txt', 'M', 'reverted'],
-    ['b.txt', 'M', 'applied'],
+    ['b.txt', 'M', 'reverted'],
   ]);
-  assert.equal(reply.canUndo, true);
+  assert.equal(reply.canUndo, false);
   assert.equal(reply.canReapply, true);
 
   reply = await reapplyTurnChanges(sessionId, 'cp', null, reply.revision);
@@ -401,16 +444,13 @@ test('a worker completed just before or during the Lead seal reaches the persist
     ]);
   };
   edit(sessionId, 'a.txt');
-  // Neither worker's tracked diff has rendered yet when it completes.
   edit('complete-then-seal-worker-1', 'b.txt');
   edit('complete-then-seal-worker-2', 'c.txt');
   // Completed, then sealed at once; the second completes while that seal freezes.
-  const completedBefore = completeAgentTurnReview(before);
+  assert.equal(completeAgentTurnReview(before), true);
   const sealed = completeTurnSnapshot(sessionId);
-  const completedDuring = completeAgentTurnReview(during);
-  assert.equal(await completedBefore, true);
+  assert.equal(completeAgentTurnReview(during), true);
   assert.equal(await withinDeadline(sealed, 'seal'), true);
-  assert.equal(await completedDuring, true);
   const live = await getTurnReviewDiff(repo, sessionId);
   assert.deepEqual(
     live.agents.map((agent) => [agent.sessionId, agent.patch.split('\n').filter((line) => /^[-+]\w/.test(line))]),
@@ -443,10 +483,11 @@ test('a worker re-seal queued while the turn start drains another lands before t
   await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-1' });
   const first = beginAgentTurnReview(sessionId, 'drain-reseals-worker-1', { agent: 'worker' });
   const second = beginAgentTurnReview(sessionId, 'drain-reseals-worker-2', { agent: 'worker' });
-  writeTree(repo, { 'a.txt': 'A\n' });
+  editTree(sessionId, repo, { 'a.txt': 'A\n' });
   await completeTurnSnapshot(sessionId);
   // Both workers' edits land after the Lead turn sealed.
-  writeTree(repo, { 'b.txt': 'B\n', 'c.txt': 'C\n' });
+  editTree('drain-reseals-worker-1', repo, { 'b.txt': 'B\n' });
+  editTree('drain-reseals-worker-2', repo, { 'c.txt': 'C\n' });
   const secondPatch = 'diff --git a/c.txt b/c.txt\n--- a/c.txt\n+++ b/c.txt\n@@ -1 +1 @@\n-c\n+C\n';
 
   // An Undo holds the lock, the next turn start queues behind it, and only
@@ -454,11 +495,11 @@ test('a worker re-seal queued while the turn start drains another lands before t
   const reply = await getTurnChanges(sessionId, { checkpointId: 'cp-1' });
   const undo = revertTurnChanges(sessionId, 'cp-1', 'a.txt', reply.revision);
   const started = beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-2' });
-  assert.equal(await completeAgentTurnReview(first, [workerPatch]), true);
+  assert.equal(completeAgentTurnReview(first, [workerPatch]), true);
   await withinDeadline(undo, 'undo');
   // Every microtask has run: the start step's re-seal is now awaiting Git.
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(await completeAgentTurnReview(second, [secondPatch]), true);
+  assert.equal(completeAgentTurnReview(second, [secondPatch]), true);
   await withinDeadline(started, 'turn start');
 
   const workers = ['drain-reseals-worker-1', 'drain-reseals-worker-2'];
@@ -486,15 +527,15 @@ test('a late worker re-seal racing a new turn start never absorbs the next turn�
     const repo = seedRepo({ 'a.txt': 'a\n', 'b.txt': 'b\n', 'c.txt': 'c\n' });
     await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-1' });
     const worker = beginAgentTurnReview(sessionId, `${sessionId}-worker`, { agent: 'worker' });
-    writeTree(repo, { 'a.txt': 'A\n' });
+    editTree(sessionId, repo, { 'a.txt': 'A\n' });
     await completeTurnSnapshot(sessionId);
     // The worker's edit lands after the Lead turn sealed.
-    writeTree(repo, { 'b.txt': 'B\n' });
+    editTree(`${sessionId}-worker`, repo, { 'b.txt': 'B\n' });
 
     let started;
     let undo = null;
     if (order === 'reseal-then-start') {
-      assert.equal(await completeAgentTurnReview(worker, [workerPatch]), true);
+      assert.equal(completeAgentTurnReview(worker, [workerPatch]), true);
       started = beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-2' });
     } else {
       // An Undo holds the lock, the next turn start queues behind it, and
@@ -502,12 +543,12 @@ test('a late worker re-seal racing a new turn start never absorbs the next turn�
       const reply = await getTurnChanges(sessionId, { checkpointId: 'cp-1' });
       undo = revertTurnChanges(sessionId, 'cp-1', 'a.txt', reply.revision);
       started = beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-2' });
-      assert.equal(await completeAgentTurnReview(worker, [workerPatch]), true);
+      assert.equal(completeAgentTurnReview(worker, [workerPatch]), true);
     }
     await withinDeadline(started, `${order}: turn start`);
     if (undo) await withinDeadline(undo, `${order}: undo`);
     // The next turn edits as soon as it has started.
-    writeTree(repo, { 'c.txt': 'C\n' });
+    editTree(sessionId, repo, { 'c.txt': 'C\n' });
     const previous = await settledChanges(sessionId, 'cp-1');
     await withinDeadline(completeTurnSnapshot(sessionId), `${order}: next turn seal`);
 
@@ -530,23 +571,23 @@ test('a pending late-worker re-seal runs before the next turn opens', { skip }, 
   const repo = seedRepo({ 'a.txt': 'a\n', 'b.txt': 'b\n', 'c.txt': 'c\n', 'd.txt': 'd\n' });
   await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-1' });
   const worker = beginAgentTurnReview(sessionId, 'late-open-worker', { agent: 'worker' });
-  writeTree(repo, { 'a.txt': 'A\n' });
+  editTree(sessionId, repo, { 'a.txt': 'A\n' });
   await completeTurnSnapshot(sessionId);
-  writeTree(repo, { 'b.txt': 'B\n' });
+  editTree('late-open-worker', repo, { 'b.txt': 'B\n' });
 
   // The seam edits the worktree the instant cp-2 opens — the earliest a next
-  // turn could write. If cp-1's queued re-seal ran after that point, c.txt
-  // would land in cp-1.
+  // turn could write. If cp-1's queued re-seal ran after that point, cp-1
+  // would record cp-2's edit of b.txt.
   const opened = [];
   _setTurnOpenedHookForTest((_id, checkpointId) => {
     opened.push(checkpointId);
-    if (checkpointId === 'cp-2') writeTree(repo, { 'c.txt': 'C\n' });
+    if (checkpointId === 'cp-2') editTree(sessionId, repo, { 'b.txt': 'B2\n' });
   });
   const reply = await getTurnChanges(sessionId, { checkpointId: 'cp-1' });
   const undo = revertTurnChanges(sessionId, 'cp-1', 'a.txt', reply.revision);
   const started = beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-2' });
   // Reported after the start queued, while the worker is still bound to cp-1.
-  assert.equal(await completeAgentTurnReview(worker, [workerPatch]), true);
+  assert.equal(completeAgentTurnReview(worker, [workerPatch]), true);
   await withinDeadline(undo, 'undo');
   await withinDeadline(started, 'turn start');
   assert.deepEqual(opened, ['cp-2']);
@@ -557,11 +598,18 @@ test('a pending late-worker re-seal runs before the next turn opens', { skip }, 
     ['a.txt', 'M', 'reverted'],
     ['b.txt', 'M', 'applied'],
   ]);
-  writeTree(repo, { 'd.txt': 'D\n' });
+  const workerPatchOf = async () =>
+    (await getTurnChanges(sessionId, { checkpointId: 'cp-1', patch: true, file: 'b.txt' })).patch;
+  assert.match(await workerPatchOf(), /-b\n\+B\n/);
+  editTree(sessionId, repo, { 'd.txt': 'D\n' });
   await withinDeadline(completeTurnSnapshot(sessionId), 'next turn seal');
   assert.deepEqual(statesOf(await settledChanges(sessionId, 'cp-1')), statesOf(previous));
-  // c.txt predates cp-2's baseline, so neither record claims it.
-  assert.deepEqual(statesOf(await settledChanges(sessionId, 'cp-2')), [['d.txt', 'M', 'applied']]);
+  assert.match(await workerPatchOf(), /-b\n\+B\n/);
+  // cp-2's own b.txt edit (made the instant it opened) is cp-2's, never cp-1's.
+  assert.deepEqual(statesOf(await settledChanges(sessionId, 'cp-2')), [
+    ['b.txt', 'M', 'applied'],
+    ['d.txt', 'M', 'applied'],
+  ]);
 });
 
 test('a late worker re-seal racing an Undo stays consistent in either order', { skip }, async () => {
@@ -571,14 +619,14 @@ test('a late worker re-seal racing an Undo stays consistent in either order', { 
   await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
   const first = beginAgentTurnReview(sessionId, 'late-undo-worker-1', { agent: 'worker' });
   const second = beginAgentTurnReview(sessionId, 'late-undo-worker-2', { agent: 'worker' });
-  writeTree(repo, { 'a.txt': 'A\n' });
+  editTree(sessionId, repo, { 'a.txt': 'A\n' });
   await completeTurnSnapshot(sessionId);
   let reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
   assert.equal(reply.revision, 1);
 
   // Re-seal first: the Undo queued behind it sees the bumped revision.
-  writeTree(repo, { 'b.txt': 'B\n' });
-  assert.equal(await completeAgentTurnReview(first, [workerPatch]), true);
+  editTree('late-undo-worker-1', repo, { 'b.txt': 'B\n' });
+  assert.equal(completeAgentTurnReview(first, [workerPatch]), true);
   await assert.rejects(
     withinDeadline(revertTurnChanges(sessionId, 'cp', 'a.txt', reply.revision), 'undo behind re-seal'),
     /turn changes changed; refresh/
@@ -593,7 +641,7 @@ test('a late worker re-seal racing an Undo stays consistent in either order', { 
   // Undo first: the re-seal queued behind it reads the undone disk and keeps
   // the undone file reverted and reapplyable.
   const undo = revertTurnChanges(sessionId, 'cp', 'a.txt', reply.revision);
-  assert.equal(await completeAgentTurnReview(second, [workerPatch.replaceAll('b.txt', 'b2.txt')]), true);
+  assert.equal(completeAgentTurnReview(second, [workerPatch.replaceAll('b.txt', 'b2.txt')]), true);
   reply = await withinDeadline(undo, 'undo ahead of re-seal');
   assert.equal(readTree(repo, ['a.txt'])['a.txt'], 'a\n');
   reply = await settledChanges(sessionId, 'cp');
@@ -613,7 +661,7 @@ test('a completion wake re-seals the same checkpoint and keeps undone files reap
   _resetTurnSnapshotForTest();
   const repo = seedRepo({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
   await beginTurnSnapshot(repo, 'wake', { checkpointId: 'cp' });
-  writeTree(repo, { 'a.txt': 'A\n' });
+  editTree('wake', repo, { 'a.txt': 'A\n' });
   await completeTurnSnapshot('wake');
   let reply = await getTurnChanges('wake', { checkpointId: 'cp' });
   assert.equal(reply.revision, 1);
@@ -623,7 +671,7 @@ test('a completion wake re-seals the same checkpoint and keeps undone files reap
   // The wake carries no prompt id; it reopens the original turn.
   const token = await beginTurnSnapshot(repo, 'wake', { continueTurn: true });
   assert.equal(token.checkpointId, 'cp');
-  writeTree(repo, { 'b.txt': 'B from a worker\n' });
+  editTree('wake', repo, { 'b.txt': 'B from a worker\n' });
   await completeTurnSnapshot('wake', token);
   reply = await getTurnChanges('wake', { checkpointId: 'cp' });
   assert.equal(reply.revision, 3);
@@ -656,7 +704,7 @@ test('a cancelled turn keeps its edits as a record; delayed cleanup never seals 
   const cancelled = createTracker({ id: 'cp-cancel' });
   cancelled.start('cancel');
   await cancelled.promise;
-  writeTree(repo, { 'a.txt': 'A\n' });
+  editTree('cancel', repo, { 'a.txt': 'A\n' });
   await cancelled.finish(aborted, awaitTurn);
   for (let attempt = 0; attempt < 200; attempt += 1) {
     if ((await getTurnChanges('cancel', { checkpointId: 'cp-cancel' })).status === 'ready') break;
@@ -671,7 +719,7 @@ test('a cancelled turn keeps its edits as a record; delayed cleanup never seals 
   const turnA = createTracker({ id: 'cp-a' });
   turnA.start('cancel');
   await turnA.promise;
-  writeTree(repo, { 'b.txt': 'B\n' });
+  editTree('cancel', repo, { 'b.txt': 'B\n' });
   await beginTurnSnapshot(repo, 'cancel', { checkpointId: 'cp-b' });
   await turnA.finish(aborted, awaitTurn);
   await new Promise((resolve) => setTimeout(resolve, 200));
@@ -693,7 +741,7 @@ async function assertRoundTrip(repo, sessionId, edits, expectedStatuses) {
   const unique = [...new Set(paths)];
   const before = readTree(repo, unique);
   await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
-  writeTree(repo, edits);
+  editTree(sessionId, repo, edits);
   await completeTurnSnapshot(sessionId);
   const after = readTree(repo, unique);
   let reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
@@ -732,12 +780,15 @@ const lineEndingSeed = {
   'removed.txt': 'remove\r\nme\r\n',
   'renamed.txt': 'rename body line 1\r\nrename body line 2\r\nrename body line 3\r\nrename body line 4\r\n',
 };
+// The record keeps the tools' own writes: a delete and an add of the same
+// body stay a delete and an add (a tool move records R; see the freeze case).
 const lineEndingStatuses = {
   'added file.txt': { status: 'A' },
   'crlf.txt': { status: 'M' },
   'no-newline.txt': { status: 'M' },
   'removed.txt': { status: 'D' },
-  'renamed to.txt': { status: 'R', oldPath: 'renamed.txt' },
+  'renamed to.txt': { status: 'A' },
+  'renamed.txt': { status: 'D' },
   '폴더 a/파일 b.txt': { status: 'M' },
 };
 
@@ -808,4 +859,372 @@ test('a Git session records an edit outside its root and keeps it across a resta
   assert.equal(undone.canUndo, false);
   assert.equal(undone.files.length, 2);
   await assert.rejects(revertTurnChanges(sessionId, 'cp', outside, undone.revision));
+});
+
+// ── Own-write scope and counts ──────────────────────────────────────────────
+
+const counts = (files) => files.map((file) => [file.path, file.status, file.additions, file.deletions]);
+
+test('a turn reviews and records only its own writes; a foreign write in the same turn is left out', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'own-only';
+  const repo = seedRepo({ 'a.txt': 'a\n', 'shell.txt': 's\n' });
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+  editTree(sessionId, repo, { 'a.txt': 'a\nA2\n' });
+  // A shell command, the user or another session: no own file tool wrote these.
+  writeTree(repo, { 'shell.txt': 'shell edit\n', 'foreign.txt': 'foreign\n' });
+  const live = await getTurnReviewDiff(repo, sessionId);
+  assert.deepEqual(counts(live.files), [['a.txt', 'M', 1, 0]]);
+  assert.match(live.patch, /\+A2\n/);
+  assert.doesNotMatch(live.patch, /shell|foreign/);
+  await completeTurnSnapshot(sessionId);
+  assert.deepEqual(counts((await getTurnChanges(sessionId, { checkpointId: 'cp' })).files), [['a.txt', 'M', 1, 0]]);
+  assert.deepEqual(
+    (await getSessionReviewDiff(repo, sessionId)).files.map((file) => file.path),
+    ['a.txt']
+  );
+  // The recorded review keeps the same scope after a restart.
+  _resetTurnSnapshotForTest();
+  const recorded = await getTurnReviewDiff(repo, sessionId);
+  assert.equal(recorded.reason, 'recorded');
+  assert.deepEqual(counts(recorded.files), [['a.txt', 'M', 1, 0]]);
+});
+
+test('two own edits of one file count their summed deltas; the patch stays the net diff', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'own-sum';
+  const repo = seedRepo({ 'a.txt': 'one\n' });
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+  editTree(sessionId, repo, { 'a.txt': 'one\ntwo\n' });
+  editTree(sessionId, repo, { 'a.txt': 'one\nthree\n' });
+  const live = await getTurnReviewDiff(repo, sessionId);
+  assert.deepEqual(counts(live.files), [['a.txt', 'M', 2, 1]]);
+  assert.match(live.patch, /^ one\n\+three\n/m);
+  assert.doesNotMatch(live.patch, /two/);
+  await completeTurnSnapshot(sessionId);
+  let reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+  assert.deepEqual(counts(reply.files), [['a.txt', 'M', 2, 1]]);
+  _resetTurnSnapshotForTest();
+  assert.deepEqual(counts((await getTurnReviewDiff(repo, sessionId)).files), [['a.txt', 'M', 2, 1]]);
+  // Undo and Reapply replay the net patch.
+  reply = await revertTurnChanges(sessionId, 'cp', null, reply.revision);
+  assert.equal(readTree(repo, ['a.txt'])['a.txt'], 'one\n');
+  await reapplyTurnChanges(sessionId, 'cp', null, reply.revision);
+  assert.equal(readTree(repo, ['a.txt'])['a.txt'], 'one\nthree\n');
+});
+
+test('Undo restores only the files the session’s own tools wrote', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'own-undo';
+  const repo = seedRepo({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
+  const paths = ['a.txt', 'new.txt', 'b.txt', 'foreign.txt'];
+  const foreign = { 'b.txt': 'foreign\n', 'foreign.txt': 'foreign\n' };
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+  editTree(sessionId, repo, { 'a.txt': 'A\n', 'new.txt': 'new\n' });
+  writeTree(repo, foreign);
+  await completeTurnSnapshot(sessionId);
+  let reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+  assert.deepEqual(
+    reply.files.map((file) => file.path),
+    ['a.txt', 'new.txt']
+  );
+
+  await assert.rejects(revertTurnReviewFile(repo, sessionId, 'b.txt', 'cp'), /cannot attribute this file/);
+  await revertTurnReview(repo, sessionId, 'cp');
+  assert.deepEqual(readTree(repo, paths), { 'a.txt': 'a\n', 'new.txt': null, ...foreign });
+  reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+  assert.deepEqual(
+    reply.files.map((file) => [file.path, file.state]),
+    [
+      ['a.txt', 'reverted'],
+      ['new.txt', 'reverted'],
+    ]
+  );
+
+  reply = await reapplyTurnChanges(sessionId, 'cp', null, reply.revision);
+  assert.deepEqual(readTree(repo, paths), { 'a.txt': 'A\n', 'new.txt': 'new\n', ...foreign });
+  await revertTurnChanges(sessionId, 'cp', null, reply.revision);
+  assert.deepEqual(readTree(repo, paths), { 'a.txt': 'a\n', 'new.txt': null, ...foreign });
+});
+
+test('a worker’s own edits count for its Lead turn', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const lead = 'own-worker-lead';
+  const workerId = `${lead}-worker`;
+  const repo = seedRepo({ 'lead.txt': 'l\n', 'w.txt': 'w\n' });
+  await beginTurnSnapshot(repo, lead, { checkpointId: 'cp' });
+  const worker = beginAgentTurnReview(lead, workerId, { agent: 'worker' });
+  editTree(lead, repo, { 'lead.txt': 'l\nL2\n' });
+  editTree(workerId, repo, { 'w.txt': 'w\nW2\n' });
+  editTree(workerId, repo, { 'w.txt': 'w\nW3\n' });
+  assert.equal(completeAgentTurnReview(worker), true);
+  const expected = [
+    ['lead.txt', 'M', 1, 0],
+    ['w.txt', 'M', 2, 1],
+  ];
+  assert.deepEqual(counts((await getTurnReviewDiff(repo, lead)).files), expected);
+  await completeTurnSnapshot(lead);
+  assert.deepEqual(counts((await getTurnChanges(lead, { checkpointId: 'cp' })).files), expected);
+});
+
+test('write tool edits are counted and undoable like edit tools', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'own-write';
+  const repo = seedRepo({ 'a.txt': 'a\n' });
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+  for (const [file_path, contents, toolCallId] of [
+    ['a.txt', 'a\nb\n', 'write-1'],
+    ['new.txt', 'x\ny\n', 'write-2'],
+  ]) {
+    const result = await tryExecuteExternalToolAdapter('write', { file_path, contents }, repo, {
+      sessionId,
+      toolCallId,
+    });
+    assert.doesNotMatch(String(result), /^Error/);
+  }
+  const expected = [
+    ['a.txt', 'M', 1, 0],
+    ['new.txt', 'A', 2, 0],
+  ];
+  assert.deepEqual(counts((await getTurnReviewDiff(repo, sessionId)).files), expected);
+  await completeTurnSnapshot(sessionId);
+  const reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+  assert.deepEqual(counts(reply.files), expected);
+  assert.equal(reply.canUndo, true, reply.reason);
+  await revertTurnChanges(sessionId, 'cp', null, reply.revision);
+  assert.deepEqual(readTree(repo, ['a.txt', 'new.txt']), { 'a.txt': 'a\n', 'new.txt': null });
+});
+
+// ── Undo reverse-applies the turn's own diff ────────────────────────────────
+
+const tenLines = Array.from({ length: 10 }, (_, index) => `line ${index + 1}\n`).join('');
+const ownLineTwo = tenLines.replace('line 2\n', 'LINE 2\n');
+
+/** Undo the turn's a.txt: `record` (historical Undo), `composer` (latest
+ *  sealed turn) or `live` (the running turn, before it seals). */
+async function undoTurn(how, repo, sessionId) {
+  if (how === 'record') {
+    const reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+    return await revertTurnChanges(sessionId, 'cp', null, reply.revision);
+  }
+  return await revertTurnReview(repo, sessionId, 'cp');
+}
+
+test('a foreign append made during or after the turn survives Undo of the own edit in that file', { skip }, async () => {
+  for (const [when, how] of [
+    ['during', 'record'],
+    ['after', 'record'],
+    ['during', 'composer'],
+    ['after', 'composer'],
+    ['during', 'live'],
+  ]) {
+    _resetTurnSnapshotForTest();
+    const sessionId = `foreign-append-${when}-${how}`;
+    const repo = seedRepo({ 'a.txt': tenLines });
+    await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+    editTree(sessionId, repo, { 'a.txt': ownLineTwo });
+    const append = () => writeTree(repo, { 'a.txt': `${readTree(repo, ['a.txt'])['a.txt']}foreign tail\n` });
+    if (when === 'during') append();
+    if (how !== 'live') {
+      await completeTurnSnapshot(sessionId);
+      if (when === 'after') append();
+      // The record holds the own edit only, never the foreign append.
+      const recorded = (await getTurnChanges(sessionId, { checkpointId: 'cp', patch: true })).patch;
+      assert.match(recorded, /-line 2\n\+LINE 2\n/, `${when}/${how}`);
+      assert.doesNotMatch(recorded, /foreign/, `${when}/${how}`);
+    }
+    await undoTurn(how, repo, sessionId);
+    assert.equal(readTree(repo, ['a.txt'])['a.txt'], `${tenLines}foreign tail\n`, `${when}/${how}`);
+    if (how === 'live') {
+      // The undone own change leaves the running turn's review and record.
+      assert.deepEqual((await getTurnReviewDiff(repo, sessionId)).files, [], how);
+      await completeTurnSnapshot(sessionId);
+      assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp' })).status, 'none', how);
+      continue;
+    }
+    const reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+    assert.deepEqual(statesOf(reply), [['a.txt', 'M', 'reverted']], `${when}/${how}`);
+    // Reapply puts the own edit back beside the foreign one.
+    await reapplyTurnChanges(sessionId, 'cp', null, reply.revision);
+    assert.equal(readTree(repo, ['a.txt'])['a.txt'], `${ownLineTwo}foreign tail\n`, `${when}/${how}`);
+  }
+});
+
+test('an Undo whose hunk a foreign edit overlaps fails with a conflict and overwrites nothing', { skip }, async () => {
+  for (const how of ['record', 'composer', 'live']) {
+    _resetTurnSnapshotForTest();
+    const sessionId = `foreign-overlap-${how}`;
+    const repo = seedRepo({ 'a.txt': tenLines });
+    await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+    editTree(sessionId, repo, { 'a.txt': ownLineTwo });
+    if (how !== 'live') await completeTurnSnapshot(sessionId);
+    const foreign = ownLineTwo.replace('LINE 2\n', 'foreign 2\n');
+    writeTree(repo, { 'a.txt': foreign });
+    await assert.rejects(undoTurn(how, repo, sessionId), /undo failed; the worktree was not changed/, how);
+    assert.equal(readTree(repo, ['a.txt'])['a.txt'], foreign, how);
+    if (how === 'live') {
+      assert.deepEqual(
+        (await getTurnReviewDiff(repo, sessionId)).files.map((file) => file.path),
+        ['a.txt'],
+        how
+      );
+      await completeTurnSnapshot(sessionId);
+    }
+    assert.deepEqual(statesOf(await getTurnChanges(sessionId, { checkpointId: 'cp' })), [['a.txt', 'M', 'applied']], how);
+  }
+});
+
+test('a non-Git worker’s edits join its Lead’s record and undo with it', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const lead = 'plain-worker-lead';
+  const workerId = `${lead}-worker`;
+  const root = join(base, `plain-worker-${++seq}`);
+  mkdirSync(root, { recursive: true });
+  writeTree(root, { 'lead.txt': 'l\n', 'w.txt': 'w\n' });
+  await beginTurnSnapshot(root, lead, { checkpointId: 'cp' });
+  const worker = beginAgentTurnReview(lead, workerId, { agent: 'worker' });
+  editTree(lead, root, { 'lead.txt': 'l\nL\n' });
+  editTree(workerId, root, { 'w.txt': 'w\nW\n', 'w-new.txt': 'new\n' });
+  assert.equal(completeAgentTurnReview(worker), true);
+  const expected = [
+    ['lead.txt', 'M', 1, 0],
+    ['w-new.txt', 'A', 1, 0],
+    ['w.txt', 'M', 1, 0],
+  ];
+  assert.deepEqual(counts((await getTurnReviewDiff(root, lead)).files), expected);
+  await completeTurnSnapshot(lead);
+  const reply = await getTurnChanges(lead, { checkpointId: 'cp' });
+  assert.deepEqual(counts(reply.files), expected);
+  assert.equal(reply.canUndo, true, reply.reason);
+  await revertTurnChanges(lead, 'cp', null, reply.revision);
+  assert.deepEqual(readTree(root, ['lead.txt', 'w.txt', 'w-new.txt']), {
+    'lead.txt': 'l\n',
+    'w.txt': 'w\n',
+    'w-new.txt': null,
+  });
+});
+
+// ── A foreign edit between two own writes of one file ───────────────────────
+
+const thirtyLines = Array.from({ length: 30 }, (_, index) => `line ${index + 1}\n`).join('');
+const swapLine = (text, line, to) => text.replace(`line ${line}\n`, `${to}\n`);
+
+/** Own edit of line 2, a foreign edit of `foreignLine`, own edit of line 22. */
+function editAroundForeign(sessionId, repo, foreignLine) {
+  editTree(sessionId, repo, { 'a.txt': swapLine(thirtyLines, 2, 'OWN 2') });
+  const foreign = swapLine(readTree(repo, ['a.txt'])['a.txt'], foreignLine, `FOREIGN ${foreignLine}`);
+  writeTree(repo, { 'a.txt': foreign });
+  editTree(sessionId, repo, { 'a.txt': swapLine(foreign, 22, 'OWN 22') });
+}
+
+test('a foreign edit between two own writes of a file stays out of its record and survives Undo', { skip }, async () => {
+  const foreignOnly = swapLine(thirtyLines, 12, 'FOREIGN 12');
+  const allEdits = swapLine(swapLine(foreignOnly, 2, 'OWN 2'), 22, 'OWN 22');
+  for (const how of ['record', 'composer', 'live']) {
+    _resetTurnSnapshotForTest();
+    const sessionId = `foreign-between-${how}`;
+    const repo = seedRepo({ 'a.txt': thirtyLines });
+    await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+    editAroundForeign(sessionId, repo, 12);
+    assert.equal(readTree(repo, ['a.txt'])['a.txt'], allEdits, how);
+    if (how !== 'live') {
+      await completeTurnSnapshot(sessionId);
+      const reply = await getTurnChanges(sessionId, { checkpointId: 'cp', patch: true });
+      assert.deepEqual(counts(reply.files), [['a.txt', 'M', 2, 2]], how);
+      assert.match(reply.patch, /-line 2\n\+OWN 2\n/, how);
+      assert.match(reply.patch, /-line 22\n\+OWN 22\n/, how);
+      assert.doesNotMatch(reply.patch, /^[-+].*12$/m, how);
+    }
+    await undoTurn(how, repo, sessionId);
+    assert.equal(readTree(repo, ['a.txt'])['a.txt'], foreignOnly, how);
+    if (how !== 'record') continue;
+    // Reapply replays both own segments, oldest first, around the foreign edit.
+    const undone = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+    await reapplyTurnChanges(sessionId, 'cp', null, undone.revision);
+    assert.equal(readTree(repo, ['a.txt'])['a.txt'], allEdits, how);
+  }
+});
+
+test('an Undo whose older own segment the foreign gap overlaps fails whole and overwrites nothing', { skip }, async () => {
+  for (const how of ['record', 'composer', 'live']) {
+    _resetTurnSnapshotForTest();
+    const sessionId = `foreign-gap-overlap-${how}`;
+    const repo = seedRepo({ 'a.txt': thirtyLines });
+    await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+    // Line 3 is context of the line 2 hunk: undoing that segment would need it.
+    editAroundForeign(sessionId, repo, 3);
+    if (how !== 'live') await completeTurnSnapshot(sessionId);
+    const before = readTree(repo, ['a.txt'])['a.txt'];
+    await assert.rejects(undoTurn(how, repo, sessionId), /undo failed; the worktree was not changed/, how);
+    assert.equal(readTree(repo, ['a.txt'])['a.txt'], before, how);
+    if (how === 'live') await completeTurnSnapshot(sessionId);
+    assert.deepEqual(statesOf(await getTurnChanges(sessionId, { checkpointId: 'cp' })), [['a.txt', 'M', 'applied']], how);
+  }
+});
+
+test('a binary file rewritten between own writes undoes only its last own write, and only while unchanged', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'binary-gap';
+  const bytes = (...values) => Buffer.from([0, ...values]);
+  const repo = seedRepo({ 'blob.bin': bytes(1) });
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+  editTree(sessionId, repo, { 'blob.bin': bytes(2) });
+  writeTree(repo, { 'blob.bin': bytes(3) });
+  editTree(sessionId, repo, { 'blob.bin': bytes(4) });
+  await completeTurnSnapshot(sessionId);
+  const reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+  assert.equal(reply.canUndo, true, reply.reason);
+  // Changed since: the Undo is refused and the bytes stay.
+  writeTree(repo, { 'blob.bin': bytes(5) });
+  await assert.rejects(revertTurnChanges(sessionId, 'cp', null, reply.revision), /undo failed/);
+  assert.equal(readTree(repo, ['blob.bin'])['blob.bin'], bytes(5).toString('latin1'));
+  // Unchanged: the last own write is undone back to the foreign bytes.
+  writeTree(repo, { 'blob.bin': bytes(4) });
+  await revertTurnChanges(sessionId, 'cp', null, reply.revision);
+  assert.equal(readTree(repo, ['blob.bin'])['blob.bin'], bytes(3).toString('latin1'));
+});
+
+test('the live and the restarted turn review show own edits only, never a foreign edit inside an own file', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'review-own-segments';
+  const repo = seedRepo({ 'a.txt': thirtyLines });
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+  editAroundForeign(sessionId, repo, 12);
+  // A foreign append after the last own write, too.
+  writeTree(repo, { 'a.txt': `${readTree(repo, ['a.txt'])['a.txt']}foreign tail\n` });
+  const assertOwnOnly = (review, label) => {
+    assert.deepEqual(counts(review.files), [['a.txt', 'M', 2, 2]], label);
+    assert.match(review.patch, /^\+OWN 2$/m, label);
+    assert.match(review.patch, /^\+OWN 22$/m, label);
+    assert.doesNotMatch(review.patch, /FOREIGN|foreign tail/, label);
+  };
+  assertOwnOnly(await getTurnReviewDiff(repo, sessionId), 'live');
+  await completeTurnSnapshot(sessionId);
+  assertOwnOnly(await getTurnReviewDiff(repo, sessionId), 'sealed');
+  _resetTurnSnapshotForTest();
+  const recorded = await getTurnReviewDiff(repo, sessionId);
+  assert.equal(recorded.reason, 'recorded');
+  assertOwnOnly(recorded, 'restarted');
+});
+
+test('Undo of a pure binary rename refuses a file whose bytes changed since', { skip }, async () => {
+  for (const how of ['record', 'composer']) {
+    _resetTurnSnapshotForTest();
+    const sessionId = `binary-rename-${how}`;
+    const original = Buffer.from([0, 1, 2, 3]);
+    const repo = seedRepo({ 'a.bin': original });
+    await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+    moveTree(sessionId, repo, 'a.bin', 'b.bin');
+    await completeTurnSnapshot(sessionId);
+    const changed = Buffer.from([0, 9, 9]);
+    writeTree(repo, { 'b.bin': changed });
+    await assert.rejects(undoTurn(how, repo, sessionId), /undo failed; the worktree was not changed/, how);
+    assert.deepEqual(readTree(repo, ['a.bin', 'b.bin']), { 'a.bin': null, 'b.bin': changed.toString('latin1') }, how);
+    // Holding the moved bytes again, it moves back.
+    writeTree(repo, { 'b.bin': original });
+    await undoTurn(how, repo, sessionId);
+    assert.deepEqual(readTree(repo, ['a.bin', 'b.bin']), { 'a.bin': original.toString('latin1'), 'b.bin': null }, how);
+  }
 });

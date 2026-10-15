@@ -1011,11 +1011,10 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
   }
   /* ONE joined surface: left panel | workspace cell(s) | dock. The left
      panel and .main-panel share a single divider (the panel's right border);
-     .main-panel draws the outer top / right / bottom edge and its overflow
-     clip rounds the rightmost element, so inner corners stay square. Splits
-     and docks add one 1px divider each (resize handle / dock border-left).
-     The outer edges keep --mx-sheet-gap from the rail, the window's right
-     edge and its bottom. */
+     .main-panel draws the outer top / right / bottom edge and paints the
+     sheet tone inside its rounded border. Splits and docks add one 1px
+     divider each (resize handle / dock border-left). The outer edges keep
+     --mx-sheet-gap from the rail, the window's right edge and its bottom. */
   :root:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] {
     /* The base rule's height:100% would push the margin below the window. */
     height: calc(100% - var(--mx-sheet-gap));
@@ -1047,6 +1046,11 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     border-radius: 0 var(--mx-sheet-radius) var(--mx-sheet-radius) 0;
     background: var(--mx-sheet-surface);
     box-shadow: none;
+    /* No clip: a rounded clip around the transcript scroller keeps Chromium
+       from hit-testing it on the compositor, so every wheel event waited on
+       the main thread. Whatever reaches an outer corner rounds itself
+       instead (the corner rules below). */
+    overflow: visible;
   }
   /* The rail is flat: the sheets carry every border. Mica draws its own seam
      whenever the sidebar folds; it sat beside the first border, a double line. */
@@ -1062,7 +1066,8 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     border-radius: var(--mx-sheet-radius);
   }
   /* Workspace cell = strip + surface stack + footer: flat rows of the joined
-     surface (no borders, gaps or radii of their own). */
+     surface (no borders or gaps of their own). The stack shows the sheet
+     painted beneath it. */
   :root:not([data-mixdog-mobile-tabs]) .pane-cell > .workspace-tabs-shell,
   :root:not([data-mixdog-mobile-tabs]) .pane-cell > .pane-surface-stack,
   :root:not([data-mixdog-mobile-tabs]) .pane-cell > .pane-footer-slot {
@@ -1071,8 +1076,79 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     border-radius: 0;
     background: var(--mx-sheet-surface);
   }
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell > .pane-surface-stack {
+    background: transparent;
+  }
   :root:not([data-mixdog-mobile-tabs]) .pane-cell > .pane-footer-slot {
     overflow: hidden;
+  }
+  /* Outer corners. Nothing that holds the transcript scroller may clip with
+     a radius (see .main-panel above), so each layer that reaches a corner of
+     the sheet rounds itself. Flags per cell: 1 = the side lies on the
+     sheet's outer edge, 0 = a neighbour cell follows; the left corners are
+     outer only while the sidebar is folded. --mx-cell-corner is the radius
+     inside the sheet's 1px border. */
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell {
+    --no-top: 1;
+    --no-bottom: 1;
+    --no-left: 1;
+    --open-right: 1;
+    --folded: 0;
+    --mx-cell-corner: calc(var(--mx-sheet-radius) - 1px);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .app-shell.sidebar-collapsed .pane-cell {
+    --folded: 1;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-split-column > .pane-split-cell:last-child .pane-cell {
+    --no-top: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-split-column > .pane-split-cell:first-child .pane-cell {
+    --no-bottom: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-split-row > .pane-split-cell:last-child .pane-cell {
+    --no-left: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-split-row > .pane-split-cell:first-child .pane-cell {
+    --open-right: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell > .workspace-tabs-shell {
+    border-top-left-radius: calc(var(--mx-cell-corner) * var(--no-top) * var(--no-left) * var(--folded));
+    border-top-right-radius: calc(var(--mx-cell-corner) * var(--no-top) * var(--open-right));
+    overflow: hidden;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-surface-handoff-layer,
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell > .pane-footer-slot {
+    border-bottom-right-radius: calc(var(--mx-cell-corner) * var(--no-bottom) * var(--open-right));
+    border-bottom-left-radius: calc(var(--mx-cell-corner) * var(--no-bottom) * var(--no-left) * var(--folded));
+  }
+  /* Covers over the rows sit on the handoff layer, which already paints the
+     same tone into the corner: a wider curve keeps their edge off the
+     sheet's border, so the corner is anti-aliased once, as a clip did. */
+  :root:not([data-mixdog-mobile-tabs]) .pane-surface-cover,
+  :root:not([data-mixdog-mobile-tabs]) .conversation > .transcript-shell::after {
+    border-bottom-right-radius: calc(2 * var(--mx-cell-corner) * var(--no-bottom) * var(--open-right));
+    border-bottom-left-radius: calc(2 * var(--mx-cell-corner) * var(--no-bottom) * var(--no-left) * var(--folded));
+  }
+  /* The conversation's own sheet would paint square over the corner; the
+     handoff layer beneath it carries the same tone. */
+  :root:not([data-mixdog-mobile-tabs]) .pane-conversation-slot > .conversation-persistent-surface > .workspace {
+    background: transparent;
+  }
+  /* The scrollbar thumb stops above the rounded corner instead of being
+     clipped by it. */
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell .transcript::-webkit-scrollbar-track {
+    margin-bottom: calc(var(--mx-cell-corner) * var(--no-bottom) * var(--open-right));
+  }
+  /* An overlay dock's shadow reaches the cell edge: cut it on the sheet's
+     corner curve, as the panel clip did. */
+  :root:not([data-mixdog-mobile-tabs])
+    .pane-cell
+    > .pane-side-dock[data-open="true"][data-overlay="true"]:not([data-expanded="true"]) {
+    clip-path: inset(
+      0 calc(-1 * var(--mx-sheet-gap)) calc(-1 * var(--mx-sheet-gap)) -100vw round 0
+        calc(var(--mx-cell-corner) * var(--no-top) * var(--open-right))
+        calc(var(--mx-cell-corner) * var(--no-bottom) * var(--open-right)) 0
+    );
   }
   /* Split cells meet on ONE hairline: the resize handle, whose hover / drag
      accent line stays. */
@@ -1107,69 +1183,8 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
     .pane-cell {
     isolation: isolate;
-    --no-top: 1;
-    --no-bottom: 1;
-    --no-left: 1;
-    --open-right: 1;
-    --folded: 0;
-  }
-  :root:not([data-mixdog-mobile-tabs]):has(.app-shell.sidebar-collapsed):not(
-      :has(
-        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
-        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
-      )
-    )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
-    .pane-cell {
-    --folded: 1;
-  }
-  :root:not([data-mixdog-mobile-tabs]):not(
-      :has(
-        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
-        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
-      )
-    )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
-    .pane-split-column
-    > .pane-split-cell:last-child
-    .pane-cell {
-    --no-top: 0;
-  }
-  :root:not([data-mixdog-mobile-tabs]):not(
-      :has(
-        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
-        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
-      )
-    )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
-    .pane-split-column
-    > .pane-split-cell:first-child
-    .pane-cell {
-    --no-bottom: 0;
-  }
-  :root:not([data-mixdog-mobile-tabs]):not(
-      :has(
-        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
-        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
-      )
-    )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
-    .pane-split-row
-    > .pane-split-cell:last-child
-    .pane-cell {
-    --no-left: 0;
-  }
-  :root:not([data-mixdog-mobile-tabs]):not(
-      :has(
-        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
-        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
-      )
-    )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
-    .pane-split-row
-    > .pane-split-cell:first-child
-    .pane-cell {
-    --open-right: 0;
+    /* The cell draws its own frame: its corners sit on the frame's edge. */
+    --mx-cell-corner: var(--mx-sheet-radius);
   }
   :root:not([data-mixdog-mobile-tabs]):not(
       :has(
@@ -1797,7 +1812,12 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
     margin: 0;
     border: 0;
     border-top: 1px solid var(--mx-border);
-    border-radius: 0;
+    border-radius: 0 0 calc(var(--mx-cell-corner) * var(--no-bottom) * var(--open-right))
+      calc(var(--mx-cell-corner) * var(--no-bottom) * var(--no-left) * var(--folded));
     background: var(--mx-sheet-surface);
+  }
+  /* The open panel owns the cell's bottom corners, not the stack above it. */
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell:has(> .bottom-panel:not([data-state="closed"])) > .pane-surface-stack {
+    --no-bottom: 0;
   }
 }

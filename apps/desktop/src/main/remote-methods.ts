@@ -46,6 +46,7 @@ import {
   requiredGitPath,
   requiredGitPaths,
   requiredGitOptionalMessage,
+  requiredReviewDiffFiles,
   requiredModelCatalogOptions,
   requiredModelSelection,
   requiredSessionContentQuery,
@@ -76,6 +77,7 @@ import {
   requiredGitResetMode,
   requiredGitRevision,
   requiredRepositoryCwd,
+  requiredReviewSource,
 } from './git-contract.mjs';
 
 // Pairing approval is the trust: a paired client has the desktop's own
@@ -89,6 +91,8 @@ export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = REMOTE_BLOCKED_C
  *  callers never apply and which would otherwise cross the relay per re-read. */
 const VALUE_ONLY_SESSION_CAPABILITIES: ReadonlySet<string> = new Set([
   'getTurnReviewDiff',
+  'getTurnReviewFilePatch',
+  'getSessionReviewFilePatch',
   'getTurnChanges',
   'skillsStatus',
 ]);
@@ -306,6 +310,7 @@ const GIT_OPERATION_NAMES = [
   'gitRevertFile',
   'gitReview',
   'gitReviewDiff',
+  'gitReviewDiffs',
   'gitShow',
   'gitShowDiff',
   'gitStage',
@@ -382,9 +387,16 @@ function gitWorkingTreeRemoteMethods(
         untracked === true,
         requiredGitDiscardMode(mode)
       ),
-    gitReview: ([cwd]) => git.gitReview(requiredRepositoryCwd(cwd)),
-    gitReviewDiff: ([cwd, path, untracked]) =>
-      git.gitReviewDiff(requiredRepositoryCwd(cwd), requiredGitPath(path), untracked === true),
+    gitReview: ([cwd, source]) => git.gitReview(requiredRepositoryCwd(cwd), requiredReviewSource(source)),
+    gitReviewDiff: ([cwd, path, untracked, source]) =>
+      git.gitReviewDiff(
+        requiredRepositoryCwd(cwd),
+        requiredGitPath(path),
+        untracked === true,
+        requiredReviewSource(source)
+      ),
+    gitReviewDiffs: ([cwd, files, source]) =>
+      git.gitReviewDiffs(requiredRepositoryCwd(cwd), requiredReviewDiffFiles(files), requiredReviewSource(source)),
     gitStash: ([cwd, message]) => git.gitStash(requiredRepositoryCwd(cwd), requiredGitOptionalMessage(message)),
     gitStashPop: ([cwd]) => git.gitStashPop(requiredRepositoryCwd(cwd)),
     gitStashList: ([cwd]) => invokeDesktopOperation('gitStashList', [requiredRepositoryCwd(cwd)]),

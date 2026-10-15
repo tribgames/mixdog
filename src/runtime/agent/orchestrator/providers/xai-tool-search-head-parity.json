@@ -1,0 +1,1131 @@
+{
+  "http/native/plain-tools": {
+    "model": "grok-4",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "go"
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "call_id": "ts1",
+        "name": "load_tool",
+        "arguments": "{\"names\":[\"x\"]}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "cu1",
+        "name": "apply_patch",
+        "arguments": "{\"patch\":\"P\"}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "fn1",
+        "name": "Read",
+        "arguments": "{\"path\":\"a\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "ts1",
+        "output": "loaded"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "cu1",
+        "output": "patched"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "fn1",
+        "output": "file"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "next"
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
+    "tools": [
+      {
+        "type": "function",
+        "name": "Read",
+        "description": "Read a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "load_tool",
+        "description": "Load tools",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": "array"
+            }
+          }
+        },
+        "strict": false
+      }
+    ],
+    "parallel_tool_calls": true,
+    "stream": true
+  },
+  "ws/native/plain-tools": {
+    "model": "grok-4",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "go"
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "call_id": "ts1",
+        "name": "load_tool",
+        "arguments": "{\"names\":[\"x\"]}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "cu1",
+        "name": "apply_patch",
+        "arguments": "{\"patch\":\"P\"}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "fn1",
+        "name": "Read",
+        "arguments": "{\"path\":\"a\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "ts1",
+        "output": "loaded"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "cu1",
+        "output": "patched"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "fn1",
+        "output": "file"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "next"
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
+    "tools": [
+      {
+        "type": "function",
+        "name": "Read",
+        "description": "Read a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "load_tool",
+        "description": "Load tools",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": "array"
+            }
+          }
+        },
+        "strict": false
+      }
+    ],
+    "parallel_tool_calls": true
+  },
+  "http/oauth/plain-tools": {
+    "model": "grok-4",
+    "input": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "sys"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "go"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "working"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "looking"
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "call_id": "ts1",
+        "name": "load_tool",
+        "arguments": "{\"names\":[\"x\"]}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "cu1",
+        "name": "apply_patch",
+        "arguments": "{\"patch\":\"P\"}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "sk1",
+        "name": "Skill",
+        "arguments": "{\"name\":\"s\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "ts1",
+        "output": "loaded"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "cu1",
+        "output": "patched"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "sk1",
+        "output": "skill"
+      },
+      {
+        "type": "function_call",
+        "call_id": "f2",
+        "name": "Read",
+        "arguments": "{\"path\":\"a\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "f2",
+        "output": "file"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "next"
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
+    "tools": [
+      {
+        "type": "function",
+        "name": "Read",
+        "description": "Read a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "load_tool",
+        "description": "Load tools",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": "array"
+            }
+          }
+        },
+        "strict": false
+      }
+    ],
+    "parallel_tool_calls": true,
+    "stream": true
+  },
+  "ws/oauth/plain-tools": {
+    "model": "grok-4",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "go"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "working"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "looking"
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "call_id": "ts1",
+        "name": "load_tool",
+        "arguments": "{\"names\":[\"x\"]}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "cu1",
+        "name": "apply_patch",
+        "arguments": "{\"patch\":\"P\"}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "sk1",
+        "name": "Skill",
+        "arguments": "{\"name\":\"s\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "ts1",
+        "output": "loaded"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "cu1",
+        "output": "patched"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "sk1",
+        "output": "skill"
+      },
+      {
+        "type": "function_call",
+        "call_id": "f2",
+        "name": "Read",
+        "arguments": "{\"path\":\"a\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "f2",
+        "output": "file"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "next"
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
+    "instructions": "sys",
+    "tools": [
+      {
+        "type": "function",
+        "name": "Read",
+        "description": "Read a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "load_tool",
+        "description": "Load tools",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": "array"
+            }
+          }
+        },
+        "strict": false
+      }
+    ],
+    "parallel_tool_calls": true
+  },
+  "http/server-replay/plain-tools": {
+    "model": "grok-4",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "weather in Seoul?"
+          }
+        ]
+      },
+      {
+        "type": "reasoning",
+        "id": "rs_1",
+        "encrypted_content": "ENC",
+        "summary": []
+      },
+      {
+        "type": "tool_search_call",
+        "id": "tsc_1",
+        "call_id": null,
+        "execution": "server",
+        "status": "completed",
+        "arguments": {
+          "query": "mcp__weather__forecast",
+          "limit": 1
+        }
+      },
+      {
+        "type": "tool_search_output",
+        "id": "tso_1",
+        "call_id": null,
+        "execution": "server",
+        "status": "completed",
+        "tools": [
+          {
+            "type": "function",
+            "name": "mcp__weather__forecast",
+            "description": "Forecast",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              }
+            },
+            "defer_loading": true
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "fc_1",
+        "call_id": "call_w",
+        "name": "mcp__weather__forecast",
+        "arguments": "{\"city\":\"Seoul\"}",
+        "status": "completed"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_w",
+        "output": "sunny"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "and Busan?"
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
+    "tools": [
+      {
+        "type": "function",
+        "name": "Read",
+        "description": "Read a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "load_tool",
+        "description": "Load tools",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": "array"
+            }
+          }
+        },
+        "strict": false
+      }
+    ],
+    "parallel_tool_calls": true,
+    "stream": true
+  },
+  "ws/server-replay/plain-tools": {
+    "model": "grok-4",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "weather in Seoul?"
+          }
+        ]
+      },
+      {
+        "type": "reasoning",
+        "id": "rs_1",
+        "encrypted_content": "ENC",
+        "summary": []
+      },
+      {
+        "type": "tool_search_call",
+        "id": "tsc_1",
+        "call_id": null,
+        "execution": "server",
+        "status": "completed",
+        "arguments": {
+          "query": "mcp__weather__forecast",
+          "limit": 1
+        }
+      },
+      {
+        "type": "tool_search_output",
+        "id": "tso_1",
+        "call_id": null,
+        "execution": "server",
+        "status": "completed",
+        "tools": [
+          {
+            "type": "function",
+            "name": "mcp__weather__forecast",
+            "description": "Forecast",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              }
+            },
+            "defer_loading": true
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "fc_1",
+        "call_id": "call_w",
+        "name": "mcp__weather__forecast",
+        "arguments": "{\"city\":\"Seoul\"}",
+        "status": "completed"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_w",
+        "output": "sunny"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "and Busan?"
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
+    "tools": [
+      {
+        "type": "function",
+        "name": "Read",
+        "description": "Read a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "load_tool",
+        "description": "Load tools",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": "array"
+            }
+          }
+        },
+        "strict": false
+      }
+    ],
+    "parallel_tool_calls": true
+  },
+  "http/server-replay/deferred-tools": {
+    "model": "grok-4",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "weather in Seoul?"
+          }
+        ]
+      },
+      {
+        "type": "reasoning",
+        "id": "rs_1",
+        "encrypted_content": "ENC",
+        "summary": []
+      },
+      {
+        "type": "tool_search_call",
+        "id": "tsc_1",
+        "call_id": null,
+        "execution": "server",
+        "status": "completed",
+        "arguments": {
+          "query": "mcp__weather__forecast",
+          "limit": 1
+        }
+      },
+      {
+        "type": "tool_search_output",
+        "id": "tso_1",
+        "call_id": null,
+        "execution": "server",
+        "status": "completed",
+        "tools": [
+          {
+            "type": "function",
+            "name": "mcp__weather__forecast",
+            "description": "Forecast",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              }
+            },
+            "defer_loading": true
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "fc_1",
+        "call_id": "call_w",
+        "name": "mcp__weather__forecast",
+        "arguments": "{\"city\":\"Seoul\"}",
+        "status": "completed"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_w",
+        "output": "sunny"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "and Busan?"
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
+    "tools": [
+      {
+        "type": "function",
+        "name": "Read",
+        "description": "Read a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "load_tool",
+        "description": "Load tools",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": "array"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "mcp__weather__forecast",
+        "description": "Forecast",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      }
+    ],
+    "parallel_tool_calls": true,
+    "stream": true
+  },
+  "ws/server-replay/deferred-tools": {
+    "model": "grok-4",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "weather in Seoul?"
+          }
+        ]
+      },
+      {
+        "type": "reasoning",
+        "id": "rs_1",
+        "encrypted_content": "ENC",
+        "summary": []
+      },
+      {
+        "type": "tool_search_call",
+        "id": "tsc_1",
+        "call_id": null,
+        "execution": "server",
+        "status": "completed",
+        "arguments": {
+          "query": "mcp__weather__forecast",
+          "limit": 1
+        }
+      },
+      {
+        "type": "tool_search_output",
+        "id": "tso_1",
+        "call_id": null,
+        "execution": "server",
+        "status": "completed",
+        "tools": [
+          {
+            "type": "function",
+            "name": "mcp__weather__forecast",
+            "description": "Forecast",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              }
+            },
+            "defer_loading": true
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "fc_1",
+        "call_id": "call_w",
+        "name": "mcp__weather__forecast",
+        "arguments": "{\"city\":\"Seoul\"}",
+        "status": "completed"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_w",
+        "output": "sunny"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "and Busan?"
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
+    "tools": [
+      {
+        "type": "function",
+        "name": "Read",
+        "description": "Read a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "load_tool",
+        "description": "Load tools",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": "array"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "mcp__weather__forecast",
+        "description": "Forecast",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      }
+    ],
+    "parallel_tool_calls": true
+  },
+  "http/native/deferred-tools": {
+    "model": "grok-4",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "go"
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "call_id": "ts1",
+        "name": "load_tool",
+        "arguments": "{\"names\":[\"x\"]}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "cu1",
+        "name": "apply_patch",
+        "arguments": "{\"patch\":\"P\"}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "fn1",
+        "name": "Read",
+        "arguments": "{\"path\":\"a\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "ts1",
+        "output": "loaded"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "cu1",
+        "output": "patched"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "fn1",
+        "output": "file"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "next"
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
+    "tools": [
+      {
+        "type": "function",
+        "name": "Read",
+        "description": "Read a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "load_tool",
+        "description": "Load tools",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": "array"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "mcp__weather__forecast",
+        "description": "Forecast",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      }
+    ],
+    "parallel_tool_calls": true,
+    "stream": true
+  },
+  "ws/native/deferred-tools": {
+    "model": "grok-4",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "go"
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "call_id": "ts1",
+        "name": "load_tool",
+        "arguments": "{\"names\":[\"x\"]}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "cu1",
+        "name": "apply_patch",
+        "arguments": "{\"patch\":\"P\"}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "fn1",
+        "name": "Read",
+        "arguments": "{\"path\":\"a\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "ts1",
+        "output": "loaded"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "cu1",
+        "output": "patched"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "fn1",
+        "output": "file"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "next"
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
+    "tools": [
+      {
+        "type": "function",
+        "name": "Read",
+        "description": "Read a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "load_tool",
+        "description": "Load tools",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": "array"
+            }
+          }
+        },
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "mcp__weather__forecast",
+        "description": "Forecast",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          }
+        },
+        "strict": false
+      }
+    ],
+    "parallel_tool_calls": true
+  }
+}

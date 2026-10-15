@@ -1,5 +1,5 @@
 /**
- * Loopback command server behind the runtime's read-only `terminal` tool: the
+ * Loopback command server behind the runtime's `terminal` tool: the
  * shared loopback bridge published as `terminal-bridge.json`.
  */
 import { LoopbackBridgeServer, type LoopbackBridgeServerOptions } from '../bridge/loopback-bridge-server';

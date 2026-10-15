@@ -7,6 +7,7 @@ import {
   contextMessagesSignature,
   estimateMessagesTokens,
   estimateRequestReserveTokens,
+  estimateToolSchemaTokens,
   providerTokenCalibration,
   resolveSessionCompactPolicy,
   toolSchemaSignature,
@@ -18,6 +19,7 @@ import { positiveInt } from '../../../../shared/numbers.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { providerInputExcludesCache, providerNativePdf } from '../../providers/registry.mjs';
 import { contentMediaBytes, contentMediaCount } from '../../providers/media-normalization.mjs';
+import { splitProtectedContext } from '../compact/messages.mjs';
 
 // Unified context-share rule (compact/constants.mjs CONTEXT_SHARE_RATIO): the
 // post-compaction target is 25% of the boundary/context window. One
@@ -589,6 +591,95 @@ export function compactTargetBudget(policy) {
   const singleShot = policy?.singleShot === true || (rawTrigger > 0 && reserve >= rawTrigger);
   return compactTargetBudgetForTrigger(rawBoundary, rawTarget, reserve, rawTrigger, singleShot, policy?.force === true);
 }
+const OVERHEAD_TOP_TOOLS = 5;
+
+/**
+ * The per-request overhead no compaction can shrink — the finalized wire tool
+ * schemas (policy.requestReserveTokens), the protected system/fixed prompt
+ * every compaction keeps verbatim, and the configured operator headroom — in
+ * the provider-scale units of the compact boundary (calibrated estimates, the
+ * configured headroom as configured). Only that fixed estimate can justify a
+ * refusal; a provider reading aligned to this prefix and these tool schemas
+ * can only withdraw one (it includes compactable history). Null unless the
+ * fixed part reaches the boundary: kind 'fixed_overhead' when schemas +
+ * system alone do, 'configured_reserve' when the configured headroom pushes
+ * the fixed part there.
+ */
+export function fixedRequestOverhead(policy, messages, tools, sessionRef = null) {
+  if (!policy?.auto) return null;
+  const boundary = positiveInt(policy.boundaryTokens);
+  if (!boundary) return null;
+  const calibration = policyTokenCalibration(policy);
+  const toProviderScale = (raw) => Math.ceil(Math.max(0, raw) * calibration);
+  const toolTokens = toProviderScale(policyRequestReserveTokens(policy));
+  const systemTokens = toProviderScale(
+    estimateMessagesTokens(splitProtectedContext(messages || []).protectedPrefix)
+  );
+  const configuredReserve = Math.max(0, Number(policy.configuredReserveTokens) || 0);
+  const fixed = toolTokens + systemTokens;
+  // A provider reading of this very prefix with these very tools measured
+  // the whole request, compactable history included: an upper bound of the
+  // fixed part, never proof of it. When it is not above the estimate, the
+  // estimate is known to overstate the fixed part by an unknown amount, so
+  // nothing here can show that compaction is futile.
+  const measuredRequestTokens = measuredFixedRequestTokens(sessionRef, messages, policy);
+  if (measuredRequestTokens !== null && measuredRequestTokens <= fixed) return null;
+  // Refuse only when the fixed part itself (plus the headroom, for the
+  // reserve kind) reaches the boundary — never on a near miss of a heuristic
+  // estimate: those requests compact or go out, and the provider's own
+  // overflow handling decides.
+  let kind = null;
+  if (fixed >= boundary) kind = 'fixed_overhead';
+  else if (configuredReserve > 0 && fixed + configuredReserve >= boundary) kind = 'configured_reserve';
+  if (!kind) return null;
+  const counted = (Array.isArray(tools) ? tools : []).filter(
+    (tool) => tool?.deferLoading !== true && tool?.defer_loading !== true
+  );
+  const largestTools = counted
+    .map((tool) => ({
+      name: String(tool?.name || tool?.type || 'tool'),
+      tokens: toProviderScale(estimateToolSchemaTokens([tool])),
+    }))
+    .sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name))
+    .slice(0, OVERHEAD_TOP_TOOLS);
+  return {
+    kind,
+    contextWindowTokens: positiveInt(policy.contextWindow) || boundary,
+    boundaryTokens: boundary,
+    toolCount: counted.length,
+    toolTokens,
+    systemTokens,
+    configuredReserveTokens: configuredReserve,
+    measuredRequestTokens,
+    largestTools,
+  };
+}
+
+/**
+ * Identity of the fixed inputs fixedRequestOverhead judges: the wire tool
+ * schemas, the protected system context, the configured headroom and the
+ * boundary. A verdict holds while this is unchanged; the provider reading is
+ * deliberately not part of it (compaction clears it, fixed overhead stays).
+ */
+export function fixedRequestOverheadInputs(policy, messages) {
+  if (!policy?.auto) return null;
+  return JSON.stringify([
+    policy.toolSchemaSignature || '',
+    contextMessagesSignature(splitProtectedContext(messages || []).protectedPrefix),
+    Math.max(0, Number(policy.configuredReserveTokens) || 0),
+    positiveInt(policy.boundaryTokens) || 0,
+  ]);
+}
+
+// The provider-measured size of the last request when it still describes
+// this transcript prefix and was sent with the same tool schemas; else null.
+function measuredFixedRequestTokens(sessionRef, messages, policy) {
+  if (!sessionRef || !Array.isArray(messages)) return null;
+  const aligned = providerBaselineCoverage(sessionRef, messages);
+  if (!aligned || !aligned.toolSignature || aligned.toolSignature !== policy?.toolSchemaSignature) return null;
+  return aligned.tokens;
+}
+
 // Anthropic refuses a request body over 32 MB (HTTP 413) however few tokens it
 // holds, and inline media is what gets there: an image is priced at no more
 // than ~1.6k tokens yet carries up to 5 MB of base64. Tool-result media is the
@@ -707,7 +798,6 @@ function compactionTelemetryRecord(sessionRef, policy, meta, prev) {
   return {
     ...prev,
     auto: policy.auto !== false,
-    reservedTokens: policy.configuredReserveTokens || prev.reservedTokens || null,
     requestReserveTokens: policy.requestReserveTokens || 0,
     reserveTokens: policy.reserveTokens || 0,
     boundaryTokens: policy.boundaryTokens || null,

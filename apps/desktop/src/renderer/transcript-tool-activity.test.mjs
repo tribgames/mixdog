@@ -426,6 +426,91 @@ test('desktop activity uses concrete control, MCP server, and skill names', () =
   );
 });
 
+test('a bridged call presents as the tool it runs, with via call_tool', async () => {
+  const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
+  const direct = {
+    kind: 'tool',
+    id: 'direct',
+    name: 'web_fetch',
+    args: { url: 'https://example.test/page' },
+    result: 'page body',
+  };
+  const bridged = {
+    ...direct,
+    id: 'bridged',
+    name: 'call_tool',
+    args: { name: 'web_fetch', arguments: { url: 'https://example.test/page' } },
+  };
+  const directView = desktopToolActivityItemPresentation(direct);
+  const bridgedView = desktopToolActivityItemPresentation(bridged);
+  assert.equal(directView.via, undefined);
+  assert.equal(bridgedView.via, 'call_tool');
+  for (const key of ['category', 'title', 'verb', 'subject', 'resultLabel', 'outputText']) {
+    assert.deepEqual(bridgedView[key], directView[key], key);
+  }
+  assert.equal(bridgedView.category, 'Web Research');
+  assert.equal(desktopToolActivityCategory('call_tool', bridged.args), 'Web Research');
+  assert.equal(desktopToolActivitySummary([bridged]), desktopToolActivitySummary([direct]));
+  // The transcript item itself keeps the wire call.
+  assert.equal(bridged.name, 'call_tool');
+});
+
+test('a bridge load_tool result reads as described / missing / blocked, never tool loading', async () => {
+  const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
+  const describe = {
+    kind: 'tool',
+    id: 'describe',
+    name: 'load_tool',
+    args: { names: ['web_fetch', 'nope', 'shell'] },
+    result: JSON.stringify({
+      entries: [{ name: 'web_fetch', pointer: '', schemaRevision: 'r1', complete: true, document: {} }],
+      missing: ['nope'],
+      blocked: [{ name: 'shell', reason: 'readonly mode' }],
+      nextCursor: null,
+    }),
+  };
+  const view = desktopToolActivityItemPresentation(describe);
+  assert.equal(view.title, 'Tool description');
+  assert.equal(view.subject, 'web_fetch');
+  assert.equal(view.resultLabel, 'Missing: nope · Blocked: shell');
+  assert.equal(desktopToolActivitySummary([describe]), 'Tool description 3');
+  const loader = {
+    ...describe,
+    id: 'loader',
+    result: JSON.stringify({ selected: { tools: { added: ['web_fetch'] } }, loaded: ['web_fetch'] }),
+  };
+  assert.equal(desktopToolActivityItemPresentation(loader).title, 'Tool loading');
+  assert.equal(desktopToolActivitySummary([loader]), 'Tool loading 3');
+});
+
+test('a continued bridge describe and a retired search_tools call from an old transcript still present', async () => {
+  const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
+  // The rest of a large definition: names holds the continuation token.
+  const continued = {
+    kind: 'tool',
+    id: 'continued',
+    name: 'load_tool',
+    args: { names: '@continue:eyJ2IjoxfQ' },
+    result: JSON.stringify({
+      entries: [{ name: 'mcp__big__configure', schemaRevision: 'r1', complete: true, offset: 100, jsonTextChunk: '}' }],
+      missing: [],
+      blocked: [],
+      note: 'Run a deferred tool with call_tool {name, arguments}.',
+      continueWith: null,
+    }),
+  };
+  const continuedView = desktopToolActivityItemPresentation(continued);
+  assert.equal(continuedView.title, 'Tool description');
+  assert.equal(continuedView.subject, 'mcp__big__configure');
+  const searchResult = JSON.stringify({ tools: [{ name: 'web_fetch', description: 'Fetch a page.' }], nextCursor: null });
+  // Sessions written while search_tools existed keep their calls.
+  const retired = { kind: 'tool', id: 'retired', name: 'search_tools', args: { query: 'fetch page' }, result: searchResult };
+  const retiredView = desktopToolActivityItemPresentation(retired);
+  assert.ok(retiredView.title);
+  assert.ok(desktopToolActivitySummary([retired]));
+  assert.equal(retired.name, 'search_tools');
+});
+
 test('desktop activity lists every call as one row under the summary, without category folders', async () => {
   const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
   try {

@@ -37,6 +37,7 @@ import { decodeValidUtf8OrNull, detectPatchTargetCodec, nearestPatchLineMatch } 
 import { hashText } from './hash-utils.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
+import { reviewFileContent } from '../../../../shared/bounded-file-read.mjs';
 
 const STR_REPLACE_NAMES = new Set(['edit', 'strreplace', 'str_replace', 'str_replace_editor', 'search_replace']);
 const WRITE_NAMES = new Set(['write', 'create_file', 'createfile']);
@@ -189,24 +190,25 @@ function recordEditSnapshot(fullPath, options, contentHash = null, preMutationSt
 // UI diff parity with apply_patch: register the before/after pair on the
 // shared per-call side channel so tool cards render edit results with the
 // same diff markup. Lazy import breaks the orchestrator→builtin→adapters
-// module cycle; failures never affect the edit result.
-async function recordEditUiDiff(options, workDir, fullPath, before, after, encoding) {
+// module cycle; failures never affect the edit result. `sides()` yields the
+// file's `{ before, after }` content (null = absent).
+async function recordToolUiDiff(options, workDir, fullPath, sides) {
   const callId = options?.toolCallId;
   const sessionId = options?.sessionId || options?.readStateScope;
   if (!callId || !sessionId) return;
   try {
     const { registerEditToolUiDiff } = await import('../patch/orchestrator.mjs');
-    registerEditToolUiDiff({
-      callId,
-      sessionId,
-      basePath: workDir,
-      fullPath,
-      before: before === null ? null : encodeEditContent(before, encoding),
-      after: after === null ? null : encodeEditContent(after, encoding),
-    });
+    registerEditToolUiDiff({ callId, sessionId, basePath: workDir, fullPath, ...sides() });
   } catch {
     /* best-effort display channel */
   }
+}
+
+async function recordEditUiDiff(options, workDir, fullPath, before, after, encoding) {
+  await recordToolUiDiff(options, workDir, fullPath, () => ({
+    before: before === null ? null : encodeEditContent(before, encoding),
+    after: after === null ? null : encodeEditContent(after, encoding),
+  }));
 }
 
 // The 0-based line the failure excerpt centres on, or -1: the engine's
@@ -828,6 +830,7 @@ async function adaptWrite(args, workDir, options) {
   if (target.error) return target.error;
   const fullPath = target.full;
   const existed = existsSync(fullPath);
+  const before = existed ? reviewFileContent(fullPath) : null;
   try {
     mkdirSync(dirname(fullPath), { recursive: true });
   } catch {
@@ -835,6 +838,7 @@ async function adaptWrite(args, workDir, options) {
   }
   await atomicWrite(fullPath, contents, { sessionId: editScope(options) });
   invalidateAfterWrite(fullPath);
+  await recordToolUiDiff(options, workDir, fullPath, () => ({ before, after: contents }));
   return `${existed ? 'Updated' : 'Created'} ${fullPath} (${Buffer.byteLength(contents, 'utf8')} bytes)`;
 }
 

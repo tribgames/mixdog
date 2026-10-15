@@ -5,8 +5,13 @@
  */
 import { SchemaType } from '@google/generative-ai';
 import { traceHash, stableTraceStringify } from './trace-utils.mjs';
-import { normalizeContentForGeminiParts, splitToolContentForGemini } from './media-normalization.mjs';
+import {
+  normalizeContentForGeminiParts,
+  splitToolContentForGemini,
+  geminiPartMetadata,
+} from './media-normalization.mjs';
 import { providerReplayItems } from './lib/provider-replay.mjs';
+import { isGeminiFamilyModel } from './gemini-family.mjs';
 import { ensureGeminiToolCallSignatures } from './gemini-history-signatures.mjs';
 
 // Bounds on persisted provider metadata replayed back into the prompt.
@@ -20,14 +25,22 @@ function explicitGeminiMediaPart(part) {
   if (typeof inline?.data === 'string' && inline.data) {
     const mimeType = inline.mimeType || inline.mime_type || inline.mediaType || inline.media_type;
     if (typeof mimeType === 'string' && mimeType) {
-      return { inlineData: { mimeType, data: inline.data } };
+      return { inlineData: { mimeType, data: inline.data }, ...geminiPartMetadata(part) };
     }
   }
+  // An explicit fileData part keeps exactly the MIME type it declared; with
+  // none, the shared normalizer resolves it from the URI or omits it.
   const file = part.fileData || part.file_data;
   const fileUri = file?.fileUri || file?.file_uri;
   const mimeType = file?.mimeType || file?.mime_type || file?.mediaType || file?.media_type;
-  if (typeof fileUri === 'string' && fileUri && typeof mimeType === 'string' && mimeType) {
-    return { fileData: { mimeType, fileUri } };
+  if (typeof fileUri === 'string' && fileUri) {
+    const info = { fileUri };
+    if (typeof mimeType === 'string' && mimeType) info.mimeType = mimeType;
+    else {
+      const resolved = normalizeContentForGeminiParts([part])[0]?.fileData?.mimeType;
+      if (resolved) info.mimeType = resolved;
+    }
+    return { fileData: info, ...geminiPartMetadata(part) };
   }
   return null;
 }
@@ -506,8 +519,15 @@ function pruneTypeSpecificKeywords(result, rawType) {
 function needsJsonParameters(schema) {
   if (typeof schema === 'boolean') return true;
   if (!schema || typeof schema !== 'object') return false;
-  // The legacy dialect has no reference vocabulary; preserve both pointers
-  // and their definitions together, including recursive MCP contracts.
+  return !legacyRepresentable(schema, true);
+}
+
+// The pre-representability selection, kept verbatim for the Claude models
+// behind Antigravity, whose bridge contract is unverified: their declarations
+// must stay byte-identical.
+function needsJsonParametersClaude(schema) {
+  if (typeof schema === 'boolean') return true;
+  if (!schema || typeof schema !== 'object') return false;
   if (['$ref', '$defs', 'definitions'].some((key) => Object.hasOwn(schema, key))) return true;
   const constraints = Object.keys(schema).filter(
     (key) => !['description', 'title', 'default', 'examples', '$comment'].includes(key)
@@ -521,15 +541,94 @@ function needsJsonParameters(schema) {
     ...(schema.oneOf || []),
     ...(schema.allOf || []),
   ];
-  return children.some(needsJsonParameters);
+  return children.some(needsJsonParametersClaude);
 }
 
-export function toGeminiTools(tools) {
+const LEGACY_JSON_TYPES =new Set(['string', 'number', 'integer', 'boolean', 'array', 'object']);
+// Annotation-only keywords: dropping them never widens the accepted arguments.
+const ANNOTATION_KEYS = new Set(['$schema', '$id', '$comment', 'examples']);
+const NON_CONSTRAINT_KEYS = new Set([...ANNOTATION_KEYS, 'description', 'title', 'default', 'example']);
+
+/** True when the legacy OpenAPI Schema subset expresses `input` exactly:
+ *  convertSchema would neither drop a constraint nor invent a replacement. */
+function legacyRepresentable(input, root = false) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return false;
+  const flat = flattenAllOf(input);
+  if (flat.conflict) return false;
+  const schema = flat.schema;
+  const keys = Object.keys(schema);
+  if (!keys.some((key) => !NON_CONSTRAINT_KEYS.has(key))) return false;
+  for (const key of keys) {
+    if (GEMINI_SCHEMA_FIELDS.has(key) || ANNOTATION_KEYS.has(key)) continue;
+    // additionalProperties:true is the default; anything else is a constraint.
+    if (key === 'additionalProperties' && schema[key] === true) continue;
+    return false;
+  }
+  if (schema.oneOf !== undefined || schema.not !== undefined) return false;
+
+  const declared = [].concat(schema.type ?? []);
+  const nonNull = declared.filter((type) => type !== 'null');
+  if (declared.length && !nonNull.length) return false;
+  if (nonNull.length > 1 || nonNull.some((type) => !LEGACY_JSON_TYPES.has(type))) return false;
+  let type = nonNull[0];
+  if (!type && (schema.properties || schema.required)) type = 'object';
+  if (!type && schema.items) type = 'array';
+
+  if (schema.enum !== undefined && (!Array.isArray(schema.enum) || schema.enum.some((v) => typeof v !== 'string'))) {
+    return false;
+  }
+  if (schema.const !== undefined && typeof schema.const !== 'string') return false;
+  if (['integer', 'number', 'boolean'].includes(type) && (schema.enum !== undefined || schema.const !== undefined)) {
+    return false;
+  }
+  if (!type && [...ALL_TYPE_SPECIFIC_KEYWORDS].some((key) => schema[key] !== undefined)) return false;
+
+  const lower = rawBound(schema, 'lower');
+  const upper = rawBound(schema, 'upper');
+  if ((lower?.exclusive || upper?.exclusive) && type !== 'integer') return false;
+  if (lower && upper && lower.value > upper.value) return false;
+  for (const [minKey, maxKey] of [
+    ['minLength', 'maxLength'],
+    ['minItems', 'maxItems'],
+    ['minProperties', 'maxProperties'],
+  ]) {
+    if (Number.isFinite(schema[minKey]) && Number.isFinite(schema[maxKey]) && schema[minKey] > schema[maxKey]) {
+      return false;
+    }
+  }
+
+  if (type === 'array') {
+    if (!schema.items || typeof schema.items !== 'object' || Array.isArray(schema.items)) return false;
+    if (!legacyRepresentable(schema.items)) return false;
+  }
+  if (type === 'object') {
+    const props = schema.properties;
+    if (props !== undefined && (!props || typeof props !== 'object' || Array.isArray(props))) return false;
+    const names = Object.keys(props || {});
+    // A free-form object has no legacy form (empty `properties` is rejected);
+    // only the root of a no-argument tool may be empty.
+    if (!names.length && !root && !Array.isArray(schema.anyOf)) return false;
+    if (schema.required !== undefined) {
+      if (!Array.isArray(schema.required)) return false;
+      if (schema.required.some((name) => typeof name !== 'string' || !names.includes(name))) return false;
+    }
+    if (!names.every((name) => legacyRepresentable(props[name]))) return false;
+  }
+  if (schema.anyOf !== undefined) {
+    if (!Array.isArray(schema.anyOf) || !schema.anyOf.every((branch) => legacyRepresentable(branch))) return false;
+  }
+  return true;
+}
+
+// `claudeBridge: true` keeps the historical parameters/parametersJsonSchema
+// choice for the Claude models behind Antigravity.
+export function toGeminiTools(tools, { claudeBridge = false } = {}) {
+  const needsJson = claudeBridge ? needsJsonParametersClaude : needsJsonParameters;
   return {
     functionDeclarations: tools.map((t) => ({
       name: t.name,
       description: t.description,
-      ...(needsJsonParameters(t.inputSchema)
+      ...(needsJson(t.inputSchema)
         ? { parametersJsonSchema: structuredClone(t.inputSchema) }
         : { parameters: convertSchema(t.inputSchema) }),
     })),
@@ -552,8 +651,8 @@ export function toGeminiNativeTools(nativeTools) {
 
 // The request `tools` array: hosted tools first, then one function-declaration
 // entry when function tools are present. Empty when neither is present.
-export function toGeminiRequestTools(tools, nativeTools) {
-  const functionTools = tools?.length ? [toGeminiTools(tools)] : [];
+export function toGeminiRequestTools(tools, nativeTools, options) {
+  const functionTools = tools?.length ? [toGeminiTools(tools, options)] : [];
   return [...toGeminiNativeTools(nativeTools), ...functionTools];
 }
 
@@ -607,18 +706,47 @@ export function toGeminiToolConfig(toolChoice) {
 // One tool result: its functionResponse part, plus any media it carried as
 // ordinary content parts. The ids pair a call with its response (the Claude
 // models behind Antigravity require them) and are harmless for Gemini.
-function toGeminiToolResult(message, toolNameByCallId) {
+// Multimodal function responses (FunctionResponse.parts) exist on Gemini 3+.
+// Older Gemini ids and other families (Claude behind Antigravity) keep media
+// as sibling parts of the response turn.
+function supportsFunctionResponseParts(model) {
+  if (!isGeminiFamilyModel(model)) return false;
+  const major = /gemini-(\d+)/i.exec(String(model))?.[1];
+  return major === undefined || Number(major) >= 3;
+}
+
+// FunctionResponsePart carries only inlineData{mimeType,data}; anything else
+// (fileData URIs, parts with mediaResolution/videoMetadata) stays a sibling.
+const isNestableMedia = (part) =>
+  part?.inlineData && Object.keys(part).length === 1 && Object.keys(part.inlineData).length === 2;
+
+function toGeminiToolResult(message, toolNameByCallId, nestMedia) {
   const functionName = toolNameByCallId?.get(message.toolCallId) || message.toolCallId || '';
   const { response, mediaParts } = splitGeminiToolContent(message.content);
   const functionResponse = { name: functionName, response };
   if (typeof message.toolCallId === 'string' && message.toolCallId) functionResponse.id = message.toolCallId;
-  return { functionResponsePart: { functionResponse }, mediaParts };
+  if (!nestMedia) return { functionResponsePart: { functionResponse }, mediaParts };
+  const nested = mediaParts.filter(isNestableMedia);
+  if (nested.length) functionResponse.parts = nested;
+  return { functionResponsePart: { functionResponse }, mediaParts: mediaParts.filter((part) => !isNestableMedia(part)) };
+}
+
+// A replay recorded by a non-Gemini model (Claude behind Antigravity) carries
+// signatures Gemini rejects: its replay envelope and the signed metadata
+// derived from the same response must not reach a Gemini request.
+function hasForeignReplay(message) {
+  const replay = message?.providerReplay;
+  if (replay?.provider !== 'gemini' && replay?.provider !== 'antigravity') return false;
+  const recorded = replay.requestContext?.model;
+  return typeof recorded === 'string' && recorded !== '' && !isGeminiFamilyModel(recorded);
 }
 
 function toGeminiContent(message) {
   if (!message || message.role === 'system') return null;
+  const foreign = message.role === 'assistant' && hasForeignReplay(message);
+  if (foreign) message = { ...message, providerMetadata: undefined };
   const orderedReplay =
-    message.role === 'assistant' ? providerReplayItems(message, ['gemini', 'antigravity']) : undefined;
+    message.role === 'assistant' && !foreign ? providerReplayItems(message, ['gemini', 'antigravity']) : undefined;
   if (orderedReplay?.length) {
     return { role: 'model', parts: orderedReplay };
   }
@@ -641,6 +769,7 @@ function toGeminiContent(message) {
         },
       };
       if (
+        !foreign &&
         typeof tc.thoughtSignature === 'string' &&
         tc.thoughtSignature &&
         tc.thoughtSignature.length <= MAX_THOUGHT_SIGNATURE_CHARS
@@ -727,9 +856,10 @@ export function toGeminiContents(messages, model = '', { repairToolSignatures = 
   // first (one per call, in call order), then the media the results carried as
   // sibling inlineData/fileData parts.
   let toolTurn = null;
+  const nestMedia = supportsFunctionResponseParts(model);
   for (const message of messages) {
     if (message?.role === 'tool') {
-      const { functionResponsePart, mediaParts } = toGeminiToolResult(message, toolNameByCallId);
+      const { functionResponsePart, mediaParts } = toGeminiToolResult(message, toolNameByCallId, nestMedia);
       if (!toolTurn) {
         toolTurn = { content: { role: 'user', parts: [] }, responseCount: 0 };
         contents.push(toolTurn.content);

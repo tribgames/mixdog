@@ -591,6 +591,7 @@
 }
 /* Row 2: the scope pill at the left, the controls at the right. */
 .session-diff-toolbar {
+  container-type: inline-size;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -611,6 +612,40 @@
 }
 .session-diff-refresh {
   margin-left: auto;
+}
+/* Beside the source picker a narrow pane keeps the totals and drops the
+   file count (the composer chip still shows it) instead of clipping it. */
+@container (max-width: 340px) {
+  .session-diff-source-select ~ .session-diff-scope .session-diff-count {
+    display: none;
+  }
+}
+/* The Changes source picker leads the toolbar row, in the PR list's
+   compact scope-select grammar. The source name never shrinks; the scope
+   pill beside it gives up its width first in a narrow pane. */
+.session-diff-source-select {
+  flex: none;
+}
+.session-diff-source-select .mx-select-trigger {
+  min-width: 0;
+  height: 24px;
+  gap: 5px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-semibold);
+}
+.session-diff-source-select .mx-select-trigger:hover:not(:disabled),
+.session-diff-source-select .mx-select-trigger[aria-expanded="true"] {
+  background: var(--mx-hover);
+}
+.session-diff-source-select .mx-select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* A file's tab: the file pill at the left, its open/undo grouped with the
    refresh at the right. */
@@ -724,10 +759,21 @@
   outline-offset: -2px;
   border-radius: var(--mx-radius-sm);
 }
+/* The folder keeps the base rule's flex (it gives up its width long before
+   the name), so a narrow pane clips the folder, never the file name. */
 .session-diff-section-title .session-diff-row-dir {
-  flex: 0 1 auto;
   margin-right: -6px;
   font-size: 12px;
+}
+/* A narrow pane drops the folder outright instead of leaving a one-letter
+   stub; the row's tooltip still carries the full path. */
+.session-diff-section-head {
+  container-type: inline-size;
+}
+@container (max-width: 360px) {
+  .session-diff-section-title .session-diff-row-dir {
+    display: none;
+  }
 }
 .session-diff-section-title .session-diff-row-name {
   flex: 0 1 auto;
@@ -1233,9 +1279,20 @@ div.diff-tailwindcss-wrapper .diff-line {
   position: relative;
   margin-top: 16px;
   border-radius: var(--mx-radius-lg);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-minor);
+}
+/* The frame is drawn over the card's children: an inset shadow on the card
+   itself sits under them, so the header's and last row's hover fills hid
+   the top and bottom edges. */
+.turn-changes-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  pointer-events: none;
 }
 .turn-changes-head {
   display: flex;

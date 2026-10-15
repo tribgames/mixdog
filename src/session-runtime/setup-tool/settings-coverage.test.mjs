@@ -144,6 +144,11 @@ test('Main context and model parameters reach the route API, while agent-only fl
   const agentApi = { ...api, setAgentRoute: async (id, next) => agentCalls.push([id, next]) };
   await run(agentApi, { action: 'set_agent_route', agent: 'worker', route: { contextPercent: 70 } });
   assert.deepEqual(agentCalls, [['worker', { contextPercent: 70 }]]);
+  await run(api, { action: 'set_route', route: { autoEffort: false } });
+  assert.deepEqual(calls.at(-1), { autoEffort: false });
+  await run(agentApi, { action: 'set_agent_route', agent: 'worker', route: { autoEffort: true } });
+  assert.deepEqual(agentCalls.at(-1), ['worker', { autoEffort: true }]);
+  await assert.rejects(run(api, { action: 'set_web_search_route', route: { autoEffort: false } }), /only accepted/);
 });
 
 test('auto-clear resets preserve unrelated overrides; percentage budgets replace tokens in config and live session', async () => {

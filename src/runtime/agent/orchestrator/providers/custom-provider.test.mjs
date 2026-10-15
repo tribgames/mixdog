@@ -652,6 +652,89 @@ test('openai-responses: generic /responses path, bearer auth, tool calls', async
   assert.equal(p.defaultModel, 'm1');
 });
 
+test('custom wires: modelWires picks messages/responses per model; no override sends the unchanged chat request', async () => {
+  const v2 = {
+    ...base,
+    schemaVersion: 2,
+    protocol: 'openai-chat',
+    apiKey: 'sk-wires',
+    preconnect: false,
+    modelOverrides: { m1: { manual: true }, ant: { manual: true }, resp: { manual: true } },
+  };
+  const plain = await createCustomProvider('custom-wires-plain', v2);
+  const routed = await createCustomProvider('custom-wires-1', {
+    ...v2,
+    wires: ['messages', 'chat', 'responses'],
+    modelWires: { ant: 'messages', resp: 'responses' },
+  });
+  assert.deepEqual(routed.customConfig.wires, ['chat', 'responses', 'messages']);
+  assert.equal(Object.hasOwn(plain.customConfig, 'wires'), false);
+  assert.equal(Object.hasOwn(plain.customConfig, 'modelWires'), false);
+  // Without an override the chat request is byte-identical to a provider
+  // without declared wires.
+  const plainRequests = mock(plain, () => sse(CHAT));
+  const routedRequests = mock(routed, () => sse(CHAT));
+  await plain.send(prompt, 'm1', tools, {});
+  await routed.send(prompt, 'm1', tools, {});
+  assert.equal(routedRequests[0].url.pathname, '/v1/chat/completions');
+  assert.deepEqual(routedRequests[0].body, plainRequests[0].body);
+  assert.deepEqual((await routed.resolveWireRoute('m1', { agent: true })).wire, 'chat');
+  // Responses override.
+  const responsesRequests = mock(routed, () => sse(RESPONSES));
+  const viaResponses = await routed.send(prompt, 'resp', tools, {});
+  assert.equal(responsesRequests[0].url.pathname, '/v1/responses');
+  assert.equal(viaResponses.toolCalls[0].name, 'lookup');
+  // Messages override through the bound Anthropic engine.
+  const messagesRequests = mock(routed.messagesEngine, () => sse(ANTHROPIC));
+  const viaMessages = await routed.send(prompt, 'ant', tools, {});
+  assert.equal(messagesRequests[0].url.pathname, '/v1/messages');
+  assert.equal(messagesRequests[0].headers.get('x-api-key'), 'sk-wires');
+  assert.equal(messagesRequests[0].body.model, 'ant');
+  assert.equal(viaMessages.toolCalls[0].name, 'lookup');
+  assert.equal(plain.messagesEngine, null);
+  // A session pins the route like a gateway; one that already answered keeps its wire.
+  const { pinSessionWireRoute } = await import('./wire-route.mjs');
+  const fresh = { provider: 'custom-wires-1', model: 'ant', wireRoute: null, messages: [] };
+  assert.equal((await pinSessionWireRoute(fresh, routed)).wire, 'messages');
+  assert.equal(fresh.wireRoute.source, 'override');
+  const existing = {
+    provider: 'custom-wires-1',
+    model: 'ant',
+    messages: [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'hello' },
+    ],
+  };
+  assert.equal((await pinSessionWireRoute(existing, routed)).wire, 'chat');
+  assert.equal(existing.wireRoute.source, 'legacy');
+  // A pinned chat route wins over a later override for that session.
+  const pinnedRequests = mock(routed, () => sse(CHAT));
+  await routed.send(prompt, 'ant', tools, { session: existing });
+  assert.equal(pinnedRequests[0].url.pathname, '/v1/chat/completions');
+});
+
+test('custom wires: validation', () => {
+  const v2 = { ...base, schemaVersion: 2, protocol: 'openai-chat' };
+  assert.throws(() => normalizeCustomProviderConfig({ ...v2, wires: [] }), /wires must be a non-empty array/);
+  assert.throws(() => normalizeCustomProviderConfig({ ...v2, wires: ['gemini'] }), /unsupported wire/);
+  assert.throws(() => normalizeCustomProviderConfig({ ...v2, wires: ['chat', 'chat'] }), /duplicate wire/);
+  assert.throws(() => normalizeCustomProviderConfig({ ...v2, wires: ['messages'] }), /protocol wire: chat/);
+  assert.throws(() => normalizeCustomProviderConfig({ ...v2, modelWires: { m: 'messages' } }), /served wires: chat/);
+  assert.throws(() => normalizeCustomProviderConfig({ ...v2, modelWires: [] }), /modelWires must be an object/);
+  assert.throws(
+    () => normalizeCustomProviderConfig({ ...v2, protocol: 'anthropic', wires: ['messages'] }),
+    /requires an 'openai-chat' or 'openai-responses' protocol/
+  );
+  assert.throws(
+    () => normalizeCustomProviderConfig({ ...base, protocol: 'openai-chat', modelWires: { m: 'chat' } }),
+    /require schemaVersion 2/
+  );
+  const ok = normalizeCustomProviderConfig({ ...v2, protocol: 'openai-responses', wires: ['responses', 'chat'], modelWires: { m: 'chat' } });
+  assert.deepEqual(ok.wires, ['chat', 'responses']);
+  assert.deepEqual(ok.modelWires, { m: 'chat' });
+  assert.deepEqual(normalizeCustomProviderConfig(ok), ok);
+});
+
 test('anthropic: /v1 base maps to /v1/messages, x-api-key auth, tool use, models', async () => {
   const id = 'custom-ant-1';
   const p = await createCustomProvider(id, {

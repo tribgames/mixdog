@@ -14,6 +14,8 @@ import {
   desktopToolActivityModeledName,
   desktopToolActivityRowVerb,
   desktopToolActivityUnitLabel,
+  desktopToolDescribeResult,
+  desktopToolDisplayIdentity,
   toolActivityItemTone,
   toolItemDone,
   type ToolCardModel,
@@ -85,6 +87,8 @@ const ROUTINE_RESULT_TOOLS = new Set([
 interface DesktopToolActivityItemPresentation {
   category: string;
   title: string;
+  /** Set when a bridge call ran the presented tool (`call_tool`). */
+  via?: 'call_tool';
   /** The short verb the call's own row opens with. */
   verb: string;
   subject: string;
@@ -858,6 +862,14 @@ function presentationListing(normalizedName: string, args: Record<string, unknow
   return toolFileEntries(outputText, base);
 }
 
+/** A describe result's outcome: the names it could not describe. */
+function describeResultLabel(describe: { missing: string[]; blocked: string[] }): string {
+  return [
+    ...(describe.missing.length ? [t('Missing: {{value0}}', { value0: describe.missing.join(', ') })] : []),
+    ...(describe.blocked.length ? [t('Blocked: {{value0}}', { value0: describe.blocked.join(', ') })] : []),
+  ].join(' · ');
+}
+
 function presentationSubjectKind(
   normalizedName: string,
   subject: string,
@@ -872,22 +884,29 @@ function presentationSubjectKind(
 }
 
 export function desktopToolActivityItemPresentation(
-  item: TranscriptItem,
+  wireItem: TranscriptItem,
   nowMs = Date.now(),
   /** `visualizeTabTitle`: the title of the tab a visualize call acts on. */
   options: { visualizeTabTitle?: string } = {}
 ): DesktopToolActivityItemPresentation {
+  // A bridged call presents as the tool it runs; the transcript keeps the wire call.
+  const identity = desktopToolDisplayIdentity(wireItem.name, wireItem.args);
+  const item: TranscriptItem = identity.via ? { ...wireItem, name: identity.name, args: identity.args } : wireItem;
   const { name, originalName, normalizedName, args, model } = presentationCall(item, nowMs);
+  const resultValue = item.result ?? item.rawResult;
+  const describe = model.pending ? null : desktopToolDescribeResult(name, item.args, resultValue);
   const structured = toolActivityStructuredRows(normalizedName, args, toolActivityResultValue(item));
-  const title = desktopToolActivityUnitLabel(name, item.args);
-  const subject = presentationSubject(
-    normalizedName,
-    args,
-    item,
-    presentationAgentTitle(normalizedName, args, item, model),
-    oneLine(String(model.summaryText || '')),
-    options.visualizeTabTitle ?? ''
-  );
+  const title = desktopToolActivityUnitLabel(name, item.args, resultValue);
+  const subject = describe?.described.length
+    ? describe.described.join(', ')
+    : presentationSubject(
+        normalizedName,
+        args,
+        item,
+        presentationAgentTitle(normalizedName, args, item, model),
+        oneLine(String(model.summaryText || '')),
+        options.visualizeTabTitle ?? ''
+      );
   const targets = toolActivityTargets(normalizedName, args).map((target) =>
     toolActivityRedactInlineSecrets(target, args)
   );
@@ -975,12 +994,13 @@ export function desktopToolActivityItemPresentation(
   return {
     category,
     title,
+    ...(identity.via ? { via: identity.via } : {}),
     verb:
       fileChangeVerb(category, model.pending, tone, diffPatch, originalName) ||
-      desktopToolActivityRowVerb(name, item.args),
+      desktopToolActivityRowVerb(name, item.args, resultValue),
     subject,
     targets,
-    resultLabel: outcome.resultLabel,
+    resultLabel: describe ? describeResultLabel(describe) : outcome.resultLabel,
     pending: model.pending,
     tone,
     command,

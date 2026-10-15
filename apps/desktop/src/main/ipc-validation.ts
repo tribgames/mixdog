@@ -411,7 +411,9 @@ const CAPABILITY_ARITY = {
   getSessionUsage: [0, 0],
   consumeCodexRateLimitResetCredit: [1, 1],
   getSessionReviewDiff: [0, 0],
+  getSessionReviewFilePatch: [1, 2],
   getTurnReviewDiff: [0, 1],
+  getTurnReviewFilePatch: [1, 1],
   revertTurnReview: [0, 1],
   revertTurnReviewFile: [1, 2],
   getTurnChanges: [1, 1],
@@ -513,8 +515,12 @@ const CUSTOM_PROVIDER_KEYS = new Set([
   'auth',
   'discovery',
   'modelOverrides',
+  'wires',
+  'modelWires',
   'type',
 ]);
+// Wires a custom OpenAI-compatible endpoint can serve (custom-provider-config.mjs).
+const CUSTOM_WIRES = new Set(['chat', 'responses', 'messages']);
 const CUSTOM_MODEL_KEYS = new Set(['id', 'name', 'contextWindow', 'maxOutputTokens']);
 const CUSTOM_PROTOCOLS = new Set(['openai-chat', 'openai-responses', 'anthropic']);
 const CUSTOM_DISCOVERY_KEYS = new Set(['newModelsHidden']);
@@ -591,8 +597,37 @@ export function requiredCustomProviderInput(value: unknown, modelsOptional = fal
   if (input.type !== undefined && input.type !== 'custom') {
     throw new TypeError('custom provider type is invalid.');
   }
-  if ((input.discovery !== undefined || input.modelOverrides !== undefined) && input.schemaVersion !== 2) {
+  if (
+    (input.discovery !== undefined ||
+      input.modelOverrides !== undefined ||
+      input.wires !== undefined ||
+      input.modelWires !== undefined) &&
+    input.schemaVersion !== 2
+  ) {
     throw new TypeError('custom provider schemaVersion is invalid.');
+  }
+  // Shape only; the runtime ties them to the protocol and to each other.
+  if (input.wires !== undefined) {
+    if (
+      !Array.isArray(input.wires) ||
+      input.wires.length === 0 ||
+      input.wires.length > CUSTOM_WIRES.size ||
+      input.wires.some((wire) => typeof wire !== 'string' || !CUSTOM_WIRES.has(wire))
+    ) {
+      throw new TypeError('custom provider wires are invalid.');
+    }
+  }
+  if (input.modelWires !== undefined) {
+    const modelWires = plainRecord(input.modelWires, 'custom provider modelWires');
+    const ids = Object.keys(modelWires);
+    if (ids.length > CUSTOM_MAX_OVERRIDES) throw new TypeError('custom provider modelWires are too large.');
+    for (const modelId of ids) {
+      requireSafeModelId(modelId);
+      const wire = modelWires[modelId];
+      if (typeof wire !== 'string' || !CUSTOM_WIRES.has(wire)) {
+        throw new TypeError('custom provider modelWires are invalid.');
+      }
+    }
   }
   // v2 states models as modelOverrides; a legacy `models` list is unversioned only.
   if (input.schemaVersion === 2 && input.models !== undefined) {
@@ -1179,6 +1214,11 @@ function validateTurnCapabilityArgs(capability: DesktopCapability, args: readonl
       throw new TypeError('turn review options are invalid.');
     }
   }
+  if (capability === 'getSessionReviewFilePatch' || capability === 'getTurnReviewFilePatch') {
+    // `[file, oldPath?]`: one listed file (and a rename's source) of a review.
+    requiredString(args[0], 'file', 4_096);
+    if (args[1] !== undefined) requiredString(args[1], 'oldPath', 4_096);
+  }
   if (capability === 'getTurnChanges') {
     // `{ checkpointId, patch?, file? }`: one turn's recorded changes.
     const options = optionalPlainRecord(args[0]);
@@ -1331,6 +1371,15 @@ export function requiredGitPaths(value: unknown): string[] {
     throw new TypeError('git paths are invalid.');
   }
   return value.map(requiredGitPath);
+}
+
+export function requiredReviewDiffFiles(value: unknown): { path: string; untracked: boolean }[] {
+  if (!Array.isArray(value) || value.length > 512) throw new TypeError('git review files are invalid.');
+  return value.map((entry) => {
+    if (typeof entry !== 'object' || entry === null) throw new TypeError('git review file is invalid.');
+    const { path, untracked } = entry as { path?: unknown; untracked?: unknown };
+    return { path: requiredGitPath(path), untracked: untracked === true };
+  });
 }
 
 export function requiredGitPath(value: unknown): string {

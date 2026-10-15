@@ -1000,12 +1000,20 @@ function adviceResponse(status, retryDelay, reason) {
   });
 }
 
-test('capacity ignores long server advice on 429, 503 and 529', async () => {
+test('capacity honors advised RetryInfo within the budget on 429, 503 and 529', async () => {
+  for (const status of [429, 503, 529]) {
+    const h = retryHarness([() => adviceResponse(status, '20s', status === 429 ? 'MODEL_CAPACITY_EXHAUSTED' : undefined), ok]);
+    assert.equal((await h.send()).content, 'recovered', `status ${status}`);
+    assert.deepEqual(h.sleeps, [20_000], `status ${status}`);
+  }
+});
+
+test('capacity advice beyond the retry budget surfaces with its reset time instead of retrying', async () => {
   for (const status of [429, 503, 529]) {
     const h = retryHarness([() => adviceResponse(status, '600s', status === 429 ? 'MODEL_CAPACITY_EXHAUSTED' : undefined), ok]);
-    assert.equal((await h.send()).content, 'recovered', `status ${status}`);
-    assert.equal(h.sleeps.length, 1);
-    assert.ok(near(h.sleeps[0], 1000, 0.1), `status ${status}: ${h.sleeps[0]}`);
+    await assert.rejects(h.send(), (error) => error.status === status && error.retryAfterMs === 600_000 && error.resetAt > Date.now());
+    assert.equal(h.calls, 1, `status ${status}`);
+    assert.deepEqual(h.sleeps, []);
   }
 });
 

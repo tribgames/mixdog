@@ -894,6 +894,8 @@ test('joined surface: outer radii in every state (panel open|folded x dock open|
   const get = (selector, prop) =>
     block.match(new RegExp(selector.replace(/[.[\]()>:="*+|]/g, '\\$&') + ' \\{[^}]*?' + prop + ': ([^;]+);'))?.[1];
   const R = 'var(--mx-sheet-radius)';
+  const rule = (selector) =>
+    block.match(new RegExp(selector.replace(/[.[\]()>:="*+|]/g, '\\$&') + ' \\{([^}]*)\\}'))?.[1] ?? '';
   const panel = get(':root:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"]', 'border-radius');
   const mainOpen = get(':root:not([data-mixdog-mobile-tabs]) .main-panel', 'border-radius');
   const mainFolded = get(
@@ -924,9 +926,19 @@ test('joined surface: outer radii in every state (panel open|folded x dock open|
     block,
     /border-radius:\s*calc\(var\(--mx-sheet-radius\) \* var\(--no-top\) \* var\(--no-left\) \* var\(--folded\)\)/
   );
+  assert.match(block, /\.app-shell\.sidebar-collapsed \.pane-cell \{\s*--folded: 1;/);
+  // .main-panel paints its rounded frame without clipping (a rounded clip around the transcript
+  // scroller forces main-thread wheel hit tests); each layer reaching an outer corner rounds itself
+  // with the same per-cell flags, at the radius inside the 1px border.
+  assert.match(rule(':root:not([data-mixdog-mobile-tabs]) .main-panel'), /overflow: visible;/);
+  assert.match(block, /--mx-cell-corner: calc\(var\(--mx-sheet-radius\) - 1px\);/);
+  assert.match(
+    rule(':root:not([data-mixdog-mobile-tabs]) .pane-cell > .workspace-tabs-shell'),
+    /border-top-right-radius: calc\(var\(--mx-cell-corner\) \* var\(--no-top\) \* var\(--open-right\)\);/
+  );
   assert.match(
     block,
-    /:has\(\.app-shell\.sidebar-collapsed\):not\(:has\([^{]*\)\) \.main-panel:has\([^{]*\) \.pane-cell \{\s*--folded: 1;/
+    /\.pane-surface-handoff-layer,[^{]*\{\s*border-bottom-right-radius: calc\(var\(--mx-cell-corner\) \* var\(--no-bottom\) \* var\(--open-right\)\);/
   );
   assert.match(block, /\.pane-split-row > \.pane-split-cell:last-child \.pane-cell \{\s*--no-left: 0;/);
   assert.match(block, /\.pane-split-row > \.pane-split-cell:first-child \.pane-cell \{\s*--open-right: 0;/);
@@ -1252,7 +1264,16 @@ test('a pane bottom panel sits inside the workspace sheet and the dock spans the
   // The panel is a flat row under the stack, divided by one hairline (desktop sheet band only).
   const tail = css.slice(css.lastIndexOf('@media (min-width: 941px)'));
   const panel = tail.match(/\.pane-cell > \.bottom-panel:not\(\[data-state="closed"\]\) \{([^}]*)\}/)[1];
-  assert.match(panel, /margin: 0;\s*border: 0;\s*border-top: 1px solid var\(--mx-border\);\s*border-radius: 0;/);
+  assert.match(panel, /margin: 0;\s*border: 0;\s*border-top: 1px solid var\(--mx-border\);/);
+  // Its own bottom corners follow the sheet's outer corners; the stack above it then keeps square ones.
+  assert.match(
+    panel,
+    /border-radius: 0 0 calc\(var\(--mx-cell-corner\) \* var\(--no-bottom\) \* var\(--open-right\)\)/
+  );
+  assert.match(
+    tail,
+    /\.pane-cell:has\(> \.bottom-panel:not\(\[data-state="closed"\]\)\) > \.pane-surface-stack \{\s*--no-bottom: 0;/
+  );
   assert.match(panel, /background: var\(--mx-sheet-surface\);/);
   assert.match(tail, /:root:not\(\[data-mixdog-mobile-tabs\]\)/);
   // Every pane cell (split panes included) gets its own panel row: PaneWorkspace renders

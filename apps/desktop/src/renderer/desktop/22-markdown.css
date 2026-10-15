@@ -11,7 +11,9 @@
      code card sat at half a table's gap and the two never lined up in one
      answer. Flow blocks (p/lists) keep 12, the section rule keeps 32. */
   margin: 20px 0;
-  overflow: hidden;
+  /* Painted, not clipped: a rounded clip around the code scroller keeps
+     Chromium from hit-testing wheel scrolls on the compositor. The header
+     band and the scroller round or stay clear on their own. */
   border-radius: var(--mx-radius-lg);
   /* Frameless card: the plate step off the sheet
      is the edge; the language row is told apart by its tint band, not a line. */
@@ -25,6 +27,7 @@
   justify-content: space-between;
   padding: 0 6px 0 12px;
   border-bottom: 0;
+  border-radius: var(--mx-radius-lg) var(--mx-radius-lg) 0 0;
   color: var(--mx-text-faint);
   /* Header band: the same
      neutral plate tint as table and diff headers; the code body stays clear. */
@@ -73,7 +76,12 @@
 .markdown-code > pre {
   max-width: 100%;
   margin: 0;
-  overflow-x: auto;
+  /* Lines wrap (pre-wrap + overflow-wrap below), so nothing can overflow.
+     A scroll container here was never scrolled, yet it still made every wheel
+     over a code block hit-test on the main thread. */
+  overflow: visible;
+  /* The card paints the corners; a rounded scroller would clip them. */
+  border-radius: 0;
   box-shadow: none;
   /* Wrap long script lines instead of hiding them behind a horizontal
      scroll. */
@@ -565,7 +573,10 @@ html[data-window-material="mica"] .jump-to-latest {
    the table's own. The width/margin/display/overflow that used to live here
    were dead, overridden by `.markdown-table table` further down. */
 .markdown table {
-  border-collapse: collapse;
+  /* Separate with no spacing reads the same as collapse (cells only draw a
+     bottom hairline) and lets the header's outer cells take a corner radius. */
+  border-collapse: separate;
+  border-spacing: 0;
   /* A table is a data block, not prose: one step under the 15/26 reading
      rhythm keeps more of a row on one line, which is what stops a wide table
      from turning into a scroll strip in a split pane. */
@@ -775,23 +786,48 @@ html[data-window-material="mica"] .jump-to-latest {
   outline: 2px solid var(--mx-focus);
   outline-offset: 2px;
 }
-.markdown a:focus-visible,
-.markdown-table:focus-visible {
+.markdown a:focus-visible {
   border-radius: var(--mx-radius-sm);
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+/* The frame paints the rounded card; the scroller inside stays square. A
+   radius on the scroller (or any rounded clip around it) keeps Chromium from
+   hit-testing wheel scrolls on the compositor, so every wheel over a table
+   waited on the main thread. */
+.markdown-table-frame {
+  max-width: 100%;
+  margin: 20px 0;
+  /* Grok-web table container: rounded card with a hairline ring and a tinted
+     header band instead of a naked full-bleed grid. */
+  border-radius: var(--mx-radius-lg);
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+}
+.markdown-table-frame:has(> .markdown-table:focus-visible) {
   outline: 2px solid var(--mx-focus);
   outline-offset: 2px;
 }
 .markdown-table {
   width: 100%;
   max-width: 100%;
-  margin: 20px 0;
+  background: transparent;
+}
+/* Scrolls only while the table is wider than the pane (MarkdownTable sets
+   the flag): a scroll container that never scrolled still sent every wheel
+   over the table through a main-thread hit test. */
+.markdown-table[data-overflowing] {
   overflow-x: auto;
   overscroll-behavior-inline: contain;
-  /* Grok-web table container: rounded card with a hairline ring and a tinted
-     header band instead of a naked full-bleed grid. */
-  border-radius: var(--mx-radius-lg);
-  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
-  background: transparent;
+}
+.markdown-table:focus-visible {
+  outline: none;
+}
+/* The header band's outer cells round themselves into the frame's corners. */
+.markdown-table tr:first-child > th:first-child {
+  border-top-left-radius: var(--mx-radius-lg);
+}
+.markdown-table tr:first-child > th:last-child {
+  border-top-right-radius: var(--mx-radius-lg);
 }
 .markdown-table table {
   /* Fill the pane and WRAP. `max-content` sized every column to its longest

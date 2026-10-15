@@ -24,8 +24,10 @@ import {
   inheritedFromSessionId,
   isStoredSessionId,
   positiveNumber,
+  realTurnCount,
   workspaceSummary,
 } from './store-summary-fields.mjs';
+import { isRealTurnMessage } from './compact/user-message-kind.mjs';
 import { byActivityThenId } from './catalog-db/schema.mjs';
 import {
   sessionStampOf,
@@ -182,6 +184,7 @@ export function normalizedRow(row, heartbeatAt = 0) {
     permission: row.permission || null,
     toolPermission: row.toolPermission || null,
     messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
+    realTurnCount: realTurnCount(row),
     title: cleanText(row.title, 100),
     preview: cleanText(row.preview),
     generation: typeof row.generation === 'number' ? row.generation : 0,
@@ -240,6 +243,7 @@ function rowFromSession(session, heartbeatAt = 0) {
     {
       ...session,
       messageCount: messages.filter((message) => message?.role === 'user' || message?.role === 'assistant').length,
+      realTurnCount: messages.filter(isRealTurnMessage).length,
       preview,
     },
     heartbeatAt

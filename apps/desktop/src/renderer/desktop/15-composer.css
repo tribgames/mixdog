@@ -404,7 +404,24 @@
   gap: 5px;
   padding-inline: 8px;
 }
-/* Inline, so the literal space between +a and −b shows. */
+/* The worktree segment (WorktreeIslandSegment) is the one whose text gives
+   way on a narrow island. Compact shows the short name at once (no branch
+   prefix, no base, capped), so long and short names keep one width; after
+   that useIslandFit drops the Goal's pips for a squeezed name, and below a
+   readable width keeps the glyph alone. */
+.composer-island-pill > .composer-island-seg.composer-island-seg-worktree {
+  flex-shrink: 1;
+}
+.composer-island[data-compact] .composer-island-seg-worktree :is(.composer-island-seg-prefix, .composer-island-seg-sub) {
+  display: none;
+}
+.composer-island[data-compact] .composer-island-seg-worktree .composer-island-seg-text {
+  max-width: 104px;
+}
+.composer-island[data-fit-pips] .session-goal-pips,
+.composer-island[data-fit-glyph] .composer-island-seg-worktree .composer-island-seg-text {
+  display: none;
+}/* Inline, so the literal space between +a and −b shows. */
 .turn-review-segment .diff-stats {
   display: inline;
 }
@@ -893,20 +910,28 @@ button.composer-island-tab {
   color: var(--mx-bg-base);
   font: 700 12px/1 var(--mx-font-sans, inherit);
 }
-/* One line per option: a long label ends in an ellipsis. */
+/* The label is one line (a long one ends in an ellipsis); its one-sentence
+   tradeoff sits below it and wraps. */
+.question-option:has(.question-option-desc) {
+  align-items: start;
+}
 .question-option-text {
   min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  white-space: nowrap;
+  display: grid;
+  gap: 1px;
 }
 .question-option-label {
-  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
   font-weight: 500;
+}
+.question-option-desc {
+  color: var(--mx-text-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
 }
 .question-rec {
   margin-left: 6px;

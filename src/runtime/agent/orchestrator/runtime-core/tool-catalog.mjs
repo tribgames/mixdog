@@ -3,10 +3,10 @@
 // application/selection logic. Pure module (session objects passed in).
 import { clean } from './session-text.mjs';
 import { mergePendingDeferredToolDelta } from './deferred-tool-delta.mjs';
-import { applyInitialDeferredToolManifestToBp2, stripDeferredToolManifestBlock } from '../context/collect.mjs';
+import { applyInitialDeferredToolManifestToBp2 } from '../context/collect.mjs';
 import { getMcpServerInstructionsMap, getMcpTools, getMcpToolGeneration } from '../mcp/client.mjs';
 import { filterMcpToolsForSession } from './extension-scopes.mjs';
-import { isDeferredToolAvailable } from './deferred-tool-availability.mjs';
+import { isDeferredToolAvailable, isToolPermittedBySessionPolicy } from './deferred-tool-availability.mjs';
 import { isResponsesFreeformTool, toResponsesCustomTool } from '../providers/custom-tool-wire.mjs';
 import {
   DEFERRED_DEFAULT_FULL_TOOLS,
@@ -28,6 +28,17 @@ import {
   nativeProviderFamily,
 } from './tool-catalog-schema.mjs';
 import { filterModelEditTools } from '../../../shared/edit-tool-dialect.mjs';
+import { describeBridgeTools, formatBridgeResult, isBridgeReadonlySession } from './tool-bridge.mjs';
+import {
+  bridgeSurfaceOutdated,
+  isBridgeToolDefinition,
+  isToolBridgeEnabled,
+  sessionToolExposure,
+  TOOL_EXPOSURE_BRIDGE,
+  TOOL_EXPOSURE_NATIVE,
+  toolExposureModeForProvider,
+} from './tool-exposure.mjs';
+import { TOOL_BRIDGE_TOOLS } from './tool-defs.mjs';
 export {
   toolKind,
   toolSchemaBucket,
@@ -44,8 +55,29 @@ export {
   MEASURED_TOOL_USAGE,
 } from './tool-catalog-data.mjs';
 
-// Provider modes whose whole catalog is the active surface (no deferred pool).
+// Provider modes without native tool search. Their bridge-v1 sessions
+// (tool-exposure.mjs) get the native roster and late delta notices; only a
+// surface not yet migrated to the bridge keeps the fixed full array, with no
+// deferred-pool manifest and no late announcements.
 const FIXED_SURFACE_MODES = new Set(['full', 'manifest', 'canonical']);
+
+function fixedSurfaceSession(session) {
+  return FIXED_SURFACE_MODES.has(session?.deferredProviderMode) && !isToolBridgeEnabled(session);
+}
+
+// Whether a bridge session's roster and delta notices may name `tool`: only
+// what its own policy (allowlist, denied tools, read-only mode) lets it run.
+// Native rosters are unchanged.
+function rosterPermits(session, tool) {
+  if (!isToolBridgeEnabled(session)) return true;
+  if (!isToolPermittedBySessionPolicy(session, clean(tool?.name))) return false;
+  return !(isBridgeReadonlySession(session) && !isReadonlySelectable(tool));
+}
+
+// The bridge definitions every bridge session serializes: one frozen copy, so
+// their bytes never vary across search, describe, call, skill loading or MCP
+// connect/reconnect.
+const BRIDGE_SURFACE_TOOLS = TOOL_BRIDGE_TOOLS.map((tool) => immutableToolForSurface(tool));
 
 function isMcpToolName(name) {
   return typeof name === 'string' && name.startsWith('mcp__');
@@ -72,6 +104,19 @@ export function filterDisallowedTools(tools, disallowed = []) {
   const deny = new Set(['git_stage', ...(Array.isArray(disallowed) ? disallowed : [])].map(clean).filter(Boolean));
   return (tools || []).filter((tool) => !deny.has(clean(tool?.name)));
 }
+
+/**
+ * Discovery's view of `tools` for one session: what its own policy (schema
+ * allowlist + denied tools) lets it execute. Nothing outside it is selected,
+ * registered as discovered, described or named in a result.
+ */
+export function filterSessionToolPolicy(tools, session) {
+  return filterDisallowedTools(tools, session?.disallowedTools).filter((tool) =>
+    isToolPermittedBySessionPolicy(session, clean(tool?.name))
+  );
+}
+
+const permittedNames = (session, names) => (names || []).filter((name) => isToolPermittedBySessionPolicy(session, name));
 
 export function sortedNamesByMeasuredUsage(names) {
   // Canonical route order first; measured usage orders the unrouted tail.
@@ -236,7 +281,7 @@ function setDeferredToolState(session, names) {
 }
 
 function deferredPoolToolNames(session) {
-  if (!session || FIXED_SURFACE_MODES.has(session.deferredProviderMode)) return [];
+  if (!session || fixedSurfaceSession(session)) return [];
   const catalog = Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : [];
   const active = new Set([
     ...(session.tools || []).map((tool) => clean(tool?.name)).filter(Boolean),
@@ -245,7 +290,7 @@ function deferredPoolToolNames(session) {
   const out = [];
   for (const tool of catalog) {
     const name = clean(tool?.name);
-    if (name && !active.has(name)) out.push(name);
+    if (name && !active.has(name) && rosterPermits(session, tool)) out.push(name);
   }
   return sortedNamesByMeasuredUsage(out);
 }
@@ -288,13 +333,37 @@ export function isReadonlySelectable(tool) {
 
 export function applyDeferredToolSurface(session, mode, extraTools = [], options = {}) {
   if (!session || !Array.isArray(session.tools)) return session;
-  const providerMode = deferredProviderMode(options.provider || session.provider);
+  const provider = options.provider || session.provider;
+  // The pinned wire route decides a gateway's mode (it names its own
+  // provider, so a surface built for another provider ignores it).
+  const providerMode = deferredProviderMode(provider, session.wireRoute);
+  const exposure = toolExposureModeForProvider(provider, session.wireRoute);
+  const bridge = exposure === TOOL_EXPOSURE_BRIDGE;
+  // An existing surface built for another exposure is migrated, not merely
+  // re-selected: its fixed prompt guidance changes with it.
+  const previousExposure = sessionToolExposure(session);
+  // A surface an earlier bridge revision built (guidance-only prompt,
+  // search_tools) is rebuilt once, the same rewrite an exposure change makes.
+  const exposureChanged =
+    previousExposure !== null && (previousExposure !== exposure || (bridge && bridgeSurfaceOutdated(session)));
+  // The one native ↔ bridge transition, whoever triggers it (provider switch,
+  // resume, request boundary): leaving native keeps its discoveries aside,
+  // and the way back to native restores them below.
+  if (previousExposure === TOOL_EXPOSURE_NATIVE && bridge) {
+    session.nativeDeferredDiscovery = canonicalDeferredToolNames(
+      deferredCatalogUnion(session),
+      session.deferredDiscoveredTools || []
+    );
+  }
   const byName = new Map();
   // Rebuild from the full catalog, not just its eager projection. Current
-  // definitions still take precedence over retained definitions.
+  // definitions still take precedence over retained definitions. Bridge
+  // definitions belong to the exposure, never to the catalog.
   const candidates = filterDisallowedTools(
     filterModelEditTools(
-      [...session.tools, ...(extraTools || []), ...deferredCatalogUnion(session)],
+      [...session.tools, ...(extraTools || []), ...deferredCatalogUnion(session)].filter(
+        (tool) => !isBridgeToolDefinition(tool)
+      ),
       options.model || session.model
     ),
     [...(session.disallowedTools || []), ...(options.disallowed || [])]
@@ -308,15 +377,12 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   const defaultNames = defaultDeferredToolNames(catalog, mode);
   // Solo keeps `agent` in the deferred pool: loadable on request, never eager.
   if (session.orchestrationMode === 'none') defaultNames.delete('agent');
-  const storedNames = providerMode === 'native' ? [] : storedDeferredToolNames(session);
-  const fixedSurface = FIXED_SURFACE_MODES.has(providerMode);
-  let selectedNames = fixedSurface
-    ? sortedNamesByMeasuredUsage(catalog.map((tool) => clean(tool?.name)).filter(Boolean))
-    : [];
-  if (!fixedSurface) {
-    selectedNames = storedNames.length ? canonicalDeferredToolNames(catalog, storedNames) : [];
-    if (!selectedNames.length || providerMode === 'native') selectedNames = sortedNamesByMeasuredUsage(defaultNames);
-  }
+  // Bridge sessions expose the mode's core only: a stored (legacy all-selected)
+  // selection never widens the wire surface, and load_tool is the bridge's own.
+  const storedNames = providerMode === 'native' || bridge ? [] : storedDeferredToolNames(session);
+  let selectedNames = storedNames.length ? canonicalDeferredToolNames(catalog, storedNames) : [];
+  if (!selectedNames.length || providerMode === 'native') selectedNames = sortedNamesByMeasuredUsage(defaultNames);
+  if (bridge) selectedNames = selectedNames.filter((name) => name !== 'load_tool');
   const selected = new Set(selectedNames);
   session.deferredToolCatalog = catalog;
   session.deferredToolUsage = MEASURED_TOOL_USAGE;
@@ -332,13 +398,28 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
     session.tools.push(tool);
     active.push(clean(tool?.name));
   }
+  // Every other definition stays in the scoped catalog, reached through the
+  // bridge. A tool-free session (empty catalog) stays tool-free.
+  if (bridge && catalog.length) session.tools.push(...BRIDGE_SURFACE_TOOLS);
+  if (bridge) session.toolExposureMode = TOOL_EXPOSURE_BRIDGE;
+  else delete session.toolExposureMode;
   session.deferredCallableTools = sortedNamesByMeasuredUsage(active);
   if (providerMode === 'native') {
-    const discovered = canonicalDeferredToolNames(catalog, session.deferredDiscoveredTools || []);
+    const restored = previousExposure === TOOL_EXPOSURE_BRIDGE ? session.nativeDeferredDiscovery || [] : [];
+    delete session.nativeDeferredDiscovery;
+    const discovered = canonicalDeferredToolNames(catalog, [...(session.deferredDiscoveredTools || []), ...restored]);
     session.deferredSelectedTools = active;
     session.deferredDiscoveredTools = discovered.filter((name) => !selected.has(name));
   } else {
     setDeferredToolState(session, active);
+  }
+  if (exposureChanged && session.messages?.some((m) => m?.role === 'system')) {
+    // Replace the previous exposure's fixed block once: the native deferred
+    // manifest, or the bridge roster + guidance. History stays as is.
+    session.mcpServerInstructions = getMcpServerInstructionsMap(session.mcpScopeId);
+    applyInitialDeferredToolManifestToBp2(session, deferredPoolToolNames(session), { rebuild: true });
+    const rendered = renderedDeferredManifest(session);
+    session.deferredAnnouncedTools = deferredPoolToolNames(session).filter((name) => rendered.includes(name));
   }
   if (!session.deferredToolBp2Applied && session.messages?.some((m) => m?.role === 'system')) {
     if (!session.mcpServerInstructions || typeof session.mcpServerInstructions !== 'object') {
@@ -358,40 +439,32 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
 
 export function rebuildDeferredToolSurfaceForProvider(session, provider) {
   if (!session || !Array.isArray(session.tools)) return session;
-  const previousMode = session.deferredProviderMode;
-  const previousFamily = nativeProviderFamily(session.provider);
-  const nextFamily = nativeProviderFamily(provider);
+  const previousFamily = nativeProviderFamily(session.provider, session.wireRoute);
+  const nextFamily = nativeProviderFamily(provider, session.wireRoute);
   const preserveNativeState = previousFamily && previousFamily === nextFamily;
   const discovered = preserveNativeState
     ? canonicalDeferredToolNames(deferredCatalogUnion(session), session.deferredDiscoveredTools || [])
     : [];
   const catalog = deferredCatalogUnion(session).slice();
-  session.deferredDiscoveredTools = discovered;
+  const fromBridge = isToolBridgeEnabled(session);
+  // Another native family starts without this family's discoveries. Leaving
+  // native for the bridge keeps them: applyDeferredToolSurface sets them aside.
+  if (nextFamily) session.deferredDiscoveredTools = discovered;
+  // applyDeferredToolSurface replaces the fixed guidance when the exposure
+  // (native ↔ bridge) changes.
   applyDeferredToolSurface(session, session.deferredSurfaceMode || 'lead', catalog, { provider });
-  if (session.deferredProviderMode === 'native' && discovered.length) {
-    session.deferredDiscoveredTools = discovered;
+  // Back from the bridge: the discoveries applyDeferredToolSurface restored
+  // become callable again. Otherwise exactly the native family's own.
+  const eager = new Set(session.tools.map((tool) => clean(tool?.name)));
+  const kept = fromBridge
+    ? sortedNamesByMeasuredUsage((session.deferredDiscoveredTools || []).filter((name) => !eager.has(name)))
+    : discovered;
+  if (session.deferredProviderMode === 'native' && kept.length) {
+    session.deferredDiscoveredTools = kept;
     session.deferredCallableTools = sortedNamesByMeasuredUsage(
-      new Set([...(session.deferredCallableTools || []), ...discovered])
+      new Set([...(session.deferredCallableTools || []), ...kept])
     );
     session.deferredSelectedTools = session.deferredCallableTools.slice();
-  }
-  if (previousMode && previousMode !== session.deferredProviderMode) {
-    if (session.deferredProviderMode === 'native') {
-      session.mcpServerInstructions = getMcpServerInstructionsMap(session.mcpScopeId);
-      applyInitialDeferredToolManifestToBp2(session, deferredPoolToolNames(session), { rebuild: true });
-      const rendered = renderedDeferredManifest(session);
-      session.deferredAnnouncedTools = deferredPoolToolNames(session).filter((name) => rendered.includes(name));
-    } else if (previousMode === 'native') {
-      for (const system of session.messages?.filter((message) => message?.role === 'system') || []) {
-        if (typeof system.content === 'string') system.content = stripDeferredToolManifestBlock(system.content);
-      }
-      session.messages = session.messages.filter(
-        (message) => message?.role !== 'system' || String(message.content || '').trim()
-      );
-      session.deferredAnnouncedTools = [];
-      session.deferredToolBp2Applied = true;
-      delete session.deferredToolBp1Applied;
-    }
   }
   return session;
 }
@@ -400,9 +473,9 @@ export function rebuildDeferredToolSurfaceForProvider(session, provider) {
 // An MCP server may finish its handshake BETWEEN session-create and the first
 // user send. Fold those LIVE MCP tools into the boot deferred catalog + the
 // provider-visible first-turn surface. Native providers rebuild the initial BP2
-// <available-deferred-tools> manifest IN PLACE and pre-mark names announced.
-// Manifest/canonical providers update their active fixed surface directly; the
-// canonical path never emits a deferred manifest or late reminder. Fully sync
+// <available-deferred-tools> manifest IN PLACE and pre-mark names announced;
+// bridge-v1 sessions do the same (roster + bridge guidance). Only a fixed
+// surface not yet on the bridge updates its scoped catalog alone. Fully sync
 // and idempotent: no genuinely-new MCP name => no-op / no mutation.
 export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   if (!session || !Array.isArray(session.messages)) return false;
@@ -422,15 +495,7 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   }
   if (!added) return false;
   session.deferredToolCatalog = sortedCatalogByMeasuredUsage([...byName.values()]);
-  if (session.deferredProviderMode === 'manifest' || session.deferredProviderMode === 'canonical') {
-    const next = session.deferredToolCatalog.filter(
-      (tool) => session.deferredSurfaceMode !== 'readonly' || isReadonlySelectable(tool)
-    );
-    session.tools.splice(0, session.tools.length, ...next);
-    session.deferredCallableTools = next.map((tool) => clean(tool?.name)).filter(Boolean);
-    if (session.deferredProviderMode === 'canonical') {
-      setDeferredToolState(session, session.deferredCallableTools);
-    }
+  if (fixedSurfaceSession(session)) {
     session.updatedAt = Date.now();
     return true;
   }
@@ -497,6 +562,7 @@ function reconcileStateOf(session, liveMcpTools) {
     cwd: clean(session.cwd),
     mode: clean(session.deferredSurfaceMode),
     providerMode: clean(session.deferredProviderMode),
+    exposure: clean(session.toolExposureMode),
     provider: clean(session.provider),
     model: clean(session.model),
     disallowed: JSON.stringify(session.disallowedTools || []),
@@ -525,7 +591,7 @@ function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
           .filter(isMcpToolName)
   );
   session.deferredMcpToolNames = [...new Set(live.map((tool) => clean(tool?.name)).filter(isMcpToolName))];
-  if (FIXED_SURFACE_MODES.has(session.deferredProviderMode)) {
+  if (fixedSurfaceSession(session)) {
     const byName = new Map();
     for (const tool of Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : []) {
       const name = clean(tool?.name);
@@ -535,17 +601,23 @@ function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
       const name = clean(tool?.name);
       if (name && isMcpToolName(name)) byName.set(name, liveToolClone(tool));
     }
+    // A fixed surface not yet on the bridge: connect, reconnect and removal
+    // update the scoped catalog only (availability follows
+    // deferredMcpToolNames); nothing is announced.
     const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
-    const next = catalog.filter((tool) => session.deferredSurfaceMode !== 'readonly' || isReadonlySelectable(tool));
-    const before = JSON.stringify((session.tools || []).map((tool) => activeToolForSurface(tool)));
-    const after = JSON.stringify(next);
+    const previous = Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : [];
     session.deferredToolCatalog = catalog;
-    session.tools.splice(0, session.tools.length, ...next);
-    session.deferredCallableTools = next.map((tool) => clean(tool?.name)).filter(Boolean);
-    if (before !== after) session.updatedAt = Date.now();
-    return before === after ? null : session.deferredCallableTools;
+    if (previous.length !== catalog.length || previous.some((tool, index) => tool !== catalog[index])) {
+      session.updatedAt = Date.now();
+    }
+    return null;
   }
   const lateCatalog = Array.isArray(session.deferredLateToolCatalog) ? session.deferredLateToolCatalog : [];
+  // A bridge session judges a removal by the definition it had before this
+  // reconciliation (a disconnected late tool leaves the late pool below).
+  const knownBefore = isToolBridgeEnabled(session)
+    ? new Map(deferredCatalogUnion(session).map((tool) => [clean(tool?.name), tool]))
+    : null;
   const active = new Set([
     ...(session.tools || []).map((tool) => clean(tool?.name)).filter(Boolean),
     ...parseToolSelection(session.deferredCallableTools),
@@ -594,11 +666,13 @@ function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
     const name = clean(tool?.name);
     if (!name || !isMcpToolName(name)) continue;
     if (previousNames.has(name) || (!hadSnapshot && (active.has(name) || startupNames.has(name)))) continue;
+    if (!rosterPermits(session, tool)) continue;
     added.push({ name, description: lateAnnouncementDescription(tool?.description) });
   }
   const removed = [];
   for (const name of previousNames) {
     if (nextNames.has(name)) continue;
+    if (knownBefore && !rosterPermits(session, knownBefore.get(name) || { name })) continue;
     removed.push(name);
   }
   if (!added.length && !removed.length) return null;
@@ -625,6 +699,9 @@ export function selectDeferredTools(session, names, mode, { exact = false } = {}
   const active = new Set([...surfaceActive, ...parseToolSelection(session?.deferredCallableTools)]);
   const native = session?.deferredProviderMode === 'native' || session?.deferredNativeTools === true;
   const discovered = new Set(Array.isArray(session?.deferredDiscoveredTools) ? session.deferredDiscoveredTools : []);
+  // Bridge sessions keep a fixed surface: deferred tools are described and
+  // run through the bridge, never appended to session.tools.
+  const bridge = isToolBridgeEnabled(session);
   const activateOnSurface = !native;
   const byName = new Map();
   for (const tool of catalog) {
@@ -649,7 +726,7 @@ export function selectDeferredTools(session, names, mode, { exact = false } = {}
       blocked.push({ name, reason: 'readonly mode' });
       continue;
     }
-    if (active.has(name) || (!activateOnSurface && discovered.has(name))) {
+    if (bridge || active.has(name) || (!activateOnSurface && discovered.has(name))) {
       already.push(name);
       continue;
     }
@@ -663,6 +740,7 @@ export function selectDeferredTools(session, names, mode, { exact = false } = {}
     }
     added.push(name);
   }
+  if (bridge) return { added, already, blocked, missing, native };
   if (native) {
     session.deferredCallableTools = sortedNamesByMeasuredUsage(active);
     session.deferredDiscoveredTools = sortedNamesByMeasuredUsage([...discovered]);
@@ -697,11 +775,13 @@ function pendingAndFailedMcpServers(mcpStatus) {
   return { pending: [...new Set(pending)].sort(), failed: [...new Set(failed)].sort() };
 }
 
-/** The deferred catalog union, or the session's own allowed tools when nothing is deferred. */
+/**
+ * The deferred catalog union, or the session's own tools when nothing is
+ * deferred — either way only what the session's policy lets it execute.
+ */
 function resolvableCatalog(session) {
   const union = deferredCatalogUnion(session);
-  if (union.length) return union;
-  return filterDisallowedTools(Array.isArray(session?.tools) ? session.tools : [], session?.disallowedTools);
+  return filterSessionToolPolicy(union.length ? union : Array.isArray(session?.tools) ? session.tools : [], session);
 }
 
 // Pure loader. Input is exact deferred-tool names/aliases; output reports
@@ -709,6 +789,8 @@ function resolvableCatalog(session) {
 // servers. No listing, no ranking, no substring filter. `options.mcpStatus` is
 // the runtime getter for per-server status.
 export function renderToolSearch(args = {}, session, mode = 'full', options = {}) {
+  // Bridge mode: load_tool describes (bounded, paged) and never loads.
+  if (isToolBridgeEnabled(session)) return formatBridgeResult(describeBridgeTools(session, args, { mode }));
   const catalog = resolvableCatalog(session);
   const requestedNames = parseToolSelection(args.names);
   const { pending: pendingMcpServers, failed: failedMcpServers } = pendingAndFailedMcpServers(options?.mcpStatus);
@@ -729,9 +811,9 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
         missing: [],
         ...mcpFields,
         activeTools: sortedNamesByMeasuredUsage(
-          (session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean)
+          permittedNames(session, (session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean))
         ),
-        discoveredTools: sortedNamesByMeasuredUsage(session?.deferredDiscoveredTools || []),
+        discoveredTools: sortedNamesByMeasuredUsage(permittedNames(session, session?.deferredDiscoveredTools)),
       },
       null,
       2
@@ -789,9 +871,9 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
       ...(blocked.length ? { blocked } : {}),
       ...mcpFields,
       activeTools: sortedNamesByMeasuredUsage(
-        [...nextActiveNames].filter((name) => isDeferredToolAvailable(session, name))
+        permittedNames(session, [...nextActiveNames]).filter((name) => isDeferredToolAvailable(session, name))
       ),
-      discoveredTools: sortedNamesByMeasuredUsage(session?.deferredDiscoveredTools || []),
+      discoveredTools: sortedNamesByMeasuredUsage(permittedNames(session, session?.deferredDiscoveredTools)),
       ...(notes.length ? { note: notes.join(' ') } : {}),
     },
     null,

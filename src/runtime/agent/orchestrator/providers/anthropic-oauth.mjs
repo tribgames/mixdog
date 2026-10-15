@@ -55,6 +55,7 @@ import { applyAnthropicEffortToBody, shouldIncludeEffortBeta } from './anthropic
 import { ANTHROPIC_EFFORT_LEVELS, withEffortRejectionFallback } from './effort-rejection.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import {
+  anthropicThinkingActive,
   applyAnthropicCacheMarkers,
   clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
   deferredAnthropicTools as sharedDeferredAnthropicTools,
@@ -169,8 +170,8 @@ function buildSystemBlocks(systemMsgs, systemTtl, tier3Ttl) {
 //      clamped to [MAX_TOKENS_FLOOR, safetyCap].
 //   3. Shared model catalog outputTokens, then the floor, when the live
 //      roster has no entry for this model.
-function resolveMaxTokens(model) {
-  return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokens });
+function resolveMaxTokens(model, { modelMaxOutputTokens = null } = {}) {
+  return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokens, modelMaxOutputTokens });
 }
 
 // --- Message conversion ---
@@ -192,8 +193,8 @@ function requestAnthropicTools(tools, messages, opts) {
 function buildRequestBody(messages, model, tools, sendOpts) {
   const systemMsgs = messages.filter((m) => m.role === 'system');
   const chatMsgs = messages.filter((m) => m.role !== 'system');
-  const maxTokens = resolveMaxTokens(model);
   const opts = sendOpts || {};
+  const maxTokens = resolveMaxTokens(model, { modelMaxOutputTokens: opts.modelMaxOutputTokens });
   const effortProjection = projectEffortConfiguration(messages, 'anthropic-oauth', model, opts);
   const ttls = resolveCacheTtls(opts);
   // Each system message becomes its own Anthropic content block with its own
@@ -203,11 +204,11 @@ function buildRequestBody(messages, model, tools, sendOpts) {
 
   // Message-tail cache budget (4-BP layout + ANTHROPIC_MSG_SLOTS) is shared
   // with anthropic.mjs — see resolveAnthropicMessageCacheSlots.
-  const messageCacheSlots = resolveAnthropicMessageCacheSlots(systemBlocks, ttls);
   // Tools are resolved BEFORE the messages: the lowering needs the final
   // tool list to drop tool_reference blocks whose tool no longer ships in
   // this request (otherwise the API rejects the whole turn).
   const requestTools = requestAnthropicTools(tools, chatMsgs, opts);
+  const messageCacheSlots = resolveAnthropicMessageCacheSlots(systemBlocks, ttls, { tools: requestTools });
   // Build → sanitize (once, inside toAnthropicMessages) → mark. Markers are
   // applied to the FINAL sanitized array by invariant, so block drops /
   // inserts / reorders performed by the sanitizer can never move or delete a
@@ -248,10 +249,8 @@ function buildRequestBody(messages, model, tools, sendOpts) {
   // tool_choice only when tools are actually present (Anthropic rejects
   // tool_choice without tools). 'none' rides the hard-cap final turn to
   // forbid tool USE while keeping the tools prefix stable for cache reuse.
-  if (body.tools) {
-    const toolChoice = toAnthropicToolChoice(opts.toolChoice);
-    if (toolChoice) body.tool_choice = toolChoice;
-  }
+  // Key reserved for wire order; resolved after thinking is applied.
+  if (body.tools) body.tool_choice = undefined;
 
   applyAnthropicEffortToBody(body, {
     model,
@@ -261,6 +260,16 @@ function buildRequestBody(messages, model, tools, sendOpts) {
     logTag: 'anthropic-oauth',
     progressUpdates: true,
   });
+
+  if (body.tools) {
+    const toolChoice = toAnthropicToolChoice(opts.toolChoice, {
+      thinking: anthropicThinkingActive(body),
+      disableParallelToolUse: opts.disableParallelToolUse === true,
+      onThinkingConflict: opts.toolChoiceThinkingConflict,
+    });
+    if (toolChoice) body.tool_choice = toolChoice;
+    else delete body.tool_choice;
+  }
 
   // Skipped while the fast capacity pool is in cooldown (or permanently
   // unavailable) so a drained pool is not re-probed every turn.

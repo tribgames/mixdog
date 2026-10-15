@@ -478,6 +478,8 @@ function customProviderRow(id, entry, checkSecrets = true) {
   row.auth = keyless ? 'none' : 'key';
   row.discovery = structuredClone(config?.discovery ?? entry.discovery ?? { newModelsHidden: false });
   row.modelOverrides = structuredClone(config?.modelOverrides ?? entry.modelOverrides ?? {});
+  if (config?.wires) row.wires = [...config.wires];
+  if (config?.modelWires) row.modelWires = { ...config.modelWires };
   // A stored config that does not normalize cannot run (the registry skips
   // it): say so explicitly instead of listing it as connected.
   // Every readiness flag consumers read says "not ready" (`stored` stays the
@@ -914,6 +916,12 @@ function withStoredSettings(input, entry) {
   if (out.schemaVersion === stored.schemaVersion) {
     if (out.discovery === undefined) out.discovery = stored.discovery;
     if (out.modelOverrides === undefined) out.modelOverrides = stored.modelOverrides;
+    // Served wires and per-model wires have no setup field yet: an edit on
+    // the same protocol keeps them (another protocol serves other wires).
+    if ((out.protocol ?? stored.protocol) === stored.protocol) {
+      if (out.wires === undefined && stored.wires) out.wires = stored.wires;
+      if (out.modelWires === undefined && stored.modelWires) out.modelWires = stored.modelWires;
+    }
   }
   return out;
 }

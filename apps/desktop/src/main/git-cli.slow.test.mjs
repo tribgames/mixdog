@@ -15,9 +15,10 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, test } from 'node:test';
 
+import { requiredReviewSource } from './git-contract.mjs';
 import { buildGhPrCreateArgs } from './gh-cli.ts';
 import {
   GIT_RESET_DIRTY_CODE,
@@ -38,6 +39,8 @@ import {
   gitPull,
   gitRenameBranch,
   gitReview,
+  gitReviewDiff,
+  gitReviewDiffs,
   gitResetToCommit,
   gitRevertCommit,
   gitRevertFile,
@@ -332,21 +335,308 @@ describe('working tree and history', { concurrency: 4 }, () => {
       await writeFile(join(cwd, 'tracked.txt'), 'one\ntwo\n', 'utf8');
       await writeFile(join(cwd, 'untracked.txt'), 'alpha\nbeta\n', 'utf8');
       const review = await gitReview(cwd);
-      assert.equal(review.base, 'HEAD');
+      assert.equal(review.repository, true);
+      assert.equal(review.base, 'main');
       assert.deepEqual(
         review.files.map((file) => ({
           path: file.path,
           additions: file.additions,
           untracked: file.untracked,
-          uncommitted: file.uncommitted,
         })),
         [
-          { path: 'tracked.txt', additions: 1, untracked: false, uncommitted: true },
-          { path: 'untracked.txt', additions: 2, untracked: true, uncommitted: true },
+          { path: 'tracked.txt', additions: 1, untracked: false },
+          { path: 'untracked.txt', additions: 2, untracked: true },
         ]
       );
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('review branch source counts worktree and untracked edits, uncommitted shrinks after a commit', async () => {
+    const cwd = await createRepository();
+    try {
+      await commit(cwd, 'base.txt', 'one\n', 'Initial');
+      await git(cwd, ['switch', '-c', 'feature']);
+      await commit(cwd, 'feature.txt', 'a\nb\n', 'Feature');
+      await writeFile(join(cwd, 'base.txt'), 'one\ntwo\n', 'utf8');
+      await writeFile(join(cwd, 'fresh.txt'), 'x\ny\nz\n', 'utf8');
+      const summarize = (review) =>
+        review.files.map((file) => [file.path, file.status, file.additions, file.untracked]);
+
+      const branch = await gitReview(cwd);
+      assert.equal(branch.base, 'main');
+      assert.deepEqual(summarize(branch), [
+        ['base.txt', 'M', 1, false],
+        ['feature.txt', 'A', 2, false],
+        ['fresh.txt', 'A', 3, true],
+      ]);
+      assert.deepEqual(summarize(await gitReview(cwd, 'branch')), summarize(branch));
+      assert.match(await gitReviewDiff(cwd, 'feature.txt', false, 'branch'), /^\+b$/m);
+      assert.match(await gitReviewDiff(cwd, 'base.txt', false), /^\+two$/m);
+
+      const uncommitted = await gitReview(cwd, 'uncommitted');
+      assert.equal(uncommitted.base, 'HEAD');
+      assert.deepEqual(summarize(uncommitted), [
+        ['base.txt', 'M', 1, false],
+        ['fresh.txt', 'A', 3, true],
+      ]);
+      assert.equal(await gitReviewDiff(cwd, 'feature.txt', false, 'uncommitted'), '');
+
+      await git(cwd, ['add', '--all']);
+      await git(cwd, ['commit', '-m', 'Everything']);
+      assert.deepEqual(summarize(await gitReview(cwd, 'uncommitted')), []);
+      assert.deepEqual(summarize(await gitReview(cwd, 'branch')), [
+        ['base.txt', 'M', 1, false],
+        ['feature.txt', 'A', 2, false],
+        ['fresh.txt', 'A', 3, false],
+      ]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('review and status run in the repository root when cwd is a subdirectory', async () => {
+    const cwd = await createRepository();
+    try {
+      await commit(cwd, 'top.txt', 'one\n', 'Initial');
+      await mkdir(join(cwd, 'pkg', 'inner'), { recursive: true });
+      await writeFile(join(cwd, 'pkg', 'inner', 'new.txt'), 'a\nb\n', 'utf8');
+      await writeFile(join(cwd, 'top.txt'), 'one\ntwo\n', 'utf8');
+      const sub = join(cwd, 'pkg', 'inner');
+      const root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+      const sameDir = (a, b) => resolve(a).toLowerCase() === resolve(b).toLowerCase();
+
+      for (const source of ['branch', 'uncommitted']) {
+        const review = await gitReview(sub, source);
+        assert.equal(review.repository, true);
+        assert.ok(sameDir(review.root, root), `${review.root} is the repo root`);
+        assert.deepEqual(
+          review.files.map((file) => [file.path, file.additions, file.untracked]),
+          [
+            ['pkg/inner/new.txt', 2, true],
+            ['top.txt', 1, false],
+          ]
+        );
+      }
+      assert.match(await gitReviewDiff(sub, 'pkg/inner/new.txt', true), /^\+b$/m);
+      assert.match(await gitReviewDiff(sub, 'top.txt', false, 'uncommitted'), /^\+two$/m);
+
+      const status = await gitStatus(sub);
+      assert.ok(sameDir(status.root, root));
+      assert.deepEqual(Object.fromEntries(status.files.map((file) => [file.path, file.additions])), {
+        'top.txt': 1,
+        'pkg/inner/new.txt': 2,
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('review diffs batch equals the single-file diffs, including untracked and subdirectory cwd', async () => {
+    const cwd = await createRepository();
+    try {
+      await commit(cwd, 'base.txt', 'one\n', 'Initial');
+      await mkdir(join(cwd, 'pkg', 'inner'), { recursive: true });
+      await commit(cwd, 'pkg/inner/f.txt', 'x\n', 'Inner');
+      await commit(cwd, 'gone.txt', 'bye\n', 'Gone');
+      await git(cwd, ['switch', '-c', 'feature']);
+      await commit(cwd, 'feature.txt', 'a\nb\n', 'Feature');
+      await writeFile(join(cwd, 'base.txt'), 'one\ntwo\n', 'utf8');
+      await writeFile(join(cwd, 'pkg', 'inner', 'f.txt'), 'x\ny\n', 'utf8');
+      await rm(join(cwd, 'gone.txt'));
+      await writeFile(join(cwd, 'with space.txt'), 'p\nq\n', 'utf8');
+      await writeFile(join(cwd, 'pkg', 'inner', 'new.txt'), 'n1\nn2\n', 'utf8');
+      const sub = join(cwd, 'pkg', 'inner');
+      const request = [
+        { path: 'base.txt', untracked: false },
+        { path: 'pkg/inner/f.txt', untracked: false },
+        { path: 'gone.txt', untracked: false },
+        { path: 'feature.txt', untracked: false },
+        { path: 'pkg/inner/new.txt', untracked: true },
+        { path: 'with space.txt', untracked: true },
+        { path: 'base.txt', untracked: false },
+      ];
+      for (const dir of [cwd, sub]) {
+        for (const source of ['branch', 'uncommitted']) {
+          const batch = await gitReviewDiffs(dir, request, source);
+          assert.deepEqual(batch.omitted, []);
+          assert.deepEqual(Object.keys(batch.patches).sort(), [...new Set(request.map((file) => file.path))].sort());
+          for (const file of request) {
+            assert.equal(
+              batch.patches[file.path],
+              await gitReviewDiff(dir, file.path, file.untracked, source),
+              `${source}:${file.path}`
+            );
+          }
+        }
+      }
+      const branch = await gitReviewDiffs(sub, request, 'branch');
+      assert.match(branch.patches['feature.txt'], /^\+b$/m);
+      assert.match(branch.patches['pkg/inner/new.txt'], /^\+n2$/m);
+      assert.equal((await gitReviewDiffs(sub, request, 'uncommitted')).patches['feature.txt'], '');
+      assert.deepEqual(await gitReviewDiffs(cwd, []), { patches: {}, omitted: [] });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('review diffs batch omits paths it cannot match back and unborn HEAD still diffs', async () => {
+    const cwd = await createRepository();
+    try {
+      await writeFile(join(cwd, 'staged.txt'), 'one\ntwo\n', 'utf8');
+      await git(cwd, ['add', 'staged.txt']);
+      const request = [
+        { path: 'staged.txt', untracked: false },
+        { path: 'quo"te.txt', untracked: false },
+      ];
+      const batch = await gitReviewDiffs(cwd, request, 'branch');
+      assert.deepEqual(batch.omitted, ['quo"te.txt']);
+      assert.equal(batch.patches['staged.txt'], await gitReviewDiff(cwd, 'staged.txt', false, 'branch'));
+      assert.match(batch.patches['staged.txt'], /^\+two$/m);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('review file revision changes when content changes without changing line counts', async () => {
+    const cwd = await createRepository();
+    try {
+      await commit(cwd, 'base.txt', 'one\n', 'Initial');
+      await commit(cwd, 'gone.txt', 'bye\n', 'Gone');
+      await writeFile(join(cwd, 'base.txt'), 'two\n', 'utf8');
+      await writeFile(join(cwd, 'new.txt'), 'n\n', 'utf8');
+      await rm(join(cwd, 'gone.txt'));
+      const find = (review, path) => review.files.find((file) => file.path === path);
+      const first = await gitReview(cwd);
+      assert.equal(find(first, 'gone.txt').revision, 'deleted');
+      assert.match(find(first, 'base.txt').revision, /^\d+:[\d.]+$/);
+      assert.match(find(first, 'new.txt').revision, /^\d+:[\d.]+$/);
+      await writeFile(join(cwd, 'base.txt'), 'six\n', 'utf8');
+      await utimes(join(cwd, 'base.txt'), new Date(), new Date(Date.now() + 5000));
+      const second = await gitReview(cwd);
+      const a = find(first, 'base.txt');
+      const b = find(second, 'base.txt');
+      assert.equal(a.additions, b.additions);
+      assert.equal(a.deletions, b.deletions);
+      assert.notEqual(a.revision, b.revision);
+      assert.equal(find(second, 'new.txt').revision, find(first, 'new.txt').revision);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('review caps untracked files at 256 and reports how many were left out', async () => {
+    const cwd = await createRepository();
+    try {
+      await commit(cwd, 'base.txt', 'one\n', 'Initial');
+      await mkdir(join(cwd, 'many'), { recursive: true });
+      for (let index = 0; index < 260; index += 1) {
+        await writeFile(join(cwd, 'many', `f${String(index).padStart(3, '0')}.txt`), 'x\n', 'utf8');
+      }
+      const review = await gitReview(cwd);
+      assert.equal(review.files.filter((file) => file.untracked).length, 256);
+      assert.equal(review.untrackedOmitted, 4);
+      assert.ok(review.files.some((file) => file.path === 'many/f000.txt'));
+      assert.ok(!review.files.some((file) => file.path === 'many/f259.txt'));
+      await writeFile(join(cwd, 'base.txt'), 'one\ntwo\n', 'utf8');
+      assert.equal((await gitReview(cwd, 'uncommitted')).untrackedOmitted, 4);
+      await rm(join(cwd, 'many'), { recursive: true, force: true });
+      assert.equal((await gitReview(cwd)).untrackedOmitted, 0);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('gitDiff treats paths as root-relative when cwd is a subdirectory', async () => {
+    const cwd = await createRepository();
+    try {
+      await mkdir(join(cwd, 'pkg', 'inner'), { recursive: true });
+      await commit(cwd, 'pkg/inner/f.txt', 'one\n', 'Initial');
+      const sub = join(cwd, 'pkg', 'inner');
+      await writeFile(join(cwd, 'pkg', 'inner', 'f.txt'), 'one\ntwo\n', 'utf8');
+      await writeFile(join(cwd, 'pkg', 'inner', 'new.txt'), 'a\nb\n', 'utf8');
+      assert.match(await gitDiff(sub, 'pkg/inner/f.txt', false), /^\+two$/m);
+      assert.match(await gitDiff(sub, 'pkg/inner/f.txt', false, true), /^\+two$/m);
+      assert.equal(await gitDiff(sub, 'pkg/inner/f.txt', true), '');
+      await git(cwd, ['add', 'pkg/inner/f.txt']);
+      assert.match(await gitDiff(sub, 'pkg/inner/f.txt', true), /^\+two$/m);
+      assert.match(await gitDiff(sub, 'pkg/inner/new.txt', false, false, true), /^\+b$/m);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('gitDiff works on an unborn HEAD', async () => {
+    const cwd = await createRepository();
+    try {
+      await writeFile(join(cwd, 'staged.txt'), 'one\ntwo\n', 'utf8');
+      await git(cwd, ['add', 'staged.txt']);
+      await writeFile(join(cwd, 'staged.txt'), 'one\ntwo\nthree\n', 'utf8');
+      assert.match(await gitDiff(cwd, 'staged.txt', false), /^\+three$/m);
+      assert.match(await gitDiff(cwd, 'staged.txt', false), /^\+one$/m);
+      assert.match(await gitDiff(cwd, 'staged.txt', true), /^\+two$/m);
+      assert.match(await gitDiff(cwd, 'staged.txt', false, true), /^\+three$/m);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('review compares an unborn HEAD against the empty tree and reports non-repositories', async () => {
+    const cwd = await createRepository();
+    const plain = await mkdtemp(join(tmpdir(), 'mixdog-plain-'));
+    try {
+      await writeFile(join(cwd, 'staged.txt'), 'one\ntwo\n', 'utf8');
+      await git(cwd, ['add', 'staged.txt']);
+      await writeFile(join(cwd, 'loose.txt'), 'x\n', 'utf8');
+      for (const source of ['branch', 'uncommitted']) {
+        const review = await gitReview(cwd, source);
+        assert.deepEqual(
+          review.files.map((file) => [file.path, file.status, file.additions, file.untracked]),
+          [
+            ['loose.txt', 'A', 1, true],
+            ['staged.txt', 'A', 2, false],
+          ]
+        );
+        assert.match(await gitReviewDiff(cwd, 'staged.txt', false, source), /^\+two$/m);
+      }
+      assert.deepEqual(await gitReview(plain), {
+        repository: false,
+        root: '',
+        base: '',
+        files: [],
+        untrackedOmitted: 0,
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(plain, { recursive: true, force: true });
+    }
+  });
+
+  test('review base falls back to local main/master without an origin default', async () => {
+    const cwd = await createRepository();
+    try {
+      await git(cwd, ['branch', '-m', 'master']);
+      await commit(cwd, 'a.txt', 'one\n', 'Initial');
+      await git(cwd, ['switch', '-c', 'topic']);
+      await commit(cwd, 'b.txt', 'b\n', 'Topic');
+      const review = await gitReview(cwd);
+      assert.equal(review.base, 'master');
+      assert.deepEqual(
+        review.files.map((file) => file.path),
+        ['b.txt']
+      );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('review source validation accepts branch/uncommitted and rejects anything else', () => {
+    assert.equal(requiredReviewSource(undefined), 'branch');
+    assert.equal(requiredReviewSource('branch'), 'branch');
+    assert.equal(requiredReviewSource('uncommitted'), 'uncommitted');
+    for (const bad of ['', 'HEAD', 'Branch', null, 1, {}]) {
+      assert.throws(() => requiredReviewSource(bad), /review source/);
     }
   });
 
