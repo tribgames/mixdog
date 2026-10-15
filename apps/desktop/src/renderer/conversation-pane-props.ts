@@ -82,7 +82,11 @@ export type ConversationProps = {
    *  frame): the timeline mounts once, with the real rows, so the entry
    *  offset is resolved exactly once. */
   transcriptPending?: boolean;
-  /** This session's entry settled: rows laid out and every entry-pending
-   *  chrome (the review bar's first read) decided. */
+  /** This session's entry settled: populated rows laid out and every
+   *  entry-pending chrome (the review bar's first read) either decided or
+   *  timed out (ENTRY_CHROME_MAX_MS); late chrome may still land after. */
   onEntryRevealed?: (sessionKey: string) => void;
+  /** The transcript is hidden awaiting its reveal. The pane keeps its loading
+   *  cover up for as long as this holds. */
+  onTranscriptHiddenChange?: (hidden: boolean) => void;
 };

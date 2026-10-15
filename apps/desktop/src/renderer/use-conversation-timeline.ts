@@ -20,6 +20,7 @@ export function useConversationTimeline({
   pendingItems,
   optimisticActivityStartedAt,
   onEntryRevealed,
+  onTranscriptHiddenChange,
 }: {
   view: Pick<ConversationViewport, 'viewport' | 'content' | 'conversation' | 'follow' | 'scrollToEndRef'>;
   source: Pick<
@@ -37,6 +38,7 @@ export function useConversationTimeline({
   pendingItems: PendingPromptItem[];
   optimisticActivityStartedAt: number;
   onEntryRevealed?: (sessionKey: string) => void;
+  onTranscriptHiddenChange?: (hidden: boolean) => void;
 }) {
   const { viewport, content, conversation, follow, scrollToEndRef } = view;
   const { settledItems, settledRowItems, requestEarlierTranscript } = source;
@@ -58,18 +60,24 @@ export function useConversationTimeline({
     commandActivityVisible: commandShowsActivity(snapshot),
     optimisticActivityStartedAt,
   });
+  const populated = showTimeline && transcriptRows.length > 0;
   const transcriptRevealed = useTranscriptReveal({
     identity,
-    enabled: showTimeline && transcriptRows.length > 0,
+    enabled: populated,
     draft: draftMode || sessionKey === 'new-task',
     viewport,
     content,
     scope: conversation,
     hasScrollGesture,
   });
+  // A disabled reveal reads as revealed; only populated rows count as an entry.
   useLayoutEffect(() => {
-    if (transcriptRevealed) onEntryRevealed?.(sessionKey);
-  }, [onEntryRevealed, transcriptRevealed, sessionKey]);
+    if (transcriptRevealed && populated) onEntryRevealed?.(sessionKey);
+  }, [onEntryRevealed, populated, transcriptRevealed, sessionKey]);
+  useLayoutEffect(() => {
+    onTranscriptHiddenChange?.(!transcriptRevealed);
+    return () => onTranscriptHiddenChange?.(false);
+  }, [onTranscriptHiddenChange, transcriptRevealed]);
   // A short first window (down to 8 huge rows) may not fill the pane, and
   // with nothing to scroll the top threshold is never crossed.
   useTranscriptHistoryFill(viewport, requestEarlierTranscript, settledItems.length, transcriptRevealed);

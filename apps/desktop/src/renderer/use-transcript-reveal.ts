@@ -1,9 +1,11 @@
 import { useLayoutEffect, useState, type RefObject } from 'react';
 import { transcriptScrollPosition } from './use-transcript-follow';
 
-// Bound row/font settling only after the dock has answered. A slow dock
-// must not reveal the transcript with a temporary bottom inset.
+// Bound row/font settling once the dock has answered or its wait has expired.
 export const ENTRY_REVEAL_MAX_MS = 2_000;
+// Total wait for entry-pending chrome (the review bar's first read, a lazy
+// dock fallback); past it the reveal proceeds and the chrome may land late.
+export const ENTRY_CHROME_MAX_MS = 1_500;
 
 /**
  * Data readiness is not layout readiness: a virtual range can still contain
@@ -49,6 +51,8 @@ export function useTranscriptReveal({
     let frame = 0;
     let previous = '';
     let started = performance.now();
+    const chromeStarted = started;
+    let chromeGaveUp = false;
     const sample = () => {
       const root = viewport.current;
       const space = content.current;
@@ -74,7 +78,14 @@ export function useTranscriptReveal({
         signature.push(Number(row.dataset.index), start, end);
       });
       const current = JSON.stringify(signature);
-      const chromePending = Boolean(scope?.current?.querySelector('[data-entry-pending]'));
+      const chromeMarked = Boolean(scope?.current?.querySelector('[data-entry-pending]'));
+      const chromeExpired = performance.now() - chromeStarted >= ENTRY_CHROME_MAX_MS;
+      const chromePending = chromeMarked && !chromeExpired;
+      // Giving up on chrome starts the row-settle bound from here.
+      if (chromeMarked && chromeExpired && !chromeGaveUp) {
+        chromeGaveUp = true;
+        started = performance.now();
+      }
       const pending =
         space.querySelector('[data-transcript-pending]') || chromePending || document.fonts?.status === 'loading';
       const atEnd = position.maxScrollTop - top <= 1;

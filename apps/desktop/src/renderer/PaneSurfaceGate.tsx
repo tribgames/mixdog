@@ -155,6 +155,23 @@ function useStableSurfaceReveal(ready: boolean, transitionKey: string | number =
   return revealed;
 }
 
+/** A warm revisit reveals its transcript within a few frames; only a hold that
+ *  outlasts this grace puts the cover back. */
+export const SURFACE_HOLD_GRACE_MS = 300;
+
+function useSurfaceHold(hold: boolean): boolean {
+  const [holding, setHolding] = useState(false);
+  useLayoutEffect(() => {
+    if (!hold) {
+      setHolding(false);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setHolding(true), SURFACE_HOLD_GRACE_MS);
+    return () => window.clearTimeout(timer);
+  }, [hold]);
+  return hold && holding;
+}
+
 /**
  * Keep the complete workbench mounted at final geometry behind one opaque
  * cover. Visible descendants register their real data/DOM readiness through
@@ -317,13 +334,20 @@ export function PaneSurfaceCover({
   ready,
   label,
   transitionKey,
+  hold = false,
 }: {
   ready: boolean;
   label: string;
   transitionKey?: string | number;
+  /** The covered content is hidden again (a revisit awaiting its reveal)
+   *  although this surface key already latched revealed. The cover returns
+   *  once the hold outlasts a warm settle, so a reveal within a few frames
+   *  never flashes it. */
+  hold?: boolean;
 }) {
   const revealed = useStableSurfaceReveal(ready, transitionKey);
-  if (revealed) return null;
+  const holding = useSurfaceHold(hold);
+  if (revealed && !holding) return null;
   return (
     <div className="pane-surface-cover">
       {/* A pane-sized cover that stays mute is indistinguishable from a broken

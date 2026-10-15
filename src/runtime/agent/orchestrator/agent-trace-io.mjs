@@ -21,7 +21,8 @@ let _serviceUrl = null;
 // came from legacy active-instance.json). Lets a flush connect-failure distrust
 // a recycled-pid corpse advert so the next resolve falls back to legacy/buffer.
 let _serviceAdvertPort = null;
-let _flushInFlight = false;
+let _flushPromise = null;
+let _flushImmediate = null;
 let _localTracePath = null;
 let _localTraceIsExplicit = false;
 let _localTraceBuffer = [];
@@ -180,6 +181,8 @@ function _flushLocalTrace() {
       _localTraceFlushInFlight = false;
       _localTraceFlushPromise = null;
       if (_localTraceBuffer.length > 0) {
+        // An append during the write may already have armed a timer.
+        if (_localTraceTimer) clearTimeout(_localTraceTimer);
         _localTraceTimer = setTimeout(_flushLocalTrace, 0);
         _localTraceTimer.unref?.();
       }
@@ -220,11 +223,13 @@ try {
   // Ignore lifecycle hook failures in embedded runtimes.
 }
 
+const _deps = { readServicePort };
+
 function _resolveServiceUrl() {
   if (_serviceUrl) return _serviceUrl;
   try {
     // Standalone memory HTTP uses its pid-validated discovery advert.
-    const advertPort = readServicePort('memory', { requirePid: false });
+    const advertPort = _deps.readServicePort('memory', { requirePid: false });
     if (advertPort) {
       _serviceAdvertPort = advertPort;
       _serviceUrl = `http://127.0.0.1:${advertPort}`;
@@ -237,71 +242,78 @@ function _resolveServiceUrl() {
   }
 }
 
-async function _flush() {
-  _flushTimer = null;
-  if (_buffer.length === 0) return;
-  if (_flushInFlight) {
-    _scheduleFlush();
-    return;
+// Single entry point for every flush trigger (timer, immediate, drain). While a
+// flush is in flight, callers share its promise; its completion schedules the
+// continuation for whatever remains.
+function _flush() {
+  if (_flushTimer) {
+    clearTimeout(_flushTimer);
+    _flushTimer = null;
   }
-  _flushInFlight = true;
+  // This flush takes over any queued immediate; its completion reschedules.
+  if (_flushImmediate) {
+    clearImmediate(_flushImmediate);
+    _flushImmediate = null;
+  }
+  if (_flushPromise) return _flushPromise;
+  if (_buffer.length === 0) return Promise.resolve();
+  _flushPromise = _flushOnce().finally(() => {
+    _flushPromise = null;
+    _scheduleContinuation();
+  });
+  return _flushPromise;
+}
+
+async function _flushOnce() {
+  // Discovery runs here only (timer / drain / full-batch continuation), never per append.
+  const url = _resolveServiceUrl();
+  if (!url) return;
+  const batch = _buffer.splice(0, _FLUSH_BATCH_SIZE);
   try {
-    const url = _resolveServiceUrl();
-    if (!url) {
-      // Service not up yet — keep buffer, retry next timer tick
-      _scheduleFlush();
-      return;
-    }
-    const batch = _buffer.splice(0, _FLUSH_BATCH_SIZE);
+    const resp = await fetch(`${url}/admin/trace-record`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ events: batch }),
+      signal: AbortSignal.timeout(5000),
+    });
+    // Always drain the body. An undrained response body keeps the
+    // underlying keep-alive socket referenced, which can hold the event
+    // loop open and make a short-lived process (smoke scripts / one-shot
+    // agent tasks) appear to hang for seconds after its work is done.
     try {
-      const resp = await fetch(`${url}/admin/trace-record`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ events: batch }),
-        signal: AbortSignal.timeout(5000),
-      });
-      // Always drain the body. An undrained response body keeps the
-      // underlying keep-alive socket referenced, which can hold the event
-      // loop open and make a short-lived process (smoke scripts / one-shot
-      // agent tasks) appear to hang for seconds after its work is done.
-      try {
-        await resp.arrayBuffer();
-      } catch {
-        /* body already gone */
-      }
-      if (!resp.ok) {
-        warnAgentOnce(
-          'agent-trace:flush-error',
-          `[agent-trace] /admin/trace-record returned ${resp.status} — dropping batch`
-        );
-      }
-    } catch (err) {
-      _serviceUrl = null;
-      // Discovery-first consumer with no health probe: a connect failure
-      // means the pid-validated advert points at a dead (recycled-pid)
-      // port. Distrust it (connection-level errors ONLY — a timeout is a
-      // slow-but-alive daemon, not a corpse) so the next resolve falls back
-      // to legacy/buffer instead of re-trusting the same advert.
-      if (_serviceAdvertPort && isConnRefuseError(err)) markServiceUnreachable('memory', _serviceAdvertPort);
-      _serviceAdvertPort = null;
-      warnAgentOnce('agent-trace:flush-fetch', `[agent-trace] flush fetch failed (${err?.message}) — dropping batch`);
+      await resp.arrayBuffer();
+    } catch {
+      /* body already gone */
     }
-    if (_buffer.length >= _FLUSH_BATCH_SIZE) {
-      // More pending — schedule another flush immediately
-      setImmediate(_flush);
+    if (!resp.ok) {
+      warnAgentOnce(
+        'agent-trace:flush-error',
+        `[agent-trace] /admin/trace-record returned ${resp.status} — dropping batch`
+      );
     }
-  } finally {
-    _flushInFlight = false;
+  } catch (err) {
+    _serviceUrl = null;
+    // Discovery-first consumer with no health probe: a connect failure
+    // means the pid-validated advert points at a dead (recycled-pid)
+    // port. Distrust it (connection-level errors ONLY — a timeout is a
+    // slow-but-alive daemon, not a corpse) so the next resolve falls back
+    // to legacy/buffer instead of re-trusting the same advert.
+    if (_serviceAdvertPort && isConnRefuseError(err)) markServiceUnreachable('memory', _serviceAdvertPort);
+    _serviceAdvertPort = null;
+    warnAgentOnce('agent-trace:flush-fetch', `[agent-trace] flush fetch failed (${err?.message}) — dropping batch`);
   }
 }
 
-function _scheduleFlush(immediate = false) {
-  if (immediate) {
+// Full batch pending and the service is usable → one immediate; everything else
+// → the single non-resetting retry timer.
+function _scheduleContinuation() {
+  if (_buffer.length === 0) return;
+  if (_serviceUrl && _buffer.length >= _FLUSH_BATCH_SIZE) {
     if (_flushTimer) {
       clearTimeout(_flushTimer);
       _flushTimer = null;
     }
-    setImmediate(_flush);
+    if (!_flushImmediate) _flushImmediate = setImmediate(_flush);
   } else if (!_flushTimer) {
     _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS);
     // Never let the periodic trace flush keep the event loop alive: a
@@ -328,11 +340,10 @@ async function _drainLocalTrace() {
 async function drainAgentTrace() {
   await _drainLocalTrace();
   if (!_resolveServiceUrl()) return;
-  if (_flushTimer) {
-    clearTimeout(_flushTimer);
-    _flushTimer = null;
-  }
-  for (let i = 0; i < 10 && _buffer.length > 0; i++) {
+  // Each iteration either awaits the in-flight flush or delivers a batch, so
+  // this terminates; it stops early only when the service is unresolvable.
+  while (_buffer.length > 0 || _flushPromise) {
+    if (!_flushPromise && !_resolveServiceUrl()) break;
     await _flush();
   }
 }
@@ -363,7 +374,8 @@ function appendAgentTrace(record = {}) {
     }
     _appendLocalTrace(row);
     _buffer.push(row);
-    _scheduleFlush(_buffer.length >= _FLUSH_BATCH_SIZE);
+    // An in-flight flush schedules its own continuation on completion.
+    if (!_flushPromise) _scheduleContinuation();
   } catch {
     // Never break agent execution for telemetry
   }
@@ -464,7 +476,26 @@ function _flushToolFailuresSync() {
   }
 }
 
+// Test-only seams: inject discovery and reset module state between cases.
+const _traceIoTest = {
+  setReadServicePort(fn) {
+    _deps.readServicePort = fn;
+  },
+  // Resolves once the in-flight local spool write and its completion handler have run.
+  localWrite: () => _localTraceFlushPromise,
+  reset() {
+    _deps.readServicePort = readServicePort;
+    _buffer.length = 0;
+    _flushTimer = null;
+    _flushImmediate = null;
+    _flushPromise = null;
+    _serviceUrl = null;
+    _serviceAdvertPort = null;
+  },
+};
+
 export {
+  _traceIoTest,
   appendAgentTrace,
   drainAgentTrace,
   normalizeSessionId,

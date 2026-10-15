@@ -58,6 +58,15 @@ export function nextConversationOriginSessionId(originSessionId: string, session
   return origin || nextId;
 }
 
+/** A loaded lane with no rows has no transcript to reveal, so its entry has
+ *  nothing to wait for (the timeline never reveals an empty list). */
+export function conversationLaneIsEmpty(
+  lane: { items?: readonly unknown[]; streamingTail?: unknown } | null | undefined
+): boolean {
+  if (!lane) return false;
+  return !(Array.isArray(lane.items) && lane.items.length > 0) && !lane.streamingTail;
+}
+
 /** First-promoted lanes already painted as New Task. Markdown readiness must
  *  not unmount that timeline or replay the conversation cover. */
 export function conversationMarkdownPending({

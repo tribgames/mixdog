@@ -31,6 +31,7 @@ export function Conversation(props: ConversationProps) {
     warmPaintHandoff = false,
     transcriptPending = false,
     onEntryRevealed,
+    onTranscriptHiddenChange,
   } = props;
   // Every effect below runs in the order its hook is called here: viewport,
   // approvals, paint handoff, prompt release (submission), timeline, quota.
@@ -74,6 +75,7 @@ export function Conversation(props: ConversationProps) {
     pendingItems,
     optimisticActivityStartedAt,
     onEntryRevealed,
+    onTranscriptHiddenChange,
   });
   const { renderTranscriptRow } = useConversationRowRenderer({
     snapshot,

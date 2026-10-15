@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
-import { useTranscriptReveal } from './use-transcript-reveal';
+import { ENTRY_CHROME_MAX_MS, ENTRY_REVEAL_MAX_MS, useTranscriptReveal } from './use-transcript-reveal';
 
 function mount(t) {
   let now = 0;
@@ -104,18 +104,24 @@ test('entry waits past one second for dock chrome, then reveals only after stabl
   assert.equal(entry.revealed(), true, 'live updates never cover an entered conversation again');
 });
 
-test('a slow dock stays covered past two seconds and reveals at its settled height', (t) => {
+test('a dock that never answers cannot hold the laid-out transcript past the chrome bound', (t) => {
   const entry = mount(t);
-  entry.tick(1_999);
+  entry.tick(16);
+  entry.tick(ENTRY_CHROME_MAX_MS - 16);
+  assert.equal(entry.revealed(), false, 'chrome is still waited on inside the bound');
+  entry.tick(ENTRY_CHROME_MAX_MS);
+  assert.equal(entry.revealed(), false, 'the bound frame needs one stable sample');
+  entry.tick(ENTRY_CHROME_MAX_MS + 16);
+  assert.equal(entry.revealed(), true, 'rows are laid out; the review bar may appear late');
+  assert.ok(document.querySelector('[data-entry-pending]'), 'chrome never resolved');
+});
+
+test('the chrome bound counts total wait, not time since the last pending frame', (t) => {
+  const entry = mount(t);
+  for (let time = 16; time < ENTRY_CHROME_MAX_MS; time += 250) entry.tick(time);
   assert.equal(entry.revealed(), false);
-  entry.tick(2_000);
-  assert.equal(entry.revealed(), false);
-  entry.tick(5_000);
-  assert.equal(entry.revealed(), false);
-  entry.ready();
-  entry.tick(5_016);
-  assert.equal(entry.revealed(), false);
-  entry.tick(5_032);
+  entry.tick(ENTRY_CHROME_MAX_MS);
+  entry.tick(ENTRY_CHROME_MAX_MS + 16);
   assert.equal(entry.revealed(), true);
 });
 
@@ -123,9 +129,13 @@ test('row settling still has a bounded wait after dock readiness', (t) => {
   const entry = mount(t);
   entry.tick(3_000);
   entry.ready();
-  document.getElementById('content').setAttribute('data-transcript-pending', '');
+  const suspended = document.createElement('div');
+  suspended.setAttribute('data-transcript-pending', '');
+  document.getElementById('content').append(suspended);
   entry.tick(3_016);
   assert.equal(entry.revealed(), false);
-  entry.tick(5_000);
+  entry.tick(3_000 + ENTRY_REVEAL_MAX_MS - 16);
+  assert.equal(entry.revealed(), false);
+  entry.tick(3_000 + ENTRY_REVEAL_MAX_MS);
   assert.equal(entry.revealed(), true);
 });

@@ -39,6 +39,7 @@ import {
   conversationPresentedSessionId,
   nextConversationOriginSessionId,
   conversationMarkdownPending,
+  conversationLaneIsEmpty,
 } from './first-submit-stability';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
 import { ContextUsageIndicator } from './transcript-status';
@@ -257,6 +258,15 @@ export const PaneConversation = memo(function PaneConversation({
     setEnteredSessions((current) => (current.has(sessionKey) ? current : new Set(current).add(sessionKey)));
   }, []);
   const entryPending = !hidden && Boolean(sessionId) && !promotingFromDraft && !enteredSessions.has(sessionId);
+  // The timeline records an entry only after populated rows were revealed. A
+  // loaded lane with no rows has none to reveal, so it is entered as it lands.
+  const laneEmpty = !hidden && Boolean(sessionId) && !markdownPending && conversationLaneIsEmpty(lane);
+  useLayoutEffect(() => {
+    if (laneEmpty) onEntryRevealed(sessionId);
+  }, [laneEmpty, onEntryRevealed, sessionId]);
+  // The transcript is hidden while its reveal settles. A revisit latches the
+  // cover as already revealed, so the hidden transcript must hold it up.
+  const [transcriptHidden, setTranscriptHidden] = useState(false);
   // Only the conversation can declare its dock and row geometry ready.
   // A parallel timer would uncover a slow diff/Goal before its height lands.
   // Sidebar session registration remounts the virtualizer. Keep the sheet
@@ -317,6 +327,7 @@ export const PaneConversation = memo(function PaneConversation({
         reviewActive={focused && !hidden}
         warmPaintHandoff={warmDraftHandoff}
         onEntryRevealed={onEntryRevealed}
+        onTranscriptHiddenChange={setTranscriptHidden}
         renderAssistantRow={(row) => <PaneAssistantRow {...row} sessionId={sessionId} hidden={hidden} />}
         {...props}
         onInheritSession={onInheritSession}
@@ -335,7 +346,12 @@ export const PaneConversation = memo(function PaneConversation({
           </div>
         </div>
       ) : (
-        <PaneSurfaceCover ready={surfaceReady} label={t('Loading conversation…')} transitionKey={coverKey} />
+        <PaneSurfaceCover
+          ready={surfaceReady}
+          label={t('Loading conversation…')}
+          transitionKey={coverKey}
+          hold={transcriptHidden && !hidden}
+        />
       )}
     </>
   );
