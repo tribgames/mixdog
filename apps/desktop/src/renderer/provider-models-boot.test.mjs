@@ -67,9 +67,14 @@ async function settle(api) {
   }
 }
 
-test.beforeEach(() => {
+test.beforeEach(async () => {
   storage.clear();
   invalidateSharedModelCatalogRequest();
+  // Invalidation now intentionally forces the next API, even before any read.
+  // Consume that test-reset event separately: these cases model a fresh boot,
+  // not a provider change. Real invalidation is covered below and in the cache suite.
+  const reset = requestModelCatalog({ listProviderModels: async () => [] });
+  await Promise.all([reset.quick, reset.full, reset.setup]);
   resetSidebarReferenceCache();
 });
 

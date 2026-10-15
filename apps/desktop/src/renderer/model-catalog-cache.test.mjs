@@ -71,7 +71,7 @@ test('a successful catalog request is shared instead of refetched', async () => 
   const second = requestModelCatalog(api);
   assert.deepEqual(await second.quick, await first.quick);
   assert.deepEqual(await second.full, await first.full);
-  assert.deepEqual(api.calls.modelOptions, [{ quick: true }, { quick: false }]);
+  assert.deepEqual(api.calls.modelOptions, [{ quick: true }, { quick: false, force: true }]);
   assert.equal(api.calls.setup, 1);
 });
 
@@ -285,4 +285,21 @@ test('provider invalidation bypasses the server setup TTL before sharing the ref
   assert.equal((await next.setup).api[0].usable, true);
   assert.equal((await next.full)[0].model, CATALOG[0].model);
   assert.deepEqual(requests.at(-1).args, [{ force: true }]);
+});
+
+
+test('an invalidation before the first API read forces both model and setup snapshots', async () => {
+  invalidateSharedModelCatalogRequest();
+  const requests = [];
+  const api = stubApi();
+  api.listProviderModels = async (options) => options.force ? CATALOG : [];
+  api.invokeCapability = async (request) => {
+    requests.push(request);
+    return { value: { managedByClient: true, api: [{ id: 'openai', usable: request.args[0]?.force === true }] } };
+  };
+  const current = requestModelCatalog(api);
+  assert.equal((await current.full)[0]?.model, CATALOG[0].model);
+  assert.equal((await current.setup).api[0].usable, true);
+  assert.deepEqual(requests[0].args, [{ force: true }]);
+  assert.equal(requestModelCatalog(api), current, 'a consumed invalidation does not defeat sharing');
 });
