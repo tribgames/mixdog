@@ -12,6 +12,7 @@ import { LanguageServerManager } from './language-server-manager';
 import * as localFiles from './local-files';
 import * as libreoffice from './libreoffice';
 import * as projectFiles from './project-files';
+import { projectRecoveryIn } from './project-recovery';
 import { listShellProfiles, resolveShellProfileSpawn } from './shell-profiles';
 import { DesktopSettingsStore, settingsConfigModuleUrl } from './settings-store';
 import type { MixdogConfigModule } from './settings-store';
@@ -43,6 +44,7 @@ interface DesktopOperationEvent {
 }
 
 interface DesktopOperationsOptions {
+  withRecoveryStore?<T>(root: string, action: 'write' | 'restore' | 'inspect' | 'discard', run: () => Promise<T>): Promise<T>;
   userDataPath: string;
   packaged?: boolean;
   resourcesPath?: string;
@@ -263,19 +265,18 @@ const STATIC_OPERATIONS = {
   readScopedEditorSettings: workspaceConfig.readScopedEditorSettings,
   writeMarkdownDefaultView: workspaceConfig.writeMarkdownDefaultView,
   readWorkspaceFile: workspaceConfig.readWorkspaceFile,
-  replaceWorkspaceTextIn: workspaceSearch.replaceWorkspaceTextIn,
   searchWorkspaceTextIn: workspaceSearch.searchWorkspaceTextIn,
   statProjectFileIn: projectFiles.statProjectFileIn,
   listHostDirectories,
   listServerDirectories,
   writeEditorBackup: editorBackups.writeEditorBackup,
   writeProjectTextFileIn: projectFiles.writeProjectTextFileIn,
-  writeProjectTextFilesIn: projectFiles.writeProjectTextFilesIn,
   writeWorkspaceFile: workspaceConfig.writeWorkspaceFile,
 } satisfies Record<string, (...args: never[]) => unknown>;
 
 export function createDesktopOperations({
   userDataPath,
+  withRecoveryStore = (_root, _action, run) => run(),
   packaged,
   resourcesPath,
   appPath,
@@ -283,6 +284,10 @@ export function createDesktopOperations({
   loadDocumentPreview,
   emit,
 }: DesktopOperationsOptions) {
+  const recoveryOperation = <T,>(root: string, action: 'write' | 'restore' | 'inspect' | 'discard', run: () => Promise<T>) =>
+    withRecoveryStore(root, action, run).finally(() => {
+      if (action !== 'inspect') emit({ name: 'folder-changed', value: root });
+    });
   const languageServers = new LanguageServerManager();
   const terminals = new TerminalManager();
   const settingsStore = new DesktopSettingsStore({
@@ -319,6 +324,22 @@ export function createDesktopOperations({
   });
 
   async function invoke(name: string, args: unknown[] = []): Promise<unknown> {
+    // Recovery storage belongs to the file host, never to an RPC argument.
+    if (name === 'projectRecoveryIn') {
+      const action = (args[1] as { action?: string })?.action;
+      return recoveryOperation(args[0] as string,
+        action === 'restore' || action === 'discard' ? action : 'inspect',
+        () => projectRecoveryIn(userDataPath, args[0] as string, args[1]));
+    }
+    if (name === 'writeProjectTextFilesIn') {
+      return recoveryOperation(args[0] as string, 'write', () => projectFiles.writeProjectTextFilesIn(args[0] as string,
+        args[1] as Parameters<typeof projectFiles.writeProjectTextFilesIn>[1], userDataPath));
+    }
+    if (name === 'replaceWorkspaceTextIn') {
+      return recoveryOperation(args[0] as string, 'write', () => workspaceSearch.replaceWorkspaceTextIn(args[0] as string,
+        args[1] as Parameters<typeof workspaceSearch.replaceWorkspaceTextIn>[1], args[2] as string,
+        args[3] as readonly string[] | undefined, undefined, userDataPath));
+    }
     if (name === 'githubRequest') return executeGithub(args[0], args[1]);
     const staticOperation = STATIC_OPERATIONS[name as keyof typeof STATIC_OPERATIONS] as
       | ((...values: unknown[]) => unknown)

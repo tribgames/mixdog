@@ -88,7 +88,7 @@ export async function cleanupDeletedSessionWorktree(sessionId, { manager = null,
   try {
     return { entryId: entry.id, ...(await backend.removeManagedWorktree({ entryId: entry.id })) };
   } catch (error) {
-    if (isWorktreeError(error, 'WORKTREE_DIRTY') || isWorktreeError(error, 'WORKTREE_UNMERGED')) {
+    if (isWorktreeError(error, 'WORKTREE_DIRTY') || isWorktreeError(error, 'WORKTREE_UNMERGED') || isWorktreeError(error, 'WORKTREE_FILE_RECOVERY')) {
       return { entryId: entry.id, removed: false, reason: error.code };
     }
     throw error;

@@ -9,7 +9,13 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { toUSVString } from 'node:util';
 
 import { codeGraphModuleUrl } from './desktop-support';
+import { ProjectRecoveryError } from '../shared/project-recovery';
 import { withProjectMutationPaths } from './project-mutation-queue';
+import {
+  beginProjectRecovery, RECOVERY_MAX_BYTES, recoveryIdentity, recoveryReadBytes, RecoveryReadLimitError,
+  releaseRecoveryDirectory, sameRecoveryIdentity, writeRecoveryState, retireRecoveryDirectory, removeRecoveryDirectory,
+  type RecoveryPreparedFile,
+} from './project-recovery-store';
 
 export type ProjectTextEncoding = 'utf8' | 'utf8bom' | 'utf16le' | 'utf16be';
 
@@ -272,7 +278,9 @@ async function writeProjectTextFileUnlocked(
   expectedContent: string,
   encoding?: ProjectTextEncoding,
   onCommitted?: (replacement: ProjectFileReplacement) => void,
-  expectedDestination?: string
+  expectedDestination?: string,
+  expectedBytes?: Buffer,
+  validatePreparedTarget?: () => void
 ): Promise<{ mtimeMs: number }> {
   if (typeof content !== 'string' || content.length > 4_194_304) throw new TypeError('File content is invalid.');
   if (typeof expectedContent !== 'string' || expectedContent.length > 4_194_304) {
@@ -292,6 +300,7 @@ async function writeProjectTextFileUnlocked(
   // its preflight identity, so earlier writes cannot retarget a later entry.
   const destination = expectedDestination ?? replacementDestination(file);
   const validatePath = () => {
+    validatePreparedTarget?.();
     projectEntryPathIn(root, relPath);
     if (replacementDestination(file) !== destination) {
       throw new Error('Project path changed before saving.');
@@ -299,6 +308,9 @@ async function writeProjectTextFileUnlocked(
   };
   validatePath();
   const currentBytes = await readFile(file);
+  if (expectedBytes && !currentBytes.equals(expectedBytes)) {
+    throw new Error('File bytes changed after recovery preparation. Reload before saving.');
+  }
   const current = decodeProjectText(currentBytes);
   requireLosslessText(current);
   if (current.binary || current.content !== expectedContent) {
@@ -320,8 +332,9 @@ async function writeProjectTextFileUnlocked(
 
 /** Shared atomic byte replacement for forward saves and exact-byte recovery.
  * The optional commit observer is internal and synchronous. A completed
- * rollback does not depend on a subsequent metadata lookup. */
-async function replaceProjectFileBytes(
+ * rollback does not depend on a subsequent metadata lookup. Callers own the
+ * mutation claim and path validation; this helper is not an exposed RPC. */
+export async function replaceProjectFileBytes(
   file: string,
   bytes: Buffer,
   expectedBytes: Buffer,
@@ -406,16 +419,14 @@ export class ProjectTextBatchWriteError extends Error {
   }
 }
 
-/** Closed-file half of an LSP WorkspaceEdit. Every target is read and
- * compare-checked before any write begins; each replacement then reuses the
- * same writer as a normal editor save, under one claim for the entire batch.
- * If a later write or its post-commit stat fails, recovery restores original
- * bytes in reverse commit order, while preserving newer external changes.
- * Recovery failures are reported, not swallowed. The same external-writer
- * limitation as a single save still applies; this is not a crash journal. */
+/** Closed-file half of an LSP WorkspaceEdit. Each replacement and in-process
+ * rollback owns one batch claim. An optional host-owned data directory also
+ * publishes exact before/after bytes before the first mutation for restart
+ * inspection. External writers remain outside the atomicity guarantee. */
 export async function writeProjectTextFilesIn(
   root: string,
-  writes: ReadonlyArray<{ relPath: string; content: string; expectedContent: string }>
+  writes: ReadonlyArray<{ relPath: string; content: string; expectedContent: string }>,
+  recoveryDataPath?: string
 ): Promise<void> {
   if (!Array.isArray(writes) || writes.length < 1 || writes.length > 100) {
     throw new TypeError('Workspace edit files are invalid.');
@@ -429,11 +440,21 @@ export async function writeProjectTextFilesIn(
     throw new TypeError('Workspace edit contains duplicate files.');
   }
   return mutateProjectEntries(root, normalized.map((write) => write.relPath), async () => {
-    // Resolve every destination while all claimed paths are still synchronous;
-    // one preflight read must not legitimize a retargeted later batch entry.
+    const rootPath = realpathSync(root);
+    const rootIdentity = recoveryDataPath ? recoveryIdentity(root) : undefined;
+    const validateRoot = () => {
+      if (rootIdentity && (realpathSync(root) !== rootPath || !sameRecoveryIdentity(recoveryIdentity(root), rootIdentity))) {
+        throw new Error('Project root changed during recovery preparation.');
+      }
+    };
+    // Resolve every destination before asynchronous preflight reads.
     const destinations = new Map(normalized.map(({ relPath }) =>
       [relPath, replacementDestination(projectEntryPathIn(root, relPath))]
     ));
+    const parents = recoveryDataPath
+      ? new Map([...destinations].map(([rel, destination]) => [rel, recoveryIdentity(dirname(destination))])) : null;
+    const prepared: RecoveryPreparedFile[] = [];
+    let recoveryBytes = 0;
     for (const write of normalized) {
       if (
         !write.relPath ||
@@ -447,57 +468,117 @@ export async function writeProjectTextFilesIn(
       if (toUSVString(write.content) !== write.content) {
         throw new TypeError('File content contains unpaired Unicode surrogates.');
       }
-      const current = decodeProjectText(await readFile(projectEntryPathIn(root, write.relPath)));
+      const file = projectEntryPathIn(root, write.relPath);
+      const before = recoveryDataPath
+        ? await recoveryReadBytes(file, RECOVERY_MAX_BYTES - recoveryBytes).catch((error) => {
+            if (error instanceof RecoveryReadLimitError)
+              throw new ProjectRecoveryError('RECOVERY_BATCH_LIMIT', 'Workspace edit exceeds the 16 MiB recovery budget. Split the edit.', { cause: error });
+            throw error;
+          })
+        : await readFile(file);
+      const current = decodeProjectText(before);
       requireLosslessText(current);
       if (current.binary || current.content !== write.expectedContent) {
         throw new Error(`File changed on disk: ${write.relPath}`);
       }
+      if (recoveryDataPath) {
+        validateRoot();
+        const destination = destinations.get(write.relPath)!;
+        if (replacementDestination(file) !== destination) throw new Error('Project path changed during recovery preparation.');
+        const parent = parents!.get(write.relPath)!;
+        if (!sameRecoveryIdentity(recoveryIdentity(dirname(destination)), parent)) {
+          throw new Error('Project directory changed during recovery preparation.');
+        }
+        const after = encodeProjectText(write.content, current.encoding, current.hasBom);
+        recoveryBytes += before.length + after.length;
+        if (recoveryBytes > RECOVERY_MAX_BYTES) throw new ProjectRecoveryError('RECOVERY_BATCH_LIMIT', 'Workspace edit exceeds the 16 MiB recovery budget. Split the edit.');
+        const info = await lstat(file);
+        if (!info.isFile() || info.isSymbolicLink()) throw new Error('Journaled workspace edits require regular files.');
+        prepared.push({ relPath: write.relPath, destination, parent, mode: info.mode, before, after });
+      }
     }
+    validateRoot();
+    const journal = recoveryDataPath ? await beginProjectRecovery(recoveryDataPath, root, prepared) : undefined;
     const committed: Array<ProjectFileReplacement & { relPath: string }> = [];
+    const restored = new Set<string>();
     let failedPath = '';
+    let failed = false;
+    let failure: unknown;
     try {
-      for (const write of normalized) {
+      validateRoot();
+      for (let index = 0; index < normalized.length; index++) {
+        const write = normalized[index];
+        const entry = prepared[index];
+        const validatePreparedTarget = entry ? () => {
+          validateRoot();
+          if (!sameRecoveryIdentity(recoveryIdentity(dirname(entry.destination)), entry.parent)) {
+            throw new Error('Project directory changed after recovery preparation.');
+          }
+        } : undefined;
         failedPath = write.relPath;
         await writeProjectTextFileUnlocked(
           root, write.relPath, write.content, write.expectedContent, undefined,
           (replacement) => { committed.push({ ...replacement, relPath: write.relPath }); },
-          destinations.get(write.relPath)
+          destinations.get(write.relPath), entry?.before, validatePreparedTarget
         );
       }
     } catch (error) {
-      // Before any successful swap there is nothing to recover; keep the
-      // original pre-commit error (including its code and identity).
-      if (!committed.length) throw error;
-      const restored = new Set<string>();
-      const rollbackFailures: ProjectTextRollbackFailure[] = [];
-      for (const replacement of [...committed].reverse()) {
-        try {
-          const file = projectEntryPathIn(root, replacement.relPath);
-          const validatePath = () => {
-            projectEntryPathIn(root, replacement.relPath);
-            if (replacementDestination(file) !== replacement.destination) {
-              throw new Error('Project path changed before rollback.');
-            }
-          };
-          // Restore content, not a newer external chmod. Metadata failure
-          // must not prevent byte recovery; retain the saved mode as fallback.
-          let mode = replacement.mode;
-          try { mode = (await stat(file)).mode; } catch { /* Metadata is advisory during recovery. */ }
-          await replaceProjectFileBytes(
-            file, replacement.before, replacement.after, mode,
-            () => { restored.add(replacement.relPath); }, validatePath
-          );
-        } catch (cause) {
-          rollbackFailures.push({ relPath: replacement.relPath, cause });
+      failed = true;
+      failure = error;
+      // Preserve the original pre-commit error when no swap occurred.
+      if (committed.length) {
+        const rollbackFailures: ProjectTextRollbackFailure[] = [];
+        for (const replacement of [...committed].reverse()) {
+          try {
+            const file = projectEntryPathIn(root, replacement.relPath);
+            const preparedEntry = prepared.find((entry) => entry.relPath === replacement.relPath);
+            const validatePath = () => {
+              validateRoot();
+              if (preparedEntry && !sameRecoveryIdentity(recoveryIdentity(dirname(preparedEntry.destination)), preparedEntry.parent)) {
+                throw new Error('Project directory changed before rollback.');
+              }
+              projectEntryPathIn(root, replacement.relPath);
+              if (replacementDestination(file) !== replacement.destination) {
+                throw new Error('Project path changed before rollback.');
+              }
+            };
+            let mode = replacement.mode;
+            try { mode = (await stat(file)).mode; } catch { /* Metadata is advisory during recovery. */ }
+            await replaceProjectFileBytes(file, replacement.before, replacement.after, mode,
+              () => { restored.add(replacement.relPath); }, validatePath);
+          } catch (cause) {
+            rollbackFailures.push({ relPath: replacement.relPath, cause });
+          }
         }
+        const committedPaths = committed.map(({ relPath }) => relPath);
+        failure = new ProjectTextBatchWriteError(error, {
+          failedPath, committedPaths,
+          restoredPaths: committedPaths.filter((path) => restored.has(path)),
+          unrestoredPaths: committedPaths.filter((path) => !restored.has(path)),
+        }, rollbackFailures);
       }
-      const committedPaths = committed.map(({ relPath }) => relPath);
-      throw new ProjectTextBatchWriteError(error, {
-        failedPath,
-        committedPaths,
-        restoredPaths: committedPaths.filter((path) => restored.has(path)),
-        unrestoredPaths: committedPaths.filter((path) => !restored.has(path)),
-      }, rollbackFailures);
+    }
+    if (journal) {
+      const journalErrors: unknown[] = [];
+      try {
+        await writeRecoveryState(journal.directory, {
+          phase: failed ? 'failed' : 'complete', message: failed ? writeFailureMessage(failure) : '', restored: [...restored],
+        });
+        if (!failed) {
+          journal.directory = await retireRecoveryDirectory(journal.directory);
+          try { await removeRecoveryDirectory(journal.directory); } catch { /* Retired, never restorable. */ }
+        }
+      } catch (error) { journalErrors.push(error); }
+      try { await releaseRecoveryDirectory(journal.directory); } catch (error) { journalErrors.push(error); }
+      if (journalErrors.length) {
+        throw new AggregateError(failed ? [failure, ...journalErrors] : journalErrors,
+          (failed ? 'Workspace edit failed; recovery bookkeeping also failed. Inspect retained recovery records.'
+            : 'Files were saved, but recovery bookkeeping failed. Inspect retained recovery records before retrying.') + `\n[file-recovery] ${journal.id}`);
+      }
+    }
+    if (failed) {
+      if (journal && failure instanceof Error) failure.message += `\n[file-recovery] ${journal.id}`;
+      throw failure;
     }
   });
 }

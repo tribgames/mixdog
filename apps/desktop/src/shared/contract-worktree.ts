@@ -140,6 +140,7 @@ export const DESKTOP_WORKTREE_ERROR_CODES = [
   'WORKTREE_DISK_INSUFFICIENT',
   'WORKTREE_LARGE_REPO_CONFIRM',
   'WORKTREE_DIRTY',
+  'WORKTREE_FILE_RECOVERY',
   'WORKTREE_UNMERGED',
   'WORKTREE_MISSING',
   'WORKTREE_UNSUPPORTED_REPO',
@@ -223,7 +224,7 @@ export interface DesktopManagedWorktreeRow extends DesktopRetainedWorktree {
   retained: boolean;
   /** A live session or a running process holds it. */
   ownerLive: boolean;
-  /** What pruneWorktrees would remove once clean and merged. */
+  /** What pruneWorktrees would remove once clean and merged, with no retained recovery data. */
   removable: boolean;
 }
 

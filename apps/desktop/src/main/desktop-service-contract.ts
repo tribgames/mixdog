@@ -32,6 +32,7 @@ export interface DesktopService {
   listProjects(): Promise<DesktopProjectSummary[]>;
   addProject(projectPath: string): unknown;
   projectDirectory(projectPath: string): Promise<string>;
+  projectRecoveryDirectory?(projectPath: string): Promise<string>;
   renameProject(projectPath: string, alias: string): unknown;
   removeProject(projectPath: string): unknown;
   listProjectDir(projectPath: string, relDir: string): unknown;
@@ -139,6 +140,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'listProjects',
   'addProject',
   'projectDirectory',
+  'projectRecoveryDirectory',
   'renameProject',
   'removeProject',
   'listProjectDir',

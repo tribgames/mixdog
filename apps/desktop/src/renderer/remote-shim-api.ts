@@ -1,6 +1,7 @@
 // The DesktopApi surface of a browser: each method forwards over the relay
 // socket (or degrades to a browser equivalent).
 import type { DesktopApi, DesktopCapabilityRequest, DesktopCapabilityResult } from '../shared/contract';
+import type { ProjectRecoveryRequest } from '../shared/project-recovery';
 import {
   FILE_DOWNLOAD_REMOTE_METHODS,
   FileDownloadError,
@@ -452,6 +453,11 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     });
   }
   Object.defineProperty(api, 'routeAutoEffort', { enumerable: true, get: routeAutoEffort });
+  Object.defineProperty(api, 'projectRecovery', {
+    enumerable: true,
+    get: () => ctx.peerProjectRecovery === true
+      ? (project: string, request: ProjectRecoveryRequest) => call('projectRecovery', [project, request]) : undefined,
+  });
   // Read per access like the members below: a reconnect may reach a host that
   // predates `browserDrive`, and the pane must then never send `viewport`.
   Object.defineProperty(api, 'remoteBrowserDrive', { enumerable: true, get: () => ctx.peerBrowserDrive === true });

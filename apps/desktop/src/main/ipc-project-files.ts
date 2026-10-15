@@ -1,6 +1,7 @@
 import type { App, Shell } from 'electron';
 import { posix } from 'node:path';
 import { DESKTOP_IPC } from '../shared/contract';
+import { requiredProjectRecoveryRequest } from '../shared/project-recovery';
 import type { DesktopService } from './desktop-service-contract';
 import { registerFilePreview } from './file-preview';
 import { fileSnapshots } from './file-snapshot';
@@ -353,6 +354,11 @@ function registerEntryIpc({ handle, host, invokeDesktopOperation, shell, server 
 }
 
 function registerLspIpc({ handle, host, invokeDesktopOperation }: ProjectFileContext): void {
+  handle(DESKTOP_IPC.projectRecovery, async (_event, projectPath, input) => {
+    const request = requiredProjectRecoveryRequest(input);
+    const root = await (host.projectRecoveryDirectory?.bind(host) ?? host.projectDirectory.bind(host))(requiredString(projectPath, 'projectPath'));
+    return invokeDesktopOperation('projectRecoveryIn', [root, request]);
+  });
   handle(DESKTOP_IPC.codeGraphQuery, (_event, projectPath, mode, symbol) => {
     if (mode !== 'find_symbol' && mode !== 'references' && mode !== 'symbols') {
       throw new TypeError('mode is invalid.');

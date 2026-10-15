@@ -712,6 +712,10 @@ export class DesktopServiceClient implements DesktopService {
   addProject(projectPath: string): Promise<unknown> {
     return this.invoke('addProject', [projectPath]);
   }
+  projectRecoveryDirectory(projectPath: string): Promise<string> {
+    return this.invokeRead('projectRecoveryDirectory', [projectPath]);
+  }
+
   projectDirectory(projectPath: string): Promise<string> {
     return this.invokeRead('projectDirectory', [projectPath]);
   }

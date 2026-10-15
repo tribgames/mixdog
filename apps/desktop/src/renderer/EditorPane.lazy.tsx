@@ -50,6 +50,7 @@ import { useEditorCommandWiring } from './use-editor-command-wiring';
 import { useEditorModelBinding } from './use-editor-model-binding';
 import { useEditorMountSession } from './use-editor-mount-session';
 import { useEditorLspSession } from './use-editor-lsp-session';
+import { ProjectRecoveryNotice } from './ProjectRecoveryNotice';
 
 /** The user's editor settings expressed as Monaco construction options; every
  *  value the settings do not own is a deliberate default. */
@@ -617,6 +618,12 @@ export default function EditorPane({
             void save();
           }}
         />
+        {saveError && <ProjectRecoveryNotice
+          key={`${projectPath}\0${saveError}`}
+          projectPath={projectPath}
+          message={saveError}
+          onOpenFile={(project, rel) => onOpenFile?.(project, rel)}
+        />}
         <EditorPaneTextBody
           load={load}
           preview={preview}

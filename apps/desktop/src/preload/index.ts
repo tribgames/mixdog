@@ -313,6 +313,7 @@ const api: DesktopApi = {
     ),
   searchWorkspaceText: (projectPath, options) =>
     ipcRenderer.invoke(DESKTOP_IPC.searchWorkspaceText, projectPath, options),
+  projectRecovery: (projectPath, request) => ipcRenderer.invoke(DESKTOP_IPC.projectRecovery, projectPath, request),
   replaceWorkspaceText: (projectPath, options, replacement, relPaths) =>
     ipcRenderer.invoke(DESKTOP_IPC.replaceWorkspaceText, projectPath, options, replacement, relPaths),
   getSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC.getSnapshot),
