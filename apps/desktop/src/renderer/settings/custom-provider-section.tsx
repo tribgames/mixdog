@@ -65,6 +65,9 @@ function failure(reason: unknown): string {
 
 type Run = PanelContext['run'];
 
+const API_KEY_ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+const ENV_CHECK_DEBOUNCE_MS = 300;
+
 // Guidance comes only from the backend's explicit discovery error kind.
 function discoveryFailure(error: RecordValue): string {
   switch (error.kind) {
@@ -124,6 +127,11 @@ function CustomProviderForm({
   );
   const [baseURL, setBaseURL] = useState(provider ? String(provider.baseURL || '') : '');
   const [apiKey, setApiKey] = useState('');
+  const savedEnv = typeof provider?.apiKeyEnv === 'string' ? provider.apiKeyEnv : '';
+  const [envMode, setEnvMode] = useState(savedEnv !== '');
+  const [envName, setEnvName] = useState(savedEnv);
+  const [envFound, setEnvFound] = useState<boolean | null>(null);
+  const envValid = API_KEY_ENV_PATTERN.test(envName.trim());
   const [working, setWorking] = useState<'' | 'test' | 'save'>('');
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [saveError, setSaveError] = useState('');
@@ -136,6 +144,30 @@ function CustomProviderForm({
   };
   useMobileBack(true, close);
   useEffect(() => acquireTitleBarDim(), []);
+
+  // Debounced presence check of the named variable (on open and on typing).
+  const checkedName = envMode && !keyless && envValid ? envName.trim() : '';
+  const runRef = useRef(run);
+  runRef.current = run;
+  useEffect(() => {
+    setEnvFound(null);
+    if (!checkedName) return;
+    let stale = false;
+    const timer = setTimeout(() => {
+      runRef.current('checkCustomProviderKeyEnv', [checkedName], `custom-env-${uid}`, false, true, 'throw').then(
+        (result) => {
+          if (!stale) setEnvFound(record(result).found === true);
+        },
+        () => {
+          if (!stale) setEnvFound(null);
+        }
+      );
+    }, ENV_CHECK_DEBOUNCE_MS);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [checkedName, uid]);
 
   const buildInput = () => {
     let url: URL | null = null;
@@ -161,7 +193,17 @@ function CustomProviderForm({
       modelOverrides: overridesWithManual(provider, withDraft),
     };
     if (provider) input.id = provider.id;
-    if (!keyless && apiKey.trim()) input.apiKey = apiKey;
+    if (!keyless && envMode) {
+      if (!envValid) {
+        throw new Error(
+          t('Enter a valid environment variable name (letters, digits and underscores; it cannot start with a digit).')
+        );
+      }
+      input.apiKeyEnv = envName.trim();
+    } else {
+      if (!keyless && apiKey.trim()) input.apiKey = apiKey;
+      if (savedEnv) input.apiKeyEnv = null;
+    }
     return input;
   };
   const refreshModels = async () => {
@@ -180,6 +222,8 @@ function CustomProviderForm({
     }
   };
   const connectionReady = baseURL.trim() !== '';
+  // A saved key (stored or from the environment) is kept only when this provider already has one.
+  const needsKey = !provider || provider.auth === 'none' || savedEnv !== '';
   const changed = () => {
     setTestResult(null);
     setSaveError('');
@@ -235,10 +279,14 @@ function CustomProviderForm({
     setWorking('save');
     setSaveError('');
     try {
-      if (!keyless && !apiKey.trim() && (!provider || provider.auth === 'none')) throw new Error(t('No API key'));
+      if (!keyless && !envMode && !apiKey.trim() && needsKey) throw new Error(t('No API key'));
       const input = buildInput();
       if (!manualModels(input).length) {
-        if (!(await discover(input))) {
+        // An environment key may be unset yet: discovery failing then is not a reason to refuse saving.
+        const viaEnv = input.apiKeyEnv !== undefined && input.apiKeyEnv !== null;
+        const found = viaEnv ? await discover(input).catch(() => false) : await discover(input);
+        if (viaEnv) setSaveError('');
+        else if (!found) {
           setWorking('');
           return;
         }
@@ -326,20 +374,74 @@ function CustomProviderForm({
               changed();
             }}
           />
-          <label htmlFor={keyId}>{t('API key')}</label>
-          <input
-            id={keyId}
-            type="password"
-            value={apiKey}
-            disabled={disabled || keyless}
-            required={!keyless && (!provider || provider.auth === 'none')}
-            autoComplete="new-password"
-            placeholder={provider && provider.auth !== 'none' ? t('Leave blank to keep the saved key') : t('API key')}
-            onChange={(event) => {
-              setApiKey(event.target.value);
-              changed();
-            }}
-          />
+          <div className="settings-custom-provider-key-row">
+            <label htmlFor={keyId}>{envMode ? t('API key environment variable') : t('API key')}</label>
+            {/* biome-ignore lint/a11y/useSemanticElements: a div button group, same as the MCP transport picker. */}
+            <div className="mx-segmented mx-segmented-compact" role="group" aria-label={t('API key source')}>
+              {[
+                { env: false, label: t('Direct input') },
+                { env: true, label: t('Environment variable') },
+              ].map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  aria-pressed={envMode === option.env}
+                  disabled={disabled || keyless}
+                  onClick={() => {
+                    setEnvMode(option.env);
+                    changed();
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {envMode ? (
+            <input
+              id={keyId}
+              type="text"
+              className="settings-custom-provider-env"
+              value={envName}
+              disabled={disabled || keyless}
+              required={!keyless}
+              aria-invalid={envName.trim() !== '' && !envValid}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="MY_API_KEY"
+              onChange={(event) => {
+                setEnvName(event.target.value);
+                changed();
+              }}
+            />
+          ) : (
+            <input
+              id={keyId}
+              type="password"
+              value={apiKey}
+              disabled={disabled || keyless}
+              required={!keyless && needsKey}
+              autoComplete="new-password"
+              placeholder={
+                provider && provider.auth !== 'none' && !savedEnv
+                  ? t('Leave blank to keep the saved key')
+                  : t('API key')
+              }
+              onChange={(event) => {
+                setApiKey(event.target.value);
+                changed();
+              }}
+            />
+          )}
+          {envMode && !keyless && envFound !== null && (
+            <p className={`settings-custom-provider-hint ${envFound ? 'ok' : 'warn'}`} role="status">
+              {envFound
+                ? t('Environment variable found. The key is read each time and is not stored.')
+                : t('{{name}} was not found yet. If you just set it, restart Mixdog to apply it.', {
+                    name: envName.trim(),
+                  })}
+            </p>
+          )}
           <div className="settings-model-check">
             <CompactSwitch
               label={t('No authentication (local server)')}

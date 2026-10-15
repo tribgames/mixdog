@@ -140,6 +140,7 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       return result;
     },
     testCustomProvider: (input) => runtime.testCustomProvider(input),
+    checkCustomProviderKeyEnv: (name) => runtime.checkCustomProviderKeyEnv(name),
     discoverCustomProviderModels: (input) => runtime.discoverCustomProviderModels(input),
     saveOpenCodeGoUsageAuth: async (opts) => {
       await runtime.saveOpenCodeGoUsageAuth(opts);

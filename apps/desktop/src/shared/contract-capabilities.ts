@@ -152,6 +152,7 @@ export const DESKTOP_CAPABILITIES = [
   'removeCustomProvider',
   'updateCustomProviderModel',
   'testCustomProvider',
+  'checkCustomProviderKeyEnv',
   'discoverCustomProviderModels',
   'saveOpenCodeGoUsageAuth',
   'saveOpenAIUsageSessionKey',

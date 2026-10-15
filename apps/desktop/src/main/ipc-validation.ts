@@ -430,6 +430,7 @@ const CAPABILITY_ARITY = {
   removeCustomProvider: [1, 1],
   updateCustomProviderModel: [3, 3],
   testCustomProvider: [1, 1],
+  checkCustomProviderKeyEnv: [1, 1],
   discoverCustomProviderModels: [1, 1],
   saveOpenCodeGoUsageAuth: [1, 1],
   saveOpenAIUsageSessionKey: [1, 1],
@@ -503,6 +504,7 @@ const CUSTOM_PROVIDER_KEYS = new Set([
   'protocol',
   'baseURL',
   'apiKey',
+  'apiKeyEnv',
   'models',
   'schemaVersion',
   'enabled',
@@ -528,6 +530,7 @@ export const CUSTOM_MAX_WIRE_VALUE = 64;
 // Same transport rules as provider-admin.mjs (validateCustomTransportFields).
 export const CUSTOM_MAX_API_KEY = 65_536;
 const CUSTOM_PROVIDER_ID = /^custom-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CUSTOM_API_KEY_ENV = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const CUSTOM_LEVEL_ALIASES: Readonly<Record<string, string>> = { ultra: 'max' };
 
@@ -564,6 +567,15 @@ export function requiredCustomProviderInput(value: unknown, modelsOptional = fal
   requiredString(input.baseURL, 'custom provider baseURL', 2048);
   if (input.apiKey !== undefined && (typeof input.apiKey !== 'string' || input.apiKey.length > CUSTOM_MAX_API_KEY)) {
     throw new TypeError('custom provider apiKey is invalid.');
+  }
+  if (input.apiKeyEnv !== undefined && input.apiKeyEnv !== null) {
+    if (typeof input.apiKeyEnv !== 'string' || !CUSTOM_API_KEY_ENV.test(input.apiKeyEnv)) {
+      throw new TypeError('custom provider apiKeyEnv is invalid.');
+    }
+    if (input.auth === 'none') throw new TypeError('custom provider apiKeyEnv requires key auth.');
+    if (typeof input.apiKey === 'string' && input.apiKey !== '') {
+      throw new TypeError('custom provider apiKey and apiKeyEnv are mutually exclusive.');
+    }
   }
   if (input.schemaVersion !== undefined && input.schemaVersion !== 2) {
     throw new TypeError('custom provider schemaVersion is invalid.');
@@ -1130,6 +1142,7 @@ function validateCredentialCapabilityArgs(capability: DesktopCapability, args: r
   ) {
     requiredCustomProviderInput(args[0], capability === 'discoverCustomProviderModels');
   }
+  if (capability === 'checkCustomProviderKeyEnv') requiredString(args[0], 'environment variable name', 128);
   if (capability === 'saveStarterGuideState') requiredStarterGuideState(args[0]);
   if (capability === 'updateCustomProviderModel') requiredCustomModelPatch(args[0], args[1], args[2]);
   if (capability === 'removeCustomProvider') requiredString(args[0], 'custom provider id', 128);

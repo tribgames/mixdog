@@ -72,12 +72,14 @@ export function getAgentApiKey(provider) {
 /** The one API-key resolver for key-based providers: an explicit config key
  *  wins, otherwise the environment/keychain (getAgentApiKey). */
 export function resolveProviderApiKey(provider, config) {
+  if (config?.apiKeyEnv) return process.env[config.apiKeyEnv] || '';
   return config?.apiKey || getAgentApiKey(provider) || '';
 }
 
 /** Auth-error reload: the stored/environment key is re-read first so a
  *  rotated key beats the stale one captured in config. */
 export function reloadProviderApiKey(provider, config) {
+  if (config?.apiKeyEnv) return process.env[config.apiKeyEnv] || '';
   return getAgentApiKey(provider) || config?.apiKey || '';
 }
 

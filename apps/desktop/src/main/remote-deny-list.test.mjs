@@ -29,6 +29,7 @@ test('secret, OAuth, MCP and developer capabilities are allowed for every paired
     'removeCustomProvider',
     'updateCustomProviderModel',
     'testCustomProvider',
+    'checkCustomProviderKeyEnv',
     'discoverCustomProviderModels',
     'getMcpServerConfig',
     'addMcpServer',

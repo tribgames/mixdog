@@ -111,6 +111,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'removeCustomProvider',
   'updateCustomProviderModel',
   'testCustomProvider',
+  'checkCustomProviderKeyEnv',
   'discoverCustomProviderModels',
   'deleteSession',
   'deleteWebhook',
