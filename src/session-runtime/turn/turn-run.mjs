@@ -13,6 +13,7 @@ import { createSnapshotTrackerFactory } from './turn-run/snapshot-tracker.mjs';
 import { createTurnOpener } from './turn-run/turn-open.mjs';
 import { createTurnPreparation } from './turn-run/turn-prepare.mjs';
 import { createAskCallbacks } from './turn-run/ask-callbacks.mjs';
+import { registerNativeWebSearchUsageSink } from '../native-web-search-usage.mjs';
 import { createTurnSettlement } from './turn-run/turn-settle.mjs';
 
 export function createTurnRunner(deps) {
@@ -94,15 +95,21 @@ export function createTurnRunner(deps) {
     try {
       const session0 = await prepareSession(turn, prompt, options);
       const turnContext = await dispatchPromptSubmit(turn, session0, prompt, options);
-      const result = await mgr.askSession(
-        session0.id,
-        prompt,
-        turnContext || null,
-        plannedToolCalls(session0, options),
-        getCurrentCwd(),
-        options.prefetch || null,
-        askCallbacks(turn, session0, options)
-      );
+      const releaseWebSearchUsage = registerNativeWebSearchUsageSink(session0.id, options.onNativeWebSearchUsage);
+      let result;
+      try {
+        result = await mgr.askSession(
+          session0.id,
+          prompt,
+          turnContext || null,
+          plannedToolCalls(session0, options),
+          getCurrentCwd(),
+          options.prefetch || null,
+          askCallbacks(turn, session0, options)
+        );
+      } finally {
+        releaseWebSearchUsage();
+      }
       return await completeTurn(turn, session0, result);
     } catch (error) {
       reportTurnError(turn, error);

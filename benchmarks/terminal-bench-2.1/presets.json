@@ -81,12 +81,6 @@
       "modelLabel": "GPT-5.6 Sol xhigh",
       "baselineLabel": "Codex CLI",
       "docHeading": "GPT-5.6 Sol xhigh vs Codex CLI"
-    },
-    "sol61": {
-      "jobsDir": "jobs-full-sol61-20261015-052653",
-      "modelLabel": "GPT-6.1 Sol xhigh",
-      "baselineLabel": "Codex CLI",
-      "docHeading": "GPT-6.1 Sol xhigh vs Codex CLI"
     }
   },
   "baselines": {

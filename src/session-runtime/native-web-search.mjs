@@ -13,6 +13,7 @@ import {
   normalizeWebSearchAllowedDomain,
 } from './native-web-search/tool-shape.mjs';
 import { createWebSearchRouteCandidates } from './native-web-search/routes.mjs';
+import { reportNativeWebSearchUsage } from './native-web-search-usage.mjs';
 
 export function createNativeWebSearch(deps) {
   const {
@@ -58,10 +59,11 @@ export function createNativeWebSearch(deps) {
     }
     const family = webSearchProviderFamily(candidate.provider);
     const startedAt = Date.now();
+    const sendSessionId = `${getSession()?.id || 'web_search'}:native-web-search:${Date.now().toString(36)}`;
     const result = await providerImpl.send(nativeWebSearchMessages(webSearchArgs), candidate.model, undefined, {
       signal,
       role: 'web-search',
-      sessionId: `${getSession()?.id || 'web_search'}:native-web-search:${Date.now().toString(36)}`,
+      sessionId: sendSessionId,
       sourceType: 'native-web-search',
       sourceName: 'web_search',
       nativeTools: [toolFor(webSearchArgs, toolType, candidate.provider)],
@@ -72,6 +74,13 @@ export function createNativeWebSearch(deps) {
       modelParameters: candidate.modelParameters || {},
       onStageChange: () => {},
       onStreamDelta: () => {},
+    });
+    reportNativeWebSearchUsage({
+      ownerSessionId: getSession()?.id,
+      sessionId: sendSessionId,
+      requestedModel: candidate.model,
+      model: result?.model || candidate.model,
+      usage: result?.usage,
     });
     return {
       content: String(result?.content || '').trim(),

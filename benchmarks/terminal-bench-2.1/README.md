@@ -46,7 +46,7 @@ sessions, repriced from traces ([`trace-cost.mjs`](analysis/trace-cost.mjs)).
 | Accuracy | 78.5% exact level agreement vs 72.7% for Jev 1.13 on 12,029 held-out items; half the two-level misses (0.6% vs 1.4%) |
 | In this run | 825 judgments: 591 `medium`, 127 `high`, 105 `low`, 2 `xhigh`; the route's fixed `xhigh` applies only when the judge is off |
 
-Notes: the run used an uncommitted tree. Cyber-policy refusals (`vulnerable-secret`, `break-filter-js-from-html`) vary between runs; two QEMU tasks hit Debian mirror 404s.
+Notes: the run used an uncommitted tree, and its `preset-run.json` comparison block was added after the run to pair it with Codex. Cyber-policy refusals (`vulnerable-secret`, `break-filter-js-from-html`) vary between runs; two QEMU tasks hit Debian mirror 404s.
 
 ## Results
 
