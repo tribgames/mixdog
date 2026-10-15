@@ -75,9 +75,12 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   { name: 'resume', usage: '/resume', params: '[id]', description: 'Resume a saved chat', action: 'resume' },
   { name: 'context', usage: '/context', description: 'Show current context surface', surface: 'context' },
   {
-    name: 'inherit',
-    usage: '/inherit',
-    description: 'Carry this conversation into a new session on the current model',
+    name: 'fork',
+    usage: '/fork',
+    aliases: ['inherit'],
+    aliasUsage: ['inherit'],
+    showAliasUsage: false,
+    description: 'Fork this conversation into a new session on the current model',
     surface: 'inherit',
   },
   {
@@ -212,7 +215,7 @@ const COMPOSER_SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   'usage',
   'skills',
   'goal',
-  'inherit',
+  'fork',
   'doctor',
   'fast',
 ].map((name) => ({ ...resolveDesktopSlashCommand(name)!, usage: `/${name}` }));

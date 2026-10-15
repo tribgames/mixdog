@@ -37,7 +37,7 @@ export function crossTurnSignature(name, args) {
 // they must not reset the escalation ladder's "zero edit" condition. Skill /
 // recall / agent / task / cwd / load_tool are exploration/meta plumbing.
 // (tool_search kept as legacy alias for old transcripts.)
-const NON_PROGRESS_TOOLS = new Set(['Skill', 'recall', 'agent', 'task', 'cwd', 'load_tool', 'tool_search']);
+const NON_PROGRESS_TOOLS = new Set(['Skill', 'recall', 'agent', 'task', 'cwd', 'session', 'load_tool', 'tool_search']);
 
 // True when a successfully-executed tool represents real edit/progress. A tool
 // counts as progress only if its def lacks readOnlyHint (not eager) AND it is

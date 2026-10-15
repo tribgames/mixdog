@@ -123,6 +123,7 @@ export {
   updateSessionStatus,
   updateSessionGeneratedTitle,
   updateSessionManualTitle,
+  updateSessionAiTitle,
   flushSessionMetrics,
 } from './manager/session-crud.mjs';
 export { deleteSession, listOwnedAgentSessionIds } from './store.mjs';

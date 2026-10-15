@@ -147,6 +147,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
     beforeCount: historyMessages.length + 1,
     deferredToolDelta: userTurn.deferredToolDelta,
     goalReminder: userTurn.goalReminder,
+    workspaceNotice: userTurn.workspaceNotice,
   };
 }
 

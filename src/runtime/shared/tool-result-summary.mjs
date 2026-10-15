@@ -662,7 +662,8 @@ const TOOL_RESULT_SUMMARIZERS = new Map(
         'update_memory',
         'request_user_input',
         'update_plan',
-        'cwd',
+        'cwd', // legacy: old transcripts
+        'session',
         'list_mcp_resources',
         'list_mcp_resource_templates',
       ],

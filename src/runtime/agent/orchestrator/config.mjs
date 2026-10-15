@@ -280,6 +280,8 @@ export function loadConfig(options = {}) {
         shell: raw.shell && typeof raw.shell === 'object' ? raw.shell : {},
         update: raw.update && typeof raw.update === 'object' ? { ...raw.update } : {},
         recap: recapConfig,
+        // The model may title the session (session tool, action=rename); default on.
+        aiSessionTitles: raw.aiSessionTitles !== false,
         worktree: normalizeWorktreeSettings(raw.worktree),
         developer: normalizeDeveloperConfig(raw.developer),
         modules: canonicalizeModulesStorage(raw.modules) || {},
@@ -450,6 +452,9 @@ function buildAgentSaveBuilder(config) {
     } else Object.assign(next, disabledAgentDelta(canonicalRoutes.disabledAgents));
     if (config.memoryTools && typeof config.memoryTools === 'object') next.memoryTools = { ...config.memoryTools };
     else delete next.memoryTools;
+    // Default true lives in code: only the opt-out is stored.
+    if (config.aiSessionTitles === false) next.aiSessionTitles = false;
+    else delete next.aiSessionTitles;
     delete next.instructionFiles;
     Object.assign(next, storedInstructionFiles(config));
     delete next.workflowRoutes;

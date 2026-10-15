@@ -54,3 +54,13 @@ test('internal web fetch transport rewrites retain the public schema identity', 
   assert.equal(call.schemaName, 'web_fetch');
   assert.equal(preDispatchDenyForSession({ schemaAllowedTools: ['web_fetch'] }, call), null);
 });
+
+test('session is Lead-only: worker dispatch is refused, Lead is not', () => {
+  assert.match(preDispatchDenyForSession({ owner: 'agent', agent: 'worker' }, { name: 'session', arguments: {} }), /Lead-only/);
+  assert.equal(preDispatchDenyForSession({ owner: 'cli', agent: 'lead' }, { name: 'session', arguments: {} }), null);
+});
+
+test('ask_user is Lead-only: worker dispatch is refused, Lead is not', () => {
+  assert.match(preDispatchDenyForSession({ owner: 'agent', agent: 'worker' }, { name: 'ask_user', arguments: {} }), /Lead-only/);
+  assert.equal(preDispatchDenyForSession({ owner: 'cli', agent: 'lead' }, { name: 'ask_user', arguments: {} }), null);
+});

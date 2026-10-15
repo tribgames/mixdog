@@ -245,6 +245,7 @@ const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
 const BOOLEAN_FIRST_CAPABILITIES = new Set<DesktopCapability>([
   'setAutoUpdate',
   'setRecapEnabled',
+  'setAiSessionTitles',
   'setWebSearchEnabled',
   'setMemoryToolsEnabled',
   'toggleVoice',
@@ -306,6 +307,8 @@ const CAPABILITY_ARITY = {
   setCompactionSettings: [0, 1],
   getRecapSettings: [0, 0],
   setRecapEnabled: [1, 1],
+  getSessionTitleSettings: [0, 0],
+  setAiSessionTitles: [1, 1],
   getToolModuleSettings: [0, 0],
   setWebSearchEnabled: [1, 1],
   setInstructionFiles: [1, 1],

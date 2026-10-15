@@ -68,7 +68,7 @@ test('concurrent metadata publications retain one complete JSON snapshot', async
 
 for (const mutation of ['name', 'archive', 'forget']) {
   test(`a first ${mutation} mutation loads existing metadata before changing it`, async (t) => {
-    const { root } = await fixture(t);
+    const { root, target } = await fixture(t);
     await writeSessionMetadata(root, {
       titles: { keeper: 'Preserved title' },
       names: { keeper: 'Preserved name', removed: 'Old name' },
@@ -86,10 +86,7 @@ for (const mutation of ['name', 'archive', 'forget']) {
     assert.equal(reloaded.titles.keeper, 'Preserved title');
     assert.equal(reloaded.names.keeper, 'Preserved name');
     assert.equal(reloaded.archived.keeper, 100);
-    assert.equal(
-      reloaded.withProjectAssignments([{ id: 'keeper' }])[0].projectAssignment,
-      'C:\\work\\keeper-project'
-    );
+    assert.equal(JSON.parse(await readFile(target, 'utf8')).projects.keeper, 'C:\\work\\keeper-project');
     assert.deepEqual(reloaded.reads.keeper, { messageCount: 5, revision: 2 });
     if (mutation === 'name') assert.equal(reloaded.names.changed, 'New name');
     else if (mutation === 'archive') assert.ok(reloaded.archived.changed > 0);

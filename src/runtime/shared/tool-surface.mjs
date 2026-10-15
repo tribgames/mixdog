@@ -144,7 +144,8 @@ export function displayToolName(name, args = {}) {
       return 'Visualize';
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
-    case 'cwd':
+    case 'cwd': // legacy: old transcripts
+    case 'session':
     case 'setup':
       return 'Setup';
     case 'request_user_input':
@@ -333,8 +334,12 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
       return a.server ? `server "${truncateToolText(a.server, max)}"` : 'all servers';
-    case 'cwd':
-      return compactParts([String(a.action || a.type || ''), truncateToolText(firstText(a.path, a.cwd, a.dir), max)]);
+    case 'cwd': // legacy: old transcripts
+    case 'session':
+      return compactParts([
+        String(a.action || a.type || ''),
+        truncateToolText(firstText(a.title, a.path, a.cwd, a.dir), max),
+      ]);
     case 'setup':
       return compactParts([
         String(a.action || ''),

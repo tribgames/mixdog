@@ -246,10 +246,11 @@ function wireInternalTools(boot) {
       runNativeWebSearch: (...a) => boot.runNativeWebSearch(...a),
       activeToolSurface: boot.activeToolSurface,
       mcpStatus: boot.mcpStatus,
-      applyResolvedCwd: boot.applyResolvedCwd,
       skillToolContent: boot.skillToolContent,
       // Late-bound: the workspace authority is built with the API slices.
       getWorkspaceApi: () => boot.workspaceApi || null,
+      getSessionManager: () => boot.mgr || null,
+      getLifecycleApi: () => boot.lifecycleApi || null,
     }),
   });
   Object.assign(boot, { setupTool, disposeInternalTools });
