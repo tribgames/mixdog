@@ -398,7 +398,16 @@ export async function gitReviewDiff(
   const root = await cachedGitRoot(cwd);
   if (untracked) return untrackedPatch(root, path);
   const { ref } = await resolveReviewRef(root, source);
-  return run(root, ['--no-optional-locks', 'diff', ...DISPLAY_DIFF_ARGS, ref, '--', path]);
+  return run(root, [
+    '--no-optional-locks',
+    'diff',
+    ...DISPLAY_DIFF_ARGS,
+    '--src-prefix=a/',
+    '--dst-prefix=b/',
+    ref,
+    '--',
+    path,
+  ]);
 }
 
 /**
@@ -434,7 +443,9 @@ export async function gitReviewDiffs(
       return;
     }
     budget -= patch.length;
-    patches[path] = patch;
+    // Defined, not assigned: a file named `__proto__` must become an own key
+    // instead of replacing the object's prototype.
+    Object.defineProperty(patches, path, { value: patch, enumerable: true, writable: true, configurable: true });
   };
   if (tracked.length) {
     const { ref } = await resolveReviewRef(root, source);
@@ -447,6 +458,10 @@ export async function gitReviewDiffs(
         '--literal-pathspecs',
         'diff',
         ...DISPLAY_DIFF_ARGS,
+        // Headers are matched back as `a/<path> b/<path>`: pin the prefixes
+        // against diff.noprefix and diff.mnemonicPrefix.
+        '--src-prefix=a/',
+        '--dst-prefix=b/',
         '--no-renames',
         ref,
         '--',
@@ -459,11 +474,21 @@ export async function gitReviewDiffs(
     if (output !== null) {
       const byHeader = new Map(tracked.map((path) => [`diff --git a/${path} b/${path}`, path]));
       const chunks = new Map<string, string>();
+      let unmatched = false;
       for (const chunk of output.split(/^(?=diff --git )/m)) {
+        if (!chunk) continue;
         const path = byHeader.get(chunk.slice(0, chunk.indexOf('\n')));
         if (path !== undefined) chunks.set(path, chunk);
+        else unmatched = true;
       }
-      for (const path of tracked) accept(path, chunks.get(path) ?? '');
+      // A path with no chunk is unchanged only when every chunk git printed was
+      // attributed; otherwise its patch may be among the unmatched ones.
+      for (const path of tracked) {
+        const chunk = chunks.get(path);
+        if (chunk !== undefined) accept(path, chunk);
+        else if (unmatched) omitted.push(path);
+        else accept(path, '');
+      }
     }
   }
   const untrackedPatches = await mapWithConcurrency(untracked, UNTRACKED_STAT_CONCURRENCY, (path) =>

@@ -332,7 +332,7 @@ function mountTree(t, root, count, { omit = () => false, patchOf: patchFor } = {
       const omitted = [];
       for (const { path } of requested) {
         if (omit(path)) omitted.push(path);
-        else patches[path] = patchOf(path);
+        else Object.defineProperty(patches, path, { value: patchOf(path), enumerable: true, configurable: true, writable: true });
       }
       return { patches, omitted };
     },
@@ -389,6 +389,17 @@ test('a file whose content moved without moving its counts re-reads by its revie
   // An unchanged revision reads nothing on the next evidence.
   await tree.gitChanged();
   assert.equal(calls.batches.length, 2);
+});
+
+test('a batch patch for a file named __proto__ lands on that file', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const tree = mountTree(t, 'C:/proto', 3);
+  tree.files[0] = { ...tree.files[0], path: '__proto__' };
+  await tree.render();
+  await tree.drain();
+  const row = tree.state.drawn.find((entry) => entry.path === '__proto__');
+  assert.match(row.parts[0].patch, /diff --git a\/__proto__ b\/__proto__/);
+  assert.equal(tree.calls.singles.length, 0, 'the batch served it; no per-file fallback');
 });
 
 test('staged and unstaged carry no revision: Git evidence re-reads the drawn files, an unchanged text draws nothing new', async (t) => {

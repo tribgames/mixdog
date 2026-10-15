@@ -28,6 +28,7 @@ export function useAppPaneChrome({
   navigateTab,
   closeTab,
   pinPaneTab,
+  renameSession,
   stripTrailing,
   lastSessionStorageKey,
 }: {
@@ -48,6 +49,7 @@ export function useAppPaneChrome({
   navigateTab(tab: WorkspaceTab): void;
   closeTab(leafId: string, tab: WorkspaceTab): void;
   pinPaneTab(leafId: string, key: string): void;
+  renameSession(sessionId: string, title: string): Promise<void>;
   /** Right-edge strip controls per leaf (desktop status island). */
   stripTrailing?(leaf: PaneLeaf): ReactNode;
   lastSessionStorageKey: string;
@@ -142,6 +144,7 @@ export function useAppPaneChrome({
         onCloseTab={(tab) => closeTab(leaf.id, tab)}
         onReorderTab={(sourceKey, targetKey) => paneWorkspace.reorderTab(leaf.id, sourceKey, targetKey)}
         onPinTab={(tab) => pinPaneTab(leaf.id, tab.key)}
+        onRenameSession={renameSession}
         onNewTask={() => {
           paneWorkspace.focusLeaf(leaf.id);
           startTask();

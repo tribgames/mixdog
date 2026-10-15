@@ -110,7 +110,7 @@ export class ModelProxyProvider {
   async send(messages, model, tools, sendOpts) {
     const { options, callbacks } = splitModelProxySendOptions(sendOpts);
     const finalized = isFinalizedProviderRequestTools(tools);
-    return this.#call(
+    const result = await this.#call(
       'send',
       {
         model: model ?? null,
@@ -122,6 +122,22 @@ export class ModelProxyProvider {
       },
       { signal: sendOpts?.signal || null, callbacks }
     );
+    // The PC rerouted the wire (a clear "unsupported" refusal) and reports the
+    // route it used: the daemon's own session adopts it, so the next proxied
+    // turn starts on the new wire instead of repeating the refusal.
+    const rerouted = result?.wireReroute;
+    const session = sendOpts?.session;
+    if (
+      rerouted?.source === 'reroute' &&
+      session?.wireRoute &&
+      session.wireRoute.provider === this.name &&
+      session.wireRoute.model === (model ?? null) &&
+      rerouted.provider === this.name &&
+      rerouted.model === session.wireRoute.model
+    ) {
+      session.wireRoute = rerouted;
+    }
+    return result;
   }
 
   #adoptCatalog(catalog) {

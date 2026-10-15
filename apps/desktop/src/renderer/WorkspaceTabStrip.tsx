@@ -64,7 +64,17 @@ interface WorkspaceTabStripProps {
   /** Numeric target is the drop index (tab half rule, container = end). */
   onReorderTab(sourceKey: string, target: string | number): void;
   onPinTab?(tab: WorkspaceTab): void;
+  /** Session tabs rename in place on double-click (same commit rules as the sidebar row). */
+  onRenameSession?(sessionId: string, title: string): unknown;
   onNewTask(): void;
+}
+
+interface TabRename {
+  draft: string | null;
+  start(tab: WorkspaceTab): void;
+  change(value: string): void;
+  commit(tab: WorkspaceTab): void;
+  cancel(): void;
 }
 
 function tabIsWorking(
@@ -230,11 +240,13 @@ function workspaceTabNode({
   setTabMenu,
   onCloseTab,
   onPinTab,
+  rename,
 }: {
   tab: WorkspaceTab;
   active: boolean;
   working: boolean;
   unread: boolean;
+  rename: TabRename | null;
   dragging: boolean;
   entering: boolean;
   dropLeft: boolean;
@@ -252,17 +264,18 @@ function workspaceTabNode({
   onCloseTab(tab: WorkspaceTab): void;
   onPinTab?(tab: WorkspaceTab): void;
 }) {
+  const editing = rename?.draft != null;
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the tab wrapper only carries drag, middle-click and context menu; its inner button is the control.
     <div
       key={tab.key}
       ref={(node) => setTabNode(tab.key, node)}
-      className={`workspace-tab ${active ? 'active' : ''} ${tab.preview ? 'preview' : ''} ${tab.dirty ? 'dirty' : ''} ${dragging ? 'dragging' : ''} ${dropLeft ? 'drop-target-left' : ''} ${dropRight ? 'drop-target-right' : ''} ${entering ? 'entering' : ''}`}
+      className={`workspace-tab ${active ? 'active' : ''} ${tab.preview ? 'preview' : ''} ${tab.dirty ? 'dirty' : ''} ${dragging ? 'dragging' : ''} ${dropLeft ? 'drop-target-left' : ''} ${dropRight ? 'drop-target-right' : ''} ${entering ? 'entering' : ''} ${editing ? 'editing' : ''}`}
       data-tab-key={tab.key}
       data-active={active}
       data-working={working || undefined}
       aria-grabbed={dragging}
-      draggable
+      draggable={!editing}
       style={
         pinnedTabWidth
           ? ({
@@ -286,12 +299,43 @@ function workspaceTabNode({
         event.preventDefault();
         onCloseTab(tab);
       }}
-      onDoubleClick={() => onPinTab?.(tab)}
+      onDoubleClick={(event) => {
+        if (editing || (event.target as Element | null)?.closest?.('.workspace-tab-close')) return;
+        onPinTab?.(tab);
+        rename?.start(tab);
+      }}
       onContextMenu={(event) => {
+        if (editing) return;
         event.preventDefault();
         setTabMenu(tabMenuAnchorAt(tab.key, event));
       }}
     >
+      {editing && rename && (
+        <input
+          // biome-ignore lint/a11y/noAutofocus: the rename field opens from an explicit double-click and must take the caret.
+          autoFocus
+          className="workspace-tab-title-input"
+          value={rename.draft ?? ''}
+          maxLength={160}
+          aria-label={t('Rename {{name}}', { name: tab.title })}
+          onFocus={(event) => event.currentTarget.select()}
+          onInput={(event) => rename.change(event.currentTarget.value)}
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              rename.commit(tab);
+            } else if (event.key === 'Escape') {
+              event.preventDefault();
+              rename.cancel();
+            }
+          }}
+          onBlur={() => rename.commit(tab)}
+        />
+      )}
       <button
         type="button"
         className="workspace-tab-main"
@@ -458,8 +502,39 @@ export function WorkspaceTabStrip({
   onCloseTab,
   onReorderTab,
   onPinTab,
+  onRenameSession,
   onNewTask,
 }: WorkspaceTabStripProps) {
+  const [renaming, setRenaming] = useState<{ key: string; draft: string } | null>(null);
+  const renamingRef = useRef(renaming);
+  renamingRef.current = renaming;
+  const cancelRename = useCallback(() => {
+    // Cleared synchronously so the blur fired by the field unmounting cannot commit the draft.
+    renamingRef.current = null;
+    setRenaming(null);
+  }, []);
+  const commitRename = useCallback(
+    (tab: WorkspaceTab) => {
+      const current = renamingRef.current;
+      if (!current || current.key !== tab.key) return;
+      renamingRef.current = null;
+      setRenaming(null);
+      const title = current.draft.trim();
+      if (!title || title === tab.title || tab.selection.kind !== 'session') return;
+      void onRenameSession?.(tab.selection.id, title);
+    },
+    [onRenameSession]
+  );
+  const tabRename = (tab: WorkspaceTab): TabRename | null => {
+    if (!onRenameSession || tab.selection.kind !== 'session') return null;
+    return {
+      draft: renaming?.key === tab.key ? renaming.draft : null,
+      start: (target) => setRenaming({ key: target.key, draft: target.title }),
+      change: (value) => setRenaming((current) => (current ? { ...current, draft: value } : current)),
+      commit: commitRename,
+      cancel: cancelRename,
+    };
+  };
   // The mobile root marker + device-scale factor install in main.tsx BEFORE
   // the first render (user: 첫 진입 레이아웃 시프트) — nothing to do here.
   const selectTab = useCallback(
@@ -801,6 +876,7 @@ export function WorkspaceTabStrip({
               setTabMenu,
               onCloseTab,
               onPinTab,
+              rename: tabRename(tab),
             });
           })}
         </nav>

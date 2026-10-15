@@ -255,9 +255,28 @@ export async function sendWireRoute(provider, model, tools, sendOpts, messages =
 // 403), quota / billing (402, 429) and server errors never qualify.
 const ENDPOINT_STATUSES = new Set([405, 501]);
 const REJECTION_STATUSES = new Set([400, 404, 415, 422]);
-const ENDPOINT_WORDS = /\b(?:endpoints?|routes?|api)\b|\/(?:v1\/)?(?:messages|responses|chat\/completions)\b|chat completions/i;
+const ENDPOINT_WORDS = /\b(?:endpoints?|routes?)\b|\/(?:v1\/)?(?:messages|responses|chat\/completions)\b|chat completions/i;
 const UNSUPPORTED_WORDS =
   /\bunsupported\b|not (?:be )?(?:supported|available|served|implemented)|(?:does not|doesn't|do not|don't) (?:support|serve)|only (?:available|supported|served)|wrong endpoint|use (?:the )?\/?(?:v1\/)?(?:messages|responses|chat\/completions)\b/i;
+// A typed code / type that names an auth, quota, billing or parameter failure
+// is never a wire rejection, whatever its message says about endpoints.
+const NON_WIRE_ERROR_TYPE =
+  /auth|permission|forbidden|api_?key|token|quota|billing|credit|balance|payment|insufficient|rate_?limit|too_many|overload|capacity|(?:unsupported|unknown|unrecognized|invalid)_?(?:parameter|param|field|argument|value)|invalid_?(?:request_)?param|context_?length|max_?tokens/i;
+// The same families in message wording.
+const NON_WIRE_ERROR_TEXT =
+  /\b(?:unsupported|unknown|unrecognized|unexpected|invalid|extra|not permitted|not allowed)\s+(?:request\s+)?(?:parameters?|params?|fields?|arguments?|propert(?:y|ies)|options?|values?|keys?)\b|\bparameters?\b[^.]{0,40}\b(?:not supported|unsupported|not allowed)|\bquota\b|\bbilling\b|\bcredits?\b|\bbalance\b|\binsufficient\b|rate[ -]?limit|too many requests|unauthori[sz]ed|\bforbidden\b|invalid api key|api key|\bpayment\b|\bsubscription\b/i;
+
+const errorTypes = (error) =>
+  [
+    error.code,
+    error.type,
+    error.providerErrorCode,
+    error.providerErrorType,
+    error.error?.code,
+    error.error?.type,
+    error.providerError?.code,
+    error.providerError?.type,
+  ].filter((part) => typeof part === 'string');
 
 /**
  * Whether `error` is a clear "this model is not served on this wire"
@@ -269,12 +288,17 @@ export function isWireUnsupportedError(error) {
   if (!error || typeof error !== 'object') return false;
   if (error.liveTextEmitted === true || error.emittedToolCall === true || error.unsafeToRetry === true) return false;
   if (error.streamStalled === true || error.name === 'AbortError') return false;
+  if (error.quotaExhausted === true || error.reauthRequired === true) return false;
+  // A body that points at one request field (`param`) is a parameter error.
+  if (typeof error.param === 'string' || typeof error.error?.param === 'string') return false;
+  if (errorTypes(error).some((type) => NON_WIRE_ERROR_TYPE.test(type))) return false;
   const status = Number(error.status ?? error.httpStatus ?? error.statusCode ?? error.response?.status);
-  if (ENDPOINT_STATUSES.has(status)) return true;
-  if (!REJECTION_STATUSES.has(status)) return false;
   const text = [error.message, error.error?.message, error.providerError?.message, error.error]
     .filter((part) => typeof part === 'string')
     .join(' ');
+  if (NON_WIRE_ERROR_TEXT.test(text)) return false;
+  if (ENDPOINT_STATUSES.has(status)) return true;
+  if (!REJECTION_STATUSES.has(status)) return false;
   return ENDPOINT_WORDS.test(text) && UNSUPPORTED_WORDS.test(text);
 }
 
@@ -312,7 +336,13 @@ export async function sendOnRoute(provider, model, tools, sendOpts, messages, di
   const opts = withoutWireSwitches(sendOpts);
   const tracked = trackOutput(opts);
   try {
-    return await dispatch(route?.wire, lowerHistoryForRoute(messages, route), tracked.opts);
+    const result = await dispatch(route?.wire, lowerHistoryForRoute(messages, route), tracked.opts);
+    // A route re-resolved on this send (its pinned wire was dropped from the
+    // provider's config) is reported back like a refusal reroute below.
+    if (route?.source === 'reroute' && result && typeof result === 'object' && !Object.isFrozen(result)) {
+      result.wireReroute = route;
+    }
+    return result;
   } catch (error) {
     if (!route || tracked.emitted() || opts.signal?.aborted || !isWireUnsupportedError(error)) throw error;
     const agent = Array.isArray(tools) && tools.length > 0;
@@ -328,12 +358,18 @@ export async function sendOnRoute(provider, model, tools, sendOpts, messages, di
       reroutedReason: 'unsupported',
       loweredAssistantCount: countAssistants(session?.messages ?? messages),
     };
-    if (session && session.provider === provider.name && session.model === model && session.wireRoute !== undefined) {
-      session.wireRoute = rerouted;
-    }
-    return dispatch(rerouted.wire, lowerHistoryForRoute(messages, rerouted), opts);
+    // The pin names its own provider and model, so a projected session (the
+    // model proxy's PC side carries no identity fields) is recognised by it.
+    if (pinMatches(session?.wireRoute, provider.name, model)) session.wireRoute = rerouted;
+    const result = await dispatch(rerouted.wire, lowerHistoryForRoute(messages, rerouted), opts);
+    // The authoritative route travels back with the result, for a caller
+    // whose session is not the object updated above (a proxied send).
+    if (result && typeof result === 'object' && !Object.isFrozen(result)) result.wireReroute = rerouted;
+    return result;
   }
 }
+
+const pinMatches = (pin, providerName, model) => Boolean(pin) && pin.provider === providerName && pin.model === model;
 
 function modelNotRoutableError(provider, model) {
   return Object.assign(new Error(`[${provider}] model ${model} is not routable: no wire it is served on is offered`), {
@@ -387,8 +423,11 @@ export function lowerHistoryForRoute(messages, route) {
 
 async function resolveSendRoute(provider, model, tools, sendOpts, messages) {
   const agent = Array.isArray(tools) && tools.length > 0;
-  const pinned = sendOpts?.wireRoute ?? sendOpts?.session?.wireRoute;
-  if (pinned && pinned.provider === provider.name && pinned.model === model) {
+  // The session's current pin outranks a copy carried in the send options: a
+  // reroute updates the session, and later sends of the same turn reuse opts.
+  const sessionPin = sendOpts?.session?.wireRoute;
+  const pinned = pinMatches(sessionPin, provider.name, model) ? sessionPin : (sendOpts?.wireRoute ?? sessionPin);
+  if (pinMatches(pinned, provider.name, model)) {
     // The pin stands while the model's current endpoints still offer its wire
     // (the provider may have been edited to drop it); otherwise the route is
     // resolved fresh (not legacy) and the reroute is recorded.

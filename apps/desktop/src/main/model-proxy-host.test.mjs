@@ -103,6 +103,23 @@ test('the PC runs the call with its own provider and streams every callback back
   assert.equal(host.running, 0);
 });
 
+test('the provider send result reaches the daemon unchanged, wireReroute included', async (t) => {
+  const wireReroute = { from: { provider: 'a', model: 'm1' }, to: { provider: 'b', model: 'm2' }, reason: 'x' };
+  const provider = {
+    async send() {
+      return { content: 'ok', usage: { inputTokens: 1, outputTokens: 1 }, wireReroute };
+    },
+  };
+  const { channel } = connect(t, fakeRuntime({ 'anthropic-oauth': provider }));
+  const result = await new ModelProxyProvider('anthropic-oauth', {}, channel).send(
+    [{ role: 'user', content: 'hi' }],
+    'claude-test',
+    [],
+    { sessionId: 'pc-session' }
+  );
+  assert.deepEqual(result.wireReroute, wireReroute);
+});
+
 test('the PC serves only the named provider and the allowed methods', async (t) => {
   const listed = [];
   const provider = {

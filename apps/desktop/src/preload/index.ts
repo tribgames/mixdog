@@ -621,6 +621,7 @@ const api: DesktopApi = {
   onNotificationOpenSession: (listener) => subscribeIpc(DESKTOP_IPC.notificationOpenSession, listener),
   onBrowserOpenRequested: (listener) => subscribeIpc(DESKTOP_IPC.browserOpenRequested, listener),
   onTerminalRunRequested: (listener) => subscribeIpc(DESKTOP_IPC.terminalRunRequested, listener),
+  claimTerminalRun: (requestId) => ipcRenderer.invoke(DESKTOP_IPC.terminalRunClaim, requestId),
   onVisualizeChanged: (listener) => subscribeIpc(DESKTOP_IPC.visualizeChanged, listener),
   visualizeState: () => ipcRenderer.invoke(DESKTOP_IPC.visualizeState),
   visualizeCommand: (command) => ipcRenderer.invoke(DESKTOP_IPC.visualizeCommand, command),

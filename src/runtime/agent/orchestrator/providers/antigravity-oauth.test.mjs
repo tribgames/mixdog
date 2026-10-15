@@ -716,7 +716,7 @@ test('each send rewarms the daily host', async () => {
   assert.deepEqual(requested, [CONTENT_ENDPOINT, CONTENT_ENDPOINT]);
 });
 
-test('native calls dispatch before EOF with stable IDs, signatures and no final redispatch', async () => {
+test('native calls dispatch once after the clean finish, with stable IDs and signatures', async () => {
   const firstProgress = Promise.withResolvers();
   const secondProgress = Promise.withResolvers();
   const encoder = new TextEncoder();
@@ -756,8 +756,8 @@ test('native calls dispatch before EOF with stable IDs, signatures and no final 
   push([], 'STOP');
   controller.close();
   const result = await pending;
-  assert.equal(afterFirstChunk, 1);
-  assert.equal(beforeEof, 2);
+  assert.equal(afterFirstChunk, 0);
+  assert.equal(beforeEof, 0);
   assert.equal(calls.length, 2);
   assert.deepEqual(result.toolCalls, calls);
   assert.notEqual(calls[0].id, calls[1].id);
@@ -870,7 +870,62 @@ test('an in-band error envelope after STOP fails the turn before any success', a
   );
 });
 
-test('a later failed finish retains earlier eager calls without dispatching the rejected call', async () => {
+test('a call followed by a SAFETY finish is never dispatched and keeps the ratings', async () => {
+  const provider = providerWith(async () =>
+    sseResponse([
+      candidateChunk([{ functionCall: { id: 'earlier', name: 'read', args: { path: 'a.txt' } } }]),
+      {
+        response: {
+          candidates: [
+            {
+              content: { role: 'model', parts: [] },
+              finishReason: 'SAFETY',
+              finishMessage: 'blocked by policy',
+              safetyRatings: [{ category: 'HARM_CATEGORY_HARASSMENT', probability: 'HIGH', blocked: true }],
+            },
+          ],
+        },
+      },
+    ])
+  );
+  const calls = [];
+  await assert.rejects(
+    provider.send([{ role: 'user', content: 'Read.' }], 'gemini-3.8-flash', STREAM_PARITY_TOOLS, {
+      effort: 'low',
+      onToolCall: (call) => calls.push(call),
+    }),
+    (error) => {
+      assert.equal(error.code, 'safety');
+      assert.equal(error.finishMessage, 'blocked by policy');
+      assert.deepEqual(error.safetyRatings, [
+        { category: 'HARM_CATEGORY_HARASSMENT', probability: 'HIGH', blocked: true },
+      ]);
+      assert.equal(error.emittedToolCall, undefined);
+      return true;
+    }
+  );
+  assert.deepEqual(calls, []);
+});
+
+test('a text-recovered call followed by a SAFETY finish is never dispatched', async () => {
+  const provider = providerWith(async () =>
+    sseResponse([
+      candidateChunk([{ text: '<invoke name="read"><parameter name="path">a.txt</parameter></invoke>' }]),
+      candidateChunk([], 'SAFETY'),
+    ])
+  );
+  const calls = [];
+  await assert.rejects(
+    provider.send([{ role: 'user', content: 'Read.' }], 'gemini-3.8-flash', STREAM_PARITY_TOOLS, {
+      effort: 'low',
+      onToolCall: (call) => calls.push(call),
+    }),
+    (error) => error.code === 'safety'
+  );
+  assert.deepEqual(calls, []);
+});
+
+test('a later failed finish dispatches none of the turn calls', async () => {
   const provider = providerWith(async () =>
     sseResponse([
       candidateChunk([{ functionCall: { id: 'accepted', name: 'read', args: { path: 'a.txt' } } }]),
@@ -885,19 +940,18 @@ test('a later failed finish retains earlier eager calls without dispatching the 
     }),
     (error) => {
       assert.equal(error.code, 'safety');
-      assert.equal(error.emittedToolCall, true);
-      assert.equal(error.unsafeToRetry, true);
-      assert.deepEqual(error.partialToolCalls, calls);
+      assert.equal(error.emittedToolCall, undefined);
+      assert.deepEqual(
+        error.partialToolCalls.map((call) => call.id),
+        ['accepted', 'blocked']
+      );
       return true;
     }
   );
-  assert.deepEqual(
-    calls.map((call) => call.id),
-    ['accepted']
-  );
+  assert.deepEqual(calls, []);
 });
 
-test('truncation after an eager native call cannot retry or fail over and retains signed replay', async () => {
+test('truncation after a native call dispatches nothing', async () => {
   const part = {
     functionCall: { id: 'already-ran', name: 'read', args: { path: 'a.txt' } },
     thoughtSignature: 'signed-call',
@@ -915,16 +969,12 @@ test('truncation after an eager native call cannot retry or fail over and retain
     }),
     (error) => {
       assert.equal(error.code, 'TRUNCATED_STREAM');
-      assert.equal(error.emittedToolCall, true);
-      assert.equal(error.unsafeToRetry, true);
-      assert.deepEqual(error.partialToolCalls, calls);
-      assert.deepEqual(error.partialProviderReplay.items, [part]);
-      assert.deepEqual(error.partialProviderReplay.requestContext, { model: 'gemini-3.8-flash-low' });
+      assert.equal(error.emittedToolCall, undefined);
       return true;
     }
   );
-  assert.equal(calls.length, 1);
-  assert.equal(requests, 1);
+  assert.deepEqual(calls, []);
+  assert.ok(requests >= 1);
 });
 
 // ── Retry policy (capacity backoff, RPM quick retry) ──

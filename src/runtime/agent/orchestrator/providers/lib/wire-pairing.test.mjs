@@ -114,12 +114,18 @@ test('chat tool_calls pair only with the tool messages immediately following the
     { role: 'tool', tool_call_id: 'c1', content: 'late' },
   ];
   const lateOut = ensureChatToolPairs(late);
-  assert.deepEqual(lateOut, [
-    late[0],
-    { role: 'tool', tool_call_id: 'c1', content: WIRE_PAIRING_STUB },
-    late[1],
-    late[2],
-  ]);
+  // The late result is dropped (not left as an orphan after the user message).
+  assert.deepEqual(lateOut, [late[0], { role: 'tool', tool_call_id: 'c1', content: WIRE_PAIRING_STUB }, late[1]]);
+  // Orphan tool messages (no preceding call, unknown id, duplicate id) are removed.
+  const stray = [
+    { role: 'tool', tool_call_id: 'x', content: 'lone' },
+    { role: 'assistant', content: null, tool_calls: [call('c1')] },
+    { role: 'tool', tool_call_id: 'c1', content: 'ok' },
+    { role: 'tool', tool_call_id: 'c1', content: 'dup' },
+    { role: 'tool', tool_call_id: 'zz', content: 'unknown' },
+    { role: 'user', content: 'next' },
+  ];
+  assert.deepEqual(ensureChatToolPairs(stray), [stray[1], stray[2], stray[5]]);
   // A result belonging to another occurrence of the same id does not pair
   // the earlier, unanswered occurrence.
   const reused = [
@@ -132,6 +138,12 @@ test('chat tool_calls pair only with the tool messages immediately following the
   assert.equal(reusedOut.length, 5);
   assert.deepEqual(reusedOut[1], { role: 'tool', tool_call_id: 'c1', content: WIRE_PAIRING_STUB });
   assert.deepEqual(reusedOut.slice(2), reused.slice(1));
+  // Every tool message in the output directly follows an assistant block or
+  // another tool message.
+  assert.deepEqual(
+    reusedOut.map((m) => m.role),
+    ['assistant', 'tool', 'user', 'assistant', 'tool']
+  );
   // A partially answered parallel block only gains the missing stub.
   const partial = [
     { role: 'assistant', content: null, tool_calls: [call('a'), call('b')] },

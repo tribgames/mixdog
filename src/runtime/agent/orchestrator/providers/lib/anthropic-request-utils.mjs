@@ -124,6 +124,17 @@ export function resolveAnthropicMessageCacheSlots(systemBlocks, ttls, { tools = 
   // Tool markers take their slots first; system markers beyond the remainder
   // are dropped earliest-first (the last system marker covers the longest
   // prefix). The freshly built system blocks are edited in place.
+  // Tool markers alone are capped first: beyond the request-wide limit the
+  // earliest are dropped (the last covers the longest tool prefix). Tool
+  // objects may be shared with the caller, so the array slot is replaced by a
+  // marker-free copy instead of mutating the object.
+  let toolExcess = countAnthropicCacheControls(tools) - ANTHROPIC_MAX_CACHE_BREAKPOINTS;
+  for (let i = 0; toolExcess > 0 && i < tools.length; i++) {
+    if (!tools[i]?.cache_control) continue;
+    const { cache_control: _dropped, ...rest } = tools[i];
+    tools[i] = rest;
+    toolExcess--;
+  }
   const toolSlots = countAnthropicCacheControls(tools);
   let systemExcess = countAnthropicCacheControls(systemBlocks) + toolSlots - ANTHROPIC_MAX_CACHE_BREAKPOINTS;
   for (const block of systemBlocks) {

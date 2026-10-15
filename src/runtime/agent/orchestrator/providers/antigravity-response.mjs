@@ -8,8 +8,13 @@
  */
 import { traceAgentUsage } from '../agent-trace.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
-import { parseToolCalls, collectGeminiGroundingSources, parseGeminiTextPartMetadata } from './gemini-schema.mjs';
-import { geminiPolicyFinishCode } from './gemini-error-contract.mjs';
+import {
+  parseToolCalls,
+  emitGeminiToolCalls,
+  collectGeminiGroundingSources,
+  parseGeminiTextPartMetadata,
+} from './gemini-schema.mjs';
+import { geminiFinishErrorFields, geminiPolicyFinishCode } from './gemini-error-contract.mjs';
 
 // Pure usageMetadata normalization shared by the success path and a failed
 // stream's partialUsage.
@@ -30,7 +35,7 @@ export function normalizeAntigravityUsage(um) {
  * @param {ReturnType<import('./antigravity-stream.mjs').createAntigravityStreamCollector>} deps.collector
  * @param {string} deps.useModel  wire model id
  * @param {object} deps.opts  send options (session/iteration/providerState)
- * @param {Function|null} deps.onToolCall  set when calls were streamed live
+ * @param {Function|null} deps.onToolCall  receives the turn's calls after a clean finish
  */
 export function finalizeAntigravityTurn({ response, collector, useModel, opts, onToolCall }) {
   const textLeakGuard = collector.leakGuard;
@@ -48,10 +53,8 @@ export function finalizeAntigravityTurn({ response, collector, useModel, opts, o
   // Thought signatures are only valid for the model family that minted
   // them; the request builder consults this when the route changes.
   if (providerReplay) providerReplay.requestContext = { model: useModel };
-  let nativeToolCalls;
-  if (!onToolCall) nativeToolCalls = parseToolCalls(responseParts);
-  else if (collector.streamedNativeToolCalls.length) nativeToolCalls = collector.streamedNativeToolCalls;
-  if (!onToolCall && textLeakGuard?.enabled) nativeToolCalls = textLeakGuard.filterNativeToolCalls(nativeToolCalls);
+  let nativeToolCalls = parseToolCalls(responseParts);
+  if (textLeakGuard?.enabled) nativeToolCalls = textLeakGuard.filterNativeToolCalls(nativeToolCalls);
   let toolCalls = nativeToolCalls;
   if (leakedToolCalls.length) {
     toolCalls = toolCalls?.length ? [...toolCalls, ...leakedToolCalls] : leakedToolCalls;
@@ -95,9 +98,13 @@ export function finalizeAntigravityTurn({ response, collector, useModel, opts, o
       model: useModel,
       rawUsage: response.usageMetadata || null,
       ...(usage ? { partialUsage: usage, partialModel: useModel } : {}),
-      ...(collector.emittedToolCount ? { emittedToolCall: true, unsafeToRetry: true } : {}),
+      ...geminiFinishErrorFields(response),
     });
   }
+
+  // Terminal status first: a failed turn never runs its tool calls.
+  textLeakGuard?.releaseDeferredToolCalls();
+  emitGeminiToolCalls(nativeToolCalls, onToolCall);
 
   return {
     content,

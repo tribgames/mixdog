@@ -6,6 +6,7 @@ import MarkdownAstBody from './MarkdownAstBody';
 import { parseMarkdownToHast } from './markdown-ast';
 import { MarkdownSessionContext } from './MarkdownLink';
 import {
+  handleTerminalRunRequest,
   onTerminalCommandRequested,
   onTerminalRevealRequested,
   requestTerminalCommand,
@@ -95,4 +96,37 @@ test('Run controls follow a terminal host registered after the first render', as
   assert.equal(buttons(), 0);
   await render(true);
   assert.equal(buttons(), 1);
+});
+
+test('a request the agent gave up on is never entered, queued or already live', async () => {
+  const sid = 'sess-claim';
+  const stopReveal = onTerminalRevealRequested(() => {});
+  const claims = [];
+  const run = (requestId) => handleTerminalRunRequest({ sessionId: sid, command: requestId, requestId });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const previous = globalThis.window;
+  globalThis.window = {
+    mixdogDesktop: { claimTerminalRun: async (requestId) => (claims.push(requestId), requestId !== 'refused') },
+  };
+  try {
+    run('refused');
+    run('cancelled');
+    run('accepted');
+    handleTerminalRunRequest({ sessionId: sid, cancelRequestId: 'cancelled' });
+    const entered = [];
+    const stop = onTerminalCommandRequested(sessionTerminalId(sid), (input) => entered.push(input));
+    await settle();
+    // The cancelled request was dropped unclaimed; the refused claim entered nothing.
+    assert.deepEqual(claims, ['refused', 'accepted']);
+    assert.deepEqual(entered, ['accepted\r']);
+    // Once the pane is live the same gate applies to each new request.
+    run('refused');
+    run('live');
+    await settle();
+    assert.deepEqual(entered, ['accepted\r', 'live\r']);
+    stop();
+  } finally {
+    globalThis.window = previous;
+    stopReveal();
+  }
 });

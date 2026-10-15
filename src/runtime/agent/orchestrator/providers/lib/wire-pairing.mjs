@@ -125,40 +125,51 @@ function chatResultId(message) {
   return typeof id === 'string' && id ? id : null;
 }
 
-// Result ids of the contiguous tool-message run that immediately follows the
-// assistant message at `index`. Only that run answers its tool_calls block.
-function followingChatResultIds(messages, index) {
-  const ids = new Set();
-  for (let j = index + 1; j < messages.length; j += 1) {
-    const message = messages[j];
-    if (!isObject(message) || message.role !== 'tool') break;
-    const id = chatResultId(message);
-    if (id) ids.add(id);
-  }
-  return ids;
-}
-
 /**
  * Ensure every chat assistant `tool_calls` entry is answered by a tool
  * message in the run immediately following that assistant message (OpenAI
- * function calling / Meta chat contract). A result after an intervening
- * user/assistant message, or one answering another occurrence of the same id,
- * does not pair it. Returns the original array when already paired, otherwise
- * a new array with synthetic tool messages inserted right after the assistant
- * message.
+ * function calling / Meta chat contract), and that no tool message exists
+ * anywhere else. A result after an intervening user/assistant message, or one
+ * answering another occurrence of the same id, does not pair the call; the
+ * call gets a synthetic stub right after its assistant message and the
+ * misplaced tool message is DROPPED (Chat Completions rejects a tool message
+ * that does not follow its tool_calls block; a late result is not relocated).
+ * Within the run, results for ids the block did not call and repeated results
+ * for one id are dropped too. Returns the original array when already valid.
  */
 export function ensureChatToolPairs(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return messages;
-  let out = null;
+  const out = [];
+  let changed = false;
   for (let i = 0; i < messages.length; i += 1) {
     const message = messages[i];
-    const callIds = chatToolCallIds(message);
-    const answered = callIds.length ? followingChatResultIds(messages, i) : null;
-    const missing = callIds.filter((id) => !answered.has(id));
-    if (missing.length && !out) out = messages.slice(0, i);
-    if (!out) continue;
+    if (isObject(message) && message.role === 'tool') {
+      changed = true;
+      continue;
+    }
     out.push(message);
-    for (const id of missing) out.push({ role: 'tool', tool_call_id: id, content: WIRE_PAIRING_STUB });
+    const callIds = chatToolCallIds(message);
+    if (!callIds.length) continue;
+    let end = i + 1;
+    while (end < messages.length && isObject(messages[end]) && messages[end].role === 'tool') end += 1;
+    const answered = new Set();
+    const kept = [];
+    for (const result of messages.slice(i + 1, end)) {
+      const id = chatResultId(result);
+      if (id && callIds.includes(id) && !answered.has(id)) {
+        answered.add(id);
+        kept.push(result);
+      } else {
+        changed = true;
+      }
+    }
+    for (const id of callIds) {
+      if (answered.has(id)) continue;
+      changed = true;
+      out.push({ role: 'tool', tool_call_id: id, content: WIRE_PAIRING_STUB });
+    }
+    out.push(...kept);
+    i = end - 1;
   }
-  return out || messages;
+  return changed ? out : messages;
 }

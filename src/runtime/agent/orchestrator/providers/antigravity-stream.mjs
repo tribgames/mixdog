@@ -1,18 +1,15 @@
 /**
  * antigravity-stream.mjs — what one Antigravity SSE turn accumulates while it
  * streams: the live text mirror a retirement notice is recognised from, the
- * ordered parts of every chunk, the native tool calls parsed per chunk with
- * their id dedup, the leak guard that recovers calls the model wrote as text,
- * the first terminal finishReason, and the exposure marks a failed stream must
- * carry (emittedToolCall / unsafeToRetry / partial calls + partial replay).
+ * leak guard that recovers calls the model wrote as text (held back, like the
+ * native calls, until the turn finishes cleanly), and the first terminal
+ * finishReason. Nothing is dispatched while streaming.
  *
  * The transport (antigravity-transport.mjs) owns the socket and the retry
  * policy; the projection (antigravity-response.mjs) reads this record after
  * the turn settles.
  */
-import { createProviderReplay } from './lib/provider-replay.mjs';
 import { createGeminiTextLeakGuard, consumeGeminiRestStreamResponse } from './gemini-stream.mjs';
-import { parseToolCalls, emitGeminiToolCalls } from './gemini-schema.mjs';
 import { normalizeAntigravityUsage } from './antigravity-response.mjs';
 
 // A retired wire id answers with one plain-text notice and no finishReason.
@@ -46,10 +43,6 @@ export function createAntigravityStreamCollector({ tools, useModel, onToolCall, 
   // Streamed text is kept so a retirement notice can be told apart from
   // a truncated stream when the gateway omits the finishReason.
   let streamedText = '';
-  let streamedParts = [];
-  let streamedNativeToolCalls = [];
-  const seenNativeToolIds = new Set();
-  const emittedToolIds = new Set();
 
   const relayText = onTextDelta
     ? (text) => {
@@ -57,15 +50,9 @@ export function createAntigravityStreamCollector({ tools, useModel, onToolCall, 
         onTextDelta(text);
       }
     : null;
-  const dispatchToolCall = onToolCall
-    ? (call) => {
-        // A failure already observed in this chunk must win over both
-        // native calls and calls recovered from its text.
-        if (terminalFailure || emittedToolIds.has(call.id)) return;
-        emittedToolIds.add(call.id);
-        onToolCall(call);
-      }
-    : null;
+  // Tool calls (native and text-recovered) are never dispatched while the
+  // stream runs: the turn's terminal verdict decides, and
+  // finalizeAntigravityTurn releases them only after a clean finish.
   const onChunk = (chunk) => {
     const candidate = chunk?.candidates?.[0];
     const finishReason =
@@ -74,37 +61,20 @@ export function createAntigravityStreamCollector({ tools, useModel, onToolCall, 
     if (finishReason && String(finishReason).replace(/^FINISH_REASON_/, '') !== 'STOP') {
       terminalFailure ||= finishReason;
     }
-    if (!onToolCall) return;
-    const parts = candidate?.content?.parts ?? [];
-    streamedParts.push(...parts);
-    if (terminalFailure || !parts.some((part) => part?.functionCall)) return;
-    // Parse against the turn's parts so anonymous call IDs keep the
-    // same ordinal as final parsing, even across separate SSE chunks.
-    const fresh = (parseToolCalls(streamedParts) || []).filter((call) => {
-      if (seenNativeToolIds.has(call.id)) return false;
-      seenNativeToolIds.add(call.id);
-      return true;
-    });
-    const calls = textLeakGuard?.enabled ? textLeakGuard.filterNativeToolCalls(fresh) : fresh;
-    if (calls?.length) streamedNativeToolCalls.push(...calls);
-    emitGeminiToolCalls(calls, dispatchToolCall);
   };
 
   // Each attempt starts from an empty record: a replayed request must not
-  // inherit the dead attempt's text, parts or dispatched-call ids.
+  // inherit the dead attempt's text or failure.
   const beginAttempt = () => {
     textLeakGuard = createGeminiTextLeakGuard({
       knownToolNames: tools?.map((t) => t.name).filter(Boolean) ?? [],
       onTextDelta: relayText,
-      onToolCall: dispatchToolCall,
+      onToolCall,
       onStreamDelta,
+      deferToolCalls: true,
     });
     streamedText = '';
     terminalFailure = null;
-    streamedParts = [];
-    streamedNativeToolCalls = [];
-    seenNativeToolIds.clear();
-    emittedToolIds.clear();
   };
   const releaseGuard = () => {
     textLeakGuard = null;
@@ -125,22 +95,7 @@ export function createAntigravityStreamCollector({ tools, useModel, onToolCall, 
         unwrapChunk: (chunk) => (chunk && typeof chunk === 'object' && chunk.response ? chunk.response : chunk),
       });
     } catch (streamErr) {
-      const error = retiredModelError(streamErr, streamedText, useModel) || streamErr;
-      // Native calls now run before EOF. Preserve
-      // their history and prohibit resampling after
-      // a tool callback.
-      if (emittedToolIds.size) {
-        error.emittedToolCall = true;
-        error.unsafeToRetry = true;
-        const leaked = textLeakGuard.getLeakedToolCalls();
-        error.partialToolCalls = [...streamedNativeToolCalls, ...leaked];
-        const replay = createProviderReplay('antigravity', leaked.length ? [] : streamedParts);
-        if (replay) {
-          replay.requestContext = { model: useModel };
-          error.partialProviderReplay = replay;
-        }
-      }
-      throw error;
+      throw retiredModelError(streamErr, streamedText, useModel) || streamErr;
     }
   };
 
@@ -154,12 +109,6 @@ export function createAntigravityStreamCollector({ tools, useModel, onToolCall, 
     },
     get terminalFailure() {
       return terminalFailure;
-    },
-    get streamedNativeToolCalls() {
-      return streamedNativeToolCalls;
-    },
-    get emittedToolCount() {
-      return emittedToolIds.size;
     },
   };
 }

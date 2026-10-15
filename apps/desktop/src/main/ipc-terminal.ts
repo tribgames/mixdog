@@ -29,6 +29,7 @@ interface TerminalIpcOptions {
   ipcMain: Pick<DesktopIpcMain, 'on' | 'removeListener'>;
   handle: Handle;
   terminals?: DesktopTerminalHost;
+  terminalRuns?: { claim(requestId: string): boolean };
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
 }
 
@@ -37,6 +38,7 @@ export function registerTerminalIpc({
   ipcMain,
   handle,
   terminals,
+  terminalRuns,
   invokeDesktopOperation,
 }: TerminalIpcOptions): () => void {
   const validSender = (event: IpcMainEvent): boolean =>
@@ -73,6 +75,10 @@ export function registerTerminalIpc({
       terminals.dispose(terminalId);
     });
   }
+
+  handle(DESKTOP_IPC.terminalRunClaim, (_event, requestId) =>
+    terminalRuns?.claim(requiredString(requestId, 'terminal run request id', 128)) ?? false
+  );
 
   const onWrite = (event: IpcMainEvent, id: unknown, data: unknown): void => {
     if (!validSender(event)) return;

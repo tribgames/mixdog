@@ -66,12 +66,14 @@ function runBackend({ window = true, opened = true } = {}) {
     },
     write: (id, data) => log.push(['write', id, data]),
     revealTerminal: (sessionId) => (log.push(['reveal', sessionId]), window),
-    openTerminal: (sessionId, command) => {
+    openTerminal: (sessionId, command, signal) => {
       log.push(['open', sessionId, command]);
-      if (window && opened) {
-        tabs[sessionId] = [{ tab: 1, id: `session-terminal:${sessionId}`, shell: 'sh', running: true, cwd: null }];
+      if (!window) return Promise.reject(new Error('no desktop window is available to open a terminal'));
+      if (!opened) {
+        return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
       }
-      return window;
+      tabs[sessionId] = [{ tab: 1, id: `session-terminal:${sessionId}`, shell: 'sh', running: true, cwd: null }];
+      return Promise.resolve();
     },
   };
 }

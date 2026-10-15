@@ -33,6 +33,29 @@ test('OpenRouter in-flight 402 is read from metadata.limit_source and needs shor
   assert.equal(providerErrorKind(make({ 'retry-after': '600' })).kind, 'billing');
 });
 
+test('in-flight 402 accepts Retry-After 0 through 60s inclusive, nothing beyond', () => {
+  const make = (value) =>
+    Object.assign(new Error('budget'), {
+      status: 402,
+      headers: { 'retry-after': value },
+      error: { code: 'openrouter_in_flight_budget' },
+    });
+  for (const value of ['0', '1', '60']) assert.equal(providerErrorKind(make(value)).kind, 'transient', value);
+  for (const value of ['61', '-1', 'soon']) assert.equal(providerErrorKind(make(value)).kind, 'billing', value);
+});
+
+test('non-budget 402 is billing even with generic retryable codes', () => {
+  for (const code of ['server_error', 'rate_limit_exceeded', 'overloaded_error']) {
+    const err = Object.assign(new Error('x'), { status: 402, headers: { 'retry-after': '2' }, error: { code } });
+    assert.equal(providerErrorKind(err).kind, 'billing', code);
+  }
+  const typedWithMetadata = Object.assign(new Error('x'), {
+    status: 402,
+    error: { code: 'server_error', metadata: { limit_source: 'openrouter_credits' } },
+  });
+  assert.equal(providerErrorKind(typedWithMetadata).kind, 'billing');
+});
+
 test('responses reported cost: ticks outrank cost; null/empty/negative is not reported', () => {
   assert.equal(responsesReportedCostUsd({ cost_in_usd_ticks: 5e9, cost: 9 }), 0.5);
   assert.equal(responsesReportedCostUsd({ cost: 0.25 }), 0.25);

@@ -241,6 +241,28 @@ test('system markers are capped to the slots tools leave, earliest dropped first
   assert.equal(r.messageSlots, 0);
 });
 
+test('five tool markers are trimmed to the request-wide limit, earliest dropped, caller objects untouched', async () => {
+  const tools = [1, 2, 3, 4, 5].map((i) => ({ name: `t${i}`, cache_control: eph }));
+  const originals = tools.slice();
+  const sys = [{ type: 'text', text: 's', cache_control: eph }];
+  const r = resolveAnthropicMessageCacheSlots(sys, { messages: eph }, { tools });
+  assert.deepEqual(tools.map((t) => Boolean(t.cache_control)), [false, true, true, true, true]);
+  assert.ok(originals.every((t) => t.cache_control), 'shared tool objects are not mutated');
+  assert.equal(sys[0].cache_control, undefined);
+  assert.equal(r.reservedSlots, 4);
+  assert.equal(r.messageSlots, 0);
+
+  const native = [1, 2, 3, 4, 5].map((i) => ({ type: 'web_search_20250305', name: `w${i}`, cache_control: eph }));
+  const messages = [{ role: 'system', content: 'a' }, { role: 'user', content: 'hi' }];
+  const oauth = _buildRequestBodyForCacheSmoke(messages, MODEL, TOOLS, { nativeTools: native });
+  const api = (await buildAnthropicApiRequest({ name: 'anthropic', config: {}, messages, useModel: MODEL, tools: TOOLS, opts: { nativeTools: native }, fastModeLatched: false })).params;
+  for (const body of [oauth, api]) {
+    const total = countAnthropicCacheControls(body.system) + countAnthropicCacheControls(body.tools) + countAnthropicCacheControls(body.messages);
+    assert.ok(total <= 4, `total ${total}`);
+    assert.ok(body.tools.filter((t) => t.cache_control).at(-1), 'latest tool marker kept');
+  }
+});
+
 test('request with 1 native-tool marker never exceeds 4 breakpoints in total', () => {
   const native = [{ type: 'web_search_20250305', name: 'w', cache_control: eph }];
   const messages = [

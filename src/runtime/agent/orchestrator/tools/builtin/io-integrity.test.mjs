@@ -327,7 +327,7 @@ test('array reads deliver the requested body after an edit instead of an unchang
 });
 
 for (const explicitIds of [false, true]) {
-  test(`eager read execution preserves replay and dispatches each call once (server IDs=${explicitIds})`, async () => {
+  test(`deferred read execution preserves replay and dispatches each call once after a clean finish (server IDs=${explicitIds})`, async () => {
     const fx = fixture('FIRST_LINE\nSECOND_LINE\nTHIRD_LINE\n');
     const parts = [1, 2].map((offset, i) => ({
       functionCall: {
@@ -388,13 +388,14 @@ for (const explicitIds of [false, true]) {
       secondDone.reject(error);
     });
     push([parts[0]]);
-    await firstDone.promise;
     push([parts[1]]);
-    await secondDone.promise;
-    assert.equal(seen.length, 2, 'Both calls must execute before EOF');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(seen.length, 0, 'No call may execute before the clean finish');
     push([], 'STOP');
     controller.close();
     const result = await pending;
+    await firstDone.promise;
+    await secondDone.promise;
     const outputs = await Promise.all(executions);
     assert.equal(seen.length, 2);
     assert.deepEqual(

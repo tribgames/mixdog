@@ -783,6 +783,9 @@ export interface DesktopApi {
   /** Agent `terminal` tool (desktop host only): reveal a session's terminal
    *  dock, opening a tab and entering `command` when it has none. */
   onTerminalRunRequested?(listener: (request: DesktopTerminalRunRequest) => void): () => void;
+  /** Agent `terminal` tool: true while the tool call still waits on this
+   *  request, which makes the renderer's entering of its command final. */
+  claimTerminalRun?(requestId: string): Promise<boolean>;
   /** Agent `visualize` tool (desktop host only): a session's side-panel tabs
    *  changed, a reveal was asked for, or a web URL goes to the browser panel. */
   onVisualizeChanged?(listener: (event: DesktopVisualizeEvent) => void): () => void;

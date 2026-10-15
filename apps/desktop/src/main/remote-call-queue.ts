@@ -30,6 +30,12 @@ const PARALLEL_READS = new Set([
   'visualizePaneRange',
 ]);
 
+// A review row's own patch, keyed by capability at the dispatch site.
+export const REVIEW_FILE_PATCH_CALLS: ReadonlySet<string> = new Set([
+  'invokeCapability:getSessionReviewFilePatch',
+  'invokeCapability:getTurnReviewFilePatch',
+]);
+
 // Read-only operations that may walk a whole Project index, grep its text or
 // render document pages (seconds, occasionally minutes). They get their own bounded lane so
 // stat/read/capability/submit calls are never queued behind them. They still
@@ -54,6 +60,12 @@ const SLOW_READS = new Set([
   // turn's recorded changes (its patch text can be large).
   'invokeCapability:getTurnReviewDiff',
   'invokeCapability:getTurnChanges',
+  // Review panel reads: each walks or diffs the worktree (a git process per
+  // call, many per refresh), so a snapshot read must not wait behind them.
+  'gitReview',
+  'gitReviewDiff',
+  'gitReviewDiffs',
+  ...[...REVIEW_FILE_PATCH_CALLS],
 ]);
 
 // Dictation (keyed by capability at the dispatch site). A transcription runs

@@ -84,6 +84,7 @@ import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
 import { localPageOrigin } from './local-page-server';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
+import { createTerminalRunRequests } from './terminal/run-requests';
 import type { SessionTerminalTab } from './terminal-manager';
 import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
 import { applyGnomeExtensionSetting } from './computer/host/gnome-extension';
@@ -679,6 +680,7 @@ const requestTerminalRun = (request: DesktopTerminalRunRequest): boolean => {
   mainWindow.webContents.send(DESKTOP_IPC.terminalRunRequested, request);
   return true;
 };
+const terminalRuns = createTerminalRunRequests(requestTerminalRun);
 const terminalBridge = new TerminalBridgeServer<TerminalBridgeCommand>({
   dataDirectory: bridgeDiscoveryDirectory,
   execute: createTerminalCommandExecutor({
@@ -688,7 +690,7 @@ const terminalBridge = new TerminalBridgeServer<TerminalBridgeCommand>({
       await localService.invokeDesktopOperation('termWrite', [id, data]);
     },
     revealTerminal: (sessionId) => requestTerminalRun({ sessionId }),
-    openTerminal: (sessionId, command) => requestTerminalRun({ sessionId, command }),
+    openTerminal: (sessionId, command, signal) => terminalRuns.open(sessionId, command, signal),
     snapshot: async (id, since) =>
       (await localService.invokeDesktopOperation('termSnapshot', since === undefined ? [id] : [id, since])) as {
         text: string;
@@ -2012,6 +2014,7 @@ function installWindowIpc(
         }
       : {}),
     terminals: connection.terminals,
+    terminalRuns,
     remoteHosts: remoteHostsHandle(),
   });
   return () => {

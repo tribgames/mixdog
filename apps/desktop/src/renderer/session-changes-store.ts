@@ -646,7 +646,11 @@ function requestPatchBatch(
       const omitted = new Set(answer?.omitted ?? []);
       for (const { job, file } of live) {
         if (!answer) landPatch(job, null);
-        else if (!omitted.has(file.path)) landPatch(job, textPatch(answer.patches[file.path]));
+        else if (!omitted.has(file.path)) {
+          // Own keys only: `__proto__` or `constructor` are file names, and a
+          // path the answer does not carry is unread, not unchanged.
+          landPatch(job, Object.hasOwn(answer.patches, file.path) ? textPatch(answer.patches[file.path]) : null);
+        }
         else {
           handedOff.add(job);
           enqueuePatchRead(async () => {

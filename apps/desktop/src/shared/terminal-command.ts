@@ -10,4 +10,10 @@ export function terminalCommandInput(command: string): string {
 export interface DesktopTerminalRunRequest {
   sessionId: string;
   command?: string;
+  /** Correlates a `command` with the tool call waiting on it: the renderer
+   *  claims it (`claimTerminalRun`) just before entering the command and enters
+   *  nothing when the claim is refused. */
+  requestId?: string;
+  /** The tool call gave up on this earlier `requestId`; drop its queued input. */
+  cancelRequestId?: string;
 }

@@ -17,9 +17,11 @@ export interface TerminalBridgeBackend {
   /** Ask the renderer to reveal the session's terminal dock. False when no
    *  desktop window is available. */
   revealTerminal(sessionId: string): boolean;
-  /** Ask the renderer to open a tab for the session and enter `command`. False
-   *  when no desktop window is available. */
-  openTerminal(sessionId: string, command: string): boolean;
+  /** Ask the renderer to open a tab for the session and enter `command`.
+   *  Resolves once the renderer commits to entering it; rejects when no desktop
+   *  window is available or `signal` aborts first, and then the command must
+   *  never be entered. */
+  openTerminal(sessionId: string, command: string, signal: AbortSignal): Promise<void>;
   snapshot(
     id: string,
     since?: number
@@ -76,22 +78,35 @@ export function createTerminalCommandExecutor(backend: TerminalBridgeBackend, op
   const openTimeoutMs = options.openTimeoutMs ?? OPEN_TIMEOUT_MS;
   const openPollMs = options.openPollMs ?? OPEN_POLL_MS;
 
-  // The session has no tab: the renderer opens one and enters the command, so
-  // wait (bounded) for the daemon to list it.
-  async function runInNewTab(sessionId: string, command: string) {
-    if (!backend.openTerminal(sessionId, command)) {
-      throw new Error('no desktop window is available to open a terminal');
+  // The session has no tab: the renderer opens one and enters the command. The
+  // wait is bounded and ends with the caller (`signal`); either way an
+  // unclaimed command is withdrawn, so a reported failure never runs later.
+  async function runInNewTab(sessionId: string, command: string, signal?: AbortSignal) {
+    const gate = new AbortController();
+    const abort = () => gate.abort(signal?.reason);
+    if (signal?.aborted) abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    const timer = setTimeout(
+      () => gate.abort(new Error('timed out waiting for the terminal tab to open')),
+      openTimeoutMs
+    );
+    try {
+      await backend.openTerminal(sessionId, command, gate.signal);
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
     }
+    // The command is entered; list the tab it went to.
     const deadline = Date.now() + openTimeoutMs;
     for (;;) {
-      await new Promise((resolve) => setTimeout(resolve, openPollMs));
       const [target] = await backend.sessionTabs(sessionId);
       if (target) return runResult(target, 0);
-      if (Date.now() >= deadline) throw new Error('timed out waiting for the terminal tab to open');
+      if (Date.now() >= deadline) throw new Error('the command was entered but its terminal tab is not listed');
+      await new Promise((resolve) => setTimeout(resolve, openPollMs));
     }
   }
 
-  return async (command: TerminalBridgeCommand): Promise<unknown> => {
+  return async (command: TerminalBridgeCommand, signal?: AbortSignal): Promise<unknown> => {
     const sessionId = command.session_id;
     if (typeof sessionId !== 'string' || !SESSION_ID.test(sessionId)) throw new Error('session_id is invalid');
     if (command.action === 'run') {
@@ -100,7 +115,7 @@ export function createTerminalCommandExecutor(backend: TerminalBridgeBackend, op
       const open = await backend.sessionTabs(sessionId);
       if (!open.length) {
         if (requested !== undefined) throw new Error(`no terminal tab ${requested}; no terminal tabs are open`);
-        return runInNewTab(sessionId, text);
+        return runInNewTab(sessionId, text, signal);
       }
       const target = requested === undefined ? open[0] : open.find((entry) => entry.tab === requested);
       if (!target) throw new Error(`no terminal tab ${requested}; open tabs: ${open.map((entry) => entry.tab).join(', ')}`);

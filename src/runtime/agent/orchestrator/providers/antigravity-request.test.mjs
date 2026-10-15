@@ -132,11 +132,63 @@ test('Claude MCP roots with composition become a flat object schema', () => {
     { name: 'bare', description: 'd', inputSchema: undefined },
   ];
   const [composed, bare] = claudeDeclarations(source);
-  for (const declaration of [composed, bare]) {
-    assert.equal(String(declarationSchema(declaration).type).toLowerCase(), 'object');
-    assert.equal(hasUnion(declaration), false);
-  }
+  assert.equal(String(declarationSchema(composed).type).toLowerCase(), 'object');
+  assert.equal(hasUnion(composed), false);
   assert.deepEqual(Object.keys(declarationSchema(composed).properties).sort(), ['a', 'b']);
+  // No union, so no #80 failure: the declaration keeps its historical shape.
+  assert.equal(JSON.stringify(bare), '{"name":"bare","description":"d"}');
+});
+
+// Output of the pre-change toGeminiRequestTools (git 3c8ac67df^) for these
+// schemas; Claude declarations without a union must stay byte-identical.
+const PRE_CHANGE_CLAUDE_BYTES =
+  '[{"functionDeclarations":[{"name":"closed","description":"d","parameters":{"type":"object","properties":{"a":{"type":"string"},"o":{"type":"object","properties":{"x":{"type":"string"}}}},"required":["a"]}},{"name":"closedOpaque","description":"d","parametersJsonSchema":{"type":"object","properties":{"a":{},"b":{"type":"string"}},"additionalProperties":false}},{"name":"ref","description":"d","parametersJsonSchema":{"type":"object","properties":{"a":{"$ref":"#/$defs/x"}},"$defs":{"x":{"type":"string"}}}},{"name":"multiType","description":"d","parameters":{"type":"object","properties":{"v":{"type":"string","enum":["__mixdog_unrepresentable_schema_conjunction__"],"description":"Schema conjunction could not be represented safely: unsupported type union string|number"}}}}]}]';
+
+test('Claude declarations without a union are byte-identical to the pre-change output', () => {
+  const source = [
+    {
+      name: 'closed',
+      inputSchema: {
+        type: 'object',
+        properties: { a: { type: 'string' }, o: { type: 'object', properties: { x: { type: 'string' } }, additionalProperties: false } },
+        required: ['a'],
+        additionalProperties: false,
+      },
+    },
+    { name: 'closedOpaque', inputSchema: { type: 'object', properties: { a: {}, b: { type: 'string' } }, additionalProperties: false } },
+    { name: 'ref', inputSchema: { type: 'object', properties: { a: { $ref: '#/$defs/x' } }, $defs: { x: { type: 'string' } } } },
+    { name: 'multiType', inputSchema: { type: 'object', properties: { v: { type: ['string', 'number'] } } } },
+  ].map((tool) => ({ ...tool, description: 'd' }));
+  const bytes = JSON.stringify(
+    buildAntigravityRequest(messages, 'claude-sonnet-4-6', source, {}, 'proj').request.tools
+  );
+  assert.equal(bytes, PRE_CHANGE_CLAUDE_BYTES);
+});
+
+test('Claude unions are collapsed on the unchanged declaration path (closed objects keep additionalProperties:false)', () => {
+  const closedUnion = {
+    type: 'object',
+    properties: { v: { oneOf: [{ type: 'string' }, { type: 'integer' }] }, o: { type: 'object', properties: { x: { type: 'string' } }, additionalProperties: false } },
+    required: ['v'],
+    additionalProperties: false,
+  };
+  const opaqueUnion = {
+    type: 'object',
+    properties: { v: { anyOf: [{ type: 'string' }, { type: 'null' }] }, any: {} },
+    additionalProperties: false,
+  };
+  const [typed, opaque] = claudeDeclarations([
+    { name: 'closedUnion', description: 'd', inputSchema: closedUnion },
+    { name: 'opaqueUnion', description: 'd', inputSchema: opaqueUnion },
+  ]);
+  assert.equal(
+    JSON.stringify(typed),
+    '{"name":"closedUnion","description":"d","parameters":{"type":"object","properties":{"v":{"type":"string"},"o":{"type":"object","properties":{"x":{"type":"string"}}}},"required":["v"]}}'
+  );
+  assert.equal(
+    JSON.stringify(opaque),
+    '{"name":"opaqueUnion","description":"d","parametersJsonSchema":{"type":"object","properties":{"v":{"type":"string","nullable":true},"any":{}},"additionalProperties":false}}'
+  );
 });
 
 test('Gemini declarations are unchanged by the Claude normalization', () => {
@@ -176,6 +228,27 @@ test('Claude replay drops the empty text parts recorded around a tool call', () 
   assert.ok(claude.some((part) => part.functionCall?.name === 'glob'));
   assert.ok(claude.some((part) => part.thoughtSignature === 'sig'));
   assert.equal(modelParts('gemini-3.8-flash').filter((part) => part.text === '' && !part.thoughtSignature).length, 2);
+});
+
+test('a Claude assistant turn that held only empty parts is omitted, not sent as parts:[]', () => {
+  const history = (model) => [
+    { role: 'user', content: 'first' },
+    {
+      role: 'assistant',
+      content: '',
+      providerReplay: { version: 1, provider: 'antigravity', items: [{ text: '' }, { text: '' }], requestContext: { model } },
+    },
+    { role: 'user', content: 'second' },
+  ];
+  const contents = (model) => buildAntigravityRequest(history(model), model, [], {}).request.contents;
+  const claude = contents('claude-sonnet-5-5-low');
+  assert.equal(
+    claude.some((content) => !content.parts?.length),
+    false
+  );
+  assert.equal(claude.some((content) => content.role === 'model'), false);
+  // Gemini history is left as recorded.
+  assert.equal(contents('gemini-3.8-flash').filter((content) => content.role === 'model').length, 1);
 });
 
 test('Claude replay rejoins streamed thinking deltas into one signed block', () => {

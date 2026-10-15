@@ -97,8 +97,12 @@ export function createTextRelay({ state, body, onTextDelta, meaningful, emitTool
   };
   const absorbCompletedMessage = (item) => {
     let reported = false;
+    // Decided once per message item (as the WS completed-item fold does), so
+    // every content part of an item with no streamed text is absorbed rather
+    // than only the first one that fills `state.content`.
+    const absorbText = !state.content;
     for (const part of item.content || []) {
-      if (!state.content && part.type === 'output_text' && absorbCompletedText(part)) reported = true;
+      if (absorbText && part.type === 'output_text' && absorbCompletedText(part)) reported = true;
       if (part.type === 'output_text') pushOutputTextAnnotations(part, state.citations, state.citationKeys);
     }
     if (state.refusals.absorbMessage(item)) {

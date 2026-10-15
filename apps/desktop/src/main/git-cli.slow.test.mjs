@@ -499,6 +499,62 @@ describe('working tree and history', { concurrency: 4 }, () => {
     }
   });
 
+  test('review diffs batch still matches headers under diff.noprefix and diff.mnemonicPrefix', async () => {
+    const cwd = await createRepository();
+    try {
+      await commit(cwd, 'a.txt', 'one\n', 'Initial');
+      await commit(cwd, 'same.txt', 'keep\n', 'Same');
+      await writeFile(join(cwd, 'a.txt'), 'one\ntwo\n', 'utf8');
+      const request = [
+        { path: 'a.txt', untracked: false },
+        { path: 'same.txt', untracked: false },
+      ];
+      for (const [key, value] of [
+        ['diff.noprefix', 'true'],
+        ['diff.mnemonicPrefix', 'true'],
+      ]) {
+        await git(cwd, ['config', key, value]);
+        const batch = await gitReviewDiffs(cwd, request, 'uncommitted');
+        assert.deepEqual(batch.omitted, [], key);
+        assert.match(batch.patches['a.txt'], /^diff --git a\/a\.txt b\/a\.txt$/m, key);
+        assert.match(batch.patches['a.txt'], /^\+two$/m, key);
+        assert.equal(batch.patches['same.txt'], '', key);
+        assert.equal(batch.patches['a.txt'], await gitReviewDiff(cwd, 'a.txt', false, 'uncommitted'), key);
+        await git(cwd, ['config', '--unset', key]);
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('review diffs batch keeps a file named __proto__ as an own key', async () => {
+    const cwd = await createRepository();
+    try {
+      await commit(cwd, '__proto__', 'one\n', 'Initial');
+      await commit(cwd, 'constructor', 'x\n', 'Second');
+      await writeFile(join(cwd, '__proto__'), 'one\ntwo\n', 'utf8');
+      await writeFile(join(cwd, 'untracked-proto'), 'u\n', 'utf8');
+      const batch = await gitReviewDiffs(
+        cwd,
+        [
+          { path: '__proto__', untracked: false },
+          { path: 'constructor', untracked: false },
+        ],
+        'uncommitted'
+      );
+      assert.deepEqual(batch.omitted, []);
+      assert.equal(Object.getPrototypeOf(batch.patches), Object.prototype);
+      assert.deepEqual(Object.keys(batch.patches).sort(), ['__proto__', 'constructor']);
+      assert.match(Object.getOwnPropertyDescriptor(batch.patches, '__proto__').value, /^\+two$/m);
+      assert.equal(Object.getOwnPropertyDescriptor(batch.patches, 'constructor').value, '');
+      // It survives the JSON hop of a remote call.
+      const wire = JSON.parse(JSON.stringify(batch));
+      assert.match(Object.getOwnPropertyDescriptor(wire.patches, '__proto__').value, /^\+two$/m);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test('review file revision changes when content changes without changing line counts', async () => {
     const cwd = await createRepository();
     try {

@@ -87,9 +87,9 @@ export function applyCompatProviderChatOptions(params, providerName, opts = {}, 
         const effort = String(deepseekRawEffort(opts, config) ?? '')
           .trim()
           .toLowerCase();
-        if (effort === 'max') params.reasoning_effort = 'max';
-        // DeepSeek documents low/high/max; `minimal` is its alias for low,
-        // `medium`/`xhigh` for high, and `low` must not be promoted.
+        // DeepSeek documents low/high/max; `ultra` is its alias for max,
+        // `minimal` for low, `medium`/`xhigh` for high; `low` must not be promoted.
+        if (effort === 'max' || effort === 'ultra') params.reasoning_effort = 'max';
         else if (effort === 'low' || effort === 'minimal') params.reasoning_effort = 'low';
         else if (['medium', 'high', 'xhigh'].includes(effort)) params.reasoning_effort = 'high';
       }

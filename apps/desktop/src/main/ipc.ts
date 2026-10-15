@@ -168,6 +168,8 @@ interface DesktopIpcDependencies {
   remoteHosts?: RemoteHostWindows;
   updater?: DesktopUpdater;
   terminals?: DesktopTerminalHost;
+  /** Agent `terminal` tool: the renderer claims a command before entering it. */
+  terminalRuns?: { claim(requestId: string): boolean };
   /** The kind of daemon connection `host` is: a server (`ssh`) window refuses
    *  every feature that acts on this PC (see connections/feature-gates). */
   connectionKind?: ConnectionKind;
@@ -192,6 +194,7 @@ export function registerDesktopIpc(
     browserHost,
     updater,
     terminals,
+    terminalRuns,
     computer,
     remoteAccessInfo,
     rotateRemoteAccess,
@@ -355,6 +358,7 @@ export function registerDesktopIpc(
     ipcMain,
     handle,
     terminals,
+    terminalRuns,
     invokeDesktopOperation,
   });
   registerSourceControlIpc({

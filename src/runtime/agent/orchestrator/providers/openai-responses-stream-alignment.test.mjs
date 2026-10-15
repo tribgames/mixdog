@@ -184,6 +184,25 @@ test('WS and HTTP/SSE: a text-only max_output_tokens cutoff completes as length 
   }
 });
 
+test('WS and HTTP/SSE: terminal-only message parts are all absorbed; streamed text is not duplicated', async () => {
+  const completed = (parts) => ({
+    type: 'response.completed',
+    response: {
+      status: 'completed',
+      usage,
+      output: [{ type: 'message', id: 'msg_1', role: 'assistant', content: parts.map((text) => ({ type: 'output_text', text })) }],
+    },
+  });
+  const terminalOnly = [created, completed(['first', 'second'])];
+  const streamed = [created, { type: 'response.output_text.delta', delta: 'firstsecond' }, completed(['first', 'second'])];
+  for (const [frames, expected] of [[terminalOnly, 'firstsecond'], [streamed, 'firstsecond']]) {
+    const ws = await runWs(frames).pending;
+    const http = runHttp(frames).result();
+    assert.equal(ws.content, expected, 'ws');
+    assert.equal(http.content, expected, 'http');
+  }
+});
+
 const refusalMessage = (text) => ({
   type: 'message',
   id: 'msg_1',

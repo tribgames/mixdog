@@ -397,3 +397,66 @@ test('a wire switch never follows output, auth, quota, abort or a second refusal
   await assert.rejects(run(routedProvider('command-code-oauth', ['responses']), async () => { calls++; throw refuse(); }));
   assert.equal(calls, 1);
 });
+
+test('a typed parameter, quota or billing error that mentions an endpoint never switches wire', () => {
+  const http = (status, message, extra = {}) => Object.assign(new Error(message), { status, ...extra });
+  // Parameter rejection on a 400, even though the message says "endpoint".
+  assert.equal(isWireUnsupportedError(http(400, 'Unsupported parameter: temperature for this API endpoint')), false);
+  assert.equal(
+    isWireUnsupportedError(http(400, 'Unsupported parameter: temperature for this API endpoint', { param: 'temperature' })),
+    false
+  );
+  assert.equal(isWireUnsupportedError(http(400, 'bad request', { providerErrorCode: 'unsupported_parameter', message: 'this endpoint is not supported' })), false);
+  // Typed quota / billing / auth, with endpoint-unavailable wording.
+  assert.equal(
+    isWireUnsupportedError(http(400, 'The responses endpoint is not available on your plan', { code: 'insufficient_quota' })),
+    false
+  );
+  assert.equal(
+    isWireUnsupportedError(http(404, 'The /v1/messages endpoint is not available', { error: { type: 'billing_error' } })),
+    false
+  );
+  assert.equal(isWireUnsupportedError(http(404, 'endpoint unavailable', { quotaExhausted: true })), false);
+  assert.equal(isWireUnsupportedError(http(405, 'This endpoint is not available: add credits to your balance')), false);
+  assert.equal(isWireUnsupportedError(http(400, 'invalid api key for this endpoint, not supported')), false);
+  // A bare "API" is not an endpoint word.
+  assert.equal(isWireUnsupportedError(http(400, 'model is not supported by this API')), false);
+  // The specific wire rejection still qualifies when typed neutrally.
+  assert.equal(
+    isWireUnsupportedError(http(400, 'This model is not supported on the /v1/responses endpoint', { code: 'invalid_request_error' })),
+    true
+  );
+});
+
+test('consecutive sends reusing one opts object follow the session pin through reroutes', async () => {
+  const model = 'gpt-5.5';
+  const pin = { provider: 'command-code-oauth', model, wire: 'responses', profileId: 'command-code-oauth:responses' };
+  const session = { provider: 'command-code-oauth', model, wireRoute: pin, messages: [{ role: 'user', content: 'q' }] };
+  const provider = {
+    name: 'command-code-oauth',
+    resolveWireRoute: async (m, ctx) => {
+      const exclude = ctx.exclude || [];
+      const wires = ['responses', 'chat'].filter((wire) => !exclude.includes(wire));
+      const keep = ctx.keep && wires.includes(ctx.keep) ? ctx.keep : null;
+      const wire = keep || wires[0];
+      return { wire, profileId: `command-code-oauth:${wire}`, source: keep ? 'pinned' : 'endpoints' };
+    },
+  };
+  const sendOpts = { session, wireRoute: pin }; // the same opts object every send of the turn
+  const refuse = (wire) => Object.assign(new Error(`${wire} endpoint is not supported for this model`), { status: 400 });
+  const seen = [];
+  // The gateway refuses whichever wire is tried first; the other one answers.
+  for (const refused of ['responses', 'chat', 'responses']) {
+    const wires = [];
+    await sendOnRoute(provider, model, [], sendOpts, session.messages, async (wire) => {
+      wires.push(wire);
+      if (wire === refused) throw refuse(wire);
+      return { content: 'ok' };
+    });
+    seen.push(wires);
+  }
+  // Send 1 starts on the pin (responses) and moves to chat. Send 2 starts on
+  // the session's current pin (chat), not the stale opts copy, and moves back.
+  assert.deepEqual(seen, [['responses', 'chat'], ['chat', 'responses'], ['responses', 'chat']]);
+  assert.equal(session.wireRoute.wire, 'chat');
+});

@@ -385,3 +385,29 @@ test('proxy mode never looks up a server-side model credential', async (t) => {
     ]
   );
 });
+
+test('a PC-side wire reroute is adopted by the daemon session and not repeated', async () => {
+  const { ModelProxyProvider } = await import('./model-proxy-provider.mjs');
+  const pin = { provider: 'command-code-oauth', model: 'gpt-5.5', wire: 'responses', profileId: 'command-code-oauth:responses' };
+  const rerouted = { ...pin, wire: 'chat', profileId: 'command-code-oauth:chat', source: 'reroute', reroutedFrom: 'responses' };
+  const calls = [];
+  const channel = {
+    request: async (call, options) => {
+      calls.push(call);
+      return { content: 'ok', wireReroute: calls.length === 1 ? rerouted : undefined };
+    },
+  };
+  const provider = new ModelProxyProvider('command-code-oauth', {}, channel);
+  const session = { provider: 'command-code-oauth', model: 'gpt-5.5', wireRoute: pin, messages: [] };
+  await provider.send([{ role: 'user', content: 'q' }], 'gpt-5.5', [], { session });
+  assert.equal(session.wireRoute, rerouted);
+  // The next proxied turn carries the new pin to the PC.
+  await provider.send([{ role: 'user', content: 'q' }], 'gpt-5.5', [], { session });
+  assert.equal(calls[1].options.session.wireRoute.wire, 'chat');
+  // A route for another model never replaces the pin.
+  const other = { provider: 'command-code-oauth', model: 'x', wire: 'chat', wireRoute: { ...pin, model: 'x' } };
+  const foreign = { ...rerouted, model: 'y' };
+  channel.request = async () => ({ content: 'ok', wireReroute: foreign });
+  await provider.send([], 'x', [], { session: other });
+  assert.equal(other.wireRoute.wire, 'responses');
+});

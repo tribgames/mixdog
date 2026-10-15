@@ -512,10 +512,23 @@ const IN_FLIGHT_BUDGET = 'openrouter_in_flight_budget';
 
 const IN_FLIGHT_BUDGET_MAX_WAIT_MS = 60_000;
 
-// Only a 402 that names the marker AND carries a short Retry-After is a wait;
-// without advice (or with a long one) it stays a billing refusal.
-function isInFlightBudget402(chain, status, retryAfterMs) {
-  if (status !== 402 || retryAfterMs == null || retryAfterMs > IN_FLIGHT_BUDGET_MAX_WAIT_MS) return false;
+// Retry-After advice for the budget exception: a valid `0` ("retry now") is
+// advice here, although retryAfterMsFromError treats zero as none.
+function inFlightAdviceMs(err) {
+  const advised = retryAfterMsFromError(err);
+  if (advised != null) return advised;
+  for (const [name, unitMs] of [['retry-after-ms', 1], ['retry-after', 1000]]) {
+    const value = errorHeaderValue(err, name);
+    const n = Number(value);
+    if (value != null && String(value).trim() !== '' && Number.isFinite(n) && n >= 0) return n * unitMs;
+  }
+  return null;
+}
+
+// Only a 402 that names the marker AND carries Retry-After advice of 0..60s
+// inclusive is a wait; without advice (or with a long one) it stays billing.
+function isInFlightBudget402(chain, status, adviceMs) {
+  if (status !== 402 || adviceMs == null || adviceMs > IN_FLIGHT_BUDGET_MAX_WAIT_MS) return false;
   return chain.some((item) => {
     if (!item || typeof item !== 'object') return false;
     const detail = wireDetail(item);
@@ -638,7 +651,10 @@ export function providerErrorKind(err, options = {}) {
   if (err.quotaExhausted && typeof err.quotaExhausted === 'object') return describe('quota_exhausted');
   if (chain.some((item) => item?.reauthRequired === true)) return describe('auth');
 
-  if (isInFlightBudget402(chain, status, retryAfterMs)) return describe('transient', IN_FLIGHT_BUDGET);
+  if (isInFlightBudget402(chain, status, inFlightAdviceMs(err))) return describe('transient', IN_FLIGHT_BUDGET);
+  // Every other 402 is a billing refusal, whatever generic retryable code
+  // (server_error, rate_limit_exceeded) its body also carries.
+  if (status === 402) return describe('billing');
 
   let { kind, code } = kindFromCodes(codes, scope);
   // Explicit quota flags (Anthropic unified-status rejected headers) outrank a

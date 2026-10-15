@@ -97,9 +97,30 @@ function claudeFunctionSchema(inputSchema, toolName) {
   return { ...root, type: 'object', properties: isPlainObject(root.properties) ? root.properties : {} };
 }
 
+// True when normalizeClaudeSchemaNode would collapse a union somewhere in the
+// schema (same traversal; a property merely named "anyOf" does not count).
+function hasClaudeUnion(input) {
+  if (!isPlainObject(input)) return false;
+  if (Array.isArray(input.anyOf) || Array.isArray(input.oneOf)) return true;
+  const children = [
+    ...SCHEMA_MAP_KEYS.flatMap((key) => (isPlainObject(input[key]) ? Object.values(input[key]) : [])),
+    ...SCHEMA_NODE_KEYS.map((key) => input[key]),
+    ...SCHEMA_LIST_KEYS.flatMap((key) => (Array.isArray(input[key]) ? input[key] : [])),
+    ...(Array.isArray(input.items) ? input.items : []),
+  ];
+  return children.some(hasClaudeUnion);
+}
+
+// Only a schema carrying a union (the #80 400) is rewritten; every other
+// declaration takes the unchanged historical selection and bytes
+// (`claudeBridge: true`).
 function claudeRequestTools(tools, nativeTools) {
   return toGeminiRequestTools(
-    tools?.map((tool) => ({ ...tool, inputSchema: claudeFunctionSchema(tool.inputSchema, tool.name) })),
+    tools?.map((tool) =>
+      hasClaudeUnion(tool.inputSchema)
+        ? { ...tool, inputSchema: claudeFunctionSchema(tool.inputSchema, tool.name) }
+        : tool
+    ),
     nativeTools,
     { claudeBridge: true }
   );
@@ -158,15 +179,17 @@ function coalesceClaudeThoughts(parts) {
 
 function signatureSafeMessages(messages, model) {
   const claude = isAntigravityClaude(model);
-  return messages.map((message) => {
-    if (message?.role !== 'assistant') return message;
+  return messages.flatMap((message) => {
+    if (message?.role !== 'assistant') return [message];
     const ownParts = replayFamilyMatches(message, model) ? providerReplayItems(message, 'antigravity') : undefined;
     // Repair tool signatures only after the complete history establishes
     // the active turn, not while normalizing an isolated older message.
     const sourceParts = ownParts || toGeminiContents([message], model, { repairToolSignatures: false })[0]?.parts;
     const parts =
       claude && sourceParts ? coalesceClaudeThoughts(sourceParts.filter((part) => !isEmptyPlainTextPart(part))) : sourceParts;
-    if (!parts?.length) return message;
+    // A turn that held only empty parts is omitted, not sent as parts:[].
+    if (sourceParts?.length && !parts.length) return [];
+    if (!parts?.length) return [message];
     for (const part of parts) {
       if (!part || typeof part !== 'object') continue;
       if (part.thought === true || typeof part.thoughtSignature === 'string') {
@@ -176,7 +199,7 @@ function signatureSafeMessages(messages, model) {
         if (!ownParts || !part.thoughtSignature) part.thoughtSignature = THOUGHT_SIGNATURE_SENTINEL;
       }
     }
-    return { ...message, providerReplay: createProviderReplay('antigravity', parts) };
+    return [{ ...message, providerReplay: createProviderReplay('antigravity', parts) }];
   });
 }
 

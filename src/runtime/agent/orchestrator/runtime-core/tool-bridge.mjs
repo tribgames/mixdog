@@ -100,7 +100,11 @@ function decodeContinuation(token) {
   if (token.length > BRIDGE_LIMITS.continuationMaxChars) return invalidContinuation();
   let payload = null;
   try {
-    payload = JSON.parse(Buffer.from(token.slice(BRIDGE_CONTINUATION_PREFIX.length), 'base64url').toString('utf8'));
+    const body = token.slice(BRIDGE_CONTINUATION_PREFIX.length);
+    const bytes = Buffer.from(body, 'base64url');
+    // Only the canonical encoding this tool emits is accepted.
+    if (bytes.toString('base64url') !== body) return invalidContinuation();
+    payload = JSON.parse(bytes.toString('utf8'));
   } catch {
     payload = null;
   }
@@ -120,7 +124,8 @@ function decodeContinuation(token) {
   return { indexes, revision: payload.r, offset: payload.o };
 }
 
-const isContinuation = (value) => typeof value === 'string' && value.trim().startsWith(BRIDGE_CONTINUATION_PREFIX);
+// A whole names value that is exactly one token: no padding, separators or other text.
+const CONTINUATION_TOKEN_PATTERN = new RegExp(`^\\s*${BRIDGE_CONTINUATION_PREFIX}[A-Za-z0-9_-]+\\s*$`);
 
 const catalogChanged = () =>
   bridgeError(
@@ -329,14 +334,13 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
   // is split exactly as for a lookup, and a token beside any other value is
   // refused rather than read as a missing name.
   const raw = args.names;
-  const split =
-    typeof raw === 'string' || (Array.isArray(raw) && raw.every((item) => typeof item === 'string'))
-      ? parseToolSelection(raw)
-      : null;
+  const strings = typeof raw === 'string' ? [raw] : Array.isArray(raw) && raw.every((item) => typeof item === 'string') ? raw : [];
   let continuation = null;
-  if (split?.some(isContinuation)) {
-    if (split.length !== 1) return bridgeError('INVALID_ARGUMENTS', 'pass a continuation token alone in names.');
-    continuation = decodeContinuation(split[0]);
+  if (strings.some((item) => item.includes(BRIDGE_CONTINUATION_PREFIX))) {
+    if (strings.length !== 1 || !CONTINUATION_TOKEN_PATTERN.test(strings[0])) {
+      return bridgeError('INVALID_ARGUMENTS', 'pass a continuation token alone in names.');
+    }
+    continuation = decodeContinuation(strings[0].trim());
     if (continuation.error) return continuation;
   }
   const available = availableBridgeTools(session);

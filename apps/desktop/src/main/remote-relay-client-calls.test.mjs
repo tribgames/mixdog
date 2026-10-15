@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createRelayClientCallDispatch, remoteCallStatName } from './remote-relay-client-calls.ts';
+import { createRelayClientCallDispatch, remoteCallQueueKey, remoteCallStatName } from './remote-relay-client-calls.ts';
 
 test('capability calls are named by their allow-listed capabilities, never by arguments', () => {
   assert.equal(
@@ -116,4 +116,19 @@ test('a per-client method table answers only the client it was built for', async
     sent.map((frame) => frame.value),
     ['cred-a', 'cred-b']
   );
+});
+
+test('review reads and per-file patches pick the slow-read queue key', () => {
+  const stat = (capability) =>
+    remoteCallStatName('invokeCapability', [{ capability, args: [], sessionId: 's' }]);
+  for (const capability of ['getSessionReviewFilePatch', 'getTurnReviewFilePatch', 'getTurnChanges']) {
+    assert.equal(remoteCallQueueKey('invokeCapability', stat(capability)), `invokeCapability:${capability}`);
+  }
+  assert.equal(
+    remoteCallQueueKey('invokeCapability', stat('getTurnReviewDiff') + '+tagged'),
+    'invokeCapability:getTurnReviewDiff'
+  );
+  for (const method of ['gitReview', 'gitReviewDiff', 'gitReviewDiffs', 'getSnapshot']) {
+    assert.equal(remoteCallQueueKey(method, method), method);
+  }
 });

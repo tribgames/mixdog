@@ -42,7 +42,7 @@ export function useAppWorkbenchHubs(
     requestedSessionId,
   } = nav;
   const { tabs, startTask, activateSelection } = lifecycle.taskLifecycle;
-  const { startProject, openSettings } = commands;
+  const { startProject, openSettings, renameSession } = commands;
   const { sessionTitle, activeTabKey, toolProjectPath, workbenchWorkspace } = context;
   const {
     openFileTab,
@@ -74,6 +74,7 @@ export function useAppWorkbenchHubs(
     navigateTab,
     closeTab,
     pinPaneTab,
+    renameSession,
     stripTrailing: (leaf) =>
       renderPaneDockStripTrailing(leaf, {
         workbenchSideLayout,

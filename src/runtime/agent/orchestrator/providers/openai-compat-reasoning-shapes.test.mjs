@@ -4,6 +4,7 @@ import { OpenAICompatProvider } from './openai-compat.mjs';
 import { normalizeCompatChatResponse } from './openai-compat-response-normalization.mjs';
 import { toOpenAIMessages } from './openai-compat-wire.mjs';
 import { sendCompatChat } from './openai-compat-chat-send.mjs';
+import { deepSeekEffortProjection } from './deepseek.mjs';
 import { compatReasoningShape } from './openai-compat-reasoning-field.mjs';
 
 const shapeOf = (baseURL, extra = {}) => compatReasoningShape({ baseURL, ...extra });
@@ -330,4 +331,22 @@ test('xAI Chat sends x-grok-conv-id and keeps caller headers; DeepSeek minimal m
   await ds.provider.send(user, 'deepseek-v4-pro', [], { effort: 'minimal' });
   assert.deepEqual(ds.requests[0].thinking, { type: 'enabled' });
   assert.equal(ds.requests[0].reasoning_effort, 'low');
+});
+
+test('DeepSeek Chat and Messages agree on the effort map (minimal→low, ultra→max)', async () => {
+  for (const [effort, expected] of [
+    ['minimal', 'low'],
+    ['low', 'low'],
+    ['medium', 'high'],
+    ['xhigh', 'high'],
+    ['max', 'max'],
+    ['ultra', 'max'],
+  ]) {
+    const ds = providerFor('deepseek', 'https://api.deepseek.com', [[delta({ content: 'a' }, 'stop')]]);
+    await ds.provider.send(user, 'deepseek-v4-pro', [], { effort });
+    assert.equal(ds.requests[0].reasoning_effort, expected, `chat ${effort}`);
+    const body = {};
+    deepSeekEffortProjection(body, { effort });
+    assert.equal(body.output_config.effort, expected, `messages ${effort}`);
+  }
 });

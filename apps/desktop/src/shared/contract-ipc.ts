@@ -155,6 +155,7 @@ export const DESKTOP_IPC = {
   notificationOpenSession: 'mixdog:notification-open-session',
   browserOpenRequested: 'mixdog:browser-open-requested',
   terminalRunRequested: 'mixdog:terminal-run-requested',
+  terminalRunClaim: 'mixdog:terminal-run-claim',
   browserSessionReleased: 'mixdog:browser-session-released',
   browserSetActiveGuest: 'mixdog:browser-set-active-guest',
   browserReleasePage: 'mixdog:browser-release-page',

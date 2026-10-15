@@ -3,7 +3,12 @@
 // answered here, and every other call queued into the host's remote methods.
 import { DESKTOP_CAPABILITIES } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
-import { SIDE_QUESTION_CALLS, SIDE_QUESTION_CANCEL_CALL, VOICE_CALLS } from './remote-call-queue';
+import {
+  REVIEW_FILE_PATCH_CALLS,
+  SIDE_QUESTION_CALLS,
+  SIDE_QUESTION_CANCEL_CALL,
+  VOICE_CALLS,
+} from './remote-call-queue';
 import { filterSessionIds, requiredSessionId } from './desktop-state';
 import { normalizeRemoteBrowserStreamOptions } from '../shared/remote-browser';
 import type { createBrowserRemoteStreams } from './remote-browser-streams';
@@ -32,6 +37,22 @@ function callCapabilities(method: string, params: unknown): string[] {
     const name = (request as { capability?: unknown } | null)?.capability;
     return typeof name === 'string' && KNOWN_CAPABILITIES.has(name) ? name : 'unknown';
   });
+}
+
+/** The lane key of a call: its method, or for a capability call the capability
+ *  name when that capability rides a slow-read, voice or side-question lane. */
+export function remoteCallQueueKey(method: string, statName: string): string {
+  if (statName.startsWith('invokeCapability:getTurnReviewDiff')) return 'invokeCapability:getTurnReviewDiff';
+  if (
+    statName === 'invokeCapability:getTurnChanges' ||
+    REVIEW_FILE_PATCH_CALLS.has(statName) ||
+    VOICE_CALLS.has(statName) ||
+    SIDE_QUESTION_CALLS.has(statName) ||
+    statName === SIDE_QUESTION_CANCEL_CALL
+  ) {
+    return statName;
+  }
+  return method;
 }
 
 /** The per-minute call summary key: the method, plus its capability names. */
@@ -242,16 +263,7 @@ export function createRelayClientCallDispatch(
     // and is read-only: it rides the slow-read lane instead of fencing
     // stat/read/submit calls behind it. Dictation rides its own voice lane.
     const statName = remoteCallStatName(String(call?.method ?? ''), call?.params);
-    let queueKey = String(call?.method ?? '');
-    if (statName.startsWith('invokeCapability:getTurnReviewDiff')) queueKey = 'invokeCapability:getTurnReviewDiff';
-    else if (statName === 'invokeCapability:getTurnChanges') queueKey = statName;
-    else if (
-      VOICE_CALLS.has(statName) ||
-      SIDE_QUESTION_CALLS.has(statName) ||
-      statName === SIDE_QUESTION_CANCEL_CALL
-    ) {
-      queueKey = statName;
-    }
+    const queueKey = remoteCallQueueKey(String(call?.method ?? ''), statName);
     const methods = typeof deps.methods === 'function' ? deps.methods(clientId, client) : deps.methods;
     // A /btw call names its session: a queued side question that session's
     // cancel (or newer side question) overtook is answered as canceled.

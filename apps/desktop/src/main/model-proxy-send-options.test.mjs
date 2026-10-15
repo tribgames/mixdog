@@ -94,10 +94,8 @@ const NOT_SEND_OPTIONS = new Map([
 const NOT_PROJECTED_SESSION_READS = new Map([
   [
     'wire-route.mjs::messages',
-    'pinSessionWireRoute reads the daemon-side session; the send path falls back to the request messages',
+    'read by pinSessionWireRoute (daemon-side session) AND by the send path (legacy detection, lowering count), which on a projected session falls back to the request messages',
   ],
-  ['wire-route.mjs::model', 'pinSessionWireRoute reads the daemon-side session'],
-  ['wire-route.mjs::provider', 'pinSessionWireRoute reads the daemon-side session'],
 ]);
 
 /** `file::expression` computed reads off send options, with why they are safe. */

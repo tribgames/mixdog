@@ -263,6 +263,40 @@ test('load_tool validates names and continuation tokens', () => {
   assert.equal(code({ names: [` ${token} `] }), 'CATALOG_CHANGED');
 });
 
+test('a token mixed with other content inside one names element is refused, and only canonical tokens decode', () => {
+  const session = bridgeSession();
+  const forge = (payload) =>
+    `${BRIDGE_CONTINUATION_PREFIX}${Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')}`;
+  const token = forge({ v: 2, t: [0], r: 'x', o: 0 });
+  const code = (names) => describeBridgeTools(session, { names }).error?.code;
+  assert.equal(code([token]), 'CATALOG_CHANGED');
+  for (const names of [
+    [`${token}=,read`],
+    [`read,${token}`],
+    [`${token}=`],
+    [`${token}==`],
+    [`${token},read`],
+    [`${token}!`],
+    [`read ${token}`],
+    `${token}=,read`,
+  ]) {
+    const result = describeBridgeTools(session, { names });
+    assert.equal(result.error?.code, 'INVALID_ARGUMENTS', JSON.stringify(names));
+    assert.equal(result.entries, undefined);
+    assert.equal(result.missing, undefined);
+  }
+  // A non-canonical encoding of the same bytes (stray trailing bits) is no token this tool returned.
+  const body = token.slice(BRIDGE_CONTINUATION_PREFIX.length);
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const last = body.at(-1);
+  if (body.length % 4 !== 0) {
+    const sibling = alphabet[(alphabet.indexOf(last) + 1) % 64];
+    const noncanonical = `${BRIDGE_CONTINUATION_PREFIX}${body.slice(0, -1)}${sibling}`;
+    assert.deepEqual(Buffer.from(noncanonical.slice(BRIDGE_CONTINUATION_PREFIX.length), 'base64url'), Buffer.from(body, 'base64url'));
+    assert.equal(code([noncanonical]), 'INVALID_CONTINUATION');
+  }
+});
+
 test('review: a forged token naming more definitions than a request can resolve is refused', () => {
   const catalog = Array.from({ length: 1200 }, (_, index) => def(`fixture_${index}`, { readOnly: true }));
   const session = bridgeSession({ catalog });

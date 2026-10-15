@@ -417,6 +417,38 @@
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
 }
+/* In-place session rename: the field covers the label cell (same inline-input
+   look as the sidebar row editor); the label and X hide while it is open. */
+.workspace-tab-title-input {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  z-index: 1;
+  transform: translateY(-50%);
+  /* Narrow tabs (many open) still get a usable field; it overlays the
+     neighbours while open. */
+  width: max(calc(100% - 12px), 220px);
+  height: 24px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+}
+.workspace-tab.editing {
+  /* The tab is its own stacking context (container layout containment); lift it so the wide field covers the neighbours. */
+  z-index: 3;
+}
+.workspace-tab.editing .workspace-tab-main,
+.workspace-tab.editing .workspace-tab-close {
+  visibility: hidden;
+}
 .workspace-tab.active .workspace-tab-main span {
   font-weight: var(--mx-weight-medium);
 }

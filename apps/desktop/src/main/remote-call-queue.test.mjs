@@ -310,3 +310,28 @@ test('read concurrency is bounded and disconnect never starts queued mutations',
   assert.equal(writes, 0);
   assert.equal(results.filter((row) => row.status === 'rejected').length, 4);
 });
+
+test('review reads ride the slow lane, so a snapshot read never waits behind them', async () => {
+  for (const method of [
+    'gitReview',
+    'gitReviewDiff',
+    'gitReviewDiffs',
+    'invokeCapability:getSessionReviewFilePatch',
+    'invokeCapability:getTurnReviewFilePatch',
+  ]) {
+    const queue = createRemoteCallQueue(4, 2);
+    const release = deferred();
+    const seen = [];
+    // Fill the slow lane: a third review read waits there, not in the general lane.
+    const first = queue.run(method, () => release.promise);
+    const second = queue.run(method, () => release.promise);
+    const third = queue.run(method, async () => seen.push('third'));
+    await queue.run('getSnapshot', async () => seen.push('snapshot'));
+    await queue.run('markSessionRead', async () => seen.push('read-mark'));
+    assert.deepEqual(seen, ['snapshot', 'read-mark'], method);
+    release.resolve();
+    await Promise.all([first, second, third]);
+    assert.deepEqual(seen, ['snapshot', 'read-mark', 'third'], method);
+    queue.close();
+  }
+});
