@@ -27,6 +27,7 @@ test('the composer offers only frequent commands and preserves direct command ex
   const { desktopComposerSlashCommands, resolveDesktopSlashCommand } = await import('./slash-commands.ts');
   const expected = [
     '/new',
+    '/btw',
     '/resume',
     '/model',
     '/compact',
@@ -155,6 +156,7 @@ test('the composer offers only frequent commands and preserves direct command ex
 
     await key('ArrowUp');
     assert.equal(palette().querySelector('[aria-selected="true"] code').textContent, '/fast');
+    await key('ArrowDown');
     await key('ArrowDown');
     await key('ArrowDown');
     await key('ArrowDown');

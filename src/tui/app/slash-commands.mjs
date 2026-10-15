@@ -16,6 +16,12 @@ export const SLASH_COMMANDS = [
   },
   { name: 'compact', usage: '/compact', description: 'Compact older conversation context' },
   {
+    name: 'btw',
+    usage: '/btw',
+    params: '<question>',
+    description: 'Ask a quick side question without interrupting the current work',
+  },
+  {
     name: 'goal',
     usage: '/goal',
     params: '[objective --time 1h --time-mode max|status|pause|resume|edit|stop]',
@@ -112,6 +118,7 @@ export function overlayBlocksGlobalTranscriptScroll(owner = {}) {
     owner.toolApproval ||
     owner.contextPanel ||
     owner.usagePanel ||
+    owner.btwPanel ||
     owner.providerPrompt ||
     owner.settingsPrompt
   );

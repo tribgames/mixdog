@@ -201,7 +201,8 @@ export async function sendXaiResponsesWebSocket(provider, messages, useModel, to
     onTextDelta: typeof opts.onTextDelta === 'function' ? opts.onTextDelta : null,
     onStageChange: typeof opts.onStageChange === 'function' ? opts.onStageChange : null,
     externalSignal: signal,
-    poolKey: opts.sessionId || opts.session?.id || null,
+    // A forked request runs in its own transport scope (transport-scope.mjs).
+    poolKey: opts.transportScope || opts.sessionId || opts.session?.id || null,
     cacheKey: cacheRouting.key,
     iteration,
     useModel,

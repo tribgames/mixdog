@@ -3,6 +3,7 @@
 // resume, fork (alias inherit), doctor and quit. Busy guards refuse the destructive ones
 // while a turn or session command is running.
 import { presentErrorText } from '../../../runtime/shared/err-text.mjs';
+import { BTW_USAGE_HINT } from '../btw-controller.mjs';
 
 function compactFailureNotice(error) {
   if (error == null || String(error).trim() === '') return 'Compact failed.';
@@ -60,6 +61,18 @@ export const sessionCommands = {
       .compact()
       .then((r) => store.pushNotice(...compactOutcomeNotice(r)))
       .catch((error) => store.pushNotice(compactFailureNotice(error), 'error'));
+    return true;
+  },
+
+  // Side question: allowed mid-turn; never queued, steered, or interrupting.
+  btw(ctx, arg) {
+    const { store, deps } = ctx;
+    const question = String(arg || '').trim();
+    if (!question) {
+      store.pushNotice(BTW_USAGE_HINT, 'warn');
+      return true;
+    }
+    deps.btw.ask(question);
     return true;
   },
 

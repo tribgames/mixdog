@@ -45,6 +45,8 @@ type SlashExecutorDeps = {
   clearNotice: () => void;
   showNotice: (message: string) => void;
   openGoalDialog: () => void;
+  /** /btw opens the side-question card above the composer. */
+  onBtw: (sessionId: string, question: string) => void;
   /** /skills opens the composer's add menu, where a skill is picked for the next message. */
   openSkillMenu: () => void;
   onNewTask: () => void;
@@ -96,6 +98,7 @@ async function runSlashCommand(
   const { deps } = run;
   const name = command.name;
   if (rawName === 'new' || name === 'clear') return runNewOrClear(run, rawName);
+  if (name === 'btw') return runBtw(run, argument);
   if (name === 'goal') return runGoal(run, argument);
   if (name === 'fast') return runFast(run, argument);
   if (name === 'model' && argument) return runModel(run, argument);
@@ -172,6 +175,22 @@ async function runNewOrClear(run: SlashRun, rawName: string): Promise<undefined>
   else if (rawName === 'new') deps.onNewTask();
   else await commandCapability(run, 'clear');
   return undefined;
+}
+
+// A side question never queues or interrupts the turn: the card owns it, so
+// this works while the main agent runs. An empty question keeps the draft.
+function runBtw(run: SlashRun, argument: string): boolean {
+  const { deps } = run;
+  if (!argument) {
+    deps.setAttachmentError('Usage: /btw <question>');
+    return false;
+  }
+  if (deps.draftMode || !deps.sessionId) {
+    deps.setAttachmentError('Start the task with a message before running this command.');
+    return false;
+  }
+  deps.onBtw(deps.sessionId, argument);
+  return true;
 }
 
 async function runGoal(run: SlashRun, argument: string): Promise<boolean | undefined> {

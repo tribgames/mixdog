@@ -2618,3 +2618,133 @@ html[data-mixdog-mobile-tabs] .queue-list .queue-steer {
 .mx-select-trigger[aria-expanded="true"] svg {
   transform: rotate(180deg);
 }
+
+/* /btw side-question tray: docked on the composer card's top edge like the
+   queue tray (same inset, tuck and edge ink), never part of the transcript. */
+.btw-card {
+  position: relative;
+  z-index: 0;
+  margin: 0 var(--mx-radius-sheet) calc(-1 * var(--mx-radius-sheet));
+  padding-bottom: var(--mx-radius-sheet);
+  overflow: hidden;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  border-radius: var(--mx-radius-sheet) var(--mx-radius-sheet) 0 0;
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  animation: queue-tray-rise 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .btw-card {
+    animation: none;
+  }
+}
+.composer-region:has(.btw-card) .composer {
+  position: relative;
+  z-index: 1;
+}
+.btw-head {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 12px;
+}
+/* The tag trails the question; the actions sit at the far end. */
+.btw-tag {
+  flex: none;
+  margin-inline-end: auto;
+  padding: 1px 6px;
+  border-radius: var(--mx-radius-sm);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-meta);
+  color: var(--mx-accent);
+  background: color-mix(in srgb, var(--mx-accent) 12%, transparent);
+}
+/* Question and answer read on the transcript's prose tier (.message-body). */
+.btw-question {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mx-font-prose);
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-body);
+  line-height: var(--mx-line-prose);
+  color: var(--mx-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btw-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  color: var(--mx-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  cursor: pointer;
+}
+.btw-icon:hover,
+.btw-icon:focus-visible {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  outline: 0;
+}
+.btw-head + .btw-body {
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
+}
+.btw-body {
+  max-height: 40dvh;
+  padding: 0 14px 14px;
+  overflow: auto;
+  font-family: var(--mx-font-prose);
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-body);
+  line-height: var(--mx-line-prose);
+  color: var(--mx-text);
+}
+.btw-body .markdown p {
+  margin: 0 0 12px;
+}
+/* A narrow tray: headings one step above the prose, lists on a shallow indent,
+   rules at half the transcript's spacing. */
+.btw-body .markdown :is(h1, h2, h3, h4) {
+  margin: 4px 0 8px;
+  font-size: var(--mx-font-panel-title);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-prose);
+}
+.btw-body .markdown :is(ul, ol) {
+  margin: 0 0 12px;
+  padding-inline-start: 20px;
+}
+.btw-body .markdown hr {
+  margin: 12px 0;
+}
+/* More answer below the fold: fade the bottom edge like the queue tray. */
+.btw-body[data-more="true"] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+/* The tray head already sets the answer's top edge. */
+.btw-body .markdown > :first-child {
+  margin-top: 0;
+}
+.btw-body .markdown > :last-child {
+  margin-bottom: 0;
+}
+.btw-body[data-error] {
+  color: var(--mx-danger);
+}
+.btw-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mx-font-ui);
+  font-size: var(--mx-font-ui);
+  color: var(--mx-text-muted);
+}

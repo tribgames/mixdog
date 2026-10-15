@@ -101,6 +101,10 @@ export const DESKTOP_CAPABILITIES = [
   'recall',
   'runDoctor',
   'compact',
+  // /btw: `askSide(question)` answers `{ text }` from the conversation while a
+  // turn keeps running (never written to the transcript); `cancelSide()` aborts it.
+  'askSide',
+  'cancelSide',
   'listPresets',
   'setModel',
   'getWebSearchRoute',

@@ -6,6 +6,7 @@
     "MY_API_KEY": "environment variable name placeholder",
     "daily-briefing": "example skill identifier",
     "my-project": "example project identifier",
+    "btw": "slash command name (/btw) shown as the side-question tag",
     "gh": "CLI binary name",
     "figma": "MCP server identifier",
     "office": "MCP server identifier",

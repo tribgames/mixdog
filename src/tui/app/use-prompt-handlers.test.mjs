@@ -29,7 +29,7 @@ function Harness({ control, deps }) {
 
 function mount(
   context,
-  { history = [], abort = () => ({ aborted: true }), usagePanel = null, contextPanel = null } = {}
+  { history = [], abort = () => ({ aborted: true }), usagePanel = null, contextPanel = null, btwPanel = null } = {}
 ) {
   const calls = {
     hints: [],
@@ -90,6 +90,10 @@ function mount(
       calls.usageClosed += 1;
     },
     contextPanel,
+    btwPanel,
+    closeBtwPanel: () => {
+      calls.btwClosed = (calls.btwClosed || 0) + 1;
+    },
     installPastedImages: (images, options) => calls.installedImages.push([images, options]),
     clearPastedImagesSnapshot: (...args) => calls.clearedImages.push(args),
     registerPastedImage: (image) => {
@@ -186,6 +190,11 @@ test('Escape closes overlays first, then arms and executes clear/select phases, 
   await withUsage.settle();
   assert.equal(withUsage.control.api.handlePromptEscape('', {}), true);
   assert.equal(withUsage.calls.usageClosed, 1);
+
+  const withBtw = mount(context, { btwPanel: { question: 'q', status: 'pending', text: '' } });
+  await withBtw.settle();
+  assert.equal(withBtw.control.api.handlePromptEscape('', { phase: 'before' }), true);
+  assert.equal(withBtw.calls.btwClosed, 1);
 
   const withContext = mount(context, { contextPanel: { id: 'ctx' } });
   await withContext.settle();

@@ -101,6 +101,8 @@ function _codexMetadataBase({ poolKey, cacheKey, sendOpts, handshake = false } =
       sendOpts?.codexSessionId ||
         sendOpts?.session?.codexWireSessionId ||
         sendOpts?.session?.codexSessionId ||
+        // A forked transport scope keeps its session's wire identity.
+        (sendOpts?.transportScope ? sendOpts?.sessionId : '') ||
         poolKey ||
         cacheKey
     ) || 'mixdog-session';

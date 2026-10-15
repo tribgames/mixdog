@@ -2,6 +2,7 @@
  * commands.mjs — the session object's long-running slash commands: memory
  * control, recall, doctor, and manual compaction (scheduled for turn end when
  * a turn is running). Each shows a command status while it holds the lock.
+ * /btw side questions (askSide/cancelSide) run beside them, lock-free.
  */
 import { compactEventDetail } from '../labels.mjs';
 import { archiveItemsForCompaction, compactionArchivedRows } from '../compaction-view.mjs';
@@ -175,5 +176,14 @@ export function createSessionCommandsApi(bag) {
       });
     },
     compact: compactCommand,
+    // /btw: answered from the conversation so far while a turn keeps running.
+    // No command lock and no transcript row: the answer is only returned.
+    askSide: (question) => runtime.askSide(question),
+    // `sessionId` names the session the side question was asked in (it may
+    // no longer be the current one after a switch); omitted, the current one.
+    cancelSide: (sessionId) => {
+      if (typeof sessionId === 'string' && sessionId) runtime.cancelSide(sessionId);
+      else runtime.cancelSide();
+    },
   };
 }

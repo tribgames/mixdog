@@ -693,8 +693,12 @@ class CursorProviderBase {
     const runtime = await this._runtime();
     let accessToken = await this._accessToken({ signal });
     let cursorSelection = await this._resolveCursorModel(model, sendOpts, runtime, accessToken);
+    // The Cursor run and conversation (checkpoint, pending tool batch) live
+    // under this scope; a forked request keeps its own (transport-scope.mjs).
     const sessionScope = String(
-      sendOpts.sessionId || sendOpts.providerCacheKey || sendOpts.promptCacheKey || `cursor-call:${randomUUID()}`
+      sendOpts.transportScope ||
+        sendOpts.sessionId ||
+        sendOpts.providerCacheKey || sendOpts.promptCacheKey || `cursor-call:${randomUUID()}`
     );
     const openAiTools = tools?.length ? toOpenAITools(tools) : undefined;
     const dispatch = async () => {

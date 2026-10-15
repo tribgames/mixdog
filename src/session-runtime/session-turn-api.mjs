@@ -10,6 +10,7 @@ import { createSessionOps } from './turn/session-ops.mjs';
 import { createCompactionGate } from './turn/compaction-gate.mjs';
 import { createShareOps } from './turn/share-ops.mjs';
 import { createAgentOps } from './turn/agent-ops.mjs';
+import { createSideQuestionOps } from './turn/side-question-ops.mjs';
 
 export function createSessionTurnApi(deps) {
   // A model-scheduled compaction runs chained after its turn; the next turn
@@ -20,7 +21,10 @@ export function createSessionTurnApi(deps) {
   const session = createSessionOps(deps);
   const share = createShareOps(deps);
   const agent = createAgentOps(deps);
+  const side = createSideQuestionOps(deps);
   return {
+    askSide: side.askSide,
+    cancelSide: side.cancelSide,
     enqueueRemoteAttachedPrompt: runner.enqueueRemoteAttachedPrompt,
     getTurnLiveness: runner.getTurnLiveness,
     ask: afterCompaction(runner.ask),

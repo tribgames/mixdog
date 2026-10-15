@@ -10,6 +10,7 @@ export function deriveSurfaces({
   picker,
   contextPanel,
   usagePanel,
+  btwPanel,
   slashPaletteOpen,
   tuiReady,
   state,
@@ -24,7 +25,8 @@ export function deriveSurfaces({
     contextPanel ||
     usagePanel ||
     slashPaletteOpen ||
-    hasTextEntryPrompt
+    hasTextEntryPrompt ||
+    btwPanel
   );
   const expandedOptionPanel = !!(toolApproval || picker || contextPanel || usagePanel || hasTextEntryPrompt);
   if (panelTransitionRef.current.signature.includes('picker:project') && !picker) {

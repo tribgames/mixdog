@@ -120,10 +120,32 @@ function recordAgentRuntimeCall(session, result) {
 export async function recordAskUsage({ session, result, askStartedAt, turnSignal }) {
   const prefixHashForLog = recordAgentRuntimeCall(session, result);
   if (!result.usage) return;
-  const inputTokens = result.usage.inputTokens || 0;
-  const outputTokens = result.usage.outputTokens || 0;
-  const cacheReadTokens = result.usage.cachedTokens || 0;
-  const cacheWriteTokens = result.usage.cacheWriteTokens || 0;
+  await logSessionLlmUsage({
+    session,
+    usage: result.usage,
+    startedAt: askStartedAt,
+    signal: turnSignal,
+    prefixHash: prefixHashForLog,
+    transportTiming: result.transportTiming || null,
+  });
+  recordStandaloneStatusTelemetry(session, result, Date.now() - askStartedAt);
+}
+
+/** The usage-ledger row of one provider call billed to `session`. `mode`
+ *  labels a call made outside the turn loop (a /btw side question). */
+export async function logSessionLlmUsage({
+  session,
+  usage,
+  startedAt,
+  signal = null,
+  prefixHash = null,
+  transportTiming = null,
+  mode = null,
+}) {
+  const inputTokens = usage.inputTokens || 0;
+  const outputTokens = usage.outputTokens || 0;
+  const cacheReadTokens = usage.cachedTokens || 0;
+  const cacheWriteTokens = usage.cacheWriteTokens || 0;
   // Unified total-prompt field. Anthropic = input+cache_read+cache_write
   // (additive); OpenAI OAuth/API/Gemini = input_tokens already includes the
   // cached portion (inclusive), so the fallback must not double-count.

@@ -33,7 +33,7 @@ export interface DesktopSlashCommand {
   desktopDescription?: string;
   settingsRow?: SettingsSection;
   surface?: CommandSurface;
-  action?: 'clear' | 'compact' | 'goal' | 'resume' | 'remote' | 'project' | 'fast' | 'settings' | 'close-task';
+  action?: 'clear' | 'compact' | 'btw' | 'goal' | 'resume' | 'remote' | 'project' | 'fast' | 'settings' | 'close-task';
 }
 
 // Public fields mirror src/tui/app/slash-commands.mjs exactly. Desktop routing
@@ -58,6 +58,13 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
     action: 'project',
   },
   { name: 'compact', usage: '/compact', description: 'Compact older conversation context', action: 'compact' },
+  {
+    name: 'btw',
+    usage: '/btw',
+    params: '<question>',
+    description: 'Ask a quick side question without interrupting the current work',
+    action: 'btw',
+  },
   {
     name: 'goal',
     usage: '/goal',
@@ -208,6 +215,7 @@ export function resolveDesktopSlashCommand(rawName: string): DesktopSlashCommand
 // Discovery stays small; the full registry still accepts commands typed directly.
 const COMPOSER_SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   'new',
+  'btw',
   'resume',
   'model',
   'compact',

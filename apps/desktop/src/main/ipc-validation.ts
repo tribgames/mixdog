@@ -374,6 +374,8 @@ const CAPABILITY_ARITY = {
   recall: [1, 2],
   runDoctor: [0, 0],
   compact: [0, 0],
+  askSide: [1, 1],
+  cancelSide: [0, 0],
   listPresets: [0, 0],
   setModel: [1, 1],
   getWebSearchRoute: [0, 0],
@@ -1157,6 +1159,8 @@ function validateCredentialCapabilityArgs(capability: DesktopCapability, args: r
 }
 
 function validateTurnCapabilityArgs(capability: DesktopCapability, args: readonly unknown[]): void {
+  // A /btw side question: one non-empty question text.
+  if (capability === 'askSide') requiredString(args[0], 'side question', MAX_PROMPT_LENGTH);
   if (capability === 'getTurnReviewDiff' && args[0] !== undefined) {
     // The turn review bar asks for `{ refresh, known, summary, poll }`: whether
     // to re-read the worktree before diffing, the tag of the review it already

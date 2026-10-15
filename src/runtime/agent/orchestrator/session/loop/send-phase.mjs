@@ -17,6 +17,7 @@ import { stripInlineImages } from '../image-strip-recovery.mjs';
 import { runWithProviderRequestToolsScope } from '../../runtime-core/provider-request-tools.mjs';
 import { REPEAT_FAIL_LIMIT } from './loop-state.mjs';
 import { createToolCallIdResolver } from './tool-call-ids.mjs';
+import { captureSideQuestionRequest } from '../side-question-store.mjs';
 
 /**
  * Open an iteration: refresh the live cwd, drain queued steering after a
@@ -156,26 +157,45 @@ export async function sendProviderRequest(state, round) {
   try {
     opts.onProviderSendStarted?.();
   } catch {}
-  const result = await runWithProviderRequestToolsScope(round.requestToolScope, () =>
-    sendWithRecovery({
-      provider,
-      messages: providerMessages,
-      recoveryMessages: messageSource,
-      model,
-      sendTools: round.sendTools,
-      tools: round.sendTools,
-      opts,
-      sessionId,
-      sessionRef,
-      nextIteration: round.nextIteration,
-      contextOverflowRetryUsed: state.contextOverflowRetryUsed,
-      transportRetriesUsed: state.transportRetriesUsed,
-      transportRetryMax: state.transportRetryMax,
-      imageStripUsed: state.imageStripUsed,
-      thinkingReplayRepairUsed: state.thinkingReplayRepairUsed,
-      signal: state.signal,
-    })
-  );
+  // The request a /btw side question forks: kept while it is in flight, with
+  // its reply once it proceeds, and dropped again if it fails.
+  const sideQuestion = captureSideQuestionRequest({
+    sessionId,
+    sessionRef,
+    provider,
+    model,
+    messages: providerMessages,
+    tools: round.sendTools,
+    opts,
+  });
+  let result;
+  try {
+    result = await runWithProviderRequestToolsScope(round.requestToolScope, () =>
+      sendWithRecovery({
+        provider,
+        messages: providerMessages,
+        recoveryMessages: messageSource,
+        model,
+        sendTools: round.sendTools,
+        tools: round.sendTools,
+        opts,
+        sessionId,
+        sessionRef,
+        nextIteration: round.nextIteration,
+        contextOverflowRetryUsed: state.contextOverflowRetryUsed,
+        transportRetriesUsed: state.transportRetriesUsed,
+        transportRetryMax: state.transportRetryMax,
+        imageStripUsed: state.imageStripUsed,
+        thinkingReplayRepairUsed: state.thinkingReplayRepairUsed,
+        signal: state.signal,
+      })
+    );
+  } catch (error) {
+    sideQuestion?.discard();
+    throw error;
+  }
+  if (result.action === 'proceed') sideQuestion?.settle(result.response);
+  else sideQuestion?.discard();
   return {
     result,
     providerMessages,

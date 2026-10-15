@@ -20,6 +20,7 @@ import {
   clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
   resolveAnthropicCacheTtls as resolveCacheTtls,
   resolveAnthropicMessageCacheSlots,
+  sharedCachePrefixBoundary,
   toAnthropicToolChoice,
 } from './lib/anthropic-request-utils.mjs';
 import {
@@ -60,11 +61,8 @@ export async function buildAnthropicApiRequest({
   // first-party knowledge and must not leak onto (or from) a custom endpoint.
   const isCustom = isCustomProviderName(name);
   const maxTokens = resolveMaxTokens(useModel);
-  const effortProjection = projectEffortConfiguration(messages, name, useModel, {
-    ...config,
-    ...opts,
-    disableBetaHeaders: config?.disableBetaHeaders,
-  });
+  const effortOptions = { ...config, ...opts, disableBetaHeaders: config?.disableBetaHeaders };
+  const effortProjection = projectEffortConfiguration(messages, name, useModel, effortOptions);
   const ttls = resolveCacheTtls(opts);
 
   const systemMsgs = messages.filter((m) => m.role === 'system');
@@ -84,9 +82,18 @@ export async function buildAnthropicApiRequest({
   // are applied to the FINAL sanitized array by invariant, so block
   // drops / inserts / reorders performed by the sanitizer can never move
   // or delete a marked block. NEVER sanitize again after this.
+  const lowerHistory = (history, projection) =>
+    lowerAnthropicEffortHistory(
+      history.filter((m) => m.role !== 'system'),
+      (segment) => toAnthropicMessages(segment, requestTools),
+      projection
+    );
   const anthropicMessages = applyAnthropicCacheMarkers(
-    lowerAnthropicEffortHistory(chatMsgs, (segment) => toAnthropicMessages(segment, requestTools), effortProjection),
-    messageCacheSlots
+    lowerHistory(chatMsgs, effortProjection),
+    messageCacheSlots,
+    sharedCachePrefixBoundary(messages, opts, (prefix) =>
+      lowerHistory(prefix, projectEffortConfiguration(prefix, name, useModel, effortOptions))
+    )
   );
 
   const params = {

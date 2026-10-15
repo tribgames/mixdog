@@ -21,6 +21,7 @@ import { useApp, useStdin, useStdout } from 'ink';
 import { useSession } from './hooks/useSession.mjs';
 import { pickFolder } from '../standalone/folder-dialog.mjs';
 import { deriveSlashPalette } from './app/slash-palette.mjs';
+import { createBtwController } from './app/btw-controller.mjs';
 import { skillMentionQuery, useSkillMentionSkills } from './app/skill-mention-palette.mjs';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './app/panel-epoch.mjs';
 import { createPanelSurface } from './app/panel-surface.mjs';
@@ -152,6 +153,24 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   livePickerRef.current = picker;
   const [contextPanel, setContextPanel] = useState(null);
   const [usagePanel, setUsagePanel] = useState(null);
+  const [btwPanel, setBtwPanel] = useState(null);
+  const btwRef = useRef(null);
+  const sessionIdRef = useRef('');
+  sessionIdRef.current = state.sessionId || '';
+  if (!btwRef.current) {
+    btwRef.current = createBtwController({
+      getStore: () => store,
+      setPanel: setBtwPanel,
+      getSessionId: () => sessionIdRef.current,
+    });
+  }
+  const btw = btwRef.current;
+  // A side answer belongs to the conversation it was asked in: drop it on a
+  // session change (new/resume/clear/switch) and cancel it on unmount.
+  useEffect(() => {
+    btw.sync();
+  }, [btw, state.sessionId]);
+  useEffect(() => () => btw.dispose(), [btw]);
   // OWNING LAYER (app/panel-surface.mjs): the three sinks above are handed over
   // exactly once and never leave that module. Every panel factory below gets
   // `surface` instead, so painting or delegating without a claim that proves
@@ -310,6 +329,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     setSettingsPrompt,
     setOnboardingActive,
     closeUsagePanel,
+    btw,
     oauthSubmitRef,
     clearModelCaches,
     onboardingRef,
@@ -518,6 +538,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
       usagePanel,
       closeUsagePanel,
       contextPanel,
+      btwPanel,
+      closeBtwPanel: btw.close,
       installPastedImages,
       clearPastedImagesSnapshot,
       registerPastedImage,
@@ -650,6 +672,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     toolApproval: !!toolApproval,
     contextPanel: !!contextPanel,
     usagePanel: !!usagePanel,
+    btwPanel: !!btwPanel,
     providerPrompt: !!providerPrompt,
     settingsPrompt: !!settingsPrompt,
   };
@@ -711,6 +734,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     picker,
     contextPanel,
     usagePanel,
+    btwPanel,
     slashPaletteOpen,
     tuiReady,
     state,
@@ -822,6 +846,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     activeSlashQuery,
     activeTools,
     agentRevision,
+    btwPanel,
     cancelProviderPrompt,
     cancelSettingsPrompt,
     cancelSlashPalette,

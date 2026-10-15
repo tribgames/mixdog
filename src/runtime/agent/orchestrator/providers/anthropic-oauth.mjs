@@ -62,6 +62,7 @@ import {
   resolveAnthropicCacheTtls as resolveCacheTtls,
   resolveAnthropicMessageCacheSlots,
   sanitizeAnthropicInputSchema,
+  sharedCachePrefixBoundary,
   toAnthropicMessages,
   toAnthropicToolChoice,
 } from './lib/anthropic-request-utils.mjs';
@@ -211,9 +212,18 @@ function buildRequestBody(messages, model, tools, sendOpts) {
   // applied to the FINAL sanitized array by invariant, so block drops /
   // inserts / reorders performed by the sanitizer can never move or delete a
   // marked block. NEVER sanitize again after this (see send path).
+  const lowerHistory = (history, projection) =>
+    lowerAnthropicEffortHistory(
+      history.filter((m) => m.role !== 'system'),
+      (segment) => toAnthropicMessages(segment, requestTools),
+      projection
+    );
   const anthropicMessages = applyAnthropicCacheMarkers(
-    lowerAnthropicEffortHistory(chatMsgs, (segment) => toAnthropicMessages(segment, requestTools), effortProjection),
-    messageCacheSlots
+    lowerHistory(chatMsgs, effortProjection),
+    messageCacheSlots,
+    sharedCachePrefixBoundary(messages, opts, (prefix) =>
+      lowerHistory(prefix, projectEffortConfiguration(prefix, 'anthropic-oauth', model, opts))
+    )
   );
 
   const body = {

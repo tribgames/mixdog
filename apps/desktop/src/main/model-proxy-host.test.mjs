@@ -354,6 +354,69 @@ test('server send options are reduced to the allowlist', async (t) => {
   assert.ok(seen.signal instanceof AbortSignal);
 });
 
+test('a proxied side request gets its own transport scope on the PC, disposed when the request ends', async (t) => {
+  const closed = [];
+  const previousHook = globalThis.__mixdogCloseProviderConnectionsForSession;
+  globalThis.__mixdogCloseProviderConnectionsForSession = (scope) => closed.push(scope);
+  t.after(() => {
+    globalThis.__mixdogCloseProviderConnectionsForSession = previousHook;
+  });
+  const sends = [];
+  const released = [];
+  const hung = Promise.withResolvers();
+  const provider = {
+    releaseTransportScope: (scope) => released.push(scope),
+    async send(_messages, _model, _tools, options) {
+      sends.push(options);
+      if (options.sessionId === 'fail') throw new Error('provider down');
+      if (options.sessionId === 'hang') {
+        hung.resolve();
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener('abort', () => reject(options.signal.reason));
+        });
+      }
+      return { content: 'ok' };
+    },
+  };
+  const { channel } = connect(t, fakeRuntime({ openai: provider }));
+  const proxied = new ModelProxyProvider('openai', {}, channel);
+  const mainScope = 'main-session#side:server-scope';
+  const side = (sessionId, signal) => proxied.send([], 'gpt', undefined, { sessionId, transportScope: mainScope, signal });
+
+  // Success: the PC's own scope, never the server's, released afterwards.
+  await side('ok');
+  const [ok] = sends;
+  assert.equal(typeof ok.transportScope, 'string');
+  assert.notEqual(ok.transportScope, mainScope);
+  assert.ok(ok.transportScope.startsWith('ok#'));
+  assert.deepEqual(closed, [ok.transportScope]);
+  assert.deepEqual(released, [ok.transportScope]);
+
+  // Error.
+  await assert.rejects(side('fail'), /provider down/);
+  assert.equal(sends[1].transportScope, closed[1]);
+  assert.notEqual(sends[1].transportScope, ok.transportScope);
+  assert.deepEqual(released, closed);
+
+  // Cancel.
+  const controller = new AbortController();
+  const hanging = side('hang', controller.signal);
+  await hung.promise;
+  assert.equal(closed.length, 2, 'still held while the request runs');
+  controller.abort(new Error('user stop'));
+  await assert.rejects(hanging, /user stop/);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(closed.length, 3);
+  assert.equal(closed[2], sends[2].transportScope);
+  assert.deepEqual(released, closed);
+  assert.equal(new Set(closed).size, 3, 'every request got a scope of its own');
+
+  // A request that names no scope is left on its session's own state.
+  await proxied.send([], 'gpt', undefined, { sessionId: 'main' });
+  assert.equal(Object.hasOwn(sends[3], 'transportScope'), false);
+  assert.equal(closed.length, 3);
+});
+
 test('PC errors reach the server with only the recovery fields, credentials redacted', async (t) => {
   const provider = {
     async send() {

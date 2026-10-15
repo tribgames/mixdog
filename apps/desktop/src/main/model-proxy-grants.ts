@@ -97,10 +97,12 @@ export const MODEL_USE_TRUSTED_REQUESTS = [
 ] as const;
 
 /** Capabilities that are trusted actions: queued work moved up, the slash
- *  commands that run a turn (`/compact`, `/goal`), and a schedule run by hand. */
+ *  commands that call the model (`/compact`, `/goal`, a `/btw` side question),
+ *  and a schedule run by hand. */
 export const MODEL_USE_TRUSTED_CAPABILITIES: ReadonlySet<DesktopCapability> = new Set<DesktopCapability>([
   'prioritizeQueued',
   'compact',
+  'askSide',
   'goalControl',
   'runScheduleNow',
 ]);

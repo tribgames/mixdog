@@ -3,7 +3,7 @@
 // answered here, and every other call queued into the host's remote methods.
 import { DESKTOP_CAPABILITIES } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
-import { VOICE_CALLS } from './remote-call-queue';
+import { SIDE_QUESTION_CALLS, SIDE_QUESTION_CANCEL_CALL, VOICE_CALLS } from './remote-call-queue';
 import { filterSessionIds, requiredSessionId } from './desktop-state';
 import { normalizeRemoteBrowserStreamOptions } from '../shared/remote-browser';
 import type { createBrowserRemoteStreams } from './remote-browser-streams';
@@ -245,8 +245,28 @@ export function createRelayClientCallDispatch(
     let queueKey = String(call?.method ?? '');
     if (statName.startsWith('invokeCapability:getTurnReviewDiff')) queueKey = 'invokeCapability:getTurnReviewDiff';
     else if (statName === 'invokeCapability:getTurnChanges') queueKey = statName;
-    else if (VOICE_CALLS.has(statName)) queueKey = statName;
+    else if (
+      VOICE_CALLS.has(statName) ||
+      SIDE_QUESTION_CALLS.has(statName) ||
+      statName === SIDE_QUESTION_CANCEL_CALL
+    ) {
+      queueKey = statName;
+    }
     const methods = typeof deps.methods === 'function' ? deps.methods(clientId, client) : deps.methods;
+    // A /btw call names its session: a queued side question that session's
+    // cancel (or newer side question) overtook is answered as canceled.
+    const sideSessionId = (Array.isArray(call?.params) ? (call.params[0] as { sessionId?: unknown } | null) : null)
+      ?.sessionId;
+    const sideCall =
+      typeof sideSessionId === 'string' && sideSessionId
+        ? {
+            sessionId: sideSessionId,
+            superseded: async () => {
+              if (typeof call?.id !== 'number' || !deps.attached(clientId, client)) return;
+              await deps.sendEncryptedFrame(clientId, { id: call.id, ok: false, error: 'Side question canceled.' });
+            },
+          }
+        : undefined;
     const execution = client.callQueue.run(queueKey, async () => {
       if (!deps.attached(clientId, client)) return;
       const callStartedAt = Date.now();
@@ -274,7 +294,7 @@ export function createRelayClientCallDispatch(
           responseBytes,
         });
       }
-    });
+    }, sideCall);
     // Observe early rejection while the decode queue is still settling.
     void execution.catch(() => undefined);
     return { execution };

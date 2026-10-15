@@ -19,6 +19,51 @@ const relay = (fn, ...args) => {
 };
 
 /**
+ * The callback-free send options that shape a turn's provider request (effort,
+ * model parameters, cache routing, continuation state, Codex wire identity and
+ * the session's provider cache settings). agentLoop's options spread them, and
+ * a /btw request built before any turn has run uses them as they are.
+ */
+export function buildRequestSendOptions({
+  sessionId,
+  session,
+  turnEffort,
+  effortConfiguration,
+  stepAutoEffort,
+  codexTurnId,
+  startedAtMs,
+  signal,
+}) {
+  return {
+    effort: turnEffort,
+    effortConfiguration,
+    // { request, base } when each tool-result step is judged (step-auto-effort.mjs).
+    stepAutoEffort: stepAutoEffort || null,
+    fast: session.fast === true,
+    modelParameters: session.modelParameters || {},
+    selectedContextWindow: session.selectedContextWindow || session.contextWindow || null,
+    sessionId,
+    // Same projection compaction uses, so a session presents one identity on
+    // every request it makes.
+    ...(codexWireSendOpts(session, { turnId: codexTurnId, startedAtMs }) || {}),
+    promptCacheKey: session.promptCacheKey || sessionId,
+    // Provider-scoped cache key (mixdog-codex, mixdog-claude…). Distinct
+    // from sessionId — providers that pool sockets per-session (openai-oauth
+    // WS) use sessionId as the pool bucket and providerCacheKey as the
+    // server-side prompt-cache shard so parallel callers don't collide on a
+    // mid-turn socket while still sharing prefix cache.
+    providerCacheKey: session.promptCacheKey || null,
+    signal,
+    providerState: session.providerState ?? undefined,
+    session,
+    // Agent Runtime cache settings — merged last so session overrides don't
+    // get overridden by defaults. When session has no profile,
+    // providerCacheOpts is null and this spread is a no-op.
+    ...(session.providerCacheOpts || {}),
+  };
+}
+
+/**
  * @param {object} input
  * @param {string} input.sessionId
  * @param {object} input.session
@@ -49,14 +94,6 @@ export function buildAgentLoopOptions({
   // (ask-turn-steering-drain.mjs).
   const drainSteering = createAskSteeringDrain({ sessionId, turn, askOpts });
   return {
-    effort: turnEffort,
-    effortConfiguration,
-    // { request, base } when each tool-result step is judged (step-auto-effort.mjs).
-    stepAutoEffort: stepAutoEffort || null,
-    fast: session.fast === true,
-    modelParameters: session.modelParameters || {},
-    selectedContextWindow: session.selectedContextWindow || session.contextWindow || null,
-    sessionId,
     onTextDelta: (chunk) => {
       interruption.recordTextDelta(chunk);
       checkpoint.schedule();
@@ -157,23 +194,16 @@ export function buildAgentLoopOptions({
       relay(askOpts?.onSkillsApplied, names, detail);
     },
     notifyFn: optionalFn(askOpts?.notifyFn),
-    // Same projection compaction uses, so a session presents one identity on
-    // every request it makes.
-    ...(codexWireSendOpts(session, { turnId: codexTurnId, startedAtMs }) || {}),
-    promptCacheKey: session.promptCacheKey || sessionId,
-    // Provider-scoped cache key (mixdog-codex, mixdog-claude…). Distinct
-    // from sessionId — providers that pool sockets per-session (openai-oauth
-    // WS) use sessionId as the pool bucket and providerCacheKey as the
-    // server-side prompt-cache shard so parallel callers don't collide on a
-    // mid-turn socket while still sharing prefix cache.
-    providerCacheKey: session.promptCacheKey || null,
-    signal,
-    providerState: session.providerState ?? undefined,
-    session,
-    // Agent Runtime cache settings — merged last so session overrides don't
-    // get overridden by defaults. When session has no profile,
-    // providerCacheOpts is null and this spread is a no-op.
-    ...(session.providerCacheOpts || {}),
+    ...buildRequestSendOptions({
+      sessionId,
+      session,
+      turnEffort,
+      effortConfiguration,
+      stepAutoEffort,
+      codexTurnId,
+      startedAtMs,
+      signal,
+    }),
     onStageChange: (stage, detail) => {
       updateSessionStage(sessionId, stage);
       relay(askOpts?.onStageChange, stage, detail);

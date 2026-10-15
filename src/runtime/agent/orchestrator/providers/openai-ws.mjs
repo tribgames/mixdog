@@ -111,6 +111,10 @@ export class OpenAIDirectProvider {
     }
     return null;
   }
+  /** Drop a disposed transport scope's sticky transport record. */
+  releaseTransportScope(scope) {
+    this._httpFallbackPoolKeys.delete(scope);
+  }
   send(messages, model, tools, sendOpts) {
     return withEffortConfigurationFallback('openai', model, sendOpts || {}, (opts) =>
       this._sendOnce(messages, model, tools, opts)
@@ -139,8 +143,9 @@ export class OpenAIDirectProvider {
     // poolKey MUST be sessionId-only. Falling back to promptCacheKey would
     // let unrelated raw sessions sharing the same provider-scoped cache
     // bucket reuse each other's pooled socket and inherit lastResponseId
-    // delta state, producing cross-session prompt corruption.
-    const poolKey = opts.sessionId || null;
+    // delta state, producing cross-session prompt corruption. A forked
+    // request runs in its own transport scope (transport-scope.mjs).
+    const poolKey = opts.transportScope || opts.sessionId || null;
     // cacheKey (prompt_cache_key) only groups the server-side prefix-cache
     // shard — safe to share across sessions, unlike the sessionId poolKey
     // above. buildRequestBody derives it from the base namespace plus a
@@ -228,7 +233,10 @@ export class OpenAIDirectProvider {
     // ws-delta only affects the delta gate inside openai-ws-delta.mjs.
     if (
       transportPolicy.transport === 'http' ||
-      (poolKey && httpFallbackEnabled && this._httpFallbackPoolKeys.has(poolKey))
+      (poolKey &&
+        httpFallbackEnabled &&
+        // A forked scope follows its session's refusal; it records its own.
+        (this._httpFallbackPoolKeys.has(poolKey) || this._httpFallbackPoolKeys.has(opts.sessionId)))
     ) {
       return await sendHttpWithKeyReload(auth);
     }

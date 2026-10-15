@@ -8,6 +8,10 @@ const LOCAL_PROVIDER_INSTALL_REQUEST_TIMEOUT_MS = LOCAL_PROVIDER_DOWNLOAD_TIMEOU
 // sized for interactive calls.
 const SESSION_INHERIT_REQUEST_TIMEOUT_MS = 10 * 60_000;
 
+// A /btw side question is one model response at the session's own effort; a
+// high-effort answer can think past the interactive deadline.
+const SIDE_QUESTION_REQUEST_TIMEOUT_MS = 10 * 60_000;
+
 // Built-in dependency installs run inside their own budgets: winget/brew get
 // up to 20 minutes (LibreOffice is ~350 MB) and the voice model alone has a
 // 20-minute download window. The request must outlive the longest of them.
@@ -36,5 +40,6 @@ export function longRunningRequestTimeout(method: string, args: unknown[] = []):
     return DEPENDENCY_INSTALL_REQUEST_TIMEOUT_MS;
   }
   if (method === 'inheritFrom') return SESSION_INHERIT_REQUEST_TIMEOUT_MS;
+  if (method === 'askSide') return SIDE_QUESTION_REQUEST_TIMEOUT_MS;
   return undefined;
 }

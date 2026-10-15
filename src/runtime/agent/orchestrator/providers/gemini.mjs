@@ -275,6 +275,10 @@ export class GeminiProvider {
     if (decision.canReuseState) {
       return state.cacheName;
     }
+    // A request forked from a shared prefix (/btw: opts.sharedCachePrefixCount)
+    // only reads the session's live cache. Creating or refreshing one would
+    // store the fork's own suffix (the appended reply and question).
+    if (opts.sharedCachePrefixCount) return decision.canAttachState ? state.cacheName : null;
     if (!apiKey || geminiExplicitCacheRefused(model)) return null;
     const { canAttachState } = decision;
     if (geminiPrefixBelowMinimum({ model, systemInstruction, geminiTools, contents, opts, currentIter })) {

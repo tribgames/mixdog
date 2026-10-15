@@ -36,6 +36,8 @@ export function usePromptHandlers({
   usagePanel,
   closeUsagePanel,
   contextPanel,
+  btwPanel,
+  closeBtwPanel,
   // paste-attachment helpers (owned by App, threaded in explicitly)
   installPastedImages,
   clearPastedImagesSnapshot,
@@ -69,6 +71,13 @@ export function usePromptHandlers({
       // Esc from the prompt: this keypress owns the overlay it closes.
       if (contextPanel) {
         surface.claim().context(null);
+        return true;
+      }
+
+      // /btw side panel: Esc closes it (cancelling a pending ask) before the
+      // turn interrupt / draft handling sees the key.
+      if (btwPanel) {
+        closeBtwPanel();
         return true;
       }
 
@@ -107,6 +116,8 @@ export function usePromptHandlers({
     },
     [
       contextPanel,
+      btwPanel,
+      closeBtwPanel,
       surface,
       usagePanel,
       closeUsagePanel,

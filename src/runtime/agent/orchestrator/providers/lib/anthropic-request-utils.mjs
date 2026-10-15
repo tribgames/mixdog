@@ -10,7 +10,7 @@ import { mergeFlatSchemaProperty } from './flat-schema-merge.mjs';
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
 
-function appendAnthropicCacheControl(content, ttl = ANTHROPIC_CACHE_TTL_VOLATILE) {
+function appendAnthropicCacheControl(content, ttl = ANTHROPIC_CACHE_TTL_VOLATILE, blockIndex = null) {
   const withCacheControl = (block) => {
     if (!block || typeof block !== 'object' || block.cache_control) return block;
     return { ...block, cache_control: ttl };
@@ -18,7 +18,8 @@ function appendAnthropicCacheControl(content, ttl = ANTHROPIC_CACHE_TTL_VOLATILE
   if (Array.isArray(content)) {
     if (content.length === 0) return content;
     const next = [...content];
-    next[next.length - 1] = withCacheControl(next[next.length - 1]);
+    const index = blockIndex ?? next.length - 1;
+    next[index] = withCacheControl(next[index]);
     return next;
   }
   if (typeof content === 'string') {
@@ -493,20 +494,63 @@ export function requestAnthropicTools(tools, messages, opts, provider) {
 // messageTtl === null disables the tail. BP3 (tier3) rides a system block,
 // so it is not marked here. ANTHROPIC_MSG_SLOTS=0 is honoured upstream by
 // passing messageTtl = null.
+// `sharedPrefix` (see sharedCachePrefixBoundary) moves the breakpoint off the
+// tail onto a shared prefix's last block, or drops it (`false`).
 export function applyAnthropicCacheMarkers(
   sanitizedMessages,
-  { messageTtl = ANTHROPIC_CACHE_TTL_VOLATILE, messageSlots = 1 } = {}
+  { messageTtl = ANTHROPIC_CACHE_TTL_VOLATILE, messageSlots = 1 } = {},
+  sharedPrefix = null
 ) {
   if (!Array.isArray(sanitizedMessages) || sanitizedMessages.length === 0) {
     return sanitizedMessages;
   }
-  if (messageTtl !== null && Number(messageSlots) > 0) {
-    // A trailing effort control (empty system message) has no block to mark;
-    // the breakpoint goes on the message before it.
-    let index = sanitizedMessages.length - 1;
-    while (index > 0 && sanitizedMessages[index].role === 'system' && !sanitizedMessages[index].content?.length) index--;
-    const message = sanitizedMessages[index];
-    message.content = appendAnthropicCacheControl(message.content, messageTtl);
+  if (messageTtl === null || !(Number(messageSlots) > 0) || sharedPrefix === false) return sanitizedMessages;
+  if (sharedPrefix) {
+    const message = sanitizedMessages[sharedPrefix.index];
+    if (message && contentBlockKey(message.content, sharedPrefix.blockIndex) === sharedPrefix.blockKey) {
+      message.content = appendAnthropicCacheControl(message.content, messageTtl, sharedPrefix.blockIndex);
+    }
+    return sanitizedMessages;
   }
+  const index = lastMarkableMessageIndex(sanitizedMessages);
+  const message = sanitizedMessages[index];
+  message.content = appendAnthropicCacheControl(message.content, messageTtl);
   return sanitizedMessages;
+}
+
+// A trailing effort control (empty system message) has no block to mark; the
+// breakpoint goes on the message before it.
+function lastMarkableMessageIndex(messages) {
+  let index = messages.length - 1;
+  while (index > 0 && messages[index].role === 'system' && !messages[index].content?.length) index--;
+  return index;
+}
+
+function contentBlockKey(content, blockIndex) {
+  const block = Array.isArray(content) ? content[blockIndex] : content;
+  return block === undefined ? undefined : JSON.stringify(block);
+}
+
+/**
+ * Where a cache-sharing fork (a /btw side question) keeps its message
+ * breakpoint. The fork re-sends an earlier request's messages unchanged and
+ * appends a short suffix; `opts.sharedCachePrefixCount` is the number of
+ * leading messages that make up that shared prefix (a plain number, so it
+ * survives model-proxy serialization). The breakpoint stays on the block the earlier request
+ * marked (the prefix's own lowered tail), so the fork reads that cache entry
+ * and writes none for its suffix. `lowerPrefix(messages)` lowers a message
+ * list exactly as the request does. Null for an ordinary request (tail
+ * breakpoint); false when the prefix is not part of this request.
+ */
+export function sharedCachePrefixBoundary(messages, opts, lowerPrefix) {
+  const count = opts?.sharedCachePrefixCount;
+  if (!count) return null;
+  if (!Number.isInteger(count) || count < 0 || count > messages.length) return false;
+  const prefix = lowerPrefix(messages.slice(0, count));
+  if (!prefix.length) return false;
+  const index = lastMarkableMessageIndex(prefix);
+  const content = prefix[index].content;
+  const blockIndex = Array.isArray(content) ? content.length - 1 : 0;
+  const blockKey = contentBlockKey(content, blockIndex);
+  return blockKey === undefined ? false : { index, blockIndex, blockKey };
 }

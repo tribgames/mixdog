@@ -18,6 +18,7 @@ import { forgetSessionSaveBaseline } from '../store/save-worker.mjs';
 import { forgetSessionLoadCache } from '../store/load-cache.mjs';
 import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
 import { cancelNativeTasks } from '../../tools/lib/native-spawn-client.mjs';
+import { forgetSideQuestion } from '../side-question-store.mjs';
 
 /**
  * Close a session. Plants a `closed=true` tombstone on disk with a bumped
@@ -163,6 +164,7 @@ function teardownSessionRuntime({ id, entry, reason, tombstone, newGen }) {
       /* ignore */
     }
   }
+  forgetSideQuestion(id, { cancel: true });
   closeProviderConnections(id, `session-close:${reason}`);
   // Diagnostic: one-line stderr so operators can distinguish the four close
   // pathways (request-abort / manual / idle-sweep / runner-crash). iterCount
@@ -288,6 +290,7 @@ export function unloadSessionRuntime(id, reason = 'runtime-unload') {
     if (IN_FLIGHT_STAGES.has(entry.stage)) return false;
   }
   _stopToolActivityHeartbeat(id);
+  forgetSideQuestion(id, { cancel: true });
   closeProviderConnections(id, `runtime-unload:${reason}`);
   releaseSessionReadCaches(id);
   _clearSessionRuntime(id);

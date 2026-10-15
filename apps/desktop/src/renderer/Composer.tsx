@@ -53,6 +53,7 @@ import { useComposerMessageSelector } from './use-composer-message-selector';
 import { useComposerNotice } from './use-composer-notice';
 import { useComposerPalettes } from './use-composer-palettes';
 import { createSlashExecutor } from './composer-slash-executor';
+import { BtwCard, useBtwCard } from './BtwCard';
 import { readCachedModelCatalog } from './model-catalog-cache';
 import { modelOffersUltrafast } from './model-route-utils';
 import {
@@ -510,9 +511,15 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: identityScope and paneActive are reset triggers; the effect body does not read them
   useEffect(() => setEditingPasteId(null), [identityScope, paneActive]);
   const editingPaste = attachments.find((attachment) => attachment.id === editingPasteId);
+  const btw = useBtwCard(
+    sessionId,
+    paneActive,
+    selector.open || slash.open || mention.open || skillMention.open
+  );
   const executeSlash = createSlashExecutor({
     draftMode,
     sessionId,
+    onBtw: btw.ask,
     turnBusy,
     provider,
     model,
@@ -709,6 +716,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           queueTray
         )}
       <ComposerBanners draggingFiles={draggingFiles} transitioning={transitioning} dropTarget={dropTargetRef.current} />
+      {btw.card && <BtwCard card={btw.card} onClose={btw.close} onRetry={btw.retry} />}
       <form
         ref={paletteAnchor}
         className="composer"
@@ -736,7 +744,13 @@ export const Composer = memo(function Composer(props: ComposerProps) {
             commands={slash.commands}
             index={slash.index}
             setIndex={slash.setIndex}
-            onSelect={(usage) => void send(usage)}
+            onSelect={(usage) => {
+              // /btw needs a question: complete the command instead of sending it bare.
+              if (usage !== '/btw') return void send(usage);
+              draftRef.current = '/btw ';
+              setDraft('/btw ');
+              textarea.current?.focus();
+            }}
           />
         )}
         {mention.open && (
