@@ -105,6 +105,31 @@ function antigravityGeminiThinkingConfig(model, opts) {
   });
 }
 
+// Claude on Antigravity requires standard JSON Schema (draft 2020-12) via
+// parametersJsonSchema without top-level oneOf/anyOf/allOf combinators.
+function sanitizeClaudeInputSchema(schema) {
+  const out = structuredClone(schema || { type: 'object', properties: {} });
+  delete out.oneOf;
+  delete out.anyOf;
+  delete out.allOf;
+  if (!out.type) out.type = 'object';
+  if (!out.properties) out.properties = {};
+  return out;
+}
+
+function toAntigravityClaudeTools(tools) {
+  if (!tools?.length) return [];
+  return [
+    {
+      functionDeclarations: tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        parametersJsonSchema: sanitizeClaudeInputSchema(t.inputSchema),
+      })),
+    },
+  ];
+}
+
 export function buildAntigravityRequest(messages, model, tools, opts = {}, projectId) {
   const systemText = messages
     .filter((message) => message.role === 'system')
@@ -121,7 +146,7 @@ export function buildAntigravityRequest(messages, model, tools, opts = {}, proje
   };
   const request = { contents };
   if (systemText) request.systemInstruction = { role: 'user', parts: [{ text: systemText }] };
-  const requestTools = toGeminiRequestTools(tools, opts.nativeTools);
+  const requestTools = claude ? toAntigravityClaudeTools(tools) : toGeminiRequestTools(tools, opts.nativeTools);
   if (requestTools.length) request.tools = requestTools;
   if (tools?.length) {
     request.toolConfig = toGeminiToolConfig(opts.toolChoice) || {
