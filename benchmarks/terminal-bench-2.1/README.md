@@ -27,7 +27,11 @@ results below.
 | 2026-10-15 | GPT-6.1 Sol xhigh, `k=1` | Mixdog vs Codex CLI | 77 vs 78 /89 | **$9.01 vs $19.83 (−55%)** | **10.8K vs 33.6K (−68%)** | 344s vs 380s | [mixdog](records/mixdog/gpt-6.1-sol/2026-10-15/) · [codex](records/codex/gpt-6.1-sol/2026-10-15/) |
 
 Both sides ran with web search on; Mixdog's figures include its web-search
-sessions, repriced from traces ([`trace-cost.mjs`](analysis/trace-cost.mjs)).
+sessions, repriced from traces ([`trace-cost.mjs`](analysis/trace-cost.mjs)):
+this run's usage snapshots and archived `report.json` predate the fix that
+counts those sessions and sum to $7.46, and the six tasks that searched are
+listed with their trace accounting under `mismatched` in
+[`records/trace-recovered-cost.json`](records/trace-recovered-cost.json).
 
 **2026-10-15 changes**
 
@@ -46,7 +50,7 @@ sessions, repriced from traces ([`trace-cost.mjs`](analysis/trace-cost.mjs)).
 | Accuracy | 78.5% exact level agreement vs 72.7% for Jev 1.13 on 12,029 held-out items; half the two-level misses (0.6% vs 1.4%) |
 | In this run | 825 judgments: 591 `medium`, 127 `high`, 105 `low`, 2 `xhigh`; the route's fixed `xhigh` applies only when the judge is off |
 
-Notes: the run used an uncommitted tree, and its `preset-run.json` comparison block was added after the run to pair it with Codex. Cyber-policy refusals (`vulnerable-secret`, `break-filter-js-from-html`) vary between runs; two QEMU tasks hit Debian mirror 404s.
+Notes: the run used an uncommitted tree from before the contract digest change, so its archived contract still lists web search as disabled (10 tools; the run had 11 including `load_tool`), and its `preset-run.json` comparison block was added after the run to pair it with Codex. Cyber-policy refusals (`vulnerable-secret`, `break-filter-js-from-html`) vary between runs; two QEMU tasks hit Debian mirror 404s.
 
 ## Results
 

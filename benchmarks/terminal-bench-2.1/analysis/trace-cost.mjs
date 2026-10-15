@@ -181,6 +181,15 @@ if (process.argv.includes('--write')) {
             tokens: row.tokens,
             costUsd: Number(row.costUsd.toFixed(6)),
         })),
+        // Tasks whose snapshot disagrees with the trace, with the trace's own
+        // accounting, so a trace-priced figure can be checked from the archive.
+        mismatched: mismatches.map((row) => ({
+            task: row.task,
+            requests: row.requests,
+            tokens: row.tokens,
+            costUsd: Number(row.costUsd.toFixed(6)),
+            snapshotCostUsd: Number(row.snapshot.costUsd.toFixed(6)),
+        })),
     };
     existing.generated = new Date().toISOString().slice(0, 10);
     writeFileSync(out, `${JSON.stringify(existing, null, 2)}\n`);

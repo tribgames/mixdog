@@ -95,7 +95,16 @@ export function createTurnRunner(deps) {
     try {
       const session0 = await prepareSession(turn, prompt, options);
       const turnContext = await dispatchPromptSubmit(turn, session0, prompt, options);
-      const releaseWebSearchUsage = registerNativeWebSearchUsageSink(session0.id, options.onNativeWebSearchUsage);
+      const callbacks = askCallbacks(turn, session0, options);
+      // Register only once askSession's session lock is held: the first
+      // provider send of this turn. A turn queued behind another on the same
+      // session id therefore never receives the running turn's search usage.
+      let releaseWebSearchUsage = null;
+      const providerSendStarted = callbacks.onProviderSendStarted;
+      callbacks.onProviderSendStarted = (...args) => {
+        releaseWebSearchUsage ??= registerNativeWebSearchUsageSink(session0.id, options.onNativeWebSearchUsage);
+        return providerSendStarted(...args);
+      };
       let result;
       try {
         result = await mgr.askSession(
@@ -105,10 +114,10 @@ export function createTurnRunner(deps) {
           plannedToolCalls(session0, options),
           getCurrentCwd(),
           options.prefetch || null,
-          askCallbacks(turn, session0, options)
+          callbacks
         );
       } finally {
-        releaseWebSearchUsage();
+        releaseWebSearchUsage?.();
       }
       return await completeTurn(turn, session0, result);
     } catch (error) {

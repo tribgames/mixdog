@@ -1,7 +1,6 @@
 import { anthropicEffortLevelsFor, normalizeAnthropicEffortInput } from './anthropic-effort.mjs';
 import { CUSTOM_EFFORT_LEVELS, customEffortLevels, isCustomProviderName } from './custom-reasoning.mjs';
 import { codexModelSupportsEffortUpdates } from './openai-oauth-catalog.mjs';
-import { providerCachedModelMetadataSync } from './provider-catalog-cache.mjs';
 
 export const EFFORT_CONFIGURATION_BETA = 'mid-conversation-output-config-2026-07-01';
 // Mid-conversation effort updates by model version: each family from the
@@ -184,9 +183,9 @@ export function autoEffortModel(providerName, providerImpl, model) {
     // list from falling back to a family ladder.
     return { id: model, reasoningLevels: anthropicEffortLevelsFor(model), customReasoning: true };
   }
-  // Other routes read their ladder from the provider's catalog row (the same
-  // row the route picker uses); a bare id has no levels and skips the judge.
-  if (!isCustomProviderName(providerName)) return { ...(providerCachedModelMetadataSync(providerName, model) || {}), id: model };
+  // Every other route reads the provider's own cached model row, the source
+  // route resolution (lookupModelMeta) uses; a bare id has no levels and
+  // skips the judge.
   return { ...(providerImpl?.getCachedModelInfo?.(model) || {}), id: model };
 }
 

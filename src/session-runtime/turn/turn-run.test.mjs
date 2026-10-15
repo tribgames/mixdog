@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { createTurnRunner } from './turn-run.mjs';
 import { runHeadlessExec } from '../../headless-exec.mjs';
 import { createNativeWebSearch } from '../native-web-search.mjs';
+import { reportNativeWebSearchUsage } from '../native-web-search-usage.mjs';
 import { dispatchWebSearchRuntimeTool } from '../runtime-tool-routing.mjs';
 import { setInternalToolsProvider } from '../../runtime/agent/orchestrator/internal-tools.mjs';
 import { executeTool } from '../../runtime/agent/orchestrator/session/loop/tool-exec.mjs';
@@ -430,6 +431,7 @@ test('headless usage totals include a native web search run through ask and the 
     })
   );
   h.askResult = async (callbacks) => {
+    callbacks.onProviderSendStarted();
     callbacks.onUsageDelta({ model: 'gpt-test', deltaInput: 100, deltaCachedRead: 20, deltaCacheWrite: 5, deltaOutput: 10 });
     // Run the tool from a context detached from this ask, as a pooled
     // transport's stream callback would.
@@ -469,4 +471,53 @@ test('headless usage totals include a native web search run through ask and the 
     toolCallCountApprox: 0,
   });
   assert.deepEqual(usage.sessions[0].models, ['gpt-test', 'search-model-resolved']);
+});
+
+test('a turn queued behind another on the same session id does not receive the running turn search usage', async () => {
+  const h = makeHarness();
+  const first = [];
+  const second = [];
+  const report = (usage) =>
+    reportNativeWebSearchUsage({ ownerSessionId: 'sess_new', sessionId: 'sess_new:ws', model: 'm', usage });
+  let releaseLock;
+  const lock = new Promise((resolve) => {
+    releaseLock = resolve;
+  });
+  let turns = 0;
+  let resolveFirstDone;
+  const firstDone = new Promise((resolve) => {
+    resolveFirstDone = resolve;
+  });
+  let firstOwnsSession;
+  const firstOwned = new Promise((resolve) => {
+    firstOwnsSession = resolve;
+  });
+  h.askResult = async (callbacks) => {
+    turns += 1;
+    if (turns === 1) {
+      callbacks.onProviderSendStarted();
+      firstOwnsSession();
+      await lock;
+      report({ inputTokens: 7, outputTokens: 1 });
+      return { content: 'first' };
+    }
+    // The real askSession waits on the session lock here.
+    await firstDone;
+    callbacks.onProviderSendStarted();
+    report({ inputTokens: 3, outputTokens: 2 });
+    return { content: 'second' };
+  };
+  const firstTurn = h.runner
+    .ask('one', { id: 'a', onNativeWebSearchUsage: (d) => first.push(d.deltaInput) })
+    .finally(() => resolveFirstDone());
+  await firstOwned;
+  // Queued behind the first: registers nothing until its own lock is held.
+  const secondTurn = h.runner.ask('two', { id: 'b', onNativeWebSearchUsage: (d) => second.push(d.deltaInput) });
+  await new Promise((resolve) => setImmediate(resolve));
+  report({ inputTokens: 5, outputTokens: 1 });
+  releaseLock();
+  await firstTurn;
+  await secondTurn;
+  assert.deepEqual(first, [5, 7]);
+  assert.deepEqual(second, [3]);
 });

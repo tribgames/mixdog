@@ -6,31 +6,45 @@
 // Keyed by the owning session id, not async-local state: tools can execute
 // from stream callbacks whose async context belongs to a pooled transport
 // connection, not to the ask that is waiting on them.
+//
+// Each registration is its own entry that only its own release removes, so
+// overlapping turns on one session id never restore or drop each other. The
+// session lock serializes turns, so the most recent live entry belongs to the
+// turn that is running; callers register once their turn owns the session.
 import { usageDeltaEvent } from '../runtime/agent/orchestrator/session/loop/usage.mjs';
 
-const sinks = new Map();
+const entriesBySession = new Map();
 
-/** Installs `sink` for `sessionId` and returns the function that restores the prior one. */
+/** Adds an owned sink entry for `sessionId`; the returned release removes exactly that entry. */
 export function registerNativeWebSearchUsageSink(sessionId, sink) {
   if (typeof sink !== 'function' || !sessionId) return () => {};
-  const prior = sinks.get(sessionId);
-  sinks.set(sessionId, sink);
+  const entry = { sink };
+  let entries = entriesBySession.get(sessionId);
+  if (!entries) {
+    entries = [];
+    entriesBySession.set(sessionId, entries);
+  }
+  entries.push(entry);
   return () => {
-    if (sinks.get(sessionId) !== sink) return;
-    if (prior) sinks.set(sessionId, prior);
-    else sinks.delete(sessionId);
+    const live = entriesBySession.get(sessionId);
+    const index = live ? live.indexOf(entry) : -1;
+    if (index === -1) return;
+    live.splice(index, 1);
+    if (live.length === 0) entriesBySession.delete(sessionId);
   };
 }
 
 export function reportNativeWebSearchUsage({ ownerSessionId, sessionId, requestedModel, model, usage }) {
-  const sink = sinks.get(ownerSessionId);
+  const entries = entriesBySession.get(ownerSessionId);
+  const sink = entries?.[entries.length - 1]?.sink;
   if (!sink || !usage) return;
   try {
-    sink({
+    const pending = sink({
       ...usageDeltaEvent({ sessionId, iterationIndex: 0, requestedModel, model, usage }),
       source: 'native_web_search',
       agentRole: 'web-search',
     });
+    if (typeof pending?.then === 'function') pending.then(undefined, () => {});
   } catch {
     /* telemetry must never fail the search */
   }
