@@ -11,26 +11,27 @@
   /* Same reading frame as the rows above it — both read the pane ladder. */
   padding: 0 var(--pane-inset) 16px;
 }
+/* The dock is an ordinary layout sibling BELOW the transcript viewport: the
+   conversation column gives the transcript shell whatever the dock's
+   intrinsic height leaves, so every dock change resizes the viewport itself
+   and nothing is fed back into the transcript as padding. */
 .conversation > .composer-region {
-  position: absolute;
+  position: relative;
   z-index: 10;
-  inset-inline: 0;
-  bottom: 0;
-  pointer-events: none;
+  /* Never taller than the pane: when the dock's members need more than the
+     pane holds, the dock shrinks, and inside it only the island slot gives
+     up room (it scrolls). Composer, quota, /btw and queue keep their size. */
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
-.conversation > .composer-region::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  /* Hard edge at the dock top:
-     the 16px fade half-erased the line resting on the input. */
-  inset: 0;
-  background: var(--mx-workspace-sheet);
+.conversation > .composer-region > :not(.composer-island-slot) {
+  flex: none;
 }
-/* Rows fade out ABOVE the dock, so nothing inside the dock is washed.
-   Keep the fade outside the scrolling layer: masking the viewport makes
-   scrolling repaint the masked content. The measured dock height includes
-   the floating island, so the fade ends at whichever sits on top. */
+/* The strip fades the last --transcript-fade of the viewport into the sheet at
+   the transcript/dock boundary. Keep it outside the scrolling layer: masking
+   the viewport makes scrolling repaint the masked content. */
 .conversation {
   --transcript-fade: 24px;
 }
@@ -40,18 +41,11 @@
   z-index: 8;
   inset-inline: 0;
   bottom: 0;
-  height: calc(var(--composer-dock-height, 0px) + var(--transcript-fade));
+  height: var(--transcript-fade);
   pointer-events: none;
   /* Mica clears workspace-sheet, but the pane beneath the rows is painted
-     with sheet-surface. Use that same opaque colour, including below the dock. */
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    var(--mx-sheet-surface, var(--mx-workspace-sheet)) var(--transcript-fade)
-  );
-}
-.conversation > .composer-region > :not(.composer-island-slot) {
-  pointer-events: auto;
+     with sheet-surface: use that same opaque colour. */
+  background: linear-gradient(to bottom, transparent, var(--mx-sheet-surface, var(--mx-workspace-sheet)));
 }
 .composer-context-bar {
   min-height: 28px;
@@ -64,59 +58,70 @@
 /* ── Composer island ──────────────────────────────────────────────────────
    One island above a session's composer carries every status (Goal, jobs,
    changed files, model mismatch), expands upward in place, grows into the
-   tool approval card and flashes short notices. Its slot reserves the
-   pill's 34px + 12px gap once something has shown (it then stays held open,
-   see ComposerIsland) and is 0 before that; everything taller overlays
-   upward. The slot opens in one step: the island draws at its final place at
-   once, so an animated slot let the end-pinned transcript glide up under the
-   new segment for 180ms, the segment covering the last rows meanwhile. */
+   tool approval card and flashes short notices. Its slot is in the dock's
+   flow: the island's real height plus the 12px gap above the input while it
+   carries something, and no box at all once it carries nothing. Expanded
+   panels and the approval card take that same real room (bounded below), so
+   the transcript viewport above simply gets shorter.
+   ComposerIsland owns the slot's height (--island-slot-height, px) and its
+   data-presence: "open" while something is carried, "grace" for a short
+   hold after the last content left (content returning within it moves
+   nothing), "closing" while the height eases to 0, then "closed". */
+@property --island-slot-height {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 .composer-island-slot {
   position: relative;
   z-index: 9;
-  height: 46px;
+  /* The one dock member that yields room: slot, stage and an expanded island
+     shrink together, so the island is bounded by what the other members
+     leave in the pane. */
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* The island rests on the slot's floor, next to the input. */
+  justify-content: flex-end;
   pointer-events: none;
 }
-/* Nothing carried yet: the slot is collapsed. Same content test as the
-   island's hidden rule below; :root outranks the mobile slot height. */
-:root
-.composer-island-slot:not([data-held]):not(
-  :has(
-    .composer-island-seg,
-    .session-goal-island,
-    .composer-island-approval,
-    .composer-island-flash,
-    .composer-island-quota,
-    .turn-review-bar
-  )
-) {
-  height: 0;
+/* Owned by ComposerIsland (set before the first paint). Whole pixels on every
+   frame of the easing: a fractional dock top would leave the end-pinned tail
+   a sub-pixel off its 24px. */
+.composer-island-slot[data-presence] {
+  height: round(var(--island-slot-height), 1px);
+}
+/* Closed: the slot takes no space. */
+.composer-island-slot[data-presence="closed"] {
+  display: none;
+}
+/* Opening, closing or resizing: the height eases (no overshoot, reversible
+   mid-flight) while the island keeps its own size on the slot's floor and the
+   slot clips what is not open yet. Never set under reduced motion. */
+.composer-island-slot[data-motion] {
+  overflow: clip;
+  transition: --island-slot-height 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-island-slot[data-motion] {
+    transition: none;
+  }
+}
+.composer-island-slot:is([data-motion], [data-measuring]) > .composer-island-stage {
+  flex-shrink: 0;
 }
 .composer-island-stage {
-  position: absolute;
-  inset-inline: 0;
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   /* 12px above the input: close enough to read as the composer's own chrome
      while leaving it room to breathe (the mobile dock uses the same gap). */
-  bottom: 12px;
-  display: flex;
-  justify-content: center;
+  padding-bottom: 12px;
   pointer-events: none;
   container: composer-island / inline-size;
-}
-/* Expanded over the transcript: a fade from the island's top down to the
-   sheet keeps rows from reading through behind it. */
-.composer-island-slot:is([data-mode="panel"], [data-mode="approval"]) > .composer-island-stage::before {
-  content: "";
-  position: absolute;
-  inset-inline: calc(-1 * var(--pane-inset, 24px));
-  top: -72px;
-  bottom: -12px;
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--mx-workspace-sheet) 0%, transparent),
-    color-mix(in srgb, var(--mx-workspace-sheet) 92%, transparent) 48px,
-    var(--mx-workspace-sheet)
-  );
-  pointer-events: none;
 }
 .composer-island {
   /* The status island's frame: one opaque blend of the base and the sheet,
@@ -140,12 +145,16 @@
   font-weight: var(--mx-weight-label);
   line-height: var(--mx-line-ui);
   letter-spacing: -0.005em;
-  transform-origin: 50% 100%;
   pointer-events: auto;
-  animation: composer-island-pop 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-/* Nothing to carry: the island vanishes, its slot stays. A distinct
-   animation per mode replays the pop whenever the island changes shape. */
+/* Entry fades only for content that arrives after the island mounted
+   (ComposerIsland sets data-entry then): a mounted island — a session switch
+   remounts it — draws at its final state. */
+:where(.composer-island-slot[data-entry]) .composer-island {
+  animation: composer-island-fade 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* Nothing to carry: the island vanishes; its slot follows after the grace
+   (ComposerIsland; same content test as ISLAND_CONTENT there). */
 .composer-island:not(
   :has(
     .composer-island-seg,
@@ -164,29 +173,47 @@
 :root .composer-island[data-mode="approval"] {
   --composer-island-edge: 0 0 0 1px color-mix(in srgb, var(--mx-warning) 55%, transparent);
 }
-.composer-island[data-mode="approval"] {
+/* A distinct animation name per mode replays the fade whenever the island
+   changes shape. */
+:where(.composer-island-slot[data-entry]) .composer-island[data-mode="approval"] {
   animation-name: composer-island-pop-approval;
+}
+/* Expanded, the island takes real room in the dock. It never takes the pane:
+   past this bound it scrolls inside, leaving the transcript its share, and in
+   a pane too short for even that it shrinks to what the composer and the
+   other dock members leave (the slot's flex bound above). */
+.composer-island:is([data-mode="panel"], [data-mode="approval"]) {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: max(160px, 100cqh - 240px);
+  overflow: hidden auto;
+  overscroll-behavior: contain;
 }
 /* Collapsed, the island is one capsule like its pill row. */
 .composer-island:is([data-mode="pill"], [data-mode="flash"]) {
   border-radius: var(--mx-radius-pill);
 }
-.composer-island[data-mode="flash"] {
+:where(.composer-island-slot[data-entry]) .composer-island[data-mode="flash"] {
   animation-name: composer-island-pop-flash;
 }
-@keyframes composer-island-pop {
+/* The island fades in place; it never scales or slides, so nothing reads as
+   moving while its slot eases open. */
+@keyframes composer-island-fade {
   from {
-    transform: scale(0.94);
-    opacity: 0.4;
+    opacity: 0;
   }
 }
 @keyframes composer-island-pop-approval {
   from {
-    transform: scale(0.94);
-    opacity: 0.4;
+    opacity: 0;
   }
 }
 @keyframes composer-island-pop-flash {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes composer-island-pop {
   from {
     transform: scale(0.94);
     opacity: 0.4;
@@ -985,12 +1012,6 @@ button.composer-island-tab {
 .composer-region:has(> .composer-island-slot[data-mode="approval"]) .composer {
   opacity: 0.4;
   filter: saturate(0.6);
-}
-html[data-mixdog-mobile-tabs] .composer-island-slot {
-  height: 48px;
-}
-html[data-mixdog-mobile-tabs] .composer-island-stage {
-  bottom: 12px;
 }
 html[data-mixdog-mobile-tabs] .composer-island {
   font-size: var(--mx-font-meta);
@@ -2370,7 +2391,7 @@ button.attachment-card-file {
    rounded top corners, whose lower edge tucks one card radius under the
    card, so the card keeps all four corners (the Codex composer rail). Rows are
    32px; the list grows to 30% of the viewport, then scrolls with a bottom
-   fade. This is the only dock member allowed to change the dock's height. */
+   fade. */
 .composer-queue-tray:empty {
   display: none;
 }

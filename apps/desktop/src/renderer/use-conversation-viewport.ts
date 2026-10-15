@@ -1,23 +1,18 @@
 import { useRef } from 'react';
-import { useComposerDockHeight } from './use-composer-dock-height';
 import { useTranscriptFollow } from './use-transcript-follow';
 
 /** The pane's DOM anchors and the reader's follow state over the transcript
  *  viewport. */
 export function useConversationViewport({
-  readOnly,
   transcriptSessionKey,
   transcriptPending,
 }: {
-  readOnly: boolean;
   transcriptSessionKey: string;
   transcriptPending: boolean;
 }) {
   const conversation = useRef<HTMLElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const composerDock = useRef<HTMLDivElement>(null);
-  const composerDockHeight = useComposerDockHeight(composerDock, !readOnly);
   const scrollToEndRef = useRef<(behavior?: ScrollBehavior) => void>(() => {});
   // Reader intent must reach the virtual timeline's anchor in the same task it
   // is decided in; React state gets there a render later.
@@ -38,8 +33,6 @@ export function useConversationViewport({
     conversation,
     viewport,
     content,
-    composerDock,
-    composerDockHeight,
     scrollToEndRef,
     setTranscriptAnchorBottomRef,
     timelineMounted,

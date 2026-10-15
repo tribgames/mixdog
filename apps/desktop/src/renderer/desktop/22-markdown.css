@@ -105,8 +105,8 @@
   position: absolute;
   z-index: 9;
   left: 50%;
-  /* The scroller extends behind the measured dock. */
-  bottom: calc(var(--composer-dock-height, 0px) + var(--pane-chrome-inset));
+  /* Inside the transcript shell, which ends at the dock's top edge. */
+  bottom: var(--pane-chrome-inset);
   /* Ink-inverse circular chip: ink fill, surface-coloured arrow. Stays
      mounted; showJump toggles aria-hidden, which drives the fade. */
   width: 28px;

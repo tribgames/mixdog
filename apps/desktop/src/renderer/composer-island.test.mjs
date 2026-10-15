@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
+import puppeteer from 'puppeteer-core';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { ComposerDock } from './ComposerDock.tsx';
@@ -19,6 +23,8 @@ function mount(t) {
     rootId: 'root',
   });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  dom.window.requestAnimationFrame = (callback) => dom.window.setTimeout(() => callback(Date.now()), 16);
+  dom.window.cancelAnimationFrame = (id) => dom.window.clearTimeout(id);
   // The island lists agents from the same pool feed as the Agents window.
   let pushPool = () => {};
   let poolRows = [];
@@ -68,7 +74,7 @@ const publish = (snapshot) =>
     });
   });
 
-test('a draft keeps its context bar; a session reserves the island slot even when empty', async (t) => {
+test('a draft keeps its context bar; a session mounts the island slot even when empty', async (t) => {
   const { root, document } = mount(t);
   await act(async () =>
     root.render(
@@ -485,16 +491,61 @@ test('the agent and shell segments expand the island panel inline', async (t) =>
   assert.equal(document.querySelector('.composer-island-jobs .composer-island-shell-command').textContent, 'npm test');
 });
 
-test('content shown by a child-only update holds the island slot open after it leaves', async (t) => {
-  const { root, document } = mount(t);
-  const { ComposerIsland } = await import('./ComposerIsland.tsx');
-  // The files segment renders from its own async read: the island itself
-  // never re-renders when it appears or disappears.
-  const control = { show: () => {} };
-  function LateFiles() {
+/** The real dock stylesheet decides the slot's box; jsdom has no layout, so
+ *  the stage reports the pill row's 46px, or 212px with an approval card. */
+function slotFixture(t, window, document) {
+  const style = document.createElement('style');
+  style.textContent = readFileSync(new URL('./desktop/15-composer.css', import.meta.url), 'utf8');
+  document.head.append(style);
+  const proto = window.HTMLElement.prototype;
+  const offsetHeight = Object.getOwnPropertyDescriptor(proto, 'offsetHeight');
+  Object.defineProperty(proto, 'offsetHeight', {
+    configurable: true,
+    get() {
+      if (!this.classList.contains('composer-island-stage')) return 0;
+      return this.querySelector('.composer-island-approval') ? 212 : 46;
+    },
+  });
+  t.after(() => Object.defineProperty(proto, 'offsetHeight', offsetHeight));
+  const slot = () => document.querySelector('.composer-island-slot');
+  return {
+    slot,
+    presence: () => slot().getAttribute('data-presence'),
+    display: () => window.getComputedStyle(slot()).display,
+    moving: () => slot().hasAttribute('data-motion'),
+    // The browser ends the slot's height transition.
+    finish: () => {
+      const event = new window.Event('transitionend');
+      Object.defineProperty(event, 'propertyName', { value: '--island-slot-height' });
+      slot().dispatchEvent(event);
+    },
+  };
+}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// The dock for one session, with or without a pending approval card.
+const renderDock = (root, session, approval) =>
+  act(async () =>
+    root.render(
+      React.createElement(ComposerDock, {
+        ...dockProps({ reviewSessionId: session }),
+        approval: approval ? React.createElement('article', { className: 'approval-card' }) : null,
+      })
+    )
+  );
+// Past the mount's first frame: from here on changes animate.
+const firstFrame = () => act(() => sleep(40));
+
+test('the island slot opens with its content, holds through the grace, then eases shut and keeps no footprint', async (t) => {
+  const { root, document, window } = mount(t);
+  const { slot, presence, display, moving, finish } = slotFixture(t, window, document);
+  const { ComposerIsland, ISLAND_COLLAPSE_GRACE_MS } = await import('./ComposerIsland.tsx');
+  // Segments that render from their own state (the files segment after its
+  // async diff read): the island itself never re-renders when they come and go.
+  const controls = {};
+  function Late({ name }) {
     const [shown, setShown] = React.useState(false);
-    control.show = setShown;
-    return shown ? React.createElement('button', { type: 'button', className: 'composer-island-seg' }, '1 file') : null;
+    controls[name] = setShown;
+    return shown ? React.createElement('button', { type: 'button', className: 'composer-island-seg' }, name) : null;
   }
   let islandRenders = 0;
   function CountedIsland(props) {
@@ -503,31 +554,322 @@ test('content shown by a child-only update holds the island slot open after it l
   }
   await act(async () =>
     root.render(
-      React.createElement(CountedIsland, { sessionId: 'island-session', files: React.createElement(LateFiles) })
+      React.createElement(CountedIsland, {
+        sessionId: 'island-session',
+        files: React.createElement(Late, { name: 'files' }),
+        goal: React.createElement(Late, { name: 'goal' }),
+      })
     )
   );
-  const slot = document.querySelector('.composer-island-slot');
   const rendersBefore = islandRenders;
-  assert.equal(slot.dataset.held, undefined, 'an empty slot is not held yet');
-  await act(async () => control.show(true));
-  await act(async () => control.show(false));
-  assert.equal(islandRenders, rendersBefore, 'only the child re-rendered');
+  assert.equal(presence(), 'closed');
+  assert.equal(display(), 'none', 'an empty slot has no box');
+  await firstFrame();
+  await act(async () => controls.files(true));
+  assert.equal(presence(), 'open', 'a visible segment opens the slot at once');
+  assert.notEqual(display(), 'none');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px', 'to the stage’s real height');
+  assert.equal(moving(), true, 'the opening eases');
+  finish();
+  assert.equal(moving(), false);
+  await act(async () => controls.goal(true));
+  await act(async () => controls.files(false));
+  assert.equal(presence(), 'open', 'the slot stays while any segment is still visible');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
+  assert.equal(moving(), false, 'an unchanged height starts no motion');
+  await act(async () => controls.goal(false));
+  assert.equal(islandRenders, rendersBefore, 'only the children re-rendered');
   assert.equal(document.querySelector('.composer-island-seg'), null);
-  assert.equal(slot.dataset.held, 'true', 'the slot stays open instead of collapsing under the transcript');
-});
-
-test('content added and removed before the observer runs still holds the slot', async (t) => {
-  const { root, document } = mount(t);
-  const { ComposerIsland } = await import('./ComposerIsland.tsx');
-  await act(async () => root.render(React.createElement(ComposerIsland, { sessionId: 'island-session' })));
-  const slot = document.querySelector('.composer-island-slot');
-  const pill = slot.querySelector('.composer-island-pill');
+  assert.equal(presence(), 'grace', 'the last segment leaving holds the slot');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px', 'at its current height');
+  assert.notEqual(display(), 'none');
+  await sleep(ISLAND_COLLAPSE_GRACE_MS - 150);
+  assert.equal(presence(), 'grace');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
+  await sleep(250);
+  assert.equal(presence(), 'closing', 'after the grace the slot eases shut');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '0px');
+  assert.equal(moving(), true);
+  finish();
+  assert.equal(presence(), 'closed');
+  assert.equal(display(), 'none', 'no footprint once closed');
+  // Content added and removed again within one task opens nothing.
   const segment = document.createElement('span');
   segment.className = 'composer-island-seg';
-  pill.append(segment);
+  slot().querySelector('.composer-island-pill').append(segment);
   segment.remove();
   await act(async () => {});
-  assert.equal(slot.dataset.held, 'true');
+  assert.equal(presence(), 'closed');
+  assert.equal(display(), 'none');
+});
+
+test('content returning within the grace cancels the collapse: the slot never moves', async (t) => {
+  const { root, document, window } = mount(t);
+  const { slot, presence, moving, finish } = slotFixture(t, window, document);
+  const { ComposerIsland, ISLAND_COLLAPSE_GRACE_MS } = await import('./ComposerIsland.tsx');
+  let setShown = () => {};
+  function Late() {
+    const [shown, set] = React.useState(true);
+    setShown = set;
+    return shown ? React.createElement('button', { type: 'button', className: 'composer-island-seg' }, 'files') : null;
+  }
+  await act(async () =>
+    root.render(React.createElement(ComposerIsland, { sessionId: 'island-session', files: React.createElement(Late) }))
+  );
+  assert.equal(presence(), 'open', 'content present at mount opens the slot');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
+  assert.equal(moving(), false, 'the mount draws at its true state');
+  await firstFrame();
+  await act(async () => setShown(false));
+  assert.equal(presence(), 'grace');
+  await sleep(ISLAND_COLLAPSE_GRACE_MS - 200);
+  await act(async () => setShown(true));
+  assert.equal(presence(), 'open', 'the returning segment cancels the collapse');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
+  assert.equal(moving(), false, 'nothing moved');
+  await sleep(400);
+  assert.equal(presence(), 'open', 'the cancelled collapse never fires');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
+  finish();
+  assert.equal(presence(), 'open');
+});
+
+test('an approval opens the slot without delay and is held no longer than the grace once resolved', async (t) => {
+  const { root, document, window } = mount(t);
+  const { slot, presence, moving, finish } = slotFixture(t, window, document);
+  const { ISLAND_COLLAPSE_GRACE_MS } = await import('./ComposerIsland.tsx');
+  const render = (approval) => renderDock(root, 'approval-session', approval);
+  await render(false);
+  assert.equal(presence(), 'closed');
+  await firstFrame();
+  await render(true);
+  assert.equal(presence(), 'open', 'the approval opens the slot in the same commit');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '212px', 'straight to the card’s height');
+  assert.equal(moving(), true);
+  finish();
+  await render(false);
+  assert.equal(presence(), 'grace');
+  await sleep(ISLAND_COLLAPSE_GRACE_MS + 50);
+  assert.equal(presence(), 'closing', 'the resolved card holds no longer than the grace');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '0px');
+  finish();
+  assert.equal(presence(), 'closed');
+});
+
+test('a session switch remounts the slot at its true state, with no grace and no motion', async (t) => {
+  const { root, document, window } = mount(t);
+  const { slot, presence, moving } = slotFixture(t, window, document);
+  const render = (session, approval) => renderDock(root, session, approval);
+  await render('session-a', true);
+  await firstFrame();
+  const first = slot();
+  assert.equal(presence(), 'open');
+  await render('session-b', false);
+  assert.notEqual(slot(), first, 'the island remounts per session');
+  assert.equal(presence(), 'closed', 'an empty session starts closed, without the grace');
+  assert.equal(moving(), false);
+  await render('session-c', true);
+  assert.equal(presence(), 'open', 'a session with content starts open');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '212px');
+  assert.equal(moving(), false, 'without easing');
+});
+
+test('reduced motion turning on mid-motion lands the slot at once; unmount drops the listener', async (t) => {
+  const { root, window, document } = mount(t);
+  const { slot, presence, moving } = slotFixture(t, window, document);
+  const { ComposerIsland, ISLAND_COLLAPSE_GRACE_MS } = await import('./ComposerIsland.tsx');
+  const listeners = new Set();
+  const query = {
+    matches: false,
+    addEventListener: (type, listener) => type === 'change' && listeners.add(listener),
+    removeEventListener: (type, listener) => type === 'change' && listeners.delete(listener),
+  };
+  window.matchMedia = () => query;
+  const preferReduced = () =>
+    act(async () => {
+      query.matches = true;
+      for (const listener of [...listeners]) listener({ matches: true });
+    });
+  const render = (shown) =>
+    act(async () =>
+      root.render(
+        React.createElement(ComposerIsland, {
+          sessionId: 'motion-session',
+          files: shown
+            ? React.createElement('button', { type: 'button', className: 'composer-island-seg' }, 'f')
+            : null,
+        })
+      )
+    );
+  await render(false);
+  assert.equal(listeners.size, 1, 'the slot follows the preference');
+  await firstFrame();
+  await render(true);
+  assert.equal(moving(), true, 'the opening eases');
+  await preferReduced();
+  assert.equal(moving(), false, 'the running motion is cancelled');
+  assert.equal(presence(), 'open');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px', 'at its target height');
+  await render(false);
+  assert.equal(presence(), 'grace', 'the grace is a hold, not motion');
+  await sleep(ISLAND_COLLAPSE_GRACE_MS + 50);
+  assert.equal(presence(), 'closed', 'the collapse is instant under reduced motion');
+  assert.equal(moving(), false);
+  await act(async () => root.render(null));
+  assert.equal(listeners.size, 0, 'unmount removes the listener');
+});
+
+/** ComposerIsland on a real page with the real stylesheet. */
+async function islandPage(t) {
+  const bundle = await build({
+    plugins: [
+      {
+        name: 'worker-stub',
+        setup(builder) {
+          builder.onResolve({ filter: /\?worker$/ }, (args) => ({ path: args.path, namespace: 'worker-stub' }));
+          builder.onLoad({ filter: /.*/, namespace: 'worker-stub' }, () => ({
+            contents: 'export default class {};',
+            loader: 'js',
+          }));
+        },
+      },
+    ],
+    stdin: {
+      contents: `
+        import React from 'react';
+        import { flushSync } from 'react-dom';
+        import { createRoot } from 'react-dom/client';
+        import { ComposerIsland } from './ComposerIsland.tsx';
+        window.mixdogDesktop = { listAgentPool: async () => [], subscribeAgentPool: () => {} };
+        const root = createRoot(document.getElementById('root'));
+        // Keyed by session like ComposerDock: a switch remounts the island.
+        window.__render = (session, { approval = false, segment = false } = {}) =>
+          flushSync(() =>
+            root.render(
+              React.createElement(ComposerIsland, {
+                key: session,
+                sessionId: session,
+                approval: approval
+                  ? React.createElement('article', { className: 'approval-card', style: { height: '160px' } }, 'Allow?')
+                  : null,
+                files: segment ? React.createElement('button', { type: 'button', className: 'composer-island-seg' }, 'files') : null,
+              })
+            )
+          );
+      `,
+      resolveDir: fileURLToPath(new URL('.', import.meta.url)),
+      loader: 'tsx',
+    },
+    outfile: 'composer-island-page.js',
+    bundle: true,
+    write: false,
+    format: 'iife',
+    jsx: 'automatic',
+    loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
+  });
+  const script = bundle.outputFiles.find((file) => file.path.endsWith('.js')).text;
+  const css = readFileSync(new URL('./desktop/15-composer.css', import.meta.url), 'utf8');
+  const browser = await puppeteer.launch({
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+    headless: true,
+  });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.setViewport({ width: 900, height: 700 });
+  await page.setContent(`<!doctype html><html><head><style>
+    body { margin: 0; font-family: sans-serif; }
+    ${css}
+    #root { position: fixed; right: 0; bottom: 0; left: 0; display: flex; flex-direction: column; }
+  </style></head><body><div id="root"></div></body></html>`);
+  await page.addScriptTag({ content: script });
+  await page.evaluate(() => {
+    window.__frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    // The island's own entry fades (pulses and spinners are not entries).
+    window.__entry = () => {
+      const island = document.querySelector('.composer-island');
+      return {
+        opacity: Number(getComputedStyle(island).opacity),
+        fades: island
+          .getAnimations({ subtree: true })
+          .filter((animation) => animation.animationName?.startsWith('composer-island-')).length,
+      };
+    };
+  });
+  return page;
+}
+
+test('a remounted island with an approval draws at its final state; only later arrivals fade in', async (t) => {
+  const page = await islandPage(t);
+  const result = await page.evaluate(async () => {
+    window.__render('session-a', { approval: true });
+    await window.__frame();
+    await window.__frame();
+    // The session switch: a fresh island that already carries an approval.
+    window.__render('session-b', { approval: true });
+    await Promise.resolve();
+    const atMount = window.__entry();
+    const frames = [];
+    const start = performance.now();
+    while (performance.now() - start < 320) {
+      await window.__frame();
+      frames.push(window.__entry());
+    }
+    // Contrast: the same island receiving an approval after its first frame.
+    window.__render('session-c');
+    await window.__frame();
+    await window.__frame();
+    window.__render('session-c', { approval: true });
+    await Promise.resolve();
+    const arrival = window.__entry();
+    return { atMount, frames, arrival };
+  });
+  assert.deepEqual(result.atMount, { opacity: 1, fades: 0 }, 'no entry animation on remount');
+  assert.ok(result.frames.length > 5);
+  assert.equal(Math.min(...result.frames.map((frame) => frame.opacity)), 1, 'opaque on every painted frame');
+  assert.equal(Math.max(...result.frames.map((frame) => frame.fades)), 0);
+  assert.equal(result.arrival.fades, 1, 'an approval arriving after mount still fades in');
+  assert.ok(result.arrival.opacity < 1);
+});
+
+test('reduced motion turning on mid-animation lands the slot at its target height at once', async (t) => {
+  const page = await islandPage(t);
+  const opening = await page.evaluate(async () => {
+    window.__render('motion');
+    await window.__frame();
+    await window.__frame();
+    window.__render('motion', { segment: true });
+    await Promise.resolve();
+    const slot = document.querySelector('.composer-island-slot');
+    const target = Number.parseFloat(slot.style.getPropertyValue('--island-slot-height'));
+    await window.__frame();
+    await window.__frame();
+    await window.__frame();
+    return { target, mid: slot.offsetHeight, moving: slot.hasAttribute('data-motion') };
+  });
+  assert.ok(opening.target > 0);
+  assert.equal(opening.moving, true);
+  assert.ok(opening.mid > 0 && opening.mid < opening.target, `mid-animation (${opening.mid} of ${opening.target})`);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  const landed = await page.evaluate(async () => {
+    const slot = document.querySelector('.composer-island-slot');
+    await window.__frame();
+    const first = { height: slot.offsetHeight, moving: slot.hasAttribute('data-motion') };
+    const later = [];
+    for (let index = 0; index < 8; index += 1) {
+      await window.__frame();
+      later.push(slot.offsetHeight);
+    }
+    const settled = { moving: slot.hasAttribute('data-motion'), presence: slot.getAttribute('data-presence') };
+    // The stylesheet alone also keeps the slot still under reduced motion.
+    slot.setAttribute('data-motion', '');
+    const transition = getComputedStyle(slot).transitionProperty;
+    slot.removeAttribute('data-motion');
+    return { first, later, settled, transition };
+  });
+  assert.equal(landed.first.height, Math.round(opening.target), 'landed in the next frame');
+  assert.deepEqual(new Set(landed.later), new Set([Math.round(opening.target)]), 'and stays there');
+  assert.deepEqual(landed.settled, { moving: false, presence: 'open' }, 'the media change ended the motion');
+  assert.equal(landed.transition, 'none');
 });
 
 test('the shared poll runs once for all subscribers, pauses while hidden and refreshes on becoming visible', async (t) => {
@@ -581,26 +923,26 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
       cleared = true;
       return { value: { turns: 12 } };
     }
+    // The turn review read carries the retained turn count Delete history removes.
+    if (request.capability === 'getTurnReviewDiff') {
+      return { value: { supported: true, authoritative: true, files: [], patch: '', historyTurns: cleared ? 0 : 12 } };
+    }
     if (request.capability !== 'getSessionReviewDiff') return { value: { supported: true, files: [], patch: '' } };
+    // No Git here (no gitReview): the island counts the session diff.
     const files = cleared ? [] : [{ path: 'a.ts', status: 'M', additions: 3, deletions: 1 }];
-    return {
-      value: {
-        supported: true,
-        authoritative: true,
-        complete: true,
-        patch: '',
-        files,
-        uncommittedFiles: files,
-        historyTurns: cleared ? 0 : 12,
-      },
-    };
+    return { value: { supported: true, authoritative: true, complete: true, patch: '', files } };
   };
   let opened = 0;
   await act(async () =>
     root.render(
       React.createElement(
         ComposerDock,
-        dockProps({ reviewSessionId: 'island-files', reviewCwd: 'C:/work', onOpenSessionDiff: () => opened++ })
+        dockProps({
+          reviewSessionId: 'island-files',
+          reviewCwd: 'C:/work',
+          reviewItems: [{ kind: 'turndone', id: 'island-done' }],
+          onOpenSessionDiff: () => opened++,
+        })
       )
     )
   );
@@ -631,9 +973,7 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
   assert.equal(menu().children[1].getAttribute('role'), 'separator');
   assert.ok(items()[1].classList.contains('danger'));
   assert.equal(document.activeElement, items()[0], 'keyboard focus lands on the first item');
-  await act(async () =>
-    menu().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
-  );
+  await act(async () => menu().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
   assert.equal(document.activeElement, items()[1]);
   await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
   assert.equal(menu(), null, 'Escape closes the menu');
@@ -676,7 +1016,9 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
   await tab(true);
   assert.equal(document.activeElement, deleteButton, 'Shift+Tab wraps back');
   // Escape cancels and focus returns to the Files segment.
-  await act(async () => document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  await act(async () =>
+    document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  );
   assert.equal(dialog(), null);
   assert.equal(document.activeElement, segment());
   // So does Cancel.
@@ -711,5 +1053,6 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
       ['island-files', []],
     ]
   );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
   assert.equal(segment(), null, 'an empty history hides the segment');
 });

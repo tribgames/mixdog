@@ -13,7 +13,6 @@ export function useTranscriptEndPin({
   hasScrollGestureRef,
   domTop,
   markProgrammaticScrollRef,
-  bottomInset,
   deviation,
 }: {
   viewport: RefObject<HTMLDivElement | null>;
@@ -23,7 +22,6 @@ export function useTranscriptEndPin({
   hasScrollGestureRef: MutableRefObject<() => boolean>;
   domTop: MutableRefObject<number | null>;
   markProgrammaticScrollRef: MutableRefObject<((top: number, intended?: number) => void) | undefined>;
-  bottomInset: number;
   deviation: TouchScrollDeviation;
 }) {
   // The committed extent: the spacer height virtual-core last wrote (a style
@@ -56,12 +54,5 @@ export function useTranscriptEndPin({
     [maxScrollTop, viewport, virtualizerRef, spacer, hasScrollGestureRef, domTop, markProgrammaticScrollRef, deviation]
   );
   useLayoutEffect(() => () => endPin.cancel(), [endPin]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: bottomInset is the intentional trigger — a padding change re-publishes the extent and re-requests the end pin
-  useLayoutEffect(() => {
-    // Padding changes do not move any row. Publish the new extent for readers
-    // too; only a following timeline is allowed to move to the new end.
-    if (spacer.current) spacer.current.style.height = `${virtualizerRef.current.getTotalSize()}px`;
-    endPin.request();
-  }, [bottomInset, endPin]);
   return { contentHeight, maxScrollTop, endPin };
 }

@@ -15,6 +15,7 @@ import {
   pointerShouldReleaseFollow,
   selectionAutoScrollShouldReleaseFollow,
   readerScrollShouldReleaseFollow,
+  scrollExtentClamped,
   touchMoveShouldReleaseFollow,
   touchScrollLatchOpen,
   wheelShouldReleaseFollow,
@@ -350,10 +351,35 @@ export function useTranscriptFollow({
     const nativeTop = element.scrollTop;
     const metrics = scrollMetrics(element, undefined, nativeTop + transcriptScrollDeviation(element));
     const top = metrics.top;
-    const previousTop = top - (nativeTop - lastNativeTop.current);
+    const previousNativeTop = lastNativeTop.current;
+    const previousTop = top - (nativeTop - previousNativeTop);
     lastNativeTop.current = nativeTop;
     lastTop.current = top;
     const programmaticScroll = isProgrammatic(nativeTop);
+    // A content click must not open the gesture window: a stream wobble in
+    // the next 250ms would then unlock follow (user: 스크립트 클릭하면
+    // 오토스크롤·줄바꿈이 풀린다). Selection autoscroll is the exception —
+    // pointerDragging is armed only after a real 4px drag.
+    const releaseCandidate =
+      followingRef.current &&
+      readerScrollShouldReleaseFollow({
+        programmatic: programmaticScroll,
+        chromePointer: chromeScroll.current,
+        upwardMove: previousTop - top,
+      });
+    // The dock shrinking grows the viewport, and Chromium clamps an offset
+    // past the new end onto it — while a pointer held still on the scrollbar
+    // keeps the end pin deferred, so no write of the timeline accounts for
+    // that move. It is the extent changing, not the reader. Checked only for
+    // a move that would release, and against the native extent: a clamp from
+    // a forced layout can arrive before the timeline observes the new height.
+    const clamped =
+      releaseCandidate &&
+      scrollExtentClamped({
+        previousTop: previousNativeTop,
+        top: nativeTop,
+        maxScrollTop: element.scrollHeight - element.clientHeight,
+      });
     if (transcriptScrollDiagnosticsEnabled() && Math.abs(top - previousTop) >= 8) {
       logTranscriptScroll('viewport-move', {
         from: previousTop,
@@ -366,7 +392,7 @@ export function useTranscriptFollow({
     // A native reader ramp may outlive the initial 250ms gesture window.
     // Extend ownership only from real movement, never from a virtual-core
     // correction, so compensation resumes once wheel/inertia actually stops.
-    if (top !== previousTop && !programmaticScroll && hasReaderScroll()) {
+    if (top !== previousTop && !programmaticScroll && !clamped && hasReaderScroll()) {
       markReaderMotion();
     }
     lastScrollHeight.current = metrics.maxScrollTop + metrics.viewportHeight;
@@ -388,19 +414,7 @@ export function useTranscriptFollow({
       if (scrollShouldReattachFollow(metrics, previousTop)) publish(true);
       return;
     }
-    // A content click must not open the gesture window: a stream wobble in
-    // the next 250ms would then unlock follow (user: 스크립트 클릭하면
-    // 오토스크롤·줄바꿈이 풀린다). Selection autoscroll is the exception —
-    // pointerDragging is armed only after a real 4px drag.
-    if (
-      readerScrollShouldReleaseFollow({
-        programmatic: programmaticScroll,
-        chromePointer: chromeScroll.current,
-        upwardMove: previousTop - top,
-      })
-    ) {
-      stop('scroll', previousTop);
-    }
+    if (releaseCandidate && !clamped) stop('scroll', previousTop);
   }, [hasReaderScroll, isProgrammatic, markReaderMotion, publish, scheduleScrollState, stop, viewport]);
 
   const handleWheel = useCallback(

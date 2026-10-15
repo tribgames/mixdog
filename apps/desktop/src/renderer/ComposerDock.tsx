@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode, type Ref } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ComposerQueueTrayContext } from './composer-island-state';
 import { ComposerIsland, type ComposerIslandFlash, type ComposerIslandQuotaResume } from './ComposerIsland';
 import { ComposerQuotaCard, type ComposerQuotaCardModel } from './ComposerQuotaCard';
@@ -20,13 +20,11 @@ let reviewModulePromise: Promise<TurnReviewModule> | null = null;
  * the quota card, then the queued follow-up tray attached to the composer's
  * top edge.
  *
- * The dock overlays the transcript and its measured height is the bottom
- * clearance. The island slot reserves a constant height and every island
- * expansion overlays upward, so only the quota card and the queue tray change
- * the dock height.
+ * The dock is an in-flow sibling below the transcript viewport: every member
+ * takes its real height (an empty island slot none), and the transcript
+ * viewport above gets whatever the dock leaves.
  */
 export function ComposerDock({
-  dockRef,
   sessionId,
   goalIsland,
   goalSubmissionId,
@@ -45,7 +43,6 @@ export function ComposerDock({
   onOpenAgentSession,
   children,
 }: {
-  dockRef?: Ref<HTMLDivElement>;
   /** The pane's visible session ('' while hidden or a draft): the island's
    *  background jobs read its lane. */
   sessionId: string;
@@ -118,7 +115,7 @@ export function ComposerDock({
   );
 
   return (
-    <div className="composer-region" ref={dockRef}>
+    <div className="composer-region">
       {showProjectSelector ? (
         <div className="composer-context-bar">{contextBar}</div>
       ) : (

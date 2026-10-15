@@ -251,7 +251,7 @@ button {
   display: flex;
   flex-direction: column;
 }
-/* The viewport keeps its size while the composer overlays its bottom. */
+/* The transcript takes the room the composer dock below it leaves. */
 .transcript-shell {
   position: relative;
   flex: 1;
@@ -266,7 +266,6 @@ button {
   min-height: 0;
   overflow-y: auto;
   overflow-anchor: none;
-  scroll-padding-bottom: var(--composer-dock-height, 0px);
 }
 .thread {
   min-height: 100%;

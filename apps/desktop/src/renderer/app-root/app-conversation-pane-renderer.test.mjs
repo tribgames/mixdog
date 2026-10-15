@@ -80,6 +80,8 @@ test('createPaneConversationRenderer builds conversation surface with appropriat
   globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
   dom.window.requestAnimationFrame = globalThis.requestAnimationFrame;
   dom.window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
+  // The composer island reads the reduced-motion preference.
+  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   globalThis.window.mixdogDesktop = {
     invokeCapability: async () => ({}),
   };

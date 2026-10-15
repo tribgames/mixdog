@@ -1510,7 +1510,6 @@
 .thread-welcome-task {
   position: absolute;
   inset: 0;
-  bottom: var(--composer-dock-height, 0px);
   width: auto;
   display: grid;
   place-content: center;

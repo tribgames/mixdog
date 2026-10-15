@@ -1,4 +1,4 @@
-import { useRef, type CSSProperties } from 'react';
+import { useRef } from 'react';
 import { conversationKeyDownCapture } from './conversation-support';
 import { ConversationTranscript } from './conversation-pane-transcript';
 import { useConversationPaintHandoff } from './conversation-pane-paint-handoff';
@@ -37,7 +37,7 @@ export function Conversation(props: ConversationProps) {
   // approvals, paint handoff, prompt release (submission), timeline, quota.
   const routeSessionId = String(routeSnapshot.sessionId || '');
   const transcriptSessionKey = draftMode ? 'new-task' : String(routeSnapshot.sessionId || 'new-task');
-  const view = useConversationViewport({ readOnly, transcriptSessionKey, transcriptPending });
+  const view = useConversationViewport({ transcriptSessionKey, transcriptPending });
   // Pane-local session runtime addressing: abort and tool approvals always target the
   // session THIS surface renders, never the globally active route.
   const routeSessionIdRef = useRef('');
@@ -114,7 +114,6 @@ export function Conversation(props: ConversationProps) {
     <section
       className={`conversation${readOnly ? ' conversation-read-only' : ''}`}
       ref={view.conversation}
-      style={{ '--composer-dock-height': `${view.composerDockHeight}px` } as CSSProperties}
       data-transcript-entering={timeline.transcriptRevealed ? undefined : 'true'}
       onKeyDownCapture={(event) =>
         conversationKeyDownCapture(event, {
@@ -143,15 +142,14 @@ export function Conversation(props: ConversationProps) {
         renderRow={renderTranscriptRow}
         itemCount={itemCount}
       />
-      {/* The measured dock overlays the viewport. Its clearance belongs to
-          the same virtual geometry as the rows, not a second scroll writer. */}
+      {/* The dock is the column's in-flow sibling below the viewport: its
+          height changes resize the viewport, never the virtual geometry. */}
       {!readOnly && (
         <ConversationComposerDock
           {...props}
           draftMode={draftMode}
           draftId={draftId}
           reviewActive={reviewActive}
-          dockRef={view.composerDock}
           dropTargetRef={view.conversation}
           routeProject={routeProject}
           island={island}

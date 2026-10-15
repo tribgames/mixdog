@@ -51,7 +51,6 @@ export function useTranscriptVirtualizer({
   activeIndexesRef,
   shouldAnchorBottom,
   initialMeasurements,
-  bottomInset,
   requestEndPin,
   noteScrollOffset,
   domTop,
@@ -68,7 +67,6 @@ export function useTranscriptVirtualizer({
   activeIndexesRef: MutableRefObject<number[]>;
   shouldAnchorBottom: boolean;
   initialMeasurements: VirtualItem[] | undefined;
-  bottomInset: number;
   requestEndPin: () => void;
   noteScrollOffset: MutableRefObject<(top: number) => void>;
   domTop: MutableRefObject<number | null>;
@@ -111,7 +109,9 @@ export function useTranscriptVirtualizer({
     // end pin. An 80px band lost tall rows in a short split and invited a
     // second scrollToEnd writer. Reader release flips followOnAppend off.
     scrollEndThreshold: SCROLL_END_THRESHOLD_PX,
-    paddingEnd: bottomInset + TRANSCRIPT_BOTTOM_SPACER,
+    // The one tail gap: the dock is a layout sibling below the viewport, so
+    // no chrome clearance belongs to the scroll content.
+    paddingEnd: TRANSCRIPT_BOTTOM_SPACER,
     // The virtual core commits its state to the DOM in the same task as every
     // notify. React's default async rerender let the core
     // move scrollTop pre-paint while rows still painted at their previous

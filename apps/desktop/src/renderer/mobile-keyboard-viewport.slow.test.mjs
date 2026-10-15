@@ -99,12 +99,19 @@ test('phone composer follows the keyboard-shrunk viewport without a double offse
     assert.equal(Math.round(geometry.body.bottom), bottom, 'body ends at the visible bottom (one offset only)');
     assert.equal(Math.round(geometry.region.bottom), bottom, 'composer region sits on the visible bottom');
     assert.ok(geometry.composer <= bottom && geometry.composer > bottom - 64, 'composer is above the keyboard');
-    // The composer island floats over the transcript's tail reserve, so the
-    // scroller itself must end on the visible bottom: its pinned last row then
-    // lands right above the composer instead of behind the keyboard.
+    // The dock is the scroller's in-flow sibling: the scroller ends where the
+    // dock starts, so its pinned last row lands right above the composer
+    // instead of behind the keyboard.
     assert.equal(Math.round(geometry.transcript.top), top, 'transcript starts at the visible top');
-    assert.equal(Math.round(geometry.transcript.bottom), bottom, 'transcript ends on the visible bottom');
-    assert.ok(geometry.latest <= bottom && geometry.latest > top, 'latest message stays inside the visible frame');
+    assert.equal(
+      Math.round(geometry.transcript.bottom),
+      Math.round(geometry.region.top),
+      'transcript ends where the composer dock starts'
+    );
+    assert.ok(
+      geometry.latest <= geometry.region.top && geometry.latest > top,
+      'latest message stays above the composer'
+    );
   };
 
   await t.test('Android shell: the WebView itself shrinks to the keyboard', async () => {

@@ -99,25 +99,22 @@ export function useTranscriptHandles({
 export function useSelectionDrag({
   viewport,
   sessionKey,
-  bottomInsetRef,
   rowsRef,
   setSelectionPin,
   onSelectionAutoScroll,
 }: {
   viewport: { readonly current: HTMLDivElement | null };
   sessionKey: string;
-  bottomInsetRef: MutableRefObject<number>;
   rowsRef: MutableRefObject<readonly TranscriptRowModel[]>;
   setSelectionPin: (next: TranscriptSelectionPin | null) => void;
   onSelectionAutoScroll(delta: number): void;
 }) {
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionKey is an intentional re-attach trigger per session; bottomInsetRef and rowsRef are read through refs
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionKey is an intentional re-attach trigger per session; rowsRef is read through its ref
   useEffect(() => {
     const root = viewport.current;
     if (!root) return undefined;
     return attachTranscriptSelectionDrag({
       root,
-      getBottomInset: () => bottomInsetRef.current,
       rowKeyAt: (index) => rowsRef.current[index]?.key,
       setPin: setSelectionPin,
       onAutoScroll: onSelectionAutoScroll,

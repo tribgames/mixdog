@@ -23,8 +23,6 @@ type TranscriptListProps = {
   rows: readonly TranscriptRowModel[];
   viewport: RefObject<HTMLDivElement | null>;
   content: MutableRefObject<HTMLDivElement | null>;
-  /** Measured overlay footprint, not a reduction of the scroll viewport. */
-  bottomInset?: number;
   shouldAnchorBottom: boolean;
   scrollToEndRef: MutableRefObject<(behavior?: ScrollBehavior) => void>;
   /** The follow hook flips the anchor here the instant it decides, without
@@ -57,7 +55,6 @@ export function TranscriptList({
   rows,
   viewport,
   content,
-  bottomInset = 0,
   shouldAnchorBottom: anchorBottomProp,
   scrollToEndRef,
   setAnchorBottomRef,
@@ -68,8 +65,6 @@ export function TranscriptList({
   onSelectionAutoScroll,
 }: TranscriptListProps) {
   const spacer = useRef<HTMLDivElement>(null);
-  const bottomInsetRef = useRef(bottomInset);
-  bottomInsetRef.current = bottomInset;
   // The viewport's scrollTop as last observed in a scroll event or written by
   // this list: every other consumer reads this instead of the DOM.
   const domTop = useRef<number | null>(null);
@@ -107,7 +102,6 @@ export function TranscriptList({
     activeIndexesRef,
     shouldAnchorBottom,
     initialMeasurements: restored?.measurements,
-    bottomInset,
     // Resolved at call time: the end pin is built below, from this instance.
     requestEndPin: () => endPin.request(),
     noteScrollOffset,
@@ -140,7 +134,6 @@ export function TranscriptList({
     hasScrollGestureRef,
     domTop,
     markProgrammaticScrollRef,
-    bottomInset,
     deviation,
   });
   const { laidOutRows, pendingAnchor, anchorHold, readingAnchorHeld, restoreReadingAnchor, queueAnchorRestore } =
@@ -201,7 +194,7 @@ export function TranscriptList({
     anchorOverride,
     settleHeldShrinks,
   });
-  useSelectionDrag({ viewport, sessionKey, bottomInsetRef, rowsRef, setSelectionPin, onSelectionAutoScroll });
+  useSelectionDrag({ viewport, sessionKey, rowsRef, setSelectionPin, onSelectionAutoScroll });
 
   useEffect(
     () => () => {

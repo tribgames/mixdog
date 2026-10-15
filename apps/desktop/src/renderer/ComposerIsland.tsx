@@ -45,9 +45,6 @@ export type ComposerIslandQuotaResume = {
 };
 
 const FLASH_MS = 2_500;
-/** Same content test as the slot's collapsed CSS rule (15-composer.css). */
-const ISLAND_CONTENT =
-  '.composer-island-seg, .session-goal-island, .composer-island-approval, .composer-island-flash, .composer-island-quota, .turn-review-bar';
 
 /** A segment's words, plus the icon and bare count the narrow island shows
  *  instead (the count is painted from the attribute so it never joins the
@@ -117,30 +114,142 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
   }, [islandRef, pillRef]);
 }
 
-/** Latches the slot open (`data-held`) the first time island content is in
- *  it. Content often comes and goes through a child's own update (the files
- *  segment after its async diff read) that never re-renders the island, so
- *  the slot subtree is observed instead of checked per island render. The
- *  observer's records count too: content added and removed again before the
- *  callback still opened the slot. */
-function useHeldIslandSlot(slotRef: RefObject<HTMLDivElement | null>) {
+/** How long an emptied island keeps its slot before the slot eases shut:
+ *  content returning within it (one segment handing over to the next) moves
+ *  nothing. */
+export const ISLAND_COLLAPSE_GRACE_MS = 500;
+/** What the island carries; the stylesheet's empty-island rule tests the same. */
+const ISLAND_CONTENT =
+  '.composer-island-seg, .session-goal-island, .composer-island-approval, .composer-island-flash, .composer-island-quota, .turn-review-bar';
+
+type SlotPresence = 'open' | 'grace' | 'closing' | 'closed';
+/** The slot's eased height; the stylesheet rounds it to whole pixels. */
+const SLOT_HEIGHT = '--island-slot-height';
+
+/**
+ * Owns the slot's explicit height and data-presence. Content opens the slot
+ * at once to the stage's real height; a change while open eases there
+ * (data-motion carries the CSS transition, which reverses mid-flight on its
+ * own). The last content leaving holds the slot for ISLAND_COLLAPSE_GRACE_MS,
+ * then eases it to 0. Mount (a session switch remounts the island) and
+ * reduced motion apply every change instantly; reduced motion turning on
+ * mid-motion lands the slot at its target at once. The island's entry fade
+ * (data-entry) is enabled only by content arriving, or the island changing
+ * shape, after the first frame: a mounted island draws at its final state.
+ * Content changes are read in the mutation microtask, before the frame's
+ * layout, so the transcript's viewport observer sees the new dock in the same
+ * frame. Segments render from their own state, so the island's DOM, not its
+ * props, is watched.
+ */
+function useIslandSlotPresence(slotRef: RefObject<HTMLDivElement | null>, islandRef: RefObject<HTMLDivElement | null>) {
   useLayoutEffect(() => {
     const slot = slotRef.current;
-    if (!slot) return undefined;
-    const holds = (node: Node) =>
-      node instanceof Element && (node.matches(ISLAND_CONTENT) || node.querySelector(ISLAND_CONTENT) !== null);
-    if (holds(slot)) {
-      slot.dataset.held = 'true';
-      return undefined;
-    }
-    const observer = new MutationObserver((records) => {
-      if (!holds(slot) && !records.some((record) => [...record.addedNodes].some(holds))) return;
-      slot.dataset.held = 'true';
-      observer.disconnect();
+    const island = islandRef.current;
+    const stage = island?.parentElement;
+    if (!slot || !island || !stage) return undefined;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let armed = false;
+    let grace = 0;
+    let height = -1;
+    let carried = false;
+    let shape: string | null = null;
+    const presence = (value: SlotPresence) => slot.setAttribute('data-presence', value);
+    // An unchanged target starts no transition: it leaves any motion running.
+    const resize = (target: number, animate: boolean) => {
+      if (target === height) return;
+      height = target;
+      if (animate) slot.setAttribute('data-motion', '');
+      else slot.removeAttribute('data-motion');
+      slot.style.setProperty(SLOT_HEIGHT, `${target}px`);
+    };
+    // The stage's own height, unshrunk by the slot (mid-motion or squeezed).
+    const natural = () => {
+      slot.setAttribute('data-measuring', '');
+      const value = stage.offsetHeight;
+      slot.removeAttribute('data-measuring');
+      return value;
+    };
+    const cancelGrace = () => {
+      window.clearTimeout(grace);
+      grace = 0;
+    };
+    // The height motion is over (it ran out, or reduced motion cut it short).
+    const endMotion = () => {
+      slot.removeAttribute('data-motion');
+      if (slot.getAttribute('data-presence') === 'closing') presence('closed');
+    };
+    const collapse = (animate: boolean) => {
+      if (animate && height > 0) {
+        presence('closing');
+        resize(0, true);
+      } else {
+        resize(0, false);
+        presence('closed');
+      }
+    };
+    const sync = () => {
+      const animate = armed && !reducedMotion.matches;
+      const content = Boolean(island.querySelector(ISLAND_CONTENT));
+      const mode = island.getAttribute('data-mode');
+      // Set in the same microtask as the change, so the style pass that
+      // shows the new content starts its fade; once set it stays.
+      if (armed && content && (!carried || mode !== shape)) slot.setAttribute('data-entry', '');
+      carried = content;
+      shape = mode;
+      if (content) {
+        cancelGrace();
+        // Shown first: a closed slot has no box to measure.
+        presence('open');
+        resize(natural(), animate);
+        return;
+      }
+      if (!armed) {
+        cancelGrace();
+        collapse(false);
+        return;
+      }
+      if (slot.getAttribute('data-presence') !== 'open') return;
+      presence('grace');
+      grace = window.setTimeout(() => {
+        grace = 0;
+        collapse(!reducedMotion.matches);
+      }, ISLAND_COLLAPSE_GRACE_MS);
+    };
+    const onTransitionEnd = (event: TransitionEvent) => {
+      if (event.target === slot && event.propertyName === SLOT_HEIGHT) endMotion();
+    };
+    // Dropping data-motion removes the transition, so the browser cancels it
+    // and the slot takes its target height in the next style pass.
+    const onMotionPreference = () => {
+      if (reducedMotion.matches && slot.hasAttribute('data-motion')) endMotion();
+    };
+    sync();
+    // The first painted frame shows the true state; changes after it animate.
+    const frame = window.requestAnimationFrame(() => {
+      armed = true;
     });
-    observer.observe(slot, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [slotRef]);
+    const mutation = new MutationObserver(sync);
+    mutation.observe(island, { subtree: true, childList: true, characterData: true, attributes: true });
+    // Size changes without a DOM change (wrapping, the pane's height bound).
+    const resizeObserver = new ResizeObserver(sync);
+    resizeObserver.observe(island);
+    for (const child of island.children) resizeObserver.observe(child);
+    const children = new MutationObserver(() => {
+      for (const child of island.children) resizeObserver.observe(child);
+    });
+    children.observe(island, { childList: true });
+    slot.addEventListener('transitionend', onTransitionEnd);
+    reducedMotion.addEventListener('change', onMotionPreference);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      cancelGrace();
+      mutation.disconnect();
+      children.disconnect();
+      resizeObserver.disconnect();
+      slot.removeEventListener('transitionend', onTransitionEnd);
+      reducedMotion.removeEventListener('change', onMotionPreference);
+    };
+  }, [slotRef, islandRef]);
 }
 
 /** An agent blocked on the user is marked for attention and never pulses;
@@ -456,10 +565,10 @@ function ResumePanel({ resume }: { resume: ComposerIslandQuotaResume }) {
 }
 
 /**
- * The single island above a session's composer. Its slot always reserves the
- * pill's height, so the island appearing, expanding (upward, over the
- * transcript), growing into the approval card or flashing a notice never
- * moves the transcript.
+ * The single island above a session's composer. Its slot takes the island's
+ * real height in the dock while it carries something and eases between
+ * heights (see useIslandSlotPresence); the transcript viewport above resizes
+ * with it and the end pin keeps a following tail in place on every frame.
  */
 export function ComposerIsland({
   sessionId,
@@ -503,12 +612,9 @@ export function ComposerIsland({
   };
   const islandRef = useRef<HTMLDivElement | null>(null);
   const pillRef = useRef<HTMLDivElement | null>(null);
-  useIslandFit(islandRef, pillRef);
-  // Once the slot has opened in this visit (the island is keyed per session)
-  // it stays open: collapsing it again slid an end-pinned transcript down by
-  // the slot height, so a short flash or job read as an up/down bounce.
   const slotRef = useRef<HTMLDivElement | null>(null);
-  useHeldIslandSlot(slotRef);
+  useIslandFit(islandRef, pillRef);
+  useIslandSlotPresence(slotRef, islandRef);
   // Finished background work announces nothing: a flash per job would make
   // the island pop in and out.
   const visibleFlash = useIslandFlash(flash ?? null);

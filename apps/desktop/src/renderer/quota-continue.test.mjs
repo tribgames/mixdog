@@ -122,6 +122,8 @@ function mount(t) {
     rootId: 'root',
   });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  dom.window.requestAnimationFrame = (callback) => dom.window.setTimeout(() => callback(Date.now()), 16);
+  dom.window.cancelAnimationFrame = (id) => dom.window.clearTimeout(id);
   dom.window.mixdogDesktop = {};
   t.after(() => defaultSessionLaneStore.clear());
   return { root, document: dom.window.document };

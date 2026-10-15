@@ -124,7 +124,7 @@ export function ConversationTranscript({
 }: {
   view: Pick<
     ConversationViewport,
-    'viewport' | 'content' | 'follow' | 'composerDockHeight' | 'setTranscriptAnchorBottomRef' | 'scrollToEndRef'
+    'viewport' | 'content' | 'follow' | 'setTranscriptAnchorBottomRef' | 'scrollToEndRef'
   >;
   source: Pick<
     ConversationTranscriptSource,
@@ -227,7 +227,6 @@ export function ConversationTranscript({
                 rows={timeline.transcriptRows}
                 viewport={viewport}
                 content={content}
-                bottomInset={view.composerDockHeight}
                 shouldAnchorBottom={timeline.shouldAnchorTranscriptBottom}
                 markProgrammaticScroll={follow.markProgrammaticScroll}
                 hasScrollGesture={follow.hasScrollGesture}
