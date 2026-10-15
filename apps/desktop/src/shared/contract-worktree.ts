@@ -224,7 +224,7 @@ export interface DesktopManagedWorktreeRow extends DesktopRetainedWorktree {
   retained: boolean;
   /** A live session or a running process holds it. */
   ownerLive: boolean;
-  /** What pruneWorktrees would remove once clean and merged. */
+  /** What pruneWorktrees would remove once clean and merged, with no retained recovery data. */
   removable: boolean;
 }
 

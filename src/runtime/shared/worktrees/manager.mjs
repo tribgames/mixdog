@@ -1148,7 +1148,7 @@ function leaseProcessAlive(lease) {
  * Every managed worktree with who keeps it: `retained` (its session is in
  * `retainedSessionIds`, i.e. still in the session store), `ownerLive` (a
  * live session or a running lease holder), and `removable` (what a prune
- * would remove: neither, or disposable and not live).
+ * would remove: neither, or disposable and not live, with no retained recovery data).
  * @param {{ liveSessionIds?: string[], retainedSessionIds?: string[] }} input
  */
 export async function listManagedWorktrees({ liveSessionIds = [], retainedSessionIds = [] } = {}) {
@@ -1159,12 +1159,20 @@ export async function listManagedWorktrees({ liveSessionIds = [], retainedSessio
     const ownerLive =
       (!!record.ownerSessionId && live.has(record.ownerSessionId)) || leaseProcessAlive(await readOwnerLease(record));
     const isRetained = !!record.ownerSessionId && retained.has(record.ownerSessionId);
+    let removable = record.state !== 'ready' || (!ownerLive && (record.disposable === true || !isRetained));
+    if (removable) {
+      try { await assertRecoveryStoresClear(record); }
+      catch (error) {
+        if (error?.code !== 'WORKTREE_FILE_RECOVERY') throw error;
+        removable = false;
+      }
+    }
     rows.push({
       ...entryView(record),
       projectPath: record.projectPath,
       retained: isRetained,
       ownerLive,
-      removable: record.state !== 'ready' || (!ownerLive && (record.disposable === true || !isRetained)),
+      removable,
     });
   }
   return rows;

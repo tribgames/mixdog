@@ -9,7 +9,7 @@ import { after, afterEach, beforeEach, test } from 'node:test';
 import { assertRecoveryStoresClear } from './file-recovery.mjs';
 import {
   assertWorktreeRemovable, configureWorktreeManager, removeManagedWorktree,
-  withWorktreeRecoveryStore,
+  withWorktreeRecoveryStore, listManagedWorktrees,
 } from './manager.mjs';
 import { cleanupDeletedSessionWorktree, pruneWorktrees, reconcileWorktreesAtStartup } from './maintenance.mjs';
 import { getRecord, putRecord } from './registry.mjs';
@@ -31,9 +31,11 @@ const retain = (directory) => {
 
 test('persisted recovery scope blocks force, preflight, prune and startup even for a clean worktree', async () => {
   const { entry, sessionId } = await createTestWorktree(makeRepo());
+  assert.equal((await listManagedWorktrees()).find((row) => row.id === entry.id).removable, true);
   const directory = storeFor(entry.path);
   await withWorktreeRecoveryStore(entry.path, directory, 'write', async () => retain(directory));
   assert.deepEqual((await getRecord(entry.id)).editorRecoveryStores, [{ root: entry.path, directory }]);
+  assert.equal((await listManagedWorktrees()).find((row) => row.id === entry.id).removable, false);
   for (const remove of [
     () => assertWorktreeRemovable({ entryId: entry.id, force: true }),
     () => removeManagedWorktree({ entryId: entry.id }),
@@ -48,6 +50,7 @@ test('persisted recovery scope blocks force, preflight, prune and startup even f
   assert.ok(existsSync(entry.path));
   assert.equal(readFileSync(join(directory, 'retained-record'), 'utf8'), 'do not delete');
   rmSync(join(directory, 'retained-record'));
+  assert.equal((await listManagedWorktrees()).find((row) => row.id === entry.id).removable, true);
   assert.equal((await removeManagedWorktree({ entryId: entry.id })).removed, true);
   assert.ok(existsSync(directory), 'the worktree manager never deletes the journal store');
 });
@@ -60,6 +63,7 @@ test('registered stores protect a pending deletion in a new process without a de
   record.state = 'deleting';
   record.deleting = { force: true, startedAt: Date.now(), remaining: [] };
   await putRecord(record);
+  assert.equal((await listManagedWorktrees()).find((row) => row.id === entry.id).removable, false);
   const moduleUrl = new URL('./manager.mjs', import.meta.url).href;
   const out = execFileSync(process.execPath, ['--input-type=module', '-e', `
     import { reconcileManagedWorktrees } from ${JSON.stringify(moduleUrl)};
