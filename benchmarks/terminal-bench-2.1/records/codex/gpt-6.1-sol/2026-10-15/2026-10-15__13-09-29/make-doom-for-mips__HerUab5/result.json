@@ -1,0 +1,115 @@
+{
+    "id": "8e8f3217-200d-45c6-8ede-4f4f16ca95ce",
+    "task_name": "terminal-bench/make-doom-for-mips",
+    "trial_name": "make-doom-for-mips__HerUab5",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-codex-sol61-xhigh-full/2026-10-15__13-09-29/make-doom-for-mips__HerUab5",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "make-doom-for-mips",
+        "ref": "sha256:2d83dd3dee8e0f055e09973934cf0d7e3169a9cd90704cba5c8940b170be9498"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "8ecf7ffa820c3c76e07d06ad5042fb5661f3371c24f6c0ee710c36596b802549",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/make-doom-for-mips",
+            "ref": "sha256:2d83dd3dee8e0f055e09973934cf0d7e3169a9cd90704cba5c8940b170be9498",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "make-doom-for-mips__HerUab5",
+        "trials_dir": "jobs-codex-sol61-xhigh-full\\2026-10-15__13-09-29",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": "codex",
+            "import_path": null,
+            "model_name": "gpt-6.1-sol",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "reasoning_effort": "xhigh"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "7e05b853-82a6-4614-b8ea-d1e02537d854"
+    },
+    "agent_info": {
+        "name": "codex",
+        "version": "0.162.1",
+        "model_info": {
+            "name": "gpt-6.1-sol",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 3897490,
+        "n_cache_tokens": 3769856,
+        "n_output_tokens": 25163,
+        "cost_usd": 0.8838836,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-10-15T04:33:41.497888Z",
+    "finished_at": "2026-10-15T04:45:29.691477Z",
+    "environment_setup": {
+        "started_at": "2026-10-15T04:33:41.562663Z",
+        "finished_at": "2026-10-15T04:33:44.082577Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-10-15T04:33:44.082601Z",
+        "finished_at": "2026-10-15T04:34:26.919302Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-10-15T04:34:26.919360Z",
+        "finished_at": "2026-10-15T04:44:05.635036Z"
+    },
+    "verifier": {
+        "started_at": "2026-10-15T04:44:05.645000Z",
+        "finished_at": "2026-10-15T04:45:11.733984Z"
+    },
+    "step_results": null
+}

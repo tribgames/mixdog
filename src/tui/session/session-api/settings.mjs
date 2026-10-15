@@ -106,6 +106,12 @@ export function createSessionSettingsApi(bag) {
       deferStatsRefresh();
       return next;
     }),
+    getSessionTitleSettings: () => {
+      return runtime.getSessionTitleSettings?.() || { aiSessionTitles: true };
+    },
+    setAiSessionTitles: withCommandLock(async (enabled) => {
+      return await runtime.setAiSessionTitles?.(enabled);
+    }),
     getToolModuleSettings: () => {
       return (
         runtime.getToolModuleSettings?.() || {

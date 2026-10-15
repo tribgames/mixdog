@@ -489,6 +489,132 @@ test('keyless provider disables the key field and saves auth none without a key'
   assert.equal('apiKey' in save, false);
 });
 
+const settle = (ms = 400) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
+const hint = () => document.querySelector('.settings-custom-provider-hint');
+
+test('environment variable mode: control, hints, contract-shaped input and invalid name', async (t) => {
+  const calls = [];
+  let found = true;
+  const { render } = mount(t, {
+    calls,
+    handlers: {
+      checkCustomProviderKeyEnv: () => ({ found }),
+      discoverCustomProviderModels: () => ({ models: [{ id: 'm' }] }),
+      saveCustomProvider: (i) => i,
+      testCustomProvider: () => ({ ok: true }),
+    },
+  });
+  await render();
+  await click(button('Add custom provider'));
+  const group = document.querySelector('[role=group][aria-label="API key source"]');
+  assert.ok(group.classList.contains('mx-segmented-compact'));
+  assert.equal(group.closest('.settings-custom-provider-key-row').querySelector('label').textContent, 'API key');
+  assert.equal(button('Direct input').getAttribute('aria-pressed'), 'true');
+  await type(field('Display name'), 'Env');
+  await type(field('Base URL'), 'https://env.test/v1');
+  await click(button('Environment variable'));
+  assert.equal(field('API key environment variable').type, 'text');
+  assert.equal(hint(), null);
+
+  await type(field('API key environment variable'), '1BAD');
+  await settle();
+  assert.equal(hint(), null);
+  await submit();
+  assert.match(alerts(), /valid environment variable name/);
+  assert.equal(calls.some((c) => c.capability === 'saveCustomProvider'), false);
+
+  await type(field('API key environment variable'), 'GROQ_API_KEY');
+  await settle();
+  assert.deepEqual(calls.filter((c) => c.capability === 'checkCustomProviderKeyEnv').at(-1).args, ['GROQ_API_KEY']);
+  assert.equal(hint().textContent, 'Environment variable found. The key is read each time and is not stored.');
+  assert.ok(hint().classList.contains('ok'));
+
+  found = false;
+  await type(field('API key environment variable'), 'GROQ_KEY');
+  await settle();
+  assert.equal(
+    hint().textContent,
+    'GROQ_KEY was not found yet. If you just set it, restart Mixdog to apply it.'
+  );
+  assert.ok(hint().classList.contains('warn'));
+
+  await click(button('Test connection'));
+  const tested = calls.find((c) => c.capability === 'testCustomProvider').args[0];
+  assert.equal(tested.apiKeyEnv, 'GROQ_KEY');
+  assert.equal('apiKey' in tested, false);
+  // Not found is a warning only: save still goes through.
+  await submit();
+  const save = calls.find((c) => c.capability === 'saveCustomProvider').args[0];
+  assert.equal(save.apiKeyEnv, 'GROQ_KEY');
+  assert.equal('apiKey' in save, false);
+  assert.equal(customForm(), null);
+});
+
+test('env mode with an unset variable still saves when discovery fails; direct mode stays blocked', async (t) => {
+  const calls = [];
+  const { render } = mount(t, {
+    calls,
+    handlers: {
+      checkCustomProviderKeyEnv: () => ({ found: false }),
+      discoverCustomProviderModels: () => ({ models: [], error: { kind: 'authentication', status: 401, message: 'x' } }),
+      saveCustomProvider: (i) => i,
+    },
+  });
+  await render();
+  await click(button('Add custom provider'));
+  await type(field('Display name'), 'Env');
+  await type(field('Base URL'), 'https://env.test/v1');
+  await type(field('API key'), 'sk-x');
+  await submit();
+  assert.equal(calls.some((c) => c.capability === 'saveCustomProvider'), false);
+  await click(button('Environment variable'));
+  await type(field('API key environment variable'), 'UNSET_KEY');
+  await submit();
+  const save = calls.find((c) => c.capability === 'saveCustomProvider').args[0];
+  assert.equal(save.apiKeyEnv, 'UNSET_KEY');
+  assert.equal(customForm(), null);
+});
+
+test('keyless disables the key source control', async (t) => {
+  const calls = [];
+  const { render } = mount(t, { calls });
+  await render();
+  await click(button('Add custom provider'));
+  assert.equal(button('Direct input').disabled, false);
+  await act(async () => document.querySelector('input[aria-label="No authentication (local server)"]').click());
+  assert.equal(button('Direct input').disabled, true);
+  assert.equal(button('Environment variable').disabled, true);
+});
+
+test('editing an env-key provider opens in env mode; switching to direct clears it', async (t) => {
+  const calls = [];
+  const { render } = mount(t, {
+    calls,
+    api: [{ ...CUSTOM, apiKeyEnv: 'ACME_KEY' }],
+    handlers: { checkCustomProviderKeyEnv: () => ({ found: true }), saveCustomProvider: (i) => i },
+  });
+  await render();
+  await click(button('Edit'));
+  assert.equal(field('API key environment variable').value, 'ACME_KEY');
+  assert.equal(button('Environment variable').getAttribute('aria-pressed'), 'true');
+  await settle();
+  assert.ok(hint().classList.contains('ok'));
+  await submit();
+  assert.equal(calls.find((c) => c.capability === 'saveCustomProvider').args[0].apiKeyEnv, 'ACME_KEY');
+
+  await click(button('Edit'));
+  await click(button('Direct input'));
+  assert.equal(field('API key').required, true);
+  await submit();
+  assert.match(alerts(), /No API key/);
+  await type(field('API key'), 'sk-new');
+  calls.length = 0;
+  await submit();
+  const save = calls.find((c) => c.capability === 'saveCustomProvider').args[0];
+  assert.equal(save.apiKey, 'sk-new');
+  assert.equal(save.apiKeyEnv, null);
+});
+
 test('edit lists hidden rows marked; refresh surfaces the discovery error with its rows', async (t) => {
   const calls = [];
   const { render } = mount(t, {

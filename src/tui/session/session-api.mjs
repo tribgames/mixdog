@@ -33,6 +33,7 @@ export function createSessionApi(bag) {
       autoClear: await read(api.getAutoClear),
       compaction: await read(api.getCompactionSettings),
       recap: await read(api.getRecapSettings),
+      sessionTitles: await read(api.getSessionTitleSettings),
       toolModules: await read(api.getToolModuleSettings),
       channels: await read(api.getChannelSettings, { includeStatus: false }),
       systemShell: await read(api.getSystemShell),

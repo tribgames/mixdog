@@ -7,6 +7,7 @@ import {
   type VirtualizerOptions,
 } from '@tanstack/react-virtual';
 import { type MutableRefObject, type RefObject, useMemo, useRef } from 'react';
+import { holdsWaitingAskUser } from './ask-user-record';
 import { useTranscriptRowEstimates } from './transcript-list-estimates';
 import { coreScrollState, SCROLL_END_THRESHOLD_PX, type TranscriptVirtualizer } from './transcript-list-geometry';
 import { useProvisionalRowResize } from './transcript-list-provisional-resize';
@@ -17,18 +18,21 @@ import { TRANSCRIPT_BOTTOM_SPACER, TRANSCRIPT_VIRTUAL_OVERSCAN } from './transcr
 
 type TranscriptVirtualizerOptions = VirtualizerOptions<HTMLDivElement, HTMLDivElement>;
 
-/** The live row's index stays in the rendered range however far the reader
- *  scrolls away (see rangeExtractor below). */
+/** The live row's index, and any row holding a question that waits for its
+ *  answer (its card keeps its picks), stay in the
+ *  rendered range however far the reader scrolls away (see rangeExtractor). */
 export function useActiveRowIndexes(rows: readonly TranscriptRowModel[]) {
   const activeIndexesRef = useRef<number[]>([]);
-  const activeIndex = useMemo(() => {
-    let found = -1;
+  const activeIndexes = useMemo(() => {
+    let live = -1;
+    const held: number[] = [];
     rows.forEach((row, index) => {
-      if ('active' in row && row.active) found = index;
+      if ('active' in row && row.active) live = index;
+      if (row._tag === 'ToolActivity' && row.items.some(holdsWaitingAskUser)) held.push(index);
     });
-    return found;
+    return live < 0 || held.includes(live) ? held : [...held, live].sort((a, b) => a - b);
   }, [rows]);
-  activeIndexesRef.current = activeIndex < 0 ? [] : [activeIndex];
+  activeIndexesRef.current = activeIndexes;
   return activeIndexesRef;
 }
 

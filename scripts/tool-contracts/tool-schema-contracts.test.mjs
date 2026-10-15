@@ -11,7 +11,7 @@ import {
   SKILL_TOOL,
   TOOL_SEARCH_TOOL,
 } from '../../src/mixdog-session-runtime.mjs';
-import { CWD_TOOL } from '../../src/session-runtime/tool-defs.mjs';
+import { SESSION_TOOL } from '../../src/session-runtime/tool-defs.mjs';
 import { AGENT_TOOL } from '../../src/standalone/agent-tool.mjs';
 import { BUILTIN_TOOLS } from '../../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs';
@@ -119,7 +119,7 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
   for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'Skill', 'load_tool']) {
     assertHas(fullDefaults, name);
   }
-  for (const name of ['shell', 'task', 'agent', 'recall', 'web_search', 'web_fetch', 'cwd', 'github']) {
+  for (const name of ['shell', 'task', 'agent', 'recall', 'web_search', 'web_fetch', 'session', 'github']) {
     assertLacks(fullDefaults, name);
   }
 
@@ -148,7 +148,7 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
   ]) {
     assertHas(leadDefaults, name);
   }
-  for (const name of ['recall', 'web_search', 'web_fetch', 'cwd', 'github', 'session_manage']) {
+  for (const name of ['recall', 'web_search', 'web_fetch', 'session', 'github', 'session_manage']) {
     assertLacks(leadDefaults, name);
   }
   if (TOOL_SEARCH_TOOL.annotations?.agentHidden !== true) {
@@ -440,21 +440,26 @@ test('recall schema keeps fan-out, paging, and expansion contracts', () => {
   }
 });
 
-test('cwd and memory schemas stay minimal and direct', () => {
-  const cwdProps = CWD_TOOL.inputSchema?.properties || {};
+test('session and memory schemas stay minimal and direct', () => {
+  const sessionProps = SESSION_TOOL.inputSchema?.properties || {};
   if (
-    CWD_TOOL.title !== 'Project' ||
-    CWD_TOOL.annotations?.title !== 'Project' ||
-    !/active Project/i.test(CWD_TOOL.description || '') ||
-    !/shell-local cd does not change the Project/i.test(CWD_TOOL.description || '') ||
-    Object.keys(cwdProps).join(',') !== 'action,path,force' ||
-    cwdProps.action?.enum?.join(',') !==
-      'get,set,list,merge-worktree,remove-worktree,list-worktrees,prune-worktrees' ||
-    cwdProps.path?.minLength !== undefined ||
-    cwdProps.force?.type !== 'boolean' ||
-    CWD_TOOL.inputSchema?.additionalProperties !== false
+    SESSION_TOOL.name !== 'session' ||
+    SESSION_TOOL.title !== 'Session' ||
+    SESSION_TOOL.annotations?.title !== 'Session' ||
+    SESSION_TOOL.annotations?.agentHidden !== true ||
+    !/active Project/i.test(SESSION_TOOL.description || '') ||
+    !/shell-local cd does not change the Project/i.test(SESSION_TOOL.description || '') ||
+    Object.keys(sessionProps).join(',') !== 'action,title,path,compact,force,value' ||
+    sessionProps.action?.enum?.join(',') !==
+      'status,rename,compact,fork,set-project,list-projects,favorite,archive,merge-worktree,remove-worktree,list-worktrees,prune-worktrees' ||
+    sessionProps.path?.minLength !== undefined ||
+    sessionProps.path?.type !== 'string' ||
+    sessionProps.compact?.type !== 'boolean' ||
+    sessionProps.force?.type !== 'boolean' ||
+    sessionProps.value?.type !== 'boolean' ||
+    SESSION_TOOL.inputSchema?.additionalProperties !== false
   ) {
-    throw new Error('cwd schema must expose get/set/list, the worktree actions, and an optional Project path');
+    throw new Error('session schema must expose status/rename/compact/fork, the Project and worktree actions');
   }
   const memoryTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'memory');
   const memoryProps = memoryTool?.inputSchema?.properties || {};

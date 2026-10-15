@@ -16,7 +16,7 @@
 import { resolveAutoEffort } from '../../providers/auto-effort.mjs';
 import { isCustomProviderName, resolveCustomReasoning } from '../../providers/custom-reasoning.mjs';
 import { autoEffortModel, stepEffortConfiguration } from '../../providers/effort-configuration.mjs';
-import { effortOptionsFor } from '../../runtime-core/effort.mjs';
+import { effortOptionsFor, warnEmptyAutoEffortLadder } from '../../runtime-core/effort.mjs';
 import { judgeTurn, recordEffortDecision } from '../../../../effort-judge/judge-client.mjs';
 import { stepResultWindow } from '../../../../effort-judge/judge-input.mjs';
 
@@ -174,6 +174,7 @@ function stepResult({ auto, snapshot, step, provider, model, providerClient, ses
     ms: judged.ms,
     probs: judged.probs.map((value) => Number(value.toFixed(3))),
   });
+  if (!resolved) warnEmptyAutoEffortLadder(provider, model, auto.base);
   if (isCustomProviderName(provider)) {
     const level =
       resolved &&

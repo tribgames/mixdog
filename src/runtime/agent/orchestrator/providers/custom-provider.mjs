@@ -45,6 +45,22 @@ function withCustomModels(Base, discover) {
     _customKey() {
       return this._customKeyless ? '' : resolveProviderApiKey(this.name, this.config);
     }
+    // Env mode with the variable unset: fail before any request is sent.
+    _assertCustomKey() {
+      const name = this.customConfig?.apiKeyEnv;
+      if (name && !this._customKeyless && !resolveProviderApiKey(this.name, this.config))
+        throw new Error(`API key environment variable ${name} is not set`);
+    }
+    // A 401 reload must not fall back to the stale key once the variable is
+    // gone; with a new value the base reload picks it up for the retry.
+    reloadApiKey() {
+      this._assertCustomKey();
+      return super.reloadApiKey();
+    }
+    async send(...args) {
+      this._assertCustomKey();
+      return super.send(...args);
+    }
     _customRows() {
       return effectiveCustomModelRows(this.customConfig, this._customDiscovered || [], { providerId: this.name });
     }
@@ -57,6 +73,7 @@ function withCustomModels(Base, discover) {
     async listModels({ signal = null, throwOnError = false } = {}) {
       let failure = null;
       try {
+        this._assertCustomKey();
         this._customDiscovered = await discover(this, signal);
         this.customDiscoveryError = null;
       } catch (error) {
@@ -112,10 +129,14 @@ export async function createCustomProvider(id, config) {
   // `auth: 'none'` is authoritative: a supplied/injected key is ignored and
   // `keyless` makes the engine omit every credential header.
   const keyless = cfg.auth === 'none';
-  const apiKey = keyless ? '' : config.apiKey || '';
+  // Env mode: the named variable is the only key source.
+  let apiKey = '';
+  if (cfg.apiKeyEnv) apiKey = process.env[cfg.apiKeyEnv] || '';
+  else if (!keyless) apiKey = config.apiKey || '';
   const engine = {
     baseURL: cfg.baseURL,
     apiKey: apiKey || undefined,
+    ...(cfg.apiKeyEnv ? { apiKeyEnv: cfg.apiKeyEnv } : {}),
     ...(keyless ? { keyless: true } : {}),
     ...(config.preconnect === false ? { preconnect: false } : {}),
   };

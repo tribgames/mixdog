@@ -59,6 +59,7 @@ function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
       routes: { lead: { provider: 'openai-oauth', model: 'gpt-5.6-sol', effort: 'xhigh' } },
       concurrent: 8,
       attempts: options.attempts ?? 1,
+      ...(options.effortJudge ? { effortJudge: { mode: options.effortJudge, release: 'effort-judge-v6' } } : {}),
     },
     comparison: options.comparison ?? null,
     ...(options.contract === false ? {} : { contract: options.contract ?? measuredContract() }),
@@ -124,6 +125,14 @@ function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
           outputTokens: 10,
         },
       }));
+    }
+    if (options.decisions?.[spec.index]) {
+      const agentDir = join(trialDir, 'agent');
+      mkdirSync(agentDir, { recursive: true });
+      writeFileSync(
+        join(agentDir, 'effort-decisions.jsonl'),
+        `${options.decisions[spec.index].map((row) => JSON.stringify(row)).join('\n')}\n`,
+      );
     }
     if (spec.traceRows) {
       const agentDir = join(trialDir, 'agent');
@@ -487,6 +496,76 @@ test('pairs k>1 runs trial for trial and cycles a shorter baseline', () => {
     assert.equal(cycled.pair.sharedTasks, 2);
     assert.deepEqual(cycled.pair.outcomes, { oursOnly: 0, baselineOnly: 1, bothPass: 1, bothFail: 0 });
     assert.equal(cycled.pair.ratios.speedup, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+const skippedRow = { chosen: 'xhigh', base: 'medium', skipped: 'default-outside-auto-range' };
+const judgedRow = { chosen: 'xhigh', base: 'medium', effort: 'high', step: 1 };
+
+test('effort judge on with every decision skipped marks the run not clean', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-tb-effort-skipped-'));
+  try {
+    const jobsDir = fixture(root, 'jobs-skipped', 'sha256:effort', '2026-08-15T00:00:00.000Z', [10, 20], {
+      effortJudge: 'steps',
+      decisions: [[skippedRow, skippedRow], [skippedRow]],
+    });
+    const report = generateRunReport({ jobsDir, historyRoot: root });
+    assert.deepEqual(report.effortJudge, {
+      mode: 'steps',
+      judged: 0,
+      skipped: { 'default-outside-auto-range': 3 },
+      trials: 2,
+      trialsWithoutJudgment: 2,
+    });
+    assert.equal(report.result.clean, false);
+    assert.equal(report.result.notCleanReasons.length, 1);
+    assert.match(report.result.notCleanReasons[0], /judged 0.*default-outside-auto-range/);
+    assert.equal(report.comparison.eligible, false);
+    assert.match(formatReport(report), /effort-judge NOT APPLIED: 0 judged, 2 trials skipped \(default-outside-auto-range\)/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('effort judge with some judged decisions only adds a summary', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-tb-effort-mixed-'));
+  try {
+    const jobsDir = fixture(root, 'jobs-mixed', 'sha256:effort', '2026-08-15T00:00:00.000Z', [10, 20], {
+      effortJudge: 'steps',
+      decisions: [[judgedRow, judgedRow, skippedRow], [skippedRow]],
+    });
+    const report = generateRunReport({ jobsDir, historyRoot: root });
+    assert.deepEqual(report.effortJudge, {
+      mode: 'steps',
+      judged: 2,
+      skipped: { 'default-outside-auto-range': 2 },
+      trials: 2,
+      trialsWithoutJudgment: 1,
+    });
+    assert.equal(report.result.clean, true);
+    assert.equal(report.result.notCleanReasons, undefined);
+    const markdown = formatReport(report);
+    assert.match(markdown, /effort-judge steps: 2 judged, 2 skipped/);
+    assert.doesNotMatch(markdown, /NOT APPLIED/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('effort judge mode off leaves the report unchanged', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-tb-effort-off-'));
+  try {
+    const jobsDir = fixture(root, 'jobs-off', 'sha256:effort', '2026-08-15T00:00:00.000Z', [10, 20], {
+      effortJudge: 'off',
+      decisions: [[skippedRow], [skippedRow]],
+    });
+    const report = generateRunReport({ jobsDir, historyRoot: root });
+    assert.equal(report.effortJudge, undefined);
+    assert.equal(report.result.clean, true);
+    assert.equal(report.result.notCleanReasons, undefined);
+    assert.doesNotMatch(formatReport(report), /effort-judge/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

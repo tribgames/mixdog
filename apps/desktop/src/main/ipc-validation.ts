@@ -245,6 +245,7 @@ const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
 const BOOLEAN_FIRST_CAPABILITIES = new Set<DesktopCapability>([
   'setAutoUpdate',
   'setRecapEnabled',
+  'setAiSessionTitles',
   'setWebSearchEnabled',
   'setMemoryToolsEnabled',
   'toggleVoice',
@@ -283,7 +284,7 @@ const MODEL_SELECTION_KEYS = new Set([
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh', 'unlockKeychain', 'recheckKeychain']);
 const SKILLS_STATUS_OPTION_KEYS = new Set(['projectPath']);
-const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason']);
+const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason', 'answers']);
 const TOGGLEABLE_BUILTIN_TOOLS = new Set(['git', 'office', 'localProvider', 'tidy', 'autoEffort', 'visualize']);
 const INSTALLABLE_BUILTIN_FEATURES = new Set(['git', 'memory', 'office', 'localProvider', 'tidy', 'autoEffort']);
 
@@ -306,6 +307,8 @@ const CAPABILITY_ARITY = {
   setCompactionSettings: [0, 1],
   getRecapSettings: [0, 0],
   setRecapEnabled: [1, 1],
+  getSessionTitleSettings: [0, 0],
+  setAiSessionTitles: [1, 1],
   getToolModuleSettings: [0, 0],
   setWebSearchEnabled: [1, 1],
   setInstructionFiles: [1, 1],
@@ -427,6 +430,7 @@ const CAPABILITY_ARITY = {
   removeCustomProvider: [1, 1],
   updateCustomProviderModel: [3, 3],
   testCustomProvider: [1, 1],
+  checkCustomProviderKeyEnv: [1, 1],
   discoverCustomProviderModels: [1, 1],
   saveOpenCodeGoUsageAuth: [1, 1],
   saveOpenAIUsageSessionKey: [1, 1],
@@ -500,6 +504,7 @@ const CUSTOM_PROVIDER_KEYS = new Set([
   'protocol',
   'baseURL',
   'apiKey',
+  'apiKeyEnv',
   'models',
   'schemaVersion',
   'enabled',
@@ -525,6 +530,7 @@ export const CUSTOM_MAX_WIRE_VALUE = 64;
 // Same transport rules as provider-admin.mjs (validateCustomTransportFields).
 export const CUSTOM_MAX_API_KEY = 65_536;
 const CUSTOM_PROVIDER_ID = /^custom-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CUSTOM_API_KEY_ENV = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const CUSTOM_LEVEL_ALIASES: Readonly<Record<string, string>> = { ultra: 'max' };
 
@@ -561,6 +567,15 @@ export function requiredCustomProviderInput(value: unknown, modelsOptional = fal
   requiredString(input.baseURL, 'custom provider baseURL', 2048);
   if (input.apiKey !== undefined && (typeof input.apiKey !== 'string' || input.apiKey.length > CUSTOM_MAX_API_KEY)) {
     throw new TypeError('custom provider apiKey is invalid.');
+  }
+  if (input.apiKeyEnv !== undefined && input.apiKeyEnv !== null) {
+    if (typeof input.apiKeyEnv !== 'string' || !CUSTOM_API_KEY_ENV.test(input.apiKeyEnv)) {
+      throw new TypeError('custom provider apiKeyEnv is invalid.');
+    }
+    if (input.auth === 'none') throw new TypeError('custom provider apiKeyEnv requires key auth.');
+    if (typeof input.apiKey === 'string' && input.apiKey !== '') {
+      throw new TypeError('custom provider apiKey and apiKeyEnv are mutually exclusive.');
+    }
   }
   if (input.schemaVersion !== undefined && input.schemaVersion !== 2) {
     throw new TypeError('custom provider schemaVersion is invalid.');
@@ -1127,6 +1142,7 @@ function validateCredentialCapabilityArgs(capability: DesktopCapability, args: r
   ) {
     requiredCustomProviderInput(args[0], capability === 'discoverCustomProviderModels');
   }
+  if (capability === 'checkCustomProviderKeyEnv') requiredString(args[0], 'environment variable name', 128);
   if (capability === 'saveStarterGuideState') requiredStarterGuideState(args[0]);
   if (capability === 'updateCustomProviderModel') requiredCustomModelPatch(args[0], args[1], args[2]);
   if (capability === 'removeCustomProvider') requiredString(args[0], 'custom provider id', 128);
@@ -1280,7 +1296,30 @@ export function requiredToolApprovalDecision(value: unknown): ToolApprovalDecisi
   if (decision.reason !== undefined && (typeof decision.reason !== 'string' || decision.reason.length > 4_096)) {
     throw new TypeError('decision.reason is invalid.');
   }
-  return { approved: decision.approved, reason: decision.reason };
+  const result: ToolApprovalDecision = { approved: decision.approved, reason: decision.reason };
+  if (decision.answers !== undefined) result.answers = requiredQuestionAnswers(decision.answers);
+  return result;
+}
+
+function requiredQuestionAnswers(value: unknown): NonNullable<ToolApprovalDecision['answers']> {
+  if (!Array.isArray(value) || value.length > 4) throw new TypeError('decision.answers is invalid.');
+  return value.map((entry) => {
+    if (entry === null) return null;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new TypeError('decision.answers is invalid.');
+    requireAllowedKeys(entry as Record<string, unknown>, new Set(['selected', 'text']), 'decision.answers');
+    const { selected, text } = entry as { selected?: unknown; text?: unknown };
+    if (
+      !Array.isArray(selected) ||
+      selected.length > 4 ||
+      selected.some((label) => typeof label !== 'string' || label.length > 200)
+    ) {
+      throw new TypeError('decision.answers is invalid.');
+    }
+    if (text !== undefined && (typeof text !== 'string' || text.length > 4_000)) {
+      throw new TypeError('decision.answers is invalid.');
+    }
+    return text === undefined ? { selected: selected as string[] } : { selected: selected as string[], text };
+  });
 }
 
 export function requiredGitPaths(value: unknown): string[] {

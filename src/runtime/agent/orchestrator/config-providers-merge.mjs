@@ -67,6 +67,13 @@ export function mergeStoredProviders({ raw, defaults, includeSecrets, presenceOn
   if (includeSecrets) {
     for (const [name, val] of Object.entries(mergedProviders)) {
       if (val?.type !== 'custom' || !name.startsWith('custom-') || val.auth === 'none') continue;
+      if (val.apiKeyEnv) {
+        // Env mode: the named variable is the only key source (no keychain).
+        const { apiKey: _dropped, ...rest } = val;
+        const envKey = process.env[val.apiKeyEnv];
+        mergedProviders[name] = envKey && !presenceOnly ? { ...rest, apiKey: envKey } : rest;
+        continue;
+      }
       const kc = storedKey(name);
       if (kc) mergedProviders[name] = withKey(val, name, kc);
     }

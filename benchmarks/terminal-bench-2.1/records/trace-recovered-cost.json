@@ -108,7 +108,91 @@
       "traceOnlyTotalUsd": 211.709698,
       "snapshotSubtotalUsd": 211.709698,
       "recovered": []
+    },
+    "jobs-full-sol61-20261015-052653": {
+      "model": "gpt-6.1-sol",
+      "tasks": 88,
+      "crossChecked": 88,
+      "mismatches": 6,
+      "fullRunCostUsd": 7.460144,
+      "traceOnlyTotalUsd": 9.013209,
+      "snapshotSubtotalUsd": 7.460144,
+      "recovered": [],
+      "mismatched": [
+        {
+          "task": "build-pov-ray",
+          "requests": 12,
+          "tokens": {
+            "uncachedInput": 35630,
+            "cacheRead": 145024,
+            "cacheWrite": 0,
+            "output": 1925
+          },
+          "costUsd": 0.105012,
+          "snapshotCostUsd": 0.074432
+        },
+        {
+          "task": "dna-assembly",
+          "requests": 13,
+          "tokens": {
+            "uncachedInput": 109291,
+            "cacheRead": 111488,
+            "cacheWrite": 0,
+            "output": 8797
+          },
+          "costUsd": 0.317701,
+          "snapshotCostUsd": 0.088784
+        },
+        {
+          "task": "dna-insert",
+          "requests": 9,
+          "tokens": {
+            "uncachedInput": 57760,
+            "cacheRead": 58368,
+            "cacheWrite": 0,
+            "output": 3951
+          },
+          "costUsd": 0.160867,
+          "snapshotCostUsd": 0.047001
+        },
+        {
+          "task": "mcmc-sampling-stan",
+          "requests": 15,
+          "tokens": {
+            "uncachedInput": 61739,
+            "cacheRead": 181120,
+            "cacheWrite": 0,
+            "output": 2409
+          },
+          "costUsd": 0.16568,
+          "snapshotCostUsd": 0.085289
+        },
+        {
+          "task": "mteb-leaderboard",
+          "requests": 12,
+          "tokens": {
+            "uncachedInput": 177427,
+            "cacheRead": 79360,
+            "cacheWrite": 0,
+            "output": 7038
+          },
+          "costUsd": 0.43317,
+          "snapshotCostUsd": 0.040701
+        },
+        {
+          "task": "protein-assembly",
+          "requests": 25,
+          "tokens": {
+            "uncachedInput": 339688,
+            "cacheRead": 361728,
+            "cacheWrite": 0,
+            "output": 18750
+          },
+          "costUsd": 0.903049,
+          "snapshotCostUsd": 0.196207
+        }
+      ]
     }
   },
-  "generated": "2026-08-31"
+  "generated": "2026-10-15"
 }

@@ -78,7 +78,7 @@ export function toolSchemaBucket(tool) {
   if (['shell', 'edit', 'apply_patch'].includes(name)) return 'mutation';
   if (name === 'agent' || name === 'delegate') return 'agents';
   if (name.includes('channel') || name.includes('webhook')) return 'channels';
-  if (name.includes('provider') || name === 'load_tool' || name === 'tool_search' || name === 'cwd') return 'setup';
+  if (name.includes('provider') || name === 'load_tool' || name === 'tool_search' || name === 'session') return 'setup';
   if (kind === 'control') return 'control';
   return 'other';
 }

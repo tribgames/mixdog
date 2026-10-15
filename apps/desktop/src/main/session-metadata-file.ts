@@ -17,7 +17,8 @@ interface SessionMetadataMaps {
   names: Record<string, string>;
   archived: Record<string, number>;
   favorites: Record<string, number>;
-  /** Sidebar project membership overrides ('' = explicitly no project). */
+  /** Legacy sidebar project assignments ('' = no project): no longer read or
+   *  written, preserved on disk as stored. */
   projects: Record<string, string>;
   reads: Record<string, SessionReadCursor>;
   /** A stored title that no longer matches the current generator was rewritten

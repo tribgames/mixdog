@@ -183,7 +183,9 @@ export function autoEffortModel(providerName, providerImpl, model) {
     // list from falling back to a family ladder.
     return { id: model, reasoningLevels: anthropicEffortLevelsFor(model), customReasoning: true };
   }
-  if (!isCustomProviderName(providerName)) return { id: model };
+  // Every other route reads the provider's own cached model row, the source
+  // route resolution (lookupModelMeta) uses; a bare id has no levels and
+  // skips the judge.
   return { ...(providerImpl?.getCachedModelInfo?.(model) || {}), id: model };
 }
 

@@ -151,34 +151,22 @@ export function useAppSessionActions({
     [invalidateSessionListings, sessions, setError, setSessions]
   );
 
-  /** Sidebar membership only ('' = no project); the session's cwd is untouched. */
+  /** Changes the session's working folder ('' = no project: the task
+   *  workspace); the sidebar follows once the host republishes the catalog. */
   const moveSessionToProject = useCallback(
     async (sessionId: string, projectPath: string) => {
-      const previousSession = sessions.find((session) => session.id === sessionId);
-      if (!previousSession || previousSession.projectAssignment === projectPath) return;
-      invalidateSessionListings();
-      setSessions((current) =>
-        current.map((session) => (session.id === sessionId ? { ...session, projectAssignment: projectPath } : session))
-      );
+      if (!sessions.some((session) => session.id === sessionId)) return;
       setError('');
       try {
         await window.mixdogDesktop.setSessionProject?.(sessionId, projectPath);
       } catch (reason) {
-        invalidateSessionListings();
-        setSessions((current) =>
-          current.map((session) => {
-            if (session.id !== sessionId || session.projectAssignment !== projectPath) return session;
-            const { projectAssignment: _moved, ...rest } = session;
-            return previousSession.projectAssignment === undefined
-              ? rest
-              : { ...rest, projectAssignment: previousSession.projectAssignment };
-          })
-        );
         setError(reason instanceof Error ? reason.message : String(reason));
         throw reason;
+      } finally {
+        invalidateSessionListings();
       }
     },
-    [invalidateSessionListings, sessions, setError, setSessions]
+    [invalidateSessionListings, sessions, setError]
   );
 
   const deleteSession = useCallback(

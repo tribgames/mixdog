@@ -316,6 +316,8 @@ export type DesktopSessionStateWireUpdate = Omit<DesktopSessionStateUpdate, 'sna
 export interface ToolApprovalDecision {
   approved: boolean;
   reason?: string;
+  /** ask_user answers, aligned by index with the questions; null = unanswered. */
+  answers?: Array<{ selected: string[]; text?: string } | null>;
   /** Host-stamped name of the device that answered. */
   device?: string;
 }

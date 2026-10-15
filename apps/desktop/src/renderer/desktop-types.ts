@@ -51,6 +51,8 @@ export type TranscriptItem = RecordValue & {
 export type Approval = RecordValue & {
   id?: string;
   name?: string;
+  /** 'question' = an ask_user card (args.questions) instead of an allow/deny one. */
+  kind?: string;
   reason?: string;
   args?: unknown;
   cwd?: string;

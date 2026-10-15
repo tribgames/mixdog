@@ -73,5 +73,25 @@
     "k": 1,
     "score": "64/88",
     "source": "external PR #43"
+  },
+  {
+    "jobsDir": "jobs-full-sol61-20261015-052653",
+    "path": "mixdog/gpt-6.1-sol/2026-10-15",
+    "model": "gpt-6.1-sol",
+    "date": "2026-10-15",
+    "harness": "mixdog",
+    "k": 1,
+    "score": "77/89",
+    "source": "mixdog"
+  },
+  {
+    "jobsDir": "jobs-codex-sol61-xhigh-full",
+    "path": "codex/gpt-6.1-sol/2026-10-15",
+    "model": "gpt-6.1-sol",
+    "date": "2026-10-15",
+    "harness": "codex",
+    "k": 1,
+    "score": "78/89",
+    "source": "mixdog"
   }
 ]

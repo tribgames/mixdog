@@ -38,7 +38,6 @@ function harness(overrides = {}) {
     runNativeWebSearch: record('native-web-search'),
     activeToolSurface: () => ({ tools: [] }),
     mcpStatus: () => ({ servers: [] }),
-    applyResolvedCwd: record('applyResolvedCwd'),
     skillToolContent: record('Skill'),
     ...overrides,
   });
@@ -112,37 +111,128 @@ test('injected runtimes receive the caller context each tool expects', async () 
   await assert.rejects(execute('nope', {}, ctx), /unknown standalone internal tool: nope/);
 });
 
-test('cwd reports, lists, and switches the working directory through the caller or the runtime', async () => {
+test('session reports, lists, and switches the Project through the caller or the runtime', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-internal-cwd-'));
   try {
-    const { execute, calls } = harness();
-    assert.deepEqual(JSON.parse(await execute('cwd', {}, { callerSessionId: 'c1' })), {
-      cwd: 'C:/work',
-      sessionId: 'c1',
+    const switches = [];
+    const { execute, calls } = harness({
+      getWorkspaceApi: () => ({
+        switchProject: async (...args) => {
+          switches.push(args);
+          return 'switchProject:ok';
+        },
+      }),
     });
-    const listed = JSON.parse(await execute('cwd', { action: 'list' }, {}));
+    const status = JSON.parse(await execute('session', {}, { callerSessionId: 'sess-1' }));
+    assert.equal(status.cwd, 'C:/work');
+    assert.equal(status.sessionId, 'sess-1');
+    const worker = { callerSessionId: 'worker-1' };
+    for (const args of [{}, { action: 'list-projects' }, { action: 'set-project', path: dir }, { path: dir }]) {
+      await assert.rejects(execute('session', args, worker), /belongs to the Lead session/);
+    }
+    assert.equal(calls.length, 0);
+    const listed = JSON.parse(await execute('session', { action: 'list-projects' }, {}));
     assert.equal(listed.cwd, 'C:/work');
     assert.ok(Array.isArray(listed.projects));
 
     const viaCaller = JSON.parse(
-      await execute('cwd', { path: dir }, { setCallerCwd: async (next) => `${next}::caller` })
+      await execute('session', { path: dir }, { setCallerCwd: async (next) => `${next}::caller` })
     );
     assert.equal(viaCaller.cwd, `${resolve(dir)}::caller`);
-    assert.equal(calls.length, 0, 'the caller-owned switch bypasses applyResolvedCwd');
+    assert.equal(calls.length + switches.length, 0, 'the caller-owned switch bypasses the runtime authority');
 
-    const viaRuntime = JSON.parse(await execute('cwd', { action: 'set', path: dir }, {}));
-    assert.equal(viaRuntime.cwd, 'applyResolvedCwd:ok');
-    assert.deepEqual(calls.at(-1), ['applyResolvedCwd', resolve(dir), { persistProjectSelection: true }]);
+    const viaRuntime = JSON.parse(await execute('session', { action: 'set-project', path: dir }, {}));
+    assert.equal(viaRuntime.cwd, 'switchProject:ok');
+    assert.deepEqual(switches, [[resolve(dir), { ownTurn: true }]]);
 
-    await assert.rejects(execute('cwd', { action: 'set' }, {}), /path is required/);
-    await assert.rejects(execute('cwd', { action: 'set', path: join(dir, 'missing') }, {}), /ENOENT/);
-    await assert.rejects(execute('cwd', { action: 'dance' }, {}), /unknown action "dance"/);
+    await assert.rejects(execute('session', { action: 'set-project' }, {}), /path is required/);
+    await assert.rejects(execute('session', { action: 'set-project', path: join(dir, 'missing') }, {}), /ENOENT/);
+    await assert.rejects(execute('session', { action: 'dance' }, {}), /unknown action "dance"/);
+    await assert.rejects(execute('cwd', {}, {}), /unknown standalone internal tool: cwd/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('cwd merge-worktree / remove-worktree drive the Lead workspace authority within the calling turn', async () => {
+test('session rename protects user titles, honors the setting, and is Lead-only', async () => {
+  const seen = [];
+  let outcome = { ok: true, title: 'Fix login' };
+  const store = { id: 'sess-1', title: 'Fix login', titleLocked: true, titleSource: 'ai' };
+  const getSessionManager = () => ({
+    updateSessionAiTitle: async (id, title) => (seen.push([id, title]), outcome),
+    getSession: () => store,
+  });
+  const { execute, rt } = harness({ getSessionManager });
+  const renamed = JSON.parse(await execute('session', { action: 'rename', title: 'Fix login' }, {}));
+  assert.deepEqual(renamed, { action: 'rename', sessionId: 'sess-1', title: 'Fix login' });
+  assert.deepEqual(seen.at(-1), ['sess-1', 'Fix login']);
+  assert.equal(rt.session.titleSource, 'ai');
+  assert.equal(rt.session.title, 'Fix login');
+  await assert.rejects(execute('session', { action: 'rename', title: 'x' }, { callerSessionId: 'w' }), /Lead session/);
+  await assert.rejects(execute('session', { action: 'rename' }, {}), /title is required/);
+  outcome = { ok: false, reason: 'user-title' };
+  await assert.rejects(execute('session', { action: 'rename', title: 'x' }, {}), /user already titled/);
+  rt.config.aiSessionTitles = false;
+  const before = seen.length;
+  await assert.rejects(
+    execute('session', { action: 'rename', title: 'x' }, {}),
+    /session: AI session titles are disabled in settings/
+  );
+  assert.equal(seen.length, before);
+});
+
+test('a manual rename landing while the AI title saves wins on the live session', async () => {
+  const store = { id: 'sess-1', title: 'old', titleLocked: false };
+  const getSessionManager = () => ({
+    updateSessionAiTitle: async () => {
+      Object.assign(store, { title: 'AI title', titleLocked: true, titleSource: 'ai' });
+      await Promise.resolve();
+      // the user's manual rename lands during the awaited save
+      Object.assign(store, { title: 'Mine', titleLocked: true, titleSource: 'user' });
+      return { ok: true, title: 'AI title' };
+    },
+    getSession: () => store,
+  });
+  const { execute, rt } = harness({ getSessionManager });
+  await assert.rejects(execute('session', { action: 'rename', title: 'AI title' }, {}), /user already titled/);
+  assert.equal(rt.session.title, 'Mine');
+  assert.equal(rt.session.titleSource, 'user');
+});
+
+test('session compact schedules a one-shot pending compact; status reports the session', async () => {
+  const { execute, rt } = harness();
+  rt.session.title = 'T';
+  rt.session.provider = 'openai';
+  rt.session.model = 'gpt';
+  const scheduled = JSON.parse(await execute('session', { action: 'compact' }, {}));
+  assert.equal(scheduled.scheduled, true);
+  assert.equal(rt.pendingCompactSessionIds.has('sess-1'), true);
+  await assert.rejects(execute('session', { action: 'compact' }, { callerSessionId: 'w' }), /Lead session/);
+  const status = JSON.parse(await execute('session', { action: 'status' }, {}));
+  assert.equal(status.sessionId, 'sess-1');
+  assert.equal(status.title, 'T');
+  assert.equal(status.provider, 'openai');
+  assert.equal(status.model, 'gpt');
+  // A managed worktree reports its owning Project, not the worktree folder.
+  rt.session.workspace = { projectPath: 'D:/proj', cwd: 'D:/worktrees/fix' };
+  const inWorktree = JSON.parse(await execute('session', { action: 'status' }, {}));
+  assert.equal(inWorktree.project, 'D:/proj');
+});
+
+test('session fork calls the lifecycle API and returns the new session id', async () => {
+  const calls = [];
+  const lifecycle = {
+    inheritToNewSession: async (id, options) => (calls.push([id, options]), { sessionId: 'new-1', compacted: true }),
+  };
+  const { execute } = harness({ getLifecycleApi: () => lifecycle });
+  const out = JSON.parse(await execute('session', { action: 'fork', compact: true }, {}));
+  assert.equal(out.sessionId, 'new-1');
+  assert.deepEqual(calls[0], ['sess-1', { compact: true, titleSuffix: ' (Fork)' }]);
+  const { execute: bare } = harness();
+  await assert.rejects(bare('session', { action: 'fork' }, {}), /unavailable/);
+});
+
+test('session merge-worktree / remove-worktree drive the Lead workspace authority within the calling turn', async () => {
   const calls = [];
   const workspace = {
     mergeWorkspace: async (input, options) => {
@@ -155,22 +245,22 @@ test('cwd merge-worktree / remove-worktree drive the Lead workspace authority wi
     },
   };
   const { execute } = harness({ getWorkspaceApi: () => workspace });
-  const merged = JSON.parse(await execute('cwd', { action: 'merge-worktree' }, { callerSessionId: 'sess-1' }));
+  const merged = JSON.parse(await execute('session', { action: 'merge-worktree' }, { callerSessionId: 'sess-1' }));
   assert.deepEqual(merged, { action: 'merge-worktree', cwd: 'C:/work', result: { merged: true } });
   assert.deepEqual(calls.at(-1), ['merge', { confirmed: true }, { ownTurn: true }]);
-  await execute('cwd', { action: 'remove-worktree', force: true }, {});
+  await execute('session', { action: 'remove-worktree', force: true }, {});
   assert.deepEqual(calls.at(-1), ['remove', { force: true }, { ownTurn: true }]);
   // The manual list / prune: never a retained worktree (the authority decides).
   workspace.listWorktrees = async () => (calls.push(['list']), [{ id: 'fix', retained: true }]);
   workspace.pruneWorktrees = async () => (calls.push(['prune']), { removed: [] });
-  const listed = JSON.parse(await execute('cwd', { action: 'list-worktrees' }, {}));
+  const listed = JSON.parse(await execute('session', { action: 'list-worktrees' }, {}));
   assert.deepEqual(listed.result, [{ id: 'fix', retained: true }]);
-  await execute('cwd', { action: 'prune-worktrees' }, {});
+  await execute('session', { action: 'prune-worktrees' }, {});
   assert.deepEqual(calls.slice(-2), [['list'], ['prune']]);
   await assert.rejects(
-    execute('cwd', { action: 'remove-worktree' }, { callerSessionId: 'worker-2' }),
+    execute('session', { action: 'remove-worktree' }, { callerSessionId: 'worker-2' }),
     /belongs to the Lead session/
   );
   const { execute: bare } = harness();
-  await assert.rejects(bare('cwd', { action: 'merge-worktree' }, {}), /unavailable in this runtime/);
+  await assert.rejects(bare('session', { action: 'merge-worktree' }, {}), /unavailable in this runtime/);
 });

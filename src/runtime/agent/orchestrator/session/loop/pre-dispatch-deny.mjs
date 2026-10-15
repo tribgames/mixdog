@@ -14,7 +14,7 @@
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { isOffReadonlySurface } from './deferred-call-through.mjs';
 
-const WORKER_DENIED_TOOLS = new Set(['agent']);
+const WORKER_DENIED_TOOLS = new Set(['agent', 'ask_user', 'session']);
 
 const IMAGE_PATH_RE = /\.(?:png|jpe?g|gif|webp)(?:$|[?#])/i;
 const COMPACTED_PATCH_LINE_RE = /^\s*\[mixdog compacted\b[^\]\n]*\]/;

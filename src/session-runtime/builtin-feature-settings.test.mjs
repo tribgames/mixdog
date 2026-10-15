@@ -99,6 +99,15 @@ test('built-in Git and Office settings persist and refresh empty-session tools',
   assert.equal(state.refreshes(), 1);
 });
 
+test('AI session titles default on, persist the top-level key and report the same shape', () => {
+  const state = fixture();
+  assert.deepEqual(state.api.getSessionTitleSettings(), { aiSessionTitles: true });
+  assert.deepEqual(state.api.setAiSessionTitles(false), { aiSessionTitles: false });
+  assert.equal(state.config().aiSessionTitles, false);
+  assert.deepEqual(state.api.setAiSessionTitles(true), { aiSessionTitles: true });
+  assert.equal(state.config().aiSessionTitles, true);
+});
+
 test('instruction files mode defaults to all, validates, persists and refreshes empty-session tools', async () => {
   const state = fixture();
   assert.equal(state.api.getToolModuleSettings().instructionFiles, 'off');

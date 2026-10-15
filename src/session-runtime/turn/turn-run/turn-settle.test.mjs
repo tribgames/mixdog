@@ -20,3 +20,45 @@ test('StopFailure error types match status codes only as whole tokens', () => {
   assert.equal(errorTypeFor('status 429'), 'rate_limit');
   assert.equal(errorTypeFor('status 401'), 'authentication_failed');
 });
+
+function settlement({ current, pending, onRun }) {
+  let active = 1;
+  const { settleTurn } = createTurnSettlement({
+    getSession: () => ({ id: current() }),
+    setSession() {},
+    mgr: {},
+    transcript: {},
+    hooks: { emit() {}, dispatch() {} },
+    hookCommonPayload: (payload) => payload,
+    endComputerExecution: async () => {},
+    deferComputerSessionRelease() {},
+    getActiveTurnCount: () => active,
+    setActiveTurnCount: (value) => {
+      active = value;
+    },
+    isFirstTurnCompleted: () => true,
+    takePendingCompact: (id) => pending.delete(id),
+    runPendingCompact: onRun,
+  });
+  const turn = {
+    session0: { id: 'A' },
+    emitTiming() {},
+    armHeavyRuntimeWarmup() {},
+    snapshot: { finish: async () => {} },
+    timing: {},
+  };
+  return () => settleTurn(turn);
+}
+
+test('a scheduled compact runs for the settled session only while it is still current', async () => {
+  const ran = [];
+  const pending = new Set(['A']);
+  await settlement({ current: () => 'A', pending, onRun: (id) => ran.push(id) })();
+  assert.deepEqual(ran, ['A']);
+  assert.equal(pending.has('A'), false, 'one-shot');
+
+  const other = new Set(['A']);
+  await settlement({ current: () => 'B', pending: other, onRun: (id) => ran.push(id) })();
+  assert.deepEqual(ran, ['A'], 'never compacts another session');
+  assert.equal(other.has('A'), true, 'stays pending for A');
+});

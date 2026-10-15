@@ -76,8 +76,18 @@ const V2_TOP_LEVEL_KEYS = new Set([
   'modelOverrides',
   'id',
   'apiKey',
+  'apiKeyEnv',
   'preconnect',
 ]);
+export const CUSTOM_API_KEY_ENV_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+
+// Env var name that supplies the key, or '' when unset (undefined / null).
+function normalizeApiKeyEnv(raw) {
+  if (raw === undefined || raw === null) return '';
+  if (typeof raw !== 'string' || !CUSTOM_API_KEY_ENV_RE.test(raw))
+    fail('apiKeyEnv must be a valid environment variable name');
+  return raw;
+}
 const MAX_BASE_URL = 2048;
 
 function onlyKnownKeys(value, allowed, label) {
@@ -293,6 +303,7 @@ export function normalizeCustomProviderConfig(input) {
   if (!CUSTOM_PROVIDER_PROTOCOLS.includes(protocol)) fail(`unsupported protocol: ${protocol}`);
   const auth = source.auth === undefined || source.auth === null ? 'key' : text(source.auth);
   if (!CUSTOM_PROVIDER_AUTH_MODES.includes(auth)) fail(`invalid auth: ${String(source.auth)}`);
+  const apiKeyEnv = normalizeApiKeyEnv(source.apiKeyEnv);
   const discovery = source.discovery === undefined ? {} : source.discovery;
   if (!isPlainObject(discovery)) fail('discovery must be an object');
   onlyKnownKeys(discovery, DISCOVERY_KEYS, 'discovery');
@@ -305,6 +316,7 @@ export function normalizeCustomProviderConfig(input) {
     baseURL: normalizeBaseURL(source.baseURL),
     enabled: source.enabled !== false,
     auth,
+    ...(apiKeyEnv && auth === 'key' ? { apiKeyEnv } : {}),
     discovery: { newModelsHidden },
     modelOverrides: normalizeOverrides(source.modelOverrides, protocol, legacy),
   };

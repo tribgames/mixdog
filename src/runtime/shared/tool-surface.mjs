@@ -144,11 +144,14 @@ export function displayToolName(name, args = {}) {
       return 'Visualize';
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
-    case 'cwd':
+    case 'cwd': // legacy: old transcripts
+    case 'session':
     case 'setup':
       return 'Setup';
     case 'request_user_input':
       return 'Ask User';
+    case 'ask_user':
+      return 'Question';
     case 'update_plan':
       return 'Plan';
     case 'memory':
@@ -236,6 +239,14 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return summarizeGithub(a, max);
     case 'goal':
       return compactParts([String(a.action || ''), truncateToolText(a.objective, max)]);
+    case 'ask_user':
+      return truncateToolText(
+        (Array.isArray(a.questions) ? a.questions : [])
+          .map((q) => String(q?.header || q?.question || '').trim())
+          .filter(Boolean)
+          .join(', '),
+        max
+      );
     case 'list':
     case 'ls':
       if (Array.isArray(a.path) || Array.isArray(a.dir) || Array.isArray(a.cwd)) {
@@ -333,8 +344,12 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
       return a.server ? `server "${truncateToolText(a.server, max)}"` : 'all servers';
-    case 'cwd':
-      return compactParts([String(a.action || a.type || ''), truncateToolText(firstText(a.path, a.cwd, a.dir), max)]);
+    case 'cwd': // legacy: old transcripts
+    case 'session':
+      return compactParts([
+        String(a.action || a.type || ''),
+        truncateToolText(firstText(a.title, a.path, a.cwd, a.dir), max),
+      ]);
     case 'setup':
       return compactParts([
         String(a.action || ''),

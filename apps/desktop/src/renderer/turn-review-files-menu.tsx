@@ -13,6 +13,8 @@ import { acquireTitleBarDim } from './titlebar-dim';
 import { bumpTurnChangesEpoch } from './turn-changes-model';
 
 const MENU_ITEM = "[role='menuitem']:not(:disabled)";
+const runningTurnNotice = () =>
+  new Error(t("Change history can't be deleted while a response is running. Try again after it finishes."));
 
 /** The island's "Files N +a −b" segment as a menu trigger: View changes
  *  (what the segment used to do on click) and, after a separator, Delete
@@ -22,6 +24,7 @@ const MENU_ITEM = "[role='menuitem']:not(:disabled)";
 export function TurnReviewFilesMenu({
   sessionId,
   historyTurns,
+  busy = false,
   label,
   title,
   onViewChanges,
@@ -30,6 +33,8 @@ export function TurnReviewFilesMenu({
   sessionId: string | undefined;
   /** Retained turn records the deletion removes (the dialog's count). */
   historyTurns: number;
+  /** A running turn or command: the runtime refuses deletion, so Delete history explains instead. */
+  busy?: boolean;
   label: string;
   title: string;
   onViewChanges(): void;
@@ -115,7 +120,7 @@ export function TurnReviewFilesMenu({
     } catch (reason) {
       // The refusal (a running turn, a failed write) shows where it was asked.
       setOpen(true);
-      setError(reason);
+      setError(/running a turn/.test(String(reason)) ? runningTurnNotice() : reason);
       return;
     }
     // Every turn card and session diff of the session re-reads: the island
@@ -177,6 +182,11 @@ export function TurnReviewFilesMenu({
               role="menuitem"
               className="mx-menu-item danger"
               onClick={() => {
+                // The runtime refuses deletion mid-turn: say so here instead of confirming.
+                if (busy) {
+                  setError(runningTurnNotice());
+                  return;
+                }
                 close(false);
                 setConfirming(true);
               }}

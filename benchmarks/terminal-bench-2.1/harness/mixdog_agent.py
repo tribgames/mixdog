@@ -411,11 +411,14 @@ def _mixdog_exec_command(
         'export MIXDOG_SEARCH_SERVER_BIN="$MIXDOG_GRAPH_BIN"; '
         'test -x "$MIXDOG_GRAPH_BIN" || exit 1; '
     )
+    # --web-search: the stock baseline harnesses ship their web search enabled;
+    # this bench used to block Mixdog's explicitly. It is now unblocked so both
+    # sides run with the same capability.
     pipeline = (
         "mkdir -p /logs/agent; "
         f"{cache}"
         f"{graph}"
-        f"mixdog exec --json --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
+        f"mixdog exec --json --web-search --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
         f"{route_args} "
         f"-- {shlex.quote(instruction)} "
         "2> >(tee /logs/agent/mixdog.stderr >&2) | tee /logs/agent/mixdog.txt"

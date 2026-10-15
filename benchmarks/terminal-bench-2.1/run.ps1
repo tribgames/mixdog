@@ -267,6 +267,9 @@ $definition = [ordered]@{
     concurrent   = $concurrent
     attempts     = $attempts
     maxRetries   = $maxRetries
+    # harness/mixdog_agent.py passes --web-search; runs from before it was
+    # unblocked must not share a fingerprint with runs after it.
+    webSearch    = $true
 }
 if ($EffortJudge -ne "off") {
     $definition.effortJudge = [ordered]@{

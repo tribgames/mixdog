@@ -8,21 +8,17 @@ import {
   previewKey,
 } from './image-preview-store.ts';
 import { rememberThumbnail, resetSavedThumbnails } from './persisted-thumbnail.ts';
-import { visualizeCardThumbnailLine, monogramLetter } from './visualize-card-model.ts';
 
 const png = `data:image/png;base64,${'A'.repeat(40)}`;
 
 test('a captured snapshot is kept and restored by a fresh store after a restart', async () => {
   resetSavedThumbnails();
   const backend = memoryPreviewBackend();
-  const call = { id: 'a', pending: false, targets: ['design/mockups/pricing.html'], label: '', tabId: 'v1' };
-  const key = previewKey('sess', visualizeCardThumbnailLine(call));
+  const key = previewKey('sess', 'file|design/mockups/pricing.html');
   await rememberThumbnail(key, 'sess', png, { store: createImagePreviewStore(backend) });
   const restarted = createImagePreviewStore(backend);
   assert.equal(await restarted.get(key), png);
-  // The same tab id showing other files is a different card.
-  const other = previewKey('sess', visualizeCardThumbnailLine({ ...call, targets: ['other.html'] }));
-  assert.equal(await restarted.get(other), undefined);
+  assert.equal(await restarted.get(previewKey('sess', 'file|other.html')), undefined);
 });
 
 test('a non-data source is downscaled before it is kept; a failed capture keeps nothing', async () => {
@@ -56,12 +52,6 @@ test('the saved set is bounded and a deleted session is forgotten', async () => 
   assert.equal(await store.get('b699'), undefined, 'recent markers are kept');
   await rememberThumbnail('b0', 'big', 'data:image/png;base64,0', { store });
   assert.equal(await store.get('b0'), 'data:image/png;base64,0', 'oldest markers were dropped past the cap');
-});
-
-test('the placeholder monogram is the title initial', () => {
-  assert.equal(monogramLetter('요금제 배치 시안'), '요');
-  assert.equal(monogramLetter('pricing'), 'P');
-  assert.equal(monogramLetter('··'), '·');
 });
 
 test('a file snapshot is saved once per file version and reused; failures fall back quietly', async () => {

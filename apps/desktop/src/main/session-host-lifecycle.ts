@@ -21,6 +21,7 @@ import type {
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
+import { projectIdentity } from '../shared/project-identity';
 import { reportTranscriptRead, transcriptReadTraceId } from '../shared/transcript-read-diagnostics';
 import { normalizeSessionTitle, promptTitle } from '../shared/session-title.mjs';
 import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy';
@@ -232,11 +233,28 @@ export class SessionHostLifecycle {
     await this.republishSessionCatalog();
   }
 
-  async setSessionProject(sessionId: string, projectPath: string | null): Promise<void> {
+  /** The sidebar's "move to project": a real working-folder change through the
+   *  runtime's project switch (the `session` tool's set-project path). A
+   *  registered project's folder, or '' for the task workspace; a session
+   *  already in that project stays put. */
+  async setSessionProject(sessionId: string, projectPath: string): Promise<void> {
     const id = sessionIdOf(sessionId);
-    await this.owner.sessionMetadata.load();
-    if (!(await this.owner.sessionMetadata.setProject(id, projectPath))) return;
-    await this.republishSessionCatalog();
+    const row = (await this.owner.listSessions()).find((entry) => entry.id === id);
+    if (!row) throw new Error('Session is not available.');
+    const target = projectPath.trim() ? await this.owner.registeredProject(projectPath) : null;
+    if (projectIdentity(await this.owner.sessionProjectPath(row)) === projectIdentity(target)) return;
+    const live = this.owner.publication.projections.get(id)?.snapshot;
+    if (row.leadWorking || live?.busy || live?.commandBusy) {
+      throw new Error('The session is running a turn; wait for it to finish before moving it to another project.');
+    }
+    if (row.workspace?.worktreeId) {
+      throw new Error(
+        'The session works in a managed worktree; merge or remove the worktree before moving it to another project.'
+      );
+    }
+    const cwd = target ? await this.owner.canonicalDirectory(target) : await this.owner.taskWorkspace();
+    await this.owner.invokeSession(id, 'setCwd', [cwd]);
+    await this.owner.publishCatalogs();
   }
 
   async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {

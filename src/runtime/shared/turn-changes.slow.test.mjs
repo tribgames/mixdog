@@ -36,6 +36,7 @@ const {
   revertTurnReview,
 } = snapshotModule;
 const { createSnapshotTrackerFactory } = await import('../../session-runtime/turn/turn-run/snapshot-tracker.mjs');
+const { loadTurnChangeRecord } = await import('./turn-snapshot-store.mjs');
 
 let seq = 0;
 function git(cwd, ...args) {
@@ -311,7 +312,7 @@ test('the session diff lists a workerâ€™s edits made in its own session turn', {
   };
   edit('own-turn-lead', 'lead.txt');
   edit('own-turn-worker', 'worker.txt');
-  completeAgentTurnReview(worker);
+  await completeAgentTurnReview(worker);
   await completeTurnSnapshot('own-turn-lead', token);
   const files = (await getSessionReviewDiff(repo, 'own-turn-lead')).files.map((file) => file.path);
   assert.deepEqual(files, ['lead.txt', 'worker.txt']);
@@ -354,7 +355,7 @@ test('composer whole-turn Undo on a contended worktree records only the Lead fil
   recordTurnDiffChanges('contended-undo-worker', [
     { path: join(repo, 'b.txt'), displayPath: 'b.txt', before: 'b\n', after: 'B\n' },
   ]);
-  assert.equal(completeAgentTurnReview(worker), true);
+  assert.equal(await completeAgentTurnReview(worker), true);
   await completeTurnSnapshot(sessionId);
   let reply = await settledChanges(sessionId, 'cp');
   assert.deepEqual(statesOf(reply), [
@@ -382,6 +383,102 @@ test('composer whole-turn Undo on a contended worktree records only the Lead fil
   await completeTurnSnapshot('contended-other');
 });
 
+test('a worker completed just before or during the Lead seal reaches the persisted record', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'complete-then-seal';
+  const repo = seedRepo({ 'a.txt': 'a\n', 'b.txt': 'b\n', 'c.txt': 'c\n' });
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+  // A second live turn on the same worktree makes it contended: the record
+  // is scoped to the paths attributed to this session and its workers.
+  await beginTurnSnapshot(repo, 'complete-then-seal-other', { checkpointId: 'cp-other' });
+  const before = beginAgentTurnReview(sessionId, 'complete-then-seal-worker-1', { agent: 'worker' });
+  const during = beginAgentTurnReview(sessionId, 'complete-then-seal-worker-2', { agent: 'worker' });
+  writeTree(repo, { 'a.txt': 'A\n', 'b.txt': 'B\n', 'c.txt': 'C\n' });
+  const edit = (id, name) => {
+    const letter = name[0];
+    recordTurnDiffChanges(id, [
+      { path: join(repo, name), displayPath: name, before: `${letter}\n`, after: `${letter.toUpperCase()}\n` },
+    ]);
+  };
+  edit(sessionId, 'a.txt');
+  // Neither worker's tracked diff has rendered yet when it completes.
+  edit('complete-then-seal-worker-1', 'b.txt');
+  edit('complete-then-seal-worker-2', 'c.txt');
+  // Completed, then sealed at once; the second completes while that seal freezes.
+  const completedBefore = completeAgentTurnReview(before);
+  const sealed = completeTurnSnapshot(sessionId);
+  const completedDuring = completeAgentTurnReview(during);
+  assert.equal(await completedBefore, true);
+  assert.equal(await withinDeadline(sealed, 'seal'), true);
+  assert.equal(await completedDuring, true);
+  const live = await getTurnReviewDiff(repo, sessionId);
+  assert.deepEqual(
+    live.agents.map((agent) => [agent.sessionId, agent.patch.split('\n').filter((line) => /^[-+]\w/.test(line))]),
+    [
+      ['complete-then-seal-worker-1', ['-b', '+B']],
+      ['complete-then-seal-worker-2', ['-c', '+C']],
+    ]
+  );
+  // The next turn opens only after the queued re-seal landed.
+  await withinDeadline(beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-2' }), 'next turn start');
+
+  const record = await loadTurnChangeRecord(sessionId, 'cp');
+  assert.deepEqual(
+    record.agents.map((agent) => agent.sessionId),
+    ['complete-then-seal-worker-1', 'complete-then-seal-worker-2']
+  );
+  assert.deepEqual(statesOf(await settledChanges(sessionId, 'cp')), [
+    ['a.txt', 'M', 'applied'],
+    ['b.txt', 'M', 'applied'],
+    ['c.txt', 'M', 'applied'],
+  ]);
+  await completeTurnSnapshot(sessionId);
+  await completeTurnSnapshot('complete-then-seal-other');
+});
+
+test('a worker re-seal queued while the turn start drains another lands before the next turn opens', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'drain-reseals';
+  const repo = seedRepo({ 'a.txt': 'a\n', 'b.txt': 'b\n', 'c.txt': 'c\n' });
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-1' });
+  const first = beginAgentTurnReview(sessionId, 'drain-reseals-worker-1', { agent: 'worker' });
+  const second = beginAgentTurnReview(sessionId, 'drain-reseals-worker-2', { agent: 'worker' });
+  writeTree(repo, { 'a.txt': 'A\n' });
+  await completeTurnSnapshot(sessionId);
+  // Both workers' edits land after the Lead turn sealed.
+  writeTree(repo, { 'b.txt': 'B\n', 'c.txt': 'C\n' });
+  const secondPatch = 'diff --git a/c.txt b/c.txt\n--- a/c.txt\n+++ b/c.txt\n@@ -1 +1 @@\n-c\n+C\n';
+
+  // An Undo holds the lock, the next turn start queues behind it, and only
+  // then does the first worker report: the start step runs its re-seal.
+  const reply = await getTurnChanges(sessionId, { checkpointId: 'cp-1' });
+  const undo = revertTurnChanges(sessionId, 'cp-1', 'a.txt', reply.revision);
+  const started = beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-2' });
+  assert.equal(await completeAgentTurnReview(first, [workerPatch]), true);
+  await withinDeadline(undo, 'undo');
+  // Every microtask has run: the start step's re-seal is now awaiting Git.
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(await completeAgentTurnReview(second, [secondPatch]), true);
+  await withinDeadline(started, 'turn start');
+
+  const workers = ['drain-reseals-worker-1', 'drain-reseals-worker-2'];
+  const opened = await loadTurnChangeRecord(sessionId, 'cp-1');
+  assert.deepEqual(
+    opened.agents.map((agent) => agent.sessionId),
+    workers
+  );
+  // Flush every lock step queued meanwhile; none may rewrite cp-1.
+  await withinDeadline(completeTurnSnapshot(sessionId), 'next turn seal');
+  await withinDeadline(beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-3' }), 'flush');
+  const later = await loadTurnChangeRecord(sessionId, 'cp-1');
+  assert.deepEqual(
+    later.agents.map((agent) => agent.sessionId),
+    workers
+  );
+  assert.equal(later.revision, opened.revision);
+  await completeTurnSnapshot(sessionId);
+});
+
 test('a late worker re-seal racing a new turn start never absorbs the next turnâ€™s edits', { skip }, async () => {
   for (const order of ['reseal-then-start', 'start-queued-then-reseal']) {
     _resetTurnSnapshotForTest();
@@ -397,7 +494,7 @@ test('a late worker re-seal racing a new turn start never absorbs the next turnâ
     let started;
     let undo = null;
     if (order === 'reseal-then-start') {
-      assert.equal(completeAgentTurnReview(worker, [workerPatch]), true);
+      assert.equal(await completeAgentTurnReview(worker, [workerPatch]), true);
       started = beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-2' });
     } else {
       // An Undo holds the lock, the next turn start queues behind it, and
@@ -405,7 +502,7 @@ test('a late worker re-seal racing a new turn start never absorbs the next turnâ
       const reply = await getTurnChanges(sessionId, { checkpointId: 'cp-1' });
       undo = revertTurnChanges(sessionId, 'cp-1', 'a.txt', reply.revision);
       started = beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-2' });
-      assert.equal(completeAgentTurnReview(worker, [workerPatch]), true);
+      assert.equal(await completeAgentTurnReview(worker, [workerPatch]), true);
     }
     await withinDeadline(started, `${order}: turn start`);
     if (undo) await withinDeadline(undo, `${order}: undo`);
@@ -449,7 +546,7 @@ test('a pending late-worker re-seal runs before the next turn opens', { skip }, 
   const undo = revertTurnChanges(sessionId, 'cp-1', 'a.txt', reply.revision);
   const started = beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp-2' });
   // Reported after the start queued, while the worker is still bound to cp-1.
-  assert.equal(completeAgentTurnReview(worker, [workerPatch]), true);
+  assert.equal(await completeAgentTurnReview(worker, [workerPatch]), true);
   await withinDeadline(undo, 'undo');
   await withinDeadline(started, 'turn start');
   assert.deepEqual(opened, ['cp-2']);
@@ -481,7 +578,7 @@ test('a late worker re-seal racing an Undo stays consistent in either order', { 
 
   // Re-seal first: the Undo queued behind it sees the bumped revision.
   writeTree(repo, { 'b.txt': 'B\n' });
-  assert.equal(completeAgentTurnReview(first, [workerPatch]), true);
+  assert.equal(await completeAgentTurnReview(first, [workerPatch]), true);
   await assert.rejects(
     withinDeadline(revertTurnChanges(sessionId, 'cp', 'a.txt', reply.revision), 'undo behind re-seal'),
     /turn changes changed; refresh/
@@ -496,7 +593,7 @@ test('a late worker re-seal racing an Undo stays consistent in either order', { 
   // Undo first: the re-seal queued behind it reads the undone disk and keeps
   // the undone file reverted and reapplyable.
   const undo = revertTurnChanges(sessionId, 'cp', 'a.txt', reply.revision);
-  assert.equal(completeAgentTurnReview(second, [workerPatch.replaceAll('b.txt', 'b2.txt')]), true);
+  assert.equal(await completeAgentTurnReview(second, [workerPatch.replaceAll('b.txt', 'b2.txt')]), true);
   reply = await withinDeadline(undo, 'undo ahead of re-seal');
   assert.equal(readTree(repo, ['a.txt'])['a.txt'], 'a\n');
   reply = await settledChanges(sessionId, 'cp');

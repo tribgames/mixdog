@@ -219,7 +219,7 @@ test('inheriting a session whose Project is not registered starts the heir in th
   assert.deepEqual(created[3].desktopSession, { classification: 'task', projectPath: null });
 });
 
-test('inheriting a session the user moved to a Project starts the heir in that Project', async (t) => {
+test('a legacy stored sidebar assignment never decides where the heir starts', async (t) => {
   const { host, root, project, arbitrary } = await fixture(t, { strict: true });
   const created = [];
   host.sessionClient.create = async (input) => {
@@ -235,20 +235,62 @@ test('inheriting a session the user moved to a Project starts the heir in that P
   ];
   const taskWorkspace = join(root, 'workspace', 'unclassified');
 
-  // Moved into a registered Project: the heir starts there.
+  // Assigned to a registered Project while working outside one: still a task.
   await host.inheritSession('sess_moved_in', null, null);
-  assert.equal(created[0].cwd, project);
-  assert.deepEqual(created[0].desktopSession, { classification: 'project', projectPath: project });
+  assert.equal(created[0].cwd, taskWorkspace);
+  assert.deepEqual(created[0].desktopSession, { classification: 'task', projectPath: null });
 
-  // Moved out to "no Project": the heir is a task.
+  // Assigned to "no Project" while working in a Project: still that Project.
   await host.inheritSession('sess_moved_out', null, null);
-  assert.equal(created[1].cwd, taskWorkspace);
-  assert.deepEqual(created[1].desktopSession, { classification: 'task', projectPath: null });
+  assert.equal(created[1].cwd, project);
+  assert.deepEqual(created[1].desktopSession, { classification: 'project', projectPath: project });
 
-  // Moved to a Project removed since: the source's own Project applies.
+  // Assigned to a Project removed since: the source's own Project applies.
   await host.inheritSession('sess_moved_to_removed', null, null);
   assert.equal(created[2].cwd, project);
   assert.deepEqual(created[2].desktopSession, { classification: 'project', projectPath: project });
+});
+
+test('moving a session to a project changes its working folder through the runtime project switch', async (t) => {
+  const { host, root, project, arbitrary, worktree } = await fixture(t, { strict: true });
+  const invoked = [];
+  host.transport.invokeSession = async (sessionId, method, args) => {
+    invoked.push([sessionId, method, args]);
+    return { value: args[0], snapshot: null, result: {} };
+  };
+  let published = 0;
+  host.catalog.publishCatalogs = async () => {
+    published += 1;
+  };
+  host.listSessions = async () => [
+    { id: 'sess_free', cwd: arbitrary, projectPath: null },
+    { id: 'sess_in_project', cwd: join(project, 'src'), projectPath: project },
+    { id: 'sess_busy', cwd: arbitrary, projectPath: null, working: true, leadWorking: true },
+    {
+      id: 'sess_worktree',
+      cwd: worktree,
+      projectPath: project,
+      workspace: { projectPath: project, cwd: worktree, worktreeId: 'fix-login' },
+    },
+  ];
+  const taskWorkspace = join(root, 'workspace', 'unclassified');
+
+  await host.setSessionProject('sess_free', project);
+  await host.setSessionProject('sess_in_project', '');
+  // Already working in that project (or in none): nothing changes.
+  await host.setSessionProject('sess_in_project', project);
+  await host.setSessionProject('sess_free', '');
+  assert.deepEqual(invoked, [
+    ['sess_free', 'setCwd', [project]],
+    ['sess_in_project', 'setCwd', [taskWorkspace]],
+  ]);
+  assert.equal(published, 2);
+
+  await assert.rejects(host.setSessionProject('sess_busy', project), /running a turn/);
+  await assert.rejects(host.setSessionProject('sess_worktree', ''), /managed worktree/);
+  await assert.rejects(host.setSessionProject('sess_free', arbitrary), /Project is not available/);
+  await assert.rejects(host.setSessionProject('sess_missing', project), /Session is not available/);
+  assert.equal(invoked.length, 2, 'refused moves never reach the runtime');
 });
 
 test('inheritance considers all sidebar paths and selects the deepest registered Project', async (t) => {
@@ -258,7 +300,7 @@ test('inheritance considers all sidebar paths and selects the deepest registered
     [{ projectPath: null, cwd: join(nested, 'src') }, nested],
     [{ projectPath: arbitrary, cwd: worktree, workspace: { projectPath: project, cwd: worktree } }, project],
     [{ projectPath: project, workspace: { projectPath: project, cwd: join(nested, 'src') } }, nested],
-    [{ projectPath: project, cwd: nested, projectAssignment: project }, project],
+    [{ projectPath: project, cwd: nested, projectAssignment: project }, nested],
     [{ projectPath: arbitrary, cwd: join(nested, 'src'), projectAssignment: arbitrary }, nested],
   ];
   host.listSessions = async () => cases.map(([row], index) => ({ id: `sess_case_${index}`, ...row }));

@@ -114,6 +114,21 @@ function catalogEffortOptions(provider, model) {
   return providerAllowed ? [...providerAllowed] : [];
 }
 
+const warnedEmptyLadders = new Set();
+
+/**
+ * Auto effort skipped a judgment because the base is off the model's ladder.
+ * A user-chosen max/ultra is expected to skip; any other base means the route
+ * has no usable ladder, so say so once per provider/model per process.
+ */
+export function warnEmptyAutoEffortLadder(provider, model, base) {
+  if (base === 'max' || base === 'ultra') return;
+  const key = `${provider}/${model}`;
+  if (warnedEmptyLadders.has(key)) return;
+  warnedEmptyLadders.add(key);
+  process.stderr.write(`[auto-effort] no effort ladder for ${key}; judge skipped\n`);
+}
+
 export function coerceEffortFor(provider, model, effort) {
   if (!effort) return null;
   if (model?.customReasoning) return snapCustomEffort(customEffortLevels(model), effort);

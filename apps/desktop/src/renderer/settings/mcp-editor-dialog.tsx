@@ -409,22 +409,21 @@ export function McpEditorDialog({
             description={server.error ? mcpErrorSummary(server.error) : mcpRowDescription(server)}
             tone={connection.tone}
             control={
-              oauthActions && (
-                !signedIn ? (
+              oauthActions &&
+              (!signedIn ? (
+                <ExtensionAction disabled={busy} onClick={() => onConnect?.(name)}>
+                  {t('Connect')}
+                </ExtensionAction>
+              ) : (
+                <>
                   <ExtensionAction disabled={busy} onClick={() => onConnect?.(name)}>
-                    {t('Connect')}
+                    {t('Reconnect')}
                   </ExtensionAction>
-                ) : (
-                  <>
-                    <ExtensionAction disabled={busy} onClick={() => onConnect?.(name)}>
-                      {t('Reconnect')}
-                    </ExtensionAction>
-                    <ExtensionAction danger disabled={busy} onClick={() => onDisconnect?.(name)}>
-                      {t('Disconnect')}
-                    </ExtensionAction>
-                  </>
-                )
-              )
+                  <ExtensionAction danger disabled={busy} onClick={() => onDisconnect?.(name)}>
+                    {t('Disconnect')}
+                  </ExtensionAction>
+                </>
+              ))
             }
           />
         </ExtensionItemList>
@@ -451,7 +450,7 @@ export function McpEditorDialog({
         {autoDetect && <ExtensionNote>{t('Auto-detect')}</ExtensionNote>}
         {!autoDetect && (
           // biome-ignore lint/a11y/useSemanticElements: a div button group; <fieldset> would change the element tag.
-          <div className="extensions-mcp-transport" role="group" aria-label={t('Transport')}>
+          <div className="mx-segmented extensions-mcp-transport" role="group" aria-label={t('Transport')}>
             <button
               type="button"
               className={transport === 'stdio' ? 'active' : ''}

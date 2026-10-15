@@ -3,6 +3,7 @@
     "--argument": "CLI flag",
     "MCP_BEARER_TOKEN": "environment variable name",
     "VARIABLE_NAME": "environment variable placeholder",
+    "MY_API_KEY": "environment variable name placeholder",
     "daily-briefing": "example skill identifier",
     "my-project": "example project identifier",
     "gh": "CLI binary name",

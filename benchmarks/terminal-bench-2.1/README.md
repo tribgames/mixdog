@@ -17,6 +17,41 @@ while spending far less to get there. The Mixdog side is a strict
 **single-model, single-session bench**: one primary model, no sub-agent
 delegation, and no helper-model lookups.
 
+## Bench log
+
+Newest first. `k=1` runs are logged here and do not replace the `k=5`
+results below.
+
+| Date | Model | Mixdog vs baseline | Score | Cost | Final context | Time / trial | Records |
+|---|---|---|---|---|---|---|---|
+| 2026-10-15 | GPT-6.1 Sol xhigh, `k=1` | Mixdog vs Codex CLI | 77 vs 78 /89 | **$9.01 vs $19.83 (−55%)** | **10.8K vs 33.6K (−68%)** | 344s vs 380s | [mixdog](records/mixdog/gpt-6.1-sol/2026-10-15/) · [codex](records/codex/gpt-6.1-sol/2026-10-15/) |
+
+Both sides ran with web search on; Mixdog's figures include its web-search
+sessions, repriced from traces ([`trace-cost.mjs`](analysis/trace-cost.mjs)):
+this run's usage snapshots and archived `report.json` predate the fix that
+counts those sessions and sum to $7.46, and the six tasks that searched are
+listed with their trace accounting under `mismatched` in
+[`records/trace-recovered-cost.json`](records/trace-recovered-cost.json).
+
+**2026-10-15 changes**
+
+| Change | Details |
+|---|---|
+| Effort judge active | Auto effort now runs on OpenAI OAuth routes: the judge picks each turn's effort and re-judges after every tool result (see below). It had been skipped on `openai-oauth`, which handed it a bare model id with no effort ladder; it now reads the catalog row ([`autoEffortModel`](../../src/runtime/agent/orchestrator/providers/effort-configuration.mjs)) |
+| Web search unblocked | The baseline harnesses ship with web search on; this bench used to block Mixdog's. The [harness](harness/mixdog_agent.py) now passes `--web-search` |
+| GPT-6.1 Sol rates | $2 input / $0.10 cached / $10 output per M tokens; Codex `cost_usd` fits with zero residual ([`model-rates.mjs`](analysis/model-rates.mjs)) |
+
+**Effort judge** ([details](../../docs/auto-reasoning-effort.md))
+
+| | |
+|---|---|
+| Model | EmbeddingGemma 2 encoder (18 of 24 layers) fine-tuned with a four-level head, 4-bit ONNX, ~150 MB, CPU only, no network |
+| Decision | Reads the request, or the step (task, plan, up to three tool calls and results), and moves from `medium` to `low` / `high` / `xhigh` by expected cost, penalising under-calls more |
+| Accuracy | 78.5% exact level agreement vs 72.7% for Jev 1.13 on 12,029 held-out items; half the two-level misses (0.6% vs 1.4%) |
+| In this run | 825 judgments: 591 `medium`, 127 `high`, 105 `low`, 2 `xhigh`; the route's fixed `xhigh` applies only when the judge is off |
+
+Notes: the run used an uncommitted tree from before the contract digest change, so its archived contract still lists web search as disabled (10 tools; the run had 11 including `load_tool`), and its `preset-run.json` comparison block was added after the run to pair it with Codex. Cyber-policy refusals (`vulnerable-secret`, `break-filter-js-from-html`) vary between runs; two QEMU tasks hit Debian mirror 404s.
+
 ## Results
 
 ### Claude Opus 5 vs Claude Code
@@ -170,6 +205,10 @@ cd benchmarks/terminal-bench-2.1
 # Full-suite equivalents used for published comparisons (fixed effort)
 .\run.ps1 -Preset full-opus5-solo -EffortJudge off
 .\run.ps1 -Preset full-sol-xhigh -EffortJudge off
+
+# Bench log 2026-10-15: GPT-6.1 Sol xhigh, Auto effort (steps), web search on,
+# paired with the pinned Codex CLI run (codex-gpt61-sol)
+.\run.ps1 -Preset full-sol61
 ```
 
 ### Effort judge
@@ -237,6 +276,14 @@ harbor run -d terminal-bench/terminal-bench-2-1 `
 harbor run -d terminal-bench/terminal-bench-2-1 `
   --agent codex -m gpt-5.6-sol --ak reasoning_effort=xhigh `
   -o jobs-codex -n 8 -k 5 -r 2 -q -y
+# Codex CLI 0.162.1 — GPT-6.1 Sol xhigh, k=1 (bench log 2026-10-15);
+# CODEX_FORCE_AUTH_JSON=1 hands the host's ChatGPT login to the container
+$env:CODEX_FORCE_AUTH_JSON = "1"
+harbor run -d terminal-bench/terminal-bench-2-1 `
+  --agent codex -m gpt-6.1-sol --ak reasoning_effort=xhigh `
+  -o jobs-codex-sol61-xhigh-full -n 8 -k 1 -r 2 `
+  --retry-exclude AgentTimeoutError --retry-exclude VerifierOutputParseError `
+  --retry-exclude RewardFileEmptyError -q -y
 ```
 
 ### Publish a new pair of runs
@@ -250,6 +297,12 @@ then prints the score, speed, context, and cost figures to quote. It never
 edits a README or draws a chart: the prose above and the graphs in
 `design/promo/` are made by hand from that output, which is also where a
 `clean=false` run or a lower-bound baseline is flagged.
+
+A `k=1` run that does not replace a published pair goes in the
+[Bench log](#bench-log) instead: export it with `analysis/export-raw.mjs`, pair
+it through the preset's `compareTo` baseline, and add one row (newest first)
+with that run's changes and notes. The root README's *Latest run* row points
+at the newest entry.
 
 ### Verify the published numbers from the raw artifacts
 Run from `benchmarks/terminal-bench-2.1`. These work from the committed
