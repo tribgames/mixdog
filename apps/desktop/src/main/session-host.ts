@@ -473,7 +473,16 @@ export class SessionHost implements DesktopService {
   }
 
   async projectRecoveryDirectory(projectPath: string): Promise<string> {
-    try { return resolve(await this.projects.knownPath(projectPath)); }
+    try {
+      const known = await this.projects.knownPath(projectPath);
+      try { return await this.canonicalDirectory(known); }
+      catch (cause) {
+        // Live projects must use the same canonical journal key as edits.
+        // Missing registered roots still allow inspection of retained backups.
+        if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return resolve(known);
+        throw cause;
+      }
+    }
     catch (error) {
       if (!isAbsolute(projectPath) || !this.runtime.loadWorktrees) throw error;
       const worktrees = await this.runtime.loadWorktrees();
