@@ -10,6 +10,15 @@ export type SessionDiffFileTabs = {
   onClose(key: string): void;
 };
 
+/** Sessions whose strip shows neither "Changes" nor a diff file tab. */
+const emptyStrips = new Set<string>();
+
+/** False once the session's "Changes" and diff file tabs are all closed, so
+ *  closing the last side file tab ends the dock. */
+export function sessionDiffStripHasTabs(sessionId: string): boolean {
+  return !emptyStrips.has(sessionId);
+}
+
 /** The pane's tab strip state. A file opened from the transcript gets its own
  *  tab beside "Changes", showing that one file's whole diff; "Changes"
  *  (island, View changes, reopen) shows every file. `focusPath` is the
@@ -104,6 +113,14 @@ export function useSessionDiffTabs({
     }
     wasActive.current = active;
   }, [active]);
+  const stripEmpty = !changesOpen && diffTabs.length === 0;
+  useEffect(() => {
+    if (!stripEmpty) return undefined;
+    emptyStrips.add(sessionId);
+    return () => {
+      emptyStrips.delete(sessionId);
+    };
+  }, [sessionId, stripEmpty]);
   return {
     diffTabs,
     focusPath,
