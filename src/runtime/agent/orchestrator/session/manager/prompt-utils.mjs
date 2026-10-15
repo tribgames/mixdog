@@ -5,6 +5,7 @@ import { formatLocalAndUtcTimestamp } from '../../../../shared/time-format.mjs';
 import { SUMMARY_PREFIX } from '../compact.mjs';
 import { isProtectedContextUserMessage } from '../compact/messages.mjs';
 import { attachmentTextForPart, isAttachmentReference } from '../../../../attachments/store.mjs';
+import { samePath } from '../../../../shared/worktrees/paths.mjs';
 
 export function promptContentText(content) {
   if (typeof content === 'string') return content;
@@ -144,7 +145,11 @@ function replaceSystemMessageContent(session, target, content) {
   return true;
 }
 
-export function refreshSessionBp3Environment(session, cwd) {
+export function refreshSessionBp3Environment(session, requestedCwd) {
+  // A staged workspace change (see stageWorkspaceReroot) keeps the system
+  // prompt rooted where it was until the next re-root: the `# Session` Cwd
+  // stays the rooted one, the change reaches the model as a tail notice.
+  const cwd = session?.workspaceReroot?.rootCwd || requestedCwd;
   // Split layout (bp3EnvSplit): the volatile environment lives in its own
   // UNMARKED cacheTier:'env' system block; the tier3 core block is never
   // rewritten, so the refresh cannot invalidate the BP3 cache write.
@@ -242,20 +247,12 @@ export function replaceWorkspaceEnvironment(environmentTail, environmentContext)
 }
 
 /**
- * Re-root an existing session's prompt at a new workspace without touching
- * the conversation: environment facts, project memory and instruction files
- * are replaced in place (never appended), then the `# Session` block is
- * rebuilt for `cwd`. Messages are replaced, not mutated, so delta saves write
- * a full snapshot.
- * @param {object} session
- * @param {{ cwd: string, environmentContext?: string, coreMemoryContext?: string, instructionFilesContext?: string }} context
- * @returns {boolean}
+ * Re-root a session's prompt at a workspace in place: environment facts,
+ * project memory and instruction files are replaced (never appended), then
+ * the `# Session` block is rebuilt for `cwd`. Messages are replaced, not
+ * mutated, so delta saves write a full snapshot.
  */
-export function refreshSessionWorkspaceContext(
-  session,
-  { cwd, environmentContext, coreMemoryContext, instructionFilesContext } = {}
-) {
-  if (!session) return false;
+function rerootSessionWorkspace(session, { cwd, environmentContext, coreMemoryContext, instructionFilesContext }) {
   if (typeof session.bp3EnvironmentContext === 'string') {
     session.bp3EnvironmentContext = replaceWorkspaceEnvironment(session.bp3EnvironmentContext, environmentContext);
   }
@@ -275,7 +272,175 @@ export function refreshSessionWorkspaceContext(
   return refreshSessionBp3Environment(session, cwd);
 }
 
+const SESSION_BLOCK_CWD_RE = /(?:^|\n)# Session\nCwd: ([^\n]+)/;
+const WORKER_ENV_CWD_RE = /(?:^|\n)- Cwd: ([^\n]+?) — the active Project root/;
+
+function textOf(message) {
+  return typeof message?.content === 'string' ? message.content : '';
+}
+
+/**
+ * The workspace the session's system prompt currently presents: its Cwd and
+ * the environment facts, project memory and instruction-files slices, read
+ * back from the blocks refreshSessionBp3Environment/composeSystemPrompt wrote.
+ */
+function presentedWorkspace(session) {
+  const core = session.bp3EnvSplit === true ? textOf(bp3SystemMessage(session)) : String(session.bp3CoreContext || '');
+  const instructionAt = bp3SliceAt(core, INSTRUCTION_FILES_HEADING);
+  const head = instructionAt ? core.slice(0, instructionAt.cut) : core;
+  const memory = (head ? head.split(BP3_PART_SEPARATOR) : []).find((part) => part.startsWith(CORE_MEMORY_HEADING));
+  const tail = typeof session.bp3EnvironmentContext === 'string' ? session.bp3EnvironmentContext : '';
+  const facts = tail.split(BP3_PART_SEPARATOR)[0] || '';
+  const promptText = [textOf(bpEnvSystemMessage(session)), textOf(bp3SystemMessage(session))].join('\n');
+  const cwd = promptText.match(SESSION_BLOCK_CWD_RE)?.[1] || facts.match(WORKER_ENV_CWD_RE)?.[1] || null;
+  return {
+    cwd: cwd ? cwd.trim() : null,
+    environmentContext: facts.startsWith('- ') ? facts.trim() : '',
+    coreMemoryContext: memory ? memory.slice(CORE_MEMORY_HEADING.length).trim() : '',
+    instructionFilesContext: instructionAt ? core.slice(instructionAt.start).trim() : '',
+  };
+}
+
+const WORKSPACE_SLICES = ['environmentContext', 'coreMemoryContext', 'instructionFilesContext'];
+
+/**
+ * A workspace change of a session that already has a conversation: the
+ * system prompt stays byte-identical (provider prompt cache intact) and the
+ * change is staged on `session.workspaceReroot`:
+ *   rootCwd — the Cwd the system prompt stays rooted at;
+ *   seen    — what the model has been told (the prompt, then acknowledged notices);
+ *   target  — the current workspace, applied to the prompt at the next re-root
+ *             (compaction, a route change, a cleared conversation).
+ * `undefined` slices keep what is there. The state object is replaced, never
+ * mutated, so a transaction snapshot of the field restores it exactly.
+ */
+function stageWorkspaceReroot(session, context) {
+  const prior = session.workspaceReroot;
+  const seen = prior ? prior.seen : presentedWorkspace(session);
+  const target = { ...(prior ? prior.target : {}), cwd: String(context.cwd || '').trim() };
+  for (const slice of WORKSPACE_SLICES) {
+    if (context[slice] !== undefined) target[slice] = trimmedSlice(context[slice]);
+  }
+  session.workspaceReroot = {
+    version: 1,
+    revision: (Number(prior?.revision) || 0) + 1,
+    rootCwd: prior ? prior.rootCwd : seen.cwd,
+    seen,
+    target,
+  };
+  return true;
+}
+
+/**
+ * Re-root an existing session's prompt at a new workspace. A session without
+ * a conversation is re-rooted in place (no cache to keep); one with a
+ * conversation keeps its system messages untouched and stages the change
+ * (stageWorkspaceReroot): the model learns it from the tail notice of its
+ * next user turn (snapshotPendingWorkspaceNotice), and the next re-root
+ * (applyPendingWorkspaceReroot) rewrites the prompt.
+ * @param {object} session
+ * @param {{ cwd: string, environmentContext?: string, coreMemoryContext?: string, instructionFilesContext?: string }} context
+ * @returns {boolean}
+ */
+export function refreshSessionWorkspaceContext(session, context = {}) {
+  if (!session) return false;
+  if (hasUserConversationMessage(session.messages)) return stageWorkspaceReroot(session, context);
+  applyPendingWorkspaceReroot(session);
+  return rerootSessionWorkspace(session, context);
+}
+
+/**
+ * Apply a staged workspace change to the system prompt (the session's own
+ * messages, plus `messages` when a running turn works on another array whose
+ * system prefix is the session's) and drop the staged state: the prompt now
+ * presents the current workspace, so no notice is due any more.
+ * @returns {boolean} whether a staged change was applied
+ */
+export function applyPendingWorkspaceReroot(session, messages = session?.messages) {
+  const pending = session?.workspaceReroot;
+  if (!pending) return false;
+  delete session.workspaceReroot;
+  const stored = session.messages;
+  const other = Array.isArray(messages) && messages !== stored;
+  if (other) session.messages = messages;
+  try {
+    rerootSessionWorkspace(session, pending.target);
+  } finally {
+    if (other) session.messages = stored;
+  }
+  if (other && Array.isArray(stored)) {
+    const systemCount = (list) => {
+      let count = 0;
+      while (count < list.length && list[count]?.role === 'system') count += 1;
+      return count;
+    };
+    stored.splice(0, systemCount(stored), ...messages.slice(0, systemCount(messages)));
+  }
+  return true;
+}
+
+function sameWorkspacePath(left, right) {
+  return !!left && !!right && samePath(left, right);
+}
+
+function workspaceNoticeContent({ seen, target }) {
+  if (!target?.cwd || sameWorkspacePath(seen?.cwd, target.cwd)) return '';
+  const changed = (slice) => target[slice] !== undefined && target[slice] !== (seen?.[slice] || '');
+  const sections = [
+    [
+      '# Working Folder Changed',
+      `The working folder is now ${target.cwd}. This replaces the Cwd and environment facts given earlier in this conversation; relative paths and shell commands resolve here.`,
+      changed('environmentContext') ? target.environmentContext : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  ];
+  if (changed('instructionFilesContext')) {
+    sections.push(
+      target.instructionFilesContext
+        ? `The instruction files below replace all previously provided instruction files.\n\n${target.instructionFilesContext}`
+        : 'The new working folder has no instruction files: the previously provided instruction files no longer apply.'
+    );
+  }
+  if (changed('coreMemoryContext')) {
+    sections.push(
+      target.coreMemoryContext
+        ? `The core memory below replaces all previously provided core memory.\n\n${CORE_MEMORY_HEADING}${target.coreMemoryContext}`
+        : 'The new working folder has no core memory: the previously provided core memory no longer applies.'
+    );
+  }
+  return `<system-reminder>\n${sections.join('\n\n')}\n</system-reminder>`;
+}
+
+/**
+ * The workspace notice the next user turn carries, or null: nothing when the
+ * folder did not change from what the model was told, and only the slices
+ * that changed. Lifecycle mirrors deferred-tool-delta.mjs (snapshot → acknowledge
+ * when the provider accepted the turn), so a failed turn re-sends it.
+ * @returns {{ revision: number, content: string } | null}
+ */
+export function snapshotPendingWorkspaceNotice(session) {
+  const pending = session?.workspaceReroot;
+  if (!pending) return null;
+  const content = workspaceNoticeContent(pending);
+  return content ? { revision: pending.revision, content } : null;
+}
+
+/** The notice of `revision` reached the model: what it was told is now the target. */
+export function acknowledgePendingWorkspaceNotice(session, revision) {
+  const pending = session?.workspaceReroot;
+  if (!pending || pending.revision !== Number(revision)) return false;
+  const seen = { ...pending.seen, cwd: pending.target.cwd };
+  for (const slice of WORKSPACE_SLICES) {
+    if (pending.target[slice] !== undefined) seen[slice] = pending.target[slice];
+  }
+  session.workspaceReroot = { ...pending, seen };
+  return true;
+}
+
 export function resetSessionBp3Environment(session) {
+  // A cleared conversation has no cache to keep: the prompt re-roots now.
+  applyPendingWorkspaceReroot(session);
   if (session?.bp3EnvSplit === true) {
     const target = bpEnvSystemMessage(session);
     if (!target || typeof session?.bp3EnvironmentContext !== 'string') return false;

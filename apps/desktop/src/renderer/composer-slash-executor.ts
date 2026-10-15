@@ -54,7 +54,7 @@ type SlashExecutorDeps = {
   onOpenProjects: () => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
-  /** /inherit runs the carry in place, like the context card's button. */
+  /** /fork (alias /inherit) runs the carry in place, like the context card's button. */
   onInherit?: () => Promise<boolean>;
 };
 
@@ -99,7 +99,7 @@ async function runSlashCommand(
   if (name === 'goal') return runGoal(run, argument);
   if (name === 'fast') return runFast(run, argument);
   if (name === 'model' && argument) return runModel(run, argument);
-  if (name === 'inherit' && deps.onInherit) return runInherit(run, deps.onInherit);
+  if (name === 'fork' && deps.onInherit) return runInherit(run, deps.onInherit);
   if (name === 'project') deps.onOpenProjects();
   else if (name === 'resume' && argument) deps.onResumeSession(argument);
   else if (name === 'resume') deps.onOpenSessions();

@@ -21,6 +21,8 @@ const RUNS = [
   'jobs-full-codex',
   'jobs-full-opus5-solo-20260825-155233',
   'jobs-full-cc-n8',
+  'jobs-full-sol61-20261015-052653',
+  'jobs-codex-sol61-xhigh-full',
 ];
 
 // Per trial: Harbor's verdict, the official verifier output, the pinned task

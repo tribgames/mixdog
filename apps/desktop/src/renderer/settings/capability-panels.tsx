@@ -290,10 +290,18 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
 function ContextPanel({ data, pending, run }: PanelContext) {
   const autoClear = record(data.autoClear);
   const compaction = record(data.compaction);
+  const sessionTitles = record(data.sessionTitles);
   const providerDefaults = rows(autoClear.providerDefaults);
   const busy = Boolean(pending);
   return (
     <Group title={t('Session lifecycle')}>
+      <ToggleRow
+        title={t('Let AI rename sessions')}
+        description={t('Allow the assistant to give a session a descriptive title.')}
+        checked={sessionTitles.aiSessionTitles !== false}
+        disabled={busy}
+        onChange={(enabled) => void run('setAiSessionTitles', [enabled])}
+      />
       <ToggleRow
         title={t('Auto-compact')}
         description={t('Compact automatically as the active context reaches its limit.')}

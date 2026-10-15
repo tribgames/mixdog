@@ -358,7 +358,7 @@ test('Agent standalone and deferred tools match Lead except for agent control', 
   const standalone = [
     { name: 'agent' },
     { name: 'load_tool', annotations: { agentHidden: true } },
-    { name: 'cwd', annotations: { agentHidden: true } },
+    { name: 'session', annotations: { agentHidden: true } },
     { name: 'memory' },
     { name: 'mcp__demo__tool' },
   ];
@@ -374,22 +374,23 @@ test('Agent standalone and deferred tools match Lead except for agent control', 
   })
     .modelStandaloneTools()
     .map((tool) => tool.name);
-  assert.deepEqual(lead, ['agent', 'load_tool', 'cwd', 'memory', 'mcp__demo__tool']);
-  assert.deepEqual(agent, ['load_tool', 'cwd', 'memory', 'mcp__demo__tool']);
+  assert.deepEqual(lead, ['agent', 'load_tool', 'session', 'memory', 'mcp__demo__tool']);
+  assert.deepEqual(agent, ['load_tool', 'memory', 'mcp__demo__tool']);
 });
 
-test('Agent base tools keep every Lead tool except agent regardless of agentHidden metadata', () => {
+test('Agent base tools keep every Lead tool except the Lead-only agent and session tools', () => {
   const tools = [
     { name: 'agent' },
     { name: 'load_tool', annotations: { agentHidden: true } },
-    { name: 'cwd', annotations: { agentHidden: true } },
+    { name: 'session', annotations: { agentHidden: true } },
     { name: 'read' },
     { name: 'apply_patch' },
   ];
   assert.deepEqual(
     finalizeSessionToolList(tools, { ownerIsAgent: true }).map((tool) => tool.name),
-    ['read', 'apply_patch', 'load_tool', 'cwd']
+    ['read', 'apply_patch', 'load_tool']
   );
+  assert.ok(finalizeSessionToolList(tools, { ownerIsAgent: false }).some((tool) => tool.name === 'session'));
 });
 
 test('Goal is deferred but remains discoverable on the native Lead tool surface', () => {
@@ -424,7 +425,7 @@ test('headless tool profile keeps task-scoped tools and removes persistent or in
     { name: 'agent' },
     { name: 'memory' },
     { name: 'recall' },
-    { name: 'cwd' },
+    { name: 'session' },
     { name: 'Skill' },
     { name: 'browser' },
     { name: 'computer' },
@@ -443,7 +444,7 @@ test('headless tool profile keeps task-scoped tools and removes persistent or in
   assert.equal(activeNames.has('office'), false);
   assert.equal(activeNames.has('tidy'), false);
   assert.equal(activeNames.has('git'), true);
-  for (const name of ['goal', 'agent', 'memory', 'recall', 'cwd', 'Skill', 'browser', 'browser_devtools', 'computer']) {
+  for (const name of ['goal', 'agent', 'memory', 'recall', 'session', 'Skill', 'browser', 'browser_devtools', 'computer']) {
     assert.equal(catalogNames.has(name), false, `${name} should be absent`);
     assert.equal(activeNames.has(name), false, `${name} should not be active`);
   }

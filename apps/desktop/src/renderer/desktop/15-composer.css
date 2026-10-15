@@ -752,6 +752,217 @@ button.composer-island-tab {
   background: transparent;
   box-shadow: none;
 }
+/* ask_user question card (design/mockups/ask-user-question): it sits in the
+   transcript where its call is, like a reply. The composer stays open; a
+   message sent from it closes the question. */
+.question-card {
+  display: block;
+  max-width: 560px;
+  margin: 4px 0 12px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  font-size: var(--mx-font-minor);
+  line-height: 20px;
+  outline: none;
+}
+.question-head {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 4px;
+}
+.question-step {
+  flex: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.question-close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mx-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+}
+.question-close:hover {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+.question-text {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+/* Options sit in one box, split by hairlines; free text gets its own box. */
+.question-options {
+  display: grid;
+  margin-top: 8px;
+  border-radius: 8px;
+  background: var(--mx-bg-layer-2);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  overflow: hidden;
+}
+.question-option {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.question-option + .question-option {
+  border-top: 0.5px solid var(--mx-border-muted);
+}
+.question-option:hover {
+  background: var(--mx-hover);
+}
+.question-option[data-selected] {
+  background: color-mix(in srgb, var(--mx-accent) 12%, transparent);
+}
+.question-card :is(button, input):focus-visible {
+  outline: 2px solid var(--mx-accent);
+  outline-offset: -2px;
+}
+.question-key {
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--mx-radius-sm);
+  background: var(--mx-chip-bg);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border);
+  color: var(--mx-text-muted);
+  font: 500 11px/16px var(--mx-font-mono);
+}
+.question-option[data-selected] .question-key {
+  background: var(--mx-accent);
+  box-shadow: none;
+  color: var(--mx-bg-base);
+}
+.question-card[data-multi] .question-option[data-selected] .question-key {
+  position: relative;
+  color: transparent;
+}
+.question-card[data-multi] .question-option[data-selected] .question-key::after {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--mx-bg-base);
+  font: 700 12px/1 var(--mx-font-sans, inherit);
+}
+/* One line per option: a long label ends in an ellipsis. */
+.question-option-text {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+.question-option-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.question-rec {
+  margin-left: 6px;
+  color: var(--mx-accent);
+  font-size: 12px;
+  font-weight: 400;
+}
+.question-other {
+  display: flex;
+  height: 36px;
+  margin-top: 8px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--mx-bg-layer-2);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  cursor: text;
+}
+.question-other:focus-within {
+  box-shadow: inset 0 0 0 1px var(--mx-accent);
+}
+.question-other input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--mx-text);
+  font: inherit;
+  font-weight: 400;
+}
+.question-card .question-other input:focus-visible {
+  outline: none;
+}
+.question-other input::placeholder {
+  color: var(--mx-text-muted);
+}
+/* An answered ask_user call stays in the transcript as a summary: each
+   question with only what was picked or typed, as chips. */
+.ask-user-record {
+  max-width: 560px;
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.ask-user-record-question + .ask-user-record-question {
+  margin-top: 10px;
+}
+.ask-user-record-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.ask-user-record-answers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.ask-user-record-chip {
+  max-width: 100%;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--mx-accent) 16%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-accent) 50%, transparent);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.ask-user-record-none {
+  color: var(--mx-text-muted);
+}
+.ask-user-record-note {
+  margin-top: 8px;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+}
+.question-card :disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .composer-island-flash {
   height: 34px;
   display: flex;

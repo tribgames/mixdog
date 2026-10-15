@@ -22,6 +22,7 @@ import { pruneOffloadSession } from '../tool-result-offload.mjs';
 import { _getPendingMessagesForSession } from './pending-messages.mjs';
 import { isSessionCompactionBlocked } from './runtime-liveness.mjs';
 import { resetReadStateAfterCompaction } from '../read-dedup.mjs';
+import { applyPendingWorkspaceReroot } from './prompt-utils.mjs';
 import {
   compactTargetBudget as compactTargetBudgetForPolicy,
   compactDisplayBeforeTokens,
@@ -630,6 +631,9 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
   if (!changed) unchangedReason = force ? 'nothing to compact' : 'below threshold';
   const now = Date.now();
   session.messages = transcript;
+  // The compacted transcript breaks the cache anyway: a staged working-folder
+  // change re-roots the system prompt now and needs no notice any more.
+  if (changed) applyPendingWorkspaceReroot(session);
   if (changed) resetReadStateAfterCompaction(resolvedSessionId);
   await pruneCompactedOffloads(session, resolvedSessionId);
   if (changed) session.providerState = undefined;

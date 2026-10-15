@@ -1,0 +1,103 @@
+{
+    "id": "ce778d06-48b5-429e-a5a9-313927ee63af",
+    "task_name": "terminal-bench/qemu-alpine-ssh",
+    "trial_name": "qemu-alpine-ssh__XDFiUKn",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-codex-sol61-xhigh-full/2026-10-15__13-09-29/qemu-alpine-ssh__XDFiUKn",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "qemu-alpine-ssh",
+        "ref": "sha256:60b7050b0e0aa51641208cf65766743d340e59575db2c4d2f8628240846c2a28"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "48bb495efc325f96892d45c341d8997c4a13b71bbe7051119f28dcaa7970df4f",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/qemu-alpine-ssh",
+            "ref": "sha256:60b7050b0e0aa51641208cf65766743d340e59575db2c4d2f8628240846c2a28",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "qemu-alpine-ssh__XDFiUKn",
+        "trials_dir": "jobs-codex-sol61-xhigh-full\\2026-10-15__13-09-29",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": "codex",
+            "import_path": null,
+            "model_name": "gpt-6.1-sol",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "reasoning_effort": "xhigh"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "7e05b853-82a6-4614-b8ea-d1e02537d854"
+    },
+    "agent_info": {
+        "name": "codex",
+        "version": "unknown",
+        "model_info": {
+            "name": "gpt-6.1-sol",
+            "provider": null
+        }
+    },
+    "agent_result": null,
+    "verifier_result": null,
+    "exception_info": {
+        "exception_type": "NonZeroAgentExitCodeError",
+        "exception_message": "Command failed (exit 100): if ldd --version 2>&1 | grep -qi musl || [ -f /etc/alpine-release ]; then  apk add --no-cache curl bash nodejs npm ripgrep; elif command -v apt-get &>/dev/null; then  apt-get update && apt-get install -y curl ripgrep; elif command -v yum &>/dev/null; then  yum install -y curl ripgrep; else  echo \"Warning: No known package manager found, assuming curl is available\" >&2; fi\nstdout: Hit:1 http://deb.debian.org/debian bullseye InRelease\nGet:2 http://deb.debian.org/debian-security bullseye-security InRelease [27.1 kB]\nHit:3 http://deb.debian.org/debian bullseye-updates InRelease\nGet:4 http://deb.debian.org/debian-security bullseye-security/main amd64 Packages [475 kB]\nFetched 502 kB in 1s (506 kB/s)\nReading package lists...\nReading package lists...\nBuilding dependency tree...\nReading state information...\nThe following additional packages will be installed:\n  libcurl4 libldap-2.4-2 libldap-common libnghttp2-14 librtmp1 libssh2-1\nThe following NEW packages will be installed:\n  curl libcurl4 libldap-2.4-2 libldap-common libnghttp2-14 librtmp1 libssh2-1\n  ripgrep\n0 upgraded, 8 newly installed, 0 to remove and 69 not upgraded.\nNeed to get 2473 kB of archives.\nAfter this operation, 7015 kB of additional disk space will be used.\nGet:1 http://deb.debian.org/debian bullseye/main amd64 libldap-2.4-2 amd64 2.4.57+dfsg-3+deb11u1 [232 kB]\nErr:2 http://deb.debian.org/debian-secur ... [truncated]\nstderr: None",
+        "exception_traceback": "Traceback (most recent call last):\n  File \"C:\\Users\\tempe\\AppData\\Roaming\\uv\\tools\\harbor\\Lib\\site-packages\\harbor\\trial\\trial.py\", line 291, in run\n    await self._prepare()\n  File \"C:\\Users\\tempe\\AppData\\Roaming\\uv\\tools\\harbor\\Lib\\site-packages\\harbor\\trial\\trial.py\", line 322, in _prepare\n    await self._setup_agent()\n  File \"C:\\Users\\tempe\\AppData\\Roaming\\uv\\tools\\harbor\\Lib\\site-packages\\harbor\\trial\\trial.py\", line 812, in _setup_agent\n    await asyncio.wait_for(\n    ...<2 lines>...\n    )\n  File \"C:\\Users\\tempe\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\asyncio\\tasks.py\", line 507, in wait_for\n    return await fut\n           ^^^^^^^^^\n  File \"C:\\Users\\tempe\\AppData\\Roaming\\uv\\tools\\harbor\\Lib\\site-packages\\harbor\\agents\\installed\\base.py\", line 380, in setup\n    await self.install(environment)\n  File \"C:\\Users\\tempe\\AppData\\Roaming\\uv\\tools\\harbor\\Lib\\site-packages\\harbor\\agents\\installed\\codex.py\", line 77, in install\n    await self.exec_as_root(\n    ...<13 lines>...\n    )\n  File \"C:\\Users\\tempe\\AppData\\Roaming\\uv\\tools\\harbor\\Lib\\site-packages\\harbor\\agents\\installed\\base.py\", line 341, in exec_as_root\n    return await self._exec(\n           ^^^^^^^^^^^^^^^^^\n        environment, command, user=\"root\", env=env, cwd=cwd, timeout_sec=timeout_sec\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"C:\\Users\\tempe\\AppData\\Roaming\\uv\\tools\\harbor\\Lib\\site-packages\\harbor\\agents\\installed\\base.py\", line 317, in _exec\n    raise NonZeroAgentExitCodeError(\n    ...<3 lines>...\n    )\nharbor.agents.installed.base.NonZeroAgentExitCodeError: Command failed (exit 100): if ldd --version 2>&1 | grep -qi musl || [ -f /etc/alpine-release ]; then  apk add --no-cache curl bash nodejs npm ripgrep; elif command -v apt-get &>/dev/null; then  apt-get update && apt-get install -y curl ripgrep; elif command -v yum &>/dev/null; then  yum install -y curl ripgrep; else  echo \"Warning: No known package manager found, assuming curl is available\" >&2; fi\nstdout: Hit:1 http://deb.debian.org/debian bullseye InRelease\nGet:2 http://deb.debian.org/debian-security bullseye-security InRelease [27.1 kB]\nHit:3 http://deb.debian.org/debian bullseye-updates InRelease\nGet:4 http://deb.debian.org/debian-security bullseye-security/main amd64 Packages [475 kB]\nFetched 502 kB in 1s (506 kB/s)\nReading package lists...\nReading package lists...\nBuilding dependency tree...\nReading state information...\nThe following additional packages will be installed:\n  libcurl4 libldap-2.4-2 libldap-common libnghttp2-14 librtmp1 libssh2-1\nThe following NEW packages will be installed:\n  curl libcurl4 libldap-2.4-2 libldap-common libnghttp2-14 librtmp1 libssh2-1\n  ripgrep\n0 upgraded, 8 newly installed, 0 to remove and 69 not upgraded.\nNeed to get 2473 kB of archives.\nAfter this operation, 7015 kB of additional disk space will be used.\nGet:1 http://deb.debian.org/debian bullseye/main amd64 libldap-2.4-2 amd64 2.4.57+dfsg-3+deb11u1 [232 kB]\nErr:2 http://deb.debian.org/debian-secur ... [truncated]\nstderr: None\n",
+        "occurred_at": "2026-10-15T13:11:27.682389"
+    },
+    "started_at": "2026-10-15T04:10:15.507223Z",
+    "finished_at": "2026-10-15T04:11:44.331774Z",
+    "environment_setup": {
+        "started_at": "2026-10-15T04:10:15.511893Z",
+        "finished_at": "2026-10-15T04:11:19.057073Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-10-15T04:11:19.057091Z",
+        "finished_at": "2026-10-15T04:11:27.681545Z"
+    },
+    "agent_execution": null,
+    "verifier": null,
+    "step_results": null
+}

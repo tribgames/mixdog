@@ -48,7 +48,8 @@ export async function applyBeforeToolHook({
   toolApprovalHook,
 }) {
   const call = { name, args, cwd };
-  if (!beforeToolHook) return call;
+  // ask_user is itself the user prompt; it never goes through the ordinary approval gate.
+  if (!beforeToolHook || name === 'ask_user') return call;
   try {
     const decision = await runAbortable(executeOpts.signal, () =>
       beforeToolHook(

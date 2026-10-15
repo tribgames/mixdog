@@ -16,6 +16,7 @@ import {
   prefixUserTurnContent,
   suffixUserTurnReminders,
   buildCurrentTimeBlock,
+  snapshotPendingWorkspaceNotice,
 } from './prompt-utils.mjs';
 import { codexWireSendOpts } from './session-id.mjs';
 import { _tryBridgeExplicitPrefetch } from './prefetch-bridge.mjs';
@@ -173,7 +174,11 @@ export async function buildUserTurn({
   // input intake: either can precede the previous turn's pause.
   // This supplies context only; it never resumes the Goal.
   const goalReminder = snapshotPendingGoalReminder(session, { includePaused: true });
+  // A mid-conversation working-folder change: the system prompt keeps its
+  // old root (cache intact) and the new folder's facts ride this turn.
+  const workspaceNotice = snapshotPendingWorkspaceNotice(session);
   const reminderBlock = [
+    workspaceNotice?.content || '',
     currentTimeBlock ? `<system-reminder>\n# Current Time\n${currentTimeBlock}\n</system-reminder>` : '',
     deferredToolDelta?.content || '',
     goalReminder?.content || '',
@@ -200,6 +205,7 @@ export async function buildUserTurn({
     historyMessages,
     deferredToolDelta,
     goalReminder,
+    workspaceNotice,
     userTurnMessage,
     outgoing: [...historyMessages, userTurnMessage],
   };

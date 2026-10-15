@@ -13,7 +13,7 @@ import { TOOL_DEFS as office } from '../../src/runtime/office/tool-defs.mjs';
 import { TOOL_DEFS as media } from '../../src/runtime/media/tool-defs.mjs';
 import { GOAL_TOOL_DEFS } from '../../src/session-runtime/goal-tool-defs.mjs';
 import { SETUP_TOOL_DEFS } from '../../src/session-runtime/setup-tool/tool-defs.mjs';
-import { CWD_TOOL, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../../src/session-runtime/tool-defs.mjs';
+import { SESSION_TOOL, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../../src/session-runtime/tool-defs.mjs';
 import { AGENT_TOOL } from '../../src/standalone/agent-tool/tool-def.mjs';
 import { normalizeGoalTasks, patchGoalTasks } from '../../src/session-runtime/goal-tasks.mjs';
 import { validateBrowserToolArgs } from '../../src/runtime/browser-bridge/action-schema.mjs';
@@ -39,7 +39,7 @@ const catalog = [
   ...media,
   ...GOAL_TOOL_DEFS,
   ...SETUP_TOOL_DEFS,
-  CWD_TOOL,
+  SESSION_TOOL,
   SKILL_TOOL,
   TOOL_SEARCH_TOOL,
   AGENT_TOOL,

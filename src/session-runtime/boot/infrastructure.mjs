@@ -14,6 +14,8 @@ import { createSelfUpdateController } from '../self-update.mjs';
 import { createCompletionWakeScheduler, createNotificationBus } from '../notification-bus.mjs';
 import { createSkillsApi } from '../skills-api.mjs';
 import { createCwdPlugins } from '../cwd-plugins.mjs';
+import { listProjectsStrict } from '../../runtime/shared/projects.mjs';
+import { isWithin } from '../../runtime/shared/worktrees/paths.mjs';
 import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
 import { SessionAddressError, isAdmissionOpen, ownerLifecycle } from '../session-address.mjs';
 import { dataDirOf } from './shared.mjs';
@@ -188,10 +190,12 @@ export function sessionAdopter(boot) {
       // Bind every adopted session, including a cold resume and a session
       // materialized before ask(). The shared tool executor must never fall
       // back to changing only a detached session object's cwd.
+      // The Lead's own `session set-project` call: the Project switch
+      // authority, tolerating the calling turn.
       Object.defineProperty(v, '_applyResolvedCwdForCaller', {
         value: (nextCwd) => {
           if (rt.session?.id !== v.id) throw new Error('cwd: the calling session is no longer active');
-          return boot.applyResolvedCwd(nextCwd, { persistProjectSelection: true });
+          return boot.workspaceApi.switchProject(nextCwd, { ownTurn: true });
         },
         enumerable: false,
         configurable: true,
@@ -268,6 +272,7 @@ function wireCwdPlugins(boot) {
     onCwdChanged: () => {
       void boot.connectConfiguredMcp({ reconcile: true }).catch(() => {});
     },
+    isProjectFolder: (cwd) => listProjectsStrict().some((project) => isWithin(project.path, cwd)),
     countSkillFiles,
     writeLastSessionCwd,
     updateCurrentCwdOverride,

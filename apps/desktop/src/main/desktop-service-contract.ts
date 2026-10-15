@@ -70,7 +70,7 @@ export interface DesktopService {
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived(sessionId: string, archived: boolean): unknown;
   setSessionFavorite(sessionId: string, favorite: boolean): unknown;
-  setSessionProject(sessionId: string, projectPath: string | null): unknown;
+  setSessionProject(sessionId: string, projectPath: string): unknown;
   deleteSession(sessionId: string): unknown;
   prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
   /** Transport-only recovery: capture current projections after refreshing

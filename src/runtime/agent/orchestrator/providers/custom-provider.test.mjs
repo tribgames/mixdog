@@ -369,6 +369,106 @@ test('normalizer validates connection fields', () => {
   bad({ models: [{}] });
 });
 
+test('apiKeyEnv: normalize accept/reject, env-only key, missing-variable error', async () => {
+  const cfg = { ...base, schemaVersion: 2, protocol: 'openai-chat' };
+  assert.equal(normalizeCustomProviderConfig({ ...cfg, apiKeyEnv: 'MY_KEY_1' }).apiKeyEnv, 'MY_KEY_1');
+  assert.equal('apiKeyEnv' in normalizeCustomProviderConfig({ ...cfg, apiKeyEnv: null }), false);
+  assert.equal('apiKeyEnv' in normalizeCustomProviderConfig({ ...cfg, auth: 'none', apiKeyEnv: 'MY_KEY_1' }), false);
+  for (const bad of ['1ABC', 'a-b', '', 'a b', 'A'.repeat(129), 5])
+    assert.throws(() => normalizeCustomProviderConfig({ ...cfg, apiKeyEnv: bad }), /apiKeyEnv/);
+
+  const NAME = 'MIXDOG_TEST_PROVIDER_KEY';
+  const id = 'custom-env-1';
+  delete process.env[NAME];
+  const p = await createCustomProvider(id, { ...cfg, apiKey: 'typed-ignored', apiKeyEnv: NAME });
+  let fetched = 0;
+  await withFetch(
+    () => {
+      fetched++;
+      return new Response('{}', { status: 500 });
+    },
+    async () => {
+      await assert.rejects(p.send(prompt, 'm', []), new Error(`API key environment variable ${NAME} is not set`));
+      await assert.rejects(p.listModels({ throwOnError: true }), new RegExp(`${NAME} is not set`));
+    }
+  );
+  assert.equal(fetched, 0);
+  process.env[NAME] = 'env-secret';
+  try {
+    const q = await createCustomProvider(id, { ...cfg, apiKeyEnv: NAME, modelOverrides: { m: { manual: true } } });
+    const requests = mock(q, () => sse(CHAT));
+    await q.send(prompt, 'm', []);
+    assert.equal(requests[0].headers.get('authorization'), 'Bearer env-secret');
+    // The merge overlay takes the env var only, never a keychain/plaintext key.
+    const merged = mergeStoredProviders({
+      raw: { providers: { [id]: { ...cfg, apiKey: 'plain', apiKeyEnv: NAME } } },
+      defaults: {},
+      includeSecrets: true,
+    });
+    assert.equal(merged[id].apiKey, 'env-secret');
+  } finally {
+    delete process.env[NAME];
+  }
+});
+
+for (const [protocol, events] of [
+  ['openai-chat', CHAT],
+  ['openai-responses', RESPONSES],
+  ['anthropic', ANTHROPIC],
+]) {
+  test(`apiKeyEnv: 401 reload re-checks the variable (${protocol})`, async () => {
+    const NAME = 'MIXDOG_TEST_RELOAD_KEY';
+    const cfg = {
+      ...base,
+      schemaVersion: 2,
+      protocol,
+      apiKeyEnv: NAME,
+      modelOverrides: { m1: { manual: true } },
+    };
+    const keyOf = (init) => {
+      const h = new Headers(init.headers);
+      return h.get('x-api-key') || h.get('authorization');
+    };
+    const run = async (afterFirst) => {
+      process.env[NAME] = 'old-key';
+      const seen = [];
+      try {
+        return await withFetch(
+          (href, init) => {
+            if (href.endsWith('/models')) return new Response('{"data":[]}', { status: 200 });
+            seen.push(keyOf(init));
+            if (seen.length === 1) {
+              afterFirst();
+              return new Response('{"error":{"message":"bad key"}}', { status: 401 });
+            }
+            return sse(events);
+          },
+          async () => {
+            const p = await createCustomProvider('custom-reload-1', cfg);
+            const result = await p.send(prompt, 'm1', []).then(
+              () => null,
+              (error) => error
+            );
+            return { result, seen };
+          }
+        );
+      } finally {
+        delete process.env[NAME];
+      }
+    };
+    const unset = await run(() => delete process.env[NAME]);
+    assert.equal(unset.result?.message, `API key environment variable ${NAME} is not set`);
+    assert.equal(unset.seen.length, 1);
+    assert.match(unset.seen[0], /old-key/);
+    const rotated = await run(() => {
+      process.env[NAME] = 'new-key';
+    });
+    assert.equal(rotated.result, null);
+    assert.equal(rotated.seen.length, 2);
+    assert.match(rotated.seen[1], /new-key/);
+  });
+}
+
 test('openai-chat: path, bearer auth, tool calls, configured models, custom identity', async () => {
   const id = 'custom-chat-1';
   const p = await createCustomProvider(id, {

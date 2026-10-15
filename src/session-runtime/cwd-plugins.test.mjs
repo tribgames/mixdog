@@ -10,8 +10,10 @@ test('explicit cwd selection persists execution cwd and desktop project metadata
   const root = mkdtempSync(join(tmpdir(), 'mixdog-cwd-persist-'));
   const before = join(root, 'before');
   const after = join(root, 'after');
+  const taskWorkspace = join(root, 'task-workspace');
   mkdirSync(before);
   mkdirSync(after);
+  mkdirSync(taskWorkspace);
   let currentCwd = before;
   let desktopSession = { classification: 'project', projectPath: before };
   let session = {
@@ -50,6 +52,7 @@ test('explicit cwd selection persists execution cwd and desktop project metadata
       pluginAdminStatus: () => ({}),
       pluginManifest: () => ({}),
       onCwdChanged: (cwd) => cwdChanges.push(cwd),
+      isProjectFolder: (cwd) => cwd !== taskWorkspace,
       countSkillFiles: () => 0,
       writeLastSessionCwd: (cwd, pid) => sentinels.push({ cwd, pid }),
       updateCurrentCwdOverride: (cwd) => overrides.push(cwd),
@@ -86,6 +89,19 @@ test('explicit cwd selection persists execution cwd and desktop project metadata
     assert.deepEqual(overrides, [after, after]);
     // Only an effective switch lets MCP reconcile cwd-following plugin servers.
     assert.deepEqual(cwdChanges, [after]);
+
+    // The model's own pick of a folder outside every registered Project
+    // stays a Project selection.
+    applyResolvedCwd(taskWorkspace, { persistProjectSelection: true });
+    assert.deepEqual(desktopSession, { classification: 'project', projectPath: taskWorkspace });
+    applyResolvedCwd(after, { persistProjectSelection: true });
+    // The desktop "no project" move (a folder of no registered Project, the
+    // task workspace) restores the task classification.
+    applyResolvedCwd(taskWorkspace, { persistProjectSelection: true, classifyByMembership: true });
+    assert.deepEqual(desktopSession, { classification: 'task', projectPath: null });
+    assert.deepEqual(session.desktopSession, desktopSession);
+    assert.deepEqual(persisted.at(-1).desktopSession, { classification: 'task', projectPath: null });
+    assert.equal(session.cwd, taskWorkspace);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

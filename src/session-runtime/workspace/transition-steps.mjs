@@ -18,7 +18,9 @@ import { checkoutFolder, projectSubdirOf, samePath } from '../../runtime/shared/
 import { setWorkspaceCwdLock, workspaceCwdLock } from './admission-gate.mjs';
 import { copyProjectIdentity } from './workspace-state.mjs';
 
-const PROMPT_FIELDS = ['bp3EnvironmentContext', 'bp3CoreContext', 'sessionStartMetaInjected'];
+// workspaceReroot: the staged working-folder change and its pending notice
+// (prompt-utils stageWorkspaceReroot); a rollback drops the notice with it.
+const PROMPT_FIELDS = ['bp3EnvironmentContext', 'bp3CoreContext', 'sessionStartMetaInjected', 'workspaceReroot'];
 
 /** Everything a prompt refresh rewrites on `target`, restorable exactly. */
 function snapshotPrompt(target) {
@@ -90,6 +92,8 @@ export function createTransitionSteps({
   inspectProject,
   runtimeToken,
   getCurrentCwd,
+  getDesktopSession,
+  setDesktopSession,
   applyResolvedCwd,
   persistSession,
   refreshWorkspaceContext,
@@ -99,6 +103,13 @@ export function createTransitionSteps({
   withProjectFolder,
 }) {
   const owner = (sessionId) => ({ sessionId, runtimeToken, pid: process.pid });
+  const moveLeadRow = (sessionId, cwd) => {
+    try {
+      updateLeadWorkerCwd(sessionId, cwd);
+    } catch {
+      /* the Lead pool must never break a transition */
+    }
+  };
 
   /** Point this Lead's idle workers at the new root so a reused worker never keeps an old workspace. */
   async function retargetWorkers(session, cwd, journal) {
@@ -126,13 +137,6 @@ export function createTransitionSteps({
    * after this point.
    */
   async function commit(session, previous, fields, journal) {
-    const moveLeadRow = (cwd) => {
-      try {
-        updateLeadWorkerCwd(session.id, cwd);
-      } catch {
-        /* the Lead pool must never break a transition */
-      }
-    };
     const next = normalizeSessionWorkspace({
       ...fields,
       revision: nextRevision(previous),
@@ -153,13 +157,13 @@ export function createTransitionSteps({
       prior.prompt();
       session.updatedAt = Date.now();
       persistSession(session);
-      moveLeadRow(prior.sessionCwd || prior.cwd);
+      moveLeadRow(session.id, prior.sessionCwd || prior.cwd);
       invalidateCaches();
     });
     applyResolvedCwd(next.cwd);
     session.cwd = next.cwd;
     session.workspace = next;
-    moveLeadRow(next.cwd);
+    moveLeadRow(session.id, next.cwd);
     setWorkspaceCwdLock(session.id, isWorktreeBound(next) ? next.cwd : null);
     await refreshWorkspaceContext(session, next.cwd);
     await retargetWorkers(session, next.cwd, journal);
@@ -167,6 +171,53 @@ export function createTransitionSteps({
     persistSession(session);
     invalidateCaches();
     return { revision: next.revision, workspace: next };
+  }
+
+  /**
+   * A Project switch (session set-project, the desktop/remote setCwd): the
+   * runtime cwd, session.cwd, workspace record and desktop classification
+   * move together (applyResolvedCwd with persistProjectSelection), then the
+   * prompt context of the Lead and its idle workers follows, awaited, before
+   * the switch completes. Journals the exact undo, so a failed refresh puts
+   * everything back and the failure reaches the caller.
+   */
+  async function switchProject(session, cwd, journal, { classifyByMembership = false } = {}) {
+    const sessionFields = ['cwd', 'workspace', 'desktopSession'].map((name) => [
+      name,
+      Object.hasOwn(session, name),
+      session[name],
+    ]);
+    const prior = {
+      cwd: getCurrentCwd(),
+      desktop: getDesktopSession(),
+      lock: workspaceCwdLock([session.id]),
+      prompt: snapshotPrompt(session),
+    };
+    journal.push(() => {
+      applyResolvedCwd(prior.cwd);
+      for (const [name, had, value] of sessionFields) {
+        if (had) session[name] = value;
+        else delete session[name];
+      }
+      setDesktopSession(prior.desktop);
+      setWorkspaceCwdLock(session.id, prior.lock);
+      prior.prompt();
+      session.updatedAt = Date.now();
+      persistSession(session);
+      moveLeadRow(session.id, session.cwd || prior.cwd);
+      invalidateCaches();
+    });
+    const changed = !samePath(prior.cwd || '', cwd);
+    applyResolvedCwd(cwd, { persistProjectSelection: true, classifyByMembership });
+    if (changed) {
+      moveLeadRow(session.id, cwd);
+      await refreshWorkspaceContext(session, cwd);
+      await retargetWorkers(session, cwd, journal);
+      session.updatedAt = Date.now();
+      persistSession(session);
+    }
+    invalidateCaches();
+    return { cwd: getCurrentCwd(), workspace: session.workspace ?? null };
   }
 
   async function releaseOwner(backendApi, entryId, sessionId) {
@@ -360,5 +411,5 @@ export function createTransitionSteps({
     return { ...result, removed };
   }
 
-  return { enterWorktree, enterProjectBranch, removeRetainedWorktree };
+  return { enterWorktree, enterProjectBranch, removeRetainedWorktree, switchProject };
 }

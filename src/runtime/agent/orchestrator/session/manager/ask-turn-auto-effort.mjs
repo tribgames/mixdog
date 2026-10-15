@@ -15,7 +15,7 @@ import {
   resolveAutoEffort,
 } from '../../providers/auto-effort.mjs';
 import { builtinFeatureActive } from '../../runtime-core/builtin-features.mjs';
-import { effortOptionsFor } from '../../runtime-core/effort.mjs';
+import { effortOptionsFor, warnEmptyAutoEffortLadder } from '../../runtime-core/effort.mjs';
 import { effortJudgeSupportsSteps, judgeTurn, recordEffortDecision } from '../../../../effort-judge/judge-client.mjs';
 import { promptContentText } from './prompt-utils.mjs';
 
@@ -98,6 +98,7 @@ export async function resolveTurnAutoEffort({ sessionId, session, provider, inpu
   // the judge is not asked (in observe mode too: nothing would be logged).
   if (!autoEffortApplicable({ base, options })) {
     recordEffortDecision({ ...record, skipped: 'default-outside-auto-range' });
+    warnEmptyAutoEffortLadder(session.provider, session.model, base);
     return null;
   }
   // The previous user request shows the work a short follow-up continues.

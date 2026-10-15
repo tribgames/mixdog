@@ -79,6 +79,15 @@ export function createBuiltinToolSettings(
       invalidateContextStatusCache();
       return this.getRecapSettings();
     },
+    // Whether the model may title the session (session tool, action=rename).
+    // Absent config means on; only the opt-out is stored.
+    getSessionTitleSettings() {
+      return { aiSessionTitles: getConfig()?.aiSessionTitles !== false };
+    },
+    setAiSessionTitles(enabled) {
+      saveConfigAndAdopt({ ...getConfig(), aiSessionTitles: enabled !== false });
+      return this.getSessionTitleSettings();
+    },
     getToolModuleSettings() {
       const config = getConfig();
       const localProvider = getLocalProviderStatus?.() || {};

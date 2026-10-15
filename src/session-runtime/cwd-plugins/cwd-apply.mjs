@@ -21,20 +21,21 @@ export function createCwdApply({
   updateCurrentCwdOverride,
   persistSession,
   onCwdChanged,
+  isProjectFolder,
   clean,
   resolve,
   statSync,
 }) {
   function resolveCwdPath(value) {
     const raw = clean(value);
-    if (!raw) throw new Error('cwd: path is required for action=set');
+    if (!raw) throw new Error('session: path is required for action=set-project');
     const next = resolve(getCurrentCwd() || process.cwd(), raw);
     const stat = statSync(next);
     if (!stat.isDirectory()) throw new Error(`cwd: not a directory: ${next}`);
     return next;
   }
 
-  function persistProjectSelection(session, currentCwd) {
+  function persistProjectSelection(session, currentCwd, classifyByMembership) {
     // A Lead in its worktree keeps the registered Project as projectPath; a
     // switch elsewhere leaves the worktree at a new workspace revision.
     const { workspace, projectPath } = workspaceForProjectSelection(session, currentCwd);
@@ -44,7 +45,13 @@ export function createCwdApply({
     }
     const desktop = getDesktopSession?.() || session?.desktopSession;
     if (desktop && typeof desktop === 'object') {
-      const nextDesktop = { classification: 'project', projectPath };
+      // A desktop/remote move (classifyByMembership) names a registered
+      // Project or the task workspace: outside every registered Project it is
+      // a task again. The model's own set-project keeps any folder it picked.
+      const nextDesktop =
+        classifyByMembership && !isProjectFolder(projectPath)
+          ? { classification: 'task', projectPath: null }
+          : { classification: 'project', projectPath };
       setDesktopSession?.(nextDesktop);
       if (session) session.desktopSession = nextDesktop;
     }
@@ -59,7 +66,7 @@ export function createCwdApply({
   // message history. The live execution cwd is retargeted in place; the BP3
   // session snapshot remains the session-start environment. `onCwdChanged`
   // lets MCP reconnect only the plugin servers that run in the session cwd.
-  function applyResolvedCwd(nextCwd, { persistProjectSelection: persist = false } = {}) {
+  function applyResolvedCwd(nextCwd, { persistProjectSelection: persist = false, classifyByMembership = false } = {}) {
     const resolved = resolve(nextCwd);
     const stat = statSync(resolved);
     if (!stat.isDirectory()) throw new Error(`cwd: not a directory: ${resolved}`);
@@ -70,7 +77,7 @@ export function createCwdApply({
     if (session) session.cwd = currentCwd;
     updateCurrentCwdOverride?.(currentCwd);
     writeLastSessionCwd(currentCwd, session?.clientHostPid);
-    if (persist) persistProjectSelection(session, currentCwd);
+    if (persist) persistProjectSelection(session, currentCwd, classifyByMembership);
     // Lazy mode: before the first turn (e.g. the initial project-selection
     // cwd set), do NOT prewarm — that is exactly the post-first-frame freeze
     // we are avoiding. Once a turn has run, an in-session cwd switch DOES

@@ -854,6 +854,6 @@ export function _augmentNoHitDiagnostic(result, emptyToken, graph, cwd, symbol) 
   }
   return (
     `${emptyToken}\n# '${symbol}' not present in graph rooted at ${cwd} (${n} files indexed${trunc}). ` +
-    `If it should exist, the target is likely outside this cwd — pass an explicit 'cwd' (repo root) or 'file' anchor, or run 'cwd set <repo>'.`
+    `If it should exist, the target is likely outside this cwd — pass an explicit 'cwd' (repo root) or 'file' anchor, or switch Project with the session tool (set-project).`
   );
 }

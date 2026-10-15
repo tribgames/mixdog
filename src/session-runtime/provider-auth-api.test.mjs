@@ -28,6 +28,7 @@ const admin = {
   updateCustomProviderModel: async (_cfg, id, modelId, patch) =>
     calls.push(['updateCustomModel', id, modelId, patch]) && { id },
   testCustomProvider: async (_cfg, input) => calls.push(['testCustom', input]) && { ok: true },
+  checkCustomProviderKeyEnv: (name) => ({ found: name === 'SET_VAR' }),
   discoverCustomProviderModels: async (_cfg, input) => calls.push(['discoverCustom', input]) && { models: [] },
   listProviderAccounts: (providerId) => ({
     providerId,
@@ -131,6 +132,7 @@ test('custom provider save/remove refresh like credential changes; removal drops
   assert.deepEqual(calls[0], ['updateCustomModel', 'custom-1', 'm', { hidden: null }]);
   calls.length = 0;
   assert.deepEqual(await api.testCustomProvider({ a: 1 }), { ok: true });
+  assert.deepEqual(api.checkCustomProviderKeyEnv('SET_VAR'), { found: true });
   assert.deepEqual(await api.discoverCustomProviderModels({ b: 2 }), { models: [] });
   assert.equal(
     calls.some(([name]) => name === 'reload'),

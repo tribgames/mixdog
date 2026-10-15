@@ -85,10 +85,12 @@ const TOOL_CATEGORY = new Map([
   ['visualize', 'Visualize'],
   ['list_mcp_resources', 'Setup'],
   ['list_mcp_resource_templates', 'Setup'],
-  ['cwd', 'Setup'],
+  ['cwd', 'Setup'], // legacy: old transcripts
+  ['session', 'Setup'],
   ['setup', 'Setup'],
   ['goal', 'Setup'],
   ['request_user_input', 'Setup'],
+  ['ask_user', 'Setup'],
   ['update_plan', 'Setup'],
   ['skill', 'Skill'],
   ['skill_execute', 'Skill'],
@@ -568,7 +570,7 @@ function gitStageUnit(a) {
 function cwdUnit(a) {
   const action = String(a.action || a.type || '').toLowerCase();
   // A bare `path` selects that Project even when action is omitted.
-  if (action === 'set' || (!action && a.path)) {
+  if (action === 'set' || action === 'set-project' || (!action && a.path)) {
     return unitDescriptor('Setup', {
       active: 'Selecting',
       done: 'Selected',
@@ -576,8 +578,40 @@ function cwdUnit(a) {
       effect: true,
     });
   }
-  if (action === 'list') {
+  if (action === 'list' || action === 'list-projects') {
     return unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'project' });
+  }
+  if (action === 'rename') {
+    return unitDescriptor('Setup', { active: 'Renaming', done: 'Renamed', noun: 'session', effect: true });
+  }
+  if (action === 'compact') {
+    return unitDescriptor('Setup', { active: 'Scheduling', done: 'Scheduled', noun: 'compaction', effect: true });
+  }
+  if (action === 'fork') {
+    return unitDescriptor('Setup', { active: 'Forking', done: 'Forked', noun: 'session', effect: true });
+  }
+  if (action === 'favorite' || action === 'archive') {
+    const off = a.value === false;
+    const [active, done] =
+      action === 'favorite'
+        ? off
+          ? ['Unfavoriting', 'Unfavorited']
+          : ['Favoriting', 'Favorited']
+        : off
+          ? ['Unarchiving', 'Unarchived']
+          : ['Archiving', 'Archived'];
+    return unitDescriptor('Setup', { active, done, noun: 'session', effect: true });
+  }
+  if (action.endsWith('-worktree') || action.endsWith('-worktrees')) {
+    return unitDescriptor('Setup', {
+      active: 'Managing',
+      done: 'Managed',
+      noun: 'worktree',
+      effect: !action.startsWith('list'),
+    });
+  }
+  if (action === 'status') {
+    return unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'session' });
   }
   return unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'working directory', pluralNoun: 'working directories' });
 }
@@ -689,13 +723,15 @@ const TOOL_UNITS = new Map([
   ['use_skill', skillUnit],
   ['code_graph', codeGraphUnit],
   ['request_user_input', () => unitDescriptor('Setup', { active: 'Asking', done: 'Asked', noun: 'user' })],
+  ['ask_user', () => unitDescriptor('Setup', { active: 'Asking', done: 'Asked', noun: 'user' })],
   ['update_plan', () => unitDescriptor('Setup', { active: 'Updating', done: 'Updated', noun: 'plan' })],
   ['list_mcp_resources', () => unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'MCP resource' })],
   [
     'list_mcp_resource_templates',
     () => unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'MCP resource template' }),
   ],
-  ['cwd', cwdUnit],
+  ['cwd', cwdUnit], // legacy: old transcripts
+  ['session', cwdUnit],
 ]);
 
 function mcpUnit(name, a) {

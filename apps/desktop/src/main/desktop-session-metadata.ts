@@ -4,10 +4,21 @@
 // Writes drain immutable snapshots; a failed write retains the newest maps
 // for an explicit retry instead of reporting an unsaved mutation as success.
 import { createDebouncedWriter, type DebouncedWriter } from '../../../../src/runtime/shared/debounced-writer.mjs';
-import { projectIdentity } from '../shared/project-identity';
 import { generatedSessionTitle, isMediaSessionTitlePlaceholder } from '../shared/session-title.mjs';
 import { readSessionMetadata, writeSessionMetadata, type SessionReadCursor } from './session-metadata-file';
 import { isSessionId } from './desktop-state';
+
+type MetadataMaps = Parameters<typeof writeSessionMetadata>[1];
+type MetadataField = keyof MetadataMaps;
+const FIELDS: MetadataField[] = ['titles', 'names', 'archived', 'favorites', 'projects', 'reads'];
+const dirtyKey = (field: MetadataField, sessionId: string): string => `${field}\u0000${sessionId}`;
+
+/** A queued save: this instance's maps plus the (field, session) entries it
+ *  changed since they were last persisted, keyed to their change generation. */
+interface PendingWrite {
+  maps: MetadataMaps;
+  dirty: Map<string, number>;
+}
 
 export class DesktopSessionMetadata {
   private readonly userDataRoot: () => string;
@@ -15,17 +26,21 @@ export class DesktopSessionMetadata {
   private nameMap: Record<string, string> | null = null;
   private archivedMap: Record<string, number> | null = null;
   private favoriteMap: Record<string, number> | null = null;
+  /** Legacy sidebar project assignments: never read or set any more (a move
+   *  changes the session's working folder); only a deleted session drops its entry. */
   private projectMap: Record<string, string> | null = null;
   private readMap: Record<string, SessionReadCursor> | null = null;
   private loadRequest: Promise<void> | null = null;
-  private readonly writer: DebouncedWriter<Parameters<typeof writeSessionMetadata>[1]>;
+  private readonly writer: DebouncedWriter<PendingWrite>;
   private writeError: unknown;
+  private readonly dirty = new Map<string, number>();
+  private generation = 0;
 
   constructor(userDataRoot: () => string) {
     this.userDataRoot = userDataRoot;
     this.writer = createDebouncedWriter({
       delayMs: 0,
-      write: (maps: Parameters<typeof writeSessionMetadata>[1]) => writeSessionMetadata(this.userDataRoot(), maps),
+      write: (pending: PendingWrite) => this.persist(pending),
       onError: (error: unknown) => {
         this.writeError = error;
         console.error('Failed to persist desktop session metadata:', error);
@@ -85,6 +100,7 @@ export class DesktopSessionMetadata {
     await this.load();
     this.nameMap ??= Object.create(null) as Record<string, string>;
     this.nameMap[sessionId] = normalized;
+    this.touch('names', sessionId);
     await this.queueWrite();
   }
 
@@ -100,6 +116,7 @@ export class DesktopSessionMetadata {
     }
     if (archived) map[sessionId] = Date.now();
     else delete map[sessionId];
+    this.touch('archived', sessionId);
     await this.queueWrite();
     return true;
   }
@@ -115,42 +132,7 @@ export class DesktopSessionMetadata {
     }
     if (favorite) map[sessionId] = Date.now();
     else delete map[sessionId];
-    await this.queueWrite();
-    return true;
-  }
-
-  /** Sidebar project membership: a path, '' for no project, null to follow the
-   *  session's folder again. True when the stored value actually changed. */
-  async setProject(sessionId: string, projectPath: string | null): Promise<boolean> {
-    await this.load();
-    this.projectMap ??= Object.create(null) as Record<string, string>;
-    const map = this.projectMap;
-    const next = projectPath === null ? null : projectPath.trim();
-    if (next !== null && next.length > 32_768) throw new TypeError('Project path is too long.');
-    const current = Object.hasOwn(map, sessionId) ? map[sessionId] : null;
-    if (next === current) {
-      await this.flush();
-      return false;
-    }
-    if (next === null) delete map[sessionId];
-    else map[sessionId] = next;
-    await this.queueWrite();
-    return true;
-  }
-
-  /** Drop every assignment that points at `projectPath` (a removed project) so
-   *  re-adding the same path does not resurrect it. '' (no project) entries stay.
-   *  True when any assignment was cleared. */
-  async clearProjectAssignments(projectPath: string): Promise<boolean> {
-    await this.load();
-    const target = projectIdentity(projectPath);
-    const map = this.projectMap;
-    const ids = map && target ? Object.keys(map).filter((id) => map[id] && projectIdentity(map[id]) === target) : [];
-    if (!map || !ids.length) {
-      await this.flush();
-      return false;
-    }
-    for (const id of ids) delete map[id];
+    this.touch('favorites', sessionId);
     await this.queueWrite();
     return true;
   }
@@ -174,6 +156,7 @@ export class DesktopSessionMetadata {
       messageCount: nextCount,
       revision: Math.min(Number.MAX_SAFE_INTEGER, (current?.revision || 0) + 1),
     };
+    this.touch('reads', sessionId);
     await this.queueWrite();
     return true;
   }
@@ -194,8 +177,10 @@ export class DesktopSessionMetadata {
     if (this.favoriteMap) delete this.favoriteMap[sessionId];
     if (this.projectMap) delete this.projectMap[sessionId];
     if (this.readMap) delete this.readMap[sessionId];
-    if (had) await this.queueWrite();
-    else await this.flush();
+    if (had) {
+      for (const field of FIELDS) this.touch(field, sessionId);
+      await this.queueWrite();
+    } else await this.flush();
   }
 
   /** Record a generated title once: a user name or an existing title wins. */
@@ -207,6 +192,7 @@ export class DesktopSessionMetadata {
     if (existing && (!isMediaSessionTitlePlaceholder(existing) || isMediaSessionTitlePlaceholder(normalized)))
       return false;
     this.titleMap[sessionId] = normalized;
+    this.touch('titles', sessionId);
     void this.queueWrite().catch(() => {
       /* writer retains and reports the pending save */
     });
@@ -227,15 +213,6 @@ export class DesktopSessionMetadata {
     return summaries.map((row) => (Object.hasOwn(favorites, row.id) ? { ...row, favorite: true } : row));
   }
 
-  /** Attach user-chosen project membership to a session listing. */
-  withProjectAssignments<T extends { id: string }>(summaries: T[]): Array<T & { projectAssignment?: string }> {
-    const projects = this.projectMap;
-    if (!projects) return summaries;
-    return summaries.map((row) =>
-      Object.hasOwn(projects, row.id) ? { ...row, projectAssignment: projects[row.id] } : row
-    );
-  }
-
   /** Project shared read cursors into the catalog pushed to every surface. */
   withReadCursors<T extends { id: string }>(
     summaries: T[]
@@ -253,6 +230,10 @@ export class DesktopSessionMetadata {
     if (!(await this.writer.flush())) throw this.writeError;
   }
 
+  private touch(field: MetadataField, sessionId: string): void {
+    this.dirty.set(dirtyKey(field, sessionId), ++this.generation);
+  }
+
   private queueWrite(): Promise<void> {
     const titles = { ...this.titles };
     const names = { ...this.names };
@@ -260,7 +241,25 @@ export class DesktopSessionMetadata {
     const favorites = { ...(this.favoriteMap || {}) };
     const projects = { ...(this.projectMap || {}) };
     const reads = { ...this.reads };
-    this.writer.schedule({ titles, names, archived, favorites, projects, reads });
+    this.writer.schedule({ maps: { titles, names, archived, favorites, projects, reads }, dirty: new Map(this.dirty) });
     return this.flush();
+  }
+
+  /** Re-read the file and apply only the entries this instance changed, so a
+   *  save never republishes this cache's stale view of other entries (another
+   *  desktop service may share the metadata directory). */
+  private async persist({ maps, dirty }: PendingWrite): Promise<void> {
+    const root = this.userDataRoot();
+    const disk = await readSessionMetadata(root);
+    const merged = {} as Record<MetadataField, Record<string, unknown>>;
+    for (const field of FIELDS) merged[field] = Object.assign(Object.create(null), disk[field]);
+    for (const key of dirty.keys()) {
+      const [field, id] = key.split('\u0000') as [MetadataField, string];
+      const source = maps[field] as Record<string, unknown>;
+      if (Object.hasOwn(source, id)) merged[field][id] = source[id];
+      else delete merged[field][id];
+    }
+    await writeSessionMetadata(root, merged as MetadataMaps);
+    for (const [key, generation] of dirty) if (this.dirty.get(key) === generation) this.dirty.delete(key);
   }
 }

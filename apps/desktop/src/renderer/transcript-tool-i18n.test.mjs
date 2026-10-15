@@ -386,6 +386,30 @@ test('task subjects, agent titles, fallbacks and result labels are localized', a
       '시작'
     );
     assert.equal(present('request_user_input', { questions: [{}] }, 'ok').structuredRows[0].text, '질문 1');
+    const asked = present(
+      'ask_user',
+      { questions: [{ question: 'Which "db"?' }, { question: 'Features?' }, { question: 'Name?' }] },
+      'User has answered your questions: "Which \\"db\\"?"="PG"; "Features?"="X" + "own text" (typed); "Name?"=(no answer). You can now continue with these answers in mind.'
+    );
+    assert.deepEqual(
+      asked.structuredRows.map((row) => [row.text, row.answer, row.status]),
+      [
+        ['Which "db"?', 'PG', 'completed'],
+        ['Features?', 'X, own text', 'completed'],
+        ['Name?', '', 'pending'],
+      ]
+    );
+    assert.equal(asked.outputText, '');
+    // Escaped quotes, a label holding ", " and typed text kept apart from the picks.
+    const quoted = present(
+      'ask_user',
+      { questions: [{ question: 'Q1?' }, { question: 'Q2?' }] },
+      'User has answered your questions: "Q1?"="A, B" + "say \\"; \\"hi" (typed); "Q2?"="x". You can now continue with these answers in mind.'
+    );
+    assert.deepEqual(
+      quoted.structuredRows.map((row) => row.answer),
+      ['A, B, say "; "hi', 'x']
+    );
     assert.equal(present('update_plan', { todos: [{}] }, 'ok').structuredRows[0].text, '할 일 1');
     assert.equal(
       present('browser', { action: 'navigate', url: 'https://example.com/x' }, 'ok').subject,

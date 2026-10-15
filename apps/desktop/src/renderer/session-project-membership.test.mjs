@@ -54,7 +54,7 @@ test('sessions group by containing folder, worktree project, normalized path and
   });
 });
 
-test('a user assignment wins over the folder, "" removes membership, a removed project falls back', async (t) => {
+test('a legacy stored sidebar assignment is ignored: membership follows the working folder', async (t) => {
   installTestDom(t);
   const { groupProjectSessions } = await import('./session-sidebar-sections.tsx');
   const groups = groupProjectSessions(
@@ -62,11 +62,10 @@ test('a user assignment wins over the folder, "" removes membership, a removed p
     [
       row('moved', { cwd: 'C:\\Work\\Alpha\\x', projectAssignment: 'c:/work/beta' }),
       row('removed', { cwd: 'C:\\Work\\Alpha\\x', projectAssignment: '' }),
-      row('stale', { cwd: 'C:\\Work\\Alpha\\x', projectAssignment: 'C:\\Gone' }),
       row('adopted', { projectAssignment: 'C:\\Work\\Alpha' }),
     ]
   );
-  assert.deepEqual(membership(groups), { Alpha: ['adopted', 'stale'], Beta: ['moved'] });
+  assert.deepEqual(membership(groups), { Alpha: ['moved', 'removed'], Beta: [] });
 });
 
 async function mount(t, sessions, handlers = {}) {

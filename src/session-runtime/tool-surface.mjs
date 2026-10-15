@@ -6,6 +6,7 @@ import {
   filterDisallowedTools,
   selectDeferredTools,
 } from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import { AGENT_WORKER_DENIED_TOOLS } from '../runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
 import { LEAD_DISALLOWED_TOOLS } from '../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
 import { deferredSurfaceModeForLead, toolSpecForMode } from '../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { loadSkillToolDependencies } from '../runtime/agent/orchestrator/runtime-core/skill-tool-loading.mjs';
@@ -52,8 +53,11 @@ export function createToolSurface({
     const workflowTools = hideAgentTool
       ? profileTools.filter((tool) => !agentToolNames.has(String(tool?.name || '')))
       : profileTools;
+    const visibleTools = agentOwned
+      ? workflowTools.filter((tool) => !AGENT_WORKER_DENIED_TOOLS.has(String(tool?.name || '').toLowerCase()))
+      : workflowTools;
     const denied = new Set(getFeatureDisallowedTools().map((name) => String(name || '')));
-    return denied.size ? workflowTools.filter((tool) => !denied.has(String(tool?.name || ''))) : workflowTools;
+    return denied.size ? visibleTools.filter((tool) => !denied.has(String(tool?.name || ''))) : visibleTools;
   }
 
   function disallowedTools() {

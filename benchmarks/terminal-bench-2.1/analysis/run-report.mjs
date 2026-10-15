@@ -729,6 +729,50 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
   };
 }
 
+// Count what the effort judge actually did. A row with an `effort` field is a
+// judged decision; any other row carries a `skipped` reason. Null when the
+// manifest has no judge or it is off, so those reports are unchanged.
+function effortJudgeSummary(runDir, manifest) {
+  const mode = manifest?.definition?.effortJudge?.mode;
+  if (!mode || mode === 'off') return null;
+  let judged = 0;
+  let trialCount = 0;
+  let trialsWithoutJudgment = 0;
+  const skipped = {};
+  for (const entry of readdirSync(runDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.includes('__')) continue;
+    trialCount += 1;
+    const file = join(runDir, entry.name, 'agent', 'effort-decisions.jsonl');
+    let trialJudged = 0;
+    for (const line of existsSync(file) ? readFileSync(file, 'utf8').split('\n') : []) {
+      if (!line.trim()) continue;
+      let row;
+      try { row = JSON.parse(line); } catch { continue; }
+      if (row?.effort != null) trialJudged += 1;
+      else {
+        const reason = String(row?.skipped ?? 'unknown');
+        skipped[reason] = (skipped[reason] ?? 0) + 1;
+      }
+    }
+    judged += trialJudged;
+    if (trialJudged === 0) trialsWithoutJudgment += 1;
+  }
+  return { mode, judged, skipped, trials: trialCount, trialsWithoutJudgment };
+}
+
+const effortJudgeNotApplied = (effortJudge) => effortJudge != null
+  && effortJudge.trials > 0
+  && effortJudge.judged === 0;
+
+function effortJudgeLine(effortJudge) {
+  const skipped = Object.keys(effortJudge.skipped);
+  if (effortJudgeNotApplied(effortJudge)) {
+    return `effort-judge NOT APPLIED: 0 judged, ${effortJudge.trialsWithoutJudgment} trials skipped (${skipped.join(', ') || 'no decisions recorded'})`;
+  }
+  const skippedTotal = Object.values(effortJudge.skipped).reduce((a, b) => a + b, 0);
+  return `effort-judge ${effortJudge.mode}: ${effortJudge.judged} judged, ${skippedTotal} skipped${skipped.length ? ` (${skipped.map((reason) => `${reason} ${effortJudge.skipped[reason]}`).join(', ')})` : ''}, ${effortJudge.trialsWithoutJudgment}/${effortJudge.trials} trials without judgment`;
+}
+
 function runCounts(aggregate, trials, configuredTasks) {
   const stats = aggregate?.stats ?? {};
   const total = finite(aggregate?.n_total_trials, configuredTasks.length || trials.length);
@@ -807,9 +851,16 @@ export function generateRunReport({ jobsDir, historyRoot }) {
   const aggregate = tryReadJson(join(runDir, 'result.json'));
   const trials = collectTrials(runDir);
   const stats = aggregate?.stats ?? {};
+  const counts = runCounts(aggregate, trials, manifest?.definition?.tasks ?? []);
   const {
-    passed, total, completed, errors, retries, cancelled, pending, running, clean,
-  } = runCounts(aggregate, trials, manifest?.definition?.tasks ?? []);
+    passed, total, completed, errors, retries, cancelled, pending, running,
+  } = counts;
+  const effortJudge = effortJudgeSummary(runDir, manifest);
+  const notCleanReasons = [];
+  if (effortJudgeNotApplied(effortJudge)) {
+    notCleanReasons.push(`effort judge mode ${effortJudge.mode} judged 0 decisions (${Object.keys(effortJudge.skipped).join(', ') || 'no decisions recorded'})`);
+  }
+  const clean = counts.clean && notCleanReasons.length === 0;
   const tokenFallback = tokenTotals(trials);
   const startedAt = aggregate?.started_at
     ?? trials.map((trial) => trial.startedAt).filter(Boolean).sort().at(0)
@@ -854,8 +905,10 @@ export function generateRunReport({ jobsDir, historyRoot }) {
       pending,
       running,
       clean,
+      ...(notCleanReasons.length ? { notCleanReasons } : {}),
       benchmarkExitCode: optionalNumber(manifest.exitCode),
     },
+    ...(effortJudge ? { effortJudge } : {}),
     timing: {
       startedAt,
       finishedAt,
@@ -923,6 +976,8 @@ export function formatRunReport(report) {
     `- Final context median: ${number(report.finalContext.medianTokens, 0)} tokens (${report.finalContext.trials} trials)`,
     `- Reduction: ${report.reduction.totalSavedBytes} bytes saved, ${report.reduction.activity.artifactReads} artifact reads`,
   ];
+  if (report.effortJudge) lines.push(`- ${effortJudgeLine(report.effortJudge)}`);
+  for (const reason of report.result.notCleanReasons ?? []) lines.push(`- Not clean: ${reason}`);
   const contract = report.preset.contract;
   if (contract) {
     const toolHash = contract.toolContractHash || contract.toolCatalogHash;
@@ -1031,6 +1086,7 @@ function outputSummary(report, paths = null) {
     + `time agent=${number(report.timing.agentTotalSeconds)}s rank=${agentRank} wall=${number(report.timing.wallSeconds)}s rank=${wallRank}\n`
     + `tokens input=${report.tokens.input} cached=${report.tokens.cached} output=${report.tokens.output}\n`
     + `reduction saved=${report.reduction.totalSavedBytes}B artifact_reads=${report.reduction.activity.artifactReads}\n`;
+  if (report.effortJudge) output += `${effortJudgeLine(report.effortJudge)}\n`;
   for (const task of report.tasks.filter((row) => row.error || row.trace?.failures?.length)) {
     output += `diagnostic task=${task.task} error=${inline(task.error?.exception_type) || 'none'} requests=${task.trace?.providerRequests ?? 0} tools=${task.trace?.toolCalls ?? 0} tool_failures=${task.trace?.failures?.length ?? 0} last=${task.trace?.lastCalls?.at(-1)?.tool ?? 'none'}\n`;
   }

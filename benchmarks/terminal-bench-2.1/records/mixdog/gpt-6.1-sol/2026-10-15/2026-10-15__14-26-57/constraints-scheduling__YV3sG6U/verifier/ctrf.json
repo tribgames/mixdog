@@ -1,0 +1,47 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 3,
+            "passed": 3,
+            "failed": 0,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1792046085.947197,
+            "stop": 1792046086.2349691
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_structure_event_title_attendees_duration_window",
+                "status": "passed",
+                "duration": 0.00794754199887393,
+                "start": 1792046085.9907959,
+                "stop": 1792046085.9991996,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_constraints_conflicts_business_hours",
+                "status": "passed",
+                "duration": 0.0004722800003946759,
+                "start": 1792046085.9993842,
+                "stop": 1792046086.0000892,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_earliest_tiebreakers_and_carol_buffer",
+                "status": "passed",
+                "duration": 0.23382705700169026,
+                "start": 1792046086.000301,
+                "stop": 1792046086.2345397,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

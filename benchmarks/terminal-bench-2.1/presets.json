@@ -84,6 +84,14 @@
     }
   },
   "baselines": {
+    "codex-gpt61-sol": {
+      "label": "Codex CLI · GPT-6.1 Sol xhigh",
+      "jobsDir": "jobs-codex-sol61-xhigh-full/2026-10-15__13-09-29",
+      "harness": "codex",
+      "model": "gpt-6.1-sol",
+      "finalContextMedianTokens": 33753,
+      "costLowerBound": false
+    },
     "codex-gpt56-sol": {
       "label": "Codex CLI · GPT-5.6 Sol xhigh",
       "jobsDir": "jobs-full-codex-k5-20260831-050151/2026-08-31__05-01-53",
@@ -139,6 +147,10 @@
       "suite": "core",
       "routeProfile": "sol61-high"
     },
+    "sol61-xhigh": {
+      "suite": "core",
+      "routeProfile": "sol61-xhigh"
+    },
     "fast8-2-opus5-solo": {
       "suite": "fast8-2",
       "routeProfile": "opus5-solo"
@@ -165,7 +177,8 @@
     },
     "full-sol61": {
       "suite": "full",
-      "routeProfile": "sol61-xhigh"
+      "routeProfile": "sol61-xhigh",
+      "compareTo": "codex-gpt61-sol"
     },
     "readprobe-opus5": {
       "suite": "readprobe",

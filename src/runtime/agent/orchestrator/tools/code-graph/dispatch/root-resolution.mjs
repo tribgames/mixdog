@@ -136,7 +136,7 @@ export function resolveDirectoryRoot(name, effectiveCwd, { filesystemRootCwd }) 
       `${_PROJECT_ROOT_SENTINELS.join('/')} at it or any ancestor)` +
       `${childRoots.length > 1 ? ` and holds ${childRoots.length} separate project roots (${listed})` : ''}. ` +
       `${boundaryRoot ? `The nearest sentinel is at '${boundaryRoot}' (home/temp), which is never auto-adopted. ` : ''}` +
-      `Refusing to index an arbitrary tree. Run 'cwd set <repo>', or pass an explicit ` +
+      `Refusing to index an arbitrary tree. Switch Project with the session tool (set-project), or pass an explicit ` +
       `'cwd' (repo root) or a 'file' anchor.`
   );
 }

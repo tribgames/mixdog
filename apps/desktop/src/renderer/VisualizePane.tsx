@@ -34,6 +34,7 @@ import { visualizePaneHasSource } from './visualize-source';
 import { remoteInlinePageSource } from './visualize-inline-remote';
 import {
   activateVisualizeTab,
+  allowVisualizeReveal,
   allowVisualizeScripts,
   closeVisualizeTab,
   setVisualizeNetwork,
@@ -328,6 +329,19 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
     else if (previous.active && previous.sessionId === sessionId) markVisualizePanelHidden(sessionId);
     shown.current = { sessionId, active };
   }, [sessionId, active]);
+
+  // Closing the last tab (the user's × or the agent's close) closes the
+  // panel instead of leaving it empty. Unlike the header ×, the next agent
+  // open may reveal it again.
+  const tabCount = useRef({ sessionId, count: state.tabs.length });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the tab count reaching zero is the trigger; onClose is read at that moment
+  useEffect(() => {
+    const previous = tabCount.current;
+    tabCount.current = { sessionId, count: state.tabs.length };
+    if (!active || previous.sessionId !== sessionId || previous.count === 0 || state.tabs.length > 0) return;
+    onClose();
+    allowVisualizeReveal(sessionId);
+  }, [sessionId, active, state.tabs.length]);
 
   // Keep the selected tab in view when the strip scrolls, also once the strip
   // has its final width (the panel opening or being resized narrows it).
