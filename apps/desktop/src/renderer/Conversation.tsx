@@ -149,7 +149,6 @@ export function Conversation(props: ConversationProps) {
           draftMode={draftMode}
           draftId={draftId}
           reviewActive={reviewActive}
-          dockRef={view.composerDock}
           dropTargetRef={view.conversation}
           routeProject={routeProject}
           island={island}
