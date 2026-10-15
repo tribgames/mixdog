@@ -9,6 +9,7 @@ import type { DesktopBranchMenu } from '../shared/contract';
 import { t } from './i18n';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { useMobileBack } from './mobile-back';
+import { containDialogTab, PaneDialogLayer } from './sidebar-dialog';
 import { useSurfaceActive } from './surface-activity';
 import { touchPrimaryPointer } from './surface-input-focus';
 import {
@@ -58,7 +59,8 @@ export function BranchChip({
     refreshKey,
   });
   const intent = draft ? draftIntent : Boolean(menu?.pendingWorktree);
-  const { open, setOpen, visible, close, position, setPosition, root, panel } = useBranchMenuOverlay(disabled);
+  const [namingBranch, setNamingBranch] = useState(false);
+  const { open, setOpen, visible, close, position, setPosition, root, panel } = useBranchMenuOverlay(disabled, namingBranch);
   const [query, setQuery] = useState('');
   const trigger = useRef<HTMLButtonElement>(null);
   const clickGuard = useImmediateOverlayClickGuard();
@@ -86,6 +88,7 @@ export function BranchChip({
     const next = root.current ? branchMenuPosition(root.current) : {};
     commitImmediateOverlay(() => {
       setPosition(next);
+      setNamingBranch(false);
       setQuery('');
       setNotice('');
       setOpen(true);
@@ -129,8 +132,18 @@ export function BranchChip({
         <span className="branch-chip-label">{label}</span>
         <ChevronDown size={12} aria-hidden="true" />
       </button>
-      {visible &&
-        createPortal(
+      {visible && (namingBranch ? (
+        <BranchNameDialog
+          panelId={panelId}
+          anchor={trigger}
+          name={query}
+          onName={setQuery}
+          busy={busy}
+          notice={notice}
+          onCreate={createBranch}
+          onClose={close}
+        />
+      ) : createPortal(
           <BranchMenuPanel
             panel={panel}
             panelId={panelId}
@@ -145,14 +158,21 @@ export function BranchChip({
             worktreeBound={Boolean(workspace.worktreeId)}
             onPickWorktree={() => void pickWorktree()}
             onPickRow={pickRow}
-            onCreateBranch={createBranch}
+            onCreateBranch={() => {
+              if (busy) return;
+              if (query.trim()) createBranch();
+              else {
+                setNotice('');
+                setNamingBranch(true);
+              }
+            }}
             onEscape={() => {
               close();
               trigger.current?.focus();
             }}
           />,
           document.body
-        )}
+        ))}
     </div>
   );
 }
@@ -234,7 +254,7 @@ function useBranchMenuData({
 /** Open state and placement of the portal menu: it follows resize and
  *  scroll, and closes on an outside pointer, mobile back, a surface switch
  *  or when the chip is disabled. */
-function useBranchMenuOverlay(disabled: boolean) {
+function useBranchMenuOverlay(disabled: boolean, namingBranch: boolean) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<CSSProperties>({});
   const root = useRef<HTMLDivElement>(null);
@@ -246,7 +266,7 @@ function useBranchMenuOverlay(disabled: boolean) {
     if (root.current) setPosition(branchMenuPosition(root.current));
   }, []);
   const close = useCallback(() => setOpen(false), []);
-  useMobileBack(visible, close);
+  useMobileBack(visible && !namingBranch, close);
   useEffect(() => {
     if (!surfaceActive && open) setOpen(false);
   }, [open, surfaceActive]);
@@ -256,6 +276,8 @@ function useBranchMenuOverlay(disabled: boolean) {
   useEffect(() => {
     if (!visible) return undefined;
     const outside = (event: PointerEvent) => {
+      // The modal layer owns dismissal while a name is being entered.
+      if (namingBranch) return;
       const target = event.target as Node | null;
       if (root.current?.contains(target) || panel.current?.contains(target)) return;
       setOpen(false);
@@ -268,7 +290,7 @@ function useBranchMenuOverlay(disabled: boolean) {
       window.removeEventListener('scroll', place, true);
       document.removeEventListener('pointerdown', outside, true);
     };
-  }, [place, visible]);
+  }, [namingBranch, place, visible]);
 
   return { open, setOpen, visible, close, position, setPosition, root, panel };
 }
@@ -393,7 +415,7 @@ function useBranchChipActions({
   };
   const createBranch = () => {
     if (busy) return;
-    const name = query.trim() || window.prompt(t('New branch name'))?.trim() || '';
+    const name = query.trim();
     if (name) void selectBranch(name, true);
   };
 
@@ -404,6 +426,89 @@ function ChipIcon({ recovery, forked }: { recovery: boolean; forked: boolean }) 
   if (recovery) return <TriangleAlert size={14} aria-hidden="true" />;
   if (forked) return <GitFork size={14} className="branch-chip-fork" aria-hidden="true" />;
   return <GitBranch size={14} aria-hidden="true" />;
+}
+
+/** Electron cannot show window.prompt; keep the original name/confirm/cancel flow in an app dialog. */
+function BranchNameDialog({
+  panelId,
+  anchor,
+  name,
+  onName,
+  busy,
+  notice,
+  onCreate,
+  onClose,
+}: {
+  panelId: string;
+  anchor: RefObject<HTMLButtonElement | null>;
+  name: string;
+  onName(name: string): void;
+  busy: boolean;
+  notice: string;
+  onCreate(): void;
+  onClose(): void;
+}) {
+  const titleId = useId();
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!busy) input.current?.focus();
+  }, [busy]);
+  useEffect(() => () => anchor.current?.focus(), [anchor]);
+  const close = () => {
+    if (!busy) onClose();
+  };
+  return (
+    <PaneDialogLayer anchor={anchor} onClose={close}>
+      <section
+        id={panelId}
+        className="schedules-dialog branch-name-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-busy={busy || undefined}
+        style={{ '--mx-editor-width': '420px' } as CSSProperties}
+        onKeyDown={containDialogTab}
+      >
+        <header>
+          <h2 id={titleId}>{t('New branch')}</h2>
+        </header>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!busy && name.trim()) onCreate();
+          }}
+        >
+          <label className="schedules-field">
+            <span>{t('New branch name')}</span>
+            <input
+              ref={input}
+              type="text"
+              required
+              value={name}
+              disabled={busy}
+              onChange={(event) => onName(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (!event.nativeEvent.isComposing) event.currentTarget.form?.requestSubmit();
+              }}
+            />
+          </label>
+          {notice && <p role="alert">{notice}</p>}
+          <footer>
+            <button type="button" className="secondary" disabled={busy} onClick={close}>
+              {t('Cancel')}
+            </button>
+            <button type="submit" disabled={busy || !name.trim()}>
+              {t('New branch')}
+            </button>
+          </footer>
+        </form>
+      </section>
+    </PaneDialogLayer>
+  );
 }
 
 /** The opened menu: search · "Worktree" · branches · "New branch". */
