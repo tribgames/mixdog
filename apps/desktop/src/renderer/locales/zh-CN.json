@@ -647,6 +647,7 @@
   "Change {{count}} files_other": "更改 {{count}} 个文件",
   "Change All Occurrences": "更改所有出现的情况",
   "Change file": "更改文件",
+  "Change history can't be deleted while a response is running. Try again after it finishes.": "回复进行中，无法删除更改历史。请在完成后重试。",
   "Change ids": "变更 ID",
   "Change terminal shell": "更改终端 Shell",
   "Change the app color theme": "更改应用程序颜色主题",

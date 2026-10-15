@@ -729,6 +729,7 @@
   "Change {{count}} files_other": "Alterar {{count}} arquivos",
   "Change All Occurrences": "Alterar todas as ocorrências",
   "Change file": "Alterar arquivo",
+  "Change history can't be deleted while a response is running. Try again after it finishes.": "Não é possível excluir o histórico de alterações enquanto uma resposta está em andamento. Tente novamente quando terminar.",
   "Change ids": "IDs das alterações",
   "Change terminal shell": "Alterar shell do terminal",
   "Change the app color theme": "Alterar o tema de cores do aplicativo",

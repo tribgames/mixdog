@@ -647,6 +647,7 @@
   "Change {{count}} files_other": "{{count}} 件のファイルを変更",
   "Change All Occurrences": "すべての出現箇所を変更",
   "Change file": "ファイル変更",
+  "Change history can't be deleted while a response is running. Try again after it finishes.": "応答の実行中は変更履歴を削除できません。完了してからもう一度お試しください。",
   "Change ids": "変更 ID",
   "Change terminal shell": "ターミナルのシェルを変更",
   "Change the app color theme": "アプリのカラーテーマを変更する",

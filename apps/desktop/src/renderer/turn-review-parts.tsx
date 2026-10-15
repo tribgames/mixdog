@@ -110,6 +110,7 @@ export function turnReviewSegment({
   setExpanded,
   sessionId,
   historyTurns,
+  busy,
 }: {
   fileCount: number;
   headlineStats: HeadlineStats;
@@ -117,11 +118,13 @@ export function turnReviewSegment({
   setExpanded: Dispatch<SetStateAction<boolean>>;
   sessionId: string | undefined;
   historyTurns: number;
+  busy: boolean;
 }) {
   return (
     <TurnReviewFilesMenu
       sessionId={sessionId}
       historyTurns={historyTurns}
+      busy={busy}
       label={t('Files changed this session')}
       title={t('Files {{count}}', { count: fileCount })}
       onViewChanges={onOpenChanges ?? (() => setExpanded(true))}

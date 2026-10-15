@@ -647,6 +647,7 @@
   "Change {{count}} files_other": "파일 {{count}}개 변경",
   "Change All Occurrences": "모든 항목 변경",
   "Change file": "파일 변경",
+  "Change history can't be deleted while a response is running. Try again after it finishes.": "답변이 진행 중이라 변경 기록을 삭제할 수 없습니다. 답변이 끝난 뒤 다��� 시도하세요.",
   "Change ids": "변경 ID",
   "Change terminal shell": "터미널 셸 변경",
   "Change the app color theme": "앱 색상 테마 변경",

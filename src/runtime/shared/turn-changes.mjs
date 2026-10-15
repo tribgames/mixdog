@@ -8,9 +8,9 @@
 import { createHash } from 'node:crypto';
 import { lstat, open, realpath, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
-import { structuredPatch } from 'diff';
 import { cleanString as clean } from './clean.mjs';
 import { runGitOffThread } from './git-runner.mjs';
+import { structuredPatchOffThread } from './line-diff.mjs';
 
 /** Largest single-file patch a record keeps replayable. */
 export const TURN_CHANGE_FILE_PATCH_MAX_BYTES = 8 * 1024 * 1024;
@@ -175,9 +175,10 @@ const headerTab = (path) => (path.includes(' ') ? '\t' : '');
 
 /**
  * One git-format patch from exact before/after bytes (null = absent). Paths
- * are root-relative. Returns the record file without its state.
+ * are root-relative. Resolves to the record file without its state; the line
+ * diff runs off the main thread.
  */
-export function trackedChangeFile({ oldPath, newPath, before, after }) {
+export async function trackedChangeFile({ oldPath, newPath, before, after }) {
   let status = 'M';
   if (before === null) status = 'A';
   else if (after === null) status = 'D';
@@ -199,10 +200,15 @@ export function trackedChangeFile({ oldPath, newPath, before, after }) {
   }
   let hunks = [];
   if (oldText !== newText) {
-    const result = structuredPatch(`a/${oldPath}`, `b/${newPath}`, oldText, newText, '', '', {
-      context: 3,
-      timeout: TRACKED_DIFF_TIMEOUT_MS,
-    });
+    let result = null;
+    try {
+      result = await structuredPatchOffThread(`a/${oldPath}`, `b/${newPath}`, oldText, newText, {
+        context: 3,
+        timeout: TRACKED_DIFF_TIMEOUT_MS,
+      });
+    } catch {
+      // A failed worker request (crash, transport error) degrades like a timeout.
+    }
     if (!result) return { ...base, revertable: false, reason: 'the diff took too long to compute' };
     hunks = result.hunks;
   }
@@ -353,8 +359,8 @@ export const MERGED_PATCH_MAX_BYTES = 2 * 1024 * 1024;
 const VIEW_PATCH_MAX_BYTES = 256 * 1024;
 
 /** Counts and a placeholder-named patch of exact before/after bytes. */
-function measureChange(before, after, renamed) {
-  const measured = trackedChangeFile({
+async function measureChange(before, after, renamed) {
+  const measured = await trackedChangeFile({
     oldPath: renamed ? 'mx-old-file' : 'mx-file',
     newPath: renamed ? 'mx-new-file' : 'mx-file',
     before,
@@ -385,8 +391,8 @@ function nameMeasuredPatch(text, oldName, newName) {
 /** A git-format patch of exact before/after text under the names a viewer
  *  shows (absolute for a file outside the worktree). `before`/`after` are
  *  Buffers or null (absent). */
-export function namedChangePatch({ before, after, oldName, newName, maxBytes = VIEW_PATCH_MAX_BYTES }) {
-  const { text, ...measured } = measureChange(before, after, oldName !== newName);
+export async function namedChangePatch({ before, after, oldName, newName, maxBytes = VIEW_PATCH_MAX_BYTES }) {
+  const { text, ...measured } = await measureChange(before, after, oldName !== newName);
   const patch = nameMeasuredPatch(text, oldName, newName);
   return { ...measured, patch: Buffer.byteLength(patch, 'utf8') > maxBytes ? '' : patch };
 }
@@ -477,7 +483,7 @@ export async function measureLegacyChangeFile(file, root) {
   const text = await currentText(root, file.path);
   if (typeof text !== 'string' || !text) return file;
   const name = slashPath(file.path);
-  const named = namedChangePatch({ before: null, after: Buffer.from(text, 'utf8'), oldName: name, newName: name });
+  const named = await namedChangePatch({ before: null, after: Buffer.from(text, 'utf8'), oldName: name, newName: name });
   if (!named.patch) return file;
   return { ...file, additions: named.additions, deletions: named.deletions, viewPatch: named.patch };
 }

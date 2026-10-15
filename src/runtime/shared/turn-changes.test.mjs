@@ -514,7 +514,7 @@ test('a non-Git session review lists its workers’ edits beside the Lead’s, a
   const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
   // The worker runs its own session turn, which records its own change.
   await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'worker.txt', before: null, after: 'worker\n' }]);
-  completeAgentTurnReview(worker);
+  await completeAgentTurnReview(worker);
   recordTurnDiffChanges(lead, [
     { path: join(root, 'lead.txt'), displayPath: 'lead.txt', before: null, after: 'lead\n' },
   ]);
@@ -533,7 +533,7 @@ test('worker delete → Lead recreate nets to one M against the first-seen state
   const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
   // The worker deletes the file, then the Lead recreates it with new content.
   await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'note.txt', before: 'old\n', after: null }]);
-  completeAgentTurnReview(worker);
+  await completeAgentTurnReview(worker);
   await new Promise((resolve) => setTimeout(resolve, 5));
   recordTurnDiffChanges(lead, [
     { path: join(root, 'note.txt'), displayPath: 'note.txt', before: null, after: 'new\n' },
@@ -560,7 +560,7 @@ test('Lead delete → worker recreate (its own session turn) → Lead delete net
   const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
   writeFileSync(note, 'worker\n');
   await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'note.txt', before: null, after: 'worker\n' }]);
-  completeAgentTurnReview(worker);
+  await completeAgentTurnReview(worker);
   rmSync(note);
   recordTurnDiffChanges(lead, [{ path: note, displayPath: 'note.txt', before: 'worker\n', after: null }]);
   await completeTurnSnapshot(lead, token);
@@ -594,7 +594,7 @@ test('a worker rename old→middle and a Lead rename middle→new net to one R f
       after: 'content\n',
     },
   ]);
-  completeAgentTurnReview(worker);
+  await completeAgentTurnReview(worker);
   renameSync(middle, newFile);
   writeFileSync(newFile, 'content\nmore\n');
   recordTurnDiffChanges(lead, [
@@ -651,7 +651,7 @@ test('a Lead record re-sealed after its worker nets the Lead’s later edit last
   await new Promise((resolve) => setTimeout(resolve, 5));
   const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
   await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'note.txt', before: 'old\n', after: null }]);
-  completeAgentTurnReview(worker);
+  await completeAgentTurnReview(worker);
   // A completion wake reopens the turn; the Lead recreates the file and the
   // re-seal keeps the record's first createdAt.
   const wake = await beginTurnSnapshot(root, lead, { checkpointId: 'cp', continueTurn: true });
@@ -684,7 +684,7 @@ test('a Lead edit that landed before its worker’s nets first in the session re
   ]);
   const worker = beginAgentTurnReview(lead, `${lead}-worker`, { agent: 'worker' });
   await trackedTurn(`${lead}-worker`, root, 'worker-cp', [{ path: 'note.txt', before: null, after: 'new\n' }]);
-  completeAgentTurnReview(worker);
+  await completeAgentTurnReview(worker);
   await new Promise((resolve) => setTimeout(resolve, 5));
   await completeTurnSnapshot(lead, token);
   const [live, restarted] = await reviewTwice(root, lead);
@@ -1130,7 +1130,7 @@ test('a file under a parent junction is not read, nor is NUL content diffed as t
   if (linked) assert.equal(await currentText(root, join(alias, 'f.txt')), undefined);
   writeFileSync(join(root, 'bin.dat'), Buffer.from('text\0more\n'));
   assert.equal(await currentText(root, 'bin.dat'), undefined);
-  const file = trackedChangeFile({ oldPath: 'bin.dat', newPath: 'bin.dat', before: null, after: Buffer.from('a\0b') });
+  const file = await trackedChangeFile({ oldPath: 'bin.dat', newPath: 'bin.dat', before: null, after: Buffer.from('a\0b') });
   assert.equal(file.binary, true);
   assert.equal(file.revertable, false);
 });
@@ -1273,7 +1273,7 @@ test('a worker finishing while history is being deleted cannot write the old tur
   // queues a re-seal of the old turn with its tracker.
   const clearing = clearSessionChangeHistory(sessionId);
   writeTree(repo, { 'w.txt': 'w\nW2\n' });
-  completeAgentTurnReview(worker, ['diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1 +1,2 @@\n w\n+W2\n']);
+  await completeAgentTurnReview(worker, ['diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1 +1,2 @@\n w\n+W2\n']);
   assert.deepEqual(await clearing, { turns: 1 });
   // Drain the session's change lock: anything queued behind the delete has run.
   await revertTurnChanges(sessionId, 'drain', null, 1).catch(() => {});

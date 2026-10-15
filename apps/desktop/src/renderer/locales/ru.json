@@ -770,6 +770,7 @@
   "Change {{count}} files_other": "Изменено файлов: {{count}}",
   "Change All Occurrences": "Изменить все вхождения",
   "Change file": "Изменение файла",
+  "Change history can't be deleted while a response is running. Try again after it finishes.": "Нельзя удалить историю изменений, пока формируется ответ. Повторите попытку после его завершения.",
   "Change ids": "ID изменений",
   "Change terminal shell": "Сменить оболочку терминала",
   "Change the app color theme": "Изменение цветовой темы приложения",

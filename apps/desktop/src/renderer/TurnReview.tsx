@@ -102,6 +102,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
       setExpanded,
       sessionId,
       historyTurns,
+      busy,
     });
   }
   return (

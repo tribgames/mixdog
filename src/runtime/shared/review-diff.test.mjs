@@ -44,7 +44,7 @@ test('bounded diffs keep every file, its operation, and complete small hunks', (
 
 test('tracked review over two million characters retains large and subsequent files with a truncation flag', async () => {
   try {
-    const patch = recordTurnDiffChanges('oversized-review', [
+    const patch = await recordTurnDiffChanges('oversized-review', [
       { path: '/probe/a.txt', displayPath: 'a.txt', before: null, after: `${'x'.repeat(2100000)}\n` },
       { path: '/probe/z.txt', displayPath: 'z.txt', before: 'old\n', after: 'new\n' },
     ]);
@@ -94,7 +94,7 @@ test('a completion wake continues the user turn review with its Lead edits and w
     recordTurnDiffChanges('wake-worker', [
       { path: join(root, 'worker.txt'), displayPath: 'worker.txt', before: null, after: 'w\n' },
     ]);
-    completeAgentTurnReview(worker);
+    await completeAgentTurnReview(worker);
 
     await beginTurnSnapshot(root, lead, { continueTurn: true });
     recordTurnDiffChanges(lead, [{ path: join(root, 'fix.txt'), displayPath: 'fix.txt', before: 'x\n', after: 'y\n' }]);
@@ -128,7 +128,7 @@ test('a worker running its own session turn still reports its edits to the Lead 
     recordTurnDiffChanges('own-turn-worker', [
       { path: join(root, 'worker.txt'), displayPath: 'worker.txt', before: 'a\n', after: 'b\n' },
     ]);
-    completeAgentTurnReview(worker);
+    await completeAgentTurnReview(worker);
     const review = await getTurnReviewDiff(root, lead);
     assert.deepEqual(
       review.agents.map((agent) => [agent.tag, parseUnifiedDiff(agent.patch).map((file) => file.newFile.fileName)]),

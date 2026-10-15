@@ -647,6 +647,7 @@
   "Change {{count}} files_other": "變更 {{count}} 個檔案",
   "Change All Occurrences": "更改所有出現的情況",
   "Change file": "變更檔案",
+  "Change history can't be deleted while a response is running. Try again after it finishes.": "回覆進行中，無法刪除變更記錄。請在完成後再試一次。",
   "Change ids": "變更 ID",
   "Change terminal shell": "變更終端機 Shell",
   "Change the app color theme": "更改應用程式顏色主題",
