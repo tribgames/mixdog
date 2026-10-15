@@ -139,6 +139,25 @@ export function createPostGcHeapTracker({
   };
 }
 
+/**
+ * Builds the `describeStall(fromMono, toMono)` the owner heartbeat appends to
+ * its stall line: the spans that overlapped the stall window plus the in-flight
+ * work snapshot at report time. Counters and labels only.
+ */
+export function createStallDescriber({ spans, getWork = () => ({}), limit = 3 } = {}) {
+  return (fromMono, toMono) => {
+    const parts = [];
+    const overlapping = spans?.describe(fromMono, toMono, limit);
+    if (overlapping) parts.push(overlapping);
+    const work = workCounts(getWork());
+    parts.push(
+      `in-flight: activeCalls=${work.activeCalls} queuedCalls=${work.queuedCalls}` +
+        ` busySessions=${work.busySessions} busyMemoryAgents=${work.busyMemoryAgents}`
+    );
+    return parts.join(' | ');
+  };
+}
+
 export function formatDaemonTelemetry(record, reason = 'periodic') {
   const row = record && typeof record === 'object' ? record : collectDaemonTelemetry();
   return [

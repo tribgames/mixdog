@@ -83,7 +83,8 @@ import {
   installDaemonExitRecorder,
   reconcileLostDaemonCaptures,
 } from '../session-runtime/services/daemon-crash-capture/daemon-exit-record.mjs';
-import { createDaemonTelemetry } from './daemon-telemetry.mjs';
+import { createDaemonTelemetry, createStallDescriber } from './daemon-telemetry.mjs';
+import { slowSpans } from '../runtime/shared/slow-span.mjs';
 import { createLagProfiler } from './daemon-lag-profiler.mjs';
 import { createChannelsRuntimeLoader } from './daemon-channels-loader.mjs';
 import { createDesktopRuntime } from './daemon-desktop-runtime.mjs';
@@ -315,6 +316,9 @@ function inFlightWork() {
 
 // Opt-in CPU profiling of lag windows while DATA_DIR/lag-profile.on exists.
 const lagProfiler = createLagProfiler({ dataDir: DATA_DIR, log });
+// Request spans share the heartbeat's performance.now() clock; `[slow-op]` lines
+// and stall attribution come from the same recorder.
+slowSpans.setLog(log);
 
 daemonTelemetry = createDaemonTelemetry({
   log,
@@ -506,6 +510,7 @@ async function claimDaemonOwnership(bootPhases) {
     tickMs: timings.tickMs,
     stallMs: timings.stallMs,
     log,
+    describeStall: createStallDescriber({ spans: slowSpans, getWork: inFlightWork }),
     onBeat: republishMissingDiscovery,
     onSuperseded: (record) => fenceDaemon(`owner claim superseded by pid=${record?.pid}`),
     onFenced: ({ lastRefreshAt, sinceMs }) =>

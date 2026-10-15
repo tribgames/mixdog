@@ -246,6 +246,7 @@ export function daemonOwnerIsStale(
  * - No successful refresh for `fenceMs`: fenced, never renewed (`onFenced`).
  * - The record names another pid: `onSuperseded(record)`.
  * - A turn gap over `stallMs`: `admit()` refuses work until a refresh succeeds.
+ *   The gap is logged once, with `describeStall(fromMono, toMono)` appended.
  * Both callbacks must make this process stop serving.
  */
 export function createOwnerHeartbeat({
@@ -259,6 +260,7 @@ export function createOwnerHeartbeat({
   monoNow = () => performance.now(),
   refresh = refreshSingletonOwner,
   log = () => {},
+  describeStall = null,
   onBeat = () => {},
   onSuperseded,
   onFenced,
@@ -290,11 +292,22 @@ export function createOwnerHeartbeat({
   }
 
   function noteTurn(t) {
-    if (t - lastTurnAt > stallMs && !needsVerify) {
-      needsVerify = true;
-      log(`event loop stalled ${Math.round(t - lastTurnAt)}ms — owner lease must be re-verified before serving`);
-    }
+    const from = lastTurnAt;
+    // Rebased before reporting: one long block is one gap, however many
+    // callers (tick, admit) observe it afterwards.
     lastTurnAt = t;
+    if (t - from <= stallMs) return;
+    needsVerify = true;
+    let detail = '';
+    try {
+      detail = describeStall?.(from, t) || '';
+    } catch {
+      /* attribution must not disturb the lease */
+    }
+    log(
+      `event loop stalled ${Math.round(t - from)}ms — owner lease must be re-verified before serving` +
+        (detail ? ` | ${detail}` : '')
+    );
   }
 
   function beat() {

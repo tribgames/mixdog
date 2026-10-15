@@ -454,3 +454,71 @@ test('the fence fires on its own tick when refreshes keep failing (no request ne
   for (let i = 0; i < 40 && fenced.length === 0; i += 1) await delay(25);
   assert.equal(fenced.length, 1);
 });
+
+test('one long block is reported once with the describeStall detail, and still forces re-verify', () => {
+  let mono = 0;
+  const logs = [];
+  const windows = [];
+  const refreshes = [];
+  const heartbeat = createOwnerHeartbeat({
+    ownerPath: 'unused',
+    owner: { pid: 4242, heartbeatAt: at(0) },
+    heartbeatMs: 10_000,
+    fenceMs: 40_000,
+    tickMs: 250,
+    stallMs: 1000,
+    monoNow: () => mono,
+    log: (line) => logs.push(line),
+    describeStall: (from, to) => {
+      windows.push([from, to]);
+      return 'spans: session.read#abcd1234 3000ms';
+    },
+    refresh: (_path, record) => {
+      refreshes.push(mono);
+      return { status: 'busy', owner: record };
+    },
+    onSuperseded: () => {},
+    onFenced: () => assert.fail('not fenced'),
+  });
+  mono = 3500;
+  // Observed by the tick and by two requests at the same instant: one report.
+  heartbeat.tick();
+  assert.equal(heartbeat.admit(), false);
+  assert.equal(heartbeat.admit(), false);
+  const stalls = logs.filter((line) => line.startsWith('event loop stalled'));
+  assert.equal(stalls.length, 1);
+  assert.equal(
+    stalls[0],
+    'event loop stalled 3500ms — owner lease must be re-verified before serving | spans: session.read#abcd1234 3000ms'
+  );
+  assert.deepEqual(windows, [[0, 3500]]);
+  assert.equal(refreshes.length >= 1, true, 'lease re-verify still attempted');
+  // A later, separate block is a new report over its own window only.
+  mono = 6000;
+  heartbeat.tick();
+  assert.deepEqual(windows, [[0, 3500], [3500, 6000]]);
+});
+
+test('a throwing describeStall never disturbs the stall report or the lease', () => {
+  let mono = 0;
+  const logs = [];
+  const heartbeat = createOwnerHeartbeat({
+    ownerPath: 'unused',
+    owner: { pid: 4242, heartbeatAt: at(0) },
+    heartbeatMs: 10_000,
+    fenceMs: 40_000,
+    tickMs: 250,
+    stallMs: 1000,
+    monoNow: () => mono,
+    log: (line) => logs.push(line),
+    describeStall: () => {
+      throw new Error('boom');
+    },
+    refresh: (_path, record) => ({ status: 'refreshed', owner: record }),
+    onSuperseded: () => {},
+    onFenced: () => assert.fail('not fenced'),
+  });
+  mono = 2000;
+  assert.equal(heartbeat.admit(), true);
+  assert.deepEqual(logs, ['event loop stalled 2000ms — owner lease must be re-verified before serving']);
+});

@@ -2,6 +2,7 @@
 // The generic runtime-action lane (read / configure allowlists) and the
 // session catalog listing.
 import { SESSION_CONFIGURE_ACTION_SET, SESSION_READ_ACTION_SET } from '../../session-protocol.mjs';
+import { annotateSpan, markPhase } from '../../../runtime/shared/slow-span.mjs';
 import { sanitizeForWire } from '../../session-wire-values.mjs';
 
 /** Reads a session without a live runtime answers from disk (readStoredReview). */
@@ -44,7 +45,8 @@ export function createSessionActionCalls(ctx) {
     assertAvailable();
     if (value === null) throw new Error(`session ${id} is not available`);
     log(`session action ${name} session=${id} result=${resultSummary(value)} (stored)`);
-    return {
+    markPhase('load');
+    const result = {
       value: sanitizeForWire(value) ?? null,
       sessionId: id,
       reservedOnly: false,
@@ -52,6 +54,8 @@ export function createSessionActionCalls(ctx) {
       unchanged: true,
       ...(Number.isInteger(baseRevision) ? { revision: baseRevision } : {}),
     };
+    markPhase('project');
+    return result;
   }
 
   async function runSessionAction(
@@ -62,6 +66,7 @@ export function createSessionActionCalls(ctx) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const name = requireSessionAction(action, allowedActions);
+    annotateSpan(name);
     // Opening an earlier session asks for its review right away; loading the
     // whole runtime for that held the review bar (and the pane's reveal) for
     // seconds.
@@ -72,7 +77,9 @@ export function createSessionActionCalls(ctx) {
     assertAvailable(entry);
     const target = entry.runtime[name];
     if (typeof target !== 'function') throw new TypeError(`session action ${name} is unavailable`);
+    markPhase('load');
     const value = await target.apply(entry.runtime, Array.isArray(args) ? args : []);
+    markPhase('action');
     if (name === 'setCwd' && value) {
       try {
         const projects = await loadProjectStore();
@@ -89,11 +96,13 @@ export function createSessionActionCalls(ctx) {
     // Still unwatched: keep it on the retention clock exactly like a runtime
     // released by its view, so an untouched load cannot leak past the idle window.
     retainUnwatched(entry);
-    return {
+    const result = {
       value: sanitizeForWire(value) ?? null,
       sessionId: responseSessionId(entry, id),
       ...bodyForClient(step, Number.isInteger(baseRevision) ? baseRevision : null),
     };
+    markPhase('project');
+    return result;
   }
 
   async function listSessionCatalog(options = {}) {
