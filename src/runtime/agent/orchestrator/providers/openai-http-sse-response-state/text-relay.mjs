@@ -101,6 +101,10 @@ export function createTextRelay({ state, body, onTextDelta, meaningful, emitTool
       if (!state.content && part.type === 'output_text' && absorbCompletedText(part)) reported = true;
       if (part.type === 'output_text') pushOutputTextAnnotations(part, state.citations, state.citationKeys);
     }
+    if (state.refusals.absorbMessage(item)) {
+      meaningful('semantic');
+      reported = true;
+    }
     return reported;
   };
 

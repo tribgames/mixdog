@@ -68,6 +68,12 @@ export function buildBashPolicyScanTargets(command) {
   return out;
 }
 
-export function checkExecPolicyMessage(command) {
-  return formatExecPolicyBlockMessage(evaluateExecPolicyFromTargets(buildBashPolicyScanTargets(command)));
+export function evaluateExecPolicy(command) {
+  return evaluateExecPolicyFromTargets(buildBashPolicyScanTargets(command));
+}
+
+// `elevationApproved` is runtime-supplied: the user approved this call's
+// 'ask' (elevation) decision. It never lifts a deny.
+export function checkExecPolicyMessage(command, { elevationApproved = false } = {}) {
+  return formatExecPolicyBlockMessage(evaluateExecPolicy(command), { elevationApproved });
 }

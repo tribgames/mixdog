@@ -4,11 +4,7 @@ Read this when choosing a `setup` mutation.
 
 ## Read and navigate
 
-- `status` reads one domain: summary, model, agents, workflow, websearch,
-  output-style, profile, autoclear, compaction, memory, features, local-provider, shell,
-  providers, mcp, skills, plugins, update, onboarding, worktree, capabilities, developer,
-  desktop, appearance, projects, connection, schedules, webhooks, hooks, or
-  media.
+- `status` reads one domain from the schema enum; pick the narrowest.
 - `open` navigates to a supported UI surface. Read `surfaces.md` for targets and
   UI-only settings.
 
@@ -28,7 +24,7 @@ Read this when choosing a `setup` mutation.
 | Background memory cycles | `set_recap_enabled` |
 | Web Search tool exposure | `set_web_search_enabled` |
 | Which user instruction files (AGENTS.md / CLAUDE.md) new sessions load: all, agents, claude, or off | `set_instruction_files` |
-| Git, Office, Code Tidy, Local Provider, Auto Effort, Browser, Computer, or voice enabled state | `set_builtin_enabled` |
+| Git, Office, Code Tidy, Local Provider, Auto Effort, Browser, Computer, voice, or Visualize enabled state | `set_builtin_enabled` |
 | Git, Memory, Office, Code Tidy, Local Provider, Auto Effort, Browser, Computer, or voice preparation | `install_builtin` |
 | Managed local model installation | `install_local_model` |
 | Start or resume a background runtime/model download | `start_local_installation` |
@@ -44,7 +40,7 @@ Read this when choosing a `setup` mutation.
 | Automatic updates | `set_auto_update` |
 | Worktree defaults: new tasks on the current branch or a new worktree, branch prefix, large-repository warning size, automatic cleanup | `set_worktree_settings` |
 | Remove stored provider authentication (one OAuth account at a time) | `forget_provider_auth` |
-| Select, rename, reorder, or auto-switch OAuth accounts, or allow paid credits | `set_provider_account` |
+| Select, rename, or reorder OAuth accounts, set the switching policy, or allow paid credits | `set_provider_account` |
 | Developer options such as risk-gated OAuth providers | `set_developer_option` |
 | Add an MCP server | `add_mcp_server` |
 | Edit or rename an MCP server | `save_mcp_server` |
@@ -69,7 +65,7 @@ Read this when choosing a `setup` mutation.
 | Delete an existing schedule/webhook | `delete_automation` |
 | Enable/disable a schedule/webhook | `set_automation_enabled` |
 | Webhook listener enabled state, port, or domain | `set_webhook_config` |
-| Desktop keep-awake, run in background after window close, turn-completion notifications, notification volume (Windows), usage pin, or Computer observe-only state | `set_desktop_settings` |
+| Desktop keep-awake, run in background after window close, turn-completion notifications, notification volume (Windows), usage pin, usage rail short + long bars, or Computer observe-only state | `set_desktop_settings` |
 | Desktop theme, display language, side panels, markdown default view, link previews, or tool activity expansion | `set_appearance` |
 | Add a before-tool hook rule | `add_hook_rule` |
 | Enable or disable a hook rule by its `status hooks` index | `set_hook_rule_enabled` |
@@ -88,7 +84,9 @@ workflow` before changing the corresponding domain.
 
 - Main and agent routes also accept `modelParameters`, `contextPercent`, and
   `contextTokens` (an exact window in tokens that overrides `contextPercent`);
-  agent routes accept `disabled`.
+  agent routes accept `disabled`. Route `autoEffort` (Main and agent only)
+  turns Auto reasoning on/off for that route; the Auto Effort built-in toggle
+  is the machine-wide switch and must also be on and `ready`.
   Use the model catalog for actual available options, not remembered model ids.
 - A Web Search route must support native web search; tool exposure is changed
   separately.
@@ -116,9 +114,13 @@ Use `status providers` for authenticated state and source.
 - Forgetting authentication is destructive and requires explicit approval.
   It removes one OAuth account; a provider with several accounts requires
   `accountId` from the account list in `status providers`.
-- `set_provider_account` changes the selected account, automatic switching,
-  paid-credit use after plan limits (`useCredits`), account order (every account id exactly once), or an account label. Sign-in
-  for a new account still happens in the Providers UI.
+- `set_provider_account` changes the selected account, paid-credit use after
+  plan limits (`useCredits`), account order (every account id exactly once),
+  an account label, or the switching `policy`: `manual` stays on the selected
+  account, `limit` switches when it hits a limit, `headroom` starts each new
+  session on the account with the most headroom. `status providers` returns
+  the current `policy` when one is set. Sign-in for a new account still
+  happens in the Providers UI.
 - `status developer` lists developer options. An option with a `warning` is
   enabled only after the user explicitly accepts that warning, passed as
   `riskAccepted:true`; never assume acceptance.
@@ -159,7 +161,12 @@ markers are read with `status desktop`.
   reasoning effort with a local judge model downloaded in the background.
   Enabling or installing it fails on unsupported machines; `status features`
   reports `supported`, `installing` (judge download running) and `ready`.
+- Visualize is toggle-only through `set_builtin_enabled` (on by default);
+  `install_builtin` does not accept it.
 - Terminal follows the live Desktop terminal bridge and has no toggle.
+- Environment feature overrides (`MIXDOG_FEATURE_*`) win over these toggles;
+  they are diagnostics for headless or benchmark environments, not user
+  settings.
 - Browser Use and Computer Use installation/toggles use the same
   `install_builtin` and `set_builtin_enabled` actions through a live Desktop
   receipt. Computer Use runs on Windows, macOS, and Linux desktops. These
@@ -177,16 +184,12 @@ markers are read with `status desktop`.
   only as `hasArgumentEdit`; their contents are never returned. Indexes shift
   after a delete;
   re-read status before addressing another rule.
-- `add_hook_rule` takes `action` (allow, deny, block, modify, rewrite, ask)
-  and optional `tool`, `match`, `cwd`, `reason`. modify/rewrite need exactly
-  one of `patch` (merged into the arguments) or `args` (replaces them).
+- `add_hook_rule` with modify/rewrite needs exactly one of `patch` or `args`.
 - `delete_hook_rule` is destructive and requires explicit approval for the
   named rule; disabling with `set_hook_rule_enabled` preserves it.
 - `status media` shows the remembered lane/model per kind. `set_media_default`
   accepts only a signed-in lane that offers the kind (and the model, when
   given) in the live media catalog; the media tool's `list` reads that catalog.
-- Environment feature overrides are diagnostics for headless or benchmark
-  environments, not ordinary user settings.
 
 ## Skills, MCP, and plugins
 
@@ -201,6 +204,10 @@ markers are read with `status desktop`.
   transport. Raw credential fields are not accepted; `env_vars`,
   `bearer_token_env_var`, and `env_http_headers` reference existing environment
   variables without exposing their values.
+- `startupTimeoutSec` (connect/handshake, default 30) and `toolTimeoutSec`
+  (per tool call, default 120) are positive seconds. Raise them for slow
+  servers instead of reconnecting repeatedly; a timed-out call is never
+  replayed.
 - Environment/header maps are partial patches. Omitted keys are preserved;
   `null` explicitly removes one key, including a stored credential.
 - Plugin enablement moves its contributed skills and MCP integrations together.

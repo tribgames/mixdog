@@ -12,6 +12,41 @@ function normalizeReasoningEffort(value, allowed) {
   return allowed.includes(effort) ? effort : null;
 }
 
+/**
+ * OpenRouter's unified `reasoning` field, shared by its Chat and Responses
+ * wires: `openRouterReasoningEffort`, else the turn effort, else the configured
+ * effort; `none` disables reasoning. Null when no effort applies.
+ */
+export function openRouterReasoning(opts = {}, config = {}) {
+  const effort = normalizeReasoningEffort(opts.openRouterReasoningEffort ?? opts.effort ?? config?.reasoningEffort, [
+    'none',
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+  ]);
+  if (effort === 'none') return { enabled: false };
+  return effort ? { enabled: true, effort } : null;
+}
+
+function deepseekRawEffort(opts, config) {
+  return opts.deepseekReasoningEffort ?? opts.effort ?? config?.reasoningEffort;
+}
+
+/** 'enabled' | 'disabled' as the DeepSeek request will carry it, or null when nothing sets it. */
+export function deepseekThinkingMode(opts = {}, config = {}) {
+  const rawThinking = opts.deepseekThinking ?? opts.thinking ?? config?.thinking;
+  const rawEffort = deepseekRawEffort(opts, config);
+  if (rawThinking === undefined && rawEffort === undefined) return null;
+  const thinkingMode = String(rawThinking?.type ?? rawThinking ?? rawEffort)
+    .trim()
+    .toLowerCase();
+  const disabled = rawThinking === false || thinkingMode === 'disabled' || thinkingMode === 'none';
+  return disabled ? 'disabled' : 'enabled';
+}
+
 // Keep provider extensions isolated: fields accepted by one OpenAI-compatible
 // backend are frequently rejected by another even when the core Chat schema
 // is shared.
@@ -23,22 +58,14 @@ export function applyCompatProviderChatOptions(params, providerName, opts = {}, 
       protocol: 'openai-chat',
       model: modelInfo,
       effort: opts.effort ?? config?.reasoningEffort,
+      baseURL: config?.baseURL,
     });
     Object.assign(params, fields);
     return params;
   }
   if (providerName === 'openrouter') {
-    const effort = normalizeReasoningEffort(opts.openRouterReasoningEffort ?? opts.effort ?? config?.reasoningEffort, [
-      'none',
-      'minimal',
-      'low',
-      'medium',
-      'high',
-      'xhigh',
-      'max',
-    ]);
-    if (effort === 'none') params.reasoning = { enabled: false };
-    else if (effort) params.reasoning = { enabled: true, effort };
+    const reasoning = openRouterReasoning(opts, config);
+    if (reasoning) params.reasoning = reasoning;
     return params;
   }
   if (providerName === 'xai') {
@@ -53,22 +80,17 @@ export function applyCompatProviderChatOptions(params, providerName, opts = {}, 
     return params;
   }
   if (providerName === 'deepseek') {
-    const rawThinking = opts.deepseekThinking ?? opts.thinking ?? config?.thinking;
-    const rawEffort = opts.deepseekReasoningEffort ?? opts.effort ?? config?.reasoningEffort;
-    if (rawThinking !== undefined || rawEffort !== undefined) {
-      const thinkingMode = String(rawThinking?.type ?? rawThinking ?? rawEffort)
-        .trim()
-        .toLowerCase();
-      const disabled = rawThinking === false || thinkingMode === 'disabled' || thinkingMode === 'none';
-      params.thinking = { type: disabled ? 'disabled' : 'enabled' };
-      if (!disabled) {
-        const effort = String(rawEffort ?? '')
+    const mode = deepseekThinkingMode(opts, config);
+    if (mode) {
+      params.thinking = { type: mode };
+      if (mode === 'enabled') {
+        const effort = String(deepseekRawEffort(opts, config) ?? '')
           .trim()
           .toLowerCase();
         if (effort === 'max') params.reasoning_effort = 'max';
-        // DeepSeek documents low/high/max; `medium` is its own alias for
-        // high, and `low` is a real level that must not be promoted.
-        else if (effort === 'low') params.reasoning_effort = 'low';
+        // DeepSeek documents low/high/max; `minimal` is its alias for low,
+        // `medium`/`xhigh` for high, and `low` must not be promoted.
+        else if (effort === 'low' || effort === 'minimal') params.reasoning_effort = 'low';
         else if (['medium', 'high', 'xhigh'].includes(effort)) params.reasoning_effort = 'high';
       }
     }

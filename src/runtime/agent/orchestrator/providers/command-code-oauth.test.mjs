@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -110,16 +110,25 @@ test('a rejected key on usage requires a fresh sign-in and the error carries no 
   });
 });
 
-test('lists chat-capable models from /provider/v1/models', async () => {
+test('lists servable models from /provider/v1/models', async () => {
   signIn();
-  const api = recordingFetch(() => json(ROSTER));
+  const api = recordingFetch(() =>
+    json({ data: [...ROSTER.data, { id: 'embeddings-only', supported_endpoints: ['/embeddings'] }] })
+  );
   const provider = new CommandCodeOAuthProvider({ preconnect: false, fetchImpl: api.fetchImpl });
   const models = await provider.listModels();
-  // Messages-only (Claude) rows stay; a row declaring neither wire is dropped.
+  // Messages-only and Responses-only rows stay; a row declaring no inference wire is dropped.
   assert.deepEqual(
     models.map((m) => m.id),
-    ['deepseek/deepseek-v4-flash', 'zai-org/GLM-5.3', 'claude-sonnet-5']
+    ['deepseek/deepseek-v4-flash', 'zai-org/GLM-5.3', 'claude-sonnet-5', 'responses-only']
   );
+  // The persisted roster keeps every declared endpoint.
+  const cached = JSON.parse(readFileSync(join(dir, 'command-code-oauth-models.json'), 'utf8')).models;
+  assert.deepEqual(cached.find((row) => row.id === 'zai-org/GLM-5.3').supportedEndpoints, [
+    '/chat/completions',
+    '/responses',
+  ]);
+  assert.equal(cached.find((row) => row.id === 'deepseek/deepseek-v4-flash').supportedEndpoints, undefined);
   assert.deepEqual(api.seen, [
     {
       url: 'https://api.commandcode.ai/provider/v1/models',
@@ -132,12 +141,17 @@ test('lists chat-capable models from /provider/v1/models', async () => {
   assert.equal(chooseDefaultModel(['a/b']), 'a/b');
 });
 
-test('modelWire: chat when declared or undeclared, messages when only Messages is declared', () => {
+test('modelWire: Responses for GPT/Muse/Grok when advertised, else Chat, Messages when alone', () => {
   assert.equal(modelWire({ id: 'a' }), 'chat');
   assert.equal(modelWire({ id: 'a', supported_endpoints: ['/chat/completions', '/responses'] }), 'chat');
+  assert.equal(modelWire({ id: 'openai/gpt-5.5', supported_endpoints: ['/chat/completions', '/responses'] }), 'responses');
+  assert.equal(modelWire({ id: 'muse-spark-1.3', supported_endpoints: ['/chat/completions', '/v1/responses'] }), 'responses');
+  assert.equal(modelWire({ id: 'xai/grok-4.7', supported_endpoints: ['/chat/completions', '/responses'] }), 'responses');
+  assert.equal(modelWire({ id: 'gpt-5.5', supported_endpoints: ['/chat/completions'] }), 'chat');
   assert.equal(modelWire({ id: 'a', supported_endpoints: ['/chat/completions', '/messages'] }), 'chat');
   assert.equal(modelWire({ id: 'a', supported_endpoints: ['/v1/messages'] }), 'messages');
-  assert.equal(modelWire({ id: 'a', supported_endpoints: ['/responses'] }), null);
+  assert.equal(modelWire({ id: 'a', supported_endpoints: ['/responses'] }), 'responses');
+  assert.equal(modelWire({ id: 'a', supported_endpoints: ['/embeddings'] }), null);
   assert.equal(modelWire({}), null);
 });
 
@@ -255,6 +269,56 @@ test('a Messages-only model goes through the Anthropic engine at /provider/v1/me
     if (saved === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN;
     else process.env.ANTHROPIC_AUTH_TOKEN = saved;
   }
+});
+
+test('a GPT model advertising Responses posts to /provider/v1/responses', async () => {
+  signIn();
+  const roster = { data: [{ id: 'openai/gpt-5.5', supported_endpoints: ['/chat/completions', '/responses'] }] };
+  const urls = [];
+  const fetchImpl = async (input) => {
+    const url = String(input?.url || input);
+    if (url.endsWith('/provider/v1/models')) return json(roster);
+    urls.push(url);
+    return json({ error: { message: 'stop' } }, 400);
+  };
+  const provider = new CommandCodeOAuthProvider({ preconnect: false, fetchImpl });
+  await assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'openai/gpt-5.5', [], {}));
+  assert.ok(urls.length >= 1);
+  assert.ok(urls.every((url) => url === 'https://api.commandcode.ai/provider/v1/responses'));
+});
+
+test('a roster failure or miss keeps a known Messages-only model on Messages', async () => {
+  signIn();
+  let roster = () => json(ROSTER);
+  const api = recordingFetch((url) =>
+    url.endsWith('/provider/v1/models') ? roster() : json({ type: 'error', error: { message: 'stop' } }, 400)
+  );
+  const send = (provider) => assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'claude-sonnet-5', [], {}));
+  const messagesOnly = () => {
+    const rows = inferenceRows(api.seen.splice(0));
+    assert.ok(rows.length >= 1);
+    assert.ok(rows.every((row) => row.url === 'https://api.commandcode.ai/provider/v1/messages'));
+  };
+  // Listed once: Claude is persisted as Messages-only.
+  const listed = new CommandCodeOAuthProvider({ preconnect: false, fetchImpl: api.fetchImpl });
+  await listed.listModels();
+  // A later roster that misses the model keeps what this key listed.
+  roster = () => json({ data: [] });
+  await listed.listModels();
+  await send(listed);
+  messagesOnly();
+  // A fresh process whose roster cannot be read falls back on the persisted rows.
+  writeFileSync(
+    join(dir, 'command-code-oauth-models.json'),
+    JSON.stringify({ version: 1, fetchedAt: 1, models: [{ id: 'claude-sonnet-5', supportedEndpoints: ['/messages'] }] })
+  );
+  roster = () => json({ error: 'down' }, 503);
+  const fresh = new CommandCodeOAuthProvider({ preconnect: false, fetchImpl: api.fetchImpl });
+  await send(fresh);
+  messagesOnly();
+  assert.equal((await fresh.resolveWireRoute('claude-sonnet-5')).wire, 'messages');
+  // A model nothing describes is routed by convention but never pinned.
+  assert.equal((await fresh.resolveWireRoute('never-listed')).source, 'unknown');
 });
 
 test('a 401 on the Messages wire asks for a fresh sign-in', async () => {

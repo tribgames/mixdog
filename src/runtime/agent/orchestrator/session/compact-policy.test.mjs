@@ -88,6 +88,43 @@ test('successful compaction publishes post-compact pressure and invalidates the 
   assert.equal(session.lastContextTokensStaleAfterCompact, true);
 });
 
+test('an env-derived compact reserve is never persisted as session configuration', () => {
+  const previous = process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS;
+  const session = {
+    provider: 'cursor-oauth',
+    model: 'gemini-3.7-flash',
+    contextWindow: 500_000,
+    compactBoundaryTokens: 500_000,
+    compaction: { auto: true, reservedTokens: null },
+  };
+  try {
+    process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS = '450000';
+    const policy = resolveWorkerCompactPolicy(session, []);
+    assert.equal(policy.configuredReserveTokens, 450_000);
+    rememberCompactTelemetry(session, policy, { stage: 'pre_send_check', pressureTokens: 10_000 });
+    assert.equal(session.compaction.reservedTokens, null);
+
+    process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS = '55000';
+    session.contextWindow = 104_857;
+    session.compactBoundaryTokens = 104_857;
+    assert.equal(resolveWorkerCompactPolicy(session, []).reserveTokens, 55_000);
+
+    delete process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS;
+    assert.equal(resolveWorkerCompactPolicy(session, []).reserveTokens, 0);
+
+    // An explicit session reserve survives telemetry and outranks the env.
+    session.compaction.reservedTokens = 7_000;
+    process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS = '55000';
+    const explicit = resolveWorkerCompactPolicy(session, []);
+    assert.equal(explicit.reserveTokens, 7_000);
+    rememberCompactTelemetry(session, explicit, { stage: 'pre_send_check', pressureTokens: 10_000 });
+    assert.equal(session.compaction.reservedTokens, 7_000);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS;
+    else process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS = previous;
+  }
+});
+
 // Reported compaction numbers must share ONE scale with the context gauge
 // (user: 게이지는 499k인데 압축 알림은 131k→23k). The pre-compact side follows
 // the provider-billed prompt; the post-compact side is the same calibrated

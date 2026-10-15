@@ -138,6 +138,7 @@ export function createTurnOutcome({ turn, blocks, state, labels = OAUTH_STREAM_L
       usage: turn.usage,
       stopReason: turn.stopReason,
       stopDetails: turn.stopDetails,
+      ...(turn.stopSequence != null ? { stopSequence: turn.stopSequence } : {}),
       hasThinkingContent: turn.hasThinkingContent,
       contentBlockTypes: Array.from(turn.contentBlockTypes),
       // Ordered extended-thinking blocks (verbatim thinking text + signature)

@@ -109,7 +109,15 @@ test('skill dependencies are callable on the next request without changing the e
           initialTools.filter((tool) => !tool.deferLoading)
         );
       } else {
-        assert.deepEqual(requestTools.find((tool) => tool.name === 'office').inputSchema, office.inputSchema);
+        // Bridge exposure: the dependency stays in the scoped catalog, reached
+        // through call_tool; the request tools keep their bytes.
+        assert.equal(native, null);
+        assert.match(normalized.result, /Required tools available through call_tool: office/);
+        assert.equal(JSON.stringify(requestTools), JSON.stringify(initialTools));
+        assert.equal(
+          requestTools.some((tool) => tool.name === 'office'),
+          false
+        );
       }
       const result = normalizeToolEnvelope(await executeTool('office', { action: 'create' }, root, null, current));
       assert.match(typeof result.result === 'string' ? result.result : JSON.stringify(result.result), /created/);
@@ -172,7 +180,7 @@ test('skill dependencies are callable on the next request without changing the e
         assert.ok(JSON.stringify(sentBodies[1]).includes('# Deck guide'));
       } else {
         assert.deepEqual(sentTools[1], sentTools[0]);
-        assert.deepEqual(nextDefinition.inputSchema, office.inputSchema);
+        assert.equal(nextDefinition, undefined);
       }
       assert.deepEqual(sentTools[2], sentTools[1]);
     }
@@ -327,7 +335,12 @@ test('policy skills load their deferred tools while search stays independently d
     );
     assert.ok(current.deferredToolCatalog.some((tool) => tool.name === 'web_search'));
   }
-  // Canonical/local-compatible surfaces retain their complete fixed catalog.
+  // Canonical/local-compatible surfaces expose the core plus the bridge; the
+  // rest of the catalog stays reachable through call_tool.
   const canonical = session('openrouter', tools, 'lead');
-  for (const name of names) assert.ok(canonical.tools.some((tool) => tool.name === name));
+  assert.deepEqual(
+    canonical.tools.map((tool) => tool.name),
+    ['read', 'Skill', 'load_tool', 'call_tool']
+  );
+  for (const name of names) assert.ok(canonical.deferredToolCatalog.some((tool) => tool.name === name));
 });

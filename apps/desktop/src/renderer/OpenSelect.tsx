@@ -11,6 +11,8 @@ interface OpenSelectOption {
   label: string;
   description?: string;
   disabled?: boolean;
+  /** A rule above this option, setting it (and those after it) apart. */
+  separatorBefore?: boolean;
 }
 
 interface OpenSelectProps {
@@ -412,25 +414,27 @@ export function OpenSelect({
             onKeyDown={onKeyDown}
           >
             {options.map((option, index) => (
-              <button
-                type="button"
-                role="option"
-                className="mx-menu-item"
-                id={`${listboxId}-option-${index}`}
-                disabled={option.disabled}
-                aria-selected={option.value === current}
-                aria-description={option.description || undefined}
-                data-tooltip={option.description || undefined}
-                data-tooltip-side={option.description ? 'right' : undefined}
-                data-active={index === active}
-                tabIndex={index === active ? 0 : -1}
-                key={option.value}
-                onMouseEnter={() => setActive(index)}
-                onClick={() => select(option.value)}
-              >
-                <span>{option.label}</span>
-                {option.value === current && <MxIcon name="check-small" size={16} />}
-              </button>
+              <React.Fragment key={option.value}>
+                {option.separatorBefore && <div className="usage-menu-separator" role="separator" />}
+                <button
+                  type="button"
+                  role="option"
+                  className="mx-menu-item"
+                  id={`${listboxId}-option-${index}`}
+                  disabled={option.disabled}
+                  aria-selected={option.value === current}
+                  aria-description={option.description || undefined}
+                  data-tooltip={option.description || undefined}
+                  data-tooltip-side={option.description ? 'right' : undefined}
+                  data-active={index === active}
+                  tabIndex={index === active ? 0 : -1}
+                  onMouseEnter={() => setActive(index)}
+                  onClick={() => select(option.value)}
+                >
+                  <span>{option.label}</span>
+                  {option.value === current && <MxIcon name="check-small" size={16} />}
+                </button>
+              </React.Fragment>
             ))}
           </div>,
           document.body

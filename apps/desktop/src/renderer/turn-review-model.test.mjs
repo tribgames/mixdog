@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  mergeSessionReviewSummaries,
-  summarizeSessionDiffRows,
-  summarizeSessionTranscriptReview,
-} from './turn-review-model.ts';
+import { summarizeSessionDiffRows, summarizeSessionTranscriptReview } from './turn-review-model.ts';
 
 const patchFor = (file, added, removed) =>
   `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n${'-x\n'.repeat(removed)}${'+y\n'.repeat(added)}`;
@@ -105,20 +101,7 @@ test('grouped cards and write calls count across two turns', () => {
   assert.equal(summary.additions, 2);
 });
 
-test('an authoritative session diff adds files but never removes the transcript ones', () => {
-  const transcript = summarizeSessionTranscriptReview([tool('t1', 'a.txt'), tool('t2', 'b.txt')]);
-  const empty = summarizeSessionDiffRows([]);
-  assert.deepEqual([...mergeSessionReviewSummaries(transcript, empty).files.keys()].sort(), ['a.txt', 'b.txt']);
-  const beyond = summarizeSessionDiffRows([
-    { path: 'b.txt', oldPath: '', status: 'M', additions: 9, deletions: 0, binary: false, parts: [] },
-    { path: 'old.txt', oldPath: '', status: 'A', additions: 1, deletions: 0, binary: false, parts: [] },
-  ]);
-  const merged = mergeSessionReviewSummaries(transcript, beyond);
-  assert.deepEqual([...merged.files.keys()].sort(), ['a.txt', 'b.txt', 'old.txt']);
-  assert.equal(merged.additions, 2 + 9 + 1);
-});
-
-test('three turns accumulate per file and a current-turn-only runtime diff never lowers them', () => {
+test('three turns accumulate per file across aggregate cards', () => {
   const aggregate = (id, file, verb) => ({
     kind: 'tool',
     id,
@@ -143,16 +126,8 @@ test('three turns accumulate per file and a current-turn-only runtime diff never
   ];
   const transcript = summarizeSessionTranscriptReview(items, 'C:\\demo\\cart-service');
   assert.equal(transcript.files.get('mx-island-check.txt').additions, 2);
-  // Non-Git: the runtime diff only knows the running turn's file.
-  const merged = mergeSessionReviewSummaries(
-    transcript,
-    summarizeSessionDiffRows([
-      { path: 'mx-island-check.txt', oldPath: '', status: 'M', additions: 1, deletions: 0, binary: false, parts: [] },
-    ])
-  );
-  assert.deepEqual([...merged.files.keys()].sort(), ['README.md', 'mx-island-check.txt']);
-  assert.equal(merged.files.get('mx-island-check.txt').additions, 2);
-  assert.equal(merged.additions, 3);
+  assert.deepEqual([...transcript.files.keys()].sort(), ['README.md', 'mx-island-check.txt']);
+  assert.equal(transcript.additions, 3);
 });
 
 test('session diff rows become a session summary', () => {

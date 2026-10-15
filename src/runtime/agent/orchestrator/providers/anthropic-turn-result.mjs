@@ -10,6 +10,7 @@
  * account for usage identically.
  */
 import { traceAgentUsage } from '../agent-trace.mjs';
+import { reportedCostUsd } from './lib/usage-primitives.mjs';
 
 /**
  * @param {object} parseResult  the assembled turn (streaming or normalized non-streaming)
@@ -26,6 +27,7 @@ export function buildAnthropicTurnResult(parseResult, { provider, useModel, opts
   const output = parseResult.usage?.outputTokens || 0;
   const promptTokens = parseResult.usage?.promptTokens ?? input + cacheRead + cacheWrite;
   const liveModel = parseResult.model || useModel;
+  const costUsd = parseResult.usage?.costUsd ?? reportedCostUsd(usageRaw?.cost);
 
   if (usageRaw || input || output || cacheRead || cacheWrite) {
     traceAgentUsage({
@@ -53,6 +55,8 @@ export function buildAnthropicTurnResult(parseResult, { provider, useModel, opts
     model: liveModel,
     toolCalls: parseResult.toolCalls,
     stopReason: parseResult.stopReason || null,
+    ...(parseResult.stopDetails != null ? { stopDetails: parseResult.stopDetails } : {}),
+    ...(parseResult.stopSequence != null ? { stopSequence: parseResult.stopSequence } : {}),
     hasThinkingContent: !!parseResult.hasThinkingContent,
     contentBlockTypes: Array.isArray(parseResult.contentBlockTypes) ? parseResult.contentBlockTypes : [],
     // Round-trip adaptive-thinking blocks (verbatim thinking +
@@ -84,6 +88,11 @@ export function buildAnthropicTurnResult(parseResult, { provider, useModel, opts
       cacheWriteTokens: cacheWrite,
       ...(parseResult.usage?.cacheWrite1hTokens ? { cacheWrite1hTokens: parseResult.usage.cacheWrite1hTokens } : {}),
       promptTokens,
+      // A gateway-reported cost (OpenRouter `usage.cost`), when the turn has one.
+      ...(costUsd !== undefined ? { costUsd } : {}),
+      ...(parseResult.usage?.serverToolUse ? { serverToolUse: parseResult.usage.serverToolUse } : {}),
+      // Raw provider usage (incl. server_tool_use counters), as on the OAuth path.
+      ...(usageRaw ? { raw: usageRaw } : {}),
     },
   };
 }

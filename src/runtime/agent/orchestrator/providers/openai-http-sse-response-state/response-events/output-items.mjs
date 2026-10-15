@@ -6,6 +6,8 @@
  */
 import { recomputeToolInFlight } from '../response-state.mjs';
 import { parseJsonObject } from '../response-items.mjs';
+import { withToolCallNamespace } from '../../custom-tool-wire.mjs';
+import { isIncompleteToolItem } from '../../lib/responses-terminal-fields.mjs';
 
 function outputItemKind(item) {
   if (item.type === 'reasoning') return 'reasoning';
@@ -19,10 +21,10 @@ export function createOutputItemEvents({ state, items, meaningful }) {
   const onOutputItemAdded = (item) => {
     if (item?.type === 'function_call') {
       toolTracker.mark(item);
-      state.pendingCalls.set(item.id || '', {
-        name: item.name || '',
-        callId: item.call_id || '',
-      });
+      state.pendingCalls.set(
+        item.id || '',
+        withToolCallNamespace({ name: item.name || '', callId: item.call_id || '' }, item)
+      );
       state.toolInFlight = true;
     } else if (item?.type === 'tool_search_call') {
       // Mark tool_search as in-flight the moment the item is added,
@@ -66,12 +68,15 @@ export function createOutputItemEvents({ state, items, meaningful }) {
       meaningful('tool');
       return;
     }
-    const call = {
-      id: pending?.callId || event.call_id || '',
-      name: pending?.name || event.name || '',
-      arguments: parseJsonObject(event.arguments),
-      _pendingItemId: itemId,
-    };
+    const call = withToolCallNamespace(
+      {
+        id: pending?.callId || event.call_id || '',
+        name: pending?.name || event.name || '',
+        arguments: parseJsonObject(event.arguments),
+        _pendingItemId: itemId,
+      },
+      pending
+    );
     state.toolCalls.push(call);
     if (call.id && call.name) {
       delete call._pendingItemId;
@@ -81,9 +86,17 @@ export function createOutputItemEvents({ state, items, meaningful }) {
   };
 
   const onOutputItemDone = (item) => {
+    if (isIncompleteToolItem(item)) {
+      // Server-truncated call: stays in flight, never collected or replayed.
+      toolTracker.mark(item);
+      state.toolInFlight = true;
+      meaningful('tool');
+      return;
+    }
     items.pushResponseItem(item);
     items.pushReasoningItem(item);
     items.pushWebSearchCall(item);
+    state.refusals.absorbMessage(item);
     if (item.type === 'function_call') {
       const tc = state.toolCalls.find((t) => t._pendingItemId === (item.id || ''));
       if (tc) items.completePendingCall(tc, item);

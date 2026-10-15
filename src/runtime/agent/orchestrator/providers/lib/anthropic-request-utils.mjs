@@ -8,6 +8,7 @@ import { createProviderReplay, providerReplayItems } from './provider-replay.mjs
 import { anthropicFallbackProviderMetadata, parseAnthropicFallbackBlock } from '../anthropic-server-fallback.mjs';
 import { mergeFlatSchemaProperty } from './flat-schema-merge.mjs';
 import { reportedCostUsd } from './usage-primitives.mjs';
+import { normalizeServerToolUse } from './anthropic-server-tool-usage.mjs';
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
 
@@ -375,6 +376,7 @@ export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = 
   const cacheRead = Number(usage.cache_read_input_tokens) || 0;
   const cacheWrite = Number(usage.cache_creation_input_tokens) || 0;
   const costUsd = reportedCostUsd(usage.cost);
+  const serverToolUse = normalizeServerToolUse(usage);
   return {
     content: text,
     model: fallbackEvents.at(-1)?.fallbackModel || message?.model || fallbackModel,
@@ -398,6 +400,7 @@ export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = 
         : {}),
       promptTokens: input + cacheRead + cacheWrite,
       ...(costUsd !== undefined ? { costUsd } : {}),
+      ...(serverToolUse ? { serverToolUse } : {}),
       raw: usage,
     },
   };

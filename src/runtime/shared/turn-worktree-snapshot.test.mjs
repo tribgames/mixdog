@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
 import childProcess, { spawnSync } from 'node:child_process';
 import fs, {
-  existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   symlinkSync,
   utimesSync,
@@ -29,7 +27,7 @@ const {
   createTurnWorktreeSnapshot,
   noteTurnWorktreeChange,
   refreshTurnWorktreeSnapshot,
-  revertTurnWorktreeSnapshot,
+  resumeTurnWorktreeFilePatch,
 } = await import('./turn-worktree-snapshot.mjs');
 
 function git(cwd, ...args) {
@@ -85,12 +83,6 @@ test('turn worktree snapshots spawn git off the event loop and keep their conten
   assert.match(snapshot.patch, /^\+changed a$/m);
   assert.equal(snapshot.patchTruncated, false);
 
-  await revertTurnWorktreeSnapshot(snapshot);
-  assert.equal(readFileSync(join(repo, 'a.txt'), 'utf8'), 'original a\n');
-  assert.equal(readFileSync(join(repo, 'b.txt'), 'utf8'), 'original b\n');
-  assert.equal(existsSync(join(repo, 'new.txt')), false);
-  assert.deepEqual(snapshot.files, []);
-
   assert.deepEqual(mainThreadSpawns, [], 'git was spawned on the event loop thread');
 });
 
@@ -121,9 +113,6 @@ test('an autocrlf checkout touched without edits is not a diff', {
     snapshot.files.map(({ path, additions, deletions }) => ({ path, additions, deletions })),
     [{ path: 'a.txt', additions: 1, deletions: 1 }]
   );
-
-  await revertTurnWorktreeSnapshot(snapshot);
-  assert.equal(readFileSync(join(repo, 'a.txt'), 'utf8'), 'one\r\ntwo\r\nthree\r\n');
 });
 
 function seedRepo(name) {
@@ -223,19 +212,114 @@ test('an unreported write waits for the recapture gap, a reported one does not',
     ['a.txt', 'b.txt']
   );
 
-  // An open review's poll uses the shorter visible gap: 6 s on, it captures.
-  writeFileSync(join(repo, 'a.txt'), 'visible edit\n');
-  t.mock.timers.tick(6_000);
-  await refreshTurnWorktreeSnapshot(snapshot);
-  assert.doesNotMatch(snapshot.patch, /^\+visible edit$/m, 'a collapsed poll is still gated');
-  await refreshTurnWorktreeSnapshot(snapshot, { visible: true });
-  assert.match(snapshot.patch, /^\+visible edit$/m);
-
   // So does a change of the repository's own index (a commit or staging).
   writeFileSync(join(repo, 'c.txt'), 'staged c\n');
   git(repo, 'add', 'c.txt');
   await refreshTurnWorktreeSnapshot(snapshot);
   assert.ok(snapshot.files.some(({ path }) => path === 'c.txt'));
+});
+
+const lineCount = (text, pattern) => text.match(pattern)?.length ?? 0;
+
+test('a too-large file is listed with its counts while the other files keep their patches', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  const repo = seedRepo('large-file-repo');
+  writeFileSync(join(repo, 'big.txt'), 'seed\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'big');
+  const snapshot = await createTurnWorktreeSnapshot(repo);
+  // 1.2 MB of added lines: past the 1 MB per-file cap, within the total.
+  writeFileSync(join(repo, 'big.txt'), `${'x'.repeat(9)}\n`.repeat(120_000));
+  writeFileSync(join(repo, 'a.txt'), 'changed a\n');
+  writeFileSync(join(repo, 'c.txt'), 'new c\n');
+  noteTurnWorktreeChange(null);
+  await refreshTurnWorktreeSnapshot(snapshot, { force: true });
+  const byPath = Object.fromEntries(snapshot.files.map((file) => [file.path, file]));
+  assert.deepEqual(Object.keys(byPath), ['a.txt', 'big.txt', 'c.txt']);
+  assert.deepEqual(
+    [byPath['big.txt'].additions, byPath['big.txt'].deletions, byPath['big.txt'].patchOmitted, byPath['big.txt'].reason],
+    [120_000, 1, true, 'too_large']
+  );
+  assert.equal(byPath['a.txt'].patchOmitted, undefined);
+  assert.equal(byPath['c.txt'].patchOmitted, undefined);
+  assert.match(snapshot.patch, /^\+changed a$/m);
+  assert.match(snapshot.patch, /^\+new c$/m);
+  assert.doesNotMatch(snapshot.patch, /big\.txt/);
+  assert.equal(snapshot.diffTooLarge, false);
+
+  // Opened on its own, the file reads whole within the larger cap.
+  const scope = { paths: ['a.txt', 'big.txt', 'c.txt'], path: 'big.txt' };
+  const whole = await resumeTurnWorktreeFilePatch(repo, snapshot.baselineTree, { ...scope, maxBytes: 8 * 1024 * 1024 });
+  assert.match(whole.patch, /^diff --git a\/big\.txt b\/big\.txt$/m);
+  assert.equal(lineCount(whole.patch, /^\+x{9}$/gm), 120_000);
+  assert.deepEqual(await resumeTurnWorktreeFilePatch(repo, snapshot.baselineTree, { ...scope, maxBytes: 64 * 1024 }), {
+    patch: '',
+    patchOmitted: true,
+    reason: 'too_large',
+  });
+  // A file outside the recording session's scope is never read.
+  assert.deepEqual(
+    await resumeTurnWorktreeFilePatch(repo, snapshot.baselineTree, { paths: ['a.txt'], path: 'big.txt', maxBytes: 1e7 }),
+    { patch: '' }
+  );
+  // Every target is authorized on its own: an owned rename source never
+  // opens an unowned file, an unowned one never joins an owned file's diff.
+  assert.deepEqual(
+    await resumeTurnWorktreeFilePatch(repo, snapshot.baselineTree, {
+      paths: ['a.txt'],
+      path: 'big.txt',
+      oldPath: 'a.txt',
+      maxBytes: 1e7,
+    }),
+    { patch: '' }
+  );
+  const own = await resumeTurnWorktreeFilePatch(repo, snapshot.baselineTree, {
+    paths: ['a.txt'],
+    path: 'a.txt',
+    oldPath: 'big.txt',
+    maxBytes: 1e7,
+  });
+  assert.match(own.patch, /^\+changed a$/m);
+  assert.doesNotMatch(own.patch, /big\.txt|x{9}/);
+
+  // Nothing but the large file changed: no patch fits at all.
+  writeFileSync(join(repo, 'a.txt'), 'original a\n');
+  rmSync(join(repo, 'c.txt'));
+  await refreshTurnWorktreeSnapshot(snapshot, { force: true });
+  assert.deepEqual(
+    snapshot.files.map(({ path, patchOmitted }) => [path, patchOmitted]),
+    [['big.txt', true]]
+  );
+  assert.equal(snapshot.patch, '');
+  assert.equal(snapshot.diffTooLarge, true);
+});
+
+test('a range whose whole patch passes the read limit still carries the small files', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  const repo = seedRepo('huge-range-repo');
+  writeFileSync(join(repo, 'big.txt'), 'seed\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'big');
+  const snapshot = await createTurnWorktreeSnapshot(repo);
+  // ~9.2 MB: the whole-range read overflows; batches are halved around it.
+  writeFileSync(join(repo, 'big.txt'), `${'y'.repeat(99)}\n`.repeat(92_000));
+  writeFileSync(join(repo, 'a.txt'), 'changed a\n');
+  writeFileSync(join(repo, 'c.txt'), 'new c\n');
+  noteTurnWorktreeChange(null);
+  await refreshTurnWorktreeSnapshot(snapshot, { force: true });
+  assert.deepEqual(
+    snapshot.files.map(({ path, additions, patchOmitted }) => [path, additions, patchOmitted]),
+    [
+      ['a.txt', 1, undefined],
+      ['big.txt', 92_000, true],
+      ['c.txt', 1, undefined],
+    ]
+  );
+  assert.match(snapshot.patch, /^\+changed a$/m);
+  assert.match(snapshot.patch, /^\+new c$/m);
+  assert.equal(snapshot.diffTooLarge, false);
 });
 
 test('a directory outside any repository yields no snapshot', {

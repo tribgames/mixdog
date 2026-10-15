@@ -8,6 +8,7 @@ import { traceLoopPhaseTiming } from './diagnostics.mjs';
 import { processToolBatch } from '../tool-batch.mjs';
 import { CROSS_TURN_CAP, REPEAT_FAIL_LIMIT } from './loop-state.mjs';
 import { markStepEffort } from './step-auto-effort.mjs';
+import { resolveExecutionToolCalls } from './tool-call-resolution.mjs';
 
 function isSleepLikeToolCall(call) {
   const name = String(call?.name || call?.toolName || call?.function?.name || '').toLowerCase();
@@ -34,7 +35,9 @@ export async function runToolPhase(state, round, sent, onToolCall) {
   }
   // Per-turn batch shape — one row per assistant turn so trace consumers can
   // derive the multi-tool adoption ratio without scanning message bodies.
-  const toolBatchId = recordToolBatch(sessionId, calls, state.iterations);
+  // Audit records what runs: a bridged call_tool is recorded as its target.
+  // The wire calls stay the transcript identity (assistant turn below).
+  const toolBatchId = recordToolBatch(sessionId, resolveExecutionToolCalls(calls, sessionRef), state.iterations);
   await Promise.resolve(onToolCall?.(state.iterations, calls));
   const assistantTurnMsg = buildToolCallAssistantMessage(response, { calls, suppressMidTurnText, opts });
   commitAssistantMessage(messages, assistantTurnMsg, opts);

@@ -8,7 +8,13 @@ import { filesForLanguages } from './languages.mjs';
 import { mapLimit } from './process.mjs';
 import { runnerFor } from './runners/index.mjs';
 import { DEFAULT_ENGINE_TIMEOUT_MS } from './runners/shared.mjs';
-import { fullPathFor, guardTidyWritePath, noteWrittenFiles } from './apply.mjs';
+import {
+  captureWriteBaselines,
+  fullPathFor,
+  guardTidyWritePath,
+  noteWrittenFiles,
+  recordEngineWrites,
+} from './apply.mjs';
 
 const CHECK_CONCURRENCY = 3;
 
@@ -75,6 +81,7 @@ async function runOne({ engine, files, cwd, mode, apply, timeoutMs, signal, sess
     return result;
   }
   const before = new Map(candidates.map((file) => [file, fileDigest(fullPathFor(cwd, file))]));
+  const baselines = sessionId ? captureWriteBaselines(candidates.map((file) => fullPathFor(cwd, file))) : null;
   let fixResult;
   try {
     fixResult = await runner.fix({
@@ -92,10 +99,9 @@ async function runOne({ engine, files, cwd, mode, apply, timeoutMs, signal, sess
   const changed = candidates.filter((file) => fileDigest(fullPathFor(cwd, file)) !== before.get(file));
   // The engine wrote in place; run the same invalidation trio a pipeline write
   // would have run for each file it touched.
-  noteWrittenFiles(
-    changed.map((file) => fullPathFor(cwd, file)),
-    { sessionId }
-  );
+  const changedPaths = changed.map((file) => fullPathFor(cwd, file));
+  noteWrittenFiles(changedPaths, { sessionId });
+  if (baselines) await recordEngineWrites({ cwd, sessionId, baselines, fullPaths: changedPaths });
   result.filesChanged = changed;
   if (fixResult?.error) result.error = fixResult.error;
   if (fixResult?.truncated) result.truncated = true;

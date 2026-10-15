@@ -26,6 +26,9 @@ export function createMessageEvents({ turn, blocks, state }) {
     if (event.delta && (event.delta.stop_details != null || event.delta.category != null)) {
       turn.stopDetails = stopDetailsFrom(event.delta);
     }
+    if (event.delta?.stop_sequence != null) {
+      turn.stopSequence = event.delta.stop_sequence;
+    }
     if (event.usage) updateTurnUsage(turn.usage, event.usage);
     // A terminal stop_reason while ANY tool input is still streaming ends the
     // turn truncated, immediately: the model declared it stopped sampling, so

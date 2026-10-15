@@ -32,6 +32,7 @@ import { resetReadStateAfterCompaction } from './read-dedup.mjs';
 import { scheduleCompactionArchive, stampCompactionMessageIds } from './compaction-archive-capture.mjs';
 import { writeStderrBestEffort } from '../../../shared/best-effort-stderr.mjs';
 import { applyPendingWorkspaceReroot } from './manager/prompt-utils.mjs';
+import { backfillFallbackSessionTitle } from './manager/session-fallback-title.mjs';
 import {
   acknowledgePendingGoalReminder,
   markPendingGoalReminder,
@@ -379,6 +380,7 @@ function adoptCompactedTranscript(ctx, run) {
   const { state } = ctx;
   const { messages, sessionRef, sessionId, opts } = state;
   const replaced = messages.slice();
+  if (sessionRef) backfillFallbackSessionTitle(sessionRef, replaced);
   messages.length = 0;
   messages.push(...run.compacted);
   // Display-only archive of the dropped conversation; the projection and the

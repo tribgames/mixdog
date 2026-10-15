@@ -21,7 +21,6 @@ import {
 } from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
 import { useXaiResponsesWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-compat-xai.mjs';
 import {
-  deepseekReplaysReasoningContent,
   toOpenAIMessages,
   toOpenAITools,
 } from '../src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs';
@@ -77,7 +76,8 @@ test('Computer Use stays one shared custom-tool contract across providers', () =
       },
       'anthropic'
     )[0].input_schema,
-    toGeminiTools([tool]).functionDeclarations[0].parameters,
+    // Gemini carries the schema as JSON Schema (`parametersJsonSchema`).
+    toGeminiTools([tool]).functionDeclarations[0].parametersJsonSchema,
   ];
   for (const schema of schemas) {
     assert.deepEqual(schema.properties.action.enum, [
@@ -878,11 +878,16 @@ test('current vendor preset defaults and OpenCode Go protocol routes are pinned'
     assert.equal(isAnthropicGoModel(model), false, model);
   }
   assert.deepEqual(resolveOpenCodeGoBaseURLs(), {
-    openai: 'https://opencode.ai/zen/go/v1',
-    anthropic: 'https://opencode.ai/zen/go',
+    openai: 'https://opencode.ai/inference/go/v1',
+    anthropic: 'https://opencode.ai/inference/go',
   });
-  assert.equal(openCodeGoEndpointForModel('minimax-m3'), 'https://opencode.ai/zen/go/v1/messages');
-  assert.equal(openCodeGoEndpointForModel('glm-5.2'), 'https://opencode.ai/zen/go/v1/chat/completions');
+  // A user-configured base URL is kept as given.
+  assert.deepEqual(resolveOpenCodeGoBaseURLs('https://proxy.example/go/v1/'), {
+    openai: 'https://proxy.example/go/v1',
+    anthropic: 'https://proxy.example/go',
+  });
+  assert.equal(openCodeGoEndpointForModel('minimax-m3'), 'https://opencode.ai/inference/go/v1/messages');
+  assert.equal(openCodeGoEndpointForModel('glm-5.2'), 'https://opencode.ai/inference/go/v1/chat/completions');
 });
 
 test('provider-specific thinking fields do not leak across compat contracts', () => {
@@ -961,13 +966,8 @@ test('xai ships reasoning_effort only for the model families that accept it', ()
   });
 });
 
-test('deepseek reasoning_content replay follows the model, not the provider', () => {
-  // deepseek-reasoner rejects reasoning_content in the input messages (400);
-  // thinking-mode models require it back once tools are in play.
-  assert.equal(deepseekReplaysReasoningContent('deepseek-reasoner'), false);
-  assert.equal(deepseekReplaysReasoningContent('deepseek-chat'), true);
-  assert.equal(deepseekReplaysReasoningContent('deepseek-v4'), true);
-
+test('deepseek reasoning_content is replayed when the caller asks for it', () => {
+  // DeepSeek docs: reasoning_content must be sent back when tools are present.
   const history = [
     { role: 'user', content: 'hi' },
     {
@@ -978,8 +978,6 @@ test('deepseek reasoning_content replay follows the model, not the provider', ()
     },
     { role: 'tool', toolCallId: 'c1', content: 'ok' },
   ];
-  const reasonerWire = toOpenAIMessages(history, 'deepseek');
-  assert.equal(reasonerWire.find((m) => m.role === 'assistant').reasoning_content, undefined);
   const thinkingWire = toOpenAIMessages(history, 'deepseek', { replaysReasoningContent: true });
   assert.equal(thinkingWire.find((m) => m.role === 'assistant').reasoning_content, 'inner thought');
   // xAI keeps replaying by provider: omitting it is the top cache-miss cause.
@@ -1286,6 +1284,13 @@ test('OpenCode Go Anthropic delegation traces additive inner usage before inclus
     cachedTokens: 35,
     cacheWriteTokens: 5,
     promptTokens: 100,
+    // The inner Anthropic turn keeps the provider's raw usage object.
+    raw: {
+      input_tokens: 60,
+      cache_read_input_tokens: 35,
+      cache_creation_input_tokens: 5,
+      output_tokens: 5,
+    },
   });
   const traceRows = readFileSync(tracePath, 'utf8')
     .trim()

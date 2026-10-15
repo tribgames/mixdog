@@ -5,6 +5,7 @@
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { noteOfficeWrite } from '../core/office-write-ledger.mjs';
 import {
   PDFDocument,
   PDFArray,
@@ -130,6 +131,7 @@ export async function writeSibling(path, target, bytes) {
   if (output.toLowerCase() === resolve(path).toLowerCase())
     throw new Error('output must differ from the document being edited');
   await mkdir(dirname(output), { recursive: true });
+  noteOfficeWrite(output);
   await writeFile(output, bytes);
   return output;
 }

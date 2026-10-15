@@ -88,8 +88,10 @@ test('the Session Diff list shows for its own session only; other sessions fold'
   const folded = sessionSideDockEntryForSession(showing, 'beta', null, null, null);
   assert.equal(folded.open, false);
   assert.equal(folded.surface, '');
-  // Outside any session the pane stays exactly as it was.
-  assert.strictEqual(sessionSideDockEntryForSession(showing, '', null, null, null), showing);
+  // Outside any session (a New Task draft) the session-owned list folds too.
+  const draft = sessionSideDockEntryForSession(showing, '', null, null, null);
+  assert.equal(draft.open, false);
+  assert.equal(draft.surface, '');
 });
 
 test("a session's list restores over the pane's remembered view", () => {

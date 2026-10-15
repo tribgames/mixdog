@@ -12,6 +12,13 @@ export function requiredGitIgnoreScope(value) {
   throw new TypeError('Git ignore scope is invalid.');
 }
 
+/** Changes-view source; omitted means the cumulative `branch` view. */
+export function requiredReviewSource(value) {
+  if (value === undefined || value === 'branch') return 'branch';
+  if (value === 'uncommitted') return 'uncommitted';
+  throw new TypeError('Git review source is invalid.');
+}
+
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{4,64}$/i;
 export function requiredCommitHash(value) {
   const hash = typeof value === 'string' ? value.trim() : '';

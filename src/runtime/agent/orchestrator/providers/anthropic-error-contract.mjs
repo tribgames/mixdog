@@ -25,9 +25,11 @@ const STATUS_ERROR_TYPE = new Map([
   [401, 'authentication_error'],
   [403, 'permission_error'],
   [404, 'not_found_error'],
+  [409, 'conflict_error'],
   [413, REQUEST_TOO_LARGE],
   [429, 'rate_limit_error'],
   [500, 'api_error'],
+  [504, 'timeout_error'],
   [529, 'overloaded_error'],
 ]);
 

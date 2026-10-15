@@ -21,6 +21,7 @@ import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
 import { pruneOffloadSession } from '../tool-result-offload.mjs';
 import { _getPendingMessagesForSession } from './pending-messages.mjs';
 import { isSessionCompactionBlocked } from './runtime-liveness.mjs';
+import { backfillFallbackSessionTitle } from './session-fallback-title.mjs';
 import { resetReadStateAfterCompaction } from '../read-dedup.mjs';
 import { applyPendingWorkspaceReroot } from './prompt-utils.mjs';
 import {
@@ -630,6 +631,9 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
   let unchangedReason = null;
   if (!changed) unchangedReason = force ? 'nothing to compact' : 'below threshold';
   const now = Date.now();
+  // Older titleless sessions: keep a name before the transcript that carries
+  // the first prompt is replaced.
+  if (changed) backfillFallbackSessionTitle(session, messages);
   session.messages = transcript;
   // The compacted transcript breaks the cache anyway: a staged working-folder
   // change re-roots the system prompt now and needs no notice any more.

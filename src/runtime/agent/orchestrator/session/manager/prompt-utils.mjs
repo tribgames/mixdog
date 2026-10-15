@@ -350,6 +350,19 @@ export function refreshSessionWorkspaceContext(session, context = {}) {
 }
 
 /**
+ * Give `stored` (the canonical transcript) the system prefix of `messages`
+ * (a running turn's working array built on it), message objects included.
+ */
+export function syncSystemPrefix(stored, messages) {
+  const systemCount = (list) => {
+    let count = 0;
+    while (count < list.length && list[count]?.role === 'system') count += 1;
+    return count;
+  };
+  stored.splice(0, systemCount(stored), ...messages.slice(0, systemCount(messages)));
+}
+
+/**
  * Apply a staged workspace change to the system prompt (the session's own
  * messages, plus `messages` when a running turn works on another array whose
  * system prefix is the session's) and drop the staged state: the prompt now
@@ -368,14 +381,7 @@ export function applyPendingWorkspaceReroot(session, messages = session?.message
   } finally {
     if (other) session.messages = stored;
   }
-  if (other && Array.isArray(stored)) {
-    const systemCount = (list) => {
-      let count = 0;
-      while (count < list.length && list[count]?.role === 'system') count += 1;
-      return count;
-    };
-    stored.splice(0, systemCount(stored), ...messages.slice(0, systemCount(messages)));
-  }
+  if (other && Array.isArray(stored)) syncSystemPrefix(stored, messages);
   return true;
 }
 

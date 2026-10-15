@@ -34,14 +34,12 @@ test('Gemini schema conjunction compares defaults by value rather than property 
   }
 });
 
-test('Gemini schema conjunction rejects disjoint enum values and contradictory const values', () => {
+test('Gemini schema conjunction rejects disjoint enum values and contradictory const values as JSON Schema', () => {
   for (const branch of [{ enum: ['delete'] }, { enum: ['read'], const: 'write' }]) {
     const inputSchema = { type: 'string', enum: ['read'], allOf: [branch] };
-    const { parameters } = toGeminiTools([{ name: 'conflict', inputSchema }]).functionDeclarations[0];
-    assert.deepEqual(parameters, {
-      type: 'string',
-      enum: ['__mixdog_unrepresentable_schema_conjunction__'],
-      description: 'Schema conjunction could not be represented safely: empty enum intersection',
-    });
+    // The legacy Schema cannot say "no value"; the exact contract rides as JSON Schema.
+    const declaration = toGeminiTools([{ name: 'conflict', inputSchema }]).functionDeclarations[0];
+    assert.equal(declaration.parameters, undefined);
+    assert.deepEqual(declaration.parametersJsonSchema, inputSchema);
   }
 });

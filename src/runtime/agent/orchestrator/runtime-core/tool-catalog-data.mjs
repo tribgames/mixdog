@@ -74,6 +74,9 @@ export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   'shell',
   'task',
   'agent',
+  // Always on the Lead surface (native and bridge alike): a question is an
+  // optional move the model skips when it costs a load or call_tool hop.
+  'ask_user',
   'Skill',
   'load_tool',
 ]);

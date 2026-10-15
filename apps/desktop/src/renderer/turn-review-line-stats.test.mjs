@@ -22,8 +22,18 @@ test('island segment accumulates across turns and survives a new turn with an em
   const edit = (id, file) => ({ kind: 'tool', id, name: 'edit', args: { file_path: file }, result: 'ok', uiDiff: diff(file) });
   const turn1 = [{ kind: 'user', id: 'u1', text: 'create' }, edit('e1', 'mx-island-check.txt'), { kind: 'turndone', id: 'd1' }];
   const turn2 = [...turn1, { kind: 'user', id: 'u2', text: 'append' }];
+  // The island's Changes read the session's lane, like the Changes pane.
+  const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
+  t.after(() => defaultSessionLaneStore.clear());
+  let revision = 0;
   const render = async (items, busy) =>
     act(async () => {
+      revision += 1;
+      defaultSessionLaneStore.apply({
+        sessionId: 'island-session',
+        frameSource: 'live',
+        snapshot: { sessionId: 'island-session', contentRevision: revision, busy, items },
+      });
       root.render(
         React.createElement(TurnReviewBar, {
           variant: 'segment',

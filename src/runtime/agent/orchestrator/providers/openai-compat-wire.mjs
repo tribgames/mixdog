@@ -19,6 +19,8 @@ import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } fro
 import { providerReplayItems } from './lib/provider-replay.mjs';
 import { ensureResponsesCallOutputs } from './lib/wire-pairing.mjs';
 import { responsesEffortUpdates } from './effort-configuration.mjs';
+import { convertMessagesToResponsesInput } from './openai-responses-input.mjs';
+import { COMPAT_REASONING_METADATA_KEY, contentWithThinkingChunk } from './openai-compat-reasoning-field.mjs';
 
 function positiveTokenInt(value) {
   const n = Number(value);
@@ -39,19 +41,23 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
   // strict providers (xai) reject unknown roles/types and would 400 the
   // request. Documented in v0.1.160 (GPT reasoning replay).
   //
-  // DeepSeek splits by model: thinking-mode models with tools REQUIRE the
-  // prior turn's `reasoning_content` echoed back (400 without it), while
-  // `deepseek-reasoner` REJECTS it with a 400. The caller decides per model
-  // through options.replaysReasoningContent — see
-  // deepseekReplaysReasoningContent below. xAI reasoning models preserve
-  // their official multi-turn shape and cache prefix stability when prior
-  // assistant reasoning_content is replayed; reasoning_effort itself remains
-  // caller/user-selected.
+  // DeepSeek thinking-mode models with tools REQUIRE the prior turn's
+  // `reasoning_content` echoed back (400 without it); without tools it is
+  // ignored, so the caller (options.replaysReasoningContent) always replays it.
+  // xAI reasoning models preserve their official multi-turn shape and cache
+  // prefix stability when prior assistant reasoning_content is replayed;
+  // reasoning_effort itself remains caller/user-selected.
   //
   // Custom providers pass options.customReplay (custom-reasoning.mjs replay
   // eligibility). When it is a boolean it alone decides; a replaying custom
   // endpoint also needs a non-empty reasoning_content on every assistant
   // tool-call turn, so missing/empty reasoning there is padded with " ".
+  //
+  // options.reasoningShape (openai-compat-reasoning-field.mjs) names the
+  // endpoint families with their own reasoning fields; they decide the resend
+  // key and win over the flags above. options.developerRole keeps the
+  // `developer` role for endpoints that document it; every other chat endpoint
+  // only knows `system`, so developer instructions go out as system messages.
   const customReplay = typeof options.customReplay === 'boolean' ? options.customReplay : null;
   const replaysReasoningContent = customReplay ?? (options.replaysReasoningContent === true || providerName === 'xai');
   const out = [];
@@ -62,8 +68,25 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
     const details = metadata?.reasoning_details ?? metadata?.reasoningDetails;
     return Array.isArray(details) && details.length ? details : null;
   };
+  const shape = options.reasoningShape || null;
+  // Receive and resend fields differ per endpoint family: the key a reply's
+  // reasoning arrived on is recorded in providerMetadata at receive time.
+  const receivedField = (message) => message?.providerMetadata?.[COMPAT_REASONING_METADATA_KEY]?.reasoningField;
+  const attachShapeReasoning = (msg, message, stored) => {
+    if (!stored) return;
+    if (shape.resend === 'same_key') {
+      msg[receivedField(message) === 'reasoning' ? 'reasoning' : 'reasoning_content'] = stored;
+    } else if (shape.resend === 'reasoning') {
+      // OpenRouter: reasoning_details replace the text when present.
+      if (!openRouterReasoningDetails(message)) msg.reasoning = stored;
+    } else if (shape.resend === 'content_chunks' && receivedField(message) === 'content_chunks') {
+      msg.content = contentWithThinkingChunk(msg.content, stored);
+    }
+  };
   const attachAssistantReasoning = (msg, message) => {
-    if (customReplay) {
+    if (shape) {
+      attachShapeReasoning(msg, message, typeof message.reasoningContent === 'string' ? message.reasoningContent : '');
+    } else if (customReplay) {
       const stored = typeof message.reasoningContent === 'string' ? message.reasoningContent : '';
       if (stored) msg.reasoning_content = stored;
       else if (Array.isArray(msg.tool_calls) && msg.tool_calls.length) msg.reasoning_content = ' ';
@@ -104,25 +127,17 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
       continue;
     }
     const msg = {
-      role: m.role,
-      content: normalizeContentForOpenAIChat(m.content, { role: m.role, nativePdf: options.nativePdf }),
+      role: m.role === 'developer' && options.developerRole !== true ? 'system' : m.role,
+      content: normalizeContentForOpenAIChat(m.content, {
+        role: m.role,
+        nativePdf: options.nativePdf,
+        cacheControl: options.cacheControl === true,
+      }),
     };
     out.push(m.role === 'assistant' ? attachAssistantReasoning(msg, m) : msg);
   }
   flushToolMedia();
   return out;
-}
-
-// deepseek-reasoner returns 400 when `reasoning_content` appears in the input
-// messages; every other DeepSeek thinking model needs it back once tools are in
-// play. Unknown DeepSeek ids default to replaying: a missing echo breaks the
-// tool loop, while a stray field on a non-thinking model is ignored.
-export function deepseekReplaysReasoningContent(model) {
-  return !/reasoner/.test(
-    String(model || '')
-      .trim()
-      .toLowerCase()
-  );
 }
 
 export function toOpenAITools(tools) {
@@ -146,9 +161,39 @@ function functionToolFromSessionTool(t, name = t?.name) {
   };
 }
 
+// xAI hosts tool search itself (docs.x.ai progressive tool disclosure): a
+// `{type:'tool_search'}` server tool loads the definitions of function tools
+// marked `defer_loading: true`, and the server returns the search as
+// tool_search_call / tool_search_output items. The client loader (`load_tool`)
+// is therefore replaced by that one server tool; with deferred tools but no
+// loader the server tool is still added, or the deferred tools could never load.
+function toServerToolSearchTools(tools) {
+  let hasSearch = false;
+  let hasDeferred = false;
+  const out = tools.map((t) => {
+    if (t?.name === 'load_tool' || t?.name === 'tool_search') {
+      if (hasSearch) return null;
+      hasSearch = true;
+      return { type: 'tool_search' };
+    }
+    if (t?.deferLoading === true || t?.defer_loading === true) {
+      hasDeferred = true;
+      return { ...functionToolFromSessionTool(t), defer_loading: true };
+    }
+    return functionToolFromSessionTool(t);
+  });
+  if (hasDeferred && !hasSearch) out.push({ type: 'tool_search' });
+  return out.filter(Boolean);
+}
+
 export function toResponsesTools(tools, options = {}) {
+  if (options?.serverToolSearch === true) return toServerToolSearchTools(tools);
   const provider = String(options?.provider || '').toLowerCase();
+  // A route pinned with verified native deferred tools declares the native
+  // client tool_search tool and marks deferred definitions `defer_loading`.
+  const nativeDeferred = options?.nativeDeferredTools === true;
   const allowNativeToolSearch =
+    nativeDeferred ||
     options?.nativeToolSearch === true ||
     (options?.nativeToolSearch !== false && (provider === 'openai' || provider === 'openai-oauth'));
   return tools.map((t) => {
@@ -170,6 +215,9 @@ export function toResponsesTools(tools, options = {}) {
     // tools (e.g. apply_patch) as ordinary function tools instead. Grammar
     // tools may carry no usable inputSchema, so fall back to a permissive
     // object schema so grok still registers a valid function tool.
+    if (nativeDeferred && (t?.deferLoading === true || t?.defer_loading === true)) {
+      return { ...functionToolFromSessionTool(t), defer_loading: true };
+    }
     return functionToolFromSessionTool(t);
   });
 }
@@ -237,7 +285,7 @@ export function parseResponsesToolCalls(response, label) {
     } else if (item?.type === 'custom_tool_call') {
       const call = customToolCallFromResponseItem(item);
       if (call) out.push(call);
-    } else if (item?.type === 'tool_search_call') {
+    } else if (item?.type === 'tool_search_call' && item.execution !== 'server') {
       const searchArgs =
         item.arguments && typeof item.arguments === 'object' && !Array.isArray(item.arguments)
           ? item.arguments
@@ -409,15 +457,40 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
     let history = [];
     if (Array.isArray(state?.encryptedReasoningHistory)) history = state.encryptedReasoningHistory;
     else if (Array.isArray(state?.encryptedReasoningItems)) {
-      history = [{ messageIndex: seen, items: state.encryptedReasoningItems }];
+      history = [{ messageIndex: seen, items: state.encryptedReasoningItems, owner: state.owner }];
     }
     for (const entry of history) {
       const index = Number(entry?.messageIndex);
       if (!Number.isInteger(index) || index < 0 || !Array.isArray(entry?.items)) continue;
+      // Owner-tagged reasoning (compat routes) never replays under another
+      // owner, even when a caller passes provider state across providers.
+      if (entry.owner !== undefined && entry.owner !== replayProvider) continue;
       const bucket = reasoningByMessageIndex.get(index) || [];
       bucket.push(...entry.items.map((item) => ({ ...item })));
       reasoningByMessageIndex.set(index, bucket);
     }
+  }
+  if (options.nativeLowering === true) {
+    // Native-item-capable Responses routes share the first-party lowering:
+    // native tool_search / custom calls keep their own output type, and only
+    // this route's own replay tag and reasoning state are replayed.
+    return {
+      input: convertMessagesToResponsesInput(messages, {
+        startIndex,
+        includeSystem,
+        nativePdf: options.nativePdf,
+        replayProvider,
+        // Compat-owned tool_search payloads are tagged with the route name.
+        nativeToolSearchProvider: options.providerName,
+        replayOwnedReasoning: true,
+        reasoningByMessageIndex,
+        effortProjection: options.effortProjection,
+        splitToolContent: (content) => splitToolContentForXaiResponses(content, { nativePdf: options.nativePdf }),
+      }),
+      previousResponseId,
+      startIndex,
+      continuationResetReason: resetReason,
+    };
   }
   const pendingToolMedia = [];
   const flushToolMedia = () => {

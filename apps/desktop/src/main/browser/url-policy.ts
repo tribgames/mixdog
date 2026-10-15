@@ -93,8 +93,10 @@ function allowedByDomainPolicy(hostname: string, allowedDomains: string[]): bool
   });
 }
 
-/** Browser navigation stays on the web and cannot silently cross into a
- * private network. Loopback remains available for local web-app development. */
+/** Browser navigation stays on the web. Cloud metadata endpoints are always
+ * refused; private networks are refused unless the policy allows them (a local
+ * session on the user's own PC). Loopback remains available for local web-app
+ * development. */
 function normalizeBrowserUrl(raw: string, policy: BrowserUrlPolicy, rejectSecrets: boolean): string {
   const text = String(raw || '').trim();
   if (!text) throw new Error('navigate requires url');

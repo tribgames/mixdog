@@ -2,6 +2,10 @@
 // Pure, self-contained schemas + the agent-hidden default helper; no runtime
 // closure dependencies.
 
+// One load_tool for every session, native and bridge, byte for byte: native
+// sessions register the named tools; bridge sessions (see tool-bridge.mjs)
+// get their definitions back and run them through call_tool. Native request
+// bytes must never change, so the bridge adds nothing to this definition.
 export const TOOL_SEARCH_TOOL = {
   name: 'load_tool',
   title: 'load_tool',
@@ -26,6 +30,36 @@ export const TOOL_SEARCH_TOOL = {
     additionalProperties: false,
   },
 };
+
+// Fixed tool bridge for non-native providers (see tool-bridge.mjs). The
+// description is static so the definition stays byte-stable: it never carries
+// catalog names, counts or listings.
+export const CALL_TOOL_TOOL = {
+  name: 'call_tool',
+  title: 'call_tool',
+  annotations: {
+    title: 'call_tool',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: true,
+    agentHidden: true,
+  },
+  description:
+    'Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', minLength: 1, maxLength: 256, description: 'Exact tool name.' },
+      arguments: { type: 'object', description: 'Arguments for that tool.' },
+    },
+    required: ['name', 'arguments'],
+    additionalProperties: false,
+  },
+};
+
+// The fixed bridge for non-native providers: the shared load_tool plus call_tool.
+export const TOOL_BRIDGE_TOOLS = Object.freeze([TOOL_SEARCH_TOOL, CALL_TOOL_TOOL]);
 
 export const SESSION_TOOL = {
   name: 'session',

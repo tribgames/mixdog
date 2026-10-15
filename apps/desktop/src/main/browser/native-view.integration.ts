@@ -93,6 +93,7 @@ async function run(): Promise<void> {
       },
     });
     host = createBrowserHost(parent, {
+      remoteSession: false,
       requestApproval: async () => true,
       chooseBrowserFiles: async () => ({ canceled: false, filePaths: [chosenFile] }),
     });

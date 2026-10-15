@@ -20,6 +20,8 @@ import { httpLabel } from './openai-error-contract.mjs';
 import { openHttpSseResponse } from './openai-http-sse-request.mjs';
 import { createHttpSseWatchdogs } from './openai-http-sse-watchdogs.mjs';
 import { createHttpSseResponseState } from './openai-http-sse-response-state.mjs';
+import { codexUserAgent, codexVersionHeader } from './codex-client-meta.mjs';
+import { _codexBetaFeatures } from './openai-ws-headers.mjs';
 export { _envFlag };
 
 function _sseEventsFromBuffer(buffer) {
@@ -73,6 +75,11 @@ export function _buildOpenAIHttpFallbackHeaders({
     originator: CODEX_OAUTH_ORIGINATOR,
     'chatgpt-account-id': auth.account_id || '',
     'x-client-request-id': randomBytes(16).toString('hex'),
+    // Codex identity shared with the WS handshake (build_responses_headers);
+    // WS-only OpenAI-Beta value stays HTTP-specific above.
+    'User-Agent': codexUserAgent(),
+    version: codexVersionHeader(),
+    'x-codex-beta-features': _codexBetaFeatures(),
   };
   if (cacheKey && !statelessConversation) {
     const sid = String(cacheKey);

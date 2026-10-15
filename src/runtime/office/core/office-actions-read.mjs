@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { extractPdfImages, extractPdfTextLayout, findPdfText, inferPdfTables } from '../pdf/pdf-analysis.mjs';
 import { findByDocumentPath, fullPath, queryObject, snapshot, snapshotSelectionForTarget } from './office-sessions.mjs';
+import { noteOfficeWrite } from './office-write-ledger.mjs';
 
 /** RFC 4180 quoting so a table cell that contains a comma or quote round-trips. */
 export function csvCell(text) {
@@ -94,6 +95,7 @@ async function queryPdfTables(session, args, cwd, signal) {
       const ordinal = (counters.get(table.page) || 0) + 1;
       counters.set(table.page, ordinal);
       const file = join(directory, `page-${table.page}-table-${ordinal}.csv`);
+      noteOfficeWrite(file);
       await writeFile(
         file,
         `${table.rows.map((row) => row.map((cell) => csvCell(String(cell ?? ''))).join(',')).join('\r\n')}\r\n`,
@@ -115,6 +117,7 @@ async function queryPdfImages(session, args, cwd, signal) {
     const written = [];
     for (const image of extracted._images) {
       const file = join(directory, `page-${image.page}-image-${image.index}.png`);
+      noteOfficeWrite(file);
       await writeFile(file, Buffer.from(image.data, 'base64'));
       written.push(file);
     }

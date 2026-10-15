@@ -16,6 +16,8 @@ type SessionLaneSource = (listener: (update: DesktopSessionStateUpdate) => void)
 
 interface SessionLaneStore {
   get(sessionId: string): Snapshot | null;
+  /** The authoritative content revision the cached lane was accepted at. */
+  revision(sessionId: string): number | null;
   subscribe(sessionId: string, listener: () => void): () => void;
   /** Wire the preload lane once; returns a stop function. Idempotent — a
    *  second start while wired returns the existing stop. */
@@ -562,6 +564,9 @@ export function createSessionLaneStore({
       snapshots.touch(sessionId);
       return entry.snapshot;
     },
+    revision(sessionId) {
+      return snapshots.get(sessionId)?.revision ?? null;
+    },
     subscribe(sessionId, listener) {
       let bucket = listeners.get(sessionId);
       if (!bucket) {
@@ -624,6 +629,20 @@ export function createSessionLaneStore({
 
 /** Shared store for the app renderer; components use the hook below. */
 export const defaultSessionLaneStore = createSessionLaneStore();
+
+/** The lane's authoritative content revision (the publication envelope's,
+ *  not anything inside the snapshot); re-renders only when it moves. */
+export function useSessionLaneRevision(
+  sessionId: string,
+  store: SessionLaneStore = defaultSessionLaneStore,
+  enabled = true
+): number | null {
+  const subscribe = useCallback(
+    (listener: () => void) => (enabled && sessionId ? store.subscribe(sessionId, listener) : () => {}),
+    [enabled, sessionId, store]
+  );
+  return useSyncExternalStore(subscribe, () => (enabled && sessionId ? store.revision(sessionId) : null));
+}
 
 export function useSessionLane(
   sessionId: string,

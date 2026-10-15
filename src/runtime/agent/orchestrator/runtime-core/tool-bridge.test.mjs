@@ -458,7 +458,7 @@ test('call_tool resolves one deferred target and rejects recursion, eager and un
     assert.equal(resolveBridgeTarget(session, name).error.code, 'BRIDGE_RECURSION', name);
   }
   assert.equal(resolveBridgeTarget(session, 'nope').error.code, 'TOOL_NOT_FOUND');
-  assert.match(resolveBridgeTarget(session, 'nope').error.message, /load_tool \{query\}/);
+  assert.match(resolveBridgeTarget(session, 'nope').error.message, /load_tool \{names: keyword\}/);
   // The retired search_tools is no tool at all.
   assert.equal(resolveBridgeTarget(session, 'search_tools').error.code, 'TOOL_NOT_FOUND');
   assert.equal(resolveBridgeTarget(session, 'mcp__gone__probe').error.code, 'TOOL_UNAVAILABLE');
@@ -666,4 +666,48 @@ test('review: a non-bridge worker never reads the lead surface or its own exclud
     lead.tools.map((tool) => tool.name),
     ['read']
   );
+});
+
+test('a name that is no tool is a keyword search over the tools this session can run', () => {
+  const session = bridgeSession({
+    catalog: [
+      def('web_fetch', { readOnly: true, description: 'Fetch a page over networking.' }),
+      def('web_post', { description: 'Post a form over networking.' }),
+      def('secret_web', { readOnly: true, description: 'Hidden networking helper.' }),
+      def('db_query', { readOnly: true, description: 'Run a database query.' }),
+    ],
+    schemaAllowedTools: ['read', 'grep', 'load_tool', 'call_tool', 'web_fetch', 'web_post', 'db_query'],
+  });
+  const search = (args, options) => describeBridgeTools(session, args, options);
+  // An exact name still describes; a keyword lists matches without schemas.
+  const result = search({ names: ['networking'] });
+  assert.deepEqual(result.entries, []);
+  assert.deepEqual(result.missing, []);
+  assert.deepEqual(
+    result.matches.map((match) => [match.keyword, match.tools.map((tool) => tool.name).sort()]),
+    [['networking', ['web_fetch', 'web_post']]],
+    'secret_web is outside the allowlist, read is directly available'
+  );
+  assert.equal(JSON.stringify(result).includes('inputSchema'), false);
+  assert.equal(JSON.stringify(result).includes('secret_web'), false);
+  // Mixed with an exact name: the name describes, the keyword searches.
+  const mixed = search({ names: ['db_query', 'page'] });
+  assert.deepEqual(mixed.entries.map((entry) => entry.name), ['db_query']);
+  assert.deepEqual(mixed.matches[0].tools.map((tool) => tool.name), ['web_fetch']);
+  // A keyword nothing matches is reported missing.
+  assert.deepEqual(search({ names: ['zzz'] }).missing, ['zzz']);
+  // Read-only mode hides tools it could not run.
+  const readonly = search({ names: ['networking'] }, { mode: 'readonly' });
+  assert.deepEqual(readonly.matches[0].tools.map((tool) => tool.name), ['web_fetch']);
+  // A denied tool is never listed.
+  const denied = bridgeSession({
+    catalog: [def('web_fetch', { readOnly: true, description: 'Fetch networking.' }), def('web_post', { description: 'Post networking.' })],
+    disallowedTools: ['web_post'],
+  });
+  assert.deepEqual(
+    describeBridgeTools(denied, { names: ['networking'] }).matches[0].tools.map((tool) => tool.name),
+    ['web_fetch']
+  );
+  // The bridge tools themselves are never listed.
+  assert.equal(JSON.stringify(search({ names: ['tool'] }).matches ?? []).includes('call_tool'), false);
 });

@@ -8,12 +8,13 @@
 import { isMcpTool } from '../../mcp/client.mjs';
 import { prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
 import { refreshDeferredMcpToolCatalog } from '../../runtime-core/tool-catalog.mjs';
+import { bridgeTargetUnavailable } from '../../runtime-core/tool-bridge.mjs';
 import { preDispatchDenyForSession, routeWebFetchCall } from './pre-dispatch-deny.mjs';
 import { runWithToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
 import { runWithLocalSearchTelemetry } from '../../tools/builtin/local-search-telemetry.mjs';
 import { throwIfAborted } from '../../../../shared/abort-race.mjs';
 import { prepareToolCall } from './tool-exec/call-prep.mjs';
-import { applyBeforeToolHook } from './tool-exec/before-hook.mjs';
+import { applyBeforeToolHook, applyShellElevationGate } from './tool-exec/before-hook.mjs';
 import { dispatchToolCall } from './tool-exec/dispatch.mjs';
 import { applyAfterToolHook } from './tool-exec/after-hook.mjs';
 import { runReadOnlyIoWithDeadline } from './tool-exec/read-only-deadline.mjs';
@@ -65,6 +66,18 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
   if (isMcpTool(call.name)) refreshDeferredMcpToolCatalog(sessionRef);
   const deferredPrep = prepareDeferredToolCallThrough(sessionRef, call.name);
   if (deferredPrep?.deny) return deferredPrep.deny;
+  // A bridged target was resolved when its call_tool was projected; it must
+  // still be available in this session's scope (also after a hook rewrite).
+  // The authorized identity is the public tool name, not its transport
+  // (web_fetch routed to local_fetch/image_fetch stays web_fetch here).
+  if (executeOpts.bridgeWireCall) {
+    const unavailable = bridgeTargetUnavailable(sessionRef, finalCall.schemaName || finalCall.name);
+    if (unavailable) return unavailable;
+  }
+  // Elevated launches ask the user first; denied / no approval UI refuses the call.
+  const elevation = await applyShellElevationGate(call, { callerSessionId, executeOpts, toolApprovalHook });
+  if (elevation.denial) return elevation.denial;
+  throwIfAborted(executeOpts.signal);
   const result = await runReadOnlyIoWithDeadline(call.name, executeOpts.signal || null, async (deadlineSignal) => {
     let callOpts = executeOpts;
     if (deadlineSignal !== executeOpts.signal) {
@@ -80,6 +93,7 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
       completionToolOpts,
       notifyFn,
       toolApprovalHook,
+      elevationApproved: elevation.elevationApproved === true,
     });
   });
   return applyAfterToolHook(result, hookFrom(executeOpts, sessionRef, 'afterToolHook'), {

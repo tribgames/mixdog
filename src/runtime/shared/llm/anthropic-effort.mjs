@@ -291,6 +291,12 @@ export function applyAnthropicEffortToBody(
 ) {
   if (!body || typeof body !== 'object') return;
 
+  // A gateway that declares its own effort contract (DeepSeek ignores
+  // budget_tokens) projects effort itself; returning true skips the Claude rules.
+  if (typeof opts.messagesEffortProjection === 'function') {
+    if (opts.messagesEffortProjection(body, { model, effort: opts.effort }) === true) return;
+  }
+
   const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
   if (Number.isFinite(thinkingBudgetTokens) && thinkingBudgetTokens > 0) {
     assertAnthropicManualBudgetSupported(model);

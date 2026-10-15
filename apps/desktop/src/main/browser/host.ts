@@ -113,6 +113,9 @@ export interface BrowserHost {
 export function createBrowserHost(
   window: BrowserWindow,
   options: {
+    /** The session's work runs on a remote server (ssh window), not this PC;
+     *  private-network navigation stays blocked for it. */
+    remoteSession: boolean;
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
     requestApproval?: (request: BrowserApprovalRequest, signal?: AbortSignal) => Promise<boolean>;
     chooseBrowserFiles?: (multiple: boolean) => Promise<{ canceled: boolean; filePaths: string[] }>;
@@ -124,9 +127,10 @@ export function createBrowserHost(
     publishRemoteTabs?: (tabs: DesktopRemoteBrowserTab[]) => Promise<void>;
     /** Profile-import progress, for the paired client that may have started it. */
     publishRemoteImportProgress?: (progress: DesktopBrowserImportProgress) => Promise<void>;
-  } = {}
+  }
 ): BrowserHost {
   const base = createBrowserHostFoundation(window, {
+    remoteSession: options.remoteSession,
     onDiagnostic: options.onDiagnostic,
     requestApproval: options.requestApproval,
   });

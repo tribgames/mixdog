@@ -209,6 +209,8 @@ export const REVIEW_DIFF_STYLE_KEY = 'mixdog.review-diff-style.v1';
 export const SCM_DIFF_STYLE_KEY = 'mixdog.scm-diff-style.v1';
 export const TURN_REVIEW_DIFF_STYLE_KEY = 'mixdog.turn-review-diff-style.v1';
 export const SESSION_DIFF_STYLE_KEY = 'mixdog.session-diff-style.v1';
+/** The composer chip's and Changes pane's one global source (uncommitted, branch, …). */
+export const SESSION_CHANGES_SOURCE_KEY = 'mixdog.session-changes-source.v1';
 
 export type DiffStyle = 'unified' | 'split';
 

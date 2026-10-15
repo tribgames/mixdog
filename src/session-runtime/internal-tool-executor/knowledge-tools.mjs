@@ -1,6 +1,7 @@
 // Tools that read rather than act: web search/fetch, memory, the code graph,
 // the deferred tool catalog, and skill bodies.
 import { refreshDeferredMcpToolCatalog, renderToolSearch } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import { resolveDeferredSelectMode } from '../../runtime/agent/orchestrator/session/loop/deferred-call-through.mjs';
 import { dispatchWebSearchRuntimeTool, memoryToolArgsForCaller } from '../runtime-tool-routing.mjs';
 import { createCallerContextResolvers } from './caller-context.mjs';
 
@@ -31,10 +32,16 @@ export function createKnowledgeToolHandlers({
     return await memoryMod.handleToolCall(name, memoryToolArgsForCaller(args, callerCwd), signalFor(callerCtx));
   };
 
-  const toolSearch = (args) => {
-    const surface = activeToolSurface();
-    refreshDeferredMcpToolCatalog(surface, rt.config);
-    return renderToolSearch(args, surface, rt.mode, { mcpStatus });
+  // Catalog tools answer for the calling session's own scope, bridge or
+  // native: a worker sees its own catalog (its own allow/deny), never the
+  // lead's. Only a call that names no session uses the active surface.
+  const scopeSession = (callerCtx) => callerCtx?.callerSession || activeToolSurface();
+  const scopeMode = (session) => session?.deferredSurfaceMode || resolveDeferredSelectMode(session) || rt.mode;
+
+  const toolSearch = (args, { callerCtx } = {}) => {
+    const session = scopeSession(callerCtx);
+    refreshDeferredMcpToolCatalog(session, rt.config);
+    return renderToolSearch(args, session, scopeMode(session), { mcpStatus });
   };
 
   return {

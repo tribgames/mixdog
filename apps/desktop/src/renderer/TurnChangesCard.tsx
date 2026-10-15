@@ -369,6 +369,8 @@ function useTurnChangesMutation({
     void invokeTurnChanges(capability, [checkpointId, file, revision], sessionId)
       .then((next) => {
         adopt(next);
+        // The worktree moved: every Git surface (Source Control, the Changes chip) re-reads.
+        window.dispatchEvent(new Event('mixdog:git-changed'));
         showDesktopToast(success, 'success');
       })
       .catch((reason: unknown) => {

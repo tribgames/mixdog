@@ -15,6 +15,26 @@ function hasMeaningfulTitleText(value) {
   return /[\p{L}\p{N}]/u.test(String(value || ''));
 }
 
+const graphemeSegmenter =
+  typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    : null;
+
+/** The longest prefix of `text` within `limit` UTF-16 units that ends on a
+ *  grapheme (else code point) boundary, so a surrogate pair or emoji sequence
+ *  is never split. */
+function prefixWithinLimit(text, limit) {
+  const pieces = graphemeSegmenter
+    ? Array.from(graphemeSegmenter.segment(text), (part) => part.segment)
+    : Array.from(text);
+  let head = '';
+  for (const piece of pieces) {
+    if (head.length + piece.length > limit) break;
+    head += piece;
+  }
+  return head;
+}
+
 export function compactSessionTitle(value, maximum = 32) {
   const line =
     String(value || '')
@@ -25,7 +45,7 @@ export function compactSessionTitle(value, maximum = 32) {
   const text = cleanSessionPreview(line, Math.max(maximum * 4, 128));
   if (!hasMeaningfulTitleText(text)) return '';
   if (text.length <= maximum) return text;
-  const clipped = text.slice(0, maximum - 1);
+  const clipped = prefixWithinLimit(text, maximum - 1);
   const boundary = clipped.lastIndexOf(' ');
   const head = boundary >= Math.floor(maximum * 0.6) ? clipped.slice(0, boundary) : clipped;
   return `${head.trimEnd()}…`;

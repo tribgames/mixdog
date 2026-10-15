@@ -17,6 +17,8 @@ export const WRAPPER_NAMES = new Set([
   'env',
   'sudo',
   'doas',
+  'pkexec',
+  'gsudo',
   'nice',
   'stdbuf',
   'chronic',

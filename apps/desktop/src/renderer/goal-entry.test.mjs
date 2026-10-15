@@ -54,6 +54,24 @@ test('/goal and the add menu open the same goal editor without creating or faili
       packages: 'external',
       jsx: 'automatic',
       loader: { '.css': 'empty' },
+      plugins: [
+        {
+          // The side-question card renders markdown, whose links reach the editor,
+          // diff, browser and terminal panes (Monaco, xterm: not linkable in Node).
+          // The goal editor never renders a reply, so the renderer is stubbed.
+          name: 'stub-markdown-body',
+          setup(pluginBuild) {
+            pluginBuild.onResolve({ filter: /\/MarkdownBody$/ }, (args) => ({
+              path: args.path,
+              namespace: 'stub',
+            }));
+            pluginBuild.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
+              contents: 'export default function MarkdownBody() { return null; }',
+              loader: 'js',
+            }));
+          },
+        },
+      ],
     });
     const { Composer } = await import(pathToFileURL(outfile).href);
     const noop = () => {};

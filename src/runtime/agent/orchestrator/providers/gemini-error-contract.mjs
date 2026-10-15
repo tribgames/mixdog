@@ -180,12 +180,94 @@ export function assertNoGeminiInBandError(chunk, label) {
   if (err) throw err;
 }
 
-const SAFETY_FINISH = /^(?:PROMPT_)?(?:SAFETY|IMAGE_SAFETY|BLOCKLIST|PROHIBITED_CONTENT|SPII|IMAGE_PROHIBITED_CONTENT)$/;
+const FINISH_KINDS = new Map(
+  Object.entries({
+    complete: ['STOP'],
+    output_limit: ['MAX_TOKENS'],
+    // Content refused by policy: deterministic, never re-asked.
+    policy: [
+      'SAFETY',
+      'BLOCKLIST',
+      'PROHIBITED_CONTENT',
+      'SPII',
+      'IMAGE_SAFETY',
+      'IMAGE_PROHIBITED_CONTENT',
+      'ESCALATION',
+      'PUP_LIMITED_DISABLED',
+    ],
+    language: ['LANGUAGE'],
+    recitation: ['RECITATION', 'IMAGE_RECITATION'],
+    // The model produced no usable call: the same request is re-asked.
+    invalid_tool_call: ['MALFORMED_FUNCTION_CALL', 'UNEXPECTED_TOOL_CALL', 'MALFORMED_RESPONSE'],
+    // Tool-call terminals a re-ask cannot fix.
+    tool_call: ['TOO_MANY_TOOL_CALLS', 'MISSING_THOUGHT_SIGNATURE'],
+    continuation: ['CONTINUATION'],
+    other: ['OTHER', 'IMAGE_OTHER', 'NO_IMAGE'],
+  }).flatMap(([kind, reasons]) => reasons.map((reason) => [reason, kind]))
+);
+
+/** Finish (or `PROMPT_`-prefixed block) reason without wire prefixes. */
+export function geminiNormalizeFinishReason(finishReason) {
+  return String(finishReason || '')
+    .replace(/^FINISH_REASON_/, '')
+    .replace(/^PROMPT_/, '')
+    .replace(/^BLOCK_REASON_/, '');
+}
+
+/**
+ * Kind of a documented finishReason / blockReason: 'none' (absent or
+ * UNSPECIFIED: the stream is unfinished), 'complete', 'output_limit',
+ * 'policy', 'language', 'recitation', 'invalid_tool_call', 'tool_call',
+ * 'continuation' or 'other' (OTHER and any undocumented future reason).
+ */
+export function geminiFinishReasonKind(finishReason) {
+  const reason = geminiNormalizeFinishReason(finishReason);
+  if (!reason || reason === 'UNSPECIFIED') return 'none';
+  return FINISH_KINDS.get(reason) || 'other';
+}
 
 /** Policy-refusal code for a finishReason, or null for any other reason. */
 export function geminiPolicyFinishCode(finishReason) {
-  const reason = String(finishReason || '').replace(/^FINISH_REASON_/, '');
-  if (SAFETY_FINISH.test(reason)) return 'safety';
-  if (/^(?:PROMPT_)?RECITATION$/.test(reason)) return 'recitation';
-  return null;
+  switch (geminiFinishReasonKind(finishReason)) {
+    case 'policy':
+      return 'safety';
+    case 'recitation':
+      return 'recitation';
+    case 'language':
+      return 'content_filter';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Evidence a terminal response carries beyond its finishReason: candidate and
+ * prompt safety ratings, the finish message, the prompt block reason and any
+ * continuation token. Only present fields are returned.
+ */
+export function geminiFinishErrorFields(response) {
+  const candidate = response?.candidates?.[0];
+  const feedback = response?.promptFeedback;
+  const fields = {
+    finishMessage: candidate?.finishMessage,
+    safetyRatings: candidate?.safetyRatings,
+    blockReason: feedback?.blockReason,
+    promptSafetyRatings: feedback?.safetyRatings,
+    continuationToken: candidate?.continuationToken,
+  };
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
+}
+
+/**
+ * Typed result for a CONTINUATION finish, which this client cannot resume
+ * (Gemini direct only). Keeps the original error's partial turn and the
+ * token so a caller can continue it out of band.
+ */
+export function geminiContinuationUnsupportedError(incomplete, response) {
+  return Object.assign(incomplete, geminiFinishErrorFields(response), {
+    name: 'GeminiContinuationUnsupportedError',
+    code: 'CONTINUATION_UNSUPPORTED',
+    continuationUnsupported: true,
+    message: 'Gemini response stopped with finishReason=CONTINUATION; continuation is not supported by this client',
+  });
 }

@@ -15,8 +15,9 @@ export {
   compactionBufferTokensForBoundary,
 };
 
-export const SUMMARY_PREFIX_ANCHOR =
-  'A previous model worked on this task and produced the compacted handoff summary below.';
+import { SUMMARY_PREFIX_ANCHOR } from './summary-anchor.mjs';
+
+export { SUMMARY_PREFIX_ANCHOR };
 export const SUMMARY_PREFIX = `${SUMMARY_PREFIX_ANCHOR} Build on the work already done and avoid duplicating it. The summary covers the session; retained requests and execution records follow it. Actual tool outcomes take precedence over plans or older claims in the summary.`;
 export const SUMMARY_OUTPUT_TOKENS = 4_096;
 // Longest a handoff summary call may run: the default, the config fallback,

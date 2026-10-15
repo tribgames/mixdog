@@ -156,6 +156,19 @@ export function readBoundedFile(
   }
 }
 
+/**
+ * A file's state for the turn review of a tool write: null when absent, its
+ * bytes (binary included) up to PATCH_EDIT_MAX_BYTES and within `budget`,
+ * otherwise an omitted marker — counted as changed, never diffed or restored.
+ * Throws ENOTREGULAR for anything but a regular file.
+ */
+export function reviewFileContent(path, { budget = null } = {}) {
+  const read = readBoundedFile(path, { maxBytes: PATCH_EDIT_MAX_BYTES, budget, detectBinary: false });
+  if (read.state === 'absent') return null;
+  if (read.state === 'omitted') return { omitted: true, size: read.size, reason: read.reason };
+  return read.content;
+}
+
 /** Human phrase for an omitted read: "binary (N bytes)", "larger than 8 MiB (N bytes)". */
 export function describeOmittedFile({ reason, size, limit } = {}) {
   const bytes = `${Number(size) || 0} bytes`;

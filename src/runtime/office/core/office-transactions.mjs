@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { callMicrosoftOffice, detectMicrosoftOffice, openMicrosoftOfficeSession } from '../com/com-adapter.mjs';
 import { listOfficeJournals, readOfficeJournal, removeOfficeJournal, writeOfficeJournal } from './journal.mjs';
+import { noteOfficeWrite } from './office-write-ledger.mjs';
 import {
   OfficeConflictError,
   documentFingerprint,
@@ -299,6 +300,8 @@ export async function rollbackTransaction(session) {
   transaction.diff = transactionDocumentDiff(transaction, current.document);
   transaction.phase = 'rolling_back';
   await persistOfficeTransaction(session);
+  // A recovered rollback restores the document outside any session verb.
+  noteOfficeWrite(session.target);
   if (isMicrosoftOfficeSession(session)) {
     const result = await callMicrosoftOffice(
       {

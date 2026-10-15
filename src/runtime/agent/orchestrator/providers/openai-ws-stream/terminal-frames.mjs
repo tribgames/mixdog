@@ -27,11 +27,30 @@ export function createTerminalFrameHandlers({ response, textRelay, midState, err
 
   // Most incomplete reasons are real failures. max_output_tokens maps cleanly
   // to Anthropic's stop_reason=max_tokens; treating it as an error makes
-  // Claude retry the same over-budget turn.
+  // Claude retry the same over-budget turn — unless a tool call's input was
+  // still streaming: its arguments were truncated, so the cutoff is a
+  // stalled pending-tool turn (same guard as HTTP/SSE), never a clean length
+  // completion that would surface the partial call as successful.
   function settleIncomplete(event, label, options) {
     const usage = response.noteTerminal(event.response);
     const reasonStr = _incompleteReasonFromEvent(event);
     if (_isMaxOutputIncompleteReason(reasonStr)) {
+      response.holdIncompleteBundleItems(event.response);
+      if (response.pendingToolUse) {
+        const error = new Error(`${label} (max_output_tokens) with tool call in flight`);
+        try {
+          textRelay.flush();
+        } catch {
+          /* best-effort */
+        }
+        Object.assign(error, response.partialState());
+        error.streamStalled = true;
+        error.pendingToolUse = true;
+        error.incompleteReason = reasonStr;
+        if (usage) error.partialUsage = usage;
+        failWith(error, options);
+        return;
+      }
       response.markMaxOutputIncomplete(reasonStr);
       completeTurn();
       return;
@@ -105,11 +124,11 @@ export function createTerminalFrameHandlers({ response, textRelay, midState, err
       failWith(responseDoneStatusError(status, `${errLabel} response.done unexpected status`), { markDone: true });
       return;
     }
-    // Success-shaped response.done (status '' or 'completed') carries the
-    // same optional end_turn, and the response's usage.
-    response.noteTerminal(event.response);
-    response.setEndTurn(_endTurnFromEvent(event));
-    completeTurn();
+    // Success-shaped response.done (status '' or 'completed') is the same
+    // terminal as response.completed: usage, end_turn, and its output bundle
+    // reconciled through the same deduplicated collectors (calls that appear
+    // only in the bundle are created; unresolvable deferred calls fail).
+    onResponseCompleted(event);
   }
 
   function onResponseIncomplete(event) {

@@ -3,7 +3,7 @@
  * Sessions are saved to disk so CLI and MCP server can share state,
  * and sessions survive server restarts (resume).
  */
-import { writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, openSync, writeFileSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { sessionPath } from './store/paths-heartbeat.mjs';
@@ -354,7 +354,15 @@ function _doSaveSync(payload) {
       attempted = JSON.stringify(disk);
       // The lifecycle these exact bytes carry, recorded with the commit stamp.
       const lifecycle = _lifecycleOfSessionDocument(disk);
-      writeFileSync(tmp, attempted, 'utf-8');
+      // fsync before the rename: without it an OS crash can publish the
+      // renamed file with its data blocks never written (all-NUL record).
+      const fd = openSync(tmp, 'w');
+      try {
+        writeFileSync(fd, attempted, 'utf-8');
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
       if (_shouldDrop(id, opts, attempt)) {
         _discardSaveTmp(tmp);
         if (mayMutate()) _recordSaveDrop(id, epoch);
@@ -636,7 +644,14 @@ async function _doSave(payload) {
     attempted = JSON.stringify(disk);
     // Captured before the await: the lifecycle of exactly these bytes.
     const lifecycle = _lifecycleOfSessionDocument(disk);
-    await fsp.writeFile(tmp, attempted, 'utf-8');
+    // fsync before the rename (see _doSaveSync).
+    const handle = await fsp.open(tmp, 'w');
+    try {
+      await handle.writeFile(attempted, 'utf-8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
     // Second check: between the temp write and the rename, closeSession()
     // may have planted a tombstone. Re-check on disk; if a newer tombstone
     // now exists, discard our temp file rather than let rename clobber it.

@@ -9,6 +9,7 @@ import * as pages from './local-page-server.ts';
 import { registerProjectFileIpc } from './ipc-project-files.ts';
 import { LocalAccessDeniedError } from './local-access-denied.ts';
 import { DESKTOP_IPC } from '../shared/contract';
+import { withSandboxStorageShim } from '../shared/sandbox-storage-shim.ts';
 
 // Exercise the real registrar and HTTP server. Only its existing authority
 // boundaries (project registry, selected-file grant, renderer lifecycle) are
@@ -111,7 +112,8 @@ test('selected-file IPC serves only the selected HTML, never neighboring assets 
   const url = await h.url('selected-secret-token');
   const response = await get(url);
   assert.equal(response.status, 200);
-  assert.equal(response.body, files['page.html']);
+  // A selected file runs sandboxed, so its document carries the storage shim.
+  assert.equal(response.body, withSandboxStorageShim(files['page.html']));
   assert.equal(response.headers['content-type'], 'text/html; charset=utf-8');
   assert.equal(h.authority.projectCalls, 0, 'a selected grant must not ask for broader project authority');
   assert.ok(!url.includes('selected-secret-token'));
@@ -361,7 +363,7 @@ test('replacing the selected file in place preserves valid preview access', asyn
   const url = await direct(t, root);
   await writeFile(join(root, 'replacement.tmp'), '<p>updated</p>');
   await rename(join(root, 'replacement.tmp'), join(root, 'page.html'));
-  assert.equal((await get(url)).body, '<p>updated</p>');
+  assert.equal((await get(url)).body, withSandboxStorageShim('<p>updated</p>'));
 });
 
 test('retargeting a selected directory alias invalidates the pinned preview', async (t) => {

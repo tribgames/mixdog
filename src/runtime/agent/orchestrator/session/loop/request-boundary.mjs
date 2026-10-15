@@ -14,6 +14,10 @@ import {
   providerNativeToolPrefixCount,
   runWithProviderRequestToolsScope,
 } from '../../runtime-core/provider-request-tools.mjs';
+import { TOOL_SURFACE_MIGRATION_INTENT } from '../../runtime-core/tool-exposure.mjs';
+import { migrateToolExposureAtBoundary } from './tool-exposure-migration.mjs';
+import { fixedRequestOverhead, fixedRequestOverheadInputs, resolveWorkerCompactPolicy } from './compact-policy.mjs';
+import { toolSurfaceExceedsContextError } from './context-overflow.mjs';
 
 const isDynamicTool = (tool) =>
   tool.deferLoading === true || tool.defer_loading === true || String(tool.name || '').startsWith('mcp__');
@@ -61,6 +65,18 @@ export async function prepareProviderRequest(state) {
   let compactChanged;
   let sendTools;
   let requestToolScope;
+  // Fixed inputs of the last passing overhead verdict in this boundary.
+  let passedOverheadInputs;
+  // A session persisted with another tool exposure migrates here, once, at a
+  // boundary with no pending calls: new surface and fixed guidance, a fresh
+  // tool snapshot and provider state, and a tagged cache break.
+  if (migrateToolExposureAtBoundary(sessionRef, messages)) {
+    fixedProviderToolSurface = null;
+    providerState = undefined;
+    providerStateCleared = true;
+    delete sessionRef.pendingCacheBreakIntent;
+    opts.cacheBreakIntent = TOOL_SURFACE_MIGRATION_INTENT;
+  }
   refreshDeferredMcpToolCatalog(sessionRef);
   do {
     // Provider-history normalization is part of the request boundary:
@@ -90,6 +106,20 @@ export async function prepareProviderRequest(state) {
       requestTools: sendTools,
       nativePrefixCount: providerNativeToolPrefixCount(sendTools),
     };
+    // A request whose fixed overhead alone leaves no room for history fails
+    // here with an actionable error: no compaction could make it fit. A
+    // passing verdict holds while its fixed inputs (tool schemas, protected
+    // system context, headroom, boundary) are unchanged — a later pass whose
+    // compaction only removed history (and the provider reading with it) is
+    // not re-judged — but adopted MCP schema changes or a re-rooted system
+    // prompt are.
+    const overheadPolicy = resolveWorkerCompactPolicy(sessionRef, sendTools);
+    const overheadInputs = fixedRequestOverheadInputs(overheadPolicy, messages);
+    if (overheadInputs === null || overheadInputs !== passedOverheadInputs) {
+      const overhead = fixedRequestOverhead(overheadPolicy, messages, sendTools, sessionRef);
+      if (overhead) throw toolSurfaceExceedsContextError({ sessionId, sessionRef, model, overhead });
+      passedOverheadInputs = overheadInputs;
+    }
     const pass = await runWithProviderRequestToolsScope(requestToolScope, () =>
       runPreSendCompactPass({
         provider,

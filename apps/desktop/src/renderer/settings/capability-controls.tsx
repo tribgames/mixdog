@@ -258,7 +258,7 @@ export function SettingsConfirmDialog({
   useEffect(() => registerMobileBack(() => onCloseRef.current()), []);
   const accept = () => {
     onClose();
-    void options.onConfirm();
+    void options.onConfirm?.();
   };
   const layer = (
     // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; Escape closes it here unless the settings dialog's capture handler already did.
@@ -290,12 +290,25 @@ export function SettingsConfirmDialog({
         </header>
         <p id="settings-confirm-description">{options.description}</p>
         <footer>
-          <button ref={cancelRef} type="button" onClick={onClose}>
-            {t('Cancel')}
-          </button>
-          <button ref={confirmRef} type="button" className={options.danger ? 'danger' : 'primary'} onClick={accept}>
-            {options.confirmLabel ?? t('Continue')}
-          </button>
+          {options.onConfirm ? (
+            <>
+              <button ref={cancelRef} type="button" onClick={onClose}>
+                {t('Cancel')}
+              </button>
+              <button
+                ref={confirmRef}
+                type="button"
+                className={options.danger ? 'danger' : 'primary'}
+                onClick={accept}
+              >
+                {options.confirmLabel ?? t('Continue')}
+              </button>
+            </>
+          ) : (
+            <button ref={cancelRef} type="button" className="primary" onClick={onClose}>
+              {t('Close')}
+            </button>
+          )}
         </footer>
       </section>
     </div>

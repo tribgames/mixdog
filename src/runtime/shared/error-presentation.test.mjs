@@ -110,7 +110,7 @@ test('typed codes classify errors; the wait and reset time are shown when known'
   const resetAt = Date.now() + 3_600_000;
   const quota = describeError({ message: 'out', errorKind: { kind: 'quota_exhausted', resetAt } });
   assert.equal(quota.resetAt, resetAt);
-  assert.match(quota.recovery, /^It resets at \S+\. Switch accounts or providers/);
+  assert.match(quota.recovery, /^It resets at (?:\d+\/\d+ )?\d{2}:\d{2}\. Switch accounts or providers/);
   assert.equal(describeError({ message: 'x', errorKind: { kind: 'quota_exhausted' } }).params, null);
   assert.equal(describeError(Object.assign(new Error('forbidden'), { status: 403 })).providerKind, 'permission');
   assert.equal(

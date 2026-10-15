@@ -11,6 +11,7 @@ import { MIMO_SEED_MODELS, mimoSeedRow as seedRow } from '../../../shared/llm/pr
 const MIMO_EFFORT_LEVELS = Object.freeze(['minimal', 'low', 'medium', 'high']);
 const MIMO_DEFAULT_TEMPERATURE = 1.0;
 const MIMO_DEFAULT_MAX_OUTPUT_TOKENS = 128_000;
+const MIMO_MAX_OUTPUT_TOKENS = 131_072;
 // Slow reasoning can stay silent for minutes: wait for the first byte as long
 // as the agent stall watchdog allows, and tolerate long gaps between events.
 export const MIMO_FIRST_BYTE_TIMEOUT_MS = Math.min(300_000, PROVIDER_MAX_BEFORE_WARN_MS);
@@ -79,12 +80,6 @@ function thinkingDisabled(thinking, effort) {
   return thinking === false || mode === 'disabled' || mode === 'off' || mode === 'none' || effort === 'none';
 }
 
-function namedToolChoice(choice) {
-  if (!choice || typeof choice !== 'object') return null;
-  const name = choice.function?.name || choice.name;
-  return typeof name === 'string' && name ? name : null;
-}
-
 function applyMimoParams(params, { opts = {}, config = {}, modelInfo = null } = {}) {
   const temperature = Number(opts.temperature);
   params.temperature = Number.isFinite(temperature) && temperature >= 0 ? temperature : MIMO_DEFAULT_TEMPERATURE;
@@ -97,9 +92,12 @@ function applyMimoParams(params, { opts = {}, config = {}, modelInfo = null } = 
     if ((opts[key] ?? config?.[key]) != null && Number.isFinite(value) && value >= 0) params[wire] = value;
   }
 
+  // MiMo's output limit is `max_completion_tokens` (visible + reasoning
+  // tokens, 1..131072); it documents no `max_tokens`.
   const limit = Number(modelInfo?.outputTokens);
-  const requested = params.max_tokens || MIMO_DEFAULT_MAX_OUTPUT_TOKENS;
-  params.max_tokens = Number.isFinite(limit) && limit > 0 ? Math.min(requested, limit) : requested;
+  const requested = Math.min(params.max_tokens || MIMO_DEFAULT_MAX_OUTPUT_TOKENS, MIMO_MAX_OUTPUT_TOKENS);
+  delete params.max_tokens;
+  params.max_completion_tokens = Number.isFinite(limit) && limit > 0 ? Math.min(requested, limit) : requested;
 
   const thinking = opts.thinking ?? config?.thinking;
   const rawEffort = opts.effort ?? config?.reasoningEffort;
@@ -114,13 +112,11 @@ function applyMimoParams(params, { opts = {}, config = {}, modelInfo = null } = 
     if (level) params.reasoning_effort = level;
   }
 
-  if (params.tools?.length) {
-    if (opts.toolChoice === 'required') params.tool_choice = 'required';
-    else {
-      const name = namedToolChoice(opts.toolChoice);
-      if (name) params.tool_choice = { type: 'function', function: { name } };
-    }
-  }
+  // MiMo documents `tool_choice: auto` only: any other value is dropped by the
+  // backend and the call behaves as auto. `none` is honored by sending no tools
+  // at all; `required` / a named tool cannot be forced, so nothing is sent.
+  if (params.tool_choice === 'none') delete params.tools;
+  delete params.tool_choice;
   return params;
 }
 
@@ -178,6 +174,8 @@ function refineMimoError(err) {
 
 export const MIMO_CHAT_PROFILE = Object.freeze({
   replaysReasoningContent: true,
+  // MiMo documents the `developer` role next to system.
+  developerRole: true,
   firstByteTimeoutMs: MIMO_FIRST_BYTE_TIMEOUT_MS,
   semanticIdleTimeoutMs: MIMO_SEMANTIC_IDLE_TIMEOUT_MS,
   resolveModelInfo: (provider, model) => provider.getCachedModelInfo(model) || seedRow(model),

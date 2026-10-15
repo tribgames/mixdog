@@ -274,7 +274,6 @@ export function AgentEditorDialog({
               defaultValue={String(agent?.description || '')}
               placeholder={t('When Mixdog should use this')}
               disabled={busy}
-              maxLength={160}
             />
           </label>
           <div className="schedules-field">

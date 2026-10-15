@@ -13,7 +13,7 @@ import {
   markUnsafeRetryIfToolEmitted,
 } from '../openai-compat-stream-common.mjs';
 import { orderedToolCalls, toolCallsFromStreamAcc } from './tool-call-acc.mjs';
-import { attachPartial, attachReportedUsage, stampCompatOutcome } from './stream-state.mjs';
+import { attachPartial, attachReportedUsage, isIncompleteFinishReason, stampCompatOutcome } from './stream-state.mjs';
 
 /** Rejection for a stream that ended without a terminal event. */
 export function incompleteStreamError(state, label) {
@@ -86,7 +86,9 @@ export function settleCompatStream(state, { label, parseToolCalls }) {
   if (failing) throw finishReasonInterruption(state, failing);
   const response = buildResponse(state);
   let toolCalls = parseAccumulatedToolCalls(state, { label, parseToolCalls });
-  if (Array.isArray(toolCalls) && toolCalls.length) {
+  // A length-truncated or content-filtered call is a partial result that
+  // normalizeCompatChatResponse rejects: it must never reach the executor.
+  if (!isIncompleteFinishReason(state.stopReason) && Array.isArray(toolCalls) && toolCalls.length) {
     for (const call of toolCalls) emitCompatToolCallOnce(state.streamEmitState, call, state.onToolCall);
   }
   if (state.leakedCalls.length) {
@@ -99,6 +101,7 @@ export function settleCompatStream(state, { label, parseToolCalls }) {
     toolCalls,
     stopReason: state.stopReason,
     reasoningContent: state.sawReasoningContent ? state.reasoningContent : null,
+    reasoningSource: state.sawReasoningContent ? state.reasoningSource : null,
     reasoningDetails: state.reasoningDetails.length ? state.reasoningDetails : null,
     rawUsage: state.rawUsage,
   };

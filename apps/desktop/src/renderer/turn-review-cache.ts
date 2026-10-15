@@ -8,6 +8,9 @@ export type TurnReviewFile = {
   additions?: number | null;
   deletions?: number | null;
   binary?: boolean;
+  /** Listed without its patch for size (reason 'too_large'): read on its own. */
+  patchOmitted?: boolean;
+  reason?: string;
 };
 export type AgentTurnReview = {
   sessionId: string;
@@ -24,6 +27,8 @@ export const leadReviewCache = new Map<string, string | null>();
 export const leadReviewFilesCache = new Map<string, TurnReviewFile[]>();
 export const leadReviewSnapshotKindCache = new Map<string, string>();
 export const leadReviewCheckpointIdCache = new Map<string, string>();
+/** Retained turn change records Delete history removes (the files menu's count). */
+export const leadReviewHistoryTurnsCache = new Map<string, number>();
 // Tag of the review held above, dropped with it: a tag that outlived its
 // review got answered `unchanged` and left the bar on an empty review.
 export const reviewTagCache = new Map<string, string>();
@@ -38,6 +43,7 @@ function drop(scope: string): void {
   leadReviewFilesCache.delete(scope);
   leadReviewSnapshotKindCache.delete(scope);
   leadReviewCheckpointIdCache.delete(scope);
+  leadReviewHistoryTurnsCache.delete(scope);
   reviewTagCache.delete(scope);
 }
 
@@ -61,7 +67,8 @@ export function rememberAgentReviews(
   files: TurnReviewFile[],
   snapshotKind: string,
   checkpointId: string,
-  etag = ''
+  etag = '',
+  historyTurns = 0
 ): void {
   drop(scopeKey);
   let chars = JSON.stringify([scopeKey, reviews, leadPatch, files, snapshotKind, checkpointId]).length;
@@ -80,6 +87,7 @@ export function rememberAgentReviews(
   leadReviewFilesCache.set(scopeKey, files);
   leadReviewSnapshotKindCache.set(scopeKey, snapshotKind);
   leadReviewCheckpointIdCache.set(scopeKey, checkpointId);
+  leadReviewHistoryTurnsCache.set(scopeKey, historyTurns);
   if (etag && !light) reviewTagCache.set(scopeKey, etag);
   sizes.set(scopeKey, chars);
   retainedChars += chars;

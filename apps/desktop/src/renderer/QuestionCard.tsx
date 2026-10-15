@@ -254,7 +254,9 @@ export function QuestionCard({
                 <span className="question-option-label">
                   {option.label}
                   {question.recommended === i && <span className="question-rec">{t('Recommended')}</span>}
-                </span>              </span>
+                </span>
+                {option.description && <span className="question-option-desc">{option.description}</span>}
+              </span>
             </button>
           );
         })}

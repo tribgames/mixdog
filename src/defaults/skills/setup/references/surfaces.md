@@ -18,7 +18,7 @@ or requests a setting with no mutation action.
 | `profile` | User profile |
 | `autoclear` | Session lifecycle controls |
 | `memory` | Memory capability surface |
-| `mcp` | Extensions → Skill → MCP |
+| `mcp` | Extensions → Skill → MCP, including OAuth Connect/Reconnect/Disconnect |
 | `skills` | Extensions → Skill → Skills |
 | `plugins` | Extensions → Plugin |
 | `update` | Update surface |
@@ -56,15 +56,15 @@ the user to Desktop.
 
 ## Desktop-backed settings
 
-Setup can read and change Desktop appearance (including markdown default
-view, link previews, and tool activity expansion), keep-awake, run in
-background, turn-completion notifications, notification volume (Windows),
-usage pin, activity rail pins, Computer observe-only, Browser/Computer
-installation and toggles, Projects, and linked-device revocation through the
-attached Desktop. A receipt identifies `scope:desktop-host`.
+`set_desktop_settings`, `set_appearance`, `set_activity_rail_pins`,
+`save_project`, `remove_project`, `revoke_linked_device`, and Browser/Computer
+install or toggles run through the attached Desktop; the receipt identifies
+`scope:desktop-host`.
 
 Computer observe-only and background Memory cycles (`set_recap_enabled`)
-have no settings control in either app; setup is their only supported route. Usage pin is the pin toggle on the activity rail usage card.
+have no settings control in either app; setup is their only supported route.
+Usage pin and the short + long rail bars live in the usage card's flyout menu
+on the activity rail.
 
 Schedules/webhooks and workflow/agent/skill definitions use their runtime
 actions directly. These do not require clicking their Desktop rails.
@@ -74,6 +74,8 @@ actions directly. These do not require clicking their Desktop rails.
 The setup tool does not mutate:
 
 - API keys, OAuth, usage sign-in, and GitHub CLI connection;
+- MCP server OAuth sign-in and sign-out (Desktop MCP list/editor, TUI
+  `/mcp login` and `/mcp logout`; remote windows paste the redirect address);
 - notification permission and subscription on the receiving device;
 - web-app pairing credentials and OS permission dialogs;
 - TUI-local theme palettes (use `/theme`; Desktop themes are separate).

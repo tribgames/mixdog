@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   CUSTOM_EFFORT_LEVELS,
   customEffortLevels,
+  customWireFormat,
   resolveCustomReasoning,
   snapCustomEffort,
 } from './custom-reasoning.mjs';
@@ -144,14 +145,47 @@ test('protocol and wireFormat serialization', () => {
   }
 });
 
-test('replay eligibility: flag, thinking off, reasoner ids, non-chat, explicit false over catalog', () => {
+test('Together and vLLM enable flags; Together is detected by its base URL', () => {
+  const hybrid = row(['none', 'low', 'high']);
+  const effortOnly = row(['low', 'medium', 'high']);
+  const together = 'https://api.together.xyz/v1';
+  const chat = (model, effort, extra = {}) =>
+    resolveCustomReasoning({ protocol: 'openai-chat', model, effort, ...extra }).fields;
+  assert.equal(customWireFormat(hybrid, together), 'together');
+  assert.equal(customWireFormat(hybrid, 'https://llm.example.com/v1'), 'standard');
+  assert.equal(customWireFormat(row(['high'], { wireFormat: 'deepseek' }), together), 'deepseek');
+  // Hybrid models toggle with reasoning.enabled; the level still rides reasoning_effort.
+  assert.deepEqual(chat(hybrid, 'none', { baseURL: together }), { reasoning: { enabled: false } });
+  assert.deepEqual(chat(hybrid, 'high', { baseURL: together }), {
+    reasoning_effort: 'high',
+    reasoning: { enabled: true },
+  });
+  // Effort-only models (gpt-oss) carry just reasoning_effort.
+  assert.deepEqual(chat(effortOnly, 'medium', { baseURL: together }), { reasoning_effort: 'medium' });
+  // Other hosts keep the standard field.
+  assert.deepEqual(chat(hybrid, 'high', { baseURL: 'https://llm.example.com/v1' }), { reasoning_effort: 'high' });
+  // The Responses wire has no Together toggle.
+  assert.deepEqual(
+    resolveCustomReasoning({ protocol: 'openai-responses', model: hybrid, effort: 'high', baseURL: together }).fields,
+    { reasoning: { effort: 'high' } }
+  );
+
+  const vllm = row(['none', 'high'], { wireFormat: 'vllm' });
+  assert.deepEqual(chat(vllm, 'none'), { chat_template_kwargs: { enable_thinking: false } });
+  assert.deepEqual(chat(vllm, 'high'), { chat_template_kwargs: { enable_thinking: true }, reasoning_effort: 'high' });
+  assert.deepEqual(resolveCustomReasoning({ protocol: 'anthropic', model: vllm, effort: 'high' }).fields, {});
+});
+
+test('replay eligibility: flag, thinking off, non-chat, explicit false over catalog', () => {
   const on = row(['none', 'high'], { wireFormat: 'deepseek', replay: true });
   assert.equal(resolveCustomReasoning({ protocol: 'openai-chat', model: on, effort: 'high' }).replay, true);
   assert.equal(resolveCustomReasoning({ protocol: 'openai-chat', model: on, effort: undefined }).replay, true);
   assert.equal(resolveCustomReasoning({ protocol: 'openai-chat', model: on, effort: 'none' }).replay, false);
+  // No model id is excluded: DeepSeek ignores a replayed reasoning_content without tools.
   assert.equal(
-    resolveCustomReasoning({ protocol: 'openai-chat', model: { ...on, id: 'My-Reasoner-1' }, effort: 'high' }).replay,
-    false
+    resolveCustomReasoning({ protocol: 'openai-chat', model: { ...on, id: 'deepseek-reasoner' }, effort: 'high' })
+      .replay,
+    true
   );
   assert.equal(
     resolveCustomReasoning({ protocol: 'openai-responses', model: row(['high'], { replay: true }), effort: 'high' })

@@ -8,6 +8,7 @@ import { resolveOfficeRenderOutput } from '../quality/quality-pipeline.mjs';
 import { defaultRenderOutput, exists, fullPath } from './office-sessions.mjs';
 import { completePageCoverage, pptxPageSignatures, reusablePptxPages } from './pptx-page-cache.mjs';
 import { numberDocxTableOfContents } from './docx-toc-pages.mjs';
+import { noteOfficeWrite } from './office-write-ledger.mjs';
 
 function request(session, args, cwd) {
   return {
@@ -136,6 +137,7 @@ export async function renderOfficePreview(
   const exportKey = `${session.target}\0${Number(session.snapshotVersion || 0)}\0${requested.output}`;
   if (!incremental || session.previewExportKey !== exportKey || !(await exists(requested.output))) {
     session.previewExportKey = null;
+    noteOfficeWrite(requested.output);
     await exportPreview(session, requested.output);
     if (incremental) session.previewExportKey = exportKey;
   }

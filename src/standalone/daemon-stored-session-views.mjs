@@ -38,6 +38,8 @@ export function createStoredSessionViews({ desktopRuntime, dataDir }) {
       const review = createRuntimeReviewApi({ getCwd: () => metadata.cwd || '', getSessionId: () => sessionId });
       // The runtime review API answers `known`/`summary` itself (turnReviewReply).
       if (action === 'getSessionReviewDiff') return review.getSessionReviewDiff();
+      if (action === 'getSessionReviewFilePatch') return review.getSessionReviewFilePatch(args[0], args[1]);
+      if (action === 'getTurnReviewFilePatch') return review.getTurnReviewFilePatch(args[0]);
       // A cold session runs no turn: its change record is final.
       if (action === 'getTurnChanges') return review.getTurnChanges(args[0]);
       return review.getTurnReviewDiff(args[0]);

@@ -25,10 +25,19 @@ function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+// A server-executed tool search (execution:'server', or call_id null) is
+// answered by the server inside the same response. It is never a client call
+// awaiting a client output, so the guard neither pairs nor synthesizes it.
+function isServerToolSearch(item) {
+  return (item.type === 'tool_search_call' || item.type === 'tool_search_output') &&
+    (item.execution === 'server' || item.call_id === null);
+}
+
 function responsesCallId(item) {
   if (!isObject(item)) return null;
   if (item.type !== 'function_call' && item.type !== 'custom_tool_call' && item.type !== 'tool_search_call')
     return null;
+  if (isServerToolSearch(item)) return null;
   const id = item.call_id || item.id || '';
   return typeof id === 'string' && id ? id : null;
 }
@@ -41,6 +50,7 @@ function responsesOutputId(item) {
     item.type !== 'tool_search_output'
   )
     return null;
+  if (isServerToolSearch(item)) return null;
   const id = item.call_id || item.id || '';
   return typeof id === 'string' && id ? id : null;
 }
@@ -50,7 +60,6 @@ function syntheticResponsesOutput(call) {
     return {
       type: 'custom_tool_call_output',
       call_id: call.call_id || call.id || '',
-      ...(typeof call.name === 'string' && call.name ? { name: call.name } : {}),
       output: WIRE_PAIRING_STUB,
     };
   }
@@ -116,34 +125,40 @@ function chatResultId(message) {
   return typeof id === 'string' && id ? id : null;
 }
 
+// Result ids of the contiguous tool-message run that immediately follows the
+// assistant message at `index`. Only that run answers its tool_calls block.
+function followingChatResultIds(messages, index) {
+  const ids = new Set();
+  for (let j = index + 1; j < messages.length; j += 1) {
+    const message = messages[j];
+    if (!isObject(message) || message.role !== 'tool') break;
+    const id = chatResultId(message);
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
 /**
- * Ensure every chat assistant `tool_calls` entry has a following tool
- * message. Returns the original array when already paired, otherwise a new
- * array with synthetic tool messages inserted right after their assistant
- * message (providers require the results to follow the call message).
+ * Ensure every chat assistant `tool_calls` entry is answered by a tool
+ * message in the run immediately following that assistant message (OpenAI
+ * function calling / Meta chat contract). A result after an intervening
+ * user/assistant message, or one answering another occurrence of the same id,
+ * does not pair it. Returns the original array when already paired, otherwise
+ * a new array with synthetic tool messages inserted right after the assistant
+ * message.
  */
 export function ensureChatToolPairs(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return messages;
-  const resultIds = new Set();
-  for (const message of messages) {
-    const id = chatResultId(message);
-    if (id) resultIds.add(id);
-  }
-  let missing = 0;
-  for (const message of messages) {
-    for (const id of chatToolCallIds(message)) {
-      if (!resultIds.has(id)) missing += 1;
-    }
-  }
-  if (missing === 0) return messages;
-  const out = [];
-  for (const message of messages) {
+  let out = null;
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messages[i];
+    const callIds = chatToolCallIds(message);
+    const answered = callIds.length ? followingChatResultIds(messages, i) : null;
+    const missing = callIds.filter((id) => !answered.has(id));
+    if (missing.length && !out) out = messages.slice(0, i);
+    if (!out) continue;
     out.push(message);
-    for (const id of chatToolCallIds(message)) {
-      if (resultIds.has(id)) continue;
-      out.push({ role: 'tool', tool_call_id: id, content: WIRE_PAIRING_STUB });
-      resultIds.add(id);
-    }
+    for (const id of missing) out.push({ role: 'tool', tool_call_id: id, content: WIRE_PAIRING_STUB });
   }
-  return out;
+  return out || messages;
 }

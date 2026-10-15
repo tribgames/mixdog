@@ -139,18 +139,23 @@ test('sampling defaults, output ceiling clamp and tool_choice', async () => {
     await provider.send(hi, 'mimo-v2.6-pro', [], { toolChoice: 'required' });
     const [a, b, c, d, e] = chatRequests(gw).map((r) => r.body);
     assert.equal(a.temperature, 1);
-    assert.equal(a.max_tokens, 128000);
+    // MiMo documents max_completion_tokens (never max_tokens) and tool_choice auto only.
+    assert.equal(a.max_completion_tokens, 128000);
+    assert.equal(Object.hasOwn(a, 'max_tokens'), false);
     assert.equal(a.tool_choice, undefined);
     assert.equal(b.temperature, 0.2);
-    assert.equal(b.max_tokens, 500);
-    assert.equal(b.tool_choice, 'required');
-    assert.deepEqual(c.tool_choice, { type: 'function', function: { name: 'read' } });
-    assert.equal(d.tool_choice, 'none');
+    assert.equal(b.max_completion_tokens, 500);
+    assert.equal(b.tool_choice, undefined);
+    assert.equal(c.tool_choice, undefined);
+    assert.equal(c.tools.length, TOOLS.length);
+    // `none` is honored by dropping the tools, since the backend ignores it.
+    assert.equal(d.tool_choice, undefined);
+    assert.equal(Object.hasOwn(d, 'tools'), false);
     assert.equal(e.tool_choice, undefined);
 
     await provider.listModels();
     await provider.send(hi, 'mimo-small', [], {});
-    assert.equal(chatRequests(gw).at(-1).body.max_tokens, 64000);
+    assert.equal(chatRequests(gw).at(-1).body.max_completion_tokens, 64000);
   } finally {
     gw.close();
   }

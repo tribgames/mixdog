@@ -23,6 +23,14 @@ test('questions leave a roll-up; counts follow only what was completed', () => {
   assert.equal(holdsWaitingAskUser(ask('done', answered)), false);
 });
 
+test('a question asked through the call_tool bridge is still a question', () => {
+  const bridged = { kind: 'tool', id: 'b', name: 'call_tool', args: { name: 'ask_user', arguments: { questions: [] } } };
+  assert.equal(holdsWaitingAskUser(bridged), true);
+  assert.equal(splitAskUser([bridged], true).waiting, true);
+  assert.deepEqual(splitAskUser([{ ...bridged, result: answered }], true).asked.map((item) => item.id), ['b']);
+  assert.equal(holdsWaitingAskUser({ ...bridged, args: { name: 'read', arguments: {} } }), false);
+});
+
 test('answers parse picks and typed text apart, quotes included', () => {
   const result =
     'User has answered your questions: "A \\"x\\"?"="A, B" + "mine, too" (typed); "Typed?"="free" (typed); "None?"=(no answer). You can now continue with these answers in mind.';

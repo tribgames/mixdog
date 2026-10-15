@@ -5,9 +5,10 @@ import { asRecord, oneLine } from './text-format';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { aggregateToolCategoryEntry, classifyToolCategory, formatToolSurface, toolLoadingTargets } from '../../../../src/runtime/shared/tool-surface.mjs';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { parseMcpToolName, titleCaseMcpServer } from '../../../../src/runtime/shared/tool-primitives.mjs';
+import { parseMcpToolName, titleCaseMcpServer, toolCallDisplayIdentity } from '../../../../src/runtime/shared/tool-primitives.mjs';
+// biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { deriveToolOutcomeTone, resultTerminalStatus } from '../../../../src/runtime/shared/tool-card-model.mjs';
+import { bridgeDescribeResult, deriveToolOutcomeTone, resultTerminalStatus } from '../../../../src/runtime/shared/tool-card-model.mjs';
 
 export interface ToolCardModel {
   pending: boolean;
@@ -313,16 +314,48 @@ export function desktopToolActivityModeledName(name: unknown, args: unknown): st
   return DESKTOP_TOOL_ACTIVITY_ALIASES.get(surface.normalizedName) ?? String(name || 'tool');
 }
 
+/** The tool a call shows as: a `call_tool` bridge request is the tool it runs
+ *  (its own arguments, `via: 'call_tool'`); every other call is itself. Every
+ *  desktop category, title and argument derivation starts from this. */
+export function desktopToolDisplayIdentity(
+  name: unknown,
+  args: unknown
+): { name: string; args: unknown; via?: 'call_tool' } {
+  const identity = toolCallDisplayIdentity(name, args) as { name: unknown; args: unknown; via?: 'call_tool' };
+  return {
+    name: String(identity.name || 'tool'),
+    args: identity.args,
+    ...(identity.via ? { via: identity.via } : {}),
+  };
+}
+
+/** A bridge load_tool result (described / missing / blocked), or null. */
+export function desktopToolDescribeResult(
+  name: unknown,
+  args: unknown,
+  result: unknown
+): { described: string[]; missing: string[]; blocked: string[] } | null {
+  if (result == null) return null;
+  const identity = desktopToolDisplayIdentity(name, args);
+  if (formatToolSurface(identity.name, identity.args).normalizedName !== 'load_tool') return null;
+  return bridgeDescribeResult(typeof result === 'string' ? result : boundedTextOf(result));
+}
+
 /** Canonical surface name and arguments after the desktop aliases (`write` → `edit`). */
 export function desktopToolActivitySurface(
   name: unknown,
   args: unknown
 ): { normalizedName: string; args: Record<string, unknown> } {
-  const surface = formatToolSurface(desktopToolActivityModeledName(name, args), args);
-  return { normalizedName: String(surface.normalizedName), args: asRecord(surface.args) ?? asRecord(args) ?? {} };
+  const identity = desktopToolDisplayIdentity(name, args);
+  const surface = formatToolSurface(desktopToolActivityModeledName(identity.name, identity.args), identity.args);
+  return {
+    normalizedName: String(surface.normalizedName),
+    args: asRecord(surface.args) ?? asRecord(identity.args) ?? {},
+  };
 }
 
-export function desktopToolActivityCategory(name: unknown, args: unknown): string {
+export function desktopToolActivityCategory(rawName: unknown, rawArgs: unknown): string {
+  const { name, args } = desktopToolDisplayIdentity(rawName, rawArgs);
   const modeledName = desktopToolActivityModeledName(name, args);
   const surface = formatToolSurface(modeledName, args);
   if (surface.normalizedName === 'browser' || surface.normalizedName === 'browser_devtools') return 'Browser';
@@ -340,8 +373,10 @@ function mediaGenerateArgs(surface: { normalizedName: string; args: unknown }): 
 }
 
 function desktopToolActivityUnit(
-  name: unknown,
-  args: unknown
+  rawName: unknown,
+  rawArgs: unknown,
+  /** The call's result: a bridge load_tool describes, it never loads. */
+  result?: unknown
 ): {
   category: string;
   done: string;
@@ -351,6 +386,7 @@ function desktopToolActivityUnit(
   /** How many of the unit one call covers (3 files in one read). */
   count: number;
 } {
+  const { name, args } = desktopToolDisplayIdentity(rawName, rawArgs);
   const modeledName = desktopToolActivityModeledName(name, args);
   const surface = formatToolSurface(modeledName, args);
   const category = desktopToolActivityCategory(modeledName, surface.args);
@@ -359,6 +395,16 @@ function desktopToolActivityUnit(
     noun?: string;
     count?: number;
   } | null;
+  if (category === 'Load' && desktopToolDescribeResult(name, args, result)) {
+    return {
+      category,
+      done: 'Described',
+      noun: 'tool',
+      unitKey: 'Load|Described|tool',
+      label: t('Tool description'),
+      count: Math.max(1, Math.round(Number(entry?.count || 1))),
+    };
+  }
   const done = String(entry?.done || '');
   const noun = String(entry?.noun || '');
   const named = namedToolActivityUnit(name, args, category, done, noun);
@@ -429,8 +475,8 @@ function toolActivityRowVerb(category: string, done: string, noun: string): stri
   }
 }
 
-export function desktopToolActivityRowVerb(name: unknown, args: unknown): string {
-  const unit = desktopToolActivityUnit(name, args);
+export function desktopToolActivityRowVerb(name: unknown, args: unknown, result?: unknown): string {
+  const unit = desktopToolActivityUnit(name, args, result);
   return toolActivityRowVerb(unit.category, unit.done, unit.noun) || unit.label;
 }
 
@@ -645,7 +691,7 @@ export function desktopToolActivitySummary(items: readonly TranscriptItem[]): st
   const calls = flattenedToolActivityItems(items);
   let failedCommands = 0;
   for (const item of calls) {
-    const unit = desktopToolActivityUnit(item.name, item.args);
+    const unit = desktopToolActivityUnit(item.name, item.args, item.result ?? item.rawResult);
     // A stopped command was not a failure: the stop is its own outcome.
     if (
       unit.category === 'Shell' &&
@@ -675,6 +721,6 @@ export function desktopToolActivitySummary(items: readonly TranscriptItem[]): st
 }
 
 /** The work-unit name a call is counted under. */
-export function desktopToolActivityUnitLabel(name: unknown, args: unknown): string {
-  return desktopToolActivityUnit(name, args).label;
+export function desktopToolActivityUnitLabel(name: unknown, args: unknown, result?: unknown): string {
+  return desktopToolActivityUnit(name, args, result).label;
 }

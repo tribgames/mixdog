@@ -15,7 +15,7 @@ process.on('exit', () => {
 });
 
 const { createRuntimeReviewApi } = await import('./runtime-review-api.mjs');
-const { beginTurnSnapshot } = await import('../runtime/shared/turn-snapshot.mjs');
+const { beginTurnSnapshot, recordTurnDiffChanges } = await import('../runtime/shared/turn-snapshot.mjs');
 const { invalidateBuiltinResultCache } = await import('../runtime/agent/orchestrator/tools/builtin/cache-layers.mjs');
 
 function git(cwd, ...args) {
@@ -38,39 +38,30 @@ function seedRepo(name) {
   return repo;
 }
 
-test('foreground reads capture unreported edits; only background polls are gated', {
+test('an external edit of an own file never joins the live review, whatever the read kind', {
   skip: gitAvailable ? false : 'git is unavailable',
-}, async (t) => {
-  const repo = seedRepo('poll-repo');
-  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
-  t.after(() => t.mock.timers.reset());
-  const sessionId = 'sess_poll_kinds';
+}, async () => {
+  const repo = seedRepo('external-repo');
+  const sessionId = 'sess_external_edit';
   await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp1' });
   const api = createRuntimeReviewApi({ getCwd: () => repo, getSessionId: () => sessionId });
-  const paths = (review) => review.files.map(({ path }) => path);
-  await api.getTurnReviewDiff({ refresh: true });
-
-  // An external editor: nothing reports these writes.
-  writeFileSync(join(repo, 'a.txt'), 'edited a\n');
-  const collapsed = await api.getTurnReviewDiff({ refresh: true, summary: true, poll: 'background' });
-  assert.deepEqual(paths(collapsed), [], 'a collapsed background poll is gated');
-  assert.deepEqual(paths(await api.getTurnReviewDiff({ refresh: true, poll: 'background' })), []);
-
-  // An open review polls every 6 s; that poll captures.
-  t.mock.timers.tick(6_000);
-  assert.deepEqual(paths(await api.getTurnReviewDiff({ refresh: true, poll: 'background' })), ['a.txt']);
-
-  // A collapsed poll 6 s after that capture stays gated…
-  writeFileSync(join(repo, 'b.txt'), 'new b\n');
-  t.mock.timers.tick(6_000);
-  const gated = await api.getTurnReviewDiff({ refresh: true, summary: true, poll: 'background' });
-  assert.deepEqual(paths(gated), ['a.txt']);
-  // …a foreground read (open, manual or tool-boundary refresh) is not.
-  assert.deepEqual(paths(await api.getTurnReviewDiff({ refresh: true, summary: true })), ['a.txt', 'b.txt']);
-
-  // A request without the option (older desktop, TUI, mobile) captures too.
-  writeFileSync(join(repo, 'c.txt'), 'new c\n');
-  assert.deepEqual(paths(await api.getTurnReviewDiff({})), ['a.txt', 'b.txt', 'c.txt']);
+  writeFileSync(join(repo, 'a.txt'), 'changed a\n');
+  recordTurnDiffChanges(sessionId, [
+    { path: join(repo, 'a.txt'), displayPath: 'a.txt', before: 'original a\n', after: 'changed a\n', additions: 1, deletions: 1 },
+  ]);
+  // An external editor rewrites it later: no tool of this session did.
+  writeFileSync(join(repo, 'a.txt'), 'changed a\nexternal line\n');
+  invalidateBuiltinResultCache([join(repo, 'a.txt')]);
+  for (const options of [{ refresh: true }, { refresh: true, poll: 'background' }, { refresh: true, summary: true }, {}]) {
+    const review = await api.getTurnReviewDiff(options);
+    const label = JSON.stringify(options);
+    assert.deepEqual(
+      review.files.map(({ path, additions, deletions }) => [path, additions, deletions]),
+      [['a.txt', 1, 1]],
+      label
+    );
+    assert.doesNotMatch(review.patch, /external/, label);
+  }
 });
 
 test('a live turn review answers a matching tag with the unchanged reply', {
@@ -83,12 +74,16 @@ test('a live turn review answers a matching tag with the unchanged reply', {
   const api = createRuntimeReviewApi({ getCwd: () => repo, getSessionId: () => sessionId });
 
   writeFileSync(join(repo, 'a.txt'), 'changed a\n');
+  recordTurnDiffChanges(sessionId, [
+    { path: join(repo, 'a.txt'), displayPath: 'a.txt', before: 'original a\n', after: 'changed a\n', additions: 1, deletions: 1 },
+  ]);
   // The tool-write signal every builtin mutation sends.
   invalidateBuiltinResultCache([join(repo, 'a.txt')]);
   const first = await api.getTurnReviewDiff({ refresh: true });
   assert.equal(first.snapshotKind, 'worktree');
   assert.match(first.patch, /^\+changed a$/m);
   assert.match(first.etag, /^[a-f0-9]{32}$/);
+  assert.equal(first.historyTurns, 0);
 
   assert.deepEqual(await api.getTurnReviewDiff({ refresh: true, known: first.etag }), {
     unchanged: true,
@@ -103,13 +98,89 @@ test('a live turn review answers a matching tag with the unchanged reply', {
 
   // A write after the last capture is on the next poll, not the stale tag.
   writeFileSync(join(repo, 'b.txt'), 'new b\n');
+  recordTurnDiffChanges(sessionId, [
+    { path: join(repo, 'b.txt'), displayPath: 'b.txt', before: null, after: 'new b\n', additions: 1, deletions: 0 },
+  ]);
   invalidateBuiltinResultCache([join(repo, 'b.txt')]);
+  // A file no own tool wrote never joins the review.
+  writeFileSync(join(repo, 'foreign.txt'), 'foreign\n');
+  invalidateBuiltinResultCache([join(repo, 'foreign.txt')]);
   const changed = await api.getTurnReviewDiff({ refresh: true, known: first.etag });
   assert.notEqual(changed.unchanged, true);
   assert.deepEqual(
     changed.files.map(({ path }) => path),
     ['a.txt', 'b.txt']
   );
+});
+
+test('turn and session reviews list a too-large file with its counts and read its patch on its own', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  const repo = seedRepo('large-file-review');
+  const sessionId = 'sess_large_file';
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp1' });
+  const api = createRuntimeReviewApi({ getCwd: () => repo, getSessionId: () => sessionId });
+  const big = `${'x'.repeat(9)}\n`.repeat(120_000);
+  writeFileSync(join(repo, 'big.txt'), big);
+  writeFileSync(join(repo, 'a.txt'), 'changed a\n');
+  recordTurnDiffChanges(sessionId, [
+    { path: join(repo, 'big.txt'), displayPath: 'big.txt', before: null, after: big },
+    { path: join(repo, 'a.txt'), displayPath: 'a.txt', before: 'original a\n', after: 'changed a\n' },
+  ]);
+  invalidateBuiltinResultCache([join(repo, 'big.txt'), join(repo, 'a.txt')]);
+  const shape = (review) =>
+    review.files.map(({ path, additions, patchOmitted, reason }) => [path, additions, patchOmitted, reason]);
+  const expected = [
+    ['a.txt', 1, undefined, undefined],
+    ['big.txt', 120_000, true, 'too_large'],
+  ];
+  const plusLines = (patch) => patch.match(/^\+x{9}$/gm)?.length ?? 0;
+  for (const [review, filePatch] of [
+    [await api.getTurnReviewDiff({ refresh: true }), await api.getTurnReviewFilePatch('big.txt')],
+    [await api.getSessionReviewDiff(), await api.getSessionReviewFilePatch('big.txt')],
+  ]) {
+    assert.deepEqual(shape(review), expected);
+    assert.match(review.patch, /^\+changed a$/m);
+    assert.doesNotMatch(review.patch, /big\.txt/);
+    assert.equal(review.diffTooLarge, undefined);
+    assert.equal(filePatch.patchOmitted, undefined);
+    assert.equal(plusLines(filePatch.patch), 120_000);
+  }
+});
+
+test('a file read never discloses a file the session does not own, whatever rename source it names', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  const repo = seedRepo('unowned-file-repo');
+  writeFileSync(join(repo, 'secret.txt'), 'secret base\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'secret');
+  const sessionId = 'sess_unowned_file';
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp1' });
+  const api = createRuntimeReviewApi({ getCwd: () => repo, getSessionId: () => sessionId });
+  writeFileSync(join(repo, 'a.txt'), 'changed a\n');
+  recordTurnDiffChanges(sessionId, [
+    { path: join(repo, 'a.txt'), displayPath: 'a.txt', before: 'original a\n', after: 'changed a\n' },
+  ]);
+  // Another writer changes a file this session never touched.
+  writeFileSync(join(repo, 'secret.txt'), 'secret changed\n');
+  invalidateBuiltinResultCache([join(repo, 'a.txt'), join(repo, 'secret.txt')]);
+  const review = await api.getSessionReviewDiff();
+  assert.deepEqual(
+    review.files.map(({ path }) => path),
+    ['a.txt']
+  );
+  for (const read of [
+    await api.getSessionReviewFilePatch('secret.txt', 'a.txt'),
+    await api.getSessionReviewFilePatch('secret.txt'),
+    await api.getTurnReviewFilePatch('secret.txt'),
+  ]) {
+    assert.equal(read.patch, '');
+    assert.doesNotMatch(JSON.stringify(read), /secret (base|changed)/);
+  }
+  const own = await api.getSessionReviewFilePatch('a.txt', 'secret.txt');
+  assert.match(own.patch, /^\+changed a$/m);
+  assert.doesNotMatch(own.patch, /secret/);
 });
 
 test("deleting a session removes its Delete history marker; another session's stays", async () => {

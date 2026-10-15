@@ -70,13 +70,19 @@ export function antigravityError(res, text, endpoint) {
   // Account verification is terminal and actionable: surface the URL Google
   // returns instead of a raw API body the user cannot act on.
   // Google puts the link in the error details, not the message text.
-  const validationDetail = Array.isArray(detail?.details)
-    ? detail.details.find(
-        (entry) => entry?.reason === 'VALIDATION_REQUIRED' && typeof entry.metadata?.validation_url === 'string'
-      )
-    : null;
+  // Order: google.rpc.Help.links, metadata.validation_url, metadata.validation_link.
+  const detailEntries = Array.isArray(detail?.details) ? detail.details : [];
+  const helpUrl = detailEntries
+    .flatMap((entry) => (Array.isArray(entry?.links) ? entry.links : []))
+    .map((link) => link?.url)
+    .find((url) => typeof url === 'string' && url.length > 0);
+  const metadataUrl = (key) =>
+    detailEntries.find((entry) => entry?.reason === 'VALIDATION_REQUIRED' && typeof entry.metadata?.[key] === 'string' && entry.metadata[key])
+      ?.metadata[key];
   const validationUrl =
-    validationDetail?.metadata.validation_url ||
+    helpUrl ||
+    metadataUrl('validation_url') ||
+    metadataUrl('validation_link') ||
     /https:\/\/\S*(?:accounts|console)\.google\.com\/\S+/.exec(message || '')?.[0] ||
     '';
   if (res.status === 403 && /VALIDATION_REQUIRED/i.test(text || '')) {

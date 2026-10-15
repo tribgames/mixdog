@@ -83,6 +83,11 @@ export class AnthropicProvider {
       maxRetries: 0,
     });
   }
+  // The model id capability lookups (output cap, thinking/effort shape) read;
+  // a gateway engine maps its routing slug to the Claude id it stands for.
+  _capabilityModel(model) {
+    return model;
+  }
   reloadApiKey() {
     try {
       const newKey = reloadProviderApiKey(this.name, this.config);
@@ -149,6 +154,7 @@ export class AnthropicProvider {
       fastModeLatched: this.fastModeBetaHeaderLatched,
       // Custom providers carry per-model reasoning settings on their own rows.
       modelInfo: isCustomProviderName(this.name) ? this.getCachedModelInfo?.(useModel) || null : null,
+      capabilityModel: this._capabilityModel(useModel),
     });
     this.fastModeBetaHeaderLatched = fastModeLatched;
 

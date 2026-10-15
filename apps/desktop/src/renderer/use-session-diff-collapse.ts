@@ -3,9 +3,6 @@ import { t } from './i18n';
 import type { DockAction } from './pane-dock-chrome';
 import type { SessionDiffRow } from './session-diff-model';
 
-/** Changed lines past which a file starts folded in the stack. */
-const LARGE_DIFF_LINES = 200;
-
 /** Which files of the session diff are folded. Collapsed files stay collapsed
  *  while the pane is open (and across refreshes). */
 export function useSessionDiffCollapse(rows: readonly SessionDiffRow[]) {
@@ -16,18 +13,15 @@ export function useSessionDiffCollapse(rows: readonly SessionDiffRow[]) {
       if (!next.delete(path)) next.add(path);
       return next;
     });
-  // A large diff starts folded (its header still lists name and counts); a
-  // file seen once keeps whatever the user chose after that. A layout effect:
-  // the fold lands before the first paint, so the list never draws a huge
-  // diff open and then jumps shut.
+  // Every file starts expanded except a deleted one (Codex); a file seen once
+  // keeps whatever the user chose after that. A layout effect: the fold lands
+  // before the first paint, so a deleted file never draws open and then shuts.
   const seenPaths = useRef<Set<string>>(new Set());
   useLayoutEffect(() => {
-    const large = rows.filter(
-      (row) => !seenPaths.current.has(row.path) && row.additions + row.deletions > LARGE_DIFF_LINES
-    );
+    const deleted = rows.filter((row) => !seenPaths.current.has(row.path) && row.status === 'D');
     for (const row of rows) seenPaths.current.add(row.path);
-    if (large.length === 0) return;
-    setCollapsed((current) => new Set([...current, ...large.map((row) => row.path)]));
+    if (deleted.length === 0) return;
+    setCollapsed((current) => new Set([...current, ...deleted.map((row) => row.path)]));
   }, [rows]);
   /** Unfolds one file (a requested file opens expanded). */
   const expandPath = (path: string) =>

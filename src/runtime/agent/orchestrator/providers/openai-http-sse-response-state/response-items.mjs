@@ -5,7 +5,12 @@
  * pending function_call completion.
  */
 import { makeInvalidToolArgsMarker } from '../lib/openai-tool-args.mjs';
-import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from '../custom-tool-wire.mjs';
+import {
+  customToolCallFromResponseItem,
+  nativeToolSearchCallFromArguments,
+  qualifiedToolCallName,
+  withToolCallNamespace,
+} from '../custom-tool-wire.mjs';
 
 // Completed function_call.arguments parse for the OpenAI Responses stream.
 // A function_call item arrives only on a completion/done signal, so a
@@ -37,7 +42,7 @@ export function createResponseItems({ state, onToolCall }) {
     if (!call?.id) return;
     if (state.emittedToolCallIds.has(call.id)) return;
     state.emittedToolCallIds.add(call.id);
-    if (!state.toolDedupe.shouldDispatch(call.name, call.arguments, call.id)) return;
+    if (!state.toolDedupe.shouldDispatch(qualifiedToolCallName(call), call.arguments, call.id)) return;
     state.emittedToolCall = true;
     try {
       onToolCall?.(call);
@@ -77,6 +82,8 @@ export function createResponseItems({ state, onToolCall }) {
   };
   const pushToolSearchCall = (item) => {
     if (item?.type !== 'tool_search_call') return;
+    // Server-executed search already ran inside the response; replay-only.
+    if (item.execution === 'server') return;
     const callId = item.call_id || item.id || '';
     if (!callId || state.toolCalls.some((t) => t.id === callId)) return;
     let args = {};
@@ -104,6 +111,7 @@ export function createResponseItems({ state, onToolCall }) {
   const completePendingCall = (tc, item) => {
     if (!tc.id && item.call_id) tc.id = item.call_id;
     if (!tc.name && item.name) tc.name = item.name;
+    withToolCallNamespace(tc, item);
     if (tc.id && tc.name) {
       delete tc._pendingItemId;
       emitToolCall(tc);
@@ -119,11 +127,14 @@ export function createResponseItems({ state, onToolCall }) {
     if (tc) {
       completePendingCall(tc, item);
     } else if (item.call_id && item.name) {
-      const call = {
-        id: item.call_id,
-        name: item.name,
-        arguments: parseJsonObject(item.arguments),
-      };
+      const call = withToolCallNamespace(
+        {
+          id: item.call_id,
+          name: item.name,
+          arguments: parseJsonObject(item.arguments),
+        },
+        item
+      );
       state.toolCalls.push(call);
       emitToolCall(call);
     }

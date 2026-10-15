@@ -34,6 +34,7 @@ export const MODEL_PROXY_METHODS = Object.freeze([
   'listModels',
   'refreshModels',
   'isAvailable',
+  'resolveWireRoute',
   'providerConfig',
 ]);
 /** PC heartbeat cadence while it runs calls; well inside the lease. */

@@ -13,7 +13,6 @@ import {
   normalizeGeminiSdkError,
 } from './gemini-stream.mjs';
 import { geminiFailureUsage } from './gemini-response.mjs';
-import { geminiEndsWithFunctionResponse } from './gemini-retry-policy.mjs';
 
 export function geminiTextLeakGuardFor({ tools, callbacks }) {
   return createGeminiTextLeakGuard({
@@ -21,6 +20,7 @@ export function geminiTextLeakGuardFor({ tools, callbacks }) {
     onTextDelta: callbacks.onTextDelta,
     onToolCall: callbacks.onToolCall,
     onStreamDelta: callbacks.onStreamDelta,
+    deferToolCalls: true,
   });
 }
 
@@ -98,7 +98,6 @@ export async function streamGeminiSdkAttempt(genModel, stream, attemptSignal, on
       onTextDelta: callbacks.onTextDelta,
       textLeakGuard,
       label: 'Gemini SDK streamGenerateContent',
-      acceptEmptyNoFinish: geminiEndsWithFunctionResponse(contents),
       failureUsage: geminiFailureUsage(stream.opts, stream.cachedContent, stream.useModel),
       cancelGeneration: (reason) => {
         if (!controller.signal.aborted) controller.abort(reason);

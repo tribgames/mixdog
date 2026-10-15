@@ -9,6 +9,7 @@ import {
   requiredGitResetMode,
   requiredGitRevision,
   requiredRepositoryCwd,
+  requiredReviewSource,
 } from './git-contract.mjs';
 import {
   attachmentImageBaseName,
@@ -23,6 +24,7 @@ import {
   requiredGitPatch,
   requiredGitPath,
   requiredGitPaths,
+  requiredReviewDiffFiles,
   requiredString,
   optionalGithubLoginOptions,
 } from './ipc-validation';
@@ -251,6 +253,7 @@ function registerRepositoryHistoryIpc({ handle, operations }: SourceControlRegis
     gitRevertCommit,
     gitReview,
     gitReviewDiff,
+    gitReviewDiffs,
     gitShow,
     gitShowDiff,
     gitShowFile,
@@ -293,9 +296,14 @@ function registerRepositoryHistoryIpc({ handle, operations }: SourceControlRegis
   handle(DESKTOP_IPC.gitDeleteTag, (_event, cwd, tag) =>
     gitDeleteTag(requiredRepositoryCwd(cwd), requiredString(tag, 'git tag', 512))
   );
-  handle(DESKTOP_IPC.gitReview, (_event, cwd) => gitReview(requiredRepositoryCwd(cwd)));
-  handle(DESKTOP_IPC.gitReviewDiff, (_event, cwd, path, untracked) =>
-    gitReviewDiff(requiredRepositoryCwd(cwd), requiredGitPath(path), untracked === true)
+  handle(DESKTOP_IPC.gitReview, (_event, cwd, source) =>
+    gitReview(requiredRepositoryCwd(cwd), requiredReviewSource(source))
+  );
+  handle(DESKTOP_IPC.gitReviewDiff, (_event, cwd, path, untracked, source) =>
+    gitReviewDiff(requiredRepositoryCwd(cwd), requiredGitPath(path), untracked === true, requiredReviewSource(source))
+  );
+  handle(DESKTOP_IPC.gitReviewDiffs, (_event, cwd, files, source) =>
+    gitReviewDiffs(requiredRepositoryCwd(cwd), requiredReviewDiffFiles(files), requiredReviewSource(source))
   );
 }
 

@@ -63,8 +63,8 @@ test('OpenAI API-key request uses model-specific cache contracts under every tra
     ['gpt-5.6-luna', true],
     ['gpt-6-astra', true],
     ['gpt-6-astra-2026-09-01', true],
-    ['gpt-6-astra-other', false],
-    ['gpt-60', false],
+    ['gpt-6-astra-other', true],
+    ['gpt-60', null],
   ];
   for (const mode of ['auto', 'ws-full', 'ws-delta', 'http-sse']) {
     for (const [model, cacheOptions] of models) {
@@ -93,7 +93,7 @@ test('OpenAI API-key request uses model-specific cache contracts under every tra
       assert.equal(captured.auth.apiKey, 'fixture-openai-key');
       if (mode !== 'http-sse') assert.equal(captured.traceProvider, 'openai-direct');
       assert.equal(captured.body.store, true);
-      assert.equal(captured.body.prompt_cache_retention, cacheOptions ? undefined : '24h', model);
+      assert.equal(captured.body.prompt_cache_retention, cacheOptions === false ? '24h' : undefined, model);
       assert.deepEqual(captured.body.prompt_cache_options, cacheOptions ? { ttl: '30m' } : undefined, model);
       assert.equal(captured.body.stream, true);
     }

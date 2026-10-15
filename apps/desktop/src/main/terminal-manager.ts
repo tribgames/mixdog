@@ -118,7 +118,7 @@ interface ManagedTerminal {
   cwd: string | null;
 }
 
-/** One tab of a session's terminal, as the read-only agent bridge sees it. */
+/** One tab of a session's terminal, as the agent `terminal` bridge sees it. */
 export interface SessionTerminalTab {
   tab: number;
   id: string;

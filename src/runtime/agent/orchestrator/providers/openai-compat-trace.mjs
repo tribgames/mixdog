@@ -37,6 +37,8 @@ export function extractCompatCachedTokens(usage) {
     usage?.input_tokens_details?.cached_tokens,
     usage?.prompt_cache_hit_tokens,
     usage?.cached_prompt_text_tokens,
+    // Together reports it top-level; first-positive wins, so it never stacks on a nested count.
+    usage?.cached_tokens,
   ];
   for (const v of candidates) {
     const n = Number(v);

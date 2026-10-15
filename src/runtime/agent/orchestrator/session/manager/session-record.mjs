@@ -109,6 +109,9 @@ export function buildSessionRecord({ opts, route, presetObj, surface, prompt, me
     codexWireSessionId: providerName === 'openai-oauth' ? mintUuidV7() : null,
     provider: providerName,
     model: modelName,
+    // Resolved and pinned before the first request (wire-route.mjs). null —
+    // not absent — marks a session created under the per-model wire table.
+    wireRoute: null,
     messages,
     contextWindow: contextMeta.contextWindow,
     rawContextWindow: contextMeta.rawContextWindow,

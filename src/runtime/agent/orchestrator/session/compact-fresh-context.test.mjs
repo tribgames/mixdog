@@ -619,3 +619,40 @@ test('large conversation input is batched completely within the summary model wi
     )
   );
 });
+
+test('the deferred tool list and bridge guidance in the system prompt survive Compact', async () => {
+  const system = [
+    'You are the Lead.',
+    '<available-deferred-tools>\nmcp__demo__fetch\nmcp__demo__search\n</available-deferred-tools>',
+    '<tool-bridge>\nDeferred tools are run with call_tool {name, arguments}.\n</tool-bridge>',
+  ].join('\n\n');
+  const messages = [{ role: 'system', content: system }];
+  for (let index = 0; index < 7; index += 1) {
+    messages.push({ role: 'user', content: `request-${index}` }, { role: 'assistant', content: `answer-${index}` });
+  }
+  const result = await runFreshContextCompact({
+    config: {},
+    model: 'fake-model',
+    provider: {
+      name: 'fake',
+      async send() {
+        return { content: GENERATED_HANDOFF };
+      },
+    },
+    sessionRef: {
+      id: 'sess-deferred-list-survives',
+      cwd: 'C:\\Project\\mixdog',
+      compaction: { conversationThresholdTokens: 1 },
+      contextWindow: 100_000,
+      compactBoundaryTokens: 100_000,
+    },
+    messages,
+    compactBudgetTokens: 30_000,
+    compactPolicy: { contextWindow: 100_000, boundaryTokens: 100_000, reserveTokens: 0 },
+    sessionId: 'sess-deferred-list-survives',
+  });
+  const systems = result.messages.filter((message) => message.role === 'system');
+  assert.equal(systems.length, 1);
+  assert.equal(systems[0].content, system, 'the system prompt, with its deferred list, is carried over unchanged');
+  assert.ok(result.messages.some((message) => message.role === 'user' && message.content.startsWith(SUMMARY_PREFIX)));
+});

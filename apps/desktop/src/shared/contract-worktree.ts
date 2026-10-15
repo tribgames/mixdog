@@ -114,10 +114,18 @@ export interface DesktopWorkspaceTransitionResult {
   warnings?: string[];
 }
 
-export interface DesktopMergeWorkspaceResult extends DesktopWorkspaceTransitionResult {
+/** mergeWorkspace's answer: a conflicting preflight changes nothing and
+ *  returns `merged: false` with the files; a cleanup that ran adds the new
+ *  workspace (the session is back in the project folder). */
+export interface DesktopMergeWorkspaceResult {
+  merged: boolean;
   target: string;
-  /** The merge commit created on `target`. */
-  commit: string;
+  /** The merge commit created on `target` (its HEAD when already up to date). */
+  commit: string | null;
+  upToDate?: boolean;
+  conflicts?: string[];
+  revision?: number;
+  workspace?: DesktopSessionWorkspace;
 }
 
 export const DESKTOP_WORKTREE_NEW_TASK_DEFAULTS = ['branch', 'worktree'] as const;

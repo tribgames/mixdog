@@ -590,15 +590,6 @@ export function SidebarUsage({
       <header className="sidebar-usage-heading session-panel-header">
         <span className="session-panel-title">{t('Providers')}</span>
         <div className="session-panel-header-actions">
-          {/* Nothing to pin without a connected subscription. */}
-          {onTogglePin && anyConnected && (
-            <SidebarUsageMenu
-              pinned={pinned}
-              onTogglePin={onTogglePin}
-              railBars={railBars}
-              onRailBarsChange={onRailBarsChange}
-            />
-          )}
           {onOpenStats && (
             <button
               type="button"
@@ -609,6 +600,15 @@ export function SidebarUsage({
             >
               <Info size={16} aria-hidden="true" />
             </button>
+          )}
+          {/* Nothing to pin without a connected subscription. */}
+          {onTogglePin && anyConnected && (
+            <SidebarUsageMenu
+              pinned={pinned}
+              onTogglePin={onTogglePin}
+              railBars={railBars}
+              onRailBarsChange={onRailBarsChange}
+            />
           )}
           <button
             type="button"

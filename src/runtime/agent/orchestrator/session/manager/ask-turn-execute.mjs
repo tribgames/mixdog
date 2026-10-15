@@ -5,6 +5,7 @@
 // (runAskAgentLoop). Provider-not-available and trim failures throw here so
 // the caller marks the session errored instead of leaving stage='connecting'.
 import { getProvider } from '../../providers/registry.mjs';
+import { pinSessionWireRoute } from '../../providers/wire-route.mjs';
 import { notifySkillsApplied, prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
 import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import { resolveTurnAutoEffort, turnStepAutoEffort } from './ask-turn-auto-effort.mjs';
@@ -17,6 +18,7 @@ import { applyTurnContextMeta, buildUserTurn, startProviderPrewarm, traceTurnCon
 import { rewindUnansweredPrompt } from './failed-turn-rewind.mjs';
 import { buildAgentLoopOptions, trackedToolCallHook } from './ask-turn-loop-options.mjs';
 import { _api_call_with_interrupt } from './ask-call-interrupt.mjs';
+import { backfillFallbackSessionTitle } from './session-fallback-title.mjs';
 
 /** Resolves the provider, builds the user turn and pre-commits it; returns
  *  what the loop and the commit need from this preparation. */
@@ -27,6 +29,10 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   // Register the live session object for synchronous close snapshots.
   runtime.session = session;
   if (!provider) throw new Error(`Provider "${session.provider}" not available`);
+  // The session's wire is pinned before its first request (an existing
+  // session keeps the wire it started on); read from the history as the turn
+  // found it, awaited with the user turn below.
+  const wireRoutePending = pinSessionWireRoute(session, provider);
   // The turn-level judgment runs while the rest of the turn is prepared; it
   // reads the session as the turn found it (synchronously, on this call).
   // The first request still carries its decision: it is awaited below,
@@ -65,6 +71,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
       turnPromptSource: input.promptSource,
       effortConfiguration: null,
     }),
+    wireRoutePending,
   ]);
   const turnEffort = autoEffort?.applied ? autoEffort.effort : session.effort || null;
   const effortConfiguration = prepareTurnEffortConfiguration(
@@ -107,6 +114,14 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   // user turn is introduced.
   session.messages = filterModelVisibleSessionMessages(outgoing);
   session.liveTurnMessages = outgoing;
+  // Name a titleless session from its first human prompt before the first
+  // save, so the title outlives any later compaction of the transcript. The
+  // earliest human turn already in the history wins; this turn's prompt is the
+  // fallback (runtime-injected turns carrying a promptSource never name it).
+  backfillFallbackSessionTitle(session, [
+    ...historyMessages,
+    ...(input.promptSource ? [] : [{ role: 'user', content: input.prompt }]),
+  ]);
   session.activeTurnCheckpoint = {
     version: 1,
     turnToken,

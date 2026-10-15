@@ -122,8 +122,9 @@ export function sessionSideDockEntryForSession(
   }
   if (base.surface !== PANE_DOCK_BROWSER_SURFACE && base.surface !== PANE_DOCK_TERMINAL_SURFACE) {
     // A session-owned view never leaks across sessions: a pane showing
-    // Session Diff for one session folds for a session that never opened it.
-    if (sessionId && isSessionSidePanelView(base.view)) {
+    // Session Diff for one session folds for a session that never opened it,
+    // and for a pane with no session behind it (a New Task draft).
+    if (isSessionSidePanelView(base.view)) {
       if (!base.open && base.surface === '') return base;
       return { ...base, open: false, surface: '' };
     }

@@ -414,10 +414,12 @@ test('canonical frame: full-frame builder leads with type and preserves codex bo
     text: { verbosity: 'low' },
   };
   const frame = _buildResponseCreateFrame(body);
-  assert.deepEqual(Object.keys(frame), ['type', ...Object.keys(body)]);
+  // WebSocket mode does not use the transport-only `stream` field (the
+  // Responses WebSocket guide); every other body key keeps its order.
+  const { stream: _transportOnly, ...wireBody } = body;
+  assert.deepEqual(Object.keys(frame), ['type', ...Object.keys(wireBody)]);
   assert.equal(frame.type, 'response.create');
-  // A full-frame build is byte-identical to the legacy spread form.
-  assert.equal(JSON.stringify(frame), JSON.stringify({ type: 'response.create', ...body }));
+  assert.equal(JSON.stringify(frame), JSON.stringify({ type: 'response.create', ...wireBody }));
   assert.equal(frame.previous_response_id, undefined);
 });
 

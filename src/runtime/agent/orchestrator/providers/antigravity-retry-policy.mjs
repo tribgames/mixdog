@@ -4,7 +4,8 @@
  *
  *   capacity (429/503/529, MODEL_CAPACITY_EXHAUSTED, "server busy"): retried on
  *     the SAME account and host with 1s → 2s → 4s (8s cap) ±10% jitter, three
- *     retries, whatever wait the server names, then the failure surfaces.
+ *     retries, waiting at least the server's RetryInfo delay; advice that
+ *     would push total waiting past 60s surfaces the error (with resetAt).
  *   Endpoint: the reference falls back to its next endpoint after a failure;
  *     generation here deliberately stays on the single daily host and never
  *     walks an endpoint list (a spent ladder surfaces to the account layer).
@@ -23,6 +24,8 @@ export const ANTIGRAVITY_CAPACITY_RETRIES = 3;
 export const ANTIGRAVITY_CAPACITY_BASE_MS = 1000;
 export const ANTIGRAVITY_CAPACITY_MAX_MS = 8000;
 export const ANTIGRAVITY_CAPACITY_JITTER_RATIO = 0.1;
+// Total time capacity retries may spend waiting on server-advised delays.
+export const ANTIGRAVITY_CAPACITY_BUDGET_MS = 60_000;
 export const ANTIGRAVITY_QUICK_RETRY_MS = 1000;
 export const ANTIGRAVITY_QUICK_RETRY_MAX_ADVICE_MS = 60_000;
 
@@ -60,10 +63,20 @@ export function antigravity429WaitMs(err, state) {
   if (DETERMINISTIC_KINDS.has(kind) || err.code === 'quota_exhausted' || err.quotaScope === 'day' || err.quotaScope === 'plan') {
     return null;
   }
-  // Capacity follows the local schedule whatever wait the server names.
+  // Capacity waits at least the advised RetryInfo delay (the local schedule
+  // is the floor). Total advised waiting stays within the retry budget; an
+  // advice that does not fit surfaces with its reset time rather than
+  // retrying early.
   if (capacity) {
     if (state.capacityRetries >= ANTIGRAVITY_CAPACITY_RETRIES) return null;
-    return antigravityCapacityDelayMs(state.capacityRetries++);
+    const spent = state.capacityWaitedMs ?? 0;
+    if (retryAfterMs != null && spent + retryAfterMs > ANTIGRAVITY_CAPACITY_BUDGET_MS) {
+      err.resetAt ??= Date.now() + retryAfterMs;
+      return null;
+    }
+    const wait = Math.max(antigravityCapacityDelayMs(state.capacityRetries++), retryAfterMs ?? 0);
+    state.capacityWaitedMs = spent + wait;
+    return wait;
   }
   // An RPM hit gets one quick retry; advice up to a minute is honored in
   // full, a longer wait surfaces so the account pool can rotate.

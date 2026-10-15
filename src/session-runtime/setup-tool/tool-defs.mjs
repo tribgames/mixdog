@@ -136,6 +136,10 @@ const ROUTE_SCHEMA = {
     model: { type: 'string' },
     effort: { type: 'string' },
     fast: { type: 'boolean' },
+    autoEffort: {
+      type: 'boolean',
+      description: 'Main and agent routes only: Auto reasoning for this route; omitted = preserved.',
+    },
     modelParameters: { type: 'object', additionalProperties: { type: 'string' } },
     // A typed enum is unrepresentable on Gemini; the bounds project everywhere
     // and the executor rejects values that are not a multiple of 10.

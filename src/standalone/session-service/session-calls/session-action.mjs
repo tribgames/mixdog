@@ -6,7 +6,13 @@ import { annotateSpan, markPhase } from '../../../runtime/shared/slow-span.mjs';
 import { sanitizeForWire } from '../../session-wire-values.mjs';
 
 /** Reads a session without a live runtime answers from disk (readStoredReview). */
-const STORED_REVIEW_ACTIONS = new Set(['getTurnReviewDiff', 'getSessionReviewDiff', 'getTurnChanges']);
+const STORED_REVIEW_ACTIONS = new Set([
+  'getTurnReviewDiff',
+  'getSessionReviewDiff',
+  'getTurnChanges',
+  'getSessionReviewFilePatch',
+  'getTurnReviewFilePatch',
+]);
 
 /** One compact description of an action result for the daemon log, never the payload itself. */
 function resultSummary(value) {

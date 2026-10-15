@@ -91,6 +91,6 @@ export function isBridgeToolDefinition(tool) {
 // A prompt holding any other bridge guidance is migrated once.
 export const TOOL_BRIDGE_GUIDANCE = [
   '<tool-bridge>',
-  'Deferred tools (listed above, or announced later as added) are not defined here: run one with call_tool {name, arguments}, and use load_tool first to see its parameters. Call directly defined tools directly.',
+  'Deferred tools (listed above, or announced later as added) are not defined here: run one with call_tool {name, arguments}, and use load_tool first to see its parameters (a keyword instead of a name searches the deferred tools). Call directly defined tools directly.',
   '</tool-bridge>',
 ].join('\n');

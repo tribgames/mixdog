@@ -14,7 +14,9 @@ import { geminiPolicyFinishCode } from './gemini-error-contract.mjs';
 // Pure usageMetadata normalization shared by the success path and a failed
 // stream's partialUsage.
 export function normalizeAntigravityUsage(um) {
-  const inputTokens = um.promptTokenCount || um.prompt_token_count || 0;
+  const inputTokens =
+    (um.promptTokenCount || um.prompt_token_count || 0) +
+    (um.toolUsePromptTokenCount || um.tool_use_prompt_token_count || 0);
   const cachedTokens = um.cachedContentTokenCount || um.cached_content_token_count || 0;
   const outputTokens =
     (um.candidatesTokenCount || um.candidates_token_count || 0) +

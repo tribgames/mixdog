@@ -3,6 +3,7 @@
 // session's terminal dock, and the terminal pane enters the command once its
 // PTY is attached. A command sent before that pane exists waits here.
 
+import { type DesktopTerminalRunRequest, terminalCommandInput } from '../shared/terminal-command';
 import { activeSessionTerminalId, openSessionTerminalTab, sessionTerminalId } from './session-terminal-tabs';
 
 type RevealListener = (sessionId: string) => void;
@@ -31,9 +32,13 @@ function notifyAvailabilityChanged(): void {
   for (const listener of availabilityListeners) listener();
 }
 
-/** Terminal input that runs `command`, entering each line in turn. */
-export function terminalCommandInput(command: string): string {
-  return `${command.replace(/\r\n?/g, '\n').replace(/\n+$/, '').replace(/\n/g, '\r')}\r`;
+export { terminalCommandInput };
+
+/** The agent's `terminal` tool ran (or wants to run) a command in a session's
+ *  terminal: reveal its dock, and with a `command` open/use a tab to enter it. */
+export function handleTerminalRunRequest({ sessionId, command }: DesktopTerminalRunRequest): void {
+  if (command) requestTerminalCommand(sessionId, command);
+  else if (sessionId) for (const listener of revealListeners) listener(sessionId);
 }
 
 export function requestTerminalCommand(sessionId: string, command: string): void {

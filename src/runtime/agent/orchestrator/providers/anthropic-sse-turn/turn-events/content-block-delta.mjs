@@ -88,14 +88,27 @@ export function createContentBlockDelta({ turn, blocks, state, leak, relayText, 
     progress('tool');
   };
 
-  return (index, delta) => {
+  const stampTtft = () => {
+    if (state && !state.ttftAt) state.ttftAt = Date.now();
+  };
+
+  const onContentBlockDelta = (index, delta) => {
     if (delta?.type) turn.contentBlockTypes.add(delta.type);
     // Time-to-first-token: stamp the first content delta (text / thinking /
     // tool input_json) exactly once so the SSE trace can separate first-byte
     // latency from total stream/generation time.
-    if (state && !state.ttftAt) state.ttftAt = Date.now();
+    stampTtft();
     if (delta?.type === 'text_delta') onTextDelta(index, delta.text);
+    if (delta?.type === 'citations_delta') blocks.appendCitation(index, delta.citation);
     if (delta?.type === 'thinking_delta' || delta?.type === 'signature_delta') onThinkingDelta(index, delta);
     if (delta?.type === 'input_json_delta') onInputJsonDelta(index, delta.partial_json);
   };
+  // A text block may open with non-empty `text` on content_block_start: it is
+  // model output and takes the same path as a text_delta (live relay, leak
+  // guard, returned content, ordered replay copy).
+  onContentBlockDelta.seedText = (index, initialText) => {
+    stampTtft();
+    onTextDelta(index, initialText);
+  };
+  return onContentBlockDelta;
 }

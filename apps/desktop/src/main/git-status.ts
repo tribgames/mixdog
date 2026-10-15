@@ -29,6 +29,7 @@ export interface GitFileEntry {
 
 export interface GitStatusResult {
   repository: boolean;
+  root: string;
   branch: string;
   detached: boolean;
   unborn: boolean;
@@ -50,6 +51,7 @@ interface GitStatusOptions {
 function emptyStatus(): GitStatusResult {
   return {
     repository: false,
+    root: '',
     branch: '',
     detached: false,
     unborn: false,
@@ -156,6 +158,7 @@ interface CachedLineStats {
 
 const remoteMetadataCache = new Map<string, CachedRemoteMetadata>();
 const gitDirCache = new Map<string, string>();
+const gitRootCache = new Map<string, string>();
 const lineStatsCache = new Map<string, CachedLineStats>();
 
 async function remoteMetadata(cwd: string): Promise<CachedRemoteMetadata> {
@@ -179,6 +182,16 @@ async function remoteMetadata(cwd: string): Promise<CachedRemoteMetadata> {
   };
   remoteMetadataCache.set(key, value);
   return value;
+}
+
+/** The repository's work-tree root (`--show-toplevel`); rejects outside a work tree. */
+export async function cachedGitRoot(cwd: string): Promise<string> {
+  const key = gitCacheKey(cwd);
+  const cached = gitRootCache.get(key);
+  if (cached) return cached;
+  const root = resolve((await run(cwd, ['--no-optional-locks', 'rev-parse', '--show-toplevel'])).trim());
+  gitRootCache.set(key, root);
+  return root;
 }
 
 async function cachedGitDir(cwd: string): Promise<string> {
@@ -220,7 +233,7 @@ function applyCachedLineStats(files: GitFileEntry[], cached: CachedLineStats): v
 }
 
 async function applyFreshLineStats(
-  cwd: string,
+  root: string,
   files: GitFileEntry[],
   stagedStats: Map<string, { additions: number; deletions: number }>,
   unstagedStats: Map<string, { additions: number; deletions: number }>
@@ -229,7 +242,7 @@ async function applyFreshLineStats(
     await mapWithConcurrency(
       files.filter((file) => file.untracked),
       UNTRACKED_STAT_CONCURRENCY,
-      async (file) => [file.path, await untrackedStat(cwd, file.path)] as const
+      async (file) => [file.path, await untrackedStat(root, file.path)] as const
     )
   );
   for (const file of files) {
@@ -348,13 +361,15 @@ export async function gitStatus(cwd: string, options: GitStatusOptions = {}): Pr
   const unstagedStatsPromise = eagerStats ? readNumstat(cwd, UNSTAGED_NUMSTAT_ARGS) : null;
   const metadataPromise = remoteMetadata(cwd);
   const operationPromise = currentGitOperation(cwd);
+  const rootPromise = cachedGitRoot(cwd).catch(() => '');
   try {
     await statusStream;
   } catch {
     return emptyStatus();
   }
   if (pendingRename) files.push(pendingRename);
-  const [metadata, operation] = await Promise.all([metadataPromise, operationPromise]);
+  const [metadata, operation, root] = await Promise.all([metadataPromise, operationPromise, rootPromise]);
+  if (!root) return emptyStatus();
   if (collectLineStats) {
     const cacheKey = gitCacheKey(cwd);
     const signature = lineStatsSignature(files);
@@ -366,7 +381,7 @@ export async function gitStatus(cwd: string, options: GitStatusOptions = {}): Pr
         stagedStatsPromise ?? readNumstat(cwd, STAGED_NUMSTAT_ARGS),
         unstagedStatsPromise ?? readNumstat(cwd, UNSTAGED_NUMSTAT_ARGS),
       ]);
-      await applyFreshLineStats(cwd, files, stagedStats, unstagedStats);
+      await applyFreshLineStats(root, files, stagedStats, unstagedStats);
       lineStatsCache.set(cacheKey, {
         signature,
         files: new Map(
@@ -390,6 +405,7 @@ export async function gitStatus(cwd: string, options: GitStatusOptions = {}): Pr
   }
   return {
     repository: true,
+    root,
     branch,
     detached,
     unborn,

@@ -1,9 +1,9 @@
 import { ArrowUpRight, ChevronDown, Undo2 } from 'lucide-react';
-import type { RefObject } from 'react';
+import { memo, type RefObject, useMemo, useRef } from 'react';
 import type { DiffViewState } from './diff-header-controls';
 import { t } from './i18n';
 import { FileDiffBody } from './inline-diff';
-import type { SessionDiffRow } from './session-diff-model';
+import { sessionDiffRowPlainText, sessionDiffRowTooLarge, type SessionDiffRow } from './session-diff-model';
 import { SetiFileIcon } from './SetiFileIcon';
 import { fileBaseName } from './text-format';
 import { toolActivityCodeLanguage } from './transcript-tool-format';
@@ -24,45 +24,85 @@ export function DiffStats({ additions, deletions }: { additions: number; deletio
   );
 }
 
-/** A file's diff under its header: nothing while folded, a note when no
- *  diff was recorded, otherwise the diff itself. A plain render helper (not a
- *  component), so the section's element tree stays as it was. */
-function sectionBody(row: SessionDiffRow, mode: DiffViewState['viewMode'], collapsed: boolean, whole: boolean) {
+/** A file's diff under its header: nothing while folded, a note when no diff
+ *  was recorded, Codex's "too large" note with Open in editor past the
+ *  per-file limits, otherwise the diff itself (plain text past 2,000 changed
+ *  lines). A plain render helper (not a component), so the section's element
+ *  tree stays as it was. */
+function sectionBody(
+  row: SessionDiffRow,
+  mode: DiffViewState['viewMode'],
+  collapsed: boolean,
+  whole: boolean,
+  onOpenFile: (() => void) | undefined
+) {
   if (collapsed) return null;
   if (row.reason) return <p className="inline-diff-empty">{t('No diff was recorded for this file.')}</p>;
+  if (sessionDiffRowTooLarge(row)) {
+    return (
+      <p className="inline-diff-empty session-diff-too-large">
+        {t('This file is too large to display here.')}
+        {onOpenFile && (
+          <>
+            {' · '}
+            <button
+              type="button"
+              className="session-diff-open-in-editor"
+              disabled={row.status === 'D'}
+              onClick={onOpenFile}
+            >
+              {t('Open in editor')}
+            </button>
+          </>
+        )}
+      </p>
+    );
+  }
+  if (row.patchPending) return <p className="inline-diff-empty">{t('Loading diff…')}</p>;
+  const failed = row.patchFailed ? (
+    <p className="inline-diff-empty">{t('Could not load this diff. Refresh to try again.')}</p>
+  ) : null;
+  // A newer read that failed keeps the last text readable, with the failure beside it.
+  if (failed && row.parts.length === 0) return failed;
   return (
-    <FileDiffBody
-      patch={row.parts.map((part) => part.patch).join('\n')}
-      mode={mode}
-      language={toolActivityCodeLanguage(row.path)}
-      whole={whole}
-    />
+    <>
+      {failed}
+      <FileDiffBody
+        patch={row.parts.map((part) => part.patch).join('\n')}
+        mode={mode}
+        language={sessionDiffRowPlainText(row) ? '' : toolActivityCodeLanguage(row.path)}
+        whole={whole}
+      />
+    </>
   );
 }
 
 /** One changed file: a sticky header (icon, muted middle-truncated directory,
  *  name that opens the file, the collapse chevron right after it, counts, open
- *  and undo) over its diff. */
-function SessionDiffSection({
+ *  and undo) over its diff. Memoized on its row: a stack of hundreds of files
+ *  redraws only the files whose row (or patch) moved. */
+const SessionDiffSection = memo(function SessionDiffSection({
   row,
   mode,
   collapsed,
-  onToggle,
+  onToggle: toggle,
   canRevert,
-  onRevert,
+  onRevert: revert,
   onOpenFile,
   whole = false,
 }: {
   row: SessionDiffRow;
   mode: DiffViewState['viewMode'];
   collapsed: boolean;
-  onToggle(): void;
+  onToggle(path: string): void;
   canRevert: boolean;
-  onRevert(): void;
+  onRevert(path: string): void;
   onOpenFile?(path: string): void;
   /** Draw every recorded line of the diff (the single-file view). */
   whole?: boolean;
 }) {
+  const onToggle = () => toggle(row.path);
+  const onRevert = () => revert(row.path);
   // Outside the project only the name shows; the full path stays in the tooltip.
   const directory = row.outside ? '' : middleTruncatedDirectory(row.path);
   const deleted = row.status === 'D';
@@ -122,10 +162,10 @@ function SessionDiffSection({
           </span>
         </header>
       )}
-      {sectionBody(row, mode, collapsed, whole)}
+      {sectionBody(row, mode, collapsed, whole, onOpenFile && (() => onOpenFile(row.path)))}
     </section>
   );
-}
+});
 
 /** Every visible file is one section of a single scroll; the selected file
  *  tab draws its one file whole and never folded. */
@@ -144,12 +184,25 @@ export function SessionDiffStack({
   rows: readonly SessionDiffRow[];
   focusRow: SessionDiffRow | null;
   mode: DiffViewState['viewMode'];
+  /** Folded files (a capped set folds every file but the selected one). */
   collapsed: ReadonlySet<string>;
   onToggle(path: string): void;
   canRevertPath(path: string): boolean;
   onRevert(path: string): void;
   onOpenFile?(path: string): void;
 }) {
+  // The pane rebuilds its callbacks every render; the sections get stable
+  // ones that call the latest, so an unchanged section skips its redraw.
+  const latest = useRef({ onToggle, onRevert, onOpenFile });
+  latest.current = { onToggle, onRevert, onOpenFile };
+  const handlers = useMemo(
+    () => ({
+      toggle: (path: string) => latest.current.onToggle(path),
+      revert: (path: string) => latest.current.onRevert(path),
+      openFile: (path: string) => latest.current.onOpenFile?.(path),
+    }),
+    []
+  );
   return (
     <div className="session-diff-stack" ref={stackRef}>
       {rows.map((row) => (
@@ -159,10 +212,10 @@ export function SessionDiffStack({
           mode={mode}
           whole={row === focusRow}
           collapsed={row !== focusRow && collapsed.has(row.path)}
-          onToggle={() => onToggle(row.path)}
+          onToggle={handlers.toggle}
           canRevert={canRevertPath(row.path)}
-          onRevert={() => onRevert(row.path)}
-          onOpenFile={onOpenFile}
+          onRevert={handlers.revert}
+          onOpenFile={onOpenFile ? handlers.openFile : undefined}
         />
       ))}
     </div>

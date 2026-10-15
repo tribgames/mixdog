@@ -46,7 +46,6 @@ export interface GitReviewFile {
   additions: number;
   deletions: number;
   untracked: boolean;
-  uncommitted: boolean;
 }
 interface GitReviewInfo {
   base: string;
@@ -135,7 +134,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   // and snaps the opened card flush under the sticky header.
   const [openFile, setOpenFile] = useState('');
   // Right-click context menu: open / reveal / copy
-  // path, plus a confirm-dialog revert for uncommitted files.
+  // path, plus a confirm-dialog revert.
   const [menu, setMenu] = useState<{ x: number; y: number; file: GitReviewFile } | null>(null);
   useEffect(() => {
     if (!menu) return undefined;
@@ -202,7 +201,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
         const prev = reviewRef.current;
         reviewRef.current = nextReview ?? null;
         if (prev && nextReview) {
-          const signature = (file: GitReviewFile) => `${file.additions}:${file.deletions}:${file.uncommitted}`;
+          const signature = (file: GitReviewFile) => `${file.additions}:${file.deletions}`;
           const before = new Map(prev.files.map((file) => [file.path, signature(file)]));
           setDiffs((current) => {
             let dirty = false;
@@ -520,25 +519,23 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
           >
             {t('Copy path')}
           </button>
-          {menu.file.uncommitted && (
-            <button
-              type="button"
-              role="menuitem"
-              data-danger
-              onClick={() => {
-                const target = menu.file;
-                setMenu(null);
-                const warning = target.untracked
-                  ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: target.path })
-                  : t('Discard uncommitted changes to "{{file}}"? This cannot be undone.', { file: target.path });
-                if (!window.confirm(warning)) return;
-                if (openFile === target.path) setOpenFile('');
-                void act(() => window.mixdogDesktop.gitRevert?.(cwd, target.path, target.untracked, 'all'));
-              }}
-            >
-              {menu.file.untracked ? t('Delete file') : t('Revert changes')}
-            </button>
-          )}
+          <button
+            type="button"
+            role="menuitem"
+            data-danger
+            onClick={() => {
+              const target = menu.file;
+              setMenu(null);
+              const warning = target.untracked
+                ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: target.path })
+                : t('Discard uncommitted changes to "{{file}}"? This cannot be undone.', { file: target.path });
+              if (!window.confirm(warning)) return;
+              if (openFile === target.path) setOpenFile('');
+              void act(() => window.mixdogDesktop.gitRevert?.(cwd, target.path, target.untracked, 'all'));
+            }}
+          >
+            {menu.file.untracked ? t('Delete file') : t('Revert changes')}
+          </button>
         </div>
       )}
     </div>

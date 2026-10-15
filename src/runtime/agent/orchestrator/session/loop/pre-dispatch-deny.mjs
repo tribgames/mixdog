@@ -13,8 +13,11 @@
 // registry knows its name.
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { isOffReadonlySurface } from './deferred-call-through.mjs';
+import { BRIDGE_CALL_TOOL_NAME, bridgeErrorText, isToolBridgeEnabled } from '../../runtime-core/tool-bridge.mjs';
+import { sessionAllowlistExcludes, sessionDisallows } from '../../runtime-core/deferred-tool-availability.mjs';
 
 const WORKER_DENIED_TOOLS = new Set(['agent', 'ask_user', 'session']);
+const BRIDGE_DISCOVERY_TOOL_NAMES = new Set(['load_tool']);
 
 const IMAGE_PATH_RE = /\.(?:png|jpe?g|gif|webp)(?:$|[?#])/i;
 const COMPACTED_PATCH_LINE_RE = /^\s*\[mixdog compacted\b[^\]\n]*\]/;
@@ -95,17 +98,20 @@ export function routeWebFetchCall(call) {
 export function preDispatchDenyForSession(sessionRef, call) {
   const name = call?.name;
   if (typeof name !== 'string' || !name) return null;
-  const schemaName = String(call?.schemaName || name);
-  if (Array.isArray(sessionRef?.schemaAllowedTools)) {
-    const allowed = new Set(sessionRef.schemaAllowedTools.map((toolName) => String(toolName).toLowerCase()));
-    if (!allowed.has(schemaName.toLowerCase())) {
-      return `Error: tool "${name}" is not available on this session's schema allowlist.`;
-    }
+  // A call_tool request that could not be projected onto its target answers
+  // its wire id with the projection error; call_tool itself never dispatches.
+  if (typeof call.bridgeError === 'string') return call.bridgeError;
+  if (name === BRIDGE_CALL_TOOL_NAME && isToolBridgeEnabled(sessionRef)) {
+    return bridgeErrorText('BRIDGE_RECURSION', 'call_tool runs one tool named in its arguments and cannot be dispatched itself.');
   }
-  if (
-    Array.isArray(sessionRef?.disallowedTools) &&
-    sessionRef.disallowedTools.some((toolName) => String(toolName).toLowerCase() === schemaName.toLowerCase())
-  ) {
+  const schemaName = String(call?.schemaName || name);
+  // The bridge's discovery tools grant no authority (every call_tool target
+  // is judged here under its own name), so an allowlist never strands them.
+  const bridgeDiscovery = isToolBridgeEnabled(sessionRef) && BRIDGE_DISCOVERY_TOOL_NAMES.has(schemaName);
+  if (!bridgeDiscovery && sessionAllowlistExcludes(sessionRef, schemaName)) {
+    return `Error: tool "${name}" is not available on this session's schema allowlist.`;
+  }
+  if (sessionDisallows(sessionRef, schemaName)) {
     return `Error: tool "${name}" is not available in this session.`;
   }
   if (isOffReadonlySurface(sessionRef, schemaName)) {

@@ -5,6 +5,7 @@ import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { pdfjsStandardFontDataUrl, resolvedPdfJs } from '../../attachments/pdfjs-runtime.mjs';
 import { installPdfGlobals } from './pdf-document.mjs';
 import { workerExecArgv } from '../../shared/worker-exec-argv.mjs';
+import { noteOfficeWrite } from '../core/office-write-ledger.mjs';
 
 const PAGE_NUMBER_PATTERN = /^\s*(?:(?:page\s*)?\d+\s*(?:of|\/)\s*\d+|페이지\s*\d+|\d+\s*페이지)\s*$/i;
 
@@ -144,8 +145,8 @@ async function runPdfRenderWorker(data, signal = null) {
 }
 
 // Many pages are reviewed as contact sheets: one labelled grid image per group
-// of pages, written next to the PDF.
-async function writeContactSheet(group, width, imagePath, renderPage) {
+// of pages, for a file next to the PDF.
+async function contactSheet(group, width, imagePath, renderPage) {
   const columns = group.length <= 2 ? 1 : Math.max(2, Math.ceil(Math.sqrt(group.length * 0.75)));
   const rows = Math.ceil(group.length / columns);
   const gap = 12;
@@ -182,7 +183,6 @@ async function writeContactSheet(group, width, imagePath, renderPage) {
     context.strokeRect(x, y + labelHeight, image.width, image.height);
   }
   const data = sheet.toBuffer('image/png');
-  await writeFile(imagePath, data);
   return {
     page: group[0],
     pages: group,
@@ -204,7 +204,18 @@ async function writeContactSheet(group, width, imagePath, renderPage) {
   };
 }
 
-async function renderPdfPagesDirect(path, { pages = null, maxWidth = 1400, maximumScale = 2, signal = null } = {}) {
+// The page images land beside the PDF, each reported as an Office write first.
+async function writePageImages(images) {
+  for (const image of images) {
+    noteOfficeWrite(image.path);
+    await writeFile(image.path, Buffer.from(image.data, 'base64'));
+  }
+}
+
+async function renderPdfPagesDirect(
+  path,
+  { pages = null, maxWidth = 1400, maximumScale = 2, signal = null, writeImages = true } = {}
+) {
   if (signal?.aborted) throw new Error('PDF rendering was cancelled');
   installPdfGlobals();
   const { getDocument, VerbosityLevel } = await resolvedPdfJs();
@@ -248,7 +259,6 @@ async function renderPdfPagesDirect(path, { pages = null, maxWidth = 1400, maxim
       for (const pageNumber of selected) {
         const { canvas, data } = await renderPage(pageNumber, maxWidth);
         const imagePath = join(dirname(path), `${stem}-page-${pageNumber}.png`);
-        await writeFile(imagePath, data);
         output.push({
           page: pageNumber,
           path: imagePath,
@@ -264,9 +274,10 @@ async function renderPdfPagesDirect(path, { pages = null, maxWidth = 1400, maxim
       for (let offset = 0; offset < selected.length; offset += pagesPerSheet) {
         const group = selected.slice(offset, offset + pagesPerSheet);
         const imagePath = join(dirname(path), `${stem}-pages-${group[0]}-${group.at(-1)}.png`);
-        output.push(await writeContactSheet(group, width, imagePath, renderPage));
+        output.push(await contactSheet(group, width, imagePath, renderPage));
       }
     }
+    if (writeImages) await writePageImages(output);
     const reviewedPages = output.flatMap((image) => image.pages || [image.page]);
     const reviewedPageSet = new Set(reviewedPages);
     return {
@@ -293,7 +304,9 @@ export async function renderPdfPages(path, options = {}) {
   const signal = options.signal || null;
   if (signal?.aborted) throw new Error('PDF rendering was cancelled');
   if (!isMainThread) return await renderPdfPagesDirect(path, options);
-  return await runPdfRenderWorker(
+  // The worker rasterizes; this thread writes the images, where the call's
+  // write ledger can see each one before it lands.
+  const rendered = await runPdfRenderWorker(
     {
       kind: PDF_RENDER_WORKER_KIND,
       path,
@@ -301,10 +314,13 @@ export async function renderPdfPages(path, options = {}) {
         pages: options.pages ?? null,
         maxWidth: options.maxWidth ?? 1400,
         maximumScale: options.maximumScale ?? 2,
+        writeImages: false,
       },
     },
     signal
   );
+  await writePageImages(rendered.images);
+  return rendered;
 }
 
 if (!isMainThread && [PDF_RENDER_WORKER_KIND, PDF_RENDER_PAGE_WORKER_KIND].includes(workerData?.kind)) {

@@ -5,6 +5,7 @@ import { consumeCompatResponsesStream } from './openai-compat-stream.mjs';
 import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, createPassthroughSignal } from '../stall-policy.mjs';
 import {
   nativeResponsesTools,
+  resolveCompatMaxOutputTokens,
   toOpenAIMessages,
   toResponsesTools,
   toXaiResponsesInput,
@@ -26,17 +27,34 @@ import { applyCompatToolChoice, compatStreamRetryReporter } from './compat-reque
 import { envFlag as _envFlag } from '../../../shared/env.mjs';
 import { resolveResponsesTransportPolicy, RESPONSES_TRANSPORT_CAPABILITIES } from './openai-transport-policy.mjs';
 
+// Server-side tool search is strictly opt-in, from the provider's own config
+// (`xaiServerToolSearch`, shared by grok-oauth's inner xai provider) or the
+// request opts. Unset, every xAI request body is unchanged: deferred tools go
+// out as plain function tools and the client `load_tool` stays a function.
+// Server-executed search items replay through the owner-tagged providerReplay
+// envelope in either mode and are never dispatched locally.
+function xaiServerToolSearchEnabled(provider, opts) {
+  return (opts.xaiServerToolSearch ?? provider.config?.xaiServerToolSearch) === true;
+}
+
 // Tool list, parallel tool calls, tool choice and reasoning effort shared by
 // the HTTP/SSE and WebSocket Responses bodies.
 function applyXaiResponsesToolsAndEffort(params, { provider, tools, opts, useModel }) {
   const nativeTools = nativeResponsesTools(opts);
   if (tools?.length || nativeTools.length) {
-    params.tools = [...nativeTools, ...toResponsesTools(tools || [], { provider: 'xai' })];
+    const toolOptions = xaiServerToolSearchEnabled(provider, opts)
+      ? { provider: 'xai', serverToolSearch: true }
+      : { provider: 'xai' };
+    params.tools = [...nativeTools, ...toResponsesTools(tools || [], toolOptions)];
   }
   // Explicit parallel tool calls, matching the OpenAI Responses
   // reference shape. Probe-verified accepted by api.x.ai (HTTP 200,
-  // 2026-08-16); absent, the service default decides per turn.
-  if (params.tools?.length) params.parallel_tool_calls = true;
+  // 2026-08-16); absent, the service default decides per turn. An explicit
+  // caller `parallelToolCalls:false` is honored (docs.x.ai function-calling).
+  if (params.tools?.length) params.parallel_tool_calls = opts.parallelToolCalls !== false;
+  // Caller output cap (docs.x.ai text best-practices): max_output_tokens.
+  const maxOutputTokens = resolveCompatMaxOutputTokens(opts);
+  if (maxOutputTokens) params.max_output_tokens = maxOutputTokens;
   applyCompatToolChoice(params, opts);
   const reasoningEffort = normalizeXaiReasoningEffort(
     opts.xaiReasoningEffort ??

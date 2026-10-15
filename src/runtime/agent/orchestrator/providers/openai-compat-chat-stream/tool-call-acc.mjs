@@ -35,15 +35,8 @@ export function mergeToolCallDelta(acc, deltaCalls) {
     if (tc.id) prev.id = tc.id;
     if (tc.type) prev.type = tc.type;
     if (tc.function?.name && !prev.function.name) prev.function.name = tc.function.name;
-    if (tc.function?.arguments) {
-      const delta = tc.function.arguments;
-      // Preserve support for providers that repeat cumulative arguments.
-      if (prev.function.arguments && delta.startsWith(prev.function.arguments)) {
-        prev.function.arguments = delta;
-      } else {
-        prev.function.arguments += delta;
-      }
-    }
+    // Argument fragments are deltas: always append, never infer snapshots.
+    if (tc.function?.arguments) prev.function.arguments += tc.function.arguments;
   }
 }
 

@@ -8,6 +8,7 @@ import { render } from '../core/office-actions.mjs';
 import { documentFormat, officeSessionForDocument } from '../core/office-core.mjs';
 import { createAuthoredSession, exists, fullPath, validatePptxAuthorMode } from '../core/office-sessions.mjs';
 import { inlineOfficeAudit } from '../quality/inline-audit.mjs';
+import { noteOfficeWrite } from '../core/office-write-ledger.mjs';
 import { parseAuthoringBrief } from './pptx-brief.mjs';
 import { htmlBriefScript } from './pptx-html-runner.mjs';
 import {
@@ -68,6 +69,7 @@ async function writeComparisons(target, htmlPages, officePages) {
       (await scaled(officePages.find((image) => image.page === page && (image.pages?.length || 1) === 1))) ||
       (await blank(left.width));
     const path = `${target}.mixdog-compare-page-${page}.png`;
+    noteOfficeWrite(path);
     await sharp({ create: { width: left.width + right.width + gap, height, channels: 3, background: '#808080' } })
       .composite([
         { input: left.data, left: 0, top: 0 },

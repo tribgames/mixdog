@@ -11,6 +11,7 @@ import {
   completeAgentTurnReview,
   completeTurnSnapshot,
   getTurnReviewDiff,
+  getTurnReviewFilePatch,
   recordTurnDiffChanges,
 } from './turn-snapshot.mjs';
 import { executeBuiltinTool } from '../agent/orchestrator/tools/builtin.mjs';
@@ -42,20 +43,34 @@ test('bounded diffs keep every file, its operation, and complete small hunks', (
   assert.equal(boundReviewPatch(result.patch, 65536).truncated, true);
 });
 
-test('tracked review over two million characters retains large and subsequent files with a truncation flag', async () => {
+test('tracked review over two million characters lists the large file without its patch and keeps the others', async () => {
   try {
-    const patch = await recordTurnDiffChanges('oversized-review', [
+    const patch = recordTurnDiffChanges('oversized-review', [
       { path: '/probe/a.txt', displayPath: 'a.txt', before: null, after: `${'x'.repeat(2100000)}\n` },
       { path: '/probe/z.txt', displayPath: 'z.txt', before: 'old\n', after: 'new\n' },
     ]);
-    const review = await getTurnReviewDiff('/probe', 'oversized-review');
-    assert.equal(review.patch, patch);
-    assert.equal(review.patchTruncated, true);
     assert.deepEqual(
       parseUnifiedDiff(patch).map((file) => file.newFile.fileName),
       ['a.txt', 'z.txt']
     );
-    assert.match(patch, /-old\n\+new\n/);
+    const review = await getTurnReviewDiff('/probe', 'oversized-review');
+    assert.deepEqual(
+      review.files.map(({ path, additions, patchOmitted, reason }) => [path, additions, patchOmitted, reason]),
+      [
+        ['a.txt', 1, true, 'too_large'],
+        ['z.txt', 1, undefined, undefined],
+      ]
+    );
+    assert.deepEqual(
+      parseUnifiedDiff(review.patch).map((file) => file.newFile.fileName),
+      ['z.txt']
+    );
+    assert.match(review.patch, /-old\n\+new\n/);
+    assert.equal(review.patchTruncated, false);
+    // Read on its own, the file's whole patch is there.
+    const whole = await getTurnReviewFilePatch('/probe', 'oversized-review', 'a.txt');
+    assert.equal(whole.patch.length > 2_100_000, true);
+    assert.equal(whole.patchOmitted, undefined);
   } finally {
     _resetTurnSnapshotForTest();
   }
@@ -94,15 +109,16 @@ test('a completion wake continues the user turn review with its Lead edits and w
     recordTurnDiffChanges('wake-worker', [
       { path: join(root, 'worker.txt'), displayPath: 'worker.txt', before: null, after: 'w\n' },
     ]);
-    await completeAgentTurnReview(worker);
+    completeAgentTurnReview(worker);
 
     await beginTurnSnapshot(root, lead, { continueTurn: true });
     recordTurnDiffChanges(lead, [{ path: join(root, 'fix.txt'), displayPath: 'fix.txt', before: 'x\n', after: 'y\n' }]);
     const review = await getTurnReviewDiff(root, lead);
     assert.equal(review.checkpointId, 'prompt-1');
+    // The completed worker's own edits joined the Lead's.
     assert.deepEqual(
       parseUnifiedDiff(review.patch).map((file) => file.newFile.fileName),
-      ['fix.txt', 'lead.txt']
+      ['fix.txt', 'lead.txt', 'worker.txt']
     );
     assert.deepEqual(
       review.agents.map((agent) => [agent.tag, parseUnifiedDiff(agent.patch).map((file) => file.newFile.fileName)]),
@@ -128,7 +144,7 @@ test('a worker running its own session turn still reports its edits to the Lead 
     recordTurnDiffChanges('own-turn-worker', [
       { path: join(root, 'worker.txt'), displayPath: 'worker.txt', before: 'a\n', after: 'b\n' },
     ]);
-    await completeAgentTurnReview(worker);
+    completeAgentTurnReview(worker);
     const review = await getTurnReviewDiff(root, lead);
     assert.deepEqual(
       review.agents.map((agent) => [agent.tag, parseUnifiedDiff(agent.patch).map((file) => file.newFile.fileName)]),

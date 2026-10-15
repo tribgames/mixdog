@@ -3,8 +3,16 @@ import test from 'node:test';
 import { createAskUserToolHandlers } from './ask-user-tool.mjs';
 
 const questions = [
-  { question: 'Which db?', header: 'DB', options: [{ label: 'PG' }, { label: 'SQLite' }] },
-  { question: 'Which features?', header: 'Feat', multi_select: true, options: [{ label: 'X' }, { label: 'Y' }] },
+  { question: 'Which db?', header: 'DB', options: [{ label: 'PG', description: 'p' }, { label: 'SQLite', description: 's' }] },
+  {
+    question: 'Which features?',
+    header: 'Feat',
+    multi_select: true,
+    options: [
+      { label: 'X', description: 'x' },
+      { label: 'Y', description: 'y' },
+    ],
+  },
 ];
 const { ask_user } = createAskUserToolHandlers({ rt: { session: { id: 's1' } } });
 const run = (hook) => ask_user({ questions }, { callerCtx: { toolApprovalHook: hook, toolCallId: 'c1' } });

@@ -2,6 +2,8 @@ import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useStat
 import type { TranscriptItem } from './desktop-types';
 import { turnReviewScope } from './renderer-logic.mjs';
 import { isMobileRemoteSurface } from './mobile-surface';
+import { adoptLastTurnReview } from './session-changes-store';
+import { useTurnChangesEpoch } from './turn-changes-model';
 import {
   leadReviewSnapshotKindCache,
   rememberAgentReviews,
@@ -24,6 +26,7 @@ type AgentReviewState = {
   files: TurnReviewFile[];
   snapshotKind: string;
   checkpointId: string;
+  historyTurns: number;
 };
 
 type ReadRequest = {
@@ -169,12 +172,14 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
     if (!decoded) {
       return;
     }
-    const { leadPatch, snapshotKind, checkpointId, files, reviews } = decoded;
+    const { leadPatch, snapshotKind, checkpointId, files, reviews, historyTurns } = decoded;
     // Until the runtime opens the new turn (and before its first tool),
     // it still answers with the previous turn's review. Shown under the
     // new prompt, that brought the old diff back above the composer.
     if (checkpointId && requestedCheckpoint !== 'none' && checkpointId !== requestedCheckpoint) return;
-    const signature = JSON.stringify([leadPatch, files, snapshotKind, checkpointId, reviews]);
+    // The "Last turn changes" source follows this same read.
+    adoptLastTurnReview(sessionId, decoded);
+    const signature = JSON.stringify([leadPatch, files, snapshotKind, checkpointId, reviews, historyTurns]);
     if (cacheable) {
       rememberAgentReviews(
         requestedScope,
@@ -185,7 +190,8 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
         checkpointId,
         // No tag for a cached summary: a later read must get it again (and
         // queue its refresh), never an `unchanged` that skips the refresh.
-        !cachedAnswer && typeof value?.etag === 'string' ? value.etag : ''
+        !cachedAnswer && typeof value?.etag === 'string' ? value.etag : '',
+        historyTurns
       );
     }
     // The signature belongs to the active scope: an outgoing session's answer
@@ -200,6 +206,7 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
       files,
       snapshotKind,
       checkpointId,
+      historyTurns,
     });
   } catch {
     // The next turn boundary, visibility change, expansion, or bounded idle
@@ -240,6 +247,7 @@ function useTurnReviewRefreshSchedule({
   hasTurnActivity,
   agentReviewCount,
   turnBoundaryKey,
+  mutations,
   entryPendingRef,
   refreshAgentReviews,
 }: {
@@ -249,6 +257,8 @@ function useTurnReviewRefreshSchedule({
   hasTurnActivity: boolean;
   agentReviewCount: number;
   turnBoundaryKey: string;
+  /** The session's change-history epoch (Undo/Reapply, Delete history). */
+  mutations: number;
   entryPendingRef: MutableRefObject<boolean>;
   refreshAgentReviews: RefreshAgentReviews;
 }) {
@@ -259,7 +269,7 @@ function useTurnReviewRefreshSchedule({
   useEffect(() => {
     wasExpanded.current = expanded;
   }, [expanded]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: turnBoundaryKey stands in for items as the re-run trigger
+  // biome-ignore lint/correctness/useExhaustiveDependencies: turnBoundaryKey stands in for items, mutations for a history change, as re-run triggers
   useEffect(() => {
     // A tool/turn boundary is the authoritative point at which the visible
     // count must catch up. If an older request is still running, the callback
@@ -275,7 +285,7 @@ function useTurnReviewRefreshSchedule({
       // capture now (the runtime also seals the turn with a fresh capture).
       void refreshAgentReviews(true, boundaryInBackground);
     }
-  }, [active, busy, refreshAgentReviews, hasTurnActivity, turnBoundaryKey]);
+  }, [active, busy, refreshAgentReviews, hasTurnActivity, turnBoundaryKey, mutations]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: turnBoundaryKey re-runs the schedule at each turn boundary
   useEffect(() => {
     if (!active || (!hasTurnActivity && agentReviewCount === 0)) return undefined;
@@ -420,6 +430,8 @@ export function useTurnReviewReads({
     [sessionId, turnScopeKey, reviewScope.key, reviewBoundaryKey, detailShown, activeScope]
   );
   refreshAgentReviewsRef.current = refreshAgentReviews;
+  // Delete history zeroes the retained turn count the files menu shows.
+  const mutations = useTurnChangesEpoch(String(sessionId || ''));
   useTurnReviewRefreshSchedule({
     active,
     busy,
@@ -427,6 +439,7 @@ export function useTurnReviewReads({
     hasTurnActivity,
     agentReviewCount: reviewState.reviews.length,
     turnBoundaryKey,
+    mutations,
     entryPendingRef,
     refreshAgentReviews,
   });

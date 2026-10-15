@@ -15,6 +15,9 @@ import {
   clean,
 } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 
+import { isRealTurnMessage } from '../../runtime/agent/orchestrator/session/compact/user-message-kind.mjs';
+import { realTurnCount as realTurnCountOf } from '../../runtime/agent/orchestrator/session/store-summary-fields.mjs';
+
 const VISIBLE_OWNERS = ['cli', 'user', 'mixdog'];
 
 function isLeadShaped(s, owner, sourceType) {
@@ -39,7 +42,9 @@ function previewOf(s) {
   const rawPreview = s.preview || '';
   let preview = isSessionPreviewNoise(rawPreview) ? '' : cleanSessionPreview(rawPreview);
   let messageCount = Math.max(0, Number(s.messageCount) || 0);
+  let realTurnCount = realTurnCountOf(s);
   if (!preview && Array.isArray(s.messages)) {
+    realTurnCount = s.messages.filter(isRealTurnMessage).length;
     const msgs = s.messages;
     const userPreviews = msgs
       .filter((m) => m && m.role === 'user')
@@ -50,7 +55,7 @@ function previewOf(s) {
     preview = userPreviews[0] || '';
     messageCount = msgs.filter((m) => m && (m.role === 'user' || m.role === 'assistant')).length;
   }
-  return { preview, messageCount };
+  return { preview, messageCount, realTurnCount };
 }
 
 function leadSessionRow(s, heartbeatMtimes) {
@@ -66,10 +71,14 @@ function leadSessionRow(s, heartbeatMtimes) {
   // One-shot `mixdog exec` runs are never resumable conversations.
   if (sourceType === 'exec') return null;
   if (!isLeadShaped(s, owner, sourceType)) return null;
-  const { preview, messageCount } = previewOf(s);
+  const { preview, messageCount, realTurnCount } = previewOf(s);
   if (!preview && messageCount === 0) return null;
   return {
     id: s.id,
+    // Durable provenance the desktop uses to tell a real conversation from
+    // resume scratch or synthetic-only rows when no title source survives.
+    ...(realTurnCount === null ? {} : { realTurnCount }),
+    ...(s.detachedReason ? { detachedReason: s.detachedReason } : {}),
     updatedAt: s.updatedAt,
     // Conversation-activity timestamp for Recent ordering. Without this the
     // desktop falls back to updatedAt, which detach/resume bookkeeping

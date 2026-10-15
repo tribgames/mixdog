@@ -51,6 +51,22 @@ const NOT_SEND_OPTIONS = new Map([
   ['openai-ws-send/send-context.mjs::sendOpts', 'internal WS send context carrying the send options themselves'],
   ['openai-ws-send/send-context.mjs::traceProvider', 'internal WS send context'],
   ['openai-ws-send/send-context.mjs::useModel', 'internal WS send context'],
+  ['openai-compat-wire.mjs::cacheControl', 'toOpenAIMessages internal options built by the adapter'],
+  ['openai-compat-wire.mjs::nativeDeferredTools', 'toOpenAIMessages internal options built by the adapter'],
+  ['openai-compat-wire.mjs::developerRole', 'toOpenAIMessages internal options built by the adapter'],
+  ['openai-compat-wire.mjs::reasoningShape', 'toOpenAIMessages internal options built by the adapter'],
+  [
+    'wire-gateway.mjs::messagesEffortProjection',
+    "the gateway's own effort projection function, set by the adapter from its provider config",
+  ],
+  ['openai-compat-wire.mjs::nativeLowering', 'toOpenAIMessages internal options built by the Responses adapter'],
+  ['openai-compat-wire.mjs::providerName', 'toOpenAIMessages internal options built by the adapter from its own name'],
+  ['openai-compat-wire.mjs::serverToolSearch', 'toOpenAIMessages internal options built by the adapter'],
+  ['openai-responses-input.mjs::includeSystem', 'message-lowering helper argument built by the adapter'],
+  ['openai-responses-input.mjs::reasoningByMessageIndex', 'message-lowering helper argument built by the adapter'],
+  ['openai-responses-input.mjs::replayOwnedReasoning', 'message-lowering helper argument built by the adapter'],
+  ['openai-responses-input.mjs::splitToolContent', 'message-lowering helper argument built by the adapter'],
+  ['openai-responses-input.mjs::startIndex', 'message-lowering helper argument built by the adapter'],
   ['openai-ws.mjs::enabled', 'HTTP-fallback policy helper argument'],
   ['registry.mjs::force', 'registry refresh helper argument'],
   ['retry-executor.mjs::backoffMs', 'withRetry helper argument built by the adapter'],
@@ -71,6 +87,17 @@ const NOT_SEND_OPTIONS = new Map([
   ['provider-error-kind.mjs::legacyQuotaWording', 'providerErrorKind presentation option, never a send option'],
   ['provider-error-kind.mjs::quotaFlags', 'providerErrorKind classifier option, never a send option'],
   ['provider-error-kind.mjs::text', 'providerErrorKind classifier option, never a send option'],
+]);
+
+/** `file::key` session reads the scan finds in a file whose `session` variable
+ *  is also the daemon's full session (not the projected send-option one). */
+const NOT_PROJECTED_SESSION_READS = new Map([
+  [
+    'wire-route.mjs::messages',
+    'pinSessionWireRoute reads the daemon-side session; the send path falls back to the request messages',
+  ],
+  ['wire-route.mjs::model', 'pinSessionWireRoute reads the daemon-side session'],
+  ['wire-route.mjs::provider', 'pinSessionWireRoute reads the daemon-side session'],
 ]);
 
 /** `file::expression` computed reads off send options, with why they are safe. */
@@ -304,8 +331,12 @@ test('every computed read off send options is reviewed', () => {
 });
 
 test('every session field an adapter reads crosses with the projected session', () => {
-  const missing = [...readSessionKeys.keys()].filter((key) => !MODEL_PROXY_SESSION_KEYS.has(key));
-  assert.deepEqual(missing, []);
+  const missing = [];
+  for (const [key, files] of readSessionKeys) {
+    if (MODEL_PROXY_SESSION_KEYS.has(key)) continue;
+    for (const file of files) if (!NOT_PROJECTED_SESSION_READS.has(`${file}::${key}`)) missing.push(`${file}::${key}`);
+  }
+  assert.deepEqual(missing.sort(), []);
 });
 
 test('the classification lists stay disjoint, reasoned and current', () => {
@@ -318,6 +349,12 @@ test('the classification lists stay disjoint, reasoned and current', () => {
     assert.equal(classified(key), false, `${entry} is classified; the exemption is not needed`);
     assert.ok(reason, `${entry} needs a reason`);
     assert.ok(readKeys.get(key)?.has(file), `${entry} is no longer read; remove it from NOT_SEND_OPTIONS`);
+  }
+  for (const [entry, reason] of NOT_PROJECTED_SESSION_READS) {
+    const [file, key] = entry.split('::');
+    assert.equal(MODEL_PROXY_SESSION_KEYS.has(key), false, `${entry} is projected; the exemption is not needed`);
+    assert.ok(reason, `${entry} needs a reason`);
+    assert.ok(readSessionKeys.get(key)?.has(file), `${entry} is no longer read; remove it from NOT_PROJECTED_SESSION_READS`);
   }
   for (const [entry, reason] of DYNAMIC_READS) {
     assert.ok(reason, `${entry} needs a reason`);

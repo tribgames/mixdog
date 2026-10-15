@@ -129,7 +129,8 @@ export interface SettingsConfirmation {
   description: string;
   confirmLabel?: string;
   danger?: boolean;
-  onConfirm(): void | Promise<void>;
+  /** Absent: a notice (a failure to read) with one Close button. */
+  onConfirm?(): void | Promise<void>;
 }
 
 // Ordered by what the user sees first, cheapest first: the sweep runs in

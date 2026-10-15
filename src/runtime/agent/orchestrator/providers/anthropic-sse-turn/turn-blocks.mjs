@@ -36,6 +36,20 @@ export function createTurnBlocks() {
   const appendText = (index, chunk) => {
     text.set(index, (text.get(index) || '') + (chunk || ''));
   };
+  // Per-index citations of a text block (content_block_start `citations` plus
+  // streamed citations_delta), replayed verbatim on the text block they cite.
+  const citations = new Map();
+  const appendCitation = (index, citation) => {
+    if (!citation || typeof citation !== 'object') return;
+    if (!text.has(index)) text.set(index, '');
+    let copy;
+    try {
+      copy = structuredClone(citation);
+    } catch {
+      copy = { ...citation };
+    }
+    citations.set(index, [...(citations.get(index) || []), copy]);
+  };
   // Client tool_use blocks that were actually dispatched, kept for the same
   // ordered replay list (deduped/skipped calls are intentionally absent).
   const clientToolUse = new Map();
@@ -61,7 +75,11 @@ export function createTurnBlocks() {
     ...thinking.entries(),
     ...[...text.entries()].map(([index, value]) => [
       index,
-      { type: 'text', text: typeof value === 'string' ? value : '' },
+      {
+        type: 'text',
+        text: typeof value === 'string' ? value : '',
+        ...(citations.get(index)?.length ? { citations: citations.get(index) } : {}),
+      },
     ]),
     ...completedNativeBlocks(),
     ...clientToolUse.entries(),
@@ -105,6 +123,7 @@ export function createTurnBlocks() {
     pendingToolInputs,
     clientToolUse,
     appendText,
+    appendCitation,
     toolInputInFlight,
     orderedThinkingBlocks,
     orderedAssistantBlocks,

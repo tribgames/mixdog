@@ -1,39 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionDiffResult } from './session-diff-model';
-import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
-import { fetchSessionDiff, peekSessionDiff } from './session-diff-cache';
+import {
+  answerSessionDiffSignal,
+  answeredSessionDiffSignal,
+  fetchSessionDiff,
+  peekSessionDiff,
+  sameSessionDiff as sameDiff,
+} from './session-diff-cache';
 import { useTurnChangesEpoch } from './turn-changes-model';
-import { startVisibleRefreshCadence } from './visible-refresh-cadence';
 
-// The Source Control dock's cadence: watch bursts debounce, runs keep a gap
-// at least as long as the last read, and the safety lane is slow.
-const IDLE_GIT_REFRESH_OPTIONS = {
-  safetyIntervalMs: 30_000,
-  activityDebounceMs: 125,
-  activityMinGapMs: 3_000,
-  slowTaskMultiplier: 5,
-};
-
-/** Same diff content, compared without re-serialising the (large) patch. */
-function sameDiff(left: SessionDiffResult | null, right: SessionDiffResult | null): boolean {
-  if (left === right) return true;
-  if (!left || !right || left.patch !== right.patch) return false;
-  return JSON.stringify({ ...left, patch: undefined }) === JSON.stringify({ ...right, patch: undefined });
-}
+const SIGNAL_DEBOUNCE_MS = 150;
+/** The signal a read now running will answer (others join it, not repeat it);
+ *  removed when that read settles. The signal a session's last SUCCESSFUL read
+ *  answered lives in the session-diff cache (bounded with it): a signal stays
+ *  dirty until a read that started after it has landed, so a failed read is
+ *  retried on the next focus / visibility / request. */
+const readingSignal = new Map<string, string>();
 
 export function useSessionDiffRefresh({
   sessionId,
   active,
   revision,
-  busy,
-  gitWatchPath = '',
 }: {
   sessionId: string;
   active: boolean;
   revision: string;
-  busy: boolean;
-  /** The session's folder: while idle, its Git changes re-read the diff. */
-  gitWatchPath?: string;
+  busy?: boolean;
 }) {
   const [state, setState] = useState(() => ({
     sessionId,
@@ -69,6 +61,21 @@ export function useSessionDiffRefresh({
   const missedAdoption = useRef(false);
   const lastAdopted = useRef<{ sessionId: string; result: SessionDiffResult | null } | null>(null);
   const inflight = useRef(0);
+  // A history mutation (Undo/Reapply, Delete history) moves this diff too.
+  const mutations = useTurnChangesEpoch(sessionId);
+  // The change signal (revision, history mutation) as of the latest render.
+  const signalKey = `${revision}|${mutations}`;
+  // This caller's own newest signal per session it still has a read for: an
+  // inactive or stale sibling never replaces another caller's ownership, and
+  // a read for a session switched away from still answers its own signal.
+  const signals = useRef(new Map<string, string>());
+  const reads = useRef(new Map<string, number>());
+  const shownSession = useRef(sessionId);
+  shownSession.current = sessionId;
+  if (sessionId) signals.current.set(sessionId, signalKey);
+  for (const held of [...signals.current.keys()]) {
+    if (held !== sessionId && !reads.current.has(held)) signals.current.delete(held);
+  }
   useEffect(() => {
     request.current += 1;
     apply({ sessionId, result: peekSessionDiff(sessionId), loading: false, error: '' });
@@ -76,14 +83,24 @@ export function useSessionDiffRefresh({
   const refresh = useCallback(
     // Resolves true only when this call's own result was adopted; a skipped
     // read, a failed read, or a superseded response resolves false. A
-    // `background` read (cadence, Git evidence) neither flips `loading` nor
-    // re-renders when its result equals the one shown.
-    async (force = true, background = false): Promise<boolean> => {
+    // `background` read (focus, Git evidence) neither flips `loading` nor
+    // re-renders when its result equals the one shown. Only an explicit
+    // `force` (the user's Refresh) recomputes regardless of signals; without
+    // it a read happens only when the change signal is not yet answered, and
+    // joins a read already answering it.
+    async (force = false, background = false): Promise<boolean> => {
       if (!active || !sessionId || document.visibilityState === 'hidden') {
         missedAdoption.current = true;
         return false;
       }
+      const signal = signals.current.get(sessionId) as string;
+      const answered = answeredSessionDiffSignal(sessionId) === signal;
+      const joining = readingSignal.get(sessionId) === signal;
+      const recompute = force || (!answered && !joining);
+      const answers = answered ? undefined : signal;
+      if (answers && recompute) readingSignal.set(sessionId, answers);
       const token = ++request.current;
+      reads.current.set(sessionId, (reads.current.get(sessionId) ?? 0) + 1);
       if (inflight.current > 0) missedAdoption.current = true;
       inflight.current += 1;
       if (!background) {
@@ -96,7 +113,10 @@ export function useSessionDiffRefresh({
         });
       }
       try {
-        const next = await fetchSessionDiff(sessionId, { force });
+        const next = await fetchSessionDiff(sessionId, { force: recompute });
+        // The read landed: it started after `signal`, so the signal is
+        // answered (unless a newer one has arrived meanwhile).
+        if (answers && signals.current.get(sessionId) === answers) answerSessionDiffSignal(sessionId, answers);
         if (request.current !== token) {
           missedAdoption.current = true;
           return false;
@@ -124,45 +144,52 @@ export function useSessionDiffRefresh({
         return false;
       } finally {
         inflight.current -= 1;
+        if (answers && readingSignal.get(sessionId) === answers) readingSignal.delete(sessionId);
+        const left = (reads.current.get(sessionId) ?? 1) - 1;
+        if (left > 0) reads.current.set(sessionId, left);
+        else {
+          reads.current.delete(sessionId);
+          if (sessionId !== shownSession.current) signals.current.delete(sessionId);
+        }
       }
     },
     [active, apply, sessionId]
   );
-  // A change-history mutation (Undo/Reapply, Delete history) moves this diff too.
-  const mutations = useTurnChangesEpoch(sessionId);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: revision and mutations are the triggers that force a fresh diff read
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
   useEffect(() => {
     if (!active || !sessionId) {
       if (asked.current.loading) apply({ ...asked.current, loading: false });
       return;
     }
-    void refresh(true);
+    const stale = answeredSessionDiffSignal(sessionId) !== signalKey;
+    // Debounce a signal over a shown result; a first load starts at once.
+    const delay = stale && peekSessionDiff(sessionId) ? SIGNAL_DEBOUNCE_MS : 0;
+    let timer: number | undefined;
+    if (delay === 0) void refreshRef.current(false);
+    else timer = window.setTimeout(() => void refreshRef.current(false), delay);
     // A pane that closed or changed session cannot adopt a late response.
     return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
       request.current += 1;
     };
-  }, [active, revision, mutations, sessionId, refresh]);
-  // Idle, a commit, stage or revert made outside a turn (a terminal, another
-  // app) still moves the island's uncommitted set. Follow Source Control's
-  // Git evidence: project file changes (the recursive watch sees .git),
-  // window focus, Git actions and a slow safety lane; hidden pauses it.
-  useEffect(() => {
-    if (!active || !sessionId || busy || !gitWatchPath) return;
-    return watchGitRefreshEvidence(
-      gitWatchPath,
-      createGitRefreshScheduler(async () => {
-        await refresh(true, true);
-      }, IDLE_GIT_REFRESH_OPTIONS)
-    );
-  }, [active, busy, gitWatchPath, refresh, sessionId]);
+  }, [active, apply, sessionId, signalKey]);
+  // Window focus / visibility only re-adopt the cached result (and catch up a
+  // signal that arrived while hidden or whose read failed); there is no polling.
   useEffect(() => {
     if (!active || !sessionId) return;
-    return startVisibleRefreshCadence({
-      win: window,
-      intervalMs: busy ? 4_000 : undefined,
-      refresh: () => void refresh(true, true),
-    });
-  }, [active, busy, refresh, sessionId]);
+    const adopt = () => {
+      if (document.visibilityState !== 'hidden') void refreshRef.current(false, true);
+    };
+    document.addEventListener('visibilitychange', adopt);
+    window.addEventListener('focus', adopt);
+    window.addEventListener('pageshow', adopt);
+    return () => {
+      document.removeEventListener('visibilitychange', adopt);
+      window.removeEventListener('focus', adopt);
+      window.removeEventListener('pageshow', adopt);
+    };
+  }, [active, sessionId]);
   return {
     result: current.result,
     loading: current.loading || Boolean(sessionId && !current.result && !current.error),

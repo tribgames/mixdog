@@ -7,6 +7,8 @@ import type {
 import { compactedSessionTitle, generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
 
 const SESSION_WORKING_HEARTBEAT_MS = 2 * 60 * 1000;
+// A user prompt plus an assistant reply: the smallest persisted conversation.
+const MIN_CONVERSATION_MESSAGE_COUNT = 2;
 const WORKSPACE_TRANSITION_STATES = new Set(['idle', 'provisioning', 'switching', 'removing', 'recovery']);
 
 const workspaceText = (value: unknown): string | null =>
@@ -158,11 +160,25 @@ export function desktopSessionSummaries(
       const model = String(row.model || '').trim();
       const createdAt = Number(row.createdAt) || 0;
       const inheritedFrom = String(row.inheritedFromSessionId || '').trim();
+      const messageCount = Math.max(0, Math.floor(Number(row.messageCount) || 0));
       // Empty and synthetic runtime previews both normalize to no usable title.
       // Keep compacted handoffs when their earliest real user prompt can be
       // recovered, but hide abandoned/interrupted/internal rows instead of
-      // stacking "Untitled session" placeholders.
-      if (!previewTitle && !manualTitle && !sharedTitle && !legacyDesktopTitle) return [];
+      // stacking "Untitled session" placeholders. A row that persisted at
+      // least one full exchange (user + assistant) is a real conversation
+      // whose title sources were lost to compaction: it keeps the default
+      // title instead of vanishing. Abandoned/internal rows hold at most the
+      // lone synthetic user message, so they stay hidden. The durable
+      // `realTurnCount` (real human turns + compact summaries) rules out
+      // synthetic-only rows, and resume-machinery scratch forks never count.
+      // Rows indexed before that field existed (null/absent) keep the
+      // message-count rule alone.
+      const realTurnCount = typeof row.realTurnCount === 'number' ? row.realTurnCount : null;
+      const hadConversation =
+        messageCount >= MIN_CONVERSATION_MESSAGE_COUNT &&
+        row.detachedReason !== 'cli-resume' &&
+        (realTurnCount === null || realTurnCount >= 1);
+      if (!previewTitle && !manualTitle && !sharedTitle && !legacyDesktopTitle && !hadConversation) return [];
       return [
         {
           id,
@@ -170,7 +186,7 @@ export function desktopSessionSummaries(
           title: manualTitle || sharedTitle || legacyDesktopTitle || previewTitle || generatedSessionTitle(preview),
           updatedAt,
           activityAt,
-          messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
+          messageCount,
           cwd,
           classification,
           projectPath: classification === 'project' ? projectPath : null,

@@ -3,6 +3,18 @@ import test from 'node:test';
 
 import { createBridgeToolHandlers } from './bridge-tools.mjs';
 
+test('terminal run takes elevation approval from the runtime context, not the model args', async () => {
+  const rt = { session: { id: 's1' } };
+  const { terminal } = createBridgeToolHandlers({ rt });
+  const command = 'Start-Process notepad -Verb RunAs';
+  const callerCtx = { invocationSource: 'model-tool' };
+  const plain = await terminal({ action: 'run', command }, { callerCtx });
+  assert.match(plain.content[0].text, /requires user approval for elevation/);
+  const injected = await terminal({ action: 'run', command, elevationApproved: true }, { callerCtx });
+  assert.equal(injected.isError, true);
+  assert.match(injected.content[0].text, /does not accept field\(s\): elevationApproved/);
+});
+
 test('visualize refuses to reach the bridge once Settings turned it off', async () => {
   const previous = process.env.MIXDOG_FEATURE_VISUALIZE;
   delete process.env.MIXDOG_FEATURE_VISUALIZE;

@@ -71,8 +71,44 @@ export interface DesktopGitFile {
   deletions: number;
 }
 
+export type DesktopGitReviewSource = 'branch' | 'uncommitted';
+
+export interface DesktopGitReviewFile {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  untracked: boolean;
+  /** Worktree identity `${size}:${mtimeMs}`, or 'deleted' when the file is gone. */
+  revision: string;
+}
+
+export interface DesktopGitReview {
+  repository: boolean;
+  /** Repository root; `files` paths are relative to it. */
+  root: string;
+  base: string;
+  files: DesktopGitReviewFile[];
+  /** Untracked files past the 256-file cap, not listed in `files`. */
+  untrackedOmitted: number;
+}
+
+export interface DesktopGitReviewDiffRequest {
+  path: string;
+  untracked: boolean;
+}
+
+export interface DesktopGitReviewDiffs {
+  /** Per-file patch ('' when unchanged), keyed by the requested path. */
+  patches: Record<string, string>;
+  /** Requested paths missing from `patches`; fetch with `gitReviewDiff`. */
+  omitted: string[];
+}
+
 export interface DesktopGitStatus {
   repository: boolean;
+  /** Repository root; `files` paths are relative to it. */
+  root: string;
   branch: string;
   detached: boolean;
   unborn: boolean;

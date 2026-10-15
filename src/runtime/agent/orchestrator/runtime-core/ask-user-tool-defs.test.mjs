@@ -4,9 +4,9 @@ import { ASK_USER_TOOL_DEFS, validateAskUserQuestions } from './ask-user-tool-de
 import { collectStandaloneToolDefs } from './tool-defs.mjs';
 import { DEFERRED_DEFAULT_FULL_TOOLS, DEFERRED_DEFAULT_LEAD_TOOLS, DEFERRED_DEFAULT_READONLY_TOOLS } from './tool-catalog-data.mjs';
 
-const q = (over = {}) => ({ question: 'Which?', header: 'Pick', options: [{ label: 'A' }, { label: 'B' }], ...over });
+const q = (over = {}) => ({ question: 'Which?', header: 'Pick', options: [{ label: 'A', description: 'a' }, { label: 'B', description: 'b' }], ...over });
 
-test('ask_user def is deferred, hidden and compact', () => {
+test('ask_user is on the Lead surface only, hidden and compact', () => {
   const [def] = ASK_USER_TOOL_DEFS;
   assert.equal(def.name, 'ask_user');
   assert.ok(def.trigger);
@@ -14,7 +14,8 @@ test('ask_user def is deferred, hidden and compact', () => {
   assert.equal(def.annotations.readOnlyHint, true);
   assert.equal(def.inputSchema.properties.questions.maxItems, 4);
   assert.ok(JSON.stringify(def).length < 4500);
-  for (const list of [DEFERRED_DEFAULT_FULL_TOOLS, DEFERRED_DEFAULT_LEAD_TOOLS, DEFERRED_DEFAULT_READONLY_TOOLS]) {
+  assert.ok(DEFERRED_DEFAULT_LEAD_TOOLS.includes('ask_user'));
+  for (const list of [DEFERRED_DEFAULT_FULL_TOOLS, DEFERRED_DEFAULT_READONLY_TOOLS]) {
     assert.ok(!list.includes('ask_user'));
   }
   const { standaloneTools } = collectStandaloneToolDefs({
@@ -29,16 +30,18 @@ test('ask_user def is deferred, hidden and compact', () => {
 test('validation rejects duplicates and bad recommended', () => {
   assert.equal(validateAskUserQuestions({ questions: [q()] }).length, 1);
   assert.throws(() => validateAskUserQuestions({ questions: [q(), q()] }), /duplicates/);
-  assert.throws(() => validateAskUserQuestions({ questions: [q({ options: [{ label: 'A' }, { label: 'A' }] })] }), /duplicate option/);
+  assert.throws(() => validateAskUserQuestions({ questions: [q({ options: [{ label: 'A', description: 'a' }, { label: 'A', description: 'a' }] })] }), /duplicate option/);
   assert.throws(() => validateAskUserQuestions({ questions: [q({ recommended: 2 })] }), /recommended/);
   assert.throws(() => validateAskUserQuestions({ questions: [] }), /1-4/);
 });
 
-test('options are label-only', () => {
-  const described = q({ options: [{ label: 'A', description: 'why' }, { label: 'B' }] });
-  assert.throws(() => validateAskUserQuestions({ questions: [described] }), /only a label/);
+test('options need a label and a one-sentence description', () => {
+  const bare = q({ options: [{ label: 'A' }, { label: 'B', description: 'why' }] });
+  assert.throws(() => validateAskUserQuestions({ questions: [bare] }), /needs a one-sentence description/);
+  const extra = q({ options: [{ label: 'A', description: 'a', preview: 'x' }, { label: 'B', description: 'b' }] });
+  assert.throws(() => validateAskUserQuestions({ questions: [extra] }), /only a label and a description/);
   const option = ASK_USER_TOOL_DEFS[0].inputSchema.properties.questions.items.properties.options.items;
-  assert.deepEqual(Object.keys(option.properties), ['label']);
+  assert.deepEqual(option.required, ['label', 'description']);
   assert.equal(option.additionalProperties, false);
 });
 
@@ -51,8 +54,9 @@ test('worker tool list excludes ask_user, Lead keeps it', async () => {
 
 test('option labels over 80 chars are rejected and the schema states the limit', () => {
   const long = 'x'.repeat(81);
-  assert.throws(() => validateAskUserQuestions({ questions: [q({ options: [{ label: long }, { label: 'B' }] })] }), /over 80/);
-  validateAskUserQuestions({ questions: [q({ options: [{ label: 'x'.repeat(80) }, { label: 'B' }] })] });
+  const option = (label) => ({ label, description: 'd' });
+  assert.throws(() => validateAskUserQuestions({ questions: [q({ options: [option(long), option('B')] })] }), /over 80/);
+  validateAskUserQuestions({ questions: [q({ options: [option('x'.repeat(80)), option('B')] })] });
   const label = ASK_USER_TOOL_DEFS[0].inputSchema.properties.questions.items.properties.options.items.properties.label;
   assert.equal(label.maxLength, 80);
   assert.throws(() => validateAskUserQuestions({ questions: [q({ header: 'x'.repeat(13) })] }), /12/);

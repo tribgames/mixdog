@@ -150,14 +150,14 @@ export async function logSessionLlmUsage({
   // (additive); OpenAI OAuth/API/Gemini = input_tokens already includes the
   // cached portion (inclusive), so the fallback must not double-count.
   const { isInclusiveProvider, computeCostUsd } = await runAbortable(
-    turnSignal,
+    signal,
     () => import('../../../../shared/llm/cost.mjs')
   );
   const inclusive = isInclusiveProvider(session.provider);
   let promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
-  if (typeof result.usage.promptTokens === 'number') promptTokens = result.usage.promptTokens;
+  if (typeof usage.promptTokens === 'number') promptTokens = usage.promptTokens;
   else if (inclusive) promptTokens = Math.max(inputTokens, cacheReadTokens + cacheWriteTokens);
-  let costUsd = result.usage.costUsd || 0;
+  let costUsd = usage.costUsd || 0;
   if (!costUsd) {
     try {
       costUsd = computeCostUsd({
@@ -167,7 +167,7 @@ export async function logSessionLlmUsage({
         outputTokens,
         cacheReadTokens,
         cacheWriteTokens,
-        cacheWrite1hTokens: result.usage.cacheWrite1hTokens || 0,
+        cacheWrite1hTokens: usage.cacheWrite1hTokens || 0,
       });
     } catch {
       /* best-effort */
@@ -180,7 +180,8 @@ export async function logSessionLlmUsage({
     preset: session.presetName || null,
     model: session.model,
     provider: session.provider,
-    duration: Date.now() - askStartedAt,
+    ...(mode ? { mode } : {}),
+    duration: Date.now() - startedAt,
     profileId: session.profileId || null,
     sessionId: session.id,
     inputTokens,
@@ -188,11 +189,10 @@ export async function logSessionLlmUsage({
     cacheReadTokens,
     cacheWriteTokens,
     promptTokens,
-    prefixHash: prefixHashForLog,
+    prefixHash,
     costUsd,
-    transportTiming: result.transportTiming || null,
+    transportTiming,
   });
-  recordStandaloneStatusTelemetry(session, result, Date.now() - askStartedAt);
 }
 
 /** Persist opaque providerState for stateful providers. The update bit

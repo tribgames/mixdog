@@ -69,7 +69,8 @@ that a call returned without transport error.
   injection stays on regardless. `set_recap_enabled` changes only the
   background cycles. Core Memory entries
   are read and changed with the `memory` tool, not setup.
-- Built-ins have installation state separate from enabled state. Browser Use,
+- Built-ins have installation state separate from enabled state; Visualize
+  is toggle-only (on by default, no install step). Browser Use,
   Computer Use actions require this conversation open in the local Desktop
   window; voice runs on the runtime and needs no Desktop.
 - Hook rules are before-tool policy, separate from MCP and plugins. Deleting a
@@ -94,6 +95,10 @@ that a call returned without transport error.
 - For an MCP failure, inspect the reported transport error before changing
   command, arguments, directory, environment, URL, headers, or enabled state.
 - MCP reads intentionally omit raw connection values that may contain secrets.
+- An HTTP/SSE MCP server that needs OAuth waits for sign-in instead of
+  failing; setup rows then show it enabled, not connected, with no `error`.
+  Setup cannot sign in, and `reconnect_mcp` does not log in: hand off to
+  `open mcp` (Connect/Reconnect) or the TUI `/mcp login`.
 - For an unavailable built-in, distinguish not installed, installed but
   disabled, and bridge inactive.
 - Desktop requests require a single live claimant and a confirmed receipt.

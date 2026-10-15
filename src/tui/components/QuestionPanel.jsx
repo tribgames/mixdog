@@ -172,7 +172,7 @@ export function QuestionPanel({ questions, columns = 80, rows, onSubmit, onDismi
     const selected = i === cursor;
     const checked = draft.selected.includes(i);
     const lead = `${selected ? '› ' : '  '}${indexText(i)}`;
-    const fill = ' '.repeat(Math.max(0, avail - layout.prefixCells - stringWidth(row.label + row.suffix)));
+    const fill = ' '.repeat(Math.max(0, avail - layout.prefixCells - stringWidth(row.label + row.suffix + row.detail)));
     out.push(
       renderLine(
         selected,
@@ -185,6 +185,7 @@ export function QuestionPanel({ questions, columns = 80, rows, onSubmit, onDismi
           ) : null}
           {row.label}
           {row.suffix ? <Text color={selected ? theme.selectionText : theme.suggestion}>{row.suffix}</Text> : null}
+          {row.detail ? <Text color={selected ? theme.selectionText : theme.subtle}>{row.detail}</Text> : null}
           {selected ? fill : ''}
         </>,
         `o${i}`

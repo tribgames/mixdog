@@ -6,7 +6,7 @@ import {
   sessionDiffRequestPaths,
   useSessionDiffFileRequest,
 } from './session-diff-focus';
-import type { SessionDiffResult, SessionDiffRow } from './session-diff-model';
+import type { SessionDiffRow } from './session-diff-model';
 import { normalizeChangePath } from './turn-changes-model';
 import type { useSessionDiffRefresh } from './use-session-diff-refresh';
 
@@ -32,7 +32,7 @@ export function useSessionDiffRequests({
   sessionId,
   active,
   rows,
-  result,
+  ready,
   error,
   refresh,
   adoptions,
@@ -45,7 +45,8 @@ export function useSessionDiffRequests({
   sessionId: string;
   active: boolean;
   rows: readonly SessionDiffRow[];
-  result: SessionDiffResult | null;
+  /** A read has answered: rows are a result, not a placeholder. */
+  ready: boolean;
   error: string;
   refresh: ReturnType<typeof useSessionDiffRefresh>['refresh'];
   adoptions: number;
@@ -89,7 +90,10 @@ export function useSessionDiffRequests({
     if (!fileRequestSeq) return undefined;
     let stale = false;
     const base = adoptionsRef.current;
-    void refresh(true).then((adopted) => {
+    // Not forced: it joins the signal-aware read already answering the
+    // current change signal (or adopts the settled result) instead of queuing
+    // a second whole-session read behind it.
+    void refresh(false).then((adopted) => {
       if (stale) return;
       if (adopted) setFileRequestRead(fileRequestSeq);
       else setFileRequestWait({ seq: fileRequestSeq, base });
@@ -105,7 +109,7 @@ export function useSessionDiffRequests({
   }, [adoptions, fileRequestSeq, fileRequestWait]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: resolves when the request or the re-read rows change; the notice, fold and tab actions are read at that moment
   useEffect(() => {
-    if (!fileRequest || fileRequestRead !== fileRequest.seq || !result || error) return;
+    if (!fileRequest || fileRequestRead !== fileRequest.seq || !ready || error) return;
     consumeSessionDiffFileRequest(fileRequest.seq);
     const wanted = normalizeChangePath(fileRequest.path);
     const row = findRequestedRow(rows, fileRequest);
@@ -118,6 +122,6 @@ export function useSessionDiffRequests({
       setChangesOpen(true);
       setFileNotice(t('{{file}} is no longer in the session diff.', { file: wanted }));
     }
-  }, [fileRequest, fileRequestRead, result, error, rows]);
+  }, [fileRequest, fileRequestRead, ready, error, rows]);
   return fileRequest;
 }

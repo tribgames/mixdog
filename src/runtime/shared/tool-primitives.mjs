@@ -133,6 +133,19 @@ export function parseToolArgs(args) {
   return { value: args };
 }
 
+/**
+ * Display identity of a tool call. A call_tool bridge request shows the tool
+ * it runs, with `via: 'call_tool'`; the transcript keeps the wire call.
+ */
+export function toolCallDisplayIdentity(name, args) {
+  if (rawToolName(name) !== 'call_tool') return { name, args };
+  const parsed = parseToolArgs(args);
+  const target = typeof parsed?.name === 'string' ? parsed.name.trim() : '';
+  if (!target) return { name, args };
+  const targetArgs = parsed.arguments && typeof parsed.arguments === 'object' ? parsed.arguments : {};
+  return { name: target, args: targetArgs, via: 'call_tool' };
+}
+
 export function displayToolPath(path) {
   const text = String(path ?? '');
   return text.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) || text;

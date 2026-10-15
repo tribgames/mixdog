@@ -55,6 +55,78 @@ test('public gpt-5 before 5.4 keeps reasoning and verbosity but loads tools by f
   assert.equal(build('openai', 'gpt-6-astra').tools[1].type, 'tool_search');
 });
 
+test('public models without reasoning send no encrypted-reasoning include or replay', () => {
+  const body = build('openai', 'gpt-4.1');
+  assert.equal('include' in body, false);
+  assert.deepEqual(build('openai', 'gpt-5.2').include, ['reasoning.encrypted_content']);
+  assert.deepEqual(build('openai-oauth', 'gpt-4.1').include, ['reasoning.encrypted_content']);
+  const history = [
+    { role: 'system', content: 'Sys' },
+    { role: 'user', content: 'hi' },
+    {
+      role: 'assistant',
+      content: 'ok',
+      reasoningItems: [{ id: 'rs_1', encrypted_content: 'enc', summary: [] }],
+    },
+    { role: 'user', content: 'next' },
+  ];
+  const replayed = (model) =>
+    buildRequestBody(history, model, tools, { promptCacheProvider: 'openai', sessionId: 'parity' }).input.some(
+      (item) => item.type === 'reasoning'
+    );
+  assert.equal(replayed('gpt-5.2'), true);
+  assert.equal(replayed('gpt-4.1'), false);
+});
+
+test('a model without native tool_search replays load_tool history as a function pair', () => {
+  const history = [
+    { role: 'system', content: 'Sys' },
+    { role: 'user', content: 'go' },
+    {
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'ts1', name: 'load_tool', arguments: { names: ['x'] }, nativeType: 'tool_search_call' }],
+    },
+    {
+      role: 'tool',
+      toolCallId: 'ts1',
+      content: 'loaded x',
+      nativeToolSearch: { provider: 'openai', openaiTools: [{ type: 'function', name: 'x' }] },
+    },
+  ];
+  const types = (model) =>
+    buildRequestBody(history, model, tools, { promptCacheProvider: 'openai', sessionId: 'parity' })
+      .input.map((item) => item.type)
+      .filter(Boolean);
+  assert.deepEqual(types('gpt-5.4'), ['tool_search_call', 'tool_search_output']);
+  const older = buildRequestBody(history, 'gpt-5.2', tools, { promptCacheProvider: 'openai', sessionId: 'parity' }).input;
+  assert.deepEqual(
+    older.filter((item) => item.type).map((item) => item.type),
+    ['function_call', 'function_call_output']
+  );
+  assert.equal(older.find((item) => item.type === 'function_call').name, 'load_tool');
+  assert.equal(older.find((item) => item.type === 'function_call_output').output, 'loaded x');
+  // A replayed native search item is lowered the same way.
+  const replay = {
+    version: 1,
+    provider: 'openai-responses',
+    items: [
+      { type: 'tool_search_call', call_id: 'ts1', execution: 'client', arguments: { names: ['x'] } },
+      { type: 'tool_search_call', id: 'srv', call_id: null, execution: 'server', arguments: {} },
+      { type: 'tool_search_output', call_id: null, execution: 'server', tools: [] },
+    ],
+  };
+  const replayHistory = [history[0], history[1], { role: 'assistant', content: '', providerReplay: replay }, history[3]];
+  const lowered = buildRequestBody(replayHistory, 'gpt-5.2', tools, {
+    promptCacheProvider: 'openai',
+    sessionId: 'parity',
+  }).input.filter((item) => item.type);
+  assert.deepEqual(
+    lowered.map((item) => item.type),
+    ['function_call', 'function_call_output']
+  );
+});
+
 test('Codex route keeps its defaults regardless of the public capability table', () => {
   const body = build('openai-oauth', 'gpt-5.2');
   assert.ok(body.reasoning);

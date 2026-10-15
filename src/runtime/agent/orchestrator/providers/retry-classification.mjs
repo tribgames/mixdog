@@ -10,6 +10,7 @@ import {
   TOKEN_CONTEXT_OVERFLOW_PATTERNS,
   TRANSIENT_SDK_NAMES,
   boundedCauseChain,
+  isToolSurfaceExceedsContextError,
   isTransientErrorCode,
   providerErrorKind,
   typedCodeKind,
@@ -463,6 +464,10 @@ const REQUEST_TOO_LARGE_KIND = 'request_too_large';
  */
 export function isContextOverflowError(err, _depth = 0) {
   if (!err || _depth > 2) return false;
+  // A local fixed-overhead refusal (anywhere in the chain, at any recursion
+  // level) is never a provider overflow: compacting history cannot help it,
+  // whatever its text names.
+  if (isToolSurfaceExceedsContextError(err)) return false;
   const code = typedErrorCode(err);
   if (code && CONTEXT_OVERFLOW_CODES.has(code)) return true;
   // A typed byte/media-size refusal (a size code, or HTTP 413 without a

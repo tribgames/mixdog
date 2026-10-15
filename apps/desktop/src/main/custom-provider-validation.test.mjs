@@ -23,6 +23,25 @@ test('custom provider capabilities are exposed on the desktop surface', () => {
   }
 });
 
+test('custom provider wires and modelWires are shape-checked and v2 only', () => {
+  const v2 = { name: 'Local', protocol: 'openai-chat', baseURL: 'http://localhost:1234/v1', schemaVersion: 2 };
+  assert.doesNotThrow(() =>
+    requiredCustomProviderInput({ ...v2, wires: ['chat', 'messages'], modelWires: { m: 'messages' } })
+  );
+  for (const bad of [
+    { wires: [] },
+    { wires: 'chat' },
+    { wires: ['gemini'] },
+    { modelWires: [] },
+    { modelWires: { m: 'gemini' } },
+    { modelWires: { m: 1 } },
+    { modelWires: { ' m': 'chat' } },
+  ]) {
+    assert.throws(() => requiredCustomProviderInput({ ...v2, ...bad }), TypeError, JSON.stringify(bad));
+  }
+  assert.throws(() => requiredCustomProviderInput({ ...valid, wires: ['chat'] }), /schemaVersion/);
+});
+
 test('custom provider apiKeyEnv is validated and exclusive with apiKey', () => {
   const env = { ...valid, auth: 'key' };
   assert.doesNotThrow(() => requiredCustomProviderInput({ ...env, apiKeyEnv: 'GROQ_API_KEY' }));

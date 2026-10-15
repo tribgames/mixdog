@@ -13,6 +13,8 @@ import { isScratchConversation } from '../shared.mjs';
 import { compactionArchiveRange } from '../../../runtime/agent/orchestrator/session/compaction-archive.mjs';
 import { stampCompactionMessageIds } from '../../../runtime/agent/orchestrator/session/compaction-archive-capture.mjs';
 import { boundWorkspaceCwd, restoreWorkspaceAfterResume } from '../../workspace/workspace-state.mjs';
+import { toolExposureMigrationNeeded } from '../../../runtime/agent/orchestrator/runtime-core/tool-exposure.mjs';
+import { markToolSurfaceMigrated } from '../../../runtime/agent/orchestrator/session/loop/tool-exposure-migration.mjs';
 
 export function resolveResumeCwd(session, currentCwd) {
   // A worktree-bound Lead resumes in its worktree whatever its desktop class;
@@ -61,10 +63,14 @@ export function createSessionResume(deps, { ingestSessionIntoMemory, closeSurfac
   } = deps;
 
   function restoreResumedToolSurface(target, targetRoute) {
+    // A surface persisted with another tool exposure (e.g. a pre-bridge
+    // fixed canonical surface) migrates here; legacy selections never widen it.
+    const migrating = toolExposureMigrationNeeded(target, targetRoute.provider);
     applyDeferredToolSurface(target, deferredSurfaceModeForLead(getMode()), getStandaloneTools(), {
       provider: targetRoute.provider,
       model: targetRoute.model,
     });
+    if (migrating) markToolSurfaceMigrated(target);
   }
 
   // The resumed session's OWN effort wins. resolveRoute always returns an

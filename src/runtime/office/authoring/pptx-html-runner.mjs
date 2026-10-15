@@ -6,6 +6,7 @@ import { dirname } from 'node:path';
 import { createRequire } from 'node:module';
 
 import { HTML_CANVAS, measureHtmlDeck } from './pptx-html-measure.mjs';
+import { noteOfficeWrite } from '../core/office-write-ledger.mjs';
 import { buildPptxFromMeasure } from './pptx-html-build.mjs';
 import { normalizeAuthoredPptx } from './pptx-script-normalize.mjs';
 
@@ -312,6 +313,7 @@ export async function writeHtmlComparisons(target, htmlShots, renderedImages) {
     const left = await sharp(html).resize(width, height, { fit: 'fill' }).png().toBuffer();
     const right = await sharp(image.path).resize(width, height, { fit: 'fill' }).png().toBuffer();
     const path = artifacts.compare(image.page);
+    noteOfficeWrite(path);
     await sharp({ create: { width: width * 2 + gap, height, channels: 3, background: '#808080' } })
       .composite([
         { input: left, left: 0, top: 0 },

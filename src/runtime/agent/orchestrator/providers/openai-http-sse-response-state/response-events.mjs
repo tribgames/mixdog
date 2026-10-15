@@ -42,6 +42,16 @@ export function createResponseEvents({ state, items, text, outcome, meaningful, 
       case 'response.function_call_arguments.done':
         output.onFunctionCallArgumentsDone(event);
         break;
+      // Refusal text is collected for the typed refusal result, never relayed
+      // as visible answer text.
+      case 'response.refusal.delta':
+        state.refusals.delta(event);
+        meaningful('semantic');
+        break;
+      case 'response.refusal.done':
+        state.refusals.done(event);
+        meaningful('semantic');
+        break;
       case 'response.output_item.done':
         output.onOutputItemDone(event.item || {});
         break;

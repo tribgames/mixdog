@@ -3,8 +3,10 @@ import { turnReviewReply } from '../runtime/shared/turn-review-reply.mjs';
 import {
   clearSessionChangeHistory,
   getSessionReviewDiff,
+  getSessionReviewFilePatch,
   getTurnChanges,
   getTurnReviewDiff,
+  getTurnReviewFilePatch,
   reapplyTurnChanges,
   revertTurnChanges,
   revertTurnReview,
@@ -24,8 +26,9 @@ registerSessionPurgeHook((sessionId) => {
 });
 
 // Tool writes (apply_patch, mutating shell commands, git, watcher events)
-// reach the live review snapshot as its change signal: a review poll right
-// after them captures the worktree, an unsignaled poll may reuse the last one.
+// reach the turn's worktree snapshot as its change signal: a session review
+// read right after them captures the worktree, an unsignaled one may reuse
+// the last capture.
 registerCacheInvalidationListener((paths) => noteTurnWorktreeChange(paths));
 
 export function createRuntimeReviewApi({ getCwd, getSessionId }) {
@@ -35,6 +38,9 @@ export function createRuntimeReviewApi({ getCwd, getSessionId }) {
     getTurnReviewDiff: (options = {}) =>
       turnReviewReply((reviewOptions) => getTurnReviewDiff(getCwd(), getSessionId(), reviewOptions), options),
     getSessionReviewDiff: () => getSessionReviewDiff(getCwd(), getSessionId()),
+    // One listed file's whole patch (a reply lists a large one `patchOmitted`).
+    getSessionReviewFilePatch: (file, oldPath) => getSessionReviewFilePatch(getCwd(), getSessionId(), file, oldPath),
+    getTurnReviewFilePatch: (file) => getTurnReviewFilePatch(getCwd(), getSessionId(), file),
     revertTurnReview: (checkpointId) => revertTurnReview(getCwd(), getSessionId(), checkpointId),
     revertTurnReviewFile: (file, checkpointId) => revertTurnReviewFile(getCwd(), getSessionId(), file, checkpointId),
     // Historical per-turn changes, addressed by checkpointId (TurnChangesReply).

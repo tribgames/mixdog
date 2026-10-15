@@ -21,7 +21,7 @@ import {
   revertTurnReview,
   revertTurnReviewFile,
 } from '../src/runtime/shared/turn-snapshot.mjs';
-import { _setTurnSnapshotStoreRootForTest, _settleSummarySavesForTest } from '../src/runtime/shared/turn-snapshot-store.mjs';
+import { _setTurnSnapshotStoreRootForTest } from '../src/runtime/shared/turn-snapshot-store.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 
@@ -67,7 +67,7 @@ test('explicit ignored edits survive review, restart and undo without capturing 
       await writeFile(join(root, 'ignored', 'deleted.txt'), 'delete me\n');
       await writeFile(join(root, 'ignored', 'unrelated.txt'), 'outside\n');
       const sessionId = `ignored-${tool}`;
-      await beginTurnSnapshot(root, sessionId);
+      await beginTurnSnapshot(root, sessionId, { checkpointId: `${sessionId}-prompt` });
       const execute = tool === 'edit' ? executeBuiltinTool : executePatchTool;
       const args =
         tool === 'edit'
@@ -124,7 +124,6 @@ test('explicit ignored edits survive review, restart and undo without capturing 
       assert.deepEqual((await getSessionReviewDiff(root, sessionId)).files, []);
     } finally {
       _resetTurnSnapshotForTest();
-      await _settleSummarySavesForTest();
       _setTurnSnapshotStoreRootForTest('');
       await rm(store, { recursive: true, force: true });
       await rm(root, { recursive: true, force: true });
@@ -140,7 +139,7 @@ test('large explicit untracked files retain their original baseline and every ch
   try {
     const before = `${'x'.repeat(2100000)}\nbefore\n`;
     await writeFile(join(root, 'large.txt'), before);
-    await beginTurnSnapshot(root, 'large-explicit');
+    await beginTurnSnapshot(root, 'large-explicit', { checkpointId: 'prompt-large' });
     const options = { sessionId: 'large-explicit', toolCallId: 'large-modify' };
     assert.doesNotMatch(
       String(
@@ -175,7 +174,8 @@ test('large explicit untracked files retain their original baseline and every ch
         ['z-small.txt', 'A'],
       ]
     );
-    assert.equal(review.patchTruncated, true);
+    // Past the per-file cap: listed with its counts, its patch read on its own.
+    assert.equal(review.files[0].patchOmitted, true);
     await completeTurnSnapshot('large-explicit');
     _resetTurnSnapshotForTest();
     assert.deepEqual(
@@ -187,7 +187,6 @@ test('large explicit untracked files retain their original baseline and every ch
     assert.equal(await exists(join(root, 'z-small.txt')), false);
   } finally {
     _resetTurnSnapshotForTest();
-    await _settleSummarySavesForTest();
     _setTurnSnapshotStoreRootForTest('');
     await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
@@ -200,6 +199,9 @@ test('a sibling session turn leaves a completed review revertable', async () => 
   try {
     await beginTurnSnapshot(root, 'session-a', { checkpointId: 'prompt-a' });
     await writeFile(join(root, 'file.txt'), 'one\ntwo\n');
+    recordTurnDiffChanges('session-a', [
+      { path: join(root, 'file.txt'), displayPath: 'file.txt', before: 'one\n', after: 'one\ntwo\n' },
+    ]);
     const initialReview = await getTurnReviewDiff(root, 'session-a');
     assert.equal(initialReview.revertMode, 'worktree');
     assert.equal(initialReview.checkpointId, 'prompt-a');
@@ -218,6 +220,39 @@ test('a sibling session turn leaves a completed review revertable', async () => 
 
     await revertTurnReviewFile(root, 'session-a', 'file.txt', 'prompt-a');
     assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\n');
+  } finally {
+    _resetTurnSnapshotForTest();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a turn revert restores only the files the session’s own tools wrote', async () => {
+  const root = await createRepository();
+  _resetTurnSnapshotForTest();
+  try {
+    await writeFile(join(root, 'other.txt'), 'other\n');
+    git(root, ['add', 'other.txt']);
+    git(root, ['commit', '-m', 'other']);
+    await beginTurnSnapshot(root, 'own-revert', { checkpointId: 'prompt-own' });
+    const options = { sessionId: 'own-revert', toolCallId: 'own-revert-edit' };
+    assert.doesNotMatch(
+      String(await executeBuiltinTool('edit', { file_path: 'file.txt', old_string: 'one', new_string: 'ONE' }, root, options)),
+      /^Error[\s:]/
+    );
+    // A shell command or another session edits beside it in the same turn.
+    await writeFile(join(root, 'other.txt'), 'shell edit\n');
+    await writeFile(join(root, 'shell-new.txt'), 'shell\n');
+    const review = await getTurnReviewDiff(root, 'own-revert');
+    assert.deepEqual(
+      review.files.map((file) => [file.path, file.additions, file.deletions]),
+      [['file.txt', 1, 1]]
+    );
+    await assert.rejects(revertTurnReviewFile(root, 'own-revert', 'other.txt', 'prompt-own'), /cannot attribute/);
+
+    await revertTurnReview(root, 'own-revert', 'prompt-own');
+    assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\n');
+    assert.equal(await readFile(join(root, 'other.txt'), 'utf8'), 'shell edit\n');
+    assert.equal(await readFile(join(root, 'shell-new.txt'), 'utf8'), 'shell\n');
   } finally {
     _resetTurnSnapshotForTest();
     await rm(root, { recursive: true, force: true });
@@ -286,6 +321,9 @@ test('only the next outer prompt replaces the checkpoint', async () => {
   try {
     await beginTurnSnapshot(root, 'follow-up', { checkpointId: 'prompt-1' });
     await writeFile(join(root, 'file.txt'), 'one\ntwo\n');
+    recordTurnDiffChanges('follow-up', [
+      { path: join(root, 'file.txt'), displayPath: 'file.txt', before: 'one\n', after: 'one\ntwo\n' },
+    ]);
     assert.equal((await getTurnReviewDiff(root, 'follow-up')).checkpointId, 'prompt-1');
 
     // Mid-loop steering does not call beginTurnSnapshot, so every refresh in
@@ -295,6 +333,9 @@ test('only the next outer prompt replaces the checkpoint', async () => {
 
     await beginTurnSnapshot(root, 'follow-up', { checkpointId: 'prompt-2' });
     await writeFile(join(root, 'file.txt'), 'one\ntwo\nthree\n');
+    recordTurnDiffChanges('follow-up', [
+      { path: join(root, 'file.txt'), displayPath: 'file.txt', before: 'one\ntwo\n', after: 'one\ntwo\nthree\n' },
+    ]);
     assert.equal((await getTurnReviewDiff(root, 'follow-up')).checkpointId, 'prompt-2');
 
     await assert.rejects(revertTurnReview(root, 'follow-up', 'prompt-1'), /checkpoint changed/);
@@ -346,14 +387,13 @@ test('a completed review survives losing its in-memory tracker', async () => {
     assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\n');
   } finally {
     _resetTurnSnapshotForTest();
-    await _settleSummarySavesForTest();
     _setTurnSnapshotStoreRootForTest('');
     await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test('entering a recorded review answers its last computed summary without rescanning', async () => {
+test('entering a recorded review answers from the turn change record, newest turn first', async () => {
   const root = await createRepository();
   const store = await createDirectory('mixdog-turn-review-store-');
   _resetTurnSnapshotForTest();
@@ -369,25 +409,18 @@ test('entering a recorded review answers its last computed summary without resca
     _resetTurnSnapshotForTest();
 
     const first = await getTurnReviewDiff(root, 'cached-a', entry);
-    assert.equal(first.reason, 'recorded', 'nothing computed yet: the entry read rebuilds the review');
-
-    let cached = null;
-    for (let tries = 0; tries < 100 && cached?.reason !== 'cached'; tries += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      cached = await getTurnReviewDiff(root, 'cached-a', entry);
-    }
-    assert.equal(cached.reason, 'cached');
-    assert.equal(cached.checkpointId, 'prompt-cached');
-    assert.equal(cached.authoritative, true);
+    assert.equal(first.reason, 'recorded');
+    assert.equal(first.checkpointId, 'prompt-cached');
+    assert.equal(first.authoritative, true);
+    assert.equal(first.patch, '');
     assert.deepEqual(
-      cached.files.map((file) => [file.path, file.additions]),
+      first.files.map((file) => [file.path, file.additions]),
       [['file.txt', 1]]
     );
+    const opened = await getTurnReviewDiff(root, 'cached-a', { refresh: true });
+    assert.match(opened.patch, /^\+two$/m);
 
-    const refreshing = await getTurnReviewDiff(root, 'cached-a', { refresh: true, summary: true });
-    assert.equal(refreshing.reason, 'recorded', 'the refreshing read still rescans');
-
-    // A newer turn of the session never shows the older turn's summary.
+    // A newer turn of the session never shows the older turn's review.
     await beginTurnSnapshot(root, 'cached-a', { checkpointId: 'prompt-next' });
     await writeFile(join(root, 'next.txt'), 'new\n');
     recordTurnDiffChanges('cached-a', [
@@ -400,7 +433,6 @@ test('entering a recorded review answers its last computed summary without resca
     assert.equal(next.checkpointId, 'prompt-next');
   } finally {
     _resetTurnSnapshotForTest();
-    await _settleSummarySavesForTest();
     _setTurnSnapshotStoreRootForTest('');
     await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
@@ -413,7 +445,7 @@ test('a shared worktree reverts only the session-owned paths', async () => {
   _resetTurnSnapshotForTest();
   _setTurnSnapshotStoreRootForTest(store);
   try {
-    await beginTurnSnapshot(root, 'shared-a');
+    await beginTurnSnapshot(root, 'shared-a', { checkpointId: 'prompt-shared' });
     await beginTurnSnapshot(root, 'shared-b');
     await writeFile(join(root, 'file.txt'), 'one\ntwo\n');
     await writeFile(join(root, 'sibling.txt'), 'sibling\n');
@@ -442,7 +474,6 @@ test('a shared worktree reverts only the session-owned paths', async () => {
     assert.equal(await readFile(join(root, 'sibling.txt'), 'utf8'), 'sibling\n');
   } finally {
     _resetTurnSnapshotForTest();
-    await _settleSummarySavesForTest();
     _setTurnSnapshotStoreRootForTest('');
     await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
@@ -480,22 +511,21 @@ test('a session review accumulates every checkpoint change across turns without 
         after: 'session\n',
       },
     ]);
-    // Written by a shell command during the turn: the checkpoint diff is what
-    // attributes it, exactly as the turn review bar counts it.
+    // Written by a shell command during the turn: no own file tool wrote it,
+    // so neither the turn review nor the session review attributes it.
     await writeFile(join(root, 'shell.txt'), 'shell\n');
 
     const live = await getSessionReviewDiff(root, 'cumulative');
     assert.equal(live.snapshotKind, 'session');
-    assert.deepEqual(live.files.map((file) => file.path).sort(), ['file.txt', 'second.txt', 'shell.txt']);
+    assert.deepEqual(live.files.map((file) => file.path).sort(), ['file.txt', 'second.txt']);
     await completeTurnSnapshot('cumulative');
     _resetTurnSnapshotForTest();
 
     const resumed = await getSessionReviewDiff(root, 'cumulative');
     assert.equal(resumed.snapshotKind, 'session');
-    assert.deepEqual(resumed.files.map((file) => file.path).sort(), ['file.txt', 'second.txt', 'shell.txt']);
+    assert.deepEqual(resumed.files.map((file) => file.path).sort(), ['file.txt', 'second.txt']);
   } finally {
     _resetTurnSnapshotForTest();
-    await _settleSummarySavesForTest();
     _setTurnSnapshotStoreRootForTest('');
     await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
@@ -540,7 +570,6 @@ test('a session whose cwd is a subdirectory still scopes its review to the repos
     assert.equal(await exists(join(cwd, 'page.txt')), false);
   } finally {
     _resetTurnSnapshotForTest();
-    await _settleSummarySavesForTest();
     _setTurnSnapshotStoreRootForTest('');
     await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });

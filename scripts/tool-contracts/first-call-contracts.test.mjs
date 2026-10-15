@@ -246,7 +246,14 @@ test('Gemini uses its JSON Schema wire field for opaque values instead of guessi
       [3, 4],
     ],
   });
-  const typed = toGeminiTools(GOAL_TOOL_DEFS).functionDeclarations[0];
+  // A closed schema (additionalProperties:false) has no legacy Schema form, so
+  // it keeps its JSON Schema wire field; the same schema left open is typed.
+  const closed = toGeminiTools(GOAL_TOOL_DEFS).functionDeclarations[0];
+  assert.equal(Object.hasOwn(closed, 'parameters'), false);
+  assert.deepEqual(closed.parametersJsonSchema, GOAL_TOOL_DEFS[0].inputSchema);
+  const { additionalProperties: _closed, ...openSchema } = structuredClone(GOAL_TOOL_DEFS[0].inputSchema);
+  for (const key of ['tasks', 'updates']) delete openSchema.properties[key].items.additionalProperties;
+  const typed = toGeminiTools([{ ...GOAL_TOOL_DEFS[0], inputSchema: openSchema }]).functionDeclarations[0];
   assert.equal(Object.hasOwn(typed, 'parametersJsonSchema'), false);
   assert.ok(typed.parameters);
 });

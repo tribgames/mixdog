@@ -2,23 +2,25 @@
  * Command Code provider (commandcode.ai Provider API).
  *
  * Credentials are a Studio-issued API key (command-code-oauth-tokens.mjs).
- * Each model is served on the endpoint its /models row declares: Chat
- * Completions through the OpenAI-compatible engine, Messages-only models
- * (Claude) through the Anthropic engine. Both clients are pinned to the
- * Command Code API host. The key never expires and has no refresh grant: a
- * 401 means the user must sign in again.
+ * Each model is served on a wire its /models row declares (wire-route.mjs
+ * picks among them): Chat Completions and Responses through the
+ * OpenAI-compatible engine, Messages through the Anthropic engine. Both
+ * clients are pinned to the Command Code API host. The key never expires and
+ * has no refresh grant: a 401 means the user must sign in again.
  */
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { fileMtimeMs, normalizeExpiresAtMs, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
+import { originBoundFetch } from './lib/origin-bound-fetch.mjs';
+import { withInclusiveUsage } from './lib/inclusive-usage.mjs';
 import { OpenAICompatProvider, preloadOpenAICompatRuntime } from './openai-compat.mjs';
 import { COMPAT_RETRY_POLICY } from './openai-compat-retry-profile.mjs';
 import { listCompatModels } from './openai-compat-models.mjs';
 import { AnthropicProvider } from './anthropic.mjs';
-import { toInclusiveOpenCodeGoUsage as toInclusiveUsage } from './opencode-go.mjs';
 import { sanitizeToolPairs } from '../session/context-utils.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
-import { currentUsageContext } from '../../../shared/llm/usage-context.mjs';
 import { makeModelCache } from './model-cache.mjs';
+import { resolveWireRoute, sendOnRoute } from './wire-route.mjs';
+import { gatewayMessagesOpts } from './wire-gateway.mjs';
 import {
   API_ORIGIN,
   CREDITS_URL,
@@ -38,8 +40,11 @@ export {
 export { beginOAuthLogin, loginOAuth } from './command-code-oauth-login.mjs';
 
 export const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
-const CHAT_ENDPOINT = '/chat/completions';
-const MESSAGES_ENDPOINT = '/messages';
+const ENDPOINT_WIRES = Object.freeze({
+  '/chat/completions': 'chat',
+  '/messages': 'messages',
+  '/responses': 'responses',
+});
 // The Anthropic SDK appends /v1/messages itself.
 const MESSAGES_BASE_URL = `${API_ORIGIN}/provider`;
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
@@ -56,35 +61,42 @@ const commandCodeModelCache = makeModelCache({
 });
 
 /**
- * The wire a /models row is served on: 'chat' when it declares Chat
- * Completions or declares no endpoints at all, 'messages' when it declares
- * only Messages, null when it declares neither.
+ * The wires a /models row declares (`supported_endpoints`), or null when it
+ * declares none — such a row is served on Chat Completions by convention.
+ */
+export function modelEndpoints(item) {
+  const declared = item?.supported_endpoints;
+  if (!Array.isArray(declared)) return null;
+  const wires = [];
+  for (const endpoint of declared) {
+    const path = String(endpoint).replace(/^\/?(?:provider\/)?(?:v1\/)?/, '/');
+    const wire = Object.hasOwn(ENDPOINT_WIRES, path) ? ENDPOINT_WIRES[path] : null;
+    if (wire && !wires.includes(wire)) wires.push(wire);
+  }
+  return wires;
+}
+
+// The route for a model with these declared endpoints (null: undeclared, Chat).
+// `undefined`: nothing describes the model, so no wire is ruled out.
+function commandCodeRoute(model, endpoints, ctx = {}) {
+  return resolveWireRoute(PROVIDER_ID, model, { ...ctx, endpoints: endpoints === undefined ? null : (endpoints ?? ['chat']) });
+}
+
+/**
+ * The wire a /models row is served on (wire-route.mjs over its declared
+ * endpoints): Responses for GPT / Muse / Grok when advertised, otherwise Chat
+ * when declared or undeclared, Messages when it is the only one, Responses
+ * for a Responses-only row; null when it declares none of them.
  */
 export function modelWire(item) {
   if (typeof item?.id !== 'string' || !item.id) return null;
-  const endpoints = item.supported_endpoints;
-  if (!Array.isArray(endpoints)) return 'chat';
-  const declared = endpoints.map((endpoint) => String(endpoint).replace(/^\/?(?:provider\/)?(?:v1\/)?/, '/'));
-  if (declared.includes(CHAT_ENDPOINT)) return 'chat';
-  if (declared.includes(MESSAGES_ENDPOINT)) return 'messages';
-  return null;
+  return commandCodeRoute(item.id, modelEndpoints(item))?.wire || null;
 }
 
-// Every request either engine makes goes through this fetch: anything outside
-// the Command Code API origin is refused before the key leaves the process,
-// and redirects are never followed (any 3xx is an error).
+// Every request either engine makes goes through this fetch: only the Command
+// Code API origin, never a redirect.
 function apiOnlyFetch(fetchImpl) {
-  return async (input, init) => {
-    const url = new URL(String(input?.url ?? input));
-    if (url.origin !== API_ORIGIN) {
-      throw new Error(`[command-code-oauth] refusing to send the API key to ${url.host}`);
-    }
-    const res = await (fetchImpl || globalThis.fetch)(input, { ...init, redirect: 'manual' });
-    if (res.status >= 300 && res.status < 400) {
-      throw new Error(`[command-code-oauth] refusing to follow a redirect from ${url.host}`);
-    }
-    return res;
-  };
+  return originBoundFetch(API_ORIGIN, fetchImpl, PROVIDER_ID);
 }
 
 // Anthropic engine bound to this credential: only the Command Code key is
@@ -98,15 +110,11 @@ class CommandCodeMessagesEngine extends AnthropicProvider {
     client.fetch = apiOnlyFetch(this.config.fetchImpl);
     return client;
   }
-}
-
-const normalizeUsageError = (err) => {
-  if (err && typeof err === 'object') {
-    if (err.usage) err.usage = toInclusiveUsage(err.usage);
-    if (err.partialUsage) err.partialUsage = toInclusiveUsage(err.partialUsage);
+  // The roster's output ceiling reaches the shared request builder.
+  _sendOnce(messages, model, tools, opts) {
+    return super._sendOnce(messages, model, tools, gatewayMessagesOpts(this.config, model, messages, opts));
   }
-  return err;
-};
+}
 
 function rosterRow(item) {
   const contextWindow = Number(item.context_window ?? item.max_context_window ?? item.context_length ?? 0);
@@ -118,6 +126,11 @@ function rosterRow(item) {
     ...(name ? { name: name.trim() } : {}),
     ...(contextWindow > 0 ? { contextWindow } : {}),
     ...(outputTokens > 0 ? { outputTokens } : {}),
+    // The full declared endpoint set: the cached route metadata a later
+    // send falls back on when the live roster cannot be read.
+    ...(Array.isArray(item.supported_endpoints)
+      ? { supportedEndpoints: item.supported_endpoints.map((endpoint) => String(endpoint)) }
+      : {}),
   };
 }
 
@@ -147,11 +160,16 @@ function scrubErrorSecrets(err, apiKey) {
 }
 
 // Redact where the transport first surfaces errors (request open and stream
-// iteration), so the shared retry reporter never logs the key.
+// iteration) on the Chat and Responses endpoints, so the shared retry
+// reporter never logs the key.
 function redactClientErrors(client, apiKey) {
-  const completions = client?.chat?.completions;
-  if (!completions || !apiKey || completions.create?.commandCodeRedacting === apiKey) return;
-  const create = completions.create.bind(completions);
+  redactCreateErrors(client?.chat?.completions, apiKey);
+  redactCreateErrors(client?.responses, apiKey);
+}
+
+function redactCreateErrors(endpoint, apiKey) {
+  if (!endpoint || !apiKey || endpoint.create?.commandCodeRedacting === apiKey) return;
+  const create = endpoint.create.bind(endpoint);
   const wrapped = async (...args) => {
     try {
       const stream = await create(...args);
@@ -177,7 +195,7 @@ function redactClientErrors(client, apiKey) {
     }
   };
   wrapped.commandCodeRedacting = apiKey;
-  completions.create = wrapped;
+  endpoint.create = wrapped;
 }
 
 // Same for the Anthropic client's streaming request (read through
@@ -253,8 +271,9 @@ export class CommandCodeOAuthProvider {
   _defaultModelKey = null;
   _messages = null;
   _messagesKey = null;
-  // Model id → wire ('chat' | 'messages') from the roster fetched with `_wiresKey`.
-  _wires = new Map();
+  // Model id → declared endpoint wires (null: undeclared) from the roster
+  // fetched with `_wiresKey`.
+  _endpoints = new Map();
   _wiresKey = null;
 
   constructor(config) {
@@ -315,6 +334,8 @@ export class CommandCodeOAuthProvider {
       apiKey,
       baseURL: MESSAGES_BASE_URL,
       disableBetaHeaders: true,
+      modelMaxOutputTokens: (model) =>
+        commandCodeModelCache.loadSync({ allowStale: true })?.find((row) => row?.id === model)?.outputTokens,
       // x-api-key from the SDK plus the bearer form of the same key.
       extraHeaders: { Authorization: `Bearer ${apiKey}` },
     });
@@ -324,8 +345,9 @@ export class CommandCodeOAuthProvider {
     return engine;
   }
 
-  // Servable rows from /models; only the latest fetch with the still-active
-  // key publishes the roster and the per-model wire map.
+  // Servable rows from /models (any declared Chat, Messages or Responses
+  // endpoint, or none declared); only the latest fetch with the still-active
+  // key publishes the roster and the per-model endpoint map.
   async _fetchRoster(apiKey, signal = null) {
     const publish = commandCodeModelCache.beginSave(() => loadTokens()?.apiKey === apiKey);
     const body = await requestCommandCodeJson(`${PROVIDER_BASE_URL}/models`, apiKey, {
@@ -338,16 +360,30 @@ export class CommandCodeOAuthProvider {
     const items = list.filter((item) => modelWire(item));
     publish(items.map(rosterRow));
     if (this.tokens?.apiKey === apiKey) {
-      this._wires = new Map(items.map((item) => [item.id, modelWire(item)]));
+      // Rows accumulate for one key: a later roster that misses a model
+      // leaves the endpoints it was last listed with.
+      const known = this._wiresKey === apiKey ? this._endpoints : new Map();
+      for (const item of items) known.set(item.id, modelEndpoints(item));
+      this._endpoints = known;
       this._wiresKey = apiKey;
     }
     return items;
   }
 
-  // The wire for a model, from this credential's roster (fetched once when
-  // missing). A model the roster does not know, or a roster that cannot be
-  // read right now, stays on Chat Completions; a rejected key is surfaced.
-  async _wireFor(inner, model) {
+  // A model's declared endpoints: what this credential's rosters listed,
+  // then the persisted roster (a roster miss or a roster that cannot be read
+  // right now must not move a known Messages-only model to Chat). null is a
+  // row declaring none (Chat); undefined is a model nothing describes.
+  _endpointsFor(apiKey, model) {
+    if (this._wiresKey === apiKey && this._endpoints.has(model)) return this._endpoints.get(model);
+    const cached = commandCodeModelCache.loadSync({ allowStale: true })?.find((row) => row?.id === model);
+    return cached ? modelEndpoints({ supported_endpoints: cached.supportedEndpoints }) : undefined;
+  }
+
+  // This credential's route for a model (the roster is fetched once when
+  // missing; a roster that cannot be read falls back on the persisted rows);
+  // a rejected key is surfaced.
+  async _routeFor(inner, model, ctx = {}) {
     if (this._wiresKey !== inner.apiKey) {
       try {
         await listCompatModels(inner, { throwOnError: true });
@@ -355,7 +391,16 @@ export class CommandCodeOAuthProvider {
         if (isUnauthorized(err)) throw err;
       }
     }
-    return (this._wiresKey === inner.apiKey && this._wires.get(model)) || 'chat';
+    const endpoints = this._endpointsFor(inner.apiKey, model);
+    return commandCodeRoute(model, endpoints, {
+      ...ctx,
+      override: this.config?.modelWires?.[model] ?? null,
+      known: endpoints !== undefined,
+    });
+  }
+
+  resolveWireRoute(model, ctx = {}) {
+    return this._routeFor(this._ensureInner(), model, ctx);
   }
 
   // A rejected key needs a fresh sign-in; the gateway's own detail stays attached.
@@ -382,17 +427,21 @@ export class CommandCodeOAuthProvider {
       throw this._shapeError(err, this.tokens?.apiKey);
     }
     const apiKey = this._innerKey;
-    // The model's declared endpoint picks the wire; a caller cannot move a
-    // model to Responses.
-    const { compatWireApi: _wire, responsesTransport: _transport, ...opts } = sendOpts || {};
+    // The model's route (the session's pinned one, else its declared
+    // endpoints) picks the wire; a caller's compat wire flag cannot move it.
+    const { compatWireApi: _wire, responsesTransport: _transport, ...callerOpts } = sendOpts || {};
     try {
       const useModel = model || (await this._pickDefaultModel(inner));
-      if ((await this._wireFor(inner, useModel)) === 'messages') {
-        return await this._sendMessages(apiKey, messages, useModel, tools, opts);
-      }
-      // _doSend directly: the compat wrapper's 401 handler reloads a static
-      // config key, which does not apply to this credential.
-      return await inner._doSend(messages, useModel, tools, opts);
+      // One clear "unsupported" refusal moves the send to the next wire once.
+      return await sendOnRoute(this, useModel, tools, callerOpts, messages, (wire, history, opts) => {
+        if (wire === 'messages') return this._sendMessages(apiKey, history, useModel, tools, opts);
+        // _doSend directly: the compat wrapper's 401 handler reloads a static
+        // config key, which does not apply to this credential.
+        if (wire === 'responses') {
+          return inner._doSend(history, useModel, tools, { ...opts, compatWireApi: 'responses' });
+        }
+        return inner._doSend(history, useModel, tools, opts);
+      });
     } catch (err) {
       throw this._shapeError(err, apiKey);
     }
@@ -405,14 +454,7 @@ export class CommandCodeOAuthProvider {
   async _sendMessages(apiKey, messages, model, tools, opts) {
     const engine = this._ensureMessages(apiKey);
     const prepared = await preparePdfTextForProvider(sanitizeToolPairs(messages), engine);
-    const identity = currentUsageContext();
-    if (identity) identity.normalizeAbandonedUsage = toInclusiveUsage;
-    try {
-      const result = await engine._doSend(prepared, model, tools, opts);
-      return result?.usage ? { ...result, usage: toInclusiveUsage(result.usage) } : result;
-    } catch (err) {
-      throw normalizeUsageError(err);
-    }
+    return withInclusiveUsage(() => engine._doSend(prepared, model, tools, opts));
   }
 
   async listModels() {

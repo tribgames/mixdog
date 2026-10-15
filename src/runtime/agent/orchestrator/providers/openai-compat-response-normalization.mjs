@@ -7,20 +7,20 @@ import {
   writeXaiResponsesCacheTrace,
 } from './openai-compat-xai.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
+import { reportedCostUsd } from './lib/usage-primitives.mjs';
 import { stampStreamOutcome, STREAM_TRANSPORTS } from './lib/stream-outcome.mjs';
 import { failingFinishReasonError } from './openai-compat-stream-common.mjs';
-
-const reportedNumber = (value) =>
-  value == null || (typeof value === 'string' && value.trim() === '') ? Number.NaN : Number(value);
+import {
+  COMPAT_REASONING_METADATA_KEY,
+  capturesShapeReasoning,
+  replayReasoningField,
+} from './openai-compat-reasoning-field.mjs';
 
 export function compatReportedCostUsd(providerName, usage) {
-  if (providerName === 'openrouter') {
-    const cost = reportedNumber(usage?.cost);
-    return Number.isFinite(cost) && cost >= 0 ? cost : undefined;
-  }
+  if (providerName === 'openrouter') return reportedCostUsd(usage?.cost);
   if (providerName === 'xai') {
-    const ticks = reportedNumber(usage?.cost_in_usd_ticks);
-    return Number.isFinite(ticks) && ticks >= 0 ? Number((ticks * 1e-10).toFixed(8)) : undefined;
+    const ticks = reportedCostUsd(usage?.cost_in_usd_ticks);
+    return ticks === undefined ? undefined : Number((ticks * 1e-10).toFixed(8));
   }
   return undefined;
 }
@@ -79,12 +79,11 @@ export function traceCompatResponseUsage({
   });
 }
 
-// Responses-wire reported cost: a gateway `cost` (decimal USD) when present,
-// else xAI ticks. null/empty/negative is "not reported", never a reported $0.
+// Responses-wire reported cost: xAI `cost_in_usd_ticks` when present, else a
+// gateway `cost` (decimal USD). null/empty/negative is "not reported", never a
+// reported $0.
 export function responsesReportedCostUsd(usage) {
-  const cost = reportedNumber(usage?.cost);
-  if (Number.isFinite(cost) && cost >= 0) return cost;
-  return costUsdFromTicks(usage?.cost_in_usd_ticks);
+  return costUsdFromTicks(usage?.cost_in_usd_ticks) ?? reportedCostUsd(usage?.cost);
 }
 
 export function chatCompletionUsage(providerName, usage) {
@@ -138,6 +137,7 @@ export function normalizeCompatChatResponse({
   cacheRoutingKey,
   cacheRouting,
   replaysReasoningContent,
+  reasoningShape = null,
 }) {
   const response = assembled.response;
   const choice = response.choices[0];
@@ -146,7 +146,7 @@ export function normalizeCompatChatResponse({
   const failingFinish = failingFinishReasonError(stopReason, providerName);
   if (failingFinish) {
     const err = failingFinish;
-    const partialContent = choice?.message?.content || '';
+    const partialContent = assembled.content || '';
     Object.assign(err, {
       partialContent,
       partialToolCalls: Array.isArray(toolCalls) && toolCalls.length ? toolCalls : undefined,
@@ -173,7 +173,7 @@ export function normalizeCompatChatResponse({
       code: 'PROVIDER_INCOMPLETE',
       providerIncomplete: true,
       finishReason: stopReason,
-      partialContent: choice?.message?.content || '',
+      partialContent: assembled.content || '',
       partialToolCalls: toolCalls,
       model: response.model || useModel,
       responseId: response.id || null,
@@ -205,14 +205,30 @@ export function normalizeCompatChatResponse({
       cachedTokens: extractCompatCachedTokens(response.usage),
     });
   }
+  // Together/vLLM/Groq/OpenRouter report reasoning on `reasoning` or
+  // `reasoning_content`; Mistral reports it as thinking chunks inside
+  // `content`. Both are captured by the provider's own shape / the response
+  // shape, whatever the replay flag says.
+  const reasoningField = replayReasoningField(reasoningShape, assembled.reasoningSource);
   const capturesReasoningContent =
-    providerName === 'deepseek' || providerName === 'xai' || providerName === 'mixdog-local' || replaysReasoningContent;
+    providerName === 'deepseek' ||
+    providerName === 'xai' ||
+    providerName === 'mixdog-local' ||
+    replaysReasoningContent ||
+    capturesShapeReasoning(reasoningShape, assembled.reasoningSource);
   const reasoningContent =
     capturesReasoningContent && typeof assembled.reasoningContent === 'string' ? assembled.reasoningContent : null;
   const reasoningDetails =
     providerName === 'openrouter' && Array.isArray(choice?.message?.reasoning_details)
       ? choice.message.reasoning_details
       : null;
+  // Replay sends reasoning back under the field it arrived on.
+  const providerMetadata = {
+    ...(reasoningDetails?.length ? { openrouter: { reasoning_details: reasoningDetails } } : {}),
+    ...(reasoningContent !== null && reasoningField
+      ? { [COMPAT_REASONING_METADATA_KEY]: { reasoningField } }
+      : {}),
+  };
   return {
     content: assembled.content || '',
     // Streamed chunks can omit `model`; fall back to the requested
@@ -228,11 +244,7 @@ export function normalizeCompatChatResponse({
     // instead of silently treating a truncated answer as complete.
     ...(stopReason === 'length' && (assembled.content || '').length > 0 ? { truncated: true } : {}),
     ...(reasoningContent !== null ? { reasoningContent } : {}),
-    ...(reasoningDetails?.length
-      ? {
-          providerMetadata: { openrouter: { reasoning_details: reasoningDetails } },
-        }
-      : {}),
+    ...(Object.keys(providerMetadata).length ? { providerMetadata } : {}),
     usage: response.usage ? chatCompletionUsage(providerName, response.usage) : undefined,
   };
 }
@@ -332,8 +344,14 @@ export function normalizeXaiResponsesWebSocket({
   cacheLane,
 }) {
   const responseId = result.responseId || previousResponseId || null;
-  const encryptedReasoningItems = encryptedXaiReasoningItems(result.responseItems);
-  const providerReplay = createProviderReplay('xai-responses', result.responseItems);
+  // The WS send result drops the collector's `responseItems`; its own
+  // owner-tagged `providerReplay` (traceProvider 'xai') still carries every
+  // output item in order: encrypted reasoning and server-executed tool_search
+  // call/output pairs. Always taken, so they survive to the next turn as xAI
+  // requires.
+  const responseItems = result.responseItems ?? result.providerReplay?.items;
+  const encryptedReasoningItems = encryptedXaiReasoningItems(responseItems);
+  const providerReplay = createProviderReplay('xai-responses', responseItems);
   const encryptedReasoningHistory = xaiEncryptedReasoningHistory(opts, messages, encryptedReasoningItems);
   const rawUsage = result.usage?.raw || result.usage || null;
   const response = {

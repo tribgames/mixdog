@@ -52,7 +52,11 @@ export function useSessionDiffRevert({
         args: [path, turnReview.checkpointId],
         sessionId,
       })
-      .then(() => refresh(true))
+      .then(() => {
+        // Every Git surface (Source Control, the Changes chip) re-reads.
+        window.dispatchEvent(new Event('mixdog:git-changed'));
+        return refresh(true);
+      })
       .catch((reason: unknown) => setRevertError(reason instanceof Error ? reason.message : String(reason)));
   };
   return { canRevertPath, revertFile };

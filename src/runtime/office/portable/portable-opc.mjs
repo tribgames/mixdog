@@ -1,6 +1,7 @@
 import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
+import { noteOfficeWrite } from '../core/office-write-ledger.mjs';
 import { koreanParticleReplacements } from '../shared/korean-particles.mjs';
 import { presetLabels } from '../shared/labels.mjs';
 import {
@@ -137,7 +138,9 @@ export async function packageBuffer(zip) {
 }
 
 export async function savePackage(zip, path) {
-  await writeFile(path, await packageBuffer(zip));
+  const bytes = await packageBuffer(zip);
+  noteOfficeWrite(path);
+  await writeFile(path, bytes);
 }
 
 export function relationshipMap(xml) {

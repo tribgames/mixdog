@@ -5,6 +5,7 @@ import test from 'node:test';
 import { htmlRunsScripts } from '../../shared/visualize-scripts.ts';
 import { chartPageDocument, INLINE_CHART_RENDERED, withHtmlThemePrelude } from '../../shared/visualize-inline-page.ts';
 import { localVirtualPageUrl, revokeLocalPagesFor } from '../local-page-server.ts';
+import { withSandboxStorageShim } from '../../shared/sandbox-storage-shim.ts';
 import { inlinePageFiles } from './inline-page.ts';
 
 function get(url) {
@@ -118,7 +119,8 @@ test('a virtual page lease serves exactly its files in an opaque origin and dies
   );
   const page = await get(url);
   assert.equal(page.status, 200);
-  assert.equal(page.body, '<p>mem</p>');
+  // The opaque-origin page document carries the storage shim; assets do not.
+  assert.equal(page.body, withSandboxStorageShim('<p>mem</p>'));
   assert.equal(page.headers['content-security-policy'], 'sandbox allow-scripts');
   assert.equal(page.headers['content-type'], 'text/html; charset=utf-8');
   const script = await get(url.replace('index.html', 'echarts.js'));
@@ -127,7 +129,7 @@ test('a virtual page lease serves exactly its files in an opaque origin and dies
   assert.equal((await get(url.replace('index.html', '..%2Findex.html'))).status, 404);
   // Another lease's token is another page.
   const other = await localVirtualPageUrl({ 'index.html': { type: 'text/html', body: Buffer.from('other') } }, { authorize: async () => {} });
-  assert.equal((await get(other)).body, 'other');
+  assert.equal((await get(other)).body, withSandboxStorageShim('other'));
   assert.notEqual(new URL(other).pathname.split('/')[1], new URL(url).pathname.split('/')[1]);
 
   revokeLocalPagesFor(owner);

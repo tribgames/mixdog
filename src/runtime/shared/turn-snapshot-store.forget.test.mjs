@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readdirSync, rmSync, utimesSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { storedChangeFile, turnChangesReply } from './turn-changes.mjs';
 import {
@@ -15,9 +14,7 @@ import {
   loadSessionSnapshotRecords,
   loadTurnChangeRecord,
   loadTurnChangeRecords,
-  loadTurnReviewSummary,
   loadTurnSnapshotRecord,
-  saveTurnReviewSummary,
   saveTurnSnapshotRecord,
   sessionChangeHistoryCleared,
   updateTurnChangeRecord,
@@ -163,77 +160,16 @@ test("clearSessionChangeHistory deletes only that session's baselines and change
   assert.equal(await sessionChangeHistoryCleared('h1'), false);
 });
 
-test('clearSessionChangeHistory removes the saved review summary, and a pending summary write cannot restore it', async () => {
-  const recorded = turn(rootA, 1, '3'.repeat(40));
-  const review = { files: [{ path: 'f.txt', status: 'M', additions: 1, deletions: 0 }] };
-  await saveTurnSnapshotRecord('sum1', recorded);
-  assert.equal(await saveTurnReviewSummary('sum1', recorded, review), true);
-  assert.ok(await loadTurnReviewSummary('sum1', recorded));
+test('clearSessionChangeHistory removes a review summary an earlier version left behind', async () => {
+  await saveTurnSnapshotRecord('sum1', turn(rootA, 1, '3'.repeat(40)));
+  const hash = createHash('sha256').update('sum1').digest('hex').slice(0, 24);
+  const summary = join(dir, 'review-summaries', `${hash}.json`);
+  mkdirSync(dirname(summary), { recursive: true });
+  writeFileSync(summary, JSON.stringify({ sessionId: 'sum1', files: [{ path: 'f.txt' }] }));
 
   await clearSessionChangeHistory('sum1');
-  assert.equal(await loadTurnReviewSummary('sum1', recorded), null);
-
-  // A write issued before the delete finishes, or only after it: neither returns.
-  const before = saveTurnReviewSummary('sum1', recorded, review);
-  await clearSessionChangeHistory('sum1');
-  await before;
-  assert.equal(await loadTurnReviewSummary('sum1', recorded), null);
-  assert.equal(await saveTurnReviewSummary('sum1', recorded, review), false);
-  assert.equal(await loadTurnReviewSummary('sum1', recorded), null);
-
-  // The next recorded turn ends the deletion; its summary is kept again.
-  await saveTurnSnapshotRecord('sum1', recorded);
-  assert.equal(await saveTurnReviewSummary('sum1', recorded, review), true);
-  assert.ok(await loadTurnReviewSummary('sum1', recorded));
-});
-
-test('a summary write in another store instance cannot land after the delete', async () => {
-  const recorded = turn(rootA, 1, '4'.repeat(40));
-  const review = { files: [{ path: 'f.txt', status: 'M', additions: 1, deletions: 0 }] };
-  await saveTurnSnapshotRecord('sum2', recorded);
-  // A second process: its own module instance (and so its own in-process
-  // queues). It stops inside the summary write, after its marker check and
-  // before the write, and resumes when told to.
-  const storeUrl = new URL('./turn-snapshot-store.mjs', import.meta.url).href;
-  const script = `
-    const other = await import(${JSON.stringify(storeUrl)});
-    other._setTurnSnapshotStoreRootForTest(${JSON.stringify(dir)});
-    other._setSummaryWriteHookForTest(async () => {
-      console.log('paused');
-      await new Promise((resolve) => process.stdin.once('data', resolve));
-      process.stdin.pause();
-    });
-    const saved = await other.saveTurnReviewSummary('sum2', ${JSON.stringify(recorded)}, ${JSON.stringify(review)});
-    process.exit(saved === true ? 0 : 3);`;
-  const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
-    env: process.env,
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'inherit'],
-  });
-  const exited = new Promise((resolve) => child.once('exit', (code) => resolve(code)));
-  try {
-    await new Promise((resolve, reject) => {
-      child.once('error', reject);
-      child.stdout.on('data', (chunk) => String(chunk).includes('paused') && resolve());
-      exited.then((code) => reject(new Error(`child exited early (${code})`)));
-    });
-    // Between its check and its write the child holds the summary's file lock:
-    // this is what a delete in any other process has to wait for.
-    const lockHash = createHash('sha256').update('sum2').digest('hex').slice(0, 24);
-    const lockPath = join(dir, 'review-summaries', `${lockHash}.json.lock`);
-    assert.equal(existsSync(lockPath), true, 'the child holds the lock');
-    // The delete starts while the child is in the middle of its write; it can
-    // only finish after the child's write, whenever the child is resumed.
-    const clearing = clearSessionChangeHistory('sum2');
-    child.stdin.write('go\n');
-    assert.equal(await exited, 0, 'the child finished its write');
-    await clearing;
-    assert.equal(await sessionChangeHistoryCleared('sum2'), true);
-    assert.equal(await loadTurnReviewSummary('sum2', recorded), null);
-  } finally {
-    // A failed assertion must not leave the child waiting on its stdin.
-    child.kill();
-  }
+  assert.equal(existsSync(summary), false);
+  assert.equal(await sessionChangeHistoryCleared('sum1'), true);
 });
 
 test('a deletion marker outlives record retention and goes only with the session', async () => {

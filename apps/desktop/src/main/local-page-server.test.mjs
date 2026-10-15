@@ -4,7 +4,9 @@ import { request } from 'node:http';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { localPageUrl } from './local-page-server';
+import { syncBuiltinESMExports } from 'node:module';
+import { localPageUrl, localVirtualPageUrl, revokeLocalPagesFor } from './local-page-server';
+import { sandboxStorageShimScript } from '../shared/sandbox-storage-shim';
 
 const projectPageUrl = (root, rel) => localPageUrl(root, rel, { scope: 'project', authorize: async () => {} });
 
@@ -18,6 +20,8 @@ function get(url, path, headers = {}) {
         resolve({
           status: response.statusCode,
           type: response.headers['content-type'],
+          length: response.headers['content-length'],
+          csp: response.headers['content-security-policy'],
           body: Buffer.concat(chunks).toString(),
         })
       );
@@ -123,4 +127,72 @@ test('a selected page outside every Project serves only that page, never its nei
   assert.equal((await get(url, pathname)).status, 200);
   assert.equal((await get(url, `${dir}data.json`)).status, 404);
   assert.equal((await get(url, `${dir}../shared/style.css`)).status, 404);
+});
+
+test('a sandboxed single-file page carries the storage shim first, with a matching Content-Length', async (t) => {
+  const root = await site(t);
+  await writeFile(
+    join(root, 'tabs.html'),
+    '<!doctype html><html><head><title>탭</title></head><body><script>run()</script></body></html>'
+  );
+  const url = await localPageUrl(root, 'tabs.html', { scope: 'file', authorize: async () => {} });
+  const { pathname } = new URL(url);
+  const page = await get(url, pathname);
+  assert.equal(page.status, 200);
+  assert.equal(page.csp, 'sandbox allow-scripts');
+  assert.ok(page.body.includes(sandboxStorageShimScript()));
+  assert.ok(page.body.indexOf(sandboxStorageShimScript()) < page.body.indexOf('run()'));
+  assert.ok(page.body.includes('<title>탭</title>'));
+  assert.equal(Number(page.length), Buffer.byteLength(page.body));
+});
+
+test('a lease revoked while its page is being read gets no content', async (t) => {
+  const root = await site(t);
+  const owner = {};
+  const url = await localPageUrl(root, 'page.html', { scope: 'file', authorize: async () => {}, owner });
+  const { pathname } = new URL(url);
+  const fsp = await import('node:fs/promises');
+  const original = fsp.readFile;
+  let reads = 0;
+  fsp.default.readFile = async (...args) => {
+    const data = await original(...args);
+    reads += 1;
+    revokeLocalPagesFor(owner);
+    return data;
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fsp.default.readFile = original;
+    syncBuiltinESMExports();
+  });
+  const page = await get(url, pathname);
+  assert.equal(reads, 1);
+  assert.equal(page.status, 404);
+  assert.doesNotMatch(page.body, /한글/);
+});
+
+test('a project-scope page is served unchanged, without the storage shim', async (t) => {
+  const root = await site(t);
+  const url = await projectPageUrl(root, 'page.html');
+  const page = await get(url, new URL(url).pathname);
+  assert.equal(page.body, '<p>한글 페이지</p>');
+  assert.equal(page.csp, undefined);
+  assert.equal(Number(page.length), Buffer.byteLength(page.body));
+});
+
+test('a virtual page gets the shim on its html document only, not on other files', async () => {
+  const url = await localVirtualPageUrl(
+    {
+      'index.html': { type: 'text/html; charset=utf-8', body: Buffer.from('<body><script>x()</script></body>') },
+      'app.js': { type: 'text/javascript; charset=utf-8', body: Buffer.from('window.a=1') },
+    },
+    { authorize: async () => {} }
+  );
+  const { pathname } = new URL(url);
+  const page = await get(url, pathname);
+  assert.equal(page.csp, 'sandbox allow-scripts');
+  assert.ok(page.body.includes(sandboxStorageShimScript()));
+  assert.equal(Number(page.length), Buffer.byteLength(page.body));
+  const script = await get(url, pathname.replace('index.html', 'app.js'));
+  assert.equal(script.body, 'window.a=1');
 });

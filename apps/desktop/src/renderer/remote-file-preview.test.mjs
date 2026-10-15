@@ -10,6 +10,7 @@ import {
   resolvePageReference,
 } from './remote-file-preview.ts';
 import { openSandboxedPagePreview } from './sandboxed-page-preview.ts';
+import { withSandboxStorageShim } from '../shared/sandbox-storage-shim.ts';
 
 const dom = new JSDOM('<!doctype html><body></body>');
 globalThis.DOMParser = dom.window.DOMParser;
@@ -197,7 +198,9 @@ test('the viewer frame is sandboxed to scripts only, hands the document over on 
   dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: ready, source: frameWindow }));
   // Only one document is ever delivered.
   dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: ready, source: frameWindow }));
-  assert.deepEqual(posted, [[{ type: 'mixdog-preview-document', html: '<p>x</p>' }, '*']]);
+  // The document arrives with the storage shim ahead of the page's own markup.
+  assert.deepEqual(posted, [[{ type: 'mixdog-preview-document', html: withSandboxStorageShim('<p>x</p>') }, '*']]);
+  assert.ok(posted[0][0].html.startsWith('<script>') && posted[0][0].html.endsWith('<p>x</p>'));
   close();
   assert.equal(document.querySelector('iframe'), null);
 });
@@ -208,12 +211,15 @@ test('the viewer falls back to srcdoc when the frame route never answers', async
   const frame = document.querySelector('iframe');
   await new Promise((resolve) => setTimeout(resolve, 3100));
   assert.equal(frame.getAttribute('src'), null);
-  assert.equal(frame.srcdoc, '<p>y</p>');
+  assert.equal(frame.srcdoc, withSandboxStorageShim('<p>y</p>'));
+  assert.ok(frame.srcdoc.endsWith('<p>y</p>'));
   close();
 });
 
 test('media session changes notify subscribers until they unsubscribe', async () => {
-  const { getMediaSessionEpoch, notifyMediaSessionChanged, subscribeMediaSession } = await import('./remote-file-preview.ts');
+  const { getMediaSessionEpoch, notifyMediaSessionChanged, subscribeMediaSession } = await import(
+    './remote-file-preview.ts'
+  );
   const { dropMediaSession } = await import('./remote-shim-socket.ts');
   const seen = [];
   const stop = subscribeMediaSession(() => seen.push(getMediaSessionEpoch()));

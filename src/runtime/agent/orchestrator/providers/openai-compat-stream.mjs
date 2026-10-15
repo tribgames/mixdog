@@ -31,6 +31,7 @@ import {
   finalizeResponsesStream,
   unresolvedSalvageError,
 } from './openai-compat-responses-state.mjs';
+import { createRefusals, refusalResultFields } from './openai-ws-response-state/refusals.mjs';
 import { responsesUsage } from './openai-compat-response-normalization.mjs';
 import { noteAbandonedUsage } from '../../../shared/llm/usage-context.mjs';
 
@@ -151,7 +152,12 @@ export async function consumeCompatResponsesStream(
     throw stampOutcome(unresolved);
   }
   try {
-    return finalizeResponsesStream(state, { leakedCalls, parseResponsesToolCalls, responseOutputText, label });
+    const result = finalizeResponsesStream(state, { leakedCalls, parseResponsesToolCalls, responseOutputText, label });
+    // The terminal output bundle's refusal parts join the streamed ones (keyed
+    // by item id + content index, so copies of one part fold into one text).
+    state.refusals ||= createRefusals();
+    for (const item of result.response?.output || []) state.refusals.absorbMessage(item);
+    return { ...result, ...refusalResultFields(state.refusals, result.content) };
   } catch (err) {
     attachPartialState(err, state, leakedCalls);
     throw stampOutcome(err);

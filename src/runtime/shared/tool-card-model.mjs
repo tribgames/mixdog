@@ -23,7 +23,7 @@
  *   tool-card-model/card-header.mjs      — header label + arg summary
  */
 import { formatToolSurface } from './tool-surface.mjs';
-import { pluralize } from './tool-primitives.mjs';
+import { pluralize, toolCallDisplayIdentity } from './tool-primitives.mjs';
 import { deriveAggregateCardModel } from './tool-card-model/aggregate-card.mjs';
 import { isShellTool } from './tool-card-model/shell-surface.mjs';
 import { SKILL_SURFACE_NAMES } from './tool-card-model/agent-surface.mjs';
@@ -77,6 +77,7 @@ export {
   resolveBackgroundTaskMeta,
 } from './tool-card-model/background-task.mjs';
 export {
+  bridgeDescribeResult,
   genericCompletedDetail,
   shouldPrefixSyncElapsed,
   toolSearchLoadedSummary,
@@ -95,7 +96,8 @@ export { pluralize as plural };
  * @param {object} options { truncate(text,width), maxResultChars }.
  */
 export function deriveToolCardModel(input = {}, options = {}) {
-  const base = readCardInput(input, options);
+  const identity = toolCallDisplayIdentity(input.name, input.args);
+  const base = readCardInput({ ...input, name: identity.name, args: identity.args }, options);
   if (base.aggregate) return deriveAggregateCardModel(base);
 
   const { label, summary, normalizedName, args: parsedArgs } = formatToolSurface(base.name, base.args);
@@ -115,6 +117,7 @@ export function deriveToolCardModel(input = {}, options = {}) {
   return {
     aggregate: false,
     ...commonCardFields(base, status.terminalStatus),
+    ...(identity.via ? { via: identity.via } : {}),
     labelText: header.labelText,
     summaryText: header.summaryText,
     headerFailureText: status.headerFailureText,

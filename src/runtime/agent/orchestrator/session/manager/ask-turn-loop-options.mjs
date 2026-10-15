@@ -55,6 +55,8 @@ export function buildRequestSendOptions({
     providerCacheKey: session.promptCacheKey || null,
     signal,
     providerState: session.providerState ?? undefined,
+    // The wire this session is pinned to (wire-route.mjs).
+    wireRoute: session.wireRoute ?? undefined,
     session,
     // Agent Runtime cache settings — merged last so session overrides don't
     // get overridden by defaults. When session has no profile,

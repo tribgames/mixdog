@@ -40,13 +40,15 @@ export function createBridgeToolHandlers({ rt }) {
     });
   };
 
-  // Read-only: no approval hook, no working directory.
+  // `run` is gated by the exec policy; the elevation approval comes from the
+  // runtime's gate (callerCtx), never from the model's args.
   const terminal = async (args, { callerCtx }) => {
     if (environmentDisabled(callerCtx, 'MIXDOG_FEATURE_TERMINAL')) {
       throw new Error('the terminal tool is disabled in this environment');
     }
     return await executeTerminalTool(args, {
       sessionId: sessionIdFor(callerCtx),
+      elevationApproved: callerCtx?.elevationApproved === true,
       signal: signalFor(callerCtx),
     });
   };

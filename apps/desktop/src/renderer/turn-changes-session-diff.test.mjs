@@ -54,7 +54,8 @@ test('a file request opens that one file in its own tab beside Changes; Changes 
   const readsBefore = view.reads.length;
   await act(async () => requestSessionDiffFile('sd-focus', 'src/b.ts'));
   await view.settle();
-  assert.ok(view.reads.length > readsBefore);
+  // No change signal moved: the open adopts the settled result, no re-read.
+  assert.equal(view.reads.length, readsBefore);
   const tab = view.q('[data-session-diff-tab="src/b.ts"]');
   assert.ok(tab.classList.contains('is-active'));
   assert.equal(tab.textContent, 'b.ts');
@@ -78,6 +79,39 @@ test('a file request opens that one file in its own tab beside Changes; Changes 
   await act(async () => view.q('[data-session-diff-tab="src/b.ts"] .browser-tab-close').click());
   assert.equal(view.q('[data-session-diff-tab="src/b.ts"]'), null);
 });
+test('opening the pane by a file request joins the one initial read instead of queuing a second', async (t) => {
+  const { dom, document, root } = installTestDom(t, {
+    expose: ['navigator', 'HTMLElement', 'Node', 'Event', 'MouseEvent'],
+    rootId: 'root',
+  });
+  const gates = [];
+  dom.window.mixdogDesktop = {
+    invokeCapability: (request) => {
+      if (request.capability !== 'getSessionReviewDiff') return Promise.resolve({ value: null });
+      const gate = Promise.withResolvers();
+      gates.push(gate);
+      return gate.promise;
+    },
+  };
+  await act(async () => requestSessionDiffFile('sd-join', 'src/b.ts'));
+  await act(async () => root.render(h(SessionDiffPane, { sessionId: 'sd-join', active: true, onClose() {} })));
+  const wait = (ms = 30) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
+  await wait();
+  assert.equal(gates.length, 1);
+  await act(async () => {
+    gates[0].resolve({
+      value: {
+        supported: true,
+        files: ['src/a.ts', 'src/b.ts'].map((path) => ({ path, status: 'M', additions: 1, deletions: 1, binary: false })),
+        patch: ['src/a.ts', 'src/b.ts'].map(patchFor).join(''),
+      },
+    });
+  });
+  await wait(400);
+  assert.equal(gates.length, 1, 'no second whole-session read behind the initial one');
+  assert.ok(document.querySelector('[data-session-diff-tab="src/b.ts"]'));
+});
+
 test('a pane opened by one file shows only that file tab; View changes adds the Changes tab', async (t) => {
   const { dom, document, root } = installTestDom(t, {
     expose: ['navigator', 'HTMLElement', 'Node', 'Event', 'MouseEvent'],
@@ -180,7 +214,7 @@ test('an open Changes pane re-reads when the history is deleted and empties', as
   // Delete history landed in the runtime; the island bumps the session's epoch.
   paths.length = 0;
   await act(async () => bumpTurnChangesEpoch('sd-cleared'));
-  await view.settle();
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
   assert.ok(view.reads.length > reads, 'the pane re-read the session diff');
   assert.deepEqual(sectionPaths(view), []);
 });
@@ -205,7 +239,8 @@ test('a file already on screen opens at once; a hidden document still waits for 
   assert.deepEqual(sectionPaths(view), ['src/b.ts']);
   await setVisibility('visible');
   await view.settle();
-  assert.ok(view.reads.length > readsBefore);
+  // Return re-adopts the cached result; no signal arrived, so no new read.
+  assert.equal(view.reads.length, readsBefore);
   assert.deepEqual(sectionPaths(view), ['src/b.ts']);
   assert.equal(view.q('.session-diff-notice'), null);
 });
@@ -339,7 +374,7 @@ test('a complete runtime set is final: transcript edits never resurrect an undon
   const rows = [...document.querySelectorAll('.session-diff-section')];
   assert.equal(rows.length, 1);
   assert.match(rows[0].querySelector('.diff-stats').textContent, /\+1/);
-  assert.equal(document.querySelector('.session-diff-count').textContent, '1 file changed');
+  assert.equal(document.querySelector('.session-diff-toolbar .session-diff-scope').title, '1 file changed');
 });
 test('a request with its root opens the matching file when two roots both hold x.txt', async (t) => {
   const view = await mountPane(t, 'sd-roots', ['C:/r1/x.txt', 'C:/r2/x.txt']);

@@ -73,17 +73,16 @@ function FocusFileScope({
   );
 }
 
-/** The Changes tab sums every file. */
+/** The Changes tab sums every file in the composer chip's short form
+ *  ("Files 3 +12 −4"). A narrow pane beside the source picker drops the
+ *  count (27-search-review.css) rather than clip it; the tooltip keeps it. */
 function ChangesScope({ rows, showCount }: { rows: readonly SessionDiffRow[]; showCount: boolean }) {
   const additions = rows.reduce((total, row) => total + row.additions, 0);
   const deletions = rows.reduce((total, row) => total + row.deletions, 0);
+  const count = rows.length === 1 ? t('1 file changed') : t('{{count}} files changed', { count: rows.length });
   return (
-    <span className="session-diff-summary session-diff-scope">
-      {showCount && (
-        <span className="session-diff-count">
-          {rows.length === 1 ? t('1 file changed') : t('{{count}} files changed', { count: rows.length })}
-        </span>
-      )}
+    <span className="session-diff-summary session-diff-scope" title={showCount ? count : undefined}>
+      {showCount && <span className="session-diff-count">{t('Files {{count}}', { count: rows.length })}</span>}
       {showCount && <DiffStats additions={additions} deletions={deletions} />}
     </span>
   );

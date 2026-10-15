@@ -279,7 +279,7 @@ function _stripResponseItemsFromHead(items, responseItems) {
 // Official OpenAI Responses WebSocket guide: response.create WS frames mirror
 // the Responses body EXCEPT the transport-only fields `stream`/`background`,
 // which the socket carries implicitly and the guide says to omit. This set is
-// stripped from a frame (any build shape) only when omitTransportFields is on.
+// always stripped from a frame (any build shape).
 const TRANSPORT_ONLY_FRAME_FIELDS = new Set(['stream', 'background']);
 
 // Canonical response.create frame builder. Every WS send (main full-frame
@@ -293,14 +293,12 @@ const TRANSPORT_ONLY_FRAME_FIELDS = new Set(['stream', 'background']);
 // response, so dropping them here strips the system/lead prompt from every
 // continuation turn. Only an empty instructions string is omitted.
 // Full frames pass the body unchanged and keep every key in place.
-// omitTransportFields is used by wire-parity helpers to drop stream/background.
 export function _buildResponseCreateFrame(
   body,
-  { previousResponseId = null, inputOverride, omitTransportFields = false } = {}
+  { previousResponseId = null, inputOverride } = {}
 ) {
   const src = body && typeof body === 'object' ? body : {};
   if (previousResponseId == null && inputOverride === undefined) {
-    if (!omitTransportFields) return { type: 'response.create', ...src };
     const frame = { type: 'response.create' };
     for (const key of Object.keys(src)) {
       if (TRANSPORT_ONLY_FRAME_FIELDS.has(key)) continue;
@@ -310,7 +308,7 @@ export function _buildResponseCreateFrame(
   }
   const frame = { type: 'response.create' };
   for (const key of Object.keys(src)) {
-    if (omitTransportFields && TRANSPORT_ONLY_FRAME_FIELDS.has(key)) continue;
+    if (TRANSPORT_ONLY_FRAME_FIELDS.has(key)) continue;
     if (key === 'instructions') {
       const instr = src.instructions;
       if (typeof instr === 'string' && instr.length) frame.instructions = instr;
@@ -366,17 +364,10 @@ export function _computeDelta({ entry, body, traceProvider }) {
   if (!entry?.lastRequestSansInput || !entry.lastResponseId) {
     return { mode: 'full', reason: 'no_anchor', frame: buildFrame(body) };
   }
-  // Public OpenAI resolves previous_response_id out of its response STORE, so
-  // an anchor only exists when the anchored response was stored. store:false
-  // there — e.g. an explicit MIXDOG_OAI_STORE=0 opt-out on the openai-direct
-  // provider — makes a continuation frame fail with
-  // previous_response_not_found, so the opt-out degrades to full frames.
-  // openai-oauth/Codex (per-WS-session server state) and xAI (in-connection
-  // ZDR continuation with encrypted reasoning) both anchor without the store
-  // and are deliberately excluded from this gate.
-  if (traceProvider === 'openai-direct' && body?.store !== true) {
-    return { mode: 'full', reason: 'store_disabled', frame: buildFrame(body) };
-  }
+  // WebSocket mode keeps the latest response in a connection-local cache, so
+  // previous_response_id continues on the same socket even with store:false.
+  // If the server no longer has the anchor (previous_response_not_found), the
+  // caller recovers with a full-context frame.
   if (!deltaForce && !deltaRefs && !entry.turnState) {
     return { mode: 'full', reason: 'delta_missing_turn_state', frame: buildFrame(body) };
   }

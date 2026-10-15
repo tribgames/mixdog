@@ -8,11 +8,12 @@
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { realpath, stat } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileExtension } from '../shared/file-extension';
+import { withSandboxStorageShim } from '../shared/sandbox-storage-shim';
 import { isLocalAccessDenied, LocalAccessDeniedError } from './local-access-denied';
 
 const PAGE_ASSET_TYPES: Readonly<Record<string, string>> = Object.freeze({
@@ -180,16 +181,23 @@ async function serveVirtual(
   if (!activeLease(token, lease)) return reply(response, 404);
   leases.delete(token);
   leases.set(token, lease);
+  const body = file.type.startsWith('text/html') ? withShim(file.body) : file.body;
   response.writeHead(200, {
     'Content-Type': file.type,
-    'Content-Length': file.body.length,
+    'Content-Length': body.length,
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
     // Like a single-file grant: scripts run, but in an opaque origin of their own.
     'Content-Security-Policy': 'sandbox allow-scripts',
   });
-  response.end(request.method === 'HEAD' ? undefined : file.body);
+  response.end(request.method === 'HEAD' ? undefined : body);
+}
+
+/** An HTML page of a sandboxed (opaque-origin) lease, with the in-memory
+ *  storage shim first in its head: there the real storage throws. */
+function withShim(body: Buffer): Buffer {
+  return Buffer.from(withSandboxStorageShim(body.toString('utf8')), 'utf8');
 }
 
 async function serve(request: IncomingMessage, response: ServerResponse, port: number): Promise<void> {
@@ -243,6 +251,18 @@ async function serve(request: IncomingMessage, response: ServerResponse, port: n
   // failed authorization cannot keep a lease warm or renew its absolute TTL.
   leases.delete(token);
   leases.set(token, lease);
+  // Only a sandboxed lease's page document is rewritten; assets stay streamed.
+  let page: Buffer | undefined;
+  if (lease.scope === 'file' && ['html', 'htm'].includes(fileExtension(file))) {
+    try {
+      page = withShim(await readFile(file));
+    } catch {
+      return reply(response, 404);
+    }
+    // Expiry or owner closure during the read must not still return the page.
+    if (!activeLease(token, lease)) return reply(response, 404);
+    size = page.length;
+  }
   response.writeHead(200, {
     'Content-Type': type,
     'Content-Length': size,
@@ -254,6 +274,7 @@ async function serve(request: IncomingMessage, response: ServerResponse, port: n
     ...(lease.scope === 'file' ? { 'Content-Security-Policy': 'sandbox allow-scripts' } : {}),
   });
   if (request.method === 'HEAD') return void response.end();
+  if (page) return void response.end(page);
   createReadStream(file)
     .on('error', () => response.destroy())
     .pipe(response);

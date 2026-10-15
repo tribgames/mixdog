@@ -97,6 +97,7 @@ const SERVICE_OPERATION_NAMES = [
   'gitRevertFile',
   'gitReview',
   'gitReviewDiff',
+  'gitReviewDiffs',
   'gitShow',
   'gitShowDiff',
   'gitShowFile',

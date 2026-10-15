@@ -19,6 +19,14 @@ export function round(value, digits = 4) {
   return Math.round(n * scale) / scale;
 }
 
+// Provider-reported USD cost. null/empty/non-finite/negative is "not
+// reported" (undefined), never a reported $0.
+export function reportedCostUsd(value) {
+  if (value == null || (typeof value === 'string' && value.trim() === '')) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 export function cleanString(value) {
   const s = typeof value === 'string' ? value.trim() : '';
   return s || null;

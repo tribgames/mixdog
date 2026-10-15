@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { htmlFailure, launchHtmlBrowser, photographCaptures, runInBrowser } from './html-browser.mjs';
+import { noteOfficeWrite } from '../core/office-write-ledger.mjs';
 import { iconTable, injectIcons } from './pptx-html-measure.mjs';
 import { extractXlsxSheets } from './xlsx-html-measure.mjs';
 import { drawDataCharts } from './pdf-html-charts.mjs';
@@ -106,6 +107,7 @@ export async function runXlsxHtmlAuthoring(html, output, { target, signal = null
     const htmlPages = [];
     for (const [index, clip] of extents.entries()) {
       const path = artifacts.shot(index + 1);
+      noteOfficeWrite(path);
       await page.screenshot({ path, clip, captureBeyondViewport: true });
       htmlPages.push({ page: index + 1, path });
     }

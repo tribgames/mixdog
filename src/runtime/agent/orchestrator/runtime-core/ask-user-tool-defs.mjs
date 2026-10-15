@@ -6,22 +6,9 @@ export const ASK_USER_TOOL_DEFS = Object.freeze([
   {
     name: 'ask_user',
     title: 'Ask User',
-    trigger: 'Ask the user 1–4 multiple-choice questions and wait; only for decisions the user must make.',
-    description: [
-      'Ask the user multiple-choice questions while you work and wait for the answers. Use it to:',
-      '1. Gather preferences or requirements',
-      '2. Clarify ambiguous instructions',
-      '3. Get decisions on approaches with real tradeoffs',
-      '4. Offer a choice of direction',
-      '',
-      'Usage notes:',
-      '- Users can always type their own answer; never add an "Other" option',
-      '- Only ask what the user must decide; settle what code, docs or conventions answer, and make minor choices yourself',
-      '- Not for "Should I proceed?" or plan approval; ask in chat',
-      '- Batch independent questions in one call',
-      '- Options are short labels; put any tradeoff the user needs in your message before asking',
-      '- Do not repeat the options in your message',
-    ].join('\n'),
+    trigger: 'Ask the user 1–4 multiple-choice questions and wait; when a plan needs the user to pick between clear options, instead of listing them in chat.',
+    description:
+      'Ask the user multiple-choice questions and wait. Only while planning, for a decision only the user can make with clear options; open questions, minor choices and plan approval go in chat. Do not repeat the options in your message.',
     annotations: {
       title: 'Ask User',
       readOnlyHint: true,
@@ -37,35 +24,28 @@ export const ASK_USER_TOOL_DEFS = Object.freeze([
           type: 'array',
           minItems: 1,
           maxItems: ASK_USER_MAX_QUESTIONS,
-          description: 'Questions to ask the user (1-4).',
           items: {
             type: 'object',
             properties: {
-              question: {
-                type: 'string',
-                description: 'The complete question, ending with a question mark, e.g. "Which auth method should we use?"',
-              },
-              header: {
-                type: 'string',
-                maxLength: 12,
-                description: 'Very short chip label, e.g. "Auth method", "Library".',
-              },
+              question: { type: 'string', description: 'Full question, without the options.' },
+              header: { type: 'string', maxLength: 12, description: 'Chip label.' },
               options: {
                 type: 'array',
                 minItems: 2,
                 maxItems: 4,
-                description: 'Distinct choices. No "Other" option; free text is added automatically.',
+                description: 'Distinct; free text is added, never "Other".',
                 items: {
                   type: 'object',
                   properties: {
-                    label: { type: 'string', maxLength: 80, description: 'The choice, summarized in 1-5 words.' },
+                    label: { type: 'string', maxLength: 80, description: '1-5 words.' },
+                    description: { type: 'string', description: 'One-sentence tradeoff.' },
                   },
-                  required: ['label'],
+                  required: ['label', 'description'],
                   additionalProperties: false,
                 },
               },
-              multi_select: { type: 'boolean', description: 'Allow several answers when choices are not mutually exclusive.' },
-              recommended: { type: 'integer', minimum: 0, description: 'Index of the option you recommend.' },
+              multi_select: { type: 'boolean' },
+              recommended: { type: 'integer', minimum: 0, description: 'Recommended option index.' },
             },
             required: ['question', 'header', 'options'],
           },
@@ -102,8 +82,12 @@ export function validateAskUserQuestions(args) {
         throw new Error(`${at} has an option without a label`);
       }
       if (option.label.length > 80) throw new Error(`${at} has an option label over 80 characters`);
-      if (Object.keys(option).some((key) => key !== 'label')) {
-        throw new Error(`${at}: options take only a label; put explanations in your message before asking`);
+      if (typeof option.description !== 'string' || !option.description.trim()) {
+        throw new Error(`${at} option "${option.label}" needs a one-sentence description`);
+      }
+      if (option.description.length > 200) throw new Error(`${at} has an option description over 200 characters`);
+      if (Object.keys(option).some((key) => key !== 'label' && key !== 'description')) {
+        throw new Error(`${at}: options take only a label and a description`);
       }
       if (labels.has(option.label)) throw new Error(`${at} has duplicate option label "${option.label}"`);
       labels.add(option.label);

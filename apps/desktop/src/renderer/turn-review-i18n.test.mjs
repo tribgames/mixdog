@@ -57,8 +57,8 @@ test('the files menu and its Delete history dialog read in Korean', async (t) =>
     invokeCapability: async ({ capability }) => ({
       value:
         capability === 'getSessionReviewDiff'
-          ? { supported: true, authoritative: true, complete: true, patch: '', files, uncommittedFiles: files, historyTurns: 12 }
-          : { supported: true, files: [], patch: '', agents: [] },
+          ? { supported: true, authoritative: true, complete: true, patch: '', files }
+          : { supported: true, authoritative: true, files: [], patch: '', agents: [], historyTurns: 12 },
     }),
   };
   await i18n.changeLanguage('ko');
@@ -72,7 +72,8 @@ test('the files menu and its Delete history dialog read in Korean', async (t) =>
     root.render(
       React.createElement(TurnReviewBar, {
         variant: 'segment',
-        items: [],
+        // Turn activity: the turn review read carries the retained turn count.
+        items: [{ kind: 'turndone', id: 'ko-done' }],
         sessionId: 'ko-files',
         active: true,
         onOpenChanges() {},

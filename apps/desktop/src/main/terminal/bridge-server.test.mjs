@@ -52,6 +52,89 @@ test('terminal commands list only the caller session and read by tab', async () 
   await assert.rejects(execute({ action: 'read', session_id: 'alpha', tab: 0 }), /tab must be/);
 });
 
+function runBackend({ window = true, opened = true } = {}) {
+  const base = fakeBackend();
+  const log = [];
+  const tabs = { alpha: base.sessionTabs('alpha'), beta: [] };
+  return {
+    log,
+    tabs,
+    sessionTabs: (sessionId) => tabs[sessionId] ?? [],
+    snapshot: (id, since) => {
+      log.push(['snapshot', id, since]);
+      return { text: '', cursor: 99, reset: false };
+    },
+    write: (id, data) => log.push(['write', id, data]),
+    revealTerminal: (sessionId) => (log.push(['reveal', sessionId]), window),
+    openTerminal: (sessionId, command) => {
+      log.push(['open', sessionId, command]);
+      if (window && opened) {
+        tabs[sessionId] = [{ tab: 1, id: `session-terminal:${sessionId}`, shell: 'sh', running: true, cwd: null }];
+      }
+      return window;
+    },
+  };
+}
+
+test('terminal run writes to the first or requested tab with the pre-write cursor', async () => {
+  const backend = runBackend();
+  const execute = createTerminalCommandExecutor(backend);
+  assert.deepEqual(await execute({ action: 'run', session_id: 'alpha', command: 'npm test\n' }), {
+    id: 'session-terminal:alpha',
+    tab: 1,
+    shell: 'pwsh',
+    running: true,
+    cwd: 'C:\\work',
+    cursor: 99,
+  });
+  assert.deepEqual(backend.log, [
+    ['snapshot', 'session-terminal:alpha', undefined],
+    ['write', 'session-terminal:alpha', 'npm test\r'],
+    ['reveal', 'alpha'],
+  ]);
+  backend.log.length = 0;
+  const third = await execute({ action: 'run', session_id: 'alpha', tab: 3, command: 'ls' });
+  assert.equal(third.tab, 3);
+  assert.deepEqual(backend.log[1], ['write', 'session-terminal:alpha:3', 'ls\r']);
+  await assert.rejects(execute({ action: 'run', session_id: 'alpha', tab: 2, command: 'ls' }), /no terminal tab 2; open tabs: 1, 3/);
+});
+
+test('terminal run opens a tab through the renderer when the session has none', async () => {
+  const backend = runBackend();
+  const execute = createTerminalCommandExecutor(backend, { openTimeoutMs: 500, openPollMs: 5 });
+  assert.deepEqual(await execute({ action: 'run', session_id: 'beta', command: 'pwd' }), {
+    id: 'session-terminal:beta',
+    tab: 1,
+    shell: 'sh',
+    running: true,
+    cwd: null,
+    cursor: 0,
+  });
+  assert.deepEqual(backend.log, [['open', 'beta', 'pwd']]);
+
+  const noWindow = createTerminalCommandExecutor(runBackend({ window: false }));
+  await assert.rejects(
+    noWindow({ action: 'run', session_id: 'beta', command: 'pwd' }),
+    /no desktop window is available to open a terminal/
+  );
+  const never = createTerminalCommandExecutor(runBackend({ opened: false }), { openTimeoutMs: 30, openPollMs: 5 });
+  await assert.rejects(never({ action: 'run', session_id: 'beta', command: 'pwd' }), /timed out/);
+  await assert.rejects(execute({ action: 'run', session_id: 'gamma', tab: 2, command: 'pwd' }), /no terminal tab 2/);
+});
+
+test('terminal run validates its input before touching a terminal', async () => {
+  const backend = runBackend();
+  const execute = createTerminalCommandExecutor(backend);
+  await assert.rejects(execute({ action: 'run', session_id: 'alpha' }), /command must be a non-empty string/);
+  await assert.rejects(execute({ action: 'run', session_id: 'alpha', command: '  \n' }), /non-empty/);
+  await assert.rejects(execute({ action: 'run', session_id: 'alpha', command: 7 }), /non-empty/);
+  await assert.rejects(execute({ action: 'run', session_id: 'alpha', command: 'x'.repeat(8001) }), /at most 8000/);
+  await assert.rejects(execute({ action: 'run', session_id: 'alpha', tab: 0, command: 'ls' }), /tab must be/);
+  await assert.rejects(execute({ action: 'run', session_id: '../x', command: 'ls' }), /session_id is invalid/);
+  assert.deepEqual(backend.log, []);
+  assert.equal((await execute({ action: 'run', session_id: 'alpha', command: 'x'.repeat(8000) })).tab, 1);
+});
+
 test('an explicit stop during a lost-endpoint restart is not undone', async () => {
   const dataDirectory = mkdtempSync(join(tmpdir(), 'mixdog-terminal-bridge-'));
   const discoveryPath = join(dataDirectory, 'terminal-bridge.json');

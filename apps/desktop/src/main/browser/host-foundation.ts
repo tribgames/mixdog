@@ -29,6 +29,7 @@ import { redactBrowserText } from './redaction';
 import { BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID } from './session-registry';
 import { createBrowserSettle } from './settle';
 import { createBrowserUrlAdmission } from './url-admission';
+import type { BrowserUrlPolicy } from './url-policy';
 import { browserPageGuardScripts } from './webrtc-guard';
 
 type Diagnostic = (event: string, data: Record<string, unknown>) => void;
@@ -90,10 +91,7 @@ function createBrowserHostStorage(
 }
 
 /** CDP over the guest state, with the document readers and settle built on it. */
-function createBrowserHostDevtools(
-  state: BrowserGuestStateStore,
-  urlPolicy: ReturnType<typeof browserUrlPolicyFromEnvironment>
-) {
+function createBrowserHostDevtools(state: BrowserGuestStateStore, urlPolicy: BrowserUrlPolicy) {
   const intercept = createBrowserIntercept();
   const cdp = createBrowserGuestCdp({
     state,
@@ -142,6 +140,8 @@ export type BrowserHostFoundation = ReturnType<typeof createBrowserHostFoundatio
 export function createBrowserHostFoundation(
   window: BrowserWindow,
   options: {
+    /** The session's work runs on a remote server (ssh window), not this PC. */
+    remoteSession: boolean;
     onDiagnostic?: Diagnostic;
     requestApproval?: (request: BrowserApprovalRequest, signal?: AbortSignal) => Promise<boolean>;
   }
@@ -168,7 +168,7 @@ export function createBrowserHostFoundation(
     window.webContents.send(channel, ...args);
   };
 
-  const urlPolicy = browserUrlPolicyFromEnvironment();
+  const urlPolicy = browserUrlPolicyFromEnvironment({ remote: options.remoteSession });
   const urls = createBrowserUrlAdmission({ policy: urlPolicy });
   const nativeView = /^(?:1|true|yes)$/i.test(String(process.env.MIXDOG_BROWSER_NATIVE_VIEW || ''));
   const storage = createBrowserHostStorage(state, sessions, urls, options.onDiagnostic);

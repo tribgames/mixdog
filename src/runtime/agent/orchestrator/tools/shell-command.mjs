@@ -27,9 +27,9 @@ export {
 } from './shell-powershell.mjs';
 export { stripAnsi, ExecResult } from './shell-exec-output.mjs';
 
-async function _execPolicyBlockMessage(command) {
+async function _execPolicyBlockMessage(command, elevationApproved = false) {
   const { checkExecPolicyMessage } = await import('./bash-policy-scan.mjs');
-  return checkExecPolicyMessage(command);
+  return checkExecPolicyMessage(command, { elevationApproved });
 }
 
 // Admission-wait ceiling. Without it a saturated shell lane (all leases held
@@ -233,7 +233,7 @@ const failedResult = (run, stderr, failureReason) =>
 // Admission lease, policy preflight, then the spawn. Resolves the run with a
 // tool-phase failure and returns false when the command never reaches a shell.
 async function admitAndSpawn(run, params, { admissionWaitMs, onSaturated }) {
-  const { admission, command, ownerSessionId, abortSignal } = params;
+  const { admission, command, ownerSessionId, abortSignal, elevationApproved } = params;
   try {
     run.resourceLease = await acquireShellLeaseBounded(admission, {
       abortSignal,
@@ -241,7 +241,7 @@ async function admitAndSpawn(run, params, { admissionWaitMs, onSaturated }) {
       label: `[task_id: ${run.foregroundRecordId}] ${String(command || '').slice(0, 120)}`,
       ownerKey: ownerSessionId,
     });
-    const policyErr = await _execPolicyBlockMessage(command);
+    const policyErr = await _execPolicyBlockMessage(command, elevationApproved === true);
     if (policyErr) {
       await releaseResourceLease(run);
       run.resolveResult(failedResult(run, policyErr, 'preflight failed'));
@@ -544,6 +544,8 @@ export function execShellCommand(options) {
     // hands the script to the shell out-of-band — see the POSIX env+eval path in
     // bash-tool.mjs, which keeps the command body out of the child's argv.
     execScript = null,
+    // The user approved this call's elevation 'ask' decision (runtime-set).
+    elevationApproved = false,
   } = options;
   return new Promise(async (resolve) => {
     const run = createShellRun({ abortSignal, resolve, jobId });
@@ -565,6 +567,7 @@ export function execShellCommand(options) {
           abortSignal,
           directArgv,
           execScript,
+          elevationApproved,
           ownerSessionId,
           clientHostPid,
         },

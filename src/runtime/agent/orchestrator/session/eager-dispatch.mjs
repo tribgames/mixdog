@@ -10,6 +10,7 @@ import { createEagerBarriers } from './eager-dispatch/barriers.mjs';
 import { createEagerEntry, runEagerEntry } from './eager-dispatch/entry.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
 import { isParallelDispatchable } from './loop/tool-helpers.mjs';
+import { resolveExecutionToolCall } from './loop/tool-call-resolution.mjs';
 
 export function createEagerDispatcher({
   tools,
@@ -45,9 +46,13 @@ export function createEagerDispatcher({
       iteration: getNextIteration(),
       localSearchTelemetry: entry.localSearchTelemetry,
       resultTelemetry: entry.resultTelemetry,
+      ...(call.wireCall ? { bridgeWireCall: call.wireCall } : {}),
     });
 
-  const startEagerTool = (call) => {
+  const startEagerTool = (wireCall) => {
+    // Streamed call_tool requests are admitted, ordered and executed as their
+    // targets; a projection error is answered by the serial batch instead.
+    const call = resolveExecutionToolCall(wireCall, sessionRef);
     if (!call?.id || pending.has(call.id) || !isParallelDispatchable(call.name)) return null;
     const admitted = admission.admit(call);
     if (!admitted) return null;

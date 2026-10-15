@@ -14,7 +14,7 @@ function resetAtFrom(wire, now) {
   if (wire?.resets_in_seconds != null && Number.isFinite(inSeconds) && inSeconds >= 0) {
     return now + Math.ceil(inSeconds * 1000);
   }
-  const raw = wire?.resets_at ?? wire?.reset_at;
+  const raw = wire?.resets_at ?? wire?.reset_at ?? wire?.metadata?.resets_at;
   if (raw == null || raw === '') return null;
   const numeric = Number(raw);
   if (Number.isFinite(numeric) && numeric > 0) return numeric < 1e12 ? Math.round(numeric * 1000) : Math.round(numeric);

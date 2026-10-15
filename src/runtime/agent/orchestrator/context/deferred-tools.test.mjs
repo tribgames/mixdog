@@ -30,7 +30,7 @@ test('MCP instructions are sorted, unique per deferred server, and confined to B
     true
   );
   assert.equal(
-    bp2.content,
+    session.messages[1].content,
     [
       'BP2',
       '',
@@ -54,8 +54,11 @@ test('MCP instructions are sorted, unique per deferred server, and confined to B
       '</mcp-instructions>',
     ].join('\n')
   );
+  // A rewritten block is a fresh message (delta saves key on identity);
+  // untouched blocks keep theirs.
   assert.equal(session.messages[0], bp1);
-  assert.equal(session.messages[1], bp2);
+  assert.notEqual(session.messages[1], bp2);
+  assert.equal(bp2.content, 'BP2');
   assert.equal(session.messages[2], bp3);
   assert.equal(bp1.content, 'BP1');
   assert.equal(bp3.content, 'BP3');

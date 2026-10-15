@@ -42,17 +42,43 @@ function customToolArgumentsFromInput(name, input) {
   return { input: text };
 }
 
+// Responses calls of a tool loaded from a declared namespace carry
+// `namespace` beside `name`. Mixdog declares no namespaces today, so this is
+// parse-side preservation only: a call that carries one keeps it on its
+// record (and in replay), and its dispatch dedupe identity is qualified, so it
+// is never conflated with a same-named top-level tool.
+export function toolCallNamespace(item) {
+  return typeof item?.namespace === 'string' && item.namespace ? item.namespace : '';
+}
+
+/** Copy the source item's namespace onto a call record (mutates; returns it). */
+export function withToolCallNamespace(call, source) {
+  const namespace = toolCallNamespace(source);
+  if (call && namespace && !call.namespace) call.namespace = namespace;
+  return call;
+}
+
+/** Dispatch dedupe identity: the namespace-qualified tool name. */
+export function qualifiedToolCallName(call) {
+  const namespace = toolCallNamespace(call);
+  const name = call?.name || '';
+  return namespace ? `${namespace}.${name}` : name;
+}
+
 export function customToolCallFromResponseItem(item) {
   if (item?.type !== 'custom_tool_call') return null;
   const id = item.call_id || item.id || '';
   const name = item.name || '';
   if (!id || !name) return null;
-  return {
-    id,
-    name,
-    arguments: customToolArgumentsFromInput(name, item.input ?? ''),
-    nativeType: 'custom_tool_call',
-  };
+  return withToolCallNamespace(
+    {
+      id,
+      name,
+      arguments: customToolArgumentsFromInput(name, item.input ?? ''),
+      nativeType: 'custom_tool_call',
+    },
+    item
+  );
 }
 
 export function isCustomToolCallRecord(call) {

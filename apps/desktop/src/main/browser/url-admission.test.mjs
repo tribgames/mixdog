@@ -64,6 +64,31 @@ test('browser URL admission rechecks completed DNS answers and coalesces only co
   releasePending();
   await occupied;
 
+  // A local session may open hosts that resolve to LAN/Tailscale addresses; a
+  // remote one may not. Metadata endpoints are refused in both cases.
+  for (const address of ['192.168.1.10', '100.101.102.103']) {
+    const local = createBrowserUrlAdmission({
+      policy: { allowPrivateNetwork: true },
+      lookupAddresses: async () => [{ address }],
+    });
+    await local.assertResolvedUrlAllowed('https://nas.example.test/');
+    await local.assertResolvedUrlAllowed(`http://${address}/`);
+    const remote = createBrowserUrlAdmission({
+      policy: { allowPrivateNetwork: false },
+      lookupAddresses: async () => [{ address }],
+    });
+    await assert.rejects(remote.assertResolvedUrlAllowed('https://nas.example.test/'), /blocked private or internal/);
+    await assert.rejects(remote.assertResolvedUrlAllowed(`http://${address}/`), /private or internal/);
+  }
+  for (const allowPrivateNetwork of [true, false]) {
+    const metadata = createBrowserUrlAdmission({
+      policy: { allowPrivateNetwork },
+      lookupAddresses: async () => [{ address: '169.254.169.254' }],
+    });
+    await assert.rejects(metadata.assertResolvedUrlAllowed('https://rebind.example.test/'), /cloud metadata endpoint/);
+    await assert.rejects(metadata.assertResolvedUrlAllowed('http://169.254.169.254/'), /cloud metadata endpoints/);
+  }
+
   const socketAdmission = createBrowserUrlAdmission({
     policy: {},
     lookupAddresses: async () => [{ address: '93.184.216.34' }],

@@ -57,3 +57,13 @@ test('approvalQuestions rejects missing questions', () => {
   assert.equal(approvalQuestions({}), null);
   assert.equal(approvalQuestions({ questions: questions }).length, 2);
 });
+
+test('approvalQuestions keeps each option tradeoff for the card', () => {
+  const [q] = approvalQuestions({
+    questions: [{ question: 'Q?', header: 'h', options: [{ label: 'A', description: 'Fast, local only.' }, { label: 'B' }] }],
+  });
+  assert.deepEqual(q.options, [
+    { label: 'A', description: 'Fast, local only.' },
+    { label: 'B', description: '' },
+  ]);
+});

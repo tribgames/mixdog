@@ -7,10 +7,17 @@ import { isResponsesFreeformTool, toResponsesCustomTool } from './custom-tool-wi
 import { _envFlag } from './openai-oauth-http-sse.mjs';
 import { findCachedCodexModel } from './openai-oauth-catalog.mjs';
 import { resolveOpenAiServiceTier } from './openai-service-tier.mjs';
+import {
+  openAiPublicSupportsReasoning,
+  openAiPublicSupportsToolSearch,
+  openAiPublicSupportsVerbosity,
+} from './openai-model-capabilities.mjs';
 import { daybreakAccessPrograms } from '../../../shared/llm/openai-daybreak.mjs';
 
-export function toOpenAIResponsesTool(t) {
-  if (t?.name === 'load_tool' || t?.name === 'tool_search') {
+// `nativeToolSearch: false` (public API models before gpt-5.4) keeps load_tool
+// a plain function tool instead of the native tool_search tool.
+export function toOpenAIResponsesTool(t, { nativeToolSearch = true } = {}) {
+  if (nativeToolSearch && (t?.name === 'load_tool' || t?.name === 'tool_search')) {
     return {
       type: 'tool_search',
       execution: 'client',
@@ -95,8 +102,8 @@ function environmentContextItem(environmentText, promptCacheProvider) {
   };
 }
 
-function responsesInclude(opts) {
-  const include = ['reasoning.encrypted_content'];
+function responsesInclude(opts, reasoningCapable) {
+  const include = reasoningCapable ? ['reasoning.encrypted_content'] : [];
   for (const item of Array.isArray(opts.nativeInclude) ? opts.nativeInclude : []) {
     const value = String(item || '').trim();
     if (value && !include.includes(value)) include.push(value);
@@ -106,16 +113,18 @@ function responsesInclude(opts) {
 
 // `nativeTools` are server-hosted Responses tools (for example web_search)
 // and must be passed through without wrapping them as function tools.
-function responsesToolsList(tools, opts) {
-  const functionTools = tools?.length ? tools.map(toOpenAIResponsesTool) : [];
+function responsesToolsList(tools, opts, nativeToolSearch) {
+  const functionTools = tools?.length ? tools.map((t) => toOpenAIResponsesTool(t, { nativeToolSearch })) : [];
   const nativeTools = Array.isArray(opts.nativeTools) ? opts.nativeTools.filter((t) => t && typeof t === 'object') : [];
   return functionTools.length || nativeTools.length ? [...nativeTools, ...functionTools] : null;
 }
 
-function requestedMaxOutputTokens(opts) {
+// The public API honors an explicit caller limit; the OAuth/Codex backend only
+// receives it behind MIXDOG_OPENAI_OAUTH_SEND_MAX_OUTPUT_TOKENS.
+function requestedMaxOutputTokens(opts, promptCacheProvider) {
   const maxOutputTokens = Number(opts.maxOutputTokens ?? opts.outputTokens ?? opts.max_output_tokens);
   const send =
-    _envFlag('MIXDOG_OPENAI_OAUTH_SEND_MAX_OUTPUT_TOKENS', false) &&
+    (promptCacheProvider === 'openai' || _envFlag('MIXDOG_OPENAI_OAUTH_SEND_MAX_OUTPUT_TOKENS', false)) &&
     Number.isFinite(maxOutputTokens) &&
     maxOutputTokens > 0;
   return send ? Math.floor(maxOutputTokens) : null;
@@ -149,6 +158,11 @@ function replaysEncryptedReasoning(opts, promptCacheProvider) {
 // WIRE-VERIFIED (40 response.create captures, 2026-07-03): the wire
 // carries reasoning as {"effort":"..."} with NO summary field on gpt-5.5.
 function responsesReasoningFields(model, effortProjection, opts, promptCacheProvider) {
+  // Public API models without reasoning get no reasoning field at all; the
+  // Codex route keeps its defaults.
+  if (promptCacheProvider === 'openai' && !openAiPublicSupportsReasoning(model)) {
+    return { reasoning: null, streamOptions: null };
+  }
   const supportsReasoningSummary = _codexModelSupportsReasoningSummaries(model);
   return {
     reasoning: {
@@ -197,29 +211,36 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
   const opts = sendOpts || {};
   const promptCacheProvider = opts.promptCacheProvider || 'openai-oauth';
   const effortProjection = projectEffortConfiguration(messages, promptCacheProvider, model, opts);
+  // Public API capability gates per model (openai-model-capabilities.mjs);
+  // the Codex route keeps its own defaults.
+  const publicApi = promptCacheProvider === 'openai';
+  const reasoningCapable = !publicApi || openAiPublicSupportsReasoning(model);
+  const nativeToolSearch = !publicApi || openAiPublicSupportsToolSearch(model);
   const input = convertMessagesToResponsesInput(messages, {
     effortProjection,
     providerState: opts.providerState,
     model,
     nativeToolSearchProvider: promptCacheProvider,
-    replayEncryptedReasoning: replaysEncryptedReasoning(opts, promptCacheProvider),
+    nativeToolSearch,
+    replayEncryptedReasoning: reasoningCapable && replaysEncryptedReasoning(opts, promptCacheProvider),
     codexWireParity: promptCacheProvider === 'openai-oauth',
   });
   if (environmentText) input.unshift(environmentContextItem(environmentText, promptCacheProvider));
   const { reasoning, streamOptions } = responsesReasoningFields(model, effortProjection, opts, promptCacheProvider);
   const serviceTier = requestedServiceTier(model, opts);
-  const maxOutputTokens = requestedMaxOutputTokens(opts);
+  const maxOutputTokens = requestedMaxOutputTokens(opts, promptCacheProvider);
   const toolChoice = opts.toolChoice || 'auto';
-  const toolsList = responsesToolsList(tools, opts);
+  const toolsList = responsesToolsList(tools, opts, nativeToolSearch);
+  const include = responsesInclude(opts, reasoningCapable);
   const promptCacheKey = responsesPromptCacheKey(promptCacheProvider, opts, {
     model,
     instructions,
     toolsList,
-    effort: reasoning.effort,
+    effort: reasoning ? reasoning.effort : undefined,
     serviceTier,
     toolChoice,
   });
-  const verbosity = requestedVerbosity(opts);
+  const verbosity = !publicApi || openAiPublicSupportsVerbosity(model) ? requestedVerbosity(opts) : null;
   // Daybreak Blue rides on the ChatGPT route only, and only for a model that
   // accepts it; the server still decides entitlement.
   const accessPrograms =
@@ -245,14 +266,14 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     ...(toolsList ? { tools: toolsList } : {}),
     tool_choice: toolChoice,
     parallel_tool_calls: true,
-    reasoning,
+    ...(reasoning ? { reasoning } : {}),
     store: process.env.MIXDOG_OAI_STORE === 'true',
     stream: true,
     ...(streamOptions ? { stream_options: streamOptions } : {}),
-    include: responsesInclude(opts),
+    ...(include.length ? { include } : {}),
     ...(serviceTier ? { service_tier: serviceTier } : {}),
     prompt_cache_key: promptCacheKey,
-    text: { verbosity },
+    ...(verbosity ? { text: { verbosity } } : {}),
     ...(accessPrograms ? { access_programs: accessPrograms } : {}),
     ...(maxOutputTokens ? { max_output_tokens: maxOutputTokens } : {}),
   };

@@ -152,6 +152,31 @@ test('one error surface keeps diagnostics collapsed and retry respects busy stat
     assert.match(document.querySelectorAll('pre')[1].textContent, /\(62\)/);
   }));
 
+test('a fixed tool-surface overflow reads as its own headline with the sizes in details', async () =>
+  withDom(async ({ dom, render }) => {
+    const reason = [
+      'Error: Tool definitions and system context leave no room for conversation history (TOOL_SURFACE_EXCEEDS_CONTEXT).',
+      'anthropic-oauth/fixture-model: context window 8,000 tokens, compaction boundary 8,000 tokens.',
+      'Fixed per-request overhead: tool definitions 9,800 tokens (3 tools), protected system context 6 tokens, configured headroom 0 tokens; nothing remains for conversation history.',
+      'Compacting the conversation history cannot reduce these.',
+      'Use a model with a larger context window, or send a smaller eager tool surface (disable MCP servers or custom tools this session does not need).',
+      'Largest tool definitions: huge_a (5,600 tokens), huge_b (4,200 tokens).',
+    ].join('\n');
+    await render(React.createElement(ErrorNotice, { errors: [reason] }));
+    const text = document.body.textContent;
+    assert.match(
+      text,
+      /Tool definitions and system context leave no room for conversation history \(TOOL_SURFACE_EXCEEDS_CONTEXT\)/
+    );
+    assert.doesNotMatch(text, /Context too large|conversation is too long|Compact the conversation/);
+    await act(async () =>
+      document.querySelector('[aria-expanded]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    );
+    const details = [...document.querySelectorAll('pre')].map((pre) => pre.textContent).join('\n');
+    assert.match(details, /Largest tool definitions: huge_a \(5,600 tokens\)/);
+    assert.match(details, /cannot reduce these/);
+  }));
+
 test('opening toast details does not dismiss the error and recovered bridge clears', async () =>
   withDom(async ({ render }) => {
     let dismissed = 0;

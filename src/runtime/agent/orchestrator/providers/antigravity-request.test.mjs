@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildAntigravityRequest, antigravityFunctionCallingMode } from './antigravity-request.mjs';
+import { toGeminiRequestTools } from './gemini-schema.mjs';
+import { BUILTIN_TOOLS } from '../tools/builtin/builtin-tools.mjs';
+import { TOOL_SEARCH_TOOL } from '../runtime-core/tool-defs.mjs';
+import { CODE_GRAPH_TOOL_DEFS } from '../tools/code-graph-tool-defs.mjs';
+import { TOOL_DEFS as COMPUTER_TOOL_DEFS } from '../../../computer-bridge/tool-defs.mjs';
 
 const tools = [
   {
@@ -43,4 +48,170 @@ test('function-calling mode defaults to VALIDATED; the env override and toolChoi
     if (previous === undefined) delete process.env.MIXDOG_ANTIGRAVITY_FC_MODE;
     else process.env.MIXDOG_ANTIGRAVITY_FC_MODE = previous;
   }
+});
+
+// ---- Claude tool-schema normalization (GitHub issue #80) ----
+const claudeDeclarations = (toolList, model = 'claude-sonnet-4-6') =>
+  buildAntigravityRequest(messages, model, toolList, {}, 'proj').request.tools.at(-1).functionDeclarations;
+const realToolsByName = new Map(
+  [...BUILTIN_TOOLS, TOOL_SEARCH_TOOL, ...CODE_GRAPH_TOOL_DEFS, ...COMPUTER_TOOL_DEFS].map((tool) => [tool.name, tool])
+);
+const realTools = ['find', 'glob', 'grep', 'read', 'code_graph', 'git', 'load_tool', 'computer'].map((name) => {
+  assert.ok(realToolsByName.has(name), `missing real tool ${name}`);
+  return realToolsByName.get(name);
+});
+const declarationSchema = (declaration) => declaration.parameters ?? declaration.parametersJsonSchema;
+const hasUnion = (value) => {
+  if (Array.isArray(value)) return value.some(hasUnion);
+  if (!value || typeof value !== 'object') return false;
+  return Object.entries(value).some(([key, child]) => key === 'anyOf' || key === 'oneOf' || hasUnion(child));
+};
+
+test('Claude declarations carry no anyOf/oneOf, keep order, root objects, and leave sources untouched', () => {
+  assert.ok(hasUnion(realTools.map((tool) => tool.inputSchema)), 'fixture must contain unions');
+  const before = structuredClone(realTools);
+  const declarations = claudeDeclarations(realTools);
+  assert.deepEqual(
+    declarations.map((d) => d.name),
+    realTools.map((t) => t.name)
+  );
+  assert.equal(declarations[0].name, 'find');
+  assert.equal(declarations[1].name, 'glob');
+  for (const declaration of declarations) {
+    const schema = declarationSchema(declaration);
+    assert.equal(hasUnion(declaration), false, `${declaration.name} still has a union`);
+    assert.equal(String(schema.type).toLowerCase(), 'object', declaration.name);
+    assert.equal(typeof schema.properties, 'object', declaration.name);
+  }
+  assert.deepEqual(realTools, before);
+});
+
+test('Claude glob.pattern advertises a string instead of a typed union', () => {
+  const glob = claudeDeclarations(realTools).find((d) => d.name === 'glob');
+  const pattern = declarationSchema(glob).properties.pattern;
+  assert.equal(String(pattern.type).toLowerCase(), 'string');
+  assert.equal(pattern.anyOf, undefined);
+  assert.ok(pattern.description);
+});
+
+test('Claude union collapsing follows the enum / nullable / heterogeneous rules', () => {
+  const schema = {
+    type: 'object',
+    properties: {
+      mode: { description: 'm', anyOf: [{ type: 'string', enum: ['a', 'b'] }, { enum: ['b', 'c'] }, { const: 'd' }] },
+      maybe: { description: 'n', oneOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }] },
+      mixed: { description: 'x', anyOf: [{ type: 'array', items: { type: 'string' } }, { type: 'number' }, { type: 'string' }] },
+      deep: { type: 'array', items: { anyOf: [{ type: 'boolean' }, { type: 'object', properties: {} }] } },
+      anyOf: { type: 'string', default: { anyOf: 1 } },
+    },
+  };
+  const source = [{ name: 't', description: 'd', inputSchema: schema }];
+  const before = structuredClone(source);
+  const out = declarationSchema(claudeDeclarations(source)[0]);
+  assert.deepEqual(source, before);
+  const type = (node) => String(node.type).toLowerCase();
+  assert.equal(type(out.properties.mode), 'string');
+  assert.deepEqual(out.properties.mode.enum, ['a', 'b', 'c', 'd']);
+  assert.equal(type(out.properties.maybe), 'integer');
+  assert.equal(out.properties.maybe.nullable, true);
+  assert.equal(out.properties.maybe.description, 'n');
+  assert.equal(type(out.properties.mixed), 'number');
+  assert.equal(out.properties.mixed.description, 'x');
+  assert.equal(type(out.properties.deep.items), 'boolean');
+  assert.equal(type(out.properties.anyOf), 'string');
+  assert.equal(hasUnion(out.properties.mode) || hasUnion(out.properties.maybe) || hasUnion(out.properties.mixed), false);
+});
+
+test('Claude MCP roots with composition become a flat object schema', () => {
+  const source = [
+    {
+      name: 'mcp__s__t',
+      description: 'd',
+      inputSchema: { anyOf: [{ type: 'object', properties: { a: { type: 'string' } } }, { type: 'object', properties: { b: { type: 'string' } } }] },
+    },
+    { name: 'bare', description: 'd', inputSchema: undefined },
+  ];
+  const [composed, bare] = claudeDeclarations(source);
+  for (const declaration of [composed, bare]) {
+    assert.equal(String(declarationSchema(declaration).type).toLowerCase(), 'object');
+    assert.equal(hasUnion(declaration), false);
+  }
+  assert.deepEqual(Object.keys(declarationSchema(composed).properties).sort(), ['a', 'b']);
+});
+
+test('Gemini declarations are unchanged by the Claude normalization', () => {
+  const expected = toGeminiRequestTools(realTools, undefined).at(-1).functionDeclarations;
+  const actual = claudeDeclarations(realTools, 'gemini-3.8-flash');
+  assert.deepEqual(actual, expected);
+  assert.equal(hasUnion(actual), true);
+});
+
+test('Claude replay drops the empty text parts recorded around a tool call', () => {
+  const call = { id: 'toolu_1', name: 'glob', arguments: { pattern: '*.md' } };
+  const recorded = [
+    { text: '' },
+    { functionCall: { name: 'glob', args: { pattern: '*.md' }, id: 'toolu_1' } },
+    { text: '' },
+    { text: '', thoughtSignature: 'sig' },
+  ];
+  const history = (model) => [
+    { role: 'user', content: 'find markdown' },
+    {
+      role: 'assistant',
+      content: '',
+      toolCalls: [call],
+      providerReplay: { version: 1, provider: 'antigravity', items: recorded, requestContext: { model } },
+    },
+    { role: 'tool', toolCallId: 'toolu_1', content: 'README.md' },
+  ];
+  const modelParts = (model) =>
+    buildAntigravityRequest(history(model), model, BUILTIN_TOOLS, {}).request.contents.find((c) => c.role === 'model')
+      .parts;
+
+  const claude = modelParts('claude-sonnet-5-5-low');
+  assert.equal(
+    claude.some((part) => part.text === '' && part.thoughtSignature === undefined),
+    false
+  );
+  assert.ok(claude.some((part) => part.functionCall?.name === 'glob'));
+  assert.ok(claude.some((part) => part.thoughtSignature === 'sig'));
+  assert.equal(modelParts('gemini-3.8-flash').filter((part) => part.text === '' && !part.thoughtSignature).length, 2);
+});
+
+test('Claude replay rejoins streamed thinking deltas into one signed block', () => {
+  const call = { id: 'toolu_2', name: 'glob', arguments: { pattern: '*.md' } };
+  const recorded = [
+    { text: '' },
+    { thought: true, text: 'first ' },
+    { thought: true, text: 'second' },
+    { thought: true, text: '', thoughtSignature: 'sig-a' },
+    { thought: true, text: 'next block', thoughtSignature: 'sig-b' },
+    { text: 'answer ' },
+    { text: 'text' },
+    { functionCall: { name: 'glob', args: { pattern: '*.md' }, id: 'toolu_2' } },
+    { text: '' },
+  ];
+  const history = (model) => [
+    { role: 'user', content: 'find markdown' },
+    {
+      role: 'assistant',
+      content: 'answer text',
+      toolCalls: [call],
+      providerReplay: { version: 1, provider: 'antigravity', items: recorded, requestContext: { model } },
+    },
+    { role: 'tool', toolCallId: 'toolu_2', content: 'README.md' },
+  ];
+  const modelParts = (model) =>
+    buildAntigravityRequest(history(model), model, BUILTIN_TOOLS, {}).request.contents.find((c) => c.role === 'model')
+      .parts;
+
+  const thoughts = modelParts('claude-sonnet-5-5-low').filter((part) => part.thought === true);
+  assert.deepEqual(
+    thoughts.map((part) => [part.text, part.thoughtSignature]),
+    [
+      ['first second', 'sig-a'],
+      ['next block', 'sig-b'],
+    ]
+  );
+  assert.equal(modelParts('gemini-3.8-flash').filter((part) => part.thought === true).length, 4);
 });

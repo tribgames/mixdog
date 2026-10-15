@@ -208,6 +208,7 @@ function invocationOptions(batch, call, exec) {
     iteration: batch.iterations,
     localSearchTelemetry: exec.localSearchTelemetry || {},
     resultTelemetry: exec.resultTelemetry,
+    ...(call.wireCall ? { bridgeWireCall: call.wireCall } : {}),
   };
 }
 

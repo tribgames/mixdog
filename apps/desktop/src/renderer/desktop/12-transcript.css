@@ -208,6 +208,10 @@
      chained body scroll moved the whole pane while the virtualizer held its
      own offset, and the two corrections bounced the timeline up/down. */
   overscroll-behavior: contain;
+  /* Composited scrolling at every device scale. At 1x Chromium keeps a
+     transparent scroller (Mica clears the sheet) in the root layer and
+     repaints it on every scroll frame (dropped/partial frames, ghosting). */
+  will-change: scroll-position;
   /* ONE arrow across the reading surface. Prose lines end within ~40px of the
      scrollbar, so the I-beam that selectable glyphs draw under cursor:auto
      covered most of the scroll approach. Selection and copy are untouched —

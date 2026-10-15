@@ -24,10 +24,26 @@ test('URL policy reads the private-network flag and trimmed domain list from the
   });
   process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK = 'Yes';
   process.env.MIXDOG_BROWSER_ALLOWED_DOMAINS = ' a.test, ,b.test ';
-  assert.deepEqual(browserUrlPolicyFromEnvironment(), { allowPrivateNetwork: true, allowedDomains: ['a.test', 'b.test'] });
+  assert.deepEqual(browserUrlPolicyFromEnvironment({ remote: true }), {
+    allowPrivateNetwork: true,
+    allowedDomains: ['a.test', 'b.test'],
+  });
   delete process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK;
   delete process.env.MIXDOG_BROWSER_ALLOWED_DOMAINS;
-  assert.deepEqual(browserUrlPolicyFromEnvironment(), { allowPrivateNetwork: false, allowedDomains: [] });
+  assert.deepEqual(browserUrlPolicyFromEnvironment({ remote: true }), { allowPrivateNetwork: false, allowedDomains: [] });
+});
+
+test('private networks are allowed for a local session and blocked for a remote one unless the env forces them', (t) => {
+  const saved = process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK;
+  t.after(() => {
+    if (saved === undefined) delete process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK;
+    else process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK = saved;
+  });
+  delete process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK;
+  assert.equal(browserUrlPolicyFromEnvironment({ remote: false }).allowPrivateNetwork, true);
+  assert.equal(browserUrlPolicyFromEnvironment({ remote: true }).allowPrivateNetwork, false);
+  process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK = '1';
+  assert.equal(browserUrlPolicyFromEnvironment({ remote: true }).allowPrivateNetwork, true);
 });
 
 test('a fixed pane viewport emulates fully; a cleared one only resets', () => {

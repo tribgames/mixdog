@@ -66,15 +66,26 @@ export function _estimateGeminiCacheTokens(systemInstruction, geminiTools, conte
   return Math.ceil(chars / 4);
 }
 
-// No catalog publishes the cachedContents floor and the published minimums
-// differ per model and change between releases, so one floor serves every id:
-// the highest published minimum. Skipping a small prefix only falls back to the
-// implicit cache, whereas a floor that is too low would POST a create that the
-// server rejects on every turn.
+// Explicit-cache eligibility and minimum prefix size per model, from the
+// caching docs: explicit caching works on Gemini 3 and 2.5 and is not supported
+// from Gemini 4 onward; documented minimums are 4096 for Gemini 3.x and 2048
+// for 2.5 Flash/Pro. Other ids keep the conservative 4096 floor (skipping a
+// small prefix only falls back to the implicit cache, whereas a floor that is
+// too low would POST a create the server rejects every turn).
 const GEMINI_CACHE_MIN_TOKENS = 4096;
 
-export function _geminiCacheMinTokens() {
+// Minimum prefix tokens for an explicit cache, or null when the docs exclude
+// the model from explicit caching.
+export function geminiExplicitCacheMinTokens(model) {
+  const bare = String(model || '').replace(/^models\//i, '').toLowerCase();
+  const major = /^gemini-(\d+)/.exec(bare);
+  if (major && Number(major[1]) >= 4) return null;
+  if (/^gemini-2\.5-(?:pro|flash)(?!-lite)(?:-|$)/.test(bare)) return 2048;
   return GEMINI_CACHE_MIN_TOKENS;
+}
+
+export function _geminiCacheMinTokens(model) {
+  return geminiExplicitCacheMinTokens(model) ?? GEMINI_CACHE_MIN_TOKENS;
 }
 
 export function _geminiCachePrefixCount(contents) {
@@ -128,8 +139,10 @@ export function markGeminiExplicitCacheRefused(model, err) {
   return true;
 }
 
+// True when explicit cache creates must not be attempted: the docs exclude the
+// model, or the server already refused it.
 export function geminiExplicitCacheRefused(model) {
-  return geminiExplicitCacheRefusedModels.has(String(model || ''));
+  return geminiExplicitCacheMinTokens(model) === null || geminiExplicitCacheRefusedModels.has(String(model || ''));
 }
 
 export function _geminiCredentialFingerprint(apiKey) {
@@ -245,7 +258,11 @@ export function _resolveGeminiCacheUsage({ usageMetadata, cachedContent, provide
     firstFinite(usageMetadata?.thoughtsTokenCount, usageMetadata?.thoughts_token_count);
   const hasExplicitPromptTokens =
     Object.hasOwn(usageMetadata || {}, 'promptTokenCount') || Object.hasOwn(usageMetadata || {}, 'prompt_token_count');
-  const inputTokens = hasExplicitPromptTokens ? promptTokens : Math.max(0, totalTokens - outputTokens);
+  // toolUsePromptTokenCount (tool-result prompt tokens) is billed as input and
+  // reported separately from promptTokenCount; cached tokens stay a subset of
+  // the prompt portion.
+  const toolUseTokens = firstFinite(usageMetadata?.toolUsePromptTokenCount, usageMetadata?.tool_use_prompt_token_count);
+  const inputTokens = hasExplicitPromptTokens ? promptTokens + toolUseTokens : Math.max(0, totalTokens - outputTokens);
   const reportedCachedTokens = firstFinite(
     // generateContent UsageMetadata field.
     usageMetadata?.cachedContentTokenCount,

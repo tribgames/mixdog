@@ -37,6 +37,26 @@ export function boundedCauseChain(err) {
   return chain;
 }
 
+const TOOL_SURFACE_EXCEEDS_CONTEXT = 'TOOL_SURFACE_EXCEEDS_CONTEXT';
+const TOOL_SURFACE_MARKER = `(${TOOL_SURFACE_EXCEEDS_CONTEXT})`;
+
+/**
+ * The local fixed-overhead refusal (session/loop/context-overflow.mjs), bare,
+ * wrapped as a cause, or persisted as its text. Never a provider overflow:
+ * its diagnostic names tools, and a tool named like a provider error code
+ * must not turn it into one.
+ */
+export function isToolSurfaceExceedsContextError(err) {
+  if (!err || (typeof err !== 'string' && typeof err !== 'object' && typeof err !== 'function')) return false;
+  // Every node of the chain: an Error, or persisted failure text kept as a cause.
+  return boundedCauseChain(err).some((item) =>
+    typeof item === 'string'
+      ? item.includes(TOOL_SURFACE_MARKER)
+      : item?.code === TOOL_SURFACE_EXCEEDS_CONTEXT ||
+        (typeof item?.message === 'string' && item.message.includes(TOOL_SURFACE_MARKER))
+  );
+}
+
 export function headerValue(headers, name) {
   if (!headers) return null;
   const lower = name.toLowerCase();
@@ -78,6 +98,8 @@ export function errorHeaderValue(err, name) {
 
 export function typedErrorCode(err) {
   const detail = wireDetail(err);
+  const canonical = err && typeof err === 'object' ? codeFields(err).canonical.find(Boolean) : null;
+  if (canonical) return canonical;
   for (const field of [detail?.code, detail?.type, err?.providerErrorCode, err?.code, err?.error?.code]) {
     if (typeof field === 'string' && field.trim()) return field.trim().toLowerCase();
   }
@@ -375,9 +397,66 @@ const KIND_RANK = [
   'invalid_request',
 ];
 
+// OpenRouter's canonical `error_type` vocabulary, stable across its Chat,
+// Responses and Messages skins (the native code beside it is lossy: on
+// Responses an auth failure arrives as `server_error`, a context overflow as
+// `invalid_prompt`), mapped onto the typed codes classified here.
+const GATEWAY_ERROR_TYPE_CODES = Object.freeze({
+  authentication: 'authentication_error',
+  permission_denied: 'permission_denied',
+  payment_required: 'payment_required',
+  context_length_exceeded: 'context_length_exceeded',
+  payload_too_large: 'payload_too_large',
+  image_too_large: 'request_too_large',
+  rate_limit_exceeded: 'rate_limit_exceeded',
+  provider_overloaded: 'overloaded',
+  provider_unavailable: 'service_unavailable',
+  timeout: 'timeout',
+  server: 'server_error',
+  content_policy_violation: 'content_policy_violation',
+  refusal: 'content_policy_violation',
+  invalid_request: 'invalid_request',
+  invalid_prompt: 'invalid_request',
+  unprocessable: 'invalid_request',
+  not_found: 'not_found',
+  precondition_failed: 'failed_precondition',
+});
+
+/** The typed code a gateway `error_type` names, or null for an absent/unmapped one. */
+export function gatewayErrorTypeCode(errorType) {
+  const key = typeof errorType === 'string' ? errorType.trim().toLowerCase() : '';
+  return key && Object.hasOwn(GATEWAY_ERROR_TYPE_CODES, key) ? GATEWAY_ERROR_TYPE_CODES[key] : null;
+}
+
+/**
+ * Pre-classification normalizer for a wire error detail: when the envelope
+ * (or the detail itself) carries a gateway `error_type`, its typed code
+ * replaces the lossy native code (kept as `native_code`). Any other detail is
+ * returned unchanged.
+ */
+export function normalizeGatewayErrorDetail(detail, envelope = null) {
+  const errorType =
+    envelope?.response?.error_type ?? envelope?.error_type ?? detail?.error_type ?? detail?.metadata?.error_type;
+  const code = gatewayErrorTypeCode(errorType);
+  if (!code) return detail;
+  const nativeCode = detail?.code;
+  return {
+    ...(detail && typeof detail === 'object' ? detail : {}),
+    code,
+    error_type: errorType,
+    ...(nativeCode != null && nativeCode !== code ? { native_code: nativeCode } : {}),
+  };
+}
+
 function codeFields(item) {
   const detail = wireDetail(item);
-  return [
+  const canonical = [
+    gatewayErrorTypeCode(detail?.error_type ?? detail?.metadata?.error_type),
+    gatewayErrorTypeCode(item?.error_type),
+    gatewayErrorTypeCode(item?.error?.error_type ?? item?.error?.metadata?.error_type),
+    gatewayErrorTypeCode(item?.error?.error?.error_type),
+  ];
+  const native = [
     detail?.code,
     detail?.type,
     detail?.status,
@@ -396,19 +475,25 @@ function codeFields(item) {
     item?.geminiStatus,
     item?.status,
   ];
+  return { canonical, native };
 }
 
+// A gateway's canonical `error_type` supersedes every native code in the chain.
 function typedCodes(chain) {
-  const codes = [];
+  const canonical = [];
+  const native = [];
+  const add = (codes, field) => {
+    if (typeof field !== 'string') return;
+    const code = field.trim().toLowerCase();
+    if (code && !codes.includes(code)) codes.push(code);
+  };
   for (const item of chain) {
     if (!item || typeof item !== 'object') continue;
-    for (const field of codeFields(item)) {
-      if (typeof field !== 'string') continue;
-      const code = field.trim().toLowerCase();
-      if (code && !codes.includes(code)) codes.push(code);
-    }
+    const fields = codeFields(item);
+    for (const field of fields.canonical) add(canonical, field);
+    for (const field of fields.native) add(native, field);
   }
-  return codes;
+  return canonical.length ? canonical : native;
 }
 
 const VALID_STATUS = (n) => Number.isFinite(n) && n >= 100 && n <= 599;
@@ -419,6 +504,40 @@ function statusOf(err) {
     if (VALID_STATUS(n)) return Math.floor(n);
   }
   return 0;
+}
+
+// OpenRouter answers a 402 with this marker when concurrent in-flight spend is
+// capped; it clears as requests finish (Retry-After), unlike a spent balance.
+const IN_FLIGHT_BUDGET = 'openrouter_in_flight_budget';
+
+const IN_FLIGHT_BUDGET_MAX_WAIT_MS = 60_000;
+
+// Only a 402 that names the marker AND carries a short Retry-After is a wait;
+// without advice (or with a long one) it stays a billing refusal.
+function isInFlightBudget402(chain, status, retryAfterMs) {
+  if (status !== 402 || retryAfterMs == null || retryAfterMs > IN_FLIGHT_BUDGET_MAX_WAIT_MS) return false;
+  return chain.some((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const detail = wireDetail(item);
+    return [
+      detail?.code,
+      detail?.type,
+      detail?.metadata?.code,
+      detail?.metadata?.type,
+      detail?.metadata?.reason,
+      detail?.metadata?.limit_source,
+      item.code,
+      item.type,
+      item.error?.code,
+      item.error?.type,
+      item.error?.metadata?.code,
+      item.error?.metadata?.type,
+      item.error?.metadata?.reason,
+      item.error?.metadata?.limit_source,
+      item.error?.error?.code,
+      item.error?.error?.type,
+    ].some((value) => typeof value === 'string' && value.trim().toLowerCase() === IN_FLIGHT_BUDGET);
+  });
 }
 
 function kindFromStatus(status) {
@@ -513,9 +632,13 @@ export function providerErrorKind(err, options = {}) {
   const codes = typedCodes(chain);
   const describe = (kind, code = typedErrorCode(err)) => ({ kind, code: code || '', status, retryAfterMs, resetAt });
 
+  // A local fixed-overhead refusal is no provider kind, whatever its text names.
+  if (isToolSurfaceExceedsContextError(err)) return describe('unknown', TOOL_SURFACE_EXCEEDS_CONTEXT);
   // Validated account-pool evidence and boundary-stamped re-auth decide first.
   if (err.quotaExhausted && typeof err.quotaExhausted === 'object') return describe('quota_exhausted');
   if (chain.some((item) => item?.reauthRequired === true)) return describe('auth');
+
+  if (isInFlightBudget402(chain, status, retryAfterMs)) return describe('transient', IN_FLIGHT_BUDGET);
 
   let { kind, code } = kindFromCodes(codes, scope);
   // Explicit quota flags (Anthropic unified-status rejected headers) outrank a

@@ -4,6 +4,8 @@
 // effort to a supported level and serializes it for the provider protocol.
 // First-party providers never route through here.
 
+import { isTogetherBaseURL } from './openai-compat-reasoning-field.mjs';
+
 export const CUSTOM_EFFORT_LEVELS = Object.freeze(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 const RANK = new Map(CUSTOM_EFFORT_LEVELS.map((level, index) => [level, index]));
 
@@ -63,16 +65,30 @@ export function snapCustomEffort(levels, effort) {
 }
 
 const EMPTY = Object.freeze({ level: null, fields: {}, thinking: null, replay: false });
+// Chat-only extensions on top of the standard `reasoning_effort`.
+const CHAT_ONLY_WIRE_FORMATS = new Set(['deepseek', 'together', 'vllm']);
 
 /**
- * @param {{ protocol: 'openai-chat'|'openai-responses'|'anthropic', model: object|null, effort: string|null|undefined }} input
+ * The effective wire format of a row: its declared format, else `together`
+ * when the provider's own base URL is Together AI (whose hybrid models toggle
+ * reasoning with a `reasoning.enabled` flag), else `standard`.
+ */
+export function customWireFormat(model, baseURL) {
+  const declared = model?.customReasoning?.wireFormat;
+  if (CHAT_ONLY_WIRE_FORMATS.has(declared)) return declared;
+  return isTogetherBaseURL(baseURL) ? 'together' : 'standard';
+}
+
+/**
+ * @param {{ protocol: 'openai-chat'|'openai-responses'|'anthropic', model: object|null, effort: string|null|undefined, baseURL?: string }} input
  * @returns {{ level: string|null, fields: object, thinking: 'on'|'off'|null, replay: boolean }}
  */
-export function resolveCustomReasoning({ protocol, model, effort } = {}) {
+export function resolveCustomReasoning({ protocol, model, effort, baseURL } = {}) {
   const custom = model?.customReasoning || {};
-  const wireFormat = custom.wireFormat === 'deepseek' ? 'deepseek' : 'standard';
-  // DeepSeek's `thinking` extension exists only on the Chat wire.
-  if (wireFormat === 'deepseek' && protocol !== 'openai-chat') return { ...EMPTY, fields: {} };
+  const wireFormat = protocol === 'openai-chat' ? customWireFormat(model, baseURL) : 'standard';
+  // The `thinking` / `reasoning.enabled` / chat_template_kwargs extensions
+  // exist only on the Chat wire.
+  if (CHAT_ONLY_WIRE_FORMATS.has(custom.wireFormat) && protocol !== 'openai-chat') return { ...EMPTY, fields: {} };
   const level = snapCustomEffort(customEffortLevels(model), effort);
   let thinking = null;
   if (level !== null) thinking = level === 'none' ? 'off' : 'on';
@@ -86,6 +102,18 @@ export function resolveCustomReasoning({ protocol, model, effort } = {}) {
           level === 'none'
             ? { thinking: { type: 'disabled' } }
             : { thinking: { type: 'enabled' }, reasoning_effort: value };
+      } else if (wireFormat === 'together') {
+        // Together: `reasoning.enabled` toggles hybrid models (those that can
+        // be turned off); `reasoning_effort` sets the depth of the others.
+        if (level === 'none') fields = { reasoning: { enabled: false } };
+        else {
+          fields = { reasoning_effort: value };
+          if (customEffortLevels(model)?.includes('none')) fields.reasoning = { enabled: true };
+        }
+      } else if (wireFormat === 'vllm') {
+        // vLLM switches thinking through the chat template.
+        fields = { chat_template_kwargs: { enable_thinking: level !== 'none' } };
+        if (level !== 'none') fields.reasoning_effort = value;
       } else {
         fields = { reasoning_effort: value };
       }
@@ -101,7 +129,6 @@ export function resolveCustomReasoning({ protocol, model, effort } = {}) {
   // An explicit replay flag wins over the catalog's reasoning_content field.
   const replayFlag =
     typeof custom.replay === 'boolean' ? custom.replay : model?.reasoningContentField === 'reasoning_content';
-  const replay =
-    protocol === 'openai-chat' && replayFlag && thinking !== 'off' && !/reasoner/i.test(String(model?.id || ''));
+  const replay = protocol === 'openai-chat' && replayFlag && thinking !== 'off';
   return { level, fields, thinking, replay };
 }

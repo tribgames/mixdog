@@ -52,6 +52,12 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
     getSessionReviewDiff: async () => {
       return (await runtime.getSessionReviewDiff?.()) ?? { supported: false, files: [], patch: '' };
     },
+    getSessionReviewFilePatch: async (file, oldPath) => {
+      return (await runtime.getSessionReviewFilePatch?.(file, oldPath)) ?? { supported: false, patch: '' };
+    },
+    getTurnReviewFilePatch: async (file) => {
+      return (await runtime.getTurnReviewFilePatch?.(file)) ?? { supported: false, patch: '' };
+    },
     revertTurnReview: async (checkpointId) => {
       return await requireRuntimeMethod('revertTurnReview', 'Turn review revert is unavailable')(checkpointId);
     },

@@ -34,6 +34,25 @@ export async function fetchCompatModelItems(provider, { signal = null, keyless =
   }
 }
 
+// Provider-native chat-ness: Together `type`, Mistral `capabilities`. Returns a
+// sanitize-compatible mode, or null when the listing says nothing.
+function nativeMode(m) {
+  const type = typeof m?.type === 'string' ? m.type.trim().toLowerCase() : '';
+  if (type === 'chat') return 'chat';
+  if (type === 'language' || type === 'code') return 'completion';
+  if (['embedding', 'embeddings', 'image', 'audio', 'rerank', 'moderation', 'video', 'transcribe'].includes(type)) {
+    return type;
+  }
+  // OpenRouter: a model that cannot emit text (image/audio generation) is no chat model.
+  const outputs = m?.architecture?.output_modalities;
+  if (Array.isArray(outputs) && outputs.length && !outputs.includes('text')) return 'non_chat';
+  const caps = m?.capabilities;
+  if (caps && typeof caps === 'object' && typeof caps.completion_chat === 'boolean') {
+    return caps.completion_chat ? 'chat' : 'non_chat';
+  }
+  return null;
+}
+
 export async function listCompatModels(provider, { throwOnError = false, signal = null } = {}) {
   try {
     const list = await provider._fetchModelItems({ signal });
@@ -45,10 +64,23 @@ export async function listCompatModels(provider, { throwOnError = false, signal 
           m?.max_input_tokens ??
           m?.max_model_len ??
           m?.context_length ??
+          m?.max_context_length ??
+          m?.top_provider?.context_length ??
           m?.contextWindow ??
           0
       );
-      const outputTokens = Number(m?.max_output_tokens ?? m?.output_tokens ?? m?.maxOutputTokens ?? 0);
+      const outputTokens = Number(
+        m?.max_output_tokens ??
+          m?.output_tokens ??
+          m?.maxOutputTokens ??
+          m?.top_provider?.max_completion_tokens ??
+          0
+      );
+      const mode = nativeMode(m);
+      // A catalog alias (OpenRouter `~anthropic/claude-opus-latest`) keeps its
+      // own slug for routing; the slug it currently points at is retained for
+      // capability lookup only.
+      const aliasTarget = typeof m?.alias_target === 'string' ? m.alias_target : m?.alias_target?.slug;
       models.push({
         id: m?.id,
         name: m?.id,
@@ -56,10 +88,23 @@ export async function listCompatModels(provider, { throwOnError = false, signal 
         contextWindow: Number.isFinite(contextWindow) && contextWindow > 0 ? contextWindow : 0,
         outputTokens: Number.isFinite(outputTokens) && outputTokens > 0 ? outputTokens : null,
         created: typeof m?.created === 'number' ? m.created : null,
+        ...(mode ? { mode } : {}),
+        ...(typeof aliasTarget === 'string' && aliasTarget ? { aliasTarget } : {}),
       });
     }
     const filtered = models.filter((m) => m.id);
-    const enriched = sanitizeModelList(await enrichModels(filtered), { provider: provider.name });
+    // The catalog fills gaps only: native limits and chat-ness are restored
+    // over whatever enrichment derived.
+    const enrichedRows = (await enrichModels(filtered)).map((row, i) => {
+      const native = filtered[i];
+      return {
+        ...row,
+        ...(native.contextWindow ? { contextWindow: native.contextWindow } : {}),
+        ...(native.outputTokens ? { outputTokens: native.outputTokens } : {}),
+        ...(native.mode ? { mode: native.mode } : {}),
+      };
+    });
+    const enriched = sanitizeModelList(enrichedRows, { provider: provider.name });
     provider._enrichedModels = enriched;
     return enriched;
   } catch (error) {

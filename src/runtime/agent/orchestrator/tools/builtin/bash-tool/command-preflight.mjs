@@ -8,11 +8,11 @@ import { formatShellToolFailure } from './result-format.mjs';
 // Policy + shell-specific rewrites before any shell dispatch. Returns either
 // `{ failure }` (a formatted tool failure) or the command to run with the
 // resolved shell spec and the wmic rewrite (if any).
-export function prepareShellCommand(args) {
+export function prepareShellCommand(args, { elevationApproved = false } = {}) {
   // Run hard-block policy before any shell dispatch.
   const rawCmd = String(args && args.command != null ? args.command : '');
   if (rawCmd) {
-    const policyBlock = checkExecPolicyMessage(rawCmd);
+    const policyBlock = checkExecPolicyMessage(rawCmd, { elevationApproved });
     if (policyBlock) return { failure: formatShellToolFailure(policyBlock) };
   }
   let command = args.command;
@@ -52,7 +52,7 @@ export function prepareShellCommand(args) {
       : null;
   if (bashismRewrite) command = bashismRewrite.command;
 
-  const execPolicyBlock = checkExecPolicyMessage(command);
+  const execPolicyBlock = checkExecPolicyMessage(command, { elevationApproved });
   if (execPolicyBlock) return { failure: formatShellToolFailure(execPolicyBlock) };
   return { command, analysisCommand, resolvedSpec, wmicRewrite, bashismRewrite };
 }

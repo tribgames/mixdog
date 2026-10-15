@@ -102,7 +102,9 @@ export function createOpenAiOAuthDispatch({
     for (const [key, expiresAt] of provider._httpFallbackUntilByPoolKey) {
       if (!(expiresAt > now)) provider._httpFallbackUntilByPoolKey.delete(key);
     }
-    return (provider._httpFallbackUntilByPoolKey.get(poolKey) || 0) > now;
+    // A forked transport scope follows its session's switch; it records its own.
+    const sessionUntil = opts.sessionId ? provider._httpFallbackUntilByPoolKey.get(opts.sessionId) || 0 : 0;
+    return Math.max(provider._httpFallbackUntilByPoolKey.get(poolKey) || 0, sessionUntil) > now;
   };
   const markStickyHttpFallback = () => {
     if (!poolKey) return;

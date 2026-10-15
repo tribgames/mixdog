@@ -1,7 +1,31 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildSessionDiffRows, sessionDiffFilePatch } from './session-diff-model.ts';
+import {
+  buildSessionDiffRows,
+  sessionDiffFilePatch,
+  sessionDiffPatchTooLarge,
+  utf8ByteLength,
+} from './session-diff-model.ts';
 import { boundReviewPatch } from '../../../../src/runtime/shared/review-diff.mjs';
+
+test('utf8ByteLength matches TextEncoder, surrogate pairs and lone surrogates included', () => {
+  const encoder = new TextEncoder();
+  for (const text of ['', 'ascii', 'é', '한글', '😀x', '\ud800', 'a\udc00b', `${'한'.repeat(10)}😀é`]) {
+    assert.equal(utf8ByteLength(text), encoder.encode(text).length, JSON.stringify(text));
+  }
+});
+
+test('a `+++`/`---`-prefixed changed line inside a hunk is held to the 1 MiB line limit; file headers are not', () => {
+  const head = 'diff --git a/x.txt b/x.txt\n--- a/x.txt\n+++ b/x.txt\n@@ -1 +1 @@\n';
+  const long = 'x'.repeat(1024 * 1024 + 1);
+  assert.equal(sessionDiffPatchTooLarge(`${head}-old\n+++${long}\n`), true, 'an added line beginning with "++"');
+  assert.equal(sessionDiffPatchTooLarge(`${head}---${long}\n+new\n`), true, 'a deleted line beginning with "--"');
+  // A second file section's headers are headers again (before its own first @@).
+  const second = `diff --git a/${long} b/y.txt\n--- a/${long}\n+++ b/y.txt\n@@ -1 +1 @@\n-a\n+b\n`;
+  assert.equal(sessionDiffPatchTooLarge(`${head}-old\n+new\n${second}`), false);
+  // Under the line limit in UTF-16 units, over it in UTF-8 bytes.
+  assert.equal(sessionDiffPatchTooLarge(`${head}-old\n+++${'한'.repeat(400_000)}\n`), true);
+});
 
 test('omitted large hunks keep modified, added and deleted rows in the session pane', () => {
   const patch = [

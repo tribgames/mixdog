@@ -106,8 +106,9 @@ test('read PDF document stays native media without base64 text, storage, or toke
   assert.equal(anthropicToolResult.content[0].source.data, pdfData);
 
   const gemini = toGeminiContents(history, 'gemini-3-pro-preview');
-  assert.equal(gemini[2].parts[1].inlineData.mimeType, 'application/pdf');
-  assert.equal(gemini[2].parts[1].inlineData.data, pdfData);
+  const pdfPart = gemini[2].parts[0].functionResponse.parts[0];
+  assert.equal(pdfPart.inlineData.mimeType, 'application/pdf');
+  assert.equal(pdfPart.inlineData.data, pdfData);
 
   const xai = toXaiResponsesInput(
     history,
@@ -151,9 +152,12 @@ function anthropicToolResult(history) {
     .find((part) => part?.type === 'tool_result');
 }
 
-// Tool media travels as ordinary inlineData parts beside the function response.
+// Gemini 3 tool media travels inside functionResponse.parts.
 function geminiInlineParts(contents) {
-  return contents.flatMap((item) => item.parts || []).filter((part) => part?.inlineData);
+  return contents
+    .flatMap((item) => item.parts || [])
+    .flatMap((part) => [part, ...(part?.functionResponse?.parts || [])])
+    .filter((part) => part?.inlineData);
 }
 
 test('a text download travels as readable text, never as a PDF document block', () => {
@@ -299,15 +303,15 @@ test('Anthropic error tool_result with text only is left untouched', () => {
   assert.equal(toolResult.content, 'Error: bridge unavailable');
 });
 
-test('Gemini puts IDs on the call and response and media beside the response in one turn', () => {
+test('Gemini 3 puts IDs on the call and response and media inside functionResponse.parts', () => {
   const contents = toGeminiContents(imageHistory(), 'gemini-3-pro-preview');
   const functionCall = contents[1].parts[0].functionCall;
   const functionResponse = contents[2].parts[0].functionResponse;
   assert.equal(functionCall.id, 'call_1');
   assert.equal(functionResponse.id, 'call_1');
   assert.equal(functionResponse.response.result, 'Image read successfully');
-  assert.equal('parts' in functionResponse, false);
-  assert.equal(contents[2].parts[1].inlineData.data, IMAGE_DATA);
+  assert.equal(functionResponse.parts[0].inlineData.data, IMAGE_DATA);
+  assert.equal(contents[2].parts.length, 1);
   assert.equal(contents.length, 3);
   assert.equal(occurrences(contents, 'Image read successfully'), 1);
 });

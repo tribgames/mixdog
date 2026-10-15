@@ -46,7 +46,7 @@ export async function recordCallOutcome(batch, call, exec, sigs, ctSig) {
   // otherwise hide behind a `[mixdog compacted …]` placeholder). Restored
   // immediately so an abort or post-processing throw cannot leave it
   // compacted; early-skipped calls stay compacted.
-  if (executed && failed && call?.id) restoreToolCallBodyForId(batch.assistantTurnMsg, batch.calls, call.id);
+  if (executed && failed && call?.id) restoreToolCallBodyForId(batch.assistantTurnMsg, batch.wireCalls, call.id);
   if (sessionId && _stripMcpPrefix(call.name) === 'apply_patch') {
     if (exec.executeOk && exec.resultKind === 'normal') invalidateAfterPatch(sessionId, call, cwd);
     // Mutation tools invalidate even on returned-error/partial-fail — the

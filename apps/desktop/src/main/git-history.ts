@@ -1,3 +1,5 @@
+import { stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   DISPLAY_DIFF_ARGS,
   GIT_METADATA_TTL_MS,
@@ -8,22 +10,26 @@ import {
   untrackedPatch,
   untrackedStat,
 } from './git-read-utils';
+import type { GitReviewSource } from './git-contract.mjs';
 import { run } from './git-runner';
+import { cachedGitRoot, hasHead } from './git-status';
 
 const reviewBaseCache = new Map<string, { expiresAt: number; base: string }>();
 
-export function gitDiff(
+export async function gitDiff(
   cwd: string,
   path: string,
   staged: boolean,
   worktreeOnly = false,
   untracked = false
 ): Promise<string> {
-  if (untracked) return untrackedPatch(cwd, path);
-  let baseArgs = ['HEAD'];
+  const root = await cachedGitRoot(cwd);
+  if (untracked) return untrackedPatch(root, path);
+  let baseArgs: string[];
   if (staged) baseArgs = ['--cached'];
   else if (worktreeOnly) baseArgs = [];
-  return run(cwd, ['--no-optional-locks', 'diff', ...DISPLAY_DIFF_ARGS, ...baseArgs, '--', path]);
+  else baseArgs = [(await resolveReviewRef(root, 'uncommitted')).ref];
+  return run(root, ['--no-optional-locks', 'diff', ...DISPLAY_DIFF_ARGS, ...baseArgs, '--', path]);
 }
 
 export interface GitReviewFile {
@@ -32,13 +38,33 @@ export interface GitReviewFile {
   additions: number;
   deletions: number;
   untracked: boolean;
-  uncommitted: boolean;
+  /** Worktree identity `${size}:${mtimeMs}`, or 'deleted' when the file is gone. */
+  revision: string;
 }
 
 interface GitReviewResult {
+  repository: boolean;
+  root: string;
   base: string;
   files: GitReviewFile[];
+  /** Untracked files past {@link REVIEW_UNTRACKED_LIMIT}, left out of `files`. */
+  untrackedOmitted: number;
 }
+
+export interface GitReviewDiffsResult {
+  /** Per-file patch ('' when the file has no diff), keyed by the requested path. */
+  patches: Record<string, string>;
+  /** Requested paths with no entry in `patches`; fetch them one at a time. */
+  omitted: string[];
+}
+
+const REVIEW_UNTRACKED_LIMIT = 256;
+/** Total patch text one batch returns before the remaining files are omitted. */
+const REVIEW_BATCH_PATCH_CHARS = 8_000_000;
+/** Pathspec text one batch passes on the command line (Windows caps it near 32k). */
+const REVIEW_BATCH_ARGS_CHARS = 20_000;
+/** Paths git would quote in a diff header, so the header cannot be matched back. */
+const UNMATCHABLE_HEADER_PATH = /["\\\u0000-\u001f]/;
 
 async function resolveReviewBase(cwd: string): Promise<string> {
   const key = gitCacheKey(cwd);
@@ -55,9 +81,15 @@ async function resolveReviewBase(cwd: string): Promise<string> {
   } catch {
     /* no origin/HEAD ref */
   }
-  for (const candidate of ['origin/main', 'origin/master']) {
+  const candidates = [
+    ['origin/main', 'refs/remotes/origin/main'],
+    ['origin/master', 'refs/remotes/origin/master'],
+    ['main', 'refs/heads/main'],
+    ['master', 'refs/heads/master'],
+  ];
+  for (const [candidate, fullRef] of candidates) {
     try {
-      await run(cwd, ['--no-optional-locks', 'rev-parse', '--verify', '--quiet', candidate]);
+      await run(cwd, ['--no-optional-locks', 'rev-parse', '--verify', '--quiet', fullRef]);
       return remember(candidate);
     } catch {
       /* try next */
@@ -66,9 +98,31 @@ async function resolveReviewBase(cwd: string): Promise<string> {
   return remember('HEAD');
 }
 
+/** The tree object every file is added against while HEAD is unborn. */
+async function emptyTree(cwd: string): Promise<string> {
+  return (await run(cwd, ['--no-optional-locks', 'hash-object', '-t', 'tree', '/dev/null'])).trim();
+}
+
+/**
+ * The ref a review source diffs the worktree against: `HEAD` for uncommitted
+ * work, the merge-base sha with the default branch for the branch view, and
+ * the empty tree while HEAD is unborn.
+ */
+async function resolveReviewRef(root: string, source: GitReviewSource): Promise<{ base: string; ref: string }> {
+  if (!(await hasHead(root))) return { base: 'HEAD', ref: await emptyTree(root) };
+  if (source === 'uncommitted') return { base: 'HEAD', ref: 'HEAD' };
+  return resolveMergeBase(root);
+}
+
+/** `base` is the default-branch name; `ref` is its merge-base sha with HEAD. */
 async function resolveMergeBase(cwd: string): Promise<{ base: string; ref: string }> {
   const base = await resolveReviewBase(cwd);
-  return { base, ref: base === 'HEAD' ? 'HEAD' : `${base}...HEAD` };
+  if (base === 'HEAD') return { base, ref: 'HEAD' };
+  try {
+    return { base, ref: (await run(cwd, ['--no-optional-locks', 'merge-base', base, 'HEAD'])).trim() || 'HEAD' };
+  } catch {
+    return { base, ref: 'HEAD' };
+  }
 }
 
 interface GitLogEntry {
@@ -276,74 +330,145 @@ export async function gitShowFile(cwd: string, rev: string, path: string): Promi
   }
 }
 
-export async function gitReview(cwd: string): Promise<GitReviewResult> {
-  const { base, ref } = await resolveMergeBase(cwd);
+export async function gitReview(cwd: string, source: GitReviewSource = 'branch'): Promise<GitReviewResult> {
+  let root: string;
+  try {
+    root = await cachedGitRoot(cwd);
+  } catch {
+    return { repository: false, root: '', base: '', files: [], untrackedOmitted: 0 };
+  }
+  const { base, ref } = await resolveReviewRef(root, source);
   const files = new Map<string, GitReviewFile>();
   const [nameStatus, numstat, worktreeStatus] = await Promise.all([
-    run(cwd, ['--no-optional-locks', 'diff', ref, '--name-status', '--no-renames', '-z']).catch(() => ''),
-    run(cwd, ['--no-optional-locks', 'diff', ref, '--numstat', '--no-renames', '-z']).catch(() => ''),
-    run(cwd, ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames']).catch(
+    run(root, ['--no-optional-locks', 'diff', ref, '--name-status', '--no-renames', '-z']).catch(() => ''),
+    run(root, ['--no-optional-locks', 'diff', ref, '--numstat', '--no-renames', '-z']).catch(() => ''),
+    run(root, ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames']).catch(
       () => ''
     ),
   ]);
-  try {
-    const fields = nameStatus.split('\0').filter(Boolean);
-    for (let i = 0; i + 1 < fields.length; i += 2) {
-      const path = fields[i + 1];
-      if (!path) continue;
-      files.set(path, {
-        path,
-        status: fields[i][0] ?? 'M',
-        additions: 0,
-        deletions: 0,
-        untracked: false,
-        uncommitted: false,
-      });
-    }
-    for (const [path, stat] of parseNumstat(numstat)) {
-      const entry = files.get(path);
-      if (!entry) continue;
-      entry.additions = stat.additions;
-      entry.deletions = stat.deletions;
-    }
-  } catch {
-    /* empty repository (no HEAD yet) */
+  const fields = nameStatus.split('\0').filter(Boolean);
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const path = fields[i + 1];
+    if (!path) continue;
+    files.set(path, { path, status: fields[i][0] ?? 'M', additions: 0, deletions: 0, untracked: false, revision: '' });
+  }
+  for (const [path, stat] of parseNumstat(numstat)) {
+    const entry = files.get(path);
+    if (!entry) continue;
+    entry.additions = stat.additions;
+    entry.deletions = stat.deletions;
   }
   const untrackedPaths: string[] = [];
-  try {
-    for (const entry of worktreeStatus.split('\0')) {
-      if (entry.length < 4) continue;
-      const path = entry.slice(3);
-      if (!path) continue;
-      const untracked = entry[0] === '?' && entry[1] === '?';
-      if (untracked) untrackedPaths.push(path);
-      const existing = files.get(path);
-      if (existing) {
-        existing.uncommitted = true;
-        existing.untracked = untracked;
-        continue;
-      }
-      files.set(path, {
-        path,
-        status: untracked ? 'A' : 'M',
-        additions: 0,
-        deletions: 0,
-        untracked,
-        uncommitted: true,
-      });
+  let untrackedOmitted = 0;
+  for (const entry of worktreeStatus.split('\0')) {
+    if (!entry.startsWith('?? ') || entry.length < 4) continue;
+    if (untrackedPaths.length >= REVIEW_UNTRACKED_LIMIT) {
+      untrackedOmitted += 1;
+      continue;
     }
-  } catch {
-    /* not a repository */
+    const path = entry.slice(3);
+    untrackedPaths.push(path);
+    files.set(path, { path, status: 'A', additions: 0, deletions: 0, untracked: true, revision: '' });
   }
   await mapWithConcurrency(untrackedPaths, UNTRACKED_STAT_CONCURRENCY, async (path) => {
     const entry = files.get(path);
-    if (entry?.untracked) entry.additions = await untrackedStat(cwd, path);
+    if (entry) entry.additions = await untrackedStat(root, path);
   });
-  return { base, files: [...files.values()].sort((a, b) => a.path.localeCompare(b.path)) };
+  await mapWithConcurrency([...files.values()], UNTRACKED_STAT_CONCURRENCY, async (entry) => {
+    entry.revision = await stat(join(root, entry.path)).then(
+      (info) => `${info.size}:${info.mtimeMs}`,
+      () => 'deleted'
+    );
+  });
+  return {
+    repository: true,
+    root,
+    base,
+    files: [...files.values()].sort((a, b) => a.path.localeCompare(b.path)),
+    untrackedOmitted,
+  };
 }
 
-export async function gitReviewDiff(cwd: string, path: string, untracked: boolean): Promise<string> {
-  if (untracked) return untrackedPatch(cwd, path);
-  const { ref } = await resolveMergeBase(cwd);
-  return run(cwd, ['--no-optional-locks', 'diff', ...DISPLAY_DIFF_ARGS, ref, '--', path]);
+export async function gitReviewDiff(
+  cwd: string,
+  path: string,
+  untracked: boolean,
+  source: GitReviewSource = 'branch'
+): Promise<string> {
+  const root = await cachedGitRoot(cwd);
+  if (untracked) return untrackedPatch(root, path);
+  const { ref } = await resolveReviewRef(root, source);
+  return run(root, ['--no-optional-locks', 'diff', ...DISPLAY_DIFF_ARGS, ref, '--', path]);
+}
+
+/**
+ * Many `gitReviewDiff`s at once: one `git diff` over every tracked path (split
+ * per file) plus file reads for the untracked ones. Paths that cannot be
+ * served in bulk (header git would quote, command-line or patch budget spent,
+ * output past the process buffer) come back in `omitted`.
+ */
+export async function gitReviewDiffs(
+  cwd: string,
+  files: readonly { path: string; untracked: boolean }[],
+  source: GitReviewSource = 'branch'
+): Promise<GitReviewDiffsResult> {
+  const root = await cachedGitRoot(cwd);
+  const patches: Record<string, string> = {};
+  const omitted: string[] = [];
+  const tracked: string[] = [];
+  const untracked: string[] = [];
+  let argChars = 0;
+  for (const file of new Map(files.map((entry) => [entry.path, entry])).values()) {
+    if (file.untracked) {
+      untracked.push(file.path);
+      continue;
+    }
+    argChars += file.path.length + 3;
+    if (UNMATCHABLE_HEADER_PATH.test(file.path) || argChars > REVIEW_BATCH_ARGS_CHARS) omitted.push(file.path);
+    else tracked.push(file.path);
+  }
+  let budget = REVIEW_BATCH_PATCH_CHARS;
+  const accept = (path: string, patch: string): void => {
+    if (patch.length > budget) {
+      omitted.push(path);
+      return;
+    }
+    budget -= patch.length;
+    patches[path] = patch;
+  };
+  if (tracked.length) {
+    const { ref } = await resolveReviewRef(root, source);
+    let output: string | null = null;
+    try {
+      output = await run(root, [
+        '-c',
+        'core.quotePath=false',
+        '--no-optional-locks',
+        '--literal-pathspecs',
+        'diff',
+        ...DISPLAY_DIFF_ARGS,
+        '--no-renames',
+        ref,
+        '--',
+        ...tracked,
+      ]);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('maxBuffer')) throw error;
+      omitted.push(...tracked);
+    }
+    if (output !== null) {
+      const byHeader = new Map(tracked.map((path) => [`diff --git a/${path} b/${path}`, path]));
+      const chunks = new Map<string, string>();
+      for (const chunk of output.split(/^(?=diff --git )/m)) {
+        const path = byHeader.get(chunk.slice(0, chunk.indexOf('\n')));
+        if (path !== undefined) chunks.set(path, chunk);
+      }
+      for (const path of tracked) accept(path, chunks.get(path) ?? '');
+    }
+  }
+  const untrackedPatches = await mapWithConcurrency(untracked, UNTRACKED_STAT_CONCURRENCY, (path) =>
+    untrackedPatch(root, path)
+  );
+  untracked.forEach((path, index) => accept(path, untrackedPatches[index] ?? ''));
+  return { patches, omitted };
 }

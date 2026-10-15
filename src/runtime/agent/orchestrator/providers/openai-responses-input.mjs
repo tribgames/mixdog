@@ -9,7 +9,29 @@ import {
   isCustomToolCallRecord,
   nativeToolSearchCallInput,
   nativeToolSearchOutputInput,
+  toolCallNamespace,
 } from './custom-tool-wire.mjs';
+
+// A call record that carries a Responses namespace replays it beside `name`.
+const namespaceField = (call) => {
+  const namespace = toolCallNamespace(call);
+  return namespace ? { namespace } : {};
+};
+
+// A replayed native tool_search item for a model that has no tool_search tool:
+// a client call becomes the load_tool function call (its output is lowered
+// from the tool message), server-executed calls and outputs are dropped.
+function withoutNativeToolSearch(item) {
+  if (item?.type === 'tool_search_output') return null;
+  if (item?.type !== 'tool_search_call') return item;
+  if (item.execution === 'server' || !item.call_id) return null;
+  return {
+    type: 'function_call',
+    call_id: item.call_id,
+    name: 'load_tool',
+    arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments ?? {}),
+  };
+}
 
 /**
  * One tool result → its wire item. Which item depends on how the call was
@@ -18,16 +40,13 @@ import {
  * media, since that item carries no text field), everything else with
  * function_call_output.
  */
-function pushToolResult(
-  m,
-  { out, pendingToolMedia, pendingToolLoads, customToolCallNameById, nativeSearchCalls, opts }
-) {
-  const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
-  if (customToolCallNameById.has(m.toolCallId || '')) {
+function pushToolResult(m, { out, pendingToolMedia, pendingToolLoads, customToolCallIds, nativeSearchCalls, opts }) {
+  const { output, mediaContent } = (opts.splitToolContent || splitToolContentForOpenAIResponses)(m.content);
+  if (customToolCallIds.has(m.toolCallId || '')) {
+    // Documented custom_tool_call_output shape: call_id + output (+ id).
     out.push({
       type: 'custom_tool_call_output',
       call_id: m.toolCallId || '',
-      name: customToolCallNameById.get(m.toolCallId || '') || undefined,
       output,
     });
     if (mediaContent) pendingToolMedia.push(...mediaContent);
@@ -54,7 +73,8 @@ function pushToolResult(
   // A function result (e.g. Skill) cannot carry schemas. Tools it already
   // loaded ride a runtime load_tool pair emitted after the batch's outputs;
   // only a result from another native family falls back to a load hint.
-  const loadedNames = (m.nativeToolSearch?.openaiTools || []).map((tool) => tool.name);
+  const loadedNames =
+    opts.nativeToolSearch === false ? [] : (m.nativeToolSearch?.openaiTools || []).map((tool) => tool.name);
   const loadOutput = loadedNames.length
     ? nativeToolSearchOutputInput(m, opts.nativeToolSearchProvider || 'openai-oauth')
     : null;
@@ -85,18 +105,21 @@ function pushToolResult(
  * lowered as a custom tool or a native search call so the matching result
  * lowers the same way.
  */
-function pushAssistantToolCalls(toolCalls, { out, customToolCallNameById, nativeSearchCalls }) {
+function pushAssistantToolCalls(toolCalls, { out, customToolCallIds, nativeSearchCalls, nativeToolSearch }) {
   for (const tc of toolCalls) {
-    const nativeSearchCall = nativeToolSearchCallInput(tc);
+    // A model without native tool_search replays its load_tool call as the
+    // plain function call it was declared as.
+    const nativeSearchCall = nativeToolSearch ? nativeToolSearchCallInput(tc) : null;
     if (nativeSearchCall) {
       nativeSearchCalls.set(tc.id, nativeSearchCall);
       out.push(nativeSearchCall);
     } else if (isCustomToolCallRecord(tc)) {
-      if (tc.id) customToolCallNameById.set(tc.id, tc.name || '');
+      if (tc.id) customToolCallIds.add(tc.id);
       out.push({
         type: 'custom_tool_call',
         call_id: tc.id,
         name: tc.name,
+        ...namespaceField(tc),
         input: customToolInputFromArguments(tc.name, tc.arguments),
       });
     } else {
@@ -104,20 +127,41 @@ function pushAssistantToolCalls(toolCalls, { out, customToolCallNameById, native
         type: 'function_call',
         call_id: tc.id,
         name: tc.name === 'tool_search' ? 'load_tool' : tc.name,
+        ...namespaceField(tc),
         arguments: JSON.stringify(tc.arguments),
       });
     }
   }
 }
 
+/**
+ * Messages → Responses input items, native-aware. Defaults are the first-party
+ * OpenAI lowering. Gateways that speak the same item types opt in through:
+ *  - `replayProvider`: the providerReplay owner tag accepted for ordered
+ *    replay (default 'openai-responses'); any other owner is never replayed.
+ *  - `replayOwnedReasoning`: keep reasoning items of an accepted ordered
+ *    replay even when `replayEncryptedReasoning` (flattened message
+ *    reasoning) is off.
+ *  - `reasoningByMessageIndex`: same-owner reasoning from provider state,
+ *    injected before the message at that index (or after the last one).
+ *  - `includeSystem`, `nativePdf`, `splitToolContent`, `startIndex`: the
+ *    gateway's system/media/continuation handling.
+ */
 export function convertMessagesToResponsesInput(messages, opts = {}) {
   const out = [];
   const pendingToolMedia = [];
   const pendingToolLoads = [];
-  const customToolCallNameById = new Map();
+  const customToolCallIds = new Set();
   const nativeSearchCalls = new Map();
   const replayEncryptedReasoning = opts.replayEncryptedReasoning === true;
   const wireParity = opts.codexWireParity === true;
+  const replayOwner = opts.replayProvider || 'openai-responses';
+  const replayOwnedReasoning = opts.replayOwnedReasoning ?? replayEncryptedReasoning;
+  // Native tool_search is a per-model capability (gpt-5.4 and later on the
+  // public API); every other caller keeps it.
+  const nativeToolSearch = opts.nativeToolSearch !== false;
+  const nativePdf = opts.nativePdf;
+  const contentOpts = (role) => (nativePdf === undefined ? { role } : { role, nativePdf });
   const wireMessage = (role, content, phase) => ({
     ...(wireParity ? { type: 'message' } : {}),
     role,
@@ -158,11 +202,12 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
     out.push(wireMessage('user', pendingToolMedia.splice(0)));
   };
   const effortUpdates = responsesEffortUpdates(opts.effortProjection);
-  for (const m of messages) {
-    if (!m || m.role === 'system') continue;
+  for (let messageIndex = opts.startIndex || 0; messageIndex < messages.length; messageIndex += 1) {
+    const m = messages[messageIndex];
+    if (!m || (m.role === 'system' && opts.includeSystem !== true)) continue;
     const updates = effortUpdates.before(m);
     if (m.role === 'tool') {
-      pushToolResult(m, { out, pendingToolMedia, pendingToolLoads, customToolCallNameById, nativeSearchCalls, opts });
+      pushToolResult(m, { out, pendingToolMedia, pendingToolLoads, customToolCallIds, nativeSearchCalls, opts });
       continue;
     }
     flushToolMedia();
@@ -171,14 +216,14 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
     // reasoning is explicitly disabled. Never replay another provider's data.
     const orderedReplay =
       m.role === 'assistant'
-        ? providerReplayItems(m, 'openai-responses')?.filter(
-            (item) => replayEncryptedReasoning || item?.type !== 'reasoning'
-          )
+        ? providerReplayItems(m, replayOwner)?.filter((item) => replayOwnedReasoning || item?.type !== 'reasoning')
         : undefined;
     if (orderedReplay?.length) {
-      for (const item of orderedReplay) {
+      for (const replayItem of orderedReplay) {
+        const item = nativeToolSearch ? replayItem : withoutNativeToolSearch(replayItem);
+        if (!item) continue;
         if (item?.type === 'custom_tool_call' && item.call_id) {
-          customToolCallNameById.set(item.call_id, item.name || '');
+          customToolCallIds.add(item.call_id);
         }
         if (item?.type === 'tool_search_call' && item.call_id) {
           nativeSearchCalls.set(item.call_id, item);
@@ -187,27 +232,29 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
       }
       continue;
     }
+    if (opts.reasoningByMessageIndex?.has(messageIndex)) out.push(...opts.reasoningByMessageIndex.get(messageIndex));
     pushReasoningItems(m, 'before');
     if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
       // Legacy sessions may have only flattened messages and reasoning.
       if (m.content)
         out.push(
-          wireMessage('assistant', normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }), m.phase)
+          wireMessage('assistant', normalizeContentForOpenAIResponses(m.content, contentOpts('assistant')), m.phase)
         );
       pushReasoningItems(m, 'after');
-      pushAssistantToolCalls(m.toolCalls, { out, customToolCallNameById, nativeSearchCalls });
+      pushAssistantToolCalls(m.toolCalls, { out, customToolCallIds, nativeSearchCalls, nativeToolSearch });
       continue;
     }
     out.push(
       wireMessage(
-        m.role === 'assistant' ? 'assistant' : 'user',
-        normalizeContentForOpenAIResponses(m.content, { role: m.role }),
+        m.role === 'assistant' || m.role === 'system' ? m.role : 'user',
+        normalizeContentForOpenAIResponses(m.role === 'system' ? m.content || '' : m.content, contentOpts(m.role)),
         m.phase
       )
     );
     pushReasoningItems(m, 'after');
   }
   flushToolMedia();
+  if (opts.reasoningByMessageIndex?.has(messages.length)) out.push(...opts.reasoningByMessageIndex.get(messages.length));
   out.push(...effortUpdates.end());
   // Wire-level pairing guard: replay envelopes can carry a call whose
   // result never committed (cancel/abort). The provider hard-rejects the

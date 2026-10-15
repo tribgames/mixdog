@@ -35,13 +35,19 @@ function dispatchMcp(name, args, { cwd, callerSessionId, sessionRef, executeOpts
   });
 }
 
-function dispatchInternal(name, args, { cwd, callerSessionId, sessionRef, executeOpts, notifyFn, toolApprovalHook }) {
+function dispatchInternal(
+  name,
+  args,
+  { cwd, callerSessionId, sessionRef, executeOpts, notifyFn, toolApprovalHook, elevationApproved }
+) {
   // callerSessionId propagates into server.mjs dispatchTool so that
   // dispatchAiWrapped can detect and reject recursive calls from a
   // hidden-role session (recall/search → self).
   return executeInternalTool(name, args, {
     scopeId: sessionRef?.mcpScopeId || null,
     callerSessionId,
+    // The calling session itself: bridge tools answer within its scope.
+    callerSession: sessionRef || null,
     callerCwd: cwd,
     setCallerCwd: async (nextCwd) => {
       const applyForCaller = sessionRef?._applyResolvedCwdForCaller;
@@ -58,6 +64,8 @@ function dispatchInternal(name, args, { cwd, callerSessionId, sessionRef, execut
     notifyFn,
     toolApprovalHook,
     toolCallId: executeOpts.toolCallId || null,
+    // Runtime-granted for this call only (terminal run); never from model args.
+    elevationApproved: elevationApproved === true,
     invocationSource: 'model-tool',
   });
 }
@@ -90,9 +98,12 @@ export function dispatchToolCall({ name, args }, ctx) {
   // variants) adapt to a native execution inside executeBuiltinTool's default
   // case; on a shape mismatch it falls back to the redirect guidance message.
   if (name === 'shell' || isBuiltinTool(name) || isExternalAdapterTool(name)) {
-    const builtinOpts = executeOpts.suppressReadUnchangedStub
-      ? { ...completionToolOpts, suppressReadUnchangedStub: true }
-      : completionToolOpts;
+    const builtinOpts = {
+      ...completionToolOpts,
+      ...(executeOpts.suppressReadUnchangedStub ? { suppressReadUnchangedStub: true } : {}),
+      // Runtime-granted only; any value inherited from executeOpts is overridden.
+      elevationApproved: ctx.elevationApproved === true,
+    };
     return executeBuiltinTool(name, args, cwd, builtinOpts);
   }
   return formatUnknownBuiltinToolMessage(name, args, 'tool');

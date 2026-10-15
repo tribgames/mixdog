@@ -7,6 +7,10 @@ import {
   ModelProxyChannel,
 } from '../../../../src/runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
 import {
+  pinSessionWireRoute,
+  resolveWireRoute,
+} from '../../../../src/runtime/agent/orchestrator/providers/wire-route.mjs';
+import {
   ModelProxyProvider,
   _resetModelProxyProviderConfigForTest,
   loadModelProxyProviderConfig,
@@ -482,6 +486,58 @@ test('providerConfig tells a server availability and traits only; disallowed pro
     code: 'MODEL_PROXY_PROVIDER_NOT_ALLOWED',
   });
   assert.deepEqual(await new ModelProxyProvider('openai', {}, channel).send([], 'm', undefined, {}), { content: 'x' });
+});
+
+test('a remote session pins its wire through the PC adapter and the pin reaches the PC send', async (t) => {
+  const resolved = [];
+  const sent = [];
+  const provider = {
+    resolveWireRoute: async (model, ctx) => {
+      resolved.push({ model, ctx });
+      return resolveWireRoute('openrouter', model, { ...ctx, override: null });
+    },
+    send: async (messages, model, tools, options) => {
+      sent.push({ route: options.wireRoute, sessionRoute: options.session?.wireRoute });
+      return { content: 'ok' };
+    },
+  };
+  const { channel } = connect(t, fakeRuntime({ openrouter: provider }));
+  const proxy = new ModelProxyProvider('openrouter', {}, channel);
+  // An existing session that already talked to its model keeps Chat (legacy).
+  const model = 'anthropic/claude-opus-4.8';
+  const session = {
+    id: 's1',
+    provider: 'openrouter',
+    model,
+    messages: [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'hello' },
+    ],
+  };
+  const route = await pinSessionWireRoute(session, proxy);
+  assert.equal(route?.wire, 'chat');
+  assert.equal(route.source, 'legacy');
+  assert.deepEqual(resolved, [{ model, ctx: { agent: true, legacy: true } }]);
+  await proxy.send(session.messages, model, undefined, { wireRoute: session.wireRoute, session });
+  assert.deepEqual(sent, [{ route: session.wireRoute, sessionRoute: session.wireRoute }]);
+  // A single-wire PC adapter pins nothing, and is asked once per model.
+  let asked = 0;
+  const { channel: soloChannel } = connect(
+    t,
+    fakeRuntime({
+      openai: {
+        send: async () => ({ content: 'x' }),
+        resolveWireRoute: async () => {
+          asked += 1;
+          return null;
+        },
+      },
+    })
+  );
+  const solo = new ModelProxyProvider('openai', {}, soloChannel);
+  assert.equal(await solo.resolveWireRoute('gpt-x', { agent: true }), null);
+  assert.equal(await solo.resolveWireRoute('gpt-x', { agent: true }), null);
+  assert.equal(asked, 1);
 });
 
 test('at the concurrency cap nothing more is claimed; a freed slot takes up the next call', async (t) => {

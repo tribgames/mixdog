@@ -3,7 +3,7 @@ import { types } from 'node:util';
 import { clean } from './session-text.mjs';
 import { isDeferredToolAvailable } from './deferred-tool-availability.mjs';
 import { finalizeProviderRequestTools } from './provider-request-tools.mjs';
-import { parseToolSelection, ANTHROPIC_NATIVE_PROVIDERS } from './tool-catalog-schema.mjs';
+import { parseToolSelection, nativeProviderFamily, ANTHROPIC_NATIVE_PROVIDERS } from './tool-catalog-schema.mjs';
 
 const OMIT_REQUEST_TOOL_VALUE = Symbol('omit-request-tool-value');
 const MAX_PROVIDER_SNAPSHOT_ARRAY_LENGTH = 1_000_000;
@@ -378,9 +378,13 @@ const requestToolSnapshotMemo = new WeakMap();
 export function snapshotProviderRequestTools(options = {}) {
   const { provider, tools, nativeTools, messages, session } = options;
   const normalizedProvider = clean(provider || session?.provider).toLowerCase();
-  const anthropic = ANTHROPIC_NATIVE_PROVIDERS.has(normalizedProvider);
+  // Server-hosted definitions stay first-party Anthropic only; defer_loading
+  // expansion follows the session's native family, which a gateway gets from
+  // its pinned Messages route with verified support.
+  const firstPartyAnthropic = ANTHROPIC_NATIVE_PROVIDERS.has(normalizedProvider);
+  const anthropic = nativeProviderFamily(normalizedProvider, session?.wireRoute) === 'anthropic';
   const activeTools = entriesOf(tools);
-  const nativeList = anthropic ? entriesOf(nativeTools) : NO_ENTRIES;
+  const nativeList = firstPartyAnthropic ? entriesOf(nativeTools) : NO_ENTRIES;
   const mcpNames = Array.isArray(session?.deferredMcpToolNames) ? session.deferredMcpToolNames : null;
   let base = Array.isArray(tools) ? requestToolSnapshotMemo.get(tools) : null;
   if (

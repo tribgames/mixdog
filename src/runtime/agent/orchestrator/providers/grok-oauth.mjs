@@ -412,6 +412,7 @@ export class GrokOAuthProvider {
       apiKey: token,
       baseURL: PROXY_BASE_URL,
       responsesTransport: resolveGrokOAuthResponsesTransport(),
+      transportPinned: true,
       extraHeaders: requestHeaders,
     });
     this._innerKey = key;

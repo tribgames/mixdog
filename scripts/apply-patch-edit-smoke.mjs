@@ -134,6 +134,11 @@ try {
   );
   const afterDelete = await getTurnReviewDiff(tmp, reviewSession);
   assert(
+    JSON.stringify(afterDelete.files.map((file) => [file.path, file.additions, file.deletions])) ===
+      JSON.stringify([['target.txt', 1, 1]]),
+    `turn review files did not carry the own-edit counts:\n${JSON.stringify(afterDelete.files)}`
+  );
+  assert(
     /target\.txt/.test(afterDelete.patch) && !/created\.txt/.test(afterDelete.patch),
     `add-then-delete did not cancel from the turn diff:\n${afterDelete.patch}`
   );
@@ -170,6 +175,11 @@ try {
     'apply_patch rename did not write the destination contents'
   );
   const review = await getTurnReviewDiff(tmp, reviewSession);
+  const renamed = review.files.find((file) => file.path === 'nested/rename-destination.txt');
+  assert(
+    renamed?.oldPath === 'rename-source.txt' && renamed.additions === 1 && renamed.deletions === 1,
+    `turn review did not count the rename's own edit:\n${JSON.stringify(review.files)}`
+  );
   assert(
     review.authoritative === true && /-beta/.test(review.patch) && /\+bravo/.test(review.patch),
     `turn review did not retain the first-before/latest-after diff:\n${review.patch}`

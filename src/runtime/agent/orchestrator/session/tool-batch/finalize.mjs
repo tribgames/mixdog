@@ -319,7 +319,7 @@ function stagePostProcessingFailure(batch, completed, postErr, postprocessStarte
   if (sessionRef?._scopedCacheOutcomeByCallId instanceof Map && call?.id) {
     sessionRef._scopedCacheOutcomeByCallId.delete(call.id);
   }
-  if (call?.id) restoreToolCallBodyForId(batch.assistantTurnMsg, batch.calls, call.id);
+  if (call?.id) restoreToolCallBodyForId(batch.assistantTurnMsg, batch.wireCalls, call.id);
   const message = `Error: tool result post-processing failed for "${call.name}": ${postErr instanceof Error ? postErr.message : String(postErr)}`;
   traceAgentToolFailure({
     sessionId: batch.sessionId,

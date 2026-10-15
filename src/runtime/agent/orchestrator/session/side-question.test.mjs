@@ -337,3 +337,34 @@ test('agent sessions capture nothing', async () => {
   await sendMain('btw-agent', provider, { owner: 'agent' });
   assert.equal(sideQuestionRequest('btw-agent'), null);
 });
+
+test('the fork inherits the wire route the main request was pinned to', async () => {
+  const route = { provider: 'anthropic', model: 'claude-test', wire: 'messages', nativeDeferredTools: true };
+  const provider = scriptedProvider(MAIN_REPLY, { content: 'ok', usage: null });
+  const { state } = mainState('btw-route', provider);
+  state.opts.wireRoute = route;
+  await sendProviderRequest(state, mainState('btw-route', provider).round);
+  assert.equal(sideQuestionRequest('btw-route').opts.wireRoute, route);
+  await askSideQuestion('btw-route', 'Which wire?');
+  assert.equal(provider.calls.at(-1).opts.wireRoute, route);
+  forgetSideQuestion('btw-route');
+});
+
+test('a restored session forks with the wire route it was pinned to', async () => {
+  const route = { provider: 'anthropic', model: 'claude-test', wire: 'messages', nativeDeferredTools: true };
+  const provider = scriptedProvider({ content: 'ok', usage: null });
+  storedSession(
+    'btw-route-restored',
+    [
+      { role: 'system', content: 'You are the Lead.' },
+      { role: 'user', content: 'Refactor the parser.' },
+      { role: 'assistant', content: 'Reading the parser first.' },
+    ],
+    { wireRoute: route }
+  );
+  await _withRegisteredProviderForTestAsync('anthropic', provider, async () => {
+    await askSideQuestion('btw-route-restored', 'Which wire?');
+  });
+  assert.equal(provider.calls[0].opts.wireRoute, route);
+  _clearLiveSession('btw-route-restored');
+});

@@ -253,7 +253,8 @@ function assertNativeCustomApplyPatch() {
   }
 }
 
-// Grok keeps one fixed canonical ordinary-function surface, never native loading.
+// Grok keeps one fixed ordinary-function bridge surface, never native loading:
+// load_tool describes and never changes the surface.
 function assertGrokCanonicalSurface() {
   const grokCanonicalSession = { provider: 'grok-oauth', model: 'grok-code-fast-1', tools: [], messages: [] };
   applyDeferredToolSurface(grokCanonicalSession, 'full', smokeCatalog, { provider: 'grok-oauth' });
@@ -261,11 +262,12 @@ function assertGrokCanonicalSurface() {
   const grokLoadResult = JSON.parse(__renderToolSearchForTest({ names: ['edit'] }, grokCanonicalSession, 'full'));
   if (
     grokCanonicalSession.deferredNativeTools ||
+    grokCanonicalSession.toolExposureMode !== 'bridge-v1' ||
     grokLoadResult.nativeToolSearch ||
     JSON.stringify(grokCanonicalSession.tools) !== grokCanonicalJson ||
-    !grokLoadResult.alreadyActive.includes('edit')
+    !grokLoadResult.entries?.some((entry) => entry.name === 'edit')
   ) {
-    throw new Error(`Grok must use a fixed canonical ordinary-function surface: ${JSON.stringify(grokLoadResult)}`);
+    throw new Error(`Grok must use a fixed ordinary-function bridge surface: ${JSON.stringify(grokLoadResult)}`);
   }
 }
 
@@ -375,9 +377,14 @@ test('late MCP reconciliation: Gemini manifests and native typed deltas', () => 
   if (JSON.stringify(geminiManifestSession.tools) !== geminiTurnManifest) {
     throw new Error('Gemini manifest changed within a user turn');
   }
+  // A late tool joins the bridge catalog and is announced; the fixed surface keeps its bytes.
   reconcileDeferredMcpToolCatalog(geminiManifestSession, [geminiLate]);
-  if (!geminiManifestSession.tools.some((tool) => tool.name === 'mcp__gemini__late')) {
-    throw new Error('Gemini must adopt the complete ordered live manifest at reconciliation');
+  if (
+    JSON.stringify(geminiManifestSession.tools) !== geminiTurnManifest ||
+    !geminiManifestSession.deferredLateToolCatalog?.some((tool) => tool.name === 'mcp__gemini__late') ||
+    !geminiManifestSession.pendingDeferredToolDelta?.added?.some((entry) => entry.name === 'mcp__gemini__late')
+  ) {
+    throw new Error('Gemini must announce a late MCP tool and keep its fixed bridge surface');
   }
   const nativeLateSession = {
     provider: 'openai-oauth',

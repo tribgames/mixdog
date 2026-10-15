@@ -8,9 +8,15 @@ import type { DesktopBrowserPageControl, DesktopBrowserViewportConfig } from '..
 import type { BrowserCommand } from './command';
 import type { BrowserUrlPolicy } from './url-policy';
 
-export function browserUrlPolicyFromEnvironment(): BrowserUrlPolicy {
+/** Private/LAN/Tailscale addresses are the user's own network when the browser
+ *  and the session's work both run on this PC, so they are allowed there. A
+ *  session working against a remote server keeps them blocked. The env flag
+ *  forces them allowed either way. Cloud metadata endpoints are blocked by
+ *  url-policy regardless of this stance. */
+export function browserUrlPolicyFromEnvironment(session: { remote: boolean }): BrowserUrlPolicy {
   return {
-    allowPrivateNetwork: /^(?:1|true|yes)$/i.test(String(process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK || '')),
+    allowPrivateNetwork:
+      !session.remote || /^(?:1|true|yes)$/i.test(String(process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK || '')),
     allowedDomains: String(process.env.MIXDOG_BROWSER_ALLOWED_DOMAINS || '')
       .split(',')
       .map((domain) => domain.trim())

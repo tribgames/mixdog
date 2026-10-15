@@ -14,16 +14,33 @@ import {
   toOpenAITools,
   parseToolCalls,
   knownToolNamesFromOpenAITools,
-  deepseekReplaysReasoningContent,
 } from './openai-compat-wire.mjs';
-import { applyCompatProviderChatOptions } from './openai-compat-options.mjs';
+import { applyCompatProviderChatOptions, deepseekThinkingMode } from './openai-compat-options.mjs';
 import { normalizeCompatChatResponse } from './openai-compat-response-normalization.mjs';
 import { applyCompatToolChoice, compatStreamRetryReporter } from './compat-request-policy.mjs';
 import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import { xaiCacheRouting } from './openai-compat-xai.mjs';
 import { compatRetryOptions, withCompatRetryProfile } from './openai-compat-retry-profile.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
-import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
+import { customWireFormat, isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
+import { compatReasoningShape, isTogetherBaseURL, readChatMessage } from './openai-compat-reasoning-field.mjs';
+
+// Endpoint families with their own reasoning field (Together, vLLM, Groq,
+// Mistral, OpenRouter); a custom provider's row may declare the vLLM format.
+function reasoningShapeFor(provider, modelInfo) {
+  return compatReasoningShape({
+    providerName: provider.name,
+    baseURL: provider.baseURL,
+    wireFormat: isCustomProviderName(provider.name) ? customWireFormat(modelInfo, provider.baseURL) : undefined,
+  });
+}
+
+// The `developer` role is documented by MiMo and by Together's gpt-oss models;
+// every other chat endpoint only knows `system`.
+function keepsDeveloperRole(provider, profile, useModel) {
+  if (profile?.developerRole === true) return true;
+  return isTogetherBaseURL(provider.baseURL) && /gpt-oss/i.test(String(useModel || ''));
+}
 
 export async function sendCompatChat(provider, messages, useModel, tools, opts) {
   const signal = opts.signal || null;
@@ -49,13 +66,17 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
         protocol: 'openai-chat',
         model: modelInfo,
         effort: opts.effort ?? provider.config?.reasoningEffort,
+        baseURL: provider.baseURL,
       })
     : null;
+  // DeepSeek thinking models need the prior reasoning_content back once tools
+  // are in play and ignore it otherwise, so it always goes back.
   const replaysReasoningContent = isCustom
     ? customReasoning.replay
     : modelInfo?.reasoningContentField === 'reasoning_content' ||
       profile?.replaysReasoningContent === true ||
-      (provider.name === 'deepseek' && deepseekReplaysReasoningContent(useModel));
+      provider.name === 'deepseek';
+  const reasoningShape = reasoningShapeFor(provider, modelInfo);
   messages = await preparePdfTextForProvider(messages, provider);
   const params = {
     model: useModel,
@@ -65,21 +86,38 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
     messages: ensureChatToolPairs(
       toOpenAIMessages(messages, provider.name, {
         replaysReasoningContent,
+        ...(reasoningShape ? { reasoningShape } : {}),
         ...(isCustom ? { customReplay: customReasoning.replay } : {}),
+        ...(keepsDeveloperRole(provider, profile, useModel) ? { developerRole: true } : {}),
         nativePdf: provider.nativePdf,
+        cacheControl: provider.chatCacheControl === true,
       })
     ),
   };
   const maxOutputTokens = resolveCompatMaxOutputTokens(opts);
   if (maxOutputTokens) params.max_tokens = maxOutputTokens;
   if (tools?.length) params.tools = toOpenAITools(tools);
-  applyCompatToolChoice(params, opts);
+  // A forced tool_choice goes out only on the documented providers; DeepSeek
+  // gets it only with thinking explicitly disabled (never silently in thinking
+  // mode, and never as an error for a turn whose thinking is enabled).
+  applyCompatToolChoice(params, opts, {
+    provider: provider.name,
+    baseURL: provider.baseURL,
+    wire: 'chat',
+    thinking:
+      provider.name === 'deepseek' && deepseekThinkingMode(opts, provider.config) === 'disabled' ? 'disabled' : null,
+  });
   applyCompatProviderChatOptions(params, provider.name, opts, provider.config, modelInfo);
   profile?.applyParams?.(params, { opts, config: provider.config, modelInfo });
   const firstByteTimeoutMs = profile?.firstByteTimeoutMs || PROVIDER_FIRST_BYTE_TIMEOUT_MS;
   const totalSignal = createPassthroughSignal(signal);
   const cacheRouting = provider.name === 'xai' ? xaiCacheRouting(opts, params, tools || [], useModel) : null;
   const cacheRoutingKey = cacheRouting?.key || null;
+  // xAI Chat pins a conversation to the server holding its cached prefix with
+  // the x-grok-conv-id header (the Responses equivalent is prompt_cache_key).
+  const requestHeaders = cacheRoutingKey
+    ? { 'x-grok-conv-id': cacheRoutingKey, ...(opts.requestHeaders || {}) }
+    : opts.requestHeaders;
   params.stream = true;
   params.stream_options = { include_usage: true };
   let assembled;
@@ -96,7 +134,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
             ({ signal: openSignal }) =>
               provider.client.chat.completions.create(params, {
                 signal: openSignal,
-                ...(opts.requestHeaders ? { headers: opts.requestHeaders } : {}),
+                ...(requestHeaders ? { headers: requestHeaders } : {}),
               }),
             {
               signal: attemptSignal,
@@ -152,7 +190,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
       const recovered = await provider._recoverCompatNonStreaming({
         streamErr,
         params,
-        opts,
+        opts: requestHeaders === opts.requestHeaders ? opts : { ...opts, requestHeaders },
         signal: totalSignal.signal,
         useModel,
       });
@@ -172,6 +210,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
     cacheRoutingKey,
     cacheRouting,
     replaysReasoningContent,
+    reasoningShape,
   });
 }
 
@@ -236,13 +275,17 @@ export async function recoverCompatNonStreaming(provider, { streamErr, params, o
     /* best-effort */
   }
   traceNonStreamingFallback({ provider: provider.name, model: useModel, opts, streamErr });
+  const { content, reasoningContent, reasoningSource } = readChatMessage(message, {
+    shape: reasoningShapeFor(provider, provider.getCachedModelInfo?.(useModel) || null),
+  });
   return {
     response,
     model: response.model || useModel,
-    content: typeof message.content === 'string' ? message.content : '',
+    content,
     toolCalls,
     stopReason: choice.finish_reason || null,
-    reasoningContent: typeof message.reasoning_content === 'string' ? message.reasoning_content : null,
+    reasoningContent,
+    reasoningSource,
     rawUsage: response.usage || null,
   };
 }

@@ -30,10 +30,10 @@ test('Gemini thinking controls preserve explicit values and reject only what the
     thinkingBudget: 0,
   });
   assert.deepEqual(geminiThinkingConfig('gemini-2.5-pro', { thinkingBudgetTokens: -1 }), { thinkingBudget: -1 });
-  // Level and budget values go to the server unjudged: no per-model tables.
-  assert.deepEqual(geminiThinkingConfig('gemini-3.8-flash', { effort: 'minimal' }), { thinkingLevel: 'minimal' });
-  assert.deepEqual(geminiThinkingConfig('gemini-2.5-pro', { thinkingBudget: 0 }), { thinkingBudget: 0 });
-  assert.deepEqual(geminiThinkingConfig('gemini-2.5-flash', { thinkingBudget: 30000 }), { thinkingBudget: 30000 });
+  assert.deepEqual(geminiThinkingConfig('gemini-3.6-flash', { effort: 'minimal' }), { thinkingLevel: 'minimal' });
+  assert.throws(() => geminiThinkingConfig('gemini-3.8-flash', { effort: 'minimal' }), /supports thinking levels low, medium, high/);
+  assert.throws(() => geminiThinkingConfig('gemini-2.5-pro', { thinkingBudget: 0 }), /cannot disable/);
+  assert.throws(() => geminiThinkingConfig('gemini-2.5-flash', { thinkingBudget: 30000 }), /0, or 0–24576/);
   // Only values outside the wire's own vocabulary fail locally.
   assert.throws(() => geminiThinkingConfig('gemini-3.1-pro', { effort: 'max' }), /supports thinking levels/);
   assert.throws(() => geminiThinkingConfig('gemini-2.5-pro', { thinkingBudget: -2 }), /thinkingBudget must be/);
@@ -121,17 +121,14 @@ test('a catalog ladder decides the allowed levels for any id, whatever its name 
   catalogRows.set('gemini:gemini-3.1-pro', effortRow('minimal', 'high'));
   assert.deepEqual(geminiThinkingConfig('gemini-3.1-pro', { effort: 'minimal' }), { thinkingLevel: 'minimal' });
   assert.throws(() => geminiThinkingConfig('gemini-3.1-pro', { effort: 'medium' }), /supports thinking levels minimal, high/);
-  catalogRows.set('gemini:gemini-2.5-flash', effortRow('low', 'high'));
-  assert.deepEqual(geminiThinkingConfig('gemini-2.5-flash', { effort: 'high' }), { thinkingLevel: 'high' });
-  assert.throws(() => geminiThinkingConfig('gemini-2.5-flash', { effort: 'medium' }), /supports thinking levels low, high/);
   // A catalog row with no effort ladder declares nothing, so the value passes through.
-  catalogRows.set('gemini:gemini-3.8-flash', { supportsReasoning: true, reasoningOptions: [] });
-  assert.deepEqual(geminiThinkingConfig('gemini-3.8-flash', { effort: 'minimal' }), { thinkingLevel: 'minimal' });
+  catalogRows.set('gemini:gemini-3.6-flash', { supportsReasoning: true, reasoningOptions: [] });
+  assert.deepEqual(geminiThinkingConfig('gemini-3.6-flash', { effort: 'minimal' }), { thinkingLevel: 'minimal' });
 });
 
 test('a hypothetical future id needs no code change: without catalog data the wire vocabulary passes through', () => {
   catalogRows.clear();
-  for (const model of ['gemini-4-argon', 'gemini-4.2-pro', 'gemini-12-flash', 'models/gemini-4-argon', 'gemini-2.5-flash']) {
+  for (const model of ['gemini-4.2-pro', 'gemini-12-flash']) {
     for (const level of ['minimal', 'low', 'medium', 'high']) {
       assert.deepEqual(geminiThinkingConfig(model, { effort: level }), { thinkingLevel: level }, `${model} ${level}`);
     }
@@ -163,21 +160,24 @@ const imageHistory = () => [
   },
 ];
 
-test('image tool results are sibling inlineData parts right after the functionResponse, for every id', () => {
-  const expected = [
-    { functionResponse: { name: 'read', id: 'call_1', response: { result: 'Image read successfully' } } },
-    { inlineData: { mimeType: 'image/png', data: IMAGE_DATA } },
-  ];
-  for (const model of ['gemini-2.5-pro', 'gemini-3-pro-preview', 'gemini-4-argon', 'models/gemini-11-future', '']) {
+test('image tool results nest in functionResponse.parts on Gemini 3+, and stay siblings elsewhere', () => {
+  const response = { name: 'read', id: 'call_1', response: { result: 'Image read successfully' } };
+  const image = { inlineData: { mimeType: 'image/png', data: IMAGE_DATA } };
+  for (const model of ['gemini-2.5-pro', '', 'claude-opus-4-6-thinking']) {
+    const contents = toGeminiContents(imageHistory(), model);
+    assert.equal(contents.length, 3, model);
+    assert.deepEqual(contents[2].parts, [{ functionResponse: response }, image], model);
+  }
+  for (const model of ['gemini-3-pro-preview', 'gemini-4-argon', 'models/gemini-11-future']) {
     const contents = toGeminiContents(imageHistory(), model);
     assert.equal(contents.length, 3, model);
     assert.equal(contents[1].parts[0].functionCall.id, 'call_1', model);
     assert.equal(contents[2].role, 'user', model);
-    assert.deepEqual(contents[2].parts, expected, model);
+    assert.deepEqual(contents[2].parts, [{ functionResponse: { ...response, parts: [image] } }], model);
   }
 });
 
-test('parallel tool results share one turn: every functionResponse first, then the media siblings', () => {
+test('parallel tool results share one turn: each result keeps its own media, every functionResponse first', () => {
   const history = [
     { role: 'user', content: 'inspect both' },
     {
@@ -191,22 +191,27 @@ test('parallel tool results share one turn: every functionResponse first, then t
     { role: 'tool', toolCallId: 'call_1', content: imageHistory()[2].content },
     { role: 'tool', toolCallId: 'call_2', content: 'second result' },
   ];
-  for (const model of ['gemini-2.5-pro', 'gemini-4-argon']) {
-    const contents = toGeminiContents(history, model);
-    assert.equal(contents.length, 3, model);
-    assert.deepEqual(
-      contents[2].parts.map((part) => Object.keys(part)[0]),
-      ['functionResponse', 'functionResponse', 'inlineData'],
-      model
-    );
-    assert.deepEqual(
-      contents[2].parts.slice(0, 2).map((part) => part.functionResponse.id),
-      ['call_1', 'call_2'],
-      model
-    );
-    assert.equal(contents[2].parts[2].inlineData.data, IMAGE_DATA);
-    assert.equal(JSON.stringify(contents).includes('tool_media'), false);
-  }
+  const legacy = toGeminiContents(history, 'gemini-2.5-pro');
+  assert.equal(legacy.length, 3);
+  assert.deepEqual(
+    legacy[2].parts.map((part) => Object.keys(part)[0]),
+    ['functionResponse', 'functionResponse', 'inlineData']
+  );
+  assert.equal(legacy[2].parts[2].inlineData.data, IMAGE_DATA);
+
+  const contents = toGeminiContents(history, 'gemini-4-argon');
+  assert.equal(contents.length, 3);
+  assert.deepEqual(
+    contents[2].parts.map((part) => Object.keys(part)[0]),
+    ['functionResponse', 'functionResponse']
+  );
+  assert.deepEqual(
+    contents[2].parts.map((part) => part.functionResponse.id),
+    ['call_1', 'call_2']
+  );
+  assert.equal(contents[2].parts[0].functionResponse.parts[0].inlineData.data, IMAGE_DATA);
+  assert.equal('parts' in contents[2].parts[1].functionResponse, false);
+  assert.equal(JSON.stringify(contents).includes('tool_media'), false);
 });
 
 test('the unsigned current-turn functionCall is repaired for the whole Gemini family, never for other families', () => {

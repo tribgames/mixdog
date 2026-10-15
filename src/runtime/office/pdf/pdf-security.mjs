@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { writeFile, rm, rename } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { noteOfficeWrite } from '../core/office-write-ledger.mjs';
 
 // qpdf on PATH, or wherever MIXDOG_QPDF_PATH points (the Windows installer
 // does not add itself to PATH).
@@ -89,6 +90,7 @@ export async function securePdf({ input, output, mode, password = '', ownerPassw
       ? ['--encrypt', password, ownerPassword || password, '256', '--', input, target]
       : [`--password=${password}`, '--decrypt', input, target];
   await writeFile(responsePath, `${args.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
+  noteOfficeWrite(output);
   try {
     await run(QPDF, [`@${responsePath}`]);
     if (samePath) await rename(target, output);

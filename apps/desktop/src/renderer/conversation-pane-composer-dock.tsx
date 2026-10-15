@@ -184,6 +184,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
       quotaResume={island.quotaResume}
       onOpenSessionDiff={onOpenSessionDiff}
       onOpenAgentSession={onOpenAgentSession}
+      workspace={draftMode ? null : (routeSnapshot.workspace ?? null)}
       showProjectSelector={showProjectSelector}
       contextBar={conversationContextBar(props)}
       reviewItems={submission.reviewItems}

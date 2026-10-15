@@ -614,6 +614,7 @@ export class GeminiProvider {
       }
       throw incomplete;
     }
+    textLeakGuard?.releaseDeferredToolCalls?.();
     emitGeminiToolCalls(parsed.nativeToolCalls, callbacks.onToolCall);
     return geminiSendResult(parsed, useModel, opts, usage);
   }

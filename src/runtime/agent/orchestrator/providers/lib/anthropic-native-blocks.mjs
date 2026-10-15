@@ -19,6 +19,7 @@ export const NATIVE_SERVER_TOOL_RESULT_BLOCK_TYPES = new Set([
   'bash_code_execution_tool_result',
   'text_editor_code_execution_tool_result',
   'mcp_tool_result',
+  'tool_search_tool_result',
 ]);
 
 export function isNativeServerToolBlockType(type) {

@@ -16,6 +16,7 @@ import { fastModeAvailable } from './anthropic-fast-mode.mjs';
 import { applyAnthropicEffortToBody, shouldIncludeEffortBeta } from './anthropic-effort.mjs';
 import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
 import {
+  anthropicThinkingActive,
   applyAnthropicCacheMarkers,
   clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
   resolveAnthropicCacheTtls as resolveCacheTtls,
@@ -55,13 +56,20 @@ export async function buildAnthropicApiRequest({
   opts,
   fastModeLatched,
   modelInfo = null,
+  // The Claude id a gateway slug stands for (OpenRouter `anthropic/claude-opus-4.8`
+  // → `claude-opus-4.8`): the output cap and the thinking/effort shape are read
+  // from it, while the wire still names `useModel`.
+  capabilityModel = useModel,
+  // A gateway-supplied output limit for the model; wins over the Anthropic catalog.
+  modelMaxOutputTokens = opts?.modelMaxOutputTokens ?? null,
 }) {
   // A user-defined provider's reasoning comes from its own model row only:
   // the global by-model-id capability index and the Claude-id ladders are
   // first-party knowledge and must not leak onto (or from) a custom endpoint.
   const isCustom = isCustomProviderName(name);
-  const maxTokens = resolveMaxTokens(useModel);
+  const maxTokens = resolveMaxTokens(capabilityModel, { modelMaxOutputTokens });
   const effortOptions = { ...config, ...opts, disableBetaHeaders: config?.disableBetaHeaders };
+  const gatewayEffort = typeof config?.messagesEffort === 'function' ? config.messagesEffort(opts) : null;
   const effortProjection = projectEffortConfiguration(messages, name, useModel, effortOptions);
   const ttls = resolveCacheTtls(opts);
 
@@ -71,13 +79,13 @@ export async function buildAnthropicApiRequest({
   // (cacheTier:'tier3') at ttls.tier3 — each its own system content block.
   const systemBlocks = buildSystemBlocks(systemMsgs, ttls.system, ttls.tier3);
 
-  // Message-tail cache budget (4-BP layout + ANTHROPIC_MSG_SLOTS) is
-  // shared with anthropic-oauth — see resolveAnthropicMessageCacheSlots.
-  const messageCacheSlots = resolveAnthropicMessageCacheSlots(systemBlocks, ttls);
   // Tools are resolved BEFORE the messages: the lowering needs the final
   // tool list to drop tool_reference blocks whose tool no longer ships
   // in this request (otherwise the API rejects the whole turn).
-  const requestTools = requestAnthropicTools(tools, chatMsgs, opts);
+  const requestTools = requestAnthropicTools(tools, chatMsgs, opts, name);
+  // Message-tail cache budget (4-BP layout + ANTHROPIC_MSG_SLOTS) is
+  // shared with anthropic-oauth — see resolveAnthropicMessageCacheSlots.
+  const messageCacheSlots = resolveAnthropicMessageCacheSlots(systemBlocks, ttls, { tools: requestTools });
   // Build → sanitize (once, inside toAnthropicMessages) → mark. Markers
   // are applied to the FINAL sanitized array by invariant, so block
   // drops / inserts / reorders performed by the sanitizer can never move
@@ -85,7 +93,7 @@ export async function buildAnthropicApiRequest({
   const lowerHistory = (history, projection) =>
     lowerAnthropicEffortHistory(
       history.filter((m) => m.role !== 'system'),
-      (segment) => toAnthropicMessages(segment, requestTools),
+      (segment) => toAnthropicMessages(segment, requestTools, name),
       projection
     );
   const anthropicMessages = applyAnthropicCacheMarkers(
@@ -115,10 +123,9 @@ export async function buildAnthropicApiRequest({
   // tool_choice only when tools are actually present (Anthropic rejects
   // tool_choice without tools). 'none' rides the hard-cap final turn to
   // forbid tool USE while keeping the tools prefix stable for cache reuse.
-  if (params.tools) {
-    const toolChoice = toAnthropicToolChoice(opts.toolChoice);
-    if (toolChoice) params.tool_choice = toolChoice;
-  }
+  // The key is reserved here (wire key order) and resolved once thinking is
+  // known: forced any/tool is invalid while thinking is enabled.
+  if (params.tools) params.tool_choice = undefined;
   const hasDeferredTools = Array.isArray(params.tools) && params.tools.some((tool) => tool?.defer_loading === true);
   // Known tool names for the shared parseSSEStream leaked-tool-call guard
   // (same guard fixes both Anthropic providers). Recovered leaked calls
@@ -136,15 +143,29 @@ export async function buildAnthropicApiRequest({
     });
     if (fields.thinking) params.thinking = fields.thinking;
     if (fields.output_config) params.output_config = { ...(params.output_config || {}), ...fields.output_config };
-  } else {
+  } else if (gatewayEffort !== 'none') {
+    // A gateway's own reasoning control (`messagesEffort`) replaces the turn
+    // effort; 'none' sends no thinking at all.
+    const turnOpts = effortProjection ? { ...opts, effort: effortProjection.initialEffort } : opts;
     applyAnthropicEffortToBody(params, {
-      model: useModel,
-      opts: effortProjection ? { ...opts, effort: effortProjection.initialEffort } : opts,
+      model: capabilityModel,
+      opts: gatewayEffort ? { ...turnOpts, effort: gatewayEffort } : turnOpts,
       maxTokens,
       clampThinkingBudgetTokens,
       logTag: name,
       progressUpdates: config?.disableBetaHeaders !== true,
     });
+  }
+  if (params.tools) {
+    const toolChoice = toAnthropicToolChoice(opts.toolChoice, {
+      thinking: anthropicThinkingActive(params),
+      disableParallelToolUse: opts.disableParallelToolUse === true,
+      // A gateway that cannot honour disable_parallel_tool_use declares so.
+      supportsDisableParallelToolUse: config?.supportsDisableParallelToolUse !== false,
+      onThinkingConflict: opts.toolChoiceThinkingConflict,
+    });
+    if (toolChoice) params.tool_choice = toolChoice;
+    else delete params.tool_choice;
   }
   // Fast mode → speed: "fast" on models Anthropic marks as speed-capable.
   // Suppressed while the fast capacity pool is cooling down.
@@ -176,7 +197,7 @@ export async function buildAnthropicApiRequest({
         fastMode: fastLatched,
         toolSearch: hasDeferredTools,
         // Custom: the beta follows the resolver's output, not the model id.
-        effort: isCustom ? Boolean(params.output_config?.effort) : shouldIncludeEffortBeta(useModel, opts),
+        effort: isCustom ? Boolean(params.output_config?.effort) : shouldIncludeEffortBeta(capabilityModel, opts),
         serverFallback: params.fallbacks === 'default',
         thinkingDisplayUpdates: params.thinking?.display === 'updates',
       }),

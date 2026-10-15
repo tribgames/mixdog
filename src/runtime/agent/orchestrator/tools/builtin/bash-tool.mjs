@@ -61,7 +61,9 @@ export async function executeBashTool(args, workDir, options = {}) {
   // Every call starts from the current Project root. A command-local `cd`
   // never creates a second session cwd authority beside the dedicated cwd tool.
   const bashWorkDir = workDir;
-  const prepared = prepareShellCommand(args);
+  // Approval comes from the runtime's options, never from model-supplied args.
+  const elevationApproved = options?.elevationApproved === true;
+  const prepared = prepareShellCommand(args, { elevationApproved });
   if (prepared.failure) return prepared.failure;
   const { resolvedSpec, wmicRewrite, bashismRewrite } = prepared;
   // Effects are analyzed on the command as the caller meant it, before the
@@ -97,6 +99,7 @@ export async function executeBashTool(args, workDir, options = {}) {
       command: invocation.wrappedCommand,
       execScript: invocation.execScript,
       directArgv: invocation.directArgv,
+      elevationApproved,
       env: invocation.spawnEnv,
       cwd: bashWorkDir,
       timeoutMs: deadlines.timeout,

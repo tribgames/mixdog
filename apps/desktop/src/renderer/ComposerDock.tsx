@@ -2,7 +2,9 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ComposerQueueTrayContext } from './composer-island-state';
 import { ComposerIsland, type ComposerIslandFlash, type ComposerIslandQuotaResume } from './ComposerIsland';
 import { ComposerQuotaCard, type ComposerQuotaCardModel } from './ComposerQuotaCard';
+import type { DesktopSessionWorkspace } from '../shared/contract';
 import type { TranscriptItem } from './desktop-types';
+import { WorktreeIslandSegment } from './WorktreeIslandSegment';
 import { SessionGoalHost } from './session-goal-submission';
 import { requestSessionDiffList } from './session-diff-focus';
 
@@ -41,6 +43,7 @@ export function ComposerDock({
   reviewCwd,
   onOpenSessionDiff,
   onOpenAgentSession,
+  workspace,
   children,
 }: {
   /** The pane's visible session ('' while hidden or a draft): the island's
@@ -68,9 +71,12 @@ export function ComposerDock({
   onOpenSessionDiff?: () => void;
   /** The jobs panel opens an agent's session. */
   onOpenAgentSession?: (sessionId: string, title: string, ownerSessionId: string) => void;
+  /** The session's live workspace: a worktree adds the island's worktree segment. */
+  workspace?: DesktopSessionWorkspace | null;
   children: ReactNode;
 }) {
   const [reviewModule, setReviewModule] = useState(() => loadedReviewModule);
+  const [worktreeFlash, setWorktreeFlash] = useState<ComposerIslandFlash | null>(null);
   const [moduleFailure, setModuleFailure] = useState<{ error: unknown } | null>(null);
   const [queueTray, setQueueTray] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -130,8 +136,16 @@ export function ComposerDock({
           onOpenAgentSession={onOpenAgentSession}
           goal={<SessionGoalHost submissionId={goalSubmissionId}>{goalIsland}</SessionGoalHost>}
           files={files}
+          worktree={
+            <WorktreeIslandSegment
+              sessionId={sessionId}
+              workspace={workspace}
+              onViewChanges={openChanges}
+              onFlash={setWorktreeFlash}
+            />
+          }
           approval={approval}
-          flash={islandFlash}
+          flash={islandFlash ?? worktreeFlash}
           quotaResume={quotaResume}
         />
       )}

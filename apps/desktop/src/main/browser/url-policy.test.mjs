@@ -1,7 +1,37 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { normalizeAgentUrl, normalizePageUrl, normalizeRestoredPageUrl } from './url-policy.ts';
+import { browserUrlPolicyFromEnvironment } from './host-policy.ts';
+import {
+  assertResolvedAddressAllowed,
+  normalizeAgentUrl,
+  normalizePageUrl,
+  normalizeRestoredPageUrl,
+} from './url-policy.ts';
+
+test('a local session allows LAN and Tailscale addresses, a remote session blocks them, metadata is always blocked', (t) => {
+  const saved = process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK;
+  t.after(() => {
+    if (saved === undefined) delete process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK;
+    else process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK = saved;
+  });
+  delete process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK;
+  const local = browserUrlPolicyFromEnvironment({ remote: false });
+  const remote = browserUrlPolicyFromEnvironment({ remote: true });
+  for (const address of ['192.168.1.10', '100.101.102.103']) {
+    assert.equal(normalizeAgentUrl(`http://${address}/`, local), `http://${address}/`);
+    assert.equal(normalizePageUrl(`http://${address}/`, local), `http://${address}/`);
+    assert.doesNotThrow(() => assertResolvedAddressAllowed(address, address, local));
+    assert.throws(() => normalizeAgentUrl(`http://${address}/`, remote), /private or internal/);
+    assert.throws(() => normalizePageUrl(`http://${address}/`, remote), /private or internal/);
+    assert.throws(() => assertResolvedAddressAllowed(address, address, remote), /private or internal/);
+  }
+  for (const policy of [local, remote]) {
+    assert.throws(() => normalizeAgentUrl('http://169.254.169.254/latest/meta-data', policy), /metadata/);
+    assert.throws(() => normalizePageUrl('http://169.254.169.254/latest/meta-data', policy), /metadata/);
+    assert.throws(() => assertResolvedAddressAllowed('169.254.169.254', 'metadata.test', policy), /metadata/);
+  }
+});
 
 test('browser URL policy blocks credentials, metadata, and private networks but keeps loopback', () => {
   assert.equal(normalizeAgentUrl('example.com'), 'https://example.com/');

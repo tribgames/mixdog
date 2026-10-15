@@ -7,6 +7,7 @@ import {
   selectDeferredTools,
 } from '../../runtime-core/tool-catalog.mjs';
 import { isDeferredToolAvailable } from '../../runtime-core/deferred-tool-availability.mjs';
+import { isBridgeReadonlySession, isToolBridgeEnabled } from '../../runtime-core/tool-bridge.mjs';
 
 /** Skill-list plumbing only; mutation/MCP/builtins must use the catalog+mode gate. */
 const INACTIVE_INFRA_BYPASS = new Set(['skills_list', 'skill_view']);
@@ -41,7 +42,7 @@ function toolExecutesWhenInactive(name) {
   return INACTIVE_INFRA_BYPASS.has(name);
 }
 
-function resolveDeferredSelectMode(session) {
+export function resolveDeferredSelectMode(session) {
   const spec = session?.toolSpec;
   if (spec == null || spec === '') return null;
   if (spec === 'readonly') return 'readonly';
@@ -93,16 +94,26 @@ export function prepareDeferredToolCallThrough(sessionRef, name) {
   if (toolExecutesWhenInactive(name)) return null;
 
   const toolLabel = clean(tool.name) || clean(name) || 'tool';
+  const bridge = isToolBridgeEnabled(sessionRef);
   const resolvedMode = resolveDeferredSelectMode(sessionRef);
+  // Whatever the exposure, a deferred mutating tool never runs without a
+  // resolved tool mode, and never in a read-only one.
   if (resolvedMode === null) {
     if (!isReadonlySelectable(tool)) {
+      const remedy = bridge ? 'no call was sent.' : `load it with load_tool names:["${toolLabel}"].`;
       return denyDeferredCallThrough(
-        `Error: tool "${toolLabel}" is deferred and cannot be auto-loaded without a resolved tool mode; load it with load_tool names:["${toolLabel}"].`
+        `Error: tool "${toolLabel}" is deferred and cannot be auto-loaded without a resolved tool mode; ${remedy}`
       );
     }
-  } else if (resolvedMode === 'readonly' && !isReadonlySelectable(tool)) {
+  } else if (
+    (resolvedMode === 'readonly' || (bridge && isBridgeReadonlySession(sessionRef))) &&
+    !isReadonlySelectable(tool)
+  ) {
     return denyDeferredCallThrough(`Error: tool "${toolLabel}" is not available in readonly mode`);
   }
+  // Bridge sessions reach deferred tools through call_tool: the fixed
+  // provider surface is never extended.
+  if (bridge) return null;
 
   const selectMode = resolvedMode === null ? 'readonly' : resolvedMode;
   selectDeferredTools(sessionRef, [toolLabel], selectMode);

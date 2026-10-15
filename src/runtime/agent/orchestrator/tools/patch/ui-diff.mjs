@@ -1,8 +1,9 @@
 // UI-diff side channel: a committed apply_patch (or edit-tool write) records
 // a turn-review change entry and a per-call diff the desktop/TUI tool cards
 // pick up. Display only — never affects edit semantics.
-import { createTwoFilesPatch } from 'diff';
+import { createLineDiffBudget, lineDiffHunks, unifiedHunksBody } from '../../../../shared/bounded-line-diff.mjs';
 import { boundReviewPatch } from '../../../../shared/review-diff.mjs';
+import { decodeText } from '../../../../shared/turn-changes.mjs';
 import { recordTurnDiffChanges } from '../../../../shared/turn-snapshot.mjs';
 import { pathKey, resolveV4AEntryPath } from './paths.mjs';
 import { patchHeaderPathForResolved } from './read-redirects.mjs';
@@ -38,31 +39,21 @@ function headerPath(value) {
     .replace(/\\/g, '/');
 }
 
-const DIFF_TIMEOUT_MS = 100;
-
-const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
-
 function isOmitted(value) {
   return Boolean(value) && typeof value === 'object' && !(value instanceof Uint8Array) && value.omitted === true;
 }
 
-// Text of one side: '' for an absent file, null when it is not UTF-8 text.
+// Text of one side: '' for an absent file, null when it is binary (not UTF-8
+// or holding a NUL byte) — the same rule as the turn review's tracker diffs.
 function sideText(value) {
-  if (value == null) return '';
-  if (typeof value === 'string') return value;
-  if (value instanceof Uint8Array) {
-    try {
-      return utf8.decode(value);
-    } catch {
-      return null;
-    }
-  }
+  if (value == null || typeof value === 'string' || value instanceof Uint8Array) return decodeText(value);
   return null;
 }
 
 // One file's change, from the call's own before and after states: absent
 // (null), bytes or text, or an omitted marker when the bytes were not kept.
-function renderCallChange({ displayPath, newDisplayPath, before, after }) {
+// `budget` is the call's line-diff budget.
+function renderCallChange({ displayPath, newDisplayPath, before, after }, budget) {
   const oldName = headerPath(displayPath) || 'unknown file';
   const newName = headerPath(newDisplayPath) || oldName;
   const oldHeader = before == null ? '/dev/null' : `a/${oldName}`;
@@ -82,23 +73,46 @@ function renderCallChange({ displayPath, newDisplayPath, before, after }) {
     return oldName === newName ? '' : `${head}similarity index 100%\nrename from ${oldName}\nrename to ${newName}\n`;
   }
   const rename = oldName === newName ? '' : `rename from ${oldName}\nrename to ${newName}\n`;
-  try {
-    const generated = createTwoFilesPatch(oldHeader, newHeader, oldText, newText, '', '', {
-      context: 3,
-      timeout: DIFF_TIMEOUT_MS,
-    });
-    const start = generated.search(/^--- /m);
-    if (start >= 0) return `${head}${rename}${generated.slice(start).replace(/\n*$/, '\n')}`;
-  } catch {
-    // A pathological diff timing out must not stall tool completion.
+  const { hunks } = lineDiffHunks(oldText, newText, budget, [before ?? null, after ?? null]);
+  return `${head}${rename}${unifiedHunksBody(oldHeader, newHeader, hunks)}`;
+}
+
+// Added/deleted lines of one rendered change, counted in its hunks only.
+function hunkLineCounts(patch) {
+  let additions = 0;
+  let deletions = 0;
+  let inHunk = false;
+  for (const line of patch.split('\n')) {
+    if (line.startsWith('@@')) inHunk = true;
+    else if (inHunk && line.startsWith('+')) additions += 1;
+    else if (inHunk && line.startsWith('-')) deletions += 1;
   }
-  return `${head}${rename}Binary files ${oldHeader} and ${newHeader} differ\n`;
+  return { additions, deletions };
+}
+
+// Each change with the line counts of its own unbounded diff (the turn review
+// sums them per file), plus the call's whole diff, within the call's budget.
+export function measureCallChanges(changes, budget = createLineDiffBudget()) {
+  const patches = (changes || []).map((change) => renderCallChange(change, budget));
+  return {
+    diff: patches.join(''),
+    changes: (changes || []).map((change, index) => ({ ...change, ...hunkLineCounts(patches[index]) })),
+  };
 }
 
 // A call's card shows the change that call made — its own before against its
 // own after — never the turn's running total for the same files.
 export function callUiDiff(changes) {
-  return (changes || []).map(renderCallChange).join('');
+  return measureCallChanges(changes).diff;
+}
+
+// Fold the call's measured changes into the turn review and publish its card
+// diff. Both share one line-diff budget: the call is one operation.
+function recordCallChanges(callId, sessionId, changes) {
+  const budget = createLineDiffBudget();
+  const measured = measureCallChanges(changes, budget);
+  recordTurnDiffChanges(sessionId, measured.changes, budget);
+  registerApplyPatchUiDiff(callId, measured.diff);
 }
 
 // Edit-tool UI diff: a successful single-file str-replace edit records the
@@ -108,18 +122,39 @@ export function callUiDiff(changes) {
 export function registerEditToolUiDiff({ callId, sessionId, basePath, fullPath, before, after }) {
   if (!callId || !sessionId || typeof fullPath !== 'string') return;
   try {
-    const changes = [
-      {
-        path: fullPath,
-        displayPath: patchHeaderPathForResolved(basePath || '', fullPath),
-        before: before ?? null,
-        after: after ?? null,
-      },
-    ];
-    recordTurnDiffChanges(sessionId, changes);
-    registerApplyPatchUiDiff(callId, callUiDiff(changes));
+    recordCallChanges(callId, sessionId, [toolFileChange(basePath, { fullPath, before, after })]);
   } catch {
     // best-effort display channel
+  }
+}
+
+function toolFileChange(basePath, { fullPath, before, after }) {
+  return {
+    path: fullPath,
+    displayPath: patchHeaderPathForResolved(basePath || '', fullPath),
+    before: before ?? null,
+    after: after ?? null,
+  };
+}
+
+// Writes of a tool without a per-call card (tidy, office): each change
+// `{ fullPath, before, after }` (null = absent, bytes, or an omitted marker)
+// joins the turn review with its own line counts, like an edit-tool write.
+// Side channel only — never affects the tool result.
+export function recordToolFileChanges({ sessionId, basePath, changes }) {
+  if (!sessionId || !changes?.length) return;
+  try {
+    const budget = createLineDiffBudget();
+    recordTurnDiffChanges(
+      sessionId,
+      measureCallChanges(
+        changes.map((change) => toolFileChange(basePath, change)),
+        budget
+      ).changes,
+      budget
+    );
+  } catch {
+    // best-effort review channel
   }
 }
 
@@ -184,8 +219,7 @@ export function registerCommittedPatchUiDiff({
         after: snapshotContent(after),
       });
     }
-    recordTurnDiffChanges(sessionId, changes);
-    registerApplyPatchUiDiff(callId, callUiDiff(changes));
+    recordCallChanges(callId, sessionId, changes);
   } catch {
     // Review collection is a side channel and must never affect committed
     // apply_patch success/failure semantics.

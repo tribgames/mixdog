@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createSessionTitleController } from './session-title.mjs';
+import { compactSessionTitle, createSessionTitleController } from './session-title.mjs';
+
+test('compactSessionTitle never splits a surrogate pair or emoji when clipping', () => {
+  const korean = '가'.repeat(30);
+  for (const tail of ['😀😀', '👨‍👩‍👧 family']) {
+    const title = compactSessionTitle(`${korean}${tail}`);
+    assert.ok(title.length <= 32, `${title.length}`);
+    assert.doesNotMatch(title, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+    assert.ok(title.startsWith(korean));
+    assert.ok(title.endsWith('…'));
+  }
+  // Unchanged behavior: short text passes through, ASCII clips at a word boundary.
+  assert.equal(compactSessionTitle('Fix the login redirect bug now please ok'), 'Fix the login redirect bug now…');
+});
 
 test('first-turn LLM title waits until visible assistant progress', async () => {
   let release;

@@ -277,7 +277,7 @@ test('a bridge-v1 session with search_tools migrates once and still replays its 
   assert.deepEqual(sends[0].names, ['read', 'shell', 'load_tool', 'call_tool']);
   assert.equal(sends[0].tools[2], JSON.stringify(TOOL_SEARCH_TOOL), 'the shared load_tool');
   assert.equal(sends[0].bp2.includes(SEARCH_TOOLS_GUIDANCE), false);
-  assert.match(sends[0].bp2, /use load_tool first to see its parameters\. Call directly defined tools directly\./);
+  assert.match(sends[0].bp2, /use load_tool first to see its parameters \(a keyword instead of a name searches the deferred tools\)\. Call directly defined tools directly\./);
   assert.equal(sends[0].bp2.match(/<tool-bridge>/g).length, 1);
   // History keeps the old call, and every request replays it.
   assert.ok(sends.every((send) => send.replayed));
@@ -324,8 +324,8 @@ test('a bridge-v1 session on the query/cursor load_tool migrates once to the nat
   session.messages[1] = {
     role: 'system',
     content: current.bp2.replace(
-      'use load_tool first to see its parameters. ',
-      'use load_tool first to see its parameters. load_tool with query finds tools by keyword. '
+      'Call directly defined tools directly.',
+      'load_tool with query finds tools by keyword. Call directly defined tools directly.'
     ),
   };
   assert.notEqual(session.messages[1].content, current.bp2);

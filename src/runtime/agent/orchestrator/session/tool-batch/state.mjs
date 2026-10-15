@@ -4,11 +4,17 @@
 // live here so processToolBatch can hand them back.
 import { executeTool } from '../loop/tool-exec.mjs';
 import { planToolBatch } from './plan.mjs';
+import { bridgeClassificationTools, resolveExecutionToolCalls } from '../loop/tool-call-resolution.mjs';
 
 export function createBatchState(ctx) {
-  const { calls, tools, assistantTurnMsg, sessionRef } = ctx;
+  const { assistantTurnMsg, sessionRef } = ctx;
+  // Bridged call_tool requests run as their targets from here on; the wire
+  // calls stay authoritative for the transcript and failed-argument restore.
+  const calls = resolveExecutionToolCalls(ctx.calls, sessionRef);
+  const tools = bridgeClassificationTools(ctx.tools, calls);
   return {
     calls,
+    wireCalls: ctx.calls,
     messages: ctx.messages,
     tools,
     cwd: ctx.cwd,

@@ -42,6 +42,7 @@ import {
 import { handleExecMessage, heartbeatFrame, sendToolResult } from './cursor-wire-exec.mjs';
 import { completionChunk, createStreamSink } from './cursor-wire-stream-sink.mjs';
 import { createBridgeController } from './cursor-wire-stream-bridge.mjs';
+import { TRANSPORT_SCOPE_DISPOSED } from './transport-scope.mjs';
 
 export { clearModelCache, getCursorModels, getCursorUsage } from './cursor-wire-models.mjs';
 
@@ -117,6 +118,8 @@ globalThis.__mixdogCloseProviderConnectionsForSession = (sessionId, reason) => {
     _priorCursorSessionCloseHook?.(sessionId, reason);
   } finally {
     closeCursorRunsForSession(sessionId, reason);
+    // A disposed transport scope never sends again: drop its conversation.
+    if (reason === TRANSPORT_SCOPE_DISPOSED && sessionId) conversations.delete(conversationKey([], sessionId));
   }
 };
 const _priorCursorDrainHook = globalThis.__mixdogDrainProviderConnections;

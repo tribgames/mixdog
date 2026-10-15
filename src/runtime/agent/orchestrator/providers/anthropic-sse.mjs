@@ -75,9 +75,11 @@ const ANTHROPIC_SSE_ERROR_TYPE_STATUS = new Map([
   ['authentication_error', 401],
   ['permission_error', 403],
   ['not_found_error', 404],
+  ['conflict_error', 409],
   ['request_too_large', 413],
   ['rate_limit_error', 429],
   ['api_error', 500],
+  ['timeout_error', 504],
   ['overloaded_error', 529],
 ]);
 

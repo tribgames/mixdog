@@ -363,10 +363,10 @@ test('Gemini send: an empty STOP right after a tool result is accepted, not re-a
 
 const noFinishChunk = (parts) => ({ candidates: [{ content: { role: 'model', parts } }] });
 
-test('Gemini send: an empty no-finish stream right after a tool result is accepted, otherwise truncated', async () => {
-  const accepted = sdkProvider([{ chunks: [noFinishChunk([])] }]);
-  assert.equal((await accepted.sendAfterTool()).content, '');
-  assert.equal(accepted.opens, 1);
+test('Gemini send: an empty no-finish stream is truncated, even right after a tool result', async () => {
+  const afterTool = sdkProvider([{ chunks: [noFinishChunk([])] }]);
+  await assert.rejects(afterTool.sendAfterTool(), (error) => error.code === 'TRUNCATED_STREAM');
+  assert.equal(afterTool.opens, 4);
 
   const plain = sdkProvider([{ chunks: [noFinishChunk([])] }]);
   await assert.rejects(plain.send(), (error) => error.code === 'TRUNCATED_STREAM');

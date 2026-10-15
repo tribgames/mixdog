@@ -215,6 +215,12 @@ export function presentErrorText(error, options = {}) {
   const name = error && typeof error === 'object' ? String(error.name || '') : '';
   const code = error && typeof error === 'object' ? String(error.code || '') : '';
   const status = errorHttpStatus(error);
+  // The fixed request overhead error is actionable as written (sizes,
+  // contributors, remedy): keep its lines instead of a generic "Context too
+  // large." that would suggest compacting.
+  if (code === 'TOOL_SURFACE_EXCEEDS_CONTEXT' || /\(TOOL_SURFACE_EXCEEDS_CONTEXT\)/.test(text)) {
+    return stripErrorPrefix(text);
+  }
   const jsonError = extractJsonError(text);
   if (jsonError) text = jsonError;
   const embeddedError = extractEmbeddedError(text);

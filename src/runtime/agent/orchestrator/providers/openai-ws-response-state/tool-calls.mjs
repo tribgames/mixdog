@@ -1,7 +1,12 @@
 import { makeInvalidToolArgsMarker } from '../lib/openai-tool-args.mjs';
 import { synthLeakedOpenAICall } from '../openai-compat-stream-common.mjs';
 import { createToolCallDedupe, dedupeToolCallList } from '../lib/leaked-toolcall.mjs';
-import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from '../custom-tool-wire.mjs';
+import {
+  customToolCallFromResponseItem,
+  nativeToolSearchCallFromArguments,
+  qualifiedToolCallName,
+  withToolCallNamespace,
+} from '../custom-tool-wire.mjs';
 import { createActiveToolItemTracker } from '../tool-stream-state.mjs';
 
 // tool_search_call.arguments parse. Module-scope (exported) for direct test
@@ -64,7 +69,7 @@ export function createWsToolCalls({ onToolCall, midState, replayItems }) {
     } catch {}
   }
   function emit(call) {
-    if (!toolDedupe.shouldDispatch(call?.name, call?.arguments, call?.id)) return;
+    if (!toolDedupe.shouldDispatch(qualifiedToolCallName(call), call?.arguments, call?.id)) return;
     fire(call);
   }
   function settle() {
@@ -84,6 +89,8 @@ export function createWsToolCalls({ onToolCall, midState, replayItems }) {
   }
   function pushToolSearchCall(item) {
     if (item?.type !== 'tool_search_call') return;
+    // Server-executed search already ran inside the response; replay-only.
+    if (item.execution === 'server') return;
     const callId = item.call_id || item.id || '';
     if (!callId || toolCalls.some((call) => call.id === callId)) return;
     const call = nativeToolSearchCallFromArguments(callId, parseToolSearchArgs(item.arguments));
@@ -106,7 +113,10 @@ export function createWsToolCalls({ onToolCall, midState, replayItems }) {
     const type = item?.type;
     if (type === 'function_call') {
       markStarted(item);
-      pendingCalls.set(item.id || '', { name: item.name || '', callId: item.call_id || '' });
+      pendingCalls.set(
+        item.id || '',
+        withToolCallNamespace({ name: item.name || '', callId: item.call_id || '' }, item)
+      );
     } else if (type === 'custom_tool_call' || type === 'tool_search_call') {
       // tool_search is marked in-flight at item-added time too, so the
       // semantic-idle stall gate's pendingToolUse never drops a mid-flight
@@ -134,7 +144,7 @@ export function createWsToolCalls({ onToolCall, midState, replayItems }) {
       argumentsText: event.arguments || JSON.stringify(args),
     });
     if (pending?.callId && pending?.name) {
-      const call = { id: pending.callId, name: pending.name, arguments: args };
+      const call = withToolCallNamespace({ id: pending.callId, name: pending.name, arguments: args }, pending);
       toolCalls.push(call);
       emit(call);
       pendingCalls.delete(itemId);
@@ -150,31 +160,45 @@ export function createWsToolCalls({ onToolCall, midState, replayItems }) {
     // bundle. If salvage also fails the stream fails explicitly — masking the
     // gap with a synthetic id just shifts the failure one turn later under a
     // confusing "No tool output found for function call" error.
-    toolCalls.push({
-      id: pending?.callId || '',
-      name: pending?.name || '',
-      arguments: args,
-      _pendingItemId: itemId,
-      _deferred: true,
-    });
+    toolCalls.push(
+      withToolCallNamespace(
+        {
+          id: pending?.callId || '',
+          name: pending?.name || '',
+          arguments: args,
+          _pendingItemId: itemId,
+          _deferred: true,
+        },
+        pending
+      )
+    );
   }
 
-  /** response.output_item.done for a function_call item */
+  /** A complete function_call item (output_item.done, or the terminal
+   *  response output bundle) through the one deduplicated collector: it
+   *  resolves the deferred placeholder for its item (canonical call_id/name
+   *  from the item, missing ones kept from the placeholder), is skipped when
+   *  its call_id is already recorded, and is otherwise created and
+   *  dispatched — so a call present only in the terminal bundle still runs. */
   function completeFunctionCallItem(item) {
     const itemId = item.id || '';
     const callId = item.call_id || '';
     const name = item.name || '';
     const args = parseFunctionCallArgs(argsTextOf(item.arguments));
     const deferred = toolCalls.find((tc) => tc?._deferred && (!itemId || tc._pendingItemId === itemId));
-    if (deferred && callId && name) {
-      deferred.id = callId;
-      deferred.name = name;
-      deferred.arguments = deferred.arguments && Object.keys(deferred.arguments).length > 0 ? deferred.arguments : args;
-      delete deferred._deferred;
-      delete deferred._pendingItemId;
-      emit(deferred);
+    if (deferred) {
+      deferred.id = callId || deferred.id;
+      deferred.name = name || deferred.name;
+      withToolCallNamespace(deferred, item);
+      if (deferred.id && deferred.name) {
+        deferred.arguments =
+          deferred.arguments && Object.keys(deferred.arguments).length > 0 ? deferred.arguments : args;
+        delete deferred._deferred;
+        delete deferred._pendingItemId;
+        emit(deferred);
+      }
     } else if (callId && name && !toolCalls.some((tc) => tc?.id === callId)) {
-      const call = { id: callId, name, arguments: args };
+      const call = withToolCallNamespace({ id: callId, name, arguments: args }, item);
       toolCalls.push(call);
       emit(call);
     }
@@ -193,20 +217,6 @@ export function createWsToolCalls({ onToolCall, midState, replayItems }) {
     settle();
   }
 
-  /** response.completed salvage: when arguments.done fired before (or
-   *  without) a matching output_item.added, the deferred placeholder has an
-   *  empty id/name; the bundle carries the canonical call_id/name. */
-  function salvageFunctionCall(item) {
-    const tc = toolCalls.find((t) => t._deferred && t._pendingItemId === (item.id || ''));
-    if (!tc) return;
-    if (!tc.id && item.call_id) tc.id = item.call_id;
-    if (!tc.name && item.name) tc.name = item.name;
-    if (tc.id && tc.name) {
-      delete tc._deferred;
-      delete tc._pendingItemId;
-      emit(tc);
-    }
-  }
 
   return {
     get calls() {
@@ -238,6 +248,12 @@ export function createWsToolCalls({ onToolCall, midState, replayItems }) {
     completeFunctionCallItem,
     completeToolSearchItem,
     completeCustomToolItem,
-    salvageFunctionCall,
+    /** A server-truncated call item: kept in flight, never collected. */
+    holdIncompleteItem: markStarted,
+    // Terminal-bundle salvage (response.completed / success response.done):
+    // the same collector as output_item.done. When arguments.done fired
+    // before (or without) output_item.added, the deferred placeholder has an
+    // empty id/name and the bundle carries the canonical call_id/name.
+    salvageFunctionCall: completeFunctionCallItem,
   };
 }

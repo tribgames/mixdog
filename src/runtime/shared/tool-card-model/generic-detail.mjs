@@ -51,6 +51,34 @@ export function genericCompletedDetail({ normalizedName, label, hasResult, first
   return '';
 }
 
+const uniqueToolNames = (names) => [
+  ...new Set((Array.isArray(names) ? names : []).map((name) => String(name || '').trim()).filter(Boolean)),
+];
+
+/**
+ * What a bridge load_tool result described, missed and blocked; null for a
+ * loader result (or anything that is not a describe result).
+ */
+export function bridgeDescribeResult(resultText) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(resultText || ''));
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed?.entries)) return null;
+  return {
+    described: uniqueToolNames(parsed.entries.map((entry) => entry?.name)),
+    missing: uniqueToolNames(parsed.missing),
+    blocked: uniqueToolNames((Array.isArray(parsed.blocked) ? parsed.blocked : []).map((entry) => entry?.name)),
+  };
+}
+
+/** Names a bridge load_tool result described, or null for a loader result. */
+export function bridgeDescribedToolNames(resultText) {
+  return bridgeDescribeResult(resultText)?.described ?? null;
+}
+
 export function toolSearchLoadedSummary(resultText) {
   let parsed;
   try {
@@ -61,13 +89,19 @@ export function toolSearchLoadedSummary(resultText) {
     const already = /^Already active:\s*(.+)$/m.exec(text)?.[1] || '';
     return [...(loaded ? [`Loaded: ${loaded}`] : []), ...(already ? [`Already active: ${already}`] : [])].join(' · ');
   }
+  // Bridge describe result: nothing was loaded; report what was not described.
+  const describe = bridgeDescribeResult(resultText);
+  if (describe) {
+    const { missing, blocked } = describe;
+    return [
+      ...(missing.length ? [`Missing: ${missing.join(', ')}`] : []),
+      ...(blocked.length ? [`Blocked: ${blocked.join(', ')}`] : []),
+    ].join(' · ');
+  }
   const tools = parsed?.selected?.tools;
   if (!tools || typeof tools !== 'object') return '';
-  const uniqueNames = (names) => [
-    ...new Set((Array.isArray(names) ? names : []).map((name) => String(name || '').trim()).filter(Boolean)),
-  ];
-  const loaded = uniqueNames(tools.added);
-  const already = uniqueNames(tools.already);
+  const loaded = uniqueToolNames(tools.added);
+  const already = uniqueToolNames(tools.already);
   return [
     ...(loaded.length ? [`Loaded: ${loaded.join(', ')}`] : []),
     ...(already.length ? [`Already active: ${already.join(', ')}`] : []),

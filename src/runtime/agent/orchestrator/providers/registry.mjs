@@ -179,6 +179,9 @@ const PROVIDER_MODULES = {
   openai: ['./openai-ws.mjs', 'OpenAIDirectProvider'],
   'mixdog-local': ['./mixdog-local.mjs', 'MixdogLocalProvider'],
   'opencode-go': ['./opencode-go.mjs', 'OpenCodeGoProvider'],
+  // Multi-wire preset gateways (wire-route.mjs picks the wire per model).
+  openrouter: ['./openrouter.mjs', 'OpenRouterProvider'],
+  deepseek: ['./deepseek.mjs', 'DeepSeekProvider'],
 };
 
 // User-defined providers (cfg.type === 'custom') are keyed by a generated
@@ -209,7 +212,7 @@ async function instantiateProvider(name, Ctor, cfg, proxyChannel = null) {
     return wrapProviderAdmission(createModelProxyProvider(name, cfg, proxyChannel ?? getModelProxyChannel()), name);
   }
   if (isCustomProviderConfig(name, cfg)) return wrapProviderAdmission(await Ctor(name, cfg), name);
-  if (Object.hasOwn(OPENAI_COMPAT_PRESETS, name) && name !== 'opencode-go') {
+  if (Object.hasOwn(OPENAI_COMPAT_PRESETS, name) && !Object.hasOwn(PROVIDER_MODULES, name)) {
     return wrapProviderAdmission(new Ctor(name, cfg), name);
   }
   return createAccountPoolProvider(name, () => wrapProviderAdmission(new Ctor(cfg), name));

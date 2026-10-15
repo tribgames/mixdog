@@ -106,14 +106,18 @@ test('a row silent on a capability keeps the documented behavior for that capabi
   assert.deepEqual(applyOpenAIDirectCachePolicy({}, 'gpt-6.1-sol', true).prompt_cache_options, { ttl: '30m' });
 });
 
-test('a model no catalog lists keeps the pre-catalog documented behavior', () => {
+test('a model no catalog lists keeps the documented behavior', () => {
   for (const model of ['gpt-12-unlisted', 'gpt-6-unlisted', 'gpt-5.5-unlisted']) {
     assert.equal(openAiDirectSupportsFast(model), false, model);
     assert.equal(openAiDirectSupportsUltrafast(model), false, model);
-    const body = applyOpenAIDirectCachePolicy({}, model, true);
-    assert.equal(body.prompt_cache_options, undefined, model);
-    assert.equal(body.prompt_cache_retention, '24h', model);
   }
+  // GPT-5.6+ take ttl by version; an unlisted pre-5.6 id is off the 24h list.
+  for (const model of ['gpt-12-unlisted', 'gpt-6-unlisted']) {
+    assert.deepEqual(applyOpenAIDirectCachePolicy({}, model, true).prompt_cache_options, { ttl: '30m' }, model);
+  }
+  const body = applyOpenAIDirectCachePolicy({}, 'gpt-5.5-unlisted', true);
+  assert.equal(body.prompt_cache_options, undefined);
+  assert.equal(body.prompt_cache_retention, undefined);
 });
 
 test('a dated snapshot reads as its listed undated alias', () => {
@@ -124,7 +128,7 @@ test('a dated snapshot reads as its listed undated alias', () => {
   assert.equal(openAiDirectSupportsFast('gpt-9-unlisted-2027-01-15'), false);
 });
 
-test('a published cache-write rate selects prompt_cache_options ttl instead of prompt_cache_retention', () => {
+test('GPT-5.6+ select prompt_cache_options ttl instead of prompt_cache_retention', () => {
   for (const model of ['gpt-9-fixture', 'gpt-9-devrow', 'gpt-9-snap']) {
     const body = applyOpenAIDirectCachePolicy({ prompt_cache_retention: '24h' }, model, true);
     assert.deepEqual(body.prompt_cache_options, { ttl: '30m' }, model);
@@ -132,11 +136,12 @@ test('a published cache-write rate selects prompt_cache_options ttl instead of p
   }
 });
 
-test('listed models without a cache-write rate keep 24h prompt_cache_retention', () => {
+test('a missing cache-write rate no longer implies a cache form', () => {
+  // GPT-9 is 5.6+, so it takes ttl whatever the catalog prices; never inferred from pricing.
   for (const model of ['gpt-9-plain', 'gpt-9-devplain']) {
     const body = applyOpenAIDirectCachePolicy({}, model, true);
-    assert.equal(body.prompt_cache_retention, '24h', model);
-    assert.equal(body.prompt_cache_options, undefined, model);
+    assert.deepEqual(body.prompt_cache_options, { ttl: '30m' }, model);
+    assert.equal(body.prompt_cache_retention, undefined, model);
   }
 });
 

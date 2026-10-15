@@ -1,5 +1,5 @@
 /** Pure state rules of the ask_user question card. */
-export type QuestionOption = { label: string };
+export type QuestionOption = { label: string; description: string };
 export type Question = {
   question: string;
   header: string;
@@ -88,6 +88,7 @@ export function approvalQuestions(args: unknown): Question[] | null {
       header: String(item.header ?? ''),
       options: (Array.isArray(item.options) ? item.options : []).map((option) => ({
         label: String(option?.label ?? ''),
+        description: String(option?.description ?? ''),
       })),
       multi_select: item.multi_select === true,
       ...(typeof item.recommended === 'number' ? { recommended: item.recommended } : {}),

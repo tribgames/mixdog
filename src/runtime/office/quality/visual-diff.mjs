@@ -1,6 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { dirname, extname, basename, join } from 'node:path';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
+import { noteOfficeWrite } from '../core/office-write-ledger.mjs';
 
 function imageByPage(images) {
   return new Map((images || []).map((image) => [Number(image.page), image]));
@@ -61,6 +62,7 @@ export async function compareRenderedPages(beforeImages, afterImages, outputPdf)
     diffContext.putImageData(diff, 0, 0);
     const data = diffCanvas.toBuffer('image/png');
     const path = join(dirname(outputPdf), `${stem}-visual-diff-page-${page}.png`);
+    noteOfficeWrite(path);
     await writeFile(path, data);
     const total = width * height;
     metrics.push({

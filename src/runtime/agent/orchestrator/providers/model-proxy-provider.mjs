@@ -93,6 +93,7 @@ export function inlineModelProxyAttachments(messages, { maxBytes = MODEL_PROXY_I
 export class ModelProxyProvider {
   #channel;
   #modelInfo = new Map();
+  #noWireRoute = new Set();
 
   constructor(name, config = {}, channel = getModelProxyChannel()) {
     this.name = name;
@@ -144,6 +145,21 @@ export class ModelProxyProvider {
 
   getCachedModelInfo(model) {
     return this.#modelInfo.get(String(model ?? '')) ?? null;
+  }
+
+  /** The PC adapter's wire route for `model` (its config and roster decide);
+   *  null for a single-wire adapter, which is remembered so every later turn
+   *  skips the round trip. */
+  async resolveWireRoute(model, ctx = {}) {
+    const key = String(model ?? '');
+    if (this.#noWireRoute.has(key)) return null;
+    const route = await this.#call('resolveWireRoute', {
+      model: model ?? null,
+      context: { agent: ctx.agent === true, legacy: ctx.legacy === true },
+    });
+    if (route && typeof route === 'object') return route;
+    this.#noWireRoute.add(key);
+    return null;
   }
 }
 

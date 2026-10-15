@@ -466,9 +466,16 @@ test('Goal stays active while legacy Goal schemas are removed from restored sess
   const surface = surfaceFor({ session, standalone: [read, goal] });
   const result = surface.activateTools(['goal']);
   assert.deepEqual(result.missing, []);
-  const visible = new Set([...session.tools.map((tool) => tool.name), ...(session.deferredCallableTools || [])]);
+  // grok-oauth uses the bridge: goal is callable through call_tool from the
+  // scoped catalog, and the legacy schema is gone from every surface.
+  assert.deepEqual(result.already, ['goal']);
+  const visible = new Set([
+    ...session.tools.map((tool) => tool.name),
+    ...session.deferredToolCatalog.map((tool) => tool.name),
+  ]);
   assert.equal(visible.has('goal'), true);
   assert.equal(visible.has('update_goal'), false);
+  assert.ok(session.tools.some((tool) => tool.name === 'call_tool'));
 });
 
 test('empty session refresh strips denied tools and BP1 routes', async () => {
@@ -518,7 +525,7 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
   assert.equal(session.workflow.delegatesAgents, false);
   assert.deepEqual(
     session.tools.map((tool) => tool.name),
-    ['read']
+    ['read', 'load_tool', 'call_tool']
   );
   const bp1 = session.messages[0].content;
   assert.equal(bp1.includes('`web_search`'), false);

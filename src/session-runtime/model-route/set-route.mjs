@@ -20,7 +20,7 @@ import {
   sessionRouteCommitted,
   shouldRecreateEmptySessionForRouteChange,
 } from '../../runtime/agent/orchestrator/runtime-core/session-route-policy.mjs';
-import { rebuildDeferredToolSurfaceForProvider } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import { rebuildToolSurfaceForProviderWithMigration } from '../../runtime/agent/orchestrator/session/loop/tool-exposure-migration.mjs';
 
 /** The request, completed from the live route where the caller left gaps. */
 function completeRequest(deps, next) {
@@ -114,7 +114,7 @@ function updateSessionInPlace(deps, session, updateOptions) {
   const updated = mgr.updateSessionRoute?.(session.id, fields, updateOptions);
   if (updated) setSession(updated);
   else Object.assign(session, fields);
-  rebuildDeferredToolSurfaceForProvider(getSession(), route.provider);
+  rebuildToolSurfaceForProviderWithMigration(getSession(), route.provider);
   writeStatuslineRoute(statusRoutes, getSession(), route);
 }
 

@@ -23,8 +23,10 @@ import {
   inheritedFromSessionId,
   isStoredSessionId,
   positiveNumber as _positiveNumber,
+  realTurnCount,
   workspaceSummary,
 } from './store-summary-fields.mjs';
+import { isRealTurnMessage } from './compact/user-message-kind.mjs';
 
 export const SESSION_SUMMARY_INDEX_VERSION = 2;
 
@@ -92,6 +94,7 @@ function _sessionMessageProjection(session) {
   const cached = session && typeof session === 'object' ? sessionMessageProjectionMemo.get(session) : null;
   let start = 0;
   let count = 0;
+  let real = 0;
   let preview = '';
   let previewMessage = null;
   const canAppend =
@@ -101,6 +104,7 @@ function _sessionMessageProjection(session) {
   if (canAppend) {
     start = cached.length;
     count = cached.count;
+    real = cached.real;
     preview = cached.preview;
     previewMessage = cached.previewMessage;
     // The first real user message is stable in normal append-only session
@@ -112,6 +116,7 @@ function _sessionMessageProjection(session) {
       else {
         start = 0;
         count = 0;
+        real = 0;
         preview = '';
         previewMessage = null;
       }
@@ -120,6 +125,7 @@ function _sessionMessageProjection(session) {
   for (let index = start; index < messages.length; index += 1) {
     const message = messages[index];
     if (message && (message.role === 'user' || message.role === 'assistant')) count += 1;
+    if (isRealTurnMessage(message)) real += 1;
     if (!preview) {
       const candidate = _previewFromMessage(message);
       if (candidate) {
@@ -133,11 +139,12 @@ function _sessionMessageProjection(session) {
       length: messages.length,
       lastMessage: messages[messages.length - 1] || null,
       count,
+      real,
       preview,
       previewMessage,
     });
   }
-  return { count, preview };
+  return { count, real, preview };
 }
 
 function _desktopSessionSummary(value, cwd = null) {
@@ -199,6 +206,7 @@ export function _sessionSummary(session) {
       : null,
     taskType: session.taskType || null,
     messageCount: messageProjection.count,
+    realTurnCount: messageProjection.real,
     title: _cleanPreview(session.title || '', 100),
     preview: messageProjection.preview,
     generation: typeof session.generation === 'number' ? session.generation : 0,
@@ -253,6 +261,7 @@ function _normalizeSummaryRow(row) {
       : null,
     taskType: row.taskType || null,
     messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
+    realTurnCount: realTurnCount(row),
     title: _cleanPreview(row.title || '', 100),
     preview: _cleanPreview(row.preview || ''),
     generation: typeof row.generation === 'number' ? row.generation : 0,

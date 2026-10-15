@@ -353,6 +353,14 @@ for (const provider of ['openai-oauth', 'anthropic-oauth', 'gemini', 'openrouter
       }
       const removed = bodies[5].input.find((item) => item.type === 'tool_search_output' && item.call_id === 'load-3');
       assert.deepEqual(removed.tools, []);
+    } else if (!f.session.deferredNativeTools) {
+      // Bridge exposure: connect, schema refresh and removal change only the
+      // scoped catalog; every request carries byte-identical tool definitions.
+      for (const tools of requests) assert.equal(JSON.stringify(tools), JSON.stringify(requests[0]));
+      assert.equal(
+        requests.flat().some((tool) => tool.name === f.name),
+        false
+      );
     } else {
       assert.deepEqual(requests[1].find((tool) => tool.name === f.name).inputSchema, f.original.inputSchema);
       assert.deepEqual(requests[3].find((tool) => tool.name === f.name).inputSchema, f.revised.inputSchema);

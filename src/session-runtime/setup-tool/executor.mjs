@@ -92,6 +92,7 @@ function routeInput(source) {
   if (clean(source.model)) next.model = clean(source.model);
   if (clean(source.effort)) next.effort = clean(source.effort);
   if (typeof source.fast === 'boolean') next.fast = source.fast;
+  if (typeof source.autoEffort === 'boolean') next.autoEffort = source.autoEffort;
   if (Object.hasOwn(source, 'modelParameters')) next.modelParameters = { ...source.modelParameters };
   if (Object.hasOwn(source, 'contextPercent')) next.contextPercent = source.contextPercent;
   if (Object.hasOwn(source, 'contextTokens')) next.contextTokens = source.contextTokens;
@@ -339,7 +340,7 @@ function validateSetupInput(args) {
     if (action !== 'set_agent_route' && Object.hasOwn(args.route, 'disabled')) {
       throw new Error('route.disabled is only accepted by set_agent_route');
     }
-    for (const field of ['contextPercent', 'contextTokens']) {
+    for (const field of ['contextPercent', 'contextTokens', 'autoEffort']) {
       if (action !== 'set_route' && action !== 'set_agent_route' && Object.hasOwn(args.route, field)) {
         throw new Error(`route.${field} is only accepted by set_route and set_agent_route`);
       }

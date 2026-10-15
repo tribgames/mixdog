@@ -3,11 +3,17 @@
 // carries the label, the caller callbacks and the leaked-text relay.
 import { typedStatusFrom } from './retry-classifier.mjs';
 import { applyCompatErrorContract } from './openai-compat-error-contract.mjs';
-import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from './custom-tool-wire.mjs';
+import {
+  customToolCallFromResponseItem,
+  nativeToolSearchCallFromArguments,
+  withToolCallNamespace,
+} from './custom-tool-wire.mjs';
+import { createRefusals } from './openai-ws-response-state/refusals.mjs';
 import { emitCompatToolCallOnce } from './openai-compat-stream-common.mjs';
 import { truncatedCompatStreamError, parseCompletedToolCallArgumentsJson } from './lib/openai-tool-args.mjs';
 import { incompleteReasonFromEvent, isMaxOutputIncompleteReason } from './lib/responses-terminal-fields.mjs';
 import { responsesUsage } from './openai-compat-response-normalization.mjs';
+import { normalizeGatewayErrorDetail } from './provider-error-kind.mjs';
 
 // An incomplete response was still billed: carry its reported usage on the
 // error so the provider-boundary accounting records it.
@@ -35,7 +41,9 @@ function signal(ctx, kind) {
 // through the fatal-code deny-list / default-retry classification.
 function typedResponsesFailure(message, event) {
   const err = new Error(message);
-  const detail = event?.response?.error || event?.error || null;
+  // A gateway's canonical error_type (OpenRouter's top-level `error_type`)
+  // replaces the lossy native code before anything classifies it.
+  const detail = normalizeGatewayErrorDetail(event?.response?.error || event?.error || null, event);
   const typed = typedStatusFrom(detail, event);
   if (typed) err.httpStatus = typed;
   const code = detail?.code ?? detail?.type ?? event?.code ?? null;
@@ -61,18 +69,22 @@ function reconcileCompatFunctionCallItem(state, item, label, onToolCall) {
   if (tc) {
     if (!tc.id && item.call_id) tc.id = item.call_id;
     if (!tc.name && item.name) tc.name = item.name;
+    withToolCallNamespace(tc, item);
     if (tc.id && tc.name) delete tc._pendingItemId;
     emitCompatToolCallOnce(state, tc, onToolCall);
   } else if (item.call_id && item.name) {
-    const call = {
-      id: item.call_id,
-      name: item.name,
-      arguments: parseCompletedToolCallArgumentsJson(item.arguments, label, {
+    const call = withToolCallNamespace(
+      {
         id: item.call_id,
         name: item.name,
-        finishReason: 'done',
-      }),
-    };
+        arguments: parseCompletedToolCallArgumentsJson(item.arguments, label, {
+          id: item.call_id,
+          name: item.name,
+          finishReason: 'done',
+        }),
+      },
+      item
+    );
     state.toolCalls.push(call);
     emitCompatToolCallOnce(state, call, onToolCall);
   }
@@ -81,6 +93,9 @@ function reconcileCompatFunctionCallItem(state, item, label, onToolCall) {
 
 function pushToolSearchCall(state, item, ctx) {
   if (item?.type !== 'tool_search_call') return;
+  // Server-executed search already ran inside the response; it stays in
+  // providerReplay only and is never a local load_tool dispatch.
+  if (item.execution === 'server') return;
   const callId = item.call_id || item.id || '';
   if (!callId || state.toolCalls.some((call) => call.id === callId)) return;
   const searchArgs =
@@ -165,10 +180,10 @@ function onReasoningDelta(event, state, ctx) {
 function onOutputItemAdded(event, state, ctx) {
   const type = event.item?.type;
   if (type === 'function_call') {
-    state.pendingCalls.set(event.item.id || '', {
-      name: event.item.name || '',
-      callId: event.item.call_id || '',
-    });
+    state.pendingCalls.set(
+      event.item.id || '',
+      withToolCallNamespace({ name: event.item.name || '', callId: event.item.call_id || '' }, event.item)
+    );
     state.toolTracker?.mark(event.item);
     state.toolInFlight = true;
   } else if (type === 'custom_tool_call' || type === 'tool_search_call') {
@@ -194,26 +209,47 @@ function onToolInputDelta(event, state, ctx) {
 function onFunctionCallArgumentsDone(event, state, ctx) {
   const itemId = event.item_id || '';
   const pending = state.pendingCalls.get(itemId);
-  const call = {
-    id: pending?.callId || event.call_id || '',
-    name: pending?.name || event.name || '',
-    // `*.done` ⇒ arguments are complete; a parse failure is
-    // deterministic bad JSON (permanent), not stream truncation.
-    arguments: parseCompletedToolCallArgumentsJson(event.arguments, ctx.label, {
-      id: pending?.callId || event.call_id,
-      name: pending?.name || event.name,
-      finishReason: 'done',
-    }),
-    _pendingItemId: itemId,
-  };
+  const call = withToolCallNamespace(
+    {
+      id: pending?.callId || event.call_id || '',
+      name: pending?.name || event.name || '',
+      // `*.done` ⇒ arguments are complete; a parse failure is
+      // deterministic bad JSON (permanent), not stream truncation.
+      arguments: parseCompletedToolCallArgumentsJson(event.arguments, ctx.label, {
+        id: pending?.callId || event.call_id,
+        name: pending?.name || event.name,
+        finishReason: 'done',
+      }),
+      _pendingItemId: itemId,
+    },
+    pending
+  );
   state.toolCalls.push(call);
   if (call.id && call.name) delete call._pendingItemId;
   emitCompatToolCallOnce(state, call, ctx.onToolCall);
   signal(ctx, 'tool');
 }
 
+// Refusal parts (streamed deltas, done text, final message parts) fold into
+// one typed refusal on state.refusals; the stream collector turns it into a
+// `stopReason:'refusal'` result instead of an empty success.
+const refusalsOf = (state) => (state.refusals ||= createRefusals());
+
+function onRefusalDelta(event, state, ctx) {
+  state.sawOutput = true;
+  refusalsOf(state).delta(event);
+  signal(ctx, 'semantic');
+}
+
+function onRefusalDone(event, state, ctx) {
+  state.sawOutput = true;
+  refusalsOf(state).done(event);
+  signal(ctx, 'semantic');
+}
+
 function onOutputItemDone(event, state, ctx) {
   const item = event.item || {};
+  if (item.type === 'message') refusalsOf(state).absorbMessage(item);
   if (item.type === 'function_call') {
     const itemId = reconcileCompatFunctionCallItem(state, item, ctx.label, ctx.onToolCall);
     // Drop the resolved function item from pendingCalls before
@@ -342,6 +378,8 @@ const RESPONSES_EVENT_HANDLERS = new Map([
   ['response.output_text.delta', onOutputTextDelta],
   ['response.reasoning_text.delta', onReasoningDelta],
   ['response.reasoning_summary_text.delta', onReasoningDelta],
+  ['response.refusal.delta', onRefusalDelta],
+  ['response.refusal.done', onRefusalDone],
   ['response.output_item.added', onOutputItemAdded],
   ['response.function_call_arguments.delta', onToolInputDelta],
   ['response.custom_tool_call_input.delta', onToolInputDelta],

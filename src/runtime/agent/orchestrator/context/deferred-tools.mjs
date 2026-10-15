@@ -1,5 +1,6 @@
 // Deferred-pool and MCP-instruction manifests injected into BP2.
 import { parseMcpToolName } from '../../../shared/tool-primitives.mjs';
+import { isToolBridgeEnabled, TOOL_BRIDGE_GUIDANCE } from '../runtime-core/tool-exposure.mjs';
 
 export function compactPromptManifestText(value, max = 250) {
   const text = String(value || '')
@@ -13,7 +14,10 @@ export function compactPromptManifestText(value, max = 250) {
   return `${cut.replace(/[\s,.;:!?/-]+$/, '')}...`;
 }
 
-const DEFERRED_TOOLS_BLOCK_RE = /(\n\n---\n*)?<available-deferred-tools>[\s\S]*?<\/available-deferred-tools>\s*/gi;
+// The native deferred-pool manifest and the static bridge guidance occupy the
+// same BP2 slot: one replaces the other when the exposure changes.
+const DEFERRED_TOOLS_BLOCK_RE =
+  /(\n\n---\n*)?<(available-deferred-tools|tool-bridge)>[\s\S]*?<\/(?:available-deferred-tools|tool-bridge)>\s*/gi;
 const MCP_INSTRUCTIONS_BLOCK_RE = /(\n\n---\n*)?<mcp-instructions>[\s\S]*?<\/mcp-instructions>\s*/gi;
 // Tool and MCP server names enter the manifests only as plain identifiers
 // (no markup can be smuggled into the prompt through a name).
@@ -47,6 +51,7 @@ function hasDeferredToolManifestBlock(text) {
   const raw = String(text || '');
   return (
     /<available-deferred-tools>[\s\S]*?<\/available-deferred-tools>/i.test(raw) ||
+    /<tool-bridge>[\s\S]*?<\/tool-bridge>/i.test(raw) ||
     /<mcp-instructions>[\s\S]*?<\/mcp-instructions>/i.test(raw)
   );
 }
@@ -173,11 +178,17 @@ function deferredManifestEntries(session, pool) {
 }
 
 function composeDeferredBp2Manifest(session, pool) {
+  // Bridge exposure gets the native roster and MCP instructions (the pool is
+  // already limited to what the session's policy lets it run), followed by
+  // the static bridge guidance. A tool-free bridge session gets nothing.
+  const bridge = isToolBridgeEnabled(session);
+  if (bridge && !(session.tools || []).some((tool) => tool?.name === 'call_tool')) return '';
   const parts = [];
   const deferredManifest = buildDeferredToolManifest(deferredManifestEntries(session, pool));
   if (deferredManifest) parts.push(deferredManifest);
   const mcpManifest = buildMcpInstructionsManifest(session.mcpServerInstructions, pool, session.deferredToolCatalog);
   if (mcpManifest) parts.push(mcpManifest);
+  if (bridge) parts.push(TOOL_BRIDGE_GUIDANCE);
   return parts.join('\n\n');
 }
 
@@ -186,12 +197,20 @@ function markDeferredBp2Applied(session) {
   delete session.deferredToolBp1Applied;
 }
 
+// Replace, never mutate: session-store delta saves treat stable message
+// references as an unchanged prefix, so a rewritten prompt block must be a
+// fresh object for the next save to persist it.
+function setSystemContent(session, index, content) {
+  const message = session.messages[index];
+  if (message.content !== content) session.messages[index] = { ...message, content };
+}
+
 function clearDeferredManifestBlocks(session) {
-  for (const message of session.messages) {
+  session.messages.forEach((message, index) => {
     if (message?.role === 'system' && typeof message.content === 'string') {
-      message.content = stripDeferredToolManifestBlock(message.content);
+      setSystemContent(session, index, stripDeferredToolManifestBlock(message.content));
     }
-  }
+  });
   session.messages = session.messages.filter(
     (message) => message?.role !== 'system' || String(message.content || '').trim()
   );
@@ -214,15 +233,15 @@ function writeDeferredManifestAt(session, idx, manifest, rebuild) {
   for (let i = 0; i < session.messages.length; i++) {
     if (i === idx || session.messages[i]?.role !== 'system' || typeof session.messages[i].content !== 'string')
       continue;
-    session.messages[i].content = stripDeferredToolManifestBlock(session.messages[i].content);
+    setSystemContent(session, i, stripDeferredToolManifestBlock(session.messages[i].content));
   }
   const raw = typeof session.messages[idx].content === 'string' ? session.messages[idx].content : '';
   if (rebuild && hasDeferredToolManifestBlock(raw)) {
-    session.messages[idx].content = rebuildDeferredToolManifestBlock(raw, manifest);
+    setSystemContent(session, idx, rebuildDeferredToolManifestBlock(raw, manifest));
     return;
   }
   const base = stripDeferredToolManifestBlock(raw);
-  session.messages[idx].content = base ? `${base}\n\n---\n\n${manifest}` : manifest;
+  setSystemContent(session, idx, base ? `${base}\n\n---\n\n${manifest}` : manifest);
 }
 
 /**

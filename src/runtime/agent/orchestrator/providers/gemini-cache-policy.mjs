@@ -14,7 +14,7 @@
 import { appendAgentTrace } from '../agent-trace.mjs';
 import {
   _estimateGeminiCacheTokens,
-  _geminiCacheMinTokens,
+  geminiExplicitCacheMinTokens,
   _geminiCachePrefixCount,
   _geminiCachePrefixContents,
   _geminiCachePrefixHash,
@@ -146,6 +146,12 @@ export function awaitSharedCreate(task, signal) {
 // role='user' or 'model'; generateContent uses role='function' for
 // tool_result turns, so that is collapsed to 'user' (functionResponse parts
 // remain inside).
+// The model id without its `models/` resource prefix; every URL and body that
+// adds the prefix itself starts from this.
+export function geminiBareModelId(model) {
+  return String(model || '').replace(/^models\//i, '');
+}
+
 export function geminiCacheCreateBody({
   model,
   ttlSeconds,
@@ -157,7 +163,7 @@ export function geminiCacheCreateBody({
 }) {
   const cachePrefixContents = _geminiCachePrefixContents(contents, cachePrefixContentCount);
   const body = {
-    model: `models/${model}`,
+    model: `models/${geminiBareModelId(model)}`,
     ttl: `${ttlSeconds}s`,
   };
   if (systemInstruction) {
@@ -252,9 +258,10 @@ export function dropRejectedGeminiCache(cachedContent, opts) {
 // the model-specific minimum. Skip the POST entirely when the estimate
 // is under threshold so we don't spam 400 responses turn-after-turn.
 export function geminiPrefixBelowMinimum({ model, systemInstruction, geminiTools, contents, opts, currentIter }) {
-  const minTokens = _geminiCacheMinTokens();
+  // null: the model is excluded from explicit caching, so never create one.
+  const minTokens = geminiExplicitCacheMinTokens(model);
   const estimatedTokens = _estimateGeminiCacheTokens(systemInstruction, geminiTools, contents);
-  if (estimatedTokens >= minTokens) return false;
+  if (minTokens !== null && estimatedTokens >= minTokens) return false;
   traceGeminiCache(opts, currentIter, 'gemini_cache_skip', {
     reason: 'prefix_below_min',
     estimatedTokens,

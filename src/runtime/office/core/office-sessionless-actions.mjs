@@ -29,6 +29,7 @@ import {
   toolResult,
 } from './office-core.mjs';
 import { fullPath, selectMode } from './office-sessions.mjs';
+import { noteOfficeWrite } from './office-write-ledger.mjs';
 import { pendingOfficeTransactions, recoverOfficeTransaction } from './office-transactions.mjs';
 
 async function detectAction(args, cwd, dataDir) {
@@ -102,6 +103,13 @@ async function authorAction(args, cwd, dataDir, signal, startedAt) {
   const extension = extname(String(args.path || args.output || '')).toLowerCase();
   const author =
     { '.pdf': authorPdf, '.docx': authorHtmlDocument, '.xlsx': authorHtmlDocument }[extension] || authorPptx;
+  // Write receipts: the authored document and the sidecars kept beside it
+  // (its HTML source and print); per-page images report themselves.
+  for (const value of [args.path, args.output]) {
+    if (!String(value || '').trim()) continue;
+    const target = fullPath(String(value).trim(), cwd);
+    for (const path of [target, `${target}.mixdog-source.html`, `${target}.mixdog-html.pdf`]) noteOfficeWrite(path);
+  }
   const authored = await author(args, { cwd, dataDir, signal });
   const images = Array.isArray(authored?._images) ? authored._images : [];
   delete authored._images;

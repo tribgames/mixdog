@@ -4,6 +4,8 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { useSessionDiffRefresh } from './use-session-diff-refresh.ts';
+import { bumpTurnChangesEpoch } from './turn-changes-model.ts';
+import { primeSessionDiff } from './session-diff-cache.ts';
 import { createRendererClock } from '../../scripts/test-renderer-clock.mjs';
 
 function Probe(props) {
@@ -22,6 +24,8 @@ function harness(t, invokeCapability, desktop = {}) {
   Object.defineProperty(dom.window.document, 'visibilityState', { configurable: true, get: () => visibility });
   dom.window.setInterval = clock.win.setInterval;
   dom.window.clearInterval = clock.win.clearInterval;
+  dom.window.setTimeout = clock.win.setTimeout;
+  dom.window.clearTimeout = clock.win.clearTimeout;
   dom.window.mixdogDesktop = { invokeCapability, ...desktop };
   const root = createRoot(dom.window.document.querySelector('main'));
   t.after(async () => {
@@ -33,6 +37,16 @@ function harness(t, invokeCapability, desktop = {}) {
     clock,
     win: dom.window,
     render: (props = {}) => act(async () => root.render(React.createElement(Probe, { ...base, ...props }))),
+    renderAll: (list) =>
+      act(async () =>
+        root.render(
+          React.createElement(
+            React.Fragment,
+            null,
+            ...list.map((props, index) => React.createElement(Probe, { key: index, ...base, ...props }))
+          )
+        )
+      ),
     empty: () => act(async () => root.render(null)),
     text: () => dom.window.document.querySelector('main').textContent,
     visibility: (value) =>
@@ -49,35 +63,170 @@ function harness(t, invokeCapability, desktop = {}) {
   };
 }
 
-test('session diffs do no hidden polling or revision-triggered reads and refresh on return', async (t) => {
+test('session diffs do no hidden, timer or focus polling and read only on change signals', async (t) => {
   let calls = 0;
   const view = harness(t, async () => {
     calls += 1;
     return { value: { supported: true, files: [], patch: `patch-${calls}` } };
   });
+  const id = 'signals';
   await view.visibility('hidden');
-  await view.render();
+  await view.render({ sessionId: id });
   await view.advance(20_000);
   assert.equal(calls, 0);
   assert.equal(view.clock.timers.size, 0);
   await view.visibility('visible');
   assert.equal(calls, 1);
   assert.match(view.text(), /patch-1/);
-  await view.advance(4_000);
-  assert.equal(calls, 2);
+  // Busy, idle time, focus and visibility flips start nothing without a signal.
+  await view.advance(60_000);
   await view.visibility('hidden');
-  await view.render({ revision: 'second' });
-  await view.advance(20_000);
-  assert.equal(calls, 2);
   await view.visibility('visible');
-  assert.equal(calls, 3);
-  await view.render({ active: false });
+  await act(async () => view.win.dispatchEvent(new view.win.Event('focus')));
+  await view.advance(60_000);
+  assert.equal(calls, 1);
+  // A signal while hidden is caught up on return.
+  await view.visibility('hidden');
+  await view.render({ sessionId: id, revision: 'second' });
   await view.advance(20_000);
-  assert.equal(calls, 3);
+  assert.equal(calls, 1);
+  await view.visibility('visible');
+  await view.advance(1_000);
+  assert.equal(calls, 2);
+  await view.render({ sessionId: id, revision: 'second', active: false });
+  await view.advance(60_000);
+  assert.equal(calls, 2);
   assert.equal(view.clock.timers.size, 0);
 });
 
-test('late responses cannot update a closed diff pane and a reopened pane still refreshes', async (t) => {
+test('a revision signal is debounced into one read and a burst during a read costs one follow-up', async (t) => {
+  const requests = [];
+  const view = harness(t, () => {
+    const request = Promise.withResolvers();
+    requests.push(request);
+    return request.promise;
+  });
+  const id = 'burst';
+  await view.render({ sessionId: id, revision: 'r0' });
+  await view.settle(() => requests[0].resolve({ value: { supported: true, files: [], patch: 'p0' } }));
+  assert.equal(requests.length, 1);
+  for (let index = 1; index <= 6; index += 1) {
+    await view.render({ sessionId: id, revision: `r${index}` });
+    await view.advance(50);
+  }
+  assert.equal(requests.length, 1, 'debounce holds the read back');
+  await view.advance(300);
+  assert.equal(requests.length, 2);
+  // More signals while that read runs: one follow-up only.
+  for (let index = 7; index <= 12; index += 1) {
+    await view.render({ sessionId: id, revision: `r${index}` });
+    await view.advance(300);
+  }
+  assert.equal(requests.length, 2);
+  await view.settle(() => requests[1].resolve({ value: { supported: true, files: [], patch: 'p1' } }));
+  assert.equal(requests.length, 3);
+  await view.settle(() => requests[2].resolve({ value: { supported: true, files: [], patch: 'p2' } }));
+  assert.equal(requests.length, 3);
+  assert.match(view.text(), /p2/);
+});
+
+test('Undo / Delete history (turn-changes epoch bump) still refreshes the diff', async (t) => {
+  let calls = 0;
+  const view = harness(t, async () => {
+    calls += 1;
+    return { value: { supported: true, files: [], patch: `epoch-${calls}` } };
+  });
+  const id = 'epoch';
+  await view.render({ sessionId: id });
+  assert.equal(calls, 1);
+  await act(async () => {
+    bumpTurnChangesEpoch(id);
+  });
+  await view.advance(500);
+  assert.equal(calls, 2);
+  assert.match(view.text(), /epoch-2/);
+  await view.advance(60_000);
+  assert.equal(calls, 2);
+});
+
+test('a failed read keeps its signal dirty: visibility restore retries instead of adopting the old cache', async (t) => {
+  let calls = 0;
+  const view = harness(t, async () => {
+    calls += 1;
+    if (calls === 2) throw new Error('read failed');
+    return { value: { supported: true, files: [], patch: `ok-${calls}` } };
+  });
+  const id = 'failed-signal';
+  await view.render({ sessionId: id, revision: 'r0' });
+  assert.equal(calls, 1);
+  await view.render({ sessionId: id, revision: 'r1' });
+  await view.advance(500);
+  assert.equal(calls, 2);
+  assert.match(view.text(), /read failed/);
+  // Nothing without a signal or focus; restore retries the unanswered signal.
+  await view.advance(60_000);
+  assert.equal(calls, 2);
+  await view.visibility('hidden');
+  await view.visibility('visible');
+  assert.equal(calls, 3);
+  assert.match(view.text(), /false\|ok-3\|$/);
+  // Answered now: another restore only re-adopts.
+  await view.visibility('hidden');
+  await view.visibility('visible');
+  assert.equal(calls, 3);
+});
+
+test('a read that lands after switching sessions still answers its own session, so returning does not recompute', async (t) => {
+  const requests = [];
+  const view = harness(t, ({ sessionId }) => {
+    const request = Promise.withResolvers();
+    requests.push({ sessionId, ...request });
+    return request.promise;
+  });
+  await view.render({ sessionId: 'switch-a', revision: 'a1' });
+  assert.equal(requests.length, 1);
+  await view.render({ sessionId: 'switch-b', revision: 'b1' });
+  assert.equal(requests.length, 2);
+  await view.settle(() => requests[0].resolve({ value: { supported: true, files: [], patch: 'a-patch' } }));
+  await view.settle(() => requests[1].resolve({ value: { supported: true, files: [], patch: 'b-patch' } }));
+  await view.render({ sessionId: 'switch-a', revision: 'a1' });
+  await view.advance(1_000);
+  assert.equal(requests.length, 2, 'the unchanged session adopts its cache');
+  assert.match(view.text(), /a-patch/);
+});
+
+test('an inactive same-session sibling with an older signal never suppresses the active pane refresh', async (t) => {
+  let calls = 0;
+  const view = harness(t, async () => {
+    calls += 1;
+    return { value: { supported: true, files: [], patch: `sibling-${calls}` } };
+  });
+  const id = 'sibling';
+  await view.renderAll([{ sessionId: id, revision: 'r0' }, { sessionId: id, revision: 'r0', active: false }]);
+  assert.equal(calls, 1);
+  await view.renderAll([{ sessionId: id, revision: 'r1' }, { sessionId: id, revision: 'r0', active: false }]);
+  await view.advance(500);
+  assert.equal(calls, 2);
+  assert.match(view.text(), /sibling-2/);
+});
+
+test('ordinary window focus re-adopts the cached result without a read', async (t) => {
+  let calls = 0;
+  const view = harness(t, async () => {
+    calls += 1;
+    return { value: { supported: true, files: [], patch: `read-${calls}` } };
+  });
+  const id = 'focus-adopt';
+  await view.render({ sessionId: id });
+  assert.match(view.text(), /read-1/);
+  // Another consumer settles a newer result; focus (no visibility flip) adopts it.
+  primeSessionDiff(id, { supported: true, files: [], patch: 'primed' });
+  await act(async () => view.win.dispatchEvent(new view.win.Event('focus')));
+  assert.match(view.text(), /primed/);
+  assert.equal(calls, 1);
+});
+
+test('a closed pane ignores a late response and a reopened one adopts the settled result', async (t) => {
   let resolve;
   let calls = 0;
   const gate = new Promise((done) => {
@@ -85,20 +234,17 @@ test('late responses cannot update a closed diff pane and a reopened pane still 
   });
   const view = harness(t, () => {
     calls += 1;
-    return calls === 1
-      ? gate
-      : Promise.resolve({
-          value: { supported: true, files: [], patch: 'fresh' },
-        });
+    return gate;
   });
-  await view.render();
-  await view.render({ active: false });
+  const id = 'late';
+  await view.render({ sessionId: id });
+  await view.render({ sessionId: id, active: false });
   const closed = view.text();
   await view.settle(() => resolve({ value: { supported: true, files: [], patch: 'late' } }));
   assert.equal(view.text(), closed);
-  await view.render();
-  assert.equal(calls, 2);
-  assert.match(view.text(), /fresh/);
+  await view.render({ sessionId: id });
+  assert.equal(calls, 1);
+  assert.match(view.text(), /late/);
 });
 
 test('refresh reports adoption: skipped hidden reads and superseded responses are not adopted', async (t) => {
@@ -109,25 +255,23 @@ test('refresh reports adoption: skipped hidden reads and superseded responses ar
     return request.promise;
   });
   let refresh;
-  await view.render({ onRender: (state) => (refresh = state.refresh) });
+  await view.render({ sessionId: 'adopt', onRender: (state) => (refresh = state.refresh) });
   await view.settle(() => requests[0].resolve({ value: { supported: true, files: [], patch: 'initial' } }));
   await view.visibility('hidden');
   assert.equal(await refresh(true), false);
   assert.equal(requests.length, 1);
   await view.visibility('visible');
-  const visibleRead = requests.length;
+  assert.equal(requests.length, 1);
   let first;
   let second;
   await act(async () => {
     first = refresh(true);
     second = refresh(true);
   });
-  assert.ok(requests.length > visibleRead - 1);
-  await view.settle(() => {
-    for (const request of requests.slice(visibleRead - 1)) {
-      request.resolve({ value: { supported: true, files: [], patch: 'newer' } });
-    }
-  });
+  assert.equal(requests.length, 2);
+  await view.settle(() => requests[1].resolve({ value: { supported: true, files: [], patch: 'newer' } }));
+  await view.settle(() => requests[2].resolve({ value: { supported: true, files: [], patch: 'newest' } }));
+  assert.equal(requests.length, 3, 'two user refreshes cost one read plus one follow-up');
   assert.equal(await first, false);
   assert.equal(await second, true);
 });
@@ -139,7 +283,7 @@ test('repeated diff pane mounts leave no timer that can launch another backend r
     return { value: { supported: true, files: [], patch: 'diff' } };
   });
   for (let index = 0; index < 200; index += 1) {
-    await view.render();
+    await view.render({ sessionId: 'mounts' });
     await view.empty();
     assert.equal(view.clock.timers.size, 0);
   }
@@ -149,56 +293,6 @@ test('repeated diff pane mounts leave no timer that can launch another backend r
   await view.visibility('visible');
   assert.equal(calls, settledCalls);
 });
-
-test('an idle island re-reads after Git changes made outside a turn (project watch, focus)', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
-  let calls = 0;
-  let notify;
-  const watched = [];
-  const view = harness(
-    t,
-    async () => {
-      calls += 1;
-      return { value: { supported: true, files: [], patch: `idle-${calls}` } };
-    },
-    {
-      folderWatch: async (path) => void watched.push(path),
-      folderUnwatch: async () => {},
-      subscribeFolderChanges: (listener) => {
-        notify = listener;
-        return () => {
-          notify = undefined;
-        };
-      },
-    }
-  );
-  const wait = (work) =>
-    act(async () => {
-      work();
-      for (let index = 0; index < 4; index += 1) {
-        t.mock.timers.tick(1_000);
-        await view.clock.settle();
-      }
-    });
-  const props = { sessionId: 'idle-git', busy: false, gitWatchPath: 'C:/repo' };
-  await view.render(props);
-  await wait(() => {});
-  const initial = calls;
-  assert.ok(initial >= 1);
-  assert.deepEqual(watched, ['C:/repo'], "the project is watched (Source Control's evidence)");
-
-  // A commit in a terminal touches .git: the recursive project watch fires.
-  await wait(() => notify('C:/repo'));
-  assert.equal(calls, initial + 1);
-  // Committing in another app, then coming back: focus re-reads.
-  await wait(() => view.win.dispatchEvent(new view.win.Event('focus')));
-  assert.equal(calls, initial + 2);
-
-  // A running turn's own cadence owns it: the watch is released.
-  await view.render({ ...props, busy: true });
-  assert.equal(notify, undefined);
-});
-
 test('an unchanged background poll neither flips loading nor re-renders; a changed one does', async (t) => {
   let patch = 'same';
   const view = harness(t, async () => ({

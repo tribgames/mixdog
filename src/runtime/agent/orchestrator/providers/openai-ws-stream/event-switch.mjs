@@ -88,6 +88,18 @@ export function createWsEventSwitch({ response, textRelay, watchdogs, midState, 
         progress('tool');
         watchdogs.bumpSemantic();
         break;
+      // Refusal text is model output but never visible answer text: it is
+      // collected for the typed refusal result, not relayed live.
+      case 'response.refusal.delta':
+        response.noteRefusalDelta(event);
+        progress('semantic');
+        watchdogs.bumpSemantic();
+        break;
+      case 'response.refusal.done':
+        response.noteRefusalDone(event);
+        progress('semantic');
+        watchdogs.bumpSemantic();
+        break;
       case 'response.output_item.done': {
         const kind = response.completeOutputItem(event.item);
         // Item-done is genuine lifecycle progress — reset semantic idle so

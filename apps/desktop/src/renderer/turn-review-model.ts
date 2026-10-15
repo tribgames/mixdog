@@ -5,6 +5,8 @@ import { parseUnifiedDiff } from './renderer-logic.mjs';
 import {
   buildSessionDiffRows,
   isAbsolutePath,
+  PATCH_TOO_LARGE,
+  sessionDiffFileOmitted,
   type SessionDiffResult,
   type SessionDiffRow,
 } from './session-diff-model';
@@ -16,6 +18,7 @@ import {
   leadReviewFilesCache,
   leadReviewSnapshotKindCache,
   leadReviewCheckpointIdCache,
+  leadReviewHistoryTurnsCache,
   type AgentTurnReview,
   type TurnReviewFile,
 } from './turn-review-cache';
@@ -214,6 +217,7 @@ export function cachedTurnReviewState(scopeKey: string) {
     files: leadReviewFilesCache.get(scopeKey) || [],
     snapshotKind: leadReviewSnapshotKindCache.get(scopeKey) || '',
     checkpointId: leadReviewCheckpointIdCache.get(scopeKey) || '',
+    historyTurns: leadReviewHistoryTurnsCache.get(scopeKey) || 0,
   };
 }
 
@@ -335,37 +339,6 @@ export function summarizeSessionTranscriptReview(items: TranscriptItem[], cwd = 
   return turnReviewSummaryOf(files);
 }
 
-/** The session's files: everything the loaded transcript's successful edits
- *  touched, plus whatever the runtime's session diff knows beyond it (turns the
- *  paged transcript no longer holds). Where both name a file the larger line
- *  count wins, so the diff can only add lines. The runtime diff alone is not cumulative everywhere — a
- *  non-Git folder only tracks the running turn and answers an authoritative
- *  empty set when a new turn starts — so it can add files but never remove the
- *  transcript's. */
-export function mergeSessionReviewSummaries(transcript: TurnReviewSummary, diff: TurnReviewSummary): TurnReviewSummary {
-  const files: TurnReviewSummary['files'] = new Map(transcript.files);
-  for (const [name, entry] of diff.files) {
-    const known = files.get(name);
-    if (!known) {
-      files.set(name, entry);
-      continue;
-    }
-    // The diff may only cover the running turn (non-Git), so it never lowers
-    // what the transcript's successful calls already add up to.
-    const additions = Math.max(known.additions, entry.additions);
-    const deletions = Math.max(known.deletions, entry.deletions);
-    files.set(name, {
-      ...known,
-      additions,
-      deletions,
-      lineStats: additions + deletions > 0,
-      status: known.status || entry.status,
-      binary: known.binary || entry.binary,
-    });
-  }
-  return turnReviewSummaryOf(files);
-}
-
 /** The session diff pane's rows (the runtime's session-wide, session-owned
  *  paths) as a review summary. */
 export function summarizeSessionDiffRows(rows: readonly SessionDiffRow[]): TurnReviewSummary {
@@ -384,9 +357,9 @@ export function summarizeSessionDiffRows(rows: readonly SessionDiffRow[]): TurnR
 }
 
 /** A transcript file the runtime diff lacks becomes a row, and a row takes the
- *  larger counts and the patch of the transcript's own edit — the island's
- *  `mergeSessionReviewSummaries`, for a diff that is NOT the complete set (a
- *  runtime without ownership metadata). */
+ *  larger counts and the patch of the transcript's own edit, for a diff that
+ *  is NOT the complete set (a runtime without ownership metadata): such a diff
+ *  may only cover the running turn, so it never lowers the transcript's. */
 function mergeTranscriptIntoRows(rows: readonly SessionDiffRow[], transcript: TurnReviewSummary): SessionDiffRow[] {
   const known = new Set(rows.map((row) => row.path));
   const merged = rows.map((row) => {
@@ -463,6 +436,10 @@ export type TurnReviewCapabilityValue = {
    *  current worktree, so a refreshing re-read answers the same. */
   reason?: unknown;
   patch?: unknown;
+  /** Retained turn change records that Delete history removes. */
+  historyTurns?: unknown;
+  /** No file's patch fit the reply: the files and counts are still listed. */
+  diffTooLarge?: unknown;
   files?: Array<{
     path?: unknown;
     oldPath?: unknown;
@@ -470,6 +447,8 @@ export type TurnReviewCapabilityValue = {
     additions?: unknown;
     deletions?: unknown;
     binary?: unknown;
+    patchOmitted?: unknown;
+    reason?: unknown;
   }>;
   agents?: Array<{
     sessionId?: unknown;
@@ -488,6 +467,8 @@ export function decodeTurnReviewCapabilityValue(value: TurnReviewCapabilityValue
   checkpointId: string;
   files: TurnReviewFile[];
   reviews: AgentTurnReview[];
+  historyTurns: number;
+  diffTooLarge: boolean;
 } | null {
   if (!value || value.supported === false) return null;
   const authoritative = value.authoritative === true;
@@ -506,6 +487,7 @@ export function decodeTurnReviewCapabilityValue(value: TurnReviewCapabilityValue
         additions: typeof row?.additions === 'number' ? row.additions : null,
         deletions: typeof row?.deletions === 'number' ? row.deletions : null,
         binary: row?.binary === true,
+        ...(sessionDiffFileOmitted(row) ? { patchOmitted: true, reason: PATCH_TOO_LARGE } : {}),
       },
     ];
   });
@@ -522,5 +504,7 @@ export function decodeTurnReviewCapabilityValue(value: TurnReviewCapabilityValue
       },
     ];
   });
-  return { leadPatch, snapshotKind, checkpointId, files, reviews };
+  const historyTurns = typeof value.historyTurns === 'number' ? Math.max(0, value.historyTurns) : 0;
+  const diffTooLarge = authoritative && value.diffTooLarge === true;
+  return { leadPatch, snapshotKind, checkpointId, files, reviews, historyTurns, diffTooLarge };
 }

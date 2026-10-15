@@ -5,7 +5,8 @@
 import { formatToolActionHeader, toolLoadingTargets } from '../tool-surface.mjs';
 import { agentActionSummary, agentActionTitle, agentResponseTitle, isAgentTool } from './agent-surface.mjs';
 import { backgroundTaskActionTitle, backgroundTaskResultTitle, taskControlTitle } from './background-task.mjs';
-import { toolSearchLoadedSummary } from './generic-detail.mjs';
+import { bridgeDescribedToolNames, toolSearchLoadedSummary } from './generic-detail.mjs';
+import { displayToolSearchTarget } from '../tool-primitives.mjs';
 import { safeInlineText } from './inline-text.mjs';
 import { shellHeader } from './shell-surface.mjs';
 
@@ -20,6 +21,10 @@ function headerLabel(base, surface, display, status, detail) {
   }
   if (display.isBackgroundMetadataResult) return backgroundTaskActionTitle(normalizedName, display.backgroundMeta);
   if (isShellSurface) return shellHeader(status.shellStatus, groupCount, parsedArgs?.verifyShell === true);
+  // Bridge load_tool describes definitions; it never loads a tool.
+  const described =
+    normalizedName === 'load_tool' && !headerPending ? bridgeDescribedToolNames(display.displayedResultText) : null;
+  if (described) return described.length ? `Described ${described.map(displayToolSearchTarget).join(', ')}` : 'Described';
   return (
     (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs, display.displayedResultText) : '') ||
     formatToolActionHeader(name, args, {

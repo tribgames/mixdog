@@ -7,6 +7,7 @@
 import { writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
+import { noteOfficeWrite } from '../core/office-write-ledger.mjs';
 
 function pageImages(images = []) {
   const pages = [];
@@ -51,6 +52,7 @@ export async function writeContactSheet(images, output, { width = 1600 } = {}) {
   const data = sheet.toBuffer('image/png');
   const stem = basename(output, extname(output));
   const path = join(dirname(output), `${stem}.mixdog-contact.png`);
+  noteOfficeWrite(path);
   await writeFile(path, data);
   return {
     path,

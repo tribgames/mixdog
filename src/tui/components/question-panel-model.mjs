@@ -35,8 +35,12 @@ export function buildAnswers(questions, drafts) {
   return questions.map((question, i) => answerFor(question, drafts?.[i]));
 }
 
+const DETAIL_GAP = '  ';
+const MIN_DETAIL_CELLS = 6;
+
 // Geometry of one question's option rows at `columns` frame width: one line
-// per option (its label and the recommended mark).
+// per option (its label, the recommended mark, then its one-sentence
+// tradeoff in the cells left, cut with an ellipsis).
 export function optionLayout(question, columns) {
   const options = Array.isArray(question?.options) ? question.options : [];
   const total = options.length + 1;
@@ -48,7 +52,10 @@ export function optionLayout(question, columns) {
   const rows = options.map((option, i) => {
     const suffix = question?.recommended === i ? RECOMMENDED_SUFFIX : '';
     const label = truncatePanelText(String(option.label ?? ''), Math.max(1, labelCap - stringWidth(suffix)));
-    return { label, suffix };
+    const left = labelCap - stringWidth(label + suffix) - DETAIL_GAP.length;
+    const text = String(option.description ?? '').trim();
+    const detail = text && left >= MIN_DETAIL_CELLS ? `${DETAIL_GAP}${truncatePanelText(text, left)}` : '';
+    return { label, suffix, detail };
   });
   return { rows, prefixCells, avail, indexCells };
 }

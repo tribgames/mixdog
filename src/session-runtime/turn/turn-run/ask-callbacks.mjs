@@ -1,4 +1,5 @@
 import { isVisibleStreamProgress } from '../../../runtime/shared/stream-progress.mjs';
+import { toolCallDisplayIdentity } from '../../../runtime/shared/tool-primitives.mjs';
 
 // The askSession callback bridge: caller callbacks pass through, with the
 // transcript, first-visible timing, title release and warmup arming folded in.
@@ -6,10 +7,13 @@ export function createAskCallbacks({ transcript, notifyFnForSession, scheduleSea
   function plannedToolCalls(session0, options) {
     return async (iter, calls) => {
       for (const call of calls || []) {
+        // A bridged call reports the tool it runs; the transcript keeps the wire call.
+        const identity = toolCallDisplayIdentity(call?.name, call?.arguments);
         hooks.emit('tool:planned', {
           sessionId: session0.id,
-          name: call?.name || 'tool',
+          name: identity.name || 'tool',
           callId: call?.id || null,
+          ...(identity.via ? { via: identity.via } : {}),
         });
       }
       if (typeof options.onToolCall === 'function') {

@@ -9,6 +9,7 @@ import { describeOfficeCapabilities } from '../capabilities.mjs';
 import { applyBatch, closeSession, finalize, issues, qa, render, save, validate } from './office-actions.mjs';
 import { getOfficeElement, queryOfficeDocument } from './office-actions-read.mjs';
 import { snapshot } from './office-sessions.mjs';
+import { noteOfficeWrite } from './office-write-ledger.mjs';
 import { noteBatchAgainstHtml } from '../authoring/html-source-drift.mjs';
 import {
   assertTransactionUnchanged,
@@ -59,7 +60,13 @@ async function batchAction(session, args, cwd, signal) {
   };
 }
 
+// Verbs that never write the session's document.
+const READ_ACTIONS = new Set(['describe', 'begin', 'diff', 'snapshot', 'get', 'query', 'issues', 'validate']);
+
 export async function dispatchOfficeSessionAction({ action, session, args, cwd, signal }) {
+  // Write receipt: every other verb may write the session's document (an
+  // edit, save, rollback, autoFix, or a render that numbers its contents).
+  if (!READ_ACTIONS.has(action)) noteOfficeWrite(session.target);
   if (action === 'describe') {
     return describeOfficeCapabilities({
       format: session.format,

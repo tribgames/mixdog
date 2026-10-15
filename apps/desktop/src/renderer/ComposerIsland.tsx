@@ -81,6 +81,9 @@ function useIslandFlash(flash: ComposerIslandFlash | null): ComposerIslandFlash 
   return visible;
 }
 
+/** Below this the worktree name reads as noise: the narrow island keeps its glyph alone. */
+const WORKTREE_NAME_MIN_PX = 72;
+
 /** Swaps segment words for bare counts only when the full labels overflow the
  *  island's room: the pill is measured at its full-label width before paint,
  *  whenever the room or the pill's content changes. */
@@ -90,12 +93,30 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
     const pill = pillRef.current;
     const stage = island?.parentElement;
     if (!island || !pill || !stage) return undefined;
-    const fit = () => {
+    const fitLabels = () => {
       island.removeAttribute('data-compact');
       island.setAttribute('data-measuring', '');
       const needed = pill.offsetWidth;
       island.removeAttribute('data-measuring');
       island.toggleAttribute('data-compact', needed > stage.clientWidth);
+    };
+    // The worktree name is the one label that gives way after compact (which
+    // already drops its prefix and caps it): a name squeezed below its cap
+    // takes the Goal's pips, and below a readable width only its glyph stays.
+    const fitWorktree = () => {
+      island.removeAttribute('data-fit-pips');
+      island.removeAttribute('data-fit-glyph');
+      const name = pill.querySelector<HTMLElement>('.composer-island-seg-worktree .composer-island-seg-text');
+      if (!name || !island.hasAttribute('data-compact')) return;
+      const cut = () => name.scrollWidth > name.clientWidth;
+      if (cut() && name.clientWidth < Number.parseFloat(getComputedStyle(name).maxWidth)) {
+        island.setAttribute('data-fit-pips', '');
+      }
+      if (cut() && name.clientWidth < WORKTREE_NAME_MIN_PX) island.setAttribute('data-fit-glyph', '');
+    };
+    const fit = () => {
+      fitLabels();
+      fitWorktree();
     };
     fit();
     const resize = new ResizeObserver(fit);
@@ -574,6 +595,7 @@ export function ComposerIsland({
   sessionId,
   goal,
   files,
+  worktree,
   approval,
   flash,
   quotaResume,
@@ -587,6 +609,8 @@ export function ComposerIsland({
   /** The changed-files segment: opens the side dock, or where the surface has
    *  none, expands into the turn's file list like the Goal tab. */
   files?: ReactNode;
+  /** The worktree segment (WorktreeIslandSegment), last in the pill. */
+  worktree?: ReactNode;
   /** The live tool approval card: the island grows into it. */
   approval?: ReactNode;
   flash?: ComposerIslandFlash | null;
@@ -707,6 +731,7 @@ export function ComposerIsland({
                 onClick={() => toggleJobs('shell')}
               />
               {files}
+              {worktree}
             </div>
             {resumePanel && quotaResume ? <ResumePanel resume={quotaResume} /> : null}
             {ownPanel && expanded === 'jobs' && (

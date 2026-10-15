@@ -242,6 +242,7 @@ const STATIC_OPERATIONS = {
   gitRevertFile: git.gitRevertFile,
   gitReview: git.gitReview,
   gitReviewDiff: git.gitReviewDiff,
+  gitReviewDiffs: git.gitReviewDiffs,
   gitShow: git.gitShow,
   gitShowDiff: git.gitShowDiff,
   gitShowFile: git.gitShowFile,

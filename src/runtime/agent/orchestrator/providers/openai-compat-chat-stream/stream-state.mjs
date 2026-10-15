@@ -6,7 +6,11 @@
  */
 import { stampStreamOutcome, STREAM_TRANSPORTS } from '../lib/stream-outcome.mjs';
 import { createLeakGuard, createToolCallDedupe } from '../lib/leaked-toolcall.mjs';
-import { emitCompatToolCallOnce, synthLeakedOpenAICall } from '../openai-compat-stream-common.mjs';
+import {
+  emitCompatToolCallOnce,
+  failingFinishReasonError,
+  synthLeakedOpenAICall,
+} from '../openai-compat-stream-common.mjs';
 import { chatCompletionUsage } from '../openai-compat-response-normalization.mjs';
 import { noteAbandonedUsage } from '../../../../shared/llm/usage-context.mjs';
 import { createToolCallAccumulator } from './tool-call-acc.mjs';
@@ -31,6 +35,8 @@ export function createCompatStreamState({
     content: '',
     reasoningContent: '',
     sawReasoningContent: false,
+    // Where the last reasoning text came from: a delta field name or 'content_chunks'.
+    reasoningSource: null,
     reasoningDetails: [],
     // Both text and reasoning exposure prohibit resampling the request.
     emittedText: false,
@@ -43,6 +49,7 @@ export function createCompatStreamState({
     streamEmitState: { emittedToolCallKeys: new Set(), emittedToolCall: false, _toolDedupe: toolDedupe },
     leakGuard: createLeakGuard({ knownToolNames, harmony: true }),
     leakedCalls: [],
+    pendingLeakedCalls: [],
   };
 }
 
@@ -71,16 +78,39 @@ export function appendText(state, text) {
   }
 }
 
-function dispatchLeakedCall(state, recovered) {
+/** A length-truncated or content-filtered turn is a partial result:
+ *  normalizeCompatChatResponse rejects it, so no tool call of it may execute. */
+export function isIncompleteFinishReason(finishReason) {
+  return finishReason === 'length' || finishReason === 'content_filter';
+}
+
+/** Whether `finish_reason` confirms a normal end of the turn: present, not an
+ *  incomplete outcome and not a gateway-reported failure (network_error/error). */
+export function isNormalFinishReason(finishReason) {
+  return Boolean(finishReason) && !isIncompleteFinishReason(finishReason) && !failingFinishReasonError(finishReason, '');
+}
+
+/** Dispatch held leaked calls once a normal finish_reason confirms the turn
+ *  ended. Otherwise they stay on `leakedCalls` (partial tool calls) and never
+ *  reach the executor. */
+export function drainLeakedCalls(state) {
+  if (!isNormalFinishReason(state.stopReason)) return;
+  for (const call of state.pendingLeakedCalls.splice(0)) {
+    emitCompatToolCallOnce(state.streamEmitState, call, state.onToolCall);
+  }
+}
+
+function recordLeakedCall(state, recovered) {
   const call = synthLeakedOpenAICall(recovered);
-  emitCompatToolCallOnce(state.streamEmitState, call, state.onToolCall);
+  state.pendingLeakedCalls.push(call);
   reportProgress(state, 'tool');
   return call;
 }
 
 function relayGuarded(state, { text, calls }) {
   if (text) appendText(state, text);
-  for (const c of calls) state.leakedCalls.push(dispatchLeakedCall(state, c));
+  for (const c of calls) state.leakedCalls.push(recordLeakedCall(state, c));
+  drainLeakedCalls(state);
 }
 
 /** Route a text delta through the leak guard, dispatching rescued calls. */
@@ -113,9 +143,9 @@ export function noteReportedUsage(state) {
 }
 
 /** Keep the partial output on the error for upstream salvage: the text, the
- *  recovered leaked calls already dispatched (native calls only dispatch once
- *  the stream finishes) and whether a native call's arguments were still
- *  streaming. */
+ *  recovered leaked calls (none dispatched unless a normal finish_reason
+ *  arrived; native calls only dispatch once the stream finishes) and whether a
+ *  native call's arguments were still streaming. */
 export function attachPartial(state, err) {
   try {
     err.partialContent = state.content;

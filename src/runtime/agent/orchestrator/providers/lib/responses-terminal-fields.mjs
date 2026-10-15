@@ -23,6 +23,17 @@ export function incompleteReasonFromEvent(event) {
   return String(reasonObj?.reason || event?.response?.status || 'incomplete');
 }
 
+// A function/custom/tool_search call item the server cut off (status
+// 'incomplete'): its arguments or input are truncated, so it is never a call
+// to run or replay. The stream keeps it tracked as a tool still in flight, so
+// the terminal frame reads as a pending-tool cutoff.
+export function isIncompleteToolItem(item) {
+  return (
+    item?.status === 'incomplete' &&
+    (item.type === 'function_call' || item.type === 'custom_tool_call' || item.type === 'tool_search_call')
+  );
+}
+
 export function isMaxOutputIncompleteReason(reason) {
   return /^(?:max_output_tokens|max_tokens|length|output_token_limit)$/i.test(String(reason || '').trim());
 }

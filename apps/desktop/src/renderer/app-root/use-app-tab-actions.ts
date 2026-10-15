@@ -15,7 +15,7 @@ import { loadStudioViewModule } from '../studio-loader';
 import { prefetchBrowserPane, prefetchDiffView, prefetchEditorPane, prefetchTerminalPane } from '../lazy-widgets';
 import { useAgentBrowserSurfaceRequests } from '../use-agent-browser-surface-requests';
 import { browserSurfaceRevealPlan } from '../session-browser-policy';
-import { onTerminalRevealRequested } from '../terminal-command-request';
+import { handleTerminalRunRequest, onTerminalRevealRequested } from '../terminal-command-request';
 import { onVisualizeRevealRequested } from '../visualize-store';
 import { useStableEvent } from '../use-stable-event';
 import { desktopFeatureEnabled } from '../desktop-feature-config';
@@ -141,6 +141,9 @@ export function useAppTabActions({
     if (leafId) paneSideDocks.select(leafId, 'terminal');
   });
   useEffect(() => onTerminalRevealRequested(revealSessionTerminal), [revealSessionTerminal]);
+  // The agent's `terminal` run: main reveals the dock (and opens a tab when the
+  // session has none) through the same path as the Run button.
+  useEffect(() => window.mixdogDesktop?.onTerminalRunRequested?.(handleTerminalRunRequest), []);
 
   // The agent's `visualize` open: the session's visualize view becomes its
   // side panel. A pane showing the session reveals it now; otherwise it waits

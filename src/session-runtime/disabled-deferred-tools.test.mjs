@@ -98,17 +98,24 @@ for (const provider of ['openai-oauth', 'anthropic-oauth', 'gemini', 'openrouter
     assert.equal(JSON.stringify(session.messages).includes(blocked.name), false);
     assert.equal(session.messages[0].content, 'BP1 BASE');
     assert.equal(session.messages[2].content, 'BP3 SESSION');
-    if (native) {
-      assert.equal(JSON.stringify(requestTools(session)), eagerBefore);
-      assert.ok(session.messages[1].content.includes(allowed.name));
-    } else {
-      assert.ok(requestTools(session).some((tool) => tool.name === allowed.name));
-    }
+    // Request bytes stay; the allowed tool joins the initial roster in place
+    // (bridge sessions exactly like native, followed by the bridge guidance).
+    assert.equal(JSON.stringify(requestTools(session)), eagerBefore);
+    assert.ok(session.messages[1].content.includes(`- ${allowed.name}`));
+    if (!native) assert.match(session.messages[1].content, /<\/available-deferred-tools>\n\n<tool-bridge>/);
 
     const loaded = JSON.parse(renderToolSearch({ names: [blocked.name, allowed.name] }, session, 'lead'));
     assert.deepEqual(loaded.missing, [blocked.name]);
+    if (!native) {
+      // Bridge providers: load_tool describes the allowed tool and loads nothing.
+      assert.deepEqual(
+        loaded.entries.map((entry) => entry.name),
+        [allowed.name]
+      );
+      return;
+    }
     assert.ok([...loaded.loaded, ...loaded.alreadyActive].includes(allowed.name));
-    if (native) assert.deepEqual(loaded.nativeToolSearch.toolReferences, [allowed.name]);
+    assert.deepEqual(loaded.nativeToolSearch.toolReferences, [allowed.name]);
 
     const repeated = JSON.parse(renderToolSearch({ names: [allowed.name] }, session, 'lead'));
     assert.deepEqual(repeated.alreadyActive, [allowed.name]);

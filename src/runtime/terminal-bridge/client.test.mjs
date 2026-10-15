@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { writeFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -49,13 +50,157 @@ async function withBridge(handler, run) {
   }
 }
 
-test('terminal tool is a short read-only deferred-pool definition', () => {
+test('terminal tool is a short deferred-pool definition with a run action', () => {
   assert.deepEqual(TOOL_DEFS.map((tool) => tool.name), ['terminal']);
   const schema = TOOL_DEFS[0].inputSchema;
-  assert.deepEqual(schema.properties.action.enum, ['list', 'read']);
+  assert.deepEqual(schema.properties.action.enum, ['list', 'read', 'run']);
+  assert.equal(schema.properties.command.type, 'string');
   assert.deepEqual(schema.required, ['action']);
   assert.equal(schema.additionalProperties, false);
-  assert.ok(JSON.stringify(TOOL_DEFS[0]).length < 1200);
+  assert.match(TOOL_DEFS[0].trigger, /elevation/);
+  assert.ok(JSON.stringify(TOOL_DEFS[0]).length < 2000);
+});
+
+test('validateTerminalArgs checks run commands', () => {
+  assert.deepEqual(validateTerminalArgs({ action: 'run', command: 'ls' }), { ok: true, action: 'run', command: 'ls' });
+  assert.deepEqual(validateTerminalArgs({ action: 'run', tab: '2', command: 'ls' }), {
+    ok: true,
+    action: 'run',
+    tab: 2,
+    command: 'ls',
+  });
+  assert.equal(validateTerminalArgs({ action: 'run', command: 'x'.repeat(8000) }).ok, true);
+  for (const bad of [
+    { action: 'run' },
+    { action: 'run', command: '' },
+    { action: 'run', command: '   ' },
+    { action: 'run', command: 42 },
+    { action: 'run', command: 'x'.repeat(8001) },
+    { action: 'run', command: 'ls', since: 1 },
+    { action: 'run', command: 'ls', lines: 5 },
+    { action: 'run', command: 'ls', elevationApproved: true },
+    { action: 'read', command: 'ls' },
+    { action: 'list', command: 'ls' },
+  ]) {
+    assert.equal(validateTerminalArgs(bad).ok, false, JSON.stringify(bad));
+  }
+});
+
+const RUN_VALUE = { id: 'session-terminal:s1', tab: 1, shell: 'pwsh', running: true, cwd: 'C:\\work', cursor: 42 };
+
+test('run sends the command and formats the cursor hint', async () => {
+  await withBridge(
+    () => ({ ok: true, value: RUN_VALUE }),
+    async (requests) => {
+      const result = await executeTerminalTool({ action: 'run', tab: 1, command: 'npm test' }, { sessionId: 's1' });
+      assert.equal(result.isError, undefined);
+      assert.equal(
+        result.content[0].text,
+        'Terminal run: session-terminal:s1 · 1 pwsh running C:\\work · cursor=42\n' +
+          'Command sent to the side terminal. Read its output with action=read tab=1 since=42.'
+      );
+      assert.deepEqual(requests[0].body, { action: 'run', session_id: 's1', tab: 1, command: 'npm test' });
+    }
+  );
+});
+
+test('run is blocked by a deny policy even with elevation approval', async () => {
+  await withBridge(
+    () => ({ ok: true, value: RUN_VALUE }),
+    async (requests) => {
+      for (const elevationApproved of [false, true]) {
+        const result = await executeTerminalTool(
+          { action: 'run', command: 'sudo shutdown now' },
+          { sessionId: 's1', elevationApproved }
+        );
+        assert.equal(result.isError, true);
+        assert.match(result.content[0].text, /^Error: command blocked by exec policy/);
+      }
+      assert.equal(requests.length, 0);
+    }
+  );
+});
+
+test('run of an elevating command needs runtime approval; model args cannot grant it', async () => {
+  const command = 'Start-Process notepad -Verb RunAs';
+  await withBridge(
+    () => ({ ok: true, value: RUN_VALUE }),
+    async (requests) => {
+      const blocked = await executeTerminalTool({ action: 'run', command }, { sessionId: 's1' });
+      assert.equal(blocked.isError, true);
+      assert.match(blocked.content[0].text, /requires user approval for elevation/);
+
+      const injected = await executeTerminalTool(
+        { action: 'run', command, elevationApproved: true, approved: true },
+        { sessionId: 's1' }
+      );
+      assert.equal(injected.isError, true);
+      assert.equal(requests.length, 0);
+
+      const truthy = await executeTerminalTool({ action: 'run', command }, { sessionId: 's1', elevationApproved: 'yes' });
+      assert.equal(truthy.isError, true);
+      assert.equal(requests.length, 0);
+
+      const allowed = await executeTerminalTool({ action: 'run', command }, { sessionId: 's1', elevationApproved: true });
+      assert.equal(allowed.isError, undefined);
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0].body.command, command);
+    }
+  );
+});
+
+test('a replaced bridge is retried for read but never for run', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-terminal-bridge-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  const previousIsolated = process.env.MIXDOG_BRIDGE_DISCOVERY_DIR;
+  process.env.MIXDOG_DATA_DIR = directory;
+  delete process.env.MIXDOG_BRIDGE_DISCOVERY_DIR;
+  const file = join(directory, 'terminal-bridge.json');
+  const seen = [];
+  let token = 0;
+  let port = 0;
+  const advertise = () => {
+    token += 1;
+    writeFileSync(file, JSON.stringify({ version: 1, port, token: `t${token}`, pid: process.pid }));
+  };
+  let dropNext = true;
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on('data', (chunk) => chunks.push(chunk));
+    request.on('end', () => {
+      seen.push(JSON.parse(Buffer.concat(chunks).toString('utf8')).action);
+      if (dropNext) {
+        // The bridge is replaced mid-request: new advertisement, dropped socket.
+        dropNext = false;
+        advertise();
+        request.socket.destroy();
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ ok: true, value: { ...RUN_VALUE, raw: 'out\r\n' } }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  port = server.address().port;
+  try {
+    advertise();
+    const run = await executeTerminalTool({ action: 'run', command: 'echo hi' }, { sessionId: 's1' });
+    assert.equal(run.isError, true);
+    assert.deepEqual(seen, ['run']);
+
+    dropNext = true;
+    seen.length = 0;
+    const read = await executeTerminalTool({ action: 'read' }, { sessionId: 's1' });
+    assert.equal(read.isError, undefined);
+    assert.deepEqual(seen, ['read', 'read']);
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    if (previousIsolated !== undefined) process.env.MIXDOG_BRIDGE_DISCOVERY_DIR = previousIsolated;
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('validateTerminalArgs checks fields, defaults and caps', () => {

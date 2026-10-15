@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 import { clean } from './session-text.mjs';
 import { isDeferredToolAvailable } from './deferred-tool-availability.mjs';
-import { deferredCatalogUnion, filterSessionToolPolicy, isReadonlySelectable } from './tool-catalog.mjs';
+import { deferredCatalogUnion, filterSessionToolPolicy, isReadonlySelectable, toolSearchMatches } from './tool-catalog.mjs';
 import { parseToolSelection, sortedCatalogByMeasuredUsage } from './tool-catalog-schema.mjs';
 import { DEFERRED_SELECT_ALIASES } from './tool-catalog-data.mjs';
 import { estimateTokens } from '../session/token-estimate.mjs';
@@ -263,6 +263,44 @@ function resolveDescribeTargets(session, names, mode, available) {
   return { targets, missing, blocked };
 }
 
+const SEARCH_MAX_MATCHES = 20;
+const SEARCH_DESCRIPTION_CHARS = 100;
+
+// A requested name that is no tool is a keyword: a case-insensitive substring
+// search over the deferred tools this session can run (the same availability,
+// allow/deny and read-only rules as a lookup, so nothing the session cannot
+// run is ever listed). Keywords with no hit stay in `missing`.
+function searchKeywords(session, keywords, mode, available) {
+  const eagerNames = eagerToolNames(session);
+  const matches = [];
+  const missing = [];
+  let remaining = SEARCH_MAX_MATCHES;
+  for (const keyword of keywords) {
+    const tools = available
+      .filter((tool) => {
+        const name = clean(tool?.name);
+        return (
+          !eagerNames.has(name) &&
+          !BRIDGE_META_TOOL_NAMES.has(name.toLowerCase()) &&
+          toolSearchMatches(tool, keyword) &&
+          !bridgeBlockReason(session, tool, mode, eagerNames)
+        );
+      })
+      .slice(0, remaining)
+      .map((tool) => ({
+        name: clean(tool.name),
+        description: clean(tool.description).slice(0, SEARCH_DESCRIPTION_CHARS),
+      }));
+    if (!tools.length) {
+      missing.push(keyword);
+      continue;
+    }
+    remaining -= tools.length;
+    matches.push({ keyword, tools });
+  }
+  return { matches, missing };
+}
+
 // Largest code-point-aligned chunk of `text` from `offset` that keeps the page
 // within budget; 0 when nothing more fits.
 function largestChunk(text, offset, buildPage) {
@@ -305,6 +343,7 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
   let targets;
   let missing = [];
   let blocked = [];
+  let matches = [];
   if (continuation) {
     targets = continuationTargets(session, continuation.indexes, available, mode);
     if (!targets) return catalogChanged();
@@ -317,7 +356,9 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
       );
     }
     ({ targets, missing, blocked } = resolveDescribeTargets(session, names, mode, available));
+    ({ matches, missing } = searchKeywords(session, missing, mode, available));
   }
+  const found = matches.length ? { matches } : {};
   const docs = targets.map((tool) => {
     const document = toolDocument(tool);
     return {
@@ -339,7 +380,14 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
   }
   const entries = [];
   const reserve = { names: reserveContinuation(docs.length, available.length) };
-  const page = (extra) => ({ entries: [...entries, extra], missing, blocked, note: DESCRIBE_NOTE, continueWith: reserve });
+  const page = (extra) => ({
+    entries: [...entries, extra],
+    missing,
+    blocked,
+    ...found,
+    note: DESCRIBE_NOTE,
+    continueWith: reserve,
+  });
   const fits = (value) => fitsBudget(value, BRIDGE_LIMITS.describeMaxBytes, BRIDGE_LIMITS.describeMaxTokens);
   let nextPosition = null;
   for (; entryIndex < docs.length; entryIndex += 1, offset = 0) {
@@ -354,7 +402,7 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
       // A document that fits on a page of its own starts the next page whole.
       if (
         entries.length &&
-        fits({ entries: [whole], missing, blocked, note: DESCRIBE_NOTE, continueWith: reserve })
+        fits({ entries: [whole], missing, blocked, ...found, note: DESCRIBE_NOTE, continueWith: reserve })
       ) {
         nextPosition = [entryIndex, 0];
         break;
@@ -384,7 +432,7 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
   if (continueWith && continueWith.names.length > BRIDGE_LIMITS.continuationMaxChars) {
     return bridgeError('RESULT_TOO_LARGE', 'the remaining definitions cannot be continued; describe fewer tools at once.');
   }
-  return { entries, missing, blocked, note: DESCRIBE_NOTE, continueWith };
+  return { entries, missing, blocked, ...found, note: DESCRIBE_NOTE, continueWith };
 }
 
 // ---------------------------------------------------------------------------
@@ -416,7 +464,7 @@ export function resolveBridgeTarget(session, rawName) {
   if (!tool) {
     return bridgeError(
       'TOOL_NOT_FOUND',
-      `no tool named "${name}" is available in this session; find tools with load_tool {query}.`
+      `no tool named "${name}" is available in this session; find tools with load_tool {names: keyword}.`
     );
   }
   const canonical = clean(tool.name);

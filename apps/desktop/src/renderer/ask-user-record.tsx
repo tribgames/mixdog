@@ -1,15 +1,22 @@
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { asRecord } from './text-format';
+import { desktopToolDisplayIdentity } from './transcript-tool-core';
 import { askUserAnswers, toolActivityResultValue } from './transcript-tool-result';
+
+/** The ask_user arguments of a call, direct or through the call_tool bridge; null for any other call. */
+function askUserArgs(item: TranscriptItem): Record<string, unknown> | null {
+  if (item.kind !== 'tool') return null;
+  const identity = desktopToolDisplayIdentity(item.name, item.args);
+  return identity.name === 'ask_user' ? (asRecord(identity.args) ?? {}) : null;
+}
 
 /** An ask_user call that has its result: it renders as a card, not a tool row. */
 export function isAnsweredAskUser(item: TranscriptItem): boolean {
-  return item.kind === 'tool' && item.name === 'ask_user' && typeof toolActivityResultValue(item) === 'string';
+  return askUserArgs(item) !== null && typeof toolActivityResultValue(item) === 'string';
 }
 
-const isWaitingAskUser = (item: TranscriptItem): boolean =>
-  item.kind === 'tool' && item.name === 'ask_user' && !isAnsweredAskUser(item);
+const isWaitingAskUser = (item: TranscriptItem): boolean => askUserArgs(item) !== null && !isAnsweredAskUser(item);
 
 /** Whether a transcript item (or a roll-up member) is a question still waiting
  *  for its answer: its row stays mounted so the live card keeps its state. */
@@ -81,7 +88,8 @@ function closedNote(result: string): string {
 /** An answered ask_user call, kept in the transcript as the card it was, picks marked. */
 export function AskUserRecord({ item }: { item: TranscriptItem }) {
   const result = String(toolActivityResultValue(item) ?? '');
-  const questions = (Array.isArray(asRecord(item.args)?.questions) ? (asRecord(item.args)?.questions as unknown[]) : [])
+  const args = askUserArgs(item);
+  const questions = (Array.isArray(args?.questions) ? (args.questions as unknown[]) : [])
     .map((entry) => asRecord(entry))
     .filter((entry): entry is Record<string, unknown> => Boolean(entry));
   const note = closedNote(result);

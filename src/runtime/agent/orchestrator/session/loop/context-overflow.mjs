@@ -46,6 +46,62 @@ export function agentContextOverflowError(
   );
 }
 
+export const TOOL_SURFACE_EXCEEDS_CONTEXT = 'TOOL_SURFACE_EXCEEDS_CONTEXT';
+
+const tokens = (value) => `${Number(value || 0).toLocaleString('en-US')} tokens`;
+
+// Distinct from AgentContextOverflowError: the request's FIXED overhead (tool
+// definitions, protected system context, configured headroom) leaves no room
+// for any history, so compacting the history cannot help and is not tried.
+// The wording avoids provider context-overflow phrasing on purpose: this is
+// not a "conversation too long" refusal and must not be routed as one.
+export class ToolSurfaceExceedsContextError extends Error {
+  constructor({ sessionId, provider, model, overhead }) {
+    const target = [provider, model].filter(Boolean).join('/') || 'this model';
+    const reserve = overhead.kind === 'configured_reserve';
+    const headline = reserve
+      ? 'The configured compaction headroom leaves no room for conversation history'
+      : 'Tool definitions and system context leave no room for conversation history';
+    const remedy = reserve
+      ? 'Lower the configured headroom (compaction.reservedTokens or MIXDOG_AGENT_COMPACT_RESERVED_TOKENS), or use a model with a larger context window.'
+      : `Use a model with a larger context window, or send a smaller eager tool surface (disable MCP servers or custom tools this session does not need)${
+          overhead.configuredReserveTokens > 0 ? ', or configure fewer reserved tokens (compaction.reservedTokens)' : ''
+        }.`;
+    const largest = overhead.largestTools.map((tool) => `${tool.name} (${tokens(tool.tokens)})`).join(', ');
+    super(
+      [
+        `${headline} (${TOOL_SURFACE_EXCEEDS_CONTEXT}).`,
+        `${target}: context window ${tokens(overhead.contextWindowTokens)}, compaction boundary ${tokens(overhead.boundaryTokens)}.`,
+        `Fixed per-request overhead: tool definitions ${tokens(overhead.toolTokens)} (${overhead.toolCount} tools), ` +
+          `protected system context ${tokens(overhead.systemTokens)}, configured headroom ${tokens(overhead.configuredReserveTokens)}; ` +
+          'nothing remains for conversation history.',
+        ...(overhead.measuredRequestTokens
+          ? [`The provider measured the last request at ${tokens(overhead.measuredRequestTokens)}.`]
+          : []),
+        'Compacting the conversation history cannot reduce these.',
+        remedy,
+        ...(largest ? [`Largest tool definitions: ${largest}.`] : []),
+      ].join('\n')
+    );
+    this.name = 'ToolSurfaceExceedsContextError';
+    this.code = TOOL_SURFACE_EXCEEDS_CONTEXT;
+    this.sessionId = sessionId || null;
+    this.provider = provider || null;
+    this.model = model || null;
+    this.overheadKind = overhead.kind;
+    this.overhead = overhead;
+  }
+}
+
+export function toolSurfaceExceedsContextError({ sessionId, sessionRef, model, overhead }) {
+  return new ToolSurfaceExceedsContextError({
+    sessionId,
+    provider: sessionRef?.provider || null,
+    model: sessionRef?.model || model || null,
+    overhead,
+  });
+}
+
 // Distinct from AgentContextOverflowError: the compaction pipeline itself
 // failed (handoff-summary error, dead Memory runtime,
 // etc.). This is NOT "latest turn cannot fit the context budget" — masking it

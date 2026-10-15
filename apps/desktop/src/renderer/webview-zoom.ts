@@ -1,4 +1,4 @@
-import { isIOSWebSurface, isMobileRemoteSurface } from './mobile-surface';
+import { isMobileDeviceSurface, isMobileRemoteSurface } from './mobile-surface';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 
 // The application shell stays at 100%, including legacy web profiles.
@@ -23,13 +23,19 @@ window.addEventListener('keydown', (event) => {
 });
 
 // Chromium represents trackpad pinch as Ctrl+wheel. Safari uses gestures.
-window.addEventListener(
-  'wheel',
-  (event) => {
-    if (event.ctrlKey && zoomLocked()) event.preventDefault();
-  },
-  { passive: false }
-);
+// A non-passive window listener makes every wheel scroll wait for the main
+// thread, so only touch-class devices (the only ones that can take the phone
+// layout) register it. The host's own window pins zoom in the main process
+// (zoom factor and visual zoom limits); remote PCs keep native zoom anyway.
+if (isMobileDeviceSurface()) {
+  window.addEventListener(
+    'wheel',
+    (event) => {
+      if (event.ctrlKey && zoomLocked()) event.preventDefault();
+    },
+    { passive: false }
+  );
+}
 const preventGesture = (event: Event): void => {
   if (zoomLocked()) event.preventDefault();
 };
@@ -37,15 +43,8 @@ document.addEventListener('gesturestart', preventGesture, { passive: false });
 document.addEventListener('gesturechange', preventGesture, { passive: false });
 document.addEventListener('gestureend', preventGesture, { passive: false });
 
-// iOS WebKit ignores `user-scalable=no`, so a phone there blocks pinch by
-// cancelling multi-touch. Everywhere else the viewport meta and the root's
-// `touch-action: pan-x pan-y` already refuse pinch-zoom, and a non-passive
-// document touch listener only made every scroll wait for the main thread
-// before it could start (the whole page became a blocking touch region).
-const preventMultiTouch = (event: TouchEvent): void => {
-  if (event.touches.length > 1 && isMobileRemoteSurface()) event.preventDefault();
-};
-if (isIOSWebSurface()) {
-  document.addEventListener('touchstart', preventMultiTouch, { passive: false });
-  document.addEventListener('touchmove', preventMultiTouch, { passive: false });
-}
+// No document touch listener, iOS included: a non-passive one made every
+// scroll wait for the main thread before it could start (the whole page
+// became a blocking touch region). Pinch stays refused by the viewport meta
+// and the root's `touch-action: pan-x pan-y`; iOS Safari, which ignores
+// `user-scalable=no`, is held by the gesture listeners above.

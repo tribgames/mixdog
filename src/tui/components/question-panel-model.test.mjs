@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { approvalShortcutDecision } from '../app/use-global-key-input/approval-shortcut.mjs';
-import { answerFor, appendCapped, buildAnswers, initialCursor, planQuestionView, questionPanelRows } from './question-panel-model.mjs';
+import stringWidth from 'string-width';
+import { answerFor, appendCapped, buildAnswers, initialCursor, optionLayout, planQuestionView, questionPanelRows } from './question-panel-model.mjs';
 
 const questions = [
   { question: 'Auth?', header: 'Auth', options: [{ label: 'GitHub' }, { label: 'Email' }], recommended: 1 },
@@ -34,6 +35,17 @@ test('answerFor: multi selection may carry typed text; missing draft is null', (
 test('initialCursor follows the 0-based recommended index', () => {
   assert.equal(initialCursor(questions[0]), 1);
   assert.equal(initialCursor(questions[1]), 0);
+});
+
+test('optionLayout: the tradeoff follows the label on the same line, cut to fit', () => {
+  const q = { question: 'Q?', header: 'h', recommended: 0, options: [{ label: 'Local', description: 'No setup, but this device only.' }, { label: 'Server', description: 'word '.repeat(40) }] };
+  const wide = optionLayout(q, 80);
+  assert.equal(wide.rows[0].detail, '  No setup, but this device only.');
+  const cut = wide.rows[1];
+  assert.ok(cut.detail.endsWith('…'));
+  assert.ok(stringWidth(cut.label + cut.suffix + cut.detail) <= wide.avail - wide.prefixCells);
+  // Too narrow for a useful tradeoff: the label alone.
+  assert.equal(optionLayout(q, 22).rows[0].detail, '');
 });
 
 test('questionPanelRows: one row per option, descriptions never add rows', () => {

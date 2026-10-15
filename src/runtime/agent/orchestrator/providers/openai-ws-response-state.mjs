@@ -13,6 +13,8 @@ import { createReplayItems } from './openai-ws-response-state/replay-items.mjs';
 import { createCitations } from './openai-ws-response-state/citations.mjs';
 import { createWsToolCalls } from './openai-ws-response-state/tool-calls.mjs';
 import { normalizeWsUsage } from './openai-ws-response-state/usage.mjs';
+import { createRefusals, refusalResultFields } from './openai-ws-response-state/refusals.mjs';
+import { isIncompleteToolItem } from './lib/responses-terminal-fields.mjs';
 
 export { parseToolSearchArgs } from './openai-ws-response-state/tool-calls.mjs';
 
@@ -37,6 +39,7 @@ export function createWsResponseState({ onToolCall, onStreamDelta, midState, tra
   const reasoningDeltas = { text: 0, summary: 0, other: 0 };
   const replayItems = createReplayItems();
   const citations = createCitations();
+  const refusals = createRefusals();
   const tools = createWsToolCalls({ onToolCall, midState, replayItems });
   const replayProvider = traceProvider === 'xai' ? 'xai-responses' : 'openai-responses';
   const progress = (kind) => {
@@ -49,6 +52,11 @@ export function createWsResponseState({ onToolCall, onStreamDelta, midState, tra
   // anything the per-item events never carried. Returns whether any progress
   // was reported.
   function salvageCompletedItem(item, relayFinalText) {
+    if (isIncompleteToolItem(item)) {
+      tools.holdIncompleteItem(item);
+      progress('tool');
+      return true;
+    }
     replayItems.push(item);
     let reported = false;
     if (item.type === 'message') {
@@ -63,6 +71,10 @@ export function createWsResponseState({ onToolCall, onStreamDelta, midState, tra
           if (relayed.text || relayed.tool) reported = true;
         }
         citations.pushOutputTextAnnotations(c);
+      }
+      if (refusals.absorbMessage(item)) {
+        progress('semantic');
+        reported = true;
       }
     }
     if (item.type === 'web_search_call') {
@@ -146,10 +158,19 @@ export function createWsResponseState({ onToolCall, onStreamDelta, midState, tra
     noteToolInputDelta: tools.noteToolInputDelta,
     /** response.function_call_arguments.done */
     completeFunctionCallArguments: tools.completeFunctionCallArguments,
+    /** response.refusal.delta */
+    noteRefusalDelta: refusals.delta,
+    /** response.refusal.done */
+    noteRefusalDone: refusals.done,
     /** response.output_item.done. Returns the progress kind to report. */
     completeOutputItem(item) {
+      if (isIncompleteToolItem(item)) {
+        tools.holdIncompleteItem(item);
+        return 'tool';
+      }
       replayItems.push(item);
       const type = item?.type || '';
+      if (type === 'message') refusals.absorbMessage(item);
       // function_call / output_text already arrive via their dedicated
       // streaming events; `reasoning` carries encrypted_content that keeps the
       // openai-oauth server-side prompt cache prefix warm.
@@ -189,6 +210,13 @@ export function createWsResponseState({ onToolCall, onStreamDelta, midState, tra
       if (!responseId && response?.id) responseId = response.id;
       return usage;
     },
+    /** A cutoff frame's output bundle: call items the server truncated stay
+     *  in flight so the cutoff reads as a pending-tool turn. */
+    holdIncompleteBundleItems(response) {
+      for (const item of response?.output || []) {
+        if (isIncompleteToolItem(item)) tools.holdIncompleteItem(item);
+      }
+    },
     /** max_output_tokens maps cleanly to Anthropic's stop_reason=max_tokens. */
     markMaxOutputIncomplete(reason) {
       incompleteReason = reason;
@@ -227,6 +255,8 @@ export function createWsResponseState({ onToolCall, onStreamDelta, midState, tra
         ...(typeof endTurn === 'boolean' ? { endTurn } : {}),
         responseId: responseId || undefined,
         serviceTier: responseServiceTier || undefined,
+        // A refused turn: typed stop reason and the refusal text.
+        ...refusalResultFields(refusals, content),
       };
     },
   };

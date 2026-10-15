@@ -131,8 +131,8 @@ function _catalogOutputTokensFromSharedCache(model) {
   }
 }
 
-export function resolveMaxTokens(model) {
-  return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokensFromSharedCache });
+export function resolveMaxTokens(model, { modelMaxOutputTokens = null } = {}) {
+  return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokensFromSharedCache, modelMaxOutputTokens });
 }
 
 // Test-only escape hatch for the provider contract scripts
@@ -144,11 +144,12 @@ export const _test = {
   sanitizeInputSchema: (schema, toolName) => sanitizeAnthropicInputSchema(schema, toolName, 'anthropic'),
 };
 
-function deferredAnthropicTools(activeTools, messages, opts) {
-  return sharedDeferredAnthropicTools(activeTools, messages, opts, 'anthropic');
+function deferredAnthropicTools(activeTools, messages, opts, provider = 'anthropic') {
+  return sharedDeferredAnthropicTools(activeTools, messages, opts, provider);
 }
-export function requestAnthropicTools(tools, messages, opts) {
-  return sharedRequestAnthropicTools(tools, messages, opts, 'anthropic');
+// `provider`: the engine's name (a gateway Messages engine runs under its gateway's).
+export function requestAnthropicTools(tools, messages, opts, provider = 'anthropic') {
+  return sharedRequestAnthropicTools(tools, messages, opts, provider);
 }
 // Test-only: expose the lowering so the steering-provenance test can assert
 // the API-key provider keeps steering-tagged user turns distinct (mirrors

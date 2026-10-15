@@ -235,13 +235,18 @@ export function useXaiResponsesApi(opts, config) {
 }
 
 export function useXaiResponsesWebSocket(opts, config) {
+  // A pinned route (grok-oauth's cli-chat-proxy) takes its transport from the
+  // config alone: the xAI WebSocket connector targets api.x.ai, so no request
+  // option or env override may carry the OAuth bearer there.
   const raw =
-    opts?.xaiResponsesTransport ??
-    opts?.xaiTransport ??
-    config?.responsesTransport ??
-    config?.transport ??
-    process.env.MIXDOG_XAI_RESPONSES_TRANSPORT ??
-    process.env.MIXDOG_XAI_TRANSPORT;
+    config?.transportPinned === true
+      ? config.responsesTransport
+      : (opts?.xaiResponsesTransport ??
+        opts?.xaiTransport ??
+        config?.responsesTransport ??
+        config?.transport ??
+        process.env.MIXDOG_XAI_RESPONSES_TRANSPORT ??
+        process.env.MIXDOG_XAI_TRANSPORT);
   // Reference xAI/Grok parity is HTTP/SSE. WebSocket remains available only
   // when a caller explicitly selects a WS transport.
   if (raw == null || raw === '') return false;

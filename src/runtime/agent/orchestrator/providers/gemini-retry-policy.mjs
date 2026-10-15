@@ -11,8 +11,9 @@
  *                     re-issues the whole request up to 4 attempts total at
  *                     1s / 2s / 4s. A response that finished with no finish
  *                     reason is never judged here, and right after a tool
- *                     result an empty response (no finish reason or no text)
- *                     is accepted as the model's answer. An empty answer that
+ *                     result an empty STOP answer is accepted as the model's
+ *                     answer (an empty stream with no finish reason is still
+ *                     unfinished). An empty answer that
  *                     survives all 4 attempts throws a typed, provider-terminal
  *                     invalid-stream error instead of returning nothing.
  *   long advice       a server wait over 300s ends recovery on both phases
@@ -25,6 +26,7 @@
 import { readStreamOutcome } from './lib/stream-outcome.mjs';
 import { DETERMINISTIC_KINDS, providerErrorKind, typedCodeKind } from './provider-error-kind.mjs';
 import { midstreamRetryDelayMs } from './retry-backoff.mjs';
+import { geminiFinishReasonKind, geminiNormalizeFinishReason } from './gemini-error-contract.mjs';
 import { classifyError, markProviderRecoveryExhausted, sleepWithAbort, withRetry } from './retry-classifier.mjs';
 
 export const GEMINI_REQUEST_RETRY = Object.freeze({
@@ -80,16 +82,13 @@ export function geminiMidstreamDelayMs(err, streamAttempt, signal = null) {
 
 const statusOf = (err) => Number(err?.httpStatus || err?.status || 0);
 
-const INVALID_TOOL_CALL_FINISH = new Set(['MALFORMED_FUNCTION_CALL', 'UNEXPECTED_TOOL_CALL']);
-// Empty-text finishes that are deterministic refusals or output-limit stops,
-// owned by the policy / incomplete handling instead of a re-ask.
-const EMPTY_TEXT_TERMINAL_FINISH = new Set(['MAX_TOKENS', 'SAFETY', 'RECITATION']);
-
 /**
  * Invalid stream: the reason a finished response is unusable
- * ('MALFORMED_FUNCTION_CALL' | 'UNEXPECTED_TOOL_CALL' | 'NO_RESPONSE_TEXT'),
- * or null. A response that carried a tool call, or whose text was already
- * relayed, is never invalid (and never replayed).
+ * ('MALFORMED_FUNCTION_CALL' | 'UNEXPECTED_TOOL_CALL' | 'MALFORMED_RESPONSE' |
+ * 'NO_RESPONSE_TEXT'), or null. A response that carried a tool call, or whose
+ * text was already relayed, is never invalid (and never replayed). Only a
+ * STOP with no text is "no text"; every other documented finish (policy,
+ * output limit, continuation, OTHER, ...) is owned by the incomplete handling.
  */
 export function geminiInvalidStreamReason(response, textLeakGuard = null, { afterToolResult = false } = {}) {
   const candidate = response?.candidates?.[0];
@@ -97,9 +96,10 @@ export function geminiInvalidStreamReason(response, textLeakGuard = null, { afte
   if (parts.some((part) => part?.functionCall)) return null;
   if ((textLeakGuard?.getLeakedToolCalls?.() || []).length > 0) return null;
   if ((textLeakGuard?.getRelayedText?.() || '').length > 0) return null;
-  const finish = String(candidate?.finishReason || '').replace(/^FINISH_REASON_/, '');
-  if (INVALID_TOOL_CALL_FINISH.has(finish)) return finish;
-  if (!finish || EMPTY_TEXT_TERMINAL_FINISH.has(finish)) return null;
+  const finish = geminiNormalizeFinishReason(candidate?.finishReason);
+  const kind = geminiFinishReasonKind(finish);
+  if (kind === 'invalid_tool_call') return finish;
+  if (kind !== 'complete') return null;
   // Right after a tool result the model may legitimately answer with nothing.
   if (afterToolResult) return null;
   const text = parts

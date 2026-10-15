@@ -2,7 +2,9 @@
 // atomicWrite, and each written path runs the same post-write invalidation trio
 // the builtin edit adapters run (external-tool-adapters.mjs:16-26) — result
 // cache, code-graph dirty paths, read snapshot — so a formatted file is not
-// served from a stale cache or hidden behind "[file unchanged]".
+// served from a stale cache or hidden behind "[file unchanged]". Every write
+// also reaches the session's turn review as its own file change (counted and
+// undoable like an edit-tool write).
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { atomicWrite } from '../agent/orchestrator/tools/builtin/atomic-write.mjs';
@@ -15,6 +17,7 @@ import {
   isWindowsDevicePath,
 } from '../shared/device-paths.mjs';
 import { markCodeGraphDirtyPaths } from '../shared/code-graph-state.mjs';
+import { reviewFileContent } from '../shared/bounded-file-read.mjs';
 
 /** Same write-target guards the builtin edit surfaces enforce. */
 export function guardTidyWritePath(fullPath) {
@@ -130,6 +133,8 @@ async function writeThroughPipeline(fullPath, content, { sessionId = null, signa
 export async function applyStructuralFixes({ cwd, matchesByFile, sessionId = null, signal = null } = {}) {
   const applied = [];
   const rejected = [];
+  // Every file written, with its exact before/after bytes, for the turn review.
+  const written = [];
   for (const [file, matches] of Object.entries(matchesByFile || {})) {
     const fixes = matches.filter((match) => match?.fix).map((match) => ({ ...match.fix, ruleId: match.ruleId }));
     if (fixes.length === 0) continue;
@@ -153,12 +158,52 @@ export async function applyStructuralFixes({ cwd, matchesByFile, sessionId = nul
       continue;
     }
     try {
-      const next = applyReplacements(readFileSync(fullPath), plan.replacements);
+      const current = readFileSync(fullPath);
+      const next = applyReplacements(current, plan.replacements);
       await writeThroughPipeline(fullPath, next, { sessionId, signal });
+      written.push({ fullPath, before: current, after: next });
       applied.push({ file, fixes: plan.replacements.length });
     } catch (error) {
       rejected.push({ file, reason: error?.message || String(error) });
     }
   }
+  await recordTidyWrites(cwd, sessionId, written);
   return { applied, rejected };
+}
+
+// The turn-review recorder is loaded on first use: it pulls in the edit-tool
+// stack, which a tidy check never needs.
+async function recordTidyWrites(cwd, sessionId, changes) {
+  if (!sessionId || changes.length === 0) return;
+  const { recordToolFileChanges } = await import('../agent/orchestrator/tools/patch/ui-diff.mjs');
+  recordToolFileChanges({ sessionId, basePath: cwd, changes });
+}
+
+/** Each file's state before an engine rewrites it in place, for the turn
+ *  review (see reviewFileContent); a path that cannot be read is left out. */
+export function captureWriteBaselines(fullPaths) {
+  const baselines = new Map();
+  for (const fullPath of fullPaths) {
+    try {
+      baselines.set(fullPath, reviewFileContent(fullPath));
+    } catch {
+      /* not a readable regular file: never recorded */
+    }
+  }
+  return baselines;
+}
+
+/** Record in-place engine rewrites of `fullPaths` as this session's own file
+ *  changes: their captured before-states against the disk now. */
+export async function recordEngineWrites({ cwd, sessionId, baselines, fullPaths }) {
+  const changes = [];
+  for (const fullPath of fullPaths) {
+    if (!baselines.has(fullPath)) continue;
+    try {
+      changes.push({ fullPath, before: baselines.get(fullPath), after: reviewFileContent(fullPath) });
+    } catch {
+      /* no longer a readable regular file: never recorded */
+    }
+  }
+  await recordTidyWrites(cwd, sessionId, changes);
 }
