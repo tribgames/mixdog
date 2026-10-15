@@ -134,6 +134,24 @@ is published in [`benchmarks/terminal-bench-2.1/`](benchmarks/terminal-bench-2.1
 and [Context efficiency](docs/context-efficiency.md) explains where the
 savings come from.
 
+<details>
+<summary><b>Benchmark history</b></summary>
+
+Newest first. Each run links to its details, records, and caveats.
+
+| Run | Model · trials | vs | Score | Cost | Final context | Time / trial |
+|---|---|---|---|---|---|---|
+| [2026-10-15](benchmarks/terminal-bench-2.1/#bench-log) | GPT-6.1 Sol xhigh · `k=1` | Codex CLI | 77 vs 78 /89 | **−55%** | **−68%** (10.8K vs 33.6K) | 344s vs 380s |
+| [2026-08-25](benchmarks/terminal-bench-2.1/#gpt-56-sol-xhigh-vs-codex-cli) | GPT-5.6 Sol xhigh · `k=5` | Codex CLI | 385 vs 383 /445 | **−39%** | **−46%** (18.5K vs 34.3K) | 415s vs 437s |
+| [2026-08-25](benchmarks/terminal-bench-2.1/#claude-opus-5-vs-claude-code) | Claude Opus 5 · `k=1` | Claude Code | 79 vs 77 /89 | **−19%** | **−28%** (27.6K vs 38.2K) | 610s vs 708s |
+
+The 2026-10-15 run is the first full run with the
+[effort judge](docs/auto-reasoning-effort.md) active on OpenAI routes, with web
+search on for both sides. It is a single pass, so the `k=5` chart above stays
+the reference.
+
+</details>
+
 ## Documentation
 
 - [Context efficiency](docs/context-efficiency.md)

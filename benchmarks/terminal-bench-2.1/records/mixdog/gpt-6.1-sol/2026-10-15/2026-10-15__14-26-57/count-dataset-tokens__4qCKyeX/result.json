@@ -1,0 +1,113 @@
+{
+    "id": "321722d7-6af1-47ca-8b74-5ffcb5af25d9",
+    "task_name": "terminal-bench/count-dataset-tokens",
+    "trial_name": "count-dataset-tokens__4qCKyeX",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-sol61-20261015-052653/2026-10-15__14-26-57/count-dataset-tokens__4qCKyeX",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "count-dataset-tokens",
+        "ref": "sha256:cd0574ec8281f53854256acc93702ed1441407c0428849e1dd4f27e863c6b08a"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "0ab655881a4827d9ec8f9930d4c4c8827729b20c978c20ff9cc6317f90660b5c",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/count-dataset-tokens",
+            "ref": "sha256:cd0574ec8281f53854256acc93702ed1441407c0428849e1dd4f27e863c6b08a",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "count-dataset-tokens__4qCKyeX",
+        "trials_dir": "C:\\Project\\mixdog\\benchmarks\\terminal-bench-2.1\\jobs-full-sol61-20261015-052653\\2026-10-15__14-26-57",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.mixdog_agent:MixdogAgent",
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "effort_judge": "steps",
+                "route_profile": "sol61-xhigh"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "a6bcb92a-ff34-47c2-8f3e-5d85fa19be62"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-1.2.2",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": 88476,
+        "n_cache_tokens": 76928,
+        "n_output_tokens": 738,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-10-15T06:18:36.114290Z",
+    "finished_at": "2026-10-15T06:22:04.137234Z",
+    "environment_setup": {
+        "started_at": "2026-10-15T06:18:36.143819Z",
+        "finished_at": "2026-10-15T06:18:38.549780Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-10-15T06:18:38.549800Z",
+        "finished_at": "2026-10-15T06:18:52.688353Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-10-15T06:18:52.688404Z",
+        "finished_at": "2026-10-15T06:21:27.685152Z"
+    },
+    "verifier": {
+        "started_at": "2026-10-15T06:21:27.686069Z",
+        "finished_at": "2026-10-15T06:21:49.799569Z"
+    },
+    "step_results": null
+}

@@ -13,18 +13,22 @@ test('contract digest captures wrappers, edit dialect, provider wire schema, and
 
   assert.equal(digest.schemaVersion, 2);
   assert.equal(digest.workflow, 'headless');
-  for (const name of ['web_search', 'web_fetch', 'memory', 'recall', 'load_tool', 'github', 'cwd']) {
+  for (const name of ['memory', 'recall', 'github']) {
     assert.ok(digest.disabledTools.includes(name));
+  }
+  // Web search is on (harness --web-search): its deferred tools load through load_tool.
+  for (const name of ['web_search', 'web_fetch', 'load_tool']) {
+    assert.equal(digest.disabledTools.includes(name), false);
   }
   assert.equal(digest.disabledTools.includes('git'), false);
   assert.deepEqual(Object.keys(digest.routeContracts), ['lead', 'leadFallback']);
 
   const lead = digest.routeContracts.lead;
   assert.equal(lead.providerMode, 'native');
-  assert.equal(lead.toolCatalogCount, 10);
-  assert.equal(lead.activeToolCount, 10);
-  assert.equal(lead.providerToolCount, 10);
-  assert.equal(lead.toolCatalogNames.includes('load_tool'), false);
+  assert.equal(lead.toolCatalogCount, 11);
+  assert.equal(lead.activeToolCount, 11);
+  assert.equal(lead.providerToolCount, 11);
+  assert.ok(lead.toolCatalogNames.includes('load_tool'));
   assert.ok(lead.toolCatalogNames.includes('git'));
   assert.equal(lead.toolCatalogNames.includes('git_stage'), false);
   assert.equal(lead.toolCatalogNames.includes('cwd'), false);
@@ -34,8 +38,8 @@ test('contract digest captures wrappers, edit dialect, provider wire schema, and
   assert.equal(lead.activeToolNames.includes('cwd'), false);
 
   const fallback = digest.routeContracts.leadFallback;
-  assert.equal(fallback.toolCatalogCount, 10);
-  assert.equal(fallback.providerToolCount, 10);
+  assert.equal(fallback.toolCatalogCount, 11);
+  assert.equal(fallback.providerToolCount, 11);
   assert.ok(fallback.toolCatalogNames.includes('edit'));
   assert.equal(fallback.toolCatalogNames.includes('apply_patch'), false);
   assert.notEqual(lead.providerToolHash, fallback.providerToolHash);

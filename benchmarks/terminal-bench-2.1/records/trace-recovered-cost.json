@@ -108,7 +108,17 @@
       "traceOnlyTotalUsd": 211.709698,
       "snapshotSubtotalUsd": 211.709698,
       "recovered": []
+    },
+    "jobs-full-sol61-20261015-052653": {
+      "model": "gpt-6.1-sol",
+      "tasks": 88,
+      "crossChecked": 88,
+      "mismatches": 6,
+      "fullRunCostUsd": 7.460144,
+      "traceOnlyTotalUsd": 9.013209,
+      "snapshotSubtotalUsd": 7.460144,
+      "recovered": []
     }
   },
-  "generated": "2026-08-31"
+  "generated": "2026-10-15"
 }

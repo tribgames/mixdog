@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { providerRosterFiles } from '../../../shared/llm/provider-catalog-registry.mjs';
 import { effortOptionsFor } from '../runtime-core/effort.mjs';
+import { autoEffortApplicable } from './auto-effort.mjs';
 import { applyAnthropicEffortToBody, setModelEffortCapabilities } from './anthropic-effort.mjs';
 import {
   autoEffortModel,
@@ -53,10 +58,28 @@ test('the turn mode: custom routes per request, first-party unchanged', () => {
   assert.equal(turnEffortConfigurationMode(session('openai', 'gpt-5.5'), { config: {} }), null);
 });
 
-test('the auto-effort model is the custom effective row; first-party keeps the bare id', () => {
+test('the auto-effort model is the custom effective row; first-party reads its cached catalog row', () => {
   const provider = customProvider('openai-chat', LEVELS);
   assert.deepEqual(autoEffortModel('custom-a', provider, 'm'), { id: 'm', ...LEVELS });
-  assert.deepEqual(autoEffortModel('openai', provider, 'gpt-6'), { id: 'gpt-6' });
+  const previous = process.env.MIXDOG_DATA_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-auto-effort-row-'));
+  process.env.MIXDOG_DATA_DIR = dir;
+  try {
+    assert.deepEqual(autoEffortModel('openai-oauth', provider, 'gpt-6.1-sol'), { id: 'gpt-6.1-sol' });
+    assert.deepEqual(effortOptionsFor('openai-oauth', autoEffortModel('openai-oauth', provider, 'gpt-6.1-sol')), []);
+    const [rosterFile] = providerRosterFiles('openai-oauth');
+    writeFileSync(
+      join(dir, rosterFile),
+      JSON.stringify({ models: [effortRecord('gpt-6.1-sol', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')] })
+    );
+    const model = autoEffortModel('openai-oauth', provider, 'gpt-6.1-sol');
+    assert.equal(model.id, 'gpt-6.1-sol');
+    assert.equal(autoEffortApplicable({ base: 'medium', options: effortOptionsFor('openai-oauth', model) }), true);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 const effortRecord = (id, ...values) => ({ id, reasoningOptions: [{ type: 'effort', values }] });

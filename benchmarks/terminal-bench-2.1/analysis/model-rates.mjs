@@ -12,6 +12,9 @@ const OPENAI_LUNA = { input: 0.2, cached: 0.02, write: 0.25, output: 1.2, family
 const OPENAI_TERRA = { input: 2, cached: 0.2, write: 2.5, output: 12, family: 'openai' };
 const OPENAI_SOL = { input: 4, cached: 0.4, write: 5, output: 20, family: 'openai' };
 const OPENAI_SOL_PRECUT = { input: 5, cached: 0.5, write: 6.25, output: 30, family: 'openai' };
+// GPT-6.1 Sol: Harbor's cost_usd fits 2/0.1/10 exactly on the 2026-10-15 codex
+// run (zero residual over 86 priced trials); cache write 1.25x input.
+const OPENAI_SOL61 = { input: 2, cached: 0.1, write: 2.5, output: 10, family: 'openai' };
 const ANTHROPIC_HAIKU = { input: 1, cached: 0.1, write: 1.25, output: 5, family: 'anthropic' };
 const ANTHROPIC_OPUS = { input: 5, cached: 0.5, write: 10, output: 25, family: 'anthropic' };
 const ANTHROPIC_SONNET = { input: 2, cached: 0.2, write: 2.5, output: 10, family: 'anthropic' };
@@ -19,6 +22,7 @@ const RATES = {
   'gpt-5.6-luna': OPENAI_LUNA,
   'gpt-5.6-terra': OPENAI_TERRA,
   'gpt-5.6-sol': OPENAI_SOL,
+  'gpt-6.1-sol': OPENAI_SOL61,
   'gpt-5.5': OPENAI_SOL_PRECUT,
   'claude-haiku-4-5': ANTHROPIC_HAIKU,
   'claude-opus-5': ANTHROPIC_OPUS,
