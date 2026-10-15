@@ -23,6 +23,7 @@ import { TranscriptRow } from './transcript-row';
 import { backgroundWorkCounts, completionActivityKey, hadLiveActivity, LiveActivity } from './transcript-status';
 import { dropTranscriptScrollDeviation } from './transcript-follow-rules';
 import { ToolActivityGroup } from './transcript-tool-ui';
+import { AskUserRecord, splitAskUser } from './ask-user-record';
 import { TurnChangesCard } from './TurnChangesCard';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
 import { nextComposerSubmissionId } from './composer-draft';
@@ -383,6 +384,7 @@ export function transcriptRowNode(
     snapshot,
     onRetryTurn,
     onOpenSettings,
+    questionCard,
   }: {
     disclosureScope: string;
     optimisticActivityStartedAt: number;
@@ -396,6 +398,8 @@ export function transcriptRowNode(
     snapshot: Snapshot;
     onRetryTurn(turnKey: string): void;
     onOpenSettings(section?: SettingsSection | null): void;
+    /** The pending ask_user card, shown where its tool call sits. */
+    questionCard?: ReactNode;
   }
 ): ReactNode {
   if (row._tag === 'TurnGap') {
@@ -419,7 +423,21 @@ export function transcriptRowNode(
     return <TranscriptRow item={row.item} disclosureScope={disclosureScope} attachedUser={row.attachedUser} />;
   }
   if (row._tag === 'ToolActivity') {
-    return <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} turnKey={row.turnKey} />;
+    // Questions leave the tool roll-up: a waiting one is the live card, an
+    // answered one stays as its summary.
+    const { rest, asked, waiting } = splitAskUser(row.items, Boolean(questionCard));
+    if (!asked.length && !waiting) {
+      return <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} turnKey={row.turnKey} />;
+    }
+    return (
+      <>
+        {rest.length > 0 && <ToolActivityGroup items={rest} disclosureScope={disclosureScope} turnKey={row.turnKey} />}
+        {asked.map((item, index) => (
+          <AskUserRecord key={String(item.id ?? index)} item={item} />
+        ))}
+        {waiting && questionCard}
+      </>
+    );
   }
   const completionRow = row.completion ?? (row.item?.kind === 'turndone' ? row.item : undefined);
   const isLatestCompletion =

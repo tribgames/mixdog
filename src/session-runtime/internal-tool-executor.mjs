@@ -6,6 +6,7 @@
  * to channel tools.
  */
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { createAskUserToolHandlers } from './internal-tool-executor/ask-user-tool.mjs';
 import { createBridgeToolHandlers } from './internal-tool-executor/bridge-tools.mjs';
 import { createFeatureToolHandlers } from './internal-tool-executor/feature-tools.mjs';
 import { createKnowledgeToolHandlers } from './internal-tool-executor/knowledge-tools.mjs';
@@ -36,6 +37,7 @@ export function createInternalToolExecutor({
 }) {
   const handlers = {
     ...createBridgeToolHandlers({ rt }),
+    ...createAskUserToolHandlers({ rt }),
     ...createFeatureToolHandlers({ rt, setupTool, officeToolsEnabled, mediaToolEnabled, tidyToolEnabled }),
     ...createKnowledgeToolHandlers({
       rt,

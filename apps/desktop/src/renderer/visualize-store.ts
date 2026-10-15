@@ -7,7 +7,6 @@ import { useSyncExternalStore } from 'react';
 import type {
   DesktopVisualizeEvent,
   VisualizeCommandResult,
-  VisualizeInlineContent,
   VisualizeSessionState,
 } from '../shared/visualize';
 import { requestBrowserPage } from './browser-page-request';
@@ -356,28 +355,6 @@ export function reopenVisualizeTargets(sessionId: string, tabId: string, targets
         tabId,
         action: 'reopen',
         targets,
-        ...(label ? { label } : {}),
-      })
-      ?.then(() => undefined) ?? Promise.resolve()
-  );
-}
-
-/** The same for a closed inline tab: open its stored content again. */
-export function reopenVisualizeContent(
-  sessionId: string,
-  tabId: string,
-  content: VisualizeInlineContent,
-  label = ''
-): Promise<void> {
-  allowVisualizeReveal(sessionId);
-  return (
-    window.mixdogDesktop
-      ?.visualizeCommand?.({
-        sessionId,
-        tabId,
-        action: 'reopen',
-        targets: [],
-        content,
         ...(label ? { label } : {}),
       })
       ?.then(() => undefined) ?? Promise.resolve()

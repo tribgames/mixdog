@@ -86,6 +86,7 @@ export function Conversation(props: ConversationProps) {
     settledTurnKeys: timeline.settledTurnKeys,
     optimisticActivityStartedAt,
     submit: actions.composerSubmit,
+    questionCard: readOnly ? null : approvals.questionCard,
   });
   const links = useConversationLinkSurfaces(props, {
     // Per-turn changed-files cards. A read-only view mounts none: their

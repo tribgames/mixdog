@@ -40,7 +40,6 @@ import {
 } from './ScmContextMenu';
 import { ToolComputerReadinessCard } from './transcript-computer-card';
 import { usePersistedThumbnail } from './persisted-thumbnail';
-import { ToolVisualizeCards } from './transcript-visualize-card';
 import { rememberVisualizeTabTitles, visualizeCallTabTitle } from './visualize-card-model';
 import { useToolOutcomeUnknown } from './connection-link-store';
 import { MxIcon } from './MxIcon';
@@ -362,7 +361,6 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
         </div>
       )}
       {browserPage && <ToolBrowserPageCard page={browserPage} sessionId={disclosureScope} />}
-      <ToolVisualizeCards items={items} sessionId={disclosureScope} />
       <ToolComputerReadinessCard items={items} taskKey={`${disclosureScope}|${turnKey}`} />
       <TranscriptArtifacts items={items} />
     </article>

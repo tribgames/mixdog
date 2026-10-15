@@ -284,7 +284,7 @@ const MODEL_SELECTION_KEYS = new Set([
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh', 'unlockKeychain', 'recheckKeychain']);
 const SKILLS_STATUS_OPTION_KEYS = new Set(['projectPath']);
-const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason']);
+const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason', 'answers']);
 const TOGGLEABLE_BUILTIN_TOOLS = new Set(['git', 'office', 'localProvider', 'tidy', 'autoEffort', 'visualize']);
 const INSTALLABLE_BUILTIN_FEATURES = new Set(['git', 'memory', 'office', 'localProvider', 'tidy', 'autoEffort']);
 
@@ -1296,7 +1296,30 @@ export function requiredToolApprovalDecision(value: unknown): ToolApprovalDecisi
   if (decision.reason !== undefined && (typeof decision.reason !== 'string' || decision.reason.length > 4_096)) {
     throw new TypeError('decision.reason is invalid.');
   }
-  return { approved: decision.approved, reason: decision.reason };
+  const result: ToolApprovalDecision = { approved: decision.approved, reason: decision.reason };
+  if (decision.answers !== undefined) result.answers = requiredQuestionAnswers(decision.answers);
+  return result;
+}
+
+function requiredQuestionAnswers(value: unknown): NonNullable<ToolApprovalDecision['answers']> {
+  if (!Array.isArray(value) || value.length > 4) throw new TypeError('decision.answers is invalid.');
+  return value.map((entry) => {
+    if (entry === null) return null;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new TypeError('decision.answers is invalid.');
+    requireAllowedKeys(entry as Record<string, unknown>, new Set(['selected', 'text']), 'decision.answers');
+    const { selected, text } = entry as { selected?: unknown; text?: unknown };
+    if (
+      !Array.isArray(selected) ||
+      selected.length > 4 ||
+      selected.some((label) => typeof label !== 'string' || label.length > 200)
+    ) {
+      throw new TypeError('decision.answers is invalid.');
+    }
+    if (text !== undefined && (typeof text !== 'string' || text.length > 4_000)) {
+      throw new TypeError('decision.answers is invalid.');
+    }
+    return text === undefined ? { selected: selected as string[] } : { selected: selected as string[], text };
+  });
 }
 
 export function requiredGitPaths(value: unknown): string[] {

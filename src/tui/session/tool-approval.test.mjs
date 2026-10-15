@@ -117,3 +117,25 @@ test('an answer from a known device is recorded on the state; a timeout names no
   await second;
   assert.equal(state.toolApprovalResult, null);
 });
+
+test('answers pass through to the waiter and kind/timeoutMs are honored per request', async () => {
+  const h = harness();
+  const answer = h.api.requestToolApproval({ name: 'ask_user', kind: 'question', timeoutMs: 1234, args: { questions: [] } });
+  const presented = h.current();
+  assert.equal(presented.kind, 'question');
+  assert.equal(presented.timeoutMs, 1234);
+  assert.equal(presented.expiresAt - presented.requestedAt, 1234);
+  const answers = [{ selected: ['A'] }, null];
+  h.api.finishToolApproval(presented.id, true, 'ok', 'desktop', answers);
+  assert.deepEqual(await answer, { approved: true, reason: 'ok', answers });
+});
+
+test('a request timeout resolves with the approval-timed-out reason', async () => {
+  const h = harness();
+  const answer = h.api.requestToolApproval({ name: 'ask_user', kind: 'question', timeoutMs: 5 });
+  const keepAlive = setTimeout(() => {}, 1000);
+  const result = await answer;
+  clearTimeout(keepAlive);
+  assert.equal(result.approved, false);
+  assert.equal(result.reason, 'approval timed out');
+});

@@ -285,20 +285,37 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
   const titles = new Map<string, string>();
   const notifiedApproval = new Map<string, string>();
   const notifiedInput = new Map<string, string>();
+  const notifiedQuestion = new Map<string, string>();
   const onSessionState = (update: DesktopSessionStateUpdate): void => {
     const sessionId = String(update?.sessionId || '');
     if (!sessionId || update.frameSource === 'replay') return;
     const snapshot = update.snapshot as (PendingInputSnapshot & { toolApproval?: { id?: unknown } | null }) | null;
+    const approval = snapshot?.toolApproval as { id?: unknown; kind?: unknown } | null | undefined;
+    // A question has no Allow/Deny: it only opens the app.
+    const isQuestion = approval?.kind === 'question';
     notifyWait(
       sessionId,
       'approval-pending',
       notifiedApproval,
-      snapshot?.toolApproval ? String(snapshot.toolApproval.id ?? 'pending') : null
+      approval && !isQuestion ? String(approval.id ?? 'pending') : null
+    );
+    notifyWait(
+      sessionId,
+      'input-needed',
+      notifiedQuestion,
+      approval && isQuestion ? String(approval.id ?? 'pending') : null,
+      '에이전트가 질문했습니다'
     );
     notifyWait(sessionId, 'input-needed', notifiedInput, pendingInputKey(snapshot));
   };
   // One push per distinct wait: the key is remembered until the wait clears.
-  const notifyWait = (sessionId: string, reason: PushReason, seen: Map<string, string>, key: string | null): void => {
+  const notifyWait = (
+    sessionId: string,
+    reason: PushReason,
+    seen: Map<string, string>,
+    key: string | null,
+    preview = ''
+  ): void => {
     if (!key) {
       seen.delete(sessionId);
       return;
@@ -314,7 +331,7 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
       {
         sessionId,
         title: titles.get(sessionId) || 'Mixdog',
-        preview: '',
+        preview,
         startedAt: now,
         at: now,
         leadFinished: false,

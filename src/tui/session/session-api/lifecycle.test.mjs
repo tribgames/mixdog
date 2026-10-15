@@ -280,10 +280,10 @@ test('resolveToolApproval maps boolean and object decisions onto finishToolAppro
   h.api.resolveToolApproval('t3', {});
   h.api.resolveToolApproval('t4');
   assert.deepEqual(h.calls, [
-    ['finishToolApproval', 't1', true, 'approved by user', ''],
-    ['finishToolApproval', 't2', false, 'nope', ''],
-    ['finishToolApproval', 't3', false, 'denied by user', ''],
-    ['finishToolApproval', 't4', false, 'denied by user', ''],
+    ['finishToolApproval', 't1', true, 'approved by user', '', undefined],
+    ['finishToolApproval', 't2', false, 'nope', '', undefined],
+    ['finishToolApproval', 't3', false, 'denied by user', '', undefined],
+    ['finishToolApproval', 't4', false, 'denied by user', '', undefined],
   ]);
 });
 
@@ -332,7 +332,12 @@ test('resolveToolApproval forwards the answering device', (t) => {
   const h = createHarness();
   t.after(h.dispose);
   h.api.resolveToolApproval('t5', { approved: true, device: 'Pixel' });
-  assert.deepEqual(h.calls, [['finishToolApproval', 't5', true, 'approved by user', 'Pixel']]);
+  const answers = [{ selected: ['A'] }];
+  h.api.resolveToolApproval('t6', { approved: true, device: 'Pixel', answers });
+  assert.deepEqual(h.calls, [
+    ['finishToolApproval', 't5', true, 'approved by user', 'Pixel', undefined],
+    ['finishToolApproval', 't6', true, 'approved by user', 'Pixel', answers],
+  ]);
 });
 
 test('continueSessionInModel applies the route only after a failed quota turn while idle', async (t) => {

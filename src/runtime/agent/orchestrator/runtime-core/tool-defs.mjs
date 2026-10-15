@@ -137,6 +137,7 @@ export function collectStandaloneToolDefs({
   tidyToolDefs = [],
   visualizeToolDefs = [],
   setupToolDefs = [],
+  askUserToolDefs = [],
   goalTools = [],
   agentTools = [],
   skillToolEnabled = true,
@@ -157,6 +158,7 @@ export function collectStandaloneToolDefs({
     ...admitted(tidyToolDefs, TIDY_RUNTIME_TOOLS),
     ...admitted(visualizeToolDefs, VISUALIZE_RUNTIME_TOOLS),
     ...setupToolDefs,
+    ...askUserToolDefs,
     ...goalTools,
     ...agentTools,
   ];

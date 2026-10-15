@@ -10,6 +10,8 @@
 import { theme } from '../../theme.mjs';
 import { toolApprovalDescription } from '../app-format.mjs';
 import { Picker } from '../../components/Picker.jsx';
+import { QuestionPanel } from '../../components/QuestionPanel.jsx';
+import { questionsOf } from '../../components/question-panel-model.mjs';
 import { SlashCommandPalette } from '../../components/SlashCommandPalette.jsx';
 import { ContextPanel } from '../../components/ContextPanel.jsx';
 import { UsagePanel } from '../../components/UsagePanel.jsx';
@@ -24,7 +26,23 @@ const SKILL_PALETTE_TEXT = {
   help: '↑/↓ select · Enter insert · Esc cancel',
 };
 
-function renderToolApproval({ toolApproval, store, frameColumns, expandedOptionPanel }) {
+function renderToolApproval({ toolApproval, store, frameColumns, expandedOptionPanel, floatingPanelRows }) {
+  if (toolApproval.kind === 'question') {
+    return (
+      <QuestionPanel
+        key={toolApproval.id}
+        questions={questionsOf(toolApproval)}
+        columns={frameColumns}
+        rows={floatingPanelRows}
+        onSubmit={(answers) =>
+          store.resolveToolApproval?.(toolApproval.id, { approved: true, reason: 'answered by user', answers })
+        }
+        onDismiss={() =>
+          store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'dismissed by user' })
+        }
+      />
+    );
+  }
   const resolve = (approved) => {
     store.resolveToolApproval?.(toolApproval.id, {
       approved,
