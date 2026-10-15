@@ -61,7 +61,10 @@ test('(1) HTTP overload retries only with server advice', async () => {
   assert.ok(delays[0] > 6900 && delays[0] <= 7000, `advice replaces the schedule step (${delays[0]})`);
 });
 
-test('(2) WS stream/handshake backoff follows the stream schedule, advice only for retryable kinds', () => {
+test('(2) WS stream/handshake backoff follows the stream schedule, advice only for retryable kinds', (t) => {
+  // Retry-After is a captured deadline: keep exact assertions independent of
+  // the real clock advancing between error construction and policy lookup.
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000 });
   CODEX_STREAM_BACKOFF_MS.forEach((base, i) => {
     assert.ok(within(midstreamBackoffFor(i + 1), base));
     assert.ok(within(_backoffFor(i + 1), base));
@@ -69,6 +72,8 @@ test('(2) WS stream/handshake backoff follows the stream schedule, advice only f
   assert.ok(within(midstreamBackoffFor(9), 3200), 'clamped to the last step');
   const advised = applyErrorContract(new Error('x'), { status: 503, headers: { 'retry-after': '12' } });
   assert.equal(midstreamBackoffFor(1, advised), 12_000);
+  t.mock.timers.tick(1);
+  assert.equal(midstreamBackoffFor(1, advised), 11_999, 'elapsed time is deducted from the captured deadline');
   const quota = applyErrorContract(new Error('x'), {
     status: 429,
     headers: { 'retry-after': '12' },
