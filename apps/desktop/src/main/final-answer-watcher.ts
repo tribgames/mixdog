@@ -4,7 +4,7 @@
 // notification both deliver from here, so the two never disagree.
 import { createTurnCompletionTracker, sessionsWithPendingWork, type TurnCompletion } from './push-turn-events';
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
-import type { SessionFinalAnswer } from './session-final-answer';
+import { isSessionMissingError, type SessionFinalAnswer } from './session-final-answer';
 import { notificationPreview } from './notification-preview';
 
 export interface FinalAnswerWatcher {
@@ -17,7 +17,8 @@ export interface FinalAnswerWatcher {
 interface FinalAnswerWatcherOptions {
   /** Checked when the quiet period ends, so turning delivery off mid-wait wins. */
   isEnabled(): boolean;
-  readFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null>;
+  /** `signal` aborts when the read overruns its deadline; the read must stop. */
+  readFinalAnswer(sessionId: string, startedAt: number, signal?: AbortSignal): Promise<SessionFinalAnswer | null>;
   onFinalAnswer(completion: TurnCompletion): void;
   onError?(detail: string): void;
   onDiagnostic?(event: string, details: Record<string, unknown>): void;
@@ -34,14 +35,73 @@ const STABILIZE_MS = 2_500;
  *  notification ~3 s late (user: 알림이 좀 늦어 보이는데). */
 const LEAD_FINISHED_MS = 300;
 const ANSWER_POLL_MS = 500;
+/** A failed answer read is retried after STABILIZE_MS, doubling up to this
+ *  cap, and abandoned after READ_FAILURE_LIMIT consecutive failures: a read
+ *  that keeps failing must not be re-issued for as long as the row lives. */
+const READ_RETRY_MAX_MS = 60_000;
+const READ_FAILURE_LIMIT = 6;
+
+/** One answer read gets this long before it is aborted and counted as a
+ *  transient failure, so a read that never settles cannot hold the single
+ *  read slot (and with it every notification) forever. */
+const READ_DEADLINE_MS = 30_000;
+
+class FinalAnswerReadTimeoutError extends Error {
+  constructor() {
+    super(`final answer read timed out after ${READ_DEADLINE_MS} ms`);
+    this.name = 'FinalAnswerReadTimeoutError';
+  }
+}
 
 export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): FinalAnswerWatcher {
   const tracker = createTurnCompletionTracker();
-  type Pending = { completion: TurnCompletion; timer?: NodeJS.Timeout; waitingReported?: boolean };
+  type Pending = {
+    completion: TurnCompletion;
+    timer?: NodeJS.Timeout;
+    waitingReported?: boolean;
+    failures?: number;
+  };
   const pending = new Map<string, Pending>();
   let disposed = false;
   let lastSessions: readonly DesktopSessionSummary[] = [];
   let pendingWork: ReadonlySet<string> = new Set();
+  // At most one answer read in flight per watcher: a burst of completions
+  // (or a slow host) queues behind it instead of piling reads onto the host.
+  let readInFlight: Promise<void> | null = null;
+  const readExclusive = (sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null> => {
+    const controller = new AbortController();
+    let deadline: NodeJS.Timeout | undefined;
+    const read = new Promise<SessionFinalAnswer | null>((resolve, reject) => {
+      // Abort stops the underlying read; rejecting here as well frees the
+      // slot even when that read ignores the signal.
+      deadline = setTimeout(() => {
+        const timeout = new FinalAnswerReadTimeoutError();
+        controller.abort(timeout);
+        reject(timeout);
+      }, READ_DEADLINE_MS);
+      deadline.unref?.();
+      options.readFinalAnswer(sessionId, startedAt, controller.signal).then(
+        (answer) => {
+          clearTimeout(deadline);
+          resolve(answer);
+        },
+        (error) => {
+          clearTimeout(deadline);
+          reject(error);
+        }
+      );
+    });
+    const gate: Promise<void> = read.then(
+      () => {
+        if (readInFlight === gate) readInFlight = null;
+      },
+      () => {
+        if (readInFlight === gate) readInFlight = null;
+      }
+    );
+    readInFlight = gate;
+    return read;
+  };
 
   const cancel = (sessionId: string): void => {
     const entry = pending.get(sessionId);
@@ -63,18 +123,36 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
   const retryDelay = (entry: Pending): number => (entry.completion.leadFinished ? ANSWER_POLL_MS : STABILIZE_MS);
   const deliver = async (entry: Pending): Promise<void> => {
     const { completion } = entry;
+    // Wait for the read slot; the entry may go stale meanwhile.
+    while (readInFlight && current(entry)) await readInFlight;
     if (!current(entry)) {
       if (pending.get(completion.sessionId) === entry) cancel(completion.sessionId);
       return;
     }
     let answer: SessionFinalAnswer | null;
     try {
-      answer = await options.readFinalAnswer(completion.sessionId, completion.startedAt);
+      answer = await readExclusive(completion.sessionId, completion.startedAt);
     } catch (error) {
+      if (isSessionMissingError(error)) {
+        // Terminal: the record is gone, so no retry can ever succeed.
+        if (pending.get(completion.sessionId) === entry) {
+          options.onDiagnostic?.('cancelled', { sessionId: completion.sessionId, reason: 'session-missing' });
+          cancel(completion.sessionId);
+        }
+        return;
+      }
       options.onError?.(error instanceof Error ? error.message : String(error));
-      if (current(entry)) schedule(entry, STABILIZE_MS);
+      if (!current(entry)) return;
+      entry.failures = (entry.failures ?? 0) + 1;
+      if (entry.failures >= READ_FAILURE_LIMIT) {
+        options.onDiagnostic?.('cancelled', { sessionId: completion.sessionId, reason: 'read-failed' });
+        cancel(completion.sessionId);
+        return;
+      }
+      schedule(entry, Math.min(STABILIZE_MS * 2 ** (entry.failures - 1), READ_RETRY_MAX_MS));
       return;
     }
+    entry.failures = 0;
     // The answer read may cross a new turn, an archive, settings change or
     // disposal. Idleness alone cannot identify the turn that was requested.
     if (!current(entry)) return;

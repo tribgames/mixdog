@@ -78,6 +78,23 @@ test('the turn review bar reaches its diff with only a boolean refresh option', 
   }
 });
 
+test('session usage takes only a bounded list of session ids', () => {
+  const read = (args) => requiredDesktopCapabilityRequest({ capability: 'getSessionUsage', args, sessionId: 'lead-1' });
+  for (const args of [[], [{}], [{ sessionIds: [] }], [{ sessionIds: ['sess_a', 'agent-b'] }]]) {
+    assert.doesNotThrow(() => read(args), JSON.stringify(args));
+  }
+  for (const args of [
+    [null],
+    [{ sessionIds: 'sess_a' }],
+    [{ sessionIds: ['bad id'] }],
+    [{ sessionIds: Array.from({ length: 65 }, (_, i) => `s${i}`) }],
+    [{ sessionIds: [], days: 1 }],
+    [{}, {}],
+  ]) {
+    assert.throws(() => read(args), TypeError, JSON.stringify(args));
+  }
+});
+
 test('Local Provider and Code Tidy lifecycle requests pass the desktop IPC boundary', () => {
   assert.deepEqual(
     requiredDesktopCapabilityRequest({

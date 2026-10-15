@@ -37,6 +37,13 @@ import {
   worktreeBranchName,
   worktreeError,
 } from './contract.mjs';
+import {
+  assertCarryable,
+  carryUncommittedChanges,
+  dropRecoveryRef,
+  restoreFromRecoveryRef,
+  uncommittedChanges,
+} from './carry.mjs';
 import { freeBytesAt, requiredBytes, trackedCheckoutBytes } from './disk.mjs';
 import {
   branchCommit,
@@ -74,6 +81,8 @@ const REMOVE_RETRY_DELAY_MS = 150;
 // The session copies the project identity into each managed worktree; it is
 // Mixdog metadata, not user data, so it alone never makes a worktree dirty.
 const SESSION_PROJECT_ID_PATH = '.mixdog/project.id';
+// Changed paths WORKTREE_DIRTY_CHOICE lists for the dialog's preview (the count is exact).
+const DIRTY_CHOICE_PREVIEW = 50;
 
 export { registerRootReleaser } from './contract.mjs';
 
@@ -600,8 +609,20 @@ async function diskFullFailure(error, { needed, root }) {
 }
 
 /**
+ * `carryChanges` decides the project folder's uncommitted changes (tracked
+ * and untracked, ignored excluded), judged under the repository lock:
+ * omitted/null leaves them unexamined; `ask` refuses with
+ * WORKTREE_DIRTY_CHOICE (`details: { count, paths }`, paths capped) while
+ * there are any; `leave` keeps them in the project folder; `carry` moves
+ * them into the new worktree (carry.mjs: whole checkout, ignored files stay)
+ * — refused (WORKTREE_DIRTY) during a merge, rebase or cherry-pick, with
+ * unmerged entries, dirty submodules, filtered (LFS) paths or oversized
+ * untracked files. The result's `changes` (`{ mode: 'carried'|'left',
+ * count, recoveryRef? }`) reports what happened to them; a carried move's
+ * `recoveryRef` stays until dropCarryRecoveryRef / restoreCarriedChanges.
  * @param {{ projectPath: string, sessionId: string, runtimeToken: string, baseBranch?: string|null,
- *   nameHint?: string, confirmLarge?: boolean, txId: string, signal?: AbortSignal }} input
+ *   nameHint?: string, confirmLarge?: boolean, txId: string, signal?: AbortSignal,
+ *   carryChanges?: 'ask'|'leave'|'carry'|null }} input
  */
 export async function createManagedWorktree({
   projectPath,
@@ -612,9 +633,13 @@ export async function createManagedWorktree({
   confirmLarge = false,
   txId,
   signal,
+  carryChanges = null,
 } = {}) {
   requireText(projectPath, 'projectPath');
   requireText(txId, 'txId');
+  if (![null, 'ask', 'leave', 'carry'].includes(carryChanges)) {
+    throw new TypeError('carryChanges must be ask, leave or carry.');
+  }
   const owner = normalizeWorktreeOwner({ sessionId, runtimeToken, pid: process.pid });
   throwIfAborted(signal);
   const repo = await inspectRepo(projectPath, { signal });
@@ -622,6 +647,16 @@ export async function createManagedWorktree({
     const existing = await settleSessionAttempts({ txId, owner, repoCommonDir: repo.repoCommonDir });
     if (existing) return existing;
     throwIfAborted(signal);
+
+    const projectSubdir = projectSubdirOf(repo.topLevel, repo.projectPath);
+    const pendingChanges = carryChanges ? await uncommittedChanges(repo.topLevel, projectSubdir) : [];
+    if (pendingChanges.length && carryChanges === 'ask') {
+      throw worktreeError('WORKTREE_DIRTY_CHOICE', undefined, {
+        count: pendingChanges.length,
+        paths: pendingChanges.slice(0, DIRTY_CHOICE_PREVIEW),
+      });
+    }
+    if (carryChanges === 'carry') await assertCarryable(repo.topLevel, projectSubdir);
 
     const settings = await currentWorktreeSettings();
     let baseCommit = repo.headCommit;
@@ -675,6 +710,7 @@ export async function createManagedWorktree({
         timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
       });
     let record = await reserve();
+    let carried = null;
 
     try {
       await mkdir(root, { recursive: true });
@@ -708,16 +744,46 @@ export async function createManagedWorktree({
       await setResource(record, 'owner', 'pending');
       await writeOwnerLease(record, owner);
       await setResource(record, 'owner', 'created');
+      // Carried before the include entries are copied, so an include never
+      // stands in the way of a carried file; the status is read again here,
+      // right before acting.
+      let changes = pendingChanges.length ? { mode: 'left', count: pendingChanges.length } : null;
+      if (carryChanges === 'carry') {
+        carried = await carryUncommittedChanges({
+          topLevel: repo.topLevel,
+          projectSubdir,
+          worktreePath: record.path,
+          baseCommit,
+          label: record.id,
+        });
+        // The recovery ref stays until the caller has committed the move
+        // (dropCarryRecoveryRef) or put the changes back (restoreCarriedChanges).
+        changes = carried.count ? { mode: 'carried', count: carried.count, recoveryRef: carried.recoveryRef } : null;
+      }
       const applied = await applyIncludes(includePlan, record.path, (ledger) => recordInclude(record, ledger));
       throwIfAborted(signal);
       record.warnings = [...record.warnings, ...applied.warnings];
       record.state = 'ready';
       await putRecord(record);
-      return entryView(record);
+      return { ...entryView(record), ...(changes ? { changes } : {}) };
     } catch (error) {
+      // Carried already: the changes go back to the project folder before the
+      // worktree that holds them is rolled back (the recovery ref keeps them
+      // either way).
+      let carryRestore = null;
+      if (carried?.recoveryRef) {
+        carryRestore = await restoreFromRecoveryRef(repo.topLevel, projectSubdir, carried.recoveryRef)
+          .then(() => ({ restored: true, recoveryRef: carried.recoveryRef }))
+          .catch((restoreError) => ({
+            restored: false,
+            recoveryRef: carried.recoveryRef,
+            error: String(restoreError?.message || restoreError),
+          }));
+      }
       const rollback = await rollbackCreation(record, error);
       const failure = isDiskFullError(error) ? await diskFullFailure(error, { needed, root }) : error;
       if (!rollback.complete) failure.rollback = rollback;
+      if (carryRestore) failure.carryRestore = carryRestore;
       throw failure;
     }
 
@@ -756,6 +822,30 @@ export async function createManagedWorktree({
       return (await insertRecord(candidate)) ? candidate : null;
     }
   });
+}
+
+/**
+ * After a carry whose session move failed: put the changes kept at
+ * `recoveryRef` back into the project folder (refused, ref kept, when the
+ * folder changed meanwhile). The ref stays; drop it with dropCarryRecoveryRef.
+ * @param {{ projectPath: string, recoveryRef: string }} input
+ */
+export async function restoreCarriedChanges({ projectPath, recoveryRef } = {}) {
+  requireText(projectPath, 'projectPath');
+  const repo = await inspectRepo(projectPath);
+  return withRepoLock(repo.repoCommonDir, () =>
+    restoreFromRecoveryRef(repo.topLevel, projectSubdirOf(repo.topLevel, repo.projectPath), recoveryRef)
+  );
+}
+
+/**
+ * Forget a carry's recovery ref once the session move it protected is committed.
+ * @param {{ projectPath: string, recoveryRef: string }} input
+ */
+export async function dropCarryRecoveryRef({ projectPath, recoveryRef } = {}) {
+  requireText(projectPath, 'projectPath');
+  const repo = await inspectRepo(projectPath);
+  return withRepoLock(repo.repoCommonDir, () => dropRecoveryRef(repo.topLevel, recoveryRef));
 }
 
 /**

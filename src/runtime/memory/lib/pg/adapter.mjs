@@ -90,7 +90,9 @@ function installPoolErrorHandler(pool, label, { onConnectionLoss } = {}) {
 //   db.transaction(async tx => …)  → auto BEGIN/COMMIT, ROLLBACK on throw
 
 import { resolve } from 'node:path';
-import { ensurePgInstance as supervisorEnsure } from './supervisor.mjs';
+import { ensurePgInstance as supervisorEnsure, stopOwnedPgForShutdown } from './supervisor.mjs';
+
+export { installOwnedPgExitStop, pgClusterExists } from './supervisor.mjs';
 
 // ---------------------------------------------------------------------------
 // One-shot bootstrap guard — keyed by resolved dataDir (cluster-level, not schema)
@@ -521,4 +523,39 @@ export async function closePgInstance(dataDir, opts = {}) {
     await inst.pool.end();
   } catch {}
   instances.delete(key);
+}
+
+// ---------------------------------------------------------------------------
+// shutdownOwnedPg — process exit: every pool, then the cluster this process owns
+// ---------------------------------------------------------------------------
+
+export const POOL_CLOSE_BOUND_MS = 500;
+
+/**
+ * For a host whose stores start PostgreSQL (the daemon's schedules/webhooks/
+ * session-search): stop the cluster it ensured (supervisor
+ * stopOwnedPgForShutdown, `pg_ctl stop -m fast`) while every pool this process
+ * opened ends alongside — a pool waiting on a checked-out client never holds
+ * the stop back. The stop latches the supervisor first (synchronously), so a
+ * pooled client that sees fast shutdown terminate its backend cannot restart
+ * PG through connection-loss recovery; the pools are dropped from the cache,
+ * and their close is waited on only for a short bound after the stop.
+ */
+export async function shutdownOwnedPg({ timeoutMs } = {}) {
+  const pools = [...instances.values()].map((inst) => inst.pool);
+  instances.clear();
+  const stopping = stopOwnedPgForShutdown({ timeoutMs });
+  const closing = Promise.allSettled(pools.map((pool) => pool.end()));
+  try {
+    return await stopping;
+  } finally {
+    let timer = null;
+    await Promise.race([
+      closing,
+      new Promise((resolveBound) => {
+        timer = setTimeout(resolveBound, POOL_CLOSE_BOUND_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+  }
 }

@@ -450,6 +450,8 @@ export function transcriptRowNode(
   const assistantProps: TranscriptAssistantRowProps = {
     item: row.item,
     live: Boolean(row.live),
+    paceKey: row.key,
+    pace: Boolean(row.newest),
     completion: row.completion,
     backgroundWork: isLatestCompletion ? backgroundWorkCounts(snapshot) : undefined,
     animateComplete: hadLiveActivity(sessionId, turnIdentity),

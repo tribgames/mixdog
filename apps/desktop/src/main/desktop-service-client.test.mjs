@@ -62,6 +62,35 @@ class ControlledTransport extends EventEmitter {
   async close() {}
 }
 
+test('an aborted final-answer read rejects with the abort reason and drops the late reply', async () => {
+  const transport = new ControlledTransport();
+  const client = new DesktopServiceClient({
+    connect: () => transport,
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
+    }),
+    startupTimeoutMs: 1_000,
+  });
+  try {
+    const controller = new AbortController();
+    const read = client.readSessionFinalAnswer('session_a', 1_000, controller.signal);
+    while (!transport.requests.length) await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(transport.requests[0].args, ['session_a', 1_000]);
+    const reason = new Error('read deadline');
+    controller.abort(reason);
+    await assert.rejects(read, (error) => error === reason);
+    assert.equal(client.pending.size, 0);
+    transport.respond(transport.requests[0], null);
+    await assert.rejects(client.readSessionFinalAnswer('session_a', 1_000, controller.signal), (error) => error === reason);
+    assert.equal(transport.requests.length, 1, 'an already-aborted read is never sent');
+  } finally {
+    await client.dispose();
+  }
+});
+
 test('an immediate mutation stays queued across a pre-ready daemon handoff', async () => {
   const transports = [];
   const client = new DesktopServiceClient({

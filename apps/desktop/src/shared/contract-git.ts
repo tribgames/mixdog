@@ -99,8 +99,9 @@ export interface DesktopGitReviewDiffRequest {
 }
 
 export interface DesktopGitReviewDiffs {
-  /** Per-file patch ('' when unchanged), keyed by the requested path. */
-  patches: Record<string, string>;
+  /** Per-file patch ('' when unchanged) with the requested path. A list, not
+   *  an object keyed by path: `__proto__` is a legal file name. */
+  patches: { path: string; patch: string }[];
   /** Requested paths missing from `patches`; fetch with `gitReviewDiff`. */
   omitted: string[];
 }

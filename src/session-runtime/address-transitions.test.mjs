@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test, { mock } from 'node:test';
 import {
   SessionAddressError,
@@ -123,12 +126,26 @@ test('deleting the current conversation of an addressed runtime leaves it termin
   const deps = addressedRuntime();
   deps.rt.session = { id: 'sess_a' };
   deps.mgr = {
-    listSessions: () => [{ id: 'sess_a', owner: 'user', preview: 'hello', messageCount: 2, updatedAt: 1 }],
     closeSession: () => true,
     deleteSession: () => true,
   };
-  const { deleteSession } = createSessionDelete(deps, { cancelBackgroundTasks() {} });
-  assert.equal(await deleteSession('sess_a'), true);
+  // Deletion proves availability from the session's own stored record.
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-address-delete-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  try {
+    mkdirSync(join(dataDir, 'sessions'));
+    writeFileSync(
+      join(dataDir, 'sessions', 'sess_a.json'),
+      JSON.stringify({ id: 'sess_a', owner: 'user', messages: [{ role: 'user', content: 'hello' }] })
+    );
+    const { deleteSession } = createSessionDelete(deps, { cancelBackgroundTasks() {} });
+    assert.equal(await deleteSession('sess_a'), true);
+  } finally {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
+  }
   assert.equal(deps.rt.session, null);
   assert.equal(deps.rt.admission, 'terminal');
   assert.equal(deps.rt.addressedSessionId, 'sess_a');

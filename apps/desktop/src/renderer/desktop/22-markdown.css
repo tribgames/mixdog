@@ -1398,9 +1398,6 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   align-items: center;
   color: var(--goal-tint);
 }
-.session-goal-objective[data-label="status"] {
-  color: var(--goal-tint);
-}
 /* Five fixed 10px cells whatever the task count, so every Goal's mark keeps
    one shape and length (goal-progress-bar-v1.html). Static: no motion, so it
    never reads as a loading spinner. */

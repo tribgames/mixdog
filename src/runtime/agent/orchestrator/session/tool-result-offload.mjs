@@ -19,8 +19,10 @@ import { getPluginData } from '../config.mjs';
 import { countSplitLines, normalizeOutputPath } from '../tools/builtin/path-utils.mjs';
 import { classifyResultKind } from './result-classification.mjs';
 import { registerSessionPurgeHook } from './store.mjs';
+import { SETUP_OUTPUT_MAX_BYTES } from '../../../shared/tool-output-limit.mjs';
 
 const TOOL_RESULT_OFFLOAD_THRESHOLD_CHARS = 50_000;
+const TOOL_RESULT_SETUP_THRESHOLD_CHARS = SETUP_OUTPUT_MAX_BYTES;
 const TOOL_RESULT_PREVIEW_CHARS = 512;
 const TOOL_RESULT_SHELL_THRESHOLD_CHARS = 30_000;
 const TOOL_RESULT_SEARCH_THRESHOLD_CHARS = 50_000;
@@ -61,6 +63,7 @@ const INLINE_THRESHOLD_BY_TOOL = new Map([
   ['bash_session', TOOL_RESULT_SHELL_THRESHOLD_CHARS],
   ['terminal', TOOL_RESULT_SHELL_THRESHOLD_CHARS],
   ['task', TOOL_RESULT_SHELL_THRESHOLD_CHARS],
+  ['setup', TOOL_RESULT_SETUP_THRESHOLD_CHARS],
 ]);
 
 function getOffloadThreshold(toolName) {
@@ -554,6 +557,7 @@ export const _internals = {
   TOOL_RESULT_SHELL_THRESHOLD_CHARS,
   TOOL_RESULT_SEARCH_THRESHOLD_CHARS,
   TOOL_RESULT_GREP_THRESHOLD_CHARS,
+  TOOL_RESULT_SETUP_THRESHOLD_CHARS,
   getOffloadThreshold,
   TOOL_RESULT_PREVIEW_CHARS,
   TOOL_RESULT_MESSAGE_MAX_CHARS,

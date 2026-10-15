@@ -207,6 +207,7 @@ export function createBridgeController(ctx) {
       conversation: run.conversation,
       tools: run.tools,
       cloudRule: run.cloudRule,
+      sessionId: run.sessionId,
     };
     const frameParser = createFrameParser(
       // Server requests answer on whichever bridge is live when they arrive.

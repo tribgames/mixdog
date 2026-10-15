@@ -30,6 +30,9 @@ interface SessionCatalog {
   pendingDeletes: React.MutableRefObject<Set<string>>;
   /** Drop in-flight list responses so a local optimistic change is not undone. */
   invalidateInFlight: () => void;
+  /** Sessions a non-empty host catalog (listing or push) no longer contains
+   *  although the previous catalog did: deleted elsewhere. */
+  subscribeRemoved: (listener: (sessionIds: string[]) => void) => () => void;
 }
 
 export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSessionSummary[]) => void): SessionCatalog {
@@ -43,6 +46,7 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
   const pendingDeletes = useRef(new Set<string>());
   const pendingCreates = useRef(new Map<string, DesktopSessionSummary>());
   const refreshVersion = useRef(0);
+  const removalListeners = useRef(new Set<(sessionIds: string[]) => void>());
 
   const invalidateInFlight = useCallback(() => {
     refreshVersion.current += 1;
@@ -114,10 +118,27 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
       if (lowPriority) startTransition(publish);
       else publish();
       reconcileUnreadSessions(merged);
+      // Only a host catalog reaches here (never the cache seed or an
+      // optimistic local edit), and an empty one is not evidence that every
+      // session was deleted: it never reports removals.
+      if (rows.length > 0 && removalListeners.current.size > 0) {
+        const present = new Set(rows.map((session) => session.id));
+        const removed = current
+          .filter((session) => !present.has(session.id) && !pendingDeletes.current.has(session.id))
+          .map((session) => session.id);
+        if (removed.length > 0) for (const listener of [...removalListeners.current]) listener(removed);
+      }
       return merged;
     },
     [reconcileUnreadSessions]
   );
+
+  const subscribeRemoved = useCallback((listener: (sessionIds: string[]) => void) => {
+    removalListeners.current.add(listener);
+    return () => {
+      removalListeners.current.delete(listener);
+    };
+  }, []);
 
   const refreshSessions = useCallback(async () => {
     const host = window.mixdogDesktop;
@@ -180,5 +201,6 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
     pendingArchives,
     pendingDeletes,
     invalidateInFlight,
+    subscribeRemoved,
   };
 }

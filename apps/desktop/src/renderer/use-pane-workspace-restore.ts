@@ -12,6 +12,24 @@ import {
   type PaneWorkspaceState,
 } from './pane-workspace-storage';
 
+/** Session ids a persisted tab may address at startup. The session catalog is
+ *  authoritative: a pool row never revives a Lead tab (stale rows outlive a
+ *  deleted session). Only a worker session spawned by a still-listed Lead keeps
+ *  its tab, because worker sessions are opened as tabs but never listed. */
+export function restorableSessionIds(
+  sessions: ReadonlyArray<{ id?: unknown }> | null | undefined,
+  agents: ReadonlyArray<{ sessionId?: unknown; ownerSessionId?: unknown }> | null | undefined
+): Set<string> {
+  const known = new Set<string>();
+  for (const row of Array.isArray(sessions) ? sessions : []) known.add(String(row.id || ''));
+  for (const row of Array.isArray(agents) ? agents : []) {
+    const sessionId = String(row.sessionId || '');
+    const ownerId = String(row.ownerSessionId || '');
+    if (sessionId && sessionId !== ownerId && known.has(ownerId)) known.add(sessionId);
+  }
+  return known;
+}
+
 /** Startup restore (session-address validation after first paint), the live
  *  workspace state, and debounced persistence of the tree. */
 export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | null) {
@@ -79,11 +97,7 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
               listSessions(),
               window.mixdogDesktop?.listAgentPool?.() ?? Promise.resolve([]),
             ]);
-            const knownSessionIds = new Set(
-              [...(Array.isArray(rows) ? rows : []), ...(Array.isArray(agents) ? agents : [])].map((row) =>
-                String('id' in row ? row.id : row.sessionId || '')
-              )
-            );
+            const knownSessionIds = restorableSessionIds(rows, agents);
             addressable = knownSessionIds;
             filtered = filterPaneLayoutSessions(stored.layout, knownSessionIds);
             break;

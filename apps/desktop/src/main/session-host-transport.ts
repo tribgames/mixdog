@@ -11,6 +11,8 @@ import type { TranscriptWindowRequest } from './session-transcript-windows';
 export interface SessionCallOptions {
   callId?: string;
   timeoutMs?: number;
+  /** Aborting stops the call; the client rejects with the signal's reason. */
+  signal?: AbortSignal;
 }
 
 export interface SessionClient {
@@ -77,9 +79,9 @@ export class SessionHostTransport {
     this.controlSessionIdValue = sessionId;
   }
 
-  callOptions(callId: string = randomUUID(), timeoutMs?: number): SessionCallOptions {
+  callOptions(callId: string = randomUUID(), timeoutMs?: number, signal?: AbortSignal): SessionCallOptions {
     if (this.owner.isDisposed()) throw new Error('Mixdog service host is disposed.');
-    return { callId, ...(timeoutMs ? { timeoutMs } : {}) };
+    return { callId, ...(timeoutMs ? { timeoutMs } : {}), ...(signal ? { signal } : {}) };
   }
 
   /** `page`: this read grows the window with older history, so the daemon
@@ -89,8 +91,10 @@ export class SessionHostTransport {
     forceFull = false,
     publish = true,
     readTraceId?: string,
-    page = false
+    page = false,
+    signal?: AbortSignal
   ): Promise<SessionSnapshot> {
+    signal?.throwIfAborted();
     const id = sessionIdOf(sessionId);
     const prior = this.owner.projection(id);
     const held = page && !forceFull ? this.owner.heldTranscript(id) : null;
@@ -108,15 +112,20 @@ export class SessionHostTransport {
         transcriptPrepend: true,
         ...(held ? { transcriptHeld: held } : {}),
       },
-      this.callOptions(undefined, TRANSCRIPT_READ_TIMEOUT_MS)
+      this.callOptions(undefined, TRANSCRIPT_READ_TIMEOUT_MS, signal)
     );
+    // An aborted read must not fold its late reply into the held projection.
+    signal?.throwIfAborted();
     reportTranscriptRead(id, readTraceId, 'host-read-result', {
       durationMs: performance.now() - startedAt,
     });
     if (result.page && typeof result.page === 'object') {
       // The held rows moved since the request (a live frame landed, the
       // session was compacted): read the whole window instead.
-      return this.owner.applyTranscriptPage(id, result, publish) ?? this.readSession(id, true, publish, readTraceId);
+      return (
+        this.owner.applyTranscriptPage(id, result, publish) ??
+        this.readSession(id, true, publish, readTraceId, false, signal)
+      );
     }
     const current = this.owner.projection(id);
     const hasFull = result.full !== null && typeof result.full === 'object';
@@ -125,7 +134,7 @@ export class SessionHostTransport {
       (result.patch ? Number(result.baseRevision) === current.revision : Number(result.revision) === current.revision);
     if (!hasFull && !hasBaseline) {
       if (forceFull) throw new Error('Session recovery returned no usable baseline.');
-      return this.readSession(id, true, publish, readTraceId);
+      return this.readSession(id, true, publish, readTraceId, false, signal);
     }
     return this.owner.applySessionResult(id, result, publish);
   }

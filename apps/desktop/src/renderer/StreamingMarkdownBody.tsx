@@ -1,9 +1,14 @@
-import { memo, useEffect, useRef, useState, type ComponentType } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 
 import type { MarkdownAstRoot } from './markdown-ast';
-import { LatestMarkdownAstQueue, readCachedStreamingMarkdownAst } from './markdown-worker-client';
+import {
+  LatestMarkdownAstQueue,
+  readCachedStreamingMarkdownAst,
+  syncMarkdownParser,
+} from './markdown-worker-client';
 import MarkdownAstBody from './MarkdownAstBody';
 import { containsFencedCodeMarkdown, MarkdownSourceFallback } from './MarkdownSourceFallback';
+import { noteStreamSyncParse, noteStreamWorkerParse } from './transcript-stream-metrics';
 
 type MarkdownCopyControl = ComponentType<{
   value: string;
@@ -40,17 +45,43 @@ function promoteMarkdownAst(
   return { text: parsedText, source, root };
 }
 
+/** Live markdown up to this size parses on the main thread, in the commit
+ *  that reveals it; larger text (and history) stays on the worker. */
+export const SYNC_MARKDOWN_PARSE_MAX_CHARS = 8 * 1024;
+/** A main-thread parse slower than this hands longer text back to the worker. */
+const SYNC_MARKDOWN_PARSE_BUDGET_MS = 8;
+
 const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   text,
   parseText,
   parse,
+  sync,
   copyControl,
 }: {
   text: string;
   parseText: string;
   parse: boolean;
+  sync: boolean;
   copyControl: MarkdownCopyControl;
 }) {
+  const slowAt = useRef(Number.POSITIVE_INFINITY);
+  const lastSync = useRef<RenderedMarkdownAst | null>(null);
+  const parser =
+    sync && parse && parseText.length <= SYNC_MARKDOWN_PARSE_MAX_CHARS && parseText.length < slowAt.current
+      ? syncMarkdownParser()
+      : null;
+  const syncRoot = useMemo(() => {
+    if (!parser) return null;
+    const cached = readCachedStreamingMarkdownAst(parseText);
+    if (cached) return cached;
+    const startedAt = performance.now();
+    const root = parser(parseText);
+    const duration = performance.now() - startedAt;
+    noteStreamSyncParse(duration, parseText.length);
+    if (duration > SYNC_MARKDOWN_PARSE_BUDGET_MS) slowAt.current = parseText.length;
+    return root;
+  }, [parser, parseText]);
+  if (syncRoot) lastSync.current = { text: parseText, source: text, root: syncRoot };
   const [rendered, setRendered] = useState<RenderedMarkdownAst | null>(() => {
     // A cache read is free, so even a tail past the parse cap opens styled
     // when the worker already holds its AST.
@@ -86,7 +117,11 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   // every paragraph (user: 웹앱에서 트랜스크립트가 튄다). The stale parse is
   // one worker round trip old and is replaced by the parse of the text on
   // screen as soon as it lands.
-  const usable = exact ?? current;
+  const synced = lastSync.current;
+  const usable =
+    (syncRoot ? synced : null) ??
+    exact ??
+    (synced && (!current || synced.source.length >= current.source.length) ? synced : current);
   const renderedRoot = usable?.root ?? null;
   // A cold web Worker can trail the first streamed tokens by a network round
   // trip. Fenced scripts still reserve their final card/mono geometry during
@@ -94,12 +129,15 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   const showFencedSourceFallback = !renderedRoot && containsFencedCodeMarkdown(text);
 
   useEffect(() => {
-    // A cached AST was already promoted during render.
-    if (!parse || readCachedStreamingMarkdownAst(parseText)) return;
+    // A cached AST was already promoted during render; a main-thread parse
+    // already painted this text.
+    if (!parse || syncRoot || readCachedStreamingMarkdownAst(parseText)) return;
     // The source snapshot that produced this request: the render right before
     // this effect published it, so later growth can be recognised as append.
     const source = requestedSource.current;
+    const requestedAt = performance.now();
     queue.current?.request(parseText, (root, parsedText) => {
+      noteStreamWorkerParse(requestedAt);
       // Requiring an EXACT match here meant that whenever the worker was
       // slower than the 20 Hz publication cadence every result was discarded,
       // so the live tail kept its raw "**"/"`" markers for the whole stream
@@ -114,7 +152,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
       const visibleSource = requestedSource.current;
       setRendered((latest) => promoteMarkdownAst(latest, root, parsedText, source, visibleSource));
     });
-  }, [parse, parseText]);
+  }, [parse, parseText, syncRoot]);
   useEffect(() => () => queue.current?.dispose(), []);
 
   // The live tail is parsed on a paced tick, so styled markdown appears WHILE
@@ -151,11 +189,14 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   text,
   parseText,
   parse = true,
+  sync = false,
   copyControl,
 }: {
   text: string;
   parseText?: string;
   parse?: boolean;
+  /** Live reply: small text parses on the main thread (see SYNC_MARKDOWN_PARSE_MAX_CHARS). */
+  sync?: boolean;
   copyControl: MarkdownCopyControl;
 }) {
   // Stable chunks promote exactly (immutable text -> exact AST, whose source
@@ -164,7 +205,7 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   // `parseText` is the healed form of `text` for the live tail: the parser
   // sees closed markers while the source fallback still shows exactly what
   // the model has emitted.
-  return <ParsedMarkdownBody text={text} parseText={parseText ?? text} parse={parse} copyControl={copyControl} />;
+  return <ParsedMarkdownBody text={text} parseText={parseText ?? text} parse={parse} sync={sync} copyControl={copyControl} />;
 });
 
 export default StreamingMarkdownBody;

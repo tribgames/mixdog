@@ -250,6 +250,14 @@ function storedSessionMetadata(sessionId, session) {
   };
 }
 
+/** A record that is gone may be a reaped agent child: its parent is resolved
+ *  from metadata only (worker link, summary-index row), never by a scan. */
+function readVanishedSessionTranscript(sessionId) {
+  return readArchivedAgentResult(sessionId, {
+    catalogRow: (id) => ordinaryCatalog.loadIndex().rowsById.get(id) || null,
+  });
+}
+
 /** The two files a stored transcript projection is built from. */
 function storedTranscriptInputPaths(sessionId) {
   return {
@@ -375,7 +383,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
   // Phase durations of the parse this call ran (absent on a cache hit).
   const timing = {};
   const recordStat = probePath(recordPath);
-  if (recordStat.state === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
+  if (recordStat.state === PROBE_ABSENT) return readVanishedSessionTranscript(sessionId);
   if (recordStat.state !== PROBE_PRESENT) return null;
   const checkpoint = probePath(checkpointPath);
   const archive = probePath(archivePath);
@@ -441,7 +449,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
     produce: (text) => produceStoredTranscript(text, readStamp, produceContext),
   });
   // The record vanished between stat and read: same answer as an absent probe.
-  if (readState === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
+  if (readState === PROBE_ABSENT) return readVanishedSessionTranscript(sessionId);
   if (typeof options.trace === 'function') {
     options.trace({
       sessionId,

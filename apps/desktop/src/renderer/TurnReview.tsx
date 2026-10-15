@@ -16,6 +16,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   onOpenFile,
   variant = 'bar',
   onOpenChanges,
+  onOpenChangeFile,
 }: {
   items: TranscriptItem[];
   cwd?: string;
@@ -28,6 +29,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({
    *  dock) it is an island tab that expands into this file list. */
   variant?: 'bar' | 'segment';
   onOpenChanges?: () => void;
+  /** The segment's file list: opens the session diff on one file. */
+  onOpenChangeFile?: (path: string) => void;
 }) {
   const islandTab = variant === 'segment' && !onOpenChanges;
   const disclosure = useTurnReviewDisclosure(islandTab);
@@ -94,8 +97,10 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     return turnReviewSegment({
       label: segmentLabel,
       fileCount: shownSummary.files.size,
+      files: shownSummary.files,
       headlineStats,
       onOpenChanges,
+      onOpenChangeFile,
       setExpanded,
       sessionId,
       historyTurns: reviewState.historyTurns,

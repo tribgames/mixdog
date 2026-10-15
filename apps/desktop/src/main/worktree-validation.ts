@@ -173,9 +173,17 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
     case 'requestWorktree': {
       if (args[0] === undefined) return;
       const input = objectArg(args[0], 'requestWorktree input');
-      allowKeys(input, ['name', 'expectedRevision', 'confirmLarge'], 'requestWorktree input');
+      allowKeys(
+        input,
+        ['name', 'expectedRevision', 'confirmLarge', 'provision', 'carryChanges'],
+        'requestWorktree input'
+      );
       if (input.name !== undefined && input.name !== null) refText(input.name, 'requestWorktree input.name');
       optionalBoolean(input, 'confirmLarge', 'requestWorktree input');
+      optionalBoolean(input, 'provision', 'requestWorktree input');
+      if (input.carryChanges !== undefined && input.carryChanges !== 'leave' && input.carryChanges !== 'carry') {
+        throw new TypeError('requestWorktree input.carryChanges must be leave or carry.');
+      }
       optionalRevision(input, 'requestWorktree input');
       return;
     }

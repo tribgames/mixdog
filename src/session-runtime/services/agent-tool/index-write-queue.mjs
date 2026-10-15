@@ -20,6 +20,7 @@ import { registerJsonProjection } from '../../../runtime/shared/pending-json-pro
 import { sleep } from '../../../runtime/shared/sleep.mjs';
 
 const RETRY_DELAYS_MS = [50, 250, 1000];
+const RETRY_AFTER_FAILURE_MS = 15_000;
 const unsettled = new Set(); // queues holding unpersisted writes
 // Exit is the one place a bounded synchronous lock wait is acceptable: the
 // loop is gone, and a dropped settlement would leave rows "running" forever.
@@ -122,8 +123,15 @@ function replayBatch(batch, args, mergeSet) {
   replayRun();
 }
 
+// A write that cannot reach disk loses a state change other processes rely on
+// (e.g. a deleted Lead row that never leaves the pool), so every failure is
+// reported. In the daemon stderr IS daemon.log (daemon-log.mjs installRedirect).
 function reportFailure(file, what, error) {
-  process.stderr.write(`[index-write] ${file}: ${what}: ${error?.message || error}\n`);
+  try {
+    process.stderr.write(`[index-write] ${file}: ${what}: ${error?.message || error}\n`);
+  } catch {
+    /* logging is best effort */
+  }
 }
 
 /**
@@ -153,8 +161,13 @@ export function createIndexWriteQueue({
   let running = null;
   const failures = new WeakMap(); // settled job → the error that failed it
   let timer = null;
+  let retryTimer = null;
 
   function clearTimer() {
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     if (!timer) return;
     clearImmediate(timer);
     timer = null;
@@ -202,12 +215,18 @@ export function createIndexWriteQueue({
       (error) => {
         // Persistent failure: nothing reached disk. Requeue the batch ahead of
         // newer writes (the projection and `unsettled` keep covering it) so a
-        // later flush, write or exit flush retries; do not reschedule here, a
-        // held foreign lock would otherwise be hammered forever.
+        // later flush, write or exit flush retries. Do not reschedule at once,
+        // a held foreign lock would otherwise be hammered; a slow unref'd retry
+        // keeps a failed LAST write (a delete) from waiting for unrelated traffic.
         failures.set(job, error);
         pending = [...batch, ...pending];
         inflight = [];
         running = null;
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          schedule();
+        }, RETRY_AFTER_FAILURE_MS);
+        retryTimer.unref?.();
       }
     );
     running = job;
@@ -277,7 +296,8 @@ export function createIndexWriteQueue({
         installProcessExitFlush();
         schedule();
         return next;
-      } catch {
+      } catch (error) {
+        reportFailure(file, 'write rejected (mutator or document rewrite threw); nothing queued', error);
         return null;
       }
     },

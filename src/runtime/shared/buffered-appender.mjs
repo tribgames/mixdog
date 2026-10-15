@@ -175,6 +175,24 @@ export function appendBuffered(path, text) {
   }
 }
 
+/**
+ * Drop every not-yet-written chunk for `path` (its file is being deleted, so a
+ * later flush must not recreate it). A write already handed to the OS cannot
+ * be recalled; callers unlink after this and it lands before or is removed.
+ */
+export function discardBuffered(path) {
+  const q = queues.get(path);
+  if (!q) return;
+  if (q.timer) {
+    clearTimeout(q.timer);
+    q.timer = null;
+  }
+  q.chunks = [];
+  q.bytes = 0;
+  q.failCount = 0;
+  deleteIfIdle(path, q);
+}
+
 /** Observable overflow counters for buffered append queues. */
 export function getBufferedAppenderStats(path) {
   const q = queues.get(path);

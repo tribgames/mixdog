@@ -252,6 +252,8 @@ function cursorOAuthState() {
       return resolveProbeState(paths, (docs) =>
         docs.some((own) => {
           if (!own?.access_token) return false;
+          // Cursor permanently rejected the refresh token: signed out until a new login.
+          if (own.reauth_required === true) return false;
           const expiresAt = Number(own.expires_at) || 0;
           return expiresAt === 0 || expiresAt > Date.now() || Boolean(own.refresh_token);
         })

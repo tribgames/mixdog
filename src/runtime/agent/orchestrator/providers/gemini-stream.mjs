@@ -187,8 +187,10 @@ function stampGeminiStreamFailure(
   const visible = visibleText.length > 0;
   // Native functionCall chunks are only dispatched after successful stream
   // completion in gemini.mjs. Until then a reconnect is safe. Text-leaked
-  // calls are dispatched while parsing and remain a hard replay boundary.
-  const pendingTool = leaked;
+  // calls are dispatched while parsing and remain a hard replay boundary,
+  // unless the guard holds them back (`deferToolCalls`): a held call never
+  // runs when the stream fails, so a reconnect cannot double-execute it.
+  const pendingTool = leaked && textLeakGuard?.defersToolCalls !== true;
   try {
     if (visible) {
       err.liveTextEmitted = true;
@@ -440,6 +442,9 @@ export function createGeminiTextLeakGuard({
   return {
     get enabled() {
       return _enabled;
+    },
+    get defersToolCalls() {
+      return deferToolCalls === true;
     },
     feedText(text) {
       if (!text) return;

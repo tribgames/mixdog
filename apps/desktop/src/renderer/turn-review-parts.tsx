@@ -105,8 +105,10 @@ export function turnReviewHead({
  *  history. */
 export function turnReviewSegment({
   fileCount,
+  files,
   headlineStats,
   onOpenChanges,
+  onOpenChangeFile,
   setExpanded,
   sessionId,
   historyTurns,
@@ -116,8 +118,11 @@ export function turnReviewSegment({
   /** The Changes source's name (the segment's accessible label). */
   label: string;
   fileCount: number;
+  /** Every changed file, listed in the menu. */
+  files: ReadonlyMap<string, TurnReviewFileEntry>;
   headlineStats: HeadlineStats;
   onOpenChanges: (() => void) | undefined;
+  onOpenChangeFile: ((path: string) => void) | undefined;
   setExpanded: Dispatch<SetStateAction<boolean>>;
   sessionId: string | undefined;
   historyTurns: number;
@@ -130,7 +135,9 @@ export function turnReviewSegment({
       busy={busy}
       label={label}
       title={t('Files {{count}}', { count: fileCount })}
+      files={files}
       onViewChanges={onOpenChanges ?? (() => setExpanded(true))}
+      onOpenFile={onOpenChangeFile ?? (() => setExpanded(true))}
     >
       <IslandSegLabel text={t('Island: {{count}} files', { count: fileCount })} count={fileCount} icon="file-diff" />
       {headlineStats.hasLineStats && (

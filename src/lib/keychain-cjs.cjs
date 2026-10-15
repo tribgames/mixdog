@@ -282,7 +282,8 @@ function darwinSet(account, value) {
 
 function darwinDelete(account) {
   const r = darwinRun(['delete-generic-password', '-a', account, '-s', SERVICE]);
-  if (r.status !== 0) throw new Error(`[keychain] security delete failed: ${r.stderr || r.stdout}`);
+  // Exit 44 is errSecItemNotFound: nothing stored, so nothing to delete.
+  if (r.status !== 0 && r.status !== 44) throw new Error(`[keychain] security delete failed: ${r.stderr || r.stdout}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -983,9 +984,11 @@ function win32Set(account, value) {
 }
 
 function win32Delete(account) {
-  const file = dpApiFile(account);
-  if (!fs.existsSync(file)) throw new Error(`[keychain] secret not found: ${account}`);
-  fs.unlinkSync(file);
+  try {
+    fs.unlinkSync(dpApiFile(account));
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------

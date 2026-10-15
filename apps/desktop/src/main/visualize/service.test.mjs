@@ -147,6 +147,33 @@ test('targets route by type and must stay inside cwd', async () => {
   }
 });
 
+test('open says so when the panel is not on screen, keeping "as tab vN"', async () => {
+  const { cwd, cleanup } = workspace();
+  let visible = false;
+  const asked = [];
+  const { deps } = fakeDeps({
+    onScreen: async (sessionId, tab) => {
+      asked.push([sessionId, tab.id]);
+      return visible;
+    },
+  });
+  const service = createVisualizeService(deps);
+  try {
+    const hidden = await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
+    assert.match(hidden.text, /\bas tab v1\b/);
+    assert.match(hidden.text, /not on screen/);
+    assert.doesNotMatch(hidden.text, /Showing/);
+    assert.deepEqual(asked, [['s1', 'v1']]);
+
+    visible = true;
+    const shown = await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
+    assert.match(shown.text, /^Showing site\/index\.html \(html\) in the side panel as tab v1\./);
+    assert.doesNotMatch(shown.text, /not on screen/);
+  } finally {
+    cleanup();
+  }
+});
+
 test('open reuses tabs, splits panes, reloads on change, and closes', async () => {
   const { cwd, cleanup } = workspace();
   const { deps, events, watched } = fakeDeps();

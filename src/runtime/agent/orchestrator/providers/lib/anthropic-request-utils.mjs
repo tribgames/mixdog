@@ -1,5 +1,5 @@
 import { providerNativeToolPrefixCount } from '../../runtime-core/provider-request-tools.mjs';
-import { actionInputContract } from './action-input-contract.mjs';
+import { actionInputContract, actionInputUnionFor } from './action-input-contract.mjs';
 import { isNativeServerToolBlockType } from './anthropic-native-blocks.mjs';
 import { isAnthropicThinkingBlock, sanitizeAnthropicReplayBlocks } from './anthropic-replay-blocks.mjs';
 import { sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../../session/context-utils.mjs';
@@ -491,7 +491,13 @@ function toAnthropicTools(tools, logTag) {
     const out = {
       name: tool.name,
       description: tool.description,
-      input_schema: sanitizeAnthropicInputSchema(tool.inputSchema, tool.name, logTag),
+      // First-party Anthropic accepts nested per-action input alternatives;
+      // gateways on the same wire keep the advertised flat schema.
+      input_schema: sanitizeAnthropicInputSchema(
+        ANTHROPIC_NATIVE_PROVIDERS.has(logTag) ? actionInputUnionFor(tool.inputSchema) : tool.inputSchema,
+        tool.name,
+        logTag
+      ),
     };
     if (tool.deferLoading === true || tool.defer_loading === true) out.defer_loading = true;
     return out;

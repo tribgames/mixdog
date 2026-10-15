@@ -1,87 +1,172 @@
-// The composer island's worktree segment: shown only while the session works
-// in a managed worktree (or its worktree folder went missing). It names the
-// worktree branch and the branch it came from; pressing it opens the app's ⋯
-// menu grammar above it: View changes · Merge into <base> · Remove worktree.
-// Running Merge or Remove, and any refusal, goes through the shared confirm popup.
-import { GitFork, TriangleAlert } from 'lucide-react';
-import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+// The composer island's branch segment, last in the pill: shown for every
+// session whose workspace is a git checkout. In the project folder it names
+// the branch (or the short commit of a detached HEAD); in a managed worktree
+// the worktree branch with its prefix and base muted. Pressing it opens the
+// same branch menu as the New Task chip (branch-menu); in a worktree the menu
+// leads with View changes · Merge into <base> · Remove worktree, whose runs
+// and refusals go through the shared confirm popup. While work runs the menu
+// still opens, but nothing in it can switch.
+import { FileDiff, GitBranch, GitFork, GitMerge, Trash2, TriangleAlert } from 'lucide-react';
+import { type CSSProperties, useEffect, useId, useRef, useState } from 'react';
 
 import type { DesktopMergeWorkspaceResult, DesktopSessionWorkspace } from '../shared/contract';
+import { BranchMenuLayer, useBranchMenuActions, useBranchMenuData, useBranchMenuOverlay } from './branch-menu';
 import type { ComposerIslandFlash } from './ComposerIsland';
 import { t } from './i18n';
-import { useMobileBack } from './mobile-back';
-import { captureRowMenuAnchor, positionRowMenu } from './row-menu-geometry';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import type { SettingsConfirmation } from './settings/capability-data';
-import { invokeWorktree, worktreeFailure, worktreeFailureText } from './worktree-branch-model';
+import { branchMenuPosition, branchRows, invokeWorktree, worktreeFailure, worktreeFailureText } from './worktree-branch-model';
 
-const MENU_ITEM = "[role='menuitem']:not(:disabled)";
+/** The chip's vertical rule, but right-aligned to the segment: the island's
+ *  branch segment ends the pill, so the menu grows leftward from its edge. */
+function islandMenuPosition(anchor: HTMLElement): CSSProperties {
+  const { left: _left, ...vertical } = branchMenuPosition(anchor);
+  const width = document.documentElement.clientWidth || window.innerWidth;
+  return { ...vertical, right: Math.max(8, width - anchor.getBoundingClientRect().right) };
+}
 
-export function WorktreeIslandSegment({
+/** A git checkout the segment can name. A project-folder workspace may carry
+ *  its branch without repoCommonDir; a detached HEAD is told from "not a
+ *  repository" by repoCommonDir alone. */
+function showsBranch(workspace: DesktopSessionWorkspace): boolean {
+  return Boolean(
+    workspace.branch || workspace.repoCommonDir || workspace.worktreeId || workspace.transition.state === 'recovery'
+  );
+}
+
+/** The short commit of a detached HEAD: the workspace's own, else git status'. */
+function useDetachedCommit(workspace: DesktopSessionWorkspace | null | undefined, detached: boolean): string {
+  const [commit, setCommit] = useState('');
+  const cwd = workspace?.cwd ?? '';
+  const revision = workspace?.revision ?? 0;
+  const own = workspace?.baseCommit ?? '';
+  // biome-ignore lint/correctness/useExhaustiveDependencies: revision is the re-read trigger
+  useEffect(() => {
+    setCommit('');
+    if (!detached || own || !cwd) return undefined;
+    let active = true;
+    void Promise.resolve(window.mixdogDesktop?.gitStatus?.(cwd, { skipLineStats: true }))
+      .then((status) => {
+        const match = String(status?.branch ?? '').match(/\(([0-9a-f]{4,})\)/i);
+        if (active && match) setCommit(match[1] ?? '');
+      })
+      .catch(() => {
+        // The label falls back to HEAD.
+      });
+    return () => {
+      active = false;
+    };
+  }, [cwd, detached, own, revision]);
+  return (own || commit).slice(0, 7);
+}
+
+export function BranchIslandSegment({
   sessionId,
-  workspace,
+  workspace: live,
+  projectPath = '',
+  locked = false,
   onViewChanges,
   onFlash,
+  onOpenSession,
 }: {
   sessionId: string;
-  /** The session's live workspace; the segment shows only for a worktree. */
+  /** The session's live workspace; no segment outside a git repository. */
   workspace: DesktopSessionWorkspace | null | undefined;
+  /** The registered Project (the way out of a vanished worktree). */
+  projectPath?: string;
+  /** A turn, queued input, agents or shells are running: no switch may start. */
+  locked?: boolean;
   /** Opens the session's changes (the files segment's own action). */
   onViewChanges?: () => void;
-  /** A short island notice after a merge. */
-  onFlash?: (flash: ComposerIslandFlash) => void;
+  /** A short island notice after a merge, for the session that merged (the
+   *  segment's session when the merge started, whatever is shown by then). */
+  onFlash?: (flash: ComposerIslandFlash, sessionId: string) => void;
+  /** Navigates to the session that holds a branch. */
+  onOpenSession?: (sessionId: string) => void;
 }) {
-  const [anchor, setAnchor] = useState<ReturnType<typeof captureRowMenuAnchor> | null>(null);
   const [dialog, setDialog] = useState<SettingsConfirmation | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [namingBranch, setNamingBranch] = useState(false);
+  const [query, setQuery] = useState('');
   const trigger = useRef<HTMLButtonElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
-  const open = anchor !== null;
+  const panelId = useId();
+  // A session that never left its project folder publishes no workspace in
+  // its snapshot: its branch menu's workspace stands in, re-read whenever
+  // the session's work settles.
+  const { menu, notice, setNotice, load } = useBranchMenuData({
+    draft: false,
+    projectPath,
+    sessionId,
+    intentKey: sessionId,
+    refreshKey: String(locked),
+    eager: Boolean(sessionId) && !live,
+  });
+  // While a move is pending or refused, the snapshot's workspace and the menu
+  // re-read can both be momentarily absent: the segment keeps the session's
+  // last shown workspace instead of leaving a gap in the pill.
+  const current = live ?? menu?.workspace ?? null;
+  const lastShown = useRef<{ sessionId: string; workspace: DesktopSessionWorkspace } | null>(null);
+  if (sessionId && current && showsBranch(current)) lastShown.current = { sessionId, workspace: current };
+  const workspace =
+    current && showsBranch(current)
+      ? current
+      : lastShown.current?.sessionId === sessionId
+        ? lastShown.current.workspace
+        : current;
   const recovery = workspace?.transition.state === 'recovery';
-  const shown = Boolean(sessionId && workspace && (workspace.worktreeId || recovery));
-  const close = () => setAnchor(null);
-  useMobileBack(open && shown, close);
-
-  // Same dismissal as the ⋯ menus: an outside press, Escape (focus back to
-  // the segment), or anything that moves the anchor.
-  useEffect(() => {
-    if (!open) return undefined;
-    queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(MENU_ITEM)?.focus());
-    const dismiss = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!panel.current?.contains(target) && !trigger.current?.contains(target)) setAnchor(null);
-    };
-    const keydown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      setAnchor(null);
-      trigger.current?.focus();
-    };
-    const dismissNow = () => setAnchor(null);
-    document.addEventListener('pointerdown', dismiss, true);
-    document.addEventListener('keydown', keydown, true);
-    window.addEventListener('resize', dismissNow);
-    return () => {
-      document.removeEventListener('pointerdown', dismiss, true);
-      document.removeEventListener('keydown', keydown, true);
-      window.removeEventListener('resize', dismissNow);
-    };
-  }, [open]);
+  const worktree = Boolean(workspace?.worktreeId);
+  const shown = Boolean(sessionId && workspace && showsBranch(workspace));
+  const detached = shown && !worktree && !recovery && !workspace?.branch;
+  const commit = useDetachedCommit(workspace, detached);
+  const { open, setOpen, visible, close, reopen, position, setPosition, measure, root, panel } = useBranchMenuOverlay(
+    !shown,
+    namingBranch,
+    islandMenuPosition
+  );
+  const actions = useBranchMenuActions({
+    draft: false,
+    intent: Boolean(menu?.pendingWorktree),
+    intentKey: sessionId,
+    sessionId,
+    projectPath,
+    menu,
+    query,
+    locked,
+    load,
+    setNotice,
+    close,
+    reopen,
+    trigger,
+    onOpenSession: (id) => onOpenSession?.(id),
+  });
 
   if (!shown || !workspace) return null;
-  const branch = workspace.branch || t('Worktree');
-  const slash = branch.lastIndexOf('/');
+  const branch = workspace.branch || (worktree ? t('Worktree') : commit || 'HEAD');
+  const slash = worktree ? branch.lastIndexOf('/') : -1;
   const target = workspace.mergeTarget || '';
+
+  const toggle = () => {
+    if (open) {
+      close();
+      return;
+    }
+    setPosition(measure());
+    setNamingBranch(false);
+    setQuery('');
+    setNotice('');
+    setOpen(true);
+    void load();
+  };
 
   const failed = (title: string, description: string) => setDialog({ title, description });
   const run = async (title: string, action: () => Promise<void>) => {
-    setBusy(true);
+    setRunning(true);
     try {
       await action();
     } catch (reason) {
       failed(title, worktreeFailureText(worktreeFailure(reason)));
     } finally {
-      setBusy(false);
+      setRunning(false);
     }
   };
   const merge = () =>
@@ -100,106 +185,135 @@ export function WorktreeIslandSegment({
         );
         return;
       }
-      onFlash?.({
-        key: `worktree-merge:${result.commit ?? ''}:${workspace.revision}`,
-        text: result.upToDate
-          ? t('Nothing to merge into {{target}}', { target })
-          : t('Merged {{source}} into {{target}}', { source: branch, target }),
-      });
+      // A refused cleanup never undoes the merge: it only keeps the worktree.
+      const kept = result.cleanup?.removed === false;
+      let text = result.upToDate
+        ? t('Nothing to merge into {{target}}', { target })
+        : t('Merged {{source}} into {{target}}', { source: branch, target });
+      if (kept && !result.upToDate) {
+        text = t('Merged {{source}} into {{target}}; the worktree was kept', { source: branch, target });
+      }
+      onFlash?.({ key: `worktree-merge:${result.commit ?? ''}:${workspace.revision}`, text }, sessionId);
     });
   const remove = () =>
     run(t("Couldn't remove the worktree"), async () => {
       await invokeWorktree('removeWorktree', [{ expectedRevision: workspace.revision }], sessionId);
     });
 
-  const items: { id: string; label: string; danger?: boolean; onSelect(): void }[] = [];
-  if (!recovery && onViewChanges) {
+  type WorktreeAction = {
+    id: string;
+    label: string;
+    icon: typeof FileDiff;
+    danger?: boolean;
+    /** Changes the workspace: unavailable while work runs. */
+    switches?: boolean;
+    onSelect(): void;
+  };
+  const items: WorktreeAction[] = [];
+  if (worktree || recovery) {
+    if (!recovery && onViewChanges) {
+      items.push({
+        id: 'view-changes',
+        label: t('View changes'),
+        icon: FileDiff,
+        onSelect: () => {
+          close();
+          onViewChanges();
+        },
+      });
+    }
+    if (!recovery && target) {
+      items.push({
+        id: 'merge',
+        label: t('Merge into {{value0}}', { value0: target }),
+        icon: GitMerge,
+        switches: true,
+        onSelect: () => {
+          close();
+          setDialog({
+            title: t('Merge {{source}} into {{target}}?', { source: branch, target }),
+            description: t(
+              'A merge commit joins the branches. The project folder must be on {{target}} with no uncommitted changes.',
+              { target }
+            ),
+            confirmLabel: t('Merge'),
+            // Cleanup follows the worktree settings' automatic cleanup.
+            onConfirm: merge,
+          });
+        },
+      });
+    }
     items.push({
-      id: 'view-changes',
-      label: t('View changes'),
-      onSelect: () => {
-        close();
-        onViewChanges();
-      },
-    });
-  }
-  if (!recovery && target) {
-    items.push({
-      id: 'merge',
-      label: t('Merge into {{value0}}', { value0: target }),
+      id: 'remove',
+      label: t('Remove worktree'),
+      icon: Trash2,
+      danger: true,
+      switches: true,
       onSelect: () => {
         close();
         setDialog({
-          title: t('Merge {{source}} into {{target}}?', { source: branch, target }),
+          title: t('Remove this worktree?'),
           description: t(
-            'A merge commit joins the branches. The project folder must be on {{target}} with no uncommitted changes.',
-            { target }
+            'The session returns to the project folder. Uncommitted or unmerged work blocks the removal.'
           ),
-          confirmLabel: t('Merge'),
-          // Cleanup follows the worktree settings' automatic cleanup.
-          onConfirm: merge,
+          confirmLabel: t('Remove'),
+          danger: true,
+          onConfirm: remove,
         });
       },
     });
   }
-  items.push({
-    id: 'remove',
-    label: t('Remove worktree'),
-    danger: true,
-    onSelect: () => {
-      close();
-      setDialog({
-        title: t('Remove this worktree?'),
-        description: t(
-          'The session returns to the project folder. Uncommitted or unmerged work blocks the removal.'
-        ),
-        confirmLabel: t('Remove'),
-        danger: true,
-        onConfirm: remove,
-      });
-    },
-  });
+  const worktreeActions = items.length
+    ? items.map(({ id, label, icon: Icon, danger, switches, onSelect }) => {
+        const unavailable = running || (switches && locked);
+        return (
+          <button
+            key={id}
+            type="button"
+            className="branch-menu-item"
+            data-kind="action"
+            data-action-id={id}
+            data-danger={danger || undefined}
+            aria-disabled={unavailable || undefined}
+            onClick={() => {
+              if (!unavailable) onSelect();
+            }}
+          >
+            <Icon size={14} aria-hidden="true" />
+            <span>{label}</span>
+          </button>
+        );
+      })
+    : undefined;
 
-  // positionRowMenu's horizontal rule (the right edge on the segment's), 4px
-  // off. Like the composer's other menus it always opens upward, never over
-  // the prompt; anchoring it from the bottom lets a notice grow upward.
-  const { top: _below, ...placement } = positionRowMenu(anchor, items.length, 0, window.innerWidth, window.innerHeight);
-  const style = { ...placement, bottom: window.innerHeight - (anchor?.bounds.top ?? 0) + 4 };
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(MENU_ITEM) ?? [])];
-    if (!entries.length) return;
-    const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
-    let next: number;
-    if (event.key === 'ArrowDown') next = (current + 1) % entries.length;
-    else if (event.key === 'ArrowUp') next = (current - 1 + entries.length) % entries.length;
-    else if (event.key === 'Tab') {
-      close();
-      return;
-    } else return;
-    event.preventDefault();
-    entries[next]?.focus();
-  };
   const tooltip = recovery
     ? t('Worktree missing')
-    : target
+    : worktree && target
       ? `${branch} · ${t('Branched from {{base}}', { base: target })}`
-      : branch;
+      : detached
+        ? `${t('Detached HEAD')} · ${branch}`
+        : branch;
 
   return (
     <>
       <button
-        ref={trigger}
+        ref={(node) => {
+          trigger.current = node;
+          root.current = node;
+        }}
         type="button"
-        className={`composer-island-seg composer-island-seg-worktree${recovery ? ' composer-island-seg-warning' : ''}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
+        className={`composer-island-seg composer-island-seg-branch${worktree ? ' composer-island-seg-worktree' : ''}${recovery ? ' composer-island-seg-warning' : ''}`}
+        aria-haspopup="dialog"
+        aria-expanded={visible}
         title={tooltip}
-        onClick={(event) => (open ? close() : setAnchor(captureRowMenuAnchor(event.currentTarget)))}
+        onClick={toggle}
       >
         {recovery ? (
           <TriangleAlert size={14} className="composer-island-seg-icon" aria-hidden="true" />
-        ) : (
+        ) : worktree ? (
           <GitFork size={14} className="composer-island-seg-icon" aria-hidden="true" />
+        ) : (
+          <GitBranch size={14} className="composer-island-seg-icon" aria-hidden="true" />
         )}
         <span className="composer-island-seg-text">
           {recovery ? (
@@ -211,34 +325,31 @@ export function WorktreeIslandSegment({
             </>
           )}
         </span>
-        {!recovery && target && <span className="composer-island-seg-sub">{target}</span>}
+        {!recovery && worktree && target && <span className="composer-island-seg-sub">{target}</span>}
       </button>
-      {open &&
-        createPortal(
-          <div
-            ref={panel}
-            className="row-overflow-menu worktree-island-menu"
-            role="menu"
-            aria-label={t('{{label}} menu', { label: t('Worktree') })}
-            style={style}
-            onKeyDown={onKeyDown}
-          >
-            {items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="menuitem"
-                data-action-id={item.id}
-                className={item.danger ? 'danger' : undefined}
-                disabled={busy}
-                onClick={item.onSelect}
-              >
-                <span className="row-overflow-label">{item.label}</span>
-              </button>
-            ))}
-          </div>,
-          document.body
-        )}
+      {menu && (
+        <BranchMenuLayer
+          visible={visible}
+          namingBranch={namingBranch}
+          setNamingBranch={setNamingBranch}
+          panelId={panelId}
+          trigger={trigger}
+          panel={panel}
+          position={position}
+          query={query}
+          setQuery={setQuery}
+          notice={notice}
+          setNotice={setNotice}
+          intent={Boolean(menu.pendingWorktree)}
+          locked={locked}
+          base={menu.workspace.mergeTarget || menu.workspace.branch || ''}
+          rows={branchRows(menu, sessionId, query)}
+          worktreeBound={Boolean(menu.workspace.worktreeId)}
+          worktreeActions={worktreeActions}
+          actions={actions}
+          close={close}
+        />
+      )}
       {dialog && <SettingsConfirmDialog options={dialog} portal onClose={() => setDialog(null)} />}
     </>
   );

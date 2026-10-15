@@ -21,6 +21,7 @@ import { formatUtcTimestamp } from './time-format.mjs';
 import { createRotationTracker } from './transcript-writer/rotation.mjs';
 import { conversationText, createTranscriptFile, cwdToProjectSlug } from './transcript-writer/transcript-file.mjs';
 import { createFailureLog, createSessionRecord } from './transcript-writer/session-record.mjs';
+import { isSessionTranscriptPurged, noteSessionTranscript } from './transcript-writer/purge.mjs';
 
 // A user prompt with pasted images arrives as a content block array; only its
 // text reaches the transcript (String(array) would store "[object Object]").
@@ -44,7 +45,11 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
   const file = createTranscriptFile({ projectDir, transcriptPath, sessionId, resolvedCwd, logOnce, rotation });
   const record = createSessionRecord({ sessionRecordPath, sessionId, resolvedCwd, transcriptPath, logOnce });
 
+  noteSessionTranscript(sessionId, transcriptPath);
+
   function appendLine(entry) {
+    // A deleted session's own writer must not bring its transcript back.
+    if (isSessionTranscriptPurged(sessionId)) return;
     file.ensureProjectDir();
     rotation.rotateIfNeeded();
     try {
@@ -91,8 +96,11 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
     transcriptPath,
     sessionRecordPath,
     writeSessionRecord: record.write,
-    ensureConversationBackfill: file.ensureConversationBackfill,
-    ensureTranscriptFile: file.ensureTranscriptFile,
+    ensureConversationBackfill: (messages) =>
+      isSessionTranscriptPurged(sessionId) ? false : file.ensureConversationBackfill(messages),
+    ensureTranscriptFile: () => {
+      if (!isSessionTranscriptPurged(sessionId)) file.ensureTranscriptFile();
+    },
     // Refresh only the session record's updatedAt so discovery keeps ranking
     // this session as live across long-lived remote sessions.
     refresh: record.write,

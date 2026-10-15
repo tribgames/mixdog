@@ -166,6 +166,7 @@ function useUnreadSessionCatalog(unreadViewedSessionRef: Parameters<typeof useUn
     pendingArchives: pendingSessionArchives,
     pendingDeletes: pendingSessionDeletes,
     invalidateInFlight: invalidateSessionListings,
+    subscribeRemoved: subscribeSessionsRemoved,
   } = useSessionCatalog(reconcileUnreadSessions);
 
   return {
@@ -179,6 +180,7 @@ function useUnreadSessionCatalog(unreadViewedSessionRef: Parameters<typeof useUn
     pendingSessionArchives,
     pendingSessionDeletes,
     invalidateSessionListings,
+    subscribeSessionsRemoved,
   };
 }
 

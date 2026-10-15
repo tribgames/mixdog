@@ -101,6 +101,7 @@ export function createTransitionSteps({
   updateLeadWorkerCwd,
   workersOf,
   withProjectFolder,
+  assertCheckoutQuiet = async () => {},
 }) {
   const owner = (sessionId) => ({ sessionId, runtimeToken, pid: process.pid });
   const moveLeadRow = (sessionId, cwd) => {
@@ -112,7 +113,7 @@ export function createTransitionSteps({
   };
 
   /** Point this Lead's idle workers at the new root so a reused worker never keeps an old workspace. */
-  async function retargetWorkers(session, cwd, journal) {
+  async function retargetWorkers(session, cwd, journal, move = null) {
     for (const worker of workersOf(session)) {
       if (samePath(worker.cwd || '', cwd)) continue;
       const priorCwd = worker.cwd;
@@ -124,7 +125,7 @@ export function createTransitionSteps({
         persistSession(worker);
       });
       worker.cwd = cwd;
-      await refreshWorkspaceContext(worker, cwd);
+      await refreshWorkspaceContext(worker, cwd, move);
       worker.updatedAt = Date.now();
       persistSession(worker);
     }
@@ -134,9 +135,10 @@ export function createTransitionSteps({
    * Apply the new workspace: runtime cwd, record, worker lock, prompt context
    * of the Lead and its idle workers, persistence. Journals the exact undo
    * (cwd, record, lock, prompts, worker roots) for a transaction that fails
-   * after this point.
+   * after this point. `move` ({ from, changes }: a move out of the project
+   * folder into a worktree) extends the prompt's working-folder notice.
    */
-  async function commit(session, previous, fields, journal) {
+  async function commit(session, previous, fields, journal, move = null) {
     const next = normalizeSessionWorkspace({
       ...fields,
       revision: nextRevision(previous),
@@ -165,10 +167,11 @@ export function createTransitionSteps({
     session.workspace = next;
     moveLeadRow(session.id, next.cwd);
     setWorkspaceCwdLock(session.id, isWorktreeBound(next) ? next.cwd : null);
-    await refreshWorkspaceContext(session, next.cwd);
-    await retargetWorkers(session, next.cwd, journal);
+    await refreshWorkspaceContext(session, next.cwd, move);
+    await retargetWorkers(session, next.cwd, journal, move);
     session.updatedAt = Date.now();
-    persistSession(session);
+    // Awaited: a failed save fails the transaction (and its journal undoes it).
+    await persistSession(session);
     invalidateCaches();
     return { revision: next.revision, workspace: next };
   }
@@ -229,7 +232,14 @@ export function createTransitionSteps({
     }
   }
 
-  async function enterWorktree(session, previous, { name, nameHint, confirmLarge, signal, txId, journal }) {
+  /**
+   * `changes` (a new worktree only): the project folder's uncommitted
+   * changes — `ask` refuses with WORKTREE_DIRTY_CHOICE while there are any,
+   * `leave` keeps them there, `carry` moves them into the worktree while the
+   * project folder is held (refused while other sessions work in it);
+   * omitted, they are not examined (lazy provisioning).
+   */
+  async function enterWorktree(session, previous, { name, nameHint, confirmLarge, changes, signal, txId, journal }) {
     const backendApi = await backend();
     const projectPath = previous.projectPath;
     const project = await inspectProject(projectPath, { signal });
@@ -248,16 +258,39 @@ export function createTransitionSteps({
       // The backend resolves the base branch commit (from the project
       // folder's checked-out branch), sizes and creates the checkout; the
       // txId makes a retried or duplicate send return the same worktree.
-      entry = await backendApi.createManagedWorktree({
-        projectPath,
-        sessionId: session.id,
-        runtimeToken,
-        baseBranch: project.currentBranch,
-        nameHint: name ?? nameHint ?? '',
-        confirmLarge: confirmLarge === true,
-        txId,
-        signal,
-      });
+      const create = () =>
+        backendApi.createManagedWorktree({
+          projectPath,
+          sessionId: session.id,
+          runtimeToken,
+          baseBranch: project.currentBranch,
+          nameHint: name ?? nameHint ?? '',
+          confirmLarge: confirmLarge === true,
+          txId,
+          signal,
+          carryChanges: changes ?? null,
+        });
+      // A carry clears the project folder: it is held, and every session
+      // sharing it must be quiet (no turn, agents or background shells).
+      entry =
+        changes === 'carry'
+          ? await withProjectFolder(session.id, project.topLevel || projectPath, async () => {
+              await assertCheckoutQuiet(session, project.topLevel || projectPath);
+              return create();
+            })
+          : await create();
+      const recoveryRef = entry.changes?.recoveryRef;
+      if (recoveryRef) {
+        // Anything that fails before the move is committed puts the changes
+        // back into the project folder and drops the worktree made for them;
+        // a restore that is refused keeps both (and the recovery ref).
+        const created = entry;
+        journal.push(async () => {
+          await backendApi.restoreCarriedChanges({ projectPath, recoveryRef });
+          await backendApi.removeManagedWorktree({ entryId: created.id, force: true });
+          await backendApi.dropCarryRecoveryRef({ projectPath, recoveryRef });
+        });
+      }
     }
     // Cancelled after the worktree exists: it stays retained (same txId on
     // retry), the session does not move.
@@ -279,10 +312,24 @@ export function createTransitionSteps({
         baseCommit: entry.baseCommit,
         mergeTarget: project.currentBranch,
       },
-      journal
+      journal,
+      // The tail notice: what happened to the uncommitted changes, and how
+      // the project-folder paths of the conversation so far map to the worktree.
+      isWorktreeBound(previous) ? null : { from: previous.cwd, changes: entry.changes?.mode ?? null }
     );
+    // The move is committed and persisted: the carried changes' recovery ref
+    // has done its job (a failure to drop it only leaves a spare ref).
+    if (entry.changes?.recoveryRef) {
+      await backendApi
+        .dropCarryRecoveryRef({ projectPath, recoveryRef: entry.changes.recoveryRef })
+        .catch(() => {});
+    }
     // Creation notes (submodules, include entries missing or already present).
-    return { ...entered, warnings: Array.isArray(entry.warnings) ? [...entry.warnings] : [] };
+    return {
+      ...entered,
+      warnings: Array.isArray(entry.warnings) ? [...entry.warnings] : [],
+      ...(entry.changes ? { changes: { mode: entry.changes.mode, count: entry.changes.count } } : {}),
+    };
   }
 
   async function enterProjectBranch(session, previous, { branch, create, signal, journal }) {

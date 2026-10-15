@@ -2,13 +2,19 @@ import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
 
 const secrets = new Map();
+const deleted = [];
+let deleteFailure = null;
 const original = await import('../../runtime/shared/config.mjs');
 mock.module('../../runtime/shared/config.mjs', {
   namedExports: {
     ...original,
     saveSecret: (account, value) => secrets.set(account, value),
     saveSecretAsync: async (account, value) => secrets.set(account, value),
-    deleteSecretAsync: async (account) => secrets.delete(account),
+    deleteSecretAsync: async (account) => {
+      deleted.push(account);
+      if (deleteFailure) throw deleteFailure;
+      secrets.delete(account);
+    },
     hasStoredSecret: (account) => secrets.has(account),
     getAgentApiKey: (id) => secrets.get(`agent.${id}.apiKey`) || null,
   },
@@ -141,6 +147,55 @@ test('remove deletes config and secret, and only custom providers', async () => 
   assert.equal(cfg.peek().providers.openai.enabled, true);
   await assert.rejects(() => admin.removeCustomProvider(cfg, 'openai'), /unknown custom provider/);
   await assert.rejects(() => admin.removeCustomProvider(cfg, id), /unknown custom provider/);
+});
+
+test('removing a keyless provider succeeds and drops its settings and routes', async () => {
+  const cfg = makeCfg();
+  const { id } = await admin.saveCustomProvider(cfg, { ...input, auth: 'none', apiKey: undefined });
+  assert.equal(secrets.has(`agent.${id}.apiKey`), false);
+  cfg.saveConfig({
+    ...cfg.loadConfig(),
+    modelSettings: { [`${id}/m1`]: { fast: true }, 'openai/gpt': { fast: true } },
+    agents: { worker: { provider: id, model: 'm1' }, other: { provider: 'openai', model: 'gpt' } },
+    webSearchRoute: { provider: id, model: 'm1' },
+    presets: [
+      { id: 'mine', provider: id, model: 'm1' },
+      { id: 'keep', provider: 'openai', model: 'gpt' },
+    ],
+    default: 'mine',
+  });
+  deleted.length = 0;
+  await admin.removeCustomProvider(cfg, id);
+  assert.deepEqual(deleted, [`agent.${id}.apiKey`]);
+  assert.deepEqual(cfg.peek(), {
+    providers: { openai: { enabled: true } },
+    modelSettings: { 'openai/gpt': { fast: true } },
+    agents: { other: { provider: 'openai', model: 'gpt' } },
+    presets: [{ id: 'keep', provider: 'openai', model: 'gpt' }],
+  });
+});
+
+test('removing a keyed provider deletes its secret', async () => {
+  const cfg = makeCfg();
+  const { id } = await admin.saveCustomProvider(cfg, input);
+  assert.equal(secrets.has(`agent.${id}.apiKey`), true);
+  await admin.removeCustomProvider(cfg, id);
+  assert.equal(secrets.has(`agent.${id}.apiKey`), false);
+  assert.equal(cfg.peek().providers[id], undefined);
+});
+
+test('a keychain failure on removal is reported and keeps the provider for retry', async () => {
+  const cfg = makeCfg();
+  const { id } = await admin.saveCustomProvider(cfg, input);
+  deleteFailure = new Error('[keychain] the keyring is locked');
+  try {
+    await assert.rejects(() => admin.removeCustomProvider(cfg, id), /keyring is locked/);
+  } finally {
+    deleteFailure = null;
+  }
+  assert.ok(cfg.peek().providers[id]);
+  await admin.removeCustomProvider(cfg, id);
+  assert.equal(cfg.peek().providers[id], undefined);
 });
 
 test('failed config edits restore the previous API key', async () => {

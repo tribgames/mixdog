@@ -115,6 +115,36 @@ test('a mid-conversation folder change keeps every system message byte-identical
   assert.equal(promptState(session), before);
 });
 
+test('a move into a worktree adds the uncommitted-changes and path lines to the notice, prompt untouched', () => {
+  const pathLine = `For continued work, substitute ${WORKTREE} for the project root C:/repo in paths mentioned earlier; absolute paths are not remapped automatically. Re-read affected files before editing them.`;
+  const lead = (changes) => {
+    const { session } = sessionFor('C:/repo');
+    const before = promptState(session);
+    refreshSessionWorkspaceContext(session, { cwd: WORKTREE, move: { from: 'C:/repo', changes } });
+    assert.equal(promptState(session), before, 'the system prompt stays byte-identical');
+    return { session, lines: snapshotPendingWorkspaceNotice(session).content.split('\n') };
+  };
+  const head = (lines) => lines.slice(1, 5);
+  const folderLine = `The working folder is now ${WORKTREE}. This replaces the Cwd and environment facts given earlier in this conversation; relative paths and shell commands resolve here.`;
+  assert.deepEqual(head(lead('carried').lines), [
+    '# Working Folder Changed',
+    folderLine,
+    'Uncommitted changes were moved into the worktree; ignored files (dependencies, build output, env files) were not.',
+    pathLine,
+  ]);
+  assert.deepEqual(head(lead('left').lines), [
+    '# Working Folder Changed',
+    folderLine,
+    'Uncommitted changes were left in C:/repo; they are not present here.',
+    pathLine,
+  ]);
+  const clean = lead(null);
+  assert.deepEqual(clean.lines.slice(1, 4), ['# Working Folder Changed', folderLine, pathLine]);
+  // A later change without a move (back to the project folder) drops the lines.
+  refreshSessionWorkspaceContext(clean.session, { cwd: 'C:/elsewhere' });
+  assert.doesNotMatch(snapshotPendingWorkspaceNotice(clean.session).content, /substitute|Uncommitted changes/);
+});
+
 test('removed instruction files and memory are announced as no longer applying; unchanged slices are omitted', () => {
   const { session } = sessionFor('C:/repo');
   refreshSessionWorkspaceContext(session, { cwd: 'C:/plain', coreMemoryContext: '', instructionFilesContext: '' });

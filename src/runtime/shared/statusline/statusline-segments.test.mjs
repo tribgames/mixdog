@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { shellJobsStatus } from './statusline-segments.mjs';
+import { shellJobsStatus, shellJobsStatusFresh } from './statusline-segments.mjs';
 
 test('foreground commands stay out of the shell job list', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-statusline-foreground-'));
@@ -106,6 +106,88 @@ test('a session keeps its shell jobs while the polling owner pid alternates', as
     assert.equal(shellJobsStatus({ clientHostPid: ownerA }).count, 1);
     assert.equal(shellJobsStatus({ clientHostPid: ownerB }).count, 0);
   } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('shellJobsStatusFresh awaits a new scan so a just-finished shell is visible on the same call', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-statusline-fresh-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    const dir = join(root, 'shell-jobs');
+    mkdirSync(dir, { recursive: true });
+    const jobId = `job_${Date.now()}_fresh`;
+    const ownerPid = process.pid + 400_000;
+    const record = { pid: process.pid, command: 'npm run dev', ownerSessionId: 'sess-fresh', startedAt: Date.now() };
+    writeFileSync(join(dir, `${jobId}.json`), JSON.stringify(record));
+    writeFileSync(join(dir, `${jobId}.owner-${ownerPid}`), '');
+    const running = await shellJobsStatusFresh({ clientHostPid: ownerPid });
+    assert.equal(running.sessions['sess-fresh'].count, 1, 'the first call already sees the running shell');
+
+    writeFileSync(
+      join(dir, `${jobId}.json`),
+      JSON.stringify({ ...record, status: 'completed', exitCode: 0, finishedAt: new Date().toISOString() })
+    );
+    writeFileSync(join(dir, `${jobId}.done`), '');
+    rmSync(join(dir, `${jobId}.owner-${ownerPid}`));
+    const settled = await shellJobsStatusFresh({ clientHostPid: ownerPid });
+    assert.equal(settled.sessions['sess-fresh'].count, 0, 'no one-interval lag after the shell settles');
+    assert.equal(settled.sessions['sess-fresh'].finished[0].status, 'completed');
+    assert.deepEqual(await shellJobsStatusFresh({}), shellJobsStatus({}), 'no owner pid owns nothing');
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// Runs last: the skewed clock leaves a future-dated cache entry behind.
+test('finished shells do not blink out when an owner is polled again after its cache entry aged out', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-statusline-evict-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  const realNow = Date.now;
+  let skewMs = 0;
+  process.env.MIXDOG_DATA_DIR = root;
+  Date.now = () => realNow() + skewMs;
+  try {
+    const dir = join(root, 'shell-jobs');
+    mkdirSync(dir, { recursive: true });
+    const jobId = `job_${realNow()}_blink`;
+    writeFileSync(
+      join(dir, `${jobId}.json`),
+      JSON.stringify({
+        pid: process.pid,
+        command: 'make',
+        ownerSessionId: 'sess-blink',
+        status: 'completed',
+        exitCode: 0,
+        finishedAt: new Date(realNow() - 1000).toISOString(),
+      })
+    );
+    writeFileSync(join(dir, `${jobId}.done`), '');
+    const ownerA = process.pid + 400_000;
+    const ownerB = process.pid + 500_000;
+    // The desktop poller asks for the owner aggregate and reads its session buckets.
+    const finished = (pid) => shellJobsStatus({ clientHostPid: pid }).sessions?.['sess-blink']?.finished.length ?? 0;
+    for (let attempt = 0; attempt < 40 && (finished(ownerA) !== 1 || finished(ownerB) !== 1); attempt += 1) {
+      await delay(25);
+    }
+    assert.equal(finished(ownerA), 1);
+    assert.equal(finished(ownerB), 1);
+
+    // Past the owner cache retention only owner B keeps polling: its refresh
+    // evicts owner A's entry. Owner A's next poll must still see the shell.
+    skewMs = 61_000;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      finished(ownerB);
+      await delay(25);
+    }
+    assert.equal(finished(ownerA), 1);
+  } finally {
+    Date.now = realNow;
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(root, { recursive: true, force: true });

@@ -232,6 +232,12 @@ export function createDesktopVisualize(options: {
       await shownBody(window, sessionId, tab);
       await shownHtmlFrames(window, tab);
     },
+    // On the desktop window, else on a paired remote device showing the session.
+    async onScreen(sessionId, tab) {
+      const window = liveWindow();
+      if (window && (await shownBody(window, sessionId, tab).then(() => true, () => false))) return true;
+      return viewer.remoteViewing(sessionId);
+    },
     capture: captureBody,
     chooseExportPath: (request) => chooseExportPath(requireWindow, request),
     renderExport: (pane, format, allowNetwork, options) =>

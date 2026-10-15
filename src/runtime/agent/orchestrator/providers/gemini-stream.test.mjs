@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { consumeGeminiRestStreamResponse, consumeGeminiSdkStream } from './gemini-stream.mjs';
+import {
+  consumeGeminiRestStreamResponse,
+  consumeGeminiSdkStream,
+  createGeminiTextLeakGuard,
+} from './gemini-stream.mjs';
 
 const protocols = [
   {
@@ -73,6 +77,29 @@ for (const { name, consume } of protocols) {
     );
     assert.deepEqual(text, ['visible']);
   });
+
+  for (const deferToolCalls of [true, false]) {
+    test(`Gemini ${name} cut stream with a text-leaked call is ${deferToolCalls ? 'replayable when the call is held back' : 'a replay boundary when the call is dispatched'}`, async () => {
+      const dispatched = [];
+      const textLeakGuard = createGeminiTextLeakGuard({
+        knownToolNames: ['read'],
+        onToolCall: (call) => dispatched.push(call),
+        deferToolCalls,
+      });
+      const leaked = '<invoke name="read"><parameter name="path">a.txt</parameter></invoke>';
+      await assert.rejects(
+        consume([{ candidates: [{ content: { parts: [{ text: leaked }] } }] }], { label: 'fixture', textLeakGuard }),
+        (error) => {
+          assert.equal(error.code, 'TRUNCATED_STREAM');
+          assert.equal(textLeakGuard.getLeakedToolCalls().length, 1);
+          assert.equal(error.emittedToolCall, deferToolCalls ? undefined : true);
+          assert.equal(error.unsafeToRetry, deferToolCalls ? undefined : true);
+          return true;
+        }
+      );
+      assert.equal(dispatched.length, deferToolCalls ? 0 : 1);
+    });
+  }
 
   test(`Gemini ${name} completion retains ordered native tool parts and signatures`, async () => {
     const parts = [{ text: 'answer' }, nativePart];

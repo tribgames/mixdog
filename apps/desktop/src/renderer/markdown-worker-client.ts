@@ -38,9 +38,30 @@ registerIdleReclaim(() => {
 });
 workerHost.prewarm();
 
+let rendererParser: ((text: string) => MarkdownAstRoot) | null = null;
+
+function loadRendererParser(): Promise<typeof import('./markdown-ast')> {
+  rendererParserPromise ||= import('./markdown-ast').then((module) => {
+    rendererParser = module.parseMarkdownToHast;
+    return module;
+  });
+  return rendererParserPromise;
+}
+
 function parseMarkdownOnRenderer(text: string): Promise<MarkdownAstRoot> {
-  rendererParserPromise ||= import('./markdown-ast');
-  return rendererParserPromise.then(({ parseMarkdownToHast }) => parseMarkdownToHast(text));
+  return loadRendererParser().then(({ parseMarkdownToHast }) => parseMarkdownToHast(text));
+}
+
+/** Live markdown parses its small tail on the main thread once the parser is
+ *  loaded; a worker round trip per frame would gate what the reader sees. */
+export function preloadSyncMarkdownParser(): void {
+  void loadRendererParser().catch(() => {
+    rendererParserPromise = null;
+  });
+}
+
+export function syncMarkdownParser(): ((text: string) => MarkdownAstRoot) | null {
+  return rendererParser;
 }
 
 export function parseStreamingMarkdownAst(text: string): Promise<MarkdownAstRoot> {

@@ -163,7 +163,151 @@ test('each parallel tool result keeps its own media inside functionResponse.part
   assert.equal(antigravity.parts[1].functionResponse.parts[0].inlineData.data, 'BBBB');
 });
 
-test('Claude-via-Antigravity declarations keep the historical bytes; Gemini gets the representability choice', () => {
+const replayedTurn = (model, parts, toolCalls) => [
+  { role: 'user', content: 'go' },
+  {
+    role: 'assistant',
+    content: '',
+    toolCalls,
+    providerReplay: { ...createProviderReplay('antigravity', parts), requestContext: { model } },
+  },
+  ...toolCalls.map((call, index) => ({ role: 'tool', toolCallId: call.id, content: `out${index}` })),
+];
+const callAndResponseIds = (contents) => ({
+  calls: contents.find((c) => c.role === 'model').parts.filter((p) => p.functionCall).map((p) => p.functionCall.id),
+  responses: contents
+    .filter((c) => c.parts.some((p) => p.functionResponse))
+    .flatMap((c) => c.parts.map((p) => p.functionResponse.id)),
+});
+
+test('Gemini: a replayed functionCall without a server id gets a functionResponse without one', () => {
+  const model = 'gemini-3.1-pro-high';
+  // The transcript id is generated, and renamed because the history already used it.
+  const history = replayedTurn(
+    model,
+    [{ functionCall: { name: 'glob', args: { p: '*' } }, thoughtSignature: 'sig' }],
+    [{ id: 'gemini_0123456789abcdef-2', name: 'glob', arguments: { p: '*' } }]
+  );
+  for (const contents of [
+    toGeminiContents(history, model),
+    buildAntigravityRequest(history, model, [], {}, 'p').request.contents,
+  ]) {
+    const { calls, responses } = callAndResponseIds(contents);
+    assert.deepEqual(calls, [undefined]);
+    assert.deepEqual(responses, [undefined]);
+    assert.equal(JSON.stringify(contents).includes('gemini_0123456789abcdef'), false);
+  }
+});
+
+test('Gemini: a response follows the server id the replayed functionCall carries', () => {
+  const model = 'gemini-3.1-pro-high';
+  const history = replayedTurn(
+    model,
+    [{ functionCall: { id: 'srv-call', name: 'glob', args: {} }, thoughtSignature: 'sig' }],
+    [{ id: 'srv-call-2', name: 'glob', arguments: {} }]
+  );
+  const { calls, responses } = callAndResponseIds(buildAntigravityRequest(history, model, [], {}, 'p').request.contents);
+  assert.deepEqual(calls, ['srv-call']);
+  assert.deepEqual(responses, ['srv-call']);
+});
+
+test('Claude/GPT-OSS on Antigravity: the replayed functionCall carries the final id its response uses', () => {
+  for (const model of ['claude-sonnet-4-6', 'gpt-oss-120b-medium']) {
+    // Second call has no recorded id, first was renamed; names are the
+    // call_tool bridge wire name, so pairing cannot depend on a target name.
+    const history = replayedTurn(
+      model,
+      [
+        { functionCall: { id: 'toolu_1', name: 'call_tool', args: { name: 'a', arguments: {} } } },
+        { functionCall: { name: 'call_tool', args: { name: 'b', arguments: {} } } },
+      ],
+      [
+        { id: 'toolu_1-2', name: 'call_tool', arguments: { name: 'a', arguments: {} } },
+        { id: 'gemini_deadbeef', name: 'call_tool', arguments: { name: 'b', arguments: {} } },
+      ]
+    );
+    for (const contents of [
+      toGeminiContents(history, model),
+      buildAntigravityRequest(history, model, [], {}, 'p').request.contents,
+    ]) {
+      const { calls, responses } = callAndResponseIds(contents);
+      assert.deepEqual(calls, ['toolu_1-2', 'gemini_deadbeef'], model);
+      assert.deepEqual(responses, calls, model);
+    }
+    assert.equal(history[1].providerReplay.items[0].functionCall.id, 'toolu_1', 'stored replay is not mutated');
+  }
+});
+
+test('a tool result with no replayed call keeps its own id', () => {
+  const contents = toGeminiContents(
+    [{ role: 'user', content: 'x' }, { role: 'tool', toolCallId: 'orphan', content: 'r' }],
+    'gemini-3-pro'
+  );
+  assert.equal(contents[1].parts[0].functionResponse.id, 'orphan');
+});
+
+test('a failed tool result is sent under error, a successful one under result', () => {
+  const history = [
+    { role: 'user', content: 'go' },
+    {
+      role: 'assistant',
+      content: '',
+      toolCalls: [
+        { id: 'a', name: 'read', arguments: {} },
+        { id: 'b', name: 'read', arguments: {} },
+        { id: 'c', name: 'read', arguments: {} },
+      ],
+    },
+    { role: 'tool', toolCallId: 'a', content: 'boom', toolKind: 'error' },
+    { role: 'tool', toolCallId: 'b', content: 'bad', isError: true },
+    { role: 'tool', toolCallId: 'c', content: 'fine' },
+  ];
+  const responses = toGeminiContents(history, 'gemini-3-pro')[2].parts.map((p) => p.functionResponse.response);
+  assert.deepEqual(responses, [{ error: 'boom' }, { error: 'bad' }, { result: 'fine' }]);
+});
+
+test('parametersJsonSchema drops non-standard keys recursively but keeps names, enums and defaults', () => {
+  const inputSchema = {
+    $schema: 'http://json-schema.org/draft-07/schema#',
+    $comment: 'c',
+    'x-internal': true,
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      // Property names that look like keywords are data, not keywords.
+      examples: { type: 'string', deprecated: true, 'x-ui': 'a', examples: ['q'] },
+      'x-name': { type: 'array', items: { type: 'object', 'x-deep': 1, additionalProperties: false, properties: {} } },
+      choice: {
+        anyOf: [{ type: 'string', $comment: 'c' }, { type: 'integer', examples: [1] }],
+        default: { 'x-data': 1, examples: [] },
+      },
+      mode: { enum: ['x-a', 'deprecated'], type: 'string' },
+    },
+    $defs: { d: { type: 'string', 'x-d': 1, deprecated: false } },
+    required: ['examples'],
+  };
+  const before = structuredClone(inputSchema);
+  const out = declaration(inputSchema);
+  assert.deepEqual(inputSchema, before);
+  assert.equal(out.parameters, undefined);
+  assert.deepEqual(out.parametersJsonSchema, {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      examples: { type: 'string' },
+      'x-name': { type: 'array', items: { type: 'object', additionalProperties: false, properties: {} } },
+      choice: {
+        anyOf: [{ type: 'string' }, { type: 'integer' }],
+        default: { 'x-data': 1, examples: [] },
+      },
+      mode: { enum: ['x-a', 'deprecated'], type: 'string' },
+    },
+    $defs: { d: { type: 'string' } },
+    required: ['examples'],
+  });
+});
+
+test('Claude-via-Antigravity declarations are lossless JSON Schema; Gemini gets the representability choice', () => {
   const tools = [
     {
       name: 'closed',
@@ -201,45 +345,10 @@ test('Claude-via-Antigravity declarations keep the historical bytes; Gemini gets
   ];
   const messages = [{ role: 'user', content: 'hi' }];
   const bytes = (model) => JSON.stringify(buildAntigravityRequest(messages, model, tools, {}, 'p').request.tools);
-  const conflict = (what) => ({
-    type: 'string',
-    enum: ['__mixdog_unrepresentable_schema_conjunction__'],
-    description: `Schema conjunction could not be represented safely: Gemini does not support ${what}`,
-  });
-  assert.equal(
-    bytes('claude-sonnet-4-6'),
-    JSON.stringify([
-      {
-        functionDeclarations: [
-          {
-            name: 'closed',
-            description: 'd',
-            parameters: {
-              type: 'object',
-              properties: { a: { type: 'string' }, o: { type: 'object', properties: { x: { type: 'string' } } } },
-              required: ['a'],
-            },
-          },
-          {
-            name: 'union',
-            description: 'd',
-            parameters: {
-              type: 'object',
-              properties: { v: { type: 'string' }, w: { type: 'string', enum: ['a', 'b'], nullable: true } },
-            },
-          },
-          {
-            name: 'numeric',
-            description: 'd',
-            parameters: {
-              type: 'object',
-              properties: { level: conflict('integer enum conjunction'), c: conflict('number const') },
-              required: ['level'],
-            },
-          },
-        ],
-      },
-    ])
+  // Claude gets the lossless draft 2020-12 schema (no legacy projection).
+  assert.deepEqual(
+    JSON.parse(bytes('claude-sonnet-4-6'))[0].functionDeclarations,
+    tools.map(({ name, description, inputSchema }) => ({ name, description, parametersJsonSchema: inputSchema }))
   );
   const gemini = JSON.parse(bytes('gemini-3.1-pro-high'))[0].functionDeclarations;
   assert.deepEqual(

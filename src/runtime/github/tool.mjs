@@ -61,6 +61,96 @@ function reduceGithubData(value, key, parentKey) {
   return reduced;
 }
 
+const EXCERPT_MAX = 140;
+const day = (value) => (typeof value === 'string' ? value.slice(0, 10) : undefined);
+const login = (value) => userLogin(value) ?? (typeof value === 'string' ? value : undefined);
+
+function excerpt(body) {
+  if (typeof body !== 'string') return undefined;
+  const text = body.replace(/\s+/g, ' ').trim();
+  if (!text) return undefined;
+  return text.length > EXCERPT_MAX ? `${text.slice(0, EXCERPT_MAX - 1)}…` : text;
+}
+
+function labelNames(labels) {
+  const names = (Array.isArray(labels) ? labels : [])
+    .map((label) => (typeof label === 'string' ? label : label?.name))
+    .filter(Boolean);
+  return names.length ? names : undefined;
+}
+
+// Compact per-row projections for *.list actions: only what picks the next item
+// to open. Undefined fields are dropped by JSON.stringify.
+const LIST_PROJECTORS = {
+  'issue.list': (item) => ({
+    number: item.number,
+    title: item.title,
+    state: item.state,
+    author: login(item.user),
+    updated: day(item.updated_at),
+    labels: labelNames(item.labels),
+    comments: item.comments || undefined,
+    excerpt: excerpt(item.body),
+  }),
+  'pr.list': (item) => ({
+    number: item.number,
+    title: item.title,
+    state: item.merged_at ? 'merged' : item.state,
+    draft: item.draft || undefined,
+    author: login(item.user),
+    updated: day(item.updated_at),
+    head: item.head?.ref,
+    base: item.base?.ref,
+    labels: labelNames(item.labels),
+    excerpt: excerpt(item.body),
+  }),
+  'repo.list': (item) => ({
+    name: item.full_name,
+    description: excerpt(item.description),
+    visibility: item.visibility || (item.private ? 'private' : 'public'),
+    language: item.language || undefined,
+    fork: item.fork || undefined,
+    archived: item.archived || undefined,
+    updated: day(item.pushed_at || item.updated_at),
+  }),
+  'run.list': (item) => ({
+    id: item.id,
+    name: item.display_title || item.name,
+    workflow: item.name,
+    status: item.status,
+    conclusion: item.conclusion || undefined,
+    branch: item.head_branch,
+    event: item.event,
+    actor: login(item.actor),
+    updated: day(item.updated_at),
+  }),
+  'release.list': (item) => ({
+    id: item.id,
+    tag: item.tag_name,
+    name: item.name || undefined,
+    draft: item.draft || undefined,
+    prerelease: item.prerelease || undefined,
+    author: login(item.author),
+    published: day(item.published_at || item.created_at),
+  }),
+  'notification.list': (item) => ({
+    id: item.id,
+    unread: item.unread,
+    reason: item.reason,
+    type: item.subject?.type,
+    title: item.subject?.title,
+    number: Number(/\/(?:issues|pulls)\/(\d+)$/.exec(item.subject?.url || '')?.[1]) || undefined,
+    repo: typeof item.repository === 'string' ? item.repository : item.repository?.full_name,
+    updated: day(item.updated_at),
+  }),
+  'workflow.list': (item) => ({ id: item.id, name: item.name, path: item.path, state: item.state }),
+};
+
+function projectList(action, data) {
+  const project = LIST_PROJECTORS[action];
+  return project && Array.isArray(data) ? data.map(project) : undefined;
+}
+
 const fits = (text) => Buffer.byteLength(text, 'utf8') <= GITHUB_OUTPUT_MAX_BYTES;
 
 function clampStrings(value, max) {
@@ -213,7 +303,7 @@ export const GITHUB_TOOL_DEF = {
   },
   trigger: 'GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).',
   description:
-    'GitHub repositories, issues, PRs and reviews, Actions/logs, releases, and notifications through the signed-in GitHub CLI. Local Git history/diffs/staging belong to git. One action per call; writes are serialized and never retried. Obtain user approval before writes; workflow runs and published releases may deploy. repo is owner/name; omit to resolve the current Project. Lists use page/limit. Review/merge requires the current PR head sha. Install/connect in Extensions → Plugin → Git & GitHub. Results omit API-only URLs and node ids and name users/repos by login/full_name; `raw` is a readable file with the full response, and long results state what is shown.',
+    'GitHub repositories, issues, PRs and reviews, Actions/logs, releases, and notifications through the signed-in GitHub CLI. Local Git history/diffs/staging belong to git. One action per call; writes are serialized and never retried. Obtain user approval before writes; workflow runs and published releases may deploy. repo is owner/name; omit to resolve the current Project. Lists use page/limit and return compact rows (issues/PRs: number, title, state, author, updated, labels, 140-char excerpt; other lists: ids and status fields); open a row with its *.view action for bodies and details. Review/merge requires the current PR head sha. Install/connect in Extensions → Plugin → Git & GitHub. Results omit API-only URLs and node ids and name users/repos by login/full_name; `raw` is a readable file with the full response, and long results state what is shown.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -267,7 +357,7 @@ export const GITHUB_TOOL_DEF = {
 export async function executeGithubTool(args, cwd, options = {}) {
   try {
     const result = await executeGithubRequest(args, cwd, options);
-    const reduced = { ...result, data: reduceGithubData(result.data) };
+    const reduced = { ...result, data: projectList(args.action, result.data) ?? reduceGithubData(result.data) };
     const text = JSON.stringify(reduced);
     if (text === JSON.stringify(result) && fits(text)) return text;
     const raw = persistToolResultArtifactSync({

@@ -52,8 +52,9 @@ interface GitReviewResult {
 }
 
 export interface GitReviewDiffsResult {
-  /** Per-file patch ('' when the file has no diff), keyed by the requested path. */
-  patches: Record<string, string>;
+  /** Per-file patch ('' when the file has no diff) with the requested path. A
+   *  list, not an object keyed by path: `__proto__` is a legal file name. */
+  patches: { path: string; patch: string }[];
   /** Requested paths with no entry in `patches`; fetch them one at a time. */
   omitted: string[];
 }
@@ -422,7 +423,7 @@ export async function gitReviewDiffs(
   source: GitReviewSource = 'branch'
 ): Promise<GitReviewDiffsResult> {
   const root = await cachedGitRoot(cwd);
-  const patches: Record<string, string> = {};
+  const patches: { path: string; patch: string }[] = [];
   const omitted: string[] = [];
   const tracked: string[] = [];
   const untracked: string[] = [];
@@ -443,9 +444,7 @@ export async function gitReviewDiffs(
       return;
     }
     budget -= patch.length;
-    // Defined, not assigned: a file named `__proto__` must become an own key
-    // instead of replacing the object's prototype.
-    Object.defineProperty(patches, path, { value: patch, enumerable: true, writable: true, configurable: true });
+    patches.push({ path, patch });
   };
   if (tracked.length) {
     const { ref } = await resolveReviewRef(root, source);

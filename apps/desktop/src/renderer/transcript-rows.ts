@@ -34,6 +34,10 @@ export type TranscriptRowModel =
       completion?: TranscriptItem;
       active?: boolean;
       live?: boolean;
+      /** Nothing but the live activity band follows this part: its streamed
+       *  text may still be revealing. Any later row (a tool card, the next
+       *  part) clears it, which reveals the text whole in that same commit. */
+      newest?: boolean;
       /** This row holds the last turndone of a checkpoint: its changed-files card follows. */
       turnChanges?: TurnChangesRef;
     }
@@ -537,6 +541,13 @@ export function appendLiveTranscriptRows({
       active: true,
     });
     builder.previousRowWasUser = false;
+  }
+
+  let newest = builder.rows.length - 1;
+  while (newest >= 0 && builder.rows[newest]._tag === 'Thinking') newest -= 1;
+  const newestRow = builder.rows[newest];
+  if (newestRow?._tag === 'AssistantPart' && newestRow.item.kind === 'assistant') {
+    builder.rows[newest] = { ...newestRow, newest: true };
   }
 
   queuedPrompts.forEach((item, index) => {

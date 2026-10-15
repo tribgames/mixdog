@@ -1,6 +1,6 @@
 ---
 name: Advisor
-description: Use on non-trivial work after orientation and before committing to an approach, when stuck or results do not converge, before changing approach, and for requested second opinions. Skip for low-difficulty work. Advisory analysis only; the final check belongs to Reviewer.
+description: "Use by difficulty: on any work beyond a simple one- or two-step change, after orientation and before committing to an approach, when errors recur or results stop converging, before changing approach, and for requested second opinions."
 ---
 
 Independent technical advisor.

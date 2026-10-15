@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
@@ -340,7 +344,7 @@ test('chip states: current branch, worktree intent in a draft, worktree-bound se
   const boundMenu = await openMenu(bound.trigger);
   assert.deepEqual(
     items(boundMenu.querySelector('.branch-menu-list')).map((row) => row.querySelector('small')?.textContent ?? ''),
-    ['New branch · separate folder', '', 'Current']
+    ['New branch · separate folder', 'Project folder', 'Current']
   );
 });
 
@@ -386,17 +390,21 @@ test('large repository confirms once and resends with confirmLarge', async (t) =
       error.details = { sizeBytes: 3 * 1024 ** 3 };
       throw error;
     }
-    // The runtime now holds the choice for the next send.
-    menuReply = menuFor({ pendingWorktree: { name: null } });
-    return { revision: 4, workspace: workspace({ revision: 4 }), pending: true };
+    // A session's worktree is created and entered now.
+    const bound = workspace({ worktreeId: 'w9', branch: 'mixdog/now', cwd: '/wt', revision: 4 });
+    menuReply = menuFor({ workspace: bound });
+    return { revision: 4, workspace: bound };
   };
   const menu = await openMenu(trigger);
   await act(async () => items(menu)[0].click());
   assert.equal(attempts, 2);
   assert.deepEqual(prompts, ['A worktree needs about 3.0 GB. Create it anyway?']);
   const sent = calls.filter((call) => call.capability === 'requestWorktree').map((call) => call.args[0]);
-  assert.deepEqual(sent, [{ expectedRevision: 3 }, { expectedRevision: 3, confirmLarge: true }]);
-  assert.equal(trigger.querySelector('.branch-chip-label').textContent, 'Worktree');
+  assert.deepEqual(sent, [
+    { expectedRevision: 3, provision: true },
+    { expectedRevision: 3, provision: true, confirmLarge: true },
+  ]);
+  assert.equal(trigger.querySelector('.branch-chip-label').textContent, 'mixdog/now');
   assert.equal(model.getWorktreeIntent('s1'), false, 'a session keeps no client-side choice');
   menuReply = menuFor();
 });
@@ -461,6 +469,70 @@ test('a declined large-repository prompt sends nothing more', async (t) => {
   await act(async () => items(menu)[0].click());
   assert.equal(attempts, 1);
   assert.ok(document.querySelector('.branch-menu'));
+});
+
+test('uncommitted project files ask leave / carry / cancel and resend with carryChanges', async (t) => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  menuReply = menuFor();
+  const { trigger } = await mount(t);
+  handlers.requestWorktree = (request) => {
+    if (!request.args[0].carryChanges) {
+      throw new Error('Error invoking remote method: WORKTREE_DIRTY_CHOICE: dirty\n[worktree-details] {"count":3,"paths":["src/a.ts","b.md"]}');
+    }
+    if (request.args[0].carryChanges === 'carry') {
+      const error = new Error('busy');
+      error.code = 'WORKTREE_BUSY_JOBS';
+      throw error;
+    }
+    return { revision: 4, workspace: workspace({ revision: 4 }) };
+  };
+  const dialog = () => document.querySelector('.worktree-carry-dialog');
+  const choice = (id) => dialog().querySelector(`footer [data-choice="${id}"]`);
+  const sent = () => calls.filter((call) => call.capability === 'requestWorktree').map((call) => call.args[0]);
+  // The choice replaces the menu (nothing of it is drawn over the dialog);
+  // Cancel sends nothing more and leaves both closed.
+  let menu = await openMenu(trigger);
+  await act(async () => items(menu)[0].click());
+  assert.equal(document.querySelector('.branch-menu'), null, 'the menu closes before the dialog opens');
+  assert.equal(dialog().querySelector('h3').textContent, 'Uncommitted files in the project folder: 3');
+  assert.deepEqual(
+    [...dialog().querySelectorAll('footer button')].map((node) => node.textContent),
+    ['Cancel', 'Bring changes', 'Leave changes and move']
+  );
+  // A capped preview of the paths; the rest is marked.
+  assert.deepEqual(
+    [...dialog().querySelectorAll('.worktree-carry-paths li')].map((node) => node.textContent),
+    ['src/a.ts', 'b.md', '…']
+  );
+  assert.match(dialog().querySelector('[data-choice="leave"] span').textContent, /without these edits/);
+  assert.equal(document.activeElement, choice('leave'), 'leaving the changes is the default');
+  assert.ok(choice('leave').classList.contains('primary'));
+  await act(async () => choice('cancel').click());
+  assert.equal(dialog(), null);
+  assert.deepEqual(sent(), [{ expectedRevision: 3, provision: true }]);
+  assert.equal(document.querySelector('.branch-menu'), null);
+  // Carry: the menu comes back with the refusal as its notice.
+  calls.length = 0;
+  menu = await openMenu(trigger);
+  await act(async () => items(menu)[0].click());
+  await act(async () => choice('carry').click());
+  assert.deepEqual(sent(), [
+    { expectedRevision: 3, provision: true },
+    { expectedRevision: 3, provision: true, carryChanges: 'carry' },
+  ]);
+  assert.equal(
+    document.querySelector('.branch-menu [role="alert"]').textContent,
+    'Background tasks are still running. Wait for them or stop them, then try again.'
+  );
+  assert.equal(dialog(), null);
+  // Leave: the worktree is created and the menu stays closed.
+  calls.length = 0;
+  menu = document.querySelector('.branch-menu');
+  await act(async () => items(menu)[0].click());
+  await act(async () => choice('leave').click());
+  assert.deepEqual(sent().at(-1), { expectedRevision: 3, provision: true, carryChanges: 'leave' });
+  assert.equal(document.querySelector('.branch-menu'), null);
 });
 
 test('busy jobs and revision conflicts become a notice; a conflict re-reads the menu', async (t) => {
@@ -658,12 +730,19 @@ test('branchRows filters by search and ignores remote branches', () => {
   );
 });
 
-test('the runtime getBranchMenu response feeds the renderer model: rows, marks and search', async () => {
+test('the runtime getBranchMenu response feeds the renderer model: rows, marks and search', async (t) => {
   const { createWorkspaceTransitions } = await import('../../../../src/session-runtime/workspace/transitions.mjs');
-  const session = { id: 'lead-1', cwd: '/p', desktopSession: { classification: 'project', projectPath: '/p' } };
+  // The runtime reads the project folder's repository, so the menu is read
+  // for a real git repository with one commit on main.
+  const project = mkdtempSync(join(tmpdir(), 'branch-chip-menu-'));
+  const git = (...args) => execFileSync('git', ['-C', project, ...args]);
+  git('init', '-q', '-b', 'main');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init');
+  t.after(() => rmSync(project, { recursive: true, force: true }));
+  const session = { id: 'lead-1', cwd: project, desktopSession: { classification: 'project', projectPath: project } };
   const api = createWorkspaceTransitions({
     getSession: () => session,
-    getCurrentCwd: () => '/p',
+    getCurrentCwd: () => project,
     getActiveTurnCount: () => 0,
     // The manager's listBranchOccupancy shape: local branch NAMES plus occupancy rows.
     manager: {
@@ -671,7 +750,7 @@ test('the runtime getBranchMenu response feeds the renderer model: rows, marks a
         return {
           branches: ['main', 'dev', 'feat/ssh-remote', 'ext-branch'],
           occupancy: [
-            { branch: 'main', kind: 'current', path: '/p' },
+            { branch: 'main', kind: 'current', path: project },
             { branch: 'dev', kind: 'free' },
             { branch: 'feat/ssh-remote', kind: 'session', sessionId: 'other-session', path: '/wt/ssh' },
             { branch: 'ext-branch', kind: 'external', path: '/elsewhere' },
@@ -1022,6 +1101,54 @@ test('typed failures carry their details across IPC: disk sizes and the holder p
   assert.equal(
     model.worktreeFailureText(model.worktreeFailure(new Error('WORKTREE_REMOVAL_INCOMPLETE: partly'))),
     'The worktree could not be removed completely because a file is still in use. Close it and remove the worktree again.'
+  );
+});
+
+test('a refused carry names its own reason and never reads as the worktree-removal text', () => {
+  const removal = 'The worktree has uncommitted changes.';
+  const dirty = (details) =>
+    model.worktreeFailure(new Error(`WORKTREE_DIRTY: refused\n[worktree-details] ${JSON.stringify(details)}`));
+  const text = (details, options) => model.worktreeFailureText(dirty(details), options);
+  const cases = [
+    [{ reason: 'operation-in-progress', operation: 'merge' }, /^A merge is in progress in the project folder\./],
+    [{ reason: 'operation-in-progress', operation: 'rebase' }, /^A rebase is in progress/],
+    [{ reason: 'operation-in-progress', operation: 'cherry-pick' }, /^A cherry-pick is in progress/],
+    [{ reason: 'operation-in-progress', operation: 'revert' }, /^A revert is in progress/],
+    [{ reason: 'operation-in-progress', operation: 'bisect' }, /^A Git operation is in progress/],
+    [{ reason: 'unmerged-paths' }, /unresolved merge conflicts/],
+    [{ reason: 'dirty-submodules', paths: ['lib'] }, /^Submodules with changes/],
+    [{ reason: 'nested-repository', paths: ['vendor/x/'] }, /nested repositories/],
+    [{ reason: 'filtered-paths', paths: ['a.bin'] }, /Git LFS/],
+    [{ reason: 'too-large', files: 5200, maxFiles: 5000 }, /\(5200, limit 5000\)/],
+    [{ reason: 'too-large', maxBytes: 200 * 1048576 }, /over 200 MB/],
+    [{ reason: 'something-new' }, /^The changes couldn't be brought into the worktree\./],
+  ];
+  for (const [details, expected] of cases) {
+    const value = text(details, { carry: true });
+    assert.match(value, expected, JSON.stringify(details));
+    assert.notEqual(value, removal);
+    // The reason decides, even on a branch switch that brought the changes.
+    assert.match(text(details, { checkout: true }), expected);
+  }
+  // A carry failure keeps the runtime's recovery hint.
+  assert.equal(
+    text({ reason: 'carry-failed', recoveryRef: 'refs/mixdog/carry/1' }),
+    'refused'
+  );
+  // No details across the hop: a carry still never reads as a removal.
+  assert.equal(
+    model.worktreeFailureText(model.worktreeFailure(new Error('WORKTREE_DIRTY: refused')), { carry: true }),
+    "The changes couldn't be brought into the worktree. Leave them in the project folder instead, or try again."
+  );
+  // The removal and project-folder readings are unchanged.
+  assert.equal(model.worktreeFailureText(model.worktreeFailure(new Error('WORKTREE_DIRTY: x'))), removal);
+  assert.match(text({ reason: 'project-dirty', count: 1 }), /^The project folder has uncommitted changes/);
+  // Busy shells of other sessions in the folder have their own text.
+  assert.match(
+    model.worktreeFailureText(
+      model.worktreeFailure(new Error('WORKTREE_BUSY_JOBS: busy\n[worktree-details] {"reason":"folder-shell-jobs"}'))
+    ),
+    /^Background shells of other sessions are running in the project folder\./
   );
 });
 

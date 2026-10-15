@@ -433,6 +433,8 @@ describe('working tree and history', { concurrency: 4 }, () => {
     }
   });
 
+  const patchesByPath = (batch) => new Map(batch.patches.map((entry) => [entry.path, entry.patch]));
+
   test('review diffs batch equals the single-file diffs, including untracked and subdirectory cwd', async () => {
     const cwd = await createRepository();
     try {
@@ -461,10 +463,12 @@ describe('working tree and history', { concurrency: 4 }, () => {
         for (const source of ['branch', 'uncommitted']) {
           const batch = await gitReviewDiffs(dir, request, source);
           assert.deepEqual(batch.omitted, []);
-          assert.deepEqual(Object.keys(batch.patches).sort(), [...new Set(request.map((file) => file.path))].sort());
+          const patches = patchesByPath(batch);
+          assert.equal(batch.patches.length, patches.size, 'one entry per path');
+          assert.deepEqual([...patches.keys()].sort(), [...new Set(request.map((file) => file.path))].sort());
           for (const file of request) {
             assert.equal(
-              batch.patches[file.path],
+              patches.get(file.path),
               await gitReviewDiff(dir, file.path, file.untracked, source),
               `${source}:${file.path}`
             );
@@ -472,10 +476,10 @@ describe('working tree and history', { concurrency: 4 }, () => {
         }
       }
       const branch = await gitReviewDiffs(sub, request, 'branch');
-      assert.match(branch.patches['feature.txt'], /^\+b$/m);
-      assert.match(branch.patches['pkg/inner/new.txt'], /^\+n2$/m);
-      assert.equal((await gitReviewDiffs(sub, request, 'uncommitted')).patches['feature.txt'], '');
-      assert.deepEqual(await gitReviewDiffs(cwd, []), { patches: {}, omitted: [] });
+      assert.match(patchesByPath(branch).get('feature.txt'), /^\+b$/m);
+      assert.match(patchesByPath(branch).get('pkg/inner/new.txt'), /^\+n2$/m);
+      assert.equal(patchesByPath(await gitReviewDiffs(sub, request, 'uncommitted')).get('feature.txt'), '');
+      assert.deepEqual(await gitReviewDiffs(cwd, []), { patches: [], omitted: [] });
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -492,8 +496,8 @@ describe('working tree and history', { concurrency: 4 }, () => {
       ];
       const batch = await gitReviewDiffs(cwd, request, 'branch');
       assert.deepEqual(batch.omitted, ['quo"te.txt']);
-      assert.equal(batch.patches['staged.txt'], await gitReviewDiff(cwd, 'staged.txt', false, 'branch'));
-      assert.match(batch.patches['staged.txt'], /^\+two$/m);
+      assert.equal(patchesByPath(batch).get('staged.txt'), await gitReviewDiff(cwd, 'staged.txt', false, 'branch'));
+      assert.match(patchesByPath(batch).get('staged.txt'), /^\+two$/m);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -516,10 +520,11 @@ describe('working tree and history', { concurrency: 4 }, () => {
         await git(cwd, ['config', key, value]);
         const batch = await gitReviewDiffs(cwd, request, 'uncommitted');
         assert.deepEqual(batch.omitted, [], key);
-        assert.match(batch.patches['a.txt'], /^diff --git a\/a\.txt b\/a\.txt$/m, key);
-        assert.match(batch.patches['a.txt'], /^\+two$/m, key);
-        assert.equal(batch.patches['same.txt'], '', key);
-        assert.equal(batch.patches['a.txt'], await gitReviewDiff(cwd, 'a.txt', false, 'uncommitted'), key);
+        const patches = patchesByPath(batch);
+        assert.match(patches.get('a.txt'), /^diff --git a\/a\.txt b\/a\.txt$/m, key);
+        assert.match(patches.get('a.txt'), /^\+two$/m, key);
+        assert.equal(patches.get('same.txt'), '', key);
+        assert.equal(patches.get('a.txt'), await gitReviewDiff(cwd, 'a.txt', false, 'uncommitted'), key);
         await git(cwd, ['config', '--unset', key]);
       }
     } finally {
@@ -527,29 +532,32 @@ describe('working tree and history', { concurrency: 4 }, () => {
     }
   });
 
-  test('review diffs batch keeps a file named __proto__ as an own key', async () => {
+  test('review diffs batch carries files named __proto__, constructor and toString', async () => {
     const cwd = await createRepository();
     try {
       await commit(cwd, '__proto__', 'one\n', 'Initial');
       await commit(cwd, 'constructor', 'x\n', 'Second');
       await writeFile(join(cwd, '__proto__'), 'one\ntwo\n', 'utf8');
-      await writeFile(join(cwd, 'untracked-proto'), 'u\n', 'utf8');
+      await writeFile(join(cwd, 'toString'), 'u\n', 'utf8');
       const batch = await gitReviewDiffs(
         cwd,
         [
           { path: '__proto__', untracked: false },
           { path: 'constructor', untracked: false },
+          { path: 'toString', untracked: true },
         ],
         'uncommitted'
       );
       assert.deepEqual(batch.omitted, []);
-      assert.equal(Object.getPrototypeOf(batch.patches), Object.prototype);
-      assert.deepEqual(Object.keys(batch.patches).sort(), ['__proto__', 'constructor']);
-      assert.match(Object.getOwnPropertyDescriptor(batch.patches, '__proto__').value, /^\+two$/m);
-      assert.equal(Object.getOwnPropertyDescriptor(batch.patches, 'constructor').value, '');
-      // It survives the JSON hop of a remote call.
-      const wire = JSON.parse(JSON.stringify(batch));
-      assert.match(Object.getOwnPropertyDescriptor(wire.patches, '__proto__').value, /^\+two$/m);
+      assert.deepEqual(batch.patches.map((entry) => entry.path).sort(), ['__proto__', 'constructor', 'toString']);
+      const patches = patchesByPath(batch);
+      assert.match(patches.get('__proto__'), /^\+two$/m);
+      assert.equal(patches.get('constructor'), '');
+      assert.match(patches.get('toString'), /^\+u$/m);
+      // It survives a structured-clone / JSON hop.
+      for (const wire of [structuredClone(batch), JSON.parse(JSON.stringify(batch))]) {
+        assert.deepEqual(wire, batch);
+      }
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

@@ -4,7 +4,7 @@ import test from 'node:test';
 import Ajv from 'ajv';
 import { TOOL_DEFS as browser } from '../../src/runtime/browser-bridge/tool-defs.mjs';
 import { validateBrowserToolArgs } from '../../src/runtime/browser-bridge/action-schema.mjs';
-import { COMPUTER_INPUT_SCHEMA, validateComputerToolArgs } from '../../src/runtime/computer-bridge/action-schema.mjs';
+import { COMPUTER_ACTION_CONTRACTS, COMPUTER_INPUT_SCHEMA, validateComputerToolArgs } from '../../src/runtime/computer-bridge/action-schema.mjs';
 import { COMPUTER_CORE_ACTION_SCHEMA } from '../../src/runtime/computer-bridge/core-actions.mjs';
 import { GOAL_TOOL_DEFS } from '../../src/session-runtime/goal-tool-defs.mjs';
 import { normalizeGoalTasks, patchGoalTasks } from '../../src/session-runtime/goal-tasks.mjs';
@@ -110,7 +110,7 @@ test('setup names distinguish built-in toggles from Memory installation and togg
 });
 
 test('computer action ordering is visible before composing a multi-action call', () => {
-  const act = COMPUTER_INPUT_SCHEMA.oneOf.find((branch) => branch.properties.action.enum.includes('act'));
+  const act = COMPUTER_ACTION_CONTRACTS.find((branch) => branch.properties.action.enum.includes('act'));
   assert.match(act.properties.input.properties.actions.description, /type\/key\/wait reusing focus/);
   assert.match(act.properties.input.properties.actions.description, /on a ref from the same observation/);
   assert.match(act.properties.input.properties.actions.description, /total ≤10s/);

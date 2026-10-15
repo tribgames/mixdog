@@ -263,7 +263,9 @@ function namedToolActivityUnit(
     const skill = skills.join(', ');
     if (skill) return { unitKey: `Skill|${skill}`, label: `${t('Skill')} ${skill}` };
   }
-  if (category === 'Browser' || category === 'Computer') {
+  // One unit per step whatever the action (open, close, capture…), so the
+  // summary reads "Visualize 3" rather than one entry per action.
+  if (category === 'Browser' || category === 'Computer' || category === 'Visualize') {
     return { unitKey: category, label: localizedToolActivityCategory(category) };
   }
   // Repository, PR and issue calls are one unit, named apart from local Git.
@@ -654,9 +656,11 @@ function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, cou
       return count === 1 ? t('Run Git command') : t('Run {{count}} Git commands', { count });
     case 'Git|Staged|change':
       return count === 1 ? t('Stage changes') : t('Stage {{count}} changes', { count });
-    case 'Browser|Browsed|action':
+    // Browser and Computer calls are one unit keyed by the category itself
+    // (namedToolActivityUnit).
+    case 'Browser':
       return count === 1 ? t('Browser action') : t('Browser {{count}} actions', { count });
-    case 'Computer|Operated|action':
+    case 'Computer':
       return count === 1 ? t('Computer action') : t('Computer {{count}} actions', { count });
     case 'Office|Edited|document action':
       return count === 1 ? t('Office action') : t('Office {{count}} actions', { count });

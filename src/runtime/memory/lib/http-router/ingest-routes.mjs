@@ -15,7 +15,14 @@ const INSERT_ENTRY = `
             RETURNING id
           `;
 
-export function createIngestHandler({ getDb, log, ingestTranscriptFile, getTranscriptOffset, parseTsToMs }) {
+export function createIngestHandler({
+  getDb,
+  log,
+  ingestTranscriptFile,
+  forgetTranscripts,
+  getTranscriptOffset,
+  parseTsToMs,
+}) {
   const entry = async (body, res) => {
     const db = getDb();
     const role = String(body.role ?? 'user');
@@ -89,9 +96,23 @@ export function createIngestHandler({ getDb, log, ingestTranscriptFile, getTrans
     }
   };
 
+  const forgetTranscript = async (body, res) => {
+    const filePaths = body.filePaths;
+    if (!Array.isArray(filePaths) || filePaths.some((filePath) => typeof filePath !== 'string' || !filePath)) {
+      sendJson(res, { error: 'filePaths required' }, 400);
+      return;
+    }
+    try {
+      sendJson(res, { ok: true, removed: await forgetTranscripts(filePaths) });
+    } catch (e) {
+      sendJson(res, { error: e.message }, 500);
+    }
+  };
+
   const routes = {
     '/entry': entry,
     '/ingest-transcript': ingestTranscript,
+    '/transcript/forget': forgetTranscript,
     '/transcript/ingest-sync': ingestSync,
   };
 

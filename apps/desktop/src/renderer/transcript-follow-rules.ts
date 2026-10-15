@@ -1,3 +1,5 @@
+import { logTranscriptScroll } from './transcript-scroll-diagnostics';
+
 export const GESTURE_WINDOW_MS = 250;
 // Keep reader ownership alive between native wheel/touch/scrollbar frames.
 // Unlike virtual-core's isScrolling this excludes the timeline's own writes,
@@ -214,6 +216,7 @@ export function programmaticWriteMatches({
 }
 
 export function reportRelease(reason: string, metrics: ScrollMetrics, previousTop: number): void {
+  logTranscriptScroll('follow-release', { reason, top: metrics.top, delta: metrics.top - previousTop });
   try {
     window.mixdogDesktop?.perfLog?.(
       `transcript-follow-release reason=${reason}` +

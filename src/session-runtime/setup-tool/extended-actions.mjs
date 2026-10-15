@@ -1,10 +1,80 @@
 import { SETUP_EXTENDED_PROPERTIES, SETUP_DESKTOP_ACTIONS } from './settings-contract.mjs';
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
+import { OPENAI_COMPAT_PRESETS } from '../../runtime/agent/orchestrator/providers/openai-compat-presets.mjs';
 
 const own = (value, key) => Object.hasOwn(value || {}, key);
 const pick = (value, keys) => Object.fromEntries(keys.filter((key) => own(value, key)).map((key) => [key, value[key]]));
 const entryKeys = Object.keys(SETUP_EXTENDED_PROPERTIES.entry.properties);
 const definitionKeys = Object.keys(SETUP_EXTENDED_PROPERTIES.definition.properties);
+
+const MODEL_PAGE_DEFAULT = 25;
+
+function providerIndex(rows) {
+  const counts = new Map();
+  for (const row of rows) counts.set(row.provider, (counts.get(row.provider) || 0) + 1);
+  return [...counts].map(([provider, count]) => {
+    const defaultModel = OPENAI_COMPAT_PRESETS[provider]?.defaultModel;
+    return { provider, count, ...(defaultModel ? { defaultModel } : {}) };
+  });
+}
+
+function compactModelRow(row) {
+  const context = row.contextWindow || null;
+  const maxContext = Number(row.maxContextWindow) || 0;
+  return {
+    id: row.id,
+    display: row.display || row.id,
+    context,
+    ...(maxContext > (context || 0) ? { maxContext } : {}),
+    efforts: (row.effortOptions || []).map((option) => option.value),
+    ...(row.fastCapable === true ? { fast: true } : {}),
+    ...(row.supportsVision === true ? { vision: true } : {}),
+  };
+}
+
+const isPresent = (value) =>
+  value != null &&
+  value !== '' &&
+  value !== false &&
+  !(typeof value === 'object' && !Object.keys(value).length);
+
+/** Everything set_route can use for one model; empty and false fields omitted. */
+function modelDetail(row) {
+  const detail = {
+    provider: row.provider,
+    id: row.id,
+    display: row.display || row.id,
+    context: row.contextWindow,
+    maxContext: Number(row.maxContextWindow) > row.contextWindow ? row.maxContextWindow : null,
+    outputTokens: row.outputTokens,
+    vision: row.supportsVision,
+    webSearch: row.supportsWebSearch,
+    reasoning: row.supportsReasoning,
+    effortOptions: (row.effortOptions || []).map(({ value, label }) => ({ value, label })),
+    defaultEffort: row.defaultEffort,
+    fastCapable: row.fastCapable,
+    fastEfforts: row.fastEfforts,
+    defaultFast: row.defaultFast,
+    serviceTiers: row.serviceTiers,
+    defaultServiceTier: row.defaultServiceTier,
+    additionalSpeedTiers: row.additionalSpeedTiers,
+    modelParameterOptions: row.modelParameterOptions,
+    parameterVariants: row.parameterVariants,
+    defaultModelParameters: row.defaultModelParameters,
+    supportsMaxMode: row.supportsMaxMode,
+  };
+  return Object.fromEntries(Object.entries(detail).filter(([, value]) => isPresent(value)));
+}
+
+function findModel(rows, id, provider) {
+  const matches = rows.filter((row) => row.id === id && (!provider || row.provider === provider));
+  if (!matches.length) {
+    throw new Error(`model "${id}" not found${provider ? ` for provider "${provider}"` : ''}; list_models with catalog.provider returns its model ids`);
+  }
+  const providers = [...new Set(matches.map((row) => row.provider))];
+  if (providers.length > 1) throw new Error(`model "${id}" is offered by ${providers.join(', ')}; pass catalog.provider`);
+  return matches[0];
+}
 
 export function publicAutomation(row) {
   const result = {
@@ -136,12 +206,22 @@ async function saveDefinition(rt, args) {
 export const EXTENDED_SETUP_HANDLERS = Object.freeze({
   set_local_context: (rt, args) => rt.setLocalProviderContext(args.modelId, args.localContextWindow),
   async list_models(rt, args) {
-    const options = args.catalog || {};
-    const refresh = options.refresh === true;
-    const models = options.webSearch
-      ? await rt.listWebSearchModels({ refresh })
-      : await rt.listProviderModels({ refresh });
-    return { models: options.provider ? models.filter((model) => model.provider === options.provider) : models };
+    const { provider, model, page = 1, limit = MODEL_PAGE_DEFAULT, webSearch, refresh } = args.catalog || {};
+    const rows = webSearch
+      ? await rt.listWebSearchModels({ refresh: refresh === true })
+      : await rt.listProviderModels({ refresh: refresh === true });
+    if (model) return { model: modelDetail(findModel(rows, model, provider)) };
+    if (!provider) return { providers: providerIndex(rows) };
+    const own = rows.filter((row) => row.provider === provider);
+    const pages = Math.max(1, Math.ceil(own.length / limit));
+    return {
+      provider,
+      total: own.length,
+      page,
+      pages,
+      ...(page < pages ? { nextPage: page + 1 } : {}),
+      models: own.slice((page - 1) * limit, page * limit).map(compactModelRow),
+    };
   },
   set_orchestration_mode: (rt, args) => rt.setOrchestrationMode(args.mode),
   get_mcp_server: async (rt, args) => publicMcpConfig(await rt.getMcpServerConfig(args.name)),

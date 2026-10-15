@@ -8,7 +8,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
   jsdom: { url: 'https://mixdog.test/' },
-  expose: ['HTMLElement', 'KeyboardEvent', 'MouseEvent', 'Event', 'CustomEvent', 'navigator'],
+  expose: ['Element', 'HTMLElement', 'KeyboardEvent', 'MouseEvent', 'Event', 'CustomEvent', 'navigator'],
 });
 window.requestAnimationFrame = (callback) => window.setTimeout(callback, 0);
 window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);
@@ -22,6 +22,7 @@ globalThis.ResizeObserver = window.ResizeObserver = class {
 globalThis.MutationObserver ??= window.MutationObserver;
 
 const { WorkspaceTabStrip } = await import('./WorkspaceTabStrip.tsx');
+const { useComposerFocus } = await import('./use-composer-focus.ts');
 
 const sessionTab = { key: 'session:s1', title: 'Old title', selection: { kind: 'session', id: 's1' } };
 const fileTab = {
@@ -101,6 +102,80 @@ test('Escape, an empty draft or an unchanged title never renames', async () => {
     assert.deepEqual(calls.renamed, []);
   } finally {
     await view.unmount();
+  }
+});
+
+// The app's activation path: every tab press asks the focused pane's composer
+// to take focus (useComposerFocus defers it one timer tick).
+function ActivationHarness({ calls }) {
+  const textarea = React.useRef(null);
+  const [focusRequest, setFocusRequest] = React.useState(0);
+  useComposerFocus({ textarea, transitioning: false, focusRequest, paneActive: true });
+  return React.createElement(
+    React.Fragment,
+    null,
+    React.createElement(WorkspaceTabStrip, {
+      tabs: [sessionTab],
+      activeKey: sessionTab.key,
+      onSelectTab() {
+        setFocusRequest((value) => value + 1);
+      },
+      onCloseTab() {},
+      onReorderTab() {},
+      onPinTab: (tab) => calls.pinned.push(tab.key),
+      onRenameSession: (id, title) => calls.renamed.push([id, title]),
+      onNewTask() {},
+    }),
+    React.createElement('textarea', { ref: textarea, className: 'composer-input' })
+  );
+}
+
+const settle = () => new Promise((resolve) => window.setTimeout(resolve, 20));
+// One physical press as the browser delivers it: mousedown moves focus onto
+// the button, then mouseup and click.
+function press(node, detail) {
+  node.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, button: 0, detail }));
+  node.focus();
+  node.dispatchEvent(new window.MouseEvent('mouseup', { bubbles: true, button: 0, detail }));
+  node.dispatchEvent(new window.MouseEvent('click', { bubbles: true, button: 0, detail }));
+}
+
+test('a real double-click keeps the rename field focused after tab activation asks for the composer', async () => {
+  const calls = { pinned: [], renamed: [] };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(React.createElement(ActivationHarness, { calls })));
+    await act(settle);
+    const composer = host.querySelector('textarea');
+    const main = host.querySelector('.workspace-tab-main');
+
+    // A single click still hands focus to the composer.
+    main.focus();
+    await act(async () => press(main, 1));
+    await act(settle);
+    assert.equal(document.activeElement, composer, 'single click activation focuses the composer');
+
+    // Click 1, then click 2 + dblclick in the same task: the composer's deferred
+    // focus tick runs after the editor has mounted and taken focus.
+    await act(async () => press(main, 1));
+    await act(async () => {
+      press(main, 2);
+      main.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, detail: 2 }));
+    });
+    await act(settle);
+    const input = host.querySelector('.workspace-tab-title-input');
+    assert.ok(input, 'rename field is still open');
+    assert.equal(document.activeElement, input, 'rename field keeps focus');
+
+    await act(async () => type(input, 'Renamed'));
+    await act(async () => key(input, 'Enter'));
+    assert.deepEqual(calls.renamed, [['s1', 'Renamed']]);
+    assert.equal(host.querySelector('.workspace-tab-title-input'), null);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });
 

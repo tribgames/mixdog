@@ -225,10 +225,14 @@ function messageTextTokens(m, precomputedText = null, precomputedReplay = null) 
     m?.role === 'assistant' && Array.isArray(m.providerReplay?.items) && m.providerReplay.items.length
       ? m.providerReplay.items
       : null;
-  const fullTokens = estimateTokens(text);
-  if (!replayItems) return fullTokens;
-  const replayTokens = estimateTokens(precomputedReplay ?? nativeBlocksEstimateText(replayItems));
-  return Math.max(fullTokens - replayTokens, replayTokens);
+  if (!replayItems) return estimateTokens(text);
+  // With visible replay items the text is exactly `${base}\n${replay}`. Meter
+  // each half on its own: the estimator's minimum-cost floors apply to the
+  // joined string, so subtracting est(replay) from est(base + replay)
+  // overstates base.
+  const replay = precomputedReplay ?? nativeBlocksEstimateText(replayItems);
+  const base = text.slice(0, text.length - replay.length - 1);
+  return Math.max(estimateTokens(base), estimateTokens(replay));
 }
 function imageDescriptorAllowance(descriptor) {
   if (descriptor.width && descriptor.height) {

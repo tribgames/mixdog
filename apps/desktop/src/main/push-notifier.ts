@@ -71,7 +71,7 @@ interface PushNotifierOptions {
   hostId?: string;
   /** Off by default; the user opts in per browser from Settings. */
   isEnabled(): boolean;
-  readFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null>;
+  readFinalAnswer(sessionId: string, startedAt: number, signal?: AbortSignal): Promise<SessionFinalAnswer | null>;
   /** Foreground browsers suppress ordinary replies, but not scheduled ones.
    *  Takes the browser id the subscription was registered with. */
   isClientForeground(browserId: string): boolean;

@@ -627,7 +627,7 @@ type BatchFile = { cacheKey: string; stamp: string; path: string; untracked: boo
  *  the batch could not serve (`omitted`) is read on its own. */
 function requestPatchBatch(
   files: readonly BatchFile[],
-  read: (files: { path: string; untracked: boolean }[]) => Promise<{ patches: Record<string, string>; omitted: string[] }>,
+  read: (files: { path: string; untracked: boolean }[]) => Promise<{ patches: readonly { path: string; patch: string }[]; omitted: readonly string[] }>,
   readOne: (file: BatchFile) => Promise<SessionDiffFilePatch>
 ): void {
   const claimed = files.flatMap((file) => {
@@ -644,14 +644,15 @@ function requestPatchBatch(
         () => null
       );
       const omitted = new Set(answer?.omitted ?? []);
+      // A Map over the entries: paths such as `__proto__` or `constructor` are
+      // file names, and a path the answer does not carry is unread, not unchanged.
+      const patchOf = new Map((answer?.patches ?? []).map((entry) => [entry.path, entry.patch]));
       for (const { job, file } of live) {
         if (!answer) landPatch(job, null);
         else if (!omitted.has(file.path)) {
-          // Own keys only: `__proto__` or `constructor` are file names, and a
-          // path the answer does not carry is unread, not unchanged.
-          landPatch(job, Object.hasOwn(answer.patches, file.path) ? textPatch(answer.patches[file.path]) : null);
-        }
-        else {
+          const patch = patchOf.get(file.path);
+          landPatch(job, patch === undefined ? null : textPatch(patch));
+        } else {
           handedOff.add(job);
           enqueuePatchRead(async () => {
             try {

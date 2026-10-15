@@ -17,11 +17,11 @@
 <!-- tools: agent -->
 - Briefing an agent: it sees only the brief, never this conversation. The
   brief is written in English whatever language the user writes in, and
-  holds exactly the task in the user's terms, the scope it owns (files or
-  modules), the exact changes located by path plus function or symbol name
-  or a quoted line, not line numbers, and the completion criteria — nothing
-  else: no rationale, measurements, history, or rules the
-  agent already has. A fresh or respawned agent gets the whole brief; a
+  holds only the task in the user's terms and its use; owned scope and
+  exclusions; changes located by path plus symbol or quoted line, not line
+  numbers; completion criteria; any return need beyond the role. No
+  background, rediscoverable detail, or known rules; large evidence by path.
+  A fresh or respawned agent gets the whole brief; a
   continuing agent gets only what changed. Never assign the same work twice;
   interrupt only to cancel.
 <!-- tools: agent -->

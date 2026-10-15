@@ -41,7 +41,7 @@ test('native runtime tar allows internal links and rejects unsafe entries', () =
   );
 });
 
-test('native runtime extraction treats an absolute archive path as local', (t) => {
+test('native runtime extraction treats an absolute archive path as local', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-runtime-archive-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const source = join(root, 'source');
@@ -57,6 +57,6 @@ test('native runtime extraction treats an absolute archive path as local', (t) =
   });
   assert.equal(created.status, 0, created.stderr?.toString());
 
-  _extractRuntimeTarGz(join(root, archiveName), destination, destination);
+  await _extractRuntimeTarGz(join(root, archiveName), destination, destination);
   assert.equal(readFileSync(join(destination, 'payload.txt'), 'utf8'), 'runtime payload');
 });

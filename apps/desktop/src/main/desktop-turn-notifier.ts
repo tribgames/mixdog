@@ -9,7 +9,7 @@ interface DesktopTurnNotifierOptions {
   isEnabled(): boolean;
   isSupported(): boolean;
   isForeground(): boolean;
-  readFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null>;
+  readFinalAnswer(sessionId: string, startedAt: number, signal?: AbortSignal): Promise<SessionFinalAnswer | null>;
   createNotification(content: { title: string; body: string }): NativeNotification;
   playSound?(): Promise<string>;
   openSession(sessionId: string): void;

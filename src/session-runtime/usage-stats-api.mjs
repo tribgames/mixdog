@@ -82,20 +82,41 @@ function accountsInUse(accountPool) {
   return inUse;
 }
 
-// Every id a session's spend was recorded under: its own, and the per-account
-// provider session each subscription account sent it under before account
-// sends recorded the visible session.
-function sessionUsageIds(sessionId, accountPool) {
-  const ids = [sessionId];
+// Each subscription provider's account ids, read once per request.
+function accountScopes(accountPool) {
+  const scopes = [];
   for (const provider of ACCOUNT_PROVIDERS) {
     try {
-      for (const account of accountPool(provider).accounts)
-        ids.push(accountScopedSessionId(provider, account.id, sessionId));
+      scopes.push([provider, accountPool(provider).accounts.map((account) => account.id)]);
     } catch {
       /* an unreadable pool leaves that provider's older records out */
     }
   }
+  return scopes;
+}
+
+// Every id a session's spend was recorded under: its own, and the per-account
+// provider session each subscription account sent it under before account
+// sends recorded the visible session.
+function sessionUsageIdsFor(scopes, sessionId) {
+  const ids = [sessionId];
+  for (const [provider, accounts] of scopes) {
+    for (const account of accounts) ids.push(accountScopedSessionId(provider, account, sessionId));
+  }
   return ids;
+}
+
+// Other sessions a caller asks about beside its own (the composer island's
+// agent sessions): bounded, distinct, never the caller's own id.
+const MAX_SESSION_USAGE_IDS = 64;
+function otherSessionIds(options, sessionId) {
+  const ids = Array.isArray(options?.sessionIds) ? options.sessionIds : [];
+  const unique = new Set();
+  for (const id of ids) {
+    if (typeof id === 'string' && id && id !== sessionId) unique.add(id);
+    if (unique.size >= MAX_SESSION_USAGE_IDS) break;
+  }
+  return [...unique];
 }
 
 /** `null` = all time. `0` = today. Anything else is a trailing day count. */
@@ -213,15 +234,26 @@ export function createUsageStatsApi({
       return snapshot;
     },
 
-    /** This runtime's session from its first request, compactions included; null before it has one. */
-    async getSessionUsage() {
+    /**
+     * This runtime's session from its first request, compactions included; null before it has one.
+     * `sessionIds` adds the same totals for each named session (the agents it spawned) under
+     * `sessions`, each read by its own id only.
+     */
+    async getSessionUsage(options = {}) {
       const sessionId = getSessionId();
       if (!sessionId) return null;
       const store = ledger();
       if (!store) throw new Error('Usage ledger is unavailable');
       await store.settleWrites();
-      const usage = await store.sessionUsageAsync(sessionUsageIds(sessionId, accountPool));
-      return { sessionId, ...sessionUsageSnapshot(usage) };
+      const scopes = accountScopes(accountPool);
+      const usage = await store.sessionUsageAsync(sessionUsageIdsFor(scopes, sessionId));
+      const result = { sessionId, ...sessionUsageSnapshot(usage) };
+      const others = otherSessionIds(options, sessionId);
+      if (!others.length) return result;
+      const totals = await Promise.all(
+        others.map(async (id) => [id, sessionUsageSnapshot(await store.sessionUsageAsync(sessionUsageIdsFor(scopes, id)))])
+      );
+      return { ...result, sessions: Object.fromEntries(totals) };
     },
 
     /**

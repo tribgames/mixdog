@@ -68,14 +68,19 @@ const READ_ONLY_FLAGS = ['--no-optional-locks', '-c', 'core.fsmonitor=false'];
 /**
  * @param {string} cwd
  * @param {string[]} args
- * @param {{ signal?: AbortSignal, timeoutMs?: number, maxBytes?: number, allowFailure?: boolean, readOnly?: boolean }} [options]
+ * @param {{ signal?: AbortSignal, timeoutMs?: number, maxBytes?: number, allowFailure?: boolean, readOnly?: boolean, env?: Record<string, string> }} [options]
+ *   `env`: variables set on top of the pinned environment (a temporary GIT_INDEX_FILE, a commit identity).
  * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
  */
-export async function runGit(cwd, args, { signal, timeoutMs, maxBytes, allowFailure = false, readOnly = false } = {}) {
+export async function runGit(
+  cwd,
+  args,
+  { signal, timeoutMs, maxBytes, allowFailure = false, readOnly = false, env = null } = {}
+) {
   throwIfAborted(signal);
   const result = await runGitOffThread([...(readOnly ? READ_ONLY_FLAGS : []), ...SCOPED_CONFIG, ...args], {
     cwd,
-    env: gitEnvironment(),
+    env: env ? { ...gitEnvironment(), ...env } : gitEnvironment(),
     timeoutMs: timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: maxBytes ?? DEFAULT_MAX_BYTES,
   });

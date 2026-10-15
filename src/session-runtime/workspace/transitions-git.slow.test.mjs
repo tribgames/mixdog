@@ -162,6 +162,59 @@ test('two repositories: a worktree retained from repository A is never merged in
   }
 });
 
+test('a live session moves into a new worktree: the dirty choice first, then its changes carried along', async () => {
+  useTempDataDir();
+  const restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });
+  try {
+    const repo = makeRepo();
+    commitFile(repo, '.gitignore', '.mixdog/\n');
+    writeFile(repo, '.mixdog/project.id', `git-move-${process.pid}\n`);
+    writeFile(repo, 'README.md', 'edited\n');
+    writeFile(repo, 'src/new.js', 'export {};\n');
+    const session = {
+      id: `sess_move_${process.pid}`,
+      cwd: repo,
+      desktopSession: { classification: 'project', projectPath: repo },
+      messages: [],
+    };
+    const cwdRef = { cwd: repo };
+    const moves = [];
+    const api = createWorkspaceTransitions({
+      getSession: () => session,
+      getCurrentCwd: () => cwdRef.cwd,
+      applyResolvedCwd: (next) => {
+        cwdRef.cwd = next;
+        session.cwd = next;
+      },
+      persistSession: () => {},
+      refreshWorkspaceContext: async (_session, _cwd, move) => moves.push(move),
+      getActiveTurnCount: () => 0,
+      agentStatusState: () => ({ agentWorkers: [], agentJobs: [] }),
+      countOwnShellJobs: async () => 0,
+      listLiveSessions: () => [],
+      findRegisteredProject: async (path) => (samePath(path, repo) ? repo : null),
+    });
+    await assert.rejects(api.requestWorktree({ provision: true }), (error) => {
+      assert.equal(error.code, 'WORKTREE_DIRTY_CHOICE');
+      assert.deepEqual(error.details, { count: 2, paths: ['README.md', 'src/new.js'] });
+      return true;
+    });
+    assert.equal(session.cwd, repo, 'the session stays until the user decides');
+    const moved = await api.requestWorktree({ provision: true, carryChanges: 'carry' });
+    const worktree = moved.workspace.cwd;
+    assert.deepEqual(moved.changes, { mode: 'carried', count: 2 });
+    assert.ok(samePath(session.cwd, worktree));
+    assert.equal(git(repo, 'status', '--porcelain'), '', 'the project folder is clean');
+    assert.equal(readFileSync(join(repo, '.mixdog', 'project.id'), 'utf8').trim(), `git-move-${process.pid}`);
+    assert.equal(readFileSync(join(worktree, 'README.md'), 'utf8'), 'edited\n');
+    assert.equal(readFileSync(join(worktree, 'src', 'new.js'), 'utf8'), 'export {};\n');
+    assert.deepEqual(moves, [{ from: repo, changes: 'carried' }]);
+    assert.equal(git(repo, 'for-each-ref', 'refs/mixdog/carry/'), '', 'the committed move dropped its recovery ref');
+  } finally {
+    restore();
+  }
+});
+
 test('the dock merge goes through the runtime: registered Project, confirmed target, --no-ff', async () => {
   useTempDataDir();
   const restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });

@@ -20,6 +20,9 @@ import {
   type IslandAgentRow,
 } from './agent-activity-model';
 import { backgroundJobRows, type JobKind, type JobRow, type ShellStopState } from './background-jobs-model';
+import { type IslandUsageSummary, islandUsageSummary, useIslandSessionUsage } from './island-session-usage';
+import { statsCount, statsPercent, statsTokens } from './usage-stats-model';
+import { usageMoney } from './usage-format';
 import { ShellJobContent, ShellRowButton, useShellStops } from './shell-job-controls';
 import { ComposerIslandContext, type ComposerIslandTab } from './composer-island-state';
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store';
@@ -106,7 +109,7 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
     const fitWorktree = () => {
       island.removeAttribute('data-fit-pips');
       island.removeAttribute('data-fit-glyph');
-      const name = pill.querySelector<HTMLElement>('.composer-island-seg-worktree .composer-island-seg-text');
+      const name = pill.querySelector<HTMLElement>('.composer-island-seg-branch .composer-island-seg-text');
       if (!name || !island.hasAttribute('data-compact')) return;
       const cut = () => name.scrollWidth > name.clientWidth;
       if (cut() && name.clientWidth < Number.parseFloat(getComputedStyle(name).maxWidth)) {
@@ -277,10 +280,19 @@ function useIslandSlotPresence(slotRef: RefObject<HTMLDivElement | null>, island
  *  running agents pulse; a set that is only queued or waiting rests grey. */
 function AgentMark({ working, needsUser = false }: { working: boolean; needsUser?: boolean }) {
   if (needsUser) return <MxIcon name="warning" size={14} className="composer-island-attention" aria-hidden="true" />;
-  return working ? <JobsPulse /> : <span className="composer-island-dot composer-island-dot-idle" aria-hidden="true" />;
+  return <StateMark working={working} />;
 }
 
-/** The jobs panel tab's leading mark: agent activity, a live pulse while a
+/** Fixed-size mark slot: pulse and idle dot swap inside it without moving the pill. */
+function StateMark({ working }: { working: boolean }) {
+  return (
+    <span className="composer-island-mark-slot" aria-hidden="true">
+      {working ? <JobsPulse /> : <span className="composer-island-dot composer-island-dot-idle" />}
+    </span>
+  );
+}
+
+/** A jobs panel title's leading mark: agent activity, a live pulse while a
  *  shell runs, or an idle dot when only finished shells remain. */
 function jobsTabMark(kind: JobKind, agents: IslandAgentRow[], runningShells: number): ReactNode {
   if (kind === 'agent') {
@@ -291,8 +303,7 @@ function jobsTabMark(kind: JobKind, agents: IslandAgentRow[], runningShells: num
       />
     );
   }
-  if (runningShells > 0) return <JobsPulse />;
-  return <span className="composer-island-dot composer-island-dot-idle" aria-hidden="true" />;
+  return <StateMark working={runningShells > 0} />;
 }
 
 function ShellJobItem({
@@ -316,123 +327,169 @@ function ShellJobItem({
   );
 }
 
-function JobsPanel({
+/** A jobs panel's header: its own title chip and the close button. */
+function JobsPanelHead({ mark, title, onClose }: { mark: ReactNode; title: string; onClose(): void }) {
+  return (
+    <div className="composer-island-phead">
+      <span className="composer-island-tab" data-active="true">
+        {mark}
+        {title}
+      </span>
+      <button type="button" className="composer-island-close" aria-label={t('Close')} title={t('Close')} onClick={onClose}>
+        <MxIcon name="close-small" size={16} />
+      </button>
+    </div>
+  );
+}
+
+/** The session's totals above the agent rows: what runs now, then the
+ *  ledger's exact figures for the Lead and its listed agents. A figure the
+ *  ledger cannot attribute exactly is left out, never estimated. */
+function AgentsSummary({ running, usage }: { running: number; usage: IslandUsageSummary }) {
+  const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd } = usage;
+  return (
+    <div className="composer-island-summary" role="group" aria-label={t('Session usage')}>
+      <span>
+        {t('Island: Running')} <b>{statsCount(running)}</b>
+      </span>
+      {totalTokens !== null && leadTokens !== null && agentTokens !== null ? (
+        <span>
+          {t('Island: Total tokens')} <b>{statsTokens(totalTokens)}</b>{' '}
+          <span className="composer-island-summary-split">
+            ({t('Lead {{lead}} · Agents {{agents}}', { lead: statsTokens(leadTokens), agents: statsTokens(agentTokens) })})
+          </span>
+        </span>
+      ) : null}
+      {cacheHitRate !== null ? (
+        <span>
+          {t('Island: Cache hit rate')} <b>{statsPercent(cacheHitRate)}</b>
+        </span>
+      ) : null}
+      {costUsd !== null ? (
+        <span>
+          {t('Island: Approx. cost')} <b>{usageMoney(costUsd)}</b>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function AgentsPanel({
   sessionId,
   agents,
-  shells,
-  tab,
-  onTab,
+  usage,
   onClose,
   onOpenSession,
-  onDismiss,
 }: {
   sessionId: string;
   agents: IslandAgentRow[];
-  shells: JobRow[];
-  tab: JobKind;
-  onTab(tab: JobKind): void;
+  usage: IslandUsageSummary;
   onClose(): void;
-  /** Hides a finished shell row for good. */
-  onDismiss(row: JobRow): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }) {
   const clock = useClock(true);
-  const { stopOf, stop } = useShellStops(sessionId);
-  // The requested tab may have emptied while open: show the one that has rows.
-  const other: JobKind = tab === 'agent' ? 'shell' : 'agent';
-  const requestedCount = tab === 'agent' ? agents.length : shells.length;
-  const shown: JobKind = requestedCount > 0 ? tab : other;
-  const runningShells = shells.filter((row) => !row.finished).length;
-  // A kind with no rows has no tab at all.
-  const tabs: Array<[JobKind, string]> = [];
-  if (agents.length > 0) tabs.push(['agent', t('Agent {{agent}}', { agent: agents.length })]);
-  if (shells.length > 0) {
-    tabs.push([
-      'shell',
-      runningShells > 0
-        ? t('Shell {{shell}}', { shell: runningShells })
-        : t('Island: {{count}} finished shells', { count: shells.length }),
-    ]);
-  }
+  const running = agents.filter(({ state }) => state === 'running' || state === 'cancel-unconfirmed').length;
   return (
-    <section className="composer-island-panel" aria-label={t('Background tasks')}>
-      <div className="composer-island-phead">
-        {tabs.map(([kind, label]) => (
-          <button
-            key={kind}
-            type="button"
-            className="composer-island-tab"
-            data-active={shown === kind ? 'true' : 'false'}
-            aria-pressed={shown === kind}
-            onClick={() => onTab(kind)}
-          >
-            {jobsTabMark(kind, agents, runningShells)}
-            {label}
-          </button>
-        ))}
-        <button
-          type="button"
-          className="composer-island-close"
-          aria-label={t('Close')}
-          title={t('Close')}
-          onClick={onClose}
-        >
-          <MxIcon name="close-small" size={16} />
-        </button>
-      </div>
-      {shown === 'agent' ? (
-        // The Agents window's own tree and row component.
-        <div className="composer-island-pbody composer-island-jobs composer-island-agents schedules-list" role="tree">
-          {agents.map(({ node, state, waitingForTasks }, index) => (
-            <AgentPoolRow
+    <section className="composer-island-panel" aria-label={t('Agents')}>
+      <JobsPanelHead
+        mark={jobsTabMark('agent', agents, 0)}
+        title={t('Agent {{agent}}', { agent: agents.length })}
+        onClose={onClose}
+      />
+      <AgentsSummary running={running} usage={usage} />
+      {/* The Agents window's own tree and row component; each row's own
+          ledger total sits at its right edge. */}
+      <div className="composer-island-pbody composer-island-jobs composer-island-agents schedules-list" role="tree">
+        {agents.map(({ node, state, waitingForTasks }, index) => {
+          const tokens = usage.agentRowTokens.get(node.sessionId);
+          return (
+            <div
               key={poolRowKey(node.agent, index)}
-              agent={node.agent}
-              clock={clock}
-              stateOverride={state}
-              waitingForTasks={waitingForTasks}
-              depth={node.depth}
-              parentSessionId={node.parentSessionId}
-              posInSet={index + 1}
-              setSize={agents.length}
-              ownerSessionId={sessionId}
-              onOpenSession={onOpenSession}
-            />
-          ))}
-        </div>
-      ) : (
-        <ul className="composer-island-pbody composer-island-jobs">
-          {shells.map((row) => (
-            <ShellJobItem
-              key={row.key}
-              row={row}
-              clock={clock}
-              stop={stopOf(row)}
-              onStop={stop}
-              onDismiss={onDismiss}
-            />
-          ))}
-        </ul>
-      )}
+              className="composer-island-agent-item"
+              role="none"
+              data-tokens={tokens === undefined ? undefined : 'true'}
+            >
+              <AgentPoolRow
+                agent={node.agent}
+                clock={clock}
+                stateOverride={state}
+                waitingForTasks={waitingForTasks}
+                depth={node.depth}
+                parentSessionId={node.parentSessionId}
+                posInSet={index + 1}
+                setSize={agents.length}
+                ownerSessionId={sessionId}
+                onOpenSession={onOpenSession}
+              />
+              {tokens === undefined ? null : (
+                <span className="composer-island-agent-tokens" aria-hidden="true">
+                  {statsTokens(tokens)}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
 
-/** The session's live agent rows; polls the shared pool only while any exist. */
+function ShellsPanel({
+  sessionId,
+  shells,
+  onClose,
+  onDismiss,
+}: {
+  sessionId: string;
+  shells: JobRow[];
+  onClose(): void;
+  /** Hides a finished shell row for good. */
+  onDismiss(row: JobRow): void;
+}) {
+  const clock = useClock(true);
+  const { stopOf, stop } = useShellStops(sessionId);
+  const runningShells = shells.filter((row) => !row.finished).length;
+  return (
+    <section className="composer-island-panel" aria-label={t('Background tasks')}>
+      <JobsPanelHead
+        mark={jobsTabMark('shell', [], runningShells)}
+        title={t('Shell {{shell}}', { shell: shells.length })}
+        onClose={onClose}
+      />
+      <ul className="composer-island-pbody composer-island-jobs">
+        {shells.map((row) => (
+          <ShellJobItem
+            key={row.key}
+            row={row}
+            clock={clock}
+            stop={stopOf(row)}
+            onStop={stop}
+            onDismiss={onDismiss}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** The session's agent rows, finished ones included; polls the shared pool
+ *  only while any of them is active. */
 function useIslandAgentRows(sessionId: string): IslandAgentRow[] {
   const poolStore = useMemo(() => agentPoolStore(window.mixdogDesktop), []);
   const pool = useSyncExternalStore(poolStore.subscribe, poolStore.getSnapshot, poolStore.getSnapshot);
   const agentRows = useMemo(() => islandAgentRows(pool, sessionId), [pool, sessionId]);
-  const hasAgents = agentRows.length > 0;
+  const hasActive = agentRows.some((row) => !row.finished);
   useEffect(() => {
     startAgentPool(poolStore);
-    if (!hasAgents) return undefined;
+    if (!hasActive) return undefined;
     return subscribeSharedPoll(poolStore, () => void refreshAgentPool(poolStore), AGENT_POOL_RECONCILE_MS);
-  }, [hasAgents, poolStore]);
+  }, [hasActive, poolStore]);
   return agentRows;
 }
 
-/** The pill's agents segment: the count, the working mark, and what needs the
- *  user or waits. */
+/** The pill's agents segment: every agent of the session, finished ones
+ *  included; the mark pulses while any runs or queues, rests idle once all
+ *  finished, and what needs the user or waits is called out. */
 function AgentsSegment({
   agents,
   expanded,
@@ -442,11 +499,14 @@ function AgentsSegment({
   expanded: boolean;
   onClick(): void;
 }) {
+  const total = agents.length;
+  const active = agents.filter((row) => !row.finished).length;
   const needsUser = agents.filter(({ state }) => state === 'needs-user').length;
   const working = agents.filter(({ state }) => state === 'running' || state === 'cancel-unconfirmed').length;
   const waiting = agents.filter(({ state }) => state === 'queued' || state === 'waiting').length;
   const title = [
-    t('Agent {{agent}}', { agent: agents.length }),
+    t('Agent {{agent}}', { agent: total }),
+    active === 0 ? t('Done') : '',
     needsUser > 0 ? t('Needs you {{needs}}', { needs: needsUser }) : '',
     waiting > 0 ? t('Island: {{waiting}} waiting', { waiting }) : '',
   ]
@@ -456,16 +516,13 @@ function AgentsSegment({
     <button
       type="button"
       className="composer-island-seg composer-island-seg-agents"
+      data-finished={active === 0 ? 'true' : undefined}
       aria-expanded={expanded}
       title={title}
       onClick={onClick}
     >
-      <IslandSegLabel
-        text={t('Island: {{count}} agents', { count: agents.length })}
-        count={agents.length}
-        icon="agent"
-      />
-      {needsUser === 0 ? <AgentMark working={working > 0} /> : null}
+      <IslandSegLabel text={t('Island: {{count}} agents', { count: total })} count={total} icon="agent" />
+      {needsUser === 0 ? <AgentMark working={working + waiting > 0} /> : null}
       {(needsUser > 0 || waiting > 0) && (
         <span className="composer-island-seg-states">
           {needsUser > 0 ? (
@@ -488,8 +545,8 @@ function AgentsSegment({
   );
 }
 
-/** The pill's shell segment counts running shells; with none left it shows the
- *  finished ones (muted) so they can still be opened and dismissed. */
+/** The pill's shell segment always reads "N shells" (running + finished not yet
+ *  dismissed); only the mark says whether any still runs, so the width is stable. */
 function ShellsSegment({
   runningCount,
   finishedCount,
@@ -502,24 +559,19 @@ function ShellsSegment({
   onClick(): void;
 }) {
   const live = runningCount > 0;
-  const count = live ? runningCount : finishedCount;
+  const count = runningCount + finishedCount;
   if (count === 0) return null;
-  const finishedText = t('Island: {{count}} finished shells', { count: finishedCount });
   return (
     <button
       type="button"
       className="composer-island-seg composer-island-seg-shell"
       data-finished={live ? undefined : 'true'}
       aria-expanded={expanded}
-      title={live ? t('Shell {{shell}}', { shell: runningCount }) : finishedText}
+      title={t('Shell {{shell}}', { shell: count })}
       onClick={onClick}
     >
-      <IslandSegLabel
-        text={live ? t('Island: {{count}} shells', { count: runningCount }) : finishedText}
-        count={count}
-        icon="shell-prompt"
-      />
-      {live ? <JobsPulse /> : <span className="composer-island-dot composer-island-dot-idle" aria-hidden="true" />}
+      <IslandSegLabel text={t('Island: {{count}} shells', { count })} count={count} icon="shell-prompt" />
+      <StateMark working={live} />
     </button>
   );
 }
@@ -595,7 +647,8 @@ export function ComposerIsland({
   sessionId,
   goal,
   files,
-  worktree,
+  branch,
+  workBusy = false,
   approval,
   flash,
   quotaResume,
@@ -609,8 +662,11 @@ export function ComposerIsland({
   /** The changed-files segment: opens the side dock, or where the surface has
    *  none, expands into the turn's file list like the Goal tab. */
   files?: ReactNode;
-  /** The worktree segment (WorktreeIslandSegment), last in the pill. */
-  worktree?: ReactNode;
+  /** The branch segment (BranchIslandSegment), last in the pill; `locked`
+   *  while the session has work running (no branch or worktree switch). */
+  branch?: (locked: boolean) => ReactNode;
+  /** A running turn or command, or queued composer input. */
+  workBusy?: boolean;
   /** The live tool approval card: the island grows into it. */
   approval?: ReactNode;
   flash?: ComposerIslandFlash | null;
@@ -625,15 +681,20 @@ export function ComposerIsland({
   const shellRows = jobRows.filter((row) => !row.finished);
   const finishedShellCount = jobRows.filter((row) => row.finished).length;
   const shellCount = Math.max(Number(snapshot.shellJobs?.count) || 0, shellRows.length);
-  // Finished shells keep the jobs panel open-able until dismissed.
-  const running = agentRows.length + shellCount + finishedShellCount;
-  const [jobsTab, setJobsTab] = useState<JobKind>('agent');
+  // Finished shells keep the shells panel open-able until dismissed.
+  const shellTotal = shellCount + finishedShellCount;
+  // No branch or worktree switch while anything of the session still works.
+  const locked = workBusy || shellCount > 0 || agentRows.some((row) => !row.finished);
   const [expanded, setExpanded] = useState<ComposerIslandTab>('');
-  const toggleJobs = (kind: JobKind) => {
-    const open = expanded === 'jobs' && jobsTab === kind;
-    setJobsTab(kind);
-    setExpanded(open ? '' : 'jobs');
-  };
+  const toggle = (tab: 'agents' | 'shells') => setExpanded(expanded === tab ? '' : tab);
+  const agentSessionIds = useMemo(() => agentRows.map(({ node }) => node.sessionId).filter(Boolean), [agentRows]);
+  // Pool pushes and lane updates are the refresh cue; the hook throttles them.
+  const usageRevision = useMemo(() => ({ agentRows, snapshot }), [agentRows, snapshot]);
+  const sessionUsage = useIslandSessionUsage(sessionId, agentSessionIds, expanded === 'agents', usageRevision);
+  const usageSummary = useMemo(
+    () => islandUsageSummary(sessionUsage, agentSessionIds),
+    [sessionUsage, agentSessionIds]
+  );
   const islandRef = useRef<HTMLDivElement | null>(null);
   const pillRef = useRef<HTMLDivElement | null>(null);
   const slotRef = useRef<HTMLDivElement | null>(null);
@@ -645,9 +706,10 @@ export function ComposerIsland({
 
   // A tab whose content went away closes; a new session starts collapsed.
   useEffect(() => {
-    if (expanded === 'jobs' && running === 0) setExpanded('');
+    if (expanded === 'agents' && agentRows.length === 0) setExpanded('');
+    if (expanded === 'shells' && shellTotal === 0) setExpanded('');
     if (expanded === 'resume' && !quotaResume) setExpanded('');
-  }, [expanded, quotaResume, running]);
+  }, [expanded, quotaResume, agentRows.length, shellTotal]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the reset trigger
   useEffect(() => {
     setExpanded('');
@@ -655,7 +717,7 @@ export function ComposerIsland({
   // Outside press or Escape collapses the island's own tabs. The Goal tab
   // owns its dismissal (it also guards its edit dialog).
   useEffect(() => {
-    if (expanded !== 'jobs' && expanded !== 'resume') return undefined;
+    if (expanded !== 'agents' && expanded !== 'shells' && expanded !== 'resume') return undefined;
     const onPointerDown = (event: PointerEvent) => {
       const island = islandRef.current;
       if (island && event.target instanceof Node && island.contains(event.target)) return;
@@ -677,7 +739,9 @@ export function ComposerIsland({
   else if (visibleFlash) mode = 'flash';
   else if (expanded) mode = 'panel';
   const resumePanel = mode === 'panel' && expanded === 'resume' && Boolean(quotaResume);
-  const ownPanel = resumePanel || (mode === 'panel' && expanded === 'jobs');
+  const agentsPanel = mode === 'panel' && expanded === 'agents' && agentRows.length > 0;
+  const shellsPanel = mode === 'panel' && expanded === 'shells' && shellTotal > 0;
+  const ownPanel = resumePanel || agentsPanel || shellsPanel;
   const context = useMemo(() => ({ expanded, setExpanded }), [expanded]);
 
   return (
@@ -720,29 +784,34 @@ export function ComposerIsland({
               {agentRows.length > 0 && (
                 <AgentsSegment
                   agents={agentRows}
-                  expanded={expanded === 'jobs' && jobsTab === 'agent'}
-                  onClick={() => toggleJobs('agent')}
+                  expanded={expanded === 'agents'}
+                  onClick={() => toggle('agents')}
                 />
               )}
               <ShellsSegment
                 runningCount={shellCount}
                 finishedCount={finishedShellCount}
-                expanded={expanded === 'jobs' && jobsTab === 'shell'}
-                onClick={() => toggleJobs('shell')}
+                expanded={expanded === 'shells'}
+                onClick={() => toggle('shells')}
               />
               {files}
-              {worktree}
+              {branch?.(locked)}
             </div>
             {resumePanel && quotaResume ? <ResumePanel resume={quotaResume} /> : null}
-            {ownPanel && expanded === 'jobs' && (
-              <JobsPanel
+            {shellsPanel && (
+              <ShellsPanel
                 sessionId={sessionId}
-                agents={agentRows}
                 shells={jobRows}
-                tab={jobsTab}
-                onTab={setJobsTab}
                 onClose={() => setExpanded('')}
                 onDismiss={(row) => dismissShellJobs(sessionId, [row.key])}
+              />
+            )}
+            {agentsPanel && (
+              <AgentsPanel
+                sessionId={sessionId}
+                agents={agentRows}
+                usage={usageSummary}
+                onClose={() => setExpanded('')}
                 onOpenSession={
                   onOpenAgentSession
                     ? (agentSessionId, title, owner) => {

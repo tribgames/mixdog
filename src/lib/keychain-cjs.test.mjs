@@ -49,6 +49,37 @@ test('win32 setSecret passes the secret via stdin with a minimal env', () => {
   }
 });
 
+test('win32 deleteSecret is idempotent for a missing secret but surfaces real failures', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-del-'));
+  const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+  const realUnlink = fs.unlinkSync;
+  const oldData = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dir;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  try {
+    const modPath = require.resolve('./keychain-cjs.cjs');
+    delete require.cache[modPath];
+    const keychain = require('./keychain-cjs.cjs');
+    const file = path.join(dir, 'secrets', 'acct.dpapi');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'x');
+    keychain.deleteSecret('acct');
+    assert.equal(fs.existsSync(file), false);
+    keychain.deleteSecret('acct');
+    fs.unlinkSync = () => {
+      throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    };
+    assert.throws(() => keychain.deleteSecret('acct'), /EPERM/);
+  } finally {
+    fs.unlinkSync = realUnlink;
+    Object.defineProperty(process, 'platform', realPlatform);
+    if (oldData === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = oldData;
+    delete require.cache[require.resolve('./keychain-cjs.cjs')];
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('linux setSecretAsync rejects with an install hint when secret-tool is missing, without blocking', async () => {
   const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
   const oldPath = process.env.PATH;

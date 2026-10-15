@@ -114,9 +114,19 @@ export const SETUP_MCP_SCHEMA = object({
 
 export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
   catalog: object({
-    provider: text,
-    webSearch: boolean,
-    refresh: boolean,
+    provider: {
+      ...text,
+      description: 'list_models: omit for the provider index; set for that provider\'s compact model rows.',
+    },
+    model: {
+      ...text,
+      description:
+        'list_models: one model id; returns its full options (efforts, fast, service tiers, modelParameterOptions, parameterVariants) for set_route. Add provider when several offer the id.',
+    },
+    page: { type: 'integer', minimum: 1, description: 'list_models with provider: 1-based page; default 1.' },
+    limit: { type: 'integer', minimum: 1, maximum: 100, description: 'list_models with provider: rows per page; default 25.' },
+    webSearch: { ...boolean, description: 'list_models: native-search capable models only.' },
+    refresh: { ...boolean, description: 'list_models: refresh the catalog first.' },
   }),
   localContextWindow: {
     type: ['integer', 'null'],

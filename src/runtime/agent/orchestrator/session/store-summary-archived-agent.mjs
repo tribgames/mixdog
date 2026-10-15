@@ -7,13 +7,17 @@
  * `label`, `agent`, `provider`, `model`, `effort`, `fast`, `finished`) and the
  * "\n\nResult:\n" marker are the wire format the notification writer emits;
  * they are matched verbatim.
+ *
+ * Only the parent(s) named by metadata are read — never the sessions
+ * directory: every vanished id reaches this path (deleted Lead records too),
+ * and a synchronous scan of every session file froze the daemon loop.
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { probePath, PROBE_PRESENT } from './store/fs-probe.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
 import { dataDir } from './store-summary-locations.mjs';
-import { cleanValue, desktopSession, positiveNumber } from './store-summary-fields.mjs';
+import { listStoredAgentWorkerLinks } from './store-agent-worker-rows.mjs';
+import { cleanValue, desktopSession, isStoredSessionId, positiveNumber } from './store-summary-fields.mjs';
 
 function archivedAgentNotification(content, sessionId) {
   const text = typeof content === 'string' ? content : '';
@@ -52,23 +56,38 @@ function archivedAgentNotification(content, sessionId) {
   };
 }
 
-/** Legacy recovery for child transcripts already unlinked by terminal reaping.
- * The parent owns one canonical body-carrying completion notification, so scan
- * only files containing the exact child id and project the newest valid body. */
-export function readArchivedAgentResult(sessionId) {
-  const dir = join(dataDir(), 'sessions');
-  if (probePath(dir).state !== PROBE_PRESENT) return null;
-  let files;
-  try {
-    files = readdirSync(dir).filter((file) => file.endsWith('.json'));
-  } catch {
-    return null;
+/** Parent session ids metadata names for `sessionId`: its agent-workers.json
+ *  link and its summary-catalog row (`catalogRow(id)`, optional). */
+function parentSessionIds(sessionId, catalogRow) {
+  const parents = new Set();
+  for (const link of listStoredAgentWorkerLinks()) {
+    if (link.sessionId !== sessionId) continue;
+    parents.add(link.parentSessionId);
+    parents.add(link.ownerSessionId);
   }
+  const row = typeof catalogRow === 'function' ? catalogRow(sessionId) : null;
+  if (row) {
+    parents.add(cleanValue(row.parentSessionId));
+    parents.add(cleanValue(row.ownerSessionId));
+  }
+  parents.delete(sessionId);
+  return [...parents].filter(isStoredSessionId);
+}
+
+/** Legacy recovery for child transcripts already unlinked by terminal reaping.
+ * The parent owns one canonical body-carrying completion notification: read
+ * only the parent(s) metadata links the child to, asynchronously, and project
+ * the newest valid body. An id with no parent link (a deleted Lead record)
+ * resolves to null without touching any session file. */
+export async function readArchivedAgentResult(sessionId, { catalogRow } = {}) {
+  const parents = parentSessionIds(sessionId, catalogRow);
+  if (parents.length === 0) return null;
+  const dir = join(dataDir(), 'sessions');
   let best = null;
-  for (const file of files) {
+  for (const parentId of parents) {
     let raw;
     try {
-      raw = readFileSync(join(dir, file), 'utf8');
+      raw = await readFile(join(dir, `${parentId}.json`), 'utf8');
     } catch {
       continue;
     }

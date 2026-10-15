@@ -81,6 +81,25 @@ test('session usage sums every request of the session, compactions included, wit
   assert.equal(await api(ledger, null).getSessionUsage(), null);
 });
 
+test('named sessions get their own totals beside the caller, each by its own ids only', async (t) => {
+  const ledger = new UsageLedger(':memory:');
+  t.after(() => ledger.close());
+  ledger.record(rows);
+  const result = await api(ledger, 'session-a').getSessionUsage({
+    sessionIds: ['session-b', 'session-a', 'session-none', 'session-b'],
+  });
+  const { sessions, ...own } = result;
+  assert.deepEqual(own, expected(included));
+  // The caller's own id is never repeated; duplicates collapse.
+  assert.deepEqual(Object.keys(sessions), ['session-b', 'session-none']);
+  const { sessionId: _, ...otherSession } = expected([elsewhere, elsewhereViaAccount]);
+  assert.deepEqual(sessions['session-b'], otherSession);
+  assert.equal(sessions['session-none'].turns, 0);
+  assert.equal(sessions['session-none'].tokens, 0);
+  // Without names the answer is unchanged.
+  assert.equal(Object.hasOwn(await api(ledger, 'session-a').getSessionUsage(), 'sessions'), false);
+});
+
 test('session usage reads through the ledger worker with the same answer', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-session-usage-'));
   const ledger = new UsageLedger(join(dir, 'ledger.sqlite'));

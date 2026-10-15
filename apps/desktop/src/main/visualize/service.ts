@@ -73,6 +73,10 @@ export interface VisualizeServiceDeps {
   /** Resolves once the displayed tab's HTML panes are on screen (so their
    *  problems are being captured); throws when they cannot be. */
   ensureShown?(sessionId: string, tab: VisualizeTabView): Promise<void>;
+  /** Whether the displayed tab is visible to the user right now (window shown,
+   *  panel open, session displayed — or a paired remote device viewing it).
+   *  Absent = assumed visible. */
+  onScreen?(sessionId: string, tab: VisualizeTabView): Promise<boolean>;
   /** Keep version history in this folder (the app's data folder, never a
    *  project); absent = no history. */
   versions?: { directory: string } & VisualizeVersionLimits;

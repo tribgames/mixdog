@@ -19,6 +19,7 @@ import {
   type TabState,
   type VisualizeResult,
   versionNote,
+  view,
   withProblems,
 } from './tab-state';
 import { parseVisualizeRequest, resolveVisualizeTarget, type VisualizeRequest, type VisualizeTarget } from './targets';
@@ -58,11 +59,26 @@ async function selectRequested(
   }
 }
 
+/** Where the opened tab went: the side panel when the user can see it, else
+ *  a note that the user must bring it up. Keeps the literal "as tab vN". */
+async function placement(
+  deps: Pick<OpenContext['deps'], 'onScreen'>,
+  sessionId: string,
+  tab: TabState,
+  what: string
+): Promise<string> {
+  const visible = (await deps.onScreen?.(sessionId, view(tab))) ?? true;
+  return visible
+    ? `Showing ${what} in the side panel as tab ${tab.id}.`
+    : `Opened ${what} as tab ${tab.id}, but it is not on screen (the window is minimized or hidden, or the session is not shown); the user must bring the Mixdog window and this session's visualize panel up to see it.`;
+}
+
 /** `open` with `input.content`: a direct-renderer tab, no files. Reopening
  *  the same title keeps the tab and adds a version when the content changed. */
 async function openInline(
   ctx: Pick<
     OpenContext,
+    | 'deps'
     | 'sessionOf'
     | 'sessionCwds'
     | 'panes'
@@ -130,6 +146,12 @@ async function openInline(
   ctx.views.rememberTab(sessionId, tab, true);
   ctx.publish(sessionId, true);
   if (versionError) throw new Error(`${versionError.message}; tab ${tab.id} shows the live content`);
+  const placed = await placement(
+    ctx.deps,
+    sessionId,
+    tab,
+    `inline ${content.kind}${content.title ? ` "${content.title}"` : ''}`
+  );
   await ctx.problems.awaitInlineRender(tab);
   // A scripted page gets a moment to load, so its first errors ride this result.
   if (displayedPanes(tab).some((candidate) => candidate.kind === 'html')) await ctx.problems.settle(tab, 1);
@@ -138,7 +160,7 @@ async function openInline(
   return {
     text: withProblems(
       tab,
-      `Showing inline ${content.kind}${content.title ? ` "${content.title}"` : ''} in the side panel as tab ${tab.id}. Open again with the same title to add a version.${versionNote(tab)}`
+      `${placed} Open again with the same title to add a version.${versionNote(tab)}`
     ),
     tabs: [summary(tab)],
     ...problemsOf(tab),
@@ -266,6 +288,7 @@ export function createOpenActions(ctx: OpenContext) {
     const shown = files
       .map((target) => `${relative(cwd, target.path).replace(/\\/g, '/') || target.label} (${target.kind})`)
       .join(', ');
+    const placed = await placement(deps, sessionId, tab, shown);
     // Give a fresh page a moment to load, so its first errors ride this result.
     if (panes.some((pane) => pane.kind === 'html')) await ctx.problems.settle(tab, 1);
     // A dropped open's cwd is as stale as its files: the session keeps the
@@ -276,7 +299,7 @@ export function createOpenActions(ctx: OpenContext) {
     return {
       text: withProblems(
         tab,
-        `Showing ${shown} in the side panel as tab ${tab.id}. The tab reloads when ${files.length > 1 ? 'these files change' : 'the file changes'}.${versionNote(tab)}`
+        `${placed} The tab reloads when ${files.length > 1 ? 'these files change' : 'the file changes'}.${versionNote(tab)}`
       ),
       tabs: [summary(tab)],
       ...problemsOf(tab),

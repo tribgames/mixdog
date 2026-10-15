@@ -79,6 +79,12 @@ export interface DesktopRequestWorktreeInput {
   expectedRevision?: number;
   /** Acknowledges WORKTREE_LARGE_REPO_CONFIRM (resend after the user agreed). */
   confirmLarge?: boolean;
+  /** Create and enter the worktree now instead of at the next send. */
+  provision?: boolean;
+  /** Answers WORKTREE_DIRTY_CHOICE: `leave` keeps the project folder's
+   *  uncommitted changes where they are (the worktree starts at the current
+   *  commit); `carry` moves them into the worktree. */
+  carryChanges?: 'leave' | 'carry';
 }
 
 /** A New Task's "Worktree" choice, sent with its first prompt: the host
@@ -126,6 +132,9 @@ export interface DesktopMergeWorkspaceResult {
   conflicts?: string[];
   revision?: number;
   workspace?: DesktopSessionWorkspace;
+  /** The cleanup after a successful merge: `removed: false` keeps the
+   *  worktree (a refusal such as WORKTREE_DIRTY in `code`); the merge stands. */
+  cleanup?: { removed: boolean; code?: string; message?: string };
 }
 
 export const DESKTOP_WORKTREE_NEW_TASK_DEFAULTS = ['branch', 'worktree'] as const;
@@ -148,6 +157,9 @@ export const DESKTOP_WORKTREE_ERROR_CODES = [
   'WORKTREE_DISK_INSUFFICIENT',
   'WORKTREE_LARGE_REPO_CONFIRM',
   'WORKTREE_DIRTY',
+  /** requestWorktree with `provision` found uncommitted project-folder files
+   *  (`details.count`): resend with `carryChanges`. */
+  'WORKTREE_DIRTY_CHOICE',
   'WORKTREE_UNMERGED',
   'WORKTREE_MISSING',
   'WORKTREE_UNSUPPORTED_REPO',

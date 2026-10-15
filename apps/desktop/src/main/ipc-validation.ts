@@ -42,7 +42,7 @@ import {
   VISUALIZE_INLINE_KINDS,
   type VisualizeInlineContent,
 } from '../shared/visualize';
-import { requiredSessionId } from './desktop-state';
+import { requiredSessionId, requiredSessionIds } from './desktop-state';
 import { hasControlCharacter } from './ipc-control-chars';
 import { isWorktreeCapability, validateWorktreeCapabilityArgs, WORKTREE_CAPABILITY_ARITY } from './worktree-validation';
 import { IMPORT_CAPABILITY_ARITY, isImportCapability, validateImportCapabilityArgs } from './import-validation';
@@ -408,7 +408,7 @@ const CAPABILITY_ARITY = {
   getUsageDashboard: [0, 1],
   getUsageStats: [0, 1],
   getQuotaHistory: [0, 1],
-  getSessionUsage: [0, 0],
+  getSessionUsage: [0, 1],
   consumeCodexRateLimitResetCredit: [1, 1],
   getSessionReviewDiff: [0, 0],
   getSessionReviewFilePatch: [1, 2],
@@ -1059,6 +1059,7 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
   if (isWorktreeCapability(capability)) validateWorktreeCapabilityArgs(capability, args);
   if (isImportCapability(capability)) validateImportCapabilityArgs(capability, args);
   if (capability === 'contextStatus' && args.length) validateContextStatusArgs(args[0]);
+  if (capability === 'getSessionUsage' && args.length) validateSessionUsageArgs(args[0]);
   validateSettingCapabilityArgs(capability, args);
   validateLocalProviderCapabilityArgs(capability, args);
   validateCredentialCapabilityArgs(capability, args);
@@ -1107,6 +1108,15 @@ function validateContextStatusArgs(options: unknown): void {
   } else if (inspection.revision !== undefined) {
     throw new TypeError('context revision requires an entry id.');
   }
+}
+
+/** The agent sessions whose ledger totals the composer island reads beside its own. */
+const MAX_SESSION_USAGE_IDS = 64;
+function validateSessionUsageArgs(options: unknown): void {
+  const request = optionalPlainRecord(options);
+  if (!request) throw new TypeError('session usage options must be an object.');
+  requireAllowedKeys(request, new Set(['sessionIds']), 'session usage options');
+  if (request.sessionIds !== undefined) requiredSessionIds(request.sessionIds, MAX_SESSION_USAGE_IDS);
 }
 
 function validateSettingCapabilityArgs(capability: DesktopCapability, args: readonly unknown[]): void {

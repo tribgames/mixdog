@@ -1,5 +1,5 @@
 import { SlidersHorizontal } from 'lucide-react';
-import { Suspense, createContext, memo, useContext, useEffect, useRef, useState } from 'react';
+import { Suspense, createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { submissionIdentity } from './transcript-rows';
 import { fitImageThumbnail, onSessionPreviewsDeleted, persistentImagePreviews, previewKey } from './image-preview-store';
 import { AttachmentCard, composerCardMeta } from './attachment-card';
@@ -18,8 +18,11 @@ import {
   resolveStreamingMarkdownChunks,
 } from './streaming-markdown';
 import StreamingMarkdownBody from './StreamingMarkdownBody';
+import { preloadSyncMarkdownParser } from './markdown-worker-client';
 import { imagePreviewCache, imagePreviewKey } from './transcript-metrics';
 import { CopyControl } from './transcript-primitives';
+import { noteStreamCommit } from './transcript-stream-metrics';
+import { usePacedTranscriptText } from './use-paced-transcript-text';
 import { type BackgroundWorkCounts, CompletionStatus } from './transcript-status';
 import { shouldSuppressFullyFailedToolItem } from './transcript-tool-model';
 import { ToolCard } from './transcript-tool-ui';import { AppliedSkills, SkillMentionText, appliedSkillsOf } from './composer-skill-mentions';
@@ -41,12 +44,18 @@ const StableMarkdownBody = memo(function StableMarkdownBody({ text }: { text: st
 const MarkdownResponse = memo(function MarkdownResponse({ text, streaming }: { text: string; streaming: boolean }) {
   const markdownCache = useRef(createStreamingMarkdownCache());
   const workerPipeline = useRef(streaming);
+  useLayoutEffect(() => {
+    if (streaming) noteStreamCommit(text.length);
+  }, [streaming, text]);
   if (streaming) workerPipeline.current = true;
+  useEffect(() => {
+    if (streaming) preloadSyncMarkdownParser();
+  }, [streaming]);
   const markdownParts = resolveStreamingMarkdownChunks(text, streaming, markdownCache.current);
   const renderedChunks = markdownParts.stableChunks.map((chunk, index) => (
     <Suspense fallback={<span hidden data-transcript-pending />} key={markdownParts.stableChunkKeys[index]}>
       {workerPipeline.current ? (
-        <StreamingMarkdownBody text={chunk} copyControl={CopyControl} />
+        <StreamingMarkdownBody text={chunk} sync copyControl={CopyControl} />
       ) : (
         <StableMarkdownBody text={chunk} />
       )}
@@ -63,6 +72,7 @@ const MarkdownResponse = memo(function MarkdownResponse({ text, streaming }: { t
             text={markdownParts.unstableText}
             parseText={unstableParseText}
             parse={markdownParts.parseUnstable}
+            sync
             copyControl={CopyControl}
           />
         ) : (
@@ -485,7 +495,13 @@ export const TranscriptRow = memo(
     backgroundWork,
     attachedUser = false,
     disclosureScope = '',
+    paceKey = '',
+    pace = false,
   }: {
+    /** Row key of a live assistant part; its painted text is paced. */
+    paceKey?: string;
+    /** The part is still the newest content row of its turn. */
+    pace?: boolean;
     backgroundWork?: BackgroundWorkCounts;
     item: TranscriptItem;
     completion?: TranscriptItem;
@@ -497,11 +513,21 @@ export const TranscriptRow = memo(
     const multiDevice = useContext(TranscriptDevicesContext);
     const viewerDevice = useContext(TranscriptViewerDeviceContext);
     const sessionScope = useContext(MarkdownSessionContext);
-    const previousStreaming = useRef(Boolean(item.streaming));
-    const announceSettled = previousStreaming.current && !item.streaming;
+    const assistant = item.kind === 'assistant';
+    const paced = usePacedTranscriptText({
+      key: assistant ? paceKey : '',
+      text: assistant ? String(item.text || '') : '',
+      streaming: Boolean(item.streaming),
+      pace,
+    });
+    // A reply stays "streaming" on screen until its paced reveal drained: the
+    // footer, copy control and completion announcement wait for the text.
+    const streaming = Boolean(item.streaming) || paced.draining;
+    const previousStreaming = useRef(streaming);
+    const announceSettled = previousStreaming.current && !streaming;
     useEffect(() => {
-      previousStreaming.current = Boolean(item.streaming);
-    }, [item.streaming]);
+      previousStreaming.current = streaming;
+    }, [streaming]);
     const { menuProps, menuElement } = useAttachmentContextMenu(useContext(MarkdownOpenFileContext));
     if (item.kind === 'tool') {
       if (shouldSuppressFullyFailedToolItem(item)) return null;
@@ -545,8 +571,8 @@ export const TranscriptRow = memo(
     return (
       <>
         <article
-          className={`message ${user ? 'user' : 'assistant'} ${sourceLabel ? 'sourced-message' : ''} ${item.streaming ? 'streaming' : 'settled'} ${item.pending ? 'pending' : ''} ${user && attachedUser ? 'attached-user' : ''}`}
-          aria-live={item.streaming || announceSettled ? 'off' : undefined}
+          className={`message ${user ? 'user' : 'assistant'} ${sourceLabel ? 'sourced-message' : ''} ${streaming ? 'streaming' : 'settled'} ${item.pending ? 'pending' : ''} ${user && attachedUser ? 'attached-user' : ''}`}
+          aria-live={streaming || announceSettled ? 'off' : undefined}
           aria-busy={item.pending === true ? 'true' : undefined}
         >
           {sourceLabel && <small className="message-source">{sourceLabel}</small>}
@@ -582,8 +608,8 @@ export const TranscriptRow = memo(
               ))}
               {!user && (
                 // Only a settled reply's links can be downloaded by its row id.
-                <MarkdownTranscriptItemContext.Provider value={item.streaming ? '' : String(item.id ?? '')}>
-                  <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />
+                <MarkdownTranscriptItemContext.Provider value={streaming ? '' : String(item.id ?? '')}>
+                  <MarkdownResponse text={paced.text} streaming={streaming} />
                 </MarkdownTranscriptItemContext.Provider>
               )}
             </div>
@@ -592,7 +618,7 @@ export const TranscriptRow = memo(
           {user && multiDevice && isOtherDevice(item.device, viewerDevice) && (
             <small className="message-device">{t('from {{device}}', { device: item.device })}</small>
           )}
-          {!user && !item.streaming && completion && (
+          {!user && !streaming && completion && (
             // biome-ignore lint/a11y/useSemanticElements: the footer names a group of response details; a <fieldset> would restyle it.
             <footer className="response-footer" role="group" aria-label={t('Response details')}>
               <CompletionStatus
@@ -622,5 +648,7 @@ export const TranscriptRow = memo(
     previous.backgroundWork?.shell === next.backgroundWork?.shell &&
     previous.backgroundWork?.agent === next.backgroundWork?.agent &&
     previous.attachedUser === next.attachedUser &&
+    previous.paceKey === next.paceKey &&
+    previous.pace === next.pace &&
     previous.disclosureScope === next.disclosureScope
 );

@@ -22,9 +22,22 @@ export function createLocalSessionBridge({ getSessionService, log, pid = process
       return createSessionProtocolClient({
         call(name, args = {}, options = {}) {
           if (closed) throw new Error('daemon-local session client is closed');
-          return getSessionService().handleCall(name, args, {
+          const signal = options?.signal;
+          signal?.throwIfAborted();
+          const result = getSessionService().handleCall(name, args, {
             clientToken,
             ...(options?.callId ? { callId: String(options.callId) } : {}),
+            ...(signal ? { signal } : {}),
+          });
+          if (!signal) return result;
+          // The in-process service has no cancellation of its own: an abort
+          // frees the caller, whose late reply is dropped.
+          return new Promise((resolve, reject) => {
+            const onAbort = () => reject(signal.reason);
+            signal.addEventListener('abort', onAbort, { once: true });
+            Promise.resolve(result)
+              .then(resolve, reject)
+              .finally(() => signal.removeEventListener('abort', onAbort));
           });
         },
         async close(reason = 'local session view closed') {

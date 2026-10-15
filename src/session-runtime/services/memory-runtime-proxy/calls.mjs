@@ -41,6 +41,9 @@ export function createMemoryCalls({ state, cwd, start, discovery, registry }) {
       ...(transcriptCwd ? { cwd: transcriptCwd } : {}),
     });
   }
+  async function forgetTranscripts(filePaths = []) {
+    return await requestMemoryPath('/transcript/forget', { filePaths }, { timeoutMs: 10_000 });
+  }
   async function recordTraceEvents(events = []) {
     return await requestMemoryPath('/admin/trace-record', { events }, { timeoutMs: 5_000 });
   }
@@ -120,6 +123,7 @@ export function createMemoryCalls({ state, cwd, start, discovery, registry }) {
     retain,
     appendEntry,
     ingestTranscript,
+    forgetTranscripts,
     recordTraceEvents,
     handleToolCall,
     buildSessionCoreMemoryPayload,

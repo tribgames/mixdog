@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { sessionFinalAnswer } from './session-final-answer.ts';
+import { isSessionMissingError, sessionFinalAnswer, SESSION_NOT_AVAILABLE_CODE } from './session-final-answer.ts';
 import { SessionHost } from './session-host.ts';
 import { restoreTranscriptItems } from '../../../../src/runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
 
@@ -106,6 +106,28 @@ test('the host reads the requested session without selecting it or publishing it
     'background-session',
     1_000
   );
-  assert.deepEqual(reads, [['background-session', false, false]]);
+  assert.deepEqual(reads, [['background-session', false, false, undefined, false, undefined]]);
   assert.equal(result.text, 'Background session answer');
+});
+
+test('the host passes the abort signal to the session read and tags a missing session', async () => {
+  const signal = new AbortController().signal;
+  const reads = [];
+  const missing = new Error('session gone-session is not available');
+  const call = (readSession) =>
+    SessionHost.prototype.readSessionFinalAnswer.call({ readSession }, 'gone-session', 1_000, signal);
+  await assert.rejects(
+    call(async (...args) => {
+      reads.push(args);
+      throw missing;
+    }),
+    (error) => error === missing && error.code === SESSION_NOT_AVAILABLE_CODE && isSessionMissingError(error)
+  );
+  assert.equal(reads[0][5], signal);
+  await assert.rejects(
+    call(async () => {
+      throw new Error('disconnected');
+    }),
+    (error) => error.code === undefined && !isSessionMissingError(error)
+  );
 });

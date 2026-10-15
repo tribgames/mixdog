@@ -110,7 +110,7 @@ test('a capped set draws only the selected file (default: first); a header click
       }),
       gitReviewDiffs: async (cwd, files) => {
         batches.push(files.map((file) => file.path));
-        return { patches: Object.fromEntries(files.map((file) => [file.path, patchFor(file.path)])), omitted: [] };
+        return { patches: files.map((file) => ({ path: file.path, patch: patchFor(file.path) })), omitted: [] };
       },
       invokeCapability: async () => ({ value: null }),
     },
@@ -148,9 +148,9 @@ test('an uncapped set reads all patches in one batch; deleted files start folded
       }),
       gitReviewDiffs: async (cwd, files) => {
         batches.push(files.map((file) => file.path));
-        const patches = Object.fromEntries(files.map((file) => [file.path, patchFor(file.path)]));
         // One changed line past 1 MiB.
-        patches['long.txt'] = `diff --git a/long.txt b/long.txt\n--- a/long.txt\n+++ b/long.txt\n@@ -0,0 +1 @@\n+${'y'.repeat(1024 * 1024 + 1)}\n`;
+        const long = `diff --git a/long.txt b/long.txt\n--- a/long.txt\n+++ b/long.txt\n@@ -0,0 +1 @@\n+${'y'.repeat(1024 * 1024 + 1)}\n`;
+        const patches = files.map((file) => ({ path: file.path, patch: file.path === 'long.txt' ? long : patchFor(file.path) }));
         return { patches, omitted: [] };
       },
       invokeCapability: async () => ({ value: null }),

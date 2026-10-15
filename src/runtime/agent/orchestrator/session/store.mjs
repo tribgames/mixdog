@@ -721,6 +721,7 @@ export { loadSession } from './store/load-session.mjs';
 // Hard delete + owned-agent enumeration live in store/session-delete.mjs;
 // re-exported here so prior importers of store.mjs stay unchanged.
 export { deleteSession, listOwnedAgentSessionIds } from './store/session-delete.mjs';
+export { fenceSessionWrites } from './store/live-state.mjs';
 
 // Listing / summaries live in store/listing.mjs and the stale sweep in
 // store/sweep/stale-sweep.mjs; re-exported here so importers keep one

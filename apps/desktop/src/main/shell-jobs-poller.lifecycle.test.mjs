@@ -190,3 +190,73 @@ test('cadence is unchanged: idle delay without events, active delay with jobs', 
     f.poller.stop();
   }
 });
+
+// A desktop pane's shell is published by a shard: the owner-wide count stays 0
+// and the job only appears in a session bucket.
+function freshFixture() {
+  const scans = { count: 0, jobs: [job('shell_a')], finished: [] };
+  const changes = [];
+  const poller = createShellJobsPoller({
+    getEngineState: () => ({ clientHostPid: 1, busy: false }),
+    loadModule: async () => ({
+      shellJobsStatus: () => {
+        throw new Error('the cache-only read must not be used');
+      },
+      shellJobsStatusFresh: async () => {
+        scans.count += 1;
+        return {
+          count: 0,
+          jobs: [],
+          sessions: {
+            s: { count: scans.jobs.length, jobs: [...scans.jobs], finished: [...scans.finished] },
+          },
+        };
+      },
+    }),
+    onChange: (ids) => changes.push([...ids]),
+  });
+  return { poller, scans, changes };
+}
+
+test('a settled shell is visible on the very next poll, with no extra interval', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = freshFixture();
+  try {
+    f.poller.start();
+    t.mock.timers.tick(0);
+    await flush();
+    assert.equal(f.poller.statusFor('s').count, 1);
+    f.scans.jobs = [];
+    f.scans.finished = [{ ...job('shell_a'), status: 'completed', exitCode: 0, finishedAt: 2 }];
+    t.mock.timers.tick(shellJobsPollDelay({ busy: false }, 1));
+    await flush();
+    assert.equal(f.scans.count, 2);
+    assert.equal(f.poller.statusFor('s').count, 0);
+    assert.equal(f.poller.statusFor('s').finished[0].taskId, 'shell_a');
+    assert.deepEqual(f.changes.at(-1), ['s']);
+  } finally {
+    f.poller.stop();
+  }
+});
+
+test('a running shell in a session bucket polls at the active cadence even with a zero aggregate', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = freshFixture();
+  try {
+    f.poller.start();
+    t.mock.timers.tick(0);
+    await flush();
+    assert.equal(f.poller.status.count, 0);
+    const active = shellJobsPollDelay({ busy: false }, 1);
+    assert.equal(active, 1_000);
+    t.mock.timers.tick(active - 1);
+    await flush();
+    assert.equal(f.scans.count, 1, 'not polled before the active delay');
+    t.mock.timers.tick(1);
+    await flush();
+    assert.equal(f.scans.count, 2, 'polled after 1s, not 5s');
+  } finally {
+    f.poller.stop();
+  }
+});
+

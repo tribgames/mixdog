@@ -2,7 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { noEnabledProvidersError } from '../../runtime/agent/orchestrator/providers/registry-errors.mjs';
+import { OpenAICompatProvider } from '../../runtime/agent/orchestrator/providers/openai-compat.mjs';
+import { sharedProviderCatalog } from '../provider-catalog-cache.mjs';
 import { createCatalogLoader } from './catalog-load.mjs';
+
+async function withFetch(impl, fn) {
+  const original = globalThis.fetch;
+  globalThis.fetch = impl;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
 import { createModelMetaIndex } from './model-meta.mjs';
 import { providerModelCacheRow } from '../model-recency.mjs';
 
@@ -92,6 +104,51 @@ test("model metadata keeps a provider row's explicit [] and false", async () => 
   assert.equal(row.supportsReasoning, false);
   assert.deepEqual(row.reasoningLevels, []);
   assert.equal(row.provider, 'custom-1');
+});
+
+test('a compat provider whose models request fails leaves the load incomplete and uncached', async () => {
+  const provider = new OpenAICompatProvider('xai', { apiKey: 'k', preconnect: false });
+  const registry = {
+    providerCatalogRevision: () => 515151,
+    getAllProviders: () => [['xai', provider]],
+    getProvider: () => provider,
+  };
+  const entries = await withFetch(
+    async () => new Response('forbidden', { status: 403 }),
+    () => sharedProviderCatalog(registry)
+  );
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].error.status, 403);
+  assert.deepEqual(entries[0].models, []);
+
+  const load = createCatalogLoader({
+    caches: { providerModelsLoadSeq: 0 },
+    config: () => ({ providers: {} }),
+    reg: () => registry,
+    meta: { syncCatalogRevision: () => 515151, snapshotIsCurrent: () => true, remember: () => {} },
+    rows: { providerModelCacheRow: (name, m) => ({ provider: name, ...m }) },
+    profile: () => {},
+    ensureFullConfig: () => {},
+    awaitKeychainPrewarm: async () => {},
+    ensureProvidersReady: async () => {},
+  });
+  const request = { seq: 0 };
+  const rows = await withFetch(async () => new Response('forbidden', { status: 403 }), () =>
+    load({ loadSecrets: false, request })
+  );
+  assert.deepEqual(rows, []);
+  assert.equal(request.complete, false);
+
+  // The failed load was not cached: a later success is picked up.
+  const recovered = await withFetch(
+    async () => Response.json({ data: [{ id: 'grok-test-model' }] }),
+    () => sharedProviderCatalog(registry)
+  );
+  assert.equal(Object.hasOwn(recovered[0], 'error'), false);
+  assert.deepEqual(
+    recovered[0].models.map((m) => m.id),
+    ['grok-test-model']
+  );
 });
 
 test('any other provider init failure still surfaces', async () => {

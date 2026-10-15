@@ -28,6 +28,11 @@ import { toOpenAIResponsesTool } from '../src/runtime/agent/orchestrator/provide
 import { requestAnthropicTools } from '../src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs';
 import { toGeminiTools } from '../src/runtime/agent/orchestrator/providers/gemini-schema.mjs';
 import { TOOL_DEFS as COMPUTER_TOOL_DEFS } from '../src/runtime/computer-bridge/tool-defs.mjs';
+import { COMPUTER_ACTION_CONTRACTS } from '../src/runtime/computer-bridge/action-schema.mjs';
+import { actionInputContract } from '../src/runtime/agent/orchestrator/providers/lib/action-input-contract.mjs';
+import { mergeFlatSchemaProperty } from '../src/runtime/agent/orchestrator/providers/lib/flat-schema-merge.mjs';
+import { prepareCursorToolDefinition } from '../src/runtime/agent/orchestrator/providers/cursor-wire-guards.mjs';
+import { normalizeGrokToolSchemas } from '../src/runtime/agent/orchestrator/providers/lib/grok-tool-schema.mjs';
 import { classifyError } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
 import { GrokOAuthProvider } from '../src/runtime/agent/orchestrator/providers/grok-oauth.mjs';
 import { GROK_MODEL_CACHE_SCHEMA_VERSION } from '../src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs';
@@ -98,7 +103,7 @@ test('Computer Use stays one shared custom-tool contract across providers', () =
     assert.equal(JSON.stringify(schema).includes('computer_use_preview'), false);
     assert.equal(JSON.stringify(schema).includes('computer_20250124'), false);
   }
-  const anthropicInput = schemas[2].properties.input;
+  const anthropicInput = schemas[2].properties.input.anyOf.find((alternative) => alternative.title === 'act');
   assert.ok(anthropicInput.properties.actions);
   assert.deepEqual(anthropicInput.properties.actions.items.properties.type.enum, [
     'click',
@@ -117,6 +122,38 @@ test('Computer Use stays one shared custom-tool contract across providers', () =
     'wait',
   ]);
   assert.deepEqual(schemas[2].required, ['action']);
+});
+
+test('Computer Use bytes on unverified provider paths equal the pre-change flat form', () => {
+  const tool = COMPUTER_TOOL_DEFS[0];
+  // The flat `input` exactly as the advertised schema built it before the
+  // nested per-action form existed: every contract's input merged in order,
+  // then the per-action field listing.
+  const flatInput = {
+    ...COMPUTER_ACTION_CONTRACTS.map((contract) => contract.properties.input).reduce((merged, shape) =>
+      mergeFlatSchemaProperty(merged, shape)
+    ),
+    description: `Fields for the selected action. ${actionInputContract({ oneOf: COMPUTER_ACTION_CONTRACTS })}`,
+  };
+  const preChange = {
+    ...tool,
+    inputSchema: { ...tool.inputSchema, properties: { action: tool.inputSchema.properties.action, input: flatInput } },
+  };
+  const bytes = (value) => JSON.stringify(value);
+  const openAI = (t) => toOpenAITools([t])[0];
+  // OpenAI Chat Completions / OpenAI-compatible.
+  assert.equal(bytes(openAI(tool)), bytes(openAI(preChange)));
+  assert.equal(bytes(openAI(tool).function.parameters), bytes(preChange.inputSchema));
+  // OpenAI Responses (API, OAuth, WebSocket).
+  assert.equal(bytes(toOpenAIResponsesTool(tool)), bytes(toOpenAIResponsesTool(preChange)));
+  // Cursor builds its definition from the OpenAI tool.
+  assert.equal(bytes(prepareCursorToolDefinition(openAI(tool))), bytes(prepareCursorToolDefinition(openAI(preChange))));
+  // Grok, Gemini and an Anthropic-wire gateway also stay on the flat form.
+  assert.equal(bytes(normalizeGrokToolSchemas([tool])), bytes(normalizeGrokToolSchemas([preChange])));
+  assert.equal(bytes(toGeminiTools([tool])), bytes(toGeminiTools([preChange])));
+  const gatewayAnthropic = (t) =>
+    requestAnthropicTools([t], [], { providerToolSnapshotAuthoritative: true, providerNativeToolPrefixCount: 0 }, 'opencode-go');
+  assert.equal(bytes(gatewayAnthropic(tool)), bytes(gatewayAnthropic(preChange)));
 });
 
 test('OpenRouter model sanitizer applies hosted filters with a nine-month default cutoff', () => {

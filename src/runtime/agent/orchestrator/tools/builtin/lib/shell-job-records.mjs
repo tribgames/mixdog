@@ -12,10 +12,18 @@
  * The owner marker disappears when the job settles and a `.done` marker keeps
  * the terminal JSON out of live counters. Terminal metadata remains available
  * for a bounded manual-recovery window.
+ *
+ * Ordering: a promoted job keeps its foreground id, so the foreground marker's
+ * retire and the promoted job's publish address the same files. Every publish,
+ * complete and retire for one jobId therefore runs on a per-job chain, strictly
+ * in call order and never overlapping. A record is written atomically (temp
+ * file + rename) and always before its owner marker, so a reader never sees a
+ * partial `.json`, and a marker never exists without its `.json`.
  */
 import { access, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { writeJsonAtomicAsync } from '../../../../../shared/atomic-file.mjs';
 import { isPidAlive } from '../../../../../shared/pid-liveness.mjs';
 import { displayShellCommand } from '../../../../../shared/shell-display.mjs';
 
@@ -24,11 +32,26 @@ import { displayShellCommand } from '../../../../../shared/shell-display.mjs';
 const ORPHAN_GRACE_MS = 60 * 60 * 1000;
 const COMPLETED_SHELL_JOB_TTL_MS = 30 * 60 * 1000;
 
-const publishing = new Map();
+const chains = new Map();
 const paths = new Map();
 const records = new Map();
-const retired = new Set();
+// jobId -> token of the live terminal record. Every publish/retire clears it and
+// every completion replaces it, so a TTL timer armed for an older incarnation
+// can tell its files are no longer the ones it was armed for.
+const incarnations = new Map();
+let incarnationSeq = 0;
 let sweepStarted = false;
+
+/** Run `operation` after every earlier operation for `jobId` has finished. */
+function enqueue(jobId, operation) {
+  const run = (chains.get(jobId) || Promise.resolve()).then(operation);
+  const tail = run.catch(() => {});
+  chains.set(jobId, tail);
+  void tail.then(() => {
+    if (chains.get(jobId) === tail) chains.delete(jobId);
+  });
+  return run;
+}
 
 function dataDir() {
   return process.env.MIXDOG_DATA_DIR || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
@@ -140,9 +163,8 @@ export function publishShellJobRecord(
   const dir = jobsDir();
   const jsonPath = join(dir, `${jobId}.json`);
   const ownerPath = join(dir, `${jobId}.owner-${ownerPid}`);
-  retired.delete(jobId);
   paths.set(jobId, [jsonPath, ownerPath]);
-  const work = (async () => {
+  void enqueue(jobId, async () => {
     try {
       await mkdir(dir, { recursive: true });
       if (!sweepStarted) {
@@ -172,18 +194,13 @@ export function publishShellJobRecord(
         ...(foreground ? { foreground: true } : {}),
       };
       records.set(jobId, record);
-      await writeFile(jsonPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+      incarnations.delete(jobId);
+      // The record lands whole before the marker that advertises it.
+      await writeJsonAtomicAsync(jsonPath, record, { fsync: false });
       await writeFile(ownerPath, '', 'utf8');
     } catch {
       /* the record is presentation only; never fail a job for it */
     }
-    // A job that settled while the write was in flight must not leave a
-    // record behind.
-    if (retired.has(jobId)) await removePaths([jsonPath, ownerPath]);
-  })();
-  publishing.set(jobId, work);
-  void work.finally(() => {
-    if (publishing.get(jobId) === work) publishing.delete(jobId);
   });
 }
 
@@ -196,11 +213,7 @@ export function completeShellJobRecord(jobId, detail) {
   const donePath = join(dir, `${key}.done`);
   const list = paths.get(key) || [jsonPath];
   const ownerPaths = list.filter((path) => path.includes('.owner-'));
-  const pending = publishing.get(key);
-  const work = (async () => {
-    try {
-      await pending;
-    } catch {}
+  return enqueue(key, async () => {
     await mkdir(dir, { recursive: true });
     let base = records.get(key) || null;
     if (!base) {
@@ -210,19 +223,26 @@ export function completeShellJobRecord(jobId, detail) {
     }
     const record = terminalRecord(base, { ...detail, jobId: key });
     records.set(key, record);
-    await writeFile(jsonPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+    await writeJsonAtomicAsync(jsonPath, record, { fsync: false });
     await writeFile(donePath, '', 'utf8');
     await removePaths(ownerPaths);
     paths.set(key, [jsonPath, donePath]);
+    const incarnation = ++incarnationSeq;
+    incarnations.set(key, incarnation);
     const timer = setTimeout(() => {
-      records.delete(key);
-      paths.delete(key);
-      void removePaths([jsonPath, donePath]);
+      // Expire through the job's queue and only if no publish, retire or newer
+      // completion has replaced the files this timer was armed for.
+      void enqueue(key, async () => {
+        if (incarnations.get(key) !== incarnation) return;
+        incarnations.delete(key);
+        records.delete(key);
+        paths.delete(key);
+        await removePaths([jsonPath, donePath]);
+      });
     }, COMPLETED_SHELL_JOB_TTL_MS);
     timer.unref?.();
     return true;
-  })().catch(() => false);
-  return work;
+  }).catch(() => false);
 }
 
 export async function readShellJobRecord(jobId) {
@@ -266,18 +286,13 @@ export async function listShellJobRecords() {
 export function retireShellJobRecord(jobId) {
   const key = String(jobId || '').trim();
   if (!key) return;
-  retired.add(key);
-  records.delete(key);
   const list = paths.get(key);
   paths.delete(key);
-  const pending = publishing.get(key);
-  void (async () => {
-    try {
-      await pending;
-    } catch {
-      /* the publish path owns its failure */
-    }
+  // Queued behind every earlier publish and ahead of any later one: a promoted
+  // job publishing after this call is written only once this removal is done.
+  void enqueue(key, async () => {
+    records.delete(key);
+    incarnations.delete(key);
     await removePaths(list);
-    retired.delete(key);
-  })();
+  });
 }

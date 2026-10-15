@@ -111,6 +111,10 @@ function withoutProcessFailureToast(toasts: readonly unknown[]): unknown[] {
   );
 }
 
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error('Mixdog session request aborted.');
+}
+
 function responseError(error: { name: string; message: string; code?: string }): Error {
   const result = new Error(error.message);
   result.name = error.name || 'Error';
@@ -647,39 +651,66 @@ export class DesktopServiceClient implements DesktopService {
     } as SessionSnapshot;
   }
 
-  private async invoke<T>(method: DesktopServiceMethod, args: unknown[] = [], timeoutMs?: number): Promise<T> {
+  private async invoke<T>(
+    method: DesktopServiceMethod,
+    args: unknown[] = [],
+    timeoutMs?: number,
+    signal?: AbortSignal
+  ): Promise<T> {
     await this.start();
-    return await this.sendRequest<T>(method, args, timeoutMs);
+    return await this.sendRequest<T>(method, args, timeoutMs, signal);
   }
 
-  private async invokeRead<T>(method: DesktopServiceMethod, args: unknown[] = []): Promise<T> {
+  private async invokeRead<T>(
+    method: DesktopServiceMethod,
+    args: unknown[] = [],
+    signal?: AbortSignal
+  ): Promise<T> {
     try {
-      return await this.invoke<T>(method, args);
+      return await this.invoke<T>(method, args, undefined, signal);
     } catch (error) {
       if (!(error instanceof DesktopTransportExitError) || this.disposed || this.disposing) throw error;
-      return await this.invoke<T>(method, args);
+      return await this.invoke<T>(method, args, undefined, signal);
     }
   }
 
   private sendRequest<T>(
     method: DesktopServiceMethod,
     args: unknown[],
-    timeoutMs = this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    timeoutMs = this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+    signal?: AbortSignal
   ): Promise<T> {
     const transport = this.transport;
     if (!transport) {
       return Promise.reject(this.lastExitError ?? new Error('Mixdog service is unavailable.'));
     }
+    if (signal?.aborted) return Promise.reject(abortError(signal));
     const id = this.nextRequestId++;
     return new Promise<T>((resolve, reject) => {
+      // An aborted request leaves no pending entry; the service's late reply
+      // finds none and is dropped.
+      const onAbort = () => {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(abortError(signal!));
+      };
+      const settled = () => signal?.removeEventListener('abort', onAbort);
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        settled();
         reject(new Error(`Mixdog session request timed out: ${method}.`));
       }, timeoutMs);
+      signal?.addEventListener('abort', onAbort, { once: true });
       this.pending.set(id, {
         method,
-        resolve: (value) => resolve(value as T),
-        reject,
+        resolve: (value) => {
+          settled();
+          resolve(value as T);
+        },
+        reject: (error) => {
+          settled();
+          reject(error);
+        },
         timer,
       });
       try {
@@ -687,6 +718,7 @@ export class DesktopServiceClient implements DesktopService {
       } catch (error) {
         clearTimeout(timer);
         this.pending.delete(id);
+        settled();
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
@@ -808,8 +840,8 @@ export class DesktopServiceClient implements DesktopService {
     return this.invokeRead('readAttachmentImage', [attachmentRef]);
   }
 
-  readSessionFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null> {
-    return this.invokeRead('readSessionFinalAnswer', [sessionId, startedAt]);
+  readSessionFinalAnswer(sessionId: string, startedAt: number, signal?: AbortSignal): Promise<SessionFinalAnswer | null> {
+    return this.invokeRead('readSessionFinalAnswer', [sessionId, startedAt], signal);
   }
   setSessionFavorite(sessionId: string, favorite: boolean): Promise<unknown> {
     return this.invoke('setSessionFavorite', [sessionId, favorite]);

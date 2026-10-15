@@ -54,6 +54,7 @@ import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
 import { createBackgroundWindow } from './background-window';
 import { createDesktopTray, type DesktopTray } from './desktop-tray';
+import { createDesktopQuitSequence, DESKTOP_DAEMON_STOP_TIMEOUT_MS } from './quit-sequence';
 import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import { createDesktopTurnNotifier } from './desktop-turn-notifier';
@@ -773,7 +774,7 @@ const turnNotifier = createDesktopTurnNotifier({
       silent: process.platform === 'win32',
     }),
   ...(process.platform === 'win32' ? { playSound: playNotificationSound } : {}),
-  readFinalAnswer: (sessionId, startedAt) => localService.readSessionFinalAnswer(sessionId, startedAt),
+  readFinalAnswer: (sessionId, startedAt, signal) => localService.readSessionFinalAnswer(sessionId, startedAt, signal),
   diagnostic: (event, details) => {
     diagnostics?.write(`turn-notification-${event}`, details);
     if (event === 'failed' || event === 'read-failed') console.error(`[mixdog-turn-notification] ${event}`, details);
@@ -796,7 +797,7 @@ function createServerWindowNotifier(window: BrowserWindow, connection: DesktopCo
       subscribeAgentPool: (listener) => client.subscribeAgentPool(listener),
       subscribeSessionStates: (listener) => client.subscribeSessionStates(listener),
       subscribeLink: (listener) => link?.subscribe(listener) ?? (() => {}),
-      readFinalAnswer: (sessionId, startedAt) => client.readSessionFinalAnswer(sessionId, startedAt),
+      readFinalAnswer: (sessionId, startedAt, signal) => client.readSessionFinalAnswer(sessionId, startedAt, signal),
     },
     isEnabled: () => turnNotificationsEnabled,
     isSupported: () => Notification.isSupported(),
@@ -1256,12 +1257,39 @@ function disposeDesktopResources(): Promise<void> {
         resolve();
       }, DESKTOP_DISPOSE_TIMEOUT_MS);
     });
-    disposalPromise = Promise.race([cleanup, deadline]).finally(() => {
-      if (timeout) clearTimeout(timeout);
-    });
+    disposalPromise = Promise.race([cleanup, deadline])
+      .finally(() => {
+        if (timeout) clearTimeout(timeout);
+      })
+      // The view is detached; an in-tree daemon still has to stop before the
+      // exit kills it mid-teardown (it would leave PostgreSQL running).
+      .then(() => localConnection.transport()?.stopInTreeDaemon(DESKTOP_DAEMON_STOP_TIMEOUT_MS))
+      .then(
+        () => undefined,
+        (error: unknown) => {
+          console.error('Failed to stop the Mixdog daemon during quit:', error);
+        }
+      );
   }
   return disposalPromise;
 }
+
+// Windows vanish the moment a quit begins; detach, daemon stop and the
+// PostgreSQL behind it finish in this still-running main process afterwards.
+const quitSequence = createDesktopQuitSequence({
+  windows: () => BrowserWindow.getAllWindows(),
+  teardown: async () => {
+    for (const removeWindowIpc of windowIpcDisposers.values()) removeWindowIpc();
+    windowIpcDisposers.clear();
+    await disposeDesktopResources();
+  },
+  exit: () => {
+    quitAfterDispose = true;
+    app.quit();
+  },
+  relaunch: () => app.relaunch(),
+  onError: (error) => console.error('Mixdog desktop quit step failed:', error),
+});
 
 function handleGpuChildCrash(reason: string, exitCode: number): void {
   if (gpuFallbackScheduled || quitAfterDispose) return;
@@ -2107,6 +2135,12 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
+    // During a quit's teardown this instance still holds the lock: the new
+    // launch exits, and this one relaunches the app on its way out.
+    if (quitSequence.secondInstance()) {
+      diagnostics?.write('second-instance-during-quit-relaunch', {});
+      return;
+    }
     activatePrimaryWindow();
   });
 
@@ -2325,12 +2359,7 @@ app.on('before-quit', (event) => {
   desktopTray = null;
   if (quitAfterDispose) return;
   event.preventDefault();
-  for (const removeWindowIpc of windowIpcDisposers.values()) removeWindowIpc();
-  windowIpcDisposers.clear();
-  void disposeDesktopResources().finally(() => {
-    quitAfterDispose = true;
-    app.quit();
-  });
+  void quitSequence.begin();
 });
 
 app.on('window-all-closed', () => {

@@ -51,6 +51,9 @@ test('worktree capability arguments are shape-checked', () => {
   assert.doesNotThrow(() => request('requestWorktree'));
   assert.doesNotThrow(() => request('requestWorktree', { name: null }));
   assert.doesNotThrow(() => request('requestWorktree', { expectedRevision: 0, confirmLarge: true }));
+  assert.doesNotThrow(() => request('requestWorktree', { provision: true }));
+  assert.doesNotThrow(() => request('requestWorktree', { provision: true, carryChanges: 'carry' }));
+  assert.doesNotThrow(() => request('requestWorktree', { provision: true, carryChanges: 'leave' }));
   assert.doesNotThrow(() => request('selectBranch', { branch: 'mixdog/fix', confirmLarge: true }));
   assert.doesNotThrow(() => request('mergeWorkspace', { confirmed: true, target: 'main' }));
   assert.doesNotThrow(() => request('removeWorktree', { force: false }));
@@ -97,7 +100,9 @@ test('worktree capability arguments are shape-checked', () => {
     ['requestWorktree', 'name'],
     ['requestWorktree', { name: 3 }],
     ['requestWorktree', { confirmLarge: 'yes' }],
-    ['requestWorktree', { provision: true }],
+    ['requestWorktree', { provision: 'yes' }],
+    ['requestWorktree', { provision: true, carryChanges: 'stash' }],
+    ['requestWorktree', { provision: true, prompt: 'p', txId: 't' }],
     ['selectBranch', { branch: 'main', confirmLarge: 1 }],
     ['mergeWorkspace', { target: 'main' }],
     ['mergeWorkspace', { confirmed: true }],

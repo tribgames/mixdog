@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -182,6 +182,68 @@ test('a mutator that throws applies nothing and queues nothing', async () => {
     assert.deepEqual(store.readAll(), []);
     await store.flush();
     assert.equal(existsSync(file), false);
+  } finally {
+    await flushAllIndexWrites();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/** Capture what is written to stderr (the daemon log in the daemon) while `fn` runs. */
+async function captureStderr(fn) {
+  const original = process.stderr.write;
+  const lines = [];
+  process.stderr.write = (chunk, ...rest) => {
+    lines.push(String(chunk));
+    const done = rest.find((arg) => typeof arg === 'function');
+    if (done) done();
+    return true;
+  };
+  try {
+    return { result: await fn(), lines };
+  } finally {
+    process.stderr.write = original;
+  }
+}
+
+test('a write that cannot reach disk is logged, rejects the flush, and is retried once the cause is gone', async () => {
+  const root = tempRoot();
+  try {
+    // The data dir is occupied by a regular file, so the index can never be written.
+    const dataDir = join(root, 'blocked');
+    writeFileSync(dataDir, 'not a directory');
+    const index = createLeadIndexFile({ dataDir });
+    const leadRow = { sessionId: 'lead-1', tag: 'lead-1', agent: 'lead', clientHostPid: 1, status: 'idle' };
+    index.write((byKey) => byKey.set('lead-1', leadRow));
+
+    const { result, lines } = await captureStderr(() => index.flush().then(() => null, (error) => error));
+    assert.ok(result instanceof Error, 'flush rejects instead of reporting success');
+    assert.ok(
+      lines.some((line) => line.includes('[index-write]') && line.includes('kept queued')),
+      `the failure reached the log: ${lines.join('|')}`
+    );
+    assert.equal(index.read().length, 1, 'the unpersisted write stays visible and queued');
+
+    rmSync(dataDir);
+    mkdirSync(dataDir);
+    await index.flush();
+    assert.equal(Object.keys(JSON.parse(readFileSync(index.path(), 'utf8')).workers).length, 1);
+  } finally {
+    await flushAllIndexWrites();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a write whose mutator throws is logged rather than silently dropped', async () => {
+  const root = tempRoot();
+  try {
+    const index = createLeadIndexFile({ dataDir: root });
+    const { result, lines } = await captureStderr(() =>
+      index.write(() => {
+        throw new Error('mutator exploded');
+      })
+    );
+    assert.equal(result, null);
+    assert.ok(lines.some((line) => line.includes('[index-write]') && line.includes('mutator exploded')));
   } finally {
     await flushAllIndexWrites();
     rmSync(root, { recursive: true, force: true });

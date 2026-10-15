@@ -259,7 +259,9 @@ export class OpenAICompatProvider {
     return fetchCompatModelItems(this);
   }
   async listModels() {
-    return listCompatModels(this);
+    // A failed /models request must surface; an empty list would be cached as
+    // a complete catalog by the shared catalog loader.
+    return listCompatModels(this, { throwOnError: true });
   }
   async isAvailable() {
     return isCompatProviderAvailable(this);

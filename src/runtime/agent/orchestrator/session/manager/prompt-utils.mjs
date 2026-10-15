@@ -321,6 +321,10 @@ function stageWorkspaceReroot(session, context) {
   for (const slice of WORKSPACE_SLICES) {
     if (context[slice] !== undefined) target[slice] = trimmedSlice(context[slice]);
   }
+  // The move into a worktree belongs to this change only; a later one drops it.
+  delete target.move;
+  const from = String(context.move?.from || '').trim();
+  if (from) target.move = { from, changes: context.move.changes ?? null };
   session.workspaceReroot = {
     version: 1,
     revision: (Number(prior?.revision) || 0) + 1,
@@ -338,8 +342,11 @@ function stageWorkspaceReroot(session, context) {
  * (stageWorkspaceReroot): the model learns it from the tail notice of its
  * next user turn (snapshotPendingWorkspaceNotice), and the next re-root
  * (applyPendingWorkspaceReroot) rewrites the prompt.
+ * `move` ({ from, changes: 'carried'|'left'|null }: the session left the
+ * project folder `from` for a worktree) adds to the notice what happened to
+ * the uncommitted changes and that paths under `from` now resolve under `cwd`.
  * @param {object} session
- * @param {{ cwd: string, environmentContext?: string, coreMemoryContext?: string, instructionFilesContext?: string }} context
+ * @param {{ cwd: string, environmentContext?: string, coreMemoryContext?: string, instructionFilesContext?: string, move?: { from: string, changes?: 'carried'|'left'|null } }} context
  * @returns {boolean}
  */
 export function refreshSessionWorkspaceContext(session, context = {}) {
@@ -389,6 +396,21 @@ function sameWorkspacePath(left, right) {
   return !!left && !!right && samePath(left, right);
 }
 
+/** The lines a move from the project folder into a worktree adds to the notice. */
+function workspaceMoveLines(move, cwd) {
+  if (!move?.from || sameWorkspacePath(move.from, cwd)) return [];
+  const changes =
+    move.changes === 'carried'
+      ? 'Uncommitted changes were moved into the worktree; ignored files (dependencies, build output, env files) were not.'
+      : move.changes === 'left'
+        ? `Uncommitted changes were left in ${move.from}; they are not present here.`
+        : '';
+  return [
+    changes,
+    `For continued work, substitute ${cwd} for the project root ${move.from} in paths mentioned earlier; absolute paths are not remapped automatically. Re-read affected files before editing them.`,
+  ].filter(Boolean);
+}
+
 function workspaceNoticeContent({ seen, target }) {
   if (!target?.cwd || sameWorkspacePath(seen?.cwd, target.cwd)) return '';
   const changed = (slice) => target[slice] !== undefined && target[slice] !== (seen?.[slice] || '');
@@ -396,6 +418,7 @@ function workspaceNoticeContent({ seen, target }) {
     [
       '# Working Folder Changed',
       `The working folder is now ${target.cwd}. This replaces the Cwd and environment facts given earlier in this conversation; relative paths and shell commands resolve here.`,
+      ...workspaceMoveLines(target.move, target.cwd),
       changed('environmentContext') ? target.environmentContext : '',
     ]
       .filter(Boolean)

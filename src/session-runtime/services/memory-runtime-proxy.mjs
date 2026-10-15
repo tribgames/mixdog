@@ -91,6 +91,7 @@ function createStandaloneMemoryRuntime({ entry, dataDir, cwd = process.cwd() } =
     warmupEmbedding: calls.warmupEmbedding,
     appendEntry: calls.appendEntry,
     ingestTranscript: calls.ingestTranscript,
+    forgetTranscripts: calls.forgetTranscripts,
     recordTraceEvents: calls.recordTraceEvents,
     moduleUrl: pathToFileURL(entry).href,
   };

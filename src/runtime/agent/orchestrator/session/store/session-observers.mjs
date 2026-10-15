@@ -44,10 +44,12 @@ export function _publishLiveSession(session) {
 
 _setLiveSessionPublisher(_publishLiveSession);
 
-export function _runSessionPurgeHooks(id) {
+/** `context` (optional, e.g. `{ cwds }`: working folders the session is known
+ *  to have used) is passed to every hook as its second argument. */
+export function _runSessionPurgeHooks(id, context) {
   for (const hook of _sessionPurgeHooks) {
     try {
-      hook(id);
+      hook(id, context);
     } catch {
       /* a cleanup hook never breaks delete */
     }

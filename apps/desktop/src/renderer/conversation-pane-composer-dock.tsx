@@ -185,6 +185,8 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
       onOpenSessionDiff={onOpenSessionDiff}
       onOpenAgentSession={onOpenAgentSession}
       workspace={draftMode ? null : (routeSnapshot.workspace ?? null)}
+      queuedInput={!draftMode && submission.composerQueued.length > 0}
+      onOpenSession={props.onResumeSession}
       showProjectSelector={showProjectSelector}
       contextBar={conversationContextBar(props)}
       reviewItems={submission.reviewItems}

@@ -40,6 +40,7 @@ import {
 import { COMPUTER_DEFAULT_DELIVERY } from './computer-bridge/core-actions.mjs';
 import { waitUntil } from './shared/wait-until.test-support.mjs';
 import { TOOL_DEFS as COMPUTER_TOOL_DEFS } from './computer-bridge/tool-defs.mjs';
+import { actionInputUnionFor } from './agent/orchestrator/providers/lib/action-input-contract.mjs';
 
 const CLIENTS = [
   {
@@ -865,9 +866,9 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   const schema = COMPUTER_TOOL_DEFS[0].inputSchema;
   assert.deepEqual(Object.keys(schema.properties), ['action', 'input']);
   assert.deepEqual(schema.required, ['action']);
-  assert.ok(Array.isArray(schema.oneOf));
+  assert.equal(schema.oneOf, undefined);
   const inputFor = (action) =>
-    schema.oneOf.find((branch) => branch.properties.action.enum.includes(action)).properties.input;
+    actionInputUnionFor(schema).properties.input.anyOf.find((alternative) => alternative.title === action);
   const list = inputFor('list');
   const diagnose = inputFor('diagnose');
   const capture = inputFor('capture');

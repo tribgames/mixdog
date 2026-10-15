@@ -150,6 +150,10 @@ i18next.addResourceBundle('en', 'translation', {
   'Island: {{count}} files': '{{count}} files',
   'Island: {{count}} files_other': '{{count}} files',
   'Island: View changes': 'View changes',
+  'Island: Running': 'Running',
+  'Island: Total tokens': 'Total tokens',
+  'Island: Cache hit rate': 'Cache hit rate',
+  'Island: Approx. cost': 'Approx. cost',
   'Turn changes: {{count}} files changed': '{{count}} files changed',
   'Turn changes: {{count}} files changed_other': '{{count}} files changed',
 });

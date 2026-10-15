@@ -5,6 +5,16 @@ Read this when choosing a `setup` mutation.
 ## Read and navigate
 
 - `status` reads one domain from the schema enum; pick the narrowest.
+- Results are compact JSON. `status providers` lists configured providers
+  only (`id`, `kind`, `authenticated`, `status`, `accounts` count); add
+  `detail: true` for every provider with key URLs, expiry and account ids.
+- `list_models` narrows in steps: no `catalog` returns the provider index
+  (`provider`, `count`, `defaultModel?`); `catalog.provider` returns compact
+  rows (`id`, `display`, `context`, `efforts`, `fast?`, `vision?`) with
+  `total`/`page`/`pages`/`nextPage` (`page`, `limit` ≤ 100, default 25);
+  `catalog.model` (plus `provider` if several offer the id) returns that
+  model's full options. `webSearch` limits to native-search models; `refresh`
+  reloads the catalog.
 - `open` navigates to a supported UI surface. Read `surfaces.md` for targets and
   UI-only settings.
 
@@ -54,7 +64,7 @@ Read this when choosing a `setup` mutation.
 | Enable or disable a plugin | `set_plugin_enabled` |
 | Remove a plugin | `remove_plugin` |
 | Turn back on and reconnect every MCP server a plugin declares | `enable_plugin_mcp` |
-| Available hosted models and their options; optionally one provider, native-search capable only, or a refreshed catalog | `list_models` |
+| Hosted model catalog: provider index, one provider's paged model rows, or one model's full options | `list_models` |
 | Agent orchestration, independent of workflow instructions | `set_orchestration_mode` |
 | Safe MCP edit metadata, excluding raw connection/credential values | `get_mcp_server` |
 | Read a workflow, agent, or skill definition | `read_definition` |
@@ -87,7 +97,11 @@ workflow` before changing the corresponding domain.
   agent routes accept `disabled`. Route `autoEffort` (Main and agent only)
   turns Auto reasoning on/off for that route; the Auto Effort built-in toggle
   is the machine-wide switch and must also be on and `ready`.
-  Use the model catalog for actual available options, not remembered model ids.
+  Before `set_route`, read `list_models` with `catalog.model` (and `provider`)
+  for the model's `effortOptions`, `defaultEffort`, `fastCapable`,
+  `serviceTiers`, `modelParameterOptions` and `parameterVariants`; take
+  `effort`, `fast` and `modelParameters` values only from it, never from
+  remembered model ids.
 - A Web Search route must support native web search; tool exposure is changed
   separately.
 - Definition actions use `definitionKind` (workflow, agent, skill).
@@ -100,12 +114,13 @@ workflow` before changing the corresponding domain.
 
 ## Providers and authentication
 
-Use `status providers` for authenticated state and source.
+Use `status providers` for authenticated state; `detail: true` adds each API
+key's source.
 
 - API-key and OAuth providers: `open providers`, then the user completes
   authentication in the visible UI.
 - Custom providers are registered, tested, and removed in the Providers UI;
-  `status providers` lists them as API rows with `custom: true`.
+  `status providers` with `detail: true` lists them as API rows with `custom: true`.
 - Local Provider is installed and enabled as a Built-in. Its endpoint is
   Mixdog-managed and is never configured by the user.
   Use the `local-provider` skill for hardware checks, model selection, downloads,
@@ -113,13 +128,13 @@ Use `status providers` for authenticated state and source.
   the detail dialog lists installed models rather than the download catalog.
 - Forgetting authentication is destructive and requires explicit approval.
   It removes one OAuth account; a provider with several accounts requires
-  `accountId` from the account list in `status providers`.
+  `accountId` from the account list in `status providers` with `detail: true`.
 - `set_provider_account` changes the selected account, paid-credit use after
   plan limits (`useCredits`), account order (every account id exactly once),
   an account label, or the switching `policy`: `manual` stays on the selected
   account, `limit` switches when it hits a limit, `headroom` starts each new
-  session on the account with the most headroom. `status providers` returns
-  the current `policy` when one is set. Sign-in for a new account still
+  session on the account with the most headroom. `status providers` with
+  `detail: true` returns the current `policy` when one is set. Sign-in for a new account still
   happens in the Providers UI.
 - `status developer` lists developer options. An option with a `warning` is
   enabled only after the user explicitly accepts that warning, passed as

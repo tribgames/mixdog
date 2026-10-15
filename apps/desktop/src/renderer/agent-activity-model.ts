@@ -523,6 +523,8 @@ export interface IslandAgentRow {
   node: AgentActivityNode;
   state: DesktopAgentActivityState;
   waitingForTasks: boolean;
+  /** Idle, done or cancelled: listed after the active work. */
+  finished: boolean;
 }
 
 const ISLAND_AGENT_STATES: ReadonlySet<DesktopAgentActivityState> = new Set([
@@ -537,8 +539,9 @@ const ISLAND_AGENT_STATES: ReadonlySet<DesktopAgentActivityState> = new Set([
 ]);
 
 /** The agents the composer island lists for one session: its group in the
- *  Agents window (same grouping, nesting and depth-first order), minus the
- *  session's own Lead row and every agent that is idle, done or cancelled. */
+ *  Agents window (same grouping, nesting and depth-first order) minus the
+ *  session's own Lead row, finished agents included. Each top-level subtree
+ *  stays whole; subtrees with active work come first, finished ones after. */
 export function islandAgentRows(
   pool: readonly DesktopAgentPoolRow[] | null | undefined,
   ownerSessionId: string
@@ -553,10 +556,15 @@ export function islandAgentRows(
         hasPendingDesktopAgentWork(agent)
       );
       const state = desktopAgentActivityState(node.agent, { waitingForTasks });
-      const own = node.sessionId === ownerSessionId || !ISLAND_AGENT_STATES.has(state);
-      return [...(own ? [] : [{ node, state, waitingForTasks }]), ...walk(node.children)];
+      const own = node.sessionId === ownerSessionId;
+      const row = { node, state, waitingForTasks, finished: !ISLAND_AGENT_STATES.has(state) };
+      return [...(own ? [] : [row]), ...walk(node.children)];
     });
-  return walk(group.nodes);
+  // The Lead's children are the units under a Lead row; otherwise the top rows.
+  const units = group.nodes.flatMap((node) => (node.sessionId === ownerSessionId ? node.children : [node]));
+  const blocks = units.map((unit) => walk([unit]));
+  const active = (block: IslandAgentRow[]) => block.some((row) => !row.finished);
+  return [...blocks.filter(active), ...blocks.filter((block) => !active(block))].flat();
 }
 
 /** Depth-first render order: a parent is immediately followed by its subtree. */

@@ -76,9 +76,32 @@ export function shellJobsStatus({ clientHostPid, sessionId } = {}) {
       _shellJobsRefreshInFlight.delete(ownerPid);
     });
   }
-  const value = cached?.value || EMPTY_SHELL_JOBS;
-  if (!scoped) return value;
-  return (scope && value.sessions?.[scope]) || EMPTY_SHELL_JOBS_SESSION;
+  const own = cached?.value || EMPTY_SHELL_JOBS;
+  // Session buckets are not pid-scoped, so they come from the freshest scan of
+  // ANY owner. Reading them from this owner's own slot made the list follow
+  // that slot's age: an owner polled again after its entry was evicted (or
+  // went stale) answered with "no sessions", and the finished shells vanished
+  // until the next poll brought them back.
+  const sessions = freshestShellJobsSessions() ?? own.sessions;
+  if (!scoped) return sessions === own.sessions ? own : { ...own, sessions };
+  return (scope && sessions?.[scope]) || EMPTY_SHELL_JOBS_SESSION;
+}
+
+// Awaited fresh scan for pollers that own their cadence (desktop): the result
+// reflects the disk at call time instead of the previous poll. The CLI render
+// path keeps using the cache-only shellJobsStatus.
+export async function shellJobsStatusFresh({ clientHostPid } = {}) {
+  const ownerPid = positiveInt(clientHostPid);
+  if (!ownerPid) return EMPTY_SHELL_JOBS;
+  return refreshShellJobsStatus(ownerPid);
+}
+
+function freshestShellJobsSessions() {
+  let freshest = null;
+  for (const entry of _shellJobsSegmentCache.values()) {
+    if (!freshest || entry.at >= freshest.at) freshest = entry;
+  }
+  return freshest?.value.sessions;
 }
 
 // Memory cycle L2 segment source. The daemon-hosted memory runtime writes
@@ -142,7 +165,7 @@ async function refreshShellJobsStatus(ownerPid) {
       names = await readdir(dir);
     } catch {
       rememberShellJobs(ownerPid, value);
-      return;
+      return value;
     }
     const { ids, ownerByJob, doneIds } = listOpenShellJobs(names);
     let count = 0;
@@ -225,6 +248,7 @@ async function refreshShellJobsStatus(ownerPid) {
     value = EMPTY_SHELL_JOBS;
   }
   rememberShellJobs(ownerPid, value);
+  return value;
 }
 
 // Newest-first, capped ids of job records with no `.done` marker, plus the

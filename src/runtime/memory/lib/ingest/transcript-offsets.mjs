@@ -47,6 +47,8 @@ export function createTranscriptOffsets({ loadMeta, persistMeta, log }) {
     set: (transcriptPath, position) => {
       offsets.set(transcriptPath, position);
     },
+    /** Drop one file's read position; true when an entry existed. */
+    forget: (transcriptPath) => offsets.delete(transcriptPath),
     reset: () => {
       offsets = new Map();
     },

@@ -52,15 +52,22 @@
   color: var(--mx-warning);
 }
 
+/* Wide enough for every label on one line ("Worktree · New branch ·
+   separate folder"); long branch names ellipsize at the cap. */
 .branch-menu {
   position: fixed;
   z-index: var(--mx-menu-z-index);
-  width: 280px;
-  max-width: calc(100vw - 16px);
+  width: max-content;
+  min-width: 280px;
+  max-width: min(420px, calc(100vw - 16px));
   display: flex;
   flex-direction: column;
   padding: 6px;
-  overflow: hidden;
+  /* Only when even the list's floor cannot fit the room left above the
+     anchor: the whole menu scrolls rather than cutting rows off. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: var(--mx-popup-border);
   border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
@@ -79,17 +86,35 @@
   background: var(--mx-bg-layer-1);
   font-size: var(--mx-font-minor);
 }
+/* Everything but the list keeps its own height: a notice, the search, the
+   actions and New branch never squeeze. */
+.branch-menu > :not(.branch-menu-list) {
+  flex: none;
+}
+/* A notice wraps to the menu's width (it never widens the menu) above the
+   list, capped so a long refusal scrolls inside itself. */
 .branch-menu-notice {
+  width: 0;
+  min-width: 100%;
+  max-height: 96px;
   margin: 0 0 6px;
   padding: 4px 10px;
+  overflow-y: auto;
+  overflow-wrap: break-word;
+  word-break: keep-all;
+  scrollbar-width: thin;
   color: var(--mx-warning);
   font-size: var(--mx-font-meta);
 }
-/* The list sizes to its rows and scrolls past OpenSelect's 240px cap. */
+/* The list sizes to its rows and scrolls past OpenSelect's 240px cap. It
+   gives way to a notice, but never below about three rows. */
 .branch-menu-list {
   max-height: 240px;
   flex: 0 1 auto;
   overflow: auto;
+}
+.branch-menu:has(> .branch-menu-notice) > .branch-menu-list {
+  min-height: 96px;
 }
 .branch-menu-item {
   width: 100%;
@@ -164,6 +189,68 @@
   margin: 4px 0;
   border: 0;
   background: var(--mx-border-muted);
+}
+.branch-menu-item > span,
+.branch-menu-item > small {
+  white-space: nowrap;
+}
+/* Work is running: the reason leads the menu and no switch can start. */
+.branch-menu-notice[data-kind="locked"] {
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border-radius: var(--mx-radius-md);
+  background: color-mix(in srgb, var(--mx-warning) 12%, transparent);
+}
+.branch-menu-item[aria-disabled="true"]:not([data-mark="external"]) {
+  opacity: var(--mx-op-disabled);
+}
+.branch-menu-item[data-selected][aria-disabled="true"] {
+  opacity: 1;
+}
+/* A worktree session's actions lead the menu (BranchIslandSegment). */
+.branch-menu-actions {
+  display: flex;
+  flex-direction: column;
+}
+.branch-menu-item[data-danger],
+.branch-menu-item[data-danger] > svg {
+  color: var(--mx-danger);
+}
+
+/* "Worktree" with uncommitted project-folder files: a short scrolling
+   preview of the paths, then what each choice does. */
+.worktree-carry-paths {
+  max-height: 96px;
+  margin: 0 20px 10px;
+  padding: 6px 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
+  color: var(--mx-text-muted);
+  font-family: var(--mx-font-mono, monospace);
+  font-size: var(--mx-font-meta);
+}
+.worktree-carry-paths > li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.worktree-carry-choices {
+  margin: 0;
+  padding: 0 20px 4px;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.worktree-carry-choices > li {
+  display: grid;
+  gap: 2px;
+  font-size: var(--mx-font-minor);
+}
+.worktree-carry-choices > li > span {
+  color: var(--mx-text-muted);
 }
 
 /* Source-control branch picker: occupancy marks beside the branch name. */

@@ -177,9 +177,6 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const progressLabel = `${progress.completed}/${progress.total}`;
   const kind = goalStateKind(goal, displayStatus);
   const stateLabel = goalStateLabel(goal, kind, displayStatus);
-  // Attention outranks identity: where the title would sit, a state that
-  // needs the user (or has ended) names itself instead.
-  const showStateLabel = kind !== 'active' && kind !== 'paused';
   const elapsedMinutes = goalElapsedMinutesLabel(goal, clock);
   const title = String(goal.title || goal.objective || t('Goal'));
   const objective = String(goal.objective || '');
@@ -212,8 +209,8 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
       >
         <GoalStateIcon kind={kind} label={stateLabel} />
         <GoalProgress progress={progress} />
-        <span className="session-goal-objective" data-label={showStateLabel ? 'status' : 'title'} title={objective}>
-          {showStateLabel ? stateLabel : title}
+        <span className="session-goal-objective" title={objective}>
+          {title}
         </span>
         <span className="session-goal-meta">
           <span className="session-goal-progress">{progressLabel}</span>

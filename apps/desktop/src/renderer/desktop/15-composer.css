@@ -324,6 +324,16 @@
     animation: none;
   }
 }
+.composer-island-mark-slot {
+  width: 6px;
+  height: 6px;
+  display: inline-flex;
+  flex: none;
+}
+.composer-island-seg-word,
+.composer-island-seg-num {
+  font-variant-numeric: tabular-nums;
+}
 .composer-island-seg-text {
   min-width: 0;
   max-width: 230px;
@@ -404,23 +414,88 @@
   gap: 5px;
   padding-inline: 8px;
 }
-/* The worktree segment (WorktreeIslandSegment) is the one whose text gives
-   way on a narrow island. Compact shows the short name at once (no branch
+/* The branch segment (BranchIslandSegment) is the one whose text gives way
+   on a narrow island. Compact shows the short name at once (no branch
    prefix, no base, capped), so long and short names keep one width; after
    that useIslandFit drops the Goal's pips for a squeezed name, and below a
    readable width keeps the glyph alone. */
-.composer-island-pill > .composer-island-seg.composer-island-seg-worktree {
+.composer-island-pill > .composer-island-seg.composer-island-seg-branch {
   flex-shrink: 1;
 }
-.composer-island[data-compact] .composer-island-seg-worktree :is(.composer-island-seg-prefix, .composer-island-seg-sub) {
+.composer-island-seg-prefix {
+  color: var(--mx-text-muted);
+}
+.composer-island[data-compact] .composer-island-seg-branch :is(.composer-island-seg-prefix, .composer-island-seg-sub) {
   display: none;
 }
-.composer-island[data-compact] .composer-island-seg-worktree .composer-island-seg-text {
+.composer-island[data-compact] .composer-island-seg-branch .composer-island-seg-text {
   max-width: 104px;
 }
 .composer-island[data-fit-pips] .session-goal-pips,
-.composer-island[data-fit-glyph] .composer-island-seg-worktree .composer-island-seg-text {
+.composer-island[data-fit-glyph] .composer-island-seg-branch .composer-island-seg-text {
   display: none;
+}
+/* The files menu: every changed file in one scrolling list (dir muted, name,
+   +/− counts), with Delete history and View changes fixed below. */
+.turn-review-files-list {
+  max-height: min(240px, 36dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.turn-review-files-row {
+  width: 100%;
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-minor);
+  text-align: left;
+  cursor: pointer;
+}
+.turn-review-files-row:hover,
+.turn-review-files-row:focus-visible {
+  outline: none;
+  background: var(--composer-island-wash);
+}
+.turn-review-files-path {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.turn-review-files-dir {
+  color: var(--mx-text-muted);
+}
+.turn-review-files-row > .diff-stats {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.turn-review-files-row > .diff-stats i {
+  color: var(--mx-success);
+  font-style: normal;
+}
+.turn-review-files-row > .diff-stats em {
+  color: var(--mx-danger);
+  font-style: normal;
+}
+.turn-review-files-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px 2px 0;
+  border-top: var(--mx-hairline) solid var(--composer-island-rule);
+}
+.turn-review-files-foot > .composer-island-button.danger {
+  color: var(--mx-danger);
 }/* Inline, so the literal space between +a and −b shows. */
 .turn-review-segment .diff-stats {
   display: inline;
@@ -461,19 +536,6 @@
   font: inherit;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-/* Agent / Shell tabs: the unselected one is a plain label. */
-button.composer-island-tab {
-  cursor: pointer;
-}
-.composer-island-tab[data-active="false"] {
-  color: var(--mx-text-muted);
-  background: transparent;
-}
-.composer-island-tab[data-active="false"]:hover,
-.composer-island-tab[data-active="false"]:focus-visible {
-  color: var(--mx-text);
-  outline: none;
 }
 .composer-island-close {
   width: 28px;
@@ -609,8 +671,40 @@ button.composer-island-tab {
   cursor: pointer;
   user-select: none;
 }
-.composer-island-agents .agent-pool-row + .agent-pool-row {
+.composer-island-agent-item {
+  position: relative;
+}
+.composer-island-agent-item + .composer-island-agent-item {
   border-top: var(--mx-hairline) solid var(--composer-island-rule);
+}
+/* A row with its own ledger total: the state rides the name's line and the
+   total the supporting line, both at the right edge. */
+.composer-island-agent-item[data-tokens="true"] .agent-activity-status {
+  align-self: flex-start;
+}
+.composer-island-agent-tokens {
+  position: absolute;
+  right: 0;
+  bottom: 6px;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+/* The session's totals above the agent rows: one quiet line. */
+.composer-island-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  padding: 8px 14px;
+  border-bottom: var(--mx-hairline) solid var(--composer-island-rule);
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.composer-island-summary b {
+  color: var(--mx-text);
+  font-weight: 500;
 }
 .composer-island-agents .agent-pool-row:disabled {
   cursor: default;

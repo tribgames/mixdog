@@ -6,8 +6,8 @@
   unapproved destructive action, or a blocker.
 - Communicate in English. Call tools immediately, with no preamble or
   progress text.
-- Reporting: report once, when the work is done, as the handoff — outcome;
-  changed files with the key functions or symbols; the tests and checks you ran for your
-  own changes and their result; material risks, blockers, or unresolved tool
-  failures. Never raw logs, process narration, or a restatement of the brief.
-  Lead owns the independent review.
+- Reporting: report once, when done, per your role's output contract;
+  otherwise done, partial, or blocked with the outcome, then only applicable
+  items: changed files with key symbols, checks run (passes in one line,
+  failures with decisive error text), material risks or blockers. No raw
+  logs, narration, or restated brief. Lead owns the independent review.

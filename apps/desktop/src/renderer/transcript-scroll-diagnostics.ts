@@ -36,9 +36,17 @@ export function transcriptScrollDiagnosticsEnabled(): boolean {
   return diagnosticsHost().__mixdogTranscriptScroll === true;
 }
 
+let eventSink: ((event: string) => void) | null = null;
+
+/** The streamed-text metrics count scroll events per frame while a run is open. */
+export function setTranscriptScrollEventSink(sink: ((event: string) => void) | null): void {
+  eventSink = sink;
+}
+
 /** One line per scroll-relevant event, ordered by the frame clock. */
 export function logTranscriptScroll(event: string, fields: Record<string, number | string | boolean>): void {
   if (!transcriptScrollDiagnosticsEnabled()) return;
+  eventSink?.(event);
   const detail = Object.entries(fields)
     .map(([key, value]) => `${key}=${typeof value === 'number' ? Math.round(value) : value}`)
     .join(' ');

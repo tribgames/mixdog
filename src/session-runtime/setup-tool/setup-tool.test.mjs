@@ -14,6 +14,7 @@ import {
 } from './tool-defs.mjs';
 import { SETUP_SECTION_TARGETS as TUI_SECTION_TARGETS } from '../../tui/app/use-ui-open-request.mjs';
 import { createSetupToolExecutor } from './executor.mjs';
+import { SETUP_OUTPUT_MAX_BYTES } from '../../runtime/shared/tool-output-limit.mjs';
 import { createNotificationBus } from '../notification-bus.mjs';
 import { resolveTuiRuntimeNotificationDelivery } from '../../tui/session/notification-plan.mjs';
 import { SLASH_COMMANDS as TUI_SLASH_COMMANDS } from '../../tui/app/slash-commands.mjs';
@@ -284,7 +285,7 @@ test('status providers exposes connection state and key-console URL, never secre
     }),
     getSessionId: () => '',
   });
-  const status = await run(executor, { action: 'status', domain: 'providers' });
+  const status = await run(executor, { action: 'status', domain: 'providers', detail: true });
   assert.deepEqual(status.oauth[0].accounts, {
     selectedId: 'a1',
     auto: true,
@@ -301,6 +302,172 @@ test('status providers exposes connection state and key-console URL, never secre
   assert.deepEqual(status.local, []);
   assert.doesNotMatch(JSON.stringify(status), /sk-live|accessToken|refreshToken|apiKey/);
   await assert.rejects(run(executor, { action: 'status', domain: 'secrets' }), /domain must be one of/);
+});
+
+test('status providers is minimal by default: configured providers only, account counts', async () => {
+  const executor = createSetupToolExecutor({
+    getApi: () => ({
+      getProviderSetup: async () => ({
+        api: [
+          { id: 'openai', type: 'api', authenticated: false, status: 'missing', url: 'https://k.test' },
+          { id: 'xai', type: 'api', authenticated: true, status: 'ok', stored: true, url: 'https://x.test' },
+        ],
+        oauth: [
+          { id: 'anthropic', type: 'oauth', authenticated: true, status: 'ok', expiresAt: 1 },
+          { id: 'cursor', type: 'oauth', authenticated: false, reauthRequired: true, status: 'expired' },
+          { id: 'gemini', type: 'oauth', authenticated: false, status: 'missing' },
+        ],
+        local: [],
+      }),
+      getProviderAccounts: () => ({ selectedId: 'a', accounts: [{ id: 'a' }, { id: 'b' }] }),
+    }),
+  });
+  const raw = await executor.execute({ action: 'status', domain: 'providers' });
+  assert.deepEqual(JSON.parse(raw), {
+    domain: 'providers',
+    providers: [
+      { id: 'xai', kind: 'api', authenticated: true, status: 'ok' },
+      { id: 'anthropic', kind: 'oauth', authenticated: true, status: 'ok', accounts: 2 },
+      { id: 'cursor', kind: 'oauth', authenticated: false, status: 'expired', reauthRequired: true, accounts: 0 },
+    ],
+    notConfigured: 2,
+  });
+  assert.equal(raw, JSON.stringify(JSON.parse(raw)), 'read-only results are compact JSON');
+  const detail = await run(executor, { action: 'status', domain: 'providers', detail: true });
+  assert.equal(detail.api.length, 2);
+  assert.equal(detail.api[0].keyUrl, 'https://k.test');
+  assert.equal(detail.oauth[0].accounts.accounts.length, 2);
+});
+
+const catalogRow = (provider, id, extra = {}) => ({
+  id,
+  provider,
+  display: `${id} display`,
+  contextWindow: 200000,
+  maxContextWindow: null,
+  supportsVision: false,
+  fastCapable: false,
+  effortOptions: [
+    { value: 'low', label: 'Low', description: '' },
+    { value: 'high', label: 'High', description: '' },
+  ],
+  reasoningOptions: [{ type: 'effort', values: ['low', 'high'] }],
+  modelParameterOptions: [],
+  parameterVariants: [],
+  serviceTiers: [],
+  defaultModelParameters: {},
+  ...extra,
+});
+
+function catalogExecutor(rows) {
+  const calls = [];
+  const executor = createSetupToolExecutor({
+    getApi: () => ({
+      listProviderModels: async (options) => (calls.push(['all', options]), rows),
+      listWebSearchModels: async (options) => (calls.push(['web', options]), rows.filter((row) => row.supportsWebSearch)),
+    }),
+  });
+  return { calls, executor };
+}
+
+test('list_models: provider index, compact paged rows, and single-model detail', async () => {
+  const many = Array.from({ length: 30 }, (_, i) => catalogRow('opencode-go', `m${String(i).padStart(2, '0')}`));
+  const rows = [
+    ...many,
+    catalogRow('openai', 'gpt-x', {
+      maxContextWindow: 1000000,
+      supportsVision: true,
+      fastCapable: true,
+      fastEfforts: ['low'],
+      defaultEffort: 'high',
+      serviceTiers: [{ id: 'priority' }],
+      modelParameterOptions: [{ id: 'speed', values: ['standard', 'ultra'] }],
+      parameterVariants: [{ id: 'v1' }],
+      supportsWebSearch: true,
+    }),
+    catalogRow('other', 'gpt-x'),
+  ];
+  const { calls, executor } = catalogExecutor(rows);
+
+  const index = await run(executor, { action: 'list_models' });
+  assert.deepEqual(index.providers, [
+    { provider: 'opencode-go', count: 30, defaultModel: 'glm-5.2' },
+    { provider: 'openai', count: 1 },
+    { provider: 'other', count: 1 },
+  ]);
+  assert.deepEqual(calls[0], ['all', { refresh: false }]);
+
+  const first = await run(executor, { action: 'list_models', catalog: { provider: 'opencode-go' } });
+  assert.equal(first.total, 30);
+  assert.equal(first.page, 1);
+  assert.equal(first.pages, 2);
+  assert.equal(first.nextPage, 2);
+  assert.equal(first.models.length, 25);
+  assert.deepEqual(first.models[0], { id: 'm00', display: 'm00 display', context: 200000, efforts: ['low', 'high'] });
+  const second = await run(executor, { action: 'list_models', catalog: { provider: 'opencode-go', page: 2, limit: 25 } });
+  assert.deepEqual(second.models.map((row) => row.id), ['m25', 'm26', 'm27', 'm28', 'm29']);
+  assert.equal(second.nextPage, undefined);
+  const small = await run(executor, { action: 'list_models', catalog: { provider: 'opencode-go', limit: 10, page: 3 } });
+  assert.equal(small.models.length, 10);
+  assert.equal(small.models[0].id, 'm20');
+
+  const openai = await run(executor, { action: 'list_models', catalog: { provider: 'openai' } });
+  assert.deepEqual(openai.models[0], {
+    id: 'gpt-x',
+    display: 'gpt-x display',
+    context: 200000,
+    maxContext: 1000000,
+    efforts: ['low', 'high'],
+    fast: true,
+    vision: true,
+  });
+
+  const detail = await run(executor, { action: 'list_models', catalog: { model: 'gpt-x', provider: 'openai' } });
+  assert.deepEqual(detail.model, {
+    provider: 'openai',
+    id: 'gpt-x',
+    display: 'gpt-x display',
+    context: 200000,
+    maxContext: 1000000,
+    vision: true,
+    webSearch: true,
+    effortOptions: [
+      { value: 'low', label: 'Low' },
+      { value: 'high', label: 'High' },
+    ],
+    defaultEffort: 'high',
+    fastCapable: true,
+    fastEfforts: ['low'],
+    serviceTiers: [{ id: 'priority' }],
+    modelParameterOptions: [{ id: 'speed', values: ['standard', 'ultra'] }],
+    parameterVariants: [{ id: 'v1' }],
+  });
+  await assert.rejects(
+    run(executor, { action: 'list_models', catalog: { model: 'gpt-x' } }),
+    /offered by openai, other; pass catalog.provider/
+  );
+  await assert.rejects(run(executor, { action: 'list_models', catalog: { model: 'nope' } }), /not found/);
+
+  const web = await run(executor, { action: 'list_models', catalog: { webSearch: true, refresh: true } });
+  assert.deepEqual(web.providers, [{ provider: 'openai', count: 1 }]);
+  assert.deepEqual(calls.at(-1), ['web', { refresh: true }]);
+});
+
+test('list_models: a full page stays far below the setup output budget and is compact', async () => {
+  const rows = Array.from({ length: 204 }, (_, i) =>
+    catalogRow('big', `model-with-a-long-identifier-${i}`, {
+      description: 'x'.repeat(400),
+      modelParameterOptions: [{ id: 'p', values: ['a', 'b', 'c'] }],
+    })
+  );
+  const { executor } = catalogExecutor(rows);
+  const raw = await executor.execute({ action: 'list_models', catalog: { provider: 'big', limit: 100 } });
+  assert.ok(Buffer.byteLength(raw) < SETUP_OUTPUT_MAX_BYTES, `${raw.length} bytes`);
+  assert.equal(raw, JSON.stringify(JSON.parse(raw)));
+  await assert.rejects(
+    executor.execute({ action: 'list_models', catalog: { provider: 'big', limit: 101 } }),
+    /tool-input-validation/
+  );
 });
 
 test('mutations go through the runtime facade with validated input', async () => {

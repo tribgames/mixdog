@@ -11,6 +11,7 @@ import { SessionLaneCache } from './session-lane-cache';
 import { reportSessionReadFrame } from './session-read-diagnostics';
 import { sharedTranscriptSnapshotDecorator, type TranscriptSnapshotDecorator } from './snapshot-transcript-decoration';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
+import { noteStreamLaneFrame, noteStreamPublish } from './transcript-stream-metrics';
 
 type SessionLaneSource = (listener: (update: DesktopSessionStateUpdate) => void) => () => void;
 
@@ -472,6 +473,7 @@ export function createSessionLaneStore({
   const notify = (sessionId: string): void => {
     const bucket = listeners.get(sessionId);
     if (!bucket) return;
+    noteStreamPublish();
     for (const listener of [...bucket]) listener();
   };
   const apply = (update: DesktopSessionStateUpdate): void => {
@@ -543,6 +545,7 @@ export function createSessionLaneStore({
     snapshots.prune();
     const nextSnapshot = snapshots.get(sessionId)?.snapshot ?? null;
     reportSessionReadFrame({ ...update, snapshot: nextSnapshot }, 'applied', performance.now() - readFrameStartedAt);
+    noteStreamLaneFrame(sessionId, nextSnapshot?.streamingTail);
     if ((listeners.get(sessionId)?.size || 0) === 0) {
       const key = notificationKeys.get(sessionId);
       if (key) cancelLayoutFrame(key);

@@ -394,7 +394,15 @@ export function streamHandlers(ctx) {
   const { isCurrentTurn, stream } = ctx;
   return {
     onStageChange: async (stage, detail = null) => {
-      if (isCurrentTurn()) await applyStageChange(stream, stage, detail);
+      if (!isCurrentTurn()) return;
+      // A runtime notice (e.g. a tool the provider left out of the request)
+      // becomes a transcript notice the TUI and desktop render.
+      if (stage === 'notice') {
+        flushStreamBatch(stream);
+        ctx.pushNotice(detail?.message, detail?.tone === 'warn' ? 'warn' : 'info', { transcript: true });
+        return;
+      }
+      await applyStageChange(stream, stage, detail);
     },
     onTextDelta: (chunk) => {
       const textChunk = String(chunk ?? '');

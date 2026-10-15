@@ -425,9 +425,8 @@
   left: 6px;
   z-index: 1;
   transform: translateY(-50%);
-  /* Narrow tabs (many open) still get a usable field; it overlays the
-     neighbours while open. */
-  width: max(calc(100% - 12px), 220px);
+  /* The field stays inside its own tab; a long name scrolls within it. */
+  width: calc(100% - 12px);
   height: 24px;
   padding: 0 6px;
   box-sizing: border-box;
@@ -440,10 +439,6 @@
   font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
-}
-.workspace-tab.editing {
-  /* The tab is its own stacking context (container layout containment); lift it so the wide field covers the neighbours. */
-  z-index: 3;
 }
 .workspace-tab.editing .workspace-tab-main,
 .workspace-tab.editing .workspace-tab-close {

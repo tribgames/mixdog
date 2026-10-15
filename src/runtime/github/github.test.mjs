@@ -319,6 +319,8 @@ test('model-facing results drop API-only fields, keep decision fields, and prese
     assert.match(repoView.raw, /unavailable/);
 
     const bodies = await executeGithubTool({ action: 'pr.list', repo, limit: 2 }, cwd, {
+      sessionId: 'sess_github_raw',
+      toolCallId: 'call_bodies',
       run: async () => JSON.stringify([1, 2].map((number) => ({ number, body: 'y'.repeat(20000) }))),
     });
     const overview = JSON.parse(bodies);
@@ -326,8 +328,10 @@ test('model-facing results drop API-only fields, keep decision fields, and prese
       overview.data.map((item) => item.number),
       [1, 2]
     );
-    assert.match(overview.data[0].body, /more chars in raw\]$/);
+    assert.equal(overview.data[0].excerpt.length, 140);
+    assert.equal(overview.data[0].body, undefined);
     assert.equal(overview.omitted, undefined);
+    assert.equal(JSON.parse(await readFile(overview.raw, 'utf8'))[0].body.length, 20000);
 
     const page = Array.from({ length: 60 }, (_, index) => ({ number: index + 1, title: 't'.repeat(200) }));
     const listed = await executeGithubTool({ action: 'issue.list', repo, limit: 60 }, cwd, {
@@ -355,6 +359,104 @@ test('model-facing results drop API-only fields, keep decision fields, and prese
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
     // The session store may still be writing session-pending into the data dir.
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
+});
+
+test('list actions return compact projected rows while raw keeps the full response', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'mixdog-github-list-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  try {
+    const user = { login: 'alice', id: 1, type: 'User', avatar_url: 'a' };
+    const body = `line one\n\n  line   two ${'x'.repeat(300)}`;
+    const common = { user, body, updated_at: '2026-10-01T12:00:00Z', url: 'https://api.github.com/x', reactions: { total_count: 3 } };
+    const call = async (action, items, extra = {}, collection) => {
+      const text = await executeGithubTool({ action, repo, ...extra }, cwd, {
+        sessionId: 'sess_github_list',
+        toolCallId: `call_${action}`,
+        run: async () => JSON.stringify(collection ? { [collection]: items } : items),
+      });
+      const parsed = JSON.parse(text);
+      assert.deepEqual(JSON.parse(await readFile(parsed.raw, 'utf8')), items);
+      return parsed.data;
+    };
+
+    const [issue] = await call('issue.list', [
+      { ...common, number: 1, title: 'Bug', state: 'open', labels: [{ name: 'bug', id: 9 }], comments: 2 },
+    ]);
+    assert.deepEqual(issue, {
+      number: 1,
+      title: 'Bug',
+      state: 'open',
+      author: 'alice',
+      updated: '2026-10-01',
+      labels: ['bug'],
+      comments: 2,
+      excerpt: issue.excerpt,
+    });
+    assert.equal(issue.excerpt.length, 140);
+    assert.ok(issue.excerpt.startsWith('line one line two x'));
+    assert.ok(issue.excerpt.endsWith('…'));
+    const [bare] = await call('issue.list', [{ number: 2, title: 'T', state: 'closed', user, body: '', labels: [], comments: 0 }]);
+    assert.deepEqual(bare, { number: 2, title: 'T', state: 'closed', author: 'alice' });
+
+    const head = { ref: 'feature', sha, repo: { full_name: 'fork/project' } };
+    const base = { ref: 'main', sha, repo: { full_name: repo } };
+    const prs = await call('pr.list', [
+      { ...common, number: 3, title: 'A', state: 'closed', merged_at: '2026-10-02T00:00:00Z', head, base, draft: false, merge_commit_sha: sha },
+      { ...common, number: 4, title: 'B', state: 'closed', merged_at: null, head, base },
+      { ...common, number: 5, title: 'C', state: 'open', draft: true, head, base, labels: [{ name: 'x' }] },
+    ]);
+    assert.deepEqual(
+      prs.map((item) => [item.state, item.draft, item.head, item.base]),
+      [
+        ['merged', undefined, 'feature', 'main'],
+        ['closed', undefined, 'feature', 'main'],
+        ['open', true, 'feature', 'main'],
+      ]
+    );
+    assert.deepEqual(prs[2].labels, ['x']);
+    assert.equal(prs[0].merge_commit_sha, undefined);
+
+    assert.deepEqual(
+      await call('repo.list', [{ full_name: 'o/r', description: 'd', private: true, language: 'JS', pushed_at: '2026-09-01T00:00:00Z', id: 1 }]),
+      [{ name: 'o/r', description: 'd', visibility: 'private', language: 'JS', updated: '2026-09-01' }]
+    );
+    assert.deepEqual(
+      await call(
+        'run.list',
+        [{ id: 8, name: 'CI', display_title: 'Fix', status: 'completed', conclusion: 'failure', head_branch: 'main', event: 'push', actor: user, updated_at: '2026-10-03T00:00:00Z', head_commit: {} }],
+        {},
+        'workflow_runs'
+      ),
+      [{ id: 8, name: 'Fix', workflow: 'CI', status: 'completed', conclusion: 'failure', branch: 'main', event: 'push', actor: 'alice', updated: '2026-10-03' }]
+    );
+    assert.deepEqual(
+      await call('release.list', [{ id: 5, tag_name: 'v1', name: 'One', draft: false, prerelease: true, author: user, published_at: '2026-10-04T00:00:00Z', body }]),
+      [{ id: 5, tag: 'v1', name: 'One', prerelease: true, author: 'alice', published: '2026-10-04' }]
+    );
+    assert.deepEqual(
+      await call('notification.list', [
+        { id: '9', unread: true, reason: 'mention', updated_at: '2026-10-05T00:00:00Z', subject: { type: 'PullRequest', title: 'P', url: 'https://api.github.com/repos/o/r/pulls/12' }, repository: { full_name: 'o/r', id: 1 } },
+      ]),
+      [{ id: '9', unread: true, reason: 'mention', type: 'PullRequest', title: 'P', number: 12, repo: 'o/r', updated: '2026-10-05' }]
+    );
+    assert.deepEqual(
+      await call('workflow.list', [{ id: 3, name: 'CI', path: '.github/workflows/ci.yml', state: 'active', badge_url: 'b' }], {}, 'workflows'),
+      [{ id: 3, name: 'CI', path: '.github/workflows/ci.yml', state: 'active' }]
+    );
+
+    const view = JSON.parse(
+      await executeGithubTool({ action: 'issue.view', repo, number: 1 }, cwd, {
+        run: async () => JSON.stringify({ ...common, number: 1, title: 'Bug' }),
+      })
+    );
+    assert.equal(view.data.body, body);
+    assert.equal(view.data.author, undefined);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
     await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });

@@ -53,3 +53,33 @@ test('transcript watcher initialization waits for the first active-session sweep
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('forgetTranscripts drops only the named files\' persisted offsets', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'mixdog-transcript-forget-'));
+  const keep = path.join(root, 'keep.jsonl');
+  const drop = path.join(root, 'drop.jsonl');
+  let persisted = JSON.stringify({
+    [keep]: { bytes: 5, lineIndex: 1, generation: 0 },
+    [drop]: { bytes: 9, lineIndex: 2, generation: 0 },
+  });
+  try {
+    const ingest = createTranscriptIngest({
+      getDb: () => null,
+      loadMeta: async () => persisted,
+      persistMeta: async (value) => {
+        persisted = value;
+      },
+      projectsRoot: () => root,
+      resolveProjectId: () => null,
+    });
+    await ingest.loadTranscriptOffsets();
+
+    assert.equal(await ingest.forgetTranscripts([drop, path.join(root, 'never-seen.jsonl')]), 1);
+    assert.deepEqual(Object.keys(JSON.parse(persisted)), [keep]);
+    assert.equal(ingest.getOffset(drop), undefined);
+    assert.equal(ingest.getOffset(keep).bytes, 5);
+    assert.equal(await ingest.forgetTranscripts([drop]), 0, 'forgetting twice is a no-op');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

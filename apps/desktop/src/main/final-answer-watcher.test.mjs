@@ -19,26 +19,28 @@ function harness(t, enabled = { value: true }) {
   const delivered = [];
   const errors = [];
   const reads = [];
+  const diagnostics = [];
   const answers = {
     read: async (id) => ({ id: `done-${id}`, at: Date.now(), status: 'done', text: `Final answer ${id}` }),
   };
   const watcher = createFinalAnswerWatcher({
     isEnabled: () => enabled.value,
-    readFinalAnswer: async (id, startedAt) => {
-      reads.push({ id, startedAt });
-      return answers.read(id, startedAt);
+    readFinalAnswer: async (id, startedAt, signal) => {
+      reads.push({ id, startedAt, signal });
+      return answers.read(id, startedAt, signal);
     },
     onFinalAnswer: (completion) => delivered.push(completion),
     onError: (detail) => errors.push(detail),
+    onDiagnostic: (event, details) => diagnostics.push([event, details.sessionId, details.reason]),
   });
   t.after(() => watcher.dispose());
+  // Drains every pending microtask (setImmediate is not mocked).
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
   const tick = async (ms) => {
     t.mock.timers.tick(ms);
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await flush();
   };
-  return { watcher, delivered, answers, reads, errors, tick };
+  return { watcher, delivered, answers, reads, errors, diagnostics, tick };
 }
 
 test('a Lead that finished its own turn is announced at once, with the completed turn answer', async (t) => {
@@ -196,4 +198,140 @@ test('a read failure is reported and the exact answer can arrive later', async (
   answers.read = async () => ({ id: 'final', at: Date.now(), status: 'done', text: 'Recovered final reply' });
   await tick(2_500);
   assert.equal(delivered[0].preview, 'Recovered final reply');
+});
+
+test('a session whose record is gone is cancelled after one read instead of re-read forever', async (t) => {
+  const { watcher, delivered, answers, reads, errors, diagnostics, tick } = harness(t);
+  // The relayed service message and the desktop host's own wording.
+  answers.read = async (id) => {
+    throw new Error(id === 'a' ? 'session a is not available' : 'Error invoking remote method: Session is not available.');
+  };
+  watcher.onSessions([session('a', { working: true }), session('b', { working: true })]);
+  // The catalog rows outlive the deleted records.
+  for (let i = 0; i < 20; i++) {
+    watcher.onSessions([session('a'), session('b')]);
+    await tick(30_000);
+  }
+  assert.deepEqual(
+    reads.map((read) => read.id),
+    ['a', 'b']
+  );
+  assert.deepEqual(errors, []);
+  assert.deepEqual(delivered, []);
+  assert.deepEqual(
+    diagnostics.filter(([event]) => event === 'cancelled'),
+    [
+      ['cancelled', 'a', 'session-missing'],
+      ['cancelled', 'b', 'session-missing'],
+    ]
+  );
+});
+
+test('a session reported missing by error code is terminal whatever the message says', async (t) => {
+  const { watcher, answers, reads, errors, diagnostics, tick } = harness(t);
+  answers.read = async () => {
+    throw Object.assign(new Error('read failed'), { code: 'SESSION_NOT_AVAILABLE' });
+  };
+  watcher.onSessions([session('a', { working: true })]);
+  watcher.onSessions([session('a')]);
+  await tick(30_000);
+  assert.equal(reads.length, 1);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(
+    diagnostics.filter(([event]) => event === 'cancelled'),
+    [['cancelled', 'a', 'session-missing']]
+  );
+});
+
+test('the read gets an abort signal that fires when it overruns its deadline', async (t) => {
+  const { watcher, answers, reads, errors, tick } = harness(t);
+  answers.read = (id, startedAt, signal) =>
+    new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason));
+    });
+  watcher.onSessions([session('a', { working: true })]);
+  watcher.onSessions([session('a')]);
+  await tick(300);
+  assert.equal(reads.length, 1);
+  assert.ok(reads[0].signal instanceof AbortSignal);
+  await tick(29_999);
+  assert.equal(reads[0].signal.aborted, false);
+  await tick(1);
+  assert.equal(reads[0].signal.aborted, true);
+  assert.match(errors[0], /timed out/);
+});
+
+test('a hung read is aborted after the deadline, counts as a transient failure and frees the slot', async (t) => {
+  const { watcher, delivered, answers, reads, errors, tick } = harness(t);
+  // The hung read ignores the signal entirely: the slot must still be released.
+  answers.read = (id) =>
+    id === 'a'
+      ? new Promise(() => {})
+      : Promise.resolve({ id: 'done-b', at: Date.now(), status: 'done', text: 'Final answer b' });
+  watcher.onSessions([session('a', { working: true }), session('b', { working: true })]);
+  watcher.onSessions([session('a'), session('b')]);
+  await tick(300);
+  await tick(29_000);
+  assert.deepEqual(
+    reads.map((read) => read.id),
+    ['a'],
+    'b waits behind the stuck read until the deadline'
+  );
+  assert.deepEqual(delivered, []);
+  await tick(1_000);
+  assert.equal(reads[0].signal.aborted, true);
+  assert.deepEqual(
+    delivered.map((row) => row.sessionId),
+    ['b']
+  );
+  assert.equal(errors.length, 1);
+  // The aborted read is retried under the ordinary backoff (2.5 s).
+  answers.read = async (id) => ({ id: `done-${id}`, at: Date.now(), status: 'done', text: `Final answer ${id}` });
+  await tick(2_500);
+  assert.deepEqual(delivered.map((row) => row.sessionId).sort(), ['a', 'b']);
+});
+
+test('transient read failures back off and are abandoned after a bounded number of tries', async (t) => {
+  const { watcher, delivered, answers, reads, errors, tick } = harness(t);
+  answers.read = async () => {
+    throw new Error('temporarily disconnected');
+  };
+  watcher.onSessions([session('a', { working: true })]);
+  watcher.onSessions([session('a')]);
+  const readAt = [];
+  for (let elapsed = 0; elapsed <= 600_000; elapsed += 100) {
+    const before = reads.length;
+    await tick(100);
+    if (reads.length > before) readAt.push(elapsed + 100);
+  }
+  // 300 ms settle, then 2.5 s doubling: 2.5, 5, 10, 20, 40 s.
+  assert.deepEqual(readAt, [300, 2_800, 7_800, 17_800, 37_800, 77_800]);
+  assert.equal(errors.length, 6);
+  assert.deepEqual(delivered, []);
+});
+
+test('only one answer read is in flight at a time across sessions', async (t) => {
+  const { watcher, delivered, answers, reads, tick } = harness(t);
+  const resolvers = [];
+  answers.read = (id) =>
+    new Promise((resolve) => {
+      resolvers.push(() => resolve({ id, at: Date.now(), status: 'done', text: `Final answer ${id}` }));
+    });
+  watcher.onSessions([session('a', { working: true }), session('b', { working: true })]);
+  watcher.onSessions([session('a'), session('b')]);
+  await tick(300);
+  await tick(5_000);
+  assert.deepEqual(
+    reads.map((read) => read.id),
+    ['a']
+  );
+  resolvers.shift()();
+  await tick(0);
+  assert.deepEqual(
+    reads.map((read) => read.id),
+    ['a', 'b']
+  );
+  resolvers.shift()();
+  await tick(0);
+  assert.deepEqual(delivered.map((row) => row.sessionId).sort(), ['a', 'b']);
 });

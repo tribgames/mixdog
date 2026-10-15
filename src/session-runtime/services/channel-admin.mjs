@@ -26,6 +26,8 @@ import { normalizeAutomationAttachments } from '../../runtime/shared/automation-
 import { migrateCodexModelRef } from '../../runtime/agent/orchestrator/providers/openai-oauth-catalog-store.mjs';
 import { hasEnabledAutomation } from '../../runtime/shared/automation-presence.mjs';
 import { resolveScheduleTimezone, validateScheduleCron } from '../../runtime/shared/schedule-time.mjs';
+import { pgClusterExists } from '../../runtime/memory/lib/pg/adapter.mjs';
+import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 import { readHookPublicBase } from '../../runtime/channels/lib/webhook/relay-tunnel.mjs';
 import { WEBHOOK_TEST_FIELD, WEBHOOK_TEST_HEADER } from '../../runtime/channels/lib/webhook/request-handler.mjs';
 
@@ -463,8 +465,18 @@ export async function testWebhook(name) {
 // and webhooks run sessions, so they must not require Discord/Telegram
 // tokens or an explicit remote toggle.
 async function checkActiveAutomation() {
-  const [schedules, webhooks] = await Promise.all([listSchedules(), listWebhooks()]);
+  const { schedules, webhooks } = await readAutomationRows();
   return hasEnabledAutomation({ schedules, webhooks });
+}
+
+// Read-only views (channel setup, the automation probe) never bring
+// PostgreSQL up for the first time: before initdb ran no schedule or webhook
+// can exist, and that first start — runtime download/extract plus initdb — is
+// seconds of work no catalog read should wait on. Writes still start it.
+async function readAutomationRows() {
+  if (!pgClusterExists(resolvePluginData())) return { schedules: [], webhooks: [] };
+  const [schedules, webhooks] = await Promise.all([listSchedules(), listWebhooks()]);
+  return { schedules, webhooks };
 }
 
 // Every session runtime in the process asks this at boot. Concurrent callers
@@ -519,8 +531,12 @@ export function hasActiveAutomation() {
   return automationProbe.probe();
 }
 
+// The daemon opens both stores in the background once ready (it settles
+// hasActiveAutomation), so on an existing cluster this read joins a
+// PostgreSQL start already under way instead of being the one that starts it.
 export async function channelSetup(config = null) {
   const cfg = normalizeChannelsConfig(config || readSection('channels'));
+  const { schedules, webhooks } = await readAutomationRows();
   return {
     webhook: {
       ...(cfg.webhook || {}),
@@ -528,7 +544,7 @@ export async function channelSetup(config = null) {
       // connects and mints its hook identity).
       publicUrl: readHookPublicBase(),
     },
-    schedules: await listSchedules(),
-    webhooks: await listWebhooks(),
+    schedules,
+    webhooks,
   };
 }

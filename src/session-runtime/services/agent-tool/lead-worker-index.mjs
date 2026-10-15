@@ -15,10 +15,12 @@ import { ACTIVE_LEAD_STATUS, isActiveLeadRow } from './lead-worker-index/lead-ro
 import { createLeadIndexFile } from './lead-worker-index/index-file.mjs';
 import { createRowSettlement } from './lead-worker-index/row-settlement.mjs';
 import { createLeadReapTimers } from './lead-worker-index/reap-timers.mjs';
+import { createForgottenLeads } from './lead-worker-index/forgotten-leads.mjs';
 
 export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession }) {
   const activeLeadSessions = new Set();
   const index = createLeadIndexFile({ dataDir });
+  const forgotten = createForgottenLeads(dataDir);
   const settlement = createRowSettlement({ dataDir, cfgMod });
   const reaps = createLeadReapTimers({ removeRow: (sessionId, reapAt) => removeLeadWorkerRow(sessionId, reapAt) });
 
@@ -36,8 +38,25 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
     return true;
   }
 
+  /** A deleted Lead leaves the pool now, running or not, and never returns. A
+   *  turn still unwinding after the delete settles by upserting its idle row —
+   *  possibly through another index instance of this process — so the guard is
+   *  process-wide (forgotten-leads.mjs). */
+  function forgetLeadSession(sessionId) {
+    const id = clean(sessionId);
+    if (!id) return false;
+    forgotten.forget(id);
+    reaps.cancel(id);
+    activeLeadSessions.delete(id);
+    index.write((byKey) => {
+      byKey.delete(id);
+    });
+    return true;
+  }
+
   function upsertLeadSession(session, extra = {}) {
     if (!session?.id || typeof workerRowFromSession !== 'function') return false;
+    if (forgotten.isForgotten(session.id)) return false;
     const owner = clean(session.owner).toLowerCase();
     const agent = clean(session.agent).toLowerCase();
     if (owner === 'agent' || (agent && agent !== 'lead')) return false;
@@ -61,7 +80,15 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
       runtimePid: process.pid,
       reapAt: reapMs == null ? null : new Date(now + reapMs).toISOString(),
     };
-    index.write((byKey) => byKey.set(session.id, normalized));
+    // Re-run against the locked fresh document at persist time: a delete that
+    // lands (here or in another instance) between this call and the write must
+    // still win over the queued row.
+    index.write(
+      (byKey) => {
+        if (!forgotten.isForgotten(session.id)) byKey.set(session.id, normalized);
+      },
+      { rerun: true }
+    );
     if (ACTIVE_LEAD_STATUS.test(status) || ACTIVE_LEAD_STATUS.test(stage)) {
       activeLeadSessions.add(session.id);
       reaps.cancel(session.id);
@@ -95,6 +122,7 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
     const now = Date.now();
     index.write((byKey) => {
       for (const id of ids) {
+        if (forgotten.isForgotten(id)) continue;
         const current = byKey.get(id);
         if (!current || !isActiveLeadRow(current)) continue;
         byKey.set(id, settlement.idleLeadRow(current, now, true));
@@ -200,6 +228,7 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
     upsertLeadSession,
     updateLeadWorkerCwd,
     removeLeadWorkerRow,
+    forgetLeadSession,
     flushActiveLeadRows,
     recoverStaleLeadRows,
   };

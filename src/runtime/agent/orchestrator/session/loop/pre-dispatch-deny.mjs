@@ -15,6 +15,7 @@ import { isAgentOwner } from '../../agent-owner.mjs';
 import { isOffReadonlySurface } from './deferred-call-through.mjs';
 import { BRIDGE_CALL_TOOL_NAME, bridgeErrorText, isToolBridgeEnabled } from '../../runtime-core/tool-bridge.mjs';
 import { sessionAllowlistExcludes, sessionDisallows } from '../../runtime-core/deferred-tool-availability.mjs';
+import { providerToolExclusionReason } from './provider-tool-exclusions.mjs';
 
 const WORKER_DENIED_TOOLS = new Set(['agent', 'ask_user', 'session']);
 const BRIDGE_DISCOVERY_TOOL_NAMES = new Set(['load_tool']);
@@ -105,6 +106,10 @@ export function preDispatchDenyForSession(sessionRef, call) {
     return bridgeErrorText('BRIDGE_RECURSION', 'call_tool runs one tool named in its arguments and cannot be dispatched itself.');
   }
   const schemaName = String(call?.schemaName || name);
+  // A tool the provider left out of this request still exists in the session;
+  // a call to it is answered with why it is unavailable.
+  const excluded = providerToolExclusionReason(sessionRef, schemaName);
+  if (excluded) return `Error: ${excluded}`;
   // The bridge's discovery tools grant no authority (every call_tool target
   // is judged here under its own name), so an allowlist never strands them.
   const bridgeDiscovery = isToolBridgeEnabled(sessionRef) && BRIDGE_DISCOVERY_TOOL_NAMES.has(schemaName);

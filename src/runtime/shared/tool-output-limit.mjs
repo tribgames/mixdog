@@ -22,6 +22,10 @@ export const RECALL_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_RECALL_OUTPUT_MAX_
 // github results after field reduction; the full response stays in a raw
 // artifact. Provisional: reduced pr.list/run.list pages measured ~2k tokens.
 export const GITHUB_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_GITHUB_OUTPUT_MAX_BYTES', 10 * 1024);
+// setup results are compact JSON (a provider index, a 25-row model page, minimal
+// status rows). The same figure is the setup inline-offload threshold, so one
+// result can no longer sit just under the 50KB default (a 34-model catalog did).
+export const SETUP_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_SETUP_OUTPUT_MAX_BYTES', 20 * 1024);
 
 function _prefixByBytes(value, maxBytes) {
   const text = String(value || '');

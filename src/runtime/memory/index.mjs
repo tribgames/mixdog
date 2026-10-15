@@ -532,6 +532,7 @@ const _httpRouter = createHttpRouter({
     _traceDb = v;
   },
   ingestTranscriptFile,
+  forgetTranscripts: _transcriptIngest.forgetTranscripts,
   getTranscriptOffset: (fp) => _transcriptIngest.getOffset(fp),
   parseTsToMs,
   refreshCoreMemoryFile: refreshCoreMemorySnapshot,

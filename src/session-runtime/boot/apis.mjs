@@ -569,8 +569,8 @@ function workspaceApiFor(boot) {
     createCurrentSession: (reason) => boot.createCurrentSession(reason),
     applyResolvedCwd: (cwd, options) => boot.applyResolvedCwd(cwd, options),
     persistSession: (session) => saveSession(session, { immediate: true }),
-    refreshWorkspaceContext: (session, cwd) =>
-      refreshWorkspacePrompt(session, cwd, { loadCoreMemoryContext: boot.loadCoreMemoryContext }),
+    refreshWorkspaceContext: (session, cwd, move) =>
+      refreshWorkspacePrompt(session, cwd, { loadCoreMemoryContext: boot.loadCoreMemoryContext, move }),
     invalidateCaches: () => {
       boot.invalidateContextStatusCache();
       boot.invalidatePreSessionToolSurface();

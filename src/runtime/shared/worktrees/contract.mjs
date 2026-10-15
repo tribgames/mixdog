@@ -30,6 +30,7 @@ export const WORKTREE_ERROR_CODES = Object.freeze({
   WORKTREE_DISK_INSUFFICIENT: 'WORKTREE_DISK_INSUFFICIENT',
   WORKTREE_LARGE_REPO_CONFIRM: 'WORKTREE_LARGE_REPO_CONFIRM',
   WORKTREE_DIRTY: 'WORKTREE_DIRTY',
+  WORKTREE_DIRTY_CHOICE: 'WORKTREE_DIRTY_CHOICE',
   WORKTREE_UNMERGED: 'WORKTREE_UNMERGED',
   WORKTREE_MISSING: 'WORKTREE_MISSING',
   WORKTREE_UNSUPPORTED_REPO: 'WORKTREE_UNSUPPORTED_REPO',
@@ -55,6 +56,8 @@ const DEFAULT_ERROR_MESSAGES = Object.freeze({
   WORKTREE_DISK_INSUFFICIENT: 'Not enough free disk space to create the worktree.',
   WORKTREE_LARGE_REPO_CONFIRM: 'The repository is large; confirm before creating a worktree.',
   WORKTREE_DIRTY: 'The worktree has uncommitted changes.',
+  WORKTREE_DIRTY_CHOICE:
+    'The project folder has uncommitted changes; choose whether to leave them there or carry them into the worktree.',
   WORKTREE_UNMERGED: 'The worktree branch has commits that are not merged.',
   WORKTREE_MISSING: 'The managed worktree no longer exists.',
   WORKTREE_UNSUPPORTED_REPO: 'This repository does not support managed worktrees.',
@@ -506,6 +509,35 @@ export function runRootReleasers(root, ctx) {
  *   `create: true` first creates `branch` from the project folder's current branch;
  *   `worktree`: run in this Lead's retained worktree, creating it (optionally named) on first use;
  *   `remove-worktree`: delete the retained worktree after dirty/unmerged checks.
+ */
+
+/**
+ * What happens to the project folder's uncommitted changes (tracked and
+ * untracked, ignored files excluded) when a session moves into a new
+ * worktree: `leave` keeps them in the project folder (the worktree starts at
+ * its HEAD); `carry` moves them into the worktree.
+ * @typedef {'leave'|'carry'} WorktreeCarryChoice
+ */
+export const WORKTREE_CARRY_CHOICES = Object.freeze(['leave', 'carry']);
+
+/**
+ * requestWorktree input.
+ * @typedef {object} RequestWorktreeInput
+ * @property {string|null} [name]
+ * @property {number} [expectedRevision]
+ * @property {boolean} [confirmLarge] Acknowledges WORKTREE_LARGE_REPO_CONFIRM.
+ * @property {boolean} [provision] Create and enter the worktree now (the session moves) instead of at the next send.
+ * @property {WorktreeCarryChoice} [carryChanges] Answers WORKTREE_DIRTY_CHOICE (`details: { count, paths }`,
+ *   `paths` capped to a preview), which a provisioning request without it raises while the project checkout has
+ *   uncommitted changes. Scope is the whole repository checkout; ignored files (dependencies, build output, env
+ *   files) are never carried and stay in the project folder.
+ */
+
+/**
+ * mergeWorkspace's `cleanup` after a successful merge: `removed: false` keeps
+ * the worktree and reports why (`code` of the refusal, e.g. WORKTREE_DIRTY,
+ * WORKTREE_UNMERGED, WORKTREE_REMOVAL_INCOMPLETE); the merge stands.
+ * @typedef {{ removed: boolean, code?: string, message?: string }} MergeCleanupResult
  */
 
 /**

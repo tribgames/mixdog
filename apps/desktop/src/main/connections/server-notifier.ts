@@ -22,7 +22,7 @@ export interface ServerNotifierSources {
   subscribeAgentPool(listener: (agents: DesktopAgentPoolRow[]) => void): () => void;
   subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void;
   subscribeLink(listener: (view: DesktopConnectionLinkView) => void): () => void;
-  readFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null>;
+  readFinalAnswer(sessionId: string, startedAt: number, signal?: AbortSignal): Promise<SessionFinalAnswer | null>;
 }
 
 export interface ServerNotifierOptions {

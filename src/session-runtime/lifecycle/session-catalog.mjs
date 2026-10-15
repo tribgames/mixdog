@@ -58,7 +58,7 @@ function previewOf(s) {
   return { preview, messageCount, realTurnCount };
 }
 
-function leadSessionRow(s, heartbeatMtimes) {
+export function leadSessionRow(s, heartbeatMtimes) {
   // Durable visibility is the catalog boundary. Apply it before the legacy
   // lead-shape heuristics so an explicitly agent-only child cannot leak just
   // because its owner field looks ordinary.

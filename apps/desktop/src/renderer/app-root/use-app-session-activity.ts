@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { navigationKey } from '../text-format';
 import { sessionSummaryTitle } from '../../shared/session-title.mjs';
 import type { useAppSessionActions } from '../use-app-session-actions';
 import { isMobileRemoteSurface } from '../mobile-surface';
@@ -11,6 +12,8 @@ type SessionActivityOptions = Pick<
   'sessions' | 'setTabs' | 'refreshSessions'
 > & {
   setSessionCatalogReady: (ready: boolean) => void;
+  subscribeSessionsRemoved: (listener: (sessionIds: string[]) => void) => () => void;
+  closePaneTab: (key: string) => void;
 };
 
 export function useAppSessionActivity({
@@ -18,6 +21,8 @@ export function useAppSessionActivity({
   setTabs,
   refreshSessions,
   setSessionCatalogReady,
+  subscribeSessionsRemoved,
+  closePaneTab,
 }: SessionActivityOptions) {
   // Re-evaluate unread consumption when a desktop window or phone resumes.
   const [windowFocusTick, setWindowFocusTick] = useState(0);
@@ -68,6 +73,23 @@ export function useAppSessionActivity({
       return changed ? next : current;
     });
   }, [sessions, setTabs]);
+  // A non-empty host catalog (listing or push) dropped sessions the previous
+  // catalog held: they were deleted elsewhere (IPC, another window, the phone,
+  // a sweep), so their tabs close. Cache seeds, optimistic edits, empty lists
+  // and transport errors never reach this subscription, and a tab for a
+  // session that was never listed (new draft, agent worker) is untouched.
+  useEffect(
+    () =>
+      subscribeSessionsRemoved((removedIds) => {
+        const gone = new Set(removedIds);
+        setTabs((current) => {
+          const next = current.filter((tab) => !(tab.selection.kind === 'session' && gone.has(tab.selection.id)));
+          return next.length === current.length ? current : next;
+        });
+        for (const id of gone) closePaneTab(navigationKey({ kind: 'session', id }));
+      }),
+    [subscribeSessionsRemoved, setTabs, closePaneTab]
+  );
   useEffect(() => {
     let live = true;
     // Child pane effects commit first, keeping visible reads ahead of this

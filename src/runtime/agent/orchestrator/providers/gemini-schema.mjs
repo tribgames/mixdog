@@ -11,6 +11,8 @@ import {
   geminiPartMetadata,
 } from './media-normalization.mjs';
 import { providerReplayItems } from './lib/provider-replay.mjs';
+import { claudeBridgeInputSchema, reportInvalidClaudeTool } from './lib/claude-bridge-schema.mjs';
+import { actionInputUnionFor } from './lib/action-input-contract.mjs';
 import { isGeminiFamilyModel } from './gemini-family.mjs';
 import { ensureGeminiToolCallSignatures } from './gemini-history-signatures.mjs';
 
@@ -522,28 +524,6 @@ function needsJsonParameters(schema) {
   return !legacyRepresentable(schema, true);
 }
 
-// The pre-representability selection, kept verbatim for the Claude models
-// behind Antigravity, whose bridge contract is unverified: their declarations
-// must stay byte-identical.
-function needsJsonParametersClaude(schema) {
-  if (typeof schema === 'boolean') return true;
-  if (!schema || typeof schema !== 'object') return false;
-  if (['$ref', '$defs', 'definitions'].some((key) => Object.hasOwn(schema, key))) return true;
-  const constraints = Object.keys(schema).filter(
-    (key) => !['description', 'title', 'default', 'examples', '$comment'].includes(key)
-  );
-  if (!constraints.length || (schema.type === 'array' && !schema.items)) return true;
-  const children = [
-    ...Object.values(schema.properties || {}),
-    ...(schema.items ? [schema.items] : []),
-    ...(typeof schema.additionalProperties === 'object' ? [schema.additionalProperties] : []),
-    ...(schema.anyOf || []),
-    ...(schema.oneOf || []),
-    ...(schema.allOf || []),
-  ];
-  return children.some(needsJsonParametersClaude);
-}
-
 const LEGACY_JSON_TYPES =new Set(['string', 'number', 'integer', 'boolean', 'array', 'object']);
 // Annotation-only keywords: dropping them never widens the accepted arguments.
 const ANNOTATION_KEYS = new Set(['$schema', '$id', '$comment', 'examples']);
@@ -620,19 +600,76 @@ function legacyRepresentable(input, root = false) {
   return true;
 }
 
-// `claudeBridge: true` keeps the historical parameters/parametersJsonSchema
-// choice for the Claude models behind Antigravity.
-export function toGeminiTools(tools, { claudeBridge = false } = {}) {
-  const needsJson = claudeBridge ? needsJsonParametersClaude : needsJsonParameters;
-  return {
-    functionDeclarations: tools.map((t) => ({
-      name: t.name,
-      description: t.description,
-      ...(needsJson(t.inputSchema)
-        ? { parametersJsonSchema: structuredClone(t.inputSchema) }
-        : { parameters: convertSchema(t.inputSchema) }),
-    })),
-  };
+// Keywords the Gemini endpoints reject or ignore on parametersJsonSchema:
+// vendor extensions (`x-*`) and annotation-only keywords. None of them
+// constrains the accepted arguments, so dropping them keeps the semantics.
+const NON_STANDARD_SCHEMA_KEYS = new Set(['$schema', '$comment', 'deprecated', 'examples']);
+const isNonStandardSchemaKey = (key) => NON_STANDARD_SCHEMA_KEYS.has(key) || key.startsWith('x-');
+// Keys whose value maps names to subschemas (names are data, never stripped),
+// a single subschema, or a list of subschemas.
+const JSON_SCHEMA_MAP_KEYS = ['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas'];
+const JSON_SCHEMA_NODE_KEYS = [
+  'items',
+  'additionalItems',
+  'additionalProperties',
+  'unevaluatedItems',
+  'unevaluatedProperties',
+  'contains',
+  'propertyNames',
+  'not',
+  'if',
+  'then',
+  'else',
+];
+const JSON_SCHEMA_LIST_KEYS = ['prefixItems', 'allOf', 'anyOf', 'oneOf'];
+
+function stripNonStandardSchemaKeys(schema) {
+  if (Array.isArray(schema)) return schema.map(stripNonStandardSchemaKeys);
+  if (!schema || typeof schema !== 'object') return schema;
+  const out = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (isNonStandardSchemaKey(key)) continue;
+    if (JSON_SCHEMA_MAP_KEYS.includes(key) && value && typeof value === 'object' && !Array.isArray(value)) {
+      const children = {};
+      for (const [name, child] of Object.entries(value)) {
+        defineSchemaProperty(children, name, stripNonStandardSchemaKeys(child));
+      }
+      out[key] = children;
+    } else if (JSON_SCHEMA_NODE_KEYS.includes(key) || JSON_SCHEMA_LIST_KEYS.includes(key)) {
+      out[key] = stripNonStandardSchemaKeys(value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+// `claudeBridge: true` (Claude models behind Antigravity) always encodes the
+// schema as `parametersJsonSchema`: the bridge hands it to Anthropic as a
+// draft 2020-12 input_schema, and the legacy `parameters` projection
+// (convertSchema) rewrites type arrays, numeric enums and nullable unions.
+// A tool whose schema is invalid for Anthropic is left out and reported
+// (`onToolExcluded`, default console.warn); the other tools are unaffected.
+export function toGeminiTools(tools, { claudeBridge = false, onToolExcluded } = {}) {
+  const functionDeclarations = [];
+  tools.forEach((t, index) => {
+    const declaration = { name: t.name, description: t.description };
+    if (claudeBridge) {
+      // The bridge accepts nested per-action input alternatives.
+      const result = claudeBridgeInputSchema(actionInputUnionFor(t.inputSchema));
+      if (!result.schema) {
+        reportInvalidClaudeTool(t.name, index, result, onToolExcluded);
+        return;
+      }
+      declaration.parametersJsonSchema = result.schema;
+    } else if (needsJsonParameters(t.inputSchema)) {
+      declaration.parametersJsonSchema = stripNonStandardSchemaKeys(structuredClone(t.inputSchema));
+    } else {
+      declaration.parameters = convertSchema(t.inputSchema);
+    }
+    functionDeclarations.push(declaration);
+  });
+  return { functionDeclarations };
 }
 
 export function toGeminiNativeTools(nativeTools) {
@@ -652,7 +689,9 @@ export function toGeminiNativeTools(nativeTools) {
 // The request `tools` array: hosted tools first, then one function-declaration
 // entry when function tools are present. Empty when neither is present.
 export function toGeminiRequestTools(tools, nativeTools, options) {
-  const functionTools = tools?.length ? [toGeminiTools(tools, options)] : [];
+  const declarations = tools?.length ? toGeminiTools(tools, options) : null;
+  // Every function tool may have been left out as invalid for the provider.
+  const functionTools = declarations?.functionDeclarations.length ? [declarations] : [];
   return [...toGeminiNativeTools(nativeTools), ...functionTools];
 }
 
@@ -720,11 +759,23 @@ function supportsFunctionResponseParts(model) {
 const isNestableMedia = (part) =>
   part?.inlineData && Object.keys(part).length === 1 && Object.keys(part.inlineData).length === 2;
 
-function toGeminiToolResult(message, toolNameByCallId, nestMedia) {
+// A failed result travels under `error`, the key Gemini's function-calling
+// contract reserves for failures; a successful one keeps `result`.
+const isFailedToolResult = (message) => message.toolKind === 'error' || message.isError === true;
+
+// `callsByFinalId` maps a tool result's id to the functionCall the request
+// replays for it. The response must name exactly the id that call carries:
+// the id the transcript settled on (possibly renamed `-2`) can differ from the
+// recorded part, and a recorded Gemini part may carry no id at all, in which
+// case the response carries none either. An unmatched result keeps its own id.
+function toGeminiToolResult(message, toolNameByCallId, nestMedia, callsByFinalId) {
   const functionName = toolNameByCallId?.get(message.toolCallId) || message.toolCallId || '';
-  const { response, mediaParts } = splitGeminiToolContent(message.content);
+  const { response: rawResponse, mediaParts } = splitGeminiToolContent(message.content);
+  const response = isFailedToolResult(message) && 'result' in rawResponse ? { error: rawResponse.result } : rawResponse;
   const functionResponse = { name: functionName, response };
-  if (typeof message.toolCallId === 'string' && message.toolCallId) functionResponse.id = message.toolCallId;
+  const replayedCall = callsByFinalId?.get(message.toolCallId);
+  const responseId = replayedCall ? replayedCall.id : message.toolCallId;
+  if (typeof responseId === 'string' && responseId) functionResponse.id = responseId;
   if (!nestMedia) return { functionResponsePart: { functionResponse }, mediaParts };
   const nested = mediaParts.filter(isNestableMedia);
   if (nested.length) functionResponse.parts = nested;
@@ -845,11 +896,32 @@ export function toGeminiContents(messages, model = '', { repairToolSignatures = 
   // Map synthetic toolCallId -> function name from prior assistant
   // tool_calls so each functionResponse part carries the real function name.
   const toolNameByCallId = new Map();
+  // Final call id -> the functionCall the request replays for it. Replayed
+  // assistant turns are the raw recorded parts, so a generated or renamed id
+  // never appears on them. Claude/GPT-OSS routes need the pair to share the
+  // final id, so it is stamped on the part; a Gemini part keeps exactly what
+  // the server sent (possibly no id) and the response follows it.
+  const callsByFinalId = new Map();
+  const assistantContent = new Map();
+  const stampFinalIds = !!model && !isGeminiFamilyModel(model);
   for (const m of messages) {
     if (m?.role === 'assistant' && Array.isArray(m.toolCalls)) {
       for (const tc of m.toolCalls) {
         if (tc?.id && tc?.name) toolNameByCallId.set(tc.id, tc.name);
       }
+      const content = toGeminiContent(m);
+      assistantContent.set(m, content);
+      const replayed = (content?.parts || []).filter((part) => part?.functionCall);
+      m.toolCalls.forEach((tc, index) => {
+        if (!tc?.id) return;
+        // Positional when the turn replays one call per tool call (the id may
+        // be renamed, and a bridged call_tool keeps its wire name and id);
+        // otherwise only a part already carrying the id can be matched.
+        const part = replayed.length === m.toolCalls.length ? replayed[index] : replayed.find((p) => p.functionCall.id === tc.id);
+        if (!part) return;
+        if (stampFinalIds) part.functionCall.id = tc.id;
+        callsByFinalId.set(tc.id, part.functionCall);
+      });
     }
   }
   // Consecutive tool results share one user turn: every functionResponse part
@@ -859,7 +931,12 @@ export function toGeminiContents(messages, model = '', { repairToolSignatures = 
   const nestMedia = supportsFunctionResponseParts(model);
   for (const message of messages) {
     if (message?.role === 'tool') {
-      const { functionResponsePart, mediaParts } = toGeminiToolResult(message, toolNameByCallId, nestMedia);
+      const { functionResponsePart, mediaParts } = toGeminiToolResult(
+        message,
+        toolNameByCallId,
+        nestMedia,
+        callsByFinalId
+      );
       if (!toolTurn) {
         toolTurn = { content: { role: 'user', parts: [] }, responseCount: 0 };
         contents.push(toolTurn.content);
@@ -870,7 +947,7 @@ export function toGeminiContents(messages, model = '', { repairToolSignatures = 
       continue;
     }
     toolTurn = null;
-    const content = toGeminiContent(message);
+    const content = assistantContent.has(message) ? assistantContent.get(message) : toGeminiContent(message);
     if (content) contents.push(content);
   }
   return repairToolSignatures ? ensureGeminiToolCallSignatures(contents, model) : contents;

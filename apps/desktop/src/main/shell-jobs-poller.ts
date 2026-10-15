@@ -126,12 +126,20 @@ export function createShellJobsPoller({ getEngineState, loadModule, onChange }: 
   // Bumped on every start/stop so a late poll can tell it is stale.
   let generation = 0;
 
+  /** Running shells across the owner aggregate and every session bucket: a
+   *  desktop pane's shell is published by a shard, so the aggregate alone is 0. */
+  function runningCount(): number {
+    let total = status.count;
+    for (const bucket of sessions.values()) total += bucket.count;
+    return total;
+  }
+
   function schedule(immediate = false): void {
     if (!running || inFlight) return;
     const state = getEngineState();
     if (!state) return;
     if (timer) clearTimeout(timer);
-    delayMs = shellJobsPollDelay(state, status.count);
+    delayMs = shellJobsPollDelay(state, runningCount());
     timer = setTimeout(
       () => {
         timer = null;
@@ -178,7 +186,15 @@ export function createShellJobsPoller({ getEngineState, loadModule, onChange }: 
         rerun = true;
         return;
       }
-      const value = module.shellJobsStatus({ clientHostPid: ownerPid });
+      // Awaited fresh scan: the cache-only read answers one interval late.
+      const value = module.shellJobsStatusFresh
+        ? await module.shellJobsStatusFresh({ clientHostPid: ownerPid })
+        : module.shellJobsStatus({ clientHostPid: ownerPid });
+      if (myGeneration !== generation) return;
+      if (currentOwnerPid() !== ownerPid) {
+        rerun = true;
+        return;
+      }
       const next = normalizedStatus(value);
       const nextSessions = normalizedSessions(value?.sessions);
       const moved = movedSessionIds(sessions, nextSessions);
@@ -235,7 +251,7 @@ export function createShellJobsPoller({ getEngineState, loadModule, onChange }: 
       }
       const state = getEngineState();
       if (!state) return;
-      const desired = shellJobsPollDelay(state, status.count);
+      const desired = shellJobsPollDelay(state, runningCount());
       if (!timer || desired < delayMs) schedule(true);
     },
   };

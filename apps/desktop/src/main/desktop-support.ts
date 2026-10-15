@@ -47,21 +47,27 @@ export interface MixdogWorktreesModule {
   registerRootReleaser?(name: string, releaser: (root: string) => unknown): () => void;
 }
 
+export interface StatuslineShellJobsStatus {
+  count?: number;
+  elapsedLabel?: string;
+  jobs?: DesktopShellJobRow[];
+  /** Per-session buckets (omitted by older runtimes). */
+  sessions?: Record<
+    string,
+    {
+      count?: number;
+      elapsedLabel?: string;
+      jobs?: DesktopShellJobRow[];
+      finished?: DesktopShellJobRow[];
+    }
+  >;
+}
+
 export interface StatuslineSegmentsModule {
-  shellJobsStatus(options?: { clientHostPid?: number; sessionId?: string }): {
-    count?: number;
-    elapsedLabel?: string;
-    jobs?: DesktopShellJobRow[];
-    /** Per-session buckets (omitted by older runtimes). */
-    sessions?: Record<
-      string,
-      {
-        count?: number;
-        elapsedLabel?: string;
-        jobs?: DesktopShellJobRow[];
-      }
-    >;
-  };
+  /** Cache-only: answers from the previous scan and kicks the next one. */
+  shellJobsStatus(options?: { clientHostPid?: number; sessionId?: string }): StatuslineShellJobsStatus;
+  /** Awaited fresh scan (omitted by older runtimes, which fall back to the cache read). */
+  shellJobsStatusFresh?(options?: { clientHostPid?: number }): Promise<StatuslineShellJobsStatus>;
 }
 
 export interface MixdogSessionSearchModule {

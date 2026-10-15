@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import fsp from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -120,4 +122,199 @@ test('a completed shell job remains owner-scoped and recoverable after memory lo
     else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ── foreground retire vs. background promote ────────────────────────────────
+// A promoted job keeps the foreground job's id, so the foreground marker's
+// retire and the promoted job's publish address the SAME `<id>.json` /
+// `<id>.owner-<pid>` paths. The interleaving is forced, not timed: the stale
+// retire is parked inside its filesystem `rm` of the `.json` while the
+// promotion publishes, then released.
+
+async function waitFor(predicate, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return true;
+    await delay(5);
+  }
+  return predicate();
+}
+
+async function withDataDir(prefix, run) {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    return await run(root);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function holdJsonRemovals(root) {
+  const original = fsp.rm;
+  const held = [];
+  fsp.rm = (path, ...rest) => {
+    const target = String(path);
+    if (!target.startsWith(root) || !target.endsWith('.json')) return original(path, ...rest);
+    return new Promise((resolve, reject) => {
+      held.push(() => {
+        const done = original(path, ...rest);
+        done.then(resolve, reject);
+        return done.catch(() => {});
+      });
+    });
+  };
+  syncBuiltinESMExports();
+  return {
+    held,
+    release: () => Promise.all(held.splice(0).map((run) => run())),
+    restore() {
+      fsp.rm = original;
+      syncBuiltinESMExports();
+    },
+  };
+}
+
+const jobPaths = (root, jobId) => ({
+  json: join(root, 'shell-jobs', `${jobId}.json`),
+  owner: join(root, 'shell-jobs', `${jobId}.owner-${process.pid}`),
+});
+
+function hasBackgroundRecord(root, jobId) {
+  const { json, owner } = jobPaths(root, jobId);
+  if (!existsSync(owner)) return false;
+  try {
+    return JSON.parse(readFileSync(json, 'utf8')).foreground !== true;
+  } catch {
+    return false;
+  }
+}
+
+// Mirrors the real promotion: the foreground marker is published, then
+// clearForegroundRecord retires it, then (after the registry round trip) the
+// promoted job publishes under the same id. Each retire is parked mid-removal.
+async function promoteBehindParkedRetire(root, jobIds, { foregroundSettled }) {
+  const gate = holdJsonRemovals(root);
+  try {
+    const host = { ownerSessionId: 'sess-race', clientHostPid: process.pid };
+    const task = (jobId) => ({
+      jobId,
+      pid: process.pid,
+      command: `sleep ${jobId}`,
+      cwd: root,
+      startedAt: new Date().toISOString(),
+    });
+    for (const jobId of jobIds) publishShellJobRecord(task(jobId), { ...host, foreground: true });
+    if (foregroundSettled) {
+      assert.ok(
+        await waitFor(() => jobIds.every((jobId) => existsSync(jobPaths(root, jobId).owner)), 2000),
+        'foreground markers land before the promotion'
+      );
+    }
+    for (const jobId of jobIds) {
+      retireShellJobRecord(jobId);
+      publishShellJobRecord(task(jobId), host);
+    }
+    assert.ok(
+      await waitFor(() => gate.held.length === jobIds.length, 2000),
+      'every foreground retire reaches its removal'
+    );
+    // An unordered promotion publish lands inside this window; an ordered one
+    // is still queued behind the parked retire and never does.
+    await waitFor(() => jobIds.every((jobId) => hasBackgroundRecord(root, jobId)), 150);
+    await gate.release();
+    const missing = [];
+    const landed = await waitFor(() => {
+      missing.length = 0;
+      for (const jobId of jobIds) if (!hasBackgroundRecord(root, jobId)) missing.push(jobId);
+      return missing.length === 0;
+    }, 2000);
+    const onDisk = (jobId) => {
+      const { json, owner } = jobPaths(root, jobId);
+      return `${jobId} (.json ${existsSync(json) ? 'present' : 'missing'}, owner ${existsSync(owner) ? 'present' : 'missing'})`;
+    };
+    assert.ok(landed, `promoted job record lost after the foreground retire: ${missing.map(onDisk).join('; ')}`);
+  } finally {
+    gate.restore();
+    await gate.release();
+  }
+}
+
+for (const foregroundSettled of [true, false]) {
+  const phase = foregroundSettled ? 'settled' : 'still publishing';
+  test(`a parked foreground retire cannot delete the promoted job record (foreground ${phase})`, async () => {
+    await withDataDir('mixdog-shell-records-race-', async (root) => {
+      const jobId = `job_race_${foregroundSettled ? 'settled' : 'inflight'}_${process.pid}`;
+      try {
+        await promoteBehindParkedRetire(root, [jobId], { foregroundSettled });
+        const { json, owner } = jobPaths(root, jobId);
+        assert.ok(existsSync(json), 'promoted job keeps its .json');
+        assert.ok(existsSync(owner), 'promoted job keeps its owner marker');
+        assert.equal(JSON.parse(readFileSync(json, 'utf8')).status, 'running');
+      } finally {
+        retireShellJobRecord(jobId);
+      }
+    });
+  });
+}
+
+const TTL_MS = 30 * 60 * 1000;
+
+test('an old completion TTL timer cannot delete a record republished under the same id', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await withDataDir('mixdog-shell-records-ttl-republish-', async (root) => {
+    const jobId = `job_ttl_republish_${process.pid}`;
+    const { json, owner } = jobPaths(root, jobId);
+    const task = { jobId, pid: process.pid, command: 'sleep 1', cwd: root };
+    try {
+      publishShellJobRecord(task, { ownerSessionId: 'sess-ttl' });
+      assert.equal(await completeShellJobRecord(jobId, { status: 'completed', exitCode: 0 }), true);
+      publishShellJobRecord(task, { ownerSessionId: 'sess-ttl' });
+      assert.ok(await waitFor(() => existsSync(owner), 2000), 'the republished record landed');
+      t.mock.timers.tick(TTL_MS);
+      await delay(100);
+      assert.ok(existsSync(json), 'the stale timer left the new .json alone');
+      assert.ok(existsSync(owner), 'the stale timer left the new owner marker alone');
+      assert.equal(JSON.parse(readFileSync(json, 'utf8')).status, 'running');
+    } finally {
+      retireShellJobRecord(jobId);
+    }
+  });
+});
+
+test('the newest completion owns expiry and removes its files after the TTL', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await withDataDir('mixdog-shell-records-ttl-expire-', async (root) => {
+    const jobId = `job_ttl_expire_${process.pid}`;
+    const { json } = jobPaths(root, jobId);
+    publishShellJobRecord({ jobId, pid: process.pid, command: 'sleep 1', cwd: root });
+    await completeShellJobRecord(jobId, { status: 'completed', exitCode: 0 });
+    await completeShellJobRecord(jobId, { status: 'completed', exitCode: 1 });
+    assert.ok(existsSync(json));
+    t.mock.timers.tick(TTL_MS);
+    assert.ok(await waitFor(() => !existsSync(json), 2000), 'the current incarnation expired');
+  });
+});
+
+test('three concurrent promotions are all visible to shellJobsStatus', async () => {
+  await withDataDir('mixdog-shell-records-concurrent-', async (root) => {
+    const jobIds = [1, 2, 3].map((n) => `job_concurrent_${n}_${process.pid}`);
+    try {
+      await promoteBehindParkedRetire(root, jobIds, { foregroundSettled: false });
+      for (const jobId of jobIds) {
+        const { json, owner } = jobPaths(root, jobId);
+        assert.ok(existsSync(json), `${jobId} keeps its .json`);
+        assert.ok(existsSync(owner), `${jobId} keeps its owner marker`);
+      }
+      const status = await readStatus((value) => value.count === 3);
+      assert.equal(status.count, 3);
+      assert.deepEqual(status.jobs.map((job) => job.taskId).sort(), [...jobIds].sort());
+      assert.equal(shellJobsStatus({ clientHostPid: process.pid, sessionId: 'sess-race' }).count, 3);
+    } finally {
+      for (const jobId of jobIds) retireShellJobRecord(jobId);
+    }
+  });
 });

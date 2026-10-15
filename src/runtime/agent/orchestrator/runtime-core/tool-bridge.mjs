@@ -15,6 +15,7 @@ import { DEFERRED_SELECT_ALIASES } from './tool-catalog-data.mjs';
 import { estimateTokens } from '../session/token-estimate.mjs';
 import { preDispatchDenyForSession } from '../session/loop/pre-dispatch-deny.mjs';
 import { resolveDeferredSelectMode } from '../session/loop/deferred-call-through.mjs';
+import { providerToolExclusionReason } from '../session/loop/provider-tool-exclusions.mjs';
 
 export { isToolBridgeEnabled } from './tool-exposure.mjs';
 
@@ -462,6 +463,8 @@ export function resolveBridgeTarget(session, rawName) {
   const eager = lookupByName(Array.isArray(session?.tools) ? session.tools : [], name);
   if (eager) {
     const direct = clean(eager.name);
+    const excluded = providerToolExclusionReason(session, direct);
+    if (excluded) return bridgeError('TOOL_EXCLUDED', excluded);
     return bridgeError('USE_DIRECT_TOOL', `"${direct}" is directly available; call ${direct} directly instead of call_tool.`);
   }
   const tool = catalogTool(session, name);

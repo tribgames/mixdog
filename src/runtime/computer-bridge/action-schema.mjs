@@ -1,6 +1,7 @@
 import { splitBridgeToolArgs } from '../shared/bridge-tool-args.mjs';
 import { hasOwn } from '../shared/object.mjs';
 import { schemaValueError } from '../shared/schema-value-error.mjs';
+import { advertiseActionInputUnion } from '../agent/orchestrator/providers/lib/action-input-contract.mjs';
 import {
   COMPUTER_CORE_ACTION_SCHEMA,
   COMPUTER_DEFAULT_DELIVERY,
@@ -149,25 +150,11 @@ const captureProperties = {
   },
 };
 
-export const COMPUTER_INPUT_SCHEMA = {
-  type: 'object',
-  description:
-    'One compact Computer Use operation. Use act.actions to execute 1-6 simple actions and receive one fresh observation.',
-  properties: {
-    action: {
-      type: 'string',
-      enum: ACTIONS,
-      description:
-        'Use capture to observe, act for simple input actions, and the remaining operations only for their named advanced capability.',
-    },
-    input: {
-      type: 'object',
-      description: 'Fields for the selected action.',
-    },
-  },
-  required: ['action'],
-  additionalProperties: false,
-  oneOf: [
+// The strict per-action contract: which `input` each action accepts. The host
+// validates every call against it (validateComputerToolArgs), and the model-facing
+// schema below derives its `input` from it. It is not part of the advertised
+// root: provider tool schemas must be an object root without anyOf/oneOf/allOf.
+export const COMPUTER_ACTION_CONTRACTS = [
     branch(
       'wait_for_user',
       input({
@@ -360,11 +347,47 @@ export const COMPUTER_INPUT_SCHEMA = {
         ['app']
       )
     ),
-  ],
+];
+
+// A JSON Schema 2020-12 object root with no root combinator (Anthropic
+// input_schema rule) whose `input` offers each action's own input as an anyOf
+// alternative titled with that action. The tool advertises its flat projection
+// (flattenActionInputUnion); only provider paths verified to accept the nested
+// alternatives (first-party Anthropic, Claude via Antigravity) send this form
+// (actionInputUnionFor). validateComputerToolArgs enforces the strict
+// per-action contract.
+const COMPUTER_ACTION_INPUT_UNION = {
+  type: 'object',
+  description:
+    'One compact Computer Use operation. Use act.actions to execute 1-6 simple actions and receive one fresh observation.',
+  properties: {
+    action: {
+      type: 'string',
+      enum: ACTIONS,
+      description:
+        'Use capture to observe, act for simple input actions, and the remaining operations only for their named advanced capability.',
+    },
+    input: {
+      type: 'object',
+      description: 'Fields for the selected action.',
+      anyOf: COMPUTER_ACTION_CONTRACTS.map(({ properties }) => {
+        const [action] = properties.action.enum;
+        return {
+          title: action,
+          description: `Input when action="${action}".`,
+          ...structuredClone(properties.input),
+        };
+      }),
+    },
+  },
+  required: ['action'],
+  additionalProperties: false,
 };
 
+export const COMPUTER_INPUT_SCHEMA = advertiseActionInputUnion(COMPUTER_ACTION_INPUT_UNION);
+
 const COMPUTER_ACTION_BRANCHES = new Map();
-for (const actionBranch of COMPUTER_INPUT_SCHEMA.oneOf) {
+for (const actionBranch of COMPUTER_ACTION_CONTRACTS) {
   for (const action of actionBranch.properties?.action?.enum || []) {
     COMPUTER_ACTION_BRANCHES.set(action, actionBranch);
   }

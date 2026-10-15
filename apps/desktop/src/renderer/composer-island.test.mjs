@@ -9,6 +9,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import { ComposerDock } from './ComposerDock.tsx';
 import { QueueList } from './composer-support.tsx';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
+import { pendingSessionDiffFileRequest } from './session-diff-focus.ts';
 import { t as translate } from './i18n.ts';
 
 function mount(t) {
@@ -230,9 +231,10 @@ test('an agent blocked on a user approval reads as needing the user, not working
   assert.equal(rows[1].querySelector('.agent-activity-elapsed').textContent, translate('Waiting for approval'));
 });
 
-test('idle, finished and cancelled agents drop out; waiting parents stay; the Lead row is not listed', async (t) => {
+test('finished agents stay counted and listed after the active ones; the Lead row is not listed', async (t) => {
   const { root, document, publishPool } = mount(t);
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  const segment = () => document.querySelector('.composer-island-seg-agents');
   await publishPool([
     poolAgent('island-session', { agent: 'lead', sessionId: 'island-session', ownerSessionId: 'island-session' }),
     poolAgent('idle-a', { sessionId: 's-idle', stage: 'idle', status: 'idle' }),
@@ -241,14 +243,28 @@ test('idle, finished and cancelled agents drop out; waiting parents stay; the Le
     poolAgent('parent-d', { sessionId: 's-parent', stage: 'idle', status: 'idle' }),
     poolAgent('child-e', { sessionId: 's-child', parentSessionId: 's-parent' }),
   ]);
-  assert.equal(document.querySelector('.composer-island-seg-agents').textContent.slice(0, 8), '2 agents');
-  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  // The total, finished included; the mark alone says something runs.
+  assert.match(segment().textContent, /^5 agents/);
+  assert.ok(segment().querySelector('svg.composer-island-seg-icon'));
+  assert.ok(segment().querySelector('.composer-island-pulse'));
+  await act(async () => segment().click());
   const rows = [...document.querySelectorAll('.agent-pool-row')];
+  // The active subtree (parent waiting on its running child) leads, whole and indented.
   assert.deepEqual(
     rows.map((row) => row.dataset.agentTag),
-    ['parent-d', 'child-e']
+    ['parent-d', 'child-e', 'idle-a', 'done-b', 'stop-c']
   );
+  assert.equal(rows[1].dataset.agentDepth, String(Number(rows[0].dataset.agentDepth) + 1));
   assert.equal(rows[0].querySelector('.agent-activity-elapsed').dataset.state, 'waiting');
+  assert.equal(rows[4].querySelector('.agent-activity-elapsed').dataset.state, 'cancelled');
+  // Everything finished: the same total with the idle mark, no pulse.
+  await publishPool([
+    poolAgent('idle-a', { sessionId: 's-idle', stage: 'idle', status: 'idle' }),
+    poolAgent('done-b', { sessionId: 's-done', stage: 'done', status: 'done' }),
+  ]);
+  assert.equal(segment().textContent, '2 agents');
+  assert.equal(segment().querySelector('.composer-island-pulse'), null);
+  assert.ok(segment().querySelector('.composer-island-dot-idle'));
   assert.equal(
     document.querySelector('.composer-island-tab').textContent.includes(translate('Shell {{shell}}', { shell: 0 })),
     false
@@ -275,13 +291,13 @@ test('a working agent stays listed through a transient idle/done phase and an un
     poolAgent('lease-d', { sessionId: 's-d', status: 'unknown', stage: 'unknown' }),
     poolAgent('settled-e', { sessionId: 's-e', status: 'idle', stage: 'idle' }),
   ]);
-  assert.equal(document.querySelector('.composer-island-seg-agents').textContent.slice(0, 8), '4 agents');
+  assert.equal(document.querySelector('.composer-island-seg-agents').textContent, '5 agents');
   await act(async () => document.querySelector('.composer-island-seg-agents').click());
   assert.deepEqual(
     [...document.querySelectorAll('.agent-pool-row')].map((row) => row.dataset.agentTag),
-    ['between-a', 'between-b', 'between-c', 'lease-d']
+    ['between-a', 'between-b', 'between-c', 'lease-d', 'settled-e']
   );
-  // Only an actual idle ends the listing.
+  // Only an actual idle moves a row below the active ones.
   await publishPool([
     lead,
     poolAgent('between-a', { sessionId: 's-a', status: 'idle', stage: 'idle' }),
@@ -289,8 +305,24 @@ test('a working agent stays listed through a transient idle/done phase and an un
   ]);
   assert.deepEqual(
     [...document.querySelectorAll('.agent-pool-row')].map((row) => row.dataset.agentTag),
-    ['between-b']
+    ['between-b', 'between-a']
   );
+});
+
+test('the shell segment keeps one label and mark slot; only the mark tells running from finished', async (t) => {
+  const { root, document } = mount(t);
+  const job = (id) => ({ taskId: id, command: 'npm test', startedAt: Date.now() - 5_000 });
+  const done = (id) => ({ taskId: id, command: 'npm test', status: 'done', exitCode: 0, startedAt: 1, finishedAt: 2 });
+  await publish({ shellJobs: { count: 1, jobs: [job('a')], finished: [done('b')] } });
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  const seg = () => document.querySelector('.composer-island-seg-shell');
+  assert.equal(seg().textContent, translate('Island: {{count}} shells', { count: 2 }));
+  assert.ok(seg().querySelector('.composer-island-mark-slot .composer-island-pulse'));
+  await publish({ shellJobs: { count: 0, jobs: [], finished: [done('a'), done('b')] } });
+  assert.equal(seg().textContent, translate('Island: {{count}} shells', { count: 2 }));
+  assert.equal(seg().getAttribute('title'), translate('Shell {{shell}}', { shell: 2 }));
+  assert.equal(seg().querySelector('.composer-island-pulse'), null);
+  assert.ok(seg().querySelector('.composer-island-mark-slot .composer-island-dot-idle'));
 });
 
 test('with no shells there is no shell segment, tab or row anywhere in the island', async (t) => {
@@ -302,9 +334,7 @@ test('with no shells there is no shell segment, tab or row anywhere in the islan
   await act(async () => document.querySelector('.composer-island-seg-agents').click());
   assert.equal(document.querySelectorAll('.composer-island-tab').length, 1);
   assert.equal(
-    document
-      .querySelector('.composer-island-panel')
-      .textContent.includes(translate('Island: {{count}} finished shells', { count: 0 })),
+    document.querySelector('.composer-island-panel').textContent.includes(translate('Shell {{shell}}', { shell: 0 })),
     false
   );
   assert.equal(document.querySelector('.composer-island-row'), null);
@@ -489,6 +519,180 @@ test('the agent and shell segments expand the island panel inline', async (t) =>
   assert.ok(document.querySelector('.composer-island-jobs .agent-pool-name'));
   await act(async () => document.querySelector('.composer-island-seg-shell').click());
   assert.equal(document.querySelector('.composer-island-jobs .composer-island-shell-command').textContent, 'npm test');
+});
+
+test('each segment opens its own panel: a title chip and a close button, no tab switcher', async (t) => {
+  const { root, document, window, publishPool } = mount(t);
+  await publish({
+    shellJobs: { count: 1, jobs: [{ taskId: 'j1', command: 'npm test', startedAt: Date.now() - 5_000 }] },
+  });
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await publishPool([poolAgent('a', { sessionId: 's-a' }), poolAgent('b', { sessionId: 's-b' })]);
+  const panel = () => document.querySelector('.composer-island-panel');
+  const island = () => document.querySelector('.composer-island');
+  const agentsSeg = () => document.querySelector('.composer-island-seg-agents');
+  const shellSeg = () => document.querySelector('.composer-island-seg-shell');
+
+  await act(async () => agentsSeg().click());
+  assert.equal(island().dataset.expanded, 'agents');
+  assert.equal(agentsSeg().getAttribute('aria-expanded'), 'true');
+  assert.equal(shellSeg().getAttribute('aria-expanded'), 'false');
+  // One chip, not a button: nothing to switch to.
+  assert.equal(panel().querySelectorAll('.composer-island-tab').length, 1);
+  assert.equal(panel().querySelector('button.composer-island-tab'), null);
+  assert.equal(panel().querySelector('.composer-island-tab').textContent, translate('Agent {{agent}}', { agent: 2 }));
+  assert.ok(panel().querySelector('.composer-island-tab .composer-island-pulse'));
+  assert.ok(panel().querySelector('.composer-island-close'));
+  assert.equal(panel().querySelectorAll('.agent-pool-row').length, 2);
+  assert.equal(panel().querySelector('.composer-island-shell-command'), null, 'no shell row in the agents panel');
+  assert.ok(panel().querySelector('.composer-island-summary'));
+  await act(async () => panel().querySelector('.composer-island-close').click());
+  assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
+
+  await act(async () => shellSeg().click());
+  assert.equal(island().dataset.expanded, 'shells');
+  assert.equal(panel().querySelector('button.composer-island-tab'), null);
+  assert.equal(panel().querySelector('.composer-island-tab').textContent, translate('Shell {{shell}}', { shell: 1 }));
+  assert.equal(panel().querySelectorAll('.agent-pool-row').length, 0, 'no agent row in the shells panel');
+  assert.equal(panel().querySelector('.composer-island-summary'), null);
+  assert.equal(panel().querySelector('.composer-island-shell-command').textContent, 'npm test');
+  // The same segment toggles its panel shut; Escape closes too.
+  await act(async () => shellSeg().click());
+  assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
+  await act(async () => shellSeg().click());
+  await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+  assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
+  // A panel whose rows all go away closes; it never falls back to the other kind.
+  await act(async () => agentsSeg().click());
+  await publishPool([]);
+  assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
+  assert.equal(island().dataset.expanded, undefined);
+});
+
+/** A getSessionUsage answer in the ledger's terms. */
+const ledgerUsage = (tokens, { cacheRead = 0, input = tokens - cacheRead, costUsd = 0, unpriced = 0, unmeasured = 0 } = {}) => ({
+  turns: 2,
+  input,
+  output: 0,
+  cacheRead,
+  cacheWrite: 0,
+  tokens,
+  unmeasuredTurns: unmeasured,
+  costUsd,
+  costKnownTurns: 2 - unpriced,
+  costUnpricedTurns: unpriced,
+});
+
+async function usagePanel(t, answer) {
+  const { root, document, window, publishPool } = mount(t);
+  const reads = [];
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability !== 'getSessionUsage') return { value: null };
+    reads.push(request);
+    return { value: answer };
+  };
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await publishPool([
+    poolAgent('run-a', { sessionId: 's-a' }),
+    poolAgent('done-b', { sessionId: 's-b', stage: 'done', status: 'done' }),
+    poolAgent('ask-c', { sessionId: 's-c', awaitingUser: 'approval' }),
+  ]);
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  const summary = document.querySelector('.composer-island-summary');
+  const rowTokens = Object.fromEntries(
+    [...document.querySelectorAll('.composer-island-agent-item')].map((item) => [
+      item.querySelector('.agent-pool-row').dataset.agentTag,
+      item.querySelector('.composer-island-agent-tokens')?.textContent ?? null,
+    ])
+  );
+  return { reads, summary, rowTokens, document };
+}
+
+test('the agents summary shows the session totals with the Lead split out, cache and cost', async (t) => {
+  const answer = {
+    sessionId: 'island-session',
+    ...ledgerUsage(1_000_000, { cacheRead: 800_000, costUsd: 1.5 }),
+    sessions: {
+      's-a': ledgerUsage(300_000, { cacheRead: 100_000, costUsd: 0.5 }),
+      's-b': ledgerUsage(200_000, { cacheRead: 100_000, costUsd: 0.25 }),
+      's-c': ledgerUsage(0),
+    },
+  };
+  const { reads, summary, rowTokens } = await usagePanel(t, answer);
+  // One read: the Lead's session, naming its listed agents.
+  assert.equal(reads.length, 1);
+  assert.equal(reads[0].capability, 'getSessionUsage');
+  assert.equal(reads[0].sessionId, 'island-session');
+  assert.deepEqual([...reads[0].args[0].sessionIds].sort(), ['s-a', 's-b', 's-c']);
+  const parts = [...summary.children].map((part) => part.textContent);
+  // Running counts agents only (the one blocked on approval and the done one are not running).
+  assert.equal(parts[0], `${translate('Island: Running')} 1`);
+  assert.equal(
+    parts[1],
+    `${translate('Island: Total tokens')} 1.5M (${translate('Lead {{lead}} · Agents {{agents}}', { lead: '1M', agents: '500K' })})`
+  );
+  // (800k + 100k + 100k) / 1.5M
+  assert.equal(parts[2], `${translate('Island: Cache hit rate')} 66.7%`);
+  assert.equal(parts[3], `${translate('Island: Approx. cost')} $2.25`);
+  assert.deepEqual(rowTokens, { 'run-a': '300K', 'ask-c': '0', 'done-b': '200K' });
+});
+
+test('an unpriced turn drops only the cost from the agents summary', async (t) => {
+  const { summary } = await usagePanel(t, {
+    ...ledgerUsage(1_000, { cacheRead: 500, costUsd: 1 }),
+    sessions: { 's-a': ledgerUsage(100, { unpriced: 1 }), 's-b': ledgerUsage(100), 's-c': ledgerUsage(100) },
+  });
+  assert.deepEqual(
+    [...summary.children].map((part) => part.firstChild.textContent.trim()),
+    [translate('Island: Running'), translate('Island: Total tokens'), translate('Island: Cache hit rate')]
+  );
+});
+
+test('an unmeasured or missing agent session drops every combined figure and its own row total', async (t) => {
+  const { summary, rowTokens } = await usagePanel(t, {
+    ...ledgerUsage(1_000, { costUsd: 1 }),
+    sessions: { 's-a': ledgerUsage(100, { unmeasured: 1 }), 's-b': ledgerUsage(100) },
+  });
+  // Only the running count is exact: the agents' share is unknown (s-a
+  // unmeasured, s-c missing), so no total, cache rate or cost.
+  assert.deepEqual(
+    [...summary.children].map((part) => part.textContent),
+    [`${translate('Island: Running')} 1`]
+  );
+  assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': '100' });
+});
+
+test('without a usage read the summary keeps only the running count', async (t) => {
+  const { summary, rowTokens } = await usagePanel(t, null);
+  assert.deepEqual(
+    [...summary.children].map((part) => part.textContent),
+    [`${translate('Island: Running')} 1`]
+  );
+  assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': null });
+});
+
+test('the usage summary model sums exact sessions only', async () => {
+  const { islandUsageSummary, islandUsageSessionIds } = await import('./island-session-usage.ts');
+  assert.deepEqual(islandUsageSessionIds(['a', 'bad id', 'a', 'b:c', 'd']), ['a', 'd']);
+  const lead = ledgerUsage(100, { cacheRead: 50, costUsd: 0.1 });
+  const exact = islandUsageSummary({ ...lead, sessions: { x: ledgerUsage(50, { costUsd: 0.2 }) } }, ['x']);
+  assert.equal(exact.totalTokens, 150);
+  assert.equal(exact.leadTokens, 100);
+  assert.equal(exact.agentTokens, 50);
+  assert.equal(exact.cacheHitRate, 50 / 150);
+  assert.ok(Math.abs(exact.costUsd - 0.3) < 1e-9);
+  // No agents: the Lead alone is the session.
+  assert.equal(islandUsageSummary(lead, []).totalTokens, 100);
+  // An unmeasured Lead keeps the agents' exact share, nothing combined.
+  const noLead = islandUsageSummary({ ...ledgerUsage(100, { unmeasured: 1 }), sessions: { x: ledgerUsage(50) } }, ['x']);
+  assert.deepEqual(
+    [noLead.totalTokens, noLead.leadTokens, noLead.agentTokens, noLead.cacheHitRate, noLead.costUsd],
+    [null, null, 50, null, null]
+  );
+  // A session with no turns at all has no cost to show.
+  assert.equal(islandUsageSummary({ ...ledgerUsage(0), turns: 0, costKnownTurns: 0 }, []).costUsd, null);
+  assert.equal(islandUsageSummary(null, []).totalTokens, null);
 });
 
 /** The real dock stylesheet decides the slot's box; jsdom has no layout, so
@@ -929,7 +1133,12 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
     }
     if (request.capability !== 'getSessionReviewDiff') return { value: { supported: true, files: [], patch: '' } };
     // No Git here (no gitReview): the island counts the session diff.
-    const files = cleared ? [] : [{ path: 'a.ts', status: 'M', additions: 3, deletions: 1 }];
+    const files = cleared
+      ? []
+      : [
+          { path: 'src/a.ts', status: 'M', additions: 3, deletions: 1 },
+          { path: 'b.ts', status: 'A', additions: 2, deletions: 0 },
+        ];
     return { value: { supported: true, authoritative: true, complete: true, patch: '', files } };
   };
   let opened = 0;
@@ -948,7 +1157,13 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
   );
   const segment = () => document.querySelector('.turn-review-segment');
   const menu = () => document.querySelector('.turn-review-files-menu');
-  const items = () => [...(menu()?.querySelectorAll('[role="menuitem"]') ?? [])];
+  const all = () => [...(menu()?.querySelectorAll('[role="menuitem"]') ?? [])];
+  const fileRows = () => [...(menu()?.querySelectorAll('.turn-review-files-row') ?? [])];
+  // [View changes, Delete history], fixed under the list.
+  const items = () => {
+    const foot = [...(menu()?.querySelectorAll('.turn-review-files-foot [role="menuitem"]') ?? [])];
+    return [foot[1], foot[0]];
+  };
   const flush = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   await flush();
   assert.ok(segment(), 'the session has uncommitted files');
@@ -966,15 +1181,18 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
   assert.equal(island.dataset.mode, 'panel');
   assert.ok(island.contains(menu()));
   assert.ok(menu().closest('.composer-island-panel'));
+  // Every file in one list (dir muted, name, counts), then Delete history · View changes.
   assert.deepEqual(
-    items().map((item) => item.textContent),
-    ['View changes', 'Delete history']
+    all().map((item) => item.textContent),
+    ['src/a.ts+3 −1', 'b.ts+2', 'Delete history', 'View changes']
   );
-  assert.equal(menu().children[1].getAttribute('role'), 'separator');
+  assert.equal(fileRows()[0].querySelector('.turn-review-files-dir').textContent, 'src/');
+  assert.equal(fileRows()[0].querySelector('.diff-stats i').textContent, '+3');
+  assert.equal(fileRows()[0].querySelector('.diff-stats em').textContent, '−1');
   assert.ok(items()[1].classList.contains('danger'));
-  assert.equal(document.activeElement, items()[0], 'keyboard focus lands on the first item');
+  assert.equal(document.activeElement, fileRows()[0], 'keyboard focus lands on the first item');
   await act(async () => menu().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
-  assert.equal(document.activeElement, items()[1]);
+  assert.equal(document.activeElement, fileRows()[1]);
   await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
   assert.equal(menu(), null, 'Escape closes the menu');
   assert.equal(island.dataset.expanded, undefined);
@@ -985,6 +1203,14 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
   await act(async () => items()[0].click());
   assert.equal(opened, 1);
   assert.equal(menu(), null);
+  assert.equal(pendingSessionDiffFileRequest('island-files').path, '', 'the list of every file');
+
+  // A file row opens the session diff on that file.
+  await act(async () => segment().click());
+  await act(async () => fileRows()[1].click());
+  assert.equal(opened, 2);
+  assert.equal(menu(), null);
+  assert.equal(pendingSessionDiffFileRequest('island-files').path, 'b.ts');
 
   // Delete history asks first, with Cancel focused; Cancel changes nothing.
   await act(async () => segment().click());
@@ -1070,16 +1296,52 @@ const worktreeWorkspace = (overrides = {}) => ({
   ...overrides,
 });
 
-test('the worktree segment shows only while the session works in a worktree', async (t) => {
-  const { root, document } = mount(t);
-  const segment = () => document.querySelector('.composer-island-seg-worktree');
+const projectWorkspace = (overrides = {}) =>
+  worktreeWorkspace({ worktreeId: null, cwd: '/repo', branch: 'main', mergeTarget: null, ...overrides });
+const islandBranch = (name, current = false) => ({ name, current, remote: false, upstream: '' });
+const projectMenu = () => ({
+  workspace: projectWorkspace(),
+  branches: [islandBranch('main', true), islandBranch('pr-67'), islandBranch('ext')],
+  occupancy: [
+    { branch: 'main', kind: 'current' },
+    { branch: 'pr-67', kind: 'free' },
+    { branch: 'ext', kind: 'external', path: '/elsewhere' },
+  ],
+  retainedWorktree: null,
+});
+const worktreeMenu = () => ({
+  workspace: worktreeWorkspace(),
+  branches: [islandBranch('main', true), islandBranch('mixdog/fix-login')],
+  occupancy: [
+    { branch: 'main', kind: 'current' },
+    { branch: 'mixdog/fix-login', kind: 'session', sessionId: 'island-session' },
+  ],
+  retainedWorktree: null,
+});
+
+test('the branch segment shows for every git session: branch, detached commit, worktree', async (t) => {
+  const { root, document, window } = mount(t);
+  window.mixdogDesktop.gitStatus = async () => ({ branch: 'HEAD (0123abcd)', detached: true });
+  const segment = () => document.querySelector('.composer-island-seg-branch');
   const render = (workspace) => act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace }))));
   await render(null);
   assert.equal(segment(), null, 'no workspace, no segment');
-  await render(worktreeWorkspace({ worktreeId: null, cwd: '/repo', branch: 'main', mergeTarget: null }));
-  assert.equal(segment(), null, 'a session in the project folder shows no branch');
+  await render(projectWorkspace({ repoCommonDir: null, branch: null }));
+  assert.equal(segment(), null, 'outside a git repository, no segment');
+  // main: the branch glyph and the name; no worktree look.
+  await render(projectWorkspace());
+  assert.equal(segment().querySelector('.composer-island-seg-text').textContent, 'main');
+  assert.ok(segment().querySelector('svg.lucide-git-branch'));
+  assert.equal(segment().classList.contains('composer-island-seg-worktree'), false);
+  assert.equal(segment().querySelector('.composer-island-seg-sub'), null);
+  // A detached HEAD names its short commit.
+  await render(projectWorkspace({ branch: null, baseCommit: null, revision: 5 }));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.equal(segment().querySelector('.composer-island-seg-text').textContent, '0123abc');
   // The same session entering its worktree: the branch, its prefix and the base.
   await render(worktreeWorkspace());
+  assert.ok(segment().classList.contains('composer-island-seg-worktree'));
+  assert.ok(segment().querySelector('svg.lucide-git-fork'));
   assert.equal(segment().querySelector('.composer-island-seg-prefix').textContent, 'mixdog/');
   assert.equal(segment().querySelector('.composer-island-seg-text').textContent, 'mixdog/fix-login');
   assert.equal(segment().querySelector('.composer-island-seg-sub').textContent, 'main');
@@ -1095,6 +1357,7 @@ test('the worktree menu runs Merge through the confirm popup, shows conflicts in
   const calls = [];
   let reply = { merged: false, target: 'main', commit: null, conflicts: ['src/login.ts', 'src/session.ts'] };
   window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability === 'getBranchMenu') return { value: worktreeMenu() };
     calls.push(request);
     return { value: reply };
   };
@@ -1102,18 +1365,37 @@ test('the worktree menu runs Merge through the confirm popup, shows conflicts in
     root.render(React.createElement(ComposerDock, dockProps({ workspace: worktreeWorkspace() })))
   );
   const segment = () => document.querySelector('.composer-island-seg-worktree');
-  const menu = () => document.querySelector('.worktree-island-menu');
+  const menu = () => document.querySelector('.branch-menu');
   const item = (id) => menu().querySelector(`[data-action-id="${id}"]`);
   await act(async () => segment().click());
-  // A ⋯ menu, not an expanded island: the island keeps its pill.
-  assert.equal(menu().getAttribute('role'), 'menu');
+  // The New Task branch menu's theme, not an expanded island: the island keeps its pill.
+  assert.ok(menu());
   assert.equal(document.querySelector('.composer-island').dataset.expanded, undefined);
   assert.equal(segment().getAttribute('aria-expanded'), 'true');
+  // Worktree actions lead (each with its icon), a rule, then search and branches.
   assert.deepEqual(
-    [...menu().querySelectorAll('[role="menuitem"]')].map((node) => node.textContent),
-    ['Merge into main', 'Remove worktree']
+    [...menu().children].map((child) => child.className.split(' ')[0]),
+    ['branch-menu-actions', 'branch-menu-rule', 'branch-menu-search', 'branch-menu-list']
   );
-  assert.ok(item('remove').classList.contains('danger'));
+  assert.deepEqual(
+    [...menu().querySelectorAll('[data-action-id]')].map((node) => [node.textContent, Boolean(node.querySelector('svg'))]),
+    [
+      ['Merge into main', true],
+      ['Remove worktree', true],
+    ]
+  );
+  assert.equal(item('remove').getAttribute('data-danger'), 'true');
+  assert.deepEqual(
+    [...menu().querySelectorAll('[data-kind="branch"]')].map((row) => [
+      row.querySelector('span').textContent,
+      row.querySelector('small')?.textContent ?? '',
+    ]),
+    [
+      ['main', 'Project folder'],
+      ['mixdog/fix-login', 'Current'],
+    ]
+  );
+  assert.equal(menu().querySelector('[data-kind="worktree"], [data-kind="create"]'), null);
   const popup = () => document.querySelector('.settings-confirm-dialog');
   const footer = () => [...popup().querySelectorAll('footer button')];
   // Merge closes the menu and asks in the confirm popup: nothing runs yet.
@@ -1149,24 +1431,54 @@ test('the worktree menu runs Merge through the confirm popup, shows conflicts in
   await act(async () => footer()[1].click());
   assert.equal(popup(), null);
   assert.equal(document.querySelector('.composer-island-flash').textContent, 'Merged mixdog/fix-login into main');
+  // A refused cleanup keeps the worktree but the merge still reads as done.
+  await act(async () => sleep(2_700));
+  reply = { merged: true, target: 'main', commit: 'fed789', cleanup: { removed: false, code: 'WORKTREE_DIRTY' } };
+  await act(async () => segment().click());
+  await act(async () => item('merge').click());
+  await act(async () => footer()[1].click());
+  assert.equal(popup(), null, 'never "Couldn\'t merge"');
+  assert.equal(
+    document.querySelector('.composer-island-flash').textContent,
+    'Merged mixdog/fix-login into main; the worktree was kept'
+  );
+  // The notice belongs to the merging session: another session in the same
+  // pane never shows it, and returning after it expired does not replay it.
+  await act(async () =>
+    root.render(
+      React.createElement(
+        ComposerDock,
+        dockProps({ workspace: worktreeWorkspace(), sessionId: 'other-session', reviewSessionId: 'other-session' })
+      )
+    )
+  );
+  assert.equal(document.querySelector('.composer-island-flash'), null);
+  await act(async () => sleep(2_700));
+  await act(async () =>
+    root.render(React.createElement(ComposerDock, dockProps({ workspace: worktreeWorkspace() })))
+  );
+  assert.equal(document.querySelector('.composer-island-flash'), null);
 });
 
 test('removing the worktree asks in a danger popup and a refusal shows in a popup', async (t) => {
   const { root, document, window } = mount(t);
   const calls = [];
   window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability === 'getBranchMenu') return { value: worktreeMenu() };
     calls.push(request);
     throw new Error('WORKTREE_DIRTY: The worktree has uncommitted changes.');
   };
   await act(async () =>
     root.render(React.createElement(ComposerDock, dockProps({ workspace: worktreeWorkspace() })))
   );
-  const menu = () => document.querySelector('.worktree-island-menu');
+  const menu = () => document.querySelector('.branch-menu');
   const segment = () => document.querySelector('.composer-island-seg-worktree');
   const popup = () => document.querySelector('.settings-confirm-dialog');
   // Escape closes the menu and hands focus back to the segment.
   await act(async () => segment().click());
-  await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+  await act(async () =>
+    menu().querySelector('[data-action-id]').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  );
   assert.equal(menu(), null);
   assert.equal(document.activeElement, segment());
   await act(async () => segment().click());
@@ -1179,4 +1491,184 @@ test('removing the worktree asks in a danger popup and a refusal shows in a popu
   assert.deepEqual(calls, [{ capability: 'removeWorktree', args: [{ expectedRevision: 4 }], sessionId: 'island-session' }]);
   assert.equal(popup().querySelector('h3').textContent, "Couldn't remove the worktree");
   assert.equal(popup().querySelector('p').textContent, 'The worktree has uncommitted changes.');
+});
+
+test('a merge whose route changes mid-flight still flashes on the merging session only, once', async (t) => {
+  const { root, document, window } = mount(t);
+  let release = () => {};
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability === 'getBranchMenu') return { value: worktreeMenu() };
+    if (request.capability !== 'mergeWorkspace') return { value: null };
+    // Gate the merge: it settles only when the test says so.
+    await new Promise((resolve) => {
+      release = resolve;
+    });
+    return { value: { merged: true, target: 'main', commit: 'gated1' } };
+  };
+  const render = (props) =>
+    act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace: worktreeWorkspace(), ...props }))));
+  const flash = () => document.querySelector('.composer-island-flash');
+  await render({});
+  await act(async () => document.querySelector('.composer-island-seg-worktree').click());
+  await act(async () => document.querySelector('.branch-menu [data-action-id="merge"]').click());
+  await act(async () => [...document.querySelectorAll('.settings-confirm-dialog footer button')][1].click());
+  // The route address of the same session changes while the merge runs: the
+  // island remounts under the new key.
+  await render({ reviewSessionId: 'island-session-route-2' });
+  await act(async () => release());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.equal(flash()?.textContent, 'Merged mixdog/fix-login into main');
+  // Another session never shows it, and after it expired a return does not replay it.
+  await render({ sessionId: 'other-session', reviewSessionId: 'other-session' });
+  assert.equal(flash(), null);
+  await act(async () => sleep(2_700));
+  await render({ reviewSessionId: 'island-session-route-2' });
+  assert.equal(flash(), null);
+});
+
+test('the uncommitted-files choice closes the island branch menu; Cancel leaves it closed', async (t) => {
+  const { root, document, window } = mount(t);
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability === 'getBranchMenu') return { value: projectMenu() };
+    throw new Error('WORKTREE_DIRTY_CHOICE: dirty\n[worktree-details] {"count":2,"paths":["a.ts","b.ts"]}');
+  };
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace: projectWorkspace() }))));
+  const segment = () => document.querySelector('.composer-island-seg-branch');
+  const menu = () => document.querySelector('.branch-menu');
+  const dialog = () => document.querySelector('.worktree-carry-dialog');
+  await act(async () => segment().click());
+  await act(async () => menu().querySelector('[data-kind="branch"]:not([data-mark])').click());
+  assert.ok(dialog(), 'the choice opened');
+  assert.equal(menu(), null, 'the menu closed before the dialog opened');
+  assert.equal(segment().getAttribute('aria-expanded'), 'false');
+  await act(async () => dialog().querySelector('footer [data-choice="cancel"]').click());
+  assert.equal(dialog(), null);
+  assert.equal(menu(), null);
+  assert.ok(segment(), 'the segment stays');
+});
+
+test('the branch segment keeps the last branch while a refused move re-reads the workspace', async (t) => {
+  const { root, document, window } = mount(t);
+  let menuRead = 0;
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability === 'getBranchMenu') {
+      menuRead += 1;
+      // The first read names the branch; later reads fail mid-transition.
+      if (menuRead === 1) return { value: projectMenu() };
+      throw new Error('WORKTREE_BUSY_JOBS: busy');
+    }
+    throw new Error('WORKTREE_DIRTY: refused\n[worktree-details] {"reason":"operation-in-progress","operation":"merge"}');
+  };
+  const segment = () => document.querySelector('.composer-island-seg-branch');
+  const render = (props) =>
+    act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace: null, ...props }))));
+  // A session that never left its folder publishes no workspace: the menu read names the branch.
+  await render({});
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.equal(segment().querySelector('.composer-island-seg-text').textContent, 'main');
+  // Work starts and settles (each re-reads the menu, which now fails): never a gap.
+  await render({ reviewBusy: true });
+  assert.equal(segment()?.querySelector('.composer-island-seg-text').textContent, 'main');
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.equal(segment()?.querySelector('.composer-island-seg-text').textContent, 'main');
+  await render({ reviewBusy: false });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.ok(menuRead >= 3);
+  assert.equal(segment()?.querySelector('.composer-island-seg-text').textContent, 'main');
+  // A live snapshot dropping its workspace mid-move keeps the last one too.
+  await render({ workspace: projectWorkspace({ branch: 'pr-67' }) });
+  assert.equal(segment().querySelector('.composer-island-seg-text').textContent, 'pr-67');
+  await render({ workspace: projectWorkspace({ branch: null, repoCommonDir: null }) });
+  assert.equal(segment()?.querySelector('.composer-island-seg-text').textContent, 'pr-67');
+  // Another session starts from its own state.
+  await render({ sessionId: 'other-session', reviewSessionId: 'other-session', workspace: null });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.equal(segment(), null);
+});
+
+test('on main the segment opens the New Task branch menu; Worktree provisions now', async (t) => {
+  const { root, document, window } = mount(t);
+  const calls = [];
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    calls.push(request);
+    if (request.capability === 'getBranchMenu') return { value: projectMenu() };
+    return { value: { revision: 5, workspace: worktreeWorkspace({ revision: 5 }) } };
+  };
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace: projectWorkspace() }))));
+  const segment = () => document.querySelector('.composer-island-seg-branch');
+  const menu = () => document.querySelector('.branch-menu');
+  await act(async () => segment().click());
+  assert.deepEqual(
+    [...menu().children].map((child) => child.className.split(' ')[0]),
+    ['branch-menu-search', 'branch-menu-list', 'branch-menu-rule', 'branch-menu-item']
+  );
+  const rows = [...menu().querySelectorAll('.branch-menu-list .branch-menu-item')];
+  assert.deepEqual(
+    rows.map((row) => [row.querySelector('span').textContent, row.querySelector('small')?.textContent ?? '']),
+    [
+      ['Worktree', 'New branch · separate folder'],
+      ['main', 'Current'],
+      ['pr-67', ''],
+      ['ext', 'External'],
+    ]
+  );
+  await act(async () => rows[0].click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.deepEqual(
+    calls.filter((call) => call.capability === 'requestWorktree'),
+    [{ capability: 'requestWorktree', args: [{ expectedRevision: 4, provision: true }], sessionId: 'island-session' }]
+  );
+  assert.equal(menu(), null);
+});
+
+test('while work runs the menu opens locked: a notice leads and no switch starts', async (t) => {
+  const { root, document, window, publishPool } = mount(t);
+  const calls = [];
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    calls.push(request);
+    return { value: projectMenu() };
+  };
+  const render = (props) =>
+    act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace: projectWorkspace(), ...props }))));
+  const segment = () => document.querySelector('.composer-island-seg-branch');
+  const menu = () => document.querySelector('.branch-menu');
+  const locked = () => menu().querySelector('.branch-menu-notice[data-kind="locked"]');
+  const open = async () => {
+    if (menu()) await act(async () => segment().click());
+    await act(async () => segment().click());
+  };
+  // A running turn.
+  await render({ reviewBusy: true });
+  await open();
+  assert.equal(locked().textContent, "Branches and worktrees can't be changed while work is running.");
+  assert.equal(menu().firstElementChild, locked());
+  const state = (kind, name) =>
+    menu()
+      .querySelector(name ? `[data-kind="${kind}"]:has(> span:first-of-type)` : `[data-kind="${kind}"]`)
+      .getAttribute('aria-disabled');
+  assert.equal(state('worktree'), 'true');
+  assert.equal(state('create'), 'true');
+  const rows = [...menu().querySelectorAll('[data-kind="branch"]')];
+  assert.equal(rows[0].getAttribute('aria-disabled'), null, 'the current branch stays as it is');
+  assert.equal(rows[1].getAttribute('aria-disabled'), 'true');
+  await act(async () => menu().querySelector('[data-kind="worktree"]').click());
+  await act(async () => rows[1].click());
+  assert.deepEqual(
+    calls.filter((call) => call.capability !== 'getBranchMenu'),
+    [],
+    'nothing is scheduled or sent'
+  );
+  // Queued composer input, a running agent, a running shell: each locks.
+  await render({ queuedInput: true });
+  await open();
+  assert.ok(locked());
+  await render({});
+  await open();
+  assert.equal(locked(), null, 'idle: unlocked');
+  await publishPool([poolAgent('run-a')]);
+  assert.ok(locked());
+  await publishPool([poolAgent('done-a', { stage: 'idle', status: 'idle' })]);
+  assert.equal(locked(), null, 'a finished agent does not lock');
+  await publish({ shellJobs: { count: 1, jobs: [{ taskId: 'j', command: 'npm run dev', startedAt: Date.now() }] } });
+  assert.ok(locked());
 });

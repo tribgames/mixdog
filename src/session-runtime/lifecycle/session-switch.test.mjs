@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { mock } from 'node:test';
@@ -13,6 +13,7 @@ mock.module('../../runtime/session-search/session-search-ingest.mjs', {
   },
 });
 const { createSessionSwitching } = await import('./session-switch.mjs');
+const { getStoreDir } = await import('../../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs');
 
 // listLeadSessions reads heartbeat sidecars from the store dir: keep the
 // catalog lookups inside a scratch data dir.
@@ -33,6 +34,10 @@ const leadRow = (id, messages = [{ role: 'user', content: 'hi' }]) => ({
 });
 
 function fixture({ current = null, rows = [] } = {}) {
+  // Deletion reads only the session's own file: persist exactly these rows.
+  const storeDir = getStoreDir();
+  for (const file of readdirSync(storeDir)) rmSync(join(storeDir, file), { force: true });
+  for (const row of rows) writeFileSync(join(storeDir, `${row.id}.json`), JSON.stringify(row));
   const calls = [];
   const cleaned = [];
   const state = {
@@ -152,6 +157,10 @@ test('deleting a session that is not current unlinks it and every valid linked c
   const { api, calls } = fixture({ current: { id: 'other' }, rows: [leadRow('parent')] });
   assert.equal(await api.deleteSession('parent'), true);
   assert.deepEqual(calls, [
+    ['close', 'parent', 'desktop-session-delete', { tombstone: false }],
+    ['cancelTasks', { reason: 'desktop-session-delete', notify: false, callerSessionId: 'parent' }],
+    ['closeAll', 'desktop-session-delete', { callerSessionId: 'parent' }],
+    ['clearRoute', 'parent'],
     ['delete', 'parent'],
     ['delete', 'child-a'],
     ['delete', 'child-b'],

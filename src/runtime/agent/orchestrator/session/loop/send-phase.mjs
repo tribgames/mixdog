@@ -18,6 +18,7 @@ import { runWithProviderRequestToolsScope } from '../../runtime-core/provider-re
 import { REPEAT_FAIL_LIMIT } from './loop-state.mjs';
 import { createToolCallIdResolver } from './tool-call-ids.mjs';
 import { captureSideQuestionRequest } from '../side-question-store.mjs';
+import { beginProviderToolExclusions, recordProviderToolExclusion } from './provider-tool-exclusions.mjs';
 
 /**
  * Open an iteration: refresh the live cwd, drain queued steering after a
@@ -93,6 +94,10 @@ export async function beginIteration(state) {
   // callers omit the flag and retain legacy live deferred resolution.
   opts.providerToolSnapshotAuthoritative = true;
   opts.providerNativeToolPrefixCount = boundary.requestToolScope.nativePrefixCount;
+  // A tool the provider leaves out of this request (a schema it cannot
+  // accept) is noticed once per session and refused if the model calls it.
+  beginProviderToolExclusions(sessionRef);
+  opts.onToolExcluded = (exclusion) => recordProviderToolExclusion(sessionRef, exclusion, opts.onStageChange);
   state.lastSendTools = boundary.sendTools;
   // Eager-dispatch queue (see ../eager-dispatch.mjs): read-only tools start
   // the instant the provider streams a tool-call event; writes and unknown

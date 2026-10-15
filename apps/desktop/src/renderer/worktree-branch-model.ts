@@ -74,12 +74,72 @@ export function largeRepoPrompt(failure: WorktreeFailure): string {
     : t('A worktree needs a lot of disk space. Create it anyway?');
 }
 
+/** Why the project folder's uncommitted changes could not be brought into the
+ *  worktree (carry.mjs assertCarryable and the carry itself). */
+function carryRefusalText(failure: WorktreeFailure): string {
+  const details = failure.details;
+  switch (details.reason) {
+    case 'operation-in-progress':
+      switch (details.operation) {
+        case 'merge':
+          return t('A merge is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.');
+        case 'rebase':
+          return t('A rebase is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.');
+        case 'cherry-pick':
+          return t('A cherry-pick is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.');
+        case 'revert':
+          return t('A revert is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.');
+        default:
+          return t('A Git operation is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.');
+      }
+    case 'unmerged-paths':
+      return t('The project folder has unresolved merge conflicts. Resolve them, or leave the changes in the project folder.');
+    case 'dirty-submodules':
+      return t("Submodules with changes can't be brought along. Commit or reset them, or leave the changes in the project folder.");
+    case 'nested-repository':
+      return t("Untracked nested repositories can't be brought along. Leave the changes in the project folder instead.");
+    case 'too-large': {
+      const files = Number(details.files);
+      const maxFiles = Number(details.maxFiles);
+      if (files > 0 && maxFiles > 0) {
+        return t(
+          'Too many untracked files to bring along ({{files}}, limit {{limit}}). Add generated output to .gitignore, or leave the changes in the project folder.',
+          { files, limit: maxFiles }
+        );
+      }
+      const size = formatByteSize(Number(details.maxBytes));
+      return size
+        ? t(
+            'The untracked files are too large to bring along (over {{size}}). Add large files to .gitignore, or leave the changes in the project folder.',
+            { size }
+          )
+        : t('The untracked files are too large to bring along. Leave the changes in the project folder instead.');
+    }
+    case 'filtered-paths':
+      return t("Files that use a Git filter (such as Git LFS) can't be brought along exactly. Leave the changes in the project folder instead.");
+    case 'head-moved':
+    case 'carry-failed':
+    case 'carry-restore-refused':
+    case 'carry-restore-failed':
+      // The runtime's text names the recovery ref that holds the changes.
+      return runtimeText(failure) || carryRefusedText();
+    default:
+      return carryRefusedText();
+  }
+}
+
+function carryRefusedText(): string {
+  return t("The changes couldn't be brought into the worktree. Leave them in the project folder instead, or try again.");
+}
+
 /** User-facing text for a typed failure; untyped failures keep their message.
  *  `checkout`: the failure answers a branch switch in the project folder, so
- *  WORKTREE_DIRTY means the project folder (it carries no details over IPC). */
+ *  WORKTREE_DIRTY means the project folder (it carries no details over IPC).
+ *  `carry`: the request brought the uncommitted changes along, so a
+ *  WORKTREE_DIRTY without a known reason is a refused carry. */
 export function worktreeFailureText(
   failure: WorktreeFailure,
-  { checkout = false }: { checkout?: boolean } = {}
+  { checkout = false, carry = false }: { checkout?: boolean; carry?: boolean } = {}
 ): string {
   switch (failure.code) {
     case 'WORKTREE_DISK_INSUFFICIENT': {
@@ -93,7 +153,11 @@ export function worktreeFailureText(
         : t('Not enough free disk space to create the worktree.');
     }
     case 'WORKTREE_BUSY_JOBS':
-      return t('Background tasks are still running. Wait for them or stop them, then try again.');
+      return failure.details.reason === 'folder-shell-jobs'
+        ? t(
+            'Background shells of other sessions are running in the project folder. Wait for them or stop them before bringing changes along.'
+          )
+        : t('Background tasks are still running. Wait for them or stop them, then try again.');
     case 'WORKTREE_BRANCH_OCCUPIED': {
       const path = typeof failure.details.path === 'string' ? failure.details.path : '';
       return path
@@ -114,10 +178,16 @@ export function worktreeFailureText(
       return t('Worktrees are not available yet.');
     case 'WORKTREE_UNSUPPORTED_REPO':
       return t('This folder does not support worktrees.');
-    case 'WORKTREE_DIRTY':
-      return checkout || failure.details.reason === 'project-dirty'
-        ? t('The project folder has uncommitted changes. Commit or stash them before switching branches.')
-        : t('The worktree has uncommitted changes.');
+    case 'WORKTREE_DIRTY': {
+      const reason = failure.details.reason;
+      if (reason && reason !== 'project-dirty') return carryRefusalText(failure);
+      if (carry && !reason) return carryRefusedText();
+      if (checkout || reason === 'project-dirty') {
+        return t('The project folder has uncommitted changes. Commit or stash them before switching branches.');
+      }
+      // Only a worktree removal is refused without a reason.
+      return t('The worktree has uncommitted changes.');
+    }
     case 'WORKTREE_PARTIAL_TRANSITION':
       // The runtime's text names the branch the project folder is actually on.
       return runtimeText(failure);
@@ -156,7 +226,9 @@ function runtimeText(failure: WorktreeFailure): string {
   return (index >= 0 ? failure.message.slice(index + marker.length) : failure.message).trim();
 }
 
-export type BranchMark = 'current' | 'inUse' | 'external' | '';
+/** `project`: the project folder's checked-out branch, marked while the
+ *  session works in its worktree. */
+export type BranchMark = 'current' | 'inUse' | 'external' | 'project' | '';
 
 export interface BranchRow {
   name: string;
@@ -182,6 +254,7 @@ export function branchRows(menu: DesktopBranchMenu, ownSessionId: string, query:
     const held = occupancy.get(branch.name);
     const row: BranchRow = { name: branch.name, mark: '', retained: false, disabled: false };
     if (branch.name === menu.workspace.branch) row.mark = 'current';
+    else if (held?.kind === 'current' && menu.workspace.worktreeId) row.mark = 'project';
     else if (held?.kind === 'session' && held.sessionId && held.sessionId !== ownSessionId) {
       row.mark = 'inUse';
       row.sessionId = held.sessionId;

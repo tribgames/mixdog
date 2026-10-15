@@ -87,7 +87,7 @@ const EXPECTED = {
     ['0d0e769cf8b76493', 'f6fad764bc9453a1'],
     ['e1c19ecafc65b5e4', 'ba9b1af0c146969c'],
   ],
-  tokens: 9_271,
+  tokens: 6_281,
 };
 
 test('exact and shape signatures equal the JSON.stringify/replace implementation', () => {

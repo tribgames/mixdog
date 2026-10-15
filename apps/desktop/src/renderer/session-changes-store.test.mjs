@@ -328,11 +328,11 @@ function mountTree(t, root, count, { omit = () => false, patchOf: patchFor } = {
     gitReviewDiffs: async (cwd, requested, source) => {
       calls.batches.push(requested.map((file) => file.path));
       assert.equal(source, 'uncommitted');
-      const patches = {};
+      const patches = [];
       const omitted = [];
       for (const { path } of requested) {
         if (omit(path)) omitted.push(path);
-        else Object.defineProperty(patches, path, { value: patchOf(path), enumerable: true, configurable: true, writable: true });
+        else patches.push({ path, patch: patchOf(path) });
       }
       return { patches, omitted };
     },
@@ -391,15 +391,21 @@ test('a file whose content moved without moving its counts re-reads by its revie
   assert.equal(calls.batches.length, 2);
 });
 
-test('a batch patch for a file named __proto__ lands on that file', async (t) => {
+test('batch patches for files named __proto__, constructor and toString land on those files', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
-  const tree = mountTree(t, 'C:/proto', 3);
-  tree.files[0] = { ...tree.files[0], path: '__proto__' };
+  const tree = mountTree(t, 'C:/proto', 5);
+  const special = ['__proto__', 'constructor', 'toString'];
+  special.forEach((path, index) => {
+    tree.files[index] = { ...tree.files[index], path };
+  });
   await tree.render();
   await tree.drain();
-  const row = tree.state.drawn.find((entry) => entry.path === '__proto__');
-  assert.match(row.parts[0].patch, /diff --git a\/__proto__ b\/__proto__/);
-  assert.equal(tree.calls.singles.length, 0, 'the batch served it; no per-file fallback');
+  for (const path of [...special, tree.files[3].path, tree.files[4].path]) {
+    const row = tree.state.drawn.find((entry) => entry.path === path);
+    assert.ok(row, path);
+    assert.match(row.parts[0].patch, new RegExp(`diff --git a/${path} b/${path}`), path);
+  }
+  assert.equal(tree.calls.singles.length, 0, 'the batch served them; no per-file fallback');
 });
 
 test('staged and unstaged carry no revision: Git evidence re-reads the drawn files, an unchanged text draws nothing new', async (t) => {
@@ -555,7 +561,7 @@ test('a patch past 3 MiB is not kept: the file reads as too large to display', a
   const huge = `diff --git a/big.txt b/big.txt\n--- a/big.txt\n+++ b/big.txt\n@@ -1 +1 @@\n-a\n+${'x'.repeat(3 * 1024 * 1024)}\n`;
   const view = mount(t, {
     gitReview: async () => ({ repository: true, root: 'C:/bytes', base: 'HEAD', files: [reviewFile('big.txt', 1, 1)] }),
-    gitReviewDiffs: async () => ({ patches: { 'big.txt': huge }, omitted: [] }),
+    gitReviewDiffs: async () => ({ patches: [{ path: 'big.txt', patch: huge }], omitted: [] }),
   });
   setSessionChangesSource('uncommitted');
   let drawn = [];

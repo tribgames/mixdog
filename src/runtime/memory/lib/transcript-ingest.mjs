@@ -53,7 +53,21 @@ export function createTranscriptIngest({
     return run;
   }
 
+  /** A deleted session's transcripts: wait out any ingest of each file, then
+   *  drop its persisted read position. Returns the number of entries removed. */
+  async function forgetTranscripts(transcriptPaths) {
+    let removed = 0;
+    for (const transcriptPath of transcriptPaths) {
+      const resolved = path.resolve(transcriptPath);
+      await tails.get(resolved);
+      for (const key of new Set([transcriptPath, resolved])) if (offsets.forget(key)) removed += 1;
+    }
+    if (removed > 0) await offsets.persist();
+    return removed;
+  }
+
   return {
+    forgetTranscripts,
     loadTranscriptOffsets: offsets.load,
     persistTranscriptOffsets: offsets.persist,
     ingestTranscriptFile,

@@ -24,7 +24,9 @@ function scheduleComposerAutoFocus(
     const target = textarea.current;
     if (!target || !document.hasFocus() || target.closest('[inert]') || modalDialogPresented()) return;
     const active = document.activeElement;
-    if (active?.classList.contains('session-header-title-input')) return;
+    // A rename editor (header or tab strip) opened by the same press that asked
+    // for composer focus keeps the caret; stealing it would blur-commit the draft.
+    if (active?.matches('.session-header-title-input, .workspace-tab-title-input')) return;
     if (preserveTyping && surfaceOwnsKeyboard(active)) return;
     target.focus({ preventScroll: true });
   }, 0);

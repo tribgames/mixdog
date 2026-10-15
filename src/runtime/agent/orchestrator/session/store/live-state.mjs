@@ -124,6 +124,29 @@ export function _retireSessionIncarnation(id) {
   if (id) _sessionIncarnations.delete(id);
 }
 
+// ── Delete fence ────────────────────────────────────────────────────────────
+// An explicitly deleted session may still own a running turn whose later saves
+// carry a brand-new write guard and incarnation, so neither the cancellation
+// counter nor the retired incarnation stops them: an absent file reads as
+// "creatable". The fence is the id-level refusal every write-admission check
+// consults. Only explicit user deletes fence (ids are never reused); the cap
+// only ever forgets the oldest, long-settled entries.
+const SESSION_DELETE_FENCE_MAX = 4096;
+const _deleteFence = new Set();
+
+export function fenceSessionWrites(id) {
+  if (!id) return;
+  _deleteFence.delete(id);
+  _deleteFence.add(id);
+  if (_deleteFence.size > SESSION_DELETE_FENCE_MAX) {
+    _deleteFence.delete(_deleteFence.values().next().value);
+  }
+}
+
+export function isSessionWriteFenced(id) {
+  return _deleteFence.has(id);
+}
+
 /** Clear every save marker for an id (successful hard delete). */
 export function _clearSessionSaveState(id) {
   if (!id) return;

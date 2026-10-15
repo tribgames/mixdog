@@ -46,23 +46,23 @@ test('the official data directory is never a sweep candidate', () => {
   );
 });
 
-test('initdb keeps its default share dir for an ASCII runtime path', () => {
+test('initdb keeps its default share dir for an ASCII runtime path', async () => {
   assert.equal(
-    withInitdbShareDir(join(tempRoot, 'mixdog', 'runtime'), (shareDir) => shareDir),
+    await withInitdbShareDir(join(tempRoot, 'mixdog', 'runtime'), (shareDir) => shareDir),
     null
   );
 });
 
 test('initdb reads a non-ASCII runtime share dir through a temporary ASCII junction', {
   skip: process.platform !== 'win32',
-}, () => {
+}, async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-initdb-share-'));
   try {
     const runtimeDir = join(root, '김현철', 'runtime');
     mkdirSync(join(runtimeDir, 'share'), { recursive: true });
     writeFileSync(join(runtimeDir, 'share', 'sql_features.txt'), 'features');
 
-    const shareDir = withInitdbShareDir(runtimeDir, (dir) => {
+    const shareDir = await withInitdbShareDir(runtimeDir, (dir) => {
       assert.match(dir, /^[\x20-\x7e]+$/);
       assert.equal(readFileSync(join(dir, 'sql_features.txt'), 'utf8'), 'features');
       return dir;
@@ -77,7 +77,7 @@ test('initdb reads a non-ASCII runtime share dir through a temporary ASCII junct
 
 test('junction cleanup failures never replace the initdb result or error', {
   skip: process.platform !== 'win32',
-}, () => {
+}, async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-initdb-share-'));
   try {
     const runtimeDir = join(root, '김현철', 'runtime');
@@ -85,7 +85,7 @@ test('junction cleanup failures never replace the initdb result or error', {
 
     // The callback removes the junction first, so the helper's own unlink fails.
     let linkRoot;
-    const result = withInitdbShareDir(runtimeDir, (dir) => {
+    const result = await withInitdbShareDir(runtimeDir, (dir) => {
       linkRoot = dirname(dir);
       unlinkSync(dir);
       return { status: 0 };
@@ -93,7 +93,7 @@ test('junction cleanup failures never replace the initdb result or error', {
     assert.deepEqual(result, { status: 0 });
     assert.equal(existsSync(linkRoot), false);
 
-    assert.throws(
+    await assert.rejects(
       () =>
         withInitdbShareDir(runtimeDir, (dir) => {
           unlinkSync(dir);

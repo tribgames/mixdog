@@ -553,6 +553,9 @@ export class SessionHostLifecycle {
         const provisioned = await this.owner.invokeSession(sessionId, 'requestWorktree', [
           {
             provision: true,
+            // A new task starts its worktree at the current commit and never
+            // takes the project folder's uncommitted changes with it.
+            carryChanges: 'leave',
             confirmLarge: draft.worktree.confirmLarge === true,
             prompt: promptTitle(prompt, options.displayText || ''),
             txId: submissionId,

@@ -38,8 +38,8 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
     getQuotaHistory: async (options = {}) => {
       return await runtime.getQuotaHistory?.(options);
     },
-    getSessionUsage: async () => {
-      return await runtime.getSessionUsage?.();
+    getSessionUsage: async (options = {}) => {
+      return await runtime.getSessionUsage?.(options);
     },
     consumeCodexRateLimitResetCredit: async (options = {}) => {
       // Desktop capability parity: without this delegation the session runtime

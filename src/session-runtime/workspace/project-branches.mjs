@@ -54,12 +54,14 @@ export function createProjectBranchOps({ backend, inspectProject, findRegistered
     const path = await registeredProject(projectPath);
     const project = await inspectProject(path);
     const menu = await (await backend()).listBranchOccupancy({ projectPath: path, sessionId: null });
+    const workspace = projectWorkspace({
+      projectPath: path,
+      repoCommonDir: project.repoCommonDir,
+      branch: project.currentBranch,
+    });
     return {
-      workspace: projectWorkspace({
-        projectPath: path,
-        repoCommonDir: project.repoCommonDir,
-        branch: project.currentBranch,
-      }),
+      // Detached: branch null and the checked-out commit in baseCommit.
+      workspace: project.currentBranch ? workspace : { ...workspace, baseCommit: project.headCommit ?? null },
       branches: branchMenuEntries(menu.branches, menu.occupancy),
       occupancy: menu.occupancy,
       retainedWorktree: null,

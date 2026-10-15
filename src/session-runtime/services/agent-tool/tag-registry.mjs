@@ -29,7 +29,7 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     workerRowFromSession: index.workerRowFromSession,
   });
 
-  const { upsertLeadSession, updateLeadWorkerCwd } = leadIndex;
+  const { upsertLeadSession, updateLeadWorkerCwd, forgetLeadSession } = leadIndex;
 
   function dispose(options) {
     try {
@@ -117,6 +117,7 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     upsertWorkerSessionDeferred,
     upsertLeadSession,
     updateLeadWorkerCwd,
+    forgetLeadSession,
     removeWorkerRow,
     refreshTagsFromIndex,
     tags,

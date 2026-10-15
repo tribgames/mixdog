@@ -1234,6 +1234,24 @@ test('desktop labels name the operation actually called and its real outcome', a
     'GitHub 4'
   );
 
+  // Visualize, Browser and Computer calls of any action count as one unit each.
+  assert.equal(
+    desktopToolActivitySummary([
+      item('visualize', { action: 'close' }),
+      item('visualize', { action: 'open', input: { targets: ['a.html'] } }),
+      item('visualize', { action: 'capture', input: { tab: 'v1' } }),
+    ]),
+    'Visualize 3'
+  );
+  assert.equal(
+    desktopToolActivitySummary([
+      item('browser', { action: 'navigate', url: 'https://example.com' }),
+      item('browser', { action: 'click', ref: 'e1' }),
+    ]),
+    'Browser 2 actions'
+  );
+  assert.equal(desktopToolActivitySummary([item('browser', { action: 'navigate', url: 'https://a.b' })]), 'Browser action');
+
   // Terminal is its own category with action verbs, never "External tools".
   const list = item('terminal', { action: 'list' });
   assert.equal(desktopToolActivityItemPresentation(list).category, 'Terminal');

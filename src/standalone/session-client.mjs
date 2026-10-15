@@ -324,6 +324,12 @@ async function replaceLowerDaemon(discovery, initialHealth, { log, onUpgradeWait
  *  caller then re-reads discovery and attaches to whoever won. The shared fork
  *  and crash capture live in ./daemon-candidate.mjs.
  *  `entry` is a test seam; production always forks the real daemon. */
+// Daemons this process forked into its own process tree (daemonShouldDetach
+// false: the packaged Windows Desktop). Such a child is killed with its
+// launcher (libuv's kill-on-close job), which skips its whole teardown —
+// PostgreSQL stop included — so the launcher's quit stops it first.
+const inTreeDaemons = new Map();
+
 export function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry = daemonEntry() }) {
   const t0 = performance.now();
   const at = () => Math.round(performance.now() - t0);
@@ -353,6 +359,10 @@ export function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry = dae
       const forkMs = at();
       child.once('spawn', () => {
         log(`daemon fork: forkMs=${forkMs} spawnEventMs=${at()}`);
+        if (!detached && child.pid) {
+          inTreeDaemons.set(child.pid, child);
+          child.once('exit', () => inTreeDaemons.delete(child.pid));
+        }
       });
     },
     onReady: () => log(`daemon ready at=${at()}ms`),
@@ -632,6 +642,34 @@ export async function shutdownDaemon(
     throw new Error(`session daemon pid=${daemonPid} did not exit within ${timeoutMs}ms`);
   }
   return true;
+}
+
+/** Launcher quit: a daemon this process forked into its own tree would die
+ *  with it, so ask the serving one to stop (forced — its work cannot outlive
+ *  this tree anyway) and wait, bounded, for every such child's graceful exit.
+ *  One that already unpublished its endpoint is mid-teardown: only waited on.
+ *  False when no such child is alive (detached, or another launcher's). */
+export async function stopInTreeDaemon({ timeoutMs = 3_000, discovery = readSessionDiscovery() } = {}) {
+  const pids = [...inTreeDaemons.keys()].filter((pid) => isPidAlive(pid));
+  if (!pids.length) return false;
+  if (discovery?.port && pids.includes(Number(discovery.pid))) {
+    try {
+      await request({
+        port: discovery.port,
+        token: discovery.token,
+        method: 'POST',
+        path: '/stop',
+        body: { force: true },
+        timeoutMs: 3000,
+        control: true,
+      });
+    } catch {
+      // Past its front door already: only the wait remains.
+    }
+  }
+  const deadline = Date.now() + Math.max(1, Number(timeoutMs) || 3_000);
+  while (pids.some((pid) => isPidAlive(pid)) && Date.now() < deadline) await delay(50);
+  return !pids.some((pid) => isPidAlive(pid));
 }
 
 export async function shutdownDaemonForRuntimeRoot(root, options = {}) {

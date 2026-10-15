@@ -42,7 +42,7 @@ export function createLeadIndexFile({ dataDir }) {
     return parsed ? normalizeLeadRows(parsed) : [];
   }
 
-  const write = (mutator) => queue.write(mutator);
+  const write = (mutator, options) => queue.write(mutator, options);
 
   return { path, read, write, flush: queue.flush, flushSync: queue.flushSync };
 }

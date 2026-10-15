@@ -17,11 +17,14 @@ import { SESSION_TOOL, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../../src/session-ru
 import { AGENT_TOOL } from '../../src/standalone/agent-tool/tool-def.mjs';
 import { normalizeGoalTasks, patchGoalTasks } from '../../src/session-runtime/goal-tasks.mjs';
 import { validateBrowserToolArgs } from '../../src/runtime/browser-bridge/action-schema.mjs';
-import { validateComputerToolArgs, toComputerHostCommand } from '../../src/runtime/computer-bridge/action-schema.mjs';
+import { COMPUTER_ACTION_CONTRACTS, validateComputerToolArgs, toComputerHostCommand } from '../../src/runtime/computer-bridge/action-schema.mjs';
 import { validateXlsxOperations } from '../../src/runtime/office/portable/xlsx-contract.mjs';
 import { normalizeGrokToolSchemas } from '../../src/runtime/agent/orchestrator/providers/lib/grok-tool-schema.mjs';
 import { toGeminiTools } from '../../src/runtime/agent/orchestrator/providers/gemini-schema.mjs';
-import { sanitizeAnthropicInputSchema } from '../../src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs';
+import {
+  requestAnthropicTools,
+  sanitizeAnthropicInputSchema,
+} from '../../src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs';
 import { toOpenAIResponsesTool } from '../../src/runtime/agent/orchestrator/providers/openai-responses-payload.mjs';
 
 // URI transport/security validation belongs to the tools. Here the independent
@@ -54,9 +57,13 @@ const projections = (tool) => {
     ['canonical', tool.inputSchema],
     ['Gemini/Antigravity', gemini.parametersJsonSchema ?? gemini.parameters],
     ['Grok', normalizeGrokToolSchemas([tool])[0].inputSchema],
-    ['Anthropic', sanitizeAnthropicInputSchema(tool.inputSchema, tool.name, 'first-call')],
+    ['Anthropic', anthropicSchema(tool, 'anthropic')],
   ];
 };
+function anthropicSchema(tool, provider) {
+  const opts = { providerToolSnapshotAuthoritative: true, providerNativeToolPrefixCount: 0 };
+  return requestAnthropicTools([tool], [], opts, provider)[0].input_schema;
+}
 
 test('the complete catalog and provider projections remain valid without mutating source contracts', () => {
   assert.equal(new Set(catalog.map((tool) => tool.name)).size, catalog.length);
@@ -181,12 +188,34 @@ test('every computer action keeps its usable input fields through provider flatt
     for (const [, schema] of projections(tool)) accepts(schema, args);
   }
   const sourceFields = [
-    ...new Set(tool.inputSchema.oneOf.flatMap((branch) => Object.keys(branch.properties.input.properties))),
+    ...new Set(COMPUTER_ACTION_CONTRACTS.flatMap((branch) => Object.keys(branch.properties.input.properties))),
   ].sort();
+  // Only first-party Anthropic opts into the nested form: an object root with
+  // no root combiner whose `input` offers one alternative per action, titled
+  // with it, carrying that action's exact contract.
+  for (const key of ['oneOf', 'anyOf', 'allOf', 'not']) assert.equal(tool.inputSchema[key], undefined, key);
+  for (const schema of [anthropicSchema(tool, 'anthropic'), anthropicSchema(tool, 'anthropic-oauth')]) {
+    for (const key of ['oneOf', 'anyOf', 'allOf', 'not']) assert.equal(schema[key], undefined, key);
+    const alternatives = schema.properties.input.anyOf;
+    assert.deepEqual(alternatives.map((alternative) => alternative.title).sort(), [...tool.inputSchema.properties.action.enum].sort());
+    for (const contract of COMPUTER_ACTION_CONTRACTS) {
+      const [action] = contract.properties.action.enum;
+      const { title, description, ...shape } = alternatives.find((alternative) => alternative.title === action);
+      assert.equal(description, `Input when action="${action}".`);
+      assert.deepEqual(shape, contract.properties.input, action);
+    }
+  }
+  // Every other path keeps the advertised flat projection: every action's
+  // fields with the per-action pairing in words.
+  const gemini = toGeminiTools([tool]).functionDeclarations[0].parametersJsonSchema;
   for (const schema of [
+    tool.inputSchema,
     normalizeGrokToolSchemas([tool])[0].inputSchema,
+    gemini,
+    anthropicSchema(tool, 'opencode-go'),
     sanitizeAnthropicInputSchema(tool.inputSchema, tool.name, 'first-call'),
   ]) {
+    assert.equal(schema.properties.input.anyOf, undefined);
     assert.deepEqual(Object.keys(schema.properties.input.properties).sort(), sourceFields);
     assert.match(schema.properties.input.description, /actions\*/);
     assert.match(schema.properties.input.description, /operation\*=read\|write/);

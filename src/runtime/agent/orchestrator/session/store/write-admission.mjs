@@ -14,6 +14,7 @@ import {
 } from './canonical-reader.mjs';
 import { isCancelledWrite as _isCancelledWrite } from './write-guards.mjs';
 import { _setSessionWriteAuthorityCheck } from './save-worker.mjs';
+import { isSessionWriteFenced } from './live-state.mjs';
 
 const _observeStamp = (target) => {
   try {
@@ -71,7 +72,7 @@ function _writeAuthorityRecord(target, attempt) {
  * under their own authority read).
  */
 export function _shouldDrop(id, opts, attempt = null) {
-  if (_isCancelledWrite(opts)) return true;
+  if (_isCancelledWrite(opts) || isSessionWriteFenced(id)) return true;
   const expected = typeof opts?.expectedGeneration === 'number' ? opts.expectedGeneration : null;
   const target = sessionPath(id);
   let record;
@@ -126,6 +127,7 @@ export function _shouldDrop(id, opts, attempt = null) {
 // under the lock by _shouldDrop.
 export function _sessionWriteAuthorityRefusal(id, attempt = null) {
   if (!id) return null;
+  if (isSessionWriteFenced(id)) return 'deleted';
   let authority;
   try {
     // A synchronous save passes its `attempt`: its pre-admission is then the

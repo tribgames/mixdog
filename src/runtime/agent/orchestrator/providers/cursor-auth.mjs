@@ -130,7 +130,7 @@ function saveCredentials(tokens) {
 
 export function hasCursorOAuthCredentials() {
   const tokens = loadStoredCredentials();
-  if (!tokens?.access_token) return false;
+  if (!tokens?.access_token || tokens.reauth_required === true) return false;
   const expiresAt = Number(tokens.expires_at) || 0;
   return expiresAt === 0 || expiresAt > Date.now() || Boolean(tokens.refresh_token);
 }
@@ -145,6 +145,18 @@ export function describeCursorOAuthCredentials() {
       reauthRequired: false,
       status: 'Not Set',
       detail: 'Mixdog token store or CURSOR_ACCESS_TOKEN',
+    };
+  }
+  if (tokens.reauth_required === true) {
+    return {
+      authenticated: false,
+      usable: false,
+      refreshable: false,
+      reauthRequired: true,
+      status: 'Reauth Required',
+      detail: tokens.source || 'Cursor OAuth',
+      expiresAt: Number(tokens.expires_at) || null,
+      ...accountIdentityFields(tokens.identity),
     };
   }
   const expiresAt = Number(tokens.expires_at) || 0;
@@ -336,10 +348,30 @@ export async function resolveCursorOAuthAccessToken({ forceRefresh = false, fetc
         // (turn cancel / session close) kill it would fail the refresh for
         // all of them and leave the process without a usable token. Its own
         // timeout bounds the request instead.
-        const next = await exchangeCursorToken(latest.refresh_token, {
-          fetchFn,
-          signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
-        });
+        let next;
+        try {
+          next = await exchangeCursorToken(latest.refresh_token, {
+            fetchFn,
+            signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
+          });
+        } catch (error) {
+          if (error?.reauthRequired !== true) throw error;
+          // Mark the account dead only if no other process replaced the
+          // refresh token meanwhile. Non-destructive: tokens stay intact and
+          // a new sign-in rewrites the file without this marker.
+          if (!process.env.CURSOR_ACCESS_TOKEN || boundProviderAuthPath('cursor-oauth')) {
+            const current = loadStoredCredentials();
+            if (current?.refresh_token && current.refresh_token === latest.refresh_token) {
+              const { source: _source, ...persisted } = current;
+              try {
+                saveCredentials({ ...persisted, reauth_required: true });
+              } catch (saveError) {
+                process.stderr.write(`[cursor-oauth] dead-account mark failed: ${String(saveError?.message || saveError).slice(0, 200)}\n`);
+              }
+            }
+          }
+          throw error;
+        }
         if (!process.env.CURSOR_ACCESS_TOKEN || boundProviderAuthPath('cursor-oauth')) {
           saveCredentials(next);
         }

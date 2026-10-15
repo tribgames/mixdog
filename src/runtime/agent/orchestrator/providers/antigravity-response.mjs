@@ -85,7 +85,17 @@ export function finalizeAntigravityTurn({ response, collector, useModel, opts, o
     });
   }
 
-  if (finishReason && normalizedFinish !== 'STOP') {
+  // A MAX_TOKENS cut that still delivered whole native functionCall parts is
+  // a tool-use turn: the calls arrived intact, only trailing output was cut.
+  // Every other non-STOP finish fails the turn, and so does a cut whose text
+  // also leaked a call (that call may be as truncated as the text around it).
+  const completeNativeCalls =
+    normalizedFinish === 'MAX_TOKENS' &&
+    String(candidate?.finishReason || '').replace(/^FINISH_REASON_/, '') === 'MAX_TOKENS' &&
+    !leakedToolCalls.length &&
+    !!nativeToolCalls?.length &&
+    nativeToolCalls.every((call) => typeof call?.name === 'string' && call.name !== '');
+  if (finishReason && normalizedFinish !== 'STOP' && !completeNativeCalls) {
     throw Object.assign(new Error(`Antigravity response incomplete: finishReason=${finishReason}`), {
       name: 'ProviderIncompleteError',
       code: geminiPolicyFinishCode(finishReason) || 'PROVIDER_INCOMPLETE',

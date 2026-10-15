@@ -3,7 +3,6 @@ import { createProviderReplay, providerReplayItems } from './lib/provider-replay
 import { toGeminiContents, toGeminiRequestTools, toGeminiToolConfig } from './gemini-schema.mjs';
 import { geminiThinkingConfig } from './gemini-thinking.mjs';
 import { isGeminiFamilyModel } from './gemini-family.mjs';
-import { sanitizeAnthropicInputSchema } from './lib/anthropic-request-utils.mjs';
 
 const THOUGHT_SIGNATURE_SENTINEL = 'skip_thought_signature_validator';
 const CLAUDE_MAX_OUTPUT_TOKENS = 64000;
@@ -16,115 +15,11 @@ export function isAntigravityClaude(model) {
   return /^claude-/i.test(String(model || ''));
 }
 
-// Cloud Code's Claude bridge mistranslates typed unions (anyOf/oneOf) into an
-// invalid draft 2020-12 schema (HTTP 400 "tools.N.custom.input_schema"), so
-// the emitted Claude declarations carry no unions at any depth. Only the
-// advertised schema is normalized; validation stays on the original tools.
-const SCHEMA_MAP_KEYS = ['properties', 'patternProperties', '$defs', 'definitions'];
-const SCHEMA_NODE_KEYS = [
-  'items',
-  'additionalItems',
-  'additionalProperties',
-  'contains',
-  'propertyNames',
-  'not',
-  'if',
-  'then',
-  'else',
-];
-const SCHEMA_LIST_KEYS = ['prefixItems', 'allOf', 'anyOf', 'oneOf'];
-const SCALAR_TYPES = new Set(['string', 'number', 'integer', 'boolean']);
-
-const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-const isNullBranch = (branch) => branch.type === 'null' || branch.const === null;
-
-function stringEnumValues(branch) {
-  if (branch.type !== undefined && branch.type !== 'string') return null;
-  if (Array.isArray(branch.enum) && branch.enum.length && branch.enum.every((v) => typeof v === 'string')) {
-    return branch.enum;
-  }
-  return typeof branch.const === 'string' ? [branch.const] : null;
-}
-
-function collapseUnion(node, branches) {
-  const objects = branches.filter(isPlainObject);
-  const enums = objects.map(stringEnumValues);
-  if (objects.length === branches.length && objects.length && enums.every(Boolean)) {
-    return { ...node, type: 'string', enum: [...new Set(enums.flat())] };
-  }
-  const nonNull = objects.filter((branch) => !isNullBranch(branch));
-  if (objects.length === branches.length && nonNull.length === 1) {
-    const nullable = nonNull.length < objects.length;
-    return { ...nonNull[0], ...node, ...(nullable ? { nullable: true } : {}) };
-  }
-  if (node.type === undefined) {
-    const scalar = nonNull.find((branch) => SCALAR_TYPES.has(branch.type));
-    if (scalar) return { ...node, type: scalar.type };
-  }
-  return node;
-}
-
-function normalizeClaudeSchemaNode(input) {
-  if (!isPlainObject(input)) return input;
-  let node = { ...input };
-  for (const key of SCHEMA_MAP_KEYS) {
-    if (!isPlainObject(node[key])) continue;
-    node[key] = Object.fromEntries(
-      Object.entries(node[key]).map(([name, child]) => [name, normalizeClaudeSchemaNode(child)])
-    );
-  }
-  for (const key of SCHEMA_NODE_KEYS) {
-    if (isPlainObject(node[key])) node[key] = normalizeClaudeSchemaNode(node[key]);
-  }
-  for (const key of SCHEMA_LIST_KEYS) {
-    if (Array.isArray(node[key])) node[key] = node[key].map(normalizeClaudeSchemaNode);
-  }
-  if (Array.isArray(node.items)) node.items = node.items.map(normalizeClaudeSchemaNode);
-  const branches = [
-    ...(Array.isArray(node.anyOf) ? node.anyOf : []),
-    ...(Array.isArray(node.oneOf) ? node.oneOf : []),
-  ];
-  delete node.anyOf;
-  delete node.oneOf;
-  if (branches.length) node = collapseUnion(node, branches);
-  return node;
-}
-
-function claudeFunctionSchema(inputSchema, toolName) {
-  const root = normalizeClaudeSchemaNode(
-    sanitizeAnthropicInputSchema(structuredClone(inputSchema), toolName, 'antigravity')
-  );
-  return { ...root, type: 'object', properties: isPlainObject(root.properties) ? root.properties : {} };
-}
-
-// True when normalizeClaudeSchemaNode would collapse a union somewhere in the
-// schema (same traversal; a property merely named "anyOf" does not count).
-function hasClaudeUnion(input) {
-  if (!isPlainObject(input)) return false;
-  if (Array.isArray(input.anyOf) || Array.isArray(input.oneOf)) return true;
-  const children = [
-    ...SCHEMA_MAP_KEYS.flatMap((key) => (isPlainObject(input[key]) ? Object.values(input[key]) : [])),
-    ...SCHEMA_NODE_KEYS.map((key) => input[key]),
-    ...SCHEMA_LIST_KEYS.flatMap((key) => (Array.isArray(input[key]) ? input[key] : [])),
-    ...(Array.isArray(input.items) ? input.items : []),
-  ];
-  return children.some(hasClaudeUnion);
-}
-
-// Only a schema carrying a union (the #80 400) is rewritten; every other
-// declaration takes the unchanged historical selection and bytes
-// (`claudeBridge: true`).
-function claudeRequestTools(tools, nativeTools) {
-  return toGeminiRequestTools(
-    tools?.map((tool) =>
-      hasClaudeUnion(tool.inputSchema)
-        ? { ...tool, inputSchema: claudeFunctionSchema(tool.inputSchema, tool.name) }
-        : tool
-    ),
-    nativeTools,
-    { claudeBridge: true }
-  );
-}
+// Claude declarations are validated for the gateway's Anthropic bridge in
+// toGeminiTools (claudeBridge: true); a tool with an invalid schema is left
+// out of the request and reported through `onToolExcluded` / console.warn.
+const claudeRequestTools = (tools, nativeTools, onToolExcluded) =>
+  toGeminiRequestTools(tools, nativeTools, { claudeBridge: true, onToolExcluded });
 
 // Default function-calling mode when the caller sets no toolChoice. VALIDATED
 // (schema-constrained function calls) is what the Antigravity client sends;
@@ -268,9 +163,10 @@ export function buildAntigravityRequest(messages, model, tools, opts = {}, proje
   };
   const request = { contents };
   if (systemText) request.systemInstruction = { role: 'user', parts: [{ text: systemText }] };
-  const requestTools = claude ? claudeRequestTools(tools, opts.nativeTools) : toGeminiRequestTools(tools, opts.nativeTools);
+  const requestTools = claude ? claudeRequestTools(tools, opts.nativeTools, opts.onToolExcluded) : toGeminiRequestTools(tools, opts.nativeTools);
   if (requestTools.length) request.tools = requestTools;
-  if (tools?.length) {
+  // Tool config only accompanies function declarations that were kept.
+  if (requestTools.some((entry) => entry.functionDeclarations?.length)) {
     request.toolConfig = toGeminiToolConfig(opts.toolChoice) || {
       functionCallingConfig: { mode: antigravityFunctionCallingMode() },
     };

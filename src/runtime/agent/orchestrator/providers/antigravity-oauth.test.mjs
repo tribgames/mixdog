@@ -834,6 +834,36 @@ for (const finishReason of ['SAFETY', 'MAX_TOKENS', 'MALFORMED_FUNCTION_CALL', '
   });
 }
 
+test('a MAX_TOKENS finish carrying whole native calls is a tool-use turn', async () => {
+  const provider = providerWith(async () =>
+    sseResponse([
+      candidateChunk([
+        { text: 'checking' },
+        { functionCall: { id: 'whole', name: 'read', args: { path: 'a.txt' } } },
+      ]),
+      candidateChunk([], 'MAX_TOKENS'),
+    ])
+  );
+  const calls = [];
+  const result = await provider.send([{ role: 'user', content: 'Read.' }], 'gemini-3.8-flash', STREAM_PARITY_TOOLS, {
+    effort: 'low',
+    onToolCall: (call) => calls.push(call),
+  });
+  assert.deepEqual(
+    result.toolCalls.map((call) => call.id),
+    ['whole']
+  );
+  assert.deepEqual(calls, result.toolCalls);
+});
+
+test('a MAX_TOKENS finish without any native call still fails the turn', async () => {
+  const provider = providerWith(async () => sseResponse([candidateChunk([{ text: 'cut' }], 'MAX_TOKENS')]));
+  await assert.rejects(
+    provider.send([{ role: 'user', content: 'Hi.' }], 'gemini-3.8-flash', STREAM_PARITY_TOOLS, { effort: 'low' }),
+    (error) => error.providerIncomplete === true && error.finishReason === 'MAX_TOKENS'
+  );
+});
+
 test('prompt blocking suppresses calls even without a candidate finish reason', async () => {
   const chunk = candidateChunk([{ functionCall: { id: 'blocked', name: 'read', args: { path: 'a.txt' } } }]);
   chunk.response.promptFeedback = { blockReason: 'SAFETY' };

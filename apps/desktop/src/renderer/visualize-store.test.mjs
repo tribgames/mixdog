@@ -60,7 +60,7 @@ test('a chat card press is the user asking: it lifts the closed rule, selects an
   }
 });
 
-test('visualize events mirror tabs and reveal unless the user closed the panel', () => {
+test('a closed panel stays closed on reloads and reopens on an agent open', () => {
   const reveals = [];
   const stop = onVisualizeRevealRequested((sessionId) => reveals.push(sessionId));
   try {
@@ -69,12 +69,13 @@ test('visualize events mirror tabs and reveal unless the user closed the panel',
     assert.deepEqual(reveals, ['s1']);
 
     suppressVisualizeReveal('s1');
-    applyVisualizeEvent({ sessionId: 's1', state: { sessionId: 's1', tabs: [tab], active: 'v1' }, reveal: true });
-    assert.deepEqual(reveals, ['s1'], 'a closed panel stays closed');
+    applyVisualizeEvent({ sessionId: 's1', state: { sessionId: 's1', tabs: [{ ...tab, revision: 1 }], active: 'v1' } });
+    assert.deepEqual(reveals, ['s1'], 'a reload of an open tab never reopens a closed panel');
+    assert.equal(visualizeRevealSuppressed('s1'), true);
 
-    allowVisualizeReveal('s1');
     applyVisualizeEvent({ sessionId: 's1', state: { sessionId: 's1', tabs: [tab], active: 'v1' }, reveal: true });
-    assert.deepEqual(reveals, ['s1', 's1']);
+    assert.deepEqual(reveals, ['s1', 's1'], 'an agent open reopens a closed panel');
+    assert.equal(visualizeRevealSuppressed('s1'), false);
 
     applyVisualizeEvent({ sessionId: 's1', state: { sessionId: 's1', tabs: [], active: null } });
     assert.deepEqual(visualizeStateFor('s1').tabs, []);
