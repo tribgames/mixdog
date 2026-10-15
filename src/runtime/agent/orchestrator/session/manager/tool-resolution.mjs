@@ -48,6 +48,9 @@ const SESSION_ROUTE_TOOL_RANK = new Map(
 const FILESYSTEM_TOOL_NAMES = new Set(['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'edit', 'apply_patch']);
 const READONLY_FS_TOOL_NAMES = new Set(['code_graph', 'find', 'glob', 'list', 'grep', 'read']);
 
+// Lead-only control tools: never part of a worker/sub-agent session surface.
+export const AGENT_WORKER_DENIED_TOOLS = Object.freeze(new Set(['agent', 'ask_user', 'session']));
+
 export function finalizeSessionToolList(
   tools,
   { schemaAllowedTools = null, disallowedTools = null, ownerIsAgent = false } = {}
@@ -64,7 +67,7 @@ export function finalizeSessionToolList(
     out = out.filter((t) => !denySet.has(String(t?.name || '').toLowerCase()));
   }
   if (ownerIsAgent) {
-    out = out.filter((t) => String(t?.name || '').toLowerCase() !== 'agent');
+    out = out.filter((t) => !AGENT_WORKER_DENIED_TOOLS.has(String(t?.name || '').toLowerCase()));
     out = orderSessionTools(out);
   }
   return out;

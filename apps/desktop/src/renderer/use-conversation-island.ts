@@ -38,9 +38,10 @@ export function useConversationIsland({
     pendingPromptCount,
     invokeResult: actions.composerInvokeResult,
   });
-  const { approvalCard, retiredApproval, answeredElsewhere, viewerDevice } = approvals;
+  const { approvalCard, dismissQuestion, retiredApproval, answeredElsewhere, viewerDevice } = approvals;
   return {
     approval: approvalCard,
+    dismissQuestion,
     islandFlash: conversationIslandFlash(retiredApproval, answeredElsewhere, viewerDevice),
     quotaCard,
     quotaResume,

@@ -34,7 +34,7 @@ test('the composer offers only frequent commands and preserves direct command ex
     '/usage',
     '/skills',
     '/goal',
-    '/inherit',
+    '/fork',
     '/doctor',
     '/fast',
   ];
@@ -175,7 +175,8 @@ test('the composer offers only frequent commands and preserves direct command ex
     assert.equal(input.value, '');
     assert.equal(palette(), null);
 
-    await type('/inh');
+    assert.equal(resolveDesktopSlashCommand('inherit')?.name, 'fork');
+    await type('/for');
     const option = palette().querySelector('button');
     await act(async () => {
       const down = new window.MouseEvent('mousedown', { bubbles: true, cancelable: true });
@@ -201,11 +202,19 @@ test('the composer offers only frequent commands and preserves direct command ex
     assert.deepEqual(calls, [['inherit']]);
     calls.pop();
     assert.equal(input.value, '');
+    await type('/fork');
+    await key('Enter');
+    assert.deepEqual(calls, [['inherit']]);
+    calls.pop();
+    assert.equal(input.value, '');
     await act(async () => root.render(React.createElement(Composer, { ...inheritProps, turnBusy: true })));
     await type('/inherit');
     await key('Enter');
     assert.equal(input.value, '/inherit');
     assert.match(toastText(), /Wait for the current turn to finish before \/inherit/);
+    await type('/fork');
+    await key('Enter');
+    assert.match(toastText(), /Wait for the current turn to finish before \/fork/);
     assert.deepEqual(calls, []);
     await act(async () => root.render(React.createElement(Composer, props)));
 

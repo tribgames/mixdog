@@ -693,7 +693,7 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
   await act(async () => items()[1].click());
   await act(async () => buttons()[1].click());
   await flush();
-  assert.match(menu().querySelector('.error-notice').textContent, /running a turn/);
+  assert.match(menu().querySelector('.error-notice').textContent, /while a response is running/);
   assert.ok(segment(), 'nothing was deleted');
   await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
 

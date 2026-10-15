@@ -218,6 +218,7 @@ test('busy guards refuse the destructive session commands and say so', () => {
   assert.equal(h.runSlashCommand('compact', ''), false);
   assert.equal(h.runSlashCommand('resume', ''), false);
   assert.equal(h.runSlashCommand('inherit', ''), false);
+  assert.equal(h.runSlashCommand('fork', ''), false);
   assert.deepEqual(
     h.notices.map(([message]) => message),
     [
@@ -226,6 +227,7 @@ test('busy guards refuse the destructive session commands and say so', () => {
       'wait for the current turn to finish before /compact',
       'wait for the current turn to finish before /resume',
       'wait for the current turn to finish before /inherit',
+      'wait for the current turn to finish before /fork',
     ]
   );
   h.runSlashCommand('effort', 'low');
@@ -234,7 +236,7 @@ test('busy guards refuse the destructive session commands and say so', () => {
   assert.equal(g.runSlashCommand('new', ''), false);
 });
 
-test('session commands: /new, /clear, /compact outcomes, /resume id, /inherit, /doctor, /quit, unknown', async () => {
+test('session commands: /new, /clear, /compact outcomes, /resume id, /fork, /inherit alias, /doctor, /quit, unknown', async () => {
   const h = createHarness({
     store: {
       compact: (() => {
@@ -253,6 +255,7 @@ test('session commands: /new, /clear, /compact outcomes, /resume id, /inherit, /
   h.runSlashCommand('clear', '');
   for (let i = 0; i < 5; i += 1) h.runSlashCommand('compact', '');
   h.runSlashCommand('resume', 'abc');
+  h.runSlashCommand('fork', '');
   h.runSlashCommand('inherit', '');
   h.runSlashCommand('schedules', '');
   h.runSlashCommand('doctor', '');
@@ -261,14 +264,14 @@ test('session commands: /new, /clear, /compact outcomes, /resume id, /inherit, /
   await flush();
   assert.deepEqual(
     h.calls.map((c) => c[0]),
-    ['newSession', 'clear', 'resume', 'inheritSession']
+    ['newSession', 'clear', 'resume', 'inheritSession', 'inheritSession']
   );
   const messages = h.notices.map(([message]) => message);
   for (const expected of ['Compact done.', 'too small', 'nothing to compact', 'Compact failed.', 'Compact failed: x']) {
     assert.ok(messages.includes(expected), expected);
   }
   assert.ok(messages.includes('Resumed abc'));
-  assert.ok(messages.includes('inherited 4 messages into s9'));
+  assert.ok(messages.includes('forked 4 messages into s9'));
   assert.ok(messages.includes('Schedules and webhooks are managed in the Mixdog desktop app'));
   assert.ok(messages.includes('unknown command: /bogus'));
   assert.deepEqual(h.doctors, [1]);

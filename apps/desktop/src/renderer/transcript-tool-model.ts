@@ -78,6 +78,7 @@ const ROUTINE_RESULT_TOOLS = new Set([
   'tidy',
   'visualize',
   'cwd',
+  'session',
   'setup',
 ]);
 

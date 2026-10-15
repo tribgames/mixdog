@@ -185,7 +185,8 @@ async function routeToolContract(repoRoot, route) {
   const disabledTools = [...new Set([
     ...featureDisallowedToolsFor({
       ...pristine.agentDefaults,
-      modules: { webSearch: { enabled: false } },
+      // The harness passes --web-search (harness/mixdog_agent.py).
+      modules: { webSearch: { enabled: true } },
       memoryTools: { enabled: false },
     // The digest describes the trial container, not this host: headless
     // trials run with git on PATH, so the host's own PATH must not decide.

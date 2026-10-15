@@ -1,0 +1,113 @@
+{
+    "id": "9a7627ec-f324-444d-b254-8cad1ee06248",
+    "task_name": "terminal-bench/custom-memory-heap-crash",
+    "trial_name": "custom-memory-heap-crash__ZpJzSDf",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-sol61-20261015-052653/2026-10-15__14-26-57/custom-memory-heap-crash__ZpJzSDf",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "custom-memory-heap-crash",
+        "ref": "sha256:61e021e0304c9818a9be2c9173c8a0938ce5d136e95c5422e099f1fdb2dc080e"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "a0db695f342c1b72f1b3d0b6c234eb802e970c4758931355e4ceeea4c9e73c37",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/custom-memory-heap-crash",
+            "ref": "sha256:61e021e0304c9818a9be2c9173c8a0938ce5d136e95c5422e099f1fdb2dc080e",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "custom-memory-heap-crash__ZpJzSDf",
+        "trials_dir": "C:\\Project\\mixdog\\benchmarks\\terminal-bench-2.1\\jobs-full-sol61-20261015-052653\\2026-10-15__14-26-57",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.mixdog_agent:MixdogAgent",
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "effort_judge": "steps",
+                "route_profile": "sol61-xhigh"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "a6bcb92a-ff34-47c2-8f3e-5d85fa19be62"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-1.2.2",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": 146805,
+        "n_cache_tokens": 116480,
+        "n_output_tokens": 2311,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-10-15T06:26:34.995865Z",
+    "finished_at": "2026-10-15T06:31:13.319908Z",
+    "environment_setup": {
+        "started_at": "2026-10-15T06:26:35.060209Z",
+        "finished_at": "2026-10-15T06:26:41.164294Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-10-15T06:26:41.164310Z",
+        "finished_at": "2026-10-15T06:27:01.769575Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-10-15T06:27:01.769637Z",
+        "finished_at": "2026-10-15T06:30:34.615026Z"
+    },
+    "verifier": {
+        "started_at": "2026-10-15T06:30:34.615838Z",
+        "finished_at": "2026-10-15T06:30:58.085048Z"
+    },
+    "step_results": null
+}

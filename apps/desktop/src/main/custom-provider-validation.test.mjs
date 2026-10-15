@@ -16,10 +16,25 @@ test('custom provider capabilities are exposed on the desktop surface', () => {
     'saveCustomProvider',
     'removeCustomProvider',
     'testCustomProvider',
+    'checkCustomProviderKeyEnv',
     'discoverCustomProviderModels',
   ]) {
     assert.equal(DESKTOP_CAPABILITIES.includes(name), true);
   }
+});
+
+test('custom provider apiKeyEnv is validated and exclusive with apiKey', () => {
+  const env = { ...valid, auth: 'key' };
+  assert.doesNotThrow(() => requiredCustomProviderInput({ ...env, apiKeyEnv: 'GROQ_API_KEY' }));
+  assert.doesNotThrow(() => requiredCustomProviderInput({ ...env, apiKeyEnv: '_a1' }));
+  assert.doesNotThrow(() => requiredCustomProviderInput({ ...env, apiKeyEnv: 'A'.repeat(128) }));
+  assert.doesNotThrow(() => requiredCustomProviderInput({ ...env, apiKeyEnv: null, apiKey: 'k' }));
+  assert.doesNotThrow(() => requiredCustomProviderInput({ ...env, apiKeyEnv: 'X', apiKey: '' }));
+  for (const bad of ['', '1ABC', 'A-B', 'A B', 'A'.repeat(129), 5, {}]) {
+    assert.throws(() => requiredCustomProviderInput({ ...env, apiKeyEnv: bad }), /apiKeyEnv/, String(bad));
+  }
+  assert.throws(() => requiredCustomProviderInput({ ...env, apiKeyEnv: 'X', apiKey: 'k' }), /mutually exclusive/);
+  assert.throws(() => requiredCustomProviderInput({ ...valid, auth: 'none', apiKeyEnv: 'X' }), /key auth/);
 });
 
 test('custom provider input shape is validated', () => {

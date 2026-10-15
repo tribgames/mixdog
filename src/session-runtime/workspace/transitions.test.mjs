@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { createWorkspaceTransitions } from './transitions.mjs';
 import {
@@ -16,11 +16,15 @@ import {
   workspaceCwdLock,
 } from './admission-gate.mjs';
 import { worktreeError } from '../../runtime/shared/worktrees/contract.mjs';
+import {
+  refreshSessionWorkspaceContext,
+  snapshotPendingWorkspaceNotice,
+} from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 
 const BASE = 'a'.repeat(40);
 let counter = 0;
 
-function harness({ intent, sessionMessages = [], live = [], config = null } = {}) {
+function harness({ intent, sessionMessages = [], live = [], config = null, refresh = null } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-workspace-'));
   const project = join(root, 'project');
   const worktree = join(root, 'worktrees', 'fix');
@@ -110,16 +114,27 @@ function harness({ intent, sessionMessages = [], live = [], config = null } = {}
     getCurrentCwd: () => state.cwd,
     getDesktopSession: () => session.desktopSession,
     getConfig: () => config,
-    applyResolvedCwd: (cwd) => {
-      calls.push(['applyCwd', cwd]);
+    applyResolvedCwd: (cwd, options) => {
+      calls.push(['applyCwd', cwd, ...(options ? [options] : [])]);
       state.cwd = cwd;
       session.cwd = cwd;
+      // Stands in for cwd-apply's persistProjectSelection.
+      if (options?.persistProjectSelection) {
+        const desktop = { classification: 'project', projectPath: cwd };
+        session.desktopSession = desktop;
+        state.rtDesktop = desktop;
+      }
+    },
+    setDesktopSession: (next) => {
+      state.rtDesktop = next;
     },
     persistSession: (target) => calls.push(['persist', target.id, target.workspace?.revision ?? null]),
     refreshWorkspaceContext: async (target, cwd) => {
       calls.push(['refresh', target.id, cwd]);
+      if (state.refreshGate) await state.refreshGate;
       // Stands in for the prompt rewrite a real refresh performs.
-      target.bp3EnvironmentContext = `- Cwd ${cwd}`;
+      if (refresh) await refresh(target, cwd);
+      else target.bp3EnvironmentContext = `- Cwd ${cwd}`;
       if (state.refreshFails?.(target, cwd)) throw new Error('prompt refresh failed');
     },
     invalidateCaches: () => calls.push(['invalidate']),
@@ -1087,6 +1102,226 @@ test('a prompt refresh that fails after the cwd moved restores the previous work
       'the lease claimed for the move is released again'
     );
     assert.equal(h.calls.filter((call) => call[0] === 'applyCwd').at(-1)[1], h.project);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('a transition stages tail notices without touching system prompts, and a rollback restores them exactly', async () => {
+  const conversation = [
+    { role: 'user', content: 'question' },
+    { role: 'assistant', content: 'answer' },
+  ];
+  const worker = { id: 'w-notice', owner: 'agent', ownerSessionId: null, cwd: null, bp3EnvSplit: true };
+  const refresh = (target, cwd) =>
+    refreshSessionWorkspaceContext(target, {
+      cwd,
+      environmentContext: `- Cwd: ${cwd} — the active Project root; relative paths and shell commands resolve here.`,
+      instructionFilesContext: `# Instruction Files\n\n## ${cwd}/AGENTS.md\n\nrule`,
+    });
+  const h = harness({ live: [worker], sessionMessages: conversation, refresh });
+  try {
+    worker.ownerSessionId = h.session.id;
+    worker.cwd = h.project;
+    worker.bp3EnvironmentContext = `- Cwd: ${h.project} — the active Project root; relative paths and shell commands resolve here.`;
+    worker.messages = [{ role: 'system', content: worker.bp3EnvironmentContext, cacheTier: 'env' }, ...conversation];
+    h.session.bp3EnvSplit = true;
+    h.session.bp3EnvironmentContext = '- Shell: test';
+    h.session.messages.splice(1, 0, {
+      role: 'system',
+      content: `# Session\nCwd: ${h.project}\n\n---\n\n- Shell: test`,
+      cacheTier: 'env',
+    });
+    const leadSystem = JSON.stringify(h.session.messages.filter((message) => message.role === 'system'));
+    const workerSystem = JSON.stringify(worker.messages.filter((message) => message.role === 'system'));
+    const systemOf = (target) => JSON.stringify(target.messages.filter((message) => message.role === 'system'));
+    h.state.retained = h.entry;
+    await h.api.requestWorktree();
+    assert.equal(systemOf(h.session), leadSystem, 'the Lead prompt stays byte-identical');
+    assert.equal(systemOf(worker), workerSystem, 'the worker prompt stays byte-identical');
+    for (const target of [h.session, worker]) {
+      const notice = snapshotPendingWorkspaceNotice(target).content;
+      assert.ok(notice.includes(`The working folder is now ${h.worktree}.`));
+      assert.ok(notice.includes(`## ${h.worktree}/AGENTS.md`));
+    }
+    const leadStaged = h.session.workspaceReroot;
+    const workerStaged = worker.workspaceReroot;
+
+    // A removal that fails after the session left: both staged changes are put back exactly.
+    h.manager.removeImpl = async () => {
+      throw new Error('EBUSY: worktree locked');
+    };
+    await assert.rejects(h.api.removeWorktree({ force: true }), /EBUSY/);
+    assert.equal(h.session.workspaceReroot, leadStaged);
+    assert.equal(worker.workspaceReroot, workerStaged);
+    assert.equal(systemOf(h.session), leadSystem);
+    assert.equal(systemOf(worker), workerSystem);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('a transition that rolls back removes the notice it staged', async () => {
+  const conversation = [
+    { role: 'user', content: 'question' },
+    { role: 'assistant', content: 'answer' },
+  ];
+  const worker = { id: 'w-notice-fail', owner: 'agent', ownerSessionId: null, cwd: null, messages: [...conversation] };
+  const h = harness({
+    live: [worker],
+    sessionMessages: conversation,
+    refresh: (target, cwd) => refreshSessionWorkspaceContext(target, { cwd }),
+  });
+  try {
+    worker.ownerSessionId = h.session.id;
+    worker.cwd = h.project;
+    h.session.messages.splice(1, 0, { role: 'system', content: `# Session\nCwd: ${h.project}`, cacheTier: 'env' });
+    const before = JSON.stringify(h.session.messages);
+    h.state.retained = h.entry;
+    // The Lead stages its notice, then the worker's refresh fails.
+    h.state.refreshFails = (target) => target.id === worker.id;
+    await assert.rejects(h.api.requestWorktree(), /prompt refresh failed/);
+    assert.equal(Object.hasOwn(h.session, 'workspaceReroot'), false, 'the staged notice is gone');
+    assert.equal(Object.hasOwn(worker, 'workspaceReroot'), false);
+    assert.equal(snapshotPendingWorkspaceNotice(h.session), null);
+    assert.equal(JSON.stringify(h.session.messages), before);
+  } finally {
+    h.cleanup();
+  }
+});
+
+function projectSwitchHarness() {
+  const conversation = [
+    { role: 'user', content: 'question' },
+    { role: 'assistant', content: 'answer' },
+  ];
+  const worker = { id: 'w-switch', owner: 'agent', ownerSessionId: null, cwd: null, messages: [...conversation] };
+  const h = harness({
+    live: [worker],
+    sessionMessages: conversation,
+    refresh: (target, cwd) =>
+      refreshSessionWorkspaceContext(target, {
+        cwd,
+        instructionFilesContext: `# Instruction Files\n\n## ${cwd}/AGENTS.md\n\nrule`,
+      }),
+  });
+  worker.ownerSessionId = h.session.id;
+  worker.cwd = h.project;
+  h.session.messages.splice(1, 0, { role: 'system', content: `# Session\nCwd: ${h.project}`, cacheTier: 'env' });
+  const other = join(dirname(h.project), 'other');
+  const third = join(dirname(h.project), 'third');
+  mkdirSync(other);
+  mkdirSync(third);
+  return { ...h, worker, other, third };
+}
+
+test('a Project switch moves the Lead and its idle workers and stages their notices before it resolves', async () => {
+  const h = projectSwitchHarness();
+  try {
+    const leadSystem = JSON.stringify(h.session.messages.filter((message) => message.role === 'system'));
+    assert.equal(await h.api.switchProject(h.other), h.other);
+    assert.deepEqual(
+      h.calls.find((call) => call[0] === 'applyCwd'),
+      ['applyCwd', h.other, { persistProjectSelection: true, classifyByMembership: false }]
+    );
+    assert.equal(h.session.cwd, h.other);
+    assert.deepEqual(h.session.desktopSession, { classification: 'project', projectPath: h.other });
+    assert.equal(h.worker.cwd, h.other, 'a reused worker runs in the new Project');
+    assert.deepEqual(h.state.leadRows.at(-1), [h.session.id, h.other]);
+    for (const target of [h.session, h.worker]) {
+      assert.ok(snapshotPendingWorkspaceNotice(target).content.includes(`The working folder is now ${h.other}.`));
+    }
+    assert.equal(
+      JSON.stringify(h.session.messages.filter((message) => message.role === 'system')),
+      leadSystem,
+      'the system prompt is untouched'
+    );
+    assert.ok(h.calls.some((call) => call[0] === 'refresh' && call[1] === h.worker.id && call[2] === h.other));
+
+    // A turn that arrives during a switch is admitted only once the prompt
+    // refresh landed.
+    let release;
+    h.state.refreshGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const order = [];
+    const switching = h.api.switchProject(h.third).then(() => order.push('switched'));
+    const admitted = h.api.admitTurnWorkspace().then((leave) => {
+      order.push('admitted');
+      leave();
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(order, [], 'the turn waits for the switch');
+    release();
+    await Promise.all([switching, admitted]);
+    assert.deepEqual(order.sort(), ['admitted', 'switched']);
+    assert.equal(h.session.cwd, h.third);
+    assert.ok(snapshotPendingWorkspaceNotice(h.session).content.includes(`The working folder is now ${h.third}.`));
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('a Project switch whose prompt refresh fails is rolled back and rejects', async () => {
+  const h = projectSwitchHarness();
+  try {
+    await h.api.switchProject(h.other);
+    const state = (target) => JSON.stringify({ ...target, updatedAt: null });
+    const before = {
+      lead: state(h.session),
+      worker: state(h.worker),
+      desktop: h.state.rtDesktop,
+      reroot: h.session.workspaceReroot,
+    };
+    h.state.refreshFails = (target) => target.id === h.worker.id;
+    await assert.rejects(h.api.switchProject(h.third), /prompt refresh failed/);
+    assert.equal(h.state.cwd, h.other);
+    assert.equal(state(h.session), before.lead, 'cwd, record, desktop metadata and notice restored');
+    assert.equal(h.session.workspaceReroot, before.reroot);
+    assert.equal(state(h.worker), before.worker);
+    assert.equal(h.state.rtDesktop, before.desktop);
+    assert.deepEqual(h.state.leadRows.at(-1), [h.session.id, h.other]);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('a Project switch is refused from outside a running turn, while workers run, and inside a managed worktree', async () => {
+  const h = projectSwitchHarness();
+  try {
+    h.state.activeTurns = 1;
+    await assert.rejects(h.api.switchProject(h.other), { code: 'WORKTREE_BUSY_JOBS', details: { reason: 'turn' } });
+    assert.equal(h.names().includes('applyCwd'), false);
+    // The Lead's own tool call tolerates its calling turn.
+    assert.equal(await h.api.switchProject(h.other, { ownTurn: true }), h.other);
+    h.state.activeTurns = 0;
+
+    h.state.workers = [{ sessionId: h.worker.id, status: 'running' }];
+    await assert.rejects(h.api.switchProject(h.third, { ownTurn: true }), {
+      code: 'WORKTREE_BUSY_JOBS',
+      details: { reason: 'workers', workers: 1, jobs: 0 },
+    });
+    h.state.workers = [];
+    // Background shells do not pin the Project.
+    h.state.shellJobs = 2;
+    assert.equal(await h.api.switchProject(h.project, { classifyByMembership: true }), h.project);
+    assert.deepEqual(
+      h.calls.filter((call) => call[0] === 'applyCwd').at(-1),
+      ['applyCwd', h.project, { persistProjectSelection: true, classifyByMembership: true }],
+      'the desktop/remote move classifies by Project membership'
+    );
+    h.state.shellJobs = 0;
+
+    h.state.retained = h.entry;
+    await h.api.requestWorktree();
+    assert.equal(h.session.cwd, h.worktree);
+    const applied = h.names().filter((name) => name === 'applyCwd').length;
+    for (const ownTurn of [false, true]) {
+      await assert.rejects(h.api.switchProject(h.other, { ownTurn }), /managed worktree; exit the worktree first/);
+    }
+    assert.equal(h.names().filter((name) => name === 'applyCwd').length, applied, 'nothing moved');
+    assert.equal(h.session.cwd, h.worktree);
+    assert.equal(h.session.workspace.worktreeId, 'fix', 'the worktree binding is kept');
   } finally {
     h.cleanup();
   }

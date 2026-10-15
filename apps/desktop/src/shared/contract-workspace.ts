@@ -117,10 +117,6 @@ export interface DesktopSessionSummary {
   archived?: boolean;
   /** Favorite: pinned to the Favorites section above Recent. */
   favorite?: boolean;
-  /** User-chosen sidebar project (membership only — never the session's cwd).
-   *  A registered project path, or '' for "no project"; absent while the
-   *  project follows the session's folder. */
-  projectAssignment?: string;
   /** Automation origin: present on schedule/webhook runner sessions so the
    *  sidebar groups them under Automations instead of Recent. */
   sourceType?: 'schedule' | 'webhook';

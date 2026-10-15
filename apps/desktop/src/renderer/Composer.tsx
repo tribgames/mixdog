@@ -270,6 +270,8 @@ export type ComposerProps = {
   /** This pane is the focused, visible one. A payload shared into the app from
    *  outside (share sheet) may only land in a composer the user can see. */
   paneActive?: boolean;
+  /** Replaces the rotating placeholder (a pending question: sending closes it). */
+  placeholderOverride?: string;
 };
 
 export const Composer = memo(function Composer(props: ComposerProps) {
@@ -312,6 +314,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onOpenSettings,
     dropTargetRef,
     paneActive = true,
+    placeholderOverride,
   } = props;
   const [draft, setDraft] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -481,12 +484,14 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       setDraggingFiles,
     });
   }, [identityScope, resetAttachments, clearNotice, palettes.reset, palettes.invalidateSearch, selector.reset]);
-  const placeholder = composerPlaceholder({
-    hasConversation,
-    turnBusy,
-    commandBusy,
-    fallback: COMPOSER_PLACEHOLDERS[0],
-  });
+  const placeholder =
+    placeholderOverride ||
+    composerPlaceholder({
+      hasConversation,
+      turnBusy,
+      commandBusy,
+      fallback: COMPOSER_PLACEHOLDERS[0],
+    });
   // Autosize is CSS-native now (field-sizing: content). The old layout-effect
   // path forced TWO whole-document synchronous reflows per keystroke
   // (height:auto → scrollHeight read) — the measured source of typing lag on

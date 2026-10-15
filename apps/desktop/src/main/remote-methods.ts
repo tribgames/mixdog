@@ -1047,6 +1047,7 @@ const SECRET_CAPABILITY_NAMES: ReadonlySet<string> = new Set([
   'removeCustomProvider',
   'updateCustomProviderModel',
   'testCustomProvider',
+  'checkCustomProviderKeyEnv',
   'discoverCustomProviderModels',
   'getMcpServerConfig',
   'addMcpServer',

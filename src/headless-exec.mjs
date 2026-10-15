@@ -437,19 +437,26 @@ async function createHeadlessSessionRuntime(boundary, { provider, model, cwd, we
 // hundred bytes and the write is atomic, so the cost is negligible and a
 // live run stays readable from outside.
 function headlessAskOptions({ stats, lifecycle, observedModels, writeUsage }) {
+  const recordUsage = (delta) => {
+    const observedModel = clean(delta?.model);
+    if (observedModel) observedModels.add(observedModel);
+    applyUsageDelta(stats, delta);
+    try {
+      writeUsage();
+    } catch {
+      // Telemetry must never break the session; the exit path reports.
+    }
+  };
   return {
     onTextReset: () => true,
     onUsageDelta: (delta) => {
-      const observedModel = clean(delta?.model);
-      if (observedModel) observedModels.add(observedModel);
-      applyUsageDelta(stats, delta);
+      recordUsage(delta);
       lifecycle?.onUsageDelta(delta);
-      try {
-        writeUsage();
-      } catch {
-        // Telemetry must never break the session; the exit path reports.
-      }
     },
+    // Native web search runs its own provider send; fold its spend into the
+    // run's totals. It is not a main-stream request, so the lifecycle's
+    // model-request events stay untouched.
+    onNativeWebSearchUsage: recordUsage,
     ...(lifecycle
       ? {
           onProviderSendStarted: () => lifecycle.onProviderSendStarted(),

@@ -18,6 +18,7 @@ import { isSessionSidePanelView, sessionSideDockEntryForSession } from './sessio
 import { SessionBrowserSlot } from './session-browser-surfaces';
 import { SessionTerminalSlot } from './session-terminal-surfaces';
 import { resolveTerminalCwd } from './session-terminal-tabs';
+import { sessionDiffStripHasTabs } from './use-session-diff-tabs';
 import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
 import type { useAppSideDocks } from './use-app-side-docks';
 import type { usePaneWorkspace } from './pane-workspace-state';
@@ -107,7 +108,7 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
         context.sideFileGuard.closeSideFileTab(
           leaf.id,
           fileKey,
-          paneDockFileCloseEndsDock(entry, fileKey, Boolean(sessionId))
+          paneDockFileCloseEndsDock(entry, fileKey, Boolean(sessionId) && sessionDiffStripHasTabs(sessionId))
             ? () => context.closePaneRightRegion(leaf.id)
             : undefined
         )

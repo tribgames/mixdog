@@ -229,7 +229,7 @@ function localizedToolActivityUnit(category: string, done: string, noun: string)
     case 'Setup|Checked|working directory':
       return t('Project check');
     case 'Setup|Asked|user':
-      return t('User questions');
+      return t('Questions');
     case 'Setup|Updated|plan':
       return t('Plan updates');
     case 'Setup|Listed|MCP resource':
@@ -304,6 +304,7 @@ const DESKTOP_TOOL_ACTIVITY_ALIASES = new Map([
   ['patch', 'apply_patch'],
   ['write', 'edit'],
   ['question', 'request_user_input'],
+  ['ask_user', 'request_user_input'],
   ['todowrite', 'update_plan'],
 ]);
 

@@ -49,7 +49,6 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
     // not show a dead worker as still running.
     ...(row.archived === true ? { archived: true } : {}),
     ...(row.favorite === true ? { favorite: true } : {}),
-    ...(typeof row.projectAssignment === 'string' ? { projectAssignment: text(row.projectAssignment, 32_768) } : {}),
     ...(sourceType ? { sourceType } : {}),
     ...(sourceName ? { sourceName } : {}),
     ...(Number.isFinite(createdAt) && createdAt > 0 ? { createdAt } : {}),

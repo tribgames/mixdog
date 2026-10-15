@@ -51,6 +51,7 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   getAutoClear: { enabled: true, idleMs: 3_600_000, providerDefaults: [] },
   getCompactionSettings: { auto: true },
   getRecapSettings: { enabled: true },
+  getSessionTitleSettings: { aiSessionTitles: true },
   getChannelSetup: {
     webhook: { status: 'Not configured' },
     channel: {},

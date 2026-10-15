@@ -10,7 +10,6 @@ export function createSessionOps(deps) {
   const {
     getSession,
     setSession,
-    getCurrentCwd,
     setMode,
     getActiveTurnCount,
     mgr,
@@ -18,7 +17,7 @@ export function createSessionOps(deps) {
     agentTool,
     invalidatePreSessionToolSurface,
     refreshEmptySessionToolPolicy,
-    applyResolvedCwd,
+    switchProject,
     resolveCwdPath,
     agentStatusState,
     getReservedSessionId,
@@ -122,9 +121,12 @@ export function createSessionOps(deps) {
     return { messageCount: list.length, messages: list.slice(start) };
   }
 
-  function setCwd(path) {
-    applyResolvedCwd(resolveCwdPath(path), { persistProjectSelection: true });
-    return getCurrentCwd();
+  // The desktop/remote Project switch: refused while a turn runs or the
+  // session works in a managed worktree (switchProject); resolves once the
+  // prompt refresh landed. Its target is a registered Project or the task
+  // workspace, classified by desktop membership.
+  async function setCwd(path) {
+    return switchProject(resolveCwdPath(path), { classifyByMembership: true });
   }
 
   return {

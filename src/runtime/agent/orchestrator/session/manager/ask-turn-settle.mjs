@@ -8,6 +8,7 @@ import { ingestSessionTurn } from '../../../../session-search/session-search-ing
 import { persistedAssistantTranscriptMetadata } from '../../../../shared/transcript-metadata.mjs';
 import { acknowledgePendingDeferredToolDelta } from '../../runtime-core/deferred-tool-delta.mjs';
 import { acknowledgePendingGoalReminder } from '../../runtime-core/goal-reminder.mjs';
+import { acknowledgePendingWorkspaceNotice } from './prompt-utils.mjs';
 import {
   finalizePendingMessageDelivery,
   drainPendingMessages,
@@ -120,6 +121,9 @@ export async function commitAskTurn({ sessionId, opened, prepared, result, rawTr
   }
   if (prepared.goalReminder) {
     acknowledgePendingGoalReminder(session, prepared.goalReminder.revision);
+  }
+  if (prepared.workspaceNotice) {
+    acknowledgePendingWorkspaceNotice(session, prepared.workspaceNotice.revision);
   }
   return {
     ...result,

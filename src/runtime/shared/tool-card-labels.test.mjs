@@ -84,6 +84,9 @@ test('work units are action-aware', () => {
   assert.equal(unit('cwd', { action: 'set', path: '/x' }), 'Selected project');
   assert.equal(unit('cwd', { path: '/x' }), 'Selected project');
   assert.match(unit('cwd', { action: 'list' }), /^Listed /);
+  assert.equal(unit('session', { action: 'set-project', path: '/x' }), 'Selected project');
+  assert.match(unit('session', { action: 'list-projects' }), /^Listed /);
+  assert.match(unit('session', { action: 'rename', title: 't' }), /^Renamed /);
   assert.match(unit('media', { action: 'cancel', job: 'j' }), /^Cancelled /);
   assert.equal(C('office', { action: 'snapshot', path: 'a.docx' }, 'ok').labelText, 'Read 1 document action');
 });

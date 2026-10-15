@@ -53,6 +53,9 @@ async function defaultOwnShellJobCount(sessionIds) {
 
 const lower = (value) => String(value || '').toLowerCase();
 
+const WORKTREE_BOUND_SWITCH =
+  'The session works in a managed worktree; exit the worktree first (switch to a project-folder branch, or merge or remove the worktree) before moving it to another project.';
+
 /** The registered Project (projects.json) at `path`, or null. */
 async function defaultRegisteredProject(path) {
   const { listProjectsStrict } = await import('../../runtime/shared/projects.mjs');
@@ -62,7 +65,8 @@ async function defaultRegisteredProject(path) {
 /**
  * Re-root one session's prompt at `cwd`: environment facts and instruction
  * files for every session, project memory for the Lead only (workers never
- * carried it).
+ * carried it). A session with a conversation keeps its system prompt (cache
+ * intact) and gets a tail notice instead (refreshSessionWorkspaceContext).
  */
 export async function refreshWorkspacePrompt(session, cwd, { loadCoreMemoryContext } = {}) {
   const { environmentContext, instructionFilesContext } = buildWorkspacePromptContext(session, cwd);
@@ -137,7 +141,8 @@ const TRANSITION_STATE = { worktree: 'provisioning', branch: 'switching', 'remov
  * @param {object} deps
  * @param {() => any} deps.getSession The Lead session this runtime hosts.
  * @param {() => string} deps.getCurrentCwd
- * @param {(cwd: string) => unknown} deps.applyResolvedCwd Retargets rt cwd, session.cwd and the cwd override.
+ * @param {(cwd: string, options?: { persistProjectSelection?: boolean }) => unknown} deps.applyResolvedCwd Retargets rt cwd, session.cwd and the cwd override (and, persisting, the Project selection).
+ * @param {(desktopSession: any) => unknown} [deps.setDesktopSession] Restores the runtime's desktop metadata on a rollback.
  * @param {(session: any) => unknown} deps.persistSession
  * @param {(session: any, cwd: string) => Promise<unknown>} deps.refreshWorkspaceContext
  * @param {() => number} deps.getActiveTurnCount
@@ -149,6 +154,7 @@ export function createWorkspaceTransitions({
   getReservedSessionId = () => null,
   getCurrentCwd,
   getDesktopSession = () => null,
+  setDesktopSession = () => {},
   getConfig = () => null,
   createCurrentSession = null,
   applyResolvedCwd,
@@ -223,8 +229,11 @@ export function createWorkspaceTransitions({
         (candidate.ownerSessionId === session.id || candidate.parentSessionId === session.id)
     );
 
-  /** WORKTREE_BUSY_JOBS while this Lead has a turn, workers or background shells running. */
-  async function assertLeadIdle(session, { ownTurn = false } = {}) {
+  /**
+   * WORKTREE_BUSY_JOBS while this Lead has a turn, workers or background
+   * shells running (`shellJobs: false` tolerates background shells).
+   */
+  async function assertLeadIdle(session, { ownTurn = false, shellJobs: checkShellJobs = true } = {}) {
     if (!ownTurn && getActiveTurnCount() > 0) {
       throw worktreeError('WORKTREE_BUSY_JOBS', 'The session is running a turn; wait for it to finish.', {
         reason: 'turn',
@@ -240,6 +249,7 @@ export function createWorkspaceTransitions({
     if (busyWorkers || busyJobs) {
       throw worktreeError('WORKTREE_BUSY_JOBS', undefined, { reason: 'workers', workers: busyWorkers, jobs: busyJobs });
     }
+    if (!checkShellJobs) return;
     const ids = new Set([session.id, ...workers.map((row) => row?.sessionId).filter(Boolean)]);
     for (const worker of workersOf(session)) ids.add(worker.id);
     const shellJobs = await countOwnShellJobs([...ids]);
@@ -289,6 +299,8 @@ export function createWorkspaceTransitions({
     inspectProject,
     runtimeToken,
     getCurrentCwd,
+    getDesktopSession,
+    setDesktopSession,
     applyResolvedCwd,
     persistSession,
     refreshWorkspaceContext,
@@ -620,6 +632,41 @@ export function createWorkspaceTransitions({
     }
   }
 
+  /**
+   * Move the hosted Lead to another Project folder (session set-project, the
+   * desktop/remote setCwd): the one authority for a Project switch, admitted
+   * like a workspace transition. Refused while a turn runs (`ownTurn`: the
+   * Lead's own tool call tolerates its calling turn), while workers run, and
+   * while the session works in a managed worktree. Serialized with turns and
+   * other workspace changes; the prompt refresh of the Lead and its idle
+   * workers completes (or rolls the switch back) before it resolves. Without
+   * a session (a draft) only the runtime cwd and the selection move.
+   * `classifyByMembership` (the desktop/remote move): a folder outside every
+   * registered Project is classified as a task (cwd-apply).
+   * @returns {Promise<string>} the runtime cwd after the switch
+   */
+  async function switchProject(cwd, { ownTurn = false, classifyByMembership = false } = {}) {
+    const selection = { classifyByMembership: classifyByMembership === true };
+    const session = getSession();
+    if (!session?.id) {
+      applyResolvedCwd(cwd, { persistProjectSelection: true, ...selection });
+      return getCurrentCwd();
+    }
+    const leave = beginWorkspaceTransition(session.id, `project:${newTxId()}`);
+    const journal = [];
+    try {
+      await assertLeadIdle(session, { ownTurn: ownTurn === true, shellJobs: false });
+      if (isWorktreeBound(readSessionWorkspace(session))) throw new Error(WORKTREE_BOUND_SWITCH);
+      await steps.switchProject(session, cwd, journal, selection);
+      return getCurrentCwd();
+    } catch (error) {
+      await undoAll(journal, error);
+      throw error;
+    } finally {
+      leave();
+    }
+  }
+
   async function removeWorktree({ force = false, expectedRevision } = {}, { ownTurn = false } = {}) {
     const expected = validRevision(expectedRevision);
     const session = hostedSession(null);
@@ -644,6 +691,7 @@ export function createWorkspaceTransitions({
     requestWorktree,
     mergeWorkspace,
     removeWorktree,
+    switchProject,
     listWorktrees,
     pruneWorktrees,
     cleanupDeletedSession,

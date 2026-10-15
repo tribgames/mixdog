@@ -8,6 +8,7 @@
 import { useInput } from 'ink';
 import { overlayBlocksGlobalTranscriptScroll } from './slash-commands.mjs';
 import { copyActiveSelection } from './use-global-key-input/copy-first.mjs';
+import { approvalShortcutDecision } from './use-global-key-input/approval-shortcut.mjs';
 import { decodeSelectionMoveChord } from './use-global-key-input/shift-arrow.mjs';
 export function useGlobalKeyInput({
   store,
@@ -43,18 +44,10 @@ export function useGlobalKeyInput({
       // settle it through the same path a real release takes, before any branch
       // below reads the selection.
       settleStuckDrag?.();
-      if (toolApproval) {
-        const value = String(input || '')
-          .trim()
-          .toLowerCase();
-        if (key.escape || value === 'd' || value === 'n') {
-          store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'denied by user' });
-          return;
-        }
-        if (value === 'a' || value === 'y') {
-          store.resolveToolApproval?.(toolApproval.id, { approved: true, reason: 'approved by user' });
-          return;
-        }
+      const decision = approvalShortcutDecision(toolApproval, input, key);
+      if (decision) {
+        store.resolveToolApproval?.(toolApproval.id, decision);
+        return;
       }
       if (key.ctrl && (input === 'c' || input === 'C')) {
         copyActiveSelection({ promptSelectionRef, dragRef, copySelection, showSelectionCopyHint });

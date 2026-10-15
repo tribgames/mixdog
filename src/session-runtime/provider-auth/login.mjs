@@ -12,6 +12,7 @@ import {
   removeCustomProvider,
   updateCustomProviderModel,
   testCustomProvider,
+  checkCustomProviderKeyEnv,
   discoverCustomProviderModels,
 } from '../services/provider-admin.mjs';
 
@@ -95,6 +96,9 @@ export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig,
     async testCustomProvider(input) {
       await awaitKeychainPrewarm();
       return await testCustomProvider(cfgMod, input);
+    },
+    checkCustomProviderKeyEnv(name) {
+      return checkCustomProviderKeyEnv(name);
     },
     async discoverCustomProviderModels(input) {
       await awaitKeychainPrewarm();

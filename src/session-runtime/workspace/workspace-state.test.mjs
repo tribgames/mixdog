@@ -154,6 +154,7 @@ test('a manual Project selection keeps the registered Project inside the worktre
       writeLastSessionCwd: () => {},
       updateCurrentCwdOverride: () => {},
       persistSession: () => {},
+      isProjectFolder: () => true,
       clean: (value) => String(value || '').trim(),
       resolve,
       statSync,

@@ -1,6 +1,6 @@
 // slash-dispatch/session-commands.mjs
 // Slash commands that act on the session itself: clear/new, compact, goal,
-// resume, inherit, doctor and quit. Busy guards refuse the destructive ones
+// resume, fork (alias inherit), doctor and quit. Busy guards refuse the destructive ones
 // while a turn or session command is running.
 import { presentErrorText } from '../../../runtime/shared/err-text.mjs';
 
@@ -91,18 +91,18 @@ export const sessionCommands = {
     return true;
   },
 
-  inherit(ctx) {
+  fork(ctx, _arg, rawName) {
     const { state, store } = ctx;
-    if (state.busy) return refuseWhileBusy(store, 'inherit');
+    if (state.busy) return refuseWhileBusy(store, rawName === 'inherit' ? 'inherit' : 'fork');
     void Promise.resolve(store.inheritSession?.())
       .then((result) => {
         if (!result) {
-          store.pushNotice('nothing to inherit', 'warn');
+          store.pushNotice('nothing to fork', 'warn');
           return;
         }
-        store.pushNotice(`inherited ${result.messages} messages into ${result.sessionId}`, 'info');
+        store.pushNotice(`forked ${result.messages} messages into ${result.sessionId}`, 'info');
       })
-      .catch((e) => store.pushNotice(`inherit failed: ${e?.message || e}`, 'error'));
+      .catch((e) => store.pushNotice(`fork failed: ${e?.message || e}`, 'error'));
     return true;
   },
 

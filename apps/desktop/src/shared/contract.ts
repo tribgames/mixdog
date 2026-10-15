@@ -425,9 +425,10 @@ export interface DesktopApi {
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
   setSessionFavorite?(sessionId: string, favorite: boolean): Promise<void>;
-  /** Sidebar membership only: a registered project path, '' for no project,
-   *  null to follow the session's folder again. Never touches the cwd. */
-  setSessionProject?(sessionId: string, projectPath: string | null): Promise<void>;
+  /** Move a session to a registered project path ('' = no project, the task
+   *  workspace) by changing its working folder. Refused while its turn runs
+   *  or while it works in a managed worktree. */
+  setSessionProject?(sessionId: string, projectPath: string): Promise<void>;
   deleteSession(sessionId: string): Promise<SessionSnapshot>;
   /** /inherit — copy this conversation into a NEW session id that runs on the
    *  supplied (currently selected) model. The source session is left as it is,

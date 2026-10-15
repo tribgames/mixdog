@@ -21,6 +21,7 @@ import { TOOL_DEFS as OFFICE_TOOL_DEFS } from '../../runtime/office/tool-defs.mj
 import { TOOL_DEFS as MEDIA_TOOL_DEFS } from '../../runtime/media/tool-defs.mjs';
 import { TOOL_DEFS as TIDY_TOOL_DEFS } from '../../runtime/tidy/tool-defs.mjs';
 import { TOOL_DEFS as VISUALIZE_BRIDGE_TOOL_DEFS } from '../../runtime/visualize-bridge/tool-defs.mjs';
+import { ASK_USER_TOOL_DEFS } from '../../runtime/agent/orchestrator/runtime-core/ask-user-tool-defs.mjs';
 import { SETUP_TOOL_DEFS } from '../setup-tool/tool-defs.mjs';
 import { createSetupToolExecutor } from '../setup-tool/executor.mjs';
 import { bootProfile } from '../boot-profile.mjs';
@@ -159,6 +160,7 @@ function wireToolSurface(boot) {
     tidyToolDefs: TIDY_TOOL_DEFS,
     visualizeToolDefs: VISUALIZE_BRIDGE_TOOL_DEFS,
     setupToolDefs: SETUP_TOOL_DEFS,
+    askUserToolDefs: ASK_USER_TOOL_DEFS,
     goalTools: goalRuntime.tools,
     agentTools: agentTool.tools,
     skillToolEnabled: !envFlag('MIXDOG_DISABLE_SKILLS'),
@@ -246,10 +248,11 @@ function wireInternalTools(boot) {
       runNativeWebSearch: (...a) => boot.runNativeWebSearch(...a),
       activeToolSurface: boot.activeToolSurface,
       mcpStatus: boot.mcpStatus,
-      applyResolvedCwd: boot.applyResolvedCwd,
       skillToolContent: boot.skillToolContent,
       // Late-bound: the workspace authority is built with the API slices.
       getWorkspaceApi: () => boot.workspaceApi || null,
+      getSessionManager: () => boot.mgr || null,
+      getLifecycleApi: () => boot.lifecycleApi || null,
     }),
   });
   Object.assign(boot, { setupTool, disposeInternalTools });

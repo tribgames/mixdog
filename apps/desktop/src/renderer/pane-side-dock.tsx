@@ -465,7 +465,8 @@ export function withPaneDockFileClosed(entry: PaneSideDockEntry, fileKey?: strin
 
 /** True when closing `fileKey` removes the dock's last tab: the last file tab
  *  with no other surface tab (the session's Changes) left in the strip. The
- *  dock then closes instead of falling back to its panel view. */
+ *  dock then closes instead of falling back to its panel view.
+ *  `sessionBound`: a session's Changes strip still shows a tab. */
 export function paneDockFileCloseEndsDock(entry: PaneSideDockEntry, fileKey: string, sessionBound: boolean): boolean {
   const files = entry.files ?? [];
   if (files.length !== 1 || sideFileKey(files[0]) !== fileKey) return false;

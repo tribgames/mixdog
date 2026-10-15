@@ -1,0 +1,113 @@
+{
+    "id": "5633c534-859f-41ab-8e79-e0fb794414d1",
+    "task_name": "terminal-bench/mteb-leaderboard",
+    "trial_name": "mteb-leaderboard__ZwtNT6v",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-sol61-20261015-052653/2026-10-15__14-26-57/mteb-leaderboard__ZwtNT6v",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "mteb-leaderboard",
+        "ref": "sha256:484f6d7008a05b5b8640fc6618a384b8c9447cd76f85416c8a595028d29bff9c"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "f4c2fa1f189121ba4a0f654a270b92bfa2dad319c3315d89184f71c5c346a497",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/mteb-leaderboard",
+            "ref": "sha256:484f6d7008a05b5b8640fc6618a384b8c9447cd76f85416c8a595028d29bff9c",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "mteb-leaderboard__ZwtNT6v",
+        "trials_dir": "C:\\Project\\mixdog\\benchmarks\\terminal-bench-2.1\\jobs-full-sol61-20261015-052653\\2026-10-15__14-26-57",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.mixdog_agent:MixdogAgent",
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "effort_judge": "steps",
+                "route_profile": "sol61-xhigh"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "a6bcb92a-ff34-47c2-8f3e-5d85fa19be62"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-1.2.2",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": 74318,
+        "n_cache_tokens": 59008,
+        "n_output_tokens": 418,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-10-15T05:34:42.783625Z",
+    "finished_at": "2026-10-15T05:39:11.895035Z",
+    "environment_setup": {
+        "started_at": "2026-10-15T05:34:42.813998Z",
+        "finished_at": "2026-10-15T05:34:45.291017Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-10-15T05:34:45.291034Z",
+        "finished_at": "2026-10-15T05:34:57.196791Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-10-15T05:34:57.196851Z",
+        "finished_at": "2026-10-15T05:38:34.091475Z"
+    },
+    "verifier": {
+        "started_at": "2026-10-15T05:38:34.092698Z",
+        "finished_at": "2026-10-15T05:38:59.780327Z"
+    },
+    "step_results": null
+}
