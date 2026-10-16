@@ -188,9 +188,13 @@ $msaaAction.ActivationCount -eq 1 -and
 $msaaSetResult.verified -eq $true -and $msaaValue.Text -eq 'ref-value'
 [void]$probeResults.Add(@{
         name = 'msaa-generation-ref-actions'; ok = $msaaRefActionsOk
-        error = ('action={0}; value={1}; activation={2}; text={3}; invokePath={4}; setPath={5}; verified={6}; actionTree={7}' -f
+        error = ('action={0}; value={1}; activation={2}; text={3}; invokePath={4}; setPath={5}; verified={6}; actionTimings={7}; actionSources={8}; actionHeader={9}; actionTree={10}' -f
             $msaaActionMatch.Success, $msaaValueMatch.Success, $msaaAction.ActivationCount, $msaaValue.Text,
-            $msaaInvokeResult.path, $msaaSetResult.path, $msaaSetResult.verified, $msaaActionSnapshot.text)
+            $msaaInvokeResult.path, $msaaSetResult.path, $msaaSetResult.verified,
+            (ConvertTo-Json -Compress -InputObject $msaaActionSnapshot.timings_ms),
+            (ConvertTo-Json -Compress -InputObject @($msaaActionSnapshot.elements | Group-Object source | ForEach-Object { @{ source = $_.Name; count = $_.Count } })),
+            (@($msaaActionSnapshot.text -split "\r?\n")[1]),
+            $msaaActionSnapshot.text)
     })
 $msaaValue.Text = ''
 [Console]::Error.WriteLine('probe:background-pointer')
