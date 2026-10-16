@@ -1,6 +1,7 @@
 {
   "agents": {
     "advisor": [
+      "6bd0318995f70547c162efda92795e79",
       "d3b4a7926c9484833fe8ddba70260f9d"
     ],
     "debugger": [
@@ -100,6 +101,7 @@
   "outputStyles": {
     "common.md": [
       "4e6134d60ee5c54c2888e874653bcdad",
+      "4ecd89b0c07ad8a81aa1f84882cf1b00",
       "899529696b7d6d3373ae83a76976ab48",
       "8d343d0a406fd5817b7fd98a3ac47010",
       "a1b73ce404125d3ce0a5762e4a1e1555",
@@ -337,6 +339,7 @@
       "70c54f802c77b630863b9e17a16d8224",
       "81e979463e0066e7a45cf511a31c5d68",
       "8476c811b2f02da3a434bcb23a1c3d12",
+      "8af2b614e2a07b58dad6c0f1318d22e2",
       "9f90d3872b1ecd312977ce661b770b31",
       "ade615dd0f6ae6ed1601023e5b9cb692",
       "b4f9c79dcb08151e6275b5ee35c2bca4",

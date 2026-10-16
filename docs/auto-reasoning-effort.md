@@ -5,6 +5,26 @@ each step after a batch of tool results. Simple messages run at a lower
 effort, and harder work runs higher, instead of every request running at one
 fixed level. It is on by default and runs entirely on your machine.
 
+## Results on Terminal-Bench 2.1
+
+On the same model, GPT-6.1 Sol at `xhigh`, Auto cut the cost by **35%** compared
+with running every request at a fixed `xhigh`, at a near-equal score. All 89
+tasks, one pass each (`k=1`), web search on, 2026-10-15:
+
+| Run | Score | Cost (API list rates) | vs fixed `xhigh` | vs Codex CLI | Output tokens | First-request input (median) | Final context (median) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Mixdog, Auto (judge on) | 77/89 | **$9.01** | **−35%** | **−55%** | **266K** | **5.0K** | **10.8K** |
+| Mixdog, fixed `xhigh` (no judge) | 78/89 | $13.78 | — | −31% | — | — | — |
+| Codex CLI 0.162.1, `xhigh` | 78/89 | $19.83 | — | — | 772K | 14.3K | 33.6K |
+
+Token and context figures for the fixed-`xhigh` run were not recorded in the
+published bench log.
+
+The judge made 825 decisions in the Auto run: 591 `medium`, 127 `high`, 105
+`low`, 2 `xhigh`. This is a single pass, so one or two tasks either way is
+within run-to-run variance; the fixed-`xhigh` run also had web search off. Raw
+records and method: [Bench log](../benchmarks/terminal-bench-2.1/README.md#bench-log).
+
 ## How a decision is made
 
 1. A small local model, the **effort judge**, reads the request (or the step:
