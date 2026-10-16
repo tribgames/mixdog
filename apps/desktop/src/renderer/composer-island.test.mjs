@@ -618,6 +618,7 @@ test('the agents summary shows the session totals with the Lead split out, cache
   const answer = {
     sessionId: 'island-session',
     ...ledgerUsage(1_000_000, { cacheRead: 800_000, costUsd: 1.5 }),
+    agents: ledgerUsage(500_000, { cacheRead: 200_000, costUsd: 0.75 }),
     sessions: {
       's-a': ledgerUsage(300_000, { cacheRead: 100_000, costUsd: 0.5 }),
       's-b': ledgerUsage(200_000, { cacheRead: 100_000, costUsd: 0.25 }),
@@ -630,6 +631,7 @@ test('the agents summary shows the session totals with the Lead split out, cache
   assert.equal(reads[0].capability, 'getSessionUsage');
   assert.equal(reads[0].sessionId, 'island-session');
   assert.deepEqual([...reads[0].args[0].sessionIds].sort(), ['s-a', 's-b', 's-c']);
+  assert.equal(reads[0].args[0].includeAgents, true);
   const parts = [...summary.children].map((part) => part.textContent);
   // Running counts agents only (the one blocked on approval and the done one are not running).
   assert.equal(parts[0], `${translate('Island: Running')} 1`);
@@ -646,6 +648,7 @@ test('the agents summary shows the session totals with the Lead split out, cache
 test('an unpriced turn drops only the cost from the agents summary', async (t) => {
   const { summary } = await usagePanel(t, {
     ...ledgerUsage(1_000, { cacheRead: 500, costUsd: 1 }),
+    agents: ledgerUsage(300, { unpriced: 1 }),
     sessions: { 's-a': ledgerUsage(100, { unpriced: 1 }), 's-b': ledgerUsage(100), 's-c': ledgerUsage(100) },
   });
   assert.deepEqual(
@@ -657,10 +660,11 @@ test('an unpriced turn drops only the cost from the agents summary', async (t) =
 test('an unmeasured or missing agent session drops every combined figure and its own row total', async (t) => {
   const { summary, rowTokens } = await usagePanel(t, {
     ...ledgerUsage(1_000, { costUsd: 1 }),
+    agents: null,
     sessions: { 's-a': ledgerUsage(100, { unmeasured: 1 }), 's-b': ledgerUsage(100) },
   });
-  // Only the running count is exact: the agents' share is unknown (s-a
-  // unmeasured, s-c missing), so no total, cache rate or cost.
+  // Membership is unresolved and s-a is unmeasured: no aggregate figures,
+  // but the independently measured s-b row keeps its own total.
   assert.deepEqual(
     [...summary.children].map((part) => part.textContent),
     [`${translate('Island: Running')} 1`]
@@ -681,18 +685,23 @@ test('the usage summary model sums exact sessions only', async () => {
   const { islandUsageSummary, islandUsageSessionIds } = await import('./island-session-usage.ts');
   assert.deepEqual(islandUsageSessionIds(['a', 'bad id', 'a', 'b:c', 'd']), ['a', 'd']);
   const lead = ledgerUsage(100, { cacheRead: 50, costUsd: 0.1 });
-  const exact = islandUsageSummary({ ...lead, sessions: { x: ledgerUsage(50, { costUsd: 0.2 }) } }, ['x']);
+  const exact = islandUsageSummary(
+    { ...lead, agents: ledgerUsage(50, { costUsd: 0.2 }), sessions: { x: ledgerUsage(50, { costUsd: 0.2 }) } },
+    ['x']
+  );
   assert.equal(exact.totalTokens, 150);
   assert.equal(exact.leadTokens, 100);
   assert.equal(exact.agentTokens, 50);
   assert.equal(exact.cacheHitRate, 50 / 150);
   assert.ok(Math.abs(exact.costUsd - 0.3) < 1e-9);
   // No agents: the Lead alone is the session.
-  assert.equal(islandUsageSummary(lead, []).totalTokens, 100);
+  assert.equal(islandUsageSummary({ ...lead, agents: ledgerUsage(0) }, []).totalTokens, 100);
+  assert.equal(islandUsageSummary(lead, []).totalTokens, null, 'a missing aggregate is not zero');
   // An unmeasured Lead keeps the agents' exact share, nothing combined.
-  const noLead = islandUsageSummary({ ...ledgerUsage(100, { unmeasured: 1 }), sessions: { x: ledgerUsage(50) } }, [
-    'x',
-  ]);
+  const noLead = islandUsageSummary(
+    { ...ledgerUsage(100, { unmeasured: 1 }), agents: ledgerUsage(50), sessions: { x: ledgerUsage(50) } },
+    ['x']
+  );
   assert.deepEqual(
     [noLead.totalTokens, noLead.leadTokens, noLead.agentTokens, noLead.cacheHitRate, noLead.costUsd],
     [null, null, 50, null, null]
@@ -700,6 +709,62 @@ test('the usage summary model sums exact sessions only', async () => {
   // A session with no turns at all has no cost to show.
   assert.equal(islandUsageSummary({ ...ledgerUsage(0), turns: 0, costKnownTurns: 0 }, []).costUsd, null);
   assert.equal(islandUsageSummary(null, []).totalTokens, null);
+});
+
+test('closed unmeasured agents keep the aggregate hidden while a measured live row stays visible', async (t) => {
+  const { summary, rowTokens } = await usagePanel(t, {
+    ...ledgerUsage(1_000, { costUsd: 1 }),
+    agents: ledgerUsage(500, { unmeasured: 1 }),
+    sessions: { 's-a': ledgerUsage(100), 's-b': ledgerUsage(100), 's-c': ledgerUsage(100) },
+  });
+  assert.deepEqual([...summary.children].map((part) => part.textContent), [`${translate('Island: Running')} 1`]);
+  assert.deepEqual(rowTokens, { 'run-a': '100', 'ask-c': '100', 'done-b': '100' });
+});
+
+test('agent totals survive seven workers, closing six, compaction refresh and remount', async (t) => {
+  const { root, document, window, publishPool } = mount(t);
+  const reads = [];
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability !== 'getSessionUsage') return { value: null };
+    reads.push(request);
+    return {
+      value: {
+        ...ledgerUsage(1_000_000, { costUsd: 1.5 }),
+        agents: ledgerUsage(700_000, { costUsd: 0.7 }),
+        sessions: Object.fromEntries(request.args[0].sessionIds.map((id) => [id, ledgerUsage(100_000)])),
+      },
+    };
+  };
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  const rows = Array.from({ length: 7 }, (_, i) => poolAgent(`worker-${i}`, { sessionId: `s-${i}` }));
+  await publishPool(rows.slice(0, 6));
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  await publishPool(rows);
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  const assertTotals = () => {
+    const parts = [...document.querySelector('.composer-island-summary').children].map((part) => part.textContent);
+    assert.equal(
+      parts[1],
+      `${translate('Island: Total tokens')} 1.7M (${translate('Lead {{lead}} · Agents {{agents}}', { lead: '1M', agents: '700K' })})`
+    );
+    assert.equal(parts[3], `${translate('Island: Approx. cost')} $2.20`);
+  };
+  assertTotals();
+  await publishPool(rows.slice(-1));
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  assert.deepEqual(reads.at(-1).args[0].sessionIds, ['s-6']);
+  assertTotals();
+  await publish({ stats: { compactions: 1 } });
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  assertTotals();
+  await act(async () => root.render(React.createElement(ComposerDock, { ...dockProps(), key: 'remount' })));
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  assertTotals();
+  assert.ok(reads.every((request) => request.args[0].includeAgents === true));
 });
 
 /** The real dock stylesheet decides the slot's box; jsdom has no layout, so
@@ -986,6 +1051,9 @@ async function islandPage(t) {
   });
   t.after(() => browser.close());
   const page = await browser.newPage();
+  // These tests exercise motion, including a later switch to reduced motion.
+  // Do not inherit the host OS's accessibility preference as their initial state.
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
   await page.setViewport({ width: 900, height: 700 });
   await page.setContent(`<!doctype html><html><head><style>
     body { margin: 0; font-family: sans-serif; }

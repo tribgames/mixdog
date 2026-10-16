@@ -23,6 +23,7 @@ import {
   clearStoredSessionCatalog,
   listStoredSessionSummaries,
   listStoredSessionSummariesAsync,
+  listStoredSessionOwnershipLinksAsync,
   listStoredSessionSummaryPage,
   verifyStoredSessionCatalog,
 } from '../store-summary-reader.mjs';
@@ -157,6 +158,31 @@ test('below the SQLite gate everything stays JSON', async (t) => {
   assert.match(logs.join('\n'), /disabled: SQLite 3\.50\.4 .*lacks the WAL-reset fix/);
   assert.deepEqual(await listStoredSessionSummariesAsync(), json());
   assert.equal(await db().list(), null, 'a final refusal is not retried');
+});
+
+test('usage ownership reads hidden closed agents on the worker without changing ordinary listings', async (t) => {
+  setup(t, 'mixdog-catalog-db-usage-links-');
+  save('lead_a', 'lead', 500);
+  save('agent_a', 'closed work', 400, {
+    owner: 'agent',
+    agent: 'worker',
+    ownerSessionId: 'lead_a',
+    closed: true,
+  });
+  await ready();
+  const answer = await db().list(null, { ownershipLinks: true });
+  assert.deepEqual(answer.rows.sort((a, b) => a.id.localeCompare(b.id)), [
+    { id: 'agent_a', ownerSessionId: 'lead_a' },
+    { id: 'lead_a', ownerSessionId: null },
+  ]);
+  assert.deepEqual(await listStoredSessionOwnershipLinksAsync(), answer.rows);
+  assert.deepEqual((await dbList()).map((row) => row.id), ['lead_a']);
+  writeFileSync(fileOf('unknown_child'), '{');
+  hintSessionCatalogStorage(['unknown_child']);
+  await db().list();
+  await db().settled();
+  assert.equal(await db().list(null, { ownershipLinks: true }), null);
+  assert.equal(await listStoredSessionOwnershipLinksAsync(), null);
 });
 
 test('the worker detects storage changes itself; listings equal JSON in exact order', async (t) => {

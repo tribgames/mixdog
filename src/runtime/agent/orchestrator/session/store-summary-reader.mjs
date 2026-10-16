@@ -16,6 +16,7 @@ import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-
 import { sessionVisibility } from './store-summary-visibility.mjs';
 import {
   STAMP_ABSENT_CODES,
+  catalogSessionOwnershipLinks,
   createOrdinaryCatalog,
   indexListing,
   observeStamp,
@@ -157,6 +158,19 @@ export async function listStoredSessionSummariesAsync(options = {}) {
   }
   const answer = await catalogDbListing(null);
   return answer ? answer.rows : listStoredSessionSummaries();
+}
+
+/** All persisted ownership links, including hidden and closed agents.
+ * Unlike the ordinary listing, null means ownership could not be read
+ * completely; accounting must not treat that as zero agents. */
+export async function listStoredSessionOwnershipLinksAsync() {
+  const db = sessionCatalogDb(dataDir());
+  const answer = db ? await db.list(null, { ownershipLinks: true }) : null;
+  if (answer) {
+    ordinaryCatalog.clear();
+    return answer.rows;
+  }
+  return catalogSessionOwnershipLinks(ordinaryCatalog.refresh(ordinaryCatalog.loadIndex(), { assemble: false }));
 }
 
 const DEFAULT_PAGE_LIMIT = 50;

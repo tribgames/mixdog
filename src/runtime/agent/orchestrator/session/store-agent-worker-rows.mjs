@@ -11,7 +11,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { probePath, PROBE_PRESENT } from './store/fs-probe.mjs';
+import { probePath, readTextFile, PROBE_ABSENT, PROBE_PRESENT } from './store/fs-probe.mjs';
 import { readJsonProjection } from '../../../shared/pending-json-projection.mjs';
 import { listStoredAgentWorkers as assembleStoredAgentWorkers } from './store-agent-worker-pool.mjs';
 import {
@@ -180,15 +180,14 @@ function storedAgentWorkerIndex() {
   // This process's own queued (not yet persisted) writes win over the file.
   const projected = readJsonProjection(path);
   if (projected) return projected;
+  const read = readTextFile(path);
+  if (read.state === PROBE_ABSENT) return { workers: [] };
+  if (read.state !== PROBE_PRESENT) return null;
   try {
-    return JSON.parse(readFileSync(path, 'utf8'));
+    return JSON.parse(read.text);
   } catch {
     return null;
   }
-}
-
-function storedAgentWorkerIndexRows() {
-  return workerRows(storedAgentWorkerIndex());
 }
 
 /** A worker index stores its rows as a list or as an id-keyed map. */
@@ -198,9 +197,13 @@ function workerRows(parsed) {
 }
 
 /** Lightweight ancestry seam used to migrate pre-parentSessionId summary
- * rows. It reads only agent-workers.json and never opens session transcripts. */
-export function listStoredAgentWorkerLinks() {
-  return storedAgentWorkerIndexRows()
+ * rows. It reads only agent-workers.json and never opens session transcripts.
+ * Accounting requests completeness: unreadable/malformed ownership is null,
+ * while a provably absent index is an empty set of pending workers. */
+export function listStoredAgentWorkerLinks({ requireComplete = false } = {}) {
+  const index = storedAgentWorkerIndex();
+  if (requireComplete && (!index?.workers || typeof index.workers !== 'object')) return null;
+  const links = workerRows(index)
     .map((row) => {
       if (!row || typeof row !== 'object') return null;
       const sessionId = cleanValue(row.sessionId);
@@ -214,8 +217,14 @@ export function listStoredAgentWorkerLinks() {
         parentSessionId: parentSessionId || ownerSessionId,
         ownerSessionId: ownerSessionId || parentSessionId,
       };
-    })
-    .filter(Boolean);
+    });
+  if (
+    requireComplete &&
+    links.some((row) => !row || !isStoredSessionId(row.ownerSessionId) || !isStoredSessionId(row.parentSessionId))
+  ) {
+    return null;
+  }
+  return links.filter(Boolean);
 }
 
 // The agent pool only reads top-level session fields, yet each refresh used to

@@ -1,6 +1,7 @@
 // The composer island's agents-panel summary: the Lead session's and each of
-// its agent sessions' lifetime totals from the usage ledger, every one read by
-// its own session id (getSessionUsage). A figure is shown only when every
+// its agent sessions' lifetime totals from the usage ledger. The server owns
+// cumulative membership, independent of the visible pool (getSessionUsage).
+// A figure is shown only when every
 // session it covers was fully measured; nothing is estimated or apportioned.
 import { useEffect, useRef, useState } from 'react';
 import { record } from './record-utils';
@@ -21,16 +22,16 @@ interface MeasuredUsage {
 }
 
 export interface IslandUsageSummary {
-  /** Lead + listed agents; null unless both parts are exact. */
+  /** Lead + all owned agents, closed included; null unless both parts are exact. */
   totalTokens: number | null;
   leadTokens: number | null;
-  /** Every listed agent session together; null while any one is not exact. */
+  /** All owned agent sessions together; null while membership or usage is unknown. */
   agentTokens: number | null;
   /** Share of prompt tokens read from cache over the same sessions as the total. */
   cacheHitRate: number | null;
   /** Estimated value over the same sessions; null when any turn is unpriced. */
   costUsd: number | null;
-  /** Each agent session's own total, keyed by session id, where exact. */
+  /** Each requested row's own total, keyed by session id, where exact. */
   agentRowTokens: ReadonlyMap<string, number>;
 }
 
@@ -71,17 +72,13 @@ export function islandUsageSummary(value: unknown, agentSessionIds: readonly str
   const lead = value ? measuredUsage(result) : null;
   const sessions = record(result.sessions);
   const agentRowTokens = new Map<string, number>();
-  const agents: MeasuredUsage[] = [];
-  let agentsExact = Boolean(value);
   for (const id of agentSessionIds) {
     const usage = Object.hasOwn(sessions, id) ? measuredUsage(sessions[id]) : null;
-    if (usage) {
-      agents.push(usage);
-      agentRowTokens.set(id, usage.tokens);
-    } else agentsExact = false;
+    if (usage) agentRowTokens.set(id, usage.tokens);
   }
-  const agentTokens = agentsExact ? agents.reduce((sum, usage) => sum + usage.tokens, 0) : null;
-  const all = lead && agentsExact ? [lead, ...agents] : null;
+  const agents = measuredUsage(result.agents);
+  const agentTokens = agents?.tokens ?? null;
+  const all = lead && agents ? [lead, agents] : null;
   const sum = (field: keyof MeasuredUsage) => (all ?? []).reduce((total, usage) => total + usage[field], 0);
   const prompt = sum('prompt');
   const turns = sum('turns');
@@ -96,7 +93,8 @@ export function islandUsageSummary(value: unknown, agentSessionIds: readonly str
 }
 
 /**
- * The Lead session's getSessionUsage with its agents' totals, read while the
+ * The Lead session's getSessionUsage with its cumulative agent aggregate and
+ * the visible rows' individual totals, read while the
  * agents panel is open: at once on opening or when the agent set changes,
  * otherwise at most every ISLAND_USAGE_REFRESH_MS, and only when `revision`
  * (the shared agent-pool and session-lane snapshots, already pushed and
@@ -133,7 +131,11 @@ export function useIslandSessionUsage(
       () => {
         lastRead.current = { at: Date.now(), ids: idsKey };
         Promise.resolve(
-          api.invokeCapability({ capability: 'getSessionUsage', args: [{ sessionIds: ids }], sessionId })
+          api.invokeCapability({
+            capability: 'getSessionUsage',
+            args: [{ sessionIds: ids, includeAgents: true }],
+            sessionId,
+          })
         ).then(
           (result) => {
             if (mounted.current) setUsage({ sessionId, value: result?.value ?? null });

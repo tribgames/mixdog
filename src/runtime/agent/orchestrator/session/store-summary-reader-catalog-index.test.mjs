@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -15,6 +16,7 @@ import {
   logPath,
   replace,
   saveIndexed,
+  sessionsDir,
   settle,
   spyFs,
   touchDirectory,
@@ -23,7 +25,13 @@ import {
   writeBase,
 } from './store-summary-reader-catalog-fixture.mjs';
 import { encodeSummaryOps } from './store-summary-log.mjs';
-import { listStoredSessionSummaries, verifyStoredSessionCatalog } from './store-summary-reader.mjs';
+import {
+  clearStoredSessionCatalog,
+  listStoredAgentWorkerLinks,
+  listStoredSessionOwnershipLinksAsync,
+  listStoredSessionSummaries,
+  verifyStoredSessionCatalog,
+} from './store-summary-reader.mjs';
 
 test('an unreadable record keeps exactly the rows it kept before', async (t) => {
   useDataDir('mixdog-reader-catalog-unreadable-');
@@ -43,6 +51,55 @@ test('an unreadable record keeps exactly the rows it kept before', async (t) => 
   touchDirectory();
   await verifyStoredSessionCatalog();
   assert.deepEqual(view(), { indexed_a: '|alpha' }, 'an unindexed record that turns unreadable has no row to keep');
+});
+
+test('usage ownership includes closed hidden children and stays unknown when storage cannot be read', async (t) => {
+  useDataDir('mixdog-reader-usage-links-');
+  replace('lead_usage', 'lead');
+  writeFileSync(
+    fileOf('child_usage'),
+    JSON.stringify({
+      id: 'child_usage',
+      owner: 'agent',
+      agent: 'worker',
+      parentSessionId: 'lead_usage',
+      closed: true,
+      messages: [],
+    })
+  );
+  const expected = [
+    { id: 'child_usage', ownerSessionId: 'lead_usage' },
+    { id: 'lead_usage', ownerSessionId: null },
+  ];
+  const links = async () => (await listStoredSessionOwnershipLinksAsync())?.sort((a, b) => a.id.localeCompare(b.id));
+  assert.deepEqual(await links(), expected);
+  assert.deepEqual(list().map((row) => row.id), ['lead_usage'], 'ordinary visibility is unchanged');
+  const failing = new Set([fileOf('child_usage')]);
+  spyFs(t, failing);
+  clearStoredSessionCatalog();
+  assert.equal(await listStoredSessionOwnershipLinksAsync(), null, 'an unreadable child is not zero usage');
+  failing.clear();
+  clearStoredSessionCatalog();
+  assert.deepEqual(await links(), expected);
+  failing.add(sessionsDir());
+  clearStoredSessionCatalog();
+  assert.equal(await listStoredSessionOwnershipLinksAsync(), null, 'an unreadable directory is not an empty catalog');
+});
+
+test('complete worker ownership distinguishes absent, malformed and unreadable indexes', (t) => {
+  useDataDir('mixdog-worker-usage-links-');
+  const path = join(sessionsDir(), '..', 'agent-workers.json');
+  const links = () => listStoredAgentWorkerLinks({ requireComplete: true });
+  assert.deepEqual(links(), [], 'no index is a known empty pending-worker set');
+  for (const text of ['{', '{}', '{"workers":[{}]}', '{"workers":[{"sessionId":"child","ownerSessionId":"bad id"}]}']) {
+    writeFileSync(path, text);
+    assert.equal(links(), null, text);
+  }
+  writeFileSync(path, JSON.stringify({ workers: [{ sessionId: 'child', ownerSessionId: 'lead' }] }));
+  assert.deepEqual(links(), [{ sessionId: 'child', ownerSessionId: 'lead', parentSessionId: 'lead' }]);
+  spyFs(t, new Set([path]));
+  assert.equal(links(), null, 'an unreadable index must not discard unsaved child usage');
+  assert.deepEqual(listStoredAgentWorkerLinks(), [], 'the migration caller keeps its best-effort contract');
 });
 
 test('the delta log: appended lines apply alone; a torn line or a rewritten log never loses an op', () => {

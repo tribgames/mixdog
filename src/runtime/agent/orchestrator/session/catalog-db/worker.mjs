@@ -20,7 +20,12 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { postWorkerEvent, serveWorkerRequests } from '../../../../shared/worker-requests.mjs';
-import { agentHeartbeatsByOwner, createOrdinaryCatalog, isLeadVisibleRow } from '../store-summary-catalog.mjs';
+import {
+  agentHeartbeatsByOwner,
+  catalogSessionOwnershipLinks,
+  createOrdinaryCatalog,
+  isLeadVisibleRow,
+} from '../store-summary-catalog.mjs';
 import { positiveNumber } from '../store-summary-fields.mjs';
 import { SQLITE_REQUIREMENT, sqliteVersionSupported } from './sqlite-gate.mjs';
 import {
@@ -542,7 +547,7 @@ function answer(s, page) {
 
 const unavailable = (reason, final = false) => ({ status: 'unavailable', reason, final });
 
-function list({ dataDir, page, settings }) {
+function list({ dataDir, page, settings, ownershipLinks = false }) {
   const s = ensure(dataDir, settings);
   if (s.phase === 'off') return unavailable(s.reason, s.final);
   if (switchedOff(s)) return unavailable('switch-off');
@@ -558,6 +563,10 @@ function list({ dataDir, page, settings }) {
     if (ids.size > 0) {
       transaction(s.db, () => writeIds(s, ids));
       scheduleShadow(s);
+    }
+    if (ownershipLinks) {
+      const rows = catalogSessionOwnershipLinks(result);
+      return rows === null ? unavailable('ownership') : { status: 'ok', rows, more: false };
     }
     return { status: 'ok', ...answer(s, page) };
   } catch (error) {

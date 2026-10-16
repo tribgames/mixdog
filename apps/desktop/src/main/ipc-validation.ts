@@ -1115,8 +1115,11 @@ const MAX_SESSION_USAGE_IDS = 64;
 function validateSessionUsageArgs(options: unknown): void {
   const request = optionalPlainRecord(options);
   if (!request) throw new TypeError('session usage options must be an object.');
-  requireAllowedKeys(request, new Set(['sessionIds']), 'session usage options');
+  requireAllowedKeys(request, new Set(['sessionIds', 'includeAgents']), 'session usage options');
   if (request.sessionIds !== undefined) requiredSessionIds(request.sessionIds, MAX_SESSION_USAGE_IDS);
+  if (request.includeAgents !== undefined && typeof request.includeAgents !== 'boolean') {
+    throw new TypeError('includeAgents must be a boolean.');
+  }
 }
 
 function validateSettingCapabilityArgs(capability: DesktopCapability, args: readonly unknown[]): void {

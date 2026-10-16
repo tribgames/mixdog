@@ -222,12 +222,12 @@ class SessionCatalogDb {
    * `{ rows, more }`, or null when the DB cannot answer (use JSON). Hints
    * collected before this call are posted first.
    */
-  async list(page = null) {
+  async list(page = null, { ownershipLinks = false } = {}) {
     if (!this.usable()) return null;
     this.flushHints();
     let answer;
     try {
-      answer = await this.send('list', { page });
+      answer = await this.send('list', { page, ownershipLinks });
     } catch {
       return null;
     }

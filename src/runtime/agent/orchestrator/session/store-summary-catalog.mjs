@@ -370,6 +370,23 @@ function assembleCatalog(entries, indexRowsById, heartbeatMtimes) {
   return leadRowsWithAgentHeartbeat(rows).sort(byCatalogOrder);
 }
 
+/** Accounting needs hidden/closed children too, not the Lead-only listing.
+ * Unknown ownership must not turn a partial catalog into an exact empty sum.
+ * Ordinary ids are retained with no owner so a stale worker link cannot
+ * reclassify a persisted ordinary session as a child. */
+export function catalogSessionOwnershipLinks({ catalog, absent }) {
+  if (absent) return [];
+  if (!catalog) return null;
+  const links = [];
+  for (const [id, entry] of catalog.entries) {
+    if (entry.kind === 'unreadable' || entry.kind === 'none') return null;
+    const row = entryRow(entry, id, catalog.index.rowsById);
+    if (!row) return null;
+    links.push({ id, ownerSessionId: isAgentOnlySession(row) ? row.ownerSessionId : null });
+  }
+  return links;
+}
+
 /**
  * Read-only scan of the authoritative session files.
  * Returns `null` when the directory itself is NOT enumerable (unreadable

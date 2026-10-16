@@ -8,6 +8,10 @@ import { sessionUsageSnapshot, usageStatsSnapshot } from './services/usage-stats
 import { resolveUsageStatsPeriod } from './services/usage-stats-period.mjs';
 import { usageRollupDayKey } from '../runtime/shared/llm/usage-rollup.mjs';
 import {
+  listStoredAgentWorkerLinks,
+  listStoredSessionOwnershipLinksAsync,
+} from '../runtime/agent/orchestrator/session/store-summary-reader.mjs';
+import {
   ACCOUNT_PROVIDERS,
   accountScopedSessionId,
   readProviderAccountPool,
@@ -119,6 +123,36 @@ function otherSessionIds(options, sessionId) {
   return [...unique];
 }
 
+/** Durable root ownership, or legacy parent-as-owner chains. Live links
+ * cover workers not saved yet, but cannot override persisted ownership.
+ * Renderer ids are only hints: an unresolved/foreign hint makes the
+ * aggregate unknown rather than silently excluding or adopting its usage. */
+function ownedAgentSessionIds(sessionId, links, liveLinks, requestedIds) {
+  if (links === null || liveLinks === null) return null;
+  const byId = new Map(links.map((row) => [row.id, row]));
+  for (const row of liveLinks) {
+    if (!byId.has(row.sessionId)) {
+      byId.set(row.sessionId, { id: row.sessionId, ownerSessionId: row.ownerSessionId || row.parentSessionId });
+    }
+  }
+  const children = new Map();
+  for (const { id, ownerSessionId } of byId.values()) {
+    if (!ownerSessionId || id === sessionId) continue;
+    if (!children.has(ownerSessionId)) children.set(ownerSessionId, []);
+    children.get(ownerSessionId).push(id);
+  }
+  const members = new Set();
+  const owners = [sessionId];
+  for (const owner of owners) {
+    for (const id of children.get(owner) || []) {
+      if (members.has(id)) continue;
+      members.add(id);
+      owners.push(id);
+    }
+  }
+  return requestedIds.every((id) => members.has(id)) ? [...members] : null;
+}
+
 /** `null` = all time. `0` = today. Anything else is a trailing day count. */
 function normalizeDays(value) {
   if (value === null || value === undefined || value === 'all') return null;
@@ -171,6 +205,8 @@ export function createUsageStatsApi({
   // provider -> { [accountId]: email } for the picker's secondary text.
   accountEmails = () => ({}),
   getSessionId = () => null,
+  sessionLinks = listStoredSessionOwnershipLinksAsync,
+  workerLinks = listStoredAgentWorkerLinks,
 } = {}) {
   let importing = null;
   let imported = false;
@@ -237,7 +273,9 @@ export function createUsageStatsApi({
     /**
      * This runtime's session from its first request, compactions included; null before it has one.
      * `sessionIds` adds the same totals for each named session (the agents it spawned) under
-     * `sessions`, each read by its own id only.
+     * `sessions`, each read by its own id only. `includeAgents` adds one cumulative
+     * `agents` bucket for all owned sessions, closed agents included. It overlaps
+     * the row totals: never add `sessions` to it. Unknown membership stays null.
      */
     async getSessionUsage(options = {}) {
       const sessionId = getSessionId();
@@ -249,6 +287,15 @@ export function createUsageStatsApi({
       const usage = await store.sessionUsageAsync(sessionUsageIdsFor(scopes, sessionId));
       const result = { sessionId, ...sessionUsageSnapshot(usage) };
       const others = otherSessionIds(options, sessionId);
+      if (options.includeAgents === true) {
+        const ids = ownedAgentSessionIds(sessionId, await sessionLinks(), workerLinks({ requireComplete: true }), others);
+        result.agents =
+          ids === null
+            ? null
+            : sessionUsageSnapshot(
+                await store.sessionUsageAsync([...new Set(ids.flatMap((id) => sessionUsageIdsFor(scopes, id)))])
+              );
+      }
       if (!others.length) return result;
       const totals = await Promise.all(
         others.map(async (id) => [id, sessionUsageSnapshot(await store.sessionUsageAsync(sessionUsageIdsFor(scopes, id)))])

@@ -356,7 +356,7 @@ function JobsPanelHead({ mark, title, onClose }: { mark: ReactNode; title: strin
 }
 
 /** The session's totals above the agent rows: what runs now, then the
- *  ledger's exact figures for the Lead and its listed agents. A figure the
+ *  ledger's exact figures for the Lead and all its agents, closed included. A figure the
  *  ledger cannot attribute exactly is left out, never estimated. */
 function AgentsSummary({ running, usage }: { running: number; usage: IslandUsageSummary }) {
   const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd } = usage;

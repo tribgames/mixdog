@@ -78,9 +78,15 @@ test('the turn review bar reaches its diff with only a boolean refresh option', 
   }
 });
 
-test('session usage takes only a bounded list of session ids', () => {
+test('session usage takes bounded row ids and an optional cumulative-agent flag', () => {
   const read = (args) => requiredDesktopCapabilityRequest({ capability: 'getSessionUsage', args, sessionId: 'lead-1' });
-  for (const args of [[], [{}], [{ sessionIds: [] }], [{ sessionIds: ['sess_a', 'agent-b'] }]]) {
+  for (const args of [
+    [],
+    [{}],
+    [{ sessionIds: [] }],
+    [{ sessionIds: ['sess_a', 'agent-b'], includeAgents: true }],
+    [{ includeAgents: false }],
+  ]) {
     assert.doesNotThrow(() => read(args), JSON.stringify(args));
   }
   for (const args of [
@@ -89,6 +95,8 @@ test('session usage takes only a bounded list of session ids', () => {
     [{ sessionIds: ['bad id'] }],
     [{ sessionIds: Array.from({ length: 65 }, (_, i) => `s${i}`) }],
     [{ sessionIds: [], days: 1 }],
+    [{ includeAgents: 'true' }],
+    [{ includeAgents: null }],
     [{}, {}],
   ]) {
     assert.throws(() => read(args), TypeError, JSON.stringify(args));
