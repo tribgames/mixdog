@@ -2,6 +2,7 @@
 // One authoritative provider catalog load: secrets and providers ready, the
 // daemon-wide startup refresh joined (or a forced refresh run), then the shared
 // catalog flattened into deduplicated rows with per-provider profiling.
+import { modelProxyClientMode } from '../../runtime/shared/model-proxy-mode.mjs';
 import { isSelectableLlmModel } from '../model-recency.mjs';
 import { sharedProviderCatalog } from '../provider-catalog-cache.mjs';
 import { NO_ENABLED_PROVIDERS } from '../../runtime/agent/orchestrator/providers/registry-errors.mjs';
@@ -49,6 +50,14 @@ export function createCatalogLoader({
     }
     const providersStartedAt = performance.now();
     try {
+      if (forceRefresh && modelProxyClientMode()) {
+        const { loadModelProxyProviderConfig } = await import(
+          '../../runtime/agent/orchestrator/providers/model-proxy-provider.mjs'
+        );
+        await loadModelProxyProviderConfig({ force: true });
+        // Rebuild even when daemon readiness already settled on the old PC set.
+        await reg().initProviders({});
+      }
       await ensureProvidersReady(config().providers || {});
     } catch (error) {
       if (error?.code === NO_ENABLED_PROVIDERS) return false;

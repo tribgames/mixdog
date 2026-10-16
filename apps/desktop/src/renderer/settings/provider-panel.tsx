@@ -11,6 +11,7 @@ import { OAuthLoginDialog, pasteErrorText, useOAuthLoginFlow } from './oauth-log
 import { useOAuthUsageRefresh } from './use-oauth-usage-refresh';
 import { ProviderAccountsList, PROVIDER_ACCOUNTS_CHANGED, preloadProviderAccounts } from '../ProviderAccountsList';
 import { ActionButton, Group, ListEmpty, ResourceRow } from './capability-controls';
+import { ClientManagedProviders } from './client-managed-providers';
 import { QuotaAutoResumeToggle } from './quota-auto-resume-toggle';
 import { CustomProvidersSection, isCustomProvider } from './custom-provider-section';
 import {
@@ -24,10 +25,12 @@ import {
 
 export function preloadProviderPanel(api: PanelContext['api']): Promise<unknown> {
   return preloadCapabilitySettings(api).then((next) =>
-    preloadProviderAccounts(
-      api,
-      rows(record(next.data.providerSetup).oauth).map((provider) => String(provider.id))
-    )
+    record(next.data.providerSetup).managedByClient === true
+      ? undefined
+      : preloadProviderAccounts(
+          api,
+          rows(record(next.data.providerSetup).oauth).map((provider) => String(provider.id))
+        )
   );
 }
 
@@ -146,6 +149,14 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
     };
   }, []);
   const keychainState = String(keychainIssue.state || '');
+  if (setup.managedByClient === true) {
+    return (
+      <>
+        <QuotaAutoResumeToggle />
+        <ClientManagedProviders setup={setup} />
+      </>
+    );
+  }
   return (
     <>
       {keychainBlocked && (

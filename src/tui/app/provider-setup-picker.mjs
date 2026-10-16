@@ -54,7 +54,7 @@ export function createProviderSetupPicker({
     });
     try {
       await new Promise((resolve) => setTimeout(resolve, 0));
-      return await store.getProviderSetup();
+      return await store.getProviderSetup(options.forceRefresh ? { force: true } : undefined);
     } catch (e) {
       store.pushNotice(`providers failed: ${e?.message || e}`, 'error');
       return null;
@@ -98,6 +98,9 @@ export function createProviderSetupPicker({
       });
     }
     items.push(...buildProviderItems(setup));
+    if (setup.managedByClient === true) {
+      items.push({ value: 'refresh-client-providers', label: 'Refresh', _type: 'refresh-client-providers' });
+    }
 
     const flow = {
       store,
@@ -127,10 +130,13 @@ export function createProviderSetupPicker({
 
     flow.paint({
       title: options.title || 'Providers',
-      description: options.description || 'Choose a provider. Enter opens provider actions.',
+      description: setup.managedByClient === true
+        ? 'Manage provider sign-ins and accounts in the local desktop window. Refresh to update availability.'
+        : options.description || 'Choose a provider. Enter opens provider actions.',
       footer: providerFooter,
       footerGapRows: 1,
-      help: options.confirmBar ? undefined : '↑/↓ Select · Enter Open · Esc Back',
+      help: options.confirmBar ? undefined : setup.managedByClient === true
+        ? '↑/↓ Select · Enter Refresh · Esc Back' : '↑/↓ Select · Enter Open · Esc Back',
       indexMode: 'always',
       labelWidth: 18,
       metaWidth: 12,
@@ -142,6 +148,12 @@ export function createProviderSetupPicker({
         if (item?._providerId) flow.rememberProviderSelection(item);
       },
       onSelect: (_value, item) => {
+        if (setup.managedByClient === true && item._type !== 'continue') {
+          if (item._type === 'refresh-client-providers') {
+            void openProviderSetupPicker({ ...options, preloadedSetup: null, forceRefresh: true });
+          }
+          return;
+        }
         // In-flow navigation (Enter on a provider row): the flow keeps the
         // surface, so clear-and-continue — own.close() would supersede this
         // very flow and paintProviders would then reject the action panel the

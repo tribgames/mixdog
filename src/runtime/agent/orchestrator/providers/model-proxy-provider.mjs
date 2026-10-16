@@ -222,10 +222,12 @@ export function loadModelProxyProviderConfig({
   channel = getModelProxyChannel(),
   now = Date.now,
   waitMs = MODEL_PROXY_CONFIG_WAIT_MS,
+  force = false,
 } = {}) {
   const generation = channel.generation;
   const cached = _providerConfigCache;
   if (
+    !force &&
     cached &&
     cached.channel === channel &&
     cached.generation === generation &&
@@ -234,7 +236,12 @@ export function loadModelProxyProviderConfig({
     return Promise.resolve(cached.value);
   }
   const inFlight = _providerConfigInFlight;
-  if (inFlight && inFlight.channel === channel && inFlight.generation === generation) return inFlight.promise;
+  // A forced read starts after the caller's change, never reuses an older
+  // snapshot. Short setup reads also cannot inherit a registry init's budget.
+  if (
+    !force && inFlight && inFlight.channel === channel &&
+    inFlight.generation === generation && inFlight.waitMs === waitMs
+  ) return inFlight.promise;
   const promise = (async () => {
     const deadline = Date.now() + waitMs;
     let delay = CONFIG_RETRY_FIRST_MS;
@@ -247,12 +254,26 @@ export function loadModelProxyProviderConfig({
         }
       }
       try {
-        const reply = await channel.request({ provider: '', method: 'providerConfig' });
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw new ModelProxyUnavailableError('the desktop provider request timed out');
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(
+          new ModelProxyUnavailableError('the desktop provider request timed out')
+        ), remaining);
+        timer.unref?.();
+        let reply;
+        try {
+          reply = await channel.request({ provider: '', method: 'providerConfig' }, { signal: controller.signal });
+        } finally {
+          clearTimeout(timer);
+        }
         const raw = reply?.providers && typeof reply.providers === 'object' ? reply.providers : {};
         // Defense in depth: the PC already strips secrets before sending.
         const value = stripModelProxySecrets(raw);
         if (providerConfigReady(reply, value)) {
-          if (channel.generation === generation) {
+          // An older read may finish after a forced refresh; only the newest
+          // request may publish to the shared cache.
+          if (channel.generation === generation && _providerConfigInFlight === entry) {
             _providerConfigCache = { at: now(), value, channel, generation };
           }
           return value;
@@ -268,7 +289,7 @@ export function loadModelProxyProviderConfig({
       delay = Math.min(delay * 2, CONFIG_RETRY_MAX_MS);
     }
   })();
-  const entry = { channel, generation, promise };
+  const entry = { channel, generation, waitMs, promise };
   _providerConfigInFlight = entry;
   const clear = () => {
     if (_providerConfigInFlight === entry) _providerConfigInFlight = null;

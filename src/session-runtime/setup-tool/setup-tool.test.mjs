@@ -580,3 +580,33 @@ test('setup skill documents every tool action and open target', () => {
     'MCP/Skills/Plugins live under Extensions, not Settings'
   );
 });
+
+test('remote setup-tool statuses retain desktop ownership and never read or mutate server accounts', async () => {
+  const forbidden = () => assert.fail('server account roster must stay untouched');
+  const executor = createSetupToolExecutor({
+    getApi: () => ({
+      getProviderSetup: async () => ({
+        managedByClient: true,
+        oauth: [
+          { id: 'openai-oauth', authenticated: true, status: 'Connected' },
+          { id: 'anthropic-oauth', authenticated: false, status: 'Not connected' },
+        ],
+      }),
+      getProviderAccounts: forbidden,
+      forgetProviderAuth: forbidden,
+      updateProviderAccounts: forbidden,
+    }),
+  });
+  assert.deepEqual(await run(executor, { action: 'status', domain: 'providers' }), {
+    domain: 'providers',
+    managedByClient: true,
+    unavailable: false,
+    providers: [{ id: 'openai-oauth', kind: 'oauth', authenticated: true, status: 'Connected' }],
+    notConfigured: 1,
+  });
+  const detail = await run(executor, { action: 'status', domain: 'providers', detail: true });
+  assert.equal(detail.managedByClient, true);
+  assert.equal(detail.oauth[0].accounts, undefined);
+  await assert.rejects(run(executor, { action: 'forget_provider_auth', name: 'openai-oauth' }), /local desktop window/);
+  await assert.rejects(run(executor, { action: 'set_provider_account', name: 'openai-oauth', providerAccount: { selectedId: 'x' } }), /local desktop window/);
+});

@@ -58,6 +58,7 @@ export function filterConfiguredModels(
   return models.filter((model) => {
     const provider = entries.find((entry) => String(entry.id || entry.provider || '') === model.provider);
     if (!provider) return false;
+    if (record(providerSetup).managedByClient === true) return provider.usable === true;
     if (provider.custom === true) {
       // Hidden by the effective row or by the model's own v2 override.
       const hidden =

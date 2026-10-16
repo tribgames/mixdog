@@ -466,6 +466,7 @@ export function publicProviderConfig(
     out[name] = {
       enabled: entry.enabled === true,
       ...(entry.type === 'custom' ? { type: 'custom' } : {}),
+      ...(['present', 'absent', 'unreadable'].includes(String(entry.authState)) ? { authState: entry.authState } : {}),
       modelProxy,
     };
   }
@@ -1237,6 +1238,7 @@ export interface ModelProxyRuntimeModules {
   getAllProviders(): Map<string, unknown>;
   /** One provider's stored key (environment first), read on demand. */
   readApiKey(name: string): Promise<string | null>;
+  probeAuth(name: string, config: Record<string, unknown>): 'present' | 'absent' | 'unreadable';
   finalizeProviderRequestTools(tools: unknown[], nativePrefixCount: number): unknown[];
   now?: () => number;
 }
@@ -1253,6 +1255,12 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
   const now = modules.now ?? Date.now;
   const keys = new Map<string, { value: string | null; at: number }>();
   let chain: Promise<unknown> = Promise.resolve();
+  const keyEnvironment = (entry: Record<string, unknown>) =>
+    entry.type === 'custom' && entry.auth !== 'none' && typeof entry.apiKeyEnv === 'string' ? entry.apiKeyEnv : '';
+  const credentialState = (name: string, entry: Record<string, unknown>) => {
+    const environment = keyEnvironment(entry);
+    return environment ? (process.env[environment] ? 'present' : 'absent') : modules.probeAuth(name, entry);
+  };
 
   /** Applies the current availability plus the keys loaded so far; serialized
    *  so a call never observes another call's half-built registry. */
@@ -1261,7 +1269,7 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
       const available = record(modules.loadConfig({ secrets: 'presence' })?.providers);
       const config: Record<string, unknown> = {};
       for (const [name, entry] of Object.entries(available)) {
-        const key = keys.get(name)?.value;
+        const key = keyEnvironment(record(entry)) ? null : keys.get(name)?.value;
         config[name] = key ? { ...record(entry), apiKey: key } : entry;
       }
       try {
@@ -1278,6 +1286,7 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
 
   return {
     async providerConfig() {
+      const previous = new Set(modules.getAllProviders().keys());
       const available = await sync();
       const live = modules.getAllProviders();
       const providers: Record<string, unknown> = {};
@@ -1289,10 +1298,15 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
         const excludes = instance?.constructor?.inputExcludesCache;
         if (typeof excludes === 'boolean') traits.inputExcludesCache = excludes;
         if (typeof instance?.nativePdf === 'boolean') traits.nativePdf = instance.nativePdf;
+        const configured = record(available[name]);
+        const authState = credentialState(name, configured);
+        const configuredEnabled = configured.enabled === true || configured.credentialProbeUnavailable === true;
         providers[name] = {
           ...(stripModelProxySecrets(record(available[name])) as Record<string, unknown>),
           // Availability is what this PC can actually run right now.
-          enabled: Boolean(instance),
+          enabled: configuredEnabled && Boolean(instance) &&
+            (authState === 'present' || (authState === 'unreadable' && previous.has(name))),
+          authState,
           modelProxy: traits,
         };
       }
@@ -1300,9 +1314,13 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
     },
     async provider(name) {
       const available = record(record(modules.loadConfig({ secrets: 'presence' })?.providers)[name]);
-      if (available.enabled !== true) return undefined;
+      if (available.enabled !== true && available.credentialProbeUnavailable !== true) return undefined;
+      if (credentialState(name, available) === 'absent') return undefined;
       const cached = keys.get(name);
-      if (!cached || now() - cached.at > API_KEY_TTL_MS) {
+      // A named environment variable is the only key source for this route.
+      // The adapter resolves it on the PC; never read a fallback keychain key.
+      if (keyEnvironment(available)) keys.delete(name);
+      else if (!cached || now() - cached.at > API_KEY_TTL_MS) {
         keys.set(name, { value: await modules.readApiKey(name), at: now() });
       }
       await sync();
@@ -1324,13 +1342,14 @@ export function modelProxyRuntimeLoader({
   const moduleUrl = (...parts: string[]) => pathToFileURL(join(sourceRoot, ...parts)).href;
   let pending: Promise<ModelProxyRuntime> | null = null;
   const load = async (): Promise<ModelProxyRuntime> => {
-    const [configModule, registryModule, requestToolsModule, apiKeyModule] = await Promise.all([
+    const [configModule, registryModule, requestToolsModule, apiKeyModule, oauthProbeModule] = await Promise.all([
       import(/* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'config.mjs')),
       import(/* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'providers', 'registry.mjs')),
       import(
         /* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'runtime-core', 'provider-request-tools.mjs')
       ),
       import(/* @vite-ignore */ moduleUrl('runtime', 'shared', 'provider-api-key.mjs')),
+      import(/* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'providers', 'oauth-credential-probes.mjs')),
     ]);
     const config = configModule as unknown as Pick<ModelProxyRuntimeModules, 'loadConfig'>;
     const registry = registryModule as unknown as Pick<
@@ -1341,13 +1360,24 @@ export function modelProxyRuntimeLoader({
       ModelProxyRuntimeModules,
       'finalizeProviderRequestTools'
     >;
-    const apiKeys = apiKeyModule as unknown as { readAgentApiKeyAsync(name: string): Promise<string | null> };
+    const apiKeys = apiKeyModule as unknown as {
+      readAgentApiKeyAsync(name: string): Promise<string | null>;
+      hasAgentApiKey(name: string): boolean;
+    };
+    const oauthProbes = oauthProbeModule as unknown as {
+      oauthCredentialProbeState(name: string): 'present' | 'absent' | 'unreadable';
+    };
     return createModelProxyRuntime({
       loadConfig: (options) => config.loadConfig(options),
       initProviders: (providers) => registry.initProviders(providers),
       getProvider: (name) => registry.getProvider(name),
       getAllProviders: () => registry.getAllProviders(),
       readApiKey: (name) => apiKeys.readAgentApiKeyAsync(name),
+      probeAuth: (name, entry) => {
+        if (name === 'mixdog-local' || (entry.type === 'custom' && entry.auth === 'none')) return 'present';
+        if (name.endsWith('-oauth')) return oauthProbes.oauthCredentialProbeState(name);
+        return apiKeys.hasAgentApiKey(name) ? 'present' : 'absent';
+      },
       finalizeProviderRequestTools: (tools, nativePrefixCount) =>
         requestTools.finalizeProviderRequestTools(tools, nativePrefixCount),
     });

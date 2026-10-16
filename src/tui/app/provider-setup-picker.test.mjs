@@ -274,3 +274,29 @@ test('a provider fetch failure reports and leaves the loading panel', async () =
   assert.deepEqual(h.notices, [['providers failed: offline', 'error']]);
   assert.equal(h.current().pickerKey, 'providers-loading');
 });
+
+
+test('client-managed TUI providers are read-only, include local models, and refresh from the desktop', async () => {
+  let setup = { ...SETUP, managedByClient: true,
+    local: [{ id: 'mixdog-local', name: 'Local Provider', detected: true, enabled: true, usable: true }] };
+  const reads = [];
+  const forbidden = () => assert.fail('remote provider rows must not open credential mutations');
+  const h = createHarness({ store: {
+    getProviderSetup: async (options) => { reads.push(options); return setup; },
+    saveProviderApiKey: forbidden, forgetProviderAuth: forbidden, loginOAuthProvider: forbidden,
+  } });
+  await h.openProviderSetupPicker({});
+  const list = h.current();
+  assert.match(list.description, /local desktop window/);
+  assert.ok(h.row('local:mixdog-local'));
+  for (const item of list.items.filter((item) => item._providerId)) {
+    h.select(item);
+    assert.equal(h.current(), list, `${item.value} must stay read-only`);
+  }
+  assert.deepEqual(h.prompts, [null]);
+  setup = { managedByClient: true, unavailable: true, api: [], oauth: [], local: [] };
+  h.select(h.row('refresh-client-providers'));
+  await waitUntil(() => reads.length === 2 && h.current()?.pickerKey === 'providers-main:root');
+  assert.deepEqual(reads[1], { force: true });
+  assert.deepEqual(h.current().items.map((row) => row.value), ['refresh-client-providers']);
+});

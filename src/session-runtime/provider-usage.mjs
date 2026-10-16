@@ -5,6 +5,7 @@
 // references) and all config/registry reads flow through supplied accessors so
 // live-binding is preserved.
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { modelProxyClientMode } from '../runtime/shared/model-proxy-mode.mjs';
 
 // A post-redeem dashboard rebuild is best effort: past this budget the caller
 // gets its confirmed outcome and the surface revalidates on its own cadence.
@@ -70,6 +71,9 @@ export function createProviderUsage({
   }
 
   async function cachedProviderSetup({ force = false, quick = false } = {}) {
+    // The proxy owns a short, connection-generation-aware cache. A session's
+    // indefinite local cache would hide PC sign-ins, sign-outs and reconnects.
+    if (modelProxyClientMode()) return providerSetup(displayConfig(), { force });
     if (!force && caches.providerSetupCache.setup) {
       return caches.providerSetupCache.setup;
     }

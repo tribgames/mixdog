@@ -26,6 +26,7 @@ import { providerDisplayName } from '../provider-display';
 import { record, rows } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { acquireTitleBarDim } from '../titlebar-dim';
+import { ClientManagedProviders } from './client-managed-providers';
 import { OAuthControl } from './CapabilitySettings';
 import { FOCUSABLE_SELECTOR, inertBackground, portaledMenuOpen, trapTab } from './dialog-modality';
 import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
@@ -226,6 +227,34 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
   useEffect(() => {
     if (!loadedRef.current) void load();
   }, [load]);
+
+  useEffect(() => {
+    if (providerSetup.managedByClient !== true) return;
+    let cancelled = false;
+    let pending = false;
+    const refresh = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const [result] = await readCapabilityBatch(api, [
+          { capability: 'getProviderSetup', args: [{ force: true }] },
+        ]);
+        if (!cancelled && result?.ok) setProviderSetup(record(result.value));
+      } finally {
+        pending = false;
+      }
+    };
+    const onRefresh = () => void refresh().catch(() => undefined);
+    const timer = window.setInterval(onRefresh, 7_000);
+    window.addEventListener('focus', onRefresh);
+    window.addEventListener('mixdog:remote-reconnected', onRefresh);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onRefresh);
+      window.removeEventListener('mixdog:remote-reconnected', onRefresh);
+    };
+  }, [api, providerSetup.managedByClient]);
 
   const saveApiKey = async (event: FormEvent<HTMLFormElement>, provider: string) => {
     event.preventDefault();
@@ -537,6 +566,7 @@ function ProviderStep({
   onSaveApiKey(event: FormEvent<HTMLFormElement>, provider: string): void;
   onReload(): void;
 }) {
+  if (setup.managedByClient === true) return <ClientManagedProviders setup={setup} />;
   // OpenCode Go leads the API list (user decision).
   const apiProviders = [...rows(setup.api)].sort(
     (left, right) => Number(String(right.id) === 'opencode-go') - Number(String(left.id) === 'opencode-go')

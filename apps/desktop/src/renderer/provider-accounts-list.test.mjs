@@ -7,8 +7,44 @@ import { ProviderAccountsList } from './ProviderAccountsList.tsx';
 import { OAuthControl, ProvidersPanel } from './settings/provider-panel.tsx';
 import { SidebarUsage, usagePinEntries } from './SidebarUsage.tsx';
 import { getUsageDashboardSnapshot, publishUsageDashboard } from './usage-dashboard-store.ts';
+import { filterConfiguredModels } from './model-catalog.tsx';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+test('SSH provider settings display PC availability without account or credential controls', async (t) => {
+  const render = harness(t);
+  const show = (setup) => render(React.createElement(ProvidersPanel, {
+    api: { invokeCapability() { assert.fail('must not read the server account roster'); } },
+    pending: '', run: async () => {}, confirm: () => assert.fail('no remote credential mutations'),
+    data: { providerSetup: setup },
+  }));
+  const setup = {
+    managedByClient: true,
+    oauth: [
+      { id: 'openai-oauth', name: 'OpenAI OAuth', authenticated: true, usable: true, status: 'Connected' },
+      { id: 'cursor-oauth', name: 'Cursor OAuth', authenticated: true, usable: true, status: 'Connected' },
+    ],
+    api: [{ id: 'openai', name: 'OpenAI API', authenticated: false, status: 'Not connected' }],
+  };
+  await show(setup);
+  const models = [
+    { provider: 'openai-oauth', model: 'gpt-test' },
+    { provider: 'cursor-oauth', model: 'auto' },
+    { provider: 'openai', model: 'gpt-test' },
+  ];
+  assert.deepEqual(filterConfiguredModels(models, setup), models.slice(0, 2));
+  assert.deepEqual([...document.querySelectorAll('.settings-status')].map((el) => el.textContent), [
+    'Connected', 'Connected', 'Not connected',
+  ]);
+  assert.match(document.querySelector('main').textContent, /Manage sign-ins and accounts in the local window/);
+  assert.equal(document.querySelector('button, input[type="password"], form, .provider-accounts-list'), null);
+  await show({ ...setup, oauth: [{ ...setup.oauth[0], authenticated: false, status: 'Not connected' }] });
+  assert.equal(document.querySelector('.settings-status').textContent, 'Not connected');
+  await show({ managedByClient: true, unavailable: true, oauth: [], api: [], local: [] });
+  assert.deepEqual(filterConfiguredModels(models, { managedByClient: true, oauth: [], api: [], local: [] }), []);
+  assert.match(document.querySelector('main').textContent, /Connect the desktop to view its providers/);
+  assert.equal(document.querySelector('.settings-status'), null);
+});
 
 function harness(t) {
   const { dom } = installTestDom(null, {
@@ -790,4 +826,22 @@ test('credit line renders only with credits, formats Codex count vs Claude USD, 
   assert.equal(line.querySelector('b').textContent, '$25.00');
   assert.match(line.textContent, /Monthly limit \$10/);
   assert.equal(line.querySelector('[role="switch"]').getAttribute('aria-checked'), 'true');
+});
+
+
+test('model filtering accepts every advertised provider kind and removes disabled entries', () => {
+  const groups = {
+    api: ['openai', 'anthropic', 'gemini', 'deepseek', 'xai', 'opencode-go', 'openrouter',
+      'custom-00000000-0000-4000-8000-000000000001'],
+    oauth: ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth',
+      'mimo-oauth', 'cursor-oauth', 'antigravity-oauth'],
+    local: ['mixdog-local'],
+  };
+  const models = Object.values(groups).flat().map((provider) => ({ provider, model: 'test-model' }));
+  for (const enabled of [true, false]) {
+    const setup = { managedByClient: true, ...Object.fromEntries(Object.entries(groups).map(([group, ids]) =>
+      [group, ids.map((id) => ({ id, enabled, authenticated: enabled, usable: enabled, detected: enabled }))]
+    )) };
+    assert.deepEqual(filterConfiguredModels(models, setup), enabled ? models : []);
+  }
 });

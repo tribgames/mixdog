@@ -119,6 +119,7 @@ function publicProviderRows(setup) {
     ...extra,
   });
   return {
+    ...(setup?.managedByClient === true ? { managedByClient: true, unavailable: setup.unavailable === true } : {}),
     pendingSecrets: setup?.pendingSecrets === true,
     api: (setup?.api || []).map((row) =>
       pick(row, {
@@ -143,7 +144,8 @@ function publicProviderRows(setup) {
 }
 
 /** Minimal provider rows for the model: only providers with a credential (or
- *  one needing re-authentication), counts instead of account rosters. */
+ *  one needing re-authentication), counts instead of account rosters. Without
+ *  `accountCount` (desktop-owned accounts) no counts are reported. */
 function configuredProviderRows(rows, accountCount) {
   const providers = [];
   let notConfigured = 0;
@@ -158,7 +160,7 @@ function configuredProviderRows(rows, accountCount) {
         continue;
       }
       let accounts = {};
-      if (kind === 'oauth') accounts = { accounts: row.authenticated ? accountCount(row.id) : 0 };
+      if (kind === 'oauth' && accountCount) accounts = { accounts: row.authenticated ? accountCount(row.id) : 0 };
       providers.push({
         id: row.id,
         kind,
@@ -333,6 +335,11 @@ const SETUP_STATUS_READERS = {
   shell: (rt) => rt.getSystemShell?.() || {},
   providers: async (rt, { detail }) => {
     const rows = publicProviderRows(await rt.getProviderSetup?.({}));
+    // Client mode: the desktop owns accounts, so the server roster is never read.
+    if (rows.managedByClient) {
+      if (detail) return rows;
+      return { managedByClient: true, unavailable: rows.unavailable, ...configuredProviderRows(rows) };
+    }
     if (!detail) return configuredProviderRows(rows, (id) => rt.getProviderAccounts(id).accounts.length);
     rows.oauth = rows.oauth.map((row) =>
       row.authenticated ? { ...row, accounts: publicAccounts(rt.getProviderAccounts(row.id)) } : row
@@ -556,6 +563,7 @@ const SETUP_ACTION_HANDLERS = {
   forget_provider_auth: async (rt, args) => {
     const name = requireText(args.name, 'name');
     const setup = await rt.getProviderSetup({});
+    if (setup?.managedByClient) throw new Error('Manage provider accounts in the local desktop window.');
     if (!(setup?.oauth || []).some((row) => row.id === name)) {
       if (Object.hasOwn(args, 'accountId')) throw new Error('accountId applies only to OAuth providers');
       return rt.forgetProviderAuth(name);
@@ -568,8 +576,12 @@ const SETUP_ACTION_HANDLERS = {
     const accountId = Object.hasOwn(args, 'accountId') ? requireText(args.accountId, 'accountId') : accounts[0].id;
     return { ...(await rt.forgetProviderAuth(name, accountId)), accountId };
   },
-  set_provider_account: async (rt, args) =>
-    publicAccounts(await rt.updateProviderAccounts(requireText(args.name, 'name'), args.providerAccount)),
+  set_provider_account: async (rt, args) => {
+    if ((await rt.getProviderSetup?.({}))?.managedByClient) {
+      throw new Error('Manage provider accounts in the local desktop window.');
+    }
+    return publicAccounts(await rt.updateProviderAccounts(requireText(args.name, 'name'), args.providerAccount));
+  },
   add_mcp_server: async (rt, args) => {
     const server = mcpServerInput(args);
     requireText(server.name, 'server.name');

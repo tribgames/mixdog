@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { createModelProxyHost, createModelProxyRuntime } from './model-proxy-host.ts';
 import {
   MODEL_PROXY_REQUEST_EVENT,
+  MODEL_PROXY_OPERATIONS,
   ModelProxyChannel,
 } from '../../../../src/runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
 import {
@@ -267,6 +268,7 @@ function pcModules(available, keys = {}) {
   const inits = [];
   return {
     keyReads,
+    probeAuth: () => 'present',
     inits,
     live,
     loadConfig: (options) => {
@@ -304,8 +306,8 @@ test('cold start: the daemon waits for a PC that connects late and loads its reg
   connect(t, createModelProxyRuntime(modules), { channel });
   const config = await settledWhileAlive(loading);
   assert.deepEqual(config, {
-    openai: { enabled: true, modelProxy: {} },
-    gemini: { enabled: false, modelProxy: {} },
+    openai: { enabled: true, authState: 'present', modelProxy: {} },
+    gemini: { enabled: false, authState: 'present', modelProxy: {} },
   });
   // Availability needs no credential value.
   assert.deepEqual(modules.keyReads, []);
@@ -338,7 +340,7 @@ test('a loaded PC registry with nothing enabled is an answer, not a wait', async
   const modules = pcModules({ openai: { enabled: false } });
   const { channel } = connect(t, createModelProxyRuntime(modules));
   const config = await settledWhileAlive(loadModelProxyProviderConfig({ channel, waitMs: 5_000 }), 1_000);
-  assert.deepEqual(config, { openai: { enabled: false, modelProxy: {} } });
+  assert.deepEqual(config, { openai: { enabled: false, authState: 'present', modelProxy: {} } });
 });
 
 test('only the requested provider\'s credential is read, on demand', async (t) => {
@@ -590,4 +592,172 @@ test('a call payload over the request cap is refused before any provider runs', 
     { code: 'MODEL_PROXY_REQUEST_TOO_LARGE' }
   );
   assert.equal(sent, false);
+});
+
+
+test('the last disabled or removed provider is not advertised even when the registry preserves its instance', async () => {
+  const available = { openai: { enabled: true } };
+  const modules = pcModules(available);
+  const init = modules.initProviders;
+  modules.initProviders = async (config) => {
+    // Match the real registry's all-disabled preservation guard.
+    if (!Object.values(config).some((entry) => entry.enabled === true)) {
+      throw Object.assign(new Error('all disabled'), { code: 'PROVIDERS_NONE_ENABLED' });
+    }
+    return init(config);
+  };
+  const runtime = createModelProxyRuntime(modules);
+  assert.equal((await runtime.providerConfig()).providers.openai.enabled, true);
+  available.openai.enabled = false;
+  assert.equal((await runtime.providerConfig()).providers.openai.enabled, false);
+  assert.equal(modules.live.has('openai'), true);
+  assert.equal(await runtime.provider('openai'), undefined);
+  delete available.openai;
+  assert.equal((await runtime.providerConfig()).providers.openai.enabled, false);
+  assert.equal(await runtime.provider('openai'), undefined);
+  assert.deepEqual(modules.keyReads, []);
+});
+
+
+for (const claimed of [false, true]) {
+  test(`provider config deadline aborts a stalled request (claimed=${claimed})`, async (t) => {
+    _resetModelProxyProviderConfigForTest();
+    t.after(_resetModelProxyProviderConfigForTest);
+    const channel = new ModelProxyChannel();
+    let requestId;
+    const detach = channel.attachPublisher((snapshot) => {
+      for (const { id } of snapshot.requests) {
+        requestId = id;
+        if (claimed) channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id]);
+      }
+    });
+    t.after(detach);
+    const loading = loadModelProxyProviderConfig({ channel, waitMs: 30 });
+    await assert.rejects(settledWhileAlive(loading, 1_000), (error) => error.code === 'MODEL_PROXY_UNAVAILABLE');
+    assert.ok(requestId);
+  });
+}
+
+test('forced and short-budget reads do not join an older request or let it overwrite the fresh cache', async (t) => {
+  _resetModelProxyProviderConfigForTest();
+  t.after(_resetModelProxyProviderConfigForTest);
+  const replies = [];
+  const channel = {
+    connected: true, generation: 1,
+    request: () => new Promise((resolve) => replies.push(resolve)),
+  };
+  const old = loadModelProxyProviderConfig({ channel });
+  const fresh = loadModelProxyProviderConfig({ channel, force: true });
+  assert.equal(replies.length, 2);
+  replies[1]({ ready: true, providers: { gemini: { enabled: true } } });
+  assert.equal((await fresh).gemini.enabled, true);
+  replies[0]({ ready: true, providers: { gemini: { enabled: false } } });
+  await old;
+  assert.equal((await loadModelProxyProviderConfig({ channel })).gemini.enabled, true);
+
+  _resetModelProxyProviderConfigForTest();
+  const long = loadModelProxyProviderConfig({ channel, waitMs: 15_000 });
+  const short = loadModelProxyProviderConfig({ channel, waitMs: 1_000 });
+  assert.equal(replies.length, 4);
+  replies[3]({ ready: true, providers: {} });
+  replies[2]({ ready: true, providers: {} });
+  await Promise.all([long, short]);
+});
+
+
+test('all built-in provider families and custom protocols use the same PC catalog and send path', async (t) => {
+  const names = ['openai', 'anthropic', 'gemini', 'deepseek', 'xai', 'opencode-go', 'openrouter',
+    'openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth',
+    'mimo-oauth', 'cursor-oauth', 'antigravity-oauth', 'mixdog-local'];
+  const custom = ['openai-chat', 'openai-responses', 'anthropic'].flatMap((protocol, i) =>
+    ['key', 'none'].map((auth, j) => ({
+      id: `custom-00000000-0000-4000-8000-0000000000${i}${j}`, protocol, auth,
+    }))
+  );
+  const available = Object.fromEntries([
+    ...names.map((id) => [id, { enabled: true }]),
+    ...custom.map(({ id, ...config }) => [id, { ...config, type: 'custom', enabled: true }]),
+  ]);
+  const modules = pcModules(available);
+  const init = modules.initProviders;
+  modules.initProviders = async (config) => {
+    await init(config);
+    for (const [name, provider] of modules.live) {
+      provider.listModels = async () => [{ id: `${name}-model` }];
+    }
+  };
+  const runtime = createModelProxyRuntime(modules);
+  let clock = 0;
+  const { channel } = connect(t, runtime, { now: () => clock });
+  const advertised = await channel.request({ provider: '', method: 'providerConfig' });
+  assert.deepEqual(Object.keys(advertised.providers).sort(), Object.keys(available).sort());
+  for (const name of Object.keys(available)) {
+    clock += 60_000; // Each independent provider check receives a fresh rate-limit window.
+    assert.equal(advertised.providers[name].enabled, true, name);
+    const proxy = new ModelProxyProvider(name, {}, channel);
+    assert.deepEqual(await proxy.listModels(), [{ id: `${name}-model` }]);
+    assert.equal((await proxy.send([], `${name}-model`, [], {})).content, `${name}:no-key`);
+  }
+});
+
+
+test('proxy readiness distinguishes missing credentials, transient probes, and explicit disables', async (t) => {
+  const available = { 'openai-oauth': { enabled: true } };
+  const modules = pcModules(available);
+  let state = 'present';
+  modules.probeAuth = () => state;
+  const init = modules.initProviders;
+  modules.initProviders = async (config) => {
+    if (config['openai-oauth'].credentialProbeUnavailable) return; // registry preserves the prior adapter
+    return init(config);
+  };
+  const runtime = createModelProxyRuntime(modules);
+  const { channel } = connect(t, runtime);
+  const read = async () => (await channel.request({ provider: '', method: 'providerConfig' })).providers['openai-oauth'];
+  assert.equal((await read()).enabled, true);
+  state = 'unreadable';
+  available['openai-oauth'] = { enabled: false, credentialProbeUnavailable: true };
+  assert.deepEqual(await read(), { enabled: true, authState: 'unreadable', modelProxy: {} });
+  assert.ok(await runtime.provider('openai-oauth'));
+  state = 'absent';
+  available['openai-oauth'] = { enabled: true }; // a persisted enable is not authentication
+  assert.deepEqual(await read(), { enabled: false, authState: 'absent', modelProxy: {} });
+  assert.equal(await runtime.provider('openai-oauth'), undefined);
+  state = 'present';
+  available['openai-oauth'] = { enabled: false };
+  assert.equal((await read()).enabled, false);
+  assert.equal(await runtime.provider('openai-oauth'), undefined);
+});
+
+
+test('custom environment credentials drive proxy readiness without a stored-key fallback', async (t) => {
+  const variable = 'MIXDOG_PROXY_ENV_CREDENTIAL_TEST';
+  const previous = process.env[variable];
+  t.after(() => { if (previous === undefined) delete process.env[variable]; else process.env[variable] = previous; });
+  const name = 'custom-proxy-env';
+  const available = { [name]: { type: 'custom', auth: 'key', enabled: true, apiKeyEnv: variable } };
+  const modules = pcModules(available, { [name]: 'stored-key-must-not-be-used' });
+  modules.probeAuth = () => 'absent'; // No conventional environment alias or keychain credential.
+  const { resolveProviderApiKey } = await import('../../../../src/runtime/shared/provider-api-key.mjs');
+  const init = modules.initProviders;
+  modules.initProviders = async (config) => {
+    await init(config);
+    modules.live.set(name, { send: async () => ({ content: resolveProviderApiKey(name, config[name]) }) });
+  };
+  const runtime = createModelProxyRuntime(modules);
+  const { channel } = connect(t, runtime);
+  process.env[variable] = 'environment-key-one';
+  const first = await runtime.providerConfig();
+  assert.equal(first.providers[name].enabled, true);
+  assert.equal(first.providers[name].authState, 'present');
+  assert.equal(JSON.stringify(first).includes('environment-key-one'), false, 'no key value crosses the config boundary');
+  const provider = new ModelProxyProvider(name, {}, channel);
+  assert.equal((await provider.send([], 'test-model', undefined, {})).content, 'environment-key-one');
+  process.env[variable] = 'environment-key-two';
+  assert.equal((await provider.send([], 'test-model', undefined, {})).content, 'environment-key-two');
+  delete process.env[variable];
+  modules.probeAuth = () => 'present'; // A stored key must not satisfy a missing named variable.
+  assert.equal((await runtime.providerConfig()).providers[name].enabled, false);
+  assert.equal(await runtime.provider(name), undefined);
+  assert.deepEqual(modules.keyReads, []);
 });

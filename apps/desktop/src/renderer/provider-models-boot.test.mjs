@@ -67,9 +67,14 @@ async function settle(api) {
   }
 }
 
-test.beforeEach(() => {
+test.beforeEach(async () => {
   storage.clear();
   invalidateSharedModelCatalogRequest();
+  // Invalidation now intentionally forces the next API, even before any read.
+  // Consume that test-reset event separately: these cases model a fresh boot,
+  // not a provider change. Real invalidation is covered below and in the cache suite.
+  const reset = requestModelCatalog({ listProviderModels: async () => [] });
+  await Promise.all([reset.quick, reset.full, reset.setup]);
   resetSidebarReferenceCache();
 });
 
@@ -150,4 +155,18 @@ test('the shared answer expires and provider changes drop it', async (t) => {
   await settle(api);
   await changed;
   assert.equal(api.calls.length, 3);
+});
+
+
+test('a slow pre-refresh catalog cannot replace the forced shared answer', async () => {
+  const replies = [];
+  const api = { listProviderModels: () => new Promise((resolve) => replies.push(resolve)) };
+  const old = fetchProviderModels(api);
+  const fresh = fetchProviderModels(api, { force: true });
+  const rows = [{ provider: 'gemini', model: 'new-model' }];
+  replies[1](rows);
+  await fresh;
+  replies[0]([]);
+  await old;
+  assert.deepEqual(await fetchProviderModels(api), rows);
 });

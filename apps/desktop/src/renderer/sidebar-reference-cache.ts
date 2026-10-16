@@ -95,6 +95,7 @@ const DEFAULTS: SidebarReferenceValues = {
 // together. The stored web-search route is a user choice and only its own
 // mutation invalidates it.
 const PROVIDER_KEYS: readonly SidebarReferenceKey[] = ['providerSetup', 'quickProviderModels', 'webSearchModels'];
+const forcedKeys = new Set<SidebarReferenceKey>();
 
 // Which cached keys a mutation makes untrue. Anything not listed falls back to
 // the caller's own panel keys, so an unmapped capability still refreshes.
@@ -163,9 +164,16 @@ const LOADERS: { [K in SidebarReferenceKey]: Loader<K> } = {
   },
   workflows: async (api) => rows(await capability(api, 'listWorkflows')),
   agents: async (api) => rows(await capability(api, 'listAgents')),
-  providerSetup: async (api) => await capability(api, 'getProviderSetup'),
+  providerSetup: async (api, force) => {
+    const setup = await capability(api, 'getProviderSetup', force ? [{ force: true }] : []);
+    if (record(setup).managedByClient === true && record(setup).unavailable === true) {
+      throw new Error('Desktop model providers are unavailable');
+    }
+    return setup;
+  },
   webSearchRoute: async (api) => record(await capability(api, 'getWebSearchRoute')),
-  webSearchModels: async (api) => rows(await capability(api, 'listWebSearchModels', [{ quick: false }])),
+  webSearchModels: async (api, force) =>
+    rows(await capability(api, 'listWebSearchModels', [{ quick: false, ...(force ? { force: true } : {}) }])),
 };
 
 interface CacheEntry {
@@ -259,6 +267,7 @@ export function adoptSidebarReferenceHost(api: SidebarReferenceApi | undefined):
   if (!rebind) return false;
   const affected = [...new Set([...entries.keys(), ...failures.keys(), ...inflight.keys()])];
   entries.clear();
+  forcedKeys.clear();
   failures.clear();
   for (const key of SIDEBAR_REFERENCE_KEYS) bumpGeneration(key);
   if (affected.length)
@@ -327,7 +336,16 @@ function invalidateProviderReferencesFromPeer(change: ProviderModelsChange): voi
 export function subscribeProviderModelsSync(
   api: Partial<Pick<DesktopApi, 'subscribeProviderModelsChanged'>> | undefined
 ): () => void {
-  return api?.subscribeProviderModelsChanged?.(invalidateProviderReferencesFromPeer) ?? (() => {});
+  const unsubscribe = api?.subscribeProviderModelsChanged?.(invalidateProviderReferencesFromPeer) ?? (() => {});
+  const events = typeof window === 'undefined' ? null : window;
+  const reconnect = () => invalidateKeys(PROVIDER_KEYS, false);
+  events?.addEventListener?.('mixdog:remote-reconnected', reconnect);
+  events?.addEventListener?.('mixdog:remote-state-gap', reconnect);
+  return () => {
+    unsubscribe();
+    events?.removeEventListener?.('mixdog:remote-reconnected', reconnect);
+    events?.removeEventListener?.('mixdog:remote-state-gap', reconnect);
+  };
 }
 
 export function useProviderModelsSync(api: Parameters<typeof subscribeProviderModelsSync>[0]): void {
@@ -336,6 +354,7 @@ export function useProviderModelsSync(api: Parameters<typeof subscribeProviderMo
 
 function invalidateKeys(keys: readonly SidebarReferenceKey[], notifyMain: boolean): void {
   for (const key of keys) {
+    forcedKeys.add(key);
     bumpGeneration(key);
     const entry = entries.get(key);
     if (entry) entry.invalid = true;
@@ -396,9 +415,10 @@ function ensureSidebarReference(api: SidebarReferenceApi, key: SidebarReferenceK
   const request = (async () => {
     try {
       const loader = LOADERS[key] as Loader<SidebarReferenceKey>;
-      const value = await loader(api, force);
+      const value = await loader(api, force || forcedKeys.has(key));
       if ((generations.get(key) ?? 0) !== generation) return;
       entries.set(key, { value, updatedAt: clock(), invalid: false });
+      forcedKeys.delete(key);
       failures.delete(key);
     } catch (reason) {
       if ((generations.get(key) ?? 0) !== generation) return;
@@ -463,6 +483,7 @@ function subscribeSidebarReferences(keys: readonly SidebarReferenceKey[], listen
 /** Test seam only: drops every snapshot and (optionally) installs a clock. */
 export function resetSidebarReferenceCache(options: { now?: () => number } = {}): void {
   entries.clear();
+  forcedKeys.clear();
   inflight.clear();
   failures.clear();
   pendingNotice = null;
@@ -611,6 +632,12 @@ export function useSidebarReferences<K extends SidebarReferenceKey>(
     if (!keys.some((key) => isSidebarReferenceStale(key))) return;
     void refresh();
   }, [active, available, keys, refresh, revision]);
+
+  useEffect(() => {
+    if (!active || error !== 'Desktop model providers are unavailable') return;
+    const timer = window.setTimeout(() => void refresh({ force: true }), 7_000);
+    return () => window.clearTimeout(timer);
+  }, [active, error, refresh, revision]);
 
   return {
     values,
