@@ -40,6 +40,7 @@ export function createDisposeAction(bag, { oauthFlows }) {
         'unsubscribeAgentStatus',
         'unsubscribeRemoteState',
         'unsubscribeCompletionWakeGate',
+        'unsubscribeGitHeadWatch',
       ]) {
         try {
           lifecycle[key]?.();

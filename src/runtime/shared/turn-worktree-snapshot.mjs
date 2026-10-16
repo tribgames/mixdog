@@ -381,8 +381,10 @@ async function resetShadowIndex(state) {
 }
 
 async function changedWorktreePaths(state) {
-  await refreshSourceTracked(state);
-  const [tracked, untracked] = await Promise.all([
+  // The source's tracked list (re-read only after its index moved) is first
+  // needed once both scans are back, so it is read beside them, not before.
+  const [, tracked, untracked] = await Promise.all([
+    refreshSourceTracked(state),
     runGit(shadowArgs(state, ['diff-files', '--name-only', '-z', '--', '.']), {
       cwd: state.root,
     }),
@@ -948,10 +950,7 @@ export async function resumeTurnWorktreeSnapshot(worktree, baselineTree, { paths
       const currentTree = await captureTreeUnlocked(state, snapshot.toolPaths, { after });
       Object.assign(
         snapshot,
-        withOmittedBaselines(
-          snapshot,
-          await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths)
-        )
+        withOmittedBaselines(snapshot, await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths))
       );
       return snapshot;
     },

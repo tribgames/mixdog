@@ -63,12 +63,8 @@ function identityPath(projectSubdir) {
   return projectSubdir ? `${projectSubdir}/${IDENTITY_PATH}` : IDENTITY_PATH;
 }
 
-/** The identity file's path when it is untracked (left out of every step), else null. */
-async function untrackedIdentity(cwd, projectSubdir) {
-  const path = identityPath(projectSubdir);
-  const tracked = await runGit(cwd, ['ls-files', '-z', '--', `:(literal)${path}`], { readOnly: true });
-  return tracked.stdout ? null : path;
-}
+/** CE_INTENT_TO_ADD in an index entry's flags (`git add -N`). */
+const INTENT_TO_ADD_FLAG = 0x20000000;
 
 /**
  * `git status --porcelain=v2 -z` rows: path, untracked, unmerged, submodule.
@@ -100,12 +96,26 @@ function parseStatusV2(raw) {
   return rows;
 }
 
-async function statusRows(topLevel, projectSubdir) {
+/**
+ * One `git status` read of the checkout (the single source for everything
+ * the carry asks of it): the changed rows, their paths, the untracked
+ * (not ignored) files — nested repositories end in "/" — and `identity`,
+ * the untracked-and-not-ignored session identity file's path (left out of
+ * every step; status lists exactly such a file), else null.
+ */
+async function inspectCheckout(topLevel, projectSubdir) {
   const status = await runGit(topLevel, ['status', '--porcelain=v2', '-z', '--untracked-files=all'], {
     readOnly: true,
   });
-  const identity = await untrackedIdentity(topLevel, projectSubdir);
-  return parseStatusV2(status.stdout).filter((row) => !(row.untracked && row.path === identity));
+  const identity = identityPath(projectSubdir);
+  const all = parseStatusV2(status.stdout);
+  const rows = all.filter((row) => !(row.untracked && row.path === identity));
+  return {
+    rows,
+    files: rows.map((row) => row.path),
+    untracked: rows.filter((row) => row.untracked).map((row) => row.path),
+    identity: rows.length < all.length ? identity : null,
+  };
 }
 
 /**
@@ -115,14 +125,7 @@ async function statusRows(topLevel, projectSubdir) {
  * @returns {Promise<string[]>}
  */
 export async function uncommittedChanges(topLevel, projectSubdir = '') {
-  return (await statusRows(topLevel, projectSubdir)).map((row) => row.path);
-}
-
-/** Untracked (not ignored) files of the checkout, identity file excluded; nested repositories end in "/". */
-async function untrackedFiles(topLevel, projectSubdir) {
-  const listed = await runGit(topLevel, ['ls-files', '--others', '--exclude-standard', '-z'], { readOnly: true });
-  const identity = await untrackedIdentity(topLevel, projectSubdir);
-  return listed.stdout.split('\0').filter((path) => path && path !== identity);
+  return (await inspectCheckout(topLevel, projectSubdir)).files;
 }
 
 function carryRefusal(message, details) {
@@ -150,19 +153,85 @@ async function filteredPaths(topLevel, paths) {
 /**
  * WORKTREE_DIRTY (with a `reason`) when the checkout's changes cannot be
  * carried faithfully: a merge, rebase, cherry-pick or revert in progress;
- * unmerged index entries; a submodule with changes; an untracked nested
- * repository; a changed path under a clean/smudge filter (Git LFS); untracked
- * files above CARRY_UNTRACKED_MAX_FILES / CARRY_UNTRACKED_MAX_BYTES.
+ * a bisect or a pending cherry-pick/revert sequence; a sparse checkout, or
+ * index entries marked skip-worktree or assume-unchanged (their edits are
+ * invisible to git); intent-to-add entries; unmerged index entries; a
+ * submodule with changes; an untracked nested repository; a changed path
+ * under a clean/smudge filter (Git LFS); untracked files above
+ * CARRY_UNTRACKED_MAX_FILES / CARRY_UNTRACKED_MAX_BYTES.
+ * Resolves the checkout's uncommitted paths.
+ * @returns {Promise<string[]>}
  */
 export async function assertCarryable(topLevel, projectSubdir = '') {
-  const operation = await operationInProgress(gitStatusRunner, topLevel);
+  return (await checkCarryable(topLevel, projectSubdir)).files;
+}
+
+/**
+ * Index entries git does not look at (their edits are invisible to status,
+ * so a carry would silently drop or leave them): `assumeUnchanged` (`git
+ * update-index --assume-unchanged`, a lowercase `ls-files -v` tag),
+ * `skipWorktree` (tag S/s: sparse checkouts, `--skip-worktree`), and whether
+ * sparse checkout is enabled at all.
+ */
+async function hiddenIndexEntries(topLevel) {
+  const [listed, debug, sparse] = await Promise.all([
+    runGit(topLevel, ['ls-files', '-v', '-z'], { readOnly: true }),
+    runGit(topLevel, ['ls-files', '--debug', '-z'], { readOnly: true }),
+    runGit(topLevel, ['config', '--type=bool', '--get', 'core.sparseCheckout'], { readOnly: true, allowFailure: true }),
+  ]);
+  const skipWorktree = [];
+  const assumeUnchanged = [];
+  for (const entry of listed.stdout.split('\0')) {
+    const tag = entry[0];
+    if (tag === 'S' || tag === 's') skipWorktree.push(entry.slice(2));
+    else if (tag && tag !== tag.toUpperCase()) assumeUnchanged.push(entry.slice(2));
+  }
+  // `--debug -z` prints "path NUL stat lines ending in `flags: <hex>` LF" per
+  // entry; the index's own intent-to-add flag holds whatever the working file
+  // does (a deleted one is ".D" in status, not ".A").
+  const intentToAdd = [];
+  const segments = debug.stdout.split('\0');
+  let path = segments[0];
+  for (let index = 1; index < segments.length; index++) {
+    const block = /^[\s\S]*?flags: ([0-9a-f]+)\n([\s\S]*)$/.exec(segments[index]);
+    if (!block) break;
+    if (parseInt(block[1], 16) & INTENT_TO_ADD_FLAG) intentToAdd.push(path);
+    path = block[2];
+  }
+  return { skipWorktree, assumeUnchanged, intentToAdd, sparse: sparse.stdout.trim() === 'true' };
+}
+
+/** assertCarryable's checks; resolves the status read they were made on. */
+async function checkCarryable(topLevel, projectSubdir) {
+  const [operation, hidden, checkout] = await Promise.all([
+    operationInProgress(gitStatusRunner, topLevel),
+    hiddenIndexEntries(topLevel),
+    inspectCheckout(topLevel, projectSubdir),
+  ]);
   if (operation) {
     throw carryRefusal(`A ${operation} is in progress in the project folder; finish or abort it first.`, {
       reason: 'operation-in-progress',
       operation,
     });
   }
-  const rows = await statusRows(topLevel, projectSubdir);
+  if (hidden.sparse) {
+    throw carryRefusal('The project folder uses a sparse checkout, which a carry cannot reproduce.', {
+      reason: 'sparse-checkout',
+    });
+  }
+  if (hidden.skipWorktree.length) {
+    throw carryRefusal('Files marked skip-worktree have changes git does not see, so they cannot be carried.', {
+      reason: 'skip-worktree',
+      paths: hidden.skipWorktree.slice(0, 50),
+    });
+  }
+  if (hidden.assumeUnchanged.length) {
+    throw carryRefusal('Files marked assume-unchanged have changes git does not see, so they cannot be carried.', {
+      reason: 'assume-unchanged',
+      paths: hidden.assumeUnchanged.slice(0, 50),
+    });
+  }
+  const { rows, untracked } = checkout;
   if (rows.some((row) => row.unmerged)) {
     throw carryRefusal('The project folder has unresolved merge conflicts; resolve them first.', {
       reason: 'unmerged-paths',
@@ -175,7 +244,16 @@ export async function assertCarryable(topLevel, projectSubdir = '') {
       paths: submodules.slice(0, 50),
     });
   }
-  const untracked = await untrackedFiles(topLevel, projectSubdir);
+  const { intentToAdd } = hidden;
+  if (intentToAdd.length) {
+    throw carryRefusal(
+      'Files added with "git add -N" (intent to add) cannot be carried; stage or unstage them first.',
+      {
+        reason: 'intent-to-add',
+        paths: intentToAdd.slice(0, 50),
+      }
+    );
+  }
   const nested = untracked.filter((path) => path.endsWith('/'));
   if (nested.length) {
     throw carryRefusal('The project folder has untracked nested repositories, which cannot be carried.', {
@@ -211,34 +289,49 @@ export async function assertCarryable(topLevel, projectSubdir = '') {
       paths: filtered.slice(0, 50),
     });
   }
+  return checkout;
 }
 
-/** { head, index, tree } of the checkout at `cwd`, read through a temporary index. */
-async function snapshot(cwd, projectSubdir) {
-  const head = firstLine((await runGit(cwd, ['rev-parse', '--verify', 'HEAD^{commit}'])).stdout);
-  const indexFile = firstLine(
-    (await runGit(cwd, ['rev-parse', '--path-format=absolute', '--git-path', 'index'])).stdout
-  );
+/**
+ * { head, index, tree } of the checkout at `cwd`, read through temporary
+ * copies of its index: the live index is copied once, and two duplicates of
+ * that capture (one stays as staged, one takes `add --all`) are what git
+ * works on side by side. `identity` (inspectCheckout's: only ever an
+ * untracked, not ignored path — naming an ignored one, even as an exclude,
+ * makes `add` refuse) is left out.
+ */
+async function snapshot(cwd, identity) {
+  const [head, indexFile] = (
+    await runGit(cwd, ['rev-parse', '--path-format=absolute', 'HEAD^{commit}', '--git-path', 'index'])
+  ).stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim());
   const temp = `${indexFile}.mixdog-carry-${randomUUID()}`;
-  const env = { GIT_INDEX_FILE: temp };
+  const capturedIndex = `${temp}-captured`;
+  const stagedIndex = `${temp}-staged`;
+  const treeIndex = `${temp}-tree`;
+  const writeTree = async (file) =>
+    firstLine((await runGit(cwd, ['write-tree'], { env: { GIT_INDEX_FILE: file } })).stdout);
+  const pathspec = identity ? ['--', '.', `:(exclude,literal)${identity}`] : ['--', '.'];
   try {
-    if (existsSync(indexFile)) await copyFile(indexFile, temp);
-    else await runGit(cwd, ['read-tree', head], { env });
-    const index = firstLine((await runGit(cwd, ['write-tree'], { env })).stdout);
-    // An untracked identity file is left out; when it is also ignored `add`
-    // skips it anyway, and naming an ignored path (even as an exclude) makes
-    // `add` refuse.
-    const identity = await untrackedIdentity(cwd, projectSubdir);
-    const ignored =
-      identity &&
-      (await runGit(cwd, ['check-ignore', '-q', '--', identity], { env, allowFailure: true })).code === 0;
-    const pathspec = identity && !ignored ? ['--', '.', `:(exclude,literal)${identity}`] : ['--', '.'];
-    await runGit(cwd, ['add', '--all', ...pathspec], { env });
-    const tree = firstLine((await runGit(cwd, ['write-tree'], { env })).stdout);
-    return { head, index, tree };
+    // The live index is read once; both working copies come from that capture.
+    if (existsSync(indexFile)) await copyFile(indexFile, capturedIndex);
+    else await runGit(cwd, ['read-tree', head], { env: { GIT_INDEX_FILE: capturedIndex } });
+    await Promise.all([copyFile(capturedIndex, stagedIndex), copyFile(capturedIndex, treeIndex)]);
+    const settled = await Promise.allSettled([
+      writeTree(stagedIndex),
+      runGit(cwd, ['add', '--all', ...pathspec], { env: { GIT_INDEX_FILE: treeIndex } }).then(() =>
+        writeTree(treeIndex)
+      ),
+    ]);
+    const failed = settled.find((result) => result.status === 'rejected');
+    if (failed) throw failed.reason;
+    return { head, index: settled[0].value, tree: settled[1].value };
   } finally {
-    await rm(temp, { force: true });
-    await rm(`${temp}.lock`, { force: true });
+    for (const file of [capturedIndex, stagedIndex, treeIndex]) {
+      await rm(file, { force: true });
+      await rm(`${file}.lock`, { force: true });
+    }
   }
 }
 
@@ -267,13 +360,20 @@ async function keepRecoveryRef(cwd, snap, label) {
 
 /** Make the checkout at `cwd` (index and files) exactly `snap`; HEAD stays. */
 async function writeSnapshot(cwd, snap, { reset = false } = {}) {
-  await runGit(cwd, reset ? ['read-tree', '--reset', '-u', snap.tree] : ['read-tree', '-u', '-m', snap.head, snap.tree]);
-  await runGit(cwd, ['read-tree', snap.index]);
-  await runGit(cwd, ['update-index', '-q', '--refresh'], { allowFailure: true });
+  await runGit(
+    cwd,
+    reset ? ['read-tree', '--reset', '-u', snap.tree] : ['read-tree', '-u', '-m', snap.head, snap.tree]
+  );
+  // The index now equals the working tree (`snap.tree`); moving it on to the
+  // staged state as a two-tree switch (-i: files are already as wanted) keeps
+  // the stat data of every entry that does not change. A plain
+  // `read-tree <index>` drops all of it, and the `update-index --refresh` it
+  // then needs re-reads every file of the checkout (seconds on a large one).
+  await runGit(cwd, ['read-tree', '-m', '-i', snap.tree, snap.index]);
 }
 
 /** Restore `snap` into the project checkout; true once it snapshots exactly as `snap`. */
-async function restoreSnapshot(topLevel, projectSubdir, snap) {
+async function restoreSnapshot(topLevel, identity, snap) {
   let failure = null;
   try {
     await writeSnapshot(topLevel, snap, { reset: true });
@@ -281,7 +381,7 @@ async function restoreSnapshot(topLevel, projectSubdir, snap) {
     failure = error;
   }
   // A clear that failed before changing anything needs no restore at all.
-  if (sameSnapshot(await snapshot(topLevel, projectSubdir).catch(() => null), snap)) return null;
+  if (sameSnapshot(await snapshot(topLevel, identity).catch(() => null), snap)) return null;
   return failure || new Error('the project folder does not match the snapshot after the restore');
 }
 
@@ -301,6 +401,14 @@ async function clearCheckout(topLevel, untracked) {
   }
 }
 
+/** Write `snap` into the fresh worktree and verify it snapshots identically. */
+async function applyToWorktree(worktreePath, identity, snap) {
+  await writeSnapshot(worktreePath, snap);
+  if (!sameSnapshot(await snapshot(worktreePath, identity), snap)) {
+    throw new Error('the worktree does not match the project folder after the changes were applied');
+  }
+}
+
 function recoveryHint(ref) {
   return `"git read-tree --reset -u ${ref}" then "git read-tree ${ref}^2" (the staged state)`;
 }
@@ -314,11 +422,12 @@ function recoveryHint(ref) {
  * @returns {Promise<{ count: number, recoveryRef: string|null }>}
  */
 export async function carryUncommittedChanges({ topLevel, projectSubdir = '', worktreePath, baseCommit, label }) {
-  const files = await uncommittedChanges(topLevel, projectSubdir);
+  // Checked again right before acting (the worktree took a while to create);
+  // the same status read serves the file list, the untracked files to clear
+  // and the identity file to leave out.
+  const { files, untracked, identity } = await checkCarryable(topLevel, projectSubdir);
   if (!files.length) return { count: 0, recoveryRef: null };
-  // Checked again right before acting.
-  await assertCarryable(topLevel, projectSubdir);
-  const snap = await snapshot(topLevel, projectSubdir);
+  const snap = await snapshot(topLevel, identity);
   if (snap.head !== baseCommit) {
     throw carryRefusal('The project folder moved to another commit while the worktree was created.', {
       reason: 'head-moved',
@@ -326,23 +435,33 @@ export async function carryUncommittedChanges({ topLevel, projectSubdir = '', wo
       baseCommit,
     });
   }
-  const recoveryRef = await keepRecoveryRef(topLevel, snap, label);
+  // The recovery ref is written while the worktree takes the snapshot; it is
+  // awaited before anything in the project folder is touched.
+  const keeping = keepRecoveryRef(topLevel, snap, label);
+  const applying = applyToWorktree(worktreePath, identity, snap).then(
+    () => null,
+    (error) => error
+  );
+  let recoveryRef;
+  try {
+    recoveryRef = await keeping;
+  } catch (error) {
+    await applying;
+    throw error;
+  }
   let touched = false;
   try {
-    await writeSnapshot(worktreePath, snap);
-    if (!sameSnapshot(await snapshot(worktreePath, projectSubdir), snap)) {
-      throw new Error('the worktree does not match the project folder after the changes were applied');
-    }
-    const untracked = await untrackedFiles(topLevel, projectSubdir);
-    if (!sameSnapshot(await snapshot(topLevel, projectSubdir), snap)) {
+    const applyError = await applying;
+    if (applyError) throw applyError;
+    if (!sameSnapshot(await snapshot(topLevel, identity), snap)) {
       throw new Error('the project folder changed while its changes were being moved');
     }
     touched = true;
     await clearCheckout(topLevel, untracked);
-    const left = await uncommittedChanges(topLevel, projectSubdir);
+    const left = (await inspectCheckout(topLevel, projectSubdir)).files;
     if (left.length) throw new Error(`${left.length} changed path(s) could not be cleared from the project folder`);
   } catch (cause) {
-    const restoreError = touched ? await restoreSnapshot(topLevel, projectSubdir, snap) : null;
+    const restoreError = touched ? await restoreSnapshot(topLevel, identity, snap) : null;
     const reason = String(cause?.message || cause);
     throw worktreeError(
       'WORKTREE_DIRTY',
@@ -386,7 +505,7 @@ export async function restoreFromRecoveryRef(topLevel, projectSubdir, recoveryRe
     tree: await rev(`${recoveryRef}^{tree}`),
   };
   const head = await rev('HEAD^{commit}');
-  const dirty = await uncommittedChanges(topLevel, projectSubdir);
+  const { files: dirty, identity } = await inspectCheckout(topLevel, projectSubdir);
   if (head !== snap.head || dirty.length) {
     throw worktreeError(
       'WORKTREE_DIRTY',
@@ -394,7 +513,7 @@ export async function restoreFromRecoveryRef(topLevel, projectSubdir, recoveryRe
       { reason: 'carry-restore-refused', recoveryRef, count: dirty.length }
     );
   }
-  const failure = await restoreSnapshot(topLevel, projectSubdir, snap);
+  const failure = await restoreSnapshot(topLevel, identity, snap);
   if (failure) {
     throw worktreeError(
       'WORKTREE_DIRTY',

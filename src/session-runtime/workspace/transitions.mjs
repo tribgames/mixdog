@@ -12,6 +12,7 @@
  * (runtime/shared/worktrees/manager.mjs), loaded on first use.
  */
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import {
   WORKTREE_CARRY_CHOICES,
   branchMenuEntries,
@@ -25,6 +26,7 @@ import { normalizeWorktreeSettings } from '../../runtime/shared/worktrees/settin
 import * as maintenance from '../../runtime/shared/worktrees/maintenance.mjs';
 import { inspectRepo, throwIfAborted } from '../../runtime/shared/worktrees/git.mjs';
 import { isWithin, samePath } from '../../runtime/shared/worktrees/paths.mjs';
+import { readGitHead } from '../../runtime/shared/worktrees/git-head.mjs';
 import { sessionHasConversationMessages } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { buildWorkspacePromptContext } from '../../runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs';
 import {
@@ -215,6 +217,37 @@ export function createWorkspaceTransitions({
     if (stored) return stored;
     const projectPath = projectPathOf(session);
     return normalizeSessionWorkspace({ projectPath, cwd: getCurrentCwd() || projectPath, revision: 0 });
+  }
+
+  let liveWorkspace = null;
+
+  /**
+   * The workspace the session publishes: a worktree-bound record as stored; a
+   * project-folder session (never moved, back from a worktree, or carrying a
+   * transition stub) with the folder's checked-out branch / detached commit and
+   * repoCommonDir read straight from HEAD — no git process. Null outside a git
+   * repository for a session without a record. Identity-stable while equal.
+   */
+  function getLiveWorkspace() {
+    const session = getSession();
+    const stored = readSessionWorkspace(session);
+    if (isWorktreeBound(stored)) return session.workspace;
+    let base;
+    try {
+      base = stored ?? currentWorkspace(session);
+    } catch {
+      return session?.workspace ?? null;
+    }
+    const head = readGitHead(base.cwd);
+    if (!head) return session?.workspace ?? null;
+    const next = {
+      ...base,
+      repoCommonDir: head.repoCommonDir,
+      branch: head.branch,
+      baseCommit: head.branch ? base.baseCommit : head.commit,
+    };
+    if (!liveWorkspace || !isDeepStrictEqual(liveWorkspace, next)) liveWorkspace = next;
+    return liveWorkspace;
   }
 
   function isSessionActive(session) {
@@ -770,6 +803,8 @@ export function createWorkspaceTransitions({
     admitTurnWorkspace,
     /** The durable workspace record of the hosted session (null: project folder, never moved). */
     getWorkspace: () => getSession()?.workspace ?? null,
+    /** What the session snapshot publishes (see getLiveWorkspace). */
+    getLiveWorkspace,
     getBranchMenu,
     getProjectBranchMenu: projectBranches.getProjectBranchMenu,
     selectBranch,

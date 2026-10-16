@@ -38,6 +38,7 @@ export function buildFacade(boot) {
       },
       applyWorkspaceTransition: boot.workspaceApi.applyWorkspaceTransition,
       getWorkspace: boot.workspaceApi.getWorkspace,
+      getLiveWorkspace: boot.workspaceApi.getLiveWorkspace,
       getBranchMenu: boot.workspaceApi.getBranchMenu,
       getProjectBranchMenu: boot.workspaceApi.getProjectBranchMenu,
       selectBranch: boot.workspaceApi.selectBranch,

@@ -17,6 +17,7 @@ import {
   git,
   makeRepo,
   prefixedBranches,
+  tempDir,
   useTempDataDir,
   writeFile,
 } from './test-support.mjs';
@@ -152,11 +153,14 @@ test('carry: a restore from the recovery ref never overwrites a project folder t
   const repo = dirtyRepo();
   const { entry } = await createTestWorktree(repo, { carryChanges: 'carry' });
   writeFile(repo, 'later.txt', 'new work\n');
-  await assert.rejects(restoreCarriedChanges({ projectPath: repo, recoveryRef: entry.changes.recoveryRef }), (error) => {
-    assert.equal(error.code, 'WORKTREE_DIRTY');
-    assert.equal(error.details.reason, 'carry-restore-refused');
-    return true;
-  });
+  await assert.rejects(
+    restoreCarriedChanges({ projectPath: repo, recoveryRef: entry.changes.recoveryRef }),
+    (error) => {
+      assert.equal(error.code, 'WORKTREE_DIRTY');
+      assert.equal(error.details.reason, 'carry-restore-refused');
+      return true;
+    }
+  );
   assert.deepEqual(status(repo), ['?? later.txt']);
   assert.ok(git(repo, 'rev-parse', '--verify', entry.changes.recoveryRef), 'the ref is kept');
 });
@@ -243,6 +247,134 @@ test('carry failure: the project folder is restored exactly, the worktree is rol
   assert.deepEqual(Object.keys((await readRegistry()).entries), []);
   assert.equal(git(repo, 'show', `${recoveryRef}:notes/todo.md`), 'todo', 'the recovery ref holds untracked files');
   assert.equal(git(repo, 'show', `${recoveryRef}^2:keep.txt`), 'staged', 'its second parent holds the index');
+});
+
+/** Top-level git processes started while `action` runs (git's own trace2 events; children excluded). */
+async function countGitProcesses(action) {
+  const traceFile = join(tempDir('mixdog-wt-trace-'), 'trace2.json');
+  process.env.GIT_TRACE2_EVENT = traceFile;
+  try {
+    await action();
+  } finally {
+    delete process.env.GIT_TRACE2_EVENT;
+  }
+  return readFileSync(traceFile, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
+    .filter((event) => event.event === 'version' && !String(event.sid).includes('/')).length;
+}
+
+// Every git spawn costs ~0.1 s on Windows, so a carry's wall time is its
+// spawn count: it used to read the status five times, list untracked files
+// three times and probe the identity file in every step (~65 spawns).
+const LEAVE_GIT_PROCESSES = 13;
+const CARRY_GIT_PROCESSES = 44;
+
+test('carry stays within a bounded number of git invocations, independent of the number of changed files', async () => {
+  const leaveRepo = dirtyRepo();
+  const leave = await countGitProcesses(() => createTestWorktree(leaveRepo, { carryChanges: 'leave' }));
+  assert.ok(leave <= LEAVE_GIT_PROCESSES, `leave started ${leave} git processes (limit ${LEAVE_GIT_PROCESSES})`);
+
+  const repo = dirtyRepo();
+  for (let i = 0; i < 25; i++) writeFile(repo, `bulk/file-${i}.txt`, `bulk ${i}\n`);
+  const before = status(repo);
+  let carried;
+  const carry = await countGitProcesses(async () => {
+    carried = await createTestWorktree(repo, { carryChanges: 'carry' });
+  });
+  assert.equal(carried.entry.changes.mode, 'carried');
+  assert.ok(carry <= CARRY_GIT_PROCESSES, `carry started ${carry} git processes (limit ${CARRY_GIT_PROCESSES})`);
+  assert.deepEqual(status(carried.entry.path), before, 'the worktree holds every carried change');
+  assert.deepEqual(status(repo), [], 'the project folder is cleared');
+  await dropCarryRecoveryRef({ projectPath: repo, recoveryRef: carried.entry.changes.recoveryRef });
+});
+
+/** `carry` is refused with `reason` (and `extra` details) before anything is created or touched. */
+async function assertCarryRefused(repo, reason, extra = {}) {
+  const before = status(repo);
+  const head = git(repo, 'rev-parse', 'HEAD');
+  await assert.rejects(createTestWorktree(repo, { carryChanges: 'carry' }), (error) => {
+    assert.equal(error.code, 'WORKTREE_DIRTY');
+    assert.equal(error.details.reason, reason);
+    for (const [key, value] of Object.entries(extra)) assert.deepEqual(error.details[key], value, key);
+    return true;
+  });
+  assert.deepEqual(prefixedBranches(repo), [], 'no worktree was created');
+  assert.deepEqual(Object.keys((await readRegistry()).entries), []);
+  assert.equal(git(repo, 'rev-parse', 'HEAD'), head);
+  assert.deepEqual(status(repo), before, 'the project folder is untouched');
+  assert.equal(git(repo, 'for-each-ref', 'refs/mixdog/carry/'), '', 'no recovery ref was written');
+}
+
+test('carry is refused for an assume-unchanged file with local edits (status cannot see them)', async () => {
+  const repo = makeRepo();
+  commitFile(repo, 'hidden.txt', 'one\n');
+  git(repo, 'update-index', '--assume-unchanged', 'hidden.txt');
+  writeFile(repo, 'hidden.txt', 'two\n');
+  assert.deepEqual(status(repo), [], 'git does not see the edit');
+  await assertCarryRefused(repo, 'assume-unchanged', { paths: ['hidden.txt'] });
+  assert.equal(readFileSync(join(repo, 'hidden.txt'), 'utf8'), 'two\n');
+});
+
+test('carry is refused for a skip-worktree file with local edits', async () => {
+  const repo = makeRepo();
+  commitFile(repo, 'hidden.txt', 'one\n');
+  git(repo, 'update-index', '--skip-worktree', 'hidden.txt');
+  writeFile(repo, 'hidden.txt', 'two\n');
+  writeFile(repo, 'notes.md', 'visible\n');
+  await assertCarryRefused(repo, 'skip-worktree', { paths: ['hidden.txt'] });
+  assert.equal(readFileSync(join(repo, 'hidden.txt'), 'utf8'), 'two\n');
+});
+
+test('carry is refused in a sparse checkout', async () => {
+  const repo = makeRepo();
+  commitFile(repo, 'src/a.txt', 'a\n');
+  git(repo, 'sparse-checkout', 'init', '--cone');
+  writeFile(repo, 'README.md', 'edited\n');
+  await assertCarryRefused(repo, 'sparse-checkout');
+});
+
+test('carry is refused for an intent-to-add entry (git add -N)', async () => {
+  const repo = makeRepo();
+  writeFile(repo, 'planned.txt', 'planned\n');
+  git(repo, 'add', '-N', 'planned.txt');
+  await assertCarryRefused(repo, 'intent-to-add', { paths: ['planned.txt'] });
+});
+
+test('carry is refused for an intent-to-add entry whose working file was deleted', async () => {
+  const repo = makeRepo();
+  writeFile(repo, 'intent.txt', 'planned\n');
+  git(repo, 'add', '-N', 'intent.txt');
+  rmSync(join(repo, 'intent.txt'));
+  await assertCarryRefused(repo, 'intent-to-add', { paths: ['intent.txt'] });
+});
+
+test('carry is refused for an intent-to-add entry whose working file was modified', async () => {
+  const repo = makeRepo();
+  writeFile(repo, 'intent.txt', 'planned\n');
+  git(repo, 'add', '-N', 'intent.txt');
+  writeFile(repo, 'intent.txt', 'planned and then some\n');
+  await assertCarryRefused(repo, 'intent-to-add', { paths: ['intent.txt'] });
+});
+
+test('carry is refused while a bisect is in progress', async () => {
+  const repo = makeRepo();
+  commitFile(repo, 'second.txt', 'second\n');
+  git(repo, 'bisect', 'start');
+  writeFile(repo, 'notes.md', 'untracked\n');
+  await assertCarryRefused(repo, 'operation-in-progress', { operation: 'bisect' });
+});
+
+test('carry is refused for a pending revert sequence without REVERT_HEAD', async () => {
+  const repo = makeRepo();
+  const target = commitFile(repo, 'second.txt', 'second\n');
+  // The state `git revert A B` leaves between two commits: only sequencer/.
+  writeFile(repo, '.git/sequencer/todo', `revert ${target} second\n`);
+  writeFile(repo, '.git/sequencer/head', `${target}\n`);
+  writeFile(repo, 'notes.md', 'untracked\n');
+  assert.equal(existsSync(join(repo, '.git', 'REVERT_HEAD')), false);
+  await assertCarryRefused(repo, 'operation-in-progress', { operation: 'revert' });
 });
 
 test('carry is refused while a merge is in progress; leave is still allowed', async () => {

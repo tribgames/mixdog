@@ -649,14 +649,16 @@ export async function createManagedWorktree({
     throwIfAborted(signal);
 
     const projectSubdir = projectSubdirOf(repo.topLevel, repo.projectPath);
-    const pendingChanges = carryChanges ? await uncommittedChanges(repo.topLevel, projectSubdir) : [];
+    // A carry is judged by the same status read that counts the changes.
+    let pendingChanges = [];
+    if (carryChanges === 'carry') pendingChanges = await assertCarryable(repo.topLevel, projectSubdir);
+    else if (carryChanges) pendingChanges = await uncommittedChanges(repo.topLevel, projectSubdir);
     if (pendingChanges.length && carryChanges === 'ask') {
       throw worktreeError('WORKTREE_DIRTY_CHOICE', undefined, {
         count: pendingChanges.length,
         paths: pendingChanges.slice(0, DIRTY_CHOICE_PREVIEW),
       });
     }
-    if (carryChanges === 'carry') await assertCarryable(repo.topLevel, projectSubdir);
 
     const settings = await currentWorktreeSettings();
     let baseCommit = repo.headCommit;

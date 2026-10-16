@@ -1670,3 +1670,53 @@ test('the transition gate refuses overlap per Lead only', () => {
   }
   beginWorkspaceTransition('lead-a', 'tx3')();
 });
+
+test('getLiveWorkspace: a project-folder session publishes HEAD facts, identity-stable; a worktree record stays as stored', (t) => {
+  const h = harness();
+  t.after(h.cleanup);
+  mkdirSync(join(h.project, '.git'), { recursive: true });
+  writeFileSync(join(h.project, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+  assert.equal(h.api.getWorkspace(), null, 'the durable record is untouched');
+  const first = h.api.getLiveWorkspace();
+  assert.equal(first.branch, 'main');
+  assert.equal(first.cwd, h.project);
+  assert.equal(first.worktreeId, null);
+  assert.ok(first.repoCommonDir);
+  assert.equal(h.api.getLiveWorkspace(), first, 'identity-stable while unchanged');
+  writeFileSync(join(h.project, '.git', 'HEAD'), 'ref: refs/heads/dev\n');
+  assert.equal(h.api.getLiveWorkspace().branch, 'dev');
+  writeFileSync(join(h.project, '.git', 'HEAD'), `${BASE}\n`);
+  const detached = h.api.getLiveWorkspace();
+  assert.deepEqual([detached.branch, detached.baseCommit], [null, BASE]);
+  // A transition stub (no branch) gains the folder's facts and keeps its marker.
+  h.session.workspace = {
+    projectPath: h.project,
+    repoCommonDir: null,
+    cwd: h.project,
+    worktreeId: null,
+    branch: null,
+    baseCommit: null,
+    mergeTarget: null,
+    revision: 3,
+    transition: { state: 'switching', txId: 'tx-9' },
+  };
+  writeFileSync(join(h.project, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+  const stub = h.api.getLiveWorkspace();
+  assert.deepEqual([stub.branch, stub.revision, stub.transition.state], ['main', 3, 'switching']);
+  assert.ok(stub.repoCommonDir);
+  const bound = {
+    ...stub,
+    worktreeId: 'fix',
+    branch: 'mixdog/fix',
+    cwd: h.worktree,
+    repoCommonDir: join(h.project, '.git'),
+  };
+  h.session.workspace = bound;
+  assert.equal(h.api.getLiveWorkspace(), bound);
+});
+
+test('getLiveWorkspace: outside a git repository a never-moved session publishes none', (t) => {
+  const h = harness();
+  t.after(h.cleanup);
+  assert.equal(h.api.getLiveWorkspace(), null);
+});

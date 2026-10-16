@@ -16,6 +16,7 @@
  * non-zero exit.
  */
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { worktreeError } from './contract.mjs';
 import { firstLine, parseStatusPaths } from './git.mjs';
@@ -27,32 +28,41 @@ function failure(args, result) {
   return error;
 }
 
-/** The sequencer operation in progress in `cwd`, or ''. */
+/**
+ * The operation in progress in `cwd` — 'merge', 'cherry-pick', 'revert',
+ * 'rebase' or 'bisect' — or ''. A `sequencer/` folder left without a
+ * CHERRY_PICK_HEAD/REVERT_HEAD (a multi-commit pick between two commits) is
+ * named after the first command of its todo list.
+ */
 export async function operationInProgress(git, cwd) {
-  for (const [ref, name] of [
-    ['MERGE_HEAD', 'merge'],
-    ['CHERRY_PICK_HEAD', 'cherry-pick'],
-    ['REVERT_HEAD', 'revert'],
-  ]) {
-    if ((await git(cwd, ['rev-parse', '--verify', '--quiet', ref])).code === 0) return name;
-  }
+  // One git call resolves every state marker's path; the markers are plain
+  // files/folders in the git dir (BISECT_START and sequencer/ are per worktree).
+  const operations = ['merge', 'cherry-pick', 'revert', 'rebase', 'rebase', 'bisect', 'sequencer'];
+  const markers = [
+    'MERGE_HEAD',
+    'CHERRY_PICK_HEAD',
+    'REVERT_HEAD',
+    'rebase-merge',
+    'rebase-apply',
+    'BISECT_START',
+    'sequencer',
+  ];
   const paths = await git(cwd, [
     'rev-parse',
     '--path-format=absolute',
-    '--git-path',
-    'rebase-merge',
-    '--git-path',
-    'rebase-apply',
+    ...markers.flatMap((marker) => ['--git-path', marker]),
   ]);
-  if (paths.code === 0) {
-    for (const path of String(paths.stdout)
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)) {
-      if (existsSync(resolve(cwd, path))) return 'rebase';
-    }
-  }
-  return '';
+  if (paths.code !== 0) return '';
+  const found = String(paths.stdout)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const index = found.findIndex((path) => existsSync(resolve(cwd, path)));
+  if (index < 0) return '';
+  if (operations[index] !== 'sequencer') return operations[index];
+  const todo = await readFile(resolve(cwd, found[index], 'todo'), 'utf8').catch(() => '');
+  const first = todo.split(/\r?\n/).find((line) => line.trim() && !line.trim().startsWith('#')) || '';
+  return /^\s*revert\s/.test(first) ? 'revert' : 'cherry-pick';
 }
 
 /** Changed and untracked paths in `cwd` (porcelain v1, -z). */

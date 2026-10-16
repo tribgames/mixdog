@@ -71,8 +71,10 @@ export function createContextState({
     // Lead workspace record (worktrees/contract.mjs SessionWorkspace): the
     // registered Project, the execution root, the worktree binding and its
     // revision. Null while the session has never left its project folder.
-    // Identity-stable until a transition commits.
-    workspace: runtime.getWorkspace?.() ?? null,
+    // Identity-stable until a transition commits. A project-folder session in a
+    // git repository publishes the folder's branch / detached commit too
+    // (getLiveWorkspace reads HEAD without spawning git).
+    workspace: runtime.getLiveWorkspace?.() ?? runtime.getWorkspace?.() ?? null,
     systemShell: runtime.systemShell || { source: 'auto', command: '', effective: '' },
     webSearchRoute: runtime.getWebSearchRoute?.() || runtime.webSearchRoute || null,
     autoClear: autoClearState(),
