@@ -5,6 +5,51 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Since launch, far more of you have been using Mixdog than we expected, and we are truly grateful. Some parts are still unstable, and we are fixing them as quickly as we can. Your issues and pull requests shaped much of this release. If something goes wrong, please let us know from **Settings → About → Feedback**.
+
+New to Auto reasoning? A small judge model on your PC picks how hard the model thinks for each message and step. Read how it works and how it did on Terminal-Bench 2.1 in [Auto reasoning effort](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).
+
+Added moving a chat into a worktree from the composer island, smoother streaming text, and a faster, more reliable background service.
+
+### New features
+
+- **Worktrees from the island** — Added a branch segment to the composer island that moves a chat into a worktree, carrying or leaving uncommitted changes.
+- **Question cards** — Added a card for questions an agent asks you, in the desktop app and the TUI.
+- **`/btw`** — Added `/btw` to ask a quick question without interrupting the current task.
+- **Session tool** — Added a tool that lets the agent rename, compact, fork, and move the current session (#14, thanks @hyeon1035298).
+- **Several PCs on Android** — Added switching between up to 16 saved PCs in the Android app (#83, thanks @yupguni).
+- **Recover interrupted edits** — Added a recovery panel that shows file edits interrupted by a crash and restores or discards them safely (#60, thanks @22nsuk).
+
+### Changes
+
+- Changed streaming replies to appear smoothly as they are written instead of in line-sized bursts.
+- Changed quitting, new chats, and the Changes panel to respond much faster.
+- Changed MCP tool schemas to be converted for each provider, so tools that work in other apps work in Mixdog; a broken tool is skipped with a notice.
+- Changed usage totals to stay hidden when a provider did not report usage for every call (#90, #91, thanks @22nsuk).
+- Changed moving changes into a worktree to refuse files Git hides from status, so no edit is lost.
+- Changed settings backups to stay with each profile, so one profile's settings are never overwritten by another's.
+- Changed the Visualize version strip to a Versions menu, and added tab renaming by double-click and slash command highlighting.
+- Changed provider icons to the official logos.
+- Changed Auto reasoning to also run on ChatGPT sign-in routes.
+
+### Bug fixes
+
+- Fixed Claude models on Antigravity failing with HTTP 400 because of tool schemas (#80, thanks @ProofPage).
+- Fixed the New branch button in chat doing nothing (#85, thanks @oh1701).
+- Fixed newly started agents not seeing MCP tools on their first turn (#88, thanks @oh1701).
+- Fixed the background service freezing when deleting sessions, and deleted sessions or their tabs coming back.
+- Fixed the database sometimes staying open after quitting the app.
+- Fixed the first message after switching a chat's model failing with "Session state changed unexpectedly".
+- Fixed the Android back button not closing the right side panel.
+- Fixed the island branch name appearing late and shifting the layout, and shell rows flickering as a command finished.
+- Fixed the side panel staying open after its last tab closed, and the Visualize panel staying collapsed when a visual opened.
+- Fixed developer provider switches showing off after turning them on, and custom provider errors showing internal messages.
+- Fixed the transcript jumping when the composer changed height.
+
+### Other
+
+- Fixed a desktop build error (#89, thanks @22nsuk).
+
 ## v1.2.2 - 2026-10-14
 
 Added explicit MCP OAuth sign-in, in-place model switching, and a one-line quota banner.

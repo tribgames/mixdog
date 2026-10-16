@@ -5,6 +5,51 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Desde el lanzamiento, muchas más personas de las esperadas han estado usando Mixdog, y les estamos verdaderamente agradecidos. Algunas partes aún son inestables y las estamos solucionando lo más rápido posible. Sus problemas y solicitudes de extracción dieron forma a gran parte de esta versión. Si algo sale mal, háganoslo saber en **Configuración → Acerca de → Comentarios**.
+
+¿Nuevo en el razonamiento automático? Un pequeño modelo de evaluación en su PC elige la intensidad con la que el modelo piensa para cada mensaje y paso. Descubra cómo funciona y su rendimiento en Terminal-Bench 2.1 en [Esfuerzo de razonamiento automático](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).
+
+Se agregó el traslado de un chat a un worktree desde la isla del compositor, texto en streaming más fluido y un servicio en segundo plano más rápido y confiable.
+
+### Nuevas funciones
+
+- **Worktrees desde la isla** — Se agregó un segmento de rama a la isla del compositor que traslada un chat a un worktree, llevando o dejando los cambios no confirmados.
+- **Tarjetas de preguntas** — Se agregó una tarjeta para las preguntas que un agente le hace, en la aplicación de escritorio y en la TUI.
+- **`/btw`** — Se agregó `/btw` para hacer una pregunta rápida sin interrumpir la tarea actual.
+- **Herramienta de sesión** — Se agregó una herramienta que permite al agente renombrar, compactar, bifurcar y mover la sesión actual (#14, thanks @hyeon1035298).
+- **Varias PC en Android** — Se agregó el cambio entre hasta 16 PC guardadas en la aplicación de Android (#83, thanks @yupguni).
+- **Recuperar ediciones interrumpidas** — Se agregó un panel de recuperación que muestra las ediciones de archivos interrumpidas por una caída y las restaura o descarta de forma segura (#60, thanks @22nsuk).
+
+### Cambios
+
+- Se cambiaron las respuestas en streaming para que aparezcan de forma fluida a medida que se escriben en lugar de ráfagas línea por línea.
+- Se cambiaron la acción de salir, los chats nuevos y el panel de Cambios para que respondan mucho más rápido.
+- Se cambiaron los esquemas de herramientas MCP para que se conviertan según cada proveedor, de modo que las herramientas que funcionan en otras aplicaciones funcionen en Mixdog; una herramienta rota se omite con un aviso.
+- Se cambiaron los totales de uso para que permanezcan ocultos cuando un proveedor no informó el uso de cada llamada (#90, #91, thanks @22nsuk).
+- Se cambió el traslado de cambios a un worktree para rechazar archivos que Git oculta de status, evitando perder ediciones.
+- Se cambiaron las copias de seguridad de la configuración para que permanezcan en cada perfil, de modo que la configuración de un perfil nunca sea sobrescrita por otro.
+- Se cambió la franja de versiones de Visualize a un menú de Versiones, y se agregaron el renombramiento de pestañas mediante doble clic y el resaltado de comandos con barra.
+- Se cambiaron los iconos de los proveedores por los logotipos oficiales.
+- Se cambió el razonamiento automático para que también se ejecute en las rutas de inicio de sesión de ChatGPT.
+
+### Correcciones de errores
+
+- Se corrigió que los modelos de Claude en Antigravity fallaran con HTTP 400 debido a los esquemas de herramientas (#80, thanks @ProofPage).
+- Se corrigió que el botón de Nueva rama en el chat no hiciera nada (#85, thanks @oh1701).
+- Se corrigió que los agentes recién iniciados no vieran las herramientas MCP en su primer turno (#88, thanks @oh1701).
+- Se corrigió que el servicio en segundo plano se congelara al eliminar sesiones y que las sesiones eliminadas o sus pestañas volvieran a aparecer.
+- Se corrigió que la base de datos a veces permaneciera abierta tras salir de la aplicación.
+- Se corrigió que el primer mensaje tras cambiar el modelo de un chat fallara con "Session state changed unexpectedly".
+- Se corrigió que el botón Atrás de Android no cerrara el panel lateral derecho.
+- Se corrigió que el nombre de rama de la isla apareciera tarde y desplazara el diseño, y que las filas de shell parpadearan al finalizar un comando.
+- Se corrigió que el panel lateral permaneciera abierto tras cerrar su última pestaña y que el panel de Visualize permaneciera contraído al abrirse un elemento visual.
+- Se corrigió que los interruptores de proveedores para desarrolladores aparecieran desactivados tras activarlos y que los errores de proveedores personalizados mostraran mensajes internos.
+- Se corrigió que la transcripción saltara cuando el compositor cambiaba de altura.
+
+### Otros
+
+- Se corrigió un error de compilación de escritorio (#89, thanks @22nsuk).
+
 ## v1.2.2 - 2026-10-14
 
 Se agregaron inicio de sesión explícito mediante OAuth para MCP, cambio de modelo en el lugar y un banner de cuota de una sola línea.

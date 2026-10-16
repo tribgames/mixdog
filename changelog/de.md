@@ -4,6 +4,51 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Seit der Veröffentlichung nutzen weit mehr von Ihnen Mixdog als erwartet, und wir sind Ihnen aufrichtig dankbar. Einige Teile sind noch instabil, und wir beheben diese so schnell wie möglich. Ihre Issues und Pull Requests haben einen Großteil dieses Releases geprägt. Wenn etwas nicht funktioniert, teilen Sie uns dies bitte über **Einstellungen → Über → Feedback** mit.
+
+Neu beim automatischen Denken? Ein kleines Bewertungsmodell auf Ihrem PC entscheidet für jede Nachricht und jeden Schritt, wie intensiv das Modell nachdenkt. Wie es funktioniert und wie es bei Terminal-Bench 2.1 abgeschnitten hat, lesen Sie unter [Aufwand für automatisches Denken](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).
+
+Verschieben eines Chats von der Composer-Insel in einen Worktree, flüssigeres Text-Streaming und ein schnellerer, zuverlässigerer Hintergrunddienst hinzugefügt.
+
+### Neue Funktionen
+
+- **Worktrees von der Insel** — Verzweigungsabschnitt auf der Composer-Insel hinzugefügt, der einen Chat in einen Worktree verschiebt und nicht committete Änderungen mitnimmt oder zurücklässt.
+- **Fragekarten** — Karte für Fragen, die ein Agent an Sie richtet, in der Desktop-App und im TUI hinzugefügt.
+- **`/btw`** — `/btw` hinzugefügt, um eine kurze Frage zu stellen, ohne die laufende Aufgabe zu unterbrechen.
+- **Sitzungswerkzeug** — Werkzeug hinzugefügt, mit dem der Agent die aktuelle Sitzung umbenennen, zusammenfassen, forken und verschieben kann (#14, thanks @hyeon1035298).
+- **Mehrere PCs auf Android** — Wechseln zwischen bis zu 16 gespeicherten PCs in der Android-App hinzugefügt (#83, thanks @yupguni).
+- **Unterbrochene Bearbeitungen wiederherstellen** — Wiederherstellungsleiste hinzugefügt, die durch Abstürze unterbrochene Dateibearbeitungen anzeigt und diese sicher wiederherstellt oder verwirft (#60, thanks @22nsuk).
+
+### Änderungen
+
+- Streaming-Antworten so geändert, dass sie flüssig bei der Entstehung angezeigt werden, anstatt in zeilenweisen Schüben.
+- Beenden, neue Chats und den Änderungen-Bereich so geändert, dass sie deutlich schneller reagieren.
+- MCP-Werkzeugschemata so geändert, dass sie für jeden Anbieter konvertiert werden, sodass Werkzeuge, die in anderen Apps funktionieren, auch in Mixdog funktionieren; ein defektes Werkzeug wird mit einem Hinweis übersprungen.
+- Gesamtnutzung so geändert, dass sie ausgeblendet bleibt, wenn ein Anbieter die Nutzung nicht für jeden Aufruf gemeldet hat (#90, #91, thanks @22nsuk).
+- Verschieben von Änderungen in einen Worktree so geändert, dass Dateien abgelehnt werden, die Git im Status verbirgt, damit keine Bearbeitung verloren geht.
+- Einstellungssicherungen so geändert, dass sie bei jedem Profil verbleiben, sodass die Einstellungen eines Profils niemals von einem anderen überschrieben werden.
+- Visualize-Versionsleiste in ein Versionsmenü geändert sowie Umbenennen von Tabs durch Doppelklick und Hervorhebung von Slash-Befehlen hinzugefügt.
+- Anbieter-Icons auf die offiziellen Logos umgestellt.
+- Automatisches Denken so geändert, dass es auch bei ChatGPT-Anmelderouten ausgeführt wird.
+
+### Fehlerbehebungen
+
+- Behoben: Claude-Modelle auf Antigravity schlugen aufgrund von Werkzeugschemata mit HTTP 400 fehl (#80, thanks @ProofPage).
+- Behoben: Die Schaltfläche „Neuer Branch“ im Chat führte keine Aktion aus (#85, thanks @oh1701).
+- Behoben: Neu gestartete Agents sahen MCP-Werkzeuge in ihrem ersten Durchlauf nicht (#88, thanks @oh1701).
+- Behoben: Der Hintergrunddienst fror beim Löschen von Sitzungen ein und gelöschte Sitzungen oder deren Tabs kehrten zurück.
+- Behoben: Die Datenbank blieb nach dem Beenden der App manchmal geöffnet.
+- Behoben: Die erste Nachricht nach dem Wechseln des Modells eines Chats schlug mit „Session state changed unexpectedly“ fehl.
+- Behoben: Die Android-Zurück-Taste schloss die rechte Seitenleiste nicht.
+- Behoben: Der Insel-Branch-Name erschien verzögert und verschob das Layout, und Shell-Zeilen flackerten bei Befehlsabschluss.
+- Behoben: Die Seitenleiste blieb geöffnet, nachdem ihr letzter Tab geschlossen wurde, und das Visualize-Panel blieb eingeklappt, wenn sich eine Visualisierung öffnete.
+- Behoben: Entwickler-Anbieter-Schalter wurden nach dem Einschalten als deaktiviert angezeigt und benutzerdefinierte Anbieterfehler zeigten interne Meldungen.
+- Behoben: Das Protokoll sprang, wenn der Composer seine Höhe änderte.
+
+### Sonstiges
+
+- Desktop-Build-Fehler behoben (#89, thanks @22nsuk).
+
 ## v1.2.2 - 2026-10-14
 
 Explizite MCP-OAuth-Anmeldung, Modellwechsel an Ort und Stelle und einzeiliges Kontingent-Banner hinzugefügt.

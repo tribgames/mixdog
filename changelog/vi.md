@@ -4,6 +4,51 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Kể từ khi ra mắt, số lượng người dùng Mixdog đã vượt xa dự kiến của chúng tôi và chúng tôi vô cùng biết ơn vì điều đó. Một số phần vẫn chưa thực sự ổn định và chúng tôi đang khắc phục chúng nhanh nhất có thể. Các issue và pull request của các bạn đã góp phần định hình phần lớn bản phát hành này. Nếu gặp sự cố, vui lòng cho chúng tôi biết tại **Cài đặt → Giới thiệu → Phản hồi**.
+
+Bạn mới sử dụng tính năng suy luận tự động? Một mô hình đánh giá nhỏ trên PC sẽ chọn mức độ suy nghĩ của mô hình cho từng tin nhắn và bước thực hiện. Hãy tìm hiểu cách thức hoạt động và kết quả trên Terminal-Bench 2.1 trong [Mức độ suy luận tự động](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).
+
+Đã thêm tính năng chuyển đoạn chat sang worktree từ đảo trình soạn thảo, truyền văn bản phát trực tuyến mượt mà hơn và dịch vụ nền nhanh hơn, đáng tin cậy hơn.
+
+### Tính năng mới
+
+- **Worktree từ đảo** — Đã thêm phân đoạn nhánh vào đảo trình soạn thảo để chuyển đoạn chat sang worktree, đồng thời mang theo hoặc để lại các thay đổi chưa cam kết.
+- **Thẻ câu hỏi** — Đã thêm thẻ cho các câu hỏi mà agent hỏi bạn trong ứng dụng máy tính để bàn và TUI.
+- **`/btw`** — Đã thêm `/btw` để đặt câu hỏi nhanh mà không làm gián đoạn tác vụ hiện tại.
+- **Công cụ phiên** — Đã thêm công cụ cho phép agent đổi tên, thu gọn, rẽ nhánh và di chuyển phiên hiện tại (#14, thanks @hyeon1035298).
+- **Nhiều PC trên Android** — Đã thêm tính năng chuyển đổi giữa tối đa 16 PC đã lưu trong ứng dụng Android (#83, thanks @yupguni).
+- **Khôi phục chỉnh sửa bị gián đoạn** — Đã thêm bảng điều khiển khôi phục hiển thị các chỉnh sửa tệp bị gián đoạn do sự cố và khôi phục hoặc hủy bỏ chúng một cách an toàn (#60, thanks @22nsuk).
+
+### Thay đổi
+
+- Đã thay đổi phản hồi phát trực tuyến để hiển thị mượt mà khi được viết thay vì bùng nổ theo từng dòng.
+- Đã thay đổi thao tác thoát, tạo đoạn chat mới và bảng Thay đổi để phản hồi nhanh hơn nhiều.
+- Đã thay đổi lược đồ công cụ MCP để được chuyển đổi cho từng nhà cung cấp, giúp các công cụ hoạt động trong các ứng dụng khác cũng hoạt động trong Mixdog; công cụ bị lỗi sẽ được bỏ qua kèm theo thông báo.
+- Đã thay đổi tổng mức sử dụng để luôn ẩn khi nhà cung cấp không báo cáo mức sử dụng cho mỗi lệnh gọi (#90, #91, thanks @22nsuk).
+- Đã thay đổi thao tác chuyển các thay đổi sang worktree để từ chối các tệp bị Git ẩn khỏi status, giúp không làm mất bất kỳ chỉnh sửa nào.
+- Đã thay đổi bản sao lưu cài đặt để duy trì theo từng hồ sơ, giúp cài đặt của một hồ sơ không bao giờ bị hồ sơ khác ghi đè.
+- Đã thay đổi dải phiên bản Visualize thành menu Phiên bản, đồng thời thêm tính năng đổi tên tab bằng cách nhấp đúp và làm nổi bật lệnh gạch chéo.
+- Đã thay đổi biểu tượng nhà cung cấp thành logo chính thức.
+- Đã thay đổi suy luận tự động để chạy trên cả các lộ trình đăng nhập ChatGPT.
+
+### Sửa lỗi
+
+- Đã sửa lỗi các mô hình Claude trên Antigravity gặp sự cố với HTTP 400 do lược đồ công cụ (#80, thanks @ProofPage).
+- Đã sửa lỗi nút Nhánh mới trong đoạn chat không hoạt động (#85, thanks @oh1701).
+- Đã sửa lỗi các agent mới khởi động không thấy các công cụ MCP ở lượt đầu tiên (#88, thanks @oh1701).
+- Đã sửa lỗi dịch vụ nền bị đơ khi xóa các phiên, và các phiên đã xóa hoặc tab của chúng xuất hiện trở lại.
+- Đã sửa lỗi cơ sở dữ liệu đôi khi vẫn mở sau khi thoát ứng dụng.
+- Đã sửa lỗi tin nhắn đầu tiên sau khi chuyển mô hình của đoạn chat bị lỗi với "Session state changed unexpectedly".
+- Đã sửa lỗi nút quay lại trên Android không đóng bảng điều khiển bên phải.
+- Đã sửa lỗi tên nhánh trên đảo xuất hiện chậm làm lệch bố cục và các dòng shell nhấp nháy khi lệnh kết thúc.
+- Đã sửa lỗi bảng điều khiển bên vẫn mở sau khi tab cuối cùng bị đóng, và bảng điều khiển Visualize vẫn thu gọn khi một nội dung trực quan mở ra.
+- Đã sửa lỗi công tắc nhà cung cấp của nhà phát triển hiển thị tắt sau khi bật và lỗi nhà cung cấp tùy chỉnh hiển thị thông báo nội bộ.
+- Đã sửa lỗi bản ghi bị nhảy khi trình soạn thảo thay đổi chiều cao.
+
+### Khác
+
+- Đã sửa lỗi bản dựng máy tính để bàn (#89, thanks @22nsuk).
+
 ## v1.2.2 - 2026-10-14
 
 Đã thêm đăng nhập OAuth MCP rõ ràng, chuyển đổi mô hình tại chỗ và biểu ngữ giới hạn một dòng.

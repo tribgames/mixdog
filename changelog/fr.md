@@ -5,6 +5,51 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Depuis le lancement, vous êtes bien plus nombreux que prévu à utiliser Mixdog, et nous vous en sommes sincèrement reconnaissants. Certaines parties sont encore instables et nous les corrigeons aussi vite que possible. Vos signalements et pull requests ont façonné une grande partie de cette version. En cas de problème, faites-le-nous savoir depuis **Réglages → À propos → Commentaires**.
+
+Nouveau dans le raisonnement automatique ? Un petit modèle d'évaluation sur votre PC choisit l'intensité de réflexion du modèle pour chaque message et étape. Découvrez son fonctionnement et ses performances sur Terminal-Bench 2.1 dans [Effort de raisonnement automatique](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).
+
+Ajout du déplacement d'un chat vers un worktree depuis l'îlot du compositeur, d'un streaming de texte plus fluide et d'un service en arrière-plan plus rapide et plus fiable.
+
+### Nouvelles fonctionnalités
+
+- **Worktrees depuis l'îlot** — Ajout d'un segment de branche à l'îlot du compositeur qui déplace un chat vers un worktree, en emportant ou en laissant les modifications non validées.
+- **Cartes de questions** — Ajout d'une carte pour les questions qu'un agent vous pose, dans l'application de bureau et le TUI.
+- **`/btw`** — Ajout de `/btw` pour poser une question rapide sans interrompre la tâche en cours.
+- **Outil de session** — Ajout d'un outil permettant à l'agent de renommer, compacter, dupliquer et déplacer la session en cours (#14, thanks @hyeon1035298).
+- **Plusieurs PC sur Android** — Ajout du basculement entre un maximum de 16 PC enregistrés dans l'application Android (#83, thanks @yupguni).
+- **Récupérer les modifications interrompues** — Ajout d'un panneau de récupération qui affiche les modifications de fichiers interrompues par un plantage et les restaure ou les ignore en toute sécurité (#60, thanks @22nsuk).
+
+### Modifications
+
+- Modification des réponses en streaming pour qu'elles s'affichent de façon fluide au fil de la saisie plutôt que par vagues d'une ligne.
+- Modification de la fermeture, des nouveaux chats et du volet Modifications pour qu'ils répondent beaucoup plus rapidement.
+- Modification des schémas d'outils MCP pour les convertir selon chaque fournisseur, afin que les outils fonctionnant dans d'autres applications fonctionnent dans Mixdog ; un outil défaillant est ignoré avec un avertissement.
+- Modification des totaux d'utilisation pour qu'ils restent masqués lorsqu'un fournisseur ne signale pas l'utilisation de chaque appel (#90, #91, thanks @22nsuk).
+- Modification du déplacement des modifications vers un worktree pour refuser les fichiers ignorés par Git dans status, afin de ne perdre aucune modification.
+- Modification des sauvegardes des réglages pour qu'elles restent associées à chaque profil, afin que les réglages d'un profil ne soient jamais écrasés par un autre.
+- Remplacement du bandeau de versions de Visualize par un menu Versions, et ajout du renommage des onglets par double-clic ainsi que de la coloration des commandes barre oblique.
+- Remplacement des icônes de fournisseurs par les logos officiels.
+- Modification du raisonnement automatique pour s'exécuter également sur les routes de connexion ChatGPT.
+
+### Corrections de bugs
+
+- Correction de l'échec HTTP 400 des modèles Claude sur Antigravity en raison des schémas d'outils (#80, thanks @ProofPage).
+- Correction du bouton Nouvelle branche dans le chat qui ne faisait rien (#85, thanks @oh1701).
+- Correction des agents nouvellement démarrés qui ne voyaient pas les outils MCP lors de leur premier tour (#88, thanks @oh1701).
+- Correction du blocage du service en arrière-plan lors de la suppression de sessions, et du retour des sessions supprimées ou de leurs onglets.
+- Correction de la base de données restant parfois ouverte après avoir quitté l'application.
+- Correction du premier message après avoir changé le modèle d'un chat qui échouait avec « Session state changed unexpectedly ».
+- Correction du bouton retour d'Android qui ne fermait pas le panneau latéral droit.
+- Correction du nom de branche de l'îlot apparaissant en retard et décalant la mise en page, et du scintillement des lignes shell à la fin d'une commande.
+- Correction du panneau latéral restant ouvert après la fermeture de son dernier onglet, et du panneau Visualize restant réduit lorsqu'un visuel s'ouvrait.
+- Correction des commutateurs de fournisseurs développeurs apparaissant désactivés après activation, et des erreurs de fournisseurs personnalisés affichant des messages internes.
+- Correction des sauts de transcription lors de la modification de la hauteur du compositeur.
+
+### Divers
+
+- Correction d'une erreur de compilation du bureau (#89, thanks @22nsuk).
+
 ## v1.2.2 - 2026-10-14
 
 Ajout de la connexion OAuth MCP explicite, du changement de modèle sur place et d'une bannière de quota sur une seule ligne.

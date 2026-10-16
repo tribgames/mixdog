@@ -4,6 +4,51 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Desde o lançamento, muito mais pessoas do que esperávamos estão usando o Mixdog, e somos imensamente gratos. Algumas partes ainda estão instáveis, e estamos corrigindo-as o mais rápido possível. Seus problemas relatados e pull requests moldaram grande parte desta versão. Se algo der errado, avise-nos em **Configurações → Sobre → Feedback**.
+
+Novo no raciocínio automático? Um pequeno modelo avaliador no seu PC escolhe o quanto o modelo deve pensar para cada mensagem e etapa. Veja como funciona e o desempenho no Terminal-Bench 2.1 em [Esforço de raciocínio automático](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).
+
+Adicionada a movimentação de um chat para um worktree a partir da ilha do compositor, streaming de texto mais suave e um serviço em segundo plano mais rápido e confiável.
+
+### Novos recursos
+
+- **Worktrees a partir da ilha** — Adicionado um segmento de ramificação à ilha do compositor que move um chat para um worktree, mantendo ou deixando alterações não confirmadas.
+- **Cartões de perguntas** — Adicionado um cartão para perguntas que um agente faz a você, no aplicativo desktop e na TUI.
+- **`/btw`** — Adicionado `/btw` para fazer uma pergunta rápida sem interromper a tarefa atual.
+- **Ferramenta de sessão** — Adicionada uma ferramenta que permite ao agente renomear, compactar, bifurcar e mover a sessão atual (#14, thanks @hyeon1035298).
+- **Vários PCs no Android** — Adicionada a alternância entre até 16 PCs salvos no aplicativo Android (#83, thanks @yupguni).
+- **Recuperar edições interrompidas** — Adicionado um painel de recuperação que mostra edições de arquivo interrompidas por falhas e as restaura ou descarta com segurança (#60, thanks @22nsuk).
+
+### Alterações
+
+- Alteradas as respostas em streaming para aparecerem suavemente à medida que são escritas, em vez de rajadas linha por linha.
+- Alteradas a saída, novos chats e o painel Alterações para responderem muito mais rápido.
+- Alterados os esquemas de ferramentas MCP para serem convertidos para cada provedor, para que ferramentas que funcionam em outros aplicativos funcionem no Mixdog; uma ferramenta com falha é ignorada com um aviso.
+- Alterados os totais de uso para permanecerem ocultos quando um provedor não relatar o uso de cada chamada (#90, #91, thanks @22nsuk).
+- Alterada a migração de alterações para um worktree para recusar arquivos ocultados pelo Git no status, evitando perda de edições.
+- Alterados os backups de configurações para permanecerem em cada perfil, de forma que as configurações de um perfil nunca sejam sobrescritas por outro.
+- Alterada a faixa de versões do Visualize para um menu Versões, adicionando renomeação de abas com clique duplo e destaque de comandos com barra.
+- Alterados os ícones de provedores para os logotipos oficiais.
+- Alterado o raciocínio automático para também funcionar nas rotas de login do ChatGPT.
+
+### Correções de bugs
+
+- Corrigida a falha com HTTP 400 em modelos Claude no Antigravity devido a esquemas de ferramentas (#80, thanks @ProofPage).
+- Corrigido o botão Nova ramificação no chat que não fazia nada (#85, thanks @oh1701).
+- Corrigidos agentes recém-iniciados que não viam as ferramentas MCP em seu primeiro turno (#88, thanks @oh1701).
+- Corrigido o congelamento do serviço em segundo plano ao excluir sessões e o retorno de sessões excluídas ou de suas abas.
+- Corrigido o banco de dados que às vezes permanecia aberto após sair do aplicativo.
+- Corrigida a primeira mensagem após trocar o modelo de um chat que falhava com "Session state changed unexpectedly".
+- Corrigido o botão Voltar do Android que não fechava o painel lateral direito.
+- Corrigido o nome da ramificação na ilha que aparecia com atraso e deslocava o layout, e linhas de shell que piscavam ao concluir um comando.
+- Corrigido o painel lateral que permanecia aberto após fechar sua última aba e o painel Visualize que permanecia recolhido ao abrir um elemento visual.
+- Corrigidos os seletores de provedores de desenvolvedor que apareciam desativados após ativá-los e erros de provedores personalizados que mostravam mensagens internas.
+- Corrigido o salto da transcrição quando o compositor alterava sua altura.
+
+### Outros
+
+- Corrigido um erro de compilação do desktop (#89, thanks @22nsuk).
+
 ## v1.2.2 - 2026-10-14
 
 Adicionados login OAuth explícito para MCP, troca de modelo no local e um banner de cota de linha única.
