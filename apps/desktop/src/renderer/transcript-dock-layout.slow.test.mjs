@@ -107,7 +107,7 @@ const HARNESS = `
         </div>
         <button className="jump-to-latest">Latest</button>
       </div>
-      <ComposerDock sessionId="" goalSubmissionId="" showProjectSelector={false}
+      <ComposerDock sessionId={session} goalSubmissionId="" showProjectSelector={false}
         goalIsland={state.goal ? <SessionGoalIsland snapshot={{
           sessionId: session, goal: {
             id: 'goal', title: 'Keep the reading position', objective: 'Stable layout', status: 'paused',
