@@ -5,6 +5,10 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+### Bug fixes
+
+- Fixed custom OpenAI-compatible gateways losing the reasoning effort levels they declare, and the effort and context rows disappearing when the model menu is reopened (#94, thanks @sukjong2002).
+
 ## v1.2.3 - 2026-10-16
 
 Since launch, far more of you have been using Mixdog than we expected, and we are truly grateful. Some parts are still unstable, and we are fixing them as quickly as we can. Your issues and pull requests shaped much of this release. If something goes wrong, please let us know from **Settings → About → Feedback**.

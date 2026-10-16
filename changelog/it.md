@@ -4,6 +4,10 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+### Correzioni di bug
+
+- Corretto il problema per cui i gateway personalizzati compatibili con OpenAI perdevano i livelli di sforzo di ragionamento da essi dichiarati e le righe di sforzo e contesto scomparivano alla riapertura del menu dei modelli (#94, thanks @sukjong2002).
+
 ## v1.2.3 - 2026-10-16
 
 Dal lancio, Mixdog è stato utilizzato da molti più utenti di quanto ci aspettassimo, e ve ne siamo davvero grati. Alcune parti sono ancora instabili e le stiamo correggendo il più rapidamente possibile. Le vostre segnalazioni e pull request hanno plasmato gran parte di questo rilascio. In caso di problemi, fatecelo sapere da **Impostazioni → Informazioni → Feedback**.

@@ -262,7 +262,7 @@ export async function printHtmlPdf(
   await rm(output, { force: true });
   let browser;
   try {
-    browser = await launchHtmlBrowser('pdf-html-browser');
+    browser = await launchHtmlBrowser('pdf-html-browser', { signal });
   } catch (error) {
     return htmlFailure(error, startedAt);
   }

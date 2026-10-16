@@ -66,7 +66,7 @@ export async function runXlsxHtmlAuthoring(html, output, { target, signal = null
   const scratch = await mkdtemp(join(tmpdir(), 'mixdog-xlsx-captures-'));
   let browser;
   try {
-    browser = await launchHtmlBrowser('xlsx-html-browser');
+    browser = await launchHtmlBrowser('xlsx-html-browser', { signal });
   } catch (error) {
     await rm(scratch, { recursive: true, force: true }).catch(() => {});
     return htmlFailure(error, startedAt);

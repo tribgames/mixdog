@@ -559,7 +559,7 @@ export async function measureHtmlDeck(
   { sourcePath, shotPath, timeoutMs = 90_000, signal = null, prepare = null }
 ) {
   await writeFile(sourcePath, html, 'utf8');
-  const browser = await launchHtmlBrowser('pptx-html-browser');
+  const browser = await launchHtmlBrowser('pptx-html-browser', { signal });
   const work = async () => {
     const page = await browser.newPage();
     await page.setViewport(viewport(HTML_CANVAS, 1));

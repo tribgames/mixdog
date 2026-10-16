@@ -4,6 +4,10 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+### Sửa lỗi
+
+- Đã sửa lỗi các gateway tùy chỉnh tương thích OpenAI làm mất các mức suy luận mà chúng khai báo, và các hàng mức suy luận cùng ngữ cảnh biến mất khi mở lại menu mô hình (#94, thanks @sukjong2002).
+
 ## v1.2.3 - 2026-10-16
 
 Kể từ khi ra mắt, số lượng người dùng Mixdog đã vượt xa dự kiến của chúng tôi và chúng tôi vô cùng biết ơn vì điều đó. Một số phần vẫn chưa thực sự ổn định và chúng tôi đang khắc phục chúng nhanh nhất có thể. Các issue và pull request của các bạn đã góp phần định hình phần lớn bản phát hành này. Nếu gặp sự cố, vui lòng cho chúng tôi biết tại **Cài đặt → Giới thiệu → Phản hồi**.

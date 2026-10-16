@@ -2,17 +2,25 @@
 // deadline and abort wiring around the layout work, the failure result, and the photographs of captured elements.
 import { join } from 'node:path';
 
-import { buildPuppeteerLaunchArgs, resolveBrowserLaunchOptions } from '../../shared/browser-launch.mjs';
+import {
+  buildPuppeteerLaunchArgs,
+  launchPuppeteerBrowser,
+  resolveBrowserLaunchOptions,
+} from '../../shared/browser-launch.mjs';
 import { startChildGuardian } from '../../shared/child-guardian.mjs';
 
 /** Launches the local browser the HTML is laid out in, under a guardian that reaps it with this process. */
-export async function launchHtmlBrowser(label) {
+export async function launchHtmlBrowser(label, { signal = null } = {}) {
   const puppeteer = (await import('puppeteer-core')).default;
-  const browser = await puppeteer.launch({
-    headless: true,
-    ...resolveBrowserLaunchOptions(),
-    args: buildPuppeteerLaunchArgs(['--font-render-hinting=none']),
-  });
+  const browser = await launchPuppeteerBrowser(
+    puppeteer,
+    {
+      headless: true,
+      ...resolveBrowserLaunchOptions(),
+      args: buildPuppeteerLaunchArgs(['--font-render-hinting=none']),
+    },
+    { signal }
+  );
   try {
     startChildGuardian({ childPid: browser.process?.()?.pid, label });
   } catch {}
@@ -22,7 +30,9 @@ export async function launchHtmlBrowser(label) {
 /** Runs `work` against the browser under a deadline and an abort signal, and closes the browser afterwards. */
 export async function runInBrowser(browser, { signal, timeoutMs }, work) {
   const abort = () => browser.close().catch(() => {});
-  signal?.addEventListener('abort', abort, { once: true });
+  // A cancel that landed while the browser was launching closes it at once.
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
   let timer = null;
   const running = work();
   const timeout = new Promise((_, reject) => {

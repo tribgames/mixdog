@@ -68,7 +68,9 @@ test('(2) WS stream/handshake backoff follows the stream schedule, advice only f
   });
   assert.ok(within(midstreamBackoffFor(9), 3200), 'clamped to the last step');
   const advised = applyErrorContract(new Error('x'), { status: 503, headers: { 'retry-after': '12' } });
-  assert.equal(midstreamBackoffFor(1, advised), 12_000);
+  // Advice is the remaining time to the captured deadline (a few ms may have elapsed).
+  const advisedDelay = midstreamBackoffFor(1, advised);
+  assert.ok(advisedDelay > 11_900 && advisedDelay <= 12_000, `advice replaces the schedule step (${advisedDelay})`);
   const quota = applyErrorContract(new Error('x'), {
     status: 429,
     headers: { 'retry-after': '12' },

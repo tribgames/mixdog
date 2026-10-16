@@ -88,3 +88,18 @@ export function buildPuppeteerLaunchArgs(extra = []) {
   if (puppeteerNoSandboxEnabled()) args.push('--no-sandbox');
   return args;
 }
+
+// A healthy headless launch answers in a few seconds; the observed CI failures
+// are launches that never print the DevTools endpoint and hit puppeteer's 30 s
+// TimeoutError (Windows runner, Linux runner). Puppeteer closes that child
+// itself, so one fresh attempt is the remedy; a longer wait would only delay
+// the same hang. Any other launch error (missing executable, bad args), or a
+// timeout after `signal` aborted, is not retried.
+export async function launchPuppeteerBrowser(puppeteer, options, { signal = null } = {}) {
+  try {
+    return await puppeteer.launch(options);
+  } catch (error) {
+    if (error?.name !== 'TimeoutError' || signal?.aborted) throw error;
+    return puppeteer.launch(options);
+  }
+}

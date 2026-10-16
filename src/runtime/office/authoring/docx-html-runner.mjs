@@ -39,7 +39,7 @@ export async function runDocxHtmlAuthoring(html, output, { target, signal = null
   const scratch = await mkdtemp(join(tmpdir(), 'mixdog-docx-captures-'));
   let browser;
   try {
-    browser = await launchHtmlBrowser('docx-html-browser');
+    browser = await launchHtmlBrowser('docx-html-browser', { signal });
   } catch (error) {
     await rm(scratch, { recursive: true, force: true }).catch(() => {});
     return htmlFailure(error, startedAt);

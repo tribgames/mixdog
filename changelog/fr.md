@@ -5,6 +5,10 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+### Corrections de bugs
+
+- Correction des passerelles personnalisées compatibles OpenAI qui perdaient les niveaux d'effort de raisonnement qu'elles déclarent, et des lignes d'effort et de contexte qui disparaissaient à la réouverture du menu des modèles (#94, thanks @sukjong2002).
+
 ## v1.2.3 - 2026-10-16
 
 Depuis le lancement, vous êtes bien plus nombreux que prévu à utiliser Mixdog, et nous vous en sommes sincèrement reconnaissants. Certaines parties sont encore instables et nous les corrigeons aussi vite que possible. Vos signalements et pull requests ont façonné une grande partie de cette version. En cas de problème, faites-le-nous savoir depuis **Réglages → À propos → Commentaires**.

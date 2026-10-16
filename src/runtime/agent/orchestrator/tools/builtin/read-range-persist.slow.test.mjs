@@ -110,8 +110,13 @@ test('schedules during an in-flight write coalesce into one follow-up with the l
 
 test('unchanged serialized content is not rewritten', async () => {
   const file = await fixture('unchanged.txt');
+  const base = stats.writes;
   await publish(file, 5);
-  await until(() => readAnchorLines(file));
+  // stats.writes ticks only after the atomic write (rename + lock release)
+  // returns, so the cache file can be visible a few turns before the counter
+  // moves. Wait on the counter itself, not on the file appearing.
+  await until(() => stats.writes === base + 1);
+  assert.ok((await readAnchorLines(file))?.includes(5));
   const before = stats.writes;
   await publish(file, 5);
   await sleep(1200);

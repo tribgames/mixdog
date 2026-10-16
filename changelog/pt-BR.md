@@ -4,6 +4,10 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+### Correções de bugs
+
+- Corrigidos os gateways personalizados compatíveis com OpenAI que perdiam os níveis de esforço de raciocínio que declaram, e as linhas de esforço e contexto que desapareciam ao reabrir o menu de modelos (#94, thanks @sukjong2002).
+
 ## v1.2.3 - 2026-10-16
 
 Desde o lançamento, muito mais pessoas do que esperávamos estão usando o Mixdog, e somos imensamente gratos. Algumas partes ainda estão instáveis, e estamos corrigindo-as o mais rápido possível. Seus problemas relatados e pull requests moldaram grande parte desta versão. Se algo der errado, avise-nos em **Configurações → Sobre → Feedback**.

@@ -3,6 +3,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
+import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
 
 test('compact chrome preserves input growth, readable rows and accessible actions', async (t) => {
   const styles = await build({
@@ -17,7 +18,7 @@ test('compact chrome preserves input growth, readable rows and accessible action
     write: false,
     loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
   });
-  const browser = await puppeteer.launch({
+  const browser = await launchPuppeteerBrowser(puppeteer, {
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
     headless: true,
   });

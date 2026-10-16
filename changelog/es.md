@@ -5,6 +5,10 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+### Correcciones de errores
+
+- Se corrigió que los gateways personalizados compatibles con OpenAI perdieran los niveles de esfuerzo de razonamiento que declaran, y que las filas de esfuerzo y contexto desaparecieran al volver a abrir el menú de modelos (#94, thanks @sukjong2002).
+
 ## v1.2.3 - 2026-10-16
 
 Desde el lanzamiento, muchas más personas de las esperadas han estado usando Mixdog, y les estamos verdaderamente agradecidos. Algunas partes aún son inestables y las estamos solucionando lo más rápido posible. Sus problemas y solicitudes de extracción dieron forma a gran parte de esta versión. Si algo sale mal, háganoslo saber en **Configuración → Acerca de → Comentarios**.

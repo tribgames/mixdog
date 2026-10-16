@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import * as realChildProcess from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import * as realFsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { mock } from 'node:test';
@@ -45,6 +46,24 @@ mock.module('node:child_process', {
   },
 });
 
+// Hold the temp-root scan the same way, so the cleanup phase itself is shown
+// not to block the loop (not only the process list before it).
+let holdTempScan = false;
+let tempScanHeld = null;
+const { default: realFsPromisesDefault, ...realFsPromisesNamed } = realFsPromises;
+mock.module('node:fs/promises', {
+  defaultExport: realFsPromisesDefault,
+  namedExports: {
+    ...realFsPromisesNamed,
+    readdir: (path, ...rest) => {
+      if (!holdTempScan || path !== tempRoot) return realFsPromises.readdir(path, ...rest);
+      return new Promise((resolve, reject) => {
+        tempScanHeld = () => realFsPromises.readdir(path, ...rest).then(resolve, reject);
+      });
+    },
+  },
+});
+
 const { sweepOrphanTempPostmasters } = await import('./process.mjs');
 
 const OLD_PID = 910001;
@@ -67,6 +86,11 @@ function makeRoot(name, ageSec) {
 test.after(() => rmSync(tempRoot, { recursive: true, force: true }));
 
 test('sweep runs the process list and temp cleanup asynchronously with identical rules', async (t) => {
+  // A failed assertion must not leave the hold engaged for the next test.
+  t.after(() => {
+    holdExec = false;
+    holdTempScan = false;
+  });
   const kills = [];
   t.mock.method(process, 'kill', (pid, signal) => {
     if (signal === 0) return true;
@@ -94,22 +118,36 @@ test('sweep runs the process list and temp cleanup asynchronously with identical
 
   let settled = false;
   holdExec = true;
-  const pending = sweepOrphanTempPostmasters({ tempRoot }).then((value) => {
+  const pending = sweepOrphanTempPostmasters({ tempRoot }).finally(() => {
     settled = true;
-    return value;
   });
-  // The event loop keeps turning (timers included) while the process list is
-  // outstanding: a blocking list would have finished the sweep by now.
-  let ticks = 0;
+  // The process list is held open, so the sweep cannot finish until the test
+  // releases it. Each awaited timer below can only resolve if the event loop
+  // turns while the list is outstanding (a blocking list would have finished
+  // the sweep, or thrown from the spawnSync mock, by now). This asserts the
+  // ordering, not how many timers fit in a wall-clock window: timer counts
+  // depend on timer resolution and scheduler load, not on the sweep.
   for (let turn = 0; turn < 3; turn += 1) {
     await new Promise((resolve) => setTimeout(resolve, 1));
-    ticks += 1;
   }
   assert.equal(execCalls.length, 1, 'the process list was requested');
   assert.equal(settled, false, 'sweep is still waiting on the async process list');
-  assert.ok(ticks >= 2, `event loop kept running during the sweep (ticks=${ticks})`);
+
+  // Release the list and hold the temp-root scan that starts the cleanup: the
+  // same ordering check then covers the cleanup phase.
+  holdTempScan = true;
   holdExec = false;
   execHeld();
+  for (let turn = 0; turn < 200 && !tempScanHeld; turn += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(tempScanHeld, 'the temp-root scan was requested');
+  for (let turn = 0; turn < 3; turn += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  assert.equal(settled, false, 'sweep is still waiting on the async temp-root scan');
+  holdTempScan = false;
+  tempScanHeld();
   const reaped = await pending;
 
   assert.equal(execCalls.length, 1);

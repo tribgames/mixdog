@@ -4,6 +4,10 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+### Fehlerbehebungen
+
+- Behoben: Benutzerdefinierte OpenAI-kompatible Gateways verloren die von ihnen deklarierten Stufen für den Reasoning-Aufwand, und die Zeilen für Aufwand und Kontext verschwanden beim erneuten Öffnen des Modellmenüs (#94, thanks @sukjong2002).
+
 ## v1.2.3 - 2026-10-16
 
 Seit der Veröffentlichung nutzen weit mehr von Ihnen Mixdog als erwartet, und wir sind Ihnen aufrichtig dankbar. Einige Teile sind noch instabil, und wir beheben diese so schnell wie möglich. Ihre Issues und Pull Requests haben einen Großteil dieses Releases geprägt. Wenn etwas nicht funktioniert, teilen Sie uns dies bitte über **Einstellungen → Über → Feedback** mit.
