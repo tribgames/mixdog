@@ -46,7 +46,5 @@ export function linuxComputerPreflight(options?: Record<string, unknown>): Promi
 export function resetLinuxComputerPreflightCache(): void;
 export const GNOME_EXTENSION_UUID: 'mixdog-windows@mixdog.io';
 export function gnomeExtensionDirs(env?: Record<string, string | undefined>): string[];
-export const FIX_MESSAGES: Readonly<Record<'allow_input' | 'relogin' | 'enable_window_helper' | 'install_package', string>>;
-export const REFUSAL_MESSAGE: string;
 export const CAPTURE_FALLBACK_NOTE: string;
 export function linuxCaptureFallback(options?: Record<string, unknown>): Promise<{ command: Record<string, unknown>; note: string } | null>;
