@@ -209,19 +209,31 @@ export function createMcpConnect({
         budgetMs = Math.min(budgetMs, requestedMaxWaitMs);
       }
     }
-    // Swallow the in-flight rejection: failures are already captured in
-    // state.mcpFailures, and this gate must never reject the turn.
-    const settled = Promise.resolve(inFlight).catch(() => {});
     // Budget disabled (0/off) = no per-server startup timeout, so the connect
     // promise may never settle; never gate the turn on it — fall back to the
     // legacy fire-and-forget behavior (late servers use the deferred path).
     if (!(budgetMs > 0)) return;
     let timer = null;
+    let expired = false;
     const budget = new Promise((resolveBudget) => {
-      timer = setTimeout(resolveBudget, budgetMs);
+      timer = setTimeout(() => {
+        expired = true;
+        resolveBudget();
+      }, budgetMs);
     });
     try {
-      await Promise.race([settled, budget]);
+      // Follow replacement connects (a reconnect queued behind the captured
+      // run installs a new in-flight promise) inside ONE fixed deadline.
+      // Failures are already captured in state.mcpFailures, so rejections are
+      // swallowed: this gate must never reject the turn.
+      let current = inFlight;
+      while (current && !expired) {
+        await Promise.race([Promise.resolve(current).catch(() => {}), budget]);
+        if (expired) break;
+        // Let a queued reconnect install its promise before re-checking.
+        await Promise.race([new Promise((resolveTick) => setImmediate(resolveTick)), budget]);
+        current = state.mcpConnectInFlight;
+      }
     } finally {
       if (timer) clearTimeout(timer);
     }

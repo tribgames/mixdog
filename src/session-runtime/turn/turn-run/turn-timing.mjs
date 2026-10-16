@@ -38,11 +38,12 @@ export function createTurnTimingFactory({ getSession, awaitInitialMcpConnect, mc
         /* timing telemetry must never affect a turn */
       }
     };
-    // Give an in-flight MCP connect only a short TTFT grace.
-    timing.awaitMcpGrace = async () => {
+    // Give an in-flight MCP connect only a short TTFT grace. untilConnected
+    // waits for the initial connect bounded only by the server startup budget.
+    timing.awaitMcpGrace = async ({ untilConnected = false } = {}) => {
       const graceStartedAt = performance.now();
       try {
-        await awaitInitialMcpConnect?.(mcpTurnGraceMs);
+        await awaitInitialMcpConnect?.(untilConnected ? undefined : mcpTurnGraceMs);
       } finally {
         timing.mcpWaitMs += performance.now() - graceStartedAt;
       }
