@@ -640,7 +640,18 @@ function summarizeAgentResult({ text, trimmed, translate }) {
 
 const summarizeGeneric = ({ text, translate }) => summarizeGenericResult(text, translate);
 
-const summarizeAskUserResult = ({ text }) => {
+const summarizeAskUserResult = ({ text, translate }) => {
+  // A composer message answered: `User replied in chat: "<json>". ` then the
+  // picks sentence or only the closing one. Summarized as the reply itself.
+  const replied = /^User replied in chat: ("(?:[^"\\]|\\.)*")\. /s.exec(String(text ?? '').trim());
+  if (replied) {
+    let reply = '';
+    try {
+      reply = String(JSON.parse(replied[1]));
+    } catch {}
+    const label = translate('Answered in chat', 'Answered in chat', {});
+    return truncateSingleLine(reply ? `${label}: ${reply}` : label, AGENT_SURFACE_BRIEF_MAX);
+  }
   const answers =
     /^User has answered your questions:\s*(.*?)(?:\s*You can now continue with these answers in mind\.)?$/s.exec(
       String(text ?? '').trim()

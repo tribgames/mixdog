@@ -284,7 +284,7 @@ const MODEL_SELECTION_KEYS = new Set([
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh', 'unlockKeychain', 'recheckKeychain']);
 const SKILLS_STATUS_OPTION_KEYS = new Set(['projectPath']);
-const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason', 'answers']);
+const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason', 'answers', 'reply']);
 const TOGGLEABLE_BUILTIN_TOOLS = new Set(['git', 'office', 'localProvider', 'tidy', 'autoEffort', 'visualize']);
 const INSTALLABLE_BUILTIN_FEATURES = new Set(['git', 'memory', 'office', 'localProvider', 'tidy', 'autoEffort']);
 
@@ -1352,6 +1352,12 @@ export function requiredToolApprovalDecision(value: unknown): ToolApprovalDecisi
   }
   const result: ToolApprovalDecision = { approved: decision.approved, reason: decision.reason };
   if (decision.answers !== undefined) result.answers = requiredQuestionAnswers(decision.answers);
+  if (decision.reply !== undefined) {
+    if (typeof decision.reply !== 'string' || decision.reply.trim().length > 4_000) {
+      throw new TypeError('decision.reply is invalid.');
+    }
+    result.reply = decision.reply.trim();
+  }
   return result;
 }
 

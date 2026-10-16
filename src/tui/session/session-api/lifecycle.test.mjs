@@ -280,10 +280,10 @@ test('resolveToolApproval maps boolean and object decisions onto finishToolAppro
   h.api.resolveToolApproval('t3', {});
   h.api.resolveToolApproval('t4');
   assert.deepEqual(h.calls, [
-    ['finishToolApproval', 't1', true, 'approved by user', '', undefined],
-    ['finishToolApproval', 't2', false, 'nope', '', undefined],
-    ['finishToolApproval', 't3', false, 'denied by user', '', undefined],
-    ['finishToolApproval', 't4', false, 'denied by user', '', undefined],
+    ['finishToolApproval', 't1', true, 'approved by user', '', undefined, undefined],
+    ['finishToolApproval', 't2', false, 'nope', '', undefined, undefined],
+    ['finishToolApproval', 't3', false, 'denied by user', '', undefined, undefined],
+    ['finishToolApproval', 't4', false, 'denied by user', '', undefined, undefined],
   ]);
 });
 
@@ -334,9 +334,13 @@ test('resolveToolApproval forwards the answering device', (t) => {
   h.api.resolveToolApproval('t5', { approved: true, device: 'Pixel' });
   const answers = [{ selected: ['A'] }];
   h.api.resolveToolApproval('t6', { approved: true, device: 'Pixel', answers });
+  h.api.resolveToolApproval('t7', { approved: true, reply: 'use sqlite' });
+  h.api.resolveToolApproval('t8', { approved: true, reply: 42 });
   assert.deepEqual(h.calls, [
-    ['finishToolApproval', 't5', true, 'approved by user', 'Pixel', undefined],
-    ['finishToolApproval', 't6', true, 'approved by user', 'Pixel', answers],
+    ['finishToolApproval', 't5', true, 'approved by user', 'Pixel', undefined, undefined],
+    ['finishToolApproval', 't6', true, 'approved by user', 'Pixel', answers, undefined],
+    ['finishToolApproval', 't7', true, 'approved by user', '', undefined, 'use sqlite'],
+    ['finishToolApproval', 't8', true, 'approved by user', '', undefined, undefined],
   ]);
 });
 

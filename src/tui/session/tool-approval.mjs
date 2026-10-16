@@ -12,8 +12,14 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
 
   function normalizeToolApprovalRequest(input = {}, id = nextId()) {
     const now = Date.now();
+    // An explicit `timeoutMs: null` means no wait limit (no timer, no expiry);
+    // any other missing/invalid value falls back to the session default.
     const requestTimeoutMs =
-      Number.isFinite(Number(input?.timeoutMs)) && Number(input.timeoutMs) > 0 ? Number(input.timeoutMs) : timeoutMs;
+      input?.timeoutMs === null
+        ? null
+        : Number.isFinite(Number(input?.timeoutMs)) && Number(input.timeoutMs) > 0
+          ? Number(input.timeoutMs)
+          : timeoutMs;
     return {
       id,
       name: String(input?.name || input?.tool_name || 'tool'),
@@ -25,14 +31,14 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       reason: String(input?.reason || input?.message || 'approval requested by hook').trim(),
       requestedAt: now,
       timeoutMs: requestTimeoutMs,
-      expiresAt: now + requestTimeoutMs,
+      expiresAt: requestTimeoutMs === null ? null : now + requestTimeoutMs,
     };
   }
   // Every request expires from ITS OWN requestedAt, queued or active. Arming
   // the timer only on presentation let a queued request sit past expiresAt
   // (retaining its promise and surfacing an obsolete approval later).
   function armToolApprovalTimeout(entry) {
-    if (!entry || entry.timer) return;
+    if (!entry || entry.timer || entry.request?.expiresAt === null) return;
     const remainingMs = Math.max(0, Number(entry.request?.expiresAt || 0) - Date.now());
     entry.timer = setTimeout(() => {
       finishToolApproval(entry.id, false, 'approval timed out');
@@ -42,10 +48,13 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
   // Settle one entry: drop its timeout, then hand the waiter its answer. The
   // resolve stays guarded — a waiter whose caller already went away must never
   // take the rest of the queue down with it.
-  function settleToolApproval(entry, approved, reason, answers) {
+  function settleToolApproval(entry, approved, reason, answers, reply) {
     if (entry?.timer) clearTimeout(entry.timer);
+    const result = { approved, reason };
+    if (answers !== undefined) result.answers = answers;
+    if (reply !== undefined) result.reply = reply;
     try {
-      entry.resolve(answers === undefined ? { approved, reason } : { approved, reason, answers });
+      entry.resolve(result);
     } catch {}
   }
   function presentNextToolApproval() {
@@ -59,7 +68,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     armToolApprovalTimeout(entry);
     set({ toolApproval: entry.request });
   }
-  function finishToolApproval(id, approved, reason = '', device = '', answers = undefined) {
+  function finishToolApproval(id, approved, reason = '', device = '', answers = undefined, reply = undefined) {
     const targetId = String(id || '');
     if (activeToolApproval && activeToolApproval.id === targetId) {
       const entry = activeToolApproval;
@@ -70,14 +79,14 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
         ? { id: targetId, approved: approved === true, device: String(device), at: Date.now() }
         : null;
       set({ toolApproval: null, toolApprovalResult });
-      settleToolApproval(entry, approved === true, String(reason || ''), answers);
+      settleToolApproval(entry, approved === true, String(reason || ''), answers, reply);
       presentNextToolApproval();
       return true;
     }
     const index = toolApprovalQueue.findIndex((entry) => entry.id === targetId);
     if (index >= 0) {
       const [entry] = toolApprovalQueue.splice(index, 1);
-      settleToolApproval(entry, approved === true, String(reason || ''), answers);
+      settleToolApproval(entry, approved === true, String(reason || ''), answers, reply);
       return true;
     }
     return false;

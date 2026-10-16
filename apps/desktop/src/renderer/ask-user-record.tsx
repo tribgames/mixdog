@@ -2,7 +2,7 @@ import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { asRecord } from './text-format';
 import { desktopToolDisplayIdentity } from './transcript-tool-core';
-import { askUserAnswers, toolActivityResultValue } from './transcript-tool-result';
+import { askUserAnswers, askUserChatReply, toolActivityResultValue } from './transcript-tool-result';
 
 /** The ask_user arguments of a call, direct or through the call_tool bridge; null for any other call. */
 function askUserArgs(item: TranscriptItem): Record<string, unknown> | null {
@@ -79,7 +79,8 @@ function pickedLabels(value: string, labels: string[]): string[] {
 }
 
 function closedNote(result: string): string {
-  if (result.startsWith('User has answered your questions: ')) return '';
+  if (result.startsWith('User has answered your questions: ') || askUserChatReply(result).reply) return '';
+  // Questions no longer expire, but transcripts from before still carry it.
   if (result.startsWith('User did not answer in time.')) return t('Question timed out · the agent decided');
   if (result.startsWith('No user is available')) return t('No one to answer · the agent decided');
   return t('Question closed · the agent decided');
@@ -92,36 +93,63 @@ export function AskUserRecord({ item }: { item: TranscriptItem }) {
   const questions = (Array.isArray(args?.questions) ? (args.questions as unknown[]) : [])
     .map((entry) => asRecord(entry))
     .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+  const { reply } = askUserChatReply(result);
   const note = closedNote(result);
   const parsed = askUserAnswers(result);
+  const rows = questions.map((question) => {
+    const text = String(question.question ?? '');
+    const labels = (Array.isArray(question.options) ? question.options : [])
+      .map((option) => String(asRecord(option)?.label ?? ''))
+      .filter(Boolean);
+    const answer = parsed.get(text);
+    const answers = answer ? [...pickedLabels(answer.picked, labels), ...(answer.typed ? [answer.typed] : [])] : [];
+    return { text, answers };
+  });
+  const single = rows.length === 1;
+  const title = single
+    ? rows[0].text
+    : note
+      ? t('Agent question')
+      : t('{{count}} questions answered', { count: rows.length });
+  // A chat reply stands for the unpicked questions: only picks are listed.
+  const shown = reply ? rows.filter((row) => row.answers.length > 0) : rows;
   return (
     <section className="ask-user-record" aria-label={t('Agent question')}>
-      {questions.map((question, index) => {
-        const text = String(question.question ?? '');
-        const labels = (Array.isArray(question.options) ? question.options : [])
-          .map((option) => String(asRecord(option)?.label ?? ''))
-          .filter(Boolean);
-        const answer = parsed.get(text);
-        const answers = answer ? [...pickedLabels(answer.picked, labels), ...(answer.typed ? [answer.typed] : [])] : [];
-        return (
-          // biome-ignore lint/suspicious/noArrayIndexKey: questions are positional and never reorder
-          <div className="ask-user-record-question" key={index}>
-            <div className="ask-user-record-title">{text}</div>
-            <div className="ask-user-record-answers">
-              {answers.length ? (
-                answers.map((answer, at) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: a typed answer may repeat a label
-                  <span className="ask-user-record-chip" key={at}>
-                    {answer}
-                  </span>
-                ))
-              ) : (
-                <span className="ask-user-record-none">{t('No answer')}</span>
-              )}
-            </div>
-          </div>
-        );
-      })}
+      <div className="composer-island-phead ask-user-record-head">
+        <span className="composer-island-tab ask-user-record-chip-title">
+          <span className="ask-user-record-mark" aria-hidden="true">
+            {note ? '?' : '✓'}
+          </span>
+          <span className="ask-user-record-title">{title}</span>
+        </span>
+      </div>
+      {shown.map((row, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: questions are positional and never reorder
+        <div className="ask-user-record-question" key={index}>
+          {!single && <span className="ask-user-record-q">{row.text}</span>}
+          <span className="ask-user-record-answers">
+            {row.answers.length ? (
+              row.answers.map((answer, at) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: a typed answer may repeat a label
+                <span className="ask-user-record-chip" key={at}>
+                  {answer}
+                </span>
+              ))
+            ) : (
+              <span className="ask-user-record-none">{t('No answer')}</span>
+            )}
+          </span>
+        </div>
+      ))}
+      {reply && (
+        <div className="ask-user-record-question" data-reply>
+          <span className="ask-user-record-q">{t('Sent message')}</span>
+          <span className="ask-user-record-answers">
+            <span className="ask-user-record-typed">{reply}</span>
+            <small className="ask-user-record-via">{t('Answered in chat')}</small>
+          </span>
+        </div>
+      )}
       {note && <div className="ask-user-record-note">{note}</div>}
     </section>
   );

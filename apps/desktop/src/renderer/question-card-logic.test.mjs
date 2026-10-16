@@ -7,6 +7,7 @@ import {
   initQuestionState,
   pickOption,
   primaryAction,
+  questionAwareSubmit,
   questionReducer,
   typeText,
 } from './question-card-logic.ts';
@@ -15,6 +16,49 @@ const questions = [
   { question: 'a?', header: 'A', options: [{ label: 'x' }, { label: 'y' }] },
   { question: 'b?', header: 'B', options: [{ label: 'p' }, { label: 'q' }], multi_select: true },
 ];
+
+test('a plain composer message answers the question and is not sent again', async () => {
+  const calls = [];
+  const submit = async (content, options) => (calls.push(['submit', content, options]), 'sent');
+  const answer = async (reply) => (calls.push(['answer', reply]), true);
+  const dismiss = async () => (calls.push(['dismiss']), true);
+  const wrapped = questionAwareSubmit(submit, answer, dismiss);
+  assert.equal(await wrapped('  hello  ', { id: 'x' }), true);
+  assert.deepEqual(calls, [['answer', 'hello']]);
+  // A refused answer (another device answered first) is not accepted.
+  const refused = questionAwareSubmit(submit, async () => false, dismiss);
+  assert.equal(await refused('hi'), false);
+});
+
+test('a reply over the 4000-character cap goes out whole as a message instead of being cut', async () => {
+  const calls = [];
+  const wrapped = questionAwareSubmit(
+    async (content) => (calls.push(['submit', content.length]), 'sent'),
+    async (reply) => (calls.push(['answer', reply.length]), true),
+    async () => (calls.push(['dismiss']), true)
+  );
+  assert.equal(await wrapped('x'.repeat(4000)), true);
+  assert.equal(await wrapped('y'.repeat(4001)), 'sent');
+  assert.deepEqual(calls, [['answer', 4000], ['dismiss'], ['submit', 4001]]);
+});
+
+test('attachments and slash commands dismiss the question, then submit', async () => {
+  for (const [content, options] of [
+    ['look', { pastedImages: { 1: { id: 1 } } }],
+    ['see [Pasted text #1]', { pastedTexts: { 1: { id: 1 } } }],
+    ['/model', undefined],
+    [[{ type: 'text', text: 'parts' }], undefined],
+  ]) {
+    const calls = [];
+    const wrapped = questionAwareSubmit(
+      async (c, o) => (calls.push(['submit', c, o]), 'sent'),
+      async () => (calls.push(['answer']), true),
+      async () => (calls.push(['dismiss']), true)
+    );
+    assert.equal(await wrapped(content, options), 'sent');
+    assert.deepEqual(calls, [['dismiss'], ['submit', content, options]]);
+  }
+});
 
 test('adaptive primary button', () => {
   let drafts = questions.map(emptyDraft);

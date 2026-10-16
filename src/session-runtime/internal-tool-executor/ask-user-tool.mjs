@@ -5,15 +5,12 @@ import {
   ASK_USER_MAX_TEXT,
 } from '../../runtime/agent/orchestrator/runtime-core/ask-user-tool-defs.mjs';
 import { createCallerContextResolvers } from './caller-context.mjs';
-
-export const ASK_USER_TIMEOUT_MS = 30 * 60 * 1000;
-export const APPROVAL_TIMED_OUT_REASON = 'approval timed out';
+import { runAbortable } from '../../runtime/shared/abort-race.mjs';
 
 const NO_USER =
   'No user is available to answer in this session. Proceed with your best judgment and state the choices you made.';
 const DISMISSED =
   'User closed the questions without answering. Proceed with your best judgment; ask again only if something new depends on it.';
-const TIMED_OUT = `User did not answer in time. ${DISMISSED}`;
 
 /** Wire answers -> array aligned with questions; invalid entries become null. */
 export function normalizeAskUserAnswers(answers, questions) {
@@ -46,25 +43,49 @@ export function formatAskUserAnswers(questions, answers) {
   return `User has answered your questions: ${parts.join('; ')}. You can now continue with these answers in mind.`;
 }
 
+/** A composer message sent instead of (or with) picking: kept when it is a
+ *  non-empty string within the typed-answer limit, else dropped. */
+export function normalizeAskUserReply(reply) {
+  if (typeof reply !== 'string' || reply.length > ASK_USER_MAX_TEXT) return '';
+  return reply.trim();
+}
+
+// `User replied in chat: "<reply>". ` leads, then the usual picks sentence
+// when any question was answered, else just the closing sentence.
+export function formatAskUserResult(questions, answers, reply) {
+  if (!reply) return formatAskUserAnswers(questions, answers);
+  const lead = `User replied in chat: ${JSON.stringify(reply)}. `;
+  if (answers.some(Boolean)) return `${lead}${formatAskUserAnswers(questions, answers)}`;
+  return `${lead}You can now continue with these answers in mind.`;
+}
+
 export function createAskUserToolHandlers({ rt }) {
-  const { sessionIdFor } = createCallerContextResolvers(rt);
+  const { sessionIdFor, signalFor } = createCallerContextResolvers(rt);
   return {
     ask_user: async (args, { callerCtx }) => {
       const questions = validateAskUserQuestions(args);
       const hook = callerCtx?.toolApprovalHook;
       if (typeof hook !== 'function') return NO_USER;
-      const result = await hook({
-        name: 'ask_user',
-        kind: 'question',
-        args: { questions },
-        reason: '',
-        timeoutMs: ASK_USER_TIMEOUT_MS,
-        sessionId: sessionIdFor(callerCtx),
-        toolCallId: callerCtx?.toolCallId || null,
-      });
+      // No wait limit (timeoutMs: null): the question settles when the user
+      // answers or dismisses it, or the turn is aborted.
+      const result = await runAbortable(signalFor(callerCtx), () =>
+        hook({
+          name: 'ask_user',
+          kind: 'question',
+          args: { questions },
+          reason: '',
+          timeoutMs: null,
+          sessionId: sessionIdFor(callerCtx),
+          toolCallId: callerCtx?.toolCallId || null,
+        })
+      );
       if (result?.approved === true)
-        return formatAskUserAnswers(questions, normalizeAskUserAnswers(result.answers, questions));
-      return result?.reason === APPROVAL_TIMED_OUT_REASON ? TIMED_OUT : DISMISSED;
+        return formatAskUserResult(
+          questions,
+          normalizeAskUserAnswers(result.answers, questions),
+          normalizeAskUserReply(result.reply)
+        );
+      return DISMISSED;
     },
   };
 }

@@ -57,7 +57,8 @@ export function createSessionLifecycleApi(bag, { restoreTranscriptItems, oauthFl
         approved,
         decision?.reason || (approved ? 'approved by user' : 'denied by user'),
         typeof decision?.device === 'string' ? decision.device : '',
-        decision?.answers
+        decision?.answers,
+        typeof decision?.reply === 'string' ? decision.reply : undefined
       );
     },
     pushNotice,

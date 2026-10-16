@@ -1,3 +1,5 @@
+import type { DesktopPromptContent, DesktopSubmitOptions } from '../shared/contract';
+
 /** Pure state rules of the ask_user question card. */
 export type QuestionOption = { label: string; description: string };
 export type Question = {
@@ -75,6 +77,33 @@ export function buildAnswers(questions: Question[], drafts: QuestionDraft[]): Qu
     if (text) return { selected: [], text };
     return { selected: draft.selected.map((value) => question.options[value]?.label ?? '').filter(Boolean) };
   });
+}
+
+/** The runtime's cap on a chat reply to a question. */
+export const ASK_USER_REPLY_MAX_CHARS = 4000;
+
+type Submit<R> =(content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<R>;
+
+/** A message sent while a question waits. Plain text (no attachments, not a
+ *  slash command) is the answer itself and is not sent again as a prompt;
+ *  anything else dismisses the question, then goes out as a new request. */
+export function questionAwareSubmit<R>(
+  submit: Submit<R>,
+  answerQuestion: (reply: string) => Promise<unknown>,
+  dismissQuestion: () => Promise<unknown>
+): Submit<R | boolean> {
+  return async (content, options) => {
+    const text = typeof content === 'string' ? content.trim() : '';
+    const attached =
+      Object.keys(options?.pastedImages ?? {}).length > 0 || Object.keys(options?.pastedTexts ?? {}).length > 0;
+    // A reply over the decision's 4000-character cap goes out whole as a
+    // message instead of being cut short as an answer.
+    if (text && text.length <= ASK_USER_REPLY_MAX_CHARS && !text.startsWith('/') && !attached) {
+      return (await answerQuestion(text)) === true;
+    }
+    await dismissQuestion();
+    return submit(content, options);
+  };
 }
 
 /** The questions of a `kind: 'question'` approval, or null when malformed. */

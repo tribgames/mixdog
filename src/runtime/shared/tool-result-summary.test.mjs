@@ -5,6 +5,25 @@ import { parseLineDelta, summarizeToolResult } from './tool-result-summary.mjs';
 import { formatAggregateDetail } from './tool-surface.mjs';
 import { renderAgentCompletionEnvelope, renderShellCompletionEnvelope } from './task-notification-envelope.mjs';
 
+test('ask_user summaries cover picks, and a composer reply compactly', () => {
+  assert.equal(
+    summarizeToolResult('ask_user', {}, 'User has answered your questions: "q"="A". You can now continue with these answers in mind.'),
+    '"q"="A".'
+  );
+  assert.equal(
+    summarizeToolResult(
+      'ask_user',
+      {},
+      'User replied in chat: "keep \\"sort\\"". User has answered your questions: "q1"="PG"; "q2"=(no answer). You can now continue with these answers in mind.'
+    ),
+    'Answered in chat: keep "sort"'
+  );
+  assert.equal(
+    summarizeToolResult('ask_user', {}, 'User replied in chat: "just text". You can now continue with these answers in mind.'),
+    'Answered in chat: just text'
+  );
+});
+
 test('git summaries accept raw status, mutations, batches, failures and stored JSON', () => {
   assert.equal(summarizeToolResult('git', {}, '## main\n M a.txt\n'), '## main');
   assert.equal(summarizeToolResult('git', {}, ''), '(No Output)');

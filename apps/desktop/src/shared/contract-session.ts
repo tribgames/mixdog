@@ -332,6 +332,8 @@ export interface ToolApprovalDecision {
   reason?: string;
   /** ask_user answers, aligned by index with the questions; null = unanswered. */
   answers?: Array<{ selected: string[]; text?: string } | null>;
+  /** ask_user: the composer message that answered the question. */
+  reply?: string;
   /** Host-stamped name of the device that answered. */
   device?: string;
 }

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MutableRefObject,
+} from 'react';
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import {
@@ -8,6 +15,7 @@ import {
   primaryAction,
   type Question,
   type QuestionAction,
+  type QuestionDraft,
   type QuestionAnswer,
   questionReducer,
   type QuestionState,
@@ -48,8 +56,11 @@ const isTypingTarget = (target: EventTarget | null): boolean =>
 export function QuestionCard({
   questions,
   resolve,
+  draftsRef,
 }: {
   questions: Question[];
+  /** Kept current with the card's drafts so the composer can send them along with a reply. */
+  draftsRef?: MutableRefObject<QuestionDraft[]>;
   /** true/false: recorded or refused (another device answered first; the card
    *  stays disabled until the approval leaves the snapshot). */
   resolve: (decision: QuestionDecision) => Promise<unknown>;
@@ -58,10 +69,15 @@ export function QuestionCard({
   // The ref is advanced with the same transition as the state, so a second
   // click or key before React re-renders still builds on the first one.
   const stateRef = useRef(state);
-  const apply = useCallback((action: QuestionAction) => {
-    stateRef.current = questionReducer(stateRef.current, action);
-    setState(stateRef.current);
-  }, []);
+  if (draftsRef) draftsRef.current = stateRef.current.drafts;
+  const apply = useCallback(
+    (action: QuestionAction) => {
+      stateRef.current = questionReducer(stateRef.current, action);
+      if (draftsRef) draftsRef.current = stateRef.current.drafts;
+      setState(stateRef.current);
+    },
+    [draftsRef]
+  );
   const { drafts, index } = state;
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState('');
@@ -217,6 +233,22 @@ export function QuestionCard({
   };
 
   const typed = draft.text.trim().length > 0;
+  const primary = primaryAction(drafts, index);
+  const primaryLabel = {
+    skip: t('Skip'),
+    next: t('Next'),
+    send: t('Send'),
+    close: t('Close'),
+  }[primary];
+  const step = total > 1 ? `${index + 1}/${total}` : '';
+  const chip = [t('Question'), step].filter(Boolean).join(' ');
+  const hint = [
+    draft.selected.length > 0 ? t('{{count}} selected', { count: draft.selected.length }) : '',
+    `Enter ${primaryLabel}`,
+    index > 0 ? `← ${t('Previous question')}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: an <article> must keep its tag; role="group" names the question region
@@ -228,17 +260,24 @@ export function QuestionCard({
       aria-label={t('Agent question')}
       data-multi={multi || undefined}
     >
-      <div className="question-head">
-        <div className="question-text">{question.question}</div>
-        {total > 1 && (
-          <small className="question-step">
-            {index + 1}/{total}
-          </small>
-        )}
-        <button type="button" className="question-close" aria-label={t('Close question')} onClick={() => void close()}>
+      <div className="composer-island-phead question-head">
+        <span className="composer-island-tab question-chip">
+          <span className="question-mark" aria-hidden="true">
+            ?
+          </span>
+          {chip}
+        </span>
+        {multi && <span className="question-meta">{t('Multiple')}</span>}
+        <button
+          type="button"
+          className="composer-island-close question-close"
+          aria-label={t('Close question')}
+          onClick={() => void close()}
+        >
           ✕
         </button>
       </div>
+      <div className="question-text">{question.question}</div>
       <div className="question-options" role={multi ? 'group' : 'radiogroup'} aria-label={t('Options')}>
         {question.options.map((option, i) => {
           const on = draft.selected.includes(i);
@@ -257,7 +296,9 @@ export function QuestionCard({
               disabled={resolving}
               onClick={() => choose(i)}
             >
-              <span className="question-key">{i + 1}</span>
+              <span className="question-box" data-kind={multi ? 'check' : 'radio'} aria-hidden="true">
+                {multi && on ? '✓' : ''}
+              </span>
               <span className="question-option-text">
                 <span className="question-option-label">
                   {option.label}
@@ -265,6 +306,7 @@ export function QuestionCard({
                 </span>
                 {option.description && <span className="question-option-desc">{option.description}</span>}
               </span>
+              {i < 9 && <span className="question-key">{i + 1}</span>}
             </button>
           );
         })}
@@ -297,6 +339,30 @@ export function QuestionCard({
         />
       </label>
       {error && <ErrorNotice error={error} />}
+      <div className="question-foot">
+        <span className="question-hint">{hint}</span>
+        {index > 0 && (
+          <button
+            type="button"
+            className="composer-island-button question-btn"
+            data-action="previous"
+            disabled={resolving}
+            onClick={() => apply({ type: 'step', delta: -1 })}
+          >
+            {t('Previous')}
+          </button>
+        )}
+        <button
+          type="button"
+          className={`composer-island-button question-btn${primary === 'send' || primary === 'next' ? ' composer-island-button-primary' : ''}`}
+          data-primary
+          data-action={primary}
+          disabled={resolving}
+          onClick={advance}
+        >
+          {primaryLabel}
+        </button>
+      </div>
     </article>
   );
 }

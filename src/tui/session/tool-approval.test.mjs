@@ -130,6 +130,31 @@ test('answers pass through to the waiter and kind/timeoutMs are honored per requ
   assert.deepEqual(await answer, { approved: true, reason: 'ok', answers });
 });
 
+test('timeoutMs: null waits without a limit and stays pending until settled', async () => {
+  const h = harness({ timeoutMs: 5 });
+  let settled = false;
+  const answer = h.api.requestToolApproval({ name: 'ask_user', kind: 'question', timeoutMs: null }).then((r) => {
+    settled = true;
+    return r;
+  });
+  const presented = h.current();
+  assert.equal(presented.timeoutMs, null);
+  assert.equal(presented.expiresAt, null);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(settled, false, 'the 5ms default never applies to an unlimited request');
+  assert.equal(h.current().id, presented.id);
+  h.api.finishToolApproval(presented.id, true, 'ok', 'desktop', [{ selected: ['A'] }], 'typed in chat');
+  assert.deepEqual(await answer, { approved: true, reason: 'ok', answers: [{ selected: ['A'] }], reply: 'typed in chat' });
+});
+
+test('an unlimited request is settled by denyAll (turn stop)', async () => {
+  const h = harness({ timeoutMs: 5 });
+  const answer = h.api.requestToolApproval({ name: 'ask_user', kind: 'question', timeoutMs: null });
+  h.api.denyAllToolApprovals('turn cancelled');
+  assert.deepEqual(await answer, { approved: false, reason: 'turn cancelled' });
+  assert.equal(h.current(), null);
+});
+
 test('a request timeout resolves with the approval-timed-out reason', async () => {
   const h = harness();
   const answer = h.api.requestToolApproval({ name: 'ask_user', kind: 'question', timeoutMs: 5 });
