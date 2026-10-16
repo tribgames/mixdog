@@ -1,3 +1,4 @@
+import { isVisibleStreamProgress } from '../../../shared/stream-progress.mjs';
 import { anthropicEffortLevelsFor, normalizeAnthropicEffortInput } from './anthropic-effort.mjs';
 import { CUSTOM_EFFORT_LEVELS, customEffortLevels, isCustomProviderName } from './custom-reasoning.mjs';
 import { codexModelSupportsEffortUpdates } from './openai-oauth-catalog.mjs';
@@ -72,19 +73,40 @@ export function isEffortConfigurationRejection(status, text) {
 /**
  * Runs `send(opts)`; when the model rejects the mid-conversation effort
  * update, switches the updates off for it and replays the request once
- * without them. The rejection happens before any output streams.
+ * without them. Never replay after output reached the caller, cancellation,
+ * or an explicit opt-out; a late error is not evidence of missing support.
  */
 export async function withEffortConfigurationFallback(provider, model, opts, send) {
+  let streamed = false;
+  const track =
+    (callback, isProgress = false) =>
+    (...args) => {
+      if (!isProgress || isVisibleStreamProgress(args[0])) streamed = true;
+      return callback(...args);
+    };
+  const tracked = { ...opts };
+  if (typeof opts?.onStreamDelta === 'function') tracked.onStreamDelta = track(opts.onStreamDelta, true);
+  if (typeof opts?.onTextDelta === 'function') tracked.onTextDelta = track(opts.onTextDelta);
+  if (typeof opts?.onToolCall === 'function') tracked.onToolCall = track(opts.onToolCall);
   try {
-    return await send(opts);
+    return await send(tracked);
   } catch (error) {
     const status = error?.status ?? error?.httpStatus;
-    if (opts?._effortConfigurationRetry || !isEffortConfigurationRejection(status, error?.message)) throw error;
+    const emitted =
+      streamed || error?.liveTextEmitted === true || error?.emittedToolCall === true || error?.unsafeToRetry === true;
+    if (
+      opts?._effortConfigurationRetry ||
+      opts?.effortConfigurationEnabled === false ||
+      opts?.signal?.aborted ||
+      emitted ||
+      !isEffortConfigurationRejection(status, error?.message)
+    )
+      throw error;
     markEffortConfigurationUnsupported(provider, model);
     process.stderr.write(
       `[${provider}] ${model} rejected the mid-conversation effort update; retrying once without it\n`
     );
-    return send({ ...opts, effortConfigurationEnabled: false, _effortConfigurationRetry: true });
+    return send({ ...tracked, effortConfigurationEnabled: false, _effortConfigurationRetry: true });
   }
 }
 const OPENAI_PROVIDERS = new Set(['openai', 'openai-oauth']);
