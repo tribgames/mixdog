@@ -228,10 +228,12 @@ function renderVirtualRow(
   const row = rows[virtualRow.index];
   if (!row) return null;
   const next = rows[virtualRow.index + 1];
-  const turnEnd = !next || next._tag === 'TurnGap';
-  // The live band under a reply part stands where that reply's completion
-  // footer lands (12-transcript.css).
-  const bandUnderPart = row._tag === 'Thinking' && rows[virtualRow.index - 1]?._tag === 'AssistantPart';
+  // The live band under a reply part or tool card is the same 40px status
+  // slot as the completion footer that replaces it (12-transcript.css): the
+  // row above it takes no step, the band leads in itself.
+  const leadsBand = (tag: TranscriptRowModel['_tag'] | undefined) => tag === 'AssistantPart' || tag === 'ToolActivity';
+  const turnEnd = !next || next._tag === 'TurnGap' || (next._tag === 'Thinking' && leadsBand(row._tag));
+  const bandLead = row._tag === 'Thinking' && leadsBand(rows[virtualRow.index - 1]?._tag);
   return (
     // A row binds position AND measurement to one element.
     // Position and measurement therefore share the
@@ -252,7 +254,7 @@ function renderVirtualRow(
         data-index={virtualRow.index}
         data-tag={row._tag}
         data-turn-end={turnEnd ? 'true' : undefined}
-        data-under-part={bandUnderPart ? 'true' : undefined}
+        data-band-lead={bandLead ? 'true' : undefined}
       >
         {renderRow(row)}
       </div>

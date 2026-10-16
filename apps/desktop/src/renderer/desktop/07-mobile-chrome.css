@@ -1199,6 +1199,8 @@ html[data-mixdog-mobile-tabs] .turn-review-revert {
 }
 html[data-mixdog-mobile-tabs] .message .response-footer,
 html[data-mixdog-mobile-tabs] .message.assistant .response-footer:has(.turn-status),
+html[data-mixdog-mobile-tabs] .response-footer-band,
+html[data-mixdog-mobile-tabs] .live-activity-slot[data-busy="true"],
 html[data-mixdog-mobile-tabs] .markdown-code > header {
   min-height: var(--mx-touch-fixed-main);
 }

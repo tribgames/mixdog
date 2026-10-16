@@ -520,8 +520,11 @@ export const TranscriptRow = memo(
     const viewerDevice = useContext(TranscriptViewerDeviceContext);
     const sessionScope = useContext(MarkdownSessionContext);
     const assistant = item.kind === 'assistant';
+    const articleRef = useRef<HTMLElement>(null);
     const paced = usePacedTranscriptText({
       key: assistant ? paceKey : '',
+      scope: sessionScope,
+      element: articleRef,
       text: assistant ? String(item.text || '') : '',
       streaming: Boolean(item.streaming),
       pace,
@@ -577,6 +580,7 @@ export const TranscriptRow = memo(
     return (
       <>
         <article
+          ref={articleRef}
           className={`message ${user ? 'user' : 'assistant'} ${sourceLabel ? 'sourced-message' : ''} ${streaming ? 'streaming' : 'settled'} ${item.pending ? 'pending' : ''} ${user && attachedUser ? 'attached-user' : ''}`}
           aria-live={streaming || announceSettled ? 'off' : undefined}
           aria-busy={item.pending === true ? 'true' : undefined}
@@ -623,6 +627,12 @@ export const TranscriptRow = memo(
           {user && <AppliedSkills names={appliedSkills} />}
           {user && multiDevice && isOtherDevice(item.device, viewerDevice) && (
             <small className="message-device">{t('from {{device}}', { device: item.device })}</small>
+          )}
+          {!user && !item.streaming && completion && paced.draining && (
+            // The live band's slot, same height as the footer: the band row
+            // left in this commit, and the footer takes the slot once the
+            // paced text is whole.
+            <div className="response-footer-band" aria-hidden="true" />
           )}
           {!user && !streaming && completion && (
             // biome-ignore lint/a11y/useSemanticElements: the footer names a group of response details; a <fieldset> would restyle it.

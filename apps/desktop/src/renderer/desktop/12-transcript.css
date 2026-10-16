@@ -304,6 +304,13 @@ html[data-window-material="mica"] .transcript-shell {
 .transcript-live-part {
   min-width: 0;
 }
+/* A live part whose first word has not been revealed yet holds its first
+   line: its row takes no step above the band, so an empty part would be a
+   0px row (the virtualizer keeps its estimate for those) and the band would
+   jump when the first line lands. */
+.transcript-live-part[data-streaming-tail="true"] {
+  min-height: 24px;
+}
 .transcript-virtual-row {
   position: absolute;
   top: 0;
@@ -342,11 +349,12 @@ html[data-window-material="mica"] .transcript-shell {
 .transcript-virtual-row-content[data-turn-end="true"] {
   padding-bottom: 0;
 }
-/* The live band under a reply part: the part's 8px step + this 8px + the
-   band's 24px = the 40px its completion footer takes below the same body
-   (.response-footer:has(.turn-status)), so settlement moves nothing. */
-.transcript-virtual-row-content[data-tag="Thinking"][data-under-part="true"] {
-  padding-top: 8px;
+/* The live band under a reply part or tool card is the 40px status slot (see
+   .response-footer:has(.turn-status)): the row above it takes no step, the
+   band leads in 16px over its 24px row. Under a prompt it keeps the prompt's
+   own 24px breathing room instead. */
+.transcript-virtual-row-content[data-tag="Thinking"][data-band-lead="true"] {
+  padding-top: 16px;
 }
 .transcript-turn-gap {
   height: 20px;
@@ -591,13 +599,13 @@ html[data-window-material="mica"] .transcript-shell {
   line-height: var(--mx-line-ui);
   white-space: nowrap;
 }
-/* Completion replaces the live band: the streaming part's 8px row step + the
-   band row's 8px lead-in + its own 24px = 40px, and the footer restates that
-   as 24px controls with a 16px lead-in on a turn-end row (no step). Both
-   states occupy exactly 40px below the response body, so settlement cannot
-   nudge the row. Verified against .live-activity below — its three
-   disagreeing heights are what made settlement jump. */
-.message.assistant .response-footer:has(.turn-status) {
+/* One status slot, 16px lead-in + a 24px row = 40px below the content above
+   it: the completion footer here, the live band row (TranscriptList: the row
+   above a band takes no step, the band row leads in 16px), and the band's
+   slot a completed reply holds while its paced text drains. Swapping any of
+   them for another cannot move the transcript. */
+.message.assistant .response-footer:has(.turn-status),
+.response-footer-band {
   min-height: 24px;
   margin-top: 16px;
 }
