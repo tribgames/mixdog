@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createModelProxyHost, createModelProxyRuntime } from './model-proxy-host.ts';
+import { createModelProxyHost, createModelProxyRuntime, modelProxyCredentialProbe } from './model-proxy-host.ts';
+import { OAUTH_PROVIDER_NAMES } from '../../../../src/runtime/agent/orchestrator/providers/registry.mjs';
+import {
+  hasProviderApiKey,
+  resolveProviderApiKey,
+} from '../../../../src/runtime/shared/provider-api-key.mjs';
 import {
   MODEL_PROXY_REQUEST_EVENT,
   MODEL_PROXY_OPERATIONS,
@@ -760,4 +765,89 @@ test('custom environment credentials drive proxy readiness without a stored-key 
   assert.equal((await runtime.providerConfig()).providers[name].enabled, false);
   assert.equal(await runtime.provider(name), undefined);
   assert.deepEqual(modules.keyReads, []);
+});
+
+test('an unreadable credential with a live adapter is advertised on the first read, not only later ones', async (t) => {
+  // A stored enable builds the adapter; the credential file is unreadable this instant.
+  const modules = pcModules({ 'openai-oauth': { enabled: true } });
+  modules.probeAuth = () => 'unreadable';
+  const { channel } = connect(t, createModelProxyRuntime(modules));
+  const read = async () => (await channel.request({ provider: '', method: 'providerConfig' })).providers['openai-oauth'];
+  assert.deepEqual(await read(), { enabled: true, authState: 'unreadable', modelProxy: {} });
+  assert.deepEqual(await read(), { enabled: true, authState: 'unreadable', modelProxy: {} });
+});
+
+test('a custom provider advertises only the ids of its hidden models', async (t) => {
+  const name = 'custom-proxy-hidden';
+  const modules = pcModules({
+    [name]: {
+      type: 'custom',
+      auth: 'none',
+      enabled: true,
+      name: 'Private gateway',
+      baseURL: 'https://gateway.internal',
+      models: [{ id: 'row-hidden', hidden: true }, { id: 'row-visible' }],
+      modelOverrides: { 'override-hidden': { hidden: true }, 'override-visible': { name: 'Shown' } },
+    },
+  });
+  const { channel } = connect(t, createModelProxyRuntime(modules));
+  const advertised = (await channel.request({ provider: '', method: 'providerConfig' })).providers[name];
+  assert.deepEqual(advertised, {
+    enabled: true,
+    type: 'custom',
+    hiddenModels: ['row-hidden', 'override-hidden'],
+    authState: 'present',
+    modelProxy: {},
+  });
+});
+
+test('proxy credential presence follows the registry OAuth set and resolveProviderApiKey precedence', (t) => {
+  const variables = ['MIXDOG_PROXY_PROBE_ENV_TEST', 'MIXDOG_AGENT_PROXY-PROBE_APIKEY', 'OPENAI_API_KEY'];
+  const saved = Object.fromEntries(variables.map((name) => [name, process.env[name]]));
+  t.after(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  for (const name of variables) delete process.env[name];
+  const oauthReads = [];
+  const probe = modelProxyCredentialProbe({
+    OAUTH_PROVIDER_NAMES,
+    oauthCredentialProbeState: (name) => {
+      oauthReads.push(name);
+      return 'unreadable';
+    },
+    hasProviderApiKey,
+  });
+  // OAuth membership comes from the registry, not the name's suffix.
+  assert.equal(probe('cursor-oauth', {}), 'unreadable');
+  assert.equal(probe('proxy-probe-oauth', {}), 'absent');
+  assert.deepEqual(oauthReads, ['cursor-oauth']);
+  // API keys: whatever resolveProviderApiKey would find, probe says present.
+  const cases = [
+    ['proxy-probe', { apiKey: 'config-file-key' }],
+    ['proxy-probe', { apiKeyEnv: 'MIXDOG_PROXY_PROBE_ENV_TEST' }],
+    ['proxy-probe', { apiKeyEnv: 'MIXDOG_PROXY_PROBE_ENV_TEST', apiKey: 'ignored-for-env-routes' }],
+    ['proxy-probe', {}],
+    ['custom-proxy-probe', { type: 'custom', auth: 'key', apiKeyEnv: 'MIXDOG_PROXY_PROBE_ENV_TEST' }],
+  ];
+  const check = () => {
+    for (const [name, config] of cases) {
+      const expected = resolveProviderApiKey(name, config) ? 'present' : 'absent';
+      assert.equal(probe(name, config), expected, `${name} ${JSON.stringify(config)}`);
+    }
+  };
+  check();
+  assert.equal(probe('proxy-probe', { apiKey: 'config-file-key' }), 'present');
+  process.env.MIXDOG_PROXY_PROBE_ENV_TEST = 'from-env';
+  process.env['MIXDOG_AGENT_PROXY-PROBE_APIKEY'] = 'from-mixdog-env';
+  check();
+  assert.equal(probe('proxy-probe', {}), 'present');
+  assert.equal(probe('proxy-probe', { apiKeyEnv: 'MIXDOG_PROXY_PROBE_ENV_TEST' }), 'present');
+  delete process.env.MIXDOG_PROXY_PROBE_ENV_TEST;
+  // A named variable is the only source for its route, even with another key present.
+  assert.equal(probe('custom-proxy-probe', cases[4][1]), 'absent');
+  check();
+  assert.equal(probe('custom-proxy-probe', { type: 'custom', auth: 'none' }), 'present');
 });

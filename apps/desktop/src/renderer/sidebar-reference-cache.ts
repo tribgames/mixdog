@@ -10,6 +10,12 @@
 // no disk. A reload starts cold on purpose.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { isSshConnectionWindow } from './desktop-connection';
+import {
+  isDesktopProvidersUnavailableError,
+  requireDesktopProviders,
+  useDesktopProvidersRetry,
+} from './desktop-provider-retry';
 import { fetchProviderModels, invalidateSharedModelCatalogRequest } from './model-catalog-cache';
 import { invalidateWorkflowOptions } from './workflow-options-cache';
 
@@ -164,13 +170,8 @@ const LOADERS: { [K in SidebarReferenceKey]: Loader<K> } = {
   },
   workflows: async (api) => rows(await capability(api, 'listWorkflows')),
   agents: async (api) => rows(await capability(api, 'listAgents')),
-  providerSetup: async (api, force) => {
-    const setup = await capability(api, 'getProviderSetup', force ? [{ force: true }] : []);
-    if (record(setup).managedByClient === true && record(setup).unavailable === true) {
-      throw new Error('Desktop model providers are unavailable');
-    }
-    return setup;
-  },
+  providerSetup: async (api, force) =>
+    requireDesktopProviders(await capability(api, 'getProviderSetup', force ? [{ force: true }] : [])),
   webSearchRoute: async (api) => record(await capability(api, 'getWebSearchRoute')),
   webSearchModels: async (api, force) =>
     rows(await capability(api, 'listWebSearchModels', [{ quick: false, ...(force ? { force: true } : {}) }])),
@@ -353,8 +354,10 @@ export function useProviderModelsSync(api: Parameters<typeof subscribeProviderMo
 }
 
 function invalidateKeys(keys: readonly SidebarReferenceKey[], notifyMain: boolean): void {
+  // Only a server window must bypass the daemon's proxied provider cache.
+  const forced = isSshConnectionWindow();
   for (const key of keys) {
-    forcedKeys.add(key);
+    if (forced) forcedKeys.add(key);
     bumpGeneration(key);
     const entry = entries.get(key);
     if (entry) entry.invalid = true;
@@ -633,11 +636,7 @@ export function useSidebarReferences<K extends SidebarReferenceKey>(
     void refresh();
   }, [active, available, keys, refresh, revision]);
 
-  useEffect(() => {
-    if (!active || error !== 'Desktop model providers are unavailable') return;
-    const timer = window.setTimeout(() => void refresh({ force: true }), 7_000);
-    return () => window.clearTimeout(timer);
-  }, [active, error, refresh, revision]);
+  useDesktopProvidersRetry(active && isDesktopProvidersUnavailableError(error), () => void refresh({ force: true }));
 
   return {
     values,

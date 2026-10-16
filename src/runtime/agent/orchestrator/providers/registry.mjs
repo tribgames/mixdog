@@ -24,7 +24,7 @@ const signatures = new Map();
 // preservation guard and the getProvider self-heal read it through these two
 // helpers so "usable right now" and "genuinely gone" are answered identically
 // in both places.
-const OAUTH_PROVIDER_NAMES = new Set([
+export const OAUTH_PROVIDER_NAMES = new Set([
   'anthropic-oauth',
   'openai-oauth',
   'grok-oauth',

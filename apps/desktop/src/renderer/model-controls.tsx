@@ -9,6 +9,7 @@ import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from
 import { routePreferenceStore } from './app-route-preference';
 import { useModelSelection } from './use-model-selection';
 import type { RecordValue } from './desktop-types';
+import { isDesktopProvidersUnavailableError, useDesktopProvidersRetry } from './desktop-provider-retry';
 import { t } from './i18n';
 import {
   SHARED_MODEL_CATALOG_MAX_AGE_MS,
@@ -359,6 +360,8 @@ export const ModelSelector = memo(function ModelSelector({
   const [providerSetup, setProviderSetup] = useState<unknown>(null);
   const [catalogError, setCatalogError] = useState('');
   const [providerSetupError, setProviderSetupError] = useState('');
+  // A server window whose desktop proxy is away retries on the shared cadence.
+  const [desktopProvidersAway, setDesktopProvidersAway] = useState(false);
   const [catalogLoaded, setCatalogLoaded] = useState(cachedCatalog.models.length > 0);
   const [startupCatalogSettled, setStartupCatalogSettled] = useState(cachedCatalog.models.length > 0);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
@@ -469,6 +472,7 @@ export const ModelSelector = memo(function ModelSelector({
       setCatalogRefreshing(true);
       setCatalogError('');
       setProviderSetupError('');
+      setDesktopProvidersAway(false);
       const shared = requestModelCatalog(api);
       let fullApplied = false;
       const setupRequest = shared.setup
@@ -479,6 +483,7 @@ export const ModelSelector = memo(function ModelSelector({
           if (!shared.isCurrent()) return;
           console.warn('[model-catalog] provider setup refresh failed', reason);
           setProviderSetupError('unavailable');
+          setDesktopProvidersAway(isDesktopProvidersUnavailableError(reason));
         });
       const fullRequest = shared.full
         .then((full) => {
@@ -556,13 +561,7 @@ export const ModelSelector = memo(function ModelSelector({
     [loadCatalog]
   );
 
-  useEffect(() => {
-    if (providerSetupError !== 'unavailable') return;
-    // The SSH transport can stay up while its desktop proxy reconnects. Retry
-    // failed setup reads even when no transport-reconnected event is emitted.
-    const timer = window.setTimeout(invalidateSharedModelCatalogRequest, 7_000);
-    return () => window.clearTimeout(timer);
-  }, [providerSetupError, catalogRefreshing]);
+  useDesktopProvidersRetry(desktopProvidersAway, invalidateSharedModelCatalogRequest);
 
   useEffect(() => {
     if (model && !startupCatalogSettled) return;

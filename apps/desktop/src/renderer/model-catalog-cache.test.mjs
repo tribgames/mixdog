@@ -71,8 +71,38 @@ test('a successful catalog request is shared instead of refetched', async () => 
   const second = requestModelCatalog(api);
   assert.deepEqual(await second.quick, await first.quick);
   assert.deepEqual(await second.full, await first.full);
-  assert.deepEqual(api.calls.modelOptions, [{ quick: true }, { quick: false, force: true }]);
+  assert.deepEqual(api.calls.modelOptions, [{ quick: true }, { quick: false }]);
   assert.equal(api.calls.setup, 1);
+});
+
+/** Runs the rest of a test as a server (ssh) window, whose provider setup is
+ *  proxied from the desktop. */
+function asServerWindow(t) {
+  window.mixdogDesktop = { connection: { kind: 'ssh' } };
+  t.after(() => {
+    delete window.mixdogDesktop;
+  });
+}
+
+test('a local window invalidation re-reads without forcing the daemon caches', async () => {
+  const api = stubApi();
+  const requests = [];
+  api.invokeCapability = async (request) => {
+    requests.push(request);
+    return { value: { api: [{ id: 'openai', authenticated: true }] } };
+  };
+  await requestModelCatalog(api).setup;
+  invalidateSharedModelCatalogRequest();
+  const next = requestModelCatalog(api);
+  await Promise.all([next.full, next.setup]);
+  assert.deepEqual(
+    requests.map((request) => request.args),
+    [[], []]
+  );
+  assert.equal(
+    api.calls.modelOptions.some((options) => options.force),
+    false
+  );
 });
 
 test('provider invalidation wakes mounted catalog consumers and refetches', async () => {
@@ -263,7 +293,8 @@ test('an unavailable desktop snapshot is retryable even with a warm model catalo
 });
 
 
-test('provider invalidation bypasses the server setup TTL before sharing the refreshed catalog', async () => {
+test('provider invalidation bypasses the server setup TTL before sharing the refreshed catalog', async (t) => {
+  asServerWindow(t);
   const api = stubApi();
   let authenticated = false;
   let serverCached = false;
@@ -288,7 +319,8 @@ test('provider invalidation bypasses the server setup TTL before sharing the ref
 });
 
 
-test('an invalidation before the first API read forces both model and setup snapshots', async () => {
+test('an invalidation before the first API read forces both model and setup snapshots', async (t) => {
+  asServerWindow(t);
   invalidateSharedModelCatalogRequest();
   const requests = [];
   const api = stubApi();

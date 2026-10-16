@@ -14,7 +14,27 @@ installTestDom(null, {
 
 globalThis.HTMLElement.prototype.scrollIntoView = () => {};
 
-const { customProviderDisplayNames, resolveProviderDisplayName } = await import('./model-catalog.tsx');
+const { customProviderDisplayNames, filterConfiguredModels, resolveProviderDisplayName } = await import(
+  './model-catalog.tsx'
+);
+
+test('a server window keeps the desktop hidden custom models out of its picker', () => {
+  const custom = 'custom-a92e4651-dab8-45a1-aa63-70b7be71c1f7';
+  const models = [
+    { provider: custom, model: 'visible' },
+    { provider: custom, model: 'hidden-on-desktop' },
+    { provider: 'openai-oauth', model: 'gpt-test' },
+  ];
+  const setup = {
+    managedByClient: true,
+    api: [{ id: custom, custom: true, usable: true, modelOverrides: { 'hidden-on-desktop': { hidden: true } } }],
+    oauth: [{ id: 'openai-oauth', usable: true }],
+    local: [],
+  };
+  assert.deepEqual(filterConfiguredModels(models, setup), [models[0], models[2]]);
+  setup.oauth[0].usable = false;
+  assert.deepEqual(filterConfiguredModels(models, setup), [models[0]]);
+});
 
 test('built-in providers keep curated labels; custom ones use setup names', () => {
   const custom = 'custom-a92e4651-dab8-45a1-aa63-70b7be71c1f7';

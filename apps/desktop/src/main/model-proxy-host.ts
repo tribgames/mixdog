@@ -447,10 +447,25 @@ export function proxyErrorRecord(error: unknown): { name: string; message: strin
   };
 }
 
+/** Model ids a custom provider hides: its stored model rows and v2 overrides,
+ *  the same two sources the renderer's picker filter reads. */
+function hiddenCustomModels(entry: Record<string, unknown>): string[] {
+  const hidden = new Set<string>();
+  for (const row of Array.isArray(entry.models) ? entry.models : []) {
+    const model = record(row);
+    if (typeof model.id === 'string' && model.hidden === true) hidden.add(model.id);
+  }
+  for (const [id, override] of Object.entries(record(entry.modelOverrides))) {
+    if (record(override).hidden === true) hidden.add(id);
+  }
+  return [...hidden];
+}
+
 /** What a server learns about this PC's providers: whether each is usable for
  *  it and the adapter traits its stand-in needs. A provider the server may not
  *  use is left out entirely. No base URL, account, org, label, model list or
- *  any other stored field. */
+ *  any other stored field; a custom provider adds only the ids of models
+ *  hidden on this PC, so remote pickers hide them too. */
 export function publicProviderConfig(
   providers: unknown,
   isProviderAllowed: (provider: string) => boolean
@@ -465,7 +480,7 @@ export function publicProviderConfig(
     if (typeof traits.nativePdf === 'boolean') modelProxy.nativePdf = traits.nativePdf;
     out[name] = {
       enabled: entry.enabled === true,
-      ...(entry.type === 'custom' ? { type: 'custom' } : {}),
+      ...(entry.type === 'custom' ? { type: 'custom', hiddenModels: hiddenCustomModels(entry) } : {}),
       ...(['present', 'absent', 'unreadable'].includes(String(entry.authState)) ? { authState: entry.authState } : {}),
       modelProxy,
     };
@@ -1286,7 +1301,6 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
 
   return {
     async providerConfig() {
-      const previous = new Set(modules.getAllProviders().keys());
       const available = await sync();
       const live = modules.getAllProviders();
       const providers: Record<string, unknown> = {};
@@ -1303,9 +1317,10 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
         const configuredEnabled = configured.enabled === true || configured.credentialProbeUnavailable === true;
         providers[name] = {
           ...(stripModelProxySecrets(record(available[name])) as Record<string, unknown>),
-          // Availability is what this PC can actually run right now.
-          enabled: configuredEnabled && Boolean(instance) &&
-            (authState === 'present' || (authState === 'unreadable' && previous.has(name))),
+          // Availability is what this PC can actually run right now. An
+          // unreadable credential counts while the registry holds its adapter,
+          // on the first read as on every later one.
+          enabled: configuredEnabled && Boolean(instance) && authState !== 'absent',
           authState,
           modelProxy: traits,
         };
@@ -1327,6 +1342,21 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
       return modules.getProvider(name);
     },
     finalizeTools: (tools, nativePrefixCount) => modules.finalizeProviderRequestTools(tools, nativePrefixCount),
+  };
+}
+
+/** Credential presence by the PC's own rules: the registry's OAuth set and its
+ *  tri-state probe, otherwise resolveProviderApiKey's precedence (presence
+ *  only, no key value read). */
+export function modelProxyCredentialProbe(modules: {
+  OAUTH_PROVIDER_NAMES: ReadonlySet<string>;
+  oauthCredentialProbeState(name: string): 'present' | 'absent' | 'unreadable';
+  hasProviderApiKey(name: string, config: Record<string, unknown>): boolean;
+}): ModelProxyRuntimeModules['probeAuth'] {
+  return (name, entry) => {
+    if (name === 'mixdog-local' || (entry.type === 'custom' && entry.auth === 'none')) return 'present';
+    if (modules.OAUTH_PROVIDER_NAMES.has(name)) return modules.oauthCredentialProbeState(name);
+    return modules.hasProviderApiKey(name, entry) ? 'present' : 'absent';
   };
 }
 
@@ -1355,14 +1385,14 @@ export function modelProxyRuntimeLoader({
     const registry = registryModule as unknown as Pick<
       ModelProxyRuntimeModules,
       'initProviders' | 'getProvider' | 'getAllProviders'
-    >;
+    > & { OAUTH_PROVIDER_NAMES: ReadonlySet<string> };
     const requestTools = requestToolsModule as unknown as Pick<
       ModelProxyRuntimeModules,
       'finalizeProviderRequestTools'
     >;
     const apiKeys = apiKeyModule as unknown as {
       readAgentApiKeyAsync(name: string): Promise<string | null>;
-      hasAgentApiKey(name: string): boolean;
+      hasProviderApiKey(name: string, config: Record<string, unknown>): boolean;
     };
     const oauthProbes = oauthProbeModule as unknown as {
       oauthCredentialProbeState(name: string): 'present' | 'absent' | 'unreadable';
@@ -1373,11 +1403,11 @@ export function modelProxyRuntimeLoader({
       getProvider: (name) => registry.getProvider(name),
       getAllProviders: () => registry.getAllProviders(),
       readApiKey: (name) => apiKeys.readAgentApiKeyAsync(name),
-      probeAuth: (name, entry) => {
-        if (name === 'mixdog-local' || (entry.type === 'custom' && entry.auth === 'none')) return 'present';
-        if (name.endsWith('-oauth')) return oauthProbes.oauthCredentialProbeState(name);
-        return apiKeys.hasAgentApiKey(name) ? 'present' : 'absent';
-      },
+      probeAuth: modelProxyCredentialProbe({
+        OAUTH_PROVIDER_NAMES: registry.OAUTH_PROVIDER_NAMES,
+        oauthCredentialProbeState: oauthProbes.oauthCredentialProbeState,
+        hasProviderApiKey: apiKeys.hasProviderApiKey,
+      }),
       finalizeProviderRequestTools: (tools, nativePrefixCount) =>
         requestTools.finalizeProviderRequestTools(tools, nativePrefixCount),
     });

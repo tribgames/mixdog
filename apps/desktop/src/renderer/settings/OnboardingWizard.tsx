@@ -26,6 +26,7 @@ import { providerDisplayName } from '../provider-display';
 import { record, rows } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { acquireTitleBarDim } from '../titlebar-dim';
+import { waitForDesktopProviders } from '../desktop-provider-retry';
 import { ClientManagedProviders } from './client-managed-providers';
 import { OAuthControl } from './CapabilitySettings';
 import { FOCUSABLE_SELECTOR, inertBackground, portaledMenuOpen, trapTab } from './dialog-modality';
@@ -245,12 +246,14 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
       }
     };
     const onRefresh = () => void refresh().catch(() => undefined);
-    const timer = window.setInterval(onRefresh, 7_000);
+    // Desktop sign-ins have no event on a server window: follow them on the
+    // shared desktop-provider cadence, plus focus and reconnect.
+    const leave = waitForDesktopProviders(onRefresh);
     window.addEventListener('focus', onRefresh);
     window.addEventListener('mixdog:remote-reconnected', onRefresh);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      leave();
       window.removeEventListener('focus', onRefresh);
       window.removeEventListener('mixdog:remote-reconnected', onRefresh);
     };

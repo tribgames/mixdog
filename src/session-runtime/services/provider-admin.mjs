@@ -518,6 +518,12 @@ export async function providerSetup(config = {}, options = {}) {
   };
 }
 
+// The desktop's hidden custom models, in the override shape pickers already read.
+function hiddenModelOverrides(entry) {
+  const ids = Array.isArray(entry?.hiddenModels) ? entry.hiddenModels : [];
+  return Object.fromEntries(ids.filter((id) => typeof id === 'string').map((id) => [id, { hidden: true }]));
+}
+
 // SSH servers have no model credentials. Project only the PC's advertised
 // availability; account identities and credential management stay on the PC.
 async function modelProxyProviderSetup(options) {
@@ -541,13 +547,17 @@ async function modelProxyProviderSetup(options) {
         // missing credential from a transiently unreadable, preserved adapter.
         const authenticated = authState == null ? enabled : authState === 'present';
         const usable = enabled && authState !== 'absent';
+        let status = usable ? 'Connected' : 'Not connected';
+        if (enabled && authState === 'unreadable') status = 'Checking…';
+        // Signed in but switched off on the desktop.
+        else if (!enabled && authState === 'present') status = 'Off';
         return {
           id, name, group, type, enabled,
           authenticated,
           usable,
           ...(group === 'local' ? { detected: enabled } : {}),
-          ...(type === 'custom' ? { custom: true } : {}),
-          status: enabled && authState === 'unreadable' ? 'Checking…' : usable ? 'Connected' : 'Not connected',
+          ...(type === 'custom' ? { custom: true, modelOverrides: hiddenModelOverrides(providers[id]) } : {}),
+          status,
         };
       });
   const custom = Object.entries(providers)
@@ -815,7 +825,10 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
 }
 
 export function listProviderAccounts(provider) {
-  requireLocalProviderManagement();
+  if (!OAUTH_BY_ID.has(provider)) throw new TypeError('Unknown OAuth provider.');
+  // Client mode: accounts live on the desktop, so this server's roster is
+  // empty whatever this server's own provider availability says.
+  if (modelProxyClientMode()) return { provider, auto: true, useCredits: false, selectedId: null, accounts: [] };
   const oauth = availableOAuthProvider(provider);
   if (!oauth) throw new TypeError('Unknown OAuth provider.');
   const pool = readProviderAccountPool(provider);

@@ -166,7 +166,41 @@ test('SSH setup covers every built-in API, OAuth, local and custom provider, ena
 });
 
 
-test('client mode rejects server-side provider account reads and mutations before touching credentials', async (t) => {
+test('SSH setup reads a desktop-disabled sign-in as Off and carries only hidden custom model ids', async (t) => {
+  const prior = process.env.MIXDOG_MODEL_PROXY;
+  process.env.MIXDOG_MODEL_PROXY = 'client';
+  t.after(() => {
+    if (prior === undefined) delete process.env.MIXDOG_MODEL_PROXY;
+    else process.env.MIXDOG_MODEL_PROXY = prior;
+    _resetModelProxyProviderConfigForTest();
+  });
+  const channel = new ModelProxyChannel();
+  t.after(installModelProxyChannel(channel));
+  _resetModelProxyProviderConfigForTest();
+  const custom = 'custom-00000000-0000-4000-8000-000000000077';
+  const providers = {
+    'openai-oauth': { enabled: false, authState: 'present' },
+    'anthropic-oauth': { enabled: false, authState: 'absent' },
+    [custom]: { enabled: true, type: 'custom', authState: 'present', hiddenModels: ['secret-model'] },
+  };
+  const detach = channel.attachPublisher((snapshot) => {
+    for (const { id } of snapshot.requests) {
+      if (!channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id])) continue;
+      queueMicrotask(() => channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [
+        id, true, encodeModelProxyWire({ providers, ready: true }), null,
+      ]));
+    }
+  });
+  t.after(detach);
+  const setup = await providerSetup({}, { force: true });
+  const row = (id) => [...setup.api, ...setup.oauth].find((entry) => entry.id === id);
+  assert.equal(row('openai-oauth').status, 'Off');
+  assert.equal(row('openai-oauth').usable, false);
+  assert.equal(row('anthropic-oauth').status, 'Not connected');
+  assert.deepEqual(row(custom).modelOverrides, { 'secret-model': { hidden: true } });
+});
+
+test('client mode reads an empty server account roster and rejects mutations before touching credentials', async (t) => {
   const prior = process.env.MIXDOG_MODEL_PROXY;
   process.env.MIXDOG_MODEL_PROXY = 'client';
   t.after(() => {
@@ -174,7 +208,13 @@ test('client mode rejects server-side provider account reads and mutations befor
     else process.env.MIXDOG_MODEL_PROXY = prior;
   });
   const admin = await import('../services/provider-admin.mjs');
-  assert.throws(() => admin.listProviderAccounts('openai-oauth'), { code: 'MODEL_CREDENTIALS_DISABLED' });
+  // Read-only callers (setup status, the quota card, usage account emails) keep working.
+  assert.deepEqual(admin.listProviderAccounts('openai-oauth'), {
+    provider: 'openai-oauth', auto: true, useCredits: false, selectedId: null, accounts: [],
+  });
+  // A provider this server's own settings keep off is still the desktop's to list.
+  assert.deepEqual(admin.listProviderAccounts('mimo-oauth').accounts, []);
+  assert.throws(() => admin.listProviderAccounts('not-a-provider'), TypeError);
   for (const name of ['authenticateProvider', 'loginOAuthProvider', 'beginOAuthProviderLogin',
     'materializeProviderAccounts', 'updateProviderAccounts', 'saveProviderApiKey', 'saveCustomProvider',
     'updateCustomProviderModel', 'removeCustomProvider', 'testCustomProvider', 'discoverCustomProviderModels',

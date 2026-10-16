@@ -58,14 +58,16 @@ export function filterConfiguredModels(
   return models.filter((model) => {
     const provider = entries.find((entry) => String(entry.id || entry.provider || '') === model.provider);
     if (!provider) return false;
-    if (record(providerSetup).managedByClient === true) return provider.usable === true;
-    if (provider.custom === true) {
-      // Hidden by the effective row or by the model's own v2 override.
-      const hidden =
-        (Array.isArray(provider.models) &&
-          provider.models.map(record).some((row) => row.id === model.model && row.hidden === true)) ||
+    // Hidden by the effective row or by the model's own v2 override (a server
+    // window receives the desktop's hidden models as overrides).
+    const hidden =
+      provider.custom === true &&
+      ((Array.isArray(provider.models) &&
+        provider.models.map(record).some((row) => row.id === model.model && row.hidden === true)) ||
         (Object.hasOwn(record(provider.modelOverrides), model.model) &&
-          record(record(provider.modelOverrides)[model.model]).hidden === true);
+          record(record(provider.modelOverrides)[model.model]).hidden === true));
+    if (record(providerSetup).managedByClient === true) return provider.usable === true && !hidden;
+    if (provider.custom === true) {
       // An invalid stored config (`usable: false` + configError) cannot run.
       if (provider.usable === false || provider.configError) return false;
       return !hidden && provider.enabled !== false && (provider.authenticated !== false || provider.auth === 'none');

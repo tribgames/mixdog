@@ -56,8 +56,6 @@ function resolveProbeState(paths, evaluate) {
   return sawUnreadable ? 'unreadable' : 'absent';
 }
 
-
-
 // Short-TTL memo. Under simultaneous multi-agent launch, buildDefaultConfig
 // and registry lazy-init call these probes in bursts; each probe does
 // synchronous existsSync + readFileSync disk work. Cache the STATE per key

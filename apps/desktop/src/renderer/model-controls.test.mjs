@@ -308,8 +308,8 @@ for (const recovery of ['local-install', 'desktop-reconnect', 'proxy-poll']) {
     providerSetup = { managedByClient: true, unavailable: true, api: [], local: [] };
   }
   if (recovery === 'proxy-poll') {
-    const schedule = window.setTimeout.bind(window);
-    t.mock.method(window, 'setTimeout', (callback, ms, ...args) => {
+    const schedule = window.setInterval.bind(window);
+    t.mock.method(window, 'setInterval', (callback, ms, ...args) => {
       if (ms === 7_000) { retry = callback; return 700007; }
       return schedule(callback, ms, ...args);
     });

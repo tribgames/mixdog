@@ -1,5 +1,7 @@
 import type { DesktopApi, DesktopModelOption } from '../shared/contract';
 import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';
+import { isSshConnectionWindow } from './desktop-connection';
+import { requireDesktopProviders } from './desktop-provider-retry';
 
 const MODEL_CATALOG_STORAGE_KEY = 'mixdog.desktop-model-catalog.v2';
 const MODEL_CATALOG_LIMIT = 1_000;
@@ -285,7 +287,9 @@ export function subscribeModelCatalogInvalidation(listener: () => void): () => v
 /** Drops the shared request and wakes mounted pickers after provider changes. */
 export function invalidateSharedModelCatalogRequest(): void {
   catalogGeneration += 1;
-  forceNextCatalog = true;
+  // Only a server window must bypass the daemon's proxied provider cache; a
+  // local window keeps its plain re-read.
+  if (isSshConnectionWindow()) forceNextCatalog = true;
   providerModelsGeneration += 1;
   sharedModelCatalogRequest = null;
   for (const listener of [...invalidationListeners]) {
@@ -328,15 +332,9 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
             args: forceSetup ? [{ force: true }] : [],
           })
         )
-        .then((result) => {
-          const setup = result.value as { managedByClient?: boolean; unavailable?: boolean } | null;
-          // Settings may render the offline snapshot, but a picker must retry it
-          // instead of caching an empty authenticated-provider set for a day.
-          if (setup?.managedByClient === true && setup.unavailable === true) {
-            throw new Error('Desktop model providers are unavailable');
-          }
-          return result.value;
-        })
+        // Settings may render the offline snapshot, but a picker must retry it
+        // instead of caching an empty authenticated-provider set for a day.
+        .then((result) => requireDesktopProviders(result.value))
     : Promise.resolve(null);
   const request: SharedModelCatalogRequest = {
     api,

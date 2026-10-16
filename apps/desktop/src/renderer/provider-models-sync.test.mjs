@@ -99,11 +99,42 @@ test('relay notifications reach the paired client and notify uses the remote met
 });
 
 
+test('a local window provider invalidation re-reads references without forcing them', async () => {
+  resetSidebarReferenceCache();
+  const previous = globalThis.window;
+  globalThis.window = new EventTarget();
+  const calls = [];
+  const api = {
+    invokeCapability: async ({ capability, args }) => {
+      calls.push({ capability, args });
+      return { value: { oauth: [{ id: 'openai-oauth', authenticated: true }] } };
+    },
+    listProviderModels: async (options) => {
+      calls.push({ models: options });
+      return [{ provider: 'openai-oauth', model: 'local-model' }];
+    },
+  };
+  const unsubscribe = subscribeProviderModelsSync(api);
+  try {
+    await loadSidebarReferences(api, ['providerSetup', 'quickProviderModels']);
+    globalThis.window.dispatchEvent(new Event('mixdog:remote-reconnected'));
+    await tick();
+    await loadSidebarReferences(api, ['providerSetup', 'quickProviderModels']);
+    assert.equal(calls.filter((call) => call.capability === 'getProviderSetup').length, 2);
+    assert.ok(!calls.some((call) => call.args?.[0]?.force || call.models?.force));
+  } finally {
+    unsubscribe();
+    if (previous === undefined) delete globalThis.window;
+    else globalThis.window = previous;
+    resetSidebarReferenceCache();
+  }
+});
+
 for (const event of ['mixdog:remote-reconnected', 'mixdog:remote-state-gap']) {
   test(`sidebar provider references recover their offline snapshot on ${event}`, async () => {
     resetSidebarReferenceCache();
     const previous = globalThis.window;
-    globalThis.window = new EventTarget();
+    globalThis.window = Object.assign(new EventTarget(), { mixdogDesktop: { connection: { kind: 'ssh' } } });
     let connected = false;
     const calls = [];
     const api = {
