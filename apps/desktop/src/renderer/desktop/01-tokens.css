@@ -86,17 +86,17 @@
      background, so header and body stay one surface. Every theme gets it
      through --mx-surface-plate. */
   --mx-card-header-surface: var(--mx-surface-plate);
-  /* Prompt card and user bubble: one step above the sheet, so the composer
-     and the bubble read as the same raised plate; the card also carries a
-     soft drop under the shell's raised edge. The drop's negative spread keeps
-     it below and beside the card: nothing darkens the strip above it, where
-     the changed-files plate sits. */
-  --mx-composer-surface: var(--mx-bg-layer-1);
-  --mx-composer-lift: 0 12px 24px -4px rgb(0 0 0 / 22%);
+  /* Prompt card and user bubble: a half step above the island frame, so the
+     composer reads as the place to type without outshining the island and
+     the hairline cards around it (design/mockups/composer-tone, A). The
+     drop's negative spread keeps it below and beside the card: nothing
+     darkens the strip above it, where the changed-files plate sits. */
+  --mx-composer-surface: color-mix(in srgb, var(--mx-bg-base) 87.5%, var(--mx-bg-layer-1));
+  --mx-composer-lift: 0 12px 24px -4px rgb(0 0 0 / 16%);
   /* The status island's frame keeps its original blend over the earlier
      #1c1c1f sheet, so it still floats one step above the darker sheet. */
   --mx-island-frame: color-mix(in srgb, var(--mx-bg-base) 62%, #1c1c1f);
-  --mx-user-bubble: var(--mx-bg-layer-1);
+  --mx-user-bubble: var(--mx-composer-surface);
   /* Terminal canvas and ink stay dark-theme paired in every app theme. */
   --mx-terminal-bg: #121215;
   --mx-terminal-fg: #e9e9e9;
@@ -376,6 +376,9 @@
   --mx-raised:
     0 2px 4px var(--mx-alpha-dark-30), 0 1px 2px var(--mx-alpha-dark-30),
     0 0 0 var(--mx-hairline) var(--mx-alpha-light-16), 0 -0.5px 0 var(--mx-alpha-light-6);
+  /* The composer wears the status island's edge: a half-pixel inner hairline
+     over the raised shadow, so the two read as one material. */
+  --mx-composer-edge: inset 0 0 0 0.5px var(--mx-border), var(--mx-raised);
   --mx-floating:
     0 8px 16px var(--mx-alpha-dark-30), 0 4px 8px var(--mx-alpha-dark-30),
     0 0 0 var(--mx-hairline) var(--mx-alpha-light-16), 0 -0.5px 0 var(--mx-alpha-light-6);

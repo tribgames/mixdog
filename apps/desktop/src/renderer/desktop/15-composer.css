@@ -1359,7 +1359,7 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   border: 0;
   border-radius: var(--mx-radius-sheet);
   background: var(--mx-composer-surface);
-  box-shadow: var(--mx-raised), var(--mx-composer-lift);
+  box-shadow: var(--mx-composer-edge), var(--mx-composer-lift);
   /* Keep textarea autosize layout inside the composer formatting context.
      Paint containment belongs on the textarea itself: placing it here clips
      the absolute slash/mention palettes that intentionally open above it. */
@@ -1368,7 +1368,7 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
 }
 .composer:focus-within {
   border: 0;
-  box-shadow: var(--mx-raised), var(--mx-composer-lift);
+  box-shadow: var(--mx-composer-edge), var(--mx-composer-lift);
 }
 .composer textarea:focus,
 .composer textarea:focus-visible {
@@ -1559,7 +1559,7 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   padding: 5px 6px 5px 10px;
   border: 1px solid var(--mx-border-muted);
   border-radius: var(--mx-radius-pill);
-  background: var(--mx-bg-layer-1);
+  background: var(--mx-composer-surface);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   animation: composer-dictation-status-enter var(--mx-motion-slow) var(--mx-ease-emphasized);
 }
