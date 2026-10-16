@@ -1,6 +1,6 @@
 import { lstat } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import {
   requiredProjectRecoveryRequest,
   recoveryStorageError,
@@ -26,6 +26,7 @@ import {
   sameRecoveryIdentity,
   writeRecoveryState,
   inspectRecoveryStorage,
+  recoveryStorageInventory,
   recoveryIsRetired,
   retireRecoveryDirectory,
   removeRecoveryDirectory,
@@ -48,6 +49,14 @@ function validateTarget(root: string, manifest: RecoveryManifest, entry: Recover
   return file;
 }
 
+// The manifest root is the writer's canonical root; a deleted root keeps the
+// spelling the store was keyed by.
+function recoveryBelongsTo(root: string, manifest: RecoveryManifest): boolean {
+  if (manifest.root === resolve(root)) return true;
+  try { return realpathSync(root) === manifest.root; }
+  catch { return false; }
+}
+
 async function inspectDirectory(root: string, directory: string, leased = false): Promise<ProjectRecoveryDetail> {
   if (recoveryIsRetired(directory)) return inspectRecoveryStorage(directory, leased);
   let record: Awaited<ReturnType<typeof readRecoveryRecord>>;
@@ -59,7 +68,12 @@ async function inspectDirectory(root: string, directory: string, leased = false)
   const { manifest, state, fingerprint } = record;
   const busy = !leased && recoveryIsActive(directory);
   const files: ProjectRecoveryDetail['files'] = [];
-  const observations: string[] = [fingerprint];
+  // The record itself (directory identity and full store inventory) is part
+  // of the approval, not only its manifest: discard removes all of it.
+  const observations: string[] = [
+    fingerprint,
+    JSON.stringify([recoveryIdentity(directory), await recoveryStorageInventory(directory)]),
+  ];
   for (let index = 0; index < manifest.files.length; index++) {
     const entry = manifest.files[index];
     try {
@@ -159,6 +173,13 @@ async function executeProjectRecovery(
       const approved = await inspectDirectory(root, owned, true);
       if (approved.revision !== request.revision)
         throw new ProjectRecoveryError('RECOVERY_CHANGED', 'Files or recovery data changed since inspection. Inspect and confirm again.');
+      if (!recoveryIsRetired(owned)) {
+        const manifest = await readRecoveryRecord(owned).then((record) => record.manifest, () => null);
+        // A readable manifest of another project root is not this scope's
+        // journal. Never delete it as if it were; leave it for manual inspection.
+        if (manifest && !recoveryBelongsTo(root, manifest))
+          throw new ProjectRecoveryError('RECOVERY_MANUAL_INSPECTION', 'Recovery record belongs to another project root. Inspect the host recovery folder manually.');
+      }
       owned = await retireRecoveryDirectory(owned);
       await removeRecoveryDirectory(owned);
       removed = true;

@@ -157,6 +157,29 @@ export async function removeRecoveryDirectory(directory: string): Promise<void> 
   await rm(directory, { recursive: true });
 }
 
+// The bounded inventory of a record's flat store: regular files only. Every
+// revision covers it, so an explicit discard (recursive removal) never deletes
+// an entry added, replaced or retyped after the user's inspection.
+export async function recoveryStorageInventory(directory: string): Promise<Array<[string, string, string]>> {
+  await validateRecoveryDirectory(directory);
+  const entries: Array<[string, string, string]> = [];
+  for await (const entry of await opendir(directory)) {
+    if (entries.length >= 300) throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery record has too many entries for automatic removal.');
+    const file = join(directory, entry.name);
+    const info = await lstat(file);
+    if (info.isDirectory()) throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery record contains an unexpected directory.');
+    if (!info.isFile() || info.isSymbolicLink())
+      throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery record contains an entry that is not a regular file.');
+    const digest =
+      info.size <= 131072 && ['manifest.json', 'state.json'].includes(entry.name)
+        ? recoveryDigest(await recoveryReadBytes(file, 131072))
+        : '';
+    entries.push([entry.name, fileStamp(info), digest]);
+  }
+  await validateRecoveryDirectory(directory);
+  return entries.sort(([a], [b]) => a.localeCompare(b));
+}
+
 // Invalid/retired records grant only deletion of their host-owned flat store,
 // never restoration of any path mentioned by an unreadable manifest. Hash a
 // bounded inventory so a replaced record or repaired manifest needs approval
@@ -165,21 +188,8 @@ export async function inspectRecoveryStorage(directory: string, leased = false):
   await validateRecoveryDirectory(directory);
   const owner = locationName(basename(directory))!;
   const identityBefore = recoveryIdentity(directory);
-  const entries: Array<[string, string, string]> = [];
-  for await (const entry of await opendir(directory)) {
-    if (entries.length >= 300) throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery record has too many entries for automatic removal.');
-    const file = join(directory, entry.name);
-    const info = await lstat(file);
-    if (info.isDirectory()) throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery record contains an unexpected directory.');
-    const digest =
-      info.isFile() && info.size <= 131072 && ['manifest.json', 'state.json'].includes(entry.name)
-        ? recoveryDigest(await recoveryReadBytes(file, 131072))
-        : '';
-    entries.push([entry.name, fileStamp(info), digest]);
-  }
-  await validateRecoveryDirectory(directory);
+  const entries = await recoveryStorageInventory(directory);
   if (!sameRecoveryIdentity(identityBefore, recoveryIdentity(directory))) throw new Error('Recovery record changed.');
-  entries.sort(([a], [b]) => a.localeCompare(b));
   const busy = !leased && recoveryIsActive(directory);
   return {
     id: owner.id,

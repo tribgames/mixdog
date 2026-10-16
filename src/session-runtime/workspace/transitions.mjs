@@ -582,6 +582,8 @@ export function createWorkspaceTransitions({
     if (cleanup !== true || merged.merged !== true) return merged;
     // "Merge and clean up": with autoCleanup on, the merged worktree goes now
     // (a dirty one stays, reported); off, nothing is removed automatically.
+    // The merge is committed: a failed or refused cleanup (dirty, retained
+    // file recovery data, ...) is a cleanup notice, never a merge failure.
     if (worktreeSettings().autoCleanup !== true) {
       return { ...merged, cleanup: { removed: false, reason: 'auto-cleanup-off' } };
     }
@@ -589,8 +591,16 @@ export function createWorkspaceTransitions({
       const removed = await removeWorktree({ force: false }, { ownTurn });
       return { ...merged, cleanup: removed.removed, revision: removed.revision, workspace: removed.workspace };
     } catch (error) {
-      if (!isWorktreeError(error, 'WORKTREE_DIRTY') && !isWorktreeError(error, 'WORKTREE_UNMERGED')) throw error;
-      return { ...merged, cleanup: { removed: false, reason: error.code } };
+      if (isWorktreeError(error, 'WORKTREE_DIRTY') || isWorktreeError(error, 'WORKTREE_UNMERGED'))
+        return { ...merged, cleanup: { removed: false, reason: error.code } };
+      return {
+        ...merged,
+        cleanup: {
+          removed: false,
+          reason: error?.code || 'WORKTREE_CLEANUP_FAILED',
+          message: error?.message || String(error),
+        },
+      };
     }
   }
 
