@@ -253,6 +253,11 @@ test('custom session identity: stable key and headers, caller headers win, hook 
 
   await sendCompatResponses(provider, messages, model, [], { ...SESSION, requestHeaders: { 'session-id': 'caller' } });
   assert.deepEqual(requests.at(-1).headers, { 'session-id': 'caller', 'x-client-request-id': 'sess-1' });
+  // A gateway route that opts into prompt_cache_key sends the key, not the session headers.
+  const gateway = fixture('opencode-go', model, { config: { responsesPromptCacheKey: true } });
+  await sendCompatResponses(gateway.provider, messages, model, [], SESSION);
+  assert.equal(gateway.requests.at(-1).body.prompt_cache_key, 'sess-1');
+  assert.equal(gateway.requests.at(-1).headers, undefined);
 
   const hooked = fixture('custom-g', model, {
     config: {

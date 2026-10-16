@@ -66,6 +66,7 @@ function resolveReasoning(provider, useModel, opts) {
 function customEffortProjection(provider, useModel, messages, opts) {
   if (!isCustomProviderName(provider.name)) return null;
   const projection = projectEffortConfiguration(messages, provider.name, useModel, {
+    ...provider.config,
     ...opts,
     protocol: 'openai-responses',
   });
@@ -127,6 +128,34 @@ function customSessionCacheKey(provider, opts) {
   return normalizeCacheKey(
     opts.promptCacheScope === 'shared' ? explicit || opts.sessionId : opts.sessionId || explicit
   );
+}
+
+// HTTP header names are case-insensitive. Do not shadow explicit SDK
+// defaults, combine differently-cased identities, or stringify null deletions.
+function customSessionHeaders(provider, sessionCacheKey, requestHeaders) {
+  if (!sessionCacheKey) return requestHeaders;
+  const headers = { 'session-id': sessionCacheKey, 'x-client-request-id': sessionCacheKey };
+  const clientOptions = provider.config?.clientOptions || {};
+  const configured = Object.hasOwn(clientOptions, 'defaultHeaders')
+    ? clientOptions.defaultHeaders
+    : provider.defaultHeaders;
+  const entries = (source) =>
+    source instanceof Headers || Array.isArray(source) ? source : Object.entries(source || {});
+  const hasValue = (value) =>
+    Array.isArray(value) ? value.some((item) => item !== undefined) : value !== undefined;
+  for (const source of [configured, requestHeaders]) {
+    for (const [name, value] of entries(source)) {
+      if (hasValue(value)) delete headers[name.toLowerCase()];
+    }
+  }
+  if (requestHeaders instanceof Headers) {
+    const merged = new Headers(requestHeaders);
+    for (const [name, value] of Object.entries(headers)) merged.set(name, value);
+    return merged;
+  }
+  if (Array.isArray(requestHeaders)) return [...Object.entries(headers), ...requestHeaders];
+  const supplied = Object.fromEntries(Object.entries(requestHeaders || {}).filter(([, value]) => hasValue(value)));
+  return { ...headers, ...supplied };
 }
 
 /** The request body: lowered transcript plus the per-turn knobs (output cap,
@@ -303,10 +332,11 @@ async function sendCompatResponsesOnce(provider, messages, useModel, tools, opts
     sessionCacheKey,
   });
   // The session identity also travels as headers; caller headers win.
-  const headers =
-    sessionCacheKey && isCustomProviderName(provider.name)
-      ? { 'session-id': sessionCacheKey, 'x-client-request-id': sessionCacheKey, ...opts.requestHeaders }
-      : opts.requestHeaders;
+  // Custom routes only: a gateway route that opts into prompt_cache_key keeps
+  // its own headers.
+  const headers = isCustomProviderName(provider.name)
+    ? customSessionHeaders(provider, sessionCacheKey, opts.requestHeaders)
+    : opts.requestHeaders;
 
   try {
     opts.onStageChange?.('requesting');
