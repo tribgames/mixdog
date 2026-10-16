@@ -658,7 +658,7 @@
   "Branch or tag": "Rama o etiqueta",
   "Branch prefix": "Prefijo de rama",
   "Branched from {{base}}": "Derivado de {{base}}",
-  "Branches and worktrees can't be changed while work is running.": "No se pueden cambiar ramas ni worktrees mientras hay trabajo en curso.",
+  "Can't switch while work is running": "No se puede cambiar durante el trabajo",
   "Breadcrumbs": "Migas de pan",
   "Brewing": "Preparando",
   "Bright & crisp": "Brillante y nítido",

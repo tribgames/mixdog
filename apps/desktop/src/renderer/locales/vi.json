@@ -579,7 +579,7 @@
   "Branch or tag": "Nhánh hoặc tag",
   "Branch prefix": "Tiền tố nhánh",
   "Branched from {{base}}": "Tách từ {{base}}",
-  "Branches and worktrees can't be changed while work is running.": "Không thể đổi nhánh hoặc worktree khi đang có công việc chạy.",
+  "Can't switch while work is running": "Không thể chuyển khi đang chạy",
   "Breadcrumbs": "Đường dẫn",
   "Brewing": "Đang ủ",
   "Bright & crisp": "Sáng và sắc nét",

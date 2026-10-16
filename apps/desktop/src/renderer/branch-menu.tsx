@@ -710,8 +710,8 @@ export function BranchMenuPanel({
       onKeyDown={(event) => moveMenuFocus(event, panel.current, onEscape)}
     >
       {locked && (
-        <p className="branch-menu-notice" data-kind="locked" role="status">
-          {t("Branches and worktrees can't be changed while work is running.")}
+        <p className="branch-menu-notice" data-kind="locked" role="status" title={t("Can't switch while work is running")}>
+          {t("Can't switch while work is running")}
         </p>
       )}
       {!upward && actionGroup}

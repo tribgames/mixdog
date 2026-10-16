@@ -145,9 +145,15 @@ export function routeFlyoutBox(
   if (canOpenLeft || canOpenRight) {
     const openLeft = preferredSide === 'right' ? !canOpenRight && canOpenLeft : canOpenLeft;
     const height = Math.min(preferredHeight, Math.max(1, viewport.height - ROUTE_PANEL_EDGE * 2));
+    // A sheet that opened above its pill ends at the composer: a submenu from
+    // a low row grows upward from that edge instead of covering the composer.
+    const lowestTop =
+      sheet.placement === 'above'
+        ? Math.min(viewportBottom - height - ROUTE_PANEL_EDGE, sheet.top + sheet.height - height)
+        : viewportBottom - height - ROUTE_PANEL_EDGE;
     return {
       left: openLeft ? sheet.left - ROUTE_PANEL_GAP - sideWidth : sheet.left + sheet.width + ROUTE_PANEL_GAP,
-      top: clamp(anchorTop ?? sheet.top, viewportTop + ROUTE_PANEL_EDGE, viewportBottom - height - ROUTE_PANEL_EDGE),
+      top: clamp(anchorTop ?? sheet.top, viewportTop + ROUTE_PANEL_EDGE, lowestTop),
       width: sideWidth,
       height,
       maxHeight: height,

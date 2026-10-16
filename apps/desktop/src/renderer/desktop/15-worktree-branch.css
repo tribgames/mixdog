@@ -197,7 +197,10 @@
 /* Work is running: the reason leads the menu and no switch can start. */
 .branch-menu-notice[data-kind="locked"] {
   margin: 0 0 6px;
-  padding: 6px 10px;
+  padding: 4px 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   border-radius: var(--mx-radius-md);
   background: color-mix(in srgb, var(--mx-warning) 12%, transparent);
 }

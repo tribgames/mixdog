@@ -619,7 +619,7 @@
   "Branch or tag": "Branch oder Tag",
   "Branch prefix": "Branch-Präfix",
   "Branched from {{base}}": "Abgezweigt von {{base}}",
-  "Branches and worktrees can't be changed while work is running.": "Während Arbeit läuft, können Branches und Worktrees nicht gewechselt werden.",
+  "Can't switch while work is running": "Während der Arbeit nicht wechselbar",
   "Breadcrumbs": "Semmelbrösel",
   "Brewing": "Braut",
   "Bright & crisp": "Hell und klar",

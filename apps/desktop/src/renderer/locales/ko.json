@@ -579,7 +579,7 @@
   "Branch or tag": "브랜치 또는 태그",
   "Branch prefix": "브랜치 접두사",
   "Branched from {{base}}": "{{base}}에서 분기",
-  "Branches and worktrees can't be changed while work is running.": "작업 중에는 브랜치나 워크트리를 바꿀 수 없습니다.",
+  "Can't switch while work is running": "작업 중에는 바꿀 수 없습니다",
   "Breadcrumbs": "이동 경로",
   "Brewing": "우려내는 중",
   "Bright & crisp": "밝고 선명함",

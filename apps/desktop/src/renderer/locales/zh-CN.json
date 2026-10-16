@@ -579,7 +579,7 @@
   "Branch or tag": "分支或标签",
   "Branch prefix": "分支前缀",
   "Branched from {{base}}": "从 {{base}} 分出",
-  "Branches and worktrees can't be changed while work is running.": "工作进行中时无法切换分支或工作树。",
+  "Can't switch while work is running": "工作进行中无法切换",
   "Breadcrumbs": "面包屑",
   "Brewing": "酝酿中",
   "Bright & crisp": "明亮、清脆",

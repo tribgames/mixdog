@@ -699,7 +699,7 @@
   "Branch or tag": "Ветка или тег",
   "Branch prefix": "Префикс ветки",
   "Branched from {{base}}": "Ответвлено от {{base}}",
-  "Branches and worktrees can't be changed while work is running.": "Пока идёт работа, переключать ветки и рабочие деревья нельзя.",
+  "Can't switch while work is running": "Нельзя переключить во время работы",
   "Breadcrumbs": "Хлебные крошки",
   "Brewing": "Заваривает",
   "Bright & crisp": "Яркий и четкий",

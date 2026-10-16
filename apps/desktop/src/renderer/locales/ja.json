@@ -579,7 +579,7 @@
   "Branch or tag": "ブランチまたはタグ",
   "Branch prefix": "ブランチ接頭辞",
   "Branched from {{base}}": "{{base}} から分岐",
-  "Branches and worktrees can't be changed while work is running.": "作業中はブランチやワークツリーを切り替えられません。",
+  "Can't switch while work is running": "作業中は切り替えできません",
   "Breadcrumbs": "ブレッドクラム",
   "Brewing": "抽出中",
   "Bright & crisp": "明るく鮮明な",
