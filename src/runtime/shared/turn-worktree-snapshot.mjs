@@ -49,7 +49,7 @@ function pathKey(value) {
 
 /** `resolve` plus symlinks of the nearest existing ancestor: git reports the
  *  worktree root canonically (macOS /var -> /private/var), callers may not. */
-function canonicalPath(value, dirs = null) {
+export function canonicalPath(value, dirs = null) {
   const full = resolve(value);
   if (dirs) {
     // Same result as the walk below without repeating it per file: the parent
@@ -381,10 +381,8 @@ async function resetShadowIndex(state) {
 }
 
 async function changedWorktreePaths(state) {
-  // The source's tracked list (re-read only after its index moved) is first
-  // needed once both scans are back, so it is read beside them, not before.
-  const [, tracked, untracked] = await Promise.all([
-    refreshSourceTracked(state),
+  await refreshSourceTracked(state);
+  const [tracked, untracked] = await Promise.all([
     runGit(shadowArgs(state, ['diff-files', '--name-only', '-z', '--', '.']), {
       cwd: state.root,
     }),

@@ -8,7 +8,7 @@ import test from 'node:test';
 
 const { deleteSession, saveSession } = await import('../runtime/agent/orchestrator/session/store.mjs');
 const mgr = await import('../runtime/agent/orchestrator/session/manager.mjs');
-const { _sessionSummary, _writeSummaryIndex } = await import(
+const { _sessionSummary, _writeSummaryIndex, settleSummaryIndexWrites } = await import(
   '../runtime/agent/orchestrator/session/store-summary-index.mjs'
 );
 const { createTranscriptWriter } = await import('../runtime/shared/transcript-writer.mjs');
@@ -18,7 +18,10 @@ const { registerTranscriptPurgeHook } = await import('./session-transcript-purge
 
 const roots = [];
 const previous = { home: process.env.MIXDOG_HOME, data: process.env.MIXDOG_DATA_DIR };
-test.after(() => {
+test.after(async () => {
+  // A delete queues its summary-index removal: let it land before the
+  // folders it writes into are removed.
+  await settleSummaryIndexWrites();
   for (const [key, value] of [
     ['MIXDOG_HOME', previous.home],
     ['MIXDOG_DATA_DIR', previous.data],

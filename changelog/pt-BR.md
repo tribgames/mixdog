@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.2.3 - 2026-10-16
+
 Desde o lançamento, muito mais pessoas do que esperávamos estão usando o Mixdog, e somos imensamente gratos. Algumas partes ainda estão instáveis, e estamos corrigindo-as o mais rápido possível. Seus problemas relatados e pull requests moldaram grande parte desta versão. Se algo der errado, avise-nos em **Configurações → Sobre → Feedback**.
 
 Novo no raciocínio automático? Um pequeno modelo avaliador no seu PC escolhe o quanto o modelo deve pensar para cada mensagem e etapa. Veja como funciona e o desempenho no Terminal-Bench 2.1 em [Esforço de raciocínio automático](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).

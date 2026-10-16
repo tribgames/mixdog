@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.2.3 - 2026-10-16
+
 Dal lancio, Mixdog è stato utilizzato da molti più utenti di quanto ci aspettassimo, e ve ne siamo davvero grati. Alcune parti sono ancora instabili e le stiamo correggendo il più rapidamente possibile. Le vostre segnalazioni e pull request hanno plasmato gran parte di questo rilascio. In caso di problemi, fatecelo sapere da **Impostazioni → Informazioni → Feedback**.
 
 Nuovo al ragionamento automatico? Un piccolo modello di valutazione sul vostro PC stabilisce l'intensità di riflessione del modello per ogni messaggio e passaggio. Per scoprire come funziona e come si è comportato su Terminal-Bench 2.1, consultate [Impegno di ragionamento automatico](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).

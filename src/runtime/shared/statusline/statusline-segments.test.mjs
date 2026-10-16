@@ -172,7 +172,9 @@ test('finished shells do not blink out when an owner is polled again after its c
     const ownerB = process.pid + 500_000;
     // The desktop poller asks for the owner aggregate and reads its session buckets.
     const finished = (pid) => shellJobsStatus({ clientHostPid: pid }).sessions?.['sess-blink']?.finished.length ?? 0;
-    for (let attempt = 0; attempt < 40 && (finished(ownerA) !== 1 || finished(ownerB) !== 1); attempt += 1) {
+    // Both owners' entries from the earlier tests stay fresh for up to a
+    // second before a poll rescans this data dir: wait past that window.
+    for (let attempt = 0; attempt < 100 && (finished(ownerA) !== 1 || finished(ownerB) !== 1); attempt += 1) {
       await delay(25);
     }
     assert.equal(finished(ownerA), 1);

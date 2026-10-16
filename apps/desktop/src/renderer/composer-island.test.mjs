@@ -1052,10 +1052,14 @@ test('reduced motion turning on mid-animation lands the slot at its target heigh
     await Promise.resolve();
     const slot = document.querySelector('.composer-island-slot');
     const target = Number.parseFloat(slot.style.getPropertyValue('--island-slot-height'));
-    await window.__frame();
-    await window.__frame();
-    await window.__frame();
-    return { target, mid: slot.offsetHeight, moving: slot.hasAttribute('data-motion') };
+    // The first painted frame between closed and open: a fixed frame count
+    // can land past the end of the transition on a slow runner.
+    let mid = 0;
+    for (let index = 0; index < 30 && mid === 0; index += 1) {
+      await window.__frame();
+      mid = slot.offsetHeight;
+    }
+    return { target, mid, moving: slot.hasAttribute('data-motion') };
   });
   assert.ok(opening.target > 0);
   assert.equal(opening.moving, true);

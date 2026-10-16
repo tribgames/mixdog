@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.2.3 - 2026-10-16
+
 Depuis le lancement, vous êtes bien plus nombreux que prévu à utiliser Mixdog, et nous vous en sommes sincèrement reconnaissants. Certaines parties sont encore instables et nous les corrigeons aussi vite que possible. Vos signalements et pull requests ont façonné une grande partie de cette version. En cas de problème, faites-le-nous savoir depuis **Réglages → À propos → Commentaires**.
 
 Nouveau dans le raisonnement automatique ? Un petit modèle d'évaluation sur votre PC choisit l'intensité de réflexion du modèle pour chaque message et étape. Découvrez son fonctionnement et ses performances sur Terminal-Bench 2.1 dans [Effort de raisonnement automatique](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).

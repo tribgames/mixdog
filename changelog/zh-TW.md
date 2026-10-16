@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## v1.2.3 - 2026-10-16
+
 自推出以來，Mixdog 的使用人數遠超我們的預期，我們由衷感謝。部分功能目前仍不穩定，我們正盡速修復中。本次發佈的大部分內容皆來自大家所回報的 Issue 與 PR。若遇到任何問題，請透過 **設定 → 關於 → 意見回饋** 回報給我們。
 
 初次接觸自動推論？您 PC 上的小型判定模型會針對每則訊息與步驟挑選模型思考的深度。了解其運作方式及在 Terminal-Bench 2.1 上的表現，請參閱 [自動推論深度](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md)。
