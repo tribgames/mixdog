@@ -4466,7 +4466,7 @@
   "Use as reference": "Использовать как референс",
   "Use Codex reset credit {{index}}": "Использовать кредит сброса Codex {{index}}",
   "Use credits": "Использовать кредиты",
-  "Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.": "Используется для внутренних операций Git, обслуживания памяти, создания названий сессий и других фоновых задач Mixdog.",
+  "Use for memory upkeep, session naming, and other Mixdog background operations.": "Используется для обслуживания памяти, создания названий сессий и других фоновых задач Mixdog.",
   "Use for messaging": "Используйте для обмена сообщениями",
   "Use host computer settings": "Использовать настройки хост-компьютера",
   "Use host settings": "Использовать настройки хоста",

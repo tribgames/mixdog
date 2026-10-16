@@ -4403,7 +4403,7 @@
   "Use as reference": "Usar como referencia",
   "Use Codex reset credit {{index}}": "Usar crédito de reinicio {{index}} de Codex",
   "Use credits": "Usar créditos",
-  "Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.": "Úsalo para operaciones internas de Git, mantenimiento de memoria, nombres de sesiones y otras tareas en segundo plano de Mixdog.",
+  "Use for memory upkeep, session naming, and other Mixdog background operations.": "Úsalo para mantenimiento de memoria, nombres de sesiones y otras tareas en segundo plano de Mixdog.",
   "Use for messaging": "Usar para mensajería",
   "Use host computer settings": "Usar la configuración del equipo host",
   "Use host settings": "Usar configuración del host",

@@ -4283,7 +4283,7 @@
   "Use as reference": "参照画像にする",
   "Use Codex reset credit {{index}}": "Codexリセットクレジット{{index}}を使用",
   "Use credits": "クレジットを使用",
-  "Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.": "内部 Git 操作、メモリの維持、セッション名の生成など、Mixdog のバックグラウンド運用に使います。",
+  "Use for memory upkeep, session naming, and other Mixdog background operations.": "メモリの維持、セッション名の生成など、Mixdog のバックグラウンド運用に使います。",
   "Use for messaging": "メッセージングに使用する",
   "Use host computer settings": "ホストコンピューターの設定を使用",
   "Use host settings": "ホストの設定を使用",

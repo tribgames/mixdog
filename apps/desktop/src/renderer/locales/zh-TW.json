@@ -4283,7 +4283,7 @@
   "Use as reference": "用作參考圖",
   "Use Codex reset credit {{index}}": "使用 Codex 重置額度 {{index}}",
   "Use credits": "使用額度",
-  "Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.": "用於內部 Git 操作、記憶維護、工作階段命名及其他 Mixdog 背景維運工作。",
+  "Use for memory upkeep, session naming, and other Mixdog background operations.": "用於記憶維護、工作階段命名及其他 Mixdog 背景維運工作。",
   "Use for messaging": "用於訊息傳遞",
   "Use host computer settings": "使用主機電腦設定",
   "Use host settings": "使用主機設定",
