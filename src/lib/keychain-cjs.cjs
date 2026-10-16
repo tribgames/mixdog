@@ -353,7 +353,9 @@ function secretToolCheck(r) {
   }
   if (r.error) {
     keychainDebug('secret-tool failed to start', r.error.message);
-    throw new Error('[keychain] secret-tool could not be started — check that libsecret-tools is installed and a Secret Service is running');
+    throw new Error(
+      '[keychain] secret-tool could not be started — check that libsecret-tools is installed and a Secret Service is running'
+    );
   }
   return r;
 }
@@ -495,7 +497,10 @@ function onKeychainRecovered(listener) {
 // secret-tool cannot fix itself and is not retried.
 function _scheduleLinuxBackgroundRetry() {
   if (_linuxBgTimer || _keychainStatus.state === 'missing' || _gdbusMissing) return;
-  const delay = Math.min(LINUX_PREWARM_RETRY_MS * 2, LINUX_PREWARM_RETRY_MS + _linuxBgAttempt * (LINUX_PREWARM_RETRY_MS / 2));
+  const delay = Math.min(
+    LINUX_PREWARM_RETRY_MS * 2,
+    LINUX_PREWARM_RETRY_MS + _linuxBgAttempt * (LINUX_PREWARM_RETRY_MS / 2)
+  );
   _linuxBgAttempt++;
   _linuxBgTimer = setTimeout(async () => {
     _linuxBgTimer = null;
@@ -592,14 +597,10 @@ const LINUX_UNREACHABLE_MESSAGE =
   '[keychain] the keyring is not reachable — make sure it is running, then use Unlock keyring / Retry';
 function _noteKeychainFailure(error) {
   const message = String(error?.message || error);
-  const state =
-    error?.code === 'KEYRING_UNREACHABLE'
-      ? 'unreachable'
-      : /not installed/.test(message)
-        ? 'missing'
-        : /locked|timed out/.test(message)
-          ? 'locked'
-          : 'error';
+  let state = 'error';
+  if (error?.code === 'KEYRING_UNREACHABLE') state = 'unreachable';
+  else if (/not installed/.test(message)) state = 'missing';
+  else if (/locked|timed out/.test(message)) state = 'locked';
   _keychainStatus = { state, message };
 }
 
@@ -718,7 +719,8 @@ async function _prewarmLinuxOnce() {
     for (const account of accounts) {
       const value = await linuxGetAsync(account, remaining());
       if (value !== null) values.push([account, value]);
-    }    if (_cacheEpoch !== epoch) return;
+    }
+    if (_cacheEpoch !== epoch) return;
     // Replace, not merge: values the keyring now holds overwrite the cache and
     // cached accounts the keyring no longer has are dropped, so external CLI /
     // other-process add, replace and delete are picked up. A same-process

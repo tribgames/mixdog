@@ -62,11 +62,11 @@ export class ToolSurfaceExceedsContextError extends Error {
     const headline = reserve
       ? 'The configured compaction headroom leaves no room for conversation history'
       : 'Tool definitions and system context leave no room for conversation history';
+    const fewerReservedHint =
+      overhead.configuredReserveTokens > 0 ? ', or configure fewer reserved tokens (compaction.reservedTokens)' : '';
     const remedy = reserve
       ? 'Lower the configured headroom (compaction.reservedTokens or MIXDOG_AGENT_COMPACT_RESERVED_TOKENS), or use a model with a larger context window.'
-      : `Use a model with a larger context window, or send a smaller eager tool surface (disable MCP servers or custom tools this session does not need)${
-          overhead.configuredReserveTokens > 0 ? ', or configure fewer reserved tokens (compaction.reservedTokens)' : ''
-        }.`;
+      : `Use a model with a larger context window, or send a smaller eager tool surface (disable MCP servers or custom tools this session does not need)${fewerReservedHint}.`;
     const largest = overhead.largestTools.map((tool) => `${tool.name} (${tokens(tool.tokens)})`).join(', ');
     super(
       [

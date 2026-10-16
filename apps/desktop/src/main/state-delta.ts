@@ -623,17 +623,19 @@ function expandCompactWire(record: Record<string, unknown>): Record<string, unkn
   const itemsPatch = record.ip as Record<string, unknown> | undefined;
   const expanded: Record<string, unknown> = { __v: COMPACT_WIRE_VERSION };
   const revision = record.r;
+  let patchFields = {};
+  if (itemsPatch && typeof itemsPatch === 'object' && !Array.isArray(itemsPatch)) {
+    patchFields = {
+      ...(Object.hasOwn(itemsPatch, 'h') ? { prepend: itemsPatch.h } : {}),
+      prefix: itemsPatch.p,
+      append: itemsPatch.a,
+    };
+  }
   expanded.__itemsPatch = {
     // The sender only ever advances by one, so the base is implied.
     base: Number.isSafeInteger(revision) ? (revision as number) - 1 : undefined,
     revision,
-    ...(itemsPatch && typeof itemsPatch === 'object' && !Array.isArray(itemsPatch)
-      ? {
-          ...(Object.hasOwn(itemsPatch, 'h') ? { prepend: itemsPatch.h } : {}),
-          prefix: itemsPatch.p,
-          append: itemsPatch.a,
-        }
-      : {}),
+    ...patchFields,
   };
   if (Object.hasOwn(record, 'sc') || Object.hasOwn(record, 'sd') || Object.hasOwn(record, 'sl')) {
     expanded.__statePatch = {

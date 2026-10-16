@@ -101,7 +101,10 @@ function supportsPromptCacheKey(provider, opts) {
 // `responsesNativeItems: true` (opts or config) gets the first-party lowering.
 // Every other route keeps the function-only lowering byte for byte.
 function supportsNativeResponsesItems(provider, opts) {
-  return (opts.responsesNativeItems ?? provider.config?.responsesNativeItems) === true || hasNativeDeferredTools(provider, opts);
+  return (
+    (opts.responsesNativeItems ?? provider.config?.responsesNativeItems) === true ||
+    hasNativeDeferredTools(provider, opts)
+  );
 }
 
 // A session whose pinned route verified native deferred tools on the Responses
@@ -300,9 +303,10 @@ async function sendCompatResponsesOnce(provider, messages, useModel, tools, opts
     sessionCacheKey,
   });
   // The session identity also travels as headers; caller headers win.
-  const headers = sessionCacheKey && isCustomProviderName(provider.name)
-    ? { 'session-id': sessionCacheKey, 'x-client-request-id': sessionCacheKey, ...opts.requestHeaders }
-    : opts.requestHeaders;
+  const headers =
+    sessionCacheKey && isCustomProviderName(provider.name)
+      ? { 'session-id': sessionCacheKey, 'x-client-request-id': sessionCacheKey, ...opts.requestHeaders }
+      : opts.requestHeaders;
 
   try {
     opts.onStageChange?.('requesting');

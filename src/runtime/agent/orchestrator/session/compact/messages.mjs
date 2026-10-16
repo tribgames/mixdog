@@ -26,12 +26,7 @@ export function makeSummaryMessage(content) {
 
 // User-message classification lives in the import-light user-message-kind.mjs
 // (the session store counts real turns with it); re-exported for callers.
-export {
-  isActualUserInstructionMessage,
-  isInjectedSkillBodyMessage,
-  isProtectedContextUserMessage,
-  isSummaryMessage,
-};
+export { isActualUserInstructionMessage, isInjectedSkillBodyMessage, isProtectedContextUserMessage, isSummaryMessage };
 
 export function latestActualUserInstructionIndex(messages) {
   for (let index = (Array.isArray(messages) ? messages.length : 0) - 1; index >= 0; index -= 1) {

@@ -98,7 +98,10 @@ function thinkingText(thinking) {
   if (typeof thinking === 'string') return thinking;
   if (!Array.isArray(thinking)) return '';
   return thinking
-    .map((inner) => (typeof inner === 'string' ? inner : typeof inner?.text === 'string' ? inner.text : ''))
+    .map((inner) => {
+      if (typeof inner === 'string') return inner;
+      return typeof inner?.text === 'string' ? inner.text : '';
+    })
     .join('');
 }
 
@@ -129,14 +132,15 @@ export function chatContentParts(content) {
  */
 export function readChatMessage(message, { shape = null } = {}) {
   const parts = chatContentParts(message?.content);
-  const content = parts
-    ? parts
-        .filter((part) => part.kind === 'text')
-        .map((part) => part.text)
-        .join('')
-    : typeof message?.content === 'string'
-      ? message.content
-      : '';
+  let content;
+  if (parts) {
+    content = parts
+      .filter((part) => part.kind === 'text')
+      .map((part) => part.text)
+      .join('');
+  } else {
+    content = typeof message?.content === 'string' ? message.content : '';
+  }
   if (typeof message?.reasoning_content === 'string') {
     return { content, reasoningContent: message.reasoning_content, reasoningSource: 'reasoning_content' };
   }

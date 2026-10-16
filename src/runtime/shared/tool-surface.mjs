@@ -452,9 +452,8 @@ function summarizeGithub(a, max) {
   const id = a.number ?? a.id;
   const hasId = id != null && String(id).trim() !== '';
   const title = truncateToolText(firstText(a.title, a.workflow, a.tag), Math.min(max, 60));
-  return hasId
-    ? compactParts([`${phrase} ${String(id).trim()}`, repo, title])
-    : compactParts([repo ? `${phrase} ${repo}` : phrase, title]);
+  if (hasId) return compactParts([`${phrase} ${String(id).trim()}`, repo, title]);
+  return compactParts([repo ? `${phrase} ${repo}` : phrase, title]);
 }
 
 export function formatToolSurface(name, args, opts = {}) {

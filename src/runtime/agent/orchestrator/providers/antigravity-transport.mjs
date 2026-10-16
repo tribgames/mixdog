@@ -6,12 +6,13 @@
  * account-verification URL Google hides in the error details), and the
  * per-attempt hand-off of the live stream to the turn collector.
  */
-import { emitProviderRetryStage, markProviderRecoveryExhausted, sleepWithAbort, withRetry } from './retry-classifier.mjs';
 import {
-  ANTIGRAVITY_RETRY,
-  antigravity429WaitMs,
-  isAntigravityCapacityError,
-} from './antigravity-retry-policy.mjs';
+  emitProviderRetryStage,
+  markProviderRecoveryExhausted,
+  sleepWithAbort,
+  withRetry,
+} from './retry-classifier.mjs';
+import { ANTIGRAVITY_RETRY, antigravity429WaitMs, isAntigravityCapacityError } from './antigravity-retry-policy.mjs';
 import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { GEMINI_FIRST_BYTE_TIMEOUT_MS } from './gemini-stream.mjs';
@@ -77,8 +78,10 @@ export function antigravityError(res, text, endpoint) {
     .map((link) => link?.url)
     .find((url) => typeof url === 'string' && url.length > 0);
   const metadataUrl = (key) =>
-    detailEntries.find((entry) => entry?.reason === 'VALIDATION_REQUIRED' && typeof entry.metadata?.[key] === 'string' && entry.metadata[key])
-      ?.metadata[key];
+    detailEntries.find(
+      (entry) =>
+        entry?.reason === 'VALIDATION_REQUIRED' && typeof entry.metadata?.[key] === 'string' && entry.metadata[key]
+    )?.metadata[key];
   const validationUrl =
     helpUrl ||
     metadataUrl('validation_url') ||

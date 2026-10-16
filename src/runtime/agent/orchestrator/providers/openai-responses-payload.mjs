@@ -119,7 +119,13 @@ function responsesToolsList(tools, opts, nativeToolSearch) {
   // must be a valid 2020-12 object schema -- lowered when it is not, left out
   // and reported when it still is not.
   const sendable = tools?.length
-    ? acceptedWireTools(tools, 'openai', opts.onToolExcluded, `[${opts.promptCacheProvider || 'openai-oauth'}] tool`, isResponsesFreeformTool)
+    ? acceptedWireTools(
+        tools,
+        'openai',
+        opts.onToolExcluded,
+        `[${opts.promptCacheProvider || 'openai-oauth'}] tool`,
+        isResponsesFreeformTool
+      )
     : [];
   const functionTools = sendable.map((t) => toOpenAIResponsesTool(t, { nativeToolSearch }));
   const nativeTools = Array.isArray(opts.nativeTools) ? opts.nativeTools.filter((t) => t && typeof t === 'object') : [];

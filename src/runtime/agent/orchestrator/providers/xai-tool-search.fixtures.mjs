@@ -106,8 +106,16 @@ export function serverSearchEvents(model = 'grok-4') {
 }
 
 export const SESSION_TOOLS = [
-  { name: 'Read', description: 'Read a file', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } },
-  { name: 'load_tool', description: 'Load tools', inputSchema: { type: 'object', properties: { names: { type: 'array' } } } },
+  {
+    name: 'Read',
+    description: 'Read a file',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+  },
+  {
+    name: 'load_tool',
+    description: 'Load tools',
+    inputSchema: { type: 'object', properties: { names: { type: 'array' } } },
+  },
 ];
 export const DEFERRED_TOOLS = [
   ...SESSION_TOOLS,
@@ -168,7 +176,11 @@ export async function captureBodies(history, tools, { config = {}, opts = {} } =
   await sendXaiResponses(http.provider, history, 'grok-4', tools, { sessionId: 'sess-1', ...opts });
   const before = ws.bodies.length;
   const socket = xaiProvider(config);
-  await sendXaiResponsesWebSocket(socket.provider, history, 'grok-4', tools, { sessionId: 'sess-1', iteration: 1, ...opts });
+  await sendXaiResponsesWebSocket(socket.provider, history, 'grok-4', tools, {
+    sessionId: 'sess-1',
+    iteration: 1,
+    ...opts,
+  });
   return { http: http.requests[0], ws: ws.bodies[before] };
 }
 

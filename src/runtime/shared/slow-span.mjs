@@ -64,7 +64,14 @@ export function createSlowSpans({
     span.end = now();
     span.ms = span.end - span.start;
     if (span.ms >= minMs) {
-      ring.push({ label: span.label, start: span.start, end: span.end, ms: span.ms, phases: span.phases, size: span.size });
+      ring.push({
+        label: span.label,
+        start: span.start,
+        end: span.end,
+        ms: span.ms,
+        phases: span.phases,
+        size: span.size,
+      });
       if (ring.length > capacity) ring.shift();
     }
     if (span.ms >= slowMs) {

@@ -151,7 +151,8 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
     const relayEndpoints = new Set(relayTargets.map((target) => target.endpoint));
     const subscriptions = stored.filter(
       (subscription) =>
-        !relayEndpoints.has(subscription.endpoint) && !(subscription.clientId && relayBrowsers.has(subscription.clientId))
+        !relayEndpoints.has(subscription.endpoint) &&
+        !(subscription.clientId && relayBrowsers.has(subscription.clientId))
     );
     if (relayTargets.length === 0 && subscriptions.length === 0) {
       await nativeDelivery;

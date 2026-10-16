@@ -272,7 +272,8 @@ export const SETUP_TOOL_DEFS = Object.freeze([
               properties: { id: { type: 'string' }, label: { type: 'string', maxLength: 80 } },
             },
           },
-          description: 'set_provider_account: OAuth account change; account ids from status providers with detail:true.',
+          description:
+            'set_provider_account: OAuth account change; account ids from status providers with detail:true.',
         },
         modelId: {
           type: 'string',

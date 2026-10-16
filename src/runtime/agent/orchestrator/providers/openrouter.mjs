@@ -69,7 +69,6 @@ export class OpenRouterProvider extends WireGatewayProvider {
     );
     // The roster's output ceiling is `top_provider.max_completion_tokens`.
     const fetchItems = this.openai._fetchModelItems.bind(this.openai);
-    this.openai._fetchModelItems = async (options) =>
-      (await fetchItems(options)).map(withTopProviderOutputCeiling);
+    this.openai._fetchModelItems = async (options) => (await fetchItems(options)).map(withTopProviderOutputCeiling);
   }
 }

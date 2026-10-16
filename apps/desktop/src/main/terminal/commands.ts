@@ -118,7 +118,8 @@ export function createTerminalCommandExecutor(backend: TerminalBridgeBackend, op
         return runInNewTab(sessionId, text, signal);
       }
       const target = requested === undefined ? open[0] : open.find((entry) => entry.tab === requested);
-      if (!target) throw new Error(`no terminal tab ${requested}; open tabs: ${open.map((entry) => entry.tab).join(', ')}`);
+      if (!target)
+        throw new Error(`no terminal tab ${requested}; open tabs: ${open.map((entry) => entry.tab).join(', ')}`);
       const before = await backend.snapshot(target.id);
       if (!before) throw new Error(`terminal tab ${target.tab} is no longer available`);
       await backend.write(target.id, terminalCommandInput(text));
@@ -134,7 +135,8 @@ export function createTerminalCommandExecutor(backend: TerminalBridgeBackend, op
     const since = optionalInteger(command.since, 'since', 0);
     if (!tabs.length) throw new Error('no terminal tabs are open for this session');
     const target = requested === undefined ? tabs[0] : tabs.find((entry) => entry.tab === requested);
-    if (!target) throw new Error(`no terminal tab ${requested}; open tabs: ${tabs.map((entry) => entry.tab).join(', ')}`);
+    if (!target)
+      throw new Error(`no terminal tab ${requested}; open tabs: ${tabs.map((entry) => entry.tab).join(', ')}`);
     const snapshot = await backend.snapshot(target.id, since);
     if (!snapshot) throw new Error(`terminal tab ${target.tab} is no longer available`);
     return {

@@ -29,10 +29,13 @@ import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { noteRequestServiceTier } from '../../../shared/llm/usage-context.mjs';
 import { resolveProviderCacheKey, resolveProviderPromptCacheLane } from '../agent-runtime/cache-strategy.mjs';
 
+function isUnsafeToRetry(err) {
+  return err?.liveTextEmitted === true || err?.emittedToolCall === true || err?.unsafeToRetry === true;
+}
+
 function shouldFallbackDirectTransport(err, options) {
   const status = Number(err?.httpStatus || err?.status || 0);
-  const unsafeToRetry = err?.liveTextEmitted === true || err?.emittedToolCall === true || err?.unsafeToRetry === true;
-  if (unsafeToRetry || options?.signal?.aborted || options?.enabled === false) return false;
+  if (isUnsafeToRetry(err) || options?.signal?.aborted || options?.enabled === false) return false;
   // Public OpenAI can reject the WebSocket upgrade while still supporting
   // the same request over HTTP/SSE. Only the shared transport's explicit
   // handshake marker may turn these application-looking statuses into a
@@ -205,8 +208,7 @@ export class OpenAIDirectProvider {
       try {
         return await sendHttp({ ...common, auth: a, opts, fetchFn: opts._fetchFn });
       } catch (err) {
-        const unsafe = err?.liveTextEmitted === true || err?.emittedToolCall === true || err?.unsafeToRetry === true;
-        if (!reload || err?.httpStatus !== 401 || unsafe) throw err;
+        if (!reload || err?.httpStatus !== 401 || isUnsafeToRetry(err)) throw err;
         // The replay discards this attempt; its reported usage stays billed.
         noteErrorUsage(err);
         process.stderr.write('[openai-ws] 401 — reloading apiKey and retrying once over HTTP\n');
@@ -252,8 +254,7 @@ export class OpenAIDirectProvider {
       const status = err?.httpStatus;
       // Live-text/tool invariant: never reissue a turn that already
       // relayed visible output or dispatched a tool call.
-      const unsafeToRetry =
-        err?.liveTextEmitted === true || err?.emittedToolCall === true || err?.unsafeToRetry === true;
+      const unsafeToRetry = isUnsafeToRetry(err);
       // (1) 401 → reload only OpenAI auth and retry once over WS.
       // Ordinary 403 is a permission/policy decision, not evidence that
       // an API key rotated. Match the OAuth path and keep it terminal.

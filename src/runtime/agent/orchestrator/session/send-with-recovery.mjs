@@ -454,7 +454,9 @@ async function recoverFromSendError(sendErr, state) {
   if (toolSchemaDropUsed !== true) {
     const exclusion = rejectedToolSchema(sendErr, state);
     if (exclusion) {
-      logLoop(`[loop] provider rejected tool schema "${exclusion.name}" (${loopTag(state)}); dropping it and replaying once`);
+      logLoop(
+        `[loop] provider rejected tool schema "${exclusion.name}" (${loopTag(state)}); dropping it and replaying once`
+      );
       traceLoop(state, 'tool_schema_drop', { tool: exclusion.name });
       return { action: 'retry_tool_schema_drop', exclusion };
     }

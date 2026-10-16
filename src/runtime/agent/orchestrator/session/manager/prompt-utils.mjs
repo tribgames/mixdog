@@ -229,7 +229,7 @@ export function replaceWorkspaceCoreSlices(core, { coreMemoryContext, instructio
     if (memory) parts.push(`${CORE_MEMORY_HEADING}${memory}`);
   }
   if (instructionFilesContext !== undefined) instructionFiles = trimmedSlice(instructionFilesContext);
-  return [...parts, instructionFiles].filter((part) => part && part.trim()).join(BP3_PART_SEPARATOR);
+  return [...parts, instructionFiles].filter((part) => part?.trim()).join(BP3_PART_SEPARATOR);
 }
 
 /**
@@ -243,7 +243,7 @@ export function replaceWorkspaceEnvironment(environmentTail, environmentContext)
   const facts = trimmedSlice(environmentContext);
   if (parts[0]?.startsWith('- ')) parts[0] = facts;
   else parts.unshift(facts);
-  return parts.filter((part) => part && part.trim()).join(BP3_PART_SEPARATOR);
+  return parts.filter((part) => part?.trim()).join(BP3_PART_SEPARATOR);
 }
 
 /**
@@ -399,12 +399,13 @@ function sameWorkspacePath(left, right) {
 /** The lines a move from the project folder into a worktree adds to the notice. */
 function workspaceMoveLines(move, cwd) {
   if (!move?.from || sameWorkspacePath(move.from, cwd)) return [];
-  const changes =
-    move.changes === 'carried'
-      ? 'Uncommitted changes were moved into the worktree; ignored files (dependencies, build output, env files) were not.'
-      : move.changes === 'left'
-        ? `Uncommitted changes were left in ${move.from}; they are not present here.`
-        : '';
+  let changes = '';
+  if (move.changes === 'carried') {
+    changes =
+      'Uncommitted changes were moved into the worktree; ignored files (dependencies, build output, env files) were not.';
+  } else if (move.changes === 'left') {
+    changes = `Uncommitted changes were left in ${move.from}; they are not present here.`;
+  }
   return [
     changes,
     `For continued work, substitute ${cwd} for the project root ${move.from} in paths mentioned earlier; absolute paths are not remapped automatically. Re-read affected files before editing them.`,

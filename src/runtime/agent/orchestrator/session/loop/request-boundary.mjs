@@ -5,10 +5,7 @@
 import { repairTranscriptBeforeProviderSend } from './transcript-repair.mjs';
 import { messagesArrayChanged } from './tool-helpers.mjs';
 import { runPreSendCompactPass } from '../pre-send-compact.mjs';
-import {
-  refreshDeferredMcpToolCatalog,
-  snapshotProviderRequestTools,
-} from '../../runtime-core/tool-catalog.mjs';
+import { refreshDeferredMcpToolCatalog, snapshotProviderRequestTools } from '../../runtime-core/tool-catalog.mjs';
 import {
   finalizeProviderRequestTools,
   providerNativeToolPrefixCount,

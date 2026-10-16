@@ -161,7 +161,11 @@ function renderIcon(size, { shape = 'rounded', markScale = 1 } = {}) {
         const scale = size / 256;
         const pointX = iconX / scale;
         const pointY = iconY / scale;
-        let color = shape === 'none' ? null : shape !== 'rounded' || insideRoundedSquareInset(tileX, tileY, size, 2.5 * scale) ? tile : [148, 163, 184];
+        let color = null;
+        if (shape !== 'none') {
+          color =
+            shape !== 'rounded' || insideRoundedSquareInset(tileX, tileY, size, 2.5 * scale) ? tile : [148, 163, 184];
+        }
         for (let arc = 0; arc < 3; arc += 1) {
           const sample = arcSample(iconX, iconY, size, (arc * 120 * Math.PI) / 180);
           if (sample !== null) color = gradientColor(titanium[arc], sample);
@@ -300,13 +304,13 @@ for (const [density, legacySize, foregroundSize] of hasMobile ? androidDensities
   await writeFile(`${dir}/ic_launcher_round.png`, encodePng(legacySize, renderIcon(legacySize, { shape: 'circle' })));
   await writeFile(
     `${dir}/ic_launcher_foreground.png`,
-    encodePng(foregroundSize, renderIcon(foregroundSize, { shape: 'none', markScale: adaptiveMarkScale })),
+    encodePng(foregroundSize, renderIcon(foregroundSize, { shape: 'none', markScale: adaptiveMarkScale }))
   );
 }
 if (hasMobile) {
   await writeFile(
     `${mobileRoot}ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png`,
-    encodePng(1024, renderIcon(1024, { shape: 'full' }), true),
+    encodePng(1024, renderIcon(1024, { shape: 'full' }), true)
   );
 }
 await writeFile(`${publicDir}mixdog-192.png`, encodePng(192, renderIcon(192, { shape: 'full' }), true));

@@ -516,16 +516,7 @@ function createLeakGuardFinalizer(textLeakGuard) {
 // aggregation, leak guard, watchdogs — stays shared.
 export async function consumeGeminiRestStreamResponse(
   response,
-  {
-    signal,
-    onStreamDelta,
-    onTextDelta,
-    textLeakGuard,
-    label,
-    unwrapChunk = null,
-    onChunk = null,
-    failureUsage = null,
-  }
+  { signal, onStreamDelta, onTextDelta, textLeakGuard, label, unwrapChunk = null, onChunk = null, failureUsage = null }
 ) {
   const unwrap =
     typeof unwrapChunk === 'function'

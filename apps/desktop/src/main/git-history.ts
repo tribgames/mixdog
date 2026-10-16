@@ -698,6 +698,6 @@ export async function gitReviewDiffs(
   const untrackedPatches = await mapWithConcurrency(untracked, UNTRACKED_STAT_CONCURRENCY, (path) =>
     untrackedPatch(root, path)
   );
-  untracked.forEach((path, index) => accept(path, untrackedPatches[index] ?? ''));
+  for (const [index, path] of untracked.entries()) accept(path, untrackedPatches[index] ?? '');
   return { patches, omitted };
 }

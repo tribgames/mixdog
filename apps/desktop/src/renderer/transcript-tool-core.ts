@@ -4,6 +4,7 @@ import { asRecord, oneLine } from './text-format';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { aggregateToolCategoryEntry, classifyToolCategory, formatToolSurface, toolLoadingTargets } from '../../../../src/runtime/shared/tool-surface.mjs';
+// biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { parseMcpToolName, titleCaseMcpServer, toolCallDisplayIdentity } from '../../../../src/runtime/shared/tool-primitives.mjs';
 // biome-ignore format: @ts-expect-error must precede the specifier

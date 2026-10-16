@@ -217,7 +217,6 @@ export function createWsToolCalls({ onToolCall, midState, replayItems }) {
     settle();
   }
 
-
   return {
     get calls() {
       return toolCalls;

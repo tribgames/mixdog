@@ -486,22 +486,22 @@ export class SessionHost implements DesktopService {
   async projectRecoveryDirectory(projectPath: string): Promise<string> {
     try {
       const known = await this.projects.knownPath(projectPath);
-      try { return await this.canonicalDirectory(known); }
-      catch (cause) {
+      try {
+        return await this.canonicalDirectory(known);
+      } catch (cause) {
         // Live projects must use the same canonical journal key as edits.
         // Missing registered roots still allow inspection of retained backups.
         if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return resolve(known);
         throw cause;
       }
-    }
-    catch (error) {
+    } catch (error) {
       if (!isAbsolute(projectPath) || !this.runtime.loadWorktrees) throw error;
       const worktrees = await this.runtime.loadWorktrees();
       const requested = resolve(projectPath);
       const entry = await (worktrees.findWorktreeContaining ?? worktrees.getWorktreeByPath)(requested);
       if (!entry || !['ready', 'deleting', 'recovery'].includes(entry.state ?? 'ready')) throw error;
       await this.projects.knownPath(entry.projectPath);
-      const key = (path: string) => process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path);
+      const key = (path: string) => (process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path));
       const within = (base: string, path: string) => key(path) === key(base) || key(path).startsWith(key(base) + sep);
       // Resolve parent aliases/Windows short names even after the checkout is
       // gone. Do not resolve the checkout itself: it may be a replacement link.
@@ -510,8 +510,9 @@ export class SessionHost implements DesktopService {
       if (!spelling) throw error;
       const target = join(stableRoot, relative(spelling, requested));
       let canonical: string;
-      try { canonical = await realpath(target); }
-      catch (cause) {
+      try {
+        canonical = await realpath(target);
+      } catch (cause) {
         if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return target;
         throw cause;
       }

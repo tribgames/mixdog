@@ -279,34 +279,39 @@ export function createRelayClientCallDispatch(
             },
           }
         : undefined;
-    const execution = client.callQueue.run(queueKey, async () => {
-      if (!deps.attached(clientId, client)) return;
-      const callStartedAt = Date.now();
-      const queueMs = callStartedAt - callQueuedAt;
-      const response = await executeRemoteFrame(methods, clearFrame);
-      const callMs = Date.now() - callStartedAt;
-      const method = typeof call?.method === 'string' && Object.hasOwn(methods, call.method) ? call.method : 'unknown';
-      if (callMs + queueMs >= SLOW_REMOTE_CALL_MS) {
-        const capabilities = callCapabilities(method, call?.params).join(',');
-        console.error(
-          `[mixdog-remote-slow-call] method=${method}` +
-            (capabilities ? ` capability=${capabilities}` : '') +
-            ` ms=${callMs} queueMs=${queueMs} queuedBehind=${client.pendingFrames}`
-        );
-      }
-      let responseBytes = 0;
-      if (response !== undefined && deps.attached(clientId, client)) {
-        await deps.sendEncryptedFrame(clientId, response, false, (bytes) => {
-          responseBytes += bytes;
-        });
-      }
-      if (deps.attached(clientId, client)) {
-        deps.recordCall(remoteCallStatName(method, call?.params), callMs, {
-          requestBytes: frameBytes,
-          responseBytes,
-        });
-      }
-    }, sideCall);
+    const execution = client.callQueue.run(
+      queueKey,
+      async () => {
+        if (!deps.attached(clientId, client)) return;
+        const callStartedAt = Date.now();
+        const queueMs = callStartedAt - callQueuedAt;
+        const response = await executeRemoteFrame(methods, clearFrame);
+        const callMs = Date.now() - callStartedAt;
+        const method =
+          typeof call?.method === 'string' && Object.hasOwn(methods, call.method) ? call.method : 'unknown';
+        if (callMs + queueMs >= SLOW_REMOTE_CALL_MS) {
+          const capabilities = callCapabilities(method, call?.params).join(',');
+          console.error(
+            `[mixdog-remote-slow-call] method=${method}` +
+              (capabilities ? ` capability=${capabilities}` : '') +
+              ` ms=${callMs} queueMs=${queueMs} queuedBehind=${client.pendingFrames}`
+          );
+        }
+        let responseBytes = 0;
+        if (response !== undefined && deps.attached(clientId, client)) {
+          await deps.sendEncryptedFrame(clientId, response, false, (bytes) => {
+            responseBytes += bytes;
+          });
+        }
+        if (deps.attached(clientId, client)) {
+          deps.recordCall(remoteCallStatName(method, call?.params), callMs, {
+            requestBytes: frameBytes,
+            responseBytes,
+          });
+        }
+      },
+      sideCall
+    );
     // Observe early rejection while the decode queue is still settling.
     void execution.catch(() => undefined);
     return { execution };

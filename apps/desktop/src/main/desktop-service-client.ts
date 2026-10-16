@@ -661,11 +661,7 @@ export class DesktopServiceClient implements DesktopService {
     return await this.sendRequest<T>(method, args, timeoutMs, signal);
   }
 
-  private async invokeRead<T>(
-    method: DesktopServiceMethod,
-    args: unknown[] = [],
-    signal?: AbortSignal
-  ): Promise<T> {
+  private async invokeRead<T>(method: DesktopServiceMethod, args: unknown[] = [], signal?: AbortSignal): Promise<T> {
     try {
       return await this.invoke<T>(method, args, undefined, signal);
     } catch (error) {
@@ -844,7 +840,11 @@ export class DesktopServiceClient implements DesktopService {
     return this.invokeRead('readAttachmentImage', [attachmentRef]);
   }
 
-  readSessionFinalAnswer(sessionId: string, startedAt: number, signal?: AbortSignal): Promise<SessionFinalAnswer | null> {
+  readSessionFinalAnswer(
+    sessionId: string,
+    startedAt: number,
+    signal?: AbortSignal
+  ): Promise<SessionFinalAnswer | null> {
     return this.invokeRead('readSessionFinalAnswer', [sessionId, startedAt], signal);
   }
   setSessionFavorite(sessionId: string, favorite: boolean): Promise<unknown> {

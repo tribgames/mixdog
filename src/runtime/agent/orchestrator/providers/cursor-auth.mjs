@@ -366,7 +366,9 @@ export async function resolveCursorOAuthAccessToken({ forceRefresh = false, fetc
               try {
                 saveCredentials({ ...persisted, reauth_required: true });
               } catch (saveError) {
-                process.stderr.write(`[cursor-oauth] dead-account mark failed: ${String(saveError?.message || saveError).slice(0, 200)}\n`);
+                process.stderr.write(
+                  `[cursor-oauth] dead-account mark failed: ${String(saveError?.message || saveError).slice(0, 200)}\n`
+                );
               }
             }
           }

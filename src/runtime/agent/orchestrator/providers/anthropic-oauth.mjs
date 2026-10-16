@@ -676,9 +676,7 @@ export class AnthropicOAuthProvider {
       response.status === 400 &&
       opts.fast === true &&
       !opts._fastModeRetry &&
-      fastModeDowngraded(
-        noteFastModeCapacityError({ httpStatus: 400, message: scrubbedText }, { fast: true })
-      )
+      fastModeDowngraded(noteFastModeCapacityError({ httpStatus: 400, message: scrubbedText }, { fast: true }))
     ) {
       process.stderr.write(`[anthropic-oauth] fast mode is not enabled for this account; retrying at standard speed\n`);
       return this.send(messages, useModel, tools, { ...opts, _fastModeRetry: true });

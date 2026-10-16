@@ -699,7 +699,9 @@ class CursorProviderBase {
     const sessionScope = String(
       sendOpts.transportScope ||
         sendOpts.sessionId ||
-        sendOpts.providerCacheKey || sendOpts.promptCacheKey || `cursor-call:${randomUUID()}`
+        sendOpts.providerCacheKey ||
+        sendOpts.promptCacheKey ||
+        `cursor-call:${randomUUID()}`
     );
     const openAiTools = tools?.length
       ? toOpenAITools(acceptedWireTools(tools, 'openai', sendOpts.onToolExcluded, '[cursor] tool'))

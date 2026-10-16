@@ -133,7 +133,8 @@ export async function nativeRequestScenarios(root, catalog) {
       },
     };
   };
-  const loadTool = (session, args) => toolCatalog.renderToolSearch(args, session, session.deferredSurfaceMode || 'lead');
+  const loadTool = (session, args) =>
+    toolCatalog.renderToolSearch(args, session, session.deferredSurfaceMode || 'lead');
 
   const out = {};
   for (const provider of ['anthropic-oauth', 'openai-oauth']) {

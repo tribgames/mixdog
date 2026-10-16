@@ -1,11 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 
 import type { MarkdownAstRoot } from './markdown-ast';
-import {
-  LatestMarkdownAstQueue,
-  readCachedStreamingMarkdownAst,
-  syncMarkdownParser,
-} from './markdown-worker-client';
+import { LatestMarkdownAstQueue, readCachedStreamingMarkdownAst, syncMarkdownParser } from './markdown-worker-client';
 import MarkdownAstBody from './MarkdownAstBody';
 import { containsFencedCodeMarkdown, MarkdownSourceFallback } from './MarkdownSourceFallback';
 import { noteStreamSyncParse, noteStreamWorkerParse } from './transcript-stream-metrics';
@@ -205,7 +201,9 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   // `parseText` is the healed form of `text` for the live tail: the parser
   // sees closed markers while the source fallback still shows exactly what
   // the model has emitted.
-  return <ParsedMarkdownBody text={text} parseText={parseText ?? text} parse={parse} sync={sync} copyControl={copyControl} />;
+  return (
+    <ParsedMarkdownBody text={text} parseText={parseText ?? text} parse={parse} sync={sync} copyControl={copyControl} />
+  );
 });
 
 export default StreamingMarkdownBody;

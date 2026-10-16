@@ -295,12 +295,7 @@ export function SettingsConfirmDialog({
               <button ref={cancelRef} type="button" onClick={onClose}>
                 {t('Cancel')}
               </button>
-              <button
-                ref={confirmRef}
-                type="button"
-                className={options.danger ? 'danger' : 'primary'}
-                onClick={accept}
-              >
+              <button ref={confirmRef} type="button" className={options.danger ? 'danger' : 'primary'} onClick={accept}>
                 {options.confirmLabel ?? t('Continue')}
               </button>
             </>

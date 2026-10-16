@@ -386,6 +386,14 @@ function catalogLevels(row) {
   return levels.size ? [...levels].sort(byRank) : null;
 }
 
+function reasoningLevelFields(levels) {
+  if (!levels) return {};
+  return {
+    reasoningOptions: levels.length ? [{ type: 'effort', values: [...levels] }] : [],
+    reasoningLevels: [...levels],
+  };
+}
+
 function effectiveRow(base, override, { providerId, discovered, newModelsHidden }) {
   const ov = override || {};
   const reasoning = ov.reasoning || {};
@@ -413,12 +421,7 @@ function effectiveRow(base, override, { providerId, discovered, newModelsHidden 
     hidden,
     manual: ov.manual === true,
     supportsReasoning: levels ? levels.some((level) => level !== 'none') : base.supportsReasoning === true,
-    ...(levels
-      ? {
-          reasoningOptions: levels.length ? [{ type: 'effort', values: [...levels] }] : [],
-          reasoningLevels: [...levels],
-        }
-      : {}),
+    ...reasoningLevelFields(levels),
     customReasoning: { wireFormat: reasoning.wireFormat ?? 'standard', wireValues, replay },
     ...(replay ? { reasoningContentField: 'reasoning_content' } : {}),
   };

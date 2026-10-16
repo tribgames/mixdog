@@ -985,8 +985,11 @@ export const FilesRootPane = memo(function FilesRootPane({
   return (
     <>
       {headerPortal}
-      <ProjectRecoverySurface key={projectPath} projectPath={projectPath}
-        onOpenFile={(_project, rel, mode) => openFile(rel, mode)} />
+      <ProjectRecoverySurface
+        key={projectPath}
+        projectPath={projectPath}
+        onOpenFile={(_project, rel, mode) => openFile(rel, mode)}
+      />
       <div className="dock-files">
         {showRootHeader && (
           <div className="workbench-explorer-root-row">

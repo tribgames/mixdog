@@ -641,7 +641,10 @@ function summarizeAgentResult({ text, trimmed, translate }) {
 const summarizeGeneric = ({ text, translate }) => summarizeGenericResult(text, translate);
 
 const summarizeAskUserResult = ({ text }) => {
-  const answers = /^User has answered your questions:\s*(.*?)(?:\s*You can now continue with these answers in mind\.)?$/s.exec(String(text ?? '').trim());
+  const answers =
+    /^User has answered your questions:\s*(.*?)(?:\s*You can now continue with these answers in mind\.)?$/s.exec(
+      String(text ?? '').trim()
+    );
   return truncateSingleLine(answers ? answers[1] : String(text ?? '').trim(), AGENT_SURFACE_BRIEF_MAX) || null;
 };
 

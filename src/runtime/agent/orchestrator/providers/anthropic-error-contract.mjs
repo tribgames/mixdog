@@ -45,7 +45,7 @@ function lowered(value) {
 
 /** The lowercased error type named by an Anthropic error body (JSON text or parsed object). */
 export function anthropicErrorTypeFromBody(body) {
-  if (body && typeof body === 'object') return lowered((body.error && body.error.type) || body.type);
+  if (body && typeof body === 'object') return lowered(body.error?.type || body.type);
   const match = BODY_TYPE_RE.exec(String(body || ''));
   return match ? lowered(match[1]) : '';
 }

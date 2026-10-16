@@ -649,7 +649,8 @@ function foldTrackedChanges(tracker, list, snapshot) {
     const after = contentBuffer(raw?.after);
     if (!destinationPath && before === null && after === null) continue;
     dropUndoneChains(tracker, new Set([sourceKey, ...(destination ? [pathKey(destinationPath)] : [])]));
-    const seq = (_writeSeq += 1);
+    _writeSeq += 1;
+    const seq = _writeSeq;
     appendSegment(tracker, {
       before: { path: sourcePath, displayPath: sourceDisplay, content: before },
       after: destination
@@ -1279,7 +1280,11 @@ export async function getTurnReviewFilePatch(_worktree, sessionId, file) {
   // Only a file the recorded review lists, by its own path.
   const record = await latestTurnRecord(ownerSessionId);
   const match = record ? findChangeFile(record, path) : null;
-  if (!match || fileState(match) !== 'applied' || changePathKey(match.path) !== changePathKey(relativeRecordPath(record, path))) {
+  if (
+    !match ||
+    fileState(match) !== 'applied' ||
+    changePathKey(match.path) !== changePathKey(relativeRecordPath(record, path))
+  ) {
     return filePatchReply(path, '');
   }
   const patch = changeDisplayPatch(match);
@@ -1547,7 +1552,10 @@ async function latestRecordedCheckpoint(ownerSessionId) {
 }
 
 const recordFilePaths = (root, files) =>
-  files.flatMap((entry) => [entry.path, entry.oldPath]).filter(Boolean).map((path) => resolve(root, path));
+  files
+    .flatMap((entry) => [entry.path, entry.oldPath])
+    .filter(Boolean)
+    .map((path) => resolve(root, path));
 
 /** Undo a sealed turn's applied record files (all, or the one named). */
 async function revertRecordedTurn(ownerSessionId, record, file) {

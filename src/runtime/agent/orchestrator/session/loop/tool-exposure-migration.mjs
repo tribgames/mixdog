@@ -3,10 +3,7 @@
 // applyDeferredToolSurface; this module adds what a changed request prefix
 // invalidates: provider state, the prefix guard, the context baseline and the
 // cache-break tag. Historical tool calls are never rewritten.
-import {
-  applyDeferredToolSurface,
-  rebuildDeferredToolSurfaceForProvider,
-} from '../../runtime-core/tool-catalog.mjs';
+import { applyDeferredToolSurface, rebuildDeferredToolSurfaceForProvider } from '../../runtime-core/tool-catalog.mjs';
 import {
   bridgeSurfaceOutdated,
   sessionToolExposure,

@@ -547,8 +547,11 @@ function toolActivityFailureBody(body: string, error: string, failure: string): 
 /** `- job_… shell/shell running label=…` rows of a task list, one readable line each. */
 export function toolActivityLocalizeTaskList(text: string): string {
   if (!/^background tasks:\s*\d+/i.test(text.trim())) return text;
-  const surfaceLabel = (surface: string) =>
-    surface === 'shell' ? t('Commands') : surface === 'agent' ? t('Agent') : surface;
+  const surfaceLabel = (surface: string) => {
+    if (surface === 'shell') return t('Commands');
+    if (surface === 'agent') return t('Agent');
+    return surface;
+  };
   return text
     .split('\n')
     .map((line) => {
@@ -640,13 +643,15 @@ export function toolActivityBackgroundTask(
     error
   );
   const statusLabel = background ? TOOL_DETAIL_LABELS.background : result.statusLabel;
+  let failureHint = '';
+  if (result.failed) {
+    const shellLabel = !meta.get('surface') || meta.get('surface') === 'shell' ? meta.get('label') : '';
+    failureHint = shellLabel || toolActivityFailureLine(result, '');
+  }
   const body = toolActivityFailureBody(
     toolActivityDropEmptySections(toolActivityStripInstructions(lines.slice(index).join('\n'), false, waitResult)),
     error,
-    result.failed
-      ? (!meta.get('surface') || meta.get('surface') === 'shell' ? meta.get('label') : '') ||
-          toolActivityFailureLine(result, '')
-      : ''
+    failureHint
   );
   return {
     meta: toolActivityCompact([

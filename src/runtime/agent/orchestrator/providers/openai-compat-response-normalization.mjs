@@ -225,9 +225,7 @@ export function normalizeCompatChatResponse({
   // Replay sends reasoning back under the field it arrived on.
   const providerMetadata = {
     ...(reasoningDetails?.length ? { openrouter: { reasoning_details: reasoningDetails } } : {}),
-    ...(reasoningContent !== null && reasoningField
-      ? { [COMPAT_REASONING_METADATA_KEY]: { reasoningField } }
-      : {}),
+    ...(reasoningContent !== null && reasoningField ? { [COMPAT_REASONING_METADATA_KEY]: { reasoningField } } : {}),
   };
   return {
     content: assembled.content || '',

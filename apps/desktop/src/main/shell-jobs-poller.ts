@@ -39,20 +39,19 @@ function normalizedJobs(value: unknown, finished = false): DesktopShellJobRow[] 
     const row = entry as Record<string, unknown>;
     const taskId = String(row.taskId || row.task_id || '').trim();
     if (!taskId) return [];
+    const base = {
+      taskId,
+      command: String(row.command || '').trim(),
+      cwd: String(row.cwd || '').trim(),
+      startedAt: typeof row.startedAt === 'number' || typeof row.startedAt === 'string' ? row.startedAt : null,
+    };
+    if (!finished) return [base];
     return [
       {
-        taskId,
-        command: String(row.command || '').trim(),
-        cwd: String(row.cwd || '').trim(),
-        startedAt: typeof row.startedAt === 'number' || typeof row.startedAt === 'string' ? row.startedAt : null,
-        ...(finished
-          ? {
-              status: String(row.status || ''),
-              exitCode: Number.isInteger(row.exitCode) ? (row.exitCode as number) : null,
-              finishedAt:
-                typeof row.finishedAt === 'number' || typeof row.finishedAt === 'string' ? row.finishedAt : null,
-            }
-          : {}),
+        ...base,
+        status: String(row.status || ''),
+        exitCode: Number.isInteger(row.exitCode) ? (row.exitCode as number) : null,
+        finishedAt: typeof row.finishedAt === 'number' || typeof row.finishedAt === 'string' ? row.finishedAt : null,
       },
     ];
   });

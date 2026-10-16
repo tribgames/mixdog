@@ -71,8 +71,14 @@ const withTimeout = (promise, ms, onTimeout) =>
       reject(new Error(`timeout after ${ms}ms`));
     }, ms);
     promise.then(
-      (v) => (clearTimeout(timer), resolve(v)),
-      (e) => (clearTimeout(timer), reject(e))
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      }
     );
   });
 
@@ -85,14 +91,23 @@ if (process.argv[2] === '--child') {
   const extended = spec.suite === 'extended';
   const { resolvePluginData } = await import('../src/runtime/shared/plugin-paths.mjs');
   if (spec.dataDir && path.resolve(resolvePluginData()) !== path.resolve(spec.dataDir)) {
-    console.log(`RESULT ${JSON.stringify({ name: spec.name, error: `refusing to run: data dir ${resolvePluginData()} is not the isolated ${spec.dataDir}` })}`);
+    console.log(
+      `RESULT ${JSON.stringify({ name: spec.name, error: `refusing to run: data dir ${resolvePluginData()} is not the isolated ${spec.dataDir}` })}`
+    );
     process.exit(0);
   }
   const { createMixdogSessionRuntime } = await import('../src/session-runtime/runtime-core.mjs');
   const { materializePromptSubmission } = await import('../src/runtime/attachments/store.mjs');
   const { getModelMetadataSync } = await import('../src/runtime/shared/llm/model-catalog.mjs');
   let runtime;
-  const out = { name: spec.name, provider: spec.provider, model: spec.model, effort: spec.effort, turns: {}, order: [] };
+  const out = {
+    name: spec.name,
+    provider: spec.provider,
+    model: spec.model,
+    effort: spec.effort,
+    turns: {},
+    order: [],
+  };
   const readDisk = (file) => {
     try {
       return fs.readFileSync(path.join(spec.cwd, file), 'utf8');
@@ -104,7 +119,12 @@ if (process.argv[2] === '--child') {
   // Runs one ask() and records calls/text/usage under `key`. Errors are recorded, not thrown,
   // so later scenarios still run; an ACCOUNT error stops the case (everything after would fail alike).
   const turn = async (key, prompt, options = {}) => {
-    const rec = { calls: [], text: '', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, events: 0 }, models: [] };
+    const rec = {
+      calls: [],
+      text: '',
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, events: 0 },
+      models: [],
+    };
     out.turns[key] = rec;
     out.order.push(key);
     const startedAt = Date.now();
@@ -146,7 +166,10 @@ if (process.argv[2] === '--child') {
     const steps = [
       ['t1', 'Use the read tool on package.json, then reply with only the value of "name".'],
       ['t2', 'Without using tools, reply with only that same name in uppercase.'],
-      ['t3', 'Read a.txt and b.txt with two read calls issued together in one step, then reply with only their two contents joined by "+".'],
+      [
+        't3',
+        'Read a.txt and b.txt with two read calls issued together in one step, then reply with only their two contents joined by "+".',
+      ],
     ];
     for (const [key, prompt] of steps) {
       await turn(key, prompt);
@@ -195,7 +218,12 @@ if (process.argv[2] === '--child') {
     }
     if (extended && !out.stopped) {
       // Real cancel path: runtime.abort() -> abortRuntime -> turn controller + mgr.abortSessionTurn.
-      const rec = { calls: [], text: '', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, events: 0 }, models: [] };
+      const rec = {
+        calls: [],
+        text: '',
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, events: 0 },
+        models: [],
+      };
       out.turns.ca = rec;
       out.order.push('ca');
       let deltas = 0;
@@ -212,16 +240,19 @@ if (process.argv[2] === '--child') {
       };
       const startedAt = Date.now();
       const pending = runtime
-        .ask('Write a very long numbered list from 1 to 300, one item per line, each item a full sentence about a different animal. Do not use tools.', {
-          onTextDelta: onDelta,
-          onUsageDelta: (d) => {
-            rec.usage.events++;
-            rec.usage.input += d.deltaInput || 0;
-            rec.usage.output += d.deltaOutput || 0;
-            rec.usage.cacheRead += d.deltaCachedRead || 0;
-            rec.usage.cacheWrite += d.deltaCacheWrite || 0;
-          },
-        })
+        .ask(
+          'Write a very long numbered list from 1 to 300, one item per line, each item a full sentence about a different animal. Do not use tools.',
+          {
+            onTextDelta: onDelta,
+            onUsageDelta: (d) => {
+              rec.usage.events++;
+              rec.usage.input += d.deltaInput || 0;
+              rec.usage.output += d.deltaOutput || 0;
+              rec.usage.cacheRead += d.deltaCachedRead || 0;
+              rec.usage.cacheWrite += d.deltaCacheWrite || 0;
+            },
+          }
+        )
         .then(
           (r) => ({ ok: true, text: textOf(r).trim() }),
           (e) => ({ ok: false, error: String(e?.message || e) })
@@ -232,7 +263,8 @@ if (process.argv[2] === '--child') {
       rec.deltas = deltas;
       rec.abortResult = abortResult;
       rec.abortedAfterMs = rec.ms;
-      rec.settle = settled.hang ? 'hang' : settled.ok ? 'resolved' : 'rejected';
+      if (settled.hang) rec.settle = 'hang';
+      else rec.settle = settled.ok ? 'resolved' : 'rejected';
       rec.text = String(settled.text || '').slice(0, 120);
       rec.error = settled.error ? settled.error.slice(0, 300) : undefined;
       rec.chars = String(settled.text || '').length;
@@ -282,17 +314,23 @@ const cases = routes.flatMap(([name, provider, model, efforts]) =>
 );
 const args = process.argv.slice(2);
 const suiteAt = args.findIndex((a) => a === '--suite' || a.startsWith('--suite='));
-const suite = suiteAt < 0 ? 'basic' : args[suiteAt].includes('=') ? args[suiteAt].split('=')[1] : args[suiteAt + 1];
+let suite = 'basic';
+if (suiteAt >= 0) suite = args[suiteAt].includes('=') ? args[suiteAt].split('=')[1] : args[suiteAt + 1];
 const extended = suite === 'extended';
 const realData = args.includes('--real-data');
 const only = args.filter(
-  (a, i) => a !== '--real-data' && !a.startsWith('--suite') && !(suiteAt >= 0 && i === suiteAt + 1 && args[suiteAt] === '--suite')
+  (a, i) =>
+    a !== '--real-data' &&
+    !a.startsWith('--suite') &&
+    !(suiteAt >= 0 && i === suiteAt + 1 && args[suiteAt] === '--suite')
 );
 const chosen = only.length ? cases.filter(([name]) => only.includes(name)) : cases;
 // Refresh-capable OAuth logins are never exercised from an isolated copy.
 const isOauth = ([, provider]) => /-oauth$/.test(provider);
 const selected = realData ? chosen : chosen.filter((c) => !isOauth(c));
-for (const c of chosen) if (!selected.includes(c)) console.log(`SKIP ${c[0]} (OAuth provider; pass --real-data to run against the real data dir)`);
+for (const c of chosen)
+  if (!selected.includes(c))
+    console.log(`SKIP ${c[0]} (OAuth provider; pass --real-data to run against the real data dir)`);
 if (!selected.length) {
   console.log('nothing to run');
   process.exit(0);
@@ -302,7 +340,8 @@ if (!selected.length) {
 // secrets of the selected providers and the `agent` section of the real config.
 let isolated = null;
 if (!realData) {
-  const realDataDir = process.env.MIXDOG_DATA_DIR || path.join(process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog'), 'data');
+  const realDataDir =
+    process.env.MIXDOG_DATA_DIR || path.join(process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog'), 'data');
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mixdog-pp-home-'));
   const dataDir = path.join(home, 'data');
   fs.mkdirSync(path.join(dataDir, 'secrets'), { recursive: true });
@@ -353,7 +392,10 @@ process.on('exit', removeTemp);
 const makeCwd = (name) => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), `mixdog-pingpong-${name.replace(/[^a-z0-9]+/gi, '-')}-`));
   tempDirs.add(cwd);
-  fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ name: 'pingpong-probe', version: '1.0.0' }, null, 2));
+  fs.writeFileSync(
+    path.join(cwd, 'package.json'),
+    JSON.stringify({ name: 'pingpong-probe', version: '1.0.0' }, null, 2)
+  );
   fs.writeFileSync(path.join(cwd, 'a.txt'), 'alpha\n');
   fs.writeFileSync(path.join(cwd, 'b.txt'), 'beta\n');
   return cwd;
@@ -364,7 +406,19 @@ const runOne = ([name, provider, model, effort]) =>
     const cwd = makeCwd(name);
     const child = spawn(
       process.execPath,
-      [self, '--child', JSON.stringify({ name, provider, model, effort, cwd, dataDir: isolated?.dataDir, suite: extended ? 'extended' : 'basic' })],
+      [
+        self,
+        '--child',
+        JSON.stringify({
+          name,
+          provider,
+          model,
+          effort,
+          cwd,
+          dataDir: isolated?.dataDir,
+          suite: extended ? 'extended' : 'basic',
+        }),
+      ],
       { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...isolated?.env } }
     );
     let stdout = '';
@@ -377,7 +431,9 @@ const runOne = ([name, provider, model, effort]) =>
       fs.rmSync(cwd, { recursive: true, force: true });
       tempDirs.delete(cwd);
       const line = stdout.split('\n').find((l) => l.startsWith('RESULT '));
-      resolve(line ? JSON.parse(line.slice(7)) : { name, provider, model, effort, error: `no result: ${stderr.slice(-300)}` });
+      resolve(
+        line ? JSON.parse(line.slice(7)) : { name, provider, model, effort, error: `no result: ${stderr.slice(-300)}` }
+      );
     });
   });
 
@@ -400,7 +456,16 @@ const scenarios = [
   ['t2', 't2', (t) => has(t, /PINGPONG-PROBE/)],
   ['t3', 't3', (t) => (t.calls || []).filter((c) => c === 'read').length >= 1 && has(t, /alpha/i) && has(t, /beta/i)],
   // The reply language follows the user's profile (may be Korean), so the wording check is bilingual.
-  ['er', 'err', (t) => called(t, 'read') && has(t, /missing|not exist|doesn.?t exist|does not|no such|not found|nonexistent|isn.?t|cannot|can.?t|존재하지|없|찾을 수|않/i)],
+  [
+    'er',
+    'err',
+    (t) =>
+      called(t, 'read') &&
+      has(
+        t,
+        /missing|not exist|doesn.?t exist|does not|no such|not found|nonexistent|isn.?t|cannot|can.?t|존재하지|없|찾을 수|않/i
+      ),
+  ],
   ['wr', 'wr', (t) => wroteVia(t) && String(t.disk ?? '').trim() === 'gamma'],
   ['sh', 'sh', (t) => called(t, 'shell') && has(t, /42/)],
   [
@@ -411,7 +476,13 @@ const scenarios = [
       const firstRead = c.indexOf('read');
       const write = c.findIndex((n, i) => i > firstRead && /edit|write|patch/i.test(n));
       const lastRead = c.lastIndexOf('read');
-      return firstRead >= 0 && write > firstRead && lastRead > write && String(t.disk ?? '').trim() === 'ahpla' && has(t, /ahpla/);
+      return (
+        firstRead >= 0 &&
+        write > firstRead &&
+        lastRead > write &&
+        String(t.disk ?? '').trim() === 'ahpla' &&
+        has(t, /ahpla/)
+      );
     },
   ],
   ['im', 'img', (t) => has(t, /red/i)],
@@ -419,13 +490,17 @@ const scenarios = [
   ['fu', 'fu', (t) => has(t, /READY/i)],
 ];
 
-const short = (s, n = 60) => String(s || '').replace(/\s+/g, ' ').slice(0, n);
+const short = (s, n = 60) =>
+  String(s || '')
+    .replace(/\s+/g, ' ')
+    .slice(0, n);
 const evidence = (key, t) => {
   if (!t) return 'no turn';
   if (t.error && key !== 'ca') return `error: ${short(t.error, 90)}`;
   const base = `[${(t.calls || []).join(',')}] "${short(t.text)}"`;
   if (key === 'wr' || key === 'ml') return `${base} disk=${JSON.stringify(short(t.disk ?? null, 20))}`;
-  if (key === 'ca') return `abort=${t.abortResult} settle=${t.settle} deltas=${t.deltas} chars=${t.chars} ${t.error ? `err="${short(t.error, 70)}"` : ''}`;
+  if (key === 'ca')
+    return `abort=${t.abortResult} settle=${t.settle} deltas=${t.deltas} chars=${t.chars} ${t.error ? `err="${short(t.error, 70)}"` : ''}`;
   return base;
 };
 
@@ -460,13 +535,20 @@ for (const r of results) {
     }
   }
   const turns = Object.entries(r.turns || {});
-  const later = (r.order || []).slice(1).map((k) => r.turns[k]).filter((t) => t?.usage);
+  const later = (r.order || [])
+    .slice(1)
+    .map((k) => r.turns[k])
+    .filter((t) => t?.usage);
   const sum = (f) => later.reduce((n, t) => n + f(t.usage), 0);
   const events = (r.order || []).reduce((n, k) => n + (r.turns[k]?.usage?.events || 0), 0);
-  const cache = !turns.length || !events
-    ? 'cache=NO-USAGE'
-    : `cache r=${sum((u) => u.cacheRead)} w=${sum((u) => u.cacheWrite)} in=${sum((u) => u.input)} cr/turn=[${later.map((t) => t.usage.cacheRead).join(',')}]`;
-  const verdict = r.error && !turns.length ? (ACCOUNT_RE.test(r.error) ? 'ACCOUNT' : 'FAIL') : anyFail ? 'FAIL' : anyAccount ? 'ACCOUNT' : 'PASS';
+  const cache =
+    !turns.length || !events
+      ? 'cache=NO-USAGE'
+      : `cache r=${sum((u) => u.cacheRead)} w=${sum((u) => u.cacheWrite)} in=${sum((u) => u.input)} cr/turn=[${later.map((t) => t.usage.cacheRead).join(',')}]`;
+  let verdict = 'PASS';
+  if (r.error && !turns.length) verdict = ACCOUNT_RE.test(r.error) ? 'ACCOUNT' : 'FAIL';
+  else if (anyFail) verdict = 'FAIL';
+  else if (anyAccount) verdict = 'ACCOUNT';
   if (extended) {
     console.log(`${verdict.padEnd(7)} ${r.name.padEnd(30)} ${marks.join(' ')}  ${cache}`);
     if (r.error) console.log(`        error=${r.error}`);
@@ -478,8 +560,11 @@ for (const r of results) {
       return `${label}${ok ? '✓' : '✗'} ${t?.ms}ms [${t?.calls}] "${short(t?.text)}"`;
     };
     const pass = !r.error && verdict === 'PASS';
+    let label = 'FAIL';
+    if (pass) label = 'PASS';
+    else if (verdict === 'ACCOUNT') label = 'ACCOUNT';
     console.log(
-      `${pass ? 'PASS' : verdict === 'ACCOUNT' ? 'ACCOUNT' : 'FAIL'} ${r.name.padEnd(30)} ` +
+      `${label} ${r.name.padEnd(30)} ` +
         (r.error ? `error=${r.error}` : `${turn('t1', 't1')} | ${turn('t2', 't2')} | ${turn('t3', 't3')}`)
     );
   }
@@ -488,9 +573,10 @@ for (const r of results) {
 if (extended) {
   // Oddities worth a manual look: model identity, usage presence, notices mixed into answers.
   console.log('\n--- NON-PASS DETAILS (raw) ---');
+  const markNames = { A: 'ACCOUNT', '?': 'UNVERIFIED' };
   for (const { r, label, mark, t } of details) {
     console.log(
-      `[${mark === 'A' ? 'ACCOUNT' : mark === '?' ? 'UNVERIFIED' : 'FAIL'}] ${r.provider}/${r.model} effort=${r.effort ?? '-'} ${label}: ` +
+      `[${markNames[mark] ?? 'FAIL'}] ${r.provider}/${r.model} effort=${r.effort ?? '-'} ${label}: ` +
         `error=${JSON.stringify(t?.error ?? null)} text=${JSON.stringify(t?.text ?? null)} calls=${JSON.stringify(t?.calls ?? null)} disk=${JSON.stringify(t?.disk ?? null)}`
     );
   }
@@ -498,11 +584,15 @@ if (extended) {
   for (const r of results) {
     for (const key of r.order || []) {
       const t = r.turns[key];
-      if (t?.models?.length && !t.models.some((m) => m === r.model || m.endsWith(`/${r.model}`) || m.includes(r.model) || r.model.includes(m)))
+      if (
+        t?.models?.length &&
+        !t.models.some((m) => m === r.model || m.endsWith(`/${r.model}`) || m.includes(r.model) || r.model.includes(m))
+      )
         console.log(`${r.name} ${key}: served model ${JSON.stringify(t.models)} != requested ${r.model}`);
       if (/notice|overloaded|retrying|fallback|server error|temporarily/i.test(t?.text || ''))
         console.log(`${r.name} ${key}: notice-like text ${JSON.stringify(t.text)}`);
-      if (t && !t.skipped && !t.error && t.usage && t.usage.events === 0) console.log(`${r.name} ${key}: no usage events`);
+      if (t && !t.skipped && !t.error && t.usage && t.usage.events === 0)
+        console.log(`${r.name} ${key}: no usage events`);
     }
   }
 }

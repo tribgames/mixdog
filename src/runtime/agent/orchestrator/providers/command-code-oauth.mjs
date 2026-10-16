@@ -79,7 +79,10 @@ export function modelEndpoints(item) {
 // The route for a model with these declared endpoints (null: undeclared, Chat).
 // `undefined`: nothing describes the model, so no wire is ruled out.
 function commandCodeRoute(model, endpoints, ctx = {}) {
-  return resolveWireRoute(PROVIDER_ID, model, { ...ctx, endpoints: endpoints === undefined ? null : (endpoints ?? ['chat']) });
+  return resolveWireRoute(PROVIDER_ID, model, {
+    ...ctx,
+    endpoints: endpoints === undefined ? null : (endpoints ?? ['chat']),
+  });
 }
 
 /**

@@ -1359,7 +1359,8 @@ function requiredQuestionAnswers(value: unknown): NonNullable<ToolApprovalDecisi
   if (!Array.isArray(value) || value.length > 4) throw new TypeError('decision.answers is invalid.');
   return value.map((entry) => {
     if (entry === null) return null;
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new TypeError('decision.answers is invalid.');
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry))
+      throw new TypeError('decision.answers is invalid.');
     requireAllowedKeys(entry as Record<string, unknown>, new Set(['selected', 'text']), 'decision.answers');
     const { selected, text } = entry as { selected?: unknown; text?: unknown };
     if (

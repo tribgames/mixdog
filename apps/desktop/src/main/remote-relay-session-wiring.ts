@@ -96,7 +96,8 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
         store: deps.pushStore,
         ...(deps.hostId ? { hostId: deps.hostId } : {}),
         isEnabled: () => !deps.closed(),
-        readFinalAnswer: (sessionId, startedAt, signal) => deps.host.readSessionFinalAnswer(sessionId, startedAt, signal),
+        readFinalAnswer: (sessionId, startedAt, signal) =>
+          deps.host.readSessionFinalAnswer(sessionId, startedAt, signal),
         // Connected is not enough: a phone that just left the app keeps its
         // socket through a background grace and reports itself hidden.
         // The subscription names the BROWSER; relay legs carry a per-connection

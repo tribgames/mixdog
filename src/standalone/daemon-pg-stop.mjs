@@ -25,9 +25,7 @@ export function createDaemonPgStop({
   const drainBudget = () => Math.max(0, startedAt + forcedStopAtMs - Date.now());
   const run = (drain) => {
     stopping ??= loadAdapter()
-      .then(({ shutdownOwnedPg }) =>
-        shutdownOwnedPg({ timeoutMs: stopTimeoutMs, drainMs: drain ? drainBudget() : 0 })
-      )
+      .then(({ shutdownOwnedPg }) => shutdownOwnedPg({ timeoutMs: stopTimeoutMs, drainMs: drain ? drainBudget() : 0 }))
       .then(
         (stopped) => {
           if (stopped) log('postgres stopped');

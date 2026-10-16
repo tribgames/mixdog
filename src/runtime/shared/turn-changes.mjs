@@ -960,8 +960,9 @@ export async function sessionChangeReview(base, { baselines = null, records = []
     (Boolean(entry.root) &&
       insideDirectory(entry.root, entry.path) &&
       changePathKey(relative(entry.root, entry.path)) === targetKey);
+  const baselineTarget = targetKey ? targeted : null;
   const baselineUnits = baselines
-    ? await baselineChanges(baselines, covered, unvouched, diffBudget, { target: targetKey ? targeted : null })
+    ? await baselineChanges(baselines, covered, unvouched, diffBudget, { target: baselineTarget })
     : [];
   // Units named but not measured still claim their names (see `show`).
   const measured = baselineUnits.filter((unit) => !unit.nameOnly);

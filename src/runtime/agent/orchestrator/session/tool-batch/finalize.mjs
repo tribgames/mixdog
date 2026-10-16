@@ -57,7 +57,10 @@ const UNDECODABLE_IMAGE_TEXT = '[image omitted: could not be decoded]';
 // inline image is fully decoded (not only large ones); with no decoder
 // installed the image is kept as is.
 async function rejectedImageText(base64, rawMime) {
-  const mimeType = String(rawMime || 'image/png').split(';')[0].trim().toLowerCase();
+  const mimeType = String(rawMime || 'image/png')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
   if (!SUPPORTED_IMAGE_MIME_TYPES.has(mimeType)) return unsupportedImageText(mimeType);
   try {
     await resizeImageBuffer(Buffer.from(base64, 'base64'), mimeType.split('/')[1]);
@@ -73,8 +76,8 @@ async function rejectedImageText(base64, rawMime) {
 // the result reaches the read cache or the transcript; stored history is never
 // revisited.
 export async function compactResultImages(result) {
-  const parts = Array.isArray(result) ? result : Array.isArray(result?.content) ? result.content : null;
-  if (!parts) return result;
+  const parts = Array.isArray(result) ? result : result?.content;
+  if (!Array.isArray(parts)) return result;
   let changed = false;
   const next = [];
   for (const part of parts) {
@@ -101,16 +104,16 @@ export async function compactResultImages(result) {
     if (dims.originalWidth !== dims.displayWidth || dims.originalHeight !== dims.displayHeight) {
       next.push({ type: 'text', text: supersedingImageMetadataText(dims) });
     }
-    next.push(
-      source
-        ? { ...part, source: { ...source, data: compacted.data, media_type: compacted.mimeType } }
-        : {
-            ...part,
-            data: compacted.data,
-            mimeType: compacted.mimeType,
-            ...(part.mediaType ? { mediaType: compacted.mimeType } : {}),
-          }
-    );
+    if (source) {
+      next.push({ ...part, source: { ...source, data: compacted.data, media_type: compacted.mimeType } });
+    } else {
+      next.push({
+        ...part,
+        data: compacted.data,
+        mimeType: compacted.mimeType,
+        ...(part.mediaType ? { mediaType: compacted.mimeType } : {}),
+      });
+    }
   }
   if (!changed) return result;
   return Array.isArray(result) ? next : { ...result, content: next };

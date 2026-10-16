@@ -173,7 +173,11 @@ export async function createCustomProvider(id, config) {
     if (providerOffersWire(providerId, 'messages')) {
       const { AnthropicProvider } = await import('./anthropic.mjs');
       // The Anthropic SDK appends /v1/messages itself; the endpoint's /v1 base maps to it.
-      messagesEngine = new AnthropicProvider({ ...engine, name: providerId, baseURL: cfg.baseURL.replace(/\/v1$/i, '') });
+      messagesEngine = new AnthropicProvider({
+        ...engine,
+        name: providerId,
+        baseURL: cfg.baseURL.replace(/\/v1$/i, ''),
+      });
       messagesEngine.nativePdf = false;
     }
     class CompatBase extends OpenAICompatProvider {
@@ -207,7 +211,8 @@ export async function createCustomProvider(id, config) {
   // The bound Messages engine reads the parent's model rows, so a routed
   // Messages request carries the same row-driven thinking/effort as the
   // Anthropic protocol.
-  if (provider.messagesEngine) provider.messagesEngine.getCachedModelInfo = (model) => provider.getCachedModelInfo(model);
+  if (provider.messagesEngine)
+    provider.messagesEngine.getCachedModelInfo = (model) => provider.getCachedModelInfo(model);
   provider.customConfig = cfg;
   provider._customKeyless = keyless;
   provider._applyCustomRows(provider._customRows());

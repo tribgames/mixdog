@@ -13,7 +13,7 @@ import { abortRuntime, closeCanonicalSession, closeOwnSession, dispatchSessionEn
 import { settleAll, settleDetached, startRuntimeStops, startWorkStops } from './teardown/runtime-stops.mjs';
 
 const CLOSE_ALL_DEADLINE_MS = 5000;
-const PROCESS_EXIT_REASON =/exit|quit|shutdown|sighup|sigint|sigterm/;
+const PROCESS_EXIT_REASON = /exit|quit|shutdown|sighup|sigint|sigterm/;
 const WARMUP_TIMER_KEYS = [
   'providerSetupWarmupTimer',
   'providerWarmupTimer',

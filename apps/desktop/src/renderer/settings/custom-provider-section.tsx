@@ -675,15 +675,13 @@ export function CustomProvidersSection({
   useEffect(() => {
     if (editing === null) triggerRef.current?.focus();
   }, [editing]);
-  const status = (provider: RecordValue) =>
+  const status = (provider: RecordValue) => {
     // Raw status words: ResourceRow classifies them, then translates the label.
-    provider.configError
-      ? 'Failed'
-      : provider.enabled === false
-        ? 'Disabled'
-        : provider.authenticated === false
-          ? 'No API key'
-          : 'Connected';
+    if (provider.configError) return 'Failed';
+    if (provider.enabled === false) return 'Disabled';
+    if (provider.authenticated === false) return 'No API key';
+    return 'Connected';
+  };
   return (
     <section className="settings-group settings-custom-providers">
       <header>

@@ -185,7 +185,9 @@ export function isCancelLikeError(error) {
 const KIND_LINES = {
   overloaded: 'Provider is busy at capacity.',
   rate_limited: ({ retryAfterMs }) =>
-    retryAfterMs ? `Provider is rate-limited (retry in ${formatDurationMs(retryAfterMs)}).` : 'Provider is rate-limited.',
+    retryAfterMs
+      ? `Provider is rate-limited (retry in ${formatDurationMs(retryAfterMs)}).`
+      : 'Provider is rate-limited.',
   quota_exhausted: 'Provider usage limit reached.',
   entitlement: 'Not included in your plan.',
   billing: 'Out of credits or at spend limit.',
@@ -198,7 +200,9 @@ const KIND_LINES = {
 // A bare message carries none, so its wording keeps the legacy text path.
 function hasTypedEvidence(error) {
   if (!error || typeof error !== 'object') return false;
-  return Boolean(error.errorKind?.kind) || errorHttpStatus(error) > 0 || Boolean(error.code) || Boolean(error.retryAfterMs);
+  return (
+    Boolean(error.errorKind?.kind) || errorHttpStatus(error) > 0 || Boolean(error.code) || Boolean(error.retryAfterMs)
+  );
 }
 
 export function presentErrorText(error, options = {}) {

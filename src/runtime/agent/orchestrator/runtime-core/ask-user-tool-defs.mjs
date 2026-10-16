@@ -6,7 +6,8 @@ export const ASK_USER_TOOL_DEFS = Object.freeze([
   {
     name: 'ask_user',
     title: 'Ask User',
-    trigger: 'Ask the user 1–4 multiple-choice questions and wait; when a plan needs the user to pick between clear options, instead of listing them in chat.',
+    trigger:
+      'Ask the user 1–4 multiple-choice questions and wait; when a plan needs the user to pick between clear options, instead of listing them in chat.',
     description:
       'Ask the user multiple-choice questions and wait. Only while planning, for a decision only the user can make with clear options; open questions, minor choices and plan approval go in chat. Do not repeat the options in your message.',
     annotations: {
@@ -92,7 +93,10 @@ export function validateAskUserQuestions(args) {
       if (labels.has(option.label)) throw new Error(`${at} has duplicate option label "${option.label}"`);
       labels.add(option.label);
     }
-    if (q.recommended != null && (!Number.isInteger(q.recommended) || q.recommended < 0 || q.recommended >= q.options.length)) {
+    if (
+      q.recommended != null &&
+      (!Number.isInteger(q.recommended) || q.recommended < 0 || q.recommended >= q.options.length)
+    ) {
       throw new Error(`${at} recommended must be an index below ${q.options.length}`);
     }
   });

@@ -59,7 +59,8 @@ const DEFAULT_ERROR_MESSAGES = Object.freeze({
   WORKTREE_DIRTY: 'The worktree has uncommitted changes.',
   WORKTREE_DIRTY_CHOICE:
     'The project folder has uncommitted changes; choose whether to leave them there or carry them into the worktree.',
-  WORKTREE_FILE_RECOVERY: 'Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.',
+  WORKTREE_FILE_RECOVERY:
+    'Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.',
   WORKTREE_UNMERGED: 'The worktree branch has commits that are not merged.',
   WORKTREE_MISSING: 'The managed worktree no longer exists.',
   WORKTREE_UNSUPPORTED_REPO: 'This repository does not support managed worktrees.',

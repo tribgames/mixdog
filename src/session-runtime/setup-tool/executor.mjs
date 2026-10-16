@@ -157,13 +157,15 @@ function configuredProviderRows(rows, accountCount) {
         notConfigured += 1;
         continue;
       }
+      let accounts = {};
+      if (kind === 'oauth') accounts = { accounts: row.authenticated ? accountCount(row.id) : 0 };
       providers.push({
         id: row.id,
         kind,
         authenticated: row.authenticated,
         status: row.status,
         ...(row.reauthRequired ? { reauthRequired: true } : {}),
-        ...(kind === 'oauth' ? { accounts: row.authenticated ? accountCount(row.id) : 0 } : {}),
+        ...accounts,
       });
     }
   }

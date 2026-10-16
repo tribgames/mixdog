@@ -176,9 +176,7 @@ function mimoOAuthState() {
       process.env.MIMO_OAUTH_CREDENTIALS_PATH ||
       join(resolvePluginData(), 'mimo-oauth.json'),
   ];
-  return memoProbe('mimo-oauth', paths, () =>
-    resolveProbeState(paths, (docs) => docs.some((own) => !!own?.apiKey))
-  );
+  return memoProbe('mimo-oauth', paths, () => resolveProbeState(paths, (docs) => docs.some((own) => !!own?.apiKey)));
 }
 
 function commandCodeOAuthState() {

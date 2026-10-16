@@ -220,13 +220,10 @@ export function registerDesktopIpc(
     });
   };
   // The daemon's own user-data directory for paths handed to the service.
+  const serviceGetPath = (name: Parameters<App['getPath']>[0]) =>
+    name === 'userData' ? serviceUserDataPath?.() : app.getPath?.(name);
   const serviceApp: Partial<Pick<App, 'getPath'>> =
-    serviceUserDataPath && typeof app.getPath === 'function'
-      ? {
-          getPath: ((name: Parameters<App['getPath']>[0]) =>
-            name === 'userData' ? serviceUserDataPath() : app.getPath!(name)) as App['getPath'],
-        }
-      : app;
+    serviceUserDataPath && typeof app.getPath === 'function' ? { getPath: serviceGetPath as App['getPath'] } : app;
   const invokeDesktopOperation = <T>(method: string, args: unknown[]): Promise<T> =>
     host.invokeDesktopOperation(method, args) as Promise<T>;
   type ServiceOperation = (...args: unknown[]) => Promise<unknown>;
@@ -245,13 +242,14 @@ export function registerDesktopIpc(
   // A server window's files live on the server: its one-file grants name
   // server paths (agent output links, uploads) and its bytes travel over the
   // window's own connection. This PC's selected-file grants never apply there.
+  const downloadsDir = () => (typeof app.getPath === 'function' ? app.getPath('downloads') : '');
   const server =
     connectionKind === 'ssh'
       ? createServerFiles({
           invoke: invokeDesktopOperation,
           listProjects: () => host.listProjects(),
           session: () => window.webContents.session,
-          downloadsDir: () => (typeof app.getPath === 'function' ? app.getPath('downloads') : ''),
+          downloadsDir,
         })
       : null;
   const grantedFile = async (accessToken: unknown, projectPath: unknown, relPath: unknown) =>

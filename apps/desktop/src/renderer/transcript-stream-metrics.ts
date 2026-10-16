@@ -265,10 +265,6 @@ export function setStreamPacerBacklogProbe(probe: () => boolean): void {
   pacerBacklog = probe;
 }
 
-export function streamMetricsActive(): boolean {
-  return run !== null;
-}
-
 function stats(values: number[]) {
   if (values.length === 0) return { n: 0, p50: 0, p90: 0, p95: 0, max: 0, mean: 0 };
   const sorted = [...values].sort((a, b) => a - b);

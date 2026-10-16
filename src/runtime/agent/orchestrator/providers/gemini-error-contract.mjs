@@ -97,7 +97,10 @@ export function geminiErrorContract({ details, errorDetails, googleStatus, messa
         const scope = scopeOf(String(violation?.quotaId || ''));
         if (scope) scopes.add(scope);
         // A spent allowance is named by the typed violation, not by prose.
-        if (String(violation?.quotaValue ?? '').trim() === '0' || LIMIT_ZERO_RE.test(String(violation?.description || ''))) {
+        if (
+          String(violation?.quotaValue ?? '').trim() === '0' ||
+          LIMIT_ZERO_RE.test(String(violation?.description || ''))
+        ) {
           zeroLimit = true;
         }
       }
@@ -121,7 +124,9 @@ export function geminiErrorContract({ details, errorDetails, googleStatus, messa
     CAPACITY_REASONS.has(reason) ||
     (!reason && scopes.size === 0 && retryAfterMs === undefined && CAPACITY_MESSAGE_RE.test(text));
   // A per-day violation outlasts any per-minute one reported with it.
-  let quotaScope = scopes.has('day') ? 'day' : scopes.has('minute') ? 'minute' : undefined;
+  let quotaScope;
+  if (scopes.has('day')) quotaScope = 'day';
+  else if (scopes.has('minute')) quotaScope = 'minute';
   if (retryAfterMs === undefined) {
     const named = MESSAGE_DELAY_RE.exec(text);
     if (named) retryAfterMs = adviceMs(named[1]);
@@ -158,10 +163,13 @@ export function geminiInBandError(chunk, label) {
   if (!detail || (typeof detail !== 'object' && typeof detail !== 'string')) return null;
   const body = typeof detail === 'object' ? detail : { message: detail };
   const googleStatus = typeof body.status === 'string' ? body.status : '';
-  const status = Number.isFinite(Number(body.code)) && Number(body.code) > 0
-    ? Number(body.code)
-    : GOOGLE_STATUS_HTTP[googleStatus.toUpperCase()];
-  const err = new Error(`${label} in-band error${status ? ` ${status}` : ''}: ${String(body.message || googleStatus || 'unknown').slice(0, 300)}`);
+  const status =
+    Number.isFinite(Number(body.code)) && Number(body.code) > 0
+      ? Number(body.code)
+      : GOOGLE_STATUS_HTTP[googleStatus.toUpperCase()];
+  const err = new Error(
+    `${label} in-band error${status ? ` ${status}` : ''}: ${String(body.message || googleStatus || 'unknown').slice(0, 300)}`
+  );
   err.name = 'GeminiInBandError';
   if (status) {
     err.status = status;

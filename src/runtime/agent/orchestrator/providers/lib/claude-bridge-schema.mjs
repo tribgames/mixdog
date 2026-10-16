@@ -203,7 +203,8 @@ function assertObjectRoot(schema, rule) {
 function buildSchema(inputSchema) {
   if (!isPlainObject(inputSchema)) throw new SchemaProblem('', 'the input schema must be a JSON object schema');
   const { $schema, ...rest } = inputSchema;
-  const schema = dialectOf(inputSchema) === 'draft-07' ? translateDraft07(rest, '', true, DRAFT07) : structuredClone(rest);
+  const schema =
+    dialectOf(inputSchema) === 'draft-07' ? translateDraft07(rest, '', true, DRAFT07) : structuredClone(rest);
   assertValidDraft202012(schema);
   assertObjectRoot(schema, 'anthropic');
   return schema;
@@ -222,8 +223,7 @@ function repairRoot(schema) {
   if (Array.isArray(type) && type.includes('object')) return { ...schema, type: 'object' };
   if (type !== undefined || Object.hasOwn(schema, '$ref')) return schema;
   const out = { type: 'object', ...schema };
-  if (!Object.hasOwn(out, 'properties') && !ROOT_FORBIDDEN_KEYS.some((k) => Object.hasOwn(out, k)))
-    out.properties = {};
+  if (!Object.hasOwn(out, 'properties') && !ROOT_FORBIDDEN_KEYS.some((k) => Object.hasOwn(out, k))) out.properties = {};
   return out;
 }
 
@@ -232,7 +232,8 @@ function refsIntoDefinitions(node) {
   if (Array.isArray(node)) return node.some(refsIntoDefinitions);
   if (!isPlainObject(node)) return false;
   return Object.entries(node).some(
-    ([key, value]) => (key === '$ref' && typeof value === 'string' && /^#\/definitions(\/|$)/.test(value)) || refsIntoDefinitions(value)
+    ([key, value]) =>
+      (key === '$ref' && typeof value === 'string' && /^#\/definitions(\/|$)/.test(value)) || refsIntoDefinitions(value)
   );
 }
 
@@ -348,7 +349,10 @@ export function claudeBridgeInputSchema(inputSchema) {
       // Not valid as written: lower undeclared draft-07/04 constructs and
       // fill the root type; only a schema still broken is excluded.
       const repaired = repairedToolInputSchema(inputSchema, 'anthropic');
-      result = repaired && !wireProblem(repaired, 'anthropic') ? { schema: repaired } : { pointer: error.pointer, reason: error.message };
+      result =
+        repaired && !wireProblem(repaired, 'anthropic')
+          ? { schema: repaired }
+          : { pointer: error.pointer, reason: error.message };
     }
     if (key !== null) {
       if (cache.size >= CACHE_LIMIT) cache.clear();

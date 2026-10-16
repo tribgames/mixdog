@@ -129,8 +129,9 @@ function lineMatches(
 ): DesktopWorkspaceTextMatch[] {
   regex.lastIndex = 0;
   const matches: DesktopWorkspaceTextMatch[] = [];
-  let match: RegExpExecArray | null;
-  while (matches.length < remaining && (match = regex.exec(line))) {
+  while (matches.length < remaining) {
+    const match = regex.exec(line);
+    if (!match) break;
     const start = match.index;
     const end = start + match[0].length;
     if (!wholeWord || isWholeWord(line, start, end)) {
@@ -208,8 +209,7 @@ function replaceContent(
   const parts: string[] = [];
   let cursor = 0;
   let replacements = 0;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(content))) {
+  for (let match = regex.exec(content); match; match = regex.exec(content)) {
     const end = match.index + match[0].length;
     if (!options.wholeWord || isWholeWord(content, match.index, end)) {
       parts.push(content.slice(cursor, match.index));

@@ -162,14 +162,23 @@ export function lineDiffHunks(oldText, newText, budget, sources = [oldText, newT
   result ||= { hunks: replacementHunks(oldText, newText), exact: false };
   if (key && repeatable) cacheSet(key, result, oldText.length + newText.length);
   // Within its own operation it is final: the budget never grows back.
-  else if (key) (budget.fallbacks ||= new Map()).set(key, result);
+  else if (key) {
+    budget.fallbacks ||= new Map();
+    budget.fallbacks.set(key, result);
+  }
   return result;
 }
 
 /** The `--- `/`+++ ` headers and hunks of `hunks`, as jsdiff formats them,
  *  ending in exactly one newline. */
 export function unifiedHunksBody(oldHeader, newHeader, hunks) {
-  const generated = formatPatch({ oldFileName: oldHeader, newFileName: newHeader, oldHeader: '', newHeader: '', hunks });
+  const generated = formatPatch({
+    oldFileName: oldHeader,
+    newFileName: newHeader,
+    oldHeader: '',
+    newHeader: '',
+    hunks,
+  });
   let end = generated.length;
   // Linear trim: a /\n*$/ regex rescans from every position of a large patch.
   while (end > 0 && generated.charCodeAt(end - 1) === 10) end -= 1;

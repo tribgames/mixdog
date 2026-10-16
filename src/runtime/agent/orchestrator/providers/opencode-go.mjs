@@ -162,7 +162,10 @@ export class OpenCodeGoProvider {
       this.gemini = new OpenCodeGoGeminiEngine({
         ...this.config,
         baseURL: this.openai.baseURL,
-        extraHeaders: { ...(OPENAI_COMPAT_PRESETS['opencode-go'].extraHeaders || {}), ...(this.config.extraHeaders || {}) },
+        extraHeaders: {
+          ...(OPENAI_COMPAT_PRESETS['opencode-go'].extraHeaders || {}),
+          ...(this.config.extraHeaders || {}),
+        },
       });
     }
     return this.gemini;

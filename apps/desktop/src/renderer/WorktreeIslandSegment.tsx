@@ -80,6 +80,12 @@ function branchTooltip({
   return branch;
 }
 
+function segmentIcon(recovery: boolean, worktree: boolean) {
+  if (recovery) return TriangleAlert;
+  if (worktree) return GitFork;
+  return GitBranch;
+}
+
 /** The short commit of a detached HEAD: the workspace's own, else git status'. */
 function useDetachedCommit(workspace: DesktopSessionWorkspace | null | undefined, detached: boolean): string {
   const [commit, setCommit] = useState('');
@@ -337,6 +343,7 @@ export function BranchIslandSegment({
   // The segment never changes width while a move runs: the spinner replaces
   // the icon and the move is named in the tooltip and to assistive tech.
   const tooltip = branchTooltip({ moving, recovery, worktree, target, detached, branch });
+  const SegmentIcon = segmentIcon(recovery, worktree);
 
   return (
     <>
@@ -356,12 +363,8 @@ export function BranchIslandSegment({
       >
         {pendingMark ? (
           <ProgressSpinner size={14} aria-hidden="true" />
-        ) : recovery ? (
-          <TriangleAlert size={14} className="composer-island-seg-icon" aria-hidden="true" />
-        ) : worktree ? (
-          <GitFork size={14} className="composer-island-seg-icon" aria-hidden="true" />
         ) : (
-          <GitBranch size={14} className="composer-island-seg-icon" aria-hidden="true" />
+          <SegmentIcon size={14} className="composer-island-seg-icon" aria-hidden="true" />
         )}
         <span className="composer-island-seg-text">
           <span className="composer-island-seg-label">

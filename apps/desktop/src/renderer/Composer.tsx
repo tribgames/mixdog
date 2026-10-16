@@ -511,11 +511,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: identityScope and paneActive are reset triggers; the effect body does not read them
   useEffect(() => setEditingPasteId(null), [identityScope, paneActive]);
   const editingPaste = attachments.find((attachment) => attachment.id === editingPasteId);
-  const btw = useBtwCard(
-    sessionId,
-    paneActive,
-    selector.open || slash.open || mention.open || skillMention.open
-  );
+  const btw = useBtwCard(sessionId, paneActive, selector.open || slash.open || mention.open || skillMention.open);
   const executeSlash = createSlashExecutor({
     draftMode,
     sessionId,

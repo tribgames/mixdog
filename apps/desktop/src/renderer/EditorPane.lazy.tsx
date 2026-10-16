@@ -618,12 +618,14 @@ export default function EditorPane({
             void save();
           }}
         />
-        {saveError && <ProjectRecoveryNotice
-          key={`${projectPath}\0${saveError}`}
-          projectPath={projectPath}
-          message={saveError}
-          onOpenFile={(project, rel) => onOpenFile?.(project, rel)}
-        />}
+        {saveError && (
+          <ProjectRecoveryNotice
+            key={`${projectPath}\0${saveError}`}
+            projectPath={projectPath}
+            message={saveError}
+            onOpenFile={(project, rel) => onOpenFile?.(project, rel)}
+          />
+        )}
         <EditorPaneTextBody
           load={load}
           preview={preview}

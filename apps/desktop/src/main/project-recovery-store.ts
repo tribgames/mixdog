@@ -44,6 +44,16 @@ export type RecoveryState = {
   message: string;
   restored: string[];
 };
+const SETTLED_PHASES: Partial<Record<RecoveryState['phase'], 'completed' | 'failed' | 'recovered'>> = {
+  complete: 'completed',
+  failed: 'failed',
+  recovered: 'recovered',
+};
+export function recoverySettledPhase(
+  state: RecoveryState | null | undefined
+): 'completed' | 'failed' | 'recovered' | 'interrupted' {
+  return (state && SETTLED_PHASES[state.phase]) || 'interrupted';
+}
 export const recoveryDigest = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex');
 export function recoveryIdentity(path: string): RecoveryIdentity {
   const value = statSync(path, { bigint: true });
@@ -76,8 +86,7 @@ function byteRef(value: unknown): value is ByteRef {
 function validManifest(value: unknown, id: string): value is RecoveryManifest {
   const item = value as RecoveryManifest | null;
   if (
-    !item ||
-    item.version !== 1 ||
+    item?.version !== 1 ||
     item.id !== id ||
     !Number.isSafeInteger(item.createdAt) ||
     item.createdAt < 1 ||
@@ -164,12 +173,17 @@ export async function recoveryStorageInventory(directory: string): Promise<Array
   await validateRecoveryDirectory(directory);
   const entries: Array<[string, string, string]> = [];
   for await (const entry of await opendir(directory)) {
-    if (entries.length >= 300) throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery record has too many entries for automatic removal.');
+    if (entries.length >= 300)
+      throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery record has too many entries for automatic removal.');
     const file = join(directory, entry.name);
     const info = await lstat(file);
-    if (info.isDirectory()) throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery record contains an unexpected directory.');
+    if (info.isDirectory())
+      throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery record contains an unexpected directory.');
     if (!info.isFile() || info.isSymbolicLink())
-      throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery record contains an entry that is not a regular file.');
+      throw new ProjectRecoveryError(
+        'RECOVERY_STORAGE',
+        'Recovery record contains an entry that is not a regular file.'
+      );
     const digest =
       info.size <= 131072 && ['manifest.json', 'state.json'].includes(entry.name)
         ? recoveryDigest(await recoveryReadBytes(file, 131072))
@@ -191,12 +205,15 @@ export async function inspectRecoveryStorage(directory: string, leased = false):
   const entries = await recoveryStorageInventory(directory);
   if (!sameRecoveryIdentity(identityBefore, recoveryIdentity(directory))) throw new Error('Recovery record changed.');
   const busy = !leased && recoveryIsActive(directory);
+  let phase: ProjectRecoveryDetail['phase'] = 'invalid';
+  if (busy) phase = 'active';
+  else if (owner.retired) phase = 'retired';
   return {
     id: owner.id,
     createdAt: 0,
     fileCount: 0,
     active: busy,
-    phase: busy ? 'active' : owner.retired ? 'retired' : 'invalid',
+    phase,
     files: [],
     revision: recoveryDigest(JSON.stringify([owner.id, owner.retired, identityBefore, entries])),
   };
@@ -244,7 +261,10 @@ export async function recoveryLocations(userDataPath: string, root: string): Pro
     if (++seen > RECOVERY_MAX_RECORDS * 3)
       throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery storage needs manual inspection: too many entries.');
     if (!locationName(entry.name) || !entry.isDirectory() || entry.isSymbolicLink())
-      throw new ProjectRecoveryError('RECOVERY_MANUAL_INSPECTION', 'Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.');
+      throw new ProjectRecoveryError(
+        'RECOVERY_MANUAL_INSPECTION',
+        'Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.'
+      );
     result.push(join(parent, entry.name));
   }
   return result;
@@ -254,7 +274,11 @@ export async function recoveryLocation(userDataPath: string, root: string, id: s
   const matches = (await recoveryLocations(userDataPath, root)).filter(
     (path) => locationName(basename(path))?.id === id
   );
-  if (matches.length !== 1) throw new ProjectRecoveryError('RECOVERY_UNAVAILABLE', 'Recovery record moved or is unavailable. Refresh the list.');
+  if (matches.length !== 1)
+    throw new ProjectRecoveryError(
+      'RECOVERY_UNAVAILABLE',
+      'Recovery record moved or is unavailable. Refresh the list.'
+    );
   return matches[0];
 }
 function fileStamp(value: Awaited<ReturnType<typeof lstat>>): string {
@@ -386,15 +410,7 @@ export async function listRecoveryRecords(userDataPath: string, root: string): P
         createdAt: manifest.createdAt,
         fileCount: manifest.files.length,
         payloadBytes: manifest.files.reduce((sum, file) => sum + file.before.size + file.after.size, 0),
-        phase: busy
-          ? 'active'
-          : state?.phase === 'complete'
-            ? 'completed'
-            : state?.phase === 'failed'
-              ? 'failed'
-              : state?.phase === 'recovered'
-                ? 'recovered'
-                : 'interrupted',
+        phase: busy ? 'active' : recoverySettledPhase(state),
       });
     } catch {
       records.push({ id, createdAt: 0, fileCount: 0, phase: busy ? 'active' : 'invalid' });
@@ -404,7 +420,8 @@ export async function listRecoveryRecords(userDataPath: string, root: string): P
 }
 export async function claimRecoveryDirectory(directory: string): Promise<string> {
   await validateRecoveryDirectory(directory);
-  if (recoveryIsActive(directory)) throw new ProjectRecoveryError('RECOVERY_BUSY', 'Recovery record is still owned by a running operation.');
+  if (recoveryIsActive(directory))
+    throw new ProjectRecoveryError('RECOVERY_BUSY', 'Recovery record is still owned by a running operation.');
   const owner = locationName(basename(directory))!;
   const owned = join(dirname(directory), `${owner.retired ? 'retired-' : ''}${ownedName(owner.id)}`);
   await rename(directory, owned);
@@ -427,13 +444,19 @@ export async function releaseRecoveryDirectory(directory: string): Promise<void>
 export async function beginProjectRecovery(userDataPath: string, root: string, files: RecoveryPreparedFile[]) {
   // Concurrent disjoint batches may prepare together, but must reserve record
   // capacity serially in this host. They retain independent mutation claims.
-  return preparations(projectRecoveryStorePath(userDataPath, root), () => prepareRecovery(userDataPath, root, files))
-    .catch((error) => { throw recoveryStorageError(error); });
+  return preparations(projectRecoveryStorePath(userDataPath, root), () =>
+    prepareRecovery(userDataPath, root, files)
+  ).catch((error) => {
+    throw recoveryStorageError(error);
+  });
 }
 async function prepareRecovery(userDataPath: string, root: string, files: RecoveryPreparedFile[]) {
   const total = files.reduce((sum, file) => sum + file.before.length + file.after.length, 0);
   if (!files.length || files.length > 100 || total > RECOVERY_MAX_BYTES) {
-    throw new ProjectRecoveryError('RECOVERY_BATCH_LIMIT', 'Workspace edit exceeds the recovery budget. Split the edit into smaller batches.');
+    throw new ProjectRecoveryError(
+      'RECOVERY_BATCH_LIMIT',
+      'Workspace edit exceeds the recovery budget. Split the edit into smaller batches.'
+    );
   }
   const parent = projectRecoveryStorePath(userDataPath, root);
   await mkdir(dirname(parent), { recursive: true, mode: 0o700 });
@@ -441,7 +464,10 @@ async function prepareRecovery(userDataPath: string, root: string, files: Recove
   await mkdir(parent, { recursive: true, mode: 0o700 });
   await requireDirectory(parent);
   if ((await recoveryLocations(userDataPath, root)).length >= RECOVERY_MAX_RECORDS) {
-    throw new ProjectRecoveryError('RECOVERY_CAPACITY', 'Recovery storage is full. Inspect and explicitly discard records before another workspace edit.');
+    throw new ProjectRecoveryError(
+      'RECOVERY_CAPACITY',
+      'Recovery storage is full. Inspect and explicitly discard records before another workspace edit.'
+    );
   }
   const id = randomUUID();
   const directory = join(parent, ownedName(id));

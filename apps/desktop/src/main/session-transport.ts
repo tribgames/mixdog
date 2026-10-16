@@ -249,8 +249,7 @@ export class SessionTransport implements DesktopTransport {
     if (remote) {
       const endpoint = await this.measureBootPhase(
         'remote-connect',
-        () =>
-          remote.connect((line) => this.emit('diagnostic', 'remote-daemon-log', { detail: line, attempt })),
+        () => remote.connect((line) => this.emit('diagnostic', 'remote-daemon-log', { detail: line, attempt })),
         { attempt }
       );
       await this.checkRemoteCompatibility(daemonModule, remote, endpoint, attempt);
@@ -401,7 +400,10 @@ export class SessionTransport implements DesktopTransport {
 
   /** Spawn-or-attach the machine-local daemon, waiting out an older build
    *  that is still draining. */
-  private async ensureLocalDaemon(daemonModule: SessionClientModule, attempt: number): Promise<Record<string, unknown>> {
+  private async ensureLocalDaemon(
+    daemonModule: SessionClientModule,
+    attempt: number
+  ): Promise<Record<string, unknown>> {
     let discovery: Record<string, unknown>;
     let upgradeWaiting = false;
     const emitUpgradeWait = (state: 'waiting' | 'done', fromVersion?: unknown, toVersion?: unknown): void => {

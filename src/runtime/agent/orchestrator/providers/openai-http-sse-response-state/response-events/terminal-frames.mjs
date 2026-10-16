@@ -119,7 +119,9 @@ export function createTerminalFrameEvents({ state, items, text, outcome, meaning
       // Same carried state as the WS path: text (leak-guard tail flushed),
       // the calls already complete and dispatched, model and billed usage.
       text.flushLeak();
-      const err = outcome.stampToolSafety(new Error(`${state.label} ${frame} (max_output_tokens) with tool call in flight`));
+      const err = outcome.stampToolSafety(
+        new Error(`${state.label} ${frame} (max_output_tokens) with tool call in flight`)
+      );
       outcome.attachStreamPartial(err);
       err.streamStalled = true;
       err.pendingToolUse = true;

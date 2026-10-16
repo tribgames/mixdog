@@ -699,12 +699,7 @@ export interface DesktopApi {
    * for `branch` (default), or vs `HEAD` for `uncommitted`. Paths are repo-root-relative.
    */
   gitReview?(cwd: string, source?: DesktopGitReviewSource): Promise<DesktopGitReview>;
-  gitReviewDiff?(
-    cwd: string,
-    path: string,
-    untracked?: boolean,
-    source?: DesktopGitReviewSource
-  ): Promise<string>;
+  gitReviewDiff?(cwd: string, path: string, untracked?: boolean, source?: DesktopGitReviewSource): Promise<string>;
   /** Batch `gitReviewDiff` (at most 512 files): one git diff plus untracked reads. */
   gitReviewDiffs?(
     cwd: string,

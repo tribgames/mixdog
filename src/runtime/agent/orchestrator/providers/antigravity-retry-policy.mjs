@@ -43,7 +43,9 @@ export const ANTIGRAVITY_RETRY = Object.freeze({
 /** Capacity wait for retry number `retryIndex` (0-based): 1s, 2s, 4s, 8s cap, ±10%. */
 export function antigravityCapacityDelayMs(retryIndex) {
   const base = Math.min(ANTIGRAVITY_CAPACITY_BASE_MS * 2 ** retryIndex, ANTIGRAVITY_CAPACITY_MAX_MS);
-  return Math.round(base * (1 - ANTIGRAVITY_CAPACITY_JITTER_RATIO + Math.random() * 2 * ANTIGRAVITY_CAPACITY_JITTER_RATIO));
+  return Math.round(
+    base * (1 - ANTIGRAVITY_CAPACITY_JITTER_RATIO + Math.random() * 2 * ANTIGRAVITY_CAPACITY_JITTER_RATIO)
+  );
 }
 
 export function isAntigravityCapacityError(err) {
@@ -60,7 +62,12 @@ export function antigravity429WaitMs(err, state) {
   if (status !== 429 && !(capacity && (status === 503 || status === 529))) return null;
   if (readStreamOutcome(err).replaySafe !== true) return null;
   const { kind, retryAfterMs } = providerErrorKind(err);
-  if (DETERMINISTIC_KINDS.has(kind) || err.code === 'quota_exhausted' || err.quotaScope === 'day' || err.quotaScope === 'plan') {
+  if (
+    DETERMINISTIC_KINDS.has(kind) ||
+    err.code === 'quota_exhausted' ||
+    err.quotaScope === 'day' ||
+    err.quotaScope === 'plan'
+  ) {
     return null;
   }
   // Capacity waits at least the advised RetryInfo delay (the local schedule

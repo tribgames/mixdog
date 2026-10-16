@@ -142,7 +142,9 @@ function shellLabel(shell: string): string {
 
 /** Slash-normalized, trailing-slash-free path; case-folded on Windows/macOS. */
 function normalizeRoot(value: string): string {
-  const path = String(value || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  const path = String(value || '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '');
   return process.platform === 'win32' || process.platform === 'darwin' ? path.toLowerCase() : path;
 }
 

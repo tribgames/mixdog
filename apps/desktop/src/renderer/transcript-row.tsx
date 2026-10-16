@@ -1,7 +1,12 @@
 import { SlidersHorizontal } from 'lucide-react';
 import { Suspense, createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { submissionIdentity } from './transcript-rows';
-import { fitImageThumbnail, onSessionPreviewsDeleted, persistentImagePreviews, previewKey } from './image-preview-store';
+import {
+  fitImageThumbnail,
+  onSessionPreviewsDeleted,
+  persistentImagePreviews,
+  previewKey,
+} from './image-preview-store';
 import { AttachmentCard, composerCardMeta } from './attachment-card';
 import { extractFileMarkers, fileChipKind, sentFileSource, sentPastedTextSource } from './attachment-menu';
 import { useAttachmentContextMenu } from './attachment-context-menu';
@@ -25,7 +30,8 @@ import { noteStreamCommit } from './transcript-stream-metrics';
 import { usePacedTranscriptText } from './use-paced-transcript-text';
 import { type BackgroundWorkCounts, CompletionStatus } from './transcript-status';
 import { shouldSuppressFullyFailedToolItem } from './transcript-tool-model';
-import { ToolCard } from './transcript-tool-ui';import { AppliedSkills, SkillMentionText, appliedSkillsOf } from './composer-skill-mentions';
+import { ToolCard } from './transcript-tool-ui';
+import { AppliedSkills, SkillMentionText, appliedSkillsOf } from './composer-skill-mentions';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from '../../../../src/runtime/shared/tool-execution-contract.mjs';

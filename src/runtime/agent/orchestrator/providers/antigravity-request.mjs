@@ -60,9 +60,8 @@ function coalesceClaudeThoughts(parts) {
       out.push(part);
       continue;
     }
-    open = open
-      ? { ...open, ...part, text: `${open.text}${typeof part.text === 'string' ? part.text : ''}` }
-      : { ...part, text: typeof part.text === 'string' ? part.text : '' };
+    const partText = typeof part.text === 'string' ? part.text : '';
+    open = open ? { ...open, ...part, text: `${open.text}${partText}` } : { ...part, text: partText };
     if (typeof part.thoughtSignature === 'string') {
       out.push(open);
       open = null;

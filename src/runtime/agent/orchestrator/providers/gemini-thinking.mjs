@@ -19,21 +19,43 @@ function catalogThinkingLevels(model, provider) {
 // Documented ranges: 2.5 Pro 128–32768 (cannot disable), 2.5 Flash 0–24576,
 // 2.5 Flash-Lite 0 or 512–24576; -1 is dynamic thinking for all of them.
 function budgetSpec(model) {
-  const bare = String(model || '').replace(/^models\//i, '').toLowerCase();
+  const bare = String(model || '')
+    .replace(/^models\//i, '')
+    .toLowerCase();
   if (!/^gemini-2\.5(?:-|$)/.test(bare)) return null;
   if (/^gemini-2\.5-pro/.test(bare)) {
-    return { name: 'Gemini 2.5 Pro', min: 128, max: 32768, canDisable: false, efforts: { minimal: 128, low: 1024, medium: 8192, high: 32768 } };
+    return {
+      name: 'Gemini 2.5 Pro',
+      min: 128,
+      max: 32768,
+      canDisable: false,
+      efforts: { minimal: 128, low: 1024, medium: 8192, high: 32768 },
+    };
   }
   if (/^gemini-2\.5-flash-lite/.test(bare)) {
-    return { name: 'Gemini 2.5 Flash-Lite', min: 512, max: 24576, canDisable: true, efforts: { minimal: 512, low: 1024, medium: 8192, high: 24576 } };
+    return {
+      name: 'Gemini 2.5 Flash-Lite',
+      min: 512,
+      max: 24576,
+      canDisable: true,
+      efforts: { minimal: 512, low: 1024, medium: 8192, high: 24576 },
+    };
   }
-  return { name: 'Gemini 2.5 Flash', min: 0, max: 24576, canDisable: true, efforts: { minimal: 0, low: 1024, medium: 8192, high: 24576 } };
+  return {
+    name: 'Gemini 2.5 Flash',
+    min: 0,
+    max: 24576,
+    canDisable: true,
+    efforts: { minimal: 0, low: 1024, medium: 8192, high: 24576 },
+  };
 }
 
 // Levels documented for models whose ladder differs from the generic wire
 // vocabulary (a catalog ladder, when declared, still takes precedence).
 function documentedThinkingLevels(model) {
-  const bare = String(model || '').replace(/^models\//i, '').toLowerCase();
+  const bare = String(model || '')
+    .replace(/^models\//i, '')
+    .toLowerCase();
   if (bare === 'gemini-4-argon' || bare === 'gemini-3.8-flash') return ['low', 'medium', 'high'];
   return null;
 }
@@ -47,7 +69,9 @@ function checkBudget(model, spec, budget) {
     throw new TypeError(`${model} (${spec.name}) cannot disable thinking; thinkingBudget 0 is not allowed.`);
   }
   if (budget !== 0 && (budget < spec.min || budget > spec.max)) {
-    throw new TypeError(`${model} (${spec.name}) thinkingBudget must be -1, ${spec.canDisable ? '0, or ' : ''}${spec.min}–${spec.max}; received ${budget}.`);
+    throw new TypeError(
+      `${model} (${spec.name}) thinkingBudget must be -1, ${spec.canDisable ? '0, or ' : ''}${spec.min}–${spec.max}; received ${budget}.`
+    );
   }
 }
 
@@ -75,7 +99,9 @@ export function geminiThinkingConfig(model, opts = {}, { includeThoughts, provid
   }
   if (spec && level) {
     if (!Object.hasOwn(spec.efforts, level)) {
-      throw new TypeError(`${model} supports thinking levels ${Object.keys(spec.efforts).join(', ')}; received ${level}.`);
+      throw new TypeError(
+        `${model} supports thinking levels ${Object.keys(spec.efforts).join(', ')}; received ${level}.`
+      );
     }
     config.thinkingBudget = spec.efforts[level];
   } else if (level) {

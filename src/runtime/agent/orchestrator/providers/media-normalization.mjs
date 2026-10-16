@@ -167,7 +167,11 @@ function officeTextForFile(file) {
     });
   if (file.ref) return memoized(officeTextMemo, `ref:${file.ref}\0${file.filename || ''}`, compute);
   if (file.part && inlineOfficeText.has(file.part)) return inlineOfficeText.get(file.part);
-  const key = createHash('sha256').update(file.filename || '').update('\0').update(file.data).digest('hex');
+  const key = createHash('sha256')
+    .update(file.filename || '')
+    .update('\0')
+    .update(file.data)
+    .digest('hex');
   const text = memoized(officeTextMemo, key, compute);
   if (file.part) inlineOfficeText.set(file.part, text);
   return text;
@@ -403,15 +407,19 @@ export async function preparePdfTextForProvider(messages, provider) {
         continue;
       }
       if (file && fileKind(file) === 'pdf') found.push({ part, file });
-      else if (noDocuments && (file || part.type === 'document')) texts.set(part, file ? textFormOfFilePart(part) : documentSourceText(part));
+      else if (noDocuments && (file || part.type === 'document'))
+        texts.set(part, file ? textFormOfFilePart(part) : documentSourceText(part));
     }
   }
   if (!found.length && !texts.size) return messages;
   const extracted = await Promise.all(found.map(({ file }) => pdfTextFor(file)));
-  found.forEach(({ part, file }, i) => texts.set(part, `--- ${fileLabel(file)} ---\n${extracted[i]}`));
+  found.forEach(({ part, file }, i) => {
+    texts.set(part, `--- ${fileLabel(file)} ---\n${extracted[i]}`);
+  });
   return messages.map((message) => {
     // A message whose content is one bare part becomes a one-part array.
-    if (texts.has(message?.content)) return { ...message, content: [{ type: 'text', text: texts.get(message.content) }] };
+    if (texts.has(message?.content))
+      return { ...message, content: [{ type: 'text', text: texts.get(message.content) }] };
     const content = replacePdfParts(message?.content, texts);
     return content === message?.content ? message : { ...message, content };
   });
@@ -681,7 +689,10 @@ export function contentMediaBytes(content, { nativePdf = true } = {}) {
     if (!part || typeof part !== 'object') continue;
     if (isAttachmentReference(part)) {
       if (part.type === 'image') bytes += Math.ceil((Number(part.sizeBytes) || 0) / 3) * 4;
-      else if (part.type === 'file' && countsAsMedia(String(part.mimeType || part.mediaType || 'application/pdf'), '')) {
+      else if (
+        part.type === 'file' &&
+        countsAsMedia(String(part.mimeType || part.mediaType || 'application/pdf'), '')
+      ) {
         bytes += Math.ceil((Number(part.sizeBytes) || 0) / 3) * 4;
       }
       continue;

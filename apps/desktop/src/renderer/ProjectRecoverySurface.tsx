@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ProjectRecoveryRequest, ProjectRecoveryDetail, ProjectRecoveryResponse } from '../shared/project-recovery';
+import type {
+  ProjectRecoveryRequest,
+  ProjectRecoveryDetail,
+  ProjectRecoveryResponse,
+} from '../shared/project-recovery';
 import { ProjectRecoveryPanel, type ProjectRecoveryLabels } from './ProjectRecoveryPanel';
 import { t } from './i18n';
 import { recoveryFailureCode } from '../shared/project-recovery';
@@ -28,19 +32,22 @@ export function ProjectRecoverySurface({
     (project: string, input: ProjectRecoveryRequest) => {
       if (!api?.projectRecovery) return Promise.reject(new Error('Recovery is not supported by this host.'));
       const ticket = ++generation.current;
-      return api.projectRecovery(project, input).then((result) => {
-        if (ticket === generation.current) {
-          setOverview(result);
-          setFailure(null);
+      return api.projectRecovery(project, input).then(
+        (result) => {
+          if (ticket === generation.current) {
+            setOverview(result);
+            setFailure(null);
+          }
+          return result;
+        },
+        (error) => {
+          if (ticket === generation.current) {
+            setOverview(null);
+            setFailure(error ?? new Error());
+          }
+          throw error;
         }
-        return result;
-      }, (error) => {
-        if (ticket === generation.current) {
-          setOverview(null);
-          setFailure(error ?? new Error());
-        }
-        throw error;
-      });
+      );
     },
     [api]
   );
@@ -55,18 +62,26 @@ export function ProjectRecoverySurface({
     setRefreshVersion(0);
     const refresh = async () => {
       if (disposed || !api?.projectRecovery) return;
-      if (pending) { again = true; return; }
+      if (pending) {
+        again = true;
+        return;
+      }
       pending = true;
       // Unmount the open panel before discovery, invalidating its observations
       // and in-flight approvals even when the refresh fails or is still pending.
       setRefreshing(true);
       setRefreshVersion((version) => version + 1);
-      try { await request(projectPath, { action: 'list' }); }
-      catch { /* The request publishes an unavailable state, never an empty inventory. */ }
-      finally {
+      try {
+        await request(projectPath, { action: 'list' });
+      } catch {
+        /* The request publishes an unavailable state, never an empty inventory. */
+      } finally {
         pending = false;
         if (!disposed) setRefreshing(false);
-        if (again && !disposed) { again = false; void refresh(); }
+        if (again && !disposed) {
+          again = false;
+          void refresh();
+        }
       }
     };
     refreshDiscovery.current = () => void refresh();
@@ -122,10 +137,14 @@ export function ProjectRecoverySurface({
       RECOVERY_BUSY: t('A running operation owns this record. Retry after it finishes.'),
       RECOVERY_CAPACITY: t('Recovery storage is full. Inspect and explicitly delete records before editing again.'),
       RECOVERY_BATCH_LIMIT: t('This edit exceeds recovery limits. Split it into smaller edits.'),
-      RECOVERY_STORAGE: t('Recovery storage could not be read or written. Check disk space and permissions before retrying.'),
+      RECOVERY_STORAGE: t(
+        'Recovery storage could not be read or written. Check disk space and permissions before retrying.'
+      ),
       RECOVERY_NOT_RESTORABLE: t('This record cannot restore files. Inspect it before deleting its backups.'),
       RECOVERY_UNAVAILABLE: t('Recovery record unavailable. Refresh the list.'),
-      RECOVERY_MANUAL_INSPECTION: t('Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.'),
+      RECOVERY_MANUAL_INSPECTION: t(
+        'Recovery storage contains unrecognized entries. Inspect the host recovery folder manually.'
+      ),
     },
     phases: {
       interrupted: t('Interrupted'),
@@ -153,30 +172,52 @@ export function ProjectRecoverySurface({
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary>
-        {labels.title}{overview?.records.length ? ` · ${overview.records.length}` : ''}
+        {labels.title}
+        {overview?.records.length ? ` · ${overview.records.length}` : ''}
         {needsReview ? ` · ${t('Review required')}` : ''}
         {unavailable ? ` · ${t('Unavailable')}` : ''}
       </summary>
       {unavailable && <p role="status">{labels.failures?.[recoveryFailureCode(failure)!] ?? labels.failure}</p>}
       {open && refreshing && <p role="status">{labels.busy}</p>}
-      {open && unavailable && !refreshing &&
-        <button type="button" onClick={() => refreshDiscovery.current?.()}>{labels.refresh}</button>}
-      {needsReview &&
-        <p role="status">{t('File recovery records need review. No files are restored automatically.')}</p>}
-      {open && overview?.rootAvailable === false &&
-        <p role="alert">{t('Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.')}</p>}
-      {open && overview?.storage && <div className="project-recovery-inventory">
-        <p>{t('Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}', {
-          used: overview.storage.usedRecords, limit: overview.storage.maxRecords,
-          unresolved: overview.storage.unresolvedRecords, resolved: overview.storage.resolvedRecords,
-        })}</p>
-        <p>{t('Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB', {
-          bytes: (overview.storage.payloadBytes / 1048576).toFixed(2), unknown: overview.storage.unknownSizeRecords,
-          files: overview.storage.maxBatchFiles, limit: overview.storage.maxBatchBytes / 1048576,
-        })}</p>
-        {overview.storage.usedRecords >= overview.storage.maxRecords &&
-          <p role="alert">{labels.failures?.RECOVERY_CAPACITY}</p>}
-      </div>}
+      {open && unavailable && !refreshing && (
+        <button type="button" onClick={() => refreshDiscovery.current?.()}>
+          {labels.refresh}
+        </button>
+      )}
+      {needsReview && (
+        <p role="status">{t('File recovery records need review. No files are restored automatically.')}</p>
+      )}
+      {open && overview?.rootAvailable === false && (
+        <p role="alert">
+          {t('Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.')}
+        </p>
+      )}
+      {open && overview?.storage && (
+        <div className="project-recovery-inventory">
+          <p>
+            {t('Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}', {
+              used: overview.storage.usedRecords,
+              limit: overview.storage.maxRecords,
+              unresolved: overview.storage.unresolvedRecords,
+              resolved: overview.storage.resolvedRecords,
+            })}
+          </p>
+          <p>
+            {t(
+              'Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB',
+              {
+                bytes: (overview.storage.payloadBytes / 1048576).toFixed(2),
+                unknown: overview.storage.unknownSizeRecords,
+                files: overview.storage.maxBatchFiles,
+                limit: overview.storage.maxBatchBytes / 1048576,
+              }
+            )}
+          </p>
+          {overview.storage.usedRecords >= overview.storage.maxRecords && (
+            <p role="alert">{labels.failures?.RECOVERY_CAPACITY}</p>
+          )}
+        </div>
+      )}
       {open && !refreshing && !unavailable && (
         <ProjectRecoveryPanel
           key={`${projectPath}:${refreshVersion}`}

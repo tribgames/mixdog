@@ -115,9 +115,7 @@ async function executeLive(batch, call, callIndex, exec) {
   // this session never received the discarded body.
   let discardedRead = false;
   if (eager !== undefined && eager.mutationEpoch < epoch.mutation && isEagerDispatchable(call.name, tools)) {
-    const stale = _isReadTool(call.name)
-      ? mutationAffectsRead(epoch, eager.mutationEpoch, call, batch.cwd)
-      : true;
+    const stale = _isReadTool(call.name) ? mutationAffectsRead(epoch, eager.mutationEpoch, call, batch.cwd) : true;
     if (stale) {
       discardedRead = _isReadTool(call.name);
       pending.delete(call.id);
@@ -176,14 +174,10 @@ async function executeSerially(batch, call, exec, suppressReadUnchangedStub = fa
   exec.executionStartedAt = Date.now();
   exec.serialExecutionStartedAt = exec.executionStartedAt;
   exec.localSearchTelemetry = {};
-  exec.result = await executeToolFn(
-    call.name,
-    call.arguments,
-    cwd,
-    sessionId,
-    sessionRef,
-    { ...invocationOptions(batch, call, exec), ...(suppressReadUnchangedStub ? { suppressReadUnchangedStub: true } : {}) }
-  );
+  exec.result = await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, {
+    ...invocationOptions(batch, call, exec),
+    ...(suppressReadUnchangedStub ? { suppressReadUnchangedStub: true } : {}),
+  });
   exec.toolEndedAt = Date.now();
   classifyExecuted(call, exec);
 }

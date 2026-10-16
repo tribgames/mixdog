@@ -800,7 +800,9 @@ function pendingAndFailedMcpServers(mcpStatus) {
  */
 function resolvableCatalog(session) {
   const union = deferredCatalogUnion(session);
-  return filterSessionToolPolicy(union.length ? union : Array.isArray(session?.tools) ? session.tools : [], session);
+  let tools = union;
+  if (!union.length) tools = Array.isArray(session?.tools) ? session.tools : [];
+  return filterSessionToolPolicy(tools, session);
 }
 
 // Pure loader. Input is exact deferred-tool names/aliases; output reports

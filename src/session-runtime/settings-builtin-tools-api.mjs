@@ -9,10 +9,7 @@ import {
 } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { featureEnvOverride, moduleEnabled } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { LOCAL_PROVIDER_ID } from '../runtime/local-provider/managed-runtime.mjs';
-import {
-  INSTRUCTION_FILES_MODES,
-  normalizeInstructionFilesMode,
-} from '../runtime/shared/instruction-files-mode.mjs';
+import { INSTRUCTION_FILES_MODES, normalizeInstructionFilesMode } from '../runtime/shared/instruction-files-mode.mjs';
 import { getEmbeddingInfo } from '../runtime/memory/lib/embedding-provider.mjs';
 import { onnxRuntimeSupported } from '../runtime/shared/onnx-runtime-support.mjs';
 import {

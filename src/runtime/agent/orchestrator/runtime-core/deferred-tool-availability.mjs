@@ -8,7 +8,10 @@ export function sessionAllowlistExcludes(session, name) {
 
 /** The session's denied tools name `name`. */
 export function sessionDisallows(session, name) {
-  return Array.isArray(session?.disallowedTools) && session.disallowedTools.some((denied) => lowerName(denied) === lowerName(name));
+  return (
+    Array.isArray(session?.disallowedTools) &&
+    session.disallowedTools.some((denied) => lowerName(denied) === lowerName(name))
+  );
 }
 
 /**

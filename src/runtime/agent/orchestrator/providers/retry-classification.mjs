@@ -476,7 +476,8 @@ export function isContextOverflowError(err, _depth = 0) {
   const sizeTyped =
     typeof err === 'object' &&
     boundedCauseChain(err).some(
-      (item) => item && typeof item === 'object' && providerErrorKind(item, { text: false }).kind === REQUEST_TOO_LARGE_KIND
+      (item) =>
+        item && typeof item === 'object' && providerErrorKind(item, { text: false }).kind === REQUEST_TOO_LARGE_KIND
     );
   const patterns = sizeTyped ? TOKEN_CONTEXT_OVERFLOW_PATTERNS : CONTEXT_OVERFLOW_PATTERNS;
   const msg = (typeof err === 'string' ? err : err?.message) || '';

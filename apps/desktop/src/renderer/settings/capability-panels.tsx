@@ -285,6 +285,12 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
   );
 }
 
+function autoClearSource(autoClear: ReturnType<typeof record>): string {
+  if (autoClear.providerCustom) return t('{{value0}} override', { value0: String(autoClear.provider) });
+  if (autoClear.custom) return t('global duration');
+  return t('{{value0}} default', { value0: String(autoClear.provider || 'default') });
+}
+
 // Context management (user decision): ONE page owns how a session's context
 // evolves — auto-compact, idle auto-clear, and the memory that carries over.
 function ContextPanel({ data, pending, run }: PanelContext) {
@@ -324,11 +330,7 @@ function ContextPanel({ data, pending, run }: PanelContext) {
           'Clear idle sessions after {{value0}} ({{value1}}). A provider idle window below overrides the global duration.',
           {
             value0: formatDuration(autoClear.idleMs) || t('the provider default'),
-            value1: autoClear.providerCustom
-              ? t('{{value0}} override', { value0: String(autoClear.provider) })
-              : autoClear.custom
-                ? t('global duration')
-                : t('{{value0}} default', { value0: String(autoClear.provider || 'default') }),
+            value1: autoClearSource(autoClear),
           }
         )}
         checked={autoClear.enabled !== false}

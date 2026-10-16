@@ -355,9 +355,7 @@ export function turnReviewFileItems({
       <li key={`${source.key}:source`} className="turn-review-source">
         {/* Turn/Lead are catalog keys; the session label arrives translated;
             agent tags are user data, never keys. */}
-        <strong>
-          {source.key === 'turn' || source.key === 'lead' ? t(source.label) : source.label || t('Agent')}
-        </strong>
+        <strong>{source.key === 'turn' || source.key === 'lead' ? t(source.label) : source.label || t('Agent')}</strong>
         <span className="diff-stats" aria-hidden={!source.summary.hasLineStats}>
           <i>{source.summary.additions > 0 ? `+${source.summary.additions}` : ''}</i>
           <em>{source.summary.deletions > 0 ? `-${source.summary.deletions}` : ''}</em>

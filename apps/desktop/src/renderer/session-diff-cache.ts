@@ -70,7 +70,8 @@ export function answerSessionDiffSignal(sessionId: string, signal: string): void
   if (!id) return;
   answeredSignals.delete(id);
   answeredSignals.set(id, signal);
-  while (answeredSignals.size > SESSION_DIFF_CACHE_LIMIT) answeredSignals.delete(answeredSignals.keys().next().value as string);
+  while (answeredSignals.size > SESSION_DIFF_CACHE_LIMIT)
+    answeredSignals.delete(answeredSignals.keys().next().value as string);
 }
 
 /** Same diff content, compared without re-serialising the (large) patch. */

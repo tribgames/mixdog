@@ -21,15 +21,14 @@ import { judgeTurn, recordEffortDecision } from '../../../../effort-judge/judge-
 import { stepResultWindow } from '../../../../effort-judge/judge-input.mjs';
 
 const TEXT_BLOCKS = new Set(['text', 'input_text', 'output_text']);
-const textOf = (content) =>
-  typeof content === 'string'
-    ? content
-    : Array.isArray(content)
-      ? content
-          .filter((block) => block && TEXT_BLOCKS.has(block.type))
-          .map((block) => block.text)
-          .join('\n')
-      : '';
+function textOf(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((block) => block && TEXT_BLOCKS.has(block.type))
+    .map((block) => block.text)
+    .join('\n');
+}
 // Same argument text the training data was built from (head 600 code points).
 const argText = (args) =>
   Array.from(typeof args === 'string' ? args : JSON.stringify(args ?? {}))

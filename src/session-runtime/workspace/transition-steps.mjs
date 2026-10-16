@@ -320,9 +320,7 @@ export function createTransitionSteps({
     // The move is committed and persisted: the carried changes' recovery ref
     // has done its job (a failure to drop it only leaves a spare ref).
     if (entry.changes?.recoveryRef) {
-      await backendApi
-        .dropCarryRecoveryRef({ projectPath, recoveryRef: entry.changes.recoveryRef })
-        .catch(() => {});
+      await backendApi.dropCarryRecoveryRef({ projectPath, recoveryRef: entry.changes.recoveryRef }).catch(() => {});
     }
     // Creation notes (submodules, include entries missing or already present).
     return {

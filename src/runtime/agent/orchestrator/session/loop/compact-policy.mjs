@@ -612,9 +612,7 @@ export function fixedRequestOverhead(policy, messages, tools, sessionRef = null)
   const calibration = policyTokenCalibration(policy);
   const toProviderScale = (raw) => Math.ceil(Math.max(0, raw) * calibration);
   const toolTokens = toProviderScale(policyRequestReserveTokens(policy));
-  const systemTokens = toProviderScale(
-    estimateMessagesTokens(splitProtectedContext(messages || []).protectedPrefix)
-  );
+  const systemTokens = toProviderScale(estimateMessagesTokens(splitProtectedContext(messages || []).protectedPrefix));
   const configuredReserve = Math.max(0, Number(policy.configuredReserveTokens) || 0);
   const fixed = toolTokens + systemTokens;
   // A provider reading of this very prefix with these very tools measured
@@ -676,7 +674,7 @@ export function fixedRequestOverheadInputs(policy, messages) {
 function measuredFixedRequestTokens(sessionRef, messages, policy) {
   if (!sessionRef || !Array.isArray(messages)) return null;
   const aligned = providerBaselineCoverage(sessionRef, messages);
-  if (!aligned || !aligned.toolSignature || aligned.toolSignature !== policy?.toolSchemaSignature) return null;
+  if (!aligned?.toolSignature || aligned.toolSignature !== policy?.toolSchemaSignature) return null;
   return aligned.tokens;
 }
 

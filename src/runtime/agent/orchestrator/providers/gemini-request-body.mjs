@@ -44,10 +44,10 @@ export function buildGeminiRequest(messages, useModel, tools, opts) {
   // explicit opts.includeThoughts still wins.
   const thinkingConfig = geminiThinkingConfig(useModel, opts, { includeThoughts: true });
   const controls = geminiGenerationControls(opts);
-  const generationConfig =
-    thinkingConfig || Object.keys(controls).length
-      ? { ...(thinkingConfig ? { thinkingConfig } : {}), ...controls }
-      : undefined;
+  let generationConfig;
+  if (thinkingConfig || Object.keys(controls).length) {
+    generationConfig = { ...(thinkingConfig ? { thinkingConfig } : {}), ...controls };
+  }
   const systemInstruction =
     messages
       .filter((m) => m.role === 'system')

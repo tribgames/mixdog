@@ -109,11 +109,7 @@ export async function listCompatModels(provider, { throwOnError = false, signal 
           0
       );
       const outputTokens = Number(
-        m?.max_output_tokens ??
-          m?.output_tokens ??
-          m?.maxOutputTokens ??
-          m?.top_provider?.max_completion_tokens ??
-          0
+        m?.max_output_tokens ?? m?.output_tokens ?? m?.maxOutputTokens ?? m?.top_provider?.max_completion_tokens ?? 0
       );
       const mode = nativeMode(m);
       // A catalog alias (OpenRouter `~anthropic/claude-opus-latest`) keeps its

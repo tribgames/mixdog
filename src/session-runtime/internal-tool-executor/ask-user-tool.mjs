@@ -1,12 +1,16 @@
 // ask_user: put 1-4 multiple-choice questions to the user through the session's
 // tool-approval hook (kind: 'question') and report the answers to the model.
-import { validateAskUserQuestions, ASK_USER_MAX_TEXT } from '../../runtime/agent/orchestrator/runtime-core/ask-user-tool-defs.mjs';
+import {
+  validateAskUserQuestions,
+  ASK_USER_MAX_TEXT,
+} from '../../runtime/agent/orchestrator/runtime-core/ask-user-tool-defs.mjs';
 import { createCallerContextResolvers } from './caller-context.mjs';
 
 export const ASK_USER_TIMEOUT_MS = 30 * 60 * 1000;
 export const APPROVAL_TIMED_OUT_REASON = 'approval timed out';
 
-const NO_USER = 'No user is available to answer in this session. Proceed with your best judgment and state the choices you made.';
+const NO_USER =
+  'No user is available to answer in this session. Proceed with your best judgment and state the choices you made.';
 const DISMISSED =
   'User closed the questions without answering. Proceed with your best judgment; ask again only if something new depends on it.';
 const TIMED_OUT = `User did not answer in time. ${DISMISSED}`;
@@ -58,7 +62,8 @@ export function createAskUserToolHandlers({ rt }) {
         sessionId: sessionIdFor(callerCtx),
         toolCallId: callerCtx?.toolCallId || null,
       });
-      if (result?.approved === true) return formatAskUserAnswers(questions, normalizeAskUserAnswers(result.answers, questions));
+      if (result?.approved === true)
+        return formatAskUserAnswers(questions, normalizeAskUserAnswers(result.answers, questions));
       return result?.reason === APPROVAL_TIMED_OUT_REASON ? TIMED_OUT : DISMISSED;
     },
   };

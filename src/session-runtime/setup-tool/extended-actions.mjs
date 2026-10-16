@@ -33,10 +33,7 @@ function compactModelRow(row) {
 }
 
 const isPresent = (value) =>
-  value != null &&
-  value !== '' &&
-  value !== false &&
-  !(typeof value === 'object' && !Object.keys(value).length);
+  value != null && value !== '' && value !== false && !(typeof value === 'object' && !Object.keys(value).length);
 
 /** Everything set_route can use for one model; empty and false fields omitted. */
 function modelDetail(row) {
@@ -69,10 +66,13 @@ function modelDetail(row) {
 function findModel(rows, id, provider) {
   const matches = rows.filter((row) => row.id === id && (!provider || row.provider === provider));
   if (!matches.length) {
-    throw new Error(`model "${id}" not found${provider ? ` for provider "${provider}"` : ''}; list_models with catalog.provider returns its model ids`);
+    throw new Error(
+      `model "${id}" not found${provider ? ` for provider "${provider}"` : ''}; list_models with catalog.provider returns its model ids`
+    );
   }
   const providers = [...new Set(matches.map((row) => row.provider))];
-  if (providers.length > 1) throw new Error(`model "${id}" is offered by ${providers.join(', ')}; pass catalog.provider`);
+  if (providers.length > 1)
+    throw new Error(`model "${id}" is offered by ${providers.join(', ')}; pass catalog.provider`);
   return matches[0];
 }
 

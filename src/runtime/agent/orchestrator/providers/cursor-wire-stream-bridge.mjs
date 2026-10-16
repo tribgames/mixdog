@@ -80,13 +80,11 @@ export function createBridgeController(ctx) {
     const serverDelay = retryAfterMsFromError(error);
     // Server advice is honored in full for every retryable kind; local
     // backoff applies only when the server gave none.
-    const delayMs = Number.isFinite(serverDelay)
-      ? serverDelay
-      : backoffMs(throttled ? throttleCount + 1 : retryCount + 1);
+    const backoffAttempt = (throttled ? throttleCount : retryCount) + 1;
+    const delayMs = Number.isFinite(serverDelay) ? serverDelay : backoffMs(backoffAttempt);
     const throttleOk = throttled && throttleCount < tuning.maxThrottleRetries;
     const authOk = authFailure && authCount < tuning.maxAuthRetries;
-    const canRetry =
-      retryCount < tuning.maxRetries && recoveryEligible && (retryable || throttleOk || authOk);
+    const canRetry = retryCount < tuning.maxRetries && recoveryEligible && (retryable || throttleOk || authOk);
     if (!canRetry) {
       // A fresh Cursor run owns its bounded in-place retries. Mark
       // exhaustion so the outer loop does not multiply that budget.
@@ -96,8 +94,7 @@ export function createBridgeController(ctx) {
       // A throttle that spent its bounded retries is final for the turn too.
       if (
         recoveryEligible &&
-        ((retryable && retryCount >= tuning.maxRetries) ||
-          (throttled && throttleCount >= tuning.maxThrottleRetries))
+        ((retryable && retryCount >= tuning.maxRetries) || (throttled && throttleCount >= tuning.maxThrottleRetries))
       ) {
         markProviderRecoveryExhausted(error, { owner: 'cursor-wire', attempts: retryCount + 1 });
       }
@@ -118,6 +115,9 @@ export function createBridgeController(ctx) {
       lastErr: error,
       delayMs,
     });
+    let restartReason = 'transient';
+    if (throttled) restartReason = 'throttle';
+    else if (authFailure) restartReason = 'auth';
     void sleep(delayMs, cancelSignal).then(async () => {
       if (isCancelled() || state.closed) return;
       try {
@@ -126,7 +126,7 @@ export function createBridgeController(ctx) {
           attempt: retryCount,
           fromCheckpoint: !throttled && Boolean(run.conversation.checkpoint),
           visibleOutput: state.visibleOutput,
-          reason: throttled ? 'throttle' : authFailure ? 'auth' : 'transient',
+          reason: restartReason,
           error,
         });
         if (isCancelled() || state.closed) {

@@ -344,12 +344,18 @@ function officeUnit(a) {
 
 function visualizeUnit(a) {
   const action = String(a.action || '').toLowerCase();
-  if (action === 'capture') return unitDescriptor('Visualize', { count: 1, active: 'Capturing', done: 'Captured', noun: 'screenshot' });
-  if (action === 'export') return unitDescriptor('Visualize', { count: 1, active: 'Exporting', done: 'Exported', noun: 'file' });
-  if (action === 'annotate') return unitDescriptor('Visualize', { count: 1, active: 'Marking', done: 'Marked', noun: 'annotation' });
-  if (action === 'check') return unitDescriptor('Visualize', { count: 1, active: 'Checking', done: 'Checked', noun: 'page' });
-  if (action === 'inspect') return unitDescriptor('Visualize', { count: 1, active: 'Inspecting', done: 'Inspected', noun: 'page' });
-  if (action === 'close') return unitDescriptor('Visualize', { count: 1, active: 'Closing', done: 'Closed', noun: 'tab' });
+  if (action === 'capture')
+    return unitDescriptor('Visualize', { count: 1, active: 'Capturing', done: 'Captured', noun: 'screenshot' });
+  if (action === 'export')
+    return unitDescriptor('Visualize', { count: 1, active: 'Exporting', done: 'Exported', noun: 'file' });
+  if (action === 'annotate')
+    return unitDescriptor('Visualize', { count: 1, active: 'Marking', done: 'Marked', noun: 'annotation' });
+  if (action === 'check')
+    return unitDescriptor('Visualize', { count: 1, active: 'Checking', done: 'Checked', noun: 'page' });
+  if (action === 'inspect')
+    return unitDescriptor('Visualize', { count: 1, active: 'Inspecting', done: 'Inspected', noun: 'page' });
+  if (action === 'close')
+    return unitDescriptor('Visualize', { count: 1, active: 'Closing', done: 'Closed', noun: 'tab' });
   return unitDescriptor('Visualize', { count: 1, active: 'Showing', done: 'Showed', noun: 'artifact' });
 }
 
@@ -592,14 +598,10 @@ function cwdUnit(a) {
   }
   if (action === 'favorite' || action === 'archive') {
     const off = a.value === false;
-    const [active, done] =
-      action === 'favorite'
-        ? off
-          ? ['Unfavoriting', 'Unfavorited']
-          : ['Favoriting', 'Favorited']
-        : off
-          ? ['Unarchiving', 'Unarchived']
-          : ['Archiving', 'Archived'];
+    let words;
+    if (action === 'favorite') words = off ? ['Unfavoriting', 'Unfavorited'] : ['Favoriting', 'Favorited'];
+    else words = off ? ['Unarchiving', 'Unarchived'] : ['Archiving', 'Archived'];
+    const [active, done] = words;
     return unitDescriptor('Setup', { active, done, noun: 'session', effect: true });
   }
   if (action.endsWith('-worktree') || action.endsWith('-worktrees')) {
@@ -613,7 +615,12 @@ function cwdUnit(a) {
   if (action === 'status') {
     return unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'session' });
   }
-  return unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'working directory', pluralNoun: 'working directories' });
+  return unitDescriptor('Setup', {
+    active: 'Checking',
+    done: 'Checked',
+    noun: 'working directory',
+    pluralNoun: 'working directories',
+  });
 }
 
 const TOOL_UNITS = new Map([

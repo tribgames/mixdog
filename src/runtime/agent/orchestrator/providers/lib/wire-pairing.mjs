@@ -29,8 +29,10 @@ function isObject(value) {
 // answered by the server inside the same response. It is never a client call
 // awaiting a client output, so the guard neither pairs nor synthesizes it.
 function isServerToolSearch(item) {
-  return (item.type === 'tool_search_call' || item.type === 'tool_search_output') &&
-    (item.execution === 'server' || item.call_id === null);
+  return (
+    (item.type === 'tool_search_call' || item.type === 'tool_search_output') &&
+    (item.execution === 'server' || item.call_id === null)
+  );
 }
 
 function responsesCallId(item) {

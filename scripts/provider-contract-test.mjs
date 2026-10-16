@@ -20,10 +20,7 @@ import {
   consumeCompatResponsesStream,
 } from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
 import { useXaiResponsesWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-compat-xai.mjs';
-import {
-  toOpenAIMessages,
-  toOpenAITools,
-} from '../src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs';
+import { toOpenAIMessages, toOpenAITools } from '../src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs';
 import { toOpenAIResponsesTool } from '../src/runtime/agent/orchestrator/providers/openai-responses-payload.mjs';
 import { requestAnthropicTools } from '../src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs';
 import { toGeminiTools } from '../src/runtime/agent/orchestrator/providers/gemini-schema.mjs';
@@ -152,7 +149,12 @@ test('Computer Use bytes on unverified provider paths equal the pre-change flat 
   assert.equal(bytes(normalizeGrokToolSchemas([tool])), bytes(normalizeGrokToolSchemas([preChange])));
   assert.equal(bytes(toGeminiTools([tool])), bytes(toGeminiTools([preChange])));
   const gatewayAnthropic = (t) =>
-    requestAnthropicTools([t], [], { providerToolSnapshotAuthoritative: true, providerNativeToolPrefixCount: 0 }, 'opencode-go');
+    requestAnthropicTools(
+      [t],
+      [],
+      { providerToolSnapshotAuthoritative: true, providerNativeToolPrefixCount: 0 },
+      'opencode-go'
+    );
   assert.equal(bytes(gatewayAnthropic(tool)), bytes(gatewayAnthropic(preChange)));
 });
 

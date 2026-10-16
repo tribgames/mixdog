@@ -154,9 +154,7 @@ function localizeToolSurfaceLine(line: string): string {
 /** The fixed tool-surface overflow in the UI language: its headline (with the
  *  typed code), the remedy as the next step, and the sizes as the details.
  *  Null for any other failure. */
-export function localizeToolSurfaceError(
-  details: string
-): { summary: string; recovery: string; body: string } | null {
+export function localizeToolSurfaceError(details: string): { summary: string; recovery: string; body: string } | null {
   if (!TOOL_SURFACE_MARK.test(details)) return null;
   const lines = details
     .replace(/^\s*Error:\s*/, '')

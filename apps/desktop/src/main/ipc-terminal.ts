@@ -76,8 +76,9 @@ export function registerTerminalIpc({
     });
   }
 
-  handle(DESKTOP_IPC.terminalRunClaim, (_event, requestId) =>
-    terminalRuns?.claim(requiredString(requestId, 'terminal run request id', 128)) ?? false
+  handle(
+    DESKTOP_IPC.terminalRunClaim,
+    (_event, requestId) => terminalRuns?.claim(requiredString(requestId, 'terminal run request id', 128)) ?? false
   );
 
   const onWrite = (event: IpcMainEvent, id: unknown, data: unknown): void => {

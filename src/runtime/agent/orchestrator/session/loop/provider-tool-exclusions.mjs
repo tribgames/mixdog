@@ -13,7 +13,10 @@ import { actionInputUnionFor } from '../../providers/lib/action-input-contract.m
 import { isAntigravityClaude } from '../../providers/antigravity-request.mjs';
 import { isResponsesFreeformTool } from '../../providers/custom-tool-wire.mjs';
 import { ANTHROPIC_NATIVE_PROVIDERS } from '../../runtime-core/tool-catalog-schema.mjs';
-import { finalizeProviderRequestTools, providerNativeToolPrefixCount } from '../../runtime-core/provider-request-tools.mjs';
+import {
+  finalizeProviderRequestTools,
+  providerNativeToolPrefixCount,
+} from '../../runtime-core/provider-request-tools.mjs';
 
 const sessions = new WeakMap();
 

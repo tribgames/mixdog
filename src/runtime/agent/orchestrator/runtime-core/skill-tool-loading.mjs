@@ -59,7 +59,9 @@ export function loadSkillToolDependencies(envelope, session, mode) {
           `Required tools loaded: ${direct.join(', ')}. Their full definitions are available on your next request; use them directly without load_tool.`,
         ]
       : []),
-    ...(direct.length && isToolBridgeEnabled(session) ? [`Required tools available directly: ${direct.join(', ')}.`] : []),
+    ...(direct.length && isToolBridgeEnabled(session)
+      ? [`Required tools available directly: ${direct.join(', ')}.`]
+      : []),
     ...(bridged.length
       ? [
           `Required tools available through call_tool: ${bridged.join(', ')}. Read a definition with load_tool, then run it with call_tool {name, arguments}.`,

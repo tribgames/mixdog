@@ -23,7 +23,14 @@ import { reloadProviderApiKey, resolveProviderApiKey } from '../../../shared/pro
 const PROVIDER = 'opencode-go';
 
 /** The generateContent request body for a built Gemini request. */
-export function openCodeGoGeminiBody({ contents, systemInstruction, geminiTools, toolConfig, generationConfig, safetySettings }) {
+export function openCodeGoGeminiBody({
+  contents,
+  systemInstruction,
+  geminiTools,
+  toolConfig,
+  generationConfig,
+  safetySettings,
+}) {
   return {
     contents,
     ...(systemInstruction ? { systemInstruction: { parts: [{ text: systemInstruction }] } } : {}),
@@ -84,7 +91,11 @@ export class OpenCodeGoGeminiEngine extends GeminiProvider {
   }
 
   async _openGatewayStream(url, body, opts, attemptSignal) {
-    const openFirstByte = createTimeoutSignal(attemptSignal, GEMINI_FIRST_BYTE_TIMEOUT_MS, 'OpenCode Go Gemini first byte');
+    const openFirstByte = createTimeoutSignal(
+      attemptSignal,
+      GEMINI_FIRST_BYTE_TIMEOUT_MS,
+      'OpenCode Go Gemini first byte'
+    );
     let res;
     try {
       res = await this._fetch(url, {

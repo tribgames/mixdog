@@ -264,8 +264,13 @@ export async function createDesktopService({
     withRecoveryStore: async (root, action, run) => {
       const worktrees = await runtime.loadWorktrees?.();
       if (worktrees?.withWorktreeRecoveryStore)
-        return worktrees.withWorktreeRecoveryStore(root, projectRecoveryStorePath(options.userDataPath, root), action, run);
-      if (worktrees && await (worktrees.findWorktreeContaining ?? worktrees.getWorktreeByPath)(root))
+        return worktrees.withWorktreeRecoveryStore(
+          root,
+          projectRecoveryStorePath(options.userDataPath, root),
+          action,
+          run
+        );
+      if (worktrees && (await (worktrees.findWorktreeContaining ?? worktrees.getWorktreeByPath)(root)))
         throw new Error('Worktree file recovery protection is unavailable. Update the host before editing.');
       return run();
     },

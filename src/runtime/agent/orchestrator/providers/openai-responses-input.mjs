@@ -254,7 +254,8 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
     pushReasoningItems(m, 'after');
   }
   flushToolMedia();
-  if (opts.reasoningByMessageIndex?.has(messages.length)) out.push(...opts.reasoningByMessageIndex.get(messages.length));
+  if (opts.reasoningByMessageIndex?.has(messages.length))
+    out.push(...opts.reasoningByMessageIndex.get(messages.length));
   out.push(...effortUpdates.end());
   // Wire-level pairing guard: replay envelopes can carry a call whose
   // result never committed (cancel/abort). The provider hard-rejects the

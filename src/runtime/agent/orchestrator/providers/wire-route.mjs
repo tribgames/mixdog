@@ -157,7 +157,7 @@ const NATIVE_DEFERRED_FAMILY = Object.freeze({ messages: 'anthropic', responses:
  * verified support, or a wire with no native contract (Chat, Gemini).
  */
 export function nativeDeferredFamilyForRoute(provider, route) {
-  if (!route || route.nativeDeferredTools !== true) return '';
+  if (route?.nativeDeferredTools !== true) return '';
   const name = String(provider || '')
     .trim()
     .toLowerCase();
@@ -220,7 +220,11 @@ export function resolveWireRoute(
     if (known === false) return unknown();
     // The wire a pre-table session started on, while the model still offers
     // it; otherwise the fresh resolution below (never an unadvertised wire).
-    const legacyWire = profile.legacy({ model: id, catalogWire: usable(catalogWire) ? catalogWire : null, endpoints: advertised });
+    const legacyWire = profile.legacy({
+      model: id,
+      catalogWire: usable(catalogWire) ? catalogWire : null,
+      endpoints: advertised,
+    });
     if (usable(legacyWire)) return route(legacyWire, 'legacy');
   }
   if (override && usable(override)) return route(override, 'override');
@@ -255,7 +259,8 @@ export async function sendWireRoute(provider, model, tools, sendOpts, messages =
 // 403), quota / billing (402, 429) and server errors never qualify.
 const ENDPOINT_STATUSES = new Set([405, 501]);
 const REJECTION_STATUSES = new Set([400, 404, 415, 422]);
-const ENDPOINT_WORDS = /\b(?:endpoints?|routes?)\b|\/(?:v1\/)?(?:messages|responses|chat\/completions)\b|chat completions/i;
+const ENDPOINT_WORDS =
+  /\b(?:endpoints?|routes?)\b|\/(?:v1\/)?(?:messages|responses|chat\/completions)\b|chat completions/i;
 const UNSUPPORTED_WORDS =
   /\bunsupported\b|not (?:be )?(?:supported|available|served|implemented)|(?:does not|doesn't|do not|don't) (?:support|serve)|only (?:available|supported|served)|wrong endpoint|use (?:the )?\/?(?:v1\/)?(?:messages|responses|chat\/completions)\b/i;
 // A typed code / type that names an auth, quota, billing or parameter failure
@@ -507,6 +512,11 @@ export async function pinSessionWireRoute(session, provider) {
   // The route changed while resolving: the newer route pins on its own turn.
   if (session.provider !== providerName || session.model !== model) return null;
   const nativeDeferred = !answered && wireSupportsNativeDeferredTools(providerName, route.wire);
-  session.wireRoute = { provider: providerName, model, ...route, ...(nativeDeferred ? { nativeDeferredTools: true } : {}) };
+  session.wireRoute = {
+    provider: providerName,
+    model,
+    ...route,
+    ...(nativeDeferred ? { nativeDeferredTools: true } : {}),
+  };
   return session.wireRoute;
 }

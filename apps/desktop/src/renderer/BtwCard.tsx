@@ -119,11 +119,14 @@ function CopyAnswerButton({ text }: { text: string }) {
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const copy = () => {
-    void copyTextToClipboard(text).then(() => {
-      setCopied(true);
-      window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => setCopied(false), 1_600);
-    }, () => undefined);
+    void copyTextToClipboard(text).then(
+      () => {
+        setCopied(true);
+        window.clearTimeout(timer.current);
+        timer.current = window.setTimeout(() => setCopied(false), 1_600);
+      },
+      () => undefined
+    );
   };
   const label = copied ? t('Copied') : t('Copy');
   return (
@@ -133,20 +136,16 @@ function CopyAnswerButton({ text }: { text: string }) {
   );
 }
 
-export function BtwCard({
-  card,
-  onClose,
-  onRetry,
-}: {
-  card: BtwCardState;
-  onClose(): void;
-  onRetry(): void;
-}) {
+export function BtwCard({ card, onClose, onRetry }: { card: BtwCardState; onClose(): void; onRetry(): void }) {
   const pending = card.status === 'pending';
   const failed = card.status === 'failed';
   const answer = card.status === 'answered' ? sideMessage(card.text) : null;
   const answerReady = useAnswerReady(answer);
   const bodyRef = useMoreBelow();
+  let closeTooltip: string;
+  if (pending) closeTooltip = t('Cancel');
+  else if (failed) closeTooltip = t('Esc to close');
+  else closeTooltip = t('Esc to close · not saved to the conversation');
   return (
     <section className="btw-card" data-status={card.status} aria-label={t('Side question')}>
       <div className="btw-head">
@@ -170,9 +169,7 @@ export function BtwCard({
           type="button"
           className="btw-icon"
           aria-label={pending ? t('Cancel') : t('Close')}
-          data-tooltip={
-            pending ? t('Cancel') : failed ? t('Esc to close') : t('Esc to close · not saved to the conversation')
-          }
+          data-tooltip={closeTooltip}
           onClick={onClose}
         >
           <X size={14} aria-hidden="true" />

@@ -87,7 +87,9 @@ export function isIncompleteFinishReason(finishReason) {
 /** Whether `finish_reason` confirms a normal end of the turn: present, not an
  *  incomplete outcome and not a gateway-reported failure (network_error/error). */
 export function isNormalFinishReason(finishReason) {
-  return Boolean(finishReason) && !isIncompleteFinishReason(finishReason) && !failingFinishReasonError(finishReason, '');
+  return (
+    Boolean(finishReason) && !isIncompleteFinishReason(finishReason) && !failingFinishReasonError(finishReason, '')
+  );
 }
 
 /** Dispatch held leaked calls once a normal finish_reason confirms the turn

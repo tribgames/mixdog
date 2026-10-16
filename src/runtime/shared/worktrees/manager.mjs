@@ -26,7 +26,12 @@
  * -d` forgets it).
  */
 import { existsSync } from 'node:fs';
-import { assertRecoveryStoresClear, recoveryScopes, retainedRecoveryScopes, validateRecoveryScope } from './file-recovery.mjs';
+import {
+  assertRecoveryStoresClear,
+  recoveryScopes,
+  retainedRecoveryScopes,
+  validateRecoveryScope,
+} from './file-recovery.mjs';
 import { lstat, mkdir, readdir, readFile, rm, rmdir } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import {
@@ -72,7 +77,15 @@ import { withRepoLock as withRepoMutationLock } from './lock.mjs';
 import { mergeBranchIntoCheckout } from './merge.mjs';
 import { readOwnerLease, removeOwnerLease, sameOwner, writeOwnerLease } from './owner.mjs';
 import { canonicalPath, checkoutFolder, isWithin, pathKey, projectSubdirOf, samePath } from './paths.mjs';
-import { deleteRecord, entryView, getRecord, insertRecord, putRecord, readRegistry, registryPath } from './registry.mjs';
+import {
+  deleteRecord,
+  entryView,
+  getRecord,
+  insertRecord,
+  putRecord,
+  readRegistry,
+  registryPath,
+} from './registry.mjs';
 import { normalizeWorktreeSettings } from './settings.mjs';
 import { slugFromHint, uniqueSlug } from './slug.mjs';
 
@@ -545,10 +558,14 @@ export async function withWorktreeRecoveryStore(root, directory, action, run) {
     // lookup. Its reserved namespace must never become an ordinary project.
     // Retain a lexical check as well, so a replacement link cannot escape it.
     const store = dirname(registryPath());
-    const lexicalKey = (path) => process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path);
+    const lexicalKey = (path) => (process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path));
     const requested = lexicalKey(root);
-    if (isWithin(store, root) || [store, canonicalPath(store)].some((path) =>
-      requested === lexicalKey(path) || requested.startsWith(lexicalKey(path) + sep)))
+    if (
+      isWithin(store, root) ||
+      [store, canonicalPath(store)].some(
+        (path) => requested === lexicalKey(path) || requested.startsWith(lexicalKey(path) + sep)
+      )
+    )
       throw worktreeError('WORKTREE_MISSING', undefined, { path: root });
     return run();
   }
@@ -1253,8 +1270,9 @@ export async function listManagedWorktrees({ liveSessionIds = [], retainedSessio
     const isRetained = !!record.ownerSessionId && retained.has(record.ownerSessionId);
     let removable = record.state !== 'ready' || (!ownerLive && (record.disposable === true || !isRetained));
     if (removable) {
-      try { await assertRecoveryStoresClear(record); }
-      catch (error) {
+      try {
+        await assertRecoveryStoresClear(record);
+      } catch (error) {
         if (error?.code !== 'WORKTREE_FILE_RECOVERY') throw error;
         removable = false;
       }

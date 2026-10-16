@@ -178,9 +178,11 @@ export function useVisualizePanelExtras(
   const toast = useRef<string | undefined>(undefined);
   const setNotice = useCallback((notice: Notice | null) => {
     dismissDesktopToast(toast.current);
-    toast.current = notice
-      ? showDesktopToast(notice.text, notice.error ? 'error' : 'info', { scope: 'visualize' })
-      : undefined;
+    if (!notice) {
+      toast.current = undefined;
+      return;
+    }
+    toast.current = showDesktopToast(notice.text, notice.error ? 'error' : 'info', { scope: 'visualize' });
   }, []);
   // A file just saved to the project, offered as "Open" in the ⋯ menu.
   const [saved, setSaved] = useState<string | null>(null);

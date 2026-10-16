@@ -39,7 +39,7 @@ function ownsKeyboard(card: HTMLElement): boolean {
 // An IME commit arrives as keyCode 229 even after isComposing has cleared.
 const isImeKey = (event: globalThis.KeyboardEvent): boolean => event.isComposing || event.keyCode === 229;
 
-const isTypingTarget =(target: EventTarget | null): boolean =>
+const isTypingTarget = (target: EventTarget | null): boolean =>
   target instanceof HTMLInputElement ||
   target instanceof HTMLTextAreaElement ||
   (target instanceof HTMLElement && target.isContentEditable);
@@ -174,7 +174,8 @@ export function QuestionCard({
         handled();
         const active = rowRefs.current.findIndex((row) => row === document.activeElement);
         const step = event.key === 'ArrowDown' ? 1 : -1;
-        const next = active < 0 ? (step > 0 ? 0 : optionCount) : Math.min(optionCount, Math.max(0, active + step));
+        const entry = step > 0 ? 0 : optionCount;
+        const next = active < 0 ? entry : Math.min(optionCount, Math.max(0, active + step));
         rowRefs.current[next]?.focus();
       } else if (event.key === ' ' && multiSelect && !onButton) {
         const active = rowRefs.current.findIndex((row) => row === document.activeElement);
@@ -223,10 +224,17 @@ export function QuestionCard({
       ref={cardRef}
       tabIndex={-1}
       className="question-card"
-      role="group" aria-label={t('Agent question')} data-multi={multi || undefined}>
+      role="group"
+      aria-label={t('Agent question')}
+      data-multi={multi || undefined}
+    >
       <div className="question-head">
         <div className="question-text">{question.question}</div>
-        {total > 1 && <small className="question-step">{index + 1}/{total}</small>}
+        {total > 1 && (
+          <small className="question-step">
+            {index + 1}/{total}
+          </small>
+        )}
         <button type="button" className="question-close" aria-label={t('Close question')} onClick={() => void close()}>
           ✕
         </button>
@@ -262,31 +270,31 @@ export function QuestionCard({
         })}
       </div>
       <label className="question-other" data-typed={typed || undefined}>
-          <input
-            ref={(node) => {
-              inputRef.current = node;
-              rowRefs.current[question.options.length] = node;
-            }}
-            type="text"
-            value={draft.text}
-            maxLength={4000}
-            disabled={resolving}
-            placeholder={t('Type your own answer')}
-            aria-label={t('Type your own answer')}
-            autoComplete="off"
-            spellCheck={false}
-            onChange={(event) => apply({ type: 'text', value: event.target.value })}
-            onCompositionStart={() => {
-              composingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              composingRef.current = false;
-            }}
-            onBlur={() => {
-              composingRef.current = false;
-            }}
-            onKeyDown={moveFromInput}
-          />
+        <input
+          ref={(node) => {
+            inputRef.current = node;
+            rowRefs.current[question.options.length] = node;
+          }}
+          type="text"
+          value={draft.text}
+          maxLength={4000}
+          disabled={resolving}
+          placeholder={t('Type your own answer')}
+          aria-label={t('Type your own answer')}
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => apply({ type: 'text', value: event.target.value })}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false;
+          }}
+          onBlur={() => {
+            composingRef.current = false;
+          }}
+          onKeyDown={moveFromInput}
+        />
       </label>
       {error && <ErrorNotice error={error} />}
     </article>

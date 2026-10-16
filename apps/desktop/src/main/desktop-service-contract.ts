@@ -54,7 +54,11 @@ export interface DesktopService {
   listSessions(): Promise<DesktopSessionSummary[]>;
   /** `signal` stops the read when aborted (rejects with the signal's reason);
    *  it is local to the caller and never travels over the service IPC. */
-  readSessionFinalAnswer(sessionId: string, startedAt: number, signal?: AbortSignal): Promise<SessionFinalAnswer | null>;
+  readSessionFinalAnswer(
+    sessionId: string,
+    startedAt: number,
+    signal?: AbortSignal
+  ): Promise<SessionFinalAnswer | null>;
   /** Base64 of a stored attachment blob; null when it is permanently unreadable. */
   readAttachmentImage(attachmentRef: string): Promise<string | null>;
   /** The session's transcript as this host holds it (the window its views

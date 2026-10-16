@@ -77,7 +77,9 @@ const GEMINI_CACHE_MIN_TOKENS = 4096;
 // Minimum prefix tokens for an explicit cache, or null when the docs exclude
 // the model from explicit caching.
 export function geminiExplicitCacheMinTokens(model) {
-  const bare = String(model || '').replace(/^models\//i, '').toLowerCase();
+  const bare = String(model || '')
+    .replace(/^models\//i, '')
+    .toLowerCase();
   const major = /^gemini-(\d+)/.exec(bare);
   if (major && Number(major[1]) >= 4) return null;
   if (/^gemini-2\.5-(?:pro|flash)(?!-lite)(?:-|$)/.test(bare)) return 2048;

@@ -243,11 +243,14 @@ export function AgentEditorDialog({
             }
             setFormError('');
             const picked = route.provider && route.model ? route : null;
+            let routeField: { route?: object } = {};
+            if (!enabled) routeField = { route: { ...(picked || {}), disabled: true } };
+            else if (picked) routeField = { route: picked };
             onSave({
               ...(editing ? { id: String(agent?.id || '') } : {}),
               name: text('agent-name'),
               description: text('agent-description'),
-              ...(enabled ? (picked ? { route: picked } : {}) : { route: { ...(picked || {}), disabled: true } }),
+              ...routeField,
               body,
             });
           }}

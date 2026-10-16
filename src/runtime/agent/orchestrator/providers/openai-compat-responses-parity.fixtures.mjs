@@ -13,7 +13,13 @@ export const SERVER_CALL = {
   execution: 'server',
   arguments: { query: 'q' },
 };
-export const SERVER_OUTPUT = { type: 'tool_search_output', id: 'tso_srv', call_id: null, execution: 'server', tools: [] };
+export const SERVER_OUTPUT = {
+  type: 'tool_search_output',
+  id: 'tso_srv',
+  call_id: null,
+  execution: 'server',
+  tools: [],
+};
 export const REPLY = { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] };
 
 export const ROUTES = [
@@ -115,11 +121,14 @@ export function serverSearchReplayHistory(owner) {
 export const COMPAT_CASES = [
   ['native', () => nativeHistory()],
   ['oauth', () => oauthHistory()],
-  ['own-search-output', (name) => {
-    const h = nativeHistory();
-    h[2] = { ...h[2], nativeToolSearch: search(name) };
-    return h;
-  }],
+  [
+    'own-search-output',
+    (name) => {
+      const h = nativeHistory();
+      h[2] = { ...h[2], nativeToolSearch: search(name) };
+      return h;
+    },
+  ],
   ['server-replay', (name, owner = replayOwner(name)) => serverSearchReplayHistory(owner)],
 ];
 
@@ -153,7 +162,9 @@ export async function captureCompat(name, model, history, opts = {}, config = {}
 }
 
 export function captureFirstParty(name, model, history) {
-  return JSON.parse(JSON.stringify(buildRequestBody(history, model, [], { promptCacheProvider: name, sessionId: 'sess-1' })));
+  return JSON.parse(
+    JSON.stringify(buildRequestBody(history, model, [], { promptCacheProvider: name, sessionId: 'sess-1' }))
+  );
 }
 
 export async function captureAll() {

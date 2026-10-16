@@ -667,13 +667,11 @@ async function listPostmasterRows() {
   }
   const stdout = await execFileText('ps', ['-eo', 'pid=,etimes=,args='], { timeout: 15_000 });
   if (stdout === null) return [];
-  return stdout
-    .split(/\r?\n/)
-    .flatMap((line) => {
-      const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*postgres.*)$/);
-      if (!match) return [];
-      return [{ pid: Number(match[1]), uptimeSec: Number(match[2]), args: match[3] }];
-    });
+  return stdout.split(/\r?\n/).flatMap((line) => {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*postgres.*)$/);
+    if (!match) return [];
+    return [{ pid: Number(match[1]), uptimeSec: Number(match[2]), args: match[3] }];
+  });
 }
 
 const PRISTINE_ROOT_PREFIX = 'mixdog-headless-pristine-';

@@ -582,7 +582,7 @@ function landPatch({ cacheKey, stamp, seq }: PatchJob, answer: SessionDiffFilePa
     // A failed read is never "no textual differences" and never passes for
     // the current text: record the failure, keeping the last good text (if
     // any) to draw beside the notice.
-    const hadPatch = current ? (current.failed ? current.hadPatch === true : true) : false;
+    const hadPatch = Boolean(current && (!current.failed || current.hadPatch === true));
     const kept = hadPatch && current ? current : null;
     patches.set(cacheKey, {
       stamp,
@@ -902,10 +902,10 @@ export function useSessionChanges({
     return retainChangesWatch(target);
   }, [active, target, watchable]);
   const laneItems = lane?.items;
-  const fallbackRows = useMemo(
-    () => (git ? EMPTY_ROWS : resolveSessionRows(diff.result, Array.isArray(laneItems) ? laneItems : [], project)),
-    [git, diff.result, laneItems, project]
-  );
+  const fallbackRows = useMemo(() => {
+    if (git) return EMPTY_ROWS;
+    return resolveSessionRows(diff.result, Array.isArray(laneItems) ? laneItems : [], project);
+  }, [git, diff.result, laneItems, project]);
   const rows = git ? (entry?.rows ?? EMPTY_ROWS) : fallbackRows;
   const summary = useMemo(() => summarizeSessionDiffRows(rows), [rows]);
   const diffRefresh = diff.refresh;

@@ -37,7 +37,9 @@ function lastEligibleBlockIndex(content) {
 export function countAnthropicCacheControls(value) {
   if (Array.isArray(value)) return value.reduce((sum, item) => sum + countAnthropicCacheControls(item), 0);
   if (!value || typeof value !== 'object') return 0;
-  return (value.cache_control ? 1 : 0) + (Array.isArray(value.content) ? countAnthropicCacheControls(value.content) : 0);
+  return (
+    (value.cache_control ? 1 : 0) + (Array.isArray(value.content) ? countAnthropicCacheControls(value.content) : 0)
+  );
 }
 
 function stripCacheControl(block, budget) {
@@ -546,7 +548,12 @@ function toAnthropicTools(tools, logTag, onToolExcluded) {
 // `supportsDisableParallelToolUse: false` (gateway capability).
 export function toAnthropicToolChoice(
   toolChoice,
-  { thinking = false, disableParallelToolUse = false, supportsDisableParallelToolUse = true, onThinkingConflict = 'fallback' } = {}
+  {
+    thinking = false,
+    disableParallelToolUse = false,
+    supportsDisableParallelToolUse = true,
+    onThinkingConflict = 'fallback',
+  } = {}
 ) {
   let choice;
   if (toolChoice === 'none') choice = { type: 'none' };

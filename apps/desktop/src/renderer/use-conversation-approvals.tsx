@@ -56,9 +56,7 @@ export function useConversationApprovals(snapshot: Snapshot, routeSessionIdRef: 
         setAnsweredElsewhere({
           id: approvalId,
           device:
-            multiDevice && result?.id === approvalId && isOtherDevice(result.device, viewerDevice)
-              ? result.device
-              : '',
+            multiDevice && result?.id === approvalId && isOtherDevice(result.device, viewerDevice) ? result.device : '',
         });
       }
       return accepted;

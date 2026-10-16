@@ -731,8 +731,17 @@ export class GeminiProvider {
   }
 
   async _streamViaSdk(stream) {
-    const { opts, signal, useModel, systemInstruction, geminiTools, toolConfig, generationConfig, safetySettings, contents } =
-      stream;
+    const {
+      opts,
+      signal,
+      useModel,
+      systemInstruction,
+      geminiTools,
+      toolConfig,
+      generationConfig,
+      safetySettings,
+      contents,
+    } = stream;
     const genModel = this._currentGenAI().getGenerativeModel({
       model: useModel,
       systemInstruction,

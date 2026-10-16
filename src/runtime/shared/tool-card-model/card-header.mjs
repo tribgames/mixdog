@@ -24,7 +24,8 @@ function headerLabel(base, surface, display, status, detail) {
   // Bridge load_tool describes definitions; it never loads a tool.
   const described =
     normalizedName === 'load_tool' && !headerPending ? bridgeDescribedToolNames(display.displayedResultText) : null;
-  if (described) return described.length ? `Described ${described.map(displayToolSearchTarget).join(', ')}` : 'Described';
+  if (described)
+    return described.length ? `Described ${described.map(displayToolSearchTarget).join(', ')}` : 'Described';
   return (
     (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs, display.displayedResultText) : '') ||
     formatToolActionHeader(name, args, {

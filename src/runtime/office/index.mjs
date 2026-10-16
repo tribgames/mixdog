@@ -31,9 +31,8 @@ export async function executeOfficeTool(args = {}, context = {}) {
   const sessionId = String(context.sessionId || '');
   if (!sessionId) return await tracedOfficeTool(args, context);
   const cwd = context.cwd || process.cwd();
-  const { ledger, run } = runWithOfficeWriteLedger(
-    { cwd, dataDir: context.dataDir || defaultOfficeDataDir() },
-    () => tracedOfficeTool(args, context)
+  const { ledger, run } = runWithOfficeWriteLedger({ cwd, dataDir: context.dataDir || defaultOfficeDataDir() }, () =>
+    tracedOfficeTool(args, context)
   );
   try {
     return await run;

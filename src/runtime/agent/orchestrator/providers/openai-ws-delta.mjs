@@ -293,10 +293,7 @@ const TRANSPORT_ONLY_FRAME_FIELDS = new Set(['stream', 'background']);
 // response, so dropping them here strips the system/lead prompt from every
 // continuation turn. Only an empty instructions string is omitted.
 // Full frames pass the body unchanged and keep every key in place.
-export function _buildResponseCreateFrame(
-  body,
-  { previousResponseId = null, inputOverride } = {}
-) {
+export function _buildResponseCreateFrame(body, { previousResponseId = null, inputOverride } = {}) {
   const src = body && typeof body === 'object' ? body : {};
   if (previousResponseId == null && inputOverride === undefined) {
     const frame = { type: 'response.create' };

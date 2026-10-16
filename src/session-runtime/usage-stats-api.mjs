@@ -251,7 +251,10 @@ export function createUsageStatsApi({
       const others = otherSessionIds(options, sessionId);
       if (!others.length) return result;
       const totals = await Promise.all(
-        others.map(async (id) => [id, sessionUsageSnapshot(await store.sessionUsageAsync(sessionUsageIdsFor(scopes, id)))])
+        others.map(async (id) => [
+          id,
+          sessionUsageSnapshot(await store.sessionUsageAsync(sessionUsageIdsFor(scopes, id))),
+        ])
       );
       return { ...result, sessions: Object.fromEntries(totals) };
     },

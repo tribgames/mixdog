@@ -3,10 +3,7 @@
  * runtime's current session. They run beside an in-progress turn and touch no
  * session state (see orchestrator/session/side-question.mjs).
  */
-import {
-  askSideQuestion,
-  cancelSideQuestion,
-} from '../../runtime/agent/orchestrator/session/side-question.mjs';
+import { askSideQuestion, cancelSideQuestion } from '../../runtime/agent/orchestrator/session/side-question.mjs';
 
 export function createSideQuestionOps({ getSession, getReservedSessionId }) {
   const sessionId = () => getSession()?.id || getReservedSessionId?.() || '';

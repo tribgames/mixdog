@@ -61,13 +61,15 @@ export function rejectedToolSchema(error, { sendTools, sessionRef, opts }) {
   const nativeCount = providerNativeToolPrefixCount(tools);
   // The wire list: the request's tools minus those the wire left out.
   const wire = tools.filter((tool) => !providerToolExclusionReason(sessionRef, tool?.name));
-  const hosted = sessionRef?.wireRoute?.wire !== 'chat' && Array.isArray(opts?.nativeTools) ? opts.nativeTools.length : 0;
+  const hosted =
+    sessionRef?.wireRoute?.wire !== 'chat' && Array.isArray(opts?.nativeTools) ? opts.nativeTools.length : 0;
   const entries = evidence(error);
   let name = '';
   for (const entry of entries) {
     const found = target(entry);
     if (!found) continue;
-    const tool = found.name ? wire.find((t) => t?.name === found.name) : wire[found.index - (found.shifted ? hosted : 0)];
+    const shift = found.shifted ? hosted : 0;
+    const tool = found.name ? wire.find((t) => t?.name === found.name) : wire[found.index - shift];
     name = typeof tool?.name === 'string' ? tool.name : '';
     if (name) break;
   }

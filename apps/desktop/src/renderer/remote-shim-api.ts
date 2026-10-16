@@ -456,8 +456,10 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
   Object.defineProperty(api, 'routeAutoEffort', { enumerable: true, get: routeAutoEffort });
   Object.defineProperty(api, 'projectRecovery', {
     enumerable: true,
-    get: () => ctx.peerProjectRecovery === true
-      ? (project: string, request: ProjectRecoveryRequest) => call('projectRecovery', [project, request]) : undefined,
+    get: () =>
+      ctx.peerProjectRecovery === true
+        ? (project: string, request: ProjectRecoveryRequest) => call('projectRecovery', [project, request])
+        : undefined,
   });
   // Read per access like the members below: a reconnect may reach a host that
   // predates `browserDrive`, and the pane must then never send `viewport`.

@@ -180,9 +180,7 @@ export function SessionDiffPane({
   // Git rows are repository-root-relative; the host opens project paths.
   const onOpenFile = useMemo(
     () =>
-      openPath && repository && root
-        ? (path: string) => openPath(gitRowOpenPath(root, cwd ?? '', path))
-        : openPath,
+      openPath && repository && root ? (path: string) => openPath(gitRowOpenPath(root, cwd ?? '', path)) : openPath,
     [openPath, repository, root, cwd]
   );
 

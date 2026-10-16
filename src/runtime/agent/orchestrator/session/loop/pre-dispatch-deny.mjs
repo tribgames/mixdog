@@ -103,7 +103,10 @@ export function preDispatchDenyForSession(sessionRef, call) {
   // its wire id with the projection error; call_tool itself never dispatches.
   if (typeof call.bridgeError === 'string') return call.bridgeError;
   if (name === BRIDGE_CALL_TOOL_NAME && isToolBridgeEnabled(sessionRef)) {
-    return bridgeErrorText('BRIDGE_RECURSION', 'call_tool runs one tool named in its arguments and cannot be dispatched itself.');
+    return bridgeErrorText(
+      'BRIDGE_RECURSION',
+      'call_tool runs one tool named in its arguments and cannot be dispatched itself.'
+    );
   }
   const schemaName = String(call?.schemaName || name);
   // A tool the provider left out of this request still exists in the session;

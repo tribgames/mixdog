@@ -352,8 +352,9 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
   // is split exactly as for a lookup, and a token beside any other value is
   // refused rather than read as a missing name.
   const raw = args.names;
-  const strings =
-    typeof raw === 'string' ? [raw] : Array.isArray(raw) && raw.every((item) => typeof item === 'string') ? raw : [];
+  let strings = [];
+  if (typeof raw === 'string') strings = [raw];
+  else if (Array.isArray(raw) && raw.every((item) => typeof item === 'string')) strings = raw;
   let continuation = null;
   if (strings.some((item) => item.includes(BRIDGE_CONTINUATION_PREFIX))) {
     if (strings.length !== 1 || !CONTINUATION_TOKEN_PATTERN.test(strings[0])) {

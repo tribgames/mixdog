@@ -44,7 +44,14 @@ export function recoveryMayRestore(detail: ProjectRecoveryDetail): boolean {
   );
 }
 
-export function ProjectRecoveryPanel({ projectPath, initialRecordId, request, confirm, openFile, labels }: ProjectRecoveryPanelProps) {
+export function ProjectRecoveryPanel({
+  projectPath,
+  initialRecordId,
+  request,
+  confirm,
+  openFile,
+  labels,
+}: ProjectRecoveryPanelProps) {
   const [records, setRecords] = useState<ProjectRecoverySummary[]>([]);
   const [detail, setDetail] = useState<ProjectRecoveryDetail | null>(null);
   const [pending, setPending] = useState(false);

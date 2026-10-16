@@ -56,8 +56,14 @@ export function requiredProjectRecoveryRequest(value: unknown): ProjectRecoveryR
 // Bounded machine codes also survive Electron's message-only error boundary.
 // These are presentation hints only, never restoration or path authority.
 export const RECOVERY_ERROR_CODES = [
-  'RECOVERY_CHANGED', 'RECOVERY_BUSY', 'RECOVERY_CAPACITY', 'RECOVERY_BATCH_LIMIT',
-  'RECOVERY_STORAGE', 'RECOVERY_NOT_RESTORABLE', 'RECOVERY_UNAVAILABLE', 'RECOVERY_MANUAL_INSPECTION',
+  'RECOVERY_CHANGED',
+  'RECOVERY_BUSY',
+  'RECOVERY_CAPACITY',
+  'RECOVERY_BATCH_LIMIT',
+  'RECOVERY_STORAGE',
+  'RECOVERY_NOT_RESTORABLE',
+  'RECOVERY_UNAVAILABLE',
+  'RECOVERY_MANUAL_INSPECTION',
 ] as const;
 export type RecoveryErrorCode = (typeof RECOVERY_ERROR_CODES)[number];
 export class ProjectRecoveryError extends Error {
@@ -86,6 +92,10 @@ export function recoveryFailureRecord(error: unknown): string | null {
 export function recoveryStorageError(error: unknown): unknown {
   const code = (error as { code?: unknown } | null)?.code;
   return ['ENOSPC', 'EDQUOT', 'EACCES', 'EPERM', 'EROFS', 'EIO', 'EMFILE', 'ENFILE'].includes(String(code))
-    ? new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery storage is unavailable. Check free space and permissions.', { cause: error })
+    ? new ProjectRecoveryError(
+        'RECOVERY_STORAGE',
+        'Recovery storage is unavailable. Check free space and permissions.',
+        { cause: error }
+      )
     : error;
 }

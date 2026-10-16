@@ -15,7 +15,9 @@ import { resolveWireRoute, sendOnRoute } from './wire-route.mjs';
 function hasFileIdImage(value, depth = 0) {
   if (!value || typeof value !== 'object' || depth > 6) return false;
   if (Array.isArray(value)) return value.some((entry) => hasFileIdImage(entry, depth + 1));
-  const fileId = value.type === 'input_image' ? value.file_id : value.type === 'image' && value.source?.type === 'file' ? value.source.file_id : null;
+  let fileId = null;
+  if (value.type === 'input_image') fileId = value.file_id;
+  else if (value.type === 'image' && value.source?.type === 'file') fileId = value.source.file_id;
   if (typeof fileId === 'string' && fileId) return true;
   return hasFileIdImage(value.content, depth + 1);
 }
@@ -32,9 +34,12 @@ function hasFileIdImage(value, depth = 0) {
  */
 export function gatewayMessagesOpts(config, model, messages, opts) {
   const out = { ...(opts || {}) };
-  const ceiling = Math.floor(Number(typeof config?.modelMaxOutputTokens === 'function' ? config.modelMaxOutputTokens(model) : 0));
+  const ceiling = Math.floor(
+    Number(typeof config?.modelMaxOutputTokens === 'function' ? config.modelMaxOutputTokens(model) : 0)
+  );
   if (ceiling > 0 && out.modelMaxOutputTokens === undefined) out.modelMaxOutputTokens = ceiling;
-  if (typeof config?.messagesEffortProjection === 'function') out.messagesEffortProjection = config.messagesEffortProjection;
+  if (typeof config?.messagesEffortProjection === 'function')
+    out.messagesEffortProjection = config.messagesEffortProjection;
   if (config?.fileIdImageBeta && hasFileIdImage(messages)) {
     out.requestHeaders = { 'anthropic-beta': config.fileIdImageBeta, ...(out.requestHeaders || {}) };
   }
@@ -115,7 +120,9 @@ export class WireGatewayProvider {
 
   // The model's output ceiling: the gateway roster, else the shared catalog.
   _modelMaxOutputTokens(model) {
-    const declared = Number(this.getCachedModelInfo(model)?.outputTokens ?? getModelMetadataSync(model, this.name)?.outputTokens);
+    const declared = Number(
+      this.getCachedModelInfo(model)?.outputTokens ?? getModelMetadataSync(model, this.name)?.outputTokens
+    );
     return Number.isFinite(declared) && declared > 0 ? declared : null;
   }
 

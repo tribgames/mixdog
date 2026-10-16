@@ -364,15 +364,6 @@ function remember(key: string, entry: PacerEntry): void {
   }
 }
 
-/** Reveal the row with `key` immediately (a later row was inserted below). */
-export function flushPacedTranscriptText(key: string): void {
-  const entry = registry.get(key);
-  if (!entry || entry.pacer.pending === 0) return;
-  entry.pacer.flush();
-  active.delete(entry);
-  notify(entry);
-}
-
 export interface PacedTranscriptText {
   /** What the row paints. */
   text: string;

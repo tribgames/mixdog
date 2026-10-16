@@ -32,14 +32,16 @@ export function createWorkspaceToolHandlers({
     const workspace = getWorkspaceApi();
     if (!workspace) throw new Error(`session: ${action} is unavailable in this runtime`);
     assertLead(action, callerCtx);
-    const result =
-      action === 'merge-worktree'
-        ? await workspace.mergeWorkspace({ confirmed: true }, { ownTurn: true })
-        : action === 'remove-worktree'
-          ? await workspace.removeWorktree({ force: args?.force === true }, { ownTurn: true })
-          : action === 'list-worktrees'
-            ? await workspace.listWorktrees()
-            : await workspace.pruneWorktrees();
+    let result;
+    if (action === 'merge-worktree') {
+      result = await workspace.mergeWorkspace({ confirmed: true }, { ownTurn: true });
+    } else if (action === 'remove-worktree') {
+      result = await workspace.removeWorktree({ force: args?.force === true }, { ownTurn: true });
+    } else if (action === 'list-worktrees') {
+      result = await workspace.listWorktrees();
+    } else {
+      result = await workspace.pruneWorktrees();
+    }
     return JSON.stringify({ action, cwd: rt.currentCwd, result }, null, 2);
   };
 

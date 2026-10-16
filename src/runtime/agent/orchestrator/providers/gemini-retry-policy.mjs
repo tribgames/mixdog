@@ -148,7 +148,12 @@ export async function runGeminiStreamAttempts({ run, signal, onRetry, sleepFn, a
     } catch (err) {
       const waitMs = connected ? geminiMidstreamDelayMs(err, streamAttempt, signal) : null;
       if (waitMs == null) throw err;
-      onRetry?.({ attempt: streamAttempt + 1, maxAttempts: GEMINI_MIDSTREAM_MAX_ATTEMPTS, lastErr: err, delayMs: waitMs });
+      onRetry?.({
+        attempt: streamAttempt + 1,
+        maxAttempts: GEMINI_MIDSTREAM_MAX_ATTEMPTS,
+        lastErr: err,
+        delayMs: waitMs,
+      });
       await sleepWithAbort(waitMs, signal, sleepFn, 'Gemini stream retry wait aborted');
       continue;
     }
