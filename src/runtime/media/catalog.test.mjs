@@ -18,7 +18,7 @@ test('live catalogs admit new compatible ids and exclude unsupported generation 
   ]);
   assert.deepEqual(
     openai.image.map((row) => row.id),
-    ['chatgpt-image-auto']
+    ['gpt-image-2']
   );
   assert.equal(openai.image[0].requestModel, 'gpt-7-mainline');
   assert.equal(openai.image[0].controls.size, undefined);

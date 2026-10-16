@@ -64,6 +64,7 @@ const LANES = Object.freeze([
     image: Object.freeze({
       controls: Object.freeze({
         maxReferences: 5,
+        background: Object.freeze(['auto', 'transparent', 'opaque']),
       }),
     }),
   }),

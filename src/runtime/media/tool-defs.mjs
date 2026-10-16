@@ -31,7 +31,7 @@ export const TOOL_DEFS = [
         lane: {
           type: 'string',
           description:
-            'Lane id from list; omitted = the lane the user last chose for the kind (Studio selection or last generation), else the first signed-in lane.',
+            'Lane id from list; pass it when the user names a source. Omitted = the lane the user last chose for the kind, else the default signed-in lane.',
         },
         model: {
           type: 'string',
@@ -44,10 +44,21 @@ export const TOOL_DEFS = [
           description:
             'generate: output file (png/jpg/mp4); relative to the project. status: copy a finished asset here.',
         },
-        aspect: { type: 'string', description: 'Aspect ratio, e.g. 16:9, 9:16, 1:1; must be one the model lists.' },
-        resolution: { type: 'string', description: 'Model resolution token from list (1k, 2k, 720p, 1080p).' },
+        aspect: {
+          type: 'string',
+          description: 'Aspect ratio, e.g. 16:9, 9:16, 1:1; only when the model lists aspectRatio, else omit.',
+        },
+        resolution: {
+          type: 'string',
+          description: 'Resolution token (1k, 2k, 720p, 1080p); only when the model lists it, else omit.',
+        },
         duration: { type: 'number', description: "video: seconds, within the model's listed durations." },
-        quality: { type: 'string', description: 'Quality token when the model lists one.' },
+        quality: { type: 'string', description: 'Quality token; only when the model lists one, else omit.' },
+        background: {
+          type: 'string',
+          enum: ['auto', 'transparent', 'opaque'],
+          description: 'image: transparent for real alpha; only when the model lists background, else omit.',
+        },
         references: {
           type: 'array',
           items: { type: 'string' },

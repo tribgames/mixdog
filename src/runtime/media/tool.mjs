@@ -8,6 +8,7 @@ import { MEDIA_ACTIONS, MEDIA_KINDS } from './tool-defs.mjs';
 import { clean } from '../shared/clean.mjs';
 
 const POLL_MS = 750;
+const DEFAULT_LANE = 'openai-oauth';
 const TIMEOUT_MS = Object.freeze({ image: 180_000, video: 900_000 });
 // OpenAI's image lane takes pixel sizes, not ratios; the placement still speaks in ratios.
 const OPENAI_SIZE = Object.freeze({
@@ -130,8 +131,9 @@ export function listMediaCatalog(lanes, { kind = '', model = '' } = {}, remember
 
 /**
  * Lane for a generate: the requested one, else the lane the user last chose
- * for this kind (Studio selection or last generation), else the first
- * signed-in lane. `laneSource` tells the caller which of the three applied.
+ * for this kind (Studio selection or last generation), else the signed-in
+ * ChatGPT-subscription lane, else the first signed-in lane. `laneSource` is
+ * `first` for either default.
  */
 function pickLane(lanes, kind, requested, remembered = null) {
   const available = lanes.filter((lane) => lane.authenticated && lane.kinds.includes(kind));
@@ -153,9 +155,8 @@ function pickLane(lanes, kind, requested, remembered = null) {
     );
   }
   const rememberedLane = remembered?.lane ? available.find((entry) => entry.id === remembered.lane) : null;
-  return rememberedLane
-    ? { lane: rememberedLane, laneSource: 'remembered' }
-    : { lane: available[0], laneSource: 'first' };
+  if (rememberedLane) return { lane: rememberedLane, laneSource: 'remembered' };
+  return { lane: available.find((entry) => entry.id === DEFAULT_LANE) || available[0], laneSource: 'first' };
 }
 
 function readRemembered(defaults, kind) {
@@ -185,9 +186,13 @@ export function buildOptions(
   lane,
   kind,
   controls,
-  { aspect = '', resolution = '', duration = null, quality = '' } = {}
+  { aspect = '', resolution = '', duration = null, quality = '', background = '' } = {}
 ) {
   const options = {};
+  if (background) {
+    validateChoice(controls, 'background', background, 'background');
+    if (background !== 'auto') options.background = background;
+  }
   if (lane.id === 'openai-oauth') {
     if (!allowed(controls, 'size')) {
       if ([aspect, resolution, quality].some((value) => value && value !== 'auto')) {
@@ -312,6 +317,7 @@ async function generate(args, { cwd, signal, deps, sessionId, sourceType }) {
     resolution: clean(args.resolution),
     duration: args.duration ?? null,
     quality: clean(args.quality),
+    background: clean(args.background),
   });
   const references = await readReferences(args.references, cwd, model.controls);
   const started = await jobs.startMediaJob({

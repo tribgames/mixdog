@@ -59,16 +59,16 @@ test('Studio listing and generation validation use the same refreshed provider c
   });
   const rows = await catalog.listMediaLanes();
   const lane = rows.find((row) => row.id === 'openai-oauth');
-  assert.equal(lane.image.defaultModel, 'chatgpt-image-auto');
-  assert.equal(lane.image.models[0].label, 'ChatGPT Image · Auto');
+  assert.equal(lane.image.defaultModel, 'gpt-image-2');
+  assert.equal(lane.image.models[0].label, 'GPT Image 2');
   assert.equal(lane.image.models[0].requestModel, 'gpt-6-astra');
   const request = await catalog.resolveMediaRequest({ lane: lane.id, kind: 'image' });
   assert.equal(request.model, lane.image.defaultModel);
   assert.deepEqual(request.spec, lane.image);
-  assert.deepEqual(request.spec.models[0].controls, { maxReferences: 5 });
+  assert.deepEqual(request.spec.models[0].controls, { maxReferences: 5, background: ['auto', 'transparent', 'opaque'] });
 
   models = [{ id: 'gpt-7-mainline' }];
-  const fresh = await catalog.resolveMediaRequest({ lane: lane.id, kind: 'image', model: 'chatgpt-image-auto' });
+  const fresh = await catalog.resolveMediaRequest({ lane: lane.id, kind: 'image', model: 'gpt-image-2' });
   assert.equal(
     fresh.spec.models[0].requestModel,
     'gpt-7-mainline',
@@ -170,7 +170,7 @@ test('Studio recognizes selected-account login and logout immediately without re
   auth.writeTokens(path);
   const request = await auth.resolve();
   assert.equal(request.lane.authenticated, true);
-  assert.equal(request.model, 'chatgpt-image-auto');
+  assert.equal(request.model, 'gpt-image-2');
   unlinkSync(path);
   await assert.rejects(auth.resolve(), { code: 'MEDIA_LANE_UNAUTHENTICATED' });
 });
@@ -254,4 +254,15 @@ test('Studio fails closed on incomplete or unreadable selected credentials and r
   auth.writeTokens(path);
   assert.equal(oauthCredentialProbeState('openai-oauth'), 'present');
   assert.equal((await auth.resolve()).lane.authenticated, true);
+});
+
+test('the ChatGPT lane advertises background but no size, quality, resolution, or aspect control', async () => {
+  const catalog = createMediaLaneCatalog({
+    authenticated: (lane) => lane.id === 'openai-oauth',
+    loadModels: async () => [{ id: 'gpt-6-astra', display: 'GPT-6 Astra' }],
+  });
+  const lane = (await catalog.listMediaLanes()).find((row) => row.id === 'openai-oauth');
+  for (const controls of [lane.image.controls, lane.image.models[0].controls]) {
+    assert.deepEqual(Object.keys(controls), ['maxReferences', 'background']);
+  }
 });

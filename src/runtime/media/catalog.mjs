@@ -145,12 +145,12 @@ export function projectMediaModels(lane, rows) {
     result.image = orchestrator
       ? [
           {
-            id: 'chatgpt-image-auto',
-            label: 'ChatGPT Image · Auto',
+            id: 'gpt-image-2',
+            label: 'GPT Image 2',
             description:
-              'ChatGPT selects the image engine. GPT Image 2.5 selection and output size/quality are not verified on this connection.',
+              'ChatGPT image engine. Output size/quality are chosen by ChatGPT; background can be transparent.',
             requestModel: orchestrator.id,
-            controls: { maxReferences: 5 },
+            controls: { maxReferences: 5, background: ['auto', 'transparent', 'opaque'] },
           },
         ]
       : [];

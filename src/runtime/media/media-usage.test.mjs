@@ -192,7 +192,7 @@ test('openai-oauth: Responses usage prices the orchestrator model as subscriptio
     response: { usage: { input_tokens: 1000, input_tokens_details: { cached_tokens: 200 }, output_tokens: 100 } },
   };
   const { job, rows } = await generate(
-    { lane: 'openai-oauth', kind: 'image', model: 'chatgpt-image-auto', prompt: 'p', sessionId: 's-codex' },
+    { lane: 'openai-oauth', kind: 'image', model: 'gpt-image-2', prompt: 'p', sessionId: 's-codex' },
     (url) => (url.includes('responses') ? new Response(sse([image, completed])) : undefined)
   );
   assert.equal(job.status, 'done');
@@ -200,18 +200,18 @@ test('openai-oauth: Responses usage prices the orchestrator model as subscriptio
   const [row] = rows;
   assert.deepEqual(
     [row.provider, row.model, row.input, row.output, row.cache_read, row.cost_usd, row.cost_source, row.session_id],
-    ['openai-oauth', 'chatgpt-image-auto', 800, 100, 200, 0.00264, 'subscription', 's-codex']
+    ['openai-oauth', 'gpt-image-2', 800, 100, 200, 0.00264, 'subscription', 's-codex']
   );
   assert.equal(JSON.parse(row.rates).pricingModel, 'gpt-5.6-sol');
 
   const failed = await generate(
-    { lane: 'openai-oauth', kind: 'image', model: 'chatgpt-image-auto', prompt: 'p' },
+    { lane: 'openai-oauth', kind: 'image', model: 'gpt-image-2', prompt: 'p' },
     (url) => (url.includes('responses') ? new Response(sse([{ ...completed, type: 'response.failed' }])) : undefined)
   );
   assert.equal(failed.job.status, 'failed');
   assert.equal(failed.rows.length, 1, 'a failure with reported usage is still recorded');
   const silent = await generate(
-    { lane: 'openai-oauth', kind: 'image', model: 'chatgpt-image-auto', prompt: 'p' },
+    { lane: 'openai-oauth', kind: 'image', model: 'gpt-image-2', prompt: 'p' },
     (url) => (url.includes('responses') ? new Response(sse([{ type: 'response.failed', response: {} }])) : undefined)
   );
   assert.equal(silent.rows.length, 0, 'tokens are never invented for a failure');

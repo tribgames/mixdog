@@ -316,3 +316,84 @@ test('cancel reports an unknown job and views the job itself, not the cancel rec
     ['job-7', 'running', 'video', 'lane-a']
   );
 });
+
+const namedLane = (id, authenticated = true, kinds = ['image']) => ({
+  id,
+  label: id,
+  authenticated,
+  kinds,
+  image: { defaultModel: `${id}-image`, models: [{ id: `${id}-image`, label: id, controls: { maxReferences: 1 } }] },
+});
+const catalogOrder = (signedIn) =>
+  ['grok-oauth', 'xai', 'openai-oauth', 'gemini', 'antigravity-oauth'].map((id) => namedLane(id, signedIn.includes(id)));
+
+test('default lane prefers the signed-in ChatGPT lane, below requested and remembered', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-media-default-'));
+  const run = async (signedIn, { remembered = null, ...extra } = {}) => {
+    const graph = fakeGraph({ lanes: catalogOrder(signedIn), remembered });
+    await writeFile(graph.assetPath, Buffer.from('png-bytes'));
+    return parse(
+      await executeMediaTool(
+        { action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', ...extra },
+        { cwd, deps: graph }
+      )
+    );
+  };
+  const mixed = await run(['grok-oauth', 'xai', 'openai-oauth', 'gemini', 'antigravity-oauth']);
+  assert.deepEqual([mixed.lane, mixed.laneSource], ['openai-oauth', 'first']);
+
+  const noChatgpt = await run(['xai', 'gemini']);
+  assert.deepEqual([noChatgpt.lane, noChatgpt.laneSource], ['xai', 'first']);
+
+  const rememberedWins = await run(['grok-oauth', 'openai-oauth'], {
+    remembered: { kind: 'image', lane: 'grok-oauth', model: 'grok-oauth-image' },
+  });
+  assert.deepEqual([rememberedWins.lane, rememberedWins.laneSource], ['grok-oauth', 'remembered']);
+
+  const staleRemembered = await run(['grok-oauth', 'openai-oauth'], {
+    remembered: { kind: 'image', lane: 'gemini', model: 'x' },
+  });
+  assert.deepEqual([staleRemembered.lane, staleRemembered.laneSource], ['openai-oauth', 'first']);
+
+  const requestedWins = await run(['grok-oauth', 'openai-oauth', 'gemini'], {
+    lane: 'gemini',
+    remembered: { kind: 'image', lane: 'grok-oauth', model: 'grok-oauth-image' },
+  });
+  assert.deepEqual([requestedWins.lane, requestedWins.laneSource], ['gemini', 'requested']);
+  await rm(cwd, { recursive: true, force: true });
+});
+
+test('a lane named by the user is passed explicitly and used', async () => {
+  const graph = fakeGraph({ lanes: catalogOrder(['grok-oauth', 'openai-oauth', 'antigravity-oauth']) });
+  await writeFile(graph.assetPath, Buffer.from('png-bytes'));
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-media-named-'));
+  const generate = (lane) =>
+    executeMediaTool({ action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', lane }, { cwd, deps: graph }).then(
+      parse
+    );
+  for (const lane of ['grok-oauth', 'antigravity-oauth', 'openai-oauth']) {
+    const result = await generate(lane);
+    assert.deepEqual([result.lane, result.laneSource], [lane, 'requested']);
+  }
+  const signedOut = await generate('gemini');
+  assert.equal(signedOut.ok, false);
+  assert.match(signedOut.error, /not signed in/);
+  await rm(cwd, { recursive: true, force: true });
+});
+
+test('the media schema offers aspect/resolution/quality only when the model lists them', () => {
+  const { aspect, resolution, quality } = TOOL_DEFS[0].inputSchema.properties;
+  for (const field of [aspect, resolution, quality]) assert.match(field.description, /only when the model lists/);
+});
+
+test('background is passed only when the model lists it; auto sends nothing', () => {
+  const openai = { id: 'openai-oauth' };
+  const listed = { maxReferences: 5, background: ['auto', 'transparent', 'opaque'] };
+  assert.deepEqual(buildOptions(openai, 'image', listed, { background: 'transparent' }), { background: 'transparent' });
+  assert.deepEqual(buildOptions(openai, 'image', listed, { background: 'opaque' }), { background: 'opaque' });
+  assert.deepEqual(buildOptions(openai, 'image', listed, { background: 'auto' }), {});
+  assert.throws(() => buildOptions(openai, 'image', listed, { background: 'clear' }), /not supported/);
+  assert.throws(() => buildOptions(openai, 'image', listed, { aspect: '16:9' }), /not supported/);
+  assert.throws(() => buildOptions(LANES[0], 'image', controls(), { background: 'transparent' }), /background/);
+  assert.ok(TOOL_DEFS[0].inputSchema.properties.background.description.includes('only when the model lists'));
+});
