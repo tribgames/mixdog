@@ -160,6 +160,7 @@ export const DESKTOP_WORKTREE_ERROR_CODES = [
   /** requestWorktree with `provision` found uncommitted project-folder files
    *  (`details.count`): resend with `carryChanges`. */
   'WORKTREE_DIRTY_CHOICE',
+  'WORKTREE_FILE_RECOVERY',
   'WORKTREE_UNMERGED',
   'WORKTREE_MISSING',
   'WORKTREE_UNSUPPORTED_REPO',
@@ -243,7 +244,7 @@ export interface DesktopManagedWorktreeRow extends DesktopRetainedWorktree {
   retained: boolean;
   /** A live session or a running process holds it. */
   ownerLive: boolean;
-  /** What pruneWorktrees would remove once clean and merged. */
+  /** What pruneWorktrees would remove once clean and merged, with no retained recovery data. */
   removable: boolean;
 }
 

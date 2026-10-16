@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import test from 'node:test';
 import { DesktopProjectRegistry } from './desktop-project-registry.ts';
 import { SessionHost } from './session-host.ts';
@@ -53,7 +53,7 @@ async function fixture(t, { registerProject = true, entryFor, containing = false
     await host.dispose().catch(() => {});
     await rm(root, { recursive: true, force: true });
   });
-  return { host, root, project, worktree, arbitrary, nested };
+  return { host, root, project, worktree, arbitrary, nested, projects };
 }
 
 test('a managed worktree of a registered project resolves with the main project identity', async (t) => {
@@ -351,4 +351,66 @@ test('open hints carry the worktree cwd under the main project identity', async 
   const hints = host.openHints('sess_a');
   assert.equal(hints.cwd, worktree);
   assert.deepEqual(hints.desktopSession, { classification: 'project', projectPath: project });
+});
+
+
+test('recovery lookup retains a registered missing folder without granting general file access', async (t) => {
+  const { host, project, worktree, arbitrary } = await fixture(t);
+  await rm(project, { recursive: true });
+  await rm(worktree, { recursive: true });
+  assert.equal(await host.projectRecoveryDirectory(project), project);
+  assert.equal(await host.projectRecoveryDirectory(worktree), worktree);
+  await assert.rejects(host.projectDirectory(project));
+  await assert.rejects(host.projectDirectory(worktree));
+  await assert.rejects(host.projectRecoveryDirectory(arbitrary));
+});
+
+test('recovery lookup accepts a deleting managed record but never an unregistered parent', async (t) => {
+  const f = await fixture(t, { entryFor: ({ project, worktree }) => ({ projectPath: project, path: worktree, state: 'deleting' }) });
+  assert.equal(await f.host.projectRecoveryDirectory(f.worktree), f.worktree);
+  await assert.rejects(f.host.projectDirectory(f.worktree));
+  await assert.rejects(f.host.projectRecoveryDirectory(f.arbitrary));
+  const removed = await fixture(t, { registerProject: false });
+  await assert.rejects(removed.host.projectRecoveryDirectory(removed.worktree));
+});
+
+
+test('recovery resolves a registered parent alias consistently before and after checkout removal', async (t) => {
+  let aliasEntry;
+  const f = await fixture(t, {
+    entryFor: ({ project, worktree }) => ({ projectPath: project, path: aliasEntry ?? worktree, state: 'ready' }),
+  });
+  const alias = join(f.root, 'checkout-parent-alias');
+  await symlink(dirname(f.worktree), alias, process.platform === 'win32' ? 'junction' : 'dir');
+  aliasEntry = join(alias, basename(f.worktree));
+  const nested = join(f.worktree, 'packages', 'app');
+  const aliasNested = join(aliasEntry, 'packages', 'app');
+  await mkdir(nested, { recursive: true });
+  assert.equal(await f.host.projectDirectory(aliasEntry), f.worktree);
+  assert.equal(await f.host.projectRecoveryDirectory(aliasEntry), f.worktree);
+  assert.equal(await f.host.projectRecoveryDirectory(f.worktree), f.worktree);
+  assert.equal(await f.host.projectRecoveryDirectory(aliasNested), nested);
+  await assert.rejects(f.host.projectRecoveryDirectory(f.arbitrary));
+  await rm(f.worktree, { recursive: true });
+  assert.equal(await f.host.projectRecoveryDirectory(aliasEntry), f.worktree);
+  assert.equal(await f.host.projectRecoveryDirectory(aliasNested), nested);
+  await assert.rejects(f.host.projectDirectory(aliasEntry));
+  // A replacement checkout cannot redirect inventory to a sibling's scope.
+  await symlink(f.arbitrary, f.worktree, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.equal(await f.host.projectRecoveryDirectory(aliasEntry), f.worktree);
+});
+
+
+test('registered project aliases resolve the same recovery store as workspace edits', async (t) => {
+  const f = await fixture(t);
+  const alias = join(f.root, 'registered-alias');
+  await symlink(f.project, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  f.projects[0].path = alias;
+  const editRoot = await f.host.projectDirectory(alias);
+  const recoveryRoot = await f.host.projectRecoveryDirectory(alias);
+  assert.equal(editRoot, f.project);
+  assert.equal(recoveryRoot, editRoot);
+  const { projectRecoveryStorePath } = await import('./project-recovery-store.ts');
+  assert.equal(projectRecoveryStorePath(f.root, recoveryRoot), projectRecoveryStorePath(f.root, editRoot));
+  await assert.rejects(f.host.projectRecoveryDirectory(f.arbitrary));
 });

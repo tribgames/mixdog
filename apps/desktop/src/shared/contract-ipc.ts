@@ -33,6 +33,7 @@ export const DESKTOP_IPC = {
   previewDocumentPages: 'mixdog:preview-document-pages',
   writeProjectFile: 'mixdog:write-project-file',
   readEditorBackup: 'mixdog:read-editor-backup',
+  projectRecovery: 'mixdog:project-recovery',
   writeEditorBackup: 'mixdog:write-editor-backup',
   deleteEditorBackup: 'mixdog:delete-editor-backup',
   statProjectFile: 'mixdog:stat-project-file',

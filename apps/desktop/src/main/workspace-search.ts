@@ -229,7 +229,8 @@ export async function replaceWorkspaceTextIn(
   options: DesktopWorkspaceTextSearchOptions,
   replacement: string,
   relPaths: readonly string[] | undefined,
-  beforeWrite?: (write: WorkspaceWrite) => Promise<void>
+  beforeWrite?: (write: WorkspaceWrite) => Promise<void>,
+  recoveryDataPath?: string
 ): Promise<DesktopWorkspaceTextReplaceResult> {
   const search = await searchWorkspaceTextIn(root, options);
   if (search.limitHit) throw new Error('Search result limit reached. Narrow the search before replacing.');
@@ -252,6 +253,6 @@ export async function replaceWorkspaceTextIn(
   }
   if (!writes.length) return { filesChanged: 0, replacements: 0, paths: [] };
   if (beforeWrite) await Promise.all(writes.map(beforeWrite));
-  await writeProjectTextFilesIn(root, writes);
+  await writeProjectTextFilesIn(root, writes, recoveryDataPath);
   return { filesChanged: writes.length, replacements, paths: writes.map((write) => write.relPath) };
 }

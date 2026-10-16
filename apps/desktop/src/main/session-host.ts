@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, realpath, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { canonicalPath } from '../../../../src/runtime/shared/worktrees/paths.mjs';
 
 import type {
   DesktopAbortOptions,
@@ -480,6 +481,42 @@ export class SessionHost implements DesktopService {
 
   async addProject(projectPath: string): Promise<void> {
     await this.projects.register(await this.canonicalDirectory(projectPath));
+  }
+
+  async projectRecoveryDirectory(projectPath: string): Promise<string> {
+    try {
+      const known = await this.projects.knownPath(projectPath);
+      try { return await this.canonicalDirectory(known); }
+      catch (cause) {
+        // Live projects must use the same canonical journal key as edits.
+        // Missing registered roots still allow inspection of retained backups.
+        if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return resolve(known);
+        throw cause;
+      }
+    }
+    catch (error) {
+      if (!isAbsolute(projectPath) || !this.runtime.loadWorktrees) throw error;
+      const worktrees = await this.runtime.loadWorktrees();
+      const requested = resolve(projectPath);
+      const entry = await (worktrees.findWorktreeContaining ?? worktrees.getWorktreeByPath)(requested);
+      if (!entry || !['ready', 'deleting', 'recovery'].includes(entry.state ?? 'ready')) throw error;
+      await this.projects.knownPath(entry.projectPath);
+      const key = (path: string) => process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path);
+      const within = (base: string, path: string) => key(path) === key(base) || key(path).startsWith(key(base) + sep);
+      // Resolve parent aliases/Windows short names even after the checkout is
+      // gone. Do not resolve the checkout itself: it may be a replacement link.
+      const stableRoot = join(canonicalPath(dirname(entry.path)), basename(entry.path));
+      const spelling = [resolve(entry.path), stableRoot].find((base) => within(base, requested));
+      if (!spelling) throw error;
+      const target = join(stableRoot, relative(spelling, requested));
+      let canonical: string;
+      try { canonical = await realpath(target); }
+      catch (cause) {
+        if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return target;
+        throw cause;
+      }
+      return within(stableRoot, canonical) ? canonical : target;
+    }
   }
 
   async projectDirectory(projectPath: string): Promise<string> {

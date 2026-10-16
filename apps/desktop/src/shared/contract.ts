@@ -1,5 +1,6 @@
 import type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
 import type { FileDownloadApi } from './file-downloads';
+import type { ProjectRecoveryRequest, ProjectRecoveryResponse } from './project-recovery';
 import type { FileLaunchConfirmation, LocalLinkOpened } from './local-files';
 import type { DesktopFeedbackInput, DesktopFeedbackReceipt } from './contract-feedback';
 import type {
@@ -161,6 +162,7 @@ export type { GithubRequest, GithubResult } from '../../../../src/runtime/github
 /** Small, last-writer-wins UI projection shared by Electron and paired web
  * clients. Pane geometry remains local; `selection` is the first visual pane. */
 export interface DesktopApi {
+  projectRecovery?(projectPath: string, request: ProjectRecoveryRequest): Promise<ProjectRecoveryResponse>;
   /** Immutable process timeline identity injected before renderer modules run. */
   readonly bootContext?: DesktopBootContext;
   /** The daemon connection this Electron window drives; absent on remote

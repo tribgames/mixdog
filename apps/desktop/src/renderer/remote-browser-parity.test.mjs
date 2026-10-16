@@ -16,6 +16,29 @@ const BROWSER_MEMBERS = [
   'onBrowserProfileImportProgress',
 ];
 
+test('project recovery is gated by the current host handshake, including reconnects', async () => {
+  await withShim({}, async (shim) => {
+    const api = createRemoteApi(shim.ctx);
+    await shim.dial({ remoteParity: true, ready: publishedCeilings(4096, 4096) });
+    assert.equal(api.projectRecovery, undefined);
+    const redial = (projectRecovery) => {
+      shim.ctx.connectionReady = false;
+      shim.ctx.socket = null;
+      shim.ctx.openPromise = null;
+      return shim.dial({ remoteParity: true, projectRecovery, ready: publishedCeilings(4096, 4096) });
+    };
+    const leg = await redial(true);
+    const pending = api.projectRecovery('/project', { action: 'list' });
+    let frame = await leg.nextPayload();
+    while (frame.method !== 'projectRecovery') frame = await leg.nextPayload();
+    assert.deepEqual(frame.params, ['/project', { action: 'list' }]);
+    await leg.deliver({ id: frame.id, ok: true, value: { records: [] } });
+    assert.deepEqual(await pending, { records: [] });
+    await redial(false);
+    assert.equal(api.projectRecovery, undefined);
+  });
+});
+
 const connect = async ({ ctx, dial }, browserParity) => {
   ctx.updaterListeners = new Set();
   ctx.settingsChangedListeners = new Set();

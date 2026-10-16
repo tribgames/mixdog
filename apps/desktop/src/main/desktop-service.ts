@@ -32,6 +32,7 @@ import {
 import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
 import { createDesktopServiceStateSync } from './desktop-service-state-sync';
 import { createDesktopOperations } from './desktop-operations';
+import { projectRecoveryStorePath } from './project-recovery-store';
 import { sessionRecordsReferencing } from './server-file-operations';
 import { rotatePairingToken } from './remote-pairing-token';
 import { remoteAccessDescriptor } from './remote-access-descriptor';
@@ -260,6 +261,14 @@ export async function createDesktopService({
     for (const listener of desktopEventListeners) listener({ name, value });
   };
   const operations = createDesktopOperations({
+    withRecoveryStore: async (root, action, run) => {
+      const worktrees = await runtime.loadWorktrees?.();
+      if (worktrees?.withWorktreeRecoveryStore)
+        return worktrees.withWorktreeRecoveryStore(root, projectRecoveryStorePath(options.userDataPath, root), action, run);
+      if (worktrees && await (worktrees.findWorktreeContaining ?? worktrees.getWorktreeByPath)(root))
+        throw new Error('Worktree file recovery protection is unavailable. Update the host before editing.');
+      return run();
+    },
     userDataPath: options.userDataPath,
     packaged: options.packaged,
     resourcesPath: options.resourcesPath,
