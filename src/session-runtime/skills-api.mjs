@@ -46,18 +46,16 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
       }
       return { kind: 'user' };
     };
+    const enabledFlags = contextMod.skillEnabledFlags(skills);
     return {
       cwd,
       count: skills.length,
       tools: getTools().map(({ name }) => ({ name })),
-      skills: skills.map((skill) => {
+      skills: skills.map((skill, index) => {
         const source = sourceForSkill(skill);
         return {
           name: skill.name,
-          enabled: !(
-            contextMod.isSkillDisabled?.(skill.name, null, skills) ||
-            contextMod.skillMissingFeature?.(skill.name, null, skills)
-          ),
+          enabled: enabledFlags[index],
           description: skill.description || '',
           whenToUse: skill.whenToUse || '',
           filePath: skill.filePath || null,

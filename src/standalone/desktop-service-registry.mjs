@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { sanitizeForWire } from './session-wire-values.mjs';
+import { annotateSpan } from '../runtime/shared/slow-span.mjs';
 import { modelProxyClientMode } from '../runtime/shared/model-proxy-mode.mjs';
 import { getModelProxyChannel } from '../runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
 
@@ -217,6 +218,10 @@ export class DesktopServiceRegistry {
     const { service } = this.#requireSubscribed(desktopId, ctx);
     const name = String(method || '');
     if (!name) throw new TypeError('desktop service method is required');
+    // `[slow-op] desktop.invoke` names the call it timed: a desktop operation
+    // (Git reads) or a session capability, not only the generic route.
+    const target = name === 'invokeDesktopOperation' || name === 'invokeCapability' ? String(args?.[0] || '') : '';
+    annotateSpan(target ? `${name}:${target}` : name);
     return sanitizeForWire(await service.instance.invoke(name, Array.isArray(args) ? args : [])) ?? null;
   }
 

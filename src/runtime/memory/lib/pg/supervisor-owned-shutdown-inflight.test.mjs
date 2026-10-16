@@ -19,11 +19,16 @@ let releaseStart;
 const startGate = new Promise((resolve) => {
   releaseStart = resolve;
 });
+let startReached;
+const startCalled = new Promise((resolve) => {
+  startReached = resolve;
+});
 const stops = [];
 let livePort = null;
 mock.module('./process.mjs', {
   namedExports: {
     startPg: async ({ port }) => {
+      startReached();
       await startGate;
       livePort = port;
       return { pid: process.pid, port };
@@ -48,7 +53,7 @@ test.after(() => rmSync(directory, { recursive: true, force: true }));
 
 test('a shutdown during a start in flight waits for it and stops the cluster it brought up', async () => {
   const starting = ensurePgInstance(dataDir);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await startCalled;
   const stopping = stopOwnedPgForShutdown({ timeoutMs: 5_000 });
   releaseStart();
   await starting;

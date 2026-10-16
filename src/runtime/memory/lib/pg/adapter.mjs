@@ -167,6 +167,52 @@ export async function checkedConnect(pgPool, schema) {
 }
 
 // ---------------------------------------------------------------------------
+// Durable-operation tracking — a shutdown lets these settle before PG stops
+// ---------------------------------------------------------------------------
+
+/** Schemas holding only data rebuilt from another source of truth: the
+ *  session-search copy (re-ingested from the session files by its backfill)
+ *  and trace diagnostics. Every other schema (scheduler, webhooks, memory)
+ *  holds the only copy, so its in-flight operations are drained first. */
+const DERIVED_SCHEMAS = new Set(['session_search', 'trace']);
+const _durableInFlight = new Set();
+
+function trackDurable(schema, run) {
+  if (DERIVED_SCHEMAS.has(schema)) return run();
+  const op = run();
+  _durableInFlight.add(op);
+  const settle = () => _durableInFlight.delete(op);
+  op.then(settle, settle);
+  return op;
+}
+
+/** In-flight operations on durable schemas right now. */
+export function pendingDurablePgOps() {
+  return _durableInFlight.size;
+}
+
+/**
+ * Wait, bounded, until no durable-schema operation is in flight (including
+ * ones issued while waiting). Resolves true when drained, false at the bound.
+ */
+export async function drainDurablePgOps({ timeoutMs = 0 } = {}) {
+  const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+  while (_durableInFlight.size > 0) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return false;
+    let timer = null;
+    await Promise.race([
+      Promise.allSettled([..._durableInFlight]),
+      new Promise((resolveBound) => {
+        timer = setTimeout(resolveBound, remaining);
+      }),
+    ]);
+    clearTimeout(timer);
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // native PG db shim
 // ---------------------------------------------------------------------------
 
@@ -255,6 +301,12 @@ function makeCompatDb(pgPool, schema, dataDir) {
       return currentPool();
     },
   };
+  // Every statement entry point is tracked, so a shutdown can let durable
+  // writes settle before it stops the cluster.
+  const { query, exec, transaction } = db;
+  db.query = (sql, params) => trackDurable(schema, () => query(sql, params));
+  db.exec = (sql) => trackDurable(schema, () => exec(sql));
+  db.transaction = (fn) => trackDurable(schema, () => transaction(fn));
   return db;
 }
 
@@ -541,7 +593,15 @@ export const POOL_CLOSE_BOUND_MS = 500;
  * PG through connection-loss recovery; the pools are dropped from the cache,
  * and their close is waited on only for a short bound after the stop.
  */
-export async function shutdownOwnedPg({ timeoutMs } = {}) {
+export async function shutdownOwnedPg({ timeoutMs, drainMs = 0 } = {}) {
+  // Durable writes still in flight (schedule/webhook state) commit first,
+  // bounded by `drainMs`; derived writes (session search, trace) are not
+  // waited on — their sources rebuild them.
+  if (!(await drainDurablePgOps({ timeoutMs: drainMs }))) {
+    __mixdogMemoryLog(
+      `[pg-adapter] stopping PG with ${_durableInFlight.size} durable operation(s) still in flight after ${drainMs}ms\n`
+    );
+  }
   const pools = [...instances.values()].map((inst) => inst.pool);
   instances.clear();
   const stopping = stopOwnedPgForShutdown({ timeoutMs });

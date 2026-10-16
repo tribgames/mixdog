@@ -41,7 +41,29 @@ function _posixStartupShell(candidates = ['/bin/bash', '/usr/bin/bash', '/bin/sh
   return null;
 }
 
-export function describeShellToolsStartupState({
+// Every session composes this line. Probing it means up to names×PATHEXT×PATH
+// stats on Windows (~40ms) or a login-shell spawn on POSIX, both on the event
+// loop, so one answer per PATH/shell is reused for a short window — the same
+// rule as gitExecutablePresent: a session opened after an install still picks
+// the tool up once the window passes.
+const SHELL_TOOLS_STARTUP_TTL_MS = 30_000;
+let _shellToolsStartup = null;
+
+export function describeShellToolsStartupState(options = {}) {
+  if (options._spawnSync) return _probeShellToolsStartupState(options);
+  const { platform = process.platform, names = SHELL_TOOL_STARTUP_NAMES, shellPath = null } = options;
+  const pathValue = options.pathValue ?? (process.env.PATH || '');
+  const key = JSON.stringify([platform, names, shellPath, pathValue]);
+  const now = Date.now();
+  if (_shellToolsStartup?.key === key && now - _shellToolsStartup.at < SHELL_TOOLS_STARTUP_TTL_MS) {
+    return _shellToolsStartup.value;
+  }
+  const value = _probeShellToolsStartupState(options);
+  _shellToolsStartup = { key, at: now, value };
+  return value;
+}
+
+function _probeShellToolsStartupState({
   platform = process.platform,
   names = SHELL_TOOL_STARTUP_NAMES,
   shellPath = null,

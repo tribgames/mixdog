@@ -67,7 +67,10 @@ export function closeSession(id, reason = 'manual', opts = {}) {
   //    it once disk generation moves past that. Without this bump the late
   //    write could silently overwrite the session after the user resumes
   //    it back (BL: burned-session late-save clobber).
-  const newGen = tombstone ? markSessionClosed(id, reason) : bumpSessionGeneration(id, reason);
+  const outcome = { absent: false };
+  const newGen = tombstone
+    ? markSessionClosed(id, reason, { outcome })
+    : bumpSessionGeneration(id, reason, { outcome });
   // Durable lifecycle barrier check. ANY nonnumeric result means the barrier
   // is not on disk — a write failure, a liveness/ownership veto, a contended
   // commit lock, or a missing record. Only a failed write publishes a
@@ -77,7 +80,13 @@ export function closeSession(id, reason = 'manual', opts = {}) {
   // crash checkpoint while the session stays open and resumable on disk — the
   // way a failed close silently destroys a turn. Leave every runtime
   // structure intact, surface the cause, and report failure to the caller.
-  if (typeof newGen !== 'number') {
+  //
+  // The one exception is a record that was legitimately already gone (never
+  // saved, or deleted): the barrier cancelled its pending writes under the
+  // commit lock and found no copy on disk or in memory, so there is nothing
+  // a late save could clobber and nothing left open to resume. That close
+  // succeeds and tears the runtime down normally.
+  if (typeof newGen !== 'number' && outcome.absent !== true) {
     reportCloseBarrierFailure({ id, reason, tombstone, entry });
     return false;
   }
@@ -96,7 +105,7 @@ export function closeSession(id, reason = 'manual', opts = {}) {
  */
 function reportCloseBarrierFailure({ id, reason, tombstone, entry }) {
   const commitError = getSessionLifecycleCommitError(id);
-  let detail = 'no durable barrier written (veto, contended commit, or missing record)';
+  let detail = 'no durable barrier written (veto or contended commit)';
   if (commitError) {
     const code = commitError.code ? ` (${commitError.code})` : '';
     detail = `${commitError.message}${code}`;

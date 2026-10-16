@@ -83,6 +83,13 @@ function _readSidecarOwnerPid(path) {
   }
 }
 
+/** True only when the sidecar recorded an owner pid that no longer exists
+ *  (pid-less legacy sidecars prove nothing and read false). */
+export function isSidecarOwnerDead(path) {
+  const pid = _readSidecarOwnerPid(path);
+  return pid > 0 && !isProcessAlive(pid);
+}
+
 // ── Heartbeat publish ─────────────────────────────────────
 // Lightweight per-session timestamp file (`<id>.hb`) consumed by the
 // status aggregator for fresh-session detection. Decoupled from the
@@ -193,11 +200,50 @@ export function isSessionHeartbeatOwnerDead(id) {
 // writer on the same session file (dual-writer last-save-wins clobbering).
 // Refreshed by the engine share tick (~3s call, throttled here) and cleared
 // on session switch/dispose; staleness covers crashes.
+//
+// Presence is a sidecar OF a session record and never outlives it: it is
+// only published while the record exists, and a publish that loses a race
+// with a deletion (this process or another one unlinked the record and its
+// sidecar while the write was in flight) removes what it just wrote.
 const _PRESENCE_THROTTLE_MS = 20_000;
 const _presenceLastAt = new Map();
+// id -> in-flight publish; deleteSessionPresence cancels it so the write that
+// lands after the unlink is removed again instead of resurrecting the file.
+const _presenceInFlight = new Map();
 
 function _presencePath(id) {
   return _sessionFilePath(id, '.own');
+}
+
+async function _sessionRecordExists(id) {
+  try {
+    await fsp.stat(sessionPath(id));
+    return true;
+  } catch (error) {
+    // Only a proven absence stops the beacon; an unreadable stat keeps it.
+    return error?.code !== 'ENOENT';
+  }
+}
+
+async function _publishPresence(id, now, flight) {
+  try {
+    // A record that does not exist (never saved yet, or deleted) gets no
+    // beacon; the throttle stays open so the next tick retries.
+    if (!(await _sessionRecordExists(id)) || flight.cancelled) {
+      if (_presenceLastAt.get(id) === now) _presenceLastAt.delete(id);
+      return;
+    }
+    const target = _presencePath(id);
+    await fsp.writeFile(target, `${now}\n${process.pid}\n`, 'utf8');
+    if (flight.cancelled || !(await _sessionRecordExists(id))) {
+      await fsp.unlink(target).catch(() => {});
+      if (_presenceLastAt.get(id) === now) _presenceLastAt.delete(id);
+    }
+  } catch {
+    /* best-effort beacon */
+  } finally {
+    if (_presenceInFlight.get(id) === flight) _presenceInFlight.delete(id);
+  }
 }
 
 export function publishSessionPresence(id, ts) {
@@ -205,13 +251,23 @@ export function publishSessionPresence(id, ts) {
   const now = ts || Date.now();
   const last = _presenceLastAt.get(id) || 0;
   if (now - last < _PRESENCE_THROTTLE_MS) return;
-  const target = _presencePath(id);
+  if (_presenceInFlight.has(id)) return;
+  _assertSessionId(id);
   _presenceLastAt.set(id, now);
-  void fsp.writeFile(target, `${now}\n${process.pid}\n`, 'utf8').catch(() => {});
+  const flight = { cancelled: false, done: null };
+  _presenceInFlight.set(id, flight);
+  flight.done = _publishPresence(id, now, flight);
+}
+
+/** Test/drain seam: resolves once the id's in-flight presence publish settled. */
+export function settleSessionPresence(id) {
+  return _presenceInFlight.get(id)?.done || Promise.resolve();
 }
 
 export function deleteSessionPresence(id) {
   if (!id) return;
+  const flight = _presenceInFlight.get(id);
+  if (flight) flight.cancelled = true;
   try {
     unlinkSync(_presencePath(id));
   } catch {

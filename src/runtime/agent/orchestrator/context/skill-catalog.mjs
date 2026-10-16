@@ -1,9 +1,10 @@
 // Skill discovery, cache, resource loading, envelopes, manifests, and the
 // Skill meta-tool.
 
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, existsSync, readdirSync, statSync, watch as watch_ } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { maxMtimeRecursive, mtimeSignatureRecursive } from '../cache-mtime.mjs';
+import { maxMtimeRecursive, mtimeSignatureRecursive, mtimeSignatureText } from '../cache-mtime.mjs';
 import { mixdogHome, resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import { PLUGIN_MANIFEST_FILES, pluginSkillsRoots } from '../../../shared/plugin-manifest.mjs';
 import {
@@ -257,6 +258,31 @@ export function isSkillDisabled(name, config = null, skills = null) {
   return Boolean(skill && missingFeature(skill, featureConfig(config)));
 }
 
+/**
+ * `enabled` for every skill of one collectSkillsCached() snapshot, exactly as
+ * `!(isSkillDisabled(name, config, skills) || skillMissingFeature(name, config,
+ * skills))` per skill — but with ONE config read, one disabled-name set and one
+ * name index for the whole list instead of three config reads and a linear
+ * lookup per skill (the status listing blocked the event loop on them).
+ */
+export function skillEnabledFlags(skills, config = null) {
+  const list = Array.isArray(skills) ? skills : [];
+  const cfg = config || loadConfig({ secrets: false });
+  const disabled = getDisabledSkillNameSet(cfg);
+  const features = featureConfig(cfg);
+  const byKey = new Map();
+  for (const entry of list) {
+    const key = normalizeSkillNameKey(entry.name);
+    if (!byKey.has(key)) byKey.set(key, entry);
+  }
+  return list.map((entry) => {
+    const key = normalizeSkillNameKey(entry.name);
+    const skill = byKey.get(key);
+    if (key && !followsBuiltinFeature(skill) && disabled.has(key)) return false;
+    return !(skill && missingFeature(skill, features));
+  });
+}
+
 /** The built-in feature a skill needs that is not active, or null. */
 export function skillMissingFeature(name, config = null, skills = null) {
   const skill = findCachedSkillByKey(normalizeSkillNameKey(name), skills);
@@ -303,6 +329,81 @@ export function collectPromptSkillsCached(cwd, config = null) {
 // --- Global skill cache (mtime-based) ---
 const _skillsCache = new Map();
 
+// Change watchers over the recursive skill roots. Re-walking every skill
+// folder (one stat per entry) on every status/prompt read blocked the event
+// loop for tens to hundreds of ms with a large skill set. A root whose
+// recursive watcher has reported nothing since its last walk reuses that
+// walk's signature text instead; any event, watcher error or explicit
+// invalidation re-walks it. A watched root is trusted only once an event-loop
+// turn has passed since its walk.
+// Freshness contract: every write made through the app (addSkill, saveSkill,
+// setDisabledSkills, reloadSkills, settings/plugin mutations, peer-runtime
+// announcements) calls invalidateSkillsCache synchronously, which drops every
+// watch, so the very next read re-walks and is exact. A passive edit made
+// outside the app is eventually consistent: it is seen once the watcher
+// delivers its event (watcher latency), or at the next explicit invalidation.
+// Roots that cannot be watched (missing, or unsupported by the platform) and
+// every plain-file gate path are stat'ed on every call as before.
+const _ROOT_WATCH_LIMIT = 64;
+const _rootWatches = new Map(); // root -> { watcher, dirty, text, settled }
+
+function _closeRootWatch(root) {
+  const watch = _rootWatches.get(root);
+  if (!watch) return;
+  _rootWatches.delete(root);
+  try {
+    watch.watcher.close();
+  } catch {
+    /* already closed */
+  }
+}
+
+function _closeAllRootWatches() {
+  for (const root of [..._rootWatches.keys()]) _closeRootWatch(root);
+}
+
+function _openRootWatch(root) {
+  let isDir = false;
+  try {
+    isDir = statSync(root).isDirectory();
+  } catch {
+    return null;
+  }
+  if (!isDir) return null;
+  if (_rootWatches.size >= _ROOT_WATCH_LIMIT) _closeAllRootWatches();
+  const watch = { watcher: null, dirty: true, text: null, settled: false };
+  try {
+    // A change anywhere below drops the root's reused walk; the watcher is
+    // closed with it (a re-walk re-opens one), so a churning folder never
+    // keeps a handle on directories being deleted.
+    watch.watcher = watch_(root, { recursive: true, persistent: false }, () => _closeRootWatch(root));
+    watch.watcher.on('error', () => _closeRootWatch(root));
+  } catch {
+    return null;
+  }
+  _rootWatches.set(root, watch);
+  return watch;
+}
+
+/** Signature text of one recursive gate root (see mtimeSignatureText). */
+function _rootSignatureText(root) {
+  const current = _rootWatches.get(root);
+  if (current && !current.dirty && current.settled) return current.text;
+  // Open the watcher BEFORE the walk: a change racing the walk then either
+  // shows in it or arrives as an event that drops the reused text.
+  const watch = current || _openRootWatch(root);
+  const text = mtimeSignatureText([root]);
+  if (watch && _rootWatches.get(root) === watch) {
+    watch.text = text;
+    watch.dirty = false;
+    watch.settled = false;
+    setImmediate(() => {
+      if (_rootWatches.get(root) === watch && watch.text === text) watch.settled = true;
+    }).unref?.();
+  }
+  return text;
+}
+
 export function collectSkillsCached(cwd) {
   if (skillsDisabled()) return [];
   void cwd;
@@ -313,12 +414,15 @@ export function collectSkillsCached(cwd) {
   skillsDirs.push(...pluginSkillDirs().map(({ dir }) => dir), ...builtinSkillDirs());
   // registry.json itself gates plugin add/remove: removal deletes the
   // plugin's skills dir (so no dir mtime advances), but saveRegistry()
-  // always rewrites this file. mtimeSignatureRecursive stats plain files directly.
+  // always rewrites this file. It is a plain file: stat'ed directly.
   const registryPath = pluginRegistryPath();
-  if (registryPath) skillsDirs.push(registryPath);
-  // Exact, un-timed gate: stat every call. The shallow watch list covers
-  // manifest edits and skill roots that do not exist yet.
-  const signature = `${mtimeSignatureRecursive(skillsDirs)}|${mtimeSignatureRecursive(pluginShallowWatchPaths(), 0)}`;
+  // Exact gate: unwatched roots and plain files are stat'ed every call; a
+  // watched root reuses its last walk only while its watcher stayed quiet.
+  // The shallow watch list covers manifest edits and skill roots that do not
+  // exist yet.
+  const rootTexts = skillsDirs.map((dir) => _rootSignatureText(dir));
+  if (registryPath) rootTexts.push(mtimeSignatureText([registryPath]));
+  const signature = `${createHash('sha1').update(rootTexts.join('\n')).digest('hex')}|${mtimeSignatureRecursive(pluginShallowWatchPaths(), 0)}`;
   const entry = _skillsCache.get(key);
   if (entry && entry.signature === signature) {
     return entry.value;
@@ -331,6 +435,7 @@ export function collectSkillsCached(cwd) {
 export function invalidateSkillsCache(cwd) {
   void cwd;
   _skillsCache.clear();
+  _closeAllRootWatches();
 }
 
 /**

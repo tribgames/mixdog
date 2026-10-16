@@ -66,6 +66,7 @@ import {
 import { createAgentDispatchBroker } from './agent-dispatch-broker.mjs';
 import { createChannelTransport } from './channel-transport.mjs';
 import { drainDeferral, idleGcEligible } from './daemon-drain-policy.mjs';
+import { createDaemonPgStop } from './daemon-pg-stop.mjs';
 import { createChannelSessionRouter } from '../session-runtime/services/channel-session-router.mjs';
 import { createSessionTransport } from './session-transport.mjs';
 import { createSessionService } from './session-service.mjs';
@@ -235,6 +236,9 @@ async function shutdown(reason, code = 0) {
     process.exit(code);
   }, SHUTDOWN_BUDGET_MS);
   forcedExit.unref?.();
+  // PostgreSQL stops after its users below (durable writes drained first), or
+  // at the fallback point just before the launcher's kill, whichever is first.
+  const pgStop = createDaemonPgStop({ log, stopTimeoutMs: PG_STOP_TIMEOUT_MS });
   try {
     setChannelNotifySink(null);
   } catch {}
@@ -298,12 +302,7 @@ async function shutdown(reason, code = 0) {
   // session search) after every user of it above is closed. `pg_ctl start`
   // daemonizes the postmaster outside this process tree, so without this stop
   // it outlives the daemon. A cluster another live process owns is left to it.
-  try {
-    const { shutdownOwnedPg } = await import('../runtime/memory/lib/pg/adapter.mjs');
-    if (await shutdownOwnedPg({ timeoutMs: PG_STOP_TIMEOUT_MS })) log('postgres stopped');
-  } catch (e) {
-    log(`postgres stop failed: ${e?.message || e}`);
-  }
+  await pgStop.finish();
   try {
     agentDispatchBroker?.close?.(reason);
   } catch (e) {
@@ -992,6 +991,12 @@ async function main() {
   log(`session front door on 127.0.0.1:${sessionEndpoint.port}`);
 
   announceDaemonReady({ port, token, startedAt, bootPhases });
+  // After ready, off the boot path: load the session-runtime module tree so
+  // the first session.create does not block the loop on synchronous module
+  // compilation. Failures fall back to the lazy import inside create.
+  setImmediate(() => {
+    void sessionRuntimeHost?.warmLocalRuntime?.();
+  });
   startPostgresInBackground();
 
   // Automation may spawn the shared daemon; keep schedules/webhooks live.

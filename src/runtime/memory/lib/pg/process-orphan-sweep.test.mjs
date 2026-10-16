@@ -12,6 +12,11 @@ const execCalls = [];
 let processRows = [];
 let execError = null;
 const EXEC_DELAY_MS = 40;
+// Hold the process list open until the test releases it, so "the loop keeps
+// turning while it is outstanding" does not depend on timer resolution
+// (Windows coalesces short timers to ~15.6 ms, more so under load).
+let holdExec = false;
+let execHeld = null;
 
 function rowsToStdout(rows) {
   if (process.platform === 'win32') {
@@ -29,10 +34,12 @@ mock.module('node:child_process', {
     },
     execFile: (file, args, options, callback) => {
       execCalls.push({ file, args, options });
-      setTimeout(() => {
+      const reply = () => {
         if (execError) callback(execError, '', '');
         else callback(null, rowsToStdout(processRows), '');
-      }, EXEC_DELAY_MS);
+      };
+      if (holdExec) execHeld = reply;
+      else setTimeout(reply, EXEC_DELAY_MS);
       return { kill() {} };
     },
   },
@@ -86,20 +93,24 @@ test('sweep runs the process list and temp cleanup asynchronously with identical
   ];
 
   let settled = false;
+  holdExec = true;
   const pending = sweepOrphanTempPostmasters({ tempRoot }).then((value) => {
     settled = true;
     return value;
   });
-  // The event loop keeps turning while the process list is outstanding.
+  // The event loop keeps turning (timers included) while the process list is
+  // outstanding: a blocking list would have finished the sweep by now.
   let ticks = 0;
-  const ticker = setInterval(() => {
+  for (let turn = 0; turn < 3; turn += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
     ticks += 1;
-  }, 5);
-  await new Promise((resolve) => setTimeout(resolve, EXEC_DELAY_MS / 2));
+  }
+  assert.equal(execCalls.length, 1, 'the process list was requested');
   assert.equal(settled, false, 'sweep is still waiting on the async process list');
   assert.ok(ticks >= 2, `event loop kept running during the sweep (ticks=${ticks})`);
+  holdExec = false;
+  execHeld();
   const reaped = await pending;
-  clearInterval(ticker);
 
   assert.equal(execCalls.length, 1);
   assert.equal(execCalls[0].file, process.platform === 'win32' ? 'powershell' : 'ps');

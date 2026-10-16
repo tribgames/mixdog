@@ -9,6 +9,15 @@ export function createLoopbackListener({
   let current = null;
   let closing = null;
 
+  // close() drops only the keep-alive sockets idle at that moment; one whose
+  // in-flight response ends later would hold the close for the server's whole
+  // keepAliveTimeout (~5 s). Drop each as its response settles while stopping.
+  server.on('request', (_req, res) => {
+    res.once('close', () => {
+      if (closing) server.closeIdleConnections();
+    });
+  });
+
   function start() {
     if (closing) return Promise.reject(new Error('HTTP listener is stopping'));
     if (current) return current.promise;

@@ -73,6 +73,16 @@ function icaclsPath() {
   return path;
 }
 
+const quoteForPowerShell = (value) => `'${String(value).replaceAll("'", "''")}'`;
+
+function powerShellCommand(icacls, script) {
+  return {
+    executable: join(dirname(icacls), 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    label: 'Windows ACL update',
+    args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+  };
+}
+
 function ownerOnlyAclCommand(targetPath, sid, fresh, icacls) {
   if (fresh) {
     return {
@@ -84,7 +94,7 @@ function ownerOnlyAclCommand(targetPath, sid, fresh, icacls) {
   // Never /reset a published secret: that temporarily restores broad parent
   // grants, and a later failure leaves them in place. Build the protected DACL
   // in memory and publish it in one native ACL update instead.
-  const quote = (value) => `'${String(value).replaceAll("'", "''")}'`;
+  const quote = quoteForPowerShell;
   const script = [
     "$ErrorActionPreference = 'Stop';",
     `$path = ${quote(targetPath)};`,
@@ -100,11 +110,37 @@ function ownerOnlyAclCommand(targetPath, sid, fresh, icacls) {
     'if ($directory) { [System.IO.Directory]::SetAccessControl($path, $acl) }',
     'else { [System.IO.File]::SetAccessControl($path, $acl) };',
   ].join(' ');
-  return {
-    executable: join(dirname(icacls), 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-    label: 'Windows ACL update',
-    args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
-  };
+  return powerShellCommand(icacls, script);
+}
+
+// Replaces a directory's whole DACL (explicit grants to anyone else included)
+// with one protected, inheritable owner-only grant, in one native update, so
+// files created inside need no ACL call of their own. Files already inside
+// that carry an explicit grant or any other principal's grant are reset to
+// inherit only that owner grant.
+function ownerOnlyDirectoryCommand(targetPath, sid, icacls) {
+  const script = [
+    "$ErrorActionPreference = 'Stop';",
+    `$path = ${quoteForPowerShell(targetPath)};`,
+    `$sid = [System.Security.Principal.SecurityIdentifier]::new(${quoteForPowerShell(sid)});`,
+    '$acl = [System.Security.AccessControl.DirectorySecurity]::new();',
+    '$acl.SetAccessRuleProtection($true, $false);',
+    '$acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(',
+    '$sid, [System.Security.AccessControl.FileSystemRights]::FullControl,',
+    "[System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',",
+    '[System.Security.AccessControl.PropagationFlags]::None,',
+    '[System.Security.AccessControl.AccessControlType]::Allow));',
+    '[System.IO.Directory]::SetAccessControl($path, $acl);',
+    'foreach ($file in [System.IO.Directory]::GetFiles($path)) {',
+    '$current = [System.IO.File]::GetAccessControl($file);',
+    '$rules = @($current.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]));',
+    '$foreign = @($rules | Where-Object { -not $_.IsInherited -or $_.IdentityReference -ne $sid });',
+    'if ($current.AreAccessRulesProtected -or $foreign.Count -gt 0) {',
+    '$reset = [System.Security.AccessControl.FileSecurity]::new();',
+    '$reset.SetAccessRuleProtection($false, $false);',
+    '[System.IO.File]::SetAccessControl($file, $reset) } };',
+  ].join(' ');
+  return powerShellCommand(icacls, script);
 }
 
 function aclFailure(targetPath, cause, label = 'icacls') {
@@ -137,6 +173,18 @@ export async function enforceOwnerOnlyAclWin32Async(targetPath, { fresh = false 
   const icacls = icaclsPath();
   if (cachedUserSid === null) cachedUserSid = await resolveCurrentUserPrincipalAsync();
   const command = ownerOnlyAclCommand(targetPath, cachedUserSid, fresh, icacls);
+  try {
+    await execFileAsync(command.executable, command.args, { windowsHide: true, timeout: 15_000 });
+  } catch (error) {
+    throw aclFailure(targetPath, error, command.label);
+  }
+}
+
+export async function enforceOwnerOnlyDirectoryWin32Async(targetPath) {
+  if (process.platform !== 'win32') return;
+  const icacls = icaclsPath();
+  if (cachedUserSid === null) cachedUserSid = await resolveCurrentUserPrincipalAsync();
+  const command = ownerOnlyDirectoryCommand(targetPath, cachedUserSid, icacls);
   try {
     await execFileAsync(command.executable, command.args, { windowsHide: true, timeout: 15_000 });
   } catch (error) {

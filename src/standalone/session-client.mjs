@@ -21,6 +21,7 @@ import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
 import { daemonCrashCaptureDir, daemonDataDir } from '../session-runtime/services/daemon-crash-capture.mjs';
 import { forkDaemonCandidate } from '../session-runtime/services/daemon-candidate.mjs';
 import { daemonOwnerIsStale, proveDaemonOwnerRecord } from './daemon-owner.mjs';
+import { IN_TREE_DAEMON_STOP_GRACE_MS } from './daemon-stop-budget.mjs';
 import { createAttachmentCalls } from './session-client/attachment-calls.mjs';
 import { daemonUnavailableError } from './session-client/daemon-unavailable.mjs';
 import { createLeaseHeartbeat } from './session-client/lease-heartbeat.mjs';
@@ -649,7 +650,10 @@ export async function shutdownDaemon(
  *  this tree anyway) and wait, bounded, for every such child's graceful exit.
  *  One that already unpublished its endpoint is mid-teardown: only waited on.
  *  False when no such child is alive (detached, or another launcher's). */
-export async function stopInTreeDaemon({ timeoutMs = 3_000, discovery = readSessionDiscovery() } = {}) {
+export async function stopInTreeDaemon({
+  timeoutMs = IN_TREE_DAEMON_STOP_GRACE_MS,
+  discovery = readSessionDiscovery(),
+} = {}) {
   const pids = [...inTreeDaemons.keys()].filter((pid) => isPidAlive(pid));
   if (!pids.length) return false;
   if (discovery?.port && pids.includes(Number(discovery.pid))) {
@@ -667,7 +671,7 @@ export async function stopInTreeDaemon({ timeoutMs = 3_000, discovery = readSess
       // Past its front door already: only the wait remains.
     }
   }
-  const deadline = Date.now() + Math.max(1, Number(timeoutMs) || 3_000);
+  const deadline = Date.now() + Math.max(1, Number(timeoutMs) || IN_TREE_DAEMON_STOP_GRACE_MS);
   while (pids.some((pid) => isPidAlive(pid)) && Date.now() < deadline) await delay(50);
   return !pids.some((pid) => isPidAlive(pid));
 }

@@ -24,7 +24,6 @@ export function wireSessionLifecycle(boot) {
       params.modelParameters !== undefined,
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
     invalidateOutputStyleStatusCache: boot.invalidateOutputStyleStatusCache,
-    invalidateSkills: boot.invalidateSkills,
     connectConfiguredMcp: boot.connectConfiguredMcp,
     configureEmbedding,
   });

@@ -231,7 +231,11 @@ function developerAdapters(boot) {
         reg.disableProvider?.(provider);
         return;
       }
-      await ensureProvidersReady(config?.providers || {});
+      // Provider init can take long (OAuth/network); the option is already saved
+      // and adopted, so the toggle must not wait on it.
+      void ensureProvidersReady(config?.providers || {}).catch((error) => {
+        console.warn(`[providers] ${provider} init after enabling failed: ${error?.message || error}`);
+      });
     },
   };
 }

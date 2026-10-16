@@ -12,7 +12,6 @@ export function createNewSessionConfig({
   initialRouteExplicit = false,
   invalidatePreSessionToolSurface,
   invalidateOutputStyleStatusCache,
-  invalidateSkills,
   connectConfiguredMcp,
   configureEmbedding,
 }) {
@@ -33,7 +32,10 @@ export function createNewSessionConfig({
     }
     invalidateOutputStyleStatusCache();
     invalidatePreSessionToolSurface();
-    invalidateSkills();
+    // The installed-skill list is NOT dropped here: its cache is change-gated
+    // (every skill root's mtime signature, kept by change watchers), so a new
+    // session already sees any skill edit. Clearing it made every session
+    // creation re-read and re-parse every SKILL.md on the event loop.
     await configureEmbedding(sharedCfgMod.readSection('memory')?.embedding || {});
     if (!firstSession || !isDeepStrictEqual(previousMcp, mcpSettings())) {
       // Reused runtimes may still own old connections. This reset is scoped to

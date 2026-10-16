@@ -120,6 +120,38 @@ test('errors after listening are logged without replacing the bound result', asy
   assert.match(logs[1], /HTTP error: socket failure/);
 });
 
+test('a keep-alive socket whose response ends after stop does not hold the close', async (t) => {
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const server = http.createServer(async (_req, res) => {
+    entered.resolve();
+    await release.promise;
+    res.end('finished');
+  });
+  server.keepAliveTimeout = 30_000;
+  const { listener } = fixture(t, { server });
+  const port = await listener.start();
+  const agent = new http.Agent({ keepAlive: true });
+  t.after(() => agent.destroy());
+  const response = new Promise((resolve, reject) => {
+    http
+      .get({ host: '127.0.0.1', port, agent }, (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => (body += chunk));
+        res.on('end', () => resolve(body));
+      })
+      .on('error', reject);
+  });
+  await entered.promise;
+  const closing = listener.stop();
+  release.resolve();
+  assert.equal(await response, 'finished');
+  const startedAt = Date.now();
+  await closing;
+  assert.ok(Date.now() - startedAt < 2_000, `stop waited ${Date.now() - startedAt}ms for an idle keep-alive socket`);
+});
+
 test('stop waits for active HTTP requests to finish before releasing the listener', async (t) => {
   const entered = Promise.withResolvers();
   const release = Promise.withResolvers();

@@ -8,6 +8,53 @@ import * as contextMod from '../runtime/agent/orchestrator/context/collect.mjs';
 import { parseSkillDocument } from '../runtime/shared/skill-document.mjs';
 import { createSkillsApi } from './skills-api.mjs';
 
+test('a write through the skills API is visible to the very next read, with no waiting', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-fresh-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  const turn = () => new Promise((resolve) => setTimeout(resolve, 30));
+  try {
+    mkdirSync(join(process.env.MIXDOG_DATA_DIR, 'skills'), { recursive: true });
+    const api = createSkillsApi({ contextMod, getCwd: () => root });
+    const describe = (name) => api.skillsStatus().skills.find((skill) => skill.name === name)?.description;
+    // Let the watched roots settle, so reads reuse their last walk.
+    const settle = async () => {
+      api.skillsStatus();
+      await turn();
+      api.skillsStatus();
+      await turn();
+    };
+    await settle();
+    api.addGlobalSkill({ name: 'fresh-skill', description: 'Use when first added.' });
+    assert.equal(describe('fresh-skill'), 'Use when first added.');
+
+    await settle();
+    api.saveSkillDocument({
+      originalName: 'fresh-skill',
+      name: 'fresh-skill',
+      description: 'Use when saved again.',
+      instructions: '# Saved',
+    });
+    assert.equal(describe('fresh-skill'), 'Use when saved again.');
+
+    // An external write followed by the explicit invalidation that reloadSkills
+    // and settings mutations run.
+    await settle();
+    const filePath = join(process.env.MIXDOG_DATA_DIR, 'skills', 'fresh-skill', 'SKILL.md');
+    writeFileSync(
+      filePath,
+      readFileSync(filePath, 'utf8').replace('Use when saved again.', 'Use when reloaded.')
+    );
+    api.invalidateSkills();
+    assert.equal(describe('fresh-skill'), 'Use when reloaded.');
+  } finally {
+    contextMod.invalidateSkillsCache(root);
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('edits existing skills without dropping optional metadata or sibling resources', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-edit-'));
   const previousDataDir = process.env.MIXDOG_DATA_DIR;

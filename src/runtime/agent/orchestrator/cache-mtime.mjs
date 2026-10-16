@@ -31,9 +31,18 @@ export function maxMtimeRecursive(paths, depth = 3) {
  * @returns {string}
  */
 export function mtimeSignatureRecursive(paths, depth = 3) {
+  return createHash('sha1').update(mtimeSignatureText(paths, depth)).digest('hex');
+}
+
+/**
+ * The raw text mtimeSignatureRecursive hashes (`path:mtime` lines). Texts of
+ * consecutive path groups joined with '\n' hash to the same signature as one
+ * call over all of them, so a caller can reuse an unchanged group's text.
+ */
+export function mtimeSignatureText(paths, depth = 3) {
   const parts = [];
   walkMtimes(paths, depth, (p, m) => parts.push(`${p}:${m}`));
-  return createHash('sha1').update(parts.join('\n')).digest('hex');
+  return parts.join('\n');
 }
 
 function walkMtimes(paths, depth, visit) {

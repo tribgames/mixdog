@@ -7,6 +7,11 @@ import { probePath, PROBE_PRESENT, PROBE_ABSENT } from '../fs-probe.mjs';
 import { _queueSummaryIndexPrune } from '../summary-cache.mjs';
 import { deleteSession } from '../session-delete.mjs';
 import { COMPACTION_ARCHIVE_SUFFIX } from '../../compaction-archive.mjs';
+import { isSidecarOwnerDead } from '../paths-heartbeat.mjs';
+
+// A live presence owner rewrites `.own` every ~20s; one untouched for the
+// attach guard's whole freshness window holds nothing open.
+const PRESENCE_ORPHAN_AGE_MS = 2 * 60 * 1000;
 
 /** Retention cap: prune resumable open (non-tombstone) sessions newest-first
  *  — keep the most recent openMaxCount, prune anything older than openMaxAgeMs
@@ -68,7 +73,13 @@ export function* reapOrphanSidecars({ plan, dir, now, tally }) {
       if (probePath(join(dir, recordOf(h))).state !== PROBE_ABSENT) continue;
       const sidecarProbe = probePath(join(dir, h));
       if (sidecarProbe.state !== PROBE_PRESENT) continue;
-      if (now - sidecarProbe.mtimeMs > plan.maxAge) {
+      // A presence sidecar is only ever published while its record exists,
+      // so one without a record whose recorded owner is dead (or which no
+      // live owner refreshed within the presence window) is a leftover of a
+      // deleted session, not a session mid-create.
+      const orphanPresence =
+        h.endsWith('.own') && (now - sidecarProbe.mtimeMs > PRESENCE_ORPHAN_AGE_MS || isSidecarOwnerDead(join(dir, h)));
+      if (orphanPresence || now - sidecarProbe.mtimeMs > plan.maxAge) {
         try {
           unlinkSync(join(dir, h));
           tally.cleaned++;

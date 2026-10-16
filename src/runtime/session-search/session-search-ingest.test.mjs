@@ -111,6 +111,34 @@ test('backfill ingests changed sessions only and records stamps', async () => {
   }
 });
 
+test("a turn ingest lost to a shutdown PG stop is rebuilt by the next run's backfill", async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-rebuild-'));
+  try {
+    const deps = { dir, readSession: (d, file) => JSON.parse(require_read(d, file)) };
+    writeFileSync(join(dir, 'sess_r.json'), JSON.stringify(ordinary('sess_r')));
+    backfillStore.clear();
+    await backfillSessionSearch({ deps });
+    // Next turn: the session file is saved, then its ingest fails (PG stopped).
+    const grown = ordinary('sess_r');
+    grown.messages.push({ role: 'user', content: 'written during teardown' });
+    writeFileSync(join(dir, 'sess_r.json'), JSON.stringify(grown));
+    const original = db.query;
+    db.query = async () => {
+      throw new Error('terminating connection due to administrator command');
+    };
+    ingestSessionTurn(grown);
+    await settle();
+    db.query = original;
+    // Next start: the file stamp no longer matches the recorded one.
+    queries.length = 0;
+    assert.equal(await backfillSessionSearch({ deps }), 1);
+    const reinserted = inserts().flatMap((q) => q.params.flat());
+    assert.ok(reinserted.includes('written during teardown'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('backfill drops the rows of sessions whose file is gone', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-prune-'));
   try {
@@ -119,9 +147,7 @@ test('backfill drops the rows of sessions whose file is gone', async () => {
     indexedSessionIds.splice(0, indexedSessionIds.length, 'sess_kept', 'sess_gone');
     queries.length = 0;
     await backfillSessionSearch({ deps });
-    const deleted = queries
-      .filter((q) => /DELETE FROM session_search\.messages/.test(q.sql))
-      .map((q) => q.params[0]);
+    const deleted = queries.filter((q) => /DELETE FROM session_search\.messages/.test(q.sql)).map((q) => q.params[0]);
     assert.deepEqual(deleted, ['sess_gone']);
   } finally {
     indexedSessionIds.length = 0;

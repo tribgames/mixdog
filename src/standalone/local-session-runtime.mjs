@@ -19,6 +19,7 @@ import { createContextState } from '../tui/session/context-state.mjs';
 import { createSessionFlow } from '../tui/session/session-flow.mjs';
 import { createRunTurn } from '../tui/session/turn.mjs';
 import { createQuotaResumeLane } from '../tui/session/quota-resume.mjs';
+import { createGitHeadWatcher } from '../runtime/shared/worktrees/git-head.mjs';
 import { publicQuotaResume, quotaResumeEntry } from '../runtime/shared/quota-resume-store.mjs';
 import { createSessionApi } from '../tui/session/session-api.mjs';
 import { createSessionDraftStore } from '../tui/session/draft-store.mjs';
@@ -33,16 +34,52 @@ import { formatDoctorReport, runDoctorChecks } from '../tui/app/doctor.mjs';
 // tuiDebug is an opt-in diagnostic trace for the hang chain (runTurn start/end,
 // busy-queue enqueue/drain). Quiet by default so it can never tear through
 // the alternate-screen render; enable with MIXDOG_TUI_DEBUG=1.
-import { tuiDebug, nextId, createTranscriptSpillBuffer } from '../tui/session/transcript-spill.mjs';
+import {
+  tuiDebug,
+  nextId,
+  createTranscriptSpillBuffer,
+  sweepStaleTranscriptSpillDirsOnce,
+} from '../tui/session/transcript-spill.mjs';
 
 const SESSION_RUNTIME_MODULE = '../mixdog-session-runtime.mjs';
 
 // Shared across create calls so concurrent session startups import the
 // runtime graph once.
 let sessionRuntimeModulePromise = null;
+let sessionRuntimeImporter = () => import(SESSION_RUNTIME_MODULE);
 function importSessionRuntimeModule() {
-  sessionRuntimeModulePromise ??= import(SESSION_RUNTIME_MODULE);
+  // A failed import is forgotten so the next caller retries lazily.
+  sessionRuntimeModulePromise ??= Promise.resolve()
+    .then(() => sessionRuntimeImporter())
+    .catch((error) => {
+      sessionRuntimeModulePromise = null;
+      throw error;
+    });
   return sessionRuntimeModulePromise;
+}
+
+/**
+ * Background warm-up for the daemon (scheduled after the ready signal): loads
+ * the session-runtime module tree and runs the one-per-process transcript
+ * spill sweep, so the first session.create pays for neither. Failures are
+ * swallowed — create falls back to the same lazy import.
+ */
+export async function warmLocalSessionRuntime() {
+  try {
+    await importSessionRuntimeModule();
+    // Separate turn: let queued I/O run between the import and the sync sweep.
+    await new Promise((resolve) => setImmediate(resolve));
+    sweepStaleTranscriptSpillDirsOnce();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Test seam: replace the dynamic import of the session-runtime module. */
+export function setSessionRuntimeImporterForTest(importer) {
+  sessionRuntimeImporter = importer || (() => import(SESSION_RUNTIME_MODULE));
+  sessionRuntimeModulePromise = null;
 }
 
 const TOOL_APPROVAL_TIMEOUT_MS = (() => {
@@ -98,7 +135,7 @@ export function createRuntimePulse({
     if (!set(changed)) emit();
     return true;
   };
-  return () => {
+  const pulse = () => {
     if (flags.disposed) return;
     if (flags.pendingSessionReset) return;
     // Attached viewer with a live pipe: the owner's frames are authoritative
@@ -115,6 +152,12 @@ export function createRuntimePulse({
       ...agentStatusState(),
     });
   };
+  /** Publishes just the workspace (a HEAD change): no stats or agent recompute. */
+  pulse.publishWorkspace = () => {
+    if (flags.disposed || flags.pendingSessionReset) return;
+    publishChanged({ workspace: routeState().workspace });
+  };
+  return pulse;
 }
 
 export async function createLocalSessionRuntime({
@@ -277,20 +320,29 @@ export async function createLocalSessionRuntime({
       timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
     }
   );
-  lifecycle.runtimePulseTimer = setInterval(
-    createRuntimePulse({
-      flags,
-      liveShareMirroring: () => bag.liveShareMirroring?.() === true,
-      getState,
-      getPublishedState,
-      set,
-      emit: store.emit,
-      routeState,
-      agentStatusState,
-      syncContextStats,
-    }),
-    2000
-  );
+  const runtimePulse = createRuntimePulse({
+    flags,
+    liveShareMirroring: () => bag.liveShareMirroring?.() === true,
+    getState,
+    getPublishedState,
+    set,
+    emit: store.emit,
+    routeState,
+    agentStatusState,
+    syncContextStats,
+  });
+  // A `git switch` from any terminal reaches the island within ~a frame; the
+  // pulse retargets the watch when the session's folder moves.
+  const headWatch = createGitHeadWatcher({
+    getCwd: () => runtime.getLiveWorkspace?.()?.cwd || runtime.cwd,
+    onChange: runtimePulse.publishWorkspace,
+  });
+  headWatch.retarget();
+  lifecycle.unsubscribeGitHeadWatch = headWatch.dispose;
+  lifecycle.runtimePulseTimer = setInterval(() => {
+    headWatch.retarget();
+    runtimePulse();
+  }, 2000);
   lifecycle.runtimePulseTimer.unref?.();
 
   const {
@@ -405,8 +457,7 @@ export async function createLocalSessionRuntime({
   Object.assign(bag, createSessionFlow(bag));
   // Runtime-driven completion wakes (no attached surface acked the completion)
   // get the same idle auto-clear as a user submit.
-  lifecycle.unsubscribeCompletionWakeGate =
-    runtime.setCompletionWakeGate?.(() => bag.autoClearBeforeWake()) || null;
+  lifecycle.unsubscribeCompletionWakeGate = runtime.setCompletionWakeGate?.(() => bag.autoClearBeforeWake()) || null;
   Object.assign(
     bag,
     createGoalContinuation({

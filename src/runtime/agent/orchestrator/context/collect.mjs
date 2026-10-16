@@ -18,6 +18,7 @@ export {
   skillBodyPresentInSession,
   skillMissingFeature,
   skillOutsideScope,
+  skillEnabledFlags,
   skillOutsideScopeError,
 } from './skill-catalog.mjs';
 export {

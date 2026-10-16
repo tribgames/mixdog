@@ -102,9 +102,6 @@ function fixture() {
       invalidateOutputStyleStatusCache() {
         calls.push('invalidate-style');
       },
-      invalidateSkills() {
-        calls.push('invalidate-skills');
-      },
       connectConfiguredMcp: async () => {
         calls.push(['mcp', structuredClone(rt.config.mcpServers)]);
       },

@@ -74,6 +74,7 @@ export function createInlineSessionRuntimeHost({
   return {
     create,
     prewarmKeychain: loaders.prewarmKeychain,
+    warmLocalRuntime: loaders.warmLocalRuntime,
     agentDispatch: dispatch.agentDispatch,
     async agentControl(args = {}, context = {}) {
       if (closed) throw new Error('session runtime host is closed');

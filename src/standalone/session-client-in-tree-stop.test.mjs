@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { daemonShouldDetach, spawnDaemonCandidate, stopInTreeDaemon } from './session-client.mjs';
+import { IN_TREE_DAEMON_STOP_GRACE_MS } from './daemon-stop-budget.mjs';
 import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 
 // A stand-in daemon with the real stop contract: POST /stop {force:true}
@@ -102,6 +103,9 @@ test('a daemon that does not exit holds the quit for the default bound only', {
   const startedAt = Date.now();
   assert.equal(await stopInTreeDaemon({ discovery: daemon.discovery }), false);
   const elapsedMs = Date.now() - startedAt;
-  assert.ok(elapsedMs >= 2_900 && elapsedMs < 4_000, `waited the 3 s default bound (${elapsedMs}ms)`);
+  assert.ok(
+    elapsedMs >= IN_TREE_DAEMON_STOP_GRACE_MS - 100 && elapsedMs < IN_TREE_DAEMON_STOP_GRACE_MS + 1_000,
+    `waited the ${IN_TREE_DAEMON_STOP_GRACE_MS}ms default bound (${elapsedMs}ms)`
+  );
   assert.equal(isPidAlive(daemon.pid), true, 'the app exit, not this wait, ends it');
 });

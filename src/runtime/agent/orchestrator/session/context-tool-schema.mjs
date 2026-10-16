@@ -8,6 +8,13 @@ import {
 } from '../runtime-core/provider-request-tools.mjs';
 
 const toolSchemaAnalysisMemo = new WeakMap();
+// Token cost by schema signature. Every new session builds its own tools array
+// with the same schemas; re-estimating the whole serialization (tens of ms,
+// synchronous) per first turn blocked the event loop during session creation.
+// The signature hashes the full serialization, deferred flags included, so it
+// determines the metered text exactly.
+const toolSchemaTokensBySignature = new Map();
+const TOOL_SCHEMA_TOKENS_LIMIT = 32;
 
 function isDeferredToolSchema(tool) {
   return tool?.deferLoading === true || tool?.defer_loading === true;
@@ -58,8 +65,16 @@ function analyzeToolSchemas(tools) {
   // full weight inflated the request reserve. The SIGNATURE keeps hashing
   // the full serialization (a deferred tool joining/leaving must still
   // re-fingerprint the surface); only the token cost drops deferred entries.
-  const meterText = list.some(isDeferredToolSchema) ? serializeToolSchemas(list, { excludeDeferred: true }) : text;
-  const analysis = { signature, tokens: estimateTokens(meterText) };
+  let tokens = toolSchemaTokensBySignature.get(signature);
+  if (tokens === undefined) {
+    const meterText = list.some(isDeferredToolSchema) ? serializeToolSchemas(list, { excludeDeferred: true }) : text;
+    tokens = estimateTokens(meterText);
+    if (toolSchemaTokensBySignature.size >= TOOL_SCHEMA_TOKENS_LIMIT) {
+      toolSchemaTokensBySignature.delete(toolSchemaTokensBySignature.keys().next().value);
+    }
+    toolSchemaTokensBySignature.set(signature, tokens);
+  }
+  const analysis = { signature, tokens };
   if (Array.isArray(tools)) toolSchemaAnalysisMemo.set(tools, analysis);
   return analysis;
 }

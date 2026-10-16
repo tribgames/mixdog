@@ -159,8 +159,22 @@ function _logSessionCloseMetric(id, existing, closedAt, reason) {
 }
 
 /**
+ * A barrier that found no record at all — nothing on disk and no live or
+ * pending copy in memory — fenced nothing because there is nothing to fence:
+ * its pending writes were already cancelled under the commit lock. It still
+ * returns null (no generation exists), but a caller passing `options.outcome`
+ * learns that the record was legitimately gone rather than vetoed, contended
+ * or failed.
+ */
+function _recordAbsent(options) {
+  if (options?.outcome && typeof options.outcome === 'object') options.outcome.absent = true;
+  return null;
+}
+
+/**
  * Atomically mark a session closed on disk with a bumped generation.
  * Returns the new generation, or null if the session file doesn't exist.
+ * `options.outcome` (an object) gets `absent: true` when no record existed.
  * Used by closeSession() to plant a tombstone that races against in-flight
  * saveSession() calls.
  */
@@ -187,7 +201,7 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
     _cancelSessionWrites(id);
     _uncacheSessionSummary(id);
     const existing = loadSession(id);
-    if (!existing) return null;
+    if (!existing) return _recordAbsent(options);
     // Re-close idempotence: a session that is ALREADY tombstoned keeps its
     // ORIGINAL close time (updatedAt) and generation. The old code refreshed
     // updatedAt=Date.now() on every call, so the 5-min idle sweep re-closing a
@@ -253,7 +267,7 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
  * of clobbering whatever the resumed session writes next.
  * Returns the new generation, or null if the session file doesn't exist.
  */
-export function bumpSessionGeneration(id, reason = 'detach') {
+export function bumpSessionGeneration(id, reason = 'detach', options = {}) {
   clearSessionLifecycleCommitError(id);
   // The detach barrier is a canonical write and MUST take the same commit
   // lock as markSessionClosed. Cancellation alone is not a barrier: a writer
@@ -278,7 +292,7 @@ export function bumpSessionGeneration(id, reason = 'detach') {
     _cancelSessionWrites(id);
     _uncacheSessionSummary(id);
     const existing = loadSession(id);
-    if (!existing) return null;
+    if (!existing) return _recordAbsent(options);
     const newGen = (typeof existing.generation === 'number' ? existing.generation : 0) + 1;
     const detached = { ...existing, generation: newGen, updatedAt: Date.now(), detachedReason: reason };
     if (!_writeLifecycleRecord(id, detached, existing, reason)) return null;
