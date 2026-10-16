@@ -1,4 +1,5 @@
 import { clean, rowMatchesContext } from './helpers.mjs';
+import { resolveRequestedModel } from './model-select.mjs';
 
 // Spawn request dispatch: deciding what an explicitly tagged spawn means before
 // a job is started, and starting it.
@@ -6,7 +7,14 @@ import { clean, rowMatchesContext } from './helpers.mjs';
 // Inputs: `registry` (tag resolution, live sessions, tombstones),
 // `terminalTrace`, `sendFlow` (reuse path), `spawnFlow`, and `spawnResult`
 // (job -> rendered tool output). Output: { spawn }.
-export function createSpawnDispatch({ registry, terminalTrace, sendFlow, spawnFlow, spawnResult }) {
+export function createSpawnDispatch({
+  registry,
+  terminalTrace,
+  sendFlow,
+  spawnFlow,
+  spawnResult,
+  listProviderModels = null,
+}) {
   // Explicit-tag spawn priority (auto nextTag always creates a fresh session):
   //   1) live + busy -> queue the prompt (reuse)
   //   2) live + idle -> continue existing session (reuse)
@@ -52,7 +60,10 @@ export function createSpawnDispatch({ registry, terminalTrace, sendFlow, spawnFl
     return { spawnArgs: args, respawned: false };
   }
 
-  async function spawn(args, request) {
+  async function spawn(requestArgs, request) {
+    // Resolve a user-pinned model before deferring, so a miss or an ambiguous
+    // name answers this call instead of failing the background job.
+    const args = await resolveRequestedModel(requestArgs, listProviderModels);
     const explicitTag = clean(args.tag);
     let spawnArgs = args;
     let respawned = false;

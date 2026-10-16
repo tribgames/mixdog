@@ -17,6 +17,7 @@ export function createAgentExecute({
   sendFlow,
   closeFlow,
   terminalTrace,
+  listProviderModels = null,
 }) {
   const spawnResult = (job) => renderResult(views.renderJob(job, false));
 
@@ -30,7 +31,14 @@ export function createAgentExecute({
   }
 
   const { send } = createSendDispatch({ registry, defaultCwd, sendFlow, spawnFlow, spawnResult });
-  const { spawn } = createSpawnDispatch({ registry, terminalTrace, sendFlow, spawnFlow, spawnResult });
+  const { spawn } = createSpawnDispatch({
+    registry,
+    terminalTrace,
+    sendFlow,
+    spawnFlow,
+    spawnResult,
+    listProviderModels,
+  });
 
   return async function execute(args = {}, context = {}) {
     try {
