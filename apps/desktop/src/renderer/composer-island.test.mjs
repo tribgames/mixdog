@@ -547,7 +547,7 @@ test('each segment opens its own panel: a title chip and a close button, no tab 
   assert.ok(panel().querySelector('.composer-island-close'));
   assert.equal(panel().querySelectorAll('.agent-pool-row').length, 2);
   assert.equal(panel().querySelector('.composer-island-shell-command'), null, 'no shell row in the agents panel');
-  assert.ok(panel().querySelector('.composer-island-summary'));
+  assert.ok(panel().querySelector('.composer-island-phead .composer-island-phead-meta'));
   await act(async () => panel().querySelector('.composer-island-close').click());
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
 
@@ -557,6 +557,7 @@ test('each segment opens its own panel: a title chip and a close button, no tab 
   assert.equal(panel().querySelector('.composer-island-tab').textContent, translate('Shell {{shell}}', { shell: 1 }));
   assert.equal(panel().querySelectorAll('.agent-pool-row').length, 0, 'no agent row in the shells panel');
   assert.equal(panel().querySelector('.composer-island-summary'), null);
+  assert.equal(panel().querySelector('.composer-island-phead-meta'), null);
   assert.equal(panel().querySelector('.composer-island-shell-command').textContent, 'npm test');
   // The same segment toggles its panel shut; Escape closes too.
   await act(async () => shellSeg().click());
@@ -605,14 +606,25 @@ async function usagePanel(t, answer) {
   await act(async () => document.querySelector('.composer-island-seg-agents').click());
   await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
   const summary = document.querySelector('.composer-island-summary');
+  const meta = [...(document.querySelector('.composer-island-phead-meta')?.children ?? [])].map(
+    (part) => part.textContent
+  );
   const rowTokens = Object.fromEntries(
     [...document.querySelectorAll('.composer-island-agent-item')].map((item) => [
       item.querySelector('.agent-pool-row').dataset.agentTag,
       item.querySelector('.composer-island-agent-tokens')?.textContent ?? null,
     ])
   );
-  return { reads, summary, rowTokens, document };
+  return { reads, summary, meta, rowTokens, document };
 }
+
+// The header counts by state, as the rows read: one running, one blocked on
+// approval, and the finished worker idles (waiting for its next message).
+const usagePanelMeta = () => [
+  `${translate('Island: Running')} 1`,
+  translate('Needs you {{needs}}', { needs: 1 }),
+  translate('Island: {{waiting}} waiting', { waiting: 1 }),
+];
 
 test('the agents summary shows the session totals with the Lead split out, cache and cost', async (t) => {
   const answer = {
@@ -624,22 +636,23 @@ test('the agents summary shows the session totals with the Lead split out, cache
       's-c': ledgerUsage(0),
     },
   };
-  const { reads, summary, rowTokens } = await usagePanel(t, answer);
+  const { reads, summary, meta, rowTokens } = await usagePanel(t, answer);
   // One read: the Lead's session, naming its listed agents.
   assert.equal(reads.length, 1);
   assert.equal(reads[0].capability, 'getSessionUsage');
   assert.equal(reads[0].sessionId, 'island-session');
   assert.deepEqual([...reads[0].args[0].sessionIds].sort(), ['s-a', 's-b', 's-c']);
+  assert.deepEqual(meta, usagePanelMeta());
+  // The totals are the footer, below the rows.
+  assert.equal(summary.previousElementSibling.classList.contains('composer-island-agents'), true);
   const parts = [...summary.children].map((part) => part.textContent);
-  // Running counts agents only (the one blocked on approval and the done one are not running).
-  assert.equal(parts[0], `${translate('Island: Running')} 1`);
   assert.equal(
-    parts[1],
+    parts[0],
     `${translate('Island: Total tokens')} 1.5M (${translate('Lead {{lead}} · Agents {{agents}}', { lead: '1M', agents: '500K' })})`
   );
   // (800k + 100k + 100k) / 1.5M
-  assert.equal(parts[2], `${translate('Island: Cache hit rate')} 66.7%`);
-  assert.equal(parts[3], `${translate('Island: Approx. cost')} $2.25`);
+  assert.equal(parts[1], `${translate('Island: Cache hit rate')} 66.7%`);
+  assert.equal(parts[2], `${translate('Island: Approx. cost')} $2.25`);
   assert.deepEqual(rowTokens, { 'run-a': '300K', 'ask-c': '0', 'done-b': '200K' });
 });
 
@@ -650,30 +663,26 @@ test('an unpriced turn drops only the cost from the agents summary', async (t) =
   });
   assert.deepEqual(
     [...summary.children].map((part) => part.firstChild.textContent.trim()),
-    [translate('Island: Running'), translate('Island: Total tokens'), translate('Island: Cache hit rate')]
+    [translate('Island: Total tokens'), translate('Island: Cache hit rate')]
   );
 });
 
 test('an unmeasured or missing agent session drops every combined figure and its own row total', async (t) => {
-  const { summary, rowTokens } = await usagePanel(t, {
+  const { summary, meta, rowTokens } = await usagePanel(t, {
     ...ledgerUsage(1_000, { costUsd: 1 }),
     sessions: { 's-a': ledgerUsage(100, { unmeasured: 1 }), 's-b': ledgerUsage(100) },
   });
-  // Only the running count is exact: the agents' share is unknown (s-a
-  // unmeasured, s-c missing), so no total, cache rate or cost.
-  assert.deepEqual(
-    [...summary.children].map((part) => part.textContent),
-    [`${translate('Island: Running')} 1`]
-  );
+  // The agents' share is unknown (s-a unmeasured, s-c missing): no total,
+  // cache rate or cost, so no footer; the header counts stay.
+  assert.equal(summary, null);
+  assert.deepEqual(meta, usagePanelMeta());
   assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': '100' });
 });
 
-test('without a usage read the summary keeps only the running count', async (t) => {
-  const { summary, rowTokens } = await usagePanel(t, null);
-  assert.deepEqual(
-    [...summary.children].map((part) => part.textContent),
-    [`${translate('Island: Running')} 1`]
-  );
+test('without a usage read only the header counts remain', async (t) => {
+  const { summary, meta, rowTokens } = await usagePanel(t, null);
+  assert.equal(summary, null);
+  assert.deepEqual(meta, usagePanelMeta());
   assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': null });
 });
 
@@ -1662,7 +1671,7 @@ test('while work runs the menu opens locked: a notice leads and no switch starts
   // A running turn.
   await render({ reviewBusy: true });
   await open();
-  assert.equal(locked().textContent, "Branches and worktrees can't be changed while work is running.");
+  assert.equal(locked().textContent, "Can't switch while work is running");
   assert.equal(menu().firstElementChild, locked());
   const state = (kind, name) =>
     menu()

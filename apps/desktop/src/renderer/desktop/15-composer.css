@@ -698,13 +698,29 @@
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
-/* The session's totals above the agent rows: one quiet line. */
+/* State counts beside the panel title: quiet, one line. */
+.composer-island-phead-meta {
+  min-width: 0;
+  display: flex;
+  gap: 10px;
+  margin-inline-start: 8px;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.composer-island-phead-meta b {
+  color: var(--mx-text);
+  font-weight: 500;
+}
+/* The session's totals below the agent rows: one quiet footer line. */
 .composer-island-summary {
   display: flex;
   flex-wrap: wrap;
   gap: 2px 14px;
   padding: 8px 14px;
-  border-bottom: var(--mx-hairline) solid var(--composer-island-rule);
+  border-top: var(--mx-hairline) solid var(--composer-island-rule);
   color: var(--mx-text-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;

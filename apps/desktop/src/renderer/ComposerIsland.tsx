@@ -334,14 +334,26 @@ function ShellJobItem({
   );
 }
 
-/** A jobs panel's header: its own title chip and the close button. */
-function JobsPanelHead({ mark, title, onClose }: { mark: ReactNode; title: string; onClose(): void }) {
+/** A jobs panel's header: its own title chip, optional state counts beside
+ *  it, and the close button. */
+function JobsPanelHead({
+  mark,
+  title,
+  meta,
+  onClose,
+}: {
+  mark: ReactNode;
+  title: string;
+  meta?: ReactNode;
+  onClose(): void;
+}) {
   return (
     <div className="composer-island-phead">
       <span className="composer-island-tab" data-active="true">
         {mark}
         {title}
       </span>
+      {meta ? <span className="composer-island-phead-meta">{meta}</span> : null}
       <button
         type="button"
         className="composer-island-close"
@@ -355,16 +367,32 @@ function JobsPanelHead({ mark, title, onClose }: { mark: ReactNode; title: strin
   );
 }
 
-/** The session's totals above the agent rows: what runs now, then the
- *  ledger's exact figures for the Lead and its listed agents. A figure the
- *  ledger cannot attribute exactly is left out, never estimated. */
-function AgentsSummary({ running, usage }: { running: number; usage: IslandUsageSummary }) {
-  const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd } = usage;
+/** How many listed agents run, need the user, or wait: beside the title. */
+function AgentsStateCounts({ agents }: { agents: IslandAgentRow[] }) {
+  const running = agents.filter(({ state }) => state === 'running' || state === 'cancel-unconfirmed').length;
+  const needsUser = agents.filter(({ state }) => state === 'needs-user').length;
+  const waiting = agents.filter(
+    ({ state }) => state === 'queued' || state === 'waiting' || state === 'idle'
+  ).length;
   return (
-    <div className="composer-island-summary" role="group" aria-label={t('Session usage')}>
+    <>
       <span>
         {t('Island: Running')} <b>{statsCount(running)}</b>
       </span>
+      {needsUser > 0 ? <span>{t('Needs you {{needs}}', { needs: needsUser })}</span> : null}
+      {waiting > 0 ? <span>{t('Island: {{waiting}} waiting', { waiting })}</span> : null}
+    </>
+  );
+}
+
+/** The session's totals below the agent rows: the ledger's exact figures for
+ *  the Lead and its listed agents. A figure the ledger cannot attribute
+ *  exactly is left out, never estimated. */
+function AgentsSummary({ usage }: { usage: IslandUsageSummary }) {
+  const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd } = usage;
+  if (totalTokens === null && cacheHitRate === null && costUsd === null) return null;
+  return (
+    <div className="composer-island-summary" role="group" aria-label={t('Session usage')}>
       {totalTokens !== null && leadTokens !== null && agentTokens !== null ? (
         <span>
           {t('Island: Total tokens')} <b>{statsTokens(totalTokens)}</b>{' '}
@@ -406,15 +434,14 @@ function AgentsPanel({
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }) {
   const clock = useClock(true);
-  const running = agents.filter(({ state }) => state === 'running' || state === 'cancel-unconfirmed').length;
   return (
     <section className="composer-island-panel" aria-label={t('Agents')}>
       <JobsPanelHead
         mark={jobsTabMark('agent', agents, 0)}
         title={t('Agent {{agent}}', { agent: agents.length })}
+        meta={<AgentsStateCounts agents={agents} />}
         onClose={onClose}
       />
-      <AgentsSummary running={running} usage={usage} />
       {/* The Agents window's own tree and row component; each row's own
           ledger total sits at its right edge. */}
       <div className="composer-island-pbody composer-island-jobs composer-island-agents schedules-list" role="tree">
@@ -448,6 +475,7 @@ function AgentsPanel({
           );
         })}
       </div>
+      <AgentsSummary usage={usage} />
     </section>
   );
 }
