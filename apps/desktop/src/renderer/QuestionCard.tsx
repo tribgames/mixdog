@@ -240,8 +240,7 @@ export function QuestionCard({
     send: t('Send'),
     close: t('Close'),
   }[primary];
-  const step = total > 1 ? `${index + 1}/${total}` : '';
-  const chip = [t('Question'), step].filter(Boolean).join(' ');
+  const meta = [total > 1 ? `${index + 1}/${total}` : '', multi ? t('Multiple') : ''].filter(Boolean).join(' · ');
   const hint = [
     draft.selected.length > 0 ? t('{{count}} selected', { count: draft.selected.length }) : '',
     `Enter ${primaryLabel}`,
@@ -260,17 +259,17 @@ export function QuestionCard({
       aria-label={t('Agent question')}
       data-multi={multi || undefined}
     >
-      <div className="composer-island-phead question-head">
-        <span className="composer-island-tab question-chip">
-          <span className="question-mark" aria-hidden="true">
-            ?
-          </span>
-          {chip}
+      <div className="question-head">
+        <span className="question-icon" aria-hidden="true">
+          ?
         </span>
-        {multi && <span className="question-meta">{t('Multiple')}</span>}
+        <span className="question-title">
+          <strong>{question.header || t('Question')}</strong>
+          {meta && <span className="question-meta">{meta}</span>}
+        </span>
         <button
           type="button"
-          className="composer-island-close question-close"
+          className="question-close"
           aria-label={t('Close question')}
           onClick={() => void close()}
         >
@@ -344,7 +343,7 @@ export function QuestionCard({
         {index > 0 && (
           <button
             type="button"
-            className="composer-island-button question-btn"
+            className="turn-changes-action question-btn"
             data-action="previous"
             disabled={resolving}
             onClick={() => apply({ type: 'step', delta: -1 })}
@@ -354,7 +353,7 @@ export function QuestionCard({
         )}
         <button
           type="button"
-          className={`composer-island-button question-btn${primary === 'send' || primary === 'next' ? ' composer-island-button-primary' : ''}`}
+          className={`${primary === 'send' || primary === 'next' ? 'turn-changes-view' : 'turn-changes-action'} question-btn`}
           data-primary
           data-action={primary}
           disabled={resolving}

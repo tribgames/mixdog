@@ -271,7 +271,7 @@ export type ComposerProps = {
   /** This pane is the focused, visible one. A payload shared into the app from
    *  outside (share sheet) may only land in a composer the user can see. */
   paneActive?: boolean;
-  /** Replaces the rotating placeholder (a pending question: sending closes it). */
+  /** Replaces the rotating placeholder (a pending question: sending answers it). */
   placeholderOverride?: string;
 };
 

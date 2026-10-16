@@ -115,12 +115,12 @@ export function AskUserRecord({ item }: { item: TranscriptItem }) {
   const shown = reply ? rows.filter((row) => row.answers.length > 0) : rows;
   return (
     <section className="ask-user-record" aria-label={t('Agent question')}>
-      <div className="composer-island-phead ask-user-record-head">
-        <span className="composer-island-tab ask-user-record-chip-title">
-          <span className="ask-user-record-mark" aria-hidden="true">
-            {note ? '?' : '✓'}
-          </span>
-          <span className="ask-user-record-title">{title}</span>
+      <div className="question-head">
+        <span className="question-icon" data-tone={note ? undefined : 'done'} aria-hidden="true">
+          {note ? '?' : '✓'}
+        </span>
+        <span className="question-title">
+          <strong className="ask-user-record-title">{title}</strong>
         </span>
       </div>
       {shown.map((row, index) => (

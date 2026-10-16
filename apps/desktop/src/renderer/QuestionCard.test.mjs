@@ -44,8 +44,8 @@ test('step buttons: a multi-select advances by click, Previous goes back, the la
   try {
     const options = () => [...ui.doc.querySelectorAll('.question-option')];
     const hint = () => ui.doc.querySelector('.question-hint').textContent;
-    assert.equal(ui.doc.querySelector('.question-chip').textContent, '?Question 1/2');
-    assert.equal(ui.doc.querySelector('.question-meta').textContent, 'Multiple');
+    assert.equal(ui.doc.querySelector('.question-title strong').textContent, 'W');
+    assert.equal(ui.doc.querySelector('.question-meta').textContent, '1/2 · Multiple');
     assert.equal(ui.button('skip').textContent, 'Skip');
     assert.equal(ui.button('previous'), undefined);
     await ui.click(options()[0]);
@@ -55,7 +55,8 @@ test('step buttons: a multi-select advances by click, Previous goes back, the la
     assert.deepEqual(draftsRef.current[0].selected, [0, 1], 'picks are exposed for a composer reply');
     await ui.click(ui.button('next'));
     assert.equal(ui.doc.querySelector('.question-text').textContent, 'Keep?');
-    assert.equal(ui.doc.querySelector('.question-chip').textContent, '?Question 2/2');
+    assert.equal(ui.doc.querySelector('.question-title strong').textContent, 'K');
+    assert.equal(ui.doc.querySelector('.question-meta').textContent, '2/2');
     assert.equal(hint(), 'Enter Send · ← Previous question');
     await ui.click(ui.button('previous'));
     assert.equal(ui.doc.querySelector('.question-text').textContent, 'Which?');

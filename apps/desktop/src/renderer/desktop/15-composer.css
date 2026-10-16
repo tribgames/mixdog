@@ -913,75 +913,122 @@
   background: transparent;
   box-shadow: none;
 }
-/* ask_user question card and its answered record: the composer island's panel
-   material (same tokens and header/tab/close/button classes), placed in the
-   transcript where the question was asked. Frame only; logic is in the TSX. */
+/* ask_user question card and its answered record wear the turn-changes card's
+   grammar (27-search-review.css): hairline frame on the transcript, plate
+   header with an icon plate, rows divided by hairlines, and its text action
+   and ghost button classes. Frame only; logic is in the TSX. */
 .question-card,
 .ask-user-record {
-  --composer-island-wash: var(--mx-hover);
-  --composer-island-rule: var(--mx-border-muted);
+  position: relative;
   display: block;
   width: 560px;
   max-width: 100%;
   margin: 4px 0 12px;
-  border-radius: 18px;
+  border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
-  background: var(--mx-island-frame);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border), var(--mx-raised);
-  overflow: hidden;
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-minor);
-  letter-spacing: -0.005em;
   outline: none;
 }
-.question-mark {
-  color: var(--mx-accent);
-  font-weight: 700;
-}
-.ask-user-record-mark {
-  color: var(--mx-success, #3ddc6e);
-  font-weight: 700;
-}
-.ask-user-record-chip-title {
-  min-width: 0;
-  max-width: 100%;
-}
-.ask-user-record-title {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+/* Drawn over the children, as on the turn-changes card, so row hover fills
+   never hide the edge. */
+.question-card::after,
+.ask-user-record::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  pointer-events: none;
 }
 .question-head {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 12px;
+  background: var(--mx-card-header-surface);
+  border-radius: var(--mx-radius-lg) var(--mx-radius-lg) 0 0;
+}
+.question-head:last-child {
+  border-radius: var(--mx-radius-lg);
+}
+.question-icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-hover);
+  color: var(--mx-accent);
+  font-weight: var(--mx-weight-bold, 700);
+}
+.question-icon[data-tone='done'] {
+  color: var(--mx-success);
+}
+.question-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
   gap: 8px;
+}
+.question-title strong {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--mx-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.question-close {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  color: var(--mx-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.question-close:hover {
+  background: var(--mx-hover);
+  color: var(--mx-text);
 }
 .question-meta,
 .ask-user-record-via,
 .question-hint {
   color: var(--mx-text-muted);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
 }
 .question-meta {
   white-space: nowrap;
 }
 .question-text {
-  padding: 10px 14px 4px;
-  font-weight: 600;
+  padding: 10px 12px 6px;
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
+  font-weight: var(--mx-weight-medium);
   overflow-wrap: anywhere;
 }
 .question-options {
   display: grid;
-  padding: 2px 6px 6px;
+  padding: 0 0 4px;
 }
 .question-option {
+  min-height: 36px;
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
-  padding: 7px 8px;
+  padding: 6px 12px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 0;
   background: none;
   color: inherit;
   text-align: left;
@@ -992,7 +1039,7 @@
   background: var(--mx-hover);
 }
 .question-option[data-selected] {
-  background: color-mix(in srgb, var(--mx-accent) 13%, transparent);
+  background: color-mix(in srgb, var(--mx-accent) 10%, transparent);
 }
 .question-card :is(button, input):focus-visible {
   outline: 2px solid var(--mx-accent);
@@ -1012,17 +1059,14 @@
 .question-box[data-kind='radio'] {
   border-radius: 50%;
 }
+/* Picked check and radio carry the same weight: an accent ring with an
+   accent mark, no solid fill. */
 .question-option[data-selected] .question-box {
-  background: var(--mx-accent);
-  box-shadow: none;
-  color: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 1.5px var(--mx-accent);
+  color: var(--mx-accent);
 }
 .question-option[data-selected] .question-box[data-kind='radio'] {
-  background: transparent;
-  box-shadow:
-    inset 0 0 0 1.5px var(--mx-accent),
-    inset 0 0 0 4px var(--mx-island-frame),
-    inset 0 0 0 8px var(--mx-accent);
+  background: radial-gradient(circle, var(--mx-accent) 0 3.5px, transparent 4px);
 }
 .question-key {
   min-width: 18px;
@@ -1058,11 +1102,10 @@
   font-weight: 400;
 }
 .question-other {
+  min-height: 36px;
   display: flex;
   align-items: center;
-  margin: 0 6px;
-  padding: 7px 8px 7px 34px;
-  border-radius: 10px;
+  padding: 6px 12px 6px 38px;
   cursor: text;
 }
 .question-other:hover,
@@ -1087,12 +1130,12 @@
   color: var(--mx-text-muted);
 }
 .question-foot {
+  min-height: 44px;
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 4px 14px 0;
-  padding: 8px 0 12px;
-  border-top: var(--mx-hairline) solid var(--composer-island-rule);
+  padding: 6px 8px 6px 12px;
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
 }
 .question-hint {
   flex: 1;
@@ -1100,13 +1143,12 @@
 }
 /* Answered record: one row per question, picks as tags. */
 .ask-user-record-question {
+  min-height: 36px;
   display: flex;
   align-items: baseline;
   gap: 10px;
-  padding: 8px 14px;
-}
-.ask-user-record-question + .ask-user-record-question {
-  border-top: var(--mx-hairline) solid var(--composer-island-rule);
+  padding: 8px 12px;
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
 }
 .ask-user-record-q {
   flex: none;
@@ -1126,8 +1168,8 @@
 .ask-user-record-chip {
   max-width: 100%;
   padding: 0 8px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--mx-accent) 14%, transparent);
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-hover);
   font-size: var(--mx-font-meta, 13px);
   line-height: 20px;
   overflow-wrap: anywhere;
@@ -1139,10 +1181,10 @@
   color: var(--mx-text-muted);
 }
 .ask-user-record-note {
-  padding: 8px 14px;
-  border-top: var(--mx-hairline) solid var(--composer-island-rule);
+  padding: 8px 12px;
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
   color: var(--mx-text-muted);
-  font-size: 12px;
+  font-size: var(--mx-font-meta);
 }
 .question-card :disabled {
   opacity: 0.6;
