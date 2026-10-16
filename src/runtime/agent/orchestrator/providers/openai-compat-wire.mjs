@@ -17,6 +17,7 @@ import {
 } from './media-normalization.mjs';
 import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from './custom-tool-wire.mjs';
 import { providerReplayItems } from './lib/provider-replay.mjs';
+import { acceptedWireTools } from './lib/claude-bridge-schema.mjs';
 import { ensureResponsesCallOutputs } from './lib/wire-pairing.mjs';
 import { responsesEffortUpdates } from './effort-configuration.mjs';
 import { convertMessagesToResponsesInput } from './openai-responses-input.mjs';
@@ -186,9 +187,12 @@ function toServerToolSearchTools(tools) {
   return out.filter(Boolean);
 }
 
-export function toResponsesTools(tools, options = {}) {
-  if (options?.serverToolSearch === true) return toServerToolSearchTools(tools);
+export function toResponsesTools(allTools, options = {}) {
   const provider = String(options?.provider || '').toLowerCase();
+  // A Responses endpoint rejects the whole request for one invalid
+  // `parameters`; a tool broken even after lowering is left out and reported.
+  const tools = acceptedWireTools(allTools, 'openai', options?.onToolExcluded, `[${provider || 'responses'}] tool`);
+  if (options?.serverToolSearch === true) return toServerToolSearchTools(tools);
   // A route pinned with verified native deferred tools declares the native
   // client tool_search tool and marks deferred definitions `defer_loading`.
   const nativeDeferred = options?.nativeDeferredTools === true;

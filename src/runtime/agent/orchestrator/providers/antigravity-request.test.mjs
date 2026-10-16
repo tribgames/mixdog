@@ -269,7 +269,7 @@ test('an invalid tool is left out with a warning (tool, index, pointer, reason);
   const { request, warnings, declarations } = claudeRequest(
     [
       good('first'),
-      mcp('tuple', { type: 'object', properties: { a: { type: 'array', items: [{ type: 'string' }] } } }),
+      mcp('badtype', { type: 'object', properties: { a: { type: 'bogus-type' } } }),
       good('second'),
       mcp('missing', { type: 'object', properties: { value: { $ref: '#/$defs/Absent' } } }),
       good('third'),
@@ -281,7 +281,7 @@ test('an invalid tool is left out with a warning (tool, index, pointer, reason);
   assert.deepEqual(request.tools[0], { googleSearch: {} });
   assert.deepEqual(request.toolConfig, { functionCallingConfig: { mode: 'VALIDATED' } });
   assert.equal(warnings.length, 2);
-  assert.match(warnings[0], /"tuple" \(tools\[1\]\) excluded: invalid input schema at "\/properties\/a\/items": .*2020-12/);
+  assert.match(warnings[0], /"badtype" \(tools\[1\]\) excluded: invalid input schema at "\/properties\/a\/type": .*2020-12/);
   assert.match(warnings[1], /"missing" \(tools\[3\]\) excluded: invalid input schema at "\/properties\/value\/\$ref": unresolvable \$ref/);
 });
 
@@ -292,26 +292,15 @@ test('roots the provider forbids exclude the tool; nothing is merged or widened'
   assert.match(excluded({ type: 'object', oneOf: [branch] }), /"\/oneOf": .*root "oneOf"/);
   assert.match(excluded({ type: 'object', properties: {}, not: {} }), /"\/not": .*root "not"/);
   assert.match(excluded({ anyOf: [branch] }), /"\/type": .*"object"/);
-  assert.match(excluded({ type: ['object', 'null'], properties: {} }), /"\/type"/);
+  assert.match(excluded({ type: 'string' }), /"\/type": .*"object"/);
   assert.match(excluded({ $ref: '#/$defs/A', $defs: { A: branch } }), /"\/type"/);
   assert.match(excluded(undefined), /the input schema must be a JSON object schema/);
   assert.match(excluded(true), /the input schema must be a JSON object schema/);
 });
 
 test('schemas invalid under their dialect are excluded with the standard reason', () => {
-  assert.match(
-    excluded({ type: 'object', properties: { n: { type: 'number', exclusiveMinimum: true } } }),
-    /"\/properties\/n\/exclusiveMinimum": .*2020-12/
-  );
   assert.match(excluded({ type: 'object', required: ['a', 'a'] }), /"\/required": .*2020-12/);
-  assert.match(
-    excluded({ $schema: 'http://json-schema.org/draft-04/schema#', type: 'object' }),
-    /"\/\$schema": unsupported JSON Schema dialect/
-  );
-  assert.match(
-    excluded({ $schema: 'https://json-schema.org/draft/2019-09/schema', type: 'object' }),
-    /"\/\$schema": unsupported JSON Schema dialect/
-  );
+  assert.match(excluded({ type: 'object', properties: { a: { type: 'bogus-type' } } }), /"\/properties\/a\/type": .*2020-12/);
   assert.match(
     excluded({ type: 'object', properties: { a: { $ref: 'https://example.invalid/a.json' } } }),
     /"\/properties\/a\/\$ref": unresolvable \$ref/

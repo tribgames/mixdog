@@ -1,6 +1,7 @@
 // Per-turn streaming state for the lead TUI turn: the assistant text
 // segments, the thinking (reasoning) timer, and the frame-batched flush that
-// publishes completed visible lines and thinking transitions to the store.
+// publishes completed visible lines and thinking transitions to the store,
+// plus the desktop-only unfinished line (`streamingPartial`, see partialNow).
 // `createTurnStream` returns one explicit state object (deps + mutable
 // scalars); every function here takes it as its first argument.
 import { TUI_FRAME_MS, yieldToRenderer } from './render-timing.mjs';
@@ -11,6 +12,10 @@ import { newTranscriptMessageId } from '../../runtime/shared/transcript-metadata
 // 16ms timer left every other terminal frame idle, so completed script lines
 // accumulated and then climbed into view in coarse two-step chunks.
 const STREAM_BATCH_INTERVAL_MS = TUI_FRAME_MS;
+// The desktop's unfinished-line channel (see partialNow): at most one
+// publication per interval, the first chunk after an idle gap on the next
+// frame. Forced flushes (tool calls, notices, finalization) publish at once.
+const PARTIAL_INTERVAL_MS = 40;
 
 // deps: getState, set, nextId, updateStreamingTail, settleStreamingTail,
 // clearStreamingTail, isCurrentTurn, transcriptMeta, routeMeta, sealToolBlock.
@@ -53,47 +58,143 @@ export function createTurnStream(deps) {
     publishedThinkingActive: false,
     // Live countdown of a reconnect wait (see startReconnectCountdown).
     reconnectTimer: null,
+    // The row identity (id, time, message id) claimed before the row exists,
+    // while only the desktop's partial line shows it; the row takes it over.
+    assistantIdentity: null,
+    // Desktop partial-line publication timer and last publish time.
+    partialTimer: null,
+    partialPublishedAt: 0,
+    // This segment's partial is on screen / was cleared by a transcript
+    // replacement (and must not come back).
+    partialShown: false,
+    partialDropped: false,
   };
+}
+
+function claimAssistantIdentity(stream) {
+  if (stream.assistantIdentity) return stream.assistantIdentity;
+  const id = stream.nextId();
+  const meta = stream.transcriptMeta;
+  // A non-streaming continuation was persisted before its text reached this
+  // row: the runtime left that message's id and time (ask-session
+  // takeAssistant), and the row carries them instead of minting new ones.
+  const persisted = stream.claimPersistedAssistant ? meta.persistedAssistant : null;
+  if (persisted) meta.persistedAssistant = null;
+  let assistantAt = persisted?.at;
+  let messageId = persisted?.messageId;
+  if (!persisted) {
+    assistantAt =
+      Number.isFinite(Number(meta.assistantAt)) && Number(meta.assistantAt) > 0 ? Number(meta.assistantAt) : Date.now();
+    meta.assistantAt = assistantAt;
+    // The reply this segment becomes is persisted with this stable id (the
+    // runtime takes it with assistantAt), so a compaction that drops the
+    // reply greys this row.
+    if (!(typeof meta.assistantMessageId === 'string' && meta.assistantMessageId)) {
+      meta.assistantMessageId = newTranscriptMessageId();
+    }
+    messageId = meta.assistantMessageId;
+  }
+  stream.assistantIdentity = { id, at: assistantAt, messageId };
+  return stream.assistantIdentity;
 }
 
 function ensureAssistant(stream, initialText = '') {
   if (!stream.currentAssistantId) {
-    stream.currentAssistantId = stream.nextId();
-    const meta = stream.transcriptMeta;
-    // A non-streaming continuation was persisted before its text reached this
-    // row: the runtime left that message's id and time (ask-session
-    // takeAssistant), and the row carries them instead of minting new ones.
-    const persisted = stream.claimPersistedAssistant ? meta.persistedAssistant : null;
-    if (persisted) meta.persistedAssistant = null;
-    let assistantAt = persisted?.at;
-    let messageId = persisted?.messageId;
-    if (!persisted) {
-      assistantAt =
-        Number.isFinite(Number(meta.assistantAt)) && Number(meta.assistantAt) > 0
-          ? Number(meta.assistantAt)
-          : Date.now();
-      meta.assistantAt = assistantAt;
-      // The reply this segment becomes is persisted with this stable id (the
-      // runtime takes it with assistantAt), so a compaction that drops the
-      // reply greys this row.
-      if (!(typeof meta.assistantMessageId === 'string' && meta.assistantMessageId)) {
-        meta.assistantMessageId = newTranscriptMessageId();
-      }
-      messageId = meta.assistantMessageId;
-    }
+    const { id, at, messageId } = claimAssistantIdentity(stream);
+    stream.assistantIdentity = null;
+    stream.currentAssistantId = id;
     // Do NOT reset currentAssistantText here: the first onTextDelta has
     // already accumulated the opening chunk before this batched flush runs.
     // Segment resets are owned by closeAssistantSegment(). Seed the new row
     // with the already-visible text so the ● gutter and the first body line
     // appear in the SAME set()/emit() — no empty "●-only" row.
-    stream.updateStreamingTail(stream.currentAssistantId, {
+    stream.updateStreamingTail(id, {
       text: String(initialText || ''),
-      at: assistantAt,
+      at,
       messageId,
       ...stream.routeMeta,
     });
   }
   return stream.currentAssistantId;
+}
+
+// The desktop paints streamed text before its line completes; the terminal
+// keeps the line-gated tail below. `streamingPartial` is the unfinished line
+// beyond the published tail text (`from` is that text's length), cut from the
+// same leak-guarded text the tail is, never raw provider output. Before the
+// row's first completed line there is no tail: the partial then carries all
+// visible text so far plus the row identity (`tail`) the row will take over.
+// Terminal projections drop the field (session-proxy/projection.mjs).
+function partialNow(stream) {
+  const text = stream.currentAssistantText;
+  const id = stream.currentAssistantId;
+  if (id != null) {
+    const tail = stream.getState().streamingTail;
+    if (!tail || tail.id !== id) return null;
+    const shown = typeof tail.text === 'string' ? tail.text : '';
+    if (text.length <= shown.length || !text.startsWith(shown)) return null;
+    return { id, from: shown.length, text: text.slice(shown.length) };
+  }
+  // Same rule as the row itself: nothing appears before visible content.
+  if (!text.trim()) return null;
+  const identity = claimAssistantIdentity(stream);
+  return {
+    id: identity.id,
+    from: 0,
+    text,
+    tail: {
+      kind: 'assistant',
+      id: identity.id,
+      streaming: true,
+      at: identity.at,
+      messageId: identity.messageId,
+      ...stream.routeMeta,
+    },
+  };
+}
+
+function samePartial(left, right) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return left.id === right.id && left.from === right.from && left.text === right.text && !left.tail === !right.tail;
+}
+
+function clearPartialTimer(stream) {
+  if (stream.partialTimer === null) return;
+  clearTimeout(stream.partialTimer);
+  stream.partialTimer = null;
+}
+
+function publishPartial(stream) {
+  clearPartialTimer(stream);
+  if (!stream.isCurrentTurn()) return;
+  const current = stream.getState().streamingPartial ?? null;
+  // A transcript replacement cleared the partial this segment showed: the
+  // segment stays gone, like a tail the replacement dropped.
+  if (stream.partialShown && current === null) stream.partialDropped = true;
+  if (stream.partialDropped) return;
+  const next = partialNow(stream);
+  stream.partialShown = next !== null;
+  if (samePartial(current, next)) return;
+  stream.partialPublishedAt = Date.now();
+  stream.set({ streamingPartial: next });
+}
+
+function schedulePartial(stream) {
+  if (stream.partialTimer !== null) return;
+  const wait = Math.max(STREAM_BATCH_INTERVAL_MS, PARTIAL_INTERVAL_MS - (Date.now() - stream.partialPublishedAt));
+  stream.partialTimer = setTimeout(() => {
+    stream.partialTimer = null;
+    flushStreamBatch(stream);
+  }, wait);
+  stream.partialTimer?.unref?.();
+}
+
+// The segment's text settled (or was dropped): no partial line outlives it.
+function clearPartial(stream) {
+  clearPartialTimer(stream);
+  stream.partialShown = false;
+  if (stream.getState().streamingPartial != null && stream.isCurrentTurn()) stream.set({ streamingPartial: null });
 }
 
 function resetLineScan(stream) {
@@ -107,7 +208,10 @@ function closeAssistantSegment(stream) {
   stream.currentAssistantId = null;
   stream.currentAssistantText = '';
   stream.claimPersistedAssistant = false;
+  stream.assistantIdentity = null;
   resetLineScan(stream);
+  clearPartial(stream);
+  stream.partialDropped = false;
 }
 
 export function commitAssistantSegment(stream, { sealToolBlock = false } = {}) {
@@ -173,12 +277,14 @@ function flushTextBatch(stream) {
   const { getState, set } = stream;
   const visibleText = streamingVisibleTextNow(stream);
   const patch = {};
+  let rowCreated = false;
   // Do NOT create the assistant row (and scroll the transcript) before there
   // is a completed line with VISIBLE content: the row appears together with
   // its first visible line. `.trim()` also guards a response that opens with
   // leading newlines, whose blank first line would reserve rows and scroll
   // onto an empty band until a non-blank line lands.
   if (stream.currentAssistantId || visibleText.trim()) {
+    rowCreated = !stream.currentAssistantId;
     const id = ensureAssistant(stream, visibleText);
     const current = getState().streamingTail;
     if (!current || current.id !== id || !Object.is(current.text, visibleText)) {
@@ -214,6 +320,9 @@ function flushTextBatch(stream) {
     set(patch);
   }
   stream.pendingThinkingLastEndedAt = 0;
+  // A completed line created or moved the tail: the partial line restarts
+  // after it in the same frame, so the two never disagree on screen.
+  if (rowCreated || patch.streamingTail) publishPartial(stream);
 }
 
 function thinkingSpinnerPatch(stream, thinkingElapsedMs) {
@@ -256,7 +365,7 @@ function flushThinkBatch(stream) {
   stream.publishedThinkingActive = nextThinkingActive;
 }
 
-export function flushStreamBatch(stream) {
+function flushPendingBatches(stream) {
   if (stream.batchTimer !== null) {
     clearTimeout(stream.batchTimer);
     stream.batchTimer = null;
@@ -265,6 +374,7 @@ export function flushStreamBatch(stream) {
     stream.pendingTextFlush = false;
     stream.pendingThinkFlush = false;
     stream.pendingThinkingLastEndedAt = 0;
+    clearPartialTimer(stream);
     return;
   }
   if (stream.pendingTextFlush) {
@@ -277,9 +387,17 @@ export function flushStreamBatch(stream) {
   }
 }
 
+// A forced flush is a boundary (tool call, notice, finalization, error, or
+// the partial-line tick): the line-gated batch lands, and so does the
+// desktop's unfinished line.
+export function flushStreamBatch(stream) {
+  flushPendingBatches(stream);
+  publishPartial(stream);
+}
+
 function scheduleStreamFlush(stream) {
   if (stream.batchTimer !== null) return; // already scheduled; do not re-arm
-  stream.batchTimer = setTimeout(() => flushStreamBatch(stream), STREAM_BATCH_INTERVAL_MS);
+  stream.batchTimer = setTimeout(() => flushPendingBatches(stream), STREAM_BATCH_INTERVAL_MS);
   stream.batchTimer?.unref?.(); // don't prevent process exit
 }
 
@@ -306,6 +424,7 @@ export function appendTextDelta(stream, textChunk) {
   stream.pendingTextFlush = true;
   if (thinkingLastEndedAt) stream.pendingThinkingLastEndedAt = thinkingLastEndedAt;
   scheduleStreamFlush(stream);
+  schedulePartial(stream);
 }
 
 // Mid-turn assistant text that precedes a tool call from a provider that only
@@ -320,6 +439,9 @@ export function appendAssistantText(stream, full, { committed = false } = {}) {
   // id. Any other text (a tool preamble published before its message commits)
   // leaves an earlier recorded id unclaimed, so drop it.
   stream.claimPersistedAssistant = committed;
+  // A committed message's row takes its persisted identity, never one claimed
+  // earlier for partial text that has since been retracted.
+  if (committed && !stream.currentAssistantId) stream.assistantIdentity = null;
   if (!committed && stream.transcriptMeta && typeof stream.transcriptMeta === 'object') {
     stream.transcriptMeta.persistedAssistant = null;
   }
@@ -364,6 +486,8 @@ export function resetStreamedText(stream, { chars, reasoning } = {}) {
       stream.currentAssistantId = null;
     }
   }
+  // The retraction applies to the desktop's partial line in the same frame.
+  publishPartial(stream);
   return true;
 }
 
@@ -508,18 +632,37 @@ export function settleFinalText(stream, finalText) {
       text: stream.currentAssistantText || stream.assistantText,
     });
   }
+  clearPartial(stream);
 }
 
 // On abort, preserve only the still-open segment: tool boundaries already
 // sealed prior progress segments into their own rows, and replaying the
 // turn-global text would create one giant duplicate after the cancelled card.
 export function settleOpenSegmentOnCancel(stream) {
-  if (!stream.currentAssistantText.trim()) return;
-  const id = stream.currentAssistantId || ensureAssistant(stream, stream.currentAssistantText);
-  stream.settleStreamingTail(id, { text: stream.currentAssistantText });
+  if (stream.currentAssistantText.trim()) {
+    const id = stream.currentAssistantId || ensureAssistant(stream, stream.currentAssistantText);
+    stream.settleStreamingTail(id, { text: stream.currentAssistantText });
+  }
+  clearPartial(stream);
+}
+
+// A segment that never completed a line has no tail, only the partial row the
+// desktop shows. A turn that ends without finalizing it (provider error,
+// aborted tool loop) keeps that text as its row, like cancellation does. A
+// transcript replacement cleared the partial, and then the text stays gone.
+function settlePartialOnlySegment(stream) {
+  const identity = stream.assistantIdentity;
+  const open = stream.getState().streamingPartial;
+  if (stream.currentAssistantId || stream.partialDropped || !identity || open?.id !== identity.id) return;
+  if (!stream.isCurrentTurn()) return;
+  const text = stream.currentAssistantText;
+  if (!text.trim()) return;
+  stream.settleStreamingTail(ensureAssistant(stream, text), { text });
 }
 
 export function settleStreamingTailAtClose(stream) {
+  settlePartialOnlySegment(stream);
+  clearPartial(stream);
   const id = stream.currentAssistantId;
   if (!id || stream.getState().streamingTail?.id !== id) return;
   if (stream.currentAssistantText.trim()) stream.settleStreamingTail(id, { text: stream.currentAssistantText });

@@ -114,6 +114,7 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
     // One-shot repair of an assistant turn whose stored reasoning replay the
     // API refuses to take back (see thinking-replay-recovery.mjs).
     thinkingReplayRepairUsed: false,
+    toolSchemaDropUsed: false,
     // Pending image-strip retry: identities of the images every attempt leaves
     // out until a send succeeds, and whether to heal them from history then.
     imageStrip: null,

@@ -1,12 +1,9 @@
 // Deferred catalog call-through: inactive catalog tool_use → discovery bookkeeping
 // then normal executeTool routing (runtime errors only; no pre-dispatch schema).
 import { clean } from '../../runtime-core/session-text.mjs';
-import {
-  deferredCatalogUnion,
-  isReadonlySelectable,
-  selectDeferredTools,
-} from '../../runtime-core/tool-catalog.mjs';
+import { deferredCatalogUnion, isReadonlySelectable, selectDeferredTools } from '../../runtime-core/tool-catalog.mjs';
 import { isDeferredToolAvailable } from '../../runtime-core/deferred-tool-availability.mjs';
+import { routeToolExclusionReason } from './provider-tool-exclusions.mjs';
 import { isBridgeReadonlySession, isToolBridgeEnabled } from '../../runtime-core/tool-bridge.mjs';
 
 /** Skill-list plumbing only; mutation/MCP/builtins must use the catalog+mode gate. */
@@ -90,6 +87,8 @@ export function prepareDeferredToolCallThrough(sessionRef, name) {
   }
   const tool = lookupDeferredCatalogTool(sessionRef, name);
   if (!tool) return null;
+  const routeExclusion = isToolBridgeEnabled(sessionRef) ? null : routeToolExclusionReason(sessionRef, tool);
+  if (routeExclusion) return denyDeferredCallThrough(`Error: ${routeExclusion}`);
   if (isActiveSessionTool(sessionRef, name)) return null;
   if (toolExecutesWhenInactive(name)) return null;
 

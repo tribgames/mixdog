@@ -152,6 +152,7 @@ function buildCompatResponsesParams({
   if (tools?.length) {
     params.tools = toResponsesTools(tools, {
       provider: provider.name,
+      onToolExcluded: opts.onToolExcluded,
       ...(hasNativeDeferredTools(provider, opts) ? { nativeDeferredTools: true } : {}),
     });
     params.parallel_tool_calls = true;

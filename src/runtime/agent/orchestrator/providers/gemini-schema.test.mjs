@@ -4,14 +4,19 @@ import { toGeminiTools } from './gemini-schema.mjs';
 
 test('Gemini schema conjunction intersects enum values and preserves an equal default', () => {
   const inputSchema = {
-    type: 'string',
-    enum: ['read', 'write'],
-    default: 'read',
-    allOf: [{ enum: ['read', 'delete'], const: 'read', default: 'read' }],
+    type: 'object',
+    properties: {
+      action: {
+        type: 'string',
+        enum: ['read', 'write'],
+        default: 'read',
+        allOf: [{ enum: ['read', 'delete'], const: 'read', default: 'read' }],
+      },
+    },
   };
   const original = structuredClone(inputSchema);
   const { parameters } = toGeminiTools([{ name: 'action', inputSchema }]).functionDeclarations[0];
-  assert.deepEqual(parameters, { type: 'string', enum: ['read'], default: 'read' });
+  assert.deepEqual(parameters.properties.action, { type: 'string', enum: ['read'], default: 'read' });
   assert.deepEqual(inputSchema, original);
 });
 
@@ -25,18 +30,28 @@ test('Gemini schema conjunction compares defaults by value rather than property 
   ]) {
     const inputSchema = {
       type: 'object',
-      default: { a: 1, b: 2 },
-      allOf: [{ type: 'object', default: right }],
+      properties: {
+        value: {
+          type: 'object',
+          properties: { a: { type: 'number' } },
+          default: { a: 1, b: 2 },
+          allOf: [{ type: 'object', default: right }],
+        },
+      },
     };
     const { parameters } = toGeminiTools([{ name: 'defaults', inputSchema }]).functionDeclarations[0];
-    assert.equal(Object.hasOwn(parameters, 'default'), expected !== undefined);
-    assert.deepEqual(parameters.default, expected);
+    const value = parameters.properties.value;
+    assert.equal(Object.hasOwn(value, 'default'), expected !== undefined);
+    assert.deepEqual(value.default, expected);
   }
 });
 
 test('Gemini schema conjunction rejects disjoint enum values and contradictory const values as JSON Schema', () => {
   for (const branch of [{ enum: ['delete'] }, { enum: ['read'], const: 'write' }]) {
-    const inputSchema = { type: 'string', enum: ['read'], allOf: [branch] };
+    const inputSchema = {
+      type: 'object',
+      properties: { action: { type: 'string', enum: ['read'], allOf: [branch] } },
+    };
     // The legacy Schema cannot say "no value"; the exact contract rides as JSON Schema.
     const declaration = toGeminiTools([{ name: 'conflict', inputSchema }]).functionDeclarations[0];
     assert.equal(declaration.parameters, undefined);

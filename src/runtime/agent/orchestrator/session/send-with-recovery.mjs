@@ -44,6 +44,7 @@ import { agentContextOverflowError } from './loop/context-overflow.mjs';
 import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
 import { isOutputLimitStopReason } from './loop/termination.mjs';
 import { instrumentSendCallbacks } from './send-instrumentation.mjs';
+import { rejectedToolSchema } from './tool-schema-rejection.mjs';
 
 function normalizedIncompleteUsage(raw) {
   if (!raw || typeof raw !== 'object') return undefined;
@@ -405,6 +406,7 @@ async function recoverFromSendError(sendErr, state) {
     transportRetriesUsed = 0,
     imageStripUsed = false,
     thinkingReplayRepairUsed = false,
+    toolSchemaDropUsed = false,
     relayWitness,
   } = state;
   const outcome = readStreamOutcome(sendErr, relayWitness);
@@ -445,6 +447,17 @@ async function recoverFromSendError(sendErr, state) {
     (await transportReplayPermitted(sendErr, outcome, retract, state))
   ) {
     return retryTransport(sendErr, state);
+  }
+  // A 400 naming one tool's input schema: the session drops that tool (with
+  // the notice) and the turn is replayed once without it. Nothing was
+  // generated, and the same body would fail every later turn.
+  if (toolSchemaDropUsed !== true) {
+    const exclusion = rejectedToolSchema(sendErr, state);
+    if (exclusion) {
+      logLoop(`[loop] provider rejected tool schema "${exclusion.name}" (${loopTag(state)}); dropping it and replaying once`);
+      traceLoop(state, 'tool_schema_drop', { tool: exclusion.name });
+      return { action: 'retry_tool_schema_drop', exclusion };
+    }
   }
   // Anthropic replay-shape refusal: the latest assistant turn carries
   // thinking blocks the API will not accept back (a thinking run it did not

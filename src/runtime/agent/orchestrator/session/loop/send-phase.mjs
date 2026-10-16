@@ -18,7 +18,12 @@ import { runWithProviderRequestToolsScope } from '../../runtime-core/provider-re
 import { REPEAT_FAIL_LIMIT } from './loop-state.mjs';
 import { createToolCallIdResolver } from './tool-call-ids.mjs';
 import { captureSideQuestionRequest } from '../side-question-store.mjs';
-import { beginProviderToolExclusions, recordProviderToolExclusion } from './provider-tool-exclusions.mjs';
+import {
+  beginProviderToolExclusions,
+  dropSessionTool,
+  recordProviderToolExclusion,
+  withoutDroppedTools,
+} from './provider-tool-exclusions.mjs';
 
 /**
  * Open an iteration: refresh the live cwd, drain queued steering after a
@@ -75,6 +80,8 @@ export async function beginIteration(state) {
     loopUsageMetricsTurnId: state.usageMetricsTurnId,
     loopUsageMetricsEpoch: state.usageMetricsEpoch,
   });
+  // A tool the provider rejected with a schema 400 stays out of the session.
+  Object.assign(boundary, withoutDroppedTools(sessionRef, boundary));
   state.iterations = boundary.iterations;
   state.lastUsage = boundary.lastUsage;
   state.firstTurnUsage = boundary.firstTurnUsage;
@@ -192,6 +199,7 @@ export async function sendProviderRequest(state, round) {
         transportRetryMax: state.transportRetryMax,
         imageStripUsed: state.imageStripUsed,
         thinkingReplayRepairUsed: state.thinkingReplayRepairUsed,
+        toolSchemaDropUsed: state.toolSchemaDropUsed,
         signal: state.signal,
       })
     );
@@ -241,6 +249,16 @@ export function applyRetryAction(state, result) {
       // is rebuilt from repaired history and the session keeps the fix. No
       // transport budget is consumed: nothing was generated.
       state.thinkingReplayRepairUsed = true;
+      return true;
+    case 'retry_tool_schema_drop':
+      // The provider named a tool whose schema it rejects: the session drops
+      // it (with the notice) and the turn is rebuilt without it, once. The
+      // frozen tool surface and provider state are rebuilt around the change.
+      state.toolSchemaDropUsed = true;
+      dropSessionTool(state.sessionRef, result.exclusion, state.opts.onStageChange);
+      state.fixedProviderToolSurface = null;
+      state.providerState = undefined;
+      state.providerStateUpdated = true;
       return true;
     case 'retry_image_strip':
       state.transportRetriesUsed += 1;

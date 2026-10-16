@@ -8,6 +8,7 @@ import { createProviderReplay, providerReplayItems } from './provider-replay.mjs
 import { anthropicFallbackProviderMetadata, parseAnthropicFallbackBlock } from '../anthropic-server-fallback.mjs';
 import { mergeFlatSchemaProperty } from './flat-schema-merge.mjs';
 import { reportedCostUsd } from './usage-primitives.mjs';
+import { reportInvalidTool, wireInputSchema } from './claude-bridge-schema.mjs';
 import { normalizeServerToolUse } from './anthropic-server-tool-usage.mjs';
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
@@ -486,22 +487,42 @@ export function sanitizeAnthropicInputSchema(schema, toolName, logTag) {
   };
 }
 
-function toAnthropicTools(tools, logTag) {
-  return tools.map((tool) => {
-    const out = {
-      name: tool.name,
-      description: tool.description,
-      // First-party Anthropic accepts nested per-action input alternatives;
-      // gateways on the same wire keep the advertised flat schema.
-      input_schema: sanitizeAnthropicInputSchema(
-        ANTHROPIC_NATIVE_PROVIDERS.has(logTag) ? actionInputUnionFor(tool.inputSchema) : tool.inputSchema,
-        tool.name,
-        logTag
-      ),
-    };
-    if (tool.deferLoading === true || tool.defer_loading === true) out.defer_loading = true;
-    return out;
+// The Messages `input_schema` of a tool: the flattened schema, lowered to
+// 2020-12 with an object root when it is not valid as written ({ schema }), or
+// { pointer, reason } when it is broken even then.
+function anthropicInputSchema(tool, logTag) {
+  // First-party Anthropic accepts nested per-action input alternatives;
+  // gateways on the same wire keep the advertised flat schema.
+  const flattened = sanitizeAnthropicInputSchema(
+    ANTHROPIC_NATIVE_PROVIDERS.has(logTag) ? actionInputUnionFor(tool.inputSchema) : tool.inputSchema,
+    tool.name,
+    logTag
+  );
+  return wireInputSchema(flattened, 'anthropic');
+}
+
+/** The `{ name, pointer, reason }` for which the Messages wire leaves `tool`
+ *  out of a request, or null when it is sent. Reports nothing. */
+export function anthropicToolExclusion(tool, logTag = 'anthropic') {
+  const result = anthropicInputSchema(tool, logTag);
+  return result.schema ? null : { name: tool.name, pointer: result.pointer || '/', reason: result.reason };
+}
+
+// A Messages endpoint rejects the whole request for one invalid input_schema,
+// so a tool broken even after lowering is reported and left out.
+function toAnthropicTools(tools, logTag, onToolExcluded) {
+  const out = [];
+  tools.forEach((tool, index) => {
+    const result = anthropicInputSchema(tool, logTag);
+    if (!result.schema) {
+      reportInvalidTool(tool.name, index, result, onToolExcluded, `[${logTag}] tool`);
+      return;
+    }
+    const entry = { name: tool.name, description: tool.description, input_schema: result.schema };
+    if (tool.deferLoading === true || tool.defer_loading === true) entry.defer_loading = true;
+    out.push(entry);
   });
+  return out;
 }
 
 // Map the orchestrator-level opts.toolChoice into Anthropic's tool_choice.
@@ -598,14 +619,14 @@ export function requestAnthropicTools(tools, messages, opts, provider) {
     const nativePrefixCount = providerNativeToolPrefixCount(activeTools, opts.providerNativeToolPrefixCount);
     return [
       ...activeTools.slice(0, nativePrefixCount),
-      ...toAnthropicTools(activeTools.slice(nativePrefixCount), provider),
+      ...toAnthropicTools(activeTools.slice(nativePrefixCount), provider, opts.onToolExcluded),
     ];
   }
   const deferredTools = deferredAnthropicTools(activeTools, messages, opts, provider);
   const nativeTools = Array.isArray(opts?.nativeTools)
     ? opts.nativeTools.filter((tool) => tool && typeof tool === 'object')
     : [];
-  return [...nativeTools, ...toAnthropicTools([...activeTools, ...deferredTools], provider)];
+  return [...nativeTools, ...toAnthropicTools([...activeTools, ...deferredTools], provider, opts?.onToolExcluded)];
 }
 
 // Applies cache_control markers to the FINAL, already-sanitized Anthropic

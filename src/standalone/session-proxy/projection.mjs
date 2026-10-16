@@ -8,6 +8,35 @@
  */
 import { applySessionStatePatch } from '../session-state-patch.mjs';
 
+// Desktop-only live fields: `streamingPartial` is the unfinished streamed
+// line the desktop paints ahead of the line-gated tail. This terminal view
+// keeps the line-gated text, so it never holds the field nor re-renders for it.
+const DESKTOP_ONLY_FIELDS = ['streamingPartial'];
+
+function terminalState(full) {
+  if (!full || typeof full !== 'object' || !DESKTOP_ONLY_FIELDS.some((key) => Object.hasOwn(full, key))) return full;
+  const next = { ...full };
+  for (const key of DESKTOP_ONLY_FIELDS) delete next[key];
+  return next;
+}
+
+/** The patch without desktop-only fields, or null when nothing else moved. */
+function terminalPatch(patch) {
+  const set = patch.set && typeof patch.set === 'object' ? patch.set : {};
+  const remove = Array.isArray(patch.remove) ? patch.remove : [];
+  if (!patch.partialAppend && !DESKTOP_ONLY_FIELDS.some((key) => Object.hasOwn(set, key) || remove.includes(key))) {
+    return patch;
+  }
+  const nextSet = { ...set };
+  for (const key of DESKTOP_ONLY_FIELDS) delete nextSet[key];
+  const nextRemove = remove.filter((key) => !DESKTOP_ONLY_FIELDS.includes(key));
+  if (Object.keys(nextSet).length === 0 && nextRemove.length === 0 && !patch.itemsAppend && !patch.itemsPrepend) {
+    return null;
+  }
+  const { partialAppend: _desktopOnly, ...rest } = patch;
+  return { ...rest, set: nextSet, remove: nextRemove };
+}
+
 export function createProjection({ binding, log }) {
   let state = {};
   let revision = 0;
@@ -40,7 +69,7 @@ export function createProjection({ binding, log }) {
     const incomingRevision = Number(body.revision);
     if (revisionAttachment !== sourceAttachment || revisionSessionId !== binding.sessionId) {
       if (body.full === undefined || body.full === null) return false;
-      state = body.full;
+      state = terminalState(body.full);
       revision = Number.isFinite(incomingRevision) ? incomingRevision : 0;
       revisionAttachment = sourceAttachment;
       revisionSessionId = binding.sessionId;
@@ -49,7 +78,7 @@ export function createProjection({ binding, log }) {
     }
     if (Number.isFinite(incomingRevision) && incomingRevision < revision) return true;
     if (body.full !== undefined && body.full !== null) {
-      state = body.full;
+      state = terminalState(body.full);
       revision = Number.isFinite(incomingRevision) ? incomingRevision : revision;
       emit();
       return true;
@@ -57,8 +86,16 @@ export function createProjection({ binding, log }) {
     if (body.patch) {
       if (Number(body.revision) === revision && Number(body.baseRevision) === revision - 1) return true;
       if (Number(body.baseRevision) !== revision) return false;
-      state = applySessionStatePatch(state, body.patch);
+      const patch = terminalPatch(body.patch);
+      // Only a desktop-only field moved: the terminal view advances silently.
+      if (!patch) {
+        revision = Number(body.revision) || revision;
+        return true;
+      }
+      const patched = applySessionStatePatch(state, patch);
+      if (!patched) return false;
       revision = Number(body.revision) || revision;
+      state = patched;
       emit();
       return true;
     }
@@ -76,7 +113,7 @@ export function createProjection({ binding, log }) {
   return {
     // The create result seeds the projection for the current binding.
     seed(created) {
-      state = created?.full ?? {};
+      state = terminalState(created?.full ?? {});
       revision = Number(created?.revision) || 0;
       revisionAttachment = binding.attachment;
       revisionSessionId = binding.sessionId;

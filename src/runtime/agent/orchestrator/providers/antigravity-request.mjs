@@ -81,7 +81,9 @@ function signatureSafeMessages(messages, model) {
     // the active turn, not while normalizing an isolated older message.
     const sourceParts = ownParts || toGeminiContents([message], model, { repairToolSignatures: false })[0]?.parts;
     const parts =
-      claude && sourceParts ? coalesceClaudeThoughts(sourceParts.filter((part) => !isEmptyPlainTextPart(part))) : sourceParts;
+      claude && sourceParts
+        ? coalesceClaudeThoughts(sourceParts.filter((part) => !isEmptyPlainTextPart(part)))
+        : sourceParts;
     // A turn that held only empty parts is omitted, not sent as parts:[].
     if (sourceParts?.length && !parts.length) return [];
     if (!parts?.length) return [message];
@@ -163,7 +165,13 @@ export function buildAntigravityRequest(messages, model, tools, opts = {}, proje
   };
   const request = { contents };
   if (systemText) request.systemInstruction = { role: 'user', parts: [{ text: systemText }] };
-  const requestTools = claude ? claudeRequestTools(tools, opts.nativeTools, opts.onToolExcluded) : toGeminiRequestTools(tools, opts.nativeTools);
+  const requestTools = claude
+    ? claudeRequestTools(tools, opts.nativeTools, opts.onToolExcluded)
+    : toGeminiRequestTools(tools, opts.nativeTools, {
+        onToolExcluded: opts.onToolExcluded,
+        // Other families (GPT-OSS) keep the plain conversion.
+        validate: isGeminiFamilyModel(model),
+      });
   if (requestTools.length) request.tools = requestTools;
   // Tool config only accompanies function declarations that were kept.
   if (requestTools.some((entry) => entry.functionDeclarations?.length)) {

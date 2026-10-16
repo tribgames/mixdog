@@ -11,7 +11,13 @@ import {
   geminiPartMetadata,
 } from './media-normalization.mjs';
 import { providerReplayItems } from './lib/provider-replay.mjs';
-import { claudeBridgeInputSchema, reportInvalidClaudeTool } from './lib/claude-bridge-schema.mjs';
+import {
+  claudeBridgeInputSchema,
+  escapePointer,
+  geminiJsonSchemaProblem,
+  repairedToolInputSchema,
+  reportInvalidTool,
+} from './lib/claude-bridge-schema.mjs';
 import { actionInputUnionFor } from './lib/action-input-contract.mjs';
 import { isGeminiFamilyModel } from './gemini-family.mjs';
 import { ensureGeminiToolCallSignatures } from './gemini-history-signatures.mjs';
@@ -524,7 +530,7 @@ function needsJsonParameters(schema) {
   return !legacyRepresentable(schema, true);
 }
 
-const LEGACY_JSON_TYPES =new Set(['string', 'number', 'integer', 'boolean', 'array', 'object']);
+const LEGACY_JSON_TYPES = new Set(['string', 'number', 'integer', 'boolean', 'array', 'object']);
 // Annotation-only keywords: dropping them never widens the accepted arguments.
 const ANNOTATION_KEYS = new Set(['$schema', '$id', '$comment', 'examples']);
 const NON_CONSTRAINT_KEYS = new Set([...ANNOTATION_KEYS, 'description', 'title', 'default', 'example']);
@@ -644,13 +650,62 @@ function stripNonStandardSchemaKeys(schema) {
   return out;
 }
 
+const LEGACY_SCHEMA_TYPES = new Set(Object.values(SchemaType));
+
+/** Why a legacy `parameters` Schema (the OpenAPI subset convertSchema targets)
+ *  is rejected by Gemini, as `{ pointer, reason }`, or null when it is valid:
+ *  an OBJECT root (or none), known types, an `items` schema on every ARRAY,
+ *  string enums, and `required` names that exist in `properties`. */
+function legacyParametersProblem(node, pointer = '', root = true) {
+  const bad = (reason, at = pointer) => ({ pointer: at, reason });
+  if (!node || typeof node !== 'object' || Array.isArray(node)) return bad('a Gemini Schema must be an object');
+  const { type, properties, required, items, anyOf } = node;
+  if (type !== undefined && !LEGACY_SCHEMA_TYPES.has(type))
+    return bad(`unsupported type ${JSON.stringify(type)}`, `${pointer}/type`);
+  if (root && type !== undefined && type !== SchemaType.OBJECT)
+    return bad('the input schema root must have type "object"', `${pointer}/type`);
+  if (node.enum !== undefined && (!Array.isArray(node.enum) || node.enum.some((value) => typeof value !== 'string'))) {
+    return bad('enum must be an array of strings', `${pointer}/enum`);
+  }
+  if (type === SchemaType.ARRAY && (!items || typeof items !== 'object' || Array.isArray(items))) {
+    return bad('an array schema needs an "items" schema', `${pointer}/items`);
+  }
+  // A node without its own `properties` (an anyOf branch narrowing the
+  // parent's required keys) has nothing to check `required` against.
+  if (required !== undefined) {
+    const names = properties && typeof properties === 'object' ? Object.keys(properties) : null;
+    if (!Array.isArray(required) || (names && required.some((name) => !names.includes(name)))) {
+      return bad('required must list properties declared in "properties"', `${pointer}/required`);
+    }
+  }
+  const children = [
+    ...Object.entries(properties || {}).map(([name, child]) => [child, `${pointer}/properties/${escapePointer(name)}`]),
+    ...(items ? [[items, `${pointer}/items`]] : []),
+    ...(Array.isArray(anyOf) ? anyOf.map((child, i) => [child, `${pointer}/anyOf/${i}`]) : []),
+  ];
+  for (const [child, at] of children) {
+    const problem = legacyParametersProblem(child, at, false);
+    if (problem) return problem;
+  }
+  return null;
+}
+
+/** Why the declaration's schema (`parameters` or `parametersJsonSchema`) is
+ *  rejected by Gemini, or null. A tool without a schema is sent as written. */
+function geminiDeclarationProblem(declaration) {
+  if (declaration.parametersJsonSchema !== undefined) return geminiJsonSchemaProblem(declaration.parametersJsonSchema);
+  return declaration.parameters === undefined ? null : legacyParametersProblem(declaration.parameters);
+}
+
 // `claudeBridge: true` (Claude models behind Antigravity) always encodes the
 // schema as `parametersJsonSchema`: the bridge hands it to Anthropic as a
 // draft 2020-12 input_schema, and the legacy `parameters` projection
 // (convertSchema) rewrites type arrays, numeric enums and nullable unions.
 // A tool whose schema is invalid for Anthropic is left out and reported
 // (`onToolExcluded`, default console.warn); the other tools are unaffected.
-export function toGeminiTools(tools, { claudeBridge = false, onToolExcluded } = {}) {
+// Gemini routes validate each final declaration the same way; `validate:
+// false` (an Antigravity model outside the Gemini family) converts without it.
+export function toGeminiTools(tools, { claudeBridge = false, onToolExcluded, validate = true } = {}) {
   const functionDeclarations = [];
   tools.forEach((t, index) => {
     const declaration = { name: t.name, description: t.description };
@@ -658,18 +713,70 @@ export function toGeminiTools(tools, { claudeBridge = false, onToolExcluded } = 
       // The bridge accepts nested per-action input alternatives.
       const result = claudeBridgeInputSchema(actionInputUnionFor(t.inputSchema));
       if (!result.schema) {
-        reportInvalidClaudeTool(t.name, index, result, onToolExcluded);
+        reportInvalidTool(t.name, index, result, onToolExcluded);
         return;
       }
       declaration.parametersJsonSchema = result.schema;
-    } else if (needsJsonParameters(t.inputSchema)) {
-      declaration.parametersJsonSchema = stripNonStandardSchemaKeys(structuredClone(t.inputSchema));
+    } else if (validate) {
+      const accepted = acceptedGeminiTool(t, index, onToolExcluded);
+      if (!accepted) return;
+      Object.assign(declaration, accepted.fields);
     } else {
-      declaration.parameters = convertSchema(t.inputSchema);
+      Object.assign(declaration, geminiSchemaFields(t.inputSchema));
     }
     functionDeclarations.push(declaration);
   });
   return { functionDeclarations };
+}
+
+function geminiSchemaFields(inputSchema) {
+  if (needsJsonParameters(inputSchema)) {
+    return { parametersJsonSchema: stripNonStandardSchemaKeys(structuredClone(inputSchema)) };
+  }
+  return { parameters: convertSchema(inputSchema) };
+}
+
+// A Gemini endpoint rejects the whole request for one bad declaration. A
+// declaration it would reject is first rebuilt from the lowered schema
+// (draft-07/04 constructs); one still rejected is reported and left out.
+// Returns { tool, fields } (the tool to send, its schema fields) or null.
+function acceptedGeminiTool(tool, index, onToolExcluded) {
+  const fields = geminiSchemaFields(tool.inputSchema);
+  let problem = geminiDeclarationProblem(fields);
+  if (!problem) return { tool, fields };
+  const repaired = repairedToolInputSchema(tool.inputSchema, 'gemini');
+  if (repaired) {
+    const repairedFields = geminiSchemaFields(repaired);
+    problem = geminiDeclarationProblem(repairedFields);
+    if (!problem) return { tool: { ...tool, inputSchema: repaired }, fields: repairedFields };
+  }
+  reportInvalidTool(tool.name, index, problem, onToolExcluded, '[gemini] tool');
+  return null;
+}
+
+/** The tools whose schema a Gemini-family model behind an OpenAI-compatible
+ *  route (OpenRouter, a gateway) accepts, in order: unchanged, or carrying
+ *  the lowered schema when only that is accepted. The others are reported
+ *  through `onToolExcluded`. */
+export function geminiAcceptedTools(tools, onToolExcluded) {
+  let changed = false;
+  const out = [];
+  tools.forEach((tool, index) => {
+    const accepted = acceptedGeminiTool(tool, index, onToolExcluded);
+    if (accepted?.tool !== tool) changed = true;
+    if (accepted) out.push(accepted.tool);
+  });
+  return changed ? out : tools;
+}
+
+/** The `{ name, pointer, reason }` for which a Gemini route leaves `tool`
+ *  out of its requests, or null when the tool is sent. Reports nothing. */
+export function geminiToolExclusion(tool) {
+  let exclusion = null;
+  geminiAcceptedTools([tool], (found) => {
+    exclusion = found;
+  });
+  return exclusion;
 }
 
 export function toGeminiNativeTools(nativeTools) {
@@ -779,7 +886,10 @@ function toGeminiToolResult(message, toolNameByCallId, nestMedia, callsByFinalId
   if (!nestMedia) return { functionResponsePart: { functionResponse }, mediaParts };
   const nested = mediaParts.filter(isNestableMedia);
   if (nested.length) functionResponse.parts = nested;
-  return { functionResponsePart: { functionResponse }, mediaParts: mediaParts.filter((part) => !isNestableMedia(part)) };
+  return {
+    functionResponsePart: { functionResponse },
+    mediaParts: mediaParts.filter((part) => !isNestableMedia(part)),
+  };
 }
 
 // A replay recorded by a non-Gemini model (Claude behind Antigravity) carries
@@ -917,7 +1027,8 @@ export function toGeminiContents(messages, model = '', { repairToolSignatures = 
         // Positional when the turn replays one call per tool call (the id may
         // be renamed, and a bridged call_tool keeps its wire name and id);
         // otherwise only a part already carrying the id can be matched.
-        const part = replayed.length === m.toolCalls.length ? replayed[index] : replayed.find((p) => p.functionCall.id === tc.id);
+        const part =
+          replayed.length === m.toolCalls.length ? replayed[index] : replayed.find((p) => p.functionCall.id === tc.id);
         if (!part) return;
         if (stampFinalIds) part.functionCall.id = tc.id;
         callsByFinalId.set(tc.id, part.functionCall);

@@ -43,8 +43,8 @@ function applyXaiResponsesToolsAndEffort(params, { provider, tools, opts, useMod
   const nativeTools = nativeResponsesTools(opts);
   if (tools?.length || nativeTools.length) {
     const toolOptions = xaiServerToolSearchEnabled(provider, opts)
-      ? { provider: 'xai', serverToolSearch: true }
-      : { provider: 'xai' };
+      ? { provider: 'xai', serverToolSearch: true, onToolExcluded: opts.onToolExcluded }
+      : { provider: 'xai', onToolExcluded: opts.onToolExcluded };
     params.tools = [...nativeTools, ...toResponsesTools(tools || [], toolOptions)];
   }
   // Explicit parallel tool calls, matching the OpenAI Responses

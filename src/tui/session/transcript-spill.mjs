@@ -30,6 +30,13 @@ export { cleanupStaleTranscriptSpillDirs };
 
 let staleSpillSweepDone = false;
 
+/** One sweep per process: it lists the whole temp directory synchronously. */
+export function sweepStaleTranscriptSpillDirsOnce() {
+  if (staleSpillSweepDone) return;
+  staleSpillSweepDone = true;
+  cleanupStaleTranscriptSpillDirs();
+}
+
 // Serialized pages deliberately release the old item object graph while
 // keeping every byte restorable. Only `items` is render-live and walkable.
 // This buffer owns the page list, the reading cursor and snapshots; the spill
@@ -47,12 +54,9 @@ export function createTranscriptSpillBuffer({
   try {
     writeOwnerRegistry();
   } catch {}
-  // One sweep per process: it lists the whole temp directory synchronously,
-  // and a buffer is created per session.
-  if (!staleSpillSweepDone) {
-    staleSpillSweepDone = true;
-    cleanupStaleTranscriptSpillDirs();
-  }
+  // A buffer is created per session; the sweep runs once per process (the
+  // daemon runs it in its post-ready warm-up).
+  sweepStaleTranscriptSpillDirsOnce();
   const pages = [];
   let cursor = null;
   let spillDir = null;
@@ -228,13 +232,16 @@ export function reindexItems(itemIndexById, items) {
 export function replaceSessionItemsState({ state, items, itemIndexById, preserveStreamingTail = false, extra = {} }) {
   const nextItems = Array.isArray(items) ? items : [];
   reindexItems(itemIndexById, nextItems);
-  return {
+  const next = {
     ...state,
     ...extra,
     items: nextItems,
     structureRevision: (Number(state.structureRevision) || 0) + 1,
     streamingTail: preserveStreamingTail ? state.streamingTail : null,
   };
+  // The desktop's partial line belongs to the live row it continues.
+  if (!preserveStreamingTail && next.streamingPartial) next.streamingPartial = null;
+  return next;
 }
 
 // Shared by the live session runtime and focused transcript tests so revision/tail

@@ -3,6 +3,7 @@ import { projectEffortConfiguration } from './effort-configuration.mjs';
 import { convertMessagesToResponsesInput } from './openai-responses-input.mjs';
 export { convertMessagesToResponsesInput } from './openai-responses-input.mjs';
 import { buildStableProviderPromptCacheKey, resolveProviderPromptCacheLane } from '../agent-runtime/cache-strategy.mjs';
+import { acceptedWireTools } from './lib/claude-bridge-schema.mjs';
 import { isResponsesFreeformTool, toResponsesCustomTool } from './custom-tool-wire.mjs';
 import { _envFlag } from './openai-oauth-http-sse.mjs';
 import { findCachedCodexModel } from './openai-oauth-catalog.mjs';
@@ -114,7 +115,13 @@ function responsesInclude(opts, reasoningCapable) {
 // `nativeTools` are server-hosted Responses tools (for example web_search)
 // and must be passed through without wrapping them as function tools.
 function responsesToolsList(tools, opts, nativeToolSearch) {
-  const functionTools = tools?.length ? tools.map((t) => toOpenAIResponsesTool(t, { nativeToolSearch })) : [];
+  // Freeform tools go out as grammar (no JSON schema); every other `parameters`
+  // must be a valid 2020-12 object schema -- lowered when it is not, left out
+  // and reported when it still is not.
+  const sendable = tools?.length
+    ? acceptedWireTools(tools, 'openai', opts.onToolExcluded, `[${opts.promptCacheProvider || 'openai-oauth'}] tool`, isResponsesFreeformTool)
+    : [];
+  const functionTools = sendable.map((t) => toOpenAIResponsesTool(t, { nativeToolSearch }));
   const nativeTools = Array.isArray(opts.nativeTools) ? opts.nativeTools.filter((t) => t && typeof t === 'object') : [];
   return functionTools.length || nativeTools.length ? [...nativeTools, ...functionTools] : null;
 }

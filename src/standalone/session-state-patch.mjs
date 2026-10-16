@@ -7,7 +7,34 @@
 // `transcriptPrepend`) carries rows revealed ABOVE the previous list, an
 // older-history page: the previous rows then start `values.length` rows in,
 // and `itemsAppend.from` indexes the PREVIOUS list.
+//
+// `partialAppend` carries growth of the desktop-only `streamingPartial` (the
+// unfinished streamed line) as just its new text: re-sending the whole line on
+// every tick made a long unfinished line cost O(length²) on the wire. A
+// decoder that predates it keeps its last partial, which the desktop join
+// then ignores or shows behind — never wrong text.
 import { createHash } from 'node:crypto';
+
+/** The text `after` appends to `before` when both are the same unfinished
+ *  line (same row, same offset, same row identity), else null: a retraction,
+ *  another row or a new line travels as a full replacement. */
+export function streamingPartialSuffix(before, after) {
+  if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return null;
+  const { text: beforeText, ...beforeRest } = before;
+  const { text: afterText, ...afterRest } = after;
+  if (typeof beforeText !== 'string' || typeof afterText !== 'string') return null;
+  if (afterText.length <= beforeText.length || !afterText.startsWith(beforeText)) return null;
+  // id, from and the row identity: everything but the text stays put.
+  if (JSON.stringify(beforeRest) !== JSON.stringify(afterRest)) return null;
+  return afterText.slice(beforeText.length);
+}
+
+function appendStreamingPartial(state, suffix) {
+  const held = state.streamingPartial;
+  if (!held || typeof held !== 'object' || typeof held.text !== 'string' || typeof suffix !== 'string') return false;
+  state.streamingPartial = { ...held, text: held.text + suffix };
+  return true;
+}
 
 export function diffSessionState(previous, next, { prepend = false } = {}) {
   if (!previous || !next || typeof previous !== 'object' || typeof next !== 'object') return null;
@@ -15,8 +42,16 @@ export function diffSessionState(previous, next, { prepend = false } = {}) {
   const remove = [];
   let itemsAppend = null;
   let itemsPrepend = null;
+  let partialAppend = null;
   for (const [key, value] of Object.entries(next)) {
     if (previous[key] === value) continue;
+    if (key === 'streamingPartial') {
+      const suffix = streamingPartialSuffix(previous[key], value);
+      if (suffix !== null) {
+        partialAppend = { text: suffix };
+        continue;
+      }
+    }
     if (key === 'items' && Array.isArray(value) && Array.isArray(previous.items)) {
       let head = 0;
       if (prepend && previous.items.length > 0 && value[0] !== previous.items[0]) {
@@ -36,13 +71,18 @@ export function diffSessionState(previous, next, { prepend = false } = {}) {
   for (const key of Object.keys(previous)) {
     if (!(key in next)) remove.push(key);
   }
-  return itemsPrepend ? { set, remove, itemsAppend, itemsPrepend } : { set, remove, itemsAppend };
+  const patch = itemsPrepend ? { set, remove, itemsAppend, itemsPrepend } : { set, remove, itemsAppend };
+  if (partialAppend) patch.partialAppend = partialAppend;
+  return patch;
 }
 
+/** The patched state, or null when a `partialAppend` has no held line to grow
+ *  (a broken chain the caller answers with a full resync, never lost text). */
 export function applySessionStatePatch(previous, patch) {
   const base = previous && typeof previous === 'object' ? previous : {};
   if (!patch || typeof patch !== 'object') return base;
   const next = { ...base, ...(patch.set || {}) };
+  if (Object.hasOwn(patch, 'partialAppend') && !appendStreamingPartial(next, patch.partialAppend?.text)) return null;
   if (patch.itemsAppend || patch.itemsPrepend) {
     const items = Array.isArray(base.items) ? base.items : [];
     const head = Array.isArray(patch.itemsPrepend?.values) ? patch.itemsPrepend.values : [];

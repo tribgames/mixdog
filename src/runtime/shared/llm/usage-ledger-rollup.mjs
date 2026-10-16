@@ -61,6 +61,8 @@ const add = (target, row) => {
     costBilled: row.cost_source === 'provider' ? row.cost_usd : 0,
     costEstimated: row.cost_source === 'provider' ? 0 : row.cost_usd,
   });
+  // A call recorded without provider usage is unmeasured whatever its provider.
+  if (row.unmeasured && !usage.unmeasuredTurns) usage.unmeasuredTurns = usage.turns || 0;
   for (const field of [
     'turns',
     'input',
@@ -311,6 +313,7 @@ export function readSessionUsage(db, sessionIds) {
                     json_extract(r.signature,'$[1]') AS model,
                     json_extract(r.signature,'$[4]') AS cost_source,
                     json_extract(r.signature,'$[7]') AS rank,
+                    COALESCE(json_extract(json_extract(r.signature,'$[5]'),'$.inputTokensKnown'),1)=0 AS unmeasured,
                     m.turns,m.input,m.output,m.cache_read,m.cache_write,m.cost_usd,m.duration_ms,
                     m.speed_output,m.speed_ms
                 FROM mine m JOIN usage_routes r ON r.id=m.route

@@ -278,7 +278,10 @@ test('completions drained behind a cancelled idle turn are released back to the 
     const drained = drainPendingMessages(session.id);
     const text = drained.map((entry) => String(entry.content ?? entry.message ?? ''));
     assert.deepEqual(
-      [text.filter((value) => value.includes('job_first')).length, text.filter((value) => value.includes('job_second')).length],
+      [
+        text.filter((value) => value.includes('job_first')).length,
+        text.filter((value) => value.includes('job_second')).length,
+      ],
       [1, 1],
       'both completions are queued again, each exactly once'
     );
@@ -473,6 +476,36 @@ test('after the close snapshot finalizes a cancelled notification turn, the next
     const promptAt = at((m) => m.role === 'user' && /foreground shell/.test(String(m.content)));
     assert.ok(notificationAt >= 0, 'the provider sees the notification');
     assert.ok(notificationAt < assistantAt && assistantAt < closureAt && closureAt < promptAt);
+  });
+});
+
+// An in-place model switch (set-route switchSessionInPlace) rewrites the
+// prompt's model line and drops provider replay; the next turn starts a new
+// cache chain instead of failing the old route's prefix guard.
+test('the first turn after an in-place model switch is sent on the new model', async (t) => {
+  const { updateSessionRoute } = await import('./session-lifecycle.mjs');
+  await withAskHarness(t, async ({ session, askSession, loadSession, sends, setReply }) => {
+    setReply(async () => ({
+      content: 'first answer',
+      reasoningContent: 'thinking on the old model',
+      usage: { inputTokens: 1, outputTokens: 1 },
+    }));
+    await askSession(session.id, 'before the switch', null, null, null, null, {});
+    assert.ok(loadSession(session.id)._providerPrefixGuardState, 'the first turn baselined the prefix guard');
+    const systemBefore = JSON.stringify(sends[0].messages.filter((m) => m.role === 'system'));
+
+    updateSessionRoute(session.id, { model: 'fake-model-2' }, { crossProvider: true });
+    setReply(async () => ({ content: 'second answer', usage: { inputTokens: 1, outputTokens: 1 } }));
+    const result = await askSession(session.id, 'after the switch', null, null, null, null, {});
+    assert.equal(result.content, 'second answer');
+    assert.equal(sends.length, 2);
+    assert.equal(sends[1].model, 'fake-model-2');
+    assert.notEqual(JSON.stringify(sends[1].messages.filter((m) => m.role === 'system')), systemBefore);
+
+    // The new route's chain is stable from here on.
+    setReply(async () => ({ content: 'third answer', usage: { inputTokens: 1, outputTokens: 1 } }));
+    await askSession(session.id, 'next turn', null, null, null, null, {});
+    assert.deepEqual(sends[2].messages.slice(0, sends[1].messages.length), sends[1].messages);
   });
 });
 

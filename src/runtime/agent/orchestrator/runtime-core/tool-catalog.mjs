@@ -7,6 +7,7 @@ import { applyInitialDeferredToolManifestToBp2 } from '../context/collect.mjs';
 import { getMcpServerInstructionsMap, getMcpTools, getMcpToolGeneration } from '../mcp/client.mjs';
 import { filterMcpToolsForSession } from './extension-scopes.mjs';
 import { isDeferredToolAvailable, isToolPermittedBySessionPolicy } from './deferred-tool-availability.mjs';
+import { routeToolExclusionReason } from '../session/loop/provider-tool-exclusions.mjs';
 import { isResponsesFreeformTool, toResponsesCustomTool } from '../providers/custom-tool-wire.mjs';
 import {
   DEFERRED_DEFAULT_FULL_TOOLS,
@@ -116,7 +117,18 @@ export function filterSessionToolPolicy(tools, session) {
   );
 }
 
-const permittedNames = (session, names) => (names || []).filter((name) => isToolPermittedBySessionPolicy(session, name));
+// Predicate over tool names: false for a tool the session's route leaves out
+// of every request (see routeToolExclusionReason).
+function sentOnRoute(session, catalog) {
+  const byName = new Map();
+  for (const tool of [...(catalog || []), ...(Array.isArray(session?.tools) ? session.tools : [])]) {
+    byName.set(clean(tool?.name), tool);
+  }
+  return (name) => !routeToolExclusionReason(session, byName.get(name));
+}
+
+const permittedNames = (session, names) =>
+  (names || []).filter((name) => isToolPermittedBySessionPolicy(session, name));
 
 export function sortedNamesByMeasuredUsage(names) {
   // Canonical route order first; measured usage orders the unrouted tail.
@@ -722,6 +734,13 @@ export function selectDeferredTools(session, names, mode, { exact = false } = {}
       missing.push(requestedName);
       continue;
     }
+    // A tool this route never sends (schema rejected) is not loaded and not
+    // listed as active; the reason says why.
+    const routeExclusion = bridge ? null : routeToolExclusionReason(session, tool);
+    if (routeExclusion) {
+      blocked.push({ name, reason: routeExclusion });
+      continue;
+    }
     if (mode === 'readonly' && !isReadonlySelectable(tool)) {
       blocked.push({ name, reason: 'readonly mode' });
       continue;
@@ -811,7 +830,9 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
         missing: [],
         ...mcpFields,
         activeTools: sortedNamesByMeasuredUsage(
-          permittedNames(session, (session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean))
+          permittedNames(session, (session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean)).filter(
+            sentOnRoute(session, catalog)
+          )
         ),
         discoveredTools: sortedNamesByMeasuredUsage(permittedNames(session, session?.deferredDiscoveredTools)),
       },
@@ -871,7 +892,9 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
       ...(blocked.length ? { blocked } : {}),
       ...mcpFields,
       activeTools: sortedNamesByMeasuredUsage(
-        permittedNames(session, [...nextActiveNames]).filter((name) => isDeferredToolAvailable(session, name))
+        permittedNames(session, [...nextActiveNames])
+          .filter((name) => isDeferredToolAvailable(session, name))
+          .filter(sentOnRoute(session, catalog))
       ),
       discoveredTools: sortedNamesByMeasuredUsage(permittedNames(session, session?.deferredDiscoveredTools)),
       ...(notes.length ? { note: notes.join(' ') } : {}),

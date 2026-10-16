@@ -60,6 +60,63 @@ test('live sends commit through the ledger worker, in order, once each, before t
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, ids.length + 1);
 });
 
+test('a completed call without usage is recorded as unmeasured and makes session totals inexact', async (t) => {
+  useLedgerPath(t, join(tempDir('mixdog-usage-unmeasured-'), 'ledger.sqlite'));
+  const ledger = getUsageLedger();
+  const sendIn = (sessionId, result) =>
+    accountProviderSend('anthropic', {}, async () => result, 'claude-opus-4-8', {
+      sessionId,
+      session: { sourceType: 'lead' },
+    });
+  const usage = { inputTokens: 100, outputTokens: 10 };
+  const model = 'claude-opus-4-8';
+  await sendIn('mixed', { model, responseId: 'r1', usage });
+  await sendIn('mixed', { model, responseId: 'r2' });
+  await sendIn('mixed', { model, responseId: 'r3', usage });
+  await sendIn('measured', { model, responseId: 'r4', usage });
+  await sendIn('measured', { model, responseId: 'r5', usage });
+  // A failed call is not a completed one: it still records nothing without usage.
+  await assert.rejects(
+    accountProviderSend(
+      'anthropic',
+      {},
+      async () => {
+        throw new Error('boom');
+      },
+      model,
+      { sessionId: 'failed' }
+    )
+  );
+
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, 5, 'every completed call is recorded');
+  const unmeasured = ledger.db
+    .prepare("SELECT * FROM events WHERE session_id='mixed' AND rates LIKE '%\"inputTokensKnown\":false%'")
+    .all();
+  assert.equal(unmeasured.length, 1);
+  assert.equal(JSON.parse(unmeasured[0].rates).inputTokensKnown, false);
+  assert.equal(unmeasured[0].cost_source, 'unpriced');
+
+  const read = (sessionId, sessionIds) =>
+    createUsageStatsApi({
+      ledger: () => ledger,
+      importHistory: async () => {},
+      getSessionId: () => sessionId,
+    }).getSessionUsage({
+      sessionIds,
+    });
+  const mixed = await read('mixed', ['measured']);
+  assert.equal(mixed.turns, 3);
+  assert.equal(mixed.unmeasuredTurns, 1);
+  assert.equal(mixed.cacheHitRate, null);
+  // Measured calls are counted exactly as before, and a fully measured session stays exact.
+  assert.equal(mixed.input, 200);
+  assert.equal(mixed.output, 20);
+  const measured = mixed.sessions.measured;
+  assert.equal(measured.turns, 2);
+  assert.equal(measured.unmeasuredTurns, 0);
+  assert.equal(measured.input, 200);
+});
+
 test('usage statistics wait for queued sends; a failing row fails alone', async (t) => {
   const path = join(tempDir('mixdog-usage-writes-'), 'ledger.sqlite');
   const ledger = new UsageLedger(path);

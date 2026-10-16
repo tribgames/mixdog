@@ -23,6 +23,9 @@ import { xaiCacheRouting } from './openai-compat-xai.mjs';
 import { compatRetryOptions, withCompatRetryProfile } from './openai-compat-retry-profile.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { customWireFormat, isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
+import { geminiAcceptedTools } from './gemini-schema.mjs';
+import { acceptedWireTools } from './lib/claude-bridge-schema.mjs';
+import { isGeminiFamilyModel } from './gemini-family.mjs';
 import { compatReasoningShape, isTogetherBaseURL, readChatMessage } from './openai-compat-reasoning-field.mjs';
 
 // Endpoint families with their own reasoning field (Together, vLLM, Groq,
@@ -96,7 +99,18 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
   };
   const maxOutputTokens = resolveCompatMaxOutputTokens(opts);
   if (maxOutputTokens) params.max_tokens = maxOutputTokens;
-  if (tools?.length) params.tools = toOpenAITools(tools);
+  // A Gemini-family model behind this route (google/gemini-* on OpenRouter)
+  // fails the whole request on one schema Google rejects; such a tool is left
+  // out and reported like on the native Gemini routes.
+  // Every other model's `parameters` must be a valid 2020-12 object schema;
+  // a draft-07 one is lowered and a broken one left out and reported.
+  let sendTools = tools;
+  if (tools?.length) {
+    sendTools = isGeminiFamilyModel(useModel)
+      ? geminiAcceptedTools(tools, opts.onToolExcluded)
+      : acceptedWireTools(tools, 'openai', opts.onToolExcluded, `[${provider.name}] tool`);
+  }
+  if (sendTools?.length) params.tools = toOpenAITools(sendTools);
   // A forced tool_choice goes out only on the documented providers; DeepSeek
   // gets it only with thinking explicitly disabled (never silently in thinking
   // mode, and never as an error for a turn whose thinking is enabled).
@@ -124,61 +138,64 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
   try {
     try {
       assembled = await withRetry(
-        withCompatRetryProfile(provider.name, refineAttemptErrors(profile, async ({ signal: attemptSignal }) => {
-          try {
-            opts.onStageChange?.('requesting');
-          } catch {
-            /* heartbeat best-effort */
-          }
-          const stream = await withRetry(
-            ({ signal: openSignal }) =>
-              provider.client.chat.completions.create(params, {
-                signal: openSignal,
-                ...(requestHeaders ? { headers: requestHeaders } : {}),
-              }),
-            {
-              signal: attemptSignal,
-              // Single attempt: this inner wrapper exists only to
-              // apply the first-byte per-attempt timeout. Retry is
-              // owned by the outer withRetry — nesting retry loops
-              // here multiplied tail latency (5x5).
-              maxAttempts: 1,
-              perAttemptTimeoutMs: firstByteTimeoutMs,
-              perAttemptLabel: `${provider.name} first byte`,
+        withCompatRetryProfile(
+          provider.name,
+          refineAttemptErrors(profile, async ({ signal: attemptSignal }) => {
+            try {
+              opts.onStageChange?.('requesting');
+            } catch {
+              /* heartbeat best-effort */
             }
-          );
-          try {
-            opts.onStageChange?.('streaming');
-          } catch {
-            /* heartbeat best-effort */
-          }
-          try {
-            return await consumeCompatChatCompletionStream(stream, {
-              signal: attemptSignal,
-              label: provider.name,
-              providerName: provider.name,
-              onStreamDelta: opts.onStreamDelta,
-              onToolCall: opts.onToolCall,
-              onTextDelta: opts.onTextDelta,
-              parseToolCalls,
-              // Known tool names for the leaked-tool-call guard:
-              // recovered leaked calls only synthesize when they name
-              // a tool actually offered to this request.
-              knownToolNames: knownToolNamesFromOpenAITools(params.tools),
-              ...(profile?.firstByteTimeoutMs ? { firstByteTimeoutMs: profile.firstByteTimeoutMs } : {}),
-              ...(profile?.semanticIdleTimeoutMs ? { semanticIdleTimeoutMs: profile.semanticIdleTimeoutMs } : {}),
-            });
-          } catch (error) {
-            // Grok's reference sampler treats content-idle as a
-            // terminal sampling decision, not a resample signal.
-            if (provider.name === 'xai' && error?.streamStalled === true) {
-              throw markProviderRecoveryExhausted(error, {
-                owner: 'xai-content-idle-policy',
+            const stream = await withRetry(
+              ({ signal: openSignal }) =>
+                provider.client.chat.completions.create(params, {
+                  signal: openSignal,
+                  ...(requestHeaders ? { headers: requestHeaders } : {}),
+                }),
+              {
+                signal: attemptSignal,
+                // Single attempt: this inner wrapper exists only to
+                // apply the first-byte per-attempt timeout. Retry is
+                // owned by the outer withRetry — nesting retry loops
+                // here multiplied tail latency (5x5).
+                maxAttempts: 1,
+                perAttemptTimeoutMs: firstByteTimeoutMs,
+                perAttemptLabel: `${provider.name} first byte`,
+              }
+            );
+            try {
+              opts.onStageChange?.('streaming');
+            } catch {
+              /* heartbeat best-effort */
+            }
+            try {
+              return await consumeCompatChatCompletionStream(stream, {
+                signal: attemptSignal,
+                label: provider.name,
+                providerName: provider.name,
+                onStreamDelta: opts.onStreamDelta,
+                onToolCall: opts.onToolCall,
+                onTextDelta: opts.onTextDelta,
+                parseToolCalls,
+                // Known tool names for the leaked-tool-call guard:
+                // recovered leaked calls only synthesize when they name
+                // a tool actually offered to this request.
+                knownToolNames: knownToolNamesFromOpenAITools(params.tools),
+                ...(profile?.firstByteTimeoutMs ? { firstByteTimeoutMs: profile.firstByteTimeoutMs } : {}),
+                ...(profile?.semanticIdleTimeoutMs ? { semanticIdleTimeoutMs: profile.semanticIdleTimeoutMs } : {}),
               });
+            } catch (error) {
+              // Grok's reference sampler treats content-idle as a
+              // terminal sampling decision, not a resample signal.
+              if (provider.name === 'xai' && error?.streamStalled === true) {
+                throw markProviderRecoveryExhausted(error, {
+                  owner: 'xai-content-idle-policy',
+                });
+              }
+              throw error;
             }
-            throw error;
-          }
-        })),
+          })
+        ),
         {
           signal: totalSignal.signal,
           onRetry: compatStreamRetryReporter(provider.name, opts),

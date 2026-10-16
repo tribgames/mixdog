@@ -370,6 +370,9 @@ function resetSessionForRouteChange(id, session, previousModel, previousProvider
   session.lastContextTokensUpdatedAt = Date.now();
   session.lastContextTokensStaleAfterCompact = false;
   session.providerState = undefined;
+  // The previous route's prefix snapshot measured another prompt (model line,
+  // stripped replay); the new chain baselines on its first send.
+  delete session._providerPrefixGuardState;
   // The new route resolves its own wire before its first request.
   session.wireRoute = null;
   const prepared = _prepareResumeTools(session, session.preset || 'full');

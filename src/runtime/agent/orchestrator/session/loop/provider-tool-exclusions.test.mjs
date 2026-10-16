@@ -16,7 +16,7 @@ const messages = [
 const tool = (name, inputSchema) => ({ name, description: `${name} tool.`, inputSchema, annotations: {} });
 const good = tool('read', { type: 'object', properties: { file_path: { type: 'string' } } });
 const rootAllOf = tool('mcp__x__broken', { type: 'object', properties: {}, allOf: [{}] });
-const tupleItems = tool('mcp__x__tuple', { type: 'object', properties: { a: { type: 'array', items: [{}] } } });
+const tupleItems = tool('mcp__x__tuple', { type: 'object', properties: { a: { type: 'bogus-type' } } });
 
 // One provider request the way the agent loop sends it (send-phase.mjs):
 // exclusions reset per request and are recorded for the session.

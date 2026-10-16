@@ -8,6 +8,7 @@ import { currentProviderAccountId } from '../provider-auth-binding.mjs';
 // fallback, catalog retry) runs its own accounting and its result or error
 // then returns through the enclosing send, which must not write it again.
 const recorded = new WeakSet();
+const UNMEASURED_USAGE = Object.freeze({ inputTokens: null, inputTokensKnown: false });
 const hasTokens = (usage) =>
   ['inputTokens', 'outputTokens', 'cachedTokens', 'cacheWriteTokens'].some((key) => Number(usage?.[key]) > 0);
 // One rule for every reported usage object: tokens, or a provider-reported
@@ -51,7 +52,9 @@ export async function accountProviderSend(provider, instance, send, model, opts 
   // abandoned attempt or a failure shares that clock with the final attempt,
   // so timing it too would count the same seconds twice and understate speed.
   const record = async (result, id, owner, timed) => {
-    if (!result?.usage) return;
+    // A completed call that reported no usage is still a call: it is recorded
+    // as unmeasured (unknown input, unpriced) instead of vanishing from totals.
+    if (!result?.usage && !(timed && result && typeof result === 'object')) return;
     // A nested send (e.g. a fallback model re-send) already stamped its own
     // final attempt's tier; the outer context only saw the abandoned attempt.
     result.requestServiceTier ??= identity.requestServiceTier || '';
@@ -59,7 +62,7 @@ export async function accountProviderSend(provider, instance, send, model, opts 
     if (openingError) throw openingError;
     if (!ledger) return;
     recorded.add(owner);
-    const usage = result.usage;
+    const usage = result.usage || UNMEASURED_USAGE;
     const row = makeUsageRecord({
       id: result.responseId ? undefined : id,
       ts: Date.now(),

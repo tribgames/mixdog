@@ -2,7 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { compactionArchivedRows } from './compaction-view.mjs';
-import { appendAssistantText, applyStageChange, createTurnStream } from './turn-stream.mjs';
+import {
+  appendAssistantText,
+  appendTextDelta,
+  applyStageChange,
+  commitAssistantSegment,
+  createTurnStream,
+  flushStreamBatch,
+  resetStreamedText,
+  settleStreamingTailAtClose,
+} from './turn-stream.mjs';
+import { createProjection } from '../../standalone/session-proxy/projection.mjs';
+import { diffSessionState } from '../../standalone/session-state-patch.mjs';
+import { failTurn } from './turn.mjs';
 import { createAskCallbacks } from '../../session-runtime/turn/turn-run/ask-callbacks.mjs';
 import { createAskTranscriptMeta } from '../../runtime/agent/orchestrator/session/manager/ask-session.mjs';
 
@@ -166,6 +178,227 @@ test('a reconnect wait counts down live and stops once the stage moves on', asyn
   const settled = spinner().verb;
   t.mock.timers.tick(3_000);
   assert.equal(spinner().verb, settled);
+});
+
+// The store side of a live turn: every set() is one published snapshot.
+function liveTurnStream({ isCurrentTurn = () => true } = {}) {
+  let state = {};
+  const published = [];
+  let sequence = 0;
+  const set = (patch) => {
+    state = { ...state, ...patch };
+    published.push({ at: Date.now(), patch, state });
+    return true;
+  };
+  const stream = createTurnStream({
+    getState: () => state,
+    set,
+    nextId: () => `row_${++sequence}`,
+    isCurrentTurn,
+    transcriptMeta: {},
+    routeMeta: { model: 'm' },
+    updateStreamingTail: (id, patch = {}, extra = {}) =>
+      set({
+        streamingTail: {
+          ...(state.streamingTail?.id === id ? state.streamingTail : {}),
+          ...patch,
+          kind: 'assistant',
+          id,
+          streaming: true,
+        },
+        ...extra,
+      }),
+    settleStreamingTail: (id, patch = {}) => {
+      if (state.streamingTail?.id !== id) return false;
+      set({
+        items: [...(state.items || []), { ...state.streamingTail, ...patch, streaming: false }],
+        streamingTail: null,
+      });
+      return true;
+    },
+    clearStreamingTail: () => set({ streamingTail: null }),
+    sealToolBlock: () => {},
+  });
+  return { stream, published, state: () => state, set };
+}
+
+// failTurn, then the close-time settle publishTurnClose runs (turn.mjs).
+function failThenClose(stream, error) {
+  const ctx = {
+    turn: {},
+    stream,
+    cards: { aggregates: { finalizeToolHeaders() {} }, flushToolResults() {} },
+    pushNotice() {},
+  };
+  failTurn(ctx, error);
+  settleStreamingTailAtClose(stream);
+  return ctx.turn;
+}
+
+test('a turn that fails before its first newline keeps the visible unfinished text as its row', () => {
+  for (const error of [new Error('provider stream reset'), new Error('tool loop aborted: too many iterations')]) {
+    const { stream, state } = liveTurnStream();
+    appendTextDelta(stream, 'visible unfinished reply');
+    // Fails before any partial tick: the forced flush publishes it first.
+    const turn = failThenClose(stream, error);
+    assert.equal(turn.failed, true);
+    assert.deepEqual(
+      state().items.map((item) => [item.kind, item.text, item.streaming]),
+      [['assistant', 'visible unfinished reply', false]]
+    );
+    assert.equal(state().streamingPartial, null);
+    assert.equal(state().streamingTail, null);
+  }
+});
+
+test('a cancelled mid-line turn keeps its text once; a replaced transcript or a closed session stays as it is', () => {
+  const abort = Object.assign(new Error('aborted'), { name: 'AbortError' });
+  const cancelled = liveTurnStream();
+  appendTextDelta(cancelled.stream, 'half a line');
+  failThenClose(cancelled.stream, abort);
+  assert.deepEqual(
+    cancelled.state().items.map((item) => item.text),
+    ['half a line']
+  );
+  assert.equal(cancelled.state().streamingPartial, null);
+
+  // A transcript replacement (session reset) cleared the partial: no resurrection.
+  const replaced = liveTurnStream();
+  appendTextDelta(replaced.stream, 'gone with the reset');
+  flushStreamBatch(replaced.stream);
+  replaced.set({ items: [], streamingTail: null, streamingPartial: null });
+  failThenClose(replaced.stream, new Error('provider stream reset'));
+  assert.deepEqual(replaced.state().items, []);
+  assert.equal(replaced.state().streamingPartial, null);
+
+  // The session closed mid-line: a stale turn writes nothing at all.
+  let current = true;
+  const closed = liveTurnStream({ isCurrentTurn: () => current });
+  appendTextDelta(closed.stream, 'mid line');
+  flushStreamBatch(closed.stream);
+  const before = closed.state();
+  current = false;
+  failThenClose(closed.stream, new Error('session closed'));
+  assert.equal(closed.state(), before);
+});
+
+const deltas = (text, size) =>
+  Array.from({ length: Math.ceil(text.length / size) }, (_, i) => text.slice(i * size, (i + 1) * size));
+
+test('the unfinished line reaches the desktop at a coalesced 40 ms cadence while the tail stays line-gated', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const { stream, published, state } = liveTurnStream();
+  const reply = 'First streamed line of the reply\nSecond line keeps coming without a break yet';
+  // What the frame-batched store emits: the state after each slice of time.
+  const frames = [];
+  for (const chunk of deltas(reply, 2)) {
+    appendTextDelta(stream, chunk);
+    for (let step = 0; step < 4; step += 1) {
+      t.mock.timers.tick(5);
+      frames.push(state());
+    }
+  }
+  t.mock.timers.tick(100);
+  frames.push(state());
+  const partials = published.filter((entry) => Object.hasOwn(entry.patch, 'streamingPartial'));
+  // The first chunk shows on the next frame, before its line completes, as
+  // the row's opening text with the identity the row will keep.
+  const [first] = partials;
+  assert.ok(first.at - 1_000_000 <= 10, `first partial after ${first.at - 1_000_000} ms`);
+  assert.equal(first.state.streamingTail, undefined);
+  assert.equal(first.state.streamingPartial.from, 0);
+  assert.equal(first.state.streamingPartial.tail.id, first.state.streamingPartial.id);
+  assert.equal(first.state.streamingPartial.tail.model, 'm');
+  const gaps = partials
+    .slice(1)
+    .map((entry, index) => entry.at - partials[index].at)
+    .sort((a, b) => a - b);
+  assert.ok(gaps.length >= 15, `only ${gaps.length + 1} partial publications`);
+  const median = gaps[Math.floor(gaps.length / 2)];
+  assert.ok(median >= 30 && median <= 60, `median gap ${median}`);
+  assert.ok(gaps.at(-1) <= 60, `max gap ${gaps.at(-1)}`);
+  // Every emitted frame: the tail holds completed lines only, and the
+  // partial continues exactly that tail.
+  for (const snapshot of frames) {
+    const tailText = snapshot.streamingTail?.text ?? '';
+    assert.ok(tailText === '' || tailText.endsWith('\n'), JSON.stringify(tailText));
+    const partial = snapshot.streamingPartial;
+    if (!partial) continue;
+    assert.equal(partial.from, tailText.length);
+    if (snapshot.streamingTail) assert.equal(partial.id, snapshot.streamingTail.id);
+    assert.ok(reply.startsWith(tailText + partial.text));
+  }
+  assert.equal(state().streamingTail.text, 'First streamed line of the reply\n');
+  assert.equal(state().streamingTail.id, first.state.streamingPartial.id);
+  assert.equal(state().streamingPartial.text, 'Second line keeps coming without a break yet');
+});
+
+test('tool boundaries and turn end flush the partial line at once, then clear it', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const { stream, state } = liveTurnStream();
+  appendTextDelta(stream, 'Let me check');
+  // A tool call arrives before any timer fired.
+  flushStreamBatch(stream);
+  assert.equal(state().streamingPartial.text, 'Let me check');
+  const rowId = state().streamingPartial.id;
+  commitAssistantSegment(stream, { sealToolBlock: true });
+  assert.equal(state().streamingPartial, null);
+  assert.deepEqual(
+    state().items.map((item) => [item.id, item.text]),
+    [[rowId, 'Let me check']]
+  );
+  t.mock.timers.tick(200);
+  assert.equal(state().streamingPartial, null);
+  appendTextDelta(stream, 'Done.\nAll');
+  t.mock.timers.tick(10);
+  assert.equal(state().streamingTail.text, 'Done.\n');
+  assert.equal(state().streamingPartial.text, 'All');
+  // A retraction (provider retry) reaches the partial line in the same frame.
+  resetStreamedText(stream, { chars: 2 });
+  assert.equal(state().streamingPartial, null);
+  appendTextDelta(stream, 'l good');
+  settleStreamingTailAtClose(stream);
+  assert.equal(state().streamingPartial, null);
+  assert.equal(state().items.at(-1).text, 'Done.\nAl good');
+});
+
+test('the terminal view never holds the partial line and never re-renders for it', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const { stream, published } = liveTurnStream();
+  const projection = createProjection({ binding: { attachment: 'a', sessionId: 's', disposed: false }, log: () => {} });
+  let emits = 0;
+  projection.subscribe(() => {
+    emits += 1;
+  });
+  let previous = { sessionId: 's', items: [] };
+  projection.applyBody({ revision: 1, full: previous }, 'a');
+  for (const chunk of deltas('one line\nand an unfinished one', 2)) {
+    appendTextDelta(stream, chunk);
+    t.mock.timers.tick(15);
+  }
+  t.mock.timers.tick(100);
+  let revision = 1;
+  const tailTexts = [];
+  for (const { state } of published) {
+    const next = { sessionId: 's', items: [], ...state };
+    revision += 1;
+    assert.equal(
+      projection.applyBody({ revision, baseRevision: revision - 1, patch: diffSessionState(previous, next) }, 'a'),
+      true
+    );
+    previous = next;
+    assert.equal(Object.hasOwn(projection.getState(), 'streamingPartial'), false);
+    tailTexts.push(projection.getState().streamingTail?.text ?? '');
+  }
+  // Only line-gated changes reached the terminal; partial-only frames advanced silently.
+  assert.deepEqual([...new Set(tailTexts)], ['', 'one line\n']);
+  assert.ok(emits < published.length, `${emits} emits for ${published.length} frames`);
+  // A full body from a desktop-capable daemon is stripped too.
+  projection.applyBody(
+    { revision: revision + 1, full: { sessionId: 's', items: [], streamingPartial: { id: 'x', from: 0, text: 'y' } } },
+    'a'
+  );
+  assert.equal(Object.hasOwn(projection.getState(), 'streamingPartial'), false);
 });
 
 test('a reconnect notice without a retry time keeps its own message', async () => {

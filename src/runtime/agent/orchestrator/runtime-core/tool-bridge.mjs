@@ -9,13 +9,18 @@
 import { createHash } from 'node:crypto';
 import { clean } from './session-text.mjs';
 import { isDeferredToolAvailable } from './deferred-tool-availability.mjs';
-import { deferredCatalogUnion, filterSessionToolPolicy, isReadonlySelectable, toolSearchMatches } from './tool-catalog.mjs';
+import {
+  deferredCatalogUnion,
+  filterSessionToolPolicy,
+  isReadonlySelectable,
+  toolSearchMatches,
+} from './tool-catalog.mjs';
 import { parseToolSelection, sortedCatalogByMeasuredUsage } from './tool-catalog-schema.mjs';
 import { DEFERRED_SELECT_ALIASES } from './tool-catalog-data.mjs';
 import { estimateTokens } from '../session/token-estimate.mjs';
 import { preDispatchDenyForSession } from '../session/loop/pre-dispatch-deny.mjs';
 import { resolveDeferredSelectMode } from '../session/loop/deferred-call-through.mjs';
-import { providerToolExclusionReason } from '../session/loop/provider-tool-exclusions.mjs';
+import { providerToolExclusionReason, routeToolExclusionReason } from '../session/loop/provider-tool-exclusions.mjs';
 
 export { isToolBridgeEnabled } from './tool-exposure.mjs';
 
@@ -181,7 +186,11 @@ function availableBridgeTools(session) {
 }
 
 export function isBridgeReadonlySession(session, mode) {
-  return mode === 'readonly' || session?.deferredSurfaceMode === 'readonly' || resolveDeferredSelectMode(session) === 'readonly';
+  return (
+    mode === 'readonly' ||
+    session?.deferredSurfaceMode === 'readonly' ||
+    resolveDeferredSelectMode(session) === 'readonly'
+  );
 }
 
 // Why a currently available tool cannot run in this session, or null. Eager
@@ -190,6 +199,10 @@ function bridgeBlockReason(session, tool, mode, eagerNames) {
   const name = clean(tool?.name);
   const denial = preDispatchDenyForSession(session, { name, arguments: {} });
   if (denial) return denial.replace(/^Error:\s*/, '');
+  // An eager tool the route never sends is not "directly available"; deferred
+  // ones run through call_tool and need no declaration.
+  const unsent = eagerNames.has(name) ? routeToolExclusionReason(session, tool) : null;
+  if (unsent) return unsent;
   if (!eagerNames.has(name) && isBridgeReadonlySession(session, mode) && !isReadonlySelectable(tool)) {
     return 'readonly mode';
   }
@@ -311,7 +324,11 @@ function searchKeywords(session, keywords, mode, available) {
 // within budget; 0 when nothing more fits.
 function largestChunk(text, offset, buildPage) {
   const fits = (length) =>
-    fitsBudget(buildPage(text.slice(offset, offset + length)), BRIDGE_LIMITS.describeMaxBytes, BRIDGE_LIMITS.describeMaxTokens);
+    fitsBudget(
+      buildPage(text.slice(offset, offset + length)),
+      BRIDGE_LIMITS.describeMaxBytes,
+      BRIDGE_LIMITS.describeMaxTokens
+    );
   let low = 0;
   let high = text.length - offset;
   while (low < high) {
@@ -335,7 +352,8 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
   // is split exactly as for a lookup, and a token beside any other value is
   // refused rather than read as a missing name.
   const raw = args.names;
-  const strings = typeof raw === 'string' ? [raw] : Array.isArray(raw) && raw.every((item) => typeof item === 'string') ? raw : [];
+  const strings =
+    typeof raw === 'string' ? [raw] : Array.isArray(raw) && raw.every((item) => typeof item === 'string') ? raw : [];
   let continuation = null;
   if (strings.some((item) => item.includes(BRIDGE_CONTINUATION_PREFIX))) {
     if (strings.length !== 1 || !CONTINUATION_TOKEN_PATTERN.test(strings[0])) {
@@ -435,7 +453,10 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
   const continueWith = nextPosition ? continuationFor(docs.slice(nextPosition[0]), nextPosition[1], revisionOf) : null;
   // Never hand out a token the decoder would refuse.
   if (continueWith && continueWith.names.length > BRIDGE_LIMITS.continuationMaxChars) {
-    return bridgeError('RESULT_TOO_LARGE', 'the remaining definitions cannot be continued; describe fewer tools at once.');
+    return bridgeError(
+      'RESULT_TOO_LARGE',
+      'the remaining definitions cannot be continued; describe fewer tools at once.'
+    );
   }
   return { entries, missing, blocked, ...found, note: DESCRIBE_NOTE, continueWith };
 }
@@ -463,9 +484,12 @@ export function resolveBridgeTarget(session, rawName) {
   const eager = lookupByName(Array.isArray(session?.tools) ? session.tools : [], name);
   if (eager) {
     const direct = clean(eager.name);
-    const excluded = providerToolExclusionReason(session, direct);
+    const excluded = providerToolExclusionReason(session, direct) || routeToolExclusionReason(session, eager);
     if (excluded) return bridgeError('TOOL_EXCLUDED', excluded);
-    return bridgeError('USE_DIRECT_TOOL', `"${direct}" is directly available; call ${direct} directly instead of call_tool.`);
+    return bridgeError(
+      'USE_DIRECT_TOOL',
+      `"${direct}" is directly available; call ${direct} directly instead of call_tool.`
+    );
   }
   const tool = catalogTool(session, name);
   if (!tool) {

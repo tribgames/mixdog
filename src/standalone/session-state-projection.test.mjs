@@ -4,6 +4,47 @@ import { setImmediate } from 'node:timers/promises';
 import { projectSessionState } from './session-state-projection.mjs';
 import { applySessionStatePatch, diffSessionState } from './session-state-patch.mjs';
 
+test('a long unfinished line crosses the daemon hop in bytes linear in its length', () => {
+  const entry = {};
+  const base = { sessionId: 'stream', items: [], streamingTail: { id: 'a1', kind: 'assistant', text: 'head\n' } };
+  let previous = projectSessionState(entry, { ...base, streamingPartial: { id: 'a1', from: 5, text: 'x' } });
+  let held = previous;
+  let bytes = 0;
+  let text = 'x';
+  for (let step = 0; step < 1_000; step += 1) {
+    text += 'y'.repeat(100);
+    const next = projectSessionState(entry, { ...base, streamingPartial: { id: 'a1', from: 5, text } });
+    const patch = diffSessionState(previous, next);
+    assert.equal(Object.hasOwn(patch.set, 'streamingPartial'), false);
+    bytes += JSON.stringify(patch).length;
+    held = applySessionStatePatch(held, patch);
+    previous = next;
+  }
+  assert.equal(held.streamingPartial.text, text);
+  // ~100 KB of text: a whole-line resend would be ~50 MB.
+  assert.ok(bytes < 2 * text.length, `${bytes} bytes for a ${text.length}-char line`);
+  // A retraction, another row or a new line offset replaces the partial whole.
+  for (const replacement of [
+    { id: 'a1', from: 5, text: text.slice(0, 10) },
+    { id: 'a2', from: 5, text: `${text}z` },
+    { id: 'a1', from: 9, text: `${text}z` },
+  ]) {
+    const next = projectSessionState(entry, { ...base, streamingPartial: replacement });
+    const patch = diffSessionState(previous, next);
+    assert.equal(patch.partialAppend, undefined);
+    assert.deepEqual(applySessionStatePatch(held, patch).streamingPartial, replacement);
+  }
+});
+
+test('a partial append with no held line is rejected instead of dropping its text', () => {
+  const baseline = { sessionId: 'stream', items: [], streamingTail: { id: 'a1', kind: 'assistant', text: 'head\n' } };
+  assert.equal(applySessionStatePatch(baseline, { set: {}, remove: [], partialAppend: { text: 'tail' } }), null);
+  assert.equal(
+    applySessionStatePatch({ ...baseline, streamingPartial: null }, { set: {}, partialAppend: { text: 'tail' } }),
+    null
+  );
+});
+
 test('tail-only updates do not resend the settled history or queued prompts', () => {
   const entry = {};
   const source = {

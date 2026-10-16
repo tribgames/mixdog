@@ -45,7 +45,9 @@ export function buildGeminiRequest(messages, useModel, tools, opts) {
   const thinkingConfig = geminiThinkingConfig(useModel, opts, { includeThoughts: true });
   const controls = geminiGenerationControls(opts);
   const generationConfig =
-    thinkingConfig || Object.keys(controls).length ? { ...(thinkingConfig ? { thinkingConfig } : {}), ...controls } : undefined;
+    thinkingConfig || Object.keys(controls).length
+      ? { ...(thinkingConfig ? { thinkingConfig } : {}), ...controls }
+      : undefined;
   const systemInstruction =
     messages
       .filter((m) => m.role === 'system')
@@ -55,9 +57,12 @@ export function buildGeminiRequest(messages, useModel, tools, opts) {
   const contents = toGeminiContents(chatMsgs, useModel);
   if (!contents.length) throw new Error('No messages to send');
 
-  const requestTools = toGeminiRequestTools(tools, opts.nativeTools);
+  const requestTools = toGeminiRequestTools(tools, opts.nativeTools, { onToolExcluded: opts.onToolExcluded });
   const geminiTools = requestTools.length ? requestTools : undefined;
-  const toolConfig = tools?.length ? toGeminiToolConfig(opts.toolChoice) : undefined;
+  // Tool config only accompanies function declarations that were kept.
+  const toolConfig = requestTools.some((entry) => entry.functionDeclarations?.length)
+    ? toGeminiToolConfig(opts.toolChoice)
+    : undefined;
   if (opts.safetySettings !== undefined && opts.safetySettings !== null && !Array.isArray(opts.safetySettings)) {
     throw new TypeError('safetySettings must be an array of { category, threshold } entries.');
   }

@@ -15,10 +15,7 @@ import { preserveGoalStateAfterTurn } from './goal-turn-state.mjs';
 export { preserveGoalStateAfterTurn } from './goal-turn-state.mjs';
 export { transcriptToolCallDisplayMode } from './turn-tool-cards.mjs';
 import { isRejected429, safeErrorDetails } from '../../runtime/shared/error-presentation.mjs';
-import {
-  QUOTA_KINDS,
-  providerErrorKind,
-} from '../../runtime/agent/orchestrator/providers/provider-error-kind.mjs';
+import { QUOTA_KINDS, providerErrorKind } from '../../runtime/agent/orchestrator/providers/provider-error-kind.mjs';
 import { registerTaskWaitSteeringCheck } from '../../runtime/agent/orchestrator/session/task-wait-control.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { yieldToRenderer } from './render-timing.mjs';
@@ -657,6 +654,8 @@ export function createRunTurn(bag) {
     set({
       busy: true,
       lastTurn: null,
+      // A turn that unwound stale never cleared its desktop partial line.
+      ...(getState().streamingPartial ? { streamingPartial: null } : {}),
       spinner: {
         active: true,
         verb: pickVerb(turn.index),
