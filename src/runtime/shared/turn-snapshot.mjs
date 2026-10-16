@@ -1,6 +1,7 @@
 import { isAbsolute, relative, resolve } from 'node:path';
 import {
   _resetTurnWorktreeSnapshotsForTest,
+  canonicalPath,
   createTurnWorktreeSnapshot,
   noteTurnWorktreeChange,
   refreshTurnWorktreeSnapshot,
@@ -543,15 +544,28 @@ export function recordTurnDiffChanges(sessionId, changes = [], budget = createLi
   const id = clean(sessionId);
   if (!id) return '';
   const tracker = _diffTrackersBySession.get(id) || resetDiffTracker(id);
-  const list = Array.isArray(changes) ? changes : [];
   const ownerTracker = tracker?.ownerSessionId ? _diffTrackersBySession.get(tracker.ownerSessionId) : tracker;
   const snapshot = ownerTracker?.worktreeSnapshot;
+  const raws = Array.isArray(changes) ? changes : [];
+  // Git reports the turn's root canonically (macOS /var -> /private/var):
+  // each written path is spelled the same way, or it never relates to it.
+  const list = snapshot?.root ? raws.map(canonicalChangePaths) : raws;
   // Independent of this tracker's validity: the session review needs every
   // write's first-seen state even once the turn's buffers are gone.
   captureReviewBaselines(id, tracker, ownerTracker, list, snapshot);
   if (!tracker) return '';
   if (tracker.valid && !tracker.sealed) foldTrackedChanges(tracker, list, snapshot);
   return trackerView(tracker, budget).patch;
+}
+
+function canonicalChangePaths(raw) {
+  const path = clean(raw?.path);
+  const newPath = clean(raw?.newPath);
+  return {
+    ...raw,
+    ...(isAbsolute(path) ? { path: canonicalPath(path) } : {}),
+    ...(isAbsolute(newPath) ? { newPath: canonicalPath(newPath) } : {}),
+  };
 }
 
 const insidePath = (root, path) => {

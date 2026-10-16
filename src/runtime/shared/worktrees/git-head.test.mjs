@@ -114,6 +114,8 @@ test('the watcher notices a change inside the symbolic-ref chain', async (t) => 
     wake = resolve;
     setTimeout(() => reject(new Error('no event')), 2000);
   });
+  // macOS delivers no event for a write made the instant a watch starts.
+  await new Promise((resolve) => setTimeout(resolve, 150));
   writeRef(top, 'refs/heads/alias', 'ref: refs/heads/other\n');
   await changed;
   assert.equal(changes > 0, true);
@@ -139,6 +141,7 @@ test('the watcher reports an external HEAD change shortly after it happens', asy
   const watcher = createGitHeadWatcher({ getCwd: () => top, onChange: () => changed.resolve(), debounceMs: 10 });
   t.after(() => watcher.dispose());
   watcher.retarget();
+  await new Promise((resolve) => setTimeout(resolve, 150));
   writeFileSync(join(top, '.git', 'HEAD.lock'), 'ref: refs/heads/next\n');
   writeFileSync(join(top, '.git', 'HEAD'), 'ref: refs/heads/next\n');
   await Promise.race([

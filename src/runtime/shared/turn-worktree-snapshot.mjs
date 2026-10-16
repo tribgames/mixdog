@@ -49,7 +49,7 @@ function pathKey(value) {
 
 /** `resolve` plus symlinks of the nearest existing ancestor: git reports the
  *  worktree root canonically (macOS /var -> /private/var), callers may not. */
-function canonicalPath(value, dirs = null) {
+export function canonicalPath(value, dirs = null) {
   const full = resolve(value);
   if (dirs) {
     // Same result as the walk below without repeating it per file: the parent
