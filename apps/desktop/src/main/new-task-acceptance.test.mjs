@@ -337,24 +337,70 @@ test('a worktree draft whose session cannot be created (no model) or is not boun
   assert.notEqual(f.receipt().phase, 'accepted');
 });
 
-for (const phase of ['reserved', 'configured']) {
-  test(`${phase} receipt failures still prevent submission`, async (t) => {
-    const f = await fixture(t);
-    const rename = fsp.rename;
-    const failure = Object.assign(new Error('Early receipt failure'), { code: 'EIO' });
-    t.mock.method(fsp, 'rename', async (from, to) => {
-      if (to === f.receiptPath && JSON.parse(fs.readFileSync(from, 'utf8')).phase === phase) throw failure;
-      return rename(from, to);
-    });
-    syncBuiltinESMExports();
-    await assert.rejects(f.submit(), (error) => error === failure);
-    assert.equal(f.state.creates.length, phase === 'reserved' ? 0 : 1);
-    assert.deepEqual(f.state.submits, []);
-    assert.deepEqual(f.state.goals, []);
-    if (phase === 'reserved') assert.equal(fs.existsSync(f.receiptPath), false);
-    else assert.equal(f.receipt().phase, 'reserved');
+test('a reserved receipt failure still prevents submission', async (t) => {
+  const f = await fixture(t);
+  const rename = fsp.rename;
+  const failure = Object.assign(new Error('Early receipt failure'), { code: 'EIO' });
+  t.mock.method(fsp, 'rename', async (from, to) => {
+    if (to === f.receiptPath && JSON.parse(fs.readFileSync(from, 'utf8')).phase === 'reserved') throw failure;
+    return rename(from, to);
   });
-}
+  syncBuiltinESMExports();
+  await assert.rejects(f.submit(), (error) => error === failure);
+  assert.equal(f.state.creates.length, 0);
+  assert.deepEqual(f.state.submits, []);
+  assert.deepEqual(f.state.goals, []);
+  assert.equal(fs.existsSync(f.receiptPath), false);
+});
+
+test('an ambiguous acceptance replays without reapplying the draft, even once it can no longer be applied', async (t) => {
+  const f = await fixture(t);
+  const draft = { workflowId: 'kept' };
+  const configured = [];
+  let available = true;
+  f.state.onConfigure = async (params) => {
+    configured.push(params.action);
+    if (!available) throw new Error('route unavailable');
+    return { sessionId: f.sessionId, revision: 1, full: { sessionId: f.sessionId, items: [] }, value: 'kept' };
+  };
+  const failure = Object.assign(new Error('Receipt publication failed'), { code: 'EIO' });
+  const rename = fsp.rename;
+  let failing = true;
+  t.mock.method(fsp, 'rename', async (from, to) => {
+    if (failing && to === f.receiptPath && JSON.parse(fs.readFileSync(from, 'utf8')).phase === 'accepted') {
+      throw failure;
+    }
+    return rename(from, to);
+  });
+  syncBuiltinESMExports();
+  await assert.rejects(f.host.submitNewTask('Accepted work', f.options, draft), (error) => error === failure);
+  assert.equal(f.state.accepted, true, 'the daemon accepted before the receipt failed');
+  assert.equal(f.receipt().phase, 'configured');
+  assert.deepEqual(configured, ['setWorkflow']);
+  failing = false;
+  available = false;
+  const replayed = await (await f.createHost()).submitNewTask('Accepted work', f.options, draft);
+  assert.equal(replayed.accepted, true);
+  assert.equal(replayed.sessionId, f.sessionId);
+  assert.deepEqual(configured, ['setWorkflow'], 'replay skipped the draft configuration');
+  assert.ok(f.state.submits.every((call) => call.sessionId === f.sessionId && call.id === f.options.id));
+  assert.equal(f.receipt().phase, 'accepted');
+});
+
+test('a configured receipt replays without reconfiguring the draft', async (t) => {
+  const f = await fixture(t);
+  const signature = createHash('sha256')
+    .update(JSON.stringify({ draft: { workflowId: 'kept' }, options: { id: f.options.id }, prompt: 'Accepted work' }))
+    .digest('hex');
+  await fsp.mkdir(join(f.receiptPath, '..'), { recursive: true });
+  await fsp.writeFile(f.receiptPath, JSON.stringify({ signature, sessionId: f.sessionId, phase: 'configured' }));
+  const configured = [];
+  f.state.onConfigure = async (params) => configured.push(params.action);
+  const accepted = await f.host.submitNewTask('Accepted work', f.options, { workflowId: 'kept' });
+  assert.equal(accepted.accepted, true);
+  assert.deepEqual(configured, [], 'the draft was already applied before the earlier version recorded it');
+  assert.equal(f.receipt().phase, 'accepted');
+});
 
 for (const failureKind of ['read', 'write']) {
   test(`explicit metadata ${failureKind} failures are not made nonfatal`, async (t) => {

@@ -72,12 +72,12 @@
   color: var(--mx-text);
   background: var(--mx-hover);
 }
-/* The chosen option is a persistent selection: the rail's .selected plate
-   (pressed wash + the -active hairline) with its check in text ink. */
+/* The chosen option is a persistent selection: the same pressed wash in text
+   ink as other toggles (.pane-dock-toggle), not an inverted plate. */
 .mx-segmented button.active,
 .mx-segmented button[aria-pressed="true"] {
-  color: var(--mx-bg-base);
-  background: var(--mx-text);
+  color: var(--mx-text);
+  background: var(--mx-pressed);
   box-shadow: none;
   font-weight: var(--mx-weight-semibold);
 }

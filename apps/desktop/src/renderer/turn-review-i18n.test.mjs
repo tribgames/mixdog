@@ -84,9 +84,10 @@ test('the files menu and its Delete history dialog read in Korean', async (t) =>
   const document = dom.window.document;
   await act(async () => document.querySelector('.turn-review-segment').click());
   const items = [...document.querySelectorAll('.turn-review-files-menu [role="menuitem"]')];
+  // The changed files list first, then Delete history and View changes fixed below it.
   assert.deepEqual(
     items.map((item) => item.textContent),
-    ['변경 사항 보기', '기록 삭제']
+    ['a.ts+1', '기록 삭제', '변경 사항 보기']
   );
   await act(async () => items[1].click());
   const dialog = document.querySelector('.settings-confirm-dialog');

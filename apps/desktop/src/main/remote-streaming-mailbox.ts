@@ -1,4 +1,5 @@
 import type { DesktopSessionStateUpdate } from '../shared/contract';
+import { streamingTailWithPartial } from '../shared/streaming-partial';
 import { createLatestStateMailbox, type LatestStateMailbox } from './desktop-service-protocol';
 
 export const REMOTE_STREAM_BATCH_MS = 16;
@@ -8,9 +9,13 @@ type Timers = {
   clearTimeout(handle: ReturnType<typeof setTimeout>): void;
 };
 
-function sameFields(before: Record<string, unknown>, after: Record<string, unknown>, omitted: string): boolean {
-  const left = Object.keys(before).filter((key) => key !== omitted);
-  const right = Object.keys(after).filter((key) => key !== omitted);
+function sameFields(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  omitted: readonly string[]
+): boolean {
+  const left = Object.keys(before).filter((key) => !omitted.includes(key));
+  const right = Object.keys(after).filter((key) => !omitted.includes(key));
   return (
     left.length === right.length &&
     left.every(
@@ -22,7 +27,9 @@ function sameFields(before: Record<string, unknown>, after: Record<string, unkno
 }
 
 /** Batch only a proved text append. Every other state transition — including
- *  unknown future approval fields — bypasses the timer without an allowlist. */
+ *  unknown future approval fields — bypasses the timer without an allowlist.
+ *  The appended text is the live row as painted: the line-gated tail joined
+ *  with its unfinished line, so partial-line growth batches like any append. */
 function isTextAppend(before: DesktopSessionStateUpdate | null, after: DesktopSessionStateUpdate): boolean {
   const old = before?.snapshot;
   const next = after.snapshot;
@@ -38,8 +45,8 @@ function isTextAppend(before: DesktopSessionStateUpdate | null, after: DesktopSe
     old.items !== next.items
   )
     return false;
-  const left = old.streamingTail;
-  const right = next.streamingTail;
+  const left = streamingTailWithPartial(old);
+  const right = streamingTailWithPartial(next);
   if (
     !left ||
     !right ||
@@ -52,7 +59,7 @@ function isTextAppend(before: DesktopSessionStateUpdate | null, after: DesktopSe
     !right.text.startsWith(left.text)
   )
     return false;
-  return sameFields(left, right, 'text') && sameFields(old, next, 'streamingTail');
+  return sameFields(left, right, ['text']) && sameFields(old, next, ['streamingTail', 'streamingPartial']);
 }
 
 /** One latest snapshot and one timer per session, before delta encoding.

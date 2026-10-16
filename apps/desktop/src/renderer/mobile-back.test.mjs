@@ -103,8 +103,10 @@ test('releasing an entry the back button already consumed is a no-op', async () 
   assert.equal(dom.window.history.length, length);
 });
 
-test('CloseWatcher browsers close layers without touching history', async () => {
+/** Installs a fake CloseWatcher plus a controllable transient user activation. */
+function installCloseWatcher() {
   const watchers = [];
+  const activation = { isActive: true };
   dom.window.CloseWatcher = class {
     onclose = null;
     destroyed = false;
@@ -115,6 +117,20 @@ test('CloseWatcher browsers close layers without touching history', async () => 
       this.destroyed = true;
     }
   };
+  Object.defineProperty(dom.window.navigator, 'userActivation', { configurable: true, value: activation });
+  return {
+    watchers,
+    activation,
+    live: () => watchers.filter((watcher) => !watcher.destroyed),
+    uninstall() {
+      delete dom.window.CloseWatcher;
+      delete dom.window.navigator.userActivation;
+    },
+  };
+}
+
+test('CloseWatcher browsers close layers without touching history', async () => {
+  const { watchers, uninstall } = installCloseWatcher();
   try {
     const closed = [];
     const length = dom.window.history.length;
@@ -134,7 +150,115 @@ test('CloseWatcher browsers close layers without touching history', async () => 
     assert.deepEqual(closed, ['menu']);
     assert.equal(dom.window.history.length, length);
   } finally {
-    delete dom.window.CloseWatcher;
+    uninstall();
+  }
+});
+
+test('a layer opened without user activation uses a history sentinel, not a CloseWatcher', async () => {
+  const { watchers, activation, uninstall } = installCloseWatcher();
+  try {
+    activation.isActive = false;
+    const closed = [];
+    const release = registerMobileBack(() => closed.push('visualize'));
+    assert.equal(watchers.length, 0);
+    assert.equal(dom.window.history.state?.mixdogBack, 1);
+
+    await afterPopState(() => dom.window.history.back());
+    assert.deepEqual(closed, ['visualize']);
+    release();
+  } finally {
+    uninstall();
+  }
+});
+
+test('an activation-less layer over a watcher layer is closed first, then the watcher layer', async () => {
+  const { watchers, live, activation, uninstall } = installCloseWatcher();
+  try {
+    const closed = [];
+    const releaseMenu = registerMobileBack(() => closed.push('menu'));
+    assert.equal(live().length, 1);
+
+    activation.isActive = false;
+    const releaseDock = registerMobileBack(() => closed.push('dock'));
+    // The menu moved onto a sentinel so back keeps the stacking order.
+    assert.equal(live().length, 0);
+    assert.equal(watchers[0].destroyed, true);
+
+    await afterPopState(() => dom.window.history.back());
+    assert.deepEqual(closed, ['dock']);
+    releaseDock();
+
+    await afterPopState(() => dom.window.history.back());
+    assert.deepEqual(closed, ['dock', 'menu']);
+    releaseMenu();
+
+    // Drained: a user-activated layer is a watcher again.
+    activation.isActive = true;
+    const releaseNext = registerMobileBack(() => closed.push('next'));
+    assert.equal(live().length, 1);
+    releaseNext();
+  } finally {
+    uninstall();
+  }
+});
+
+test('a popstate while a watcher layer is on top never closes it', async () => {
+  const { watchers, uninstall } = installCloseWatcher();
+  try {
+    const closed = [];
+    const release = registerMobileBack(() => closed.push('dock'));
+    dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate'));
+    assert.deepEqual(closed, []);
+    watchers[0].onclose();
+    assert.deepEqual(closed, ['dock']);
+    release();
+  } finally {
+    uninstall();
+  }
+});
+
+test('a user-activated layer opened before a cleanup pop settles stays sentinel-backed', async () => {
+  const { live, activation, uninstall } = installCloseWatcher();
+  try {
+    const closed = [];
+    activation.isActive = false;
+    const releaseOld = registerMobileBack(() => closed.push('old'));
+    activation.isActive = true;
+    // Sentinel layer closed by the UI, then a fresh user-activated layer opens
+    // before the popstate echo.
+    await afterPopState(() => {
+      releaseOld();
+      registerMobileBack(() => closed.push('replacement'));
+    });
+    assert.equal(live().length, 0, 'no watcher while the traversal is outstanding');
+    assert.equal(dom.window.history.state?.mixdogBack, 1, 'the echo armed the replacement sentinel');
+
+    await afterPopState(() => dom.window.history.back());
+    assert.deepEqual(closed, ['replacement']);
+    assert.equal(dom.window.history.state?.mixdogBack, undefined);
+  } finally {
+    uninstall();
+  }
+});
+
+test('a watcher layer opened after a sentinel layer was closed leaves no sentinel behind', async () => {
+  const { watchers, live, activation, uninstall } = installCloseWatcher();
+  try {
+    const closed = [];
+    activation.isActive = false;
+    const releaseDock = registerMobileBack(() => closed.push('dock'));
+    activation.isActive = true;
+    await afterPopState(() => releaseDock());
+    assert.equal(dom.window.history.state?.mixdogBack, undefined);
+
+    const releaseMenu = registerMobileBack(() => closed.push('menu'));
+    assert.equal(live().length, 1);
+    watchers[0].onclose();
+    assert.deepEqual(closed, ['menu']);
+    releaseMenu();
+    assert.equal(dom.window.history.state?.mixdogBack, undefined);
+  } finally {
+    uninstall();
   }
 });
 

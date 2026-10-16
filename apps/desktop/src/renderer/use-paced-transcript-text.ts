@@ -1,11 +1,12 @@
 /**
  * Paced reveal of the live assistant part.
  *
- * Streamed text reaches the renderer in bursts (a whole completed line at a
- * time, then nothing for hundreds of milliseconds). Revealing each burst the
- * frame it lands makes the reply jump; this playout buffer instead releases
- * the received text grapheme by grapheme at the measured inbound rate, keeping
- * a small reserve (0.08–0.3 s) so the reveal does not starve between bursts.
+ * Streamed text reaches the renderer every few tens of milliseconds (the
+ * unfinished line is published too), still unevenly: provider bursts and
+ * stalls pass straight through. Revealing each arrival the frame it lands
+ * makes the reply jump; this playout buffer instead releases the received
+ * text grapheme by grapheme at the measured inbound rate, keeping a small
+ * reserve (0.08–0.25 s) so the reveal does not starve between arrivals.
  *
  * - Received text is never delayed upstream: canonical text, persistence,
  *   copy and tools all read the full text. Only what the live row paints is
@@ -22,12 +23,13 @@ import { useEffect, useReducer } from 'react';
 import { setStreamPacerBacklogProbe } from './transcript-stream-metrics';
 
 export const PACER_CUSHION_MIN_MS = 80;
-export const PACER_CUSHION_MAX_MS = 300;
+export const PACER_CUSHION_MAX_MS = 250;
 export const PACER_DEFAULT_CUSHION_MS = 120;
 export const PACER_FRAME_CAP_MS = 100;
 // Under the 250 ms completion budget, leaving a frame for the settled commit.
 export const PACER_DRAIN_MS = 230;
 const RATE_WINDOW_MS = 1_000;
+const CUSHION_WINDOW_MS = 2_000;
 const CHARS_PER_LINE = 80;
 const CATCH_UP_ENTER_LINES = 8;
 const CATCH_UP_ENTER_LATE_MS = 120;
@@ -43,6 +45,9 @@ const REGISTRY_LIMIT = 64;
 /** Markdown that is not healable at a cut right after it. */
 const UNCLEAN_BEFORE_CUT = /[`*_~[\]()<>#|\\!]/;
 const CUT_SNAP_LIMIT = 8;
+/** What a reveal ending on it would not paint: markers and whitespace. */
+const SILENT_AT_CUT = /[`*_~[\]()<>#|\\!\s]/;
+const SILENT_RUN_LIMIT = 16;
 
 let segmenter: Intl.Segmenter | null = null;
 function graphemeSegmenter(): Intl.Segmenter {
@@ -66,6 +71,9 @@ export class TranscriptTextPacer {
   private credit = 0;
   private lastTick = -1;
   private arrivals: Arrival[] = [];
+  /** Inter-arrival gaps for the cushion, kept across rewrites. */
+  private gaps: Array<{ t: number; gap: number }> = [];
+  private lastArrivalAt = Number.NaN;
   private catchUp = false;
   private catchUpSince = 0;
   private drainDeadline = Number.POSITIVE_INFINITY;
@@ -104,7 +112,10 @@ export class TranscriptTextPacer {
       this.bounds.push(end);
       added += 1;
     }
-    if (added && Number.isFinite(now)) this.arrivals.push({ t: now, count: added, end: this.target.length });
+    if (added && Number.isFinite(now)) {
+      this.arrivals.push({ t: now, count: added, end: this.target.length });
+      this.noteArrival(now);
+    }
     return added;
   }
 
@@ -128,6 +139,14 @@ export class TranscriptTextPacer {
    *  anything else restarts from the longest still-valid revealed prefix. */
   push(text: string, now: number): void {
     if (text === this.target) return;
+    // An idle pacer gets no frames, so its state is stale: the first frame
+    // after new text would otherwise count the whole idle gap (capped at
+    // PACER_FRAME_CAP_MS) and reveal a burst in one jump, and a catch-up that
+    // never saw the frame that ended it would rush the next burst.
+    if (this.pending === 0 && Number.isFinite(now)) {
+      this.lastTick = now;
+      this.catchUp = false;
+    }
     if (text.startsWith(this.target)) {
       // The final cluster may continue (a ZWJ sequence or combining mark
       // split across deltas): resegment from its start.
@@ -178,16 +197,21 @@ export class TranscriptTextPacer {
     return (total * 1000) / span;
   }
 
-  /** Reserve: the p90 inter-arrival gap, within the cushion bounds. */
+  /** Reserve: the longest inter-arrival gap of the last CUSHION_WINDOW_MS,
+   *  within the cushion bounds. Text arrives every few tens of milliseconds
+   *  between provider stalls; a percentile of gap COUNTS reads that as a
+   *  smooth stream and leaves no reserve for the burst a stall ends with. */
   cushionMs(): number {
-    if (this.arrivals.length < 3) return PACER_DEFAULT_CUSHION_MS;
-    const gaps: number[] = [];
-    for (let index = 1; index < this.arrivals.length; index += 1) {
-      gaps.push(this.arrivals[index].t - this.arrivals[index - 1].t);
-    }
-    gaps.sort((a, b) => a - b);
-    const p90 = gaps[Math.min(gaps.length - 1, Math.floor(gaps.length * 0.9))];
-    return Math.min(PACER_CUSHION_MAX_MS, Math.max(PACER_CUSHION_MIN_MS, p90));
+    if (this.gaps.length < 2) return PACER_DEFAULT_CUSHION_MS;
+    let longest = 0;
+    for (const { gap } of this.gaps) longest = Math.max(longest, gap);
+    return Math.min(PACER_CUSHION_MAX_MS, Math.max(PACER_CUSHION_MIN_MS, longest));
+  }
+
+  private noteArrival(now: number): void {
+    if (Number.isFinite(this.lastArrivalAt)) this.gaps.push({ t: now, gap: now - this.lastArrivalAt });
+    this.lastArrivalAt = now;
+    while (this.gaps.length > 0 && this.gaps[0].t < now - CUSHION_WINDOW_MS) this.gaps.shift();
   }
 
   private oldestQueuedAt(): number {
@@ -247,6 +271,15 @@ export class TranscriptTextPacer {
     if (step <= 0) return false;
     this.credit -= step;
     this.head += step;
+    // A marker or whitespace paints nothing at the end of the reveal (the cut
+    // snaps back over markers, trailing whitespace renders as nothing): it
+    // joins the glyph after it instead of spending a frame of its own. The
+    // joined graphemes are charged to the credit, so the pace is unchanged.
+    for (let extra = 0; extra < SILENT_RUN_LIMIT && this.head < this.bounds.length; extra += 1) {
+      if (!SILENT_AT_CUT.test(this.target[this.bounds[this.head - 1] - 1] ?? '')) break;
+      this.head += 1;
+      this.credit -= 1;
+    }
     this.shown = this.bounds[this.head - 1];
     this.compact();
     return true;
@@ -256,9 +289,11 @@ export class TranscriptTextPacer {
 /** The revealed prefix must end where the streamed-markdown healer can close
  *  it: never right after a marker (`**`, `` ` ``, `[`, `|` …). The cut snaps
  *  back over at most a few such characters; the pacer position itself keeps
- *  advancing, so the markers appear together with the glyph after them. */
-export function cleanRevealCut(text: string, cut: number): number {
-  if (cut >= text.length || cut <= 0) return Math.max(0, Math.min(cut, text.length));
+ *  advancing, so the markers appear together with the glyph after them.
+ *  `live`: the text is still streaming, so its end is a cut too — a received
+ *  unfinished line may stop right after a marker. */
+export function cleanRevealCut(text: string, cut: number, live = false): number {
+  if (cut <= 0 || cut > text.length || (cut === text.length && !live)) return Math.max(0, Math.min(cut, text.length));
   let at = cut;
   while (at > 0 && cut - at < CUT_SNAP_LIMIT && UNCLEAN_BEFORE_CUT.test(text[at - 1])) at -= 1;
   if (cut - at >= CUT_SNAP_LIMIT) return cut;
@@ -371,7 +406,8 @@ function resolve(key: string, text: string, streaming: boolean, pace: boolean, n
     schedule();
   }
   const pacer = entry.pacer;
-  const shown = pacer.pending > 0 ? cleanRevealCut(pacer.target, pacer.shown) : pacer.target.length;
+  const shown =
+    pacer.pending > 0 || streaming ? cleanRevealCut(pacer.target, pacer.shown, streaming) : pacer.target.length;
   return {
     text: shown >= text.length ? text : text.slice(0, shown),
     draining: !streaming && pacer.pending > 0,

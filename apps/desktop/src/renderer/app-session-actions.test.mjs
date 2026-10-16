@@ -3,6 +3,8 @@ import test, { after } from 'node:test';
 import React, { act, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
+import { closeSessionPaneTabs } from './session-tab-cleanup.ts';
+import { navigationKey } from './text-format.ts';
 import { useAppSessionActions } from './use-app-session-actions.ts';
 
 const { dom } = installTestDom(null, {
@@ -20,6 +22,8 @@ async function fixture(t, api) {
   const root = createRoot(host);
   const deleted = [];
   const snapshots = [];
+  const closedPaneKeys = [];
+  const opened = [];
   let current;
   function Harness() {
     const [sessions, setSessions] = useState([
@@ -57,7 +61,16 @@ async function fixture(t, api) {
       applySnapshot: (value) => snapshots.push(value),
       activateSelection: setSelection,
       onSessionDeleted: (id) => deleted.push(id),
+      closeSessionTabs: (id) => closeSessionPaneTabs(id, leaves, 'leaf', tabs, (key) => closedPaneKeys.push(key)),
+      openSession: (id) => opened.push(id),
     });
+    const leaves = [
+      {
+        id: 'leaf',
+        activeKey: navigationKey(selection),
+        tabs: sessions.map(({ id }) => ({ kind: 'session', id })),
+      },
+    ];
     current = {
       ...actions,
       sessions,
@@ -77,7 +90,7 @@ async function fixture(t, api) {
     await act(async () => root.unmount());
     host.remove();
   });
-  return { state: () => current, deleted, snapshots };
+  return { state: () => current, deleted, snapshots, closedPaneKeys, opened };
 }
 
 for (const action of ['rename', 'archive']) {
@@ -160,7 +173,14 @@ for (const navigate of [false, true]) {
       gate.resolve({ sessionId: 'session-b' });
       await pending;
     });
-    assert.deepEqual(f.state().selection, navigate ? { kind: 'session', id: 'session-b' } : { kind: 'new' });
+    // Without a newer navigation the neighbour tab opens (not a draft); the
+    // deleted session's pane tab closes either way.
+    assert.deepEqual(
+      f.state().selection,
+      navigate ? { kind: 'session', id: 'session-b' } : { kind: 'session', id: 'session-a' }
+    );
+    assert.deepEqual(f.opened, navigate ? [] : ['session-b']);
+    assert.deepEqual(f.closedPaneKeys, ['session:session-a']);
     assert.equal(f.state().requestedSessionId, navigate ? 'session-b' : '');
     assert.deepEqual(
       f.state().sessions.map(({ id }) => id),
@@ -174,3 +194,81 @@ for (const navigate of [false, true]) {
     assert.deepEqual(f.snapshots, [{ sessionId: 'session-b' }]);
   });
 }
+
+test('deleting a non-active session closes its pane tab without navigating', async (t) => {
+  const f = await fixture(t, { deleteSession: async () => ({ sessionId: 'session-a' }) });
+  await act(async () => {
+    await f.state().deleteSession('session-b');
+  });
+  assert.deepEqual(f.closedPaneKeys, ['session:session-b']);
+  assert.deepEqual(f.opened, []);
+  assert.deepEqual(f.state().selection, { kind: 'session', id: 'session-a' });
+  assert.deepEqual(
+    f.state().tabs.map(({ key }) => key),
+    ['session:session-a']
+  );
+});
+
+test('sequential multi-delete closes every deleted session tab', async (t) => {
+  const f = await fixture(t, { deleteSession: async () => ({ sessionId: '' }) });
+  await act(async () => {
+    await f.state().deleteSession('session-b');
+  });
+  await act(async () => {
+    await f.state().deleteSession('session-a');
+  });
+  assert.deepEqual(f.closedPaneKeys, ['session:session-b', 'session:session-a']);
+  assert.deepEqual(f.state().tabs, []);
+});
+
+test('closeSessionPaneTabs falls back to the group neighbour, else another group, else a draft', () => {
+  const closed = [];
+  const close = (key) => closed.push(key);
+  const leaf = (id, ids, activeId) => ({
+    id,
+    activeKey: `session:${activeId}`,
+    tabs: ids.map((sid) => ({ kind: 'session', id: sid })),
+  });
+  assert.deepEqual(
+    closeSessionPaneTabs('b', [leaf('l', ['a', 'b', 'c'], 'b')], 'l', [{ key: 'session:c', title: 'C' }], close),
+    { selection: { kind: 'session', id: 'c' }, title: 'C' }
+  );
+  assert.deepEqual(
+    closeSessionPaneTabs('b', [leaf('l', ['b'], 'b'), leaf('m', ['a'], 'a')], 'l', [], close)?.selection,
+    { kind: 'session', id: 'a' }
+  );
+  assert.equal(closeSessionPaneTabs('b', [leaf('l', ['b'], 'b')], 'l', [], close), null);
+  // An unfocused or inactive tab never changes the active selection.
+  assert.equal(closeSessionPaneTabs('b', [leaf('l', ['a', 'b'], 'a')], 'l', [], close), null);
+  assert.deepEqual(closed, ['session:b', 'session:b', 'session:b', 'session:b']);
+});
+
+test('closeSessionPaneTabs never falls back to the deleted session open in other panes', () => {
+  const close = () => {};
+  const leaf = (id, ids, activeId) => ({
+    id,
+    activeKey: `session:${activeId}`,
+    tabs: ids.map((sid) => ({ kind: 'session', id: sid })),
+  });
+  // Other pane shows A as active with B behind it: B is the post-deletion active.
+  assert.deepEqual(
+    closeSessionPaneTabs('a', [leaf('l', ['a'], 'a'), leaf('m', ['a', 'b'], 'a')], 'l', [{ key: 'session:b', title: 'B' }], close),
+    { selection: { kind: 'session', id: 'b' }, title: 'B' }
+  );
+  // A open in three panes: skip panes left empty, use the first surviving active tab.
+  assert.deepEqual(
+    closeSessionPaneTabs(
+      'a',
+      [leaf('l', ['a'], 'a'), leaf('m', ['a'], 'a'), leaf('n', ['c', 'a'], 'a')],
+      'l',
+      [{ key: 'session:c', title: 'C' }],
+      close
+    ),
+    { selection: { kind: 'session', id: 'c' }, title: 'C' }
+  );
+  // Only the deleted session remains anywhere: draft.
+  assert.equal(
+    closeSessionPaneTabs('a', [leaf('l', ['a'], 'a'), leaf('m', ['a'], 'a'), leaf('n', ['a'], 'a')], 'l', [], close),
+    null
+  );
+});

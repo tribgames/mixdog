@@ -425,6 +425,13 @@
 .composer-island-seg-prefix {
   color: var(--mx-text-muted);
 }
+/* A branch or worktree move is running: a spinner takes the glyph's 14px slot,
+   so the segment never narrows or shifts while it runs. */
+.composer-island-seg-branch > .progress-spinner-turn {
+  display: inline-flex;
+  flex: none;
+  color: var(--mx-accent);
+}
 .composer-island[data-compact] .composer-island-seg-branch :is(.composer-island-seg-prefix, .composer-island-seg-sub) {
   display: none;
 }
@@ -496,7 +503,7 @@
 }
 .turn-review-files-foot > .composer-island-button.danger {
   color: var(--mx-danger);
-}/* Inline, so the literal space between +a and −b shows. */
+} /* Inline, so the literal space between +a and −b shows. */
 .turn-review-segment .diff-stats {
   display: inline;
 }
@@ -984,7 +991,7 @@
   background: var(--mx-chip-bg);
   box-shadow: inset 0 0 0 0.5px var(--mx-border);
   color: var(--mx-text-muted);
-  font: 500 11px/16px var(--mx-font-mono);
+  font: 500 11px / 16px var(--mx-font-mono);
 }
 .question-option[data-selected] .question-key {
   background: var(--mx-accent);
@@ -1002,7 +1009,7 @@
   display: grid;
   place-items: center;
   color: var(--mx-bg-base);
-  font: 700 12px/1 var(--mx-font-sans, inherit);
+  font: 700 12px / 1 var(--mx-font-sans, inherit);
 }
 /* The label is one line (a long one ends in an ellipsis); its one-sentence
    tradeoff sits below it and wraps. */
@@ -2206,6 +2213,10 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   color: var(--mx-text);
   pointer-events: none;
   user-select: none;
+}
+/* A recognised leading /command: ink only, so glyph widths never change. */
+.composer-slash-token {
+  color: var(--mx-text-accent);
 }
 .composer textarea.has-skill-mentions {
   color: transparent;

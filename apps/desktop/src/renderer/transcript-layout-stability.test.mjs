@@ -91,11 +91,19 @@ test('a completed reply takes the live band’s place: no band lingers below its
   await render({ items: [prompt], liveItem: { ...reply, streaming: true }, busy: true });
   assert.deepEqual(tags, ['UserMessage', 'AssistantPart', 'Thinking'], 'streaming: the band sits under the reply');
   await render({ items: [prompt, reply, done], busy: true });
-  assert.deepEqual(tags, ['UserMessage', 'AssistantPart'], 'the footer replaced the band; a busy flag alone keeps none');
+  assert.deepEqual(
+    tags,
+    ['UserMessage', 'AssistantPart'],
+    'the footer replaced the band; a busy flag alone keeps none'
+  );
   await render({ items: [prompt, reply, done], busy: true, activity: true });
   assert.deepEqual(tags, ['UserMessage', 'AssistantPart', 'Thinking'], 'visible activity brings the band back');
   await render({ items: [prompt, reply], busy: true });
-  assert.deepEqual(tags, ['UserMessage', 'AssistantPart', 'Thinking'], 'an open turn keeps its band through null activity');
+  assert.deepEqual(
+    tags,
+    ['UserMessage', 'AssistantPart', 'Thinking'],
+    'an open turn keeps its band through null activity'
+  );
   await render({ items: [prompt, reply, done, { kind: 'user', id: 'wake', text: 'next', hidden: true }], busy: true });
   assert.deepEqual(tags, ['UserMessage', 'AssistantPart', 'Thinking'], 'a hidden follow-up turn keeps the band');
 });
@@ -123,7 +131,8 @@ test('the island files segment appears only once the session diff read finds cha
     const scope = turnReviewScope(items).key;
     rememberAgentReviews(`${sessionId}:${scope}`, [], '', [], 'worktree', scope);
     const props = {
-      sessionId: '',
+      // The island mounts once the session's first lane snapshot has named it.
+      sessionId,
       goalSubmissionId: '',
       showProjectSelector: false,
       reviewActive: true,
@@ -249,7 +258,7 @@ test('a transcript tail without its prompt row keeps the turn review of that tur
         React.createElement(
           ComposerDock,
           {
-            sessionId: '',
+            sessionId,
             goalSubmissionId: '',
             showProjectSelector: false,
             reviewActive: true,

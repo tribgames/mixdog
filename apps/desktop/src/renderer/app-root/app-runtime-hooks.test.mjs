@@ -91,6 +91,8 @@ test('session activity preserves pinned titles, reconciles readiness, and wakes 
       });
     },
     setSessionCatalogReady: (value) => ready.push(value),
+    subscribeSessionsRemoved: () => () => {},
+    closePaneTab: () => {},
   };
   const hook = await mountHook(t, useAppSessionActivity, options);
   assert.deepEqual(

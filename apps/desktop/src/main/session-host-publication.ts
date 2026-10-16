@@ -31,13 +31,14 @@ interface SessionHostPublicationOwner {
   controlSessionId(): string;
   setControlSessionId(sessionId: string): void;
   visibleSessionIds(): ReadonlySet<string>;
-  readSession(sessionId: string): Promise<SessionSnapshot>;
+  readSession(sessionId: string, forceFull?: boolean): Promise<SessionSnapshot>;
   snapshotWithShellJobs(sessionId: string, snapshot: SessionSnapshot): SessionSnapshot;
   trackShellJobsEngineState(snapshot: SessionSnapshot): void;
   onShellPublished(): void;
 }
 
-function statePatch(snapshot: SessionSnapshot, patch: Record<string, unknown>): SessionSnapshot {
+/** The patched snapshot, or null when the patch cannot apply to this one. */
+function statePatch(snapshot: SessionSnapshot, patch: Record<string, unknown>): SessionSnapshot | null {
   const base = snapshot && typeof snapshot === 'object' ? snapshot : {};
   const set =
     patch.set && typeof patch.set === 'object' && !Array.isArray(patch.set)
@@ -73,6 +74,20 @@ function statePatch(snapshot: SessionSnapshot, patch: Record<string, unknown>): 
   }
   for (const key of Array.isArray(patch.remove) ? patch.remove : []) {
     if (typeof key === 'string') delete next[key];
+  }
+  // Growth of the unfinished streamed line travels as its new text only. An
+  // append with no held line to grow is a broken chain: dropping it would lose
+  // that text while the revision advanced, so the caller resyncs instead.
+  if (Object.hasOwn(patch, 'partialAppend')) {
+    const partialAppend =
+      patch.partialAppend && typeof patch.partialAppend === 'object'
+        ? (patch.partialAppend as Record<string, unknown>).text
+        : undefined;
+    const held = next.streamingPartial as Record<string, unknown> | null | undefined;
+    if (typeof partialAppend !== 'string' || !held || typeof held !== 'object' || typeof held.text !== 'string') {
+      return null;
+    }
+    next.streamingPartial = { ...held, text: held.text + partialAppend };
   }
   return next as SessionSnapshot;
 }
@@ -344,7 +359,14 @@ export class SessionHostPublication {
         this.recoverMissingSessionBaseline(id);
         return this.snapshotWithRemoteSession(prior?.snapshot ?? emptySessionSnapshot(id));
       }
-      snapshot = statePatch(prior.snapshot, value.patch as Record<string, unknown>);
+      const patched = statePatch(prior.snapshot, value.patch as Record<string, unknown>);
+      if (!patched) {
+        // Keep the held revision and read a full baseline: a delta against
+        // it would carry the same unappliable patch.
+        this.recoverMissingSessionBaseline(id, true);
+        return this.snapshotWithRemoteSession(prior.snapshot);
+      }
+      snapshot = patched;
     }
     if (!snapshot) {
       // The service control session owns no pane and is never published, so an
@@ -425,12 +447,12 @@ export class SessionHostPublication {
    *  announce, the daemon must answer FULL, and nothing is published until that
    *  real content lands. The in-flight set keeps a read that itself finds no
    *  content from starting another one. */
-  recoverMissingSessionBaseline(sessionId: string): void {
+  recoverMissingSessionBaseline(sessionId: string, forceFull = false): void {
     if (this.owner.isDisposed() || this.recoveringSessionIds.has(sessionId)) return;
     this.recoveringSessionIds.add(sessionId);
     console.error(`[mixdog-lane] missing baseline session=${sessionId} — re-reading`);
     void this.owner
-      .readSession(sessionId)
+      .readSession(sessionId, forceFull)
       .catch(() => undefined)
       .finally(() => {
         this.recoveringSessionIds.delete(sessionId);

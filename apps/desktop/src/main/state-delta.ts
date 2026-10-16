@@ -3,6 +3,7 @@
 // transcript entries, appended streaming text, and changed state fields cross
 // the structured-clone/JSON boundary.
 import type { ViewResumePoint } from '../shared/remote-view-resume';
+import { streamingPartialSuffix } from '../shared/streaming-partial';
 
 export interface SnapshotDeltaEncoder {
   encode(snapshot: unknown): unknown;
@@ -90,12 +91,14 @@ export function shouldPublishSessionState(
 
 const STREAMING_TAIL_TEXT_EPOCH = Symbol.for('mixdog.streaming-tail-text-epoch');
 const STREAMING_TAIL_WIRE_EPOCH = '__streamingTailTextEpoch';
+const STREAMING_PARTIAL_APPEND = '__streamingPartialAppend';
 const WIRE_FIELDS = new Set([
   '__itemsRevision',
   '__itemsPatch',
   '__streamingTailPatch',
   '__statePatch',
   STREAMING_TAIL_WIRE_EPOCH,
+  STREAMING_PARTIAL_APPEND,
 ]);
 
 interface ItemsPatch {
@@ -399,12 +402,17 @@ interface SnapshotDeltaEncoderOptions {
    *  `promptHistoryList`. A decoder that predates it would keep its stale
    *  list, so every other peer gets the whole field. */
   historyPatch?: boolean;
+  /** Only for a peer whose decoder applies partial-line appends (compact
+   *  `pa`, v1 `__streamingPartialAppend`): a growing unfinished line then
+   *  carries its new text instead of the whole line on every tick. */
+  partialAppend?: boolean;
 }
 
 export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions = {}): SnapshotDeltaEncoder {
   const compact = options.compact === true;
   const prependAllowed = options.prepend === true;
   const historyPatchAllowed = options.historyPatch === true;
+  const partialAppendAllowed = options.partialAppend === true;
   let sentItems: readonly unknown[] | null = null;
   let sentStreamingTail: Record<string, unknown> | null = null;
   let sentStreamingTailEpoch: number | null = null;
@@ -498,10 +506,19 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
             delete changed[field];
           }
         }
+        let partialAppend: string | null = null;
+        if (partialAppendAllowed && Object.hasOwn(changed, 'streamingPartial')) {
+          partialAppend = streamingPartialSuffix(sentStateFields?.streamingPartial, changed.streamingPartial);
+          if (partialAppend !== null) delete changed.streamingPartial;
+        }
         const changedCount = Object.keys(changed).length;
         const listCount = Object.keys(lists).length;
         const stateChanged = changedCount > 0 || removed.length > 0 || listCount > 0;
-        if (stateChanged) carriesNews = true;
+        if (stateChanged || partialAppend !== null) carriesNews = true;
+        if (partialAppend !== null) {
+          if (compact) wire.pa = partialAppend;
+          else wire[STREAMING_PARTIAL_APPEND] = partialAppend;
+        }
         if (!compact) {
           wire.__statePatch = { base, revision, changed, removed, ...(listCount > 0 ? { lists } : {}) };
         } else if (stateChanged) {
@@ -632,6 +649,7 @@ function expandCompactWire(record: Record<string, unknown>): Record<string, unkn
       ...(Object.hasOwn(record, 'tt') ? { tail: record.tt } : {}),
     };
   }
+  if (Object.hasOwn(record, 'pa')) expanded[STREAMING_PARTIAL_APPEND] = record.pa;
   if (Object.hasOwn(record, 'streamingTail')) expanded.streamingTail = record.streamingTail;
   if (Object.hasOwn(record, 'x')) expanded[STREAMING_TAIL_WIRE_EPOCH] = record.x;
   return expanded;
@@ -687,6 +705,7 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
         delete snapshot.__itemsPatch;
         delete snapshot.__streamingTailPatch;
         delete snapshot.__statePatch;
+        delete snapshot[STREAMING_PARTIAL_APPEND];
         if (Array.isArray(snapshot.items)) {
           items = snapshot.items;
           revision = Number.isSafeInteger(record.__itemsRevision) ? (record.__itemsRevision as number) : null;
@@ -765,6 +784,17 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
       } else {
         // Backward compatibility for peers that send the old items-only delta.
         nextStateFields = snapshotFieldsFrom(record);
+      }
+      if (Object.hasOwn(record, STREAMING_PARTIAL_APPEND)) {
+        // The unfinished line grew: append to the one held (a missing one is
+        // a broken chain the caller answers with a resync).
+        const appended = record[STREAMING_PARTIAL_APPEND];
+        const held = nextStateFields.streamingPartial as Record<string, unknown> | null | undefined;
+        if (typeof appended !== 'string' || !held || typeof held !== 'object' || typeof held.text !== 'string') {
+          return { ok: false };
+        }
+        if (nextStateFields === stateFields) nextStateFields = { ...stateFields };
+        nextStateFields.streamingPartial = { ...held, text: held.text + appended };
       }
 
       const tailPatch = record.__streamingTailPatch as StreamingTailPatch | undefined;

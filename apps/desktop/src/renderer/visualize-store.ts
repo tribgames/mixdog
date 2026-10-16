@@ -4,11 +4,7 @@
 // the app shell (which owns the pane docks).
 import { useSyncExternalStore } from 'react';
 
-import type {
-  DesktopVisualizeEvent,
-  VisualizeCommandResult,
-  VisualizeSessionState,
-} from '../shared/visualize';
+import type { DesktopVisualizeEvent, VisualizeCommandResult, VisualizeSessionState } from '../shared/visualize';
 import { requestBrowserPage } from './browser-page-request';
 
 type Listener = () => void;
@@ -300,7 +296,7 @@ export function visualizePanesStacked(bodyWidth: number, paneCount: number): boo
  *  buttons (beside ⋯, expand and close); the other toolbar toggles become
  *  ⋯ items so the tab strip keeps room for the active tab's label. */
 export const VISUALIZE_HEADER_FOLD_WIDTH = 520;
-const VISUALIZE_HEADER_PINNED: ReadonlySet<string> = new Set(['comment', 'tweaks']);
+const VISUALIZE_HEADER_PINNED: ReadonlySet<string> = new Set(['comment', 'tweaks', 'versions']);
 
 interface VisualizeHeaderAction {
   id: string;

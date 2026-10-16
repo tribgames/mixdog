@@ -23,6 +23,7 @@ const { createRoot } = await import('react-dom/client');
 const { skillMentionMatchAt } = await import('./use-composer-palettes.ts');
 const {
   appliedSkillsOf,
+  composerHighlightSegments,
   composerSkillCatalog,
   disabledMentionedSkills,
   filterSkillMentions,
@@ -87,7 +88,9 @@ test('reserved mention names are never palette rows or highlighted, but stay + c
   assert.deepEqual(filterSkillMentions(catalog.selectable, 'ho'), []);
   const isSkill = (name) => catalog.enabled.has(name);
   assert.deepEqual(
-    skillMentionSegments('$home $path $300 $release-notes', isSkill).filter((s) => s.skill).map((s) => s.skill),
+    skillMentionSegments('$home $path $300 $release-notes', isSkill)
+      .filter((s) => s.skill)
+      .map((s) => s.skill),
     ['release-notes']
   );
 });
@@ -174,6 +177,42 @@ test('highlight segments keep the text verbatim and mark only recognised names',
   assert.deepEqual(
     skillMentionSegments('', () => true),
     [{ text: '' }]
+  );
+});
+
+test('slash highlight: only a whole recognised leading /command is marked, text verbatim', () => {
+  const none = () => false;
+  const slash = (text) =>
+    composerHighlightSegments(text, none)
+      .filter((segment) => segment.slash)
+      .map((segment) => segment.text);
+  assert.deepEqual(slash('/btw hello'), ['/btw']);
+  assert.deepEqual(slash('/btw'), ['/btw']);
+  assert.deepEqual(slash('/btw\nsecond line'), ['/btw']);
+  assert.deepEqual(slash('  /new'), ['/new']);
+  assert.deepEqual(slash('/q'), ['/q']);
+  assert.deepEqual(slash('/bt'), []);
+  assert.deepEqual(slash('/foo x'), []);
+  assert.deepEqual(slash('/btwx hi'), []);
+  assert.deepEqual(slash('/'), []);
+  assert.deepEqual(slash('hello /btw'), []);
+  assert.deepEqual(slash('hello\n/btw'), []);
+  assert.deepEqual(slash('/btw 한글 입력'), ['/btw']);
+  for (const text of ['/btw hello', '  /new x', '/foo', '/btw $pptx', 'plain', '']) {
+    assert.equal(
+      composerHighlightSegments(text, none)
+        .map((segment) => segment.text)
+        .join(''),
+      text
+    );
+  }
+  assert.deepEqual(
+    composerHighlightSegments('/btw $pptx', (name) => name === 'pptx').map((s) => [s.text, !!s.slash, s.skill]),
+    [
+      ['/btw', true, undefined],
+      [' ', false, undefined],
+      ['$pptx', false, 'pptx'],
+    ]
   );
 });
 
@@ -330,6 +369,22 @@ test('composer: $ palette opens, filters, inserts; tokens highlight; off skills 
     assert.equal(document.querySelector('.composer-skill-highlight'), null);
     await act(async () => input.dispatchEvent(new window.CompositionEvent('compositionend', { bubbles: true })));
     assert.ok(input.classList.contains('has-skill-mentions'));
+
+    // A recognised leading /command takes the accent ink; the mirror text is identical.
+    const slashTokens = () =>
+      Array.from(document.querySelectorAll('.composer-skill-highlight .composer-slash-token'), (n) => n.textContent);
+    await type('/btw hello');
+    assert.deepEqual(slashTokens(), ['/btw']);
+    assert.equal(document.querySelector('.composer-skill-highlight').textContent.replace('\u200b', ''), input.value);
+    await type('/bt');
+    assert.equal(document.querySelector('.composer-skill-highlight'), null);
+    await type('/foo x');
+    assert.equal(document.querySelector('.composer-skill-highlight'), null);
+    await type('/btw 안녕');
+    await act(async () => input.dispatchEvent(new window.CompositionEvent('compositionstart', { bubbles: true })));
+    assert.equal(document.querySelector('.composer-skill-highlight'), null);
+    await act(async () => input.dispatchEvent(new window.CompositionEvent('compositionend', { bubbles: true })));
+    assert.deepEqual(slashTokens(), ['/btw']);
 
     // No custom skill on: one status line with an inline link to Settings › Skills.
     currentStatus = { skills: STATUS.skills.filter((skill) => skill.source === 'builtin') };

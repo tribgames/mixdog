@@ -67,7 +67,41 @@ test('a stall drains the reserve within the cushion ceiling plus slack', () => {
   pacer.push('y'.repeat(30), 0);
   play(pacer, FRAME, 1000);
   assert.equal(pacer.pending, 0);
-  assert.ok(PACER_CUSHION_MAX_MS <= 300);
+  assert.ok(PACER_CUSHION_MAX_MS <= 250);
+});
+
+test('a burst after an idle stall starts from one frame of credit, not the idle gap', () => {
+  const pacer = new TranscriptTextPacer();
+  pacer.push('warm up text', 0);
+  play(pacer, FRAME, 1000);
+  assert.equal(pacer.pending, 0);
+  // Idle: no frames while nothing is queued. A burst lands after the stall.
+  const burst = `${pacer.target} ${'가'.repeat(150)}`;
+  pacer.push(burst, 1900);
+  const before = pacer.shown;
+  pacer.tick(1900 + FRAME / 2);
+  // Credit for half a frame, not for the 100 ms frame cap (~118 here).
+  assert.ok(pacer.shown - before <= 12, `first frame after idle revealed ${pacer.shown - before}`);
+});
+
+test('partial-line input every 40 ms plays out at a few graphemes per frame', () => {
+  const pacer = new TranscriptTextPacer();
+  let text = '';
+  const growth = [];
+  let next = 0;
+  for (let now = 0; now < 4000; now += FRAME) {
+    if (now >= next) {
+      text += 'abcdefgh';
+      pacer.push(text, now);
+      next += 40;
+    }
+    const before = pacer.shown;
+    pacer.tick(now);
+    if (now > 500 && pacer.shown > before) growth.push(pacer.shown - before);
+  }
+  growth.sort((a, b) => a - b);
+  assert.ok(growth[Math.floor(growth.length * 0.95)] <= 5, `p95 ${growth[Math.floor(growth.length * 0.95)]}`);
+  assert.ok(pacer.cushionMs() <= 250);
 });
 
 test('a large backlog enters catch-up and leaves it once drained', () => {
@@ -145,4 +179,16 @@ test('the reveal cut never ends right after a markdown marker', () => {
     assert.ok(!/[`*_~[\]()<>#|\\!]/.test(text[at - 1] ?? ''), `cut ${cut} -> ${at}`);
   }
   assert.equal(cleanRevealCut(text, text.length), text.length);
+});
+
+test('a still-streaming reveal never ends inside a markdown marker, even at the received end', () => {
+  // Unfinished lines as they arrive mid-stream.
+  for (const received of ['say **bo', 'say **', 'call `', 'see [link](htt', 'see [', 'a | b |', 'x ~~']) {
+    const at = cleanRevealCut(received, received.length, true);
+    assert.ok(at <= received.length);
+    assert.ok(!/[`*_~[\]()<>#|\\!]/.test(received[at - 1] ?? ''), `${JSON.stringify(received)} -> ${at}`);
+  }
+  // Clean text ends where it was received; settled text is never cut.
+  assert.equal(cleanRevealCut('plain words', 11, true), 11);
+  assert.equal(cleanRevealCut('say **', 6), 6);
 });

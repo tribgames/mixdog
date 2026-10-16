@@ -212,6 +212,16 @@ export function resolveDesktopSlashCommand(rawName: string): DesktopSlashCommand
   return SLASH_COMMANDS.find((entry) => entry.name === token || entry.aliases?.includes(token));
 }
 
+/** The recognised `/name` token of a draft, by the executor's rule: the
+ *  trimmed draft begins with `/` and its first whitespace-delimited token
+ *  names a registry command or alias. Returns the token's range in `draft`. */
+export function recognisedSlashSpan(draft: string): { start: number; end: number } | null {
+  const match = /^\s*(\/(\S+))/.exec(draft);
+  if (!match || !resolveDesktopSlashCommand(match[2])) return null;
+  const start = match[0].length - match[1].length;
+  return { start, end: match[0].length };
+}
+
 // Discovery stays small; the full registry still accepts commands typed directly.
 const COMPOSER_SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   'new',

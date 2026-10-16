@@ -3,7 +3,7 @@ import type { DesktopSessionSummary, SessionSnapshot } from '../shared/contract'
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
 import { deleteSessionImagePreviews } from './image-preview-store';
-import type { NavigationSelection, WorkspaceTab } from './navigation';
+import type { NavigationSelection, WorkspaceSelection, WorkspaceTab } from './navigation';
 import { navigationKey } from './text-format';
 
 export function useAppSessionActions({
@@ -21,6 +21,8 @@ export function useAppSessionActions({
   applySnapshot,
   activateSelection,
   onSessionDeleted,
+  closeSessionTabs,
+  openSession,
   navigationEpoch,
   setRequestedSessionId,
 }: {
@@ -38,6 +40,10 @@ export function useAppSessionActions({
   applySnapshot(next: SessionSnapshot | null): void;
   activateSelection(selection: NavigationSelection, title: string, replaceKey?: string): void;
   onSessionDeleted(sessionId: string): void;
+  /** Closes every pane tab of the session; returns the neighbour tab to show
+   *  when the focused active tab was one of them. */
+  closeSessionTabs(sessionId: string): { selection: WorkspaceSelection; title: string } | null;
+  openSession(sessionId: string): void | Promise<void>;
   navigationEpoch: MutableRefObject<number>;
   setRequestedSessionId: Dispatch<SetStateAction<string>>;
 }) {
@@ -194,10 +200,22 @@ export function useAppSessionActions({
       setTabs((current) =>
         current.filter((tab) => !(tab.selection.kind === 'session' && tab.selection.id === sessionId))
       );
+      // Every pane tab of the session closes, whichever entry point deleted it.
+      const fallback = closeSessionTabs(sessionId);
       if (deletingCurrent && navigationEpoch.current === navigationToken) {
         navigationEpoch.current += 1;
-        activateSelection({ kind: 'new' }, t('New task'));
-        setRequestedSessionId('');
+        if (fallback?.selection.kind === 'session') {
+          void openSession(fallback.selection.id);
+        } else if (fallback?.selection.kind === 'new' || fallback?.selection.kind === 'project') {
+          activateSelection(fallback.selection, fallback.title);
+          setRequestedSessionId('');
+        } else if (fallback) {
+          // The pane already activated its neighbouring file/terminal/... tab.
+          setRequestedSessionId('');
+        } else {
+          activateSelection({ kind: 'new' }, t('New task'));
+          setRequestedSessionId('');
+        }
       }
       try {
         await refreshSessions();
@@ -210,9 +228,11 @@ export function useAppSessionActions({
     [
       activateSelection,
       applySnapshot,
+      closeSessionTabs,
       invalidateSessionListings,
       navigationEpoch,
       onSessionDeleted,
+      openSession,
       pendingDeletes,
       pendingRenames,
       refreshSessions,

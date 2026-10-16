@@ -36,7 +36,9 @@
 .visualize-tabs .dock-header-chip.is-active {
   flex: 0 0 auto;
   min-width: 96px;
-  max-width: 180px;
+  /* Never wider than the strip: a narrow panel ellipsizes the label and
+     keeps the chip's start and close button in view. */
+  max-width: min(180px, 100%);
 }
 .visualize-tabs .dock-header-chip .browser-tab-select {
   cursor: pointer;
@@ -153,95 +155,6 @@
 .visualize-problem-source,
 .visualize-problem-count {
   color: var(--mx-text-muted);
-}
-/* Version history: a compact stepper row under the tab strip. A kept version
-   on screen is read-only and tinted so it never passes for the live file. */
-/* The row's own width decides the layout (container query), not the window. */
-.visualize-version {
-  flex: 0 0 auto;
-  min-width: 0;
-  container: visualize-version / inline-size;
-  font-size: 11px;
-  line-height: 18px;
-  border-bottom: 1px solid var(--mx-border);
-  background: var(--mx-bg-base);
-}
-.visualize-version.is-snapshot {
-  background: color-mix(in srgb, var(--mx-warning, #e0a030) 14%, var(--mx-bg-base));
-}
-/* The read-only state: a full-width strip with its whole text, never a
-   squeezed pill. */
-.visualize-snapshot-strip {
-  padding: 2px 8px;
-  color: var(--mx-text-strong, inherit);
-  background: color-mix(in srgb, var(--mx-warning, #e0a030) 26%, transparent);
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.visualize-versionbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 4px;
-  min-width: 0;
-  padding: 2px 6px;
-}
-.visualize-version-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.visualize-version-action.is-primary {
-  border-color: var(--mx-border);
-}
-/* Narrow: stepper + Back to live on the first line, Compare/Restore on a
-   second line below. */
-@container visualize-version (max-width: 379px) {
-  .visualize-version-secondary {
-    order: 1;
-    flex: 1 0 100%;
-    justify-content: flex-end;
-  }
-}
-.visualize-version-step,
-.visualize-version-action {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 6px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  font: inherit;
-  color: inherit;
-  background: transparent;
-  cursor: pointer;
-}
-.visualize-version-step {
-  padding: 0 2px;
-}
-.visualize-version-step:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.visualize-version-step:not(:disabled):hover,
-.visualize-version-action:hover {
-  background: color-mix(in srgb, currentColor 10%, transparent);
-}
-.visualize-version-action[aria-pressed="true"] {
-  border-color: var(--mx-border);
-  background: color-mix(in srgb, currentColor 12%, transparent);
-}
-.visualize-version-count {
-  flex: 0 0 auto;
-  font-variant-numeric: tabular-nums;
-}
-.visualize-versionbar-spacer {
-  flex: 1 1 0;
-}
-.visualize-version-error {
-  padding: 0 8px 2px;
-  color: var(--mx-danger, #d9534f);
-  overflow-wrap: anywhere;
 }
 .visualize-pane-label.is-snapshot {
   background: color-mix(in srgb, var(--mx-warning, #e0a030) 14%, transparent);
@@ -370,40 +283,6 @@
 }
 .visualize-history-item.is-open .visualize-history-state {
   color: var(--mx-text-strong, inherit);
-}
-
-/* Export outcome: saved path (with Open) or the error. */
-.visualize-notice {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  font-size: 11px;
-  line-height: 18px;
-  border-bottom: 1px solid var(--mx-border);
-  background: var(--mx-bg-base);
-}
-.visualize-notice.is-error {
-  color: var(--mx-danger, #d9534f);
-}
-.visualize-notice-text {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.visualize-notice-dismiss {
-  flex: 0 0 auto;
-  display: inline-flex;
-  padding: 2px;
-  border: 0;
-  border-radius: 4px;
-  color: inherit;
-  background: transparent;
-  cursor: pointer;
-}
-.visualize-notice-dismiss:hover {
-  background: color-mix(in srgb, currentColor 10%, transparent);
 }
 
 /* Source view: read-only, line-numbered, highlighted. */

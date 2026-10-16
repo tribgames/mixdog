@@ -9,6 +9,7 @@ import { startImportJobStore } from '../import-job-store';
 import { requestSessionRead } from '../app-snapshot-views';
 import { createProjectActions } from '../app-project-actions';
 import { useAppSessionActions } from '../use-app-session-actions';
+import { closeSessionPaneTabs } from '../session-tab-cleanup';
 import { useAppSessionOpen } from '../app-shell-session-open';
 import { useAppSettingsRouter } from './use-app-settings-router';
 import type { AppWorkspaceShell } from './use-app-workspace-shell';
@@ -31,7 +32,10 @@ export function useAppSessionCommands(
     setExtensionsSection,
     focusedLeafIdRef,
     snapshot,
+    paneLeavesRef,
+    paneWorkspace,
   } = shell;
+  const closePaneTab = paneWorkspace.closeTabByKey;
   const { projects, refreshProjects } = projectCatalog;
   const { releaseDeletedSessionSurfaces } = sessionPaneSurfaces;
   const {
@@ -70,6 +74,11 @@ export function useAppSessionCommands(
       navigationEpoch.current += 1;
     },
   });
+  const closeSessionTabs = useCallback(
+    (sessionId: string) =>
+      closeSessionPaneTabs(sessionId, paneLeavesRef.current, focusedLeafIdRef.current, tabs, closePaneTab),
+    [paneLeavesRef, focusedLeafIdRef, tabs, closePaneTab]
+  );
   const { renameSession, archiveSession, favoriteSession, moveSessionToProject, deleteSession } = useAppSessionActions({
     sessions,
     setSessions,
@@ -85,6 +94,8 @@ export function useAppSessionCommands(
     applySnapshot,
     activateSelection,
     onSessionDeleted: releaseDeletedSessionSurfaces,
+    closeSessionTabs,
+    openSession: (sessionId) => openSessionRef.current(sessionId),
     navigationEpoch,
     setRequestedSessionId,
   });

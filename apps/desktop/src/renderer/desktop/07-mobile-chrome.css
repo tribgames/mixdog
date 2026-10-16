@@ -1036,12 +1036,20 @@ html[data-mixdog-mobile-tabs] .transcript::-webkit-scrollbar {
 html[data-mixdog-mobile-tabs] .pane-cell {
   touch-action: pan-y;
 }
-/* The jump chip keeps the desktop 28px ink disc; only its hit frame reaches
-   the 44dp tier, so it no longer reads as a bright plate over the prose. */
+/* The jump chip grows to a 36px disc on touch (28px read as too small to hit);
+   its hit frame still reaches the 44dp tier. */
+html[data-mixdog-mobile-tabs] .jump-to-latest {
+  width: 36px;
+  height: 36px;
+}
+html[data-mixdog-mobile-tabs] .jump-to-latest > svg {
+  width: 20px;
+  height: 20px;
+}
 html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   content: "";
   position: absolute;
-  inset: calc((var(--mx-touch-main) - 28px) / -2);
+  inset: calc((var(--mx-touch-main) - 36px) / -2);
 }
 /* Code/table surfaces keep vertical momentum while horizontal touch traverses
    pane tabs. Hide tracks that otherwise flash over the final line of content. */

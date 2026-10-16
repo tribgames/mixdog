@@ -10,12 +10,25 @@ import { FileDiff, GitBranch, GitFork, GitMerge, Trash2, TriangleAlert } from 'l
 import { type CSSProperties, useEffect, useId, useRef, useState } from 'react';
 
 import type { DesktopMergeWorkspaceResult, DesktopSessionWorkspace } from '../shared/contract';
-import { BranchMenuLayer, useBranchMenuActions, useBranchMenuData, useBranchMenuOverlay } from './branch-menu';
+import {
+  BranchMenuLayer,
+  clearBranchMenuCache,
+  useBranchMenuActions,
+  useBranchMenuData,
+  useBranchMenuOverlay,
+} from './branch-menu';
 import type { ComposerIslandFlash } from './ComposerIsland';
 import { t } from './i18n';
+import { ProgressSpinner } from './ProgressSpinner';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import type { SettingsConfirmation } from './settings/capability-data';
-import { branchMenuPosition, branchRows, invokeWorktree, worktreeFailure, worktreeFailureText } from './worktree-branch-model';
+import {
+  branchMenuPosition,
+  branchRows,
+  invokeWorktree,
+  worktreeFailure,
+  worktreeFailureText,
+} from './worktree-branch-model';
 
 /** The chip's vertical rule, but right-aligned to the segment: the island's
  *  branch segment ends the pill, so the menu grows leftward from its edge. */
@@ -32,6 +45,39 @@ function showsBranch(workspace: DesktopSessionWorkspace): boolean {
   return Boolean(
     workspace.branch || workspace.repoCommonDir || workspace.worktreeId || workspace.transition.state === 'recovery'
   );
+}
+
+/** The last workspace each session showed a branch for. Module-level, so the
+ *  island (remounted per session switch) names the branch on its first paint
+ *  instead of leaving the pill without it until the workspace is read again. */
+const lastShownWorkspaces = new Map<string, DesktopSessionWorkspace>();
+
+/** For tests: forgets every cached workspace and branch menu. */
+export function clearBranchSegmentCache(): void {
+  lastShownWorkspaces.clear();
+  clearBranchMenuCache();
+}
+
+function branchTooltip({
+  moving,
+  recovery,
+  worktree,
+  target,
+  detached,
+  branch,
+}: {
+  moving: boolean;
+  recovery: boolean;
+  worktree: boolean;
+  target: string;
+  detached: boolean;
+  branch: string;
+}): string {
+  if (moving) return t('Moving to the worktree…');
+  if (recovery) return t('Worktree missing');
+  if (worktree && target) return `${branch} · ${t('Branched from {{base}}', { base: target })}`;
+  if (detached) return `${t('Detached HEAD')} · ${branch}`;
+  return branch;
 }
 
 /** The short commit of a detached HEAD: the workspace's own, else git status'. */
@@ -93,26 +139,25 @@ export function BranchIslandSegment({
   // A session that never left its project folder publishes no workspace in
   // its snapshot: its branch menu's workspace stands in, re-read whenever
   // the session's work settles.
-  const { menu, notice, setNotice, load } = useBranchMenuData({
+  const { menu, loading, notice, setNotice, load } = useBranchMenuData({
     draft: false,
     projectPath,
     sessionId,
     intentKey: sessionId,
     refreshKey: String(locked),
-    eager: Boolean(sessionId) && !live,
+    // The snapshot's workspace names the branch from the first frame; the
+    // list is read when the menu opens. Only a snapshot without one reads it.
+    eager: Boolean(sessionId) && !(live && showsBranch(live)),
   });
   // While a move is pending or refused, the snapshot's workspace and the menu
-  // re-read can both be momentarily absent: the segment keeps the session's
-  // last shown workspace instead of leaving a gap in the pill.
-  const current = live ?? menu?.workspace ?? null;
-  const lastShown = useRef<{ sessionId: string; workspace: DesktopSessionWorkspace } | null>(null);
-  if (sessionId && current && showsBranch(current)) lastShown.current = { sessionId, workspace: current };
-  const workspace =
-    current && showsBranch(current)
-      ? current
-      : lastShown.current?.sessionId === sessionId
-        ? lastShown.current.workspace
-        : current;
+  // re-read can both be momentarily absent (and so can they right after a
+  // session switch): the segment keeps the session's last shown workspace
+  // instead of leaving a gap in the pill.
+  // A stub snapshot workspace (no branch, repository or worktree) stands aside
+  // for the menu's.
+  const current = live && showsBranch(live) ? live : (menu?.workspace ?? live ?? null);
+  if (sessionId && current && showsBranch(current)) lastShownWorkspaces.set(sessionId, current);
+  const workspace = current && showsBranch(current) ? current : (lastShownWorkspaces.get(sessionId) ?? current);
   const recovery = workspace?.transition.state === 'recovery';
   const worktree = Boolean(workspace?.worktreeId);
   const shown = Boolean(sessionId && workspace && showsBranch(workspace));
@@ -139,6 +184,11 @@ export function BranchIslandSegment({
     trigger,
     onOpenSession: (id) => onOpenSession?.(id),
   });
+
+  // A chosen switch (or a merge/removal) is under way: the pending mark shows
+  // at once; a move into a worktree also says so until the workspace switches.
+  const moving = Boolean(actions.pending?.move);
+  const pendingMark = Boolean(actions.pending) || running;
 
   if (!shown || !workspace) return null;
   const branch = workspace.branch || (worktree ? t('Worktree') : commit || 'HEAD');
@@ -253,9 +303,7 @@ export function BranchIslandSegment({
         close();
         setDialog({
           title: t('Remove this worktree?'),
-          description: t(
-            'The session returns to the project folder. Uncommitted or unmerged work blocks the removal.'
-          ),
+          description: t('The session returns to the project folder. Uncommitted or unmerged work blocks the removal.'),
           confirmLabel: t('Remove'),
           danger: true,
           onConfirm: remove,
@@ -286,13 +334,9 @@ export function BranchIslandSegment({
       })
     : undefined;
 
-  const tooltip = recovery
-    ? t('Worktree missing')
-    : worktree && target
-      ? `${branch} · ${t('Branched from {{base}}', { base: target })}`
-      : detached
-        ? `${t('Detached HEAD')} · ${branch}`
-        : branch;
+  // The segment never changes width while a move runs: the spinner replaces
+  // the icon and the move is named in the tooltip and to assistive tech.
+  const tooltip = branchTooltip({ moving, recovery, worktree, target, detached, branch });
 
   return (
     <>
@@ -305,10 +349,14 @@ export function BranchIslandSegment({
         className={`composer-island-seg composer-island-seg-branch${worktree ? ' composer-island-seg-worktree' : ''}${recovery ? ' composer-island-seg-warning' : ''}`}
         aria-haspopup="dialog"
         aria-expanded={visible}
+        aria-busy={pendingMark || undefined}
+        aria-label={moving ? `${branch} — ${tooltip}` : undefined}
         title={tooltip}
         onClick={toggle}
       >
-        {recovery ? (
+        {pendingMark ? (
+          <ProgressSpinner size={14} aria-hidden="true" />
+        ) : recovery ? (
           <TriangleAlert size={14} className="composer-island-seg-icon" aria-hidden="true" />
         ) : worktree ? (
           <GitFork size={14} className="composer-island-seg-icon" aria-hidden="true" />
@@ -316,20 +364,23 @@ export function BranchIslandSegment({
           <GitBranch size={14} className="composer-island-seg-icon" aria-hidden="true" />
         )}
         <span className="composer-island-seg-text">
-          {recovery ? (
-            t('Worktree missing')
-          ) : (
-            <>
-              {slash > 0 && <span className="composer-island-seg-prefix">{branch.slice(0, slash + 1)}</span>}
-              {branch.slice(slash + 1)}
-            </>
-          )}
+          <span className="composer-island-seg-label">
+            {recovery ? (
+              t('Worktree missing')
+            ) : (
+              <>
+                {slash > 0 && <span className="composer-island-seg-prefix">{branch.slice(0, slash + 1)}</span>}
+                {branch.slice(slash + 1)}
+              </>
+            )}
+          </span>
         </span>
         {!recovery && worktree && target && <span className="composer-island-seg-sub">{target}</span>}
       </button>
-      {menu && (
+      {(menu || loading) && (
         <BranchMenuLayer
           visible={visible}
+          loading={!menu}
           namingBranch={namingBranch}
           setNamingBranch={setNamingBranch}
           panelId={panelId}
@@ -340,11 +391,11 @@ export function BranchIslandSegment({
           setQuery={setQuery}
           notice={notice}
           setNotice={setNotice}
-          intent={Boolean(menu.pendingWorktree)}
+          intent={Boolean(menu?.pendingWorktree)}
           locked={locked}
-          base={menu.workspace.mergeTarget || menu.workspace.branch || ''}
-          rows={branchRows(menu, sessionId, query)}
-          worktreeBound={Boolean(menu.workspace.worktreeId)}
+          base={(menu?.workspace ?? workspace).mergeTarget || (menu?.workspace ?? workspace).branch || ''}
+          rows={menu ? branchRows(menu, sessionId, query) : []}
+          worktreeBound={Boolean((menu?.workspace ?? workspace).worktreeId)}
           worktreeActions={worktreeActions}
           actions={actions}
           close={close}

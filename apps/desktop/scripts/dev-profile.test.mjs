@@ -12,6 +12,7 @@ import {
   assertDebugPortAvailable,
   createIsolatedDevEnv,
   createPersistentDevEnv,
+  devRendererPortFor,
   persistentDevProfileDir,
 } from './dev-profile.mjs';
 
@@ -59,6 +60,8 @@ test('dev environment isolates every store and connection from the installed par
   assert.deepEqual((await readdir(profile)).sort(), ['bridges', 'data', 'home', 'runtime']);
   for (const key of [
     'MIXDOG_HOME',
+    'MIXDOG_CONFIG_DIR',
+    'MIXDOG_USER_DATA_BACKUP_ROOT',
     'MIXDOG_DATA_DIR',
     'MIXDOG_RUNTIME_ROOT',
     'MIXDOG_BRIDGE_DISCOVERY_DIR',
@@ -117,6 +120,16 @@ test('occupied debug port fails immediately rather than attaching to another app
   );
 });
 
+test('each debug port maps to its own fixed renderer port inside the valid range', () => {
+  assert.equal(devRendererPortFor(9342), 10342);
+  assert.equal(devRendererPortFor(9343), 10343);
+  assert.equal(devRendererPortFor(65535), 64535);
+  for (const port of [1, 9342, 64535, 64536, 65535]) {
+    const renderer = devRendererPortFor(port);
+    assert.ok(Number.isInteger(renderer) && renderer >= 1 && renderer <= 65535 && renderer !== port, String(port));
+  }
+});
+
 test('debug port validation rejects invalid ports and permits a released port', async () => {
   for (const port of [0, -1, 65536, NaN, 1.5]) {
     await assert.rejects(assertDebugPortAvailable(port), /integer from 1 to 65535/);
@@ -161,6 +174,7 @@ for (const preview of [false, true]) {
       assert.equal(env.ELECTRON_CLI_ARGS, undefined);
     }
     assert.equal(env.MIXDOG_DISABLE_PROJECT_MARKERS, '1');
+    assert.equal(env.MIXDOG_DEV_RENDERER_PORT, String(devRendererPortFor(port)));
     for (const directory of [
       env.MIXDOG_HOME,
       env.MIXDOG_DATA_DIR,

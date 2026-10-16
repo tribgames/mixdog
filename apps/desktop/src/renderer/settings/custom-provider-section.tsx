@@ -9,7 +9,7 @@ import { record, rows } from '../record-utils';
 import { useMobileBack } from '../mobile-back';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import { CustomModelEditor } from './custom-model-editor';
-import { errorMessage } from '../editor-pane-session-errors';
+import { errorMessageText } from '../ErrorNotice';
 
 export const CUSTOM_PROTOCOLS = [
   { value: 'openai-chat', label: 'OpenAI Chat Completions' },
@@ -59,11 +59,48 @@ function protocolLabel(value: unknown): string {
   return CUSTOM_PROTOCOLS.find((item) => item.value === value)?.label ?? String(value || '');
 }
 
+// The runtime's custom provider name limit (custom-provider-config.mjs MAX_NAME).
+export const CUSTOM_NAME_MAX = 200;
+
+const stripProviderTag = (raw: string): string => raw.replace(/^\[custom-provider\]\s*/, '').trim();
+
+// Strips the runtime's "[custom-provider]" tag, then maps the known failures to localized text.
+function friendlyMessage(raw: string): string {
+  const message = stripProviderTag(raw);
+  const timeout = /first byte timed out after (\d+)ms/i.exec(message);
+  const testTimeout = /timed out after (\d+)s\b/i.exec(message);
+  if (timeout || testTimeout) {
+    return t('The server did not respond: timed out after {{seconds}} seconds.', {
+      seconds: timeout ? String(Math.round(Number(timeout[1]) / 1000)) : String(testTimeout?.[1]),
+    });
+  }
+  if (/^(?:TypeError:\s*)?(?:custom provider )?name (?:is invalid|is required|must)/i.test(message)) {
+    return t('Enter a valid display name (at most {{max}} characters, no control characters).', {
+      max: String(CUSTOM_NAME_MAX),
+    });
+  }
+  const status = /\bmodels (\d{3})\b/.exec(message);
+  if (status) return t('The model list request failed (HTTP {{status}}).', { status: status[1] });
+  if (/^(?:Error:\s*)?(?:Connection error\.?|fetch failed|connect ECONNREFUSED.*)$/i.test(message)) {
+    return t('Could not connect to the server. Check the URL and that the server is running.');
+  }
+  return message;
+}
+
 function failure(reason: unknown): string {
-  return errorMessage(reason);
+  return friendlyMessage(errorMessageText(reason));
 }
 
 type Run = PanelContext['run'];
+
+function nameError(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return t('Enter a display name.');
+  if (trimmed.length > CUSTOM_NAME_MAX) {
+    return t('The display name must be at most {{max}} characters.', { max: String(CUSTOM_NAME_MAX) });
+  }
+  return '';
+}
 
 const API_KEY_ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const ENV_CHECK_DEBOUNCE_MS = 300;
@@ -82,15 +119,24 @@ function discoveryFailure(error: RecordValue): string {
       );
     case 'empty':
       return t('Automatic discovery returned no models. Add model IDs manually.');
-    default:
-      return t('Model discovery failed: {{message}}. Check your connection and retry.', {
-        message: String(error.message || ''),
-      });
+    default: {
+      const raw = String(error.message || '');
+      const friendly = friendlyMessage(raw);
+      // A recognized failure already reads as a full sentence.
+      if (friendly !== stripProviderTag(raw)) return friendly;
+      return t('Model discovery failed: {{message}}. Check your connection and retry.', { message: friendly });
+    }
   }
 }
 
 // Only these outcomes make manual entry the next step.
 const needsManualEntry = (error: RecordValue) => error.kind === 'unavailable' || error.kind === 'empty';
+
+/** The failure of a discovery answer; null when it listed models. */
+function discoveryOutcome(found: RecordValue, listed: CustomModel[]): RecordValue | null {
+  if (found.error) return record(found.error);
+  return listed.length ? null : { kind: 'empty' };
+}
 
 function CustomProviderForm({
   provider,
@@ -135,6 +181,7 @@ function CustomProviderForm({
   const [working, setWorking] = useState<'' | 'test' | 'save'>('');
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [saveError, setSaveError] = useState('');
+  const [nameProblem, setNameProblem] = useState('');
   const [models, setModels] = useState<CustomModel[]>(existing);
   const [manualOpen, setManualOpen] = useState(existing.length > 0);
   const [modelDraft, setModelDraft] = useState('');
@@ -213,8 +260,11 @@ function CustomProviderForm({
       const found = record(
         await run('discoverCustomProviderModels', [buildInput()], `custom-refresh-${uid}`, false, true, 'throw')
       );
-      setRows(customModels(found));
-      setDiscoveryError(found.error ? discoveryFailure(record(found.error)) : '');
+      const listed = customModels(found);
+      setRows(listed);
+      const error = discoveryOutcome(found, listed);
+      setDiscoveryError(error ? discoveryFailure(error) : '');
+      if (error && needsManualEntry(error)) setManualOpen(true);
     } catch (reason) {
       setDiscoveryError(failure(reason));
     } finally {
@@ -242,7 +292,7 @@ function CustomProviderForm({
     const found = record(
       await run('discoverCustomProviderModels', [input], `custom-discover-${uid}`, false, true, 'throw')
     );
-    const error = found.error ? record(found.error) : customModels(found).length ? null : { kind: 'empty' };
+    const error = discoveryOutcome(found, customModels(found));
     if (!error) return true;
     setSaveError(discoveryFailure(error));
     if (needsManualEntry(error)) setManualOpen(true);
@@ -276,6 +326,9 @@ function CustomProviderForm({
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
+    const problem = nameError(name);
+    setNameProblem(problem);
+    if (problem) return;
     setWorking('save');
     setSaveError('');
     try {
@@ -342,11 +395,20 @@ function CustomProviderForm({
             // biome-ignore lint/a11y/noAutofocus: the dialog's first field takes focus on open.
             autoFocus
             autoComplete="off"
+            maxLength={CUSTOM_NAME_MAX}
+            aria-invalid={nameProblem !== ''}
+            aria-describedby={nameProblem ? `${nameId}-error` : undefined}
             onChange={(event) => {
               setName(event.target.value);
+              setNameProblem('');
               setSaveError('');
             }}
           />
+          {nameProblem && (
+            <p id={`${nameId}-error`} className="settings-error" role="alert">
+              {nameProblem}
+            </p>
+          )}
           {/* biome-ignore lint/a11y/noLabelWithoutControl: labels the custom OpenSelect, which carries its own aria-label. */}
           <label>{t('API format')}</label>
           <OpenSelect

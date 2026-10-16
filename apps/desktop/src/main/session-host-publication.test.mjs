@@ -130,6 +130,52 @@ test('a crossed patch recovers by re-reading and does not publish an empty live 
   }
 });
 
+test('a partial append with no held line keeps the revision and reads a full baseline', async () => {
+  const fullReads = [];
+  const lane = owner({
+    async readSession(sessionId, forceFull) {
+      fullReads.push([sessionId, forceFull]);
+      return { sessionId, items: [], queued: [] };
+    },
+  });
+  const publication = new SessionHostPublication(lane);
+  const updates = [];
+  publication.subscribeSessionStates((update) => updates.push(update));
+  const previous = console.error;
+  console.error = () => {};
+  try {
+    publication.applySessionResult('lead', {
+      sessionId: 'lead',
+      revision: 4,
+      full: { sessionId: 'lead', items: [], queued: [] },
+    });
+    assert.equal(updates.length, 1);
+    const returned = publication.applySessionResult('lead', {
+      sessionId: 'lead',
+      revision: 5,
+      baseRevision: 4,
+      patch: { set: { fast: true }, partialAppend: { text: 'lost?' } },
+    });
+    assert.equal(returned.fast, undefined);
+    assert.equal(returned.streamingPartial, undefined);
+    assert.equal(publication.projections.get('lead').revision, 4);
+    assert.equal(updates.length, 1);
+    assert.deepEqual(fullReads, [['lead', true]]);
+    // The next revision-valid frame against 5 is a crossed baseline, not applied.
+    publication.handleSessionFrame({
+      type: 'session-state',
+      sessionId: 'lead',
+      revision: 6,
+      baseRevision: 5,
+      patch: { set: { fast: true } },
+    });
+    assert.equal(publication.projections.get('lead').revision, 4);
+    await Promise.resolve();
+  } finally {
+    console.error = previous;
+  }
+});
+
 test('control-session frames never publish and session-gone only clears that control id', () => {
   const lane = owner();
   lane.setControlSessionId('control');

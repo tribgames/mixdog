@@ -136,7 +136,7 @@ export class SessionHost implements DesktopService {
       controlSessionId: () => this.transport.controlSessionId,
       setControlSessionId: (sessionId) => this.transport.setControlSessionId(sessionId),
       visibleSessionIds: () => this.visibleSessionIds,
-      readSession: (sessionId) => this.transport.readSession(sessionId),
+      readSession: (sessionId, forceFull) => this.transport.readSession(sessionId, forceFull),
       snapshotWithShellJobs: (sessionId, snapshot) => this.snapshotWithShellJobs(sessionId, snapshot),
       trackShellJobsEngineState: (snapshot) => this.trackShellJobsEngineState(snapshot),
       onShellPublished: () => this.shellJobsPoller.onEngineEvent(),
@@ -257,6 +257,8 @@ export class SessionHost implements DesktopService {
     });
     host = new SessionHost(options, runtime, sessionClient);
     host.shellJobsPoller.start();
+    // Secure the receipts folder now, off the first submission's path.
+    void host.newTaskRequests.prepare();
     return host;
   }
 

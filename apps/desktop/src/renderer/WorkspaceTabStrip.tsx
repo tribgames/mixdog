@@ -316,7 +316,7 @@ function workspaceTabNode({
           autoFocus
           className="workspace-tab-title-input"
           value={rename.draft ?? ''}
-          maxLength={160}
+          maxLength={100}
           aria-label={t('Rename {{name}}', { name: tab.title })}
           onFocus={(event) => event.currentTarget.select()}
           onInput={(event) => rename.change(event.currentTarget.value)}
@@ -598,11 +598,16 @@ export function WorkspaceTabStrip({
       setTabMenu(null);
     };
     const closeMenu = () => setTabMenu(null);
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setTabMenu(null);
+    };
     document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape);
     window.addEventListener('resize', closeMenu);
     window.addEventListener('scroll', closeMenu, true);
     return () => {
       document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape);
       window.removeEventListener('resize', closeMenu);
       window.removeEventListener('scroll', closeMenu, true);
     };

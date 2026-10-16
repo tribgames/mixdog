@@ -19,7 +19,14 @@ import {
   startAgentPool,
   type IslandAgentRow,
 } from './agent-activity-model';
-import { backgroundJobRows, type JobKind, type JobRow, type ShellStopState } from './background-jobs-model';
+import {
+  backgroundJobRows,
+  EMPTY_SHELL_ROW_RETENTION,
+  retainVanishedShellRows,
+  type JobKind,
+  type JobRow,
+  type ShellStopState,
+} from './background-jobs-model';
 import { type IslandUsageSummary, islandUsageSummary, useIslandSessionUsage } from './island-session-usage';
 import { statsCount, statsPercent, statsTokens } from './usage-stats-model';
 import { usageMoney } from './usage-format';
@@ -335,7 +342,13 @@ function JobsPanelHead({ mark, title, onClose }: { mark: ReactNode; title: strin
         {mark}
         {title}
       </span>
-      <button type="button" className="composer-island-close" aria-label={t('Close')} title={t('Close')} onClick={onClose}>
+      <button
+        type="button"
+        className="composer-island-close"
+        aria-label={t('Close')}
+        title={t('Close')}
+        onClick={onClose}
+      >
         <MxIcon name="close-small" size={16} />
       </button>
     </div>
@@ -356,7 +369,12 @@ function AgentsSummary({ running, usage }: { running: number; usage: IslandUsage
         <span>
           {t('Island: Total tokens')} <b>{statsTokens(totalTokens)}</b>{' '}
           <span className="composer-island-summary-split">
-            ({t('Lead {{lead}} · Agents {{agents}}', { lead: statsTokens(leadTokens), agents: statsTokens(agentTokens) })})
+            (
+            {t('Lead {{lead}} · Agents {{agents}}', {
+              lead: statsTokens(leadTokens),
+              agents: statsTokens(agentTokens),
+            })}
+            )
           </span>
         </span>
       ) : null}
@@ -458,18 +476,33 @@ function ShellsPanel({
       />
       <ul className="composer-island-pbody composer-island-jobs">
         {shells.map((row) => (
-          <ShellJobItem
-            key={row.key}
-            row={row}
-            clock={clock}
-            stop={stopOf(row)}
-            onStop={stop}
-            onDismiss={onDismiss}
-          />
+          <ShellJobItem key={row.key} row={row} clock={clock} stop={stopOf(row)} onStop={stop} onDismiss={onDismiss} />
         ))}
       </ul>
     </section>
   );
+}
+
+/** The session's shell rows with a job kept (as running) in the gap between
+ *  the host dropping it from the running list and its finished record. */
+function useShellRowsUntilFinished(sessionId: string, hostRows: JobRow[]): JobRow[] {
+  const held = useRef({ sessionId, retention: EMPTY_SHELL_ROW_RETENTION });
+  const [tick, setTick] = useState(0);
+  // `tick` re-evaluates after the grace lapses.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tick is the clock input
+  const result = useMemo(() => {
+    if (held.current.sessionId !== sessionId) held.current = { sessionId, retention: EMPTY_SHELL_ROW_RETENTION };
+    const next = retainVanishedShellRows(held.current.retention, hostRows, Date.now());
+    held.current.retention = next.retention;
+    return next;
+  }, [sessionId, hostRows, tick]);
+  const { expiresAt } = result;
+  useEffect(() => {
+    if (!expiresAt) return undefined;
+    const timer = setTimeout(() => setTick((value) => value + 1), Math.max(0, expiresAt - Date.now()) + 1);
+    return () => clearTimeout(timer);
+  }, [expiresAt]);
+  return result.rows;
 }
 
 /** The session's agent rows, finished ones included; polls the shared pool
@@ -676,7 +709,8 @@ export function ComposerIsland({
   const lane = useSessionLane(sessionId, defaultSessionLaneStore, desktopHeaderSnapshotsEqual, Boolean(sessionId));
   const snapshot = lane ?? EMPTY_SNAPSHOT;
   const dismissedShells = useDismissedShellJobs(sessionId);
-  const jobRows = useMemo(() => backgroundJobRows(snapshot, dismissedShells), [snapshot, dismissedShells]);
+  const hostJobRows = useMemo(() => backgroundJobRows(snapshot, dismissedShells), [snapshot, dismissedShells]);
+  const jobRows = useShellRowsUntilFinished(sessionId, hostJobRows);
   const agentRows = useIslandAgentRows(sessionId);
   const shellRows = jobRows.filter((row) => !row.finished);
   const finishedShellCount = jobRows.filter((row) => row.finished).length;
@@ -782,11 +816,7 @@ export function ComposerIsland({
               )}
               {goal}
               {agentRows.length > 0 && (
-                <AgentsSegment
-                  agents={agentRows}
-                  expanded={expanded === 'agents'}
-                  onClick={() => toggle('agents')}
-                />
+                <AgentsSegment agents={agentRows} expanded={expanded === 'agents'} onClick={() => toggle('agents')} />
               )}
               <ShellsSegment
                 runningCount={shellCount}

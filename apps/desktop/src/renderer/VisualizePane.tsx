@@ -2,17 +2,7 @@
 // session. Main owns the tabs; this view draws the active one and reports the
 // user's tab picks and closes. Capture finds the tab body by its data
 // attributes, so they name the session and tab.
-import {
-  ChevronLeft,
-  ChevronRight,
-  Eye,
-  ListTree,
-  MessageSquarePlus,
-  SlidersHorizontal,
-  Wifi,
-  WifiOff,
-  X,
-} from 'lucide-react';
+import { Eye, ListTree, MessageSquarePlus, SlidersHorizontal, Wifi, WifiOff, X } from 'lucide-react';
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { DesktopApi } from '../shared/contract';
@@ -42,15 +32,10 @@ import {
   markVisualizePanelHidden,
   markVisualizePanelShown,
   reportVisualizeRender,
-  restoreVisualizeVersion,
-  showVisualizeVersion,
-  toggleVisualizeCompare,
   useVisualizeState,
   visualizeHeaderActions,
   visualizePanesStacked,
   visualizeTabTooltip,
-  visualizeVersionPosition,
-  visualizeVersionStep,
 } from './visualize-store';
 import './visualize.css';
 
@@ -207,103 +192,6 @@ function problemOrigin(tab: VisualizeTab, problem: NonNullable<VisualizeTab['pro
 function paneLabelText(tab: VisualizeTab, pane: VisualizePaneView): string {
   if (!tab.compare) return pane.label;
   return `${pane.version !== undefined ? `v${pane.version}` : t('Live')} · ${pane.label}`;
-}
-
-/** The active tab's version history: "◀ v2 / 3 ▶", Compare, and — while a
- *  kept version is shown (read-only, live reloads paused) — Restore and
- *  Back to live. Absent until the tab keeps two versions. */
-function VersionBar({ sessionId, tab }: { sessionId: string; tab: VisualizeTab }) {
-  const [error, setError] = useState('');
-  const position = visualizeVersionPosition(tab);
-  if (!position) return null;
-  const snapshot = tab.version ?? null;
-  const step = (direction: -1 | 1) => {
-    const next = visualizeVersionStep(tab, direction);
-    if (next === undefined) return;
-    // Comparing stays on: the newest version then sits beside live.
-    if (tab.compare) showVisualizeVersion(sessionId, tab.id, next ?? position.newest, true);
-    else showVisualizeVersion(sessionId, tab.id, next);
-  };
-  const restore = () => {
-    if (snapshot === null) return;
-    const files = [...new Set(tab.panes.filter((pane) => pane.version !== undefined).map((pane) => pane.target))].join(
-      ', '
-    );
-    // Kept page assets that changed since: other pages may share them.
-    const assets = tab.restoreAssets ?? [];
-    const message = assets.length
-      ? t('Restore v{{n}}? This overwrites {{files}} in the project, and also restores {{assets}}.', {
-          n: snapshot,
-          files,
-          assets: assets.join(', '),
-        })
-      : t('Restore v{{n}}? This overwrites {{files}} in the project.', { n: snapshot, files });
-    if (!window.confirm(message)) return;
-    setError('');
-    restoreVisualizeVersion(sessionId, tab.id, snapshot, assets).catch((reason: unknown) =>
-      setError(reason instanceof Error ? reason.message : String(reason))
-    );
-  };
-  // A sized container: below ~380px Compare/Restore wrap to a second line
-  // (visualize.css), the stepper and Back to live stay on the first.
-  return (
-    <div className={`visualize-version${snapshot !== null ? ' is-snapshot' : ''}`}>
-      {snapshot !== null ? (
-        <div className="visualize-snapshot-strip" role="status">
-          {t('Read-only snapshot')}
-        </div>
-      ) : null}
-      <div className="visualize-versionbar" role="toolbar" aria-label={t('Version history')}>
-        <button
-          type="button"
-          className="visualize-version-step"
-          aria-label={t('Previous version')}
-          data-tooltip={t('Previous version')}
-          disabled={visualizeVersionStep(tab, -1) === undefined}
-          onClick={() => step(-1)}
-        >
-          <ChevronLeft size={14} aria-hidden="true" />
-        </button>
-        <span className="visualize-version-count">{`v${position.shown} / ${position.newest}`}</span>
-        <button
-          type="button"
-          className="visualize-version-step"
-          aria-label={t('Next version')}
-          data-tooltip={t('Next version')}
-          disabled={visualizeVersionStep(tab, 1) === undefined}
-          onClick={() => step(1)}
-        >
-          <ChevronRight size={14} aria-hidden="true" />
-        </button>
-        <span className="visualize-versionbar-spacer" />
-        <span className="visualize-version-secondary">
-          <button
-            type="button"
-            className="visualize-version-action"
-            aria-pressed={tab.compare === true}
-            onClick={() => toggleVisualizeCompare(sessionId, tab)}
-          >
-            {t('Compare')}
-          </button>
-          {snapshot !== null && !tab.panes.some((pane) => pane.inline) ? (
-            <button type="button" className="visualize-version-action" onClick={restore}>
-              {t('Restore')}
-            </button>
-          ) : null}
-        </span>
-        {snapshot !== null ? (
-          <button
-            type="button"
-            className="visualize-version-action is-primary"
-            onClick={() => showVisualizeVersion(sessionId, tab.id, null)}
-          >
-            {t('Back to live')}
-          </button>
-        ) : null}
-      </div>
-      {error ? <div className="visualize-version-error">{error}</div> : null}
-    </div>
-  );
 }
 
 export function VisualizePane({ sessionId, active, onClose }: { sessionId: string; active: boolean; onClose(): void }) {
@@ -558,7 +446,6 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
         <VisualizeTweaksDrawer sessionId={sessionId} tab={tab} onHide={() => setTweaksOpen(false)} />
       ) : null}
       {extras.strips}
-      {tab ? <VersionBar sessionId={sessionId} tab={tab} /> : null}
       {tab && hasHtml && elementsOpen ? (
         <VisualizeElements
           tab={tab}

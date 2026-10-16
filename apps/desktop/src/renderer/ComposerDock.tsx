@@ -90,9 +90,7 @@ export function ComposerDock({
   // expires on its own: the dock outlives session switches and the island
   // remounts per session, so a kept notice would replay on every remount and
   // other sessions.
-  const [worktreeFlash, setWorktreeFlash] = useState<{ sessionId: string; flash: ComposerIslandFlash } | null>(
-    null
-  );
+  const [worktreeFlash, setWorktreeFlash] = useState<{ sessionId: string; flash: ComposerIslandFlash } | null>(null);
   useEffect(() => {
     if (!worktreeFlash) return undefined;
     const timer = window.setTimeout(() => setWorktreeFlash(null), WORKTREE_FLASH_MS);
@@ -148,11 +146,15 @@ export function ComposerDock({
     <span hidden data-entry-pending />
   );
 
+  // The route names a session whose first lane snapshot has not arrived
+  // (a reload, a session opening): no island yet, so it mounts once, whole
+  // (branch segment included), instead of empty and then growing.
+  const awaitingLane = Boolean(reviewSessionId) && !sessionId;
+
   return (
     <div className="composer-region">
-      {showProjectSelector ? (
-        <div className="composer-context-bar">{contextBar}</div>
-      ) : (
+      {showProjectSelector && <div className="composer-context-bar">{contextBar}</div>}
+      {!showProjectSelector && !awaitingLane && (
         // One island per session: a surviving slot carried the outgoing
         // session's height into the new one and animated toward it (with the
         // 1.5s collapse grace), shifting the end-pinned transcript by the

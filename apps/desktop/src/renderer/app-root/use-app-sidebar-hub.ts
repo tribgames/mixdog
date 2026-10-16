@@ -48,6 +48,7 @@ export interface UseAppSidebarHubOptions {
   bottomPanel: ReturnType<typeof useAppShellPanels>['bottomPanel'];
   focusedPaneDockOpen: boolean;
   paneSideDocks: ReturnType<typeof useAppSideDocks>['paneSideDocks'];
+  closePaneRightRegion: (leafId: string) => void;
   focusedLeafIdRef: React.MutableRefObject<string>;
   paneLeavesRef: React.MutableRefObject<PaneLeaf[]>;
 
@@ -107,6 +108,7 @@ export function useAppSidebarHub({
   bottomPanel,
   focusedPaneDockOpen,
   paneSideDocks,
+  closePaneRightRegion,
   focusedLeafIdRef,
   paneLeavesRef,
   settingsOpen,
@@ -176,9 +178,10 @@ export function useAppSidebarHub({
     bottomPanelOpen: bottomPanel.open,
     setBottomPanelOpen: bottomPanel.setOpen,
     focusedPaneDockOpen,
-    closeFocusedPaneDock: () => {
-      paneSideDocks.setOpen(focusedLeafIdRef.current, false);
-    },
+    // Fold the displayed unit (session surface included), as the dock's own
+    // close button does; a raw pane-entry fold would leave a session-owned
+    // visualize/browser/terminal/diff showing.
+    closeFocusedPaneDock: () => closePaneRightRegion(focusedLeafIdRef.current),
     settingsOpen,
     setSettingsOpen,
     commandSurface,

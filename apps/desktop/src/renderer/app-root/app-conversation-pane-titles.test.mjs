@@ -146,8 +146,17 @@ test('background session refresh preserves localized fallback and custom tab tit
   };
   const refreshSessions = async () => {};
   const setSessionCatalogReady = () => {};
+  const subscribeSessionsRemoved = () => () => {};
+  const closePaneTab = () => {};
   function Activity({ rows }) {
-    useAppSessionActivity({ sessions: rows, setTabs, refreshSessions, setSessionCatalogReady });
+    useAppSessionActivity({
+      sessions: rows,
+      setTabs,
+      refreshSessions,
+      setSessionCatalogReady,
+      subscribeSessionsRemoved,
+      closePaneTab,
+    });
     return null;
   }
   for (const rows of [sessions, [...sessions]]) {

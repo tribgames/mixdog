@@ -6,18 +6,26 @@
 // Desktop/Electron surfaces never register: the helper no-ops unless the
 // mobile-tabs marker is present.
 //
-// Browsers with CloseWatcher (Android Chrome) get one watcher per layer and
-// history is never touched: a pushState/back pair on every open and close
-// flashed the Android navigation bar white (user: 창을 열고 닫을 때 네비게이션
-// 바가 잠시 흰색으로 반전). Browsers without it keep one history sentinel per
-// layer.
+// Browsers with CloseWatcher (Android Chrome) get one watcher per layer opened
+// by a user gesture and history is never touched: a pushState/back pair on
+// every open and close flashed the Android navigation bar white (user: 창을
+// 열고 닫을 때 네비게이션 바가 잠시 흰색으로 반전). Browsers without it keep
+// one history sentinel per layer.
+//
+// A CloseWatcher created WITHOUT transient user activation (a layer the app
+// opens by itself, e.g. the agent's visualize panel) is not a back target of
+// its own: Chrome joins it to the previous watcher's group, so one back
+// closes both or the press falls through to leaving the page. Such layers use
+// the history sentinel instead. Back always closes the newest layer, so the
+// two mechanisms never coexist: the first activation-less layer converts the
+// open watcher layers to sentinels, and watchers return once the stack drains.
 import { useEffect, useRef } from 'react';
 import { nativeAppInfo } from '../shared/native-app';
 
 type CloseWatcherLike = { onclose: (() => void) | null; destroy(): void };
 type CloseWatcherConstructor = new () => CloseWatcherLike;
 
-type BackEntry = { close: () => void; armed: boolean };
+type BackEntry = { close: () => void; armed: boolean; watcher: CloseWatcherLike | null };
 
 const stack: BackEntry[] = [];
 // Sentinel removals we caused ourselves (UI-side close → history.back());
@@ -28,7 +36,7 @@ let armed = false;
 function armPendingEntries(): void {
   if (suppressedPops > 0) return;
   for (const entry of stack) {
-    if (entry.armed) continue;
+    if (entry.armed || entry.watcher) continue;
     entry.armed = true;
     history.pushState({ mixdogBack: stack.indexOf(entry) + 1 }, '');
   }
@@ -40,6 +48,8 @@ function onPopState(): void {
     armPendingEntries();
     return;
   }
+  // Watcher layers answer to their own close event, never to history.
+  if (stack[stack.length - 1]?.watcher) return;
   // Hardware back: the entry leaves the stack FIRST so the owner's cleanup
   // (unregister) sees it gone and does not pop history a second time.
   const top = stack.pop();
@@ -64,20 +74,25 @@ function closeWatcherConstructor(): CloseWatcherConstructor | null {
   return typeof ctor === 'function' ? ctor : null;
 }
 
+/** A CloseWatcher is a back target of its own only with transient user
+ *  activation (the click that opened the layer is still fresh when the layer's
+ *  effect runs). Browsers without the API cannot tell: assume activation. */
+function hasTransientActivation(): boolean {
+  const activation = (window.navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation;
+  return activation ? activation.isActive : true;
+}
+
 /** The browser keeps the watcher stack, so the newest layer is closed first.
  *  A UI-side close destroys the watcher without firing its close event. */
-function registerCloseWatcher(Watcher: CloseWatcherConstructor, close: () => void): () => void {
+function attachCloseWatcher(Watcher: CloseWatcherConstructor, entry: BackEntry): void {
   const watcher = new Watcher();
-  let open = true;
+  entry.watcher = watcher;
   watcher.onclose = () => {
-    if (!open) return;
-    open = false;
-    close();
-  };
-  return () => {
-    if (!open) return; // already consumed by the back button
-    open = false;
-    watcher.destroy();
+    if (entry.watcher !== watcher) return;
+    entry.watcher = null;
+    const index = stack.indexOf(entry);
+    if (index >= 0) stack.splice(index, 1);
+    entry.close();
   };
 }
 
@@ -85,21 +100,39 @@ function registerCloseWatcher(Watcher: CloseWatcherConstructor, close: () => voi
 export function registerMobileBack(close: () => void): () => void {
   if (!mobileBackSurface()) return () => {};
   const Watcher = closeWatcherConstructor();
-  if (Watcher) return registerCloseWatcher(Watcher, close);
-  if (!armed) {
-    armed = true;
-    window.addEventListener('popstate', onPopState);
+  const entry: BackEntry = { close, armed: false, watcher: null };
+  // While a self-close traversal is outstanding the new layer stays
+  // sentinel-backed: the echo arms it, and a watcher layer's cleanup would
+  // otherwise leave that sentinel behind in history.
+  if (Watcher && suppressedPops === 0 && stack.every((other) => other.watcher) && hasTransientActivation()) {
+    stack.push(entry);
+    attachCloseWatcher(Watcher, entry);
+  } else {
+    // Sentinel layer: older watcher layers below it become sentinels too, so
+    // the newest layer is always the one back closes.
+    for (const other of stack) {
+      other.watcher?.destroy();
+      other.watcher = null;
+    }
+    if (!armed) {
+      armed = true;
+      window.addEventListener('popstate', onPopState);
+    }
+    stack.push(entry);
+    // A self-close traversal is asynchronous. Pushing a new sentinel before its
+    // popstate echo arrives would let that old history.back() consume the new
+    // layer, so queue registrations until the echo has settled.
+    armPendingEntries();
   }
-  const entry: BackEntry = { close, armed: false };
-  stack.push(entry);
-  // A self-close traversal is asynchronous. Pushing a new sentinel before its
-  // popstate echo arrives would let that old history.back() consume the new
-  // layer, so queue registrations until the echo has settled.
-  armPendingEntries();
   return () => {
     const index = stack.indexOf(entry);
     if (index < 0) return; // already consumed by the back button
     stack.splice(index, 1);
+    if (entry.watcher) {
+      entry.watcher.destroy();
+      entry.watcher = null;
+      return;
+    }
     if (!entry.armed) return;
     entry.armed = false;
     // UI closed the layer itself: consume our sentinel quietly.

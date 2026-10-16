@@ -49,6 +49,10 @@ export interface DockAction {
   detail?: string;
   /** Menu only: a hairline above this item starts a new group. */
   separatorBefore?: boolean;
+  /** Inline only: the button opens this menu (same menu as ⋯) instead of
+   *  selecting; `label` names the button and the menu, `attention` tints it
+   *  and `detail` is its tooltip. */
+  submenu?: readonly DockAction[];
 }
 
 /** In-flow dock surfaces (file, diff, Changes) share the dock's expanded
@@ -125,7 +129,16 @@ function dockMenuItemRole(item: DockAction): 'menuitem' | 'menuitemradio' | 'men
   return item.checkbox ? 'menuitemcheckbox' : 'menuitemradio';
 }
 
-export function DockOverflowMenu({ items }: { items: readonly DockAction[] }) {
+export function DockOverflowMenu({
+  items,
+  opener,
+}: {
+  items: readonly DockAction[];
+  /** A dedicated header button (icon, name, tooltip) instead of ⋯. */
+  opener?: Pick<DockAction, 'icon' | 'label' | 'attention'> & { tooltip?: string };
+}) {
+  const TriggerGlyph = opener?.icon ?? MoreHorizontal;
+  const triggerLabel = opener?.label ?? t('More actions');
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<CSSProperties>({});
   const root = useRef<HTMLDivElement | null>(null);
@@ -228,8 +241,9 @@ export function DockOverflowMenu({ items }: { items: readonly DockAction[] }) {
         className="browser-pane-nav-button dock-header-more"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={t('More actions')}
-        data-tooltip={t('More actions')}
+        aria-label={triggerLabel}
+        data-attention={opener?.attention ? 'true' : undefined}
+        data-tooltip={opener?.tooltip ?? triggerLabel}
         onClick={() =>
           commitImmediateOverlay(() => {
             if (!open) place();
@@ -237,14 +251,14 @@ export function DockOverflowMenu({ items }: { items: readonly DockAction[] }) {
           })
         }
       >
-        <MoreHorizontal size={15} aria-hidden="true" />
-        {items.some((item) => item.attention || item.badge) ? (
+        <TriggerGlyph size={15} aria-hidden={true} />
+        {!opener && items.some((item) => item.attention || item.badge) ? (
           <span className="dock-header-more-dot" aria-hidden="true" />
         ) : null}
       </button>
       {open &&
         createPortal(
-          <div ref={menu} className="dock-header-menu" role="menu" aria-label={t('More actions')} style={placement}>
+          <div ref={menu} className="dock-header-menu" role="menu" aria-label={triggerLabel} style={placement}>
             {items.map((item) => {
               const Glyph = item.icon;
               let glyph: ReactNode = null;
@@ -335,6 +349,20 @@ export function DockHeaderRow({
         {inline.map((action) => {
           const Glyph = action.icon;
           const badgeText = action.badge && action.badge > 99 ? '99+' : action.badge;
+          if (action.submenu) {
+            return (
+              <DockOverflowMenu
+                key={action.id}
+                items={action.submenu}
+                opener={{
+                  icon: action.icon,
+                  label: action.label,
+                  attention: action.attention,
+                  tooltip: action.detail,
+                }}
+              />
+            );
+          }
           return (
             <button
               key={action.id}

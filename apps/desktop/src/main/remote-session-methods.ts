@@ -3,6 +3,7 @@
 import type { DesktopService } from './desktop-service-contract';
 import { REMOTE_ORIGINAL_MAX_BYTES, readAttachmentThumbnail } from './attachment-thumbnail';
 import { requiredSessionId } from './desktop-state';
+import { isSessionMissingError } from './session-final-answer';
 import {
   requiredAbortOptions,
   requiredModelSelection,
@@ -61,7 +62,13 @@ export function sessionRemoteMethods(
     setSessionProject: ([sessionId, projectPath]) => sidebar.setSessionProject(sessionId, projectPath),
     deleteSession: async ([sessionId]) => {
       const ownerSessionId = requiredSessionId(sessionId);
-      const snapshot = await host.deleteSession(ownerSessionId);
+      // A session that is already gone is a no-op, not an error for the UI.
+      let snapshot: unknown = null;
+      try {
+        snapshot = await host.deleteSession(ownerSessionId);
+      } catch (error) {
+        if (!isSessionMissingError(error)) throw error;
+      }
       // Session deletion remains authoritative when Browser Use is unavailable.
       if (browserRemote) await browserRemote('release', [ownerSessionId]).catch(() => undefined);
       return snapshot;

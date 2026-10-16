@@ -204,13 +204,24 @@
 .branch-menu-item[aria-disabled="true"]:not([data-mark="external"]) {
   opacity: var(--mx-op-disabled);
 }
-.branch-menu-item[data-selected][aria-disabled="true"] {
+.branch-menu-item[data-selected][aria-disabled="true"],
+.branch-menu-item[data-pending][aria-disabled="true"] {
   opacity: 1;
 }
-/* A worktree session's actions lead the menu (BranchIslandSegment). */
+.branch-menu-item > .progress-spinner-turn {
+  flex: 0 0 auto;
+  color: var(--mx-accent);
+}
+/* A worktree session's actions sit beside the trigger (BranchIslandSegment):
+   last when the menu opens upward, first when it opens downward. */
 .branch-menu-actions {
   display: flex;
   flex-direction: column;
+}
+.branch-menu-check {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--mx-accent);
 }
 .branch-menu-item[data-danger],
 .branch-menu-item[data-danger] > svg {

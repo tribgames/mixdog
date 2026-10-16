@@ -31,8 +31,9 @@ function createSessionStatePublisher(emit: (message: DesktopServiceOutbound) => 
   const post = (update: DesktopSessionStateUpdate): void => {
     const { sessionId, snapshot } = update;
     let encoder = encoders.get(sessionId);
-    // Main decodes with this same build, so older-history pages travel as prepends.
-    if (!encoder) encoder = createSnapshotDeltaEncoder({ prepend: true });
+    // Main decodes with this same build, so older-history pages travel as
+    // prepends and a growing unfinished line as its new text.
+    if (!encoder) encoder = createSnapshotDeltaEncoder({ prepend: true, partialAppend: true });
     if (snapshot === null) {
       emit({
         kind: 'session-state',

@@ -70,6 +70,6 @@ test('a second launch during the teardown relaunches once instead of reviving th
   );
 });
 
-test('the in-tree daemon stop wait stays short: a measured healthy shutdown is ~0.6 s', () => {
-  assert.ok(DESKTOP_DAEMON_STOP_TIMEOUT_MS >= 1_000 && DESKTOP_DAEMON_STOP_TIMEOUT_MS <= 3_000);
+test('the in-tree daemon stop wait stays bounded: a measured healthy shutdown is ~0.6 s', () => {
+  assert.ok(DESKTOP_DAEMON_STOP_TIMEOUT_MS >= 1_000 && DESKTOP_DAEMON_STOP_TIMEOUT_MS <= 5_000);
 });

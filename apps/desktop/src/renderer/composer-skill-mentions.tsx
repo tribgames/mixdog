@@ -17,6 +17,7 @@ import { CapabilityIcon } from './CapabilityIcon';
 import { selectableComposerSkills, skillAvailable, skillTitle, type ComposerSkill } from './composer-skill';
 import { t } from './i18n';
 import { subscribeSetupChanges } from './setup-change-refresh';
+import { recognisedSlashSpan } from './slash-commands';
 import {
   isReservedMentionName,
   mentionedSkillNames,
@@ -257,18 +258,36 @@ export function skillMentionSegments(text: string, isSkill: (name: string) => bo
   return segments;
 }
 
+export type ComposerHighlightSegment = SkillMentionSegment & { slash?: boolean };
+
+/** `text` split into plain runs, recognised `$name` tokens and a recognised
+ *  leading `/command` (colour only; never changes the text). */
+export function composerHighlightSegments(
+  text: string,
+  isSkill: (name: string) => boolean
+): ComposerHighlightSegment[] {
+  const span = recognisedSlashSpan(text);
+  if (!span) return skillMentionSegments(text, isSkill);
+  const segments: ComposerHighlightSegment[] = [];
+  if (span.start > 0) segments.push({ text: text.slice(0, span.start) });
+  segments.push({ text: text.slice(span.start, span.end), slash: true });
+  const rest = text.slice(span.end);
+  if (rest) segments.push(...skillMentionSegments(rest, isSkill));
+  return segments;
+}
+
 /** Mentioned skills that exist but are switched off, in first-mention order. */
 export function disabledMentionedSkills(text: string, catalog: ComposerSkillCatalog): string[] {
   return mentionedSkillNames(text, (name) => catalog.disabled.has(name));
 }
 
-export function SkillMentionText({ text, isSkill }: { text: string; isSkill: (name: string) => boolean }) {
+function HighlightSegments({ segments }: { segments: ComposerHighlightSegment[] }) {
   return (
     <>
-      {skillMentionSegments(text, isSkill).map((segment, index) =>
-        segment.skill ? (
+      {segments.map((segment, index) =>
+        segment.skill || segment.slash ? (
           // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional runs of one string
-          <span key={index} className="skill-mention-token">
+          <span key={index} className={segment.slash ? 'composer-slash-token' : 'skill-mention-token'}>
             {segment.text}
           </span>
         ) : (
@@ -278,6 +297,10 @@ export function SkillMentionText({ text, isSkill }: { text: string; isSkill: (na
       )}
     </>
   );
+}
+
+export function SkillMentionText({ text, isSkill }: { text: string; isSkill: (name: string) => boolean }) {
+  return <HighlightSegments segments={skillMentionSegments(text, isSkill)} />;
 }
 
 // Everything that decides where a glyph lands inside the textarea. The layer
@@ -365,7 +388,8 @@ export function useComposerSkillHighlight({
       element.removeEventListener('compositionend', end);
     };
   }, [textarea]);
-  const recognised = useMemo(() => skillMentions(text, isSkill).length > 0, [text, isSkill]);
+  const segments = useMemo(() => composerHighlightSegments(text, isSkill), [text, isSkill]);
+  const recognised = segments.some((segment) => segment.skill || segment.slash);
   const active = !disabled && !composing && recognised;
   // Every commit can move the box (autosize, scrollbar), so re-mirror on each.
   useLayoutEffect(() => {
@@ -391,7 +415,7 @@ export function useComposerSkillHighlight({
   }, [active, textarea]);
   const layer = active ? (
     <div ref={layerRef} className="composer-skill-highlight" aria-hidden="true">
-      <SkillMentionText text={text} isSkill={isSkill} />
+      <HighlightSegments segments={segments} />
       {/* A trailing newline still owns a line in the textarea. */}
       {'\u200b'}
     </div>

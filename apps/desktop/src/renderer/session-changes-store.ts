@@ -172,8 +172,15 @@ function changesKey({ cwd, source, sessionId }: ChangesTarget): string {
   return `${cwdRoots.get(cwd) || cwd}\0${source}`;
 }
 
+/** Entries whose cwd was just switched to: what they hold was read for an
+ *  earlier workspace of the session, so it is not shown until a read of the
+ *  new cwd lands (a merge returning to the project folder must not flash the
+ *  worktree's — or the folder's old — counts). */
+const staleKeys = new Set<string>();
+
 function readEntry(target: ChangesTarget): ChangesEntry | undefined {
-  return entries.get(changesKey(target));
+  const key = changesKey(target);
+  return staleKeys.has(key) ? undefined : entries.get(key);
 }
 
 function subscribeEntries(listener: () => void) {
@@ -213,7 +220,9 @@ function gitStatusRows(files: DesktopGitFile[], staged: boolean): ChangesRead['r
   const listed = files.flatMap((file) => {
     if (staged) {
       if (file.untracked || file.index === ' ' || file.index === '?') return [];
-      return [{ path: file.path, status: file.index, additions: file.stagedAdditions, deletions: file.stagedDeletions }];
+      return [
+        { path: file.path, status: file.index, additions: file.stagedAdditions, deletions: file.stagedDeletions },
+      ];
     }
     if (!file.untracked && file.worktree === ' ') return [];
     return [
@@ -340,9 +349,10 @@ function adopt(target: ChangesTarget, read: ChangesRead, mode: LoadMode): void {
   if (read.root && target.source !== 'last-turn') cwdRoots.set(target.cwd, read.root);
   const key = changesKey(target);
   const previous = entries.get(key);
+  const wasStale = staleKeys.delete(key);
   const changed = !previous || rowsSignature(previous) !== rowsSignature(read);
   // A safety pass that found nothing new keeps the shown entry (no render).
-  if (!changed && mode === 'safety' && !previous.loading && !previous.error) return;
+  if (!changed && mode === 'safety' && !wasStale && !previous.loading && !previous.error) return;
   publish(key, {
     ...read,
     rows: keepRows(previous?.rows, read.rows),
@@ -372,7 +382,8 @@ function loadChanges(target: ChangesTarget, mode: LoadMode): Promise<boolean> {
       return true;
     },
     (reason: unknown) => {
-      const previous = entries.get(key);
+      // A failed read of a switched cwd must not bring back the old cwd's rows.
+      const previous = staleKeys.delete(key) ? undefined : entries.get(key);
       publish(key, {
         ...(previous ?? { ...NO_REPOSITORY, repository: null, generation: 0, patchEpoch: 0, evidenceEpoch: 0 }),
         loading: false,
@@ -627,7 +638,9 @@ type BatchFile = { cacheKey: string; stamp: string; path: string; untracked: boo
  *  the batch could not serve (`omitted`) is read on its own. */
 function requestPatchBatch(
   files: readonly BatchFile[],
-  read: (files: { path: string; untracked: boolean }[]) => Promise<{ patches: readonly { path: string; patch: string }[]; omitted: readonly string[] }>,
+  read: (
+    files: { path: string; untracked: boolean }[]
+  ) => Promise<{ patches: readonly { path: string; patch: string }[]; omitted: readonly string[] }>,
   readOne: (file: BatchFile) => Promise<SessionDiffFilePatch>
 ): void {
   const claimed = files.flatMap((file) => {
@@ -867,6 +880,13 @@ export function useSessionChanges({
   const project = String(cwd || '');
   const session = String(sessionId || '');
   const target = useMemo(() => ({ cwd: project, source, sessionId: session }), [project, source, session]);
+  // The workspace moved (a merge or removal back to the project folder): the
+  // new cwd's cached counts predate the move, so none render until it is read.
+  const seenCwd = useRef(project);
+  if (seenCwd.current !== project) {
+    if (seenCwd.current && project) staleKeys.add(changesKey(target));
+    seenCwd.current = project;
+  }
   const entry = useSyncExternalStore(subscribeEntries, () => (project ? readEntry(target) : undefined));
   // A project folder is a Git candidate until a read answers otherwise.
   const git = Boolean(project) && entry?.repository !== false;

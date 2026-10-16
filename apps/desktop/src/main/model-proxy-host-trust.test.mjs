@@ -17,7 +17,9 @@ const { createModelProxyHost, MODEL_PROXY_CALLBACKS, withoutAttachmentReferences
 const { MODEL_PROXY_REQUEST_EVENT, ModelProxyChannel, encodeModelProxyWire } = await import(
   '../../../../src/runtime/agent/orchestrator/providers/model-proxy-channel.mjs'
 );
-const { ModelProxyProvider } = await import('../../../../src/runtime/agent/orchestrator/providers/model-proxy-provider.mjs');
+const { ModelProxyProvider } = await import(
+  '../../../../src/runtime/agent/orchestrator/providers/model-proxy-provider.mjs'
+);
 const { readAttachmentBase64, storeInlineImagePart } = await import('../../../../src/runtime/attachments/store.mjs');
 
 function connect(t, runtime, { channel = new ModelProxyChannel(), ...hostOptions } = {}) {
@@ -92,7 +94,10 @@ test('a stored-attachment reference from a server never reads this PC’s attach
           content: [
             { type: 'text', text: 'what is this?' },
             { type: 'image', attachmentRef: stored.attachmentRef, mimeType: 'image/png' },
-            { type: 'tool_result', content: [{ type: 'file', attachmentRef: stored.attachmentRef, filename: 'C:\\x\\a.pdf' }] },
+            {
+              type: 'tool_result',
+              content: [{ type: 'file', attachmentRef: stored.attachmentRef, filename: 'C:\\x\\a.pdf' }],
+            },
           ],
         },
       ],
@@ -169,7 +174,9 @@ test('payloads past the aggregate in-flight limit are refused, and so are oversi
   const hanging = {
     send(_messages, _model, _tools, options) {
       started.resolve();
-      return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason)));
+      return new Promise((_resolve, reject) =>
+        options.signal.addEventListener('abort', () => reject(options.signal.reason))
+      );
     },
   };
   const { channel } = connect(t, fakeRuntime({ openai: hanging }), { maxInflightBytes: 3_000 });
@@ -187,7 +194,13 @@ test('payloads past the aggregate in-flight limit are refused, and so are oversi
     invoke: async (operation, args) => {
       if (operation === 'modelProxyClaim') {
         return {
-          payload: encodeModelProxyWire({ provider: 'openai', method: 'send', messages: [], options: {}, callbacks: ['onTextDelta'] }),
+          payload: encodeModelProxyWire({
+            provider: 'openai',
+            method: 'send',
+            messages: [],
+            options: {},
+            callbacks: ['onTextDelta'],
+          }),
         };
       }
       if (operation === 'modelProxyEvent') return { results: 'x'.repeat(2 * 1024 * 1024) };
@@ -199,7 +212,9 @@ test('payloads past the aggregate in-flight limit are refused, and so are oversi
         openai: {
           send(_messages, _model, _tools, options) {
             options.onTextDelta('hi');
-            return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason)));
+            return new Promise((_resolve, reject) =>
+              options.signal.addEventListener('abort', () => reject(options.signal.reason))
+            );
           },
         },
       }),
@@ -237,7 +252,9 @@ test('a call running past the maximum duration is stopped with its own code', as
   const limits = [];
   const hanging = {
     send(_messages, _model, _tools, options) {
-      return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new Error('aborted'))));
+      return new Promise((_resolve, reject) =>
+        options.signal.addEventListener('abort', () => reject(new Error('aborted')))
+      );
     },
   };
   const { channel, host } = connect(t, fakeRuntime({ openai: hanging }), {
@@ -266,12 +283,22 @@ test('callbacks reach the server only allowlisted and projected; account ids sta
         userEmail: 'me@pc',
       });
       options.onStreamDelta('x'.repeat(200));
+      await options.onToolExcluded({
+        name: 'bad_tool',
+        index: 3,
+        pointer: '/properties/x/type',
+        reason: 'invalid type',
+        message: 'gemini tool "bad_tool" excluded; key sk-abcdefghijklmnopqrstuv',
+        accountId: 'pc-acct-42',
+        schema: { type: 'bogus' },
+      });
       return { content: 'ok' };
     },
   };
   const { channel } = connect(t, fakeRuntime({ openai: provider }));
   const stages = [];
   const deltas = [];
+  const excluded = [];
   await within(
     new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {
       onStageChange: (stage, detail) => {
@@ -279,6 +306,9 @@ test('callbacks reach the server only allowlisted and projected; account ids sta
       },
       onStreamDelta: (kind) => {
         deltas.push(kind);
+      },
+      onToolExcluded: (info) => {
+        excluded.push(info);
       },
       onSecretHook: () => assert.fail('never bridged'),
     })
@@ -288,11 +318,22 @@ test('callbacks reach the server only allowlisted and projected; account ids sta
     ['reconnecting', { attempt: 2, max: 3, message: 'retry with key [redacted]' }],
   ]);
   assert.deepEqual(deltas, ['x'.repeat(64)]);
+  // Scalars only, secrets redacted, identifying keys and nested values dropped.
+  assert.deepEqual(excluded, [
+    {
+      name: 'bad_tool',
+      index: 3,
+      pointer: '/properties/x/type',
+      reason: 'invalid type',
+      message: 'gemini tool "bad_tool" excluded; key [redacted]',
+    },
+  ]);
   assert.deepEqual([...MODEL_PROXY_CALLBACKS.keys()].sort(), [
     'onStageChange',
     'onStreamDelta',
     'onTextDelta',
     'onTextReset',
     'onToolCall',
+    'onToolExcluded',
   ]);
 });

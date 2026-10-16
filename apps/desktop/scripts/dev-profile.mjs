@@ -20,6 +20,13 @@ export function persistentDevProfileDir(name = 'default', parent = process.env) 
   return join(root, name);
 }
 
+// The renderer origin includes the Vite port, and localStorage (pane layout,
+// caches) is per origin. Each profile's --port fixes its renderer port, which
+// electron.vite.config.ts binds with strictPort.
+export function devRendererPortFor(debugPort) {
+  return debugPort <= 64535 ? debugPort + 1000 : debugPort - 1000;
+}
+
 export async function assertDebugPortAvailable(port) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error('Debug port must be an integer from 1 to 65535.');
@@ -61,6 +68,10 @@ async function isolatedEnvFor(profile, parent) {
   Object.assign(env, {
     MIXDOG_DESKTOP_USER_DATA: profile,
     MIXDOG_HOME: join(profile, 'home'),
+    // Stores that default to ~/.mixdog without reading MIXDOG_HOME, and the
+    // user-data backups, stay inside the profile too.
+    MIXDOG_CONFIG_DIR: join(profile, 'home'),
+    MIXDOG_USER_DATA_BACKUP_ROOT: join(profile, 'home', 'backups', 'user-data'),
     MIXDOG_DATA_DIR: join(profile, 'data'),
     MIXDOG_RUNTIME_ROOT: join(profile, 'runtime'),
     MIXDOG_BRIDGE_DISCOVERY_DIR: join(profile, 'bridges'),
@@ -113,6 +124,7 @@ async function main() {
   await assertDebugPortAvailable(port);
   const env = profile ? await createPersistentDevEnv(process.env, profile) : await createIsolatedDevEnv();
   if (values['relay-url']) env.MIXDOG_RELAY_URL = values['relay-url'];
+  env.MIXDOG_DEV_RENDERER_PORT = String(devRendererPortFor(port));
   // electron-vite's preview CLI has no --remoteDebuggingPort option. Supply
   // only our own Electron args after stripping any inherited app overrides.
   if (values.preview) {
@@ -124,6 +136,7 @@ async function main() {
   }
   console.log(`${profile ? 'Dev profile (kept)' : 'Test profile (fresh)'}: ${env.MIXDOG_DESKTOP_USER_DATA}`);
   console.log(`Test debug port: ${port}`);
+  if (!values.preview) console.log(`Renderer dev server port: ${env.MIXDOG_DEV_RENDERER_PORT}`);
   await buildComputerBackend();
   // Never remove a profile here: a kept profile is the user's dev workspace,
   // and a fresh one is retained for diagnosis while Electron or an isolated

@@ -101,7 +101,12 @@ test('switching the source reads that source: review, index, worktree and the la
   const view = mount(t, {
     gitReview: async (cwd, source) => {
       calls.push(['review', source]);
-      return { repository: true, root: 'C:/switch', base: source === 'branch' ? 'origin/main' : 'HEAD', files: [reviewFile(`${source}.ts`)] };
+      return {
+        repository: true,
+        root: 'C:/switch',
+        base: source === 'branch' ? 'origin/main' : 'HEAD',
+        files: [reviewFile(`${source}.ts`)],
+      };
     },
     gitStatus: async (cwd, options) => {
       calls.push(['status', options?.skipLineStats ? 'skip' : 'lines']);
@@ -127,7 +132,10 @@ test('switching the source reads that source: review, index, worktree and the la
   assert.deepEqual(calls, [['review', 'uncommitted']]);
   assert.equal(states.a.repository, true);
   assert.equal(states.a.base, 'HEAD');
-  assert.deepEqual(states.a.rows.map((row) => row.path), ['uncommitted.ts']);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['uncommitted.ts']
+  );
 
   calls.length = 0;
   await act(async () => states.a.setSource('branch'));
@@ -164,7 +172,10 @@ test('switching the source reads that source: review, index, worktree and the la
     ['status', 'skip'],
     ['capability', 'getTurnReviewDiff', 's1'],
   ]);
-  assert.deepEqual(states.a.rows.map((row) => row.path), ['turn.ts']);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['turn.ts']
+  );
   assert.equal(states.a.summary.additions, 4);
 });
 
@@ -204,6 +215,58 @@ test('the chip and the pane share one single-flight read per (root, source)', as
   assert.equal(states.chip.loading, false);
 });
 
+test('a cwd switch never renders the counts cached before the move, only the new read', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  let projectFiles = [reviewFile('old.ts', 7, 3)];
+  let gate = null;
+  const view = mount(t, {
+    gitReview: async (cwd) => {
+      if (cwd === 'C:/merge/wt') {
+        return { repository: true, root: 'C:/merge/wt', base: 'HEAD', files: [reviewFile('wt.ts', 2)] };
+      }
+      await gate?.promise;
+      return { repository: true, root: 'C:/merge/project', base: 'HEAD', files: projectFiles };
+    },
+  });
+  const states = {};
+  const Probe = probes(states);
+  const render = (cwd) =>
+    act(async () => view.root.render(h(Probe, { name: 'a', cwd, sessionId: 's-merge', active: true })));
+  await render('C:/merge/project');
+  await view.settle(200);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['old.ts']
+  );
+  await render('C:/merge/wt');
+  await view.settle(200);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['wt.ts']
+  );
+  // The merge returns the session to the project folder, whose files changed
+  // meanwhile: the folder's earlier counts must not flash before its new read.
+  projectFiles = [];
+  gate = Promise.withResolvers();
+  await render('C:/merge/project');
+  assert.deepEqual(states.a.rows, [], 'no stale rows while the new read runs');
+  assert.equal(states.a.summary.files.size, 0);
+  await view.settle(200);
+  assert.deepEqual(states.a.rows, []);
+  gate.resolve();
+  await view.settle(200);
+  assert.deepEqual(states.a.rows, []);
+  assert.equal(states.a.loading, false);
+  // The same cwd re-rendered later keeps what it read.
+  projectFiles = [reviewFile('new.ts', 1)];
+  await act(async () => states.a.refresh(true));
+  await view.settle(200);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['new.ts']
+  );
+});
+
 test('only Git evidence refreshes: no reads on render, git-changed re-reads at the dock cadence, hidden pauses', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   let files = [reviewFile('a.ts')];
@@ -235,7 +298,10 @@ test('only Git evidence refreshes: no reads on render, git-changed re-reads at t
   assert.equal(reads, 1, 'bursts debounce');
   await view.settle(10);
   assert.equal(reads, 2);
-  assert.deepEqual(states.a.rows.map((row) => row.path), ['a.ts', 'b.ts']);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['a.ts', 'b.ts']
+  );
   // Hidden: no evidence-driven or safety read.
   await act(async () => {
     visibility = 'hidden';
@@ -312,7 +378,9 @@ test('staged and unstaged count lines afresh on evidence and refresh; only the s
 /** A Git tree of `count` files (+2 −1 each) served by the batch IPC, with the
  *  per-file read only for paths the batch omits. */
 function mountTree(t, root, count, { omit = () => false, patchOf: patchFor } = {}) {
-  const files = Array.from({ length: count }, (_, index) => reviewFile(`src/f${String(index).padStart(3, '0')}.ts`, 2, 1));
+  const files = Array.from({ length: count }, (_, index) =>
+    reviewFile(`src/f${String(index).padStart(3, '0')}.ts`, 2, 1)
+  );
   /** Per-path added text (default 'new'): content that moves without the counts. */
   const text = new Map();
   const patchOf =
@@ -345,7 +413,12 @@ function mountTree(t, root, count, { omit = () => false, patchOf: patchFor } = {
   const state = { renders: 0, drawn: [], capped: false };
   function Pane({ selectedId = '' }) {
     const changes = useSessionChanges({ cwd: root, sessionId: root, active: true });
-    const { withPatch, capped } = useSessionChangePatches({ cwd: root, sessionId: root, rows: changes.rows, selectedId });
+    const { withPatch, capped } = useSessionChangePatches({
+      cwd: root,
+      sessionId: root,
+      rows: changes.rows,
+      selectedId,
+    });
     state.renders += 1;
     state.capped = capped;
     state.drawn = changes.rows.map(withPatch);
@@ -433,7 +506,12 @@ test('staged and unstaged carry no revision: Git evidence re-reads the drawn fil
   let drawn = [];
   function Pane() {
     const changes = useSessionChanges({ cwd: 'C:/index', sessionId: 'index', active: true });
-    const { withPatch } = useSessionChangePatches({ cwd: 'C:/index', sessionId: 'index', rows: changes.rows, selectedId: '' });
+    const { withPatch } = useSessionChangePatches({
+      cwd: 'C:/index',
+      sessionId: 'index',
+      rows: changes.rows,
+      selectedId: '',
+    });
     drawn = changes.rows.map(withPatch);
     return null;
   }
@@ -479,14 +557,19 @@ test('the 12 MiB set limit counts UTF-8 bytes, not UTF-16 units', async (t) => {
   await tree.render({ selectedId: 'src/f000.ts' });
   await tree.drain();
   assert.equal(calls.batches.length, 1, 'the set is uncapped by files and lines, so it reads whole');
-  assert.ok(state.drawn.every((row) => !row.patchTooLarge && row.parts.length === 1), 'no single file is too large');
+  assert.ok(
+    state.drawn.every((row) => !row.patchTooLarge && row.parts.length === 1),
+    'no single file is too large'
+  );
   assert.ok(body.length * 5 < 12 * 1024 * 1024, 'under the limit in UTF-16 units');
   assert.equal(state.capped, true, 'over 12 MiB in UTF-8 bytes');
 });
 
 test('an uncapped set reads every patch in ONE batch; a refresh reads only the files whose rows moved', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
-  const tree = mountTree(t, 'C:/eager', 100, { omit: (path) => path === 'src/f009.ts' && tree.files[9].additions === 9 });
+  const tree = mountTree(t, 'C:/eager', 100, {
+    omit: (path) => path === 'src/f009.ts' && tree.files[9].additions === 9,
+  });
   const { calls, state } = tree;
   await tree.render();
   await tree.drain();
@@ -504,7 +587,10 @@ test('an uncapped set reads every patch in ONE batch; a refresh reads only the f
   await tree.gitChanged();
   assert.equal(calls.reviews, 2);
   assert.equal(calls.batches.length, 1, 'an unchanged refresh reads no patch');
-  assert.ok(state.drawn.every((row, index) => row === shown[index]), 'unchanged files keep their drawn row');
+  assert.ok(
+    state.drawn.every((row, index) => row === shown[index]),
+    'unchanged files keep their drawn row'
+  );
   // One file's counts moved: the summary plus that file alone.
   tree.files[7] = reviewFile(tree.files[7].path, 3, 1);
   await tree.gitChanged();
@@ -533,7 +619,10 @@ test('a capped set (over 128 files) reads only the selected file; picking anothe
   assert.equal(state.capped, true);
   assert.deepEqual(calls.batches, [['src/f000.ts']], 'only the selected file is read');
   assert.equal(state.drawn[0].parts.length, 1);
-  assert.ok(state.drawn.slice(1).every((row) => row.patchPending), 'the others list counts only');
+  assert.ok(
+    state.drawn.slice(1).every((row) => row.patchPending),
+    'the others list counts only'
+  );
   await tree.render({ selectedId: 'src/f005.ts' });
   await tree.drain();
   assert.deepEqual(calls.batches.slice(1), [['src/f005.ts']]);
@@ -567,7 +656,12 @@ test('a patch past 3 MiB is not kept: the file reads as too large to display', a
   let drawn = [];
   function Pane() {
     const changes = useSessionChanges({ cwd: 'C:/bytes', sessionId: 'bytes', active: true });
-    const { withPatch } = useSessionChangePatches({ cwd: 'C:/bytes', sessionId: 'bytes', rows: changes.rows, selectedId: '' });
+    const { withPatch } = useSessionChangePatches({
+      cwd: 'C:/bytes',
+      sessionId: 'bytes',
+      rows: changes.rows,
+      selectedId: '',
+    });
     drawn = changes.rows.map(withPatch);
     return null;
   }
@@ -598,7 +692,12 @@ test('a failed lazy file read shows a retryable failure, never "no textual diffe
   let refresh;
   function Pane() {
     const changes = useSessionChanges({ cwd: 'C:/retry', sessionId: 'retry', active: true });
-    const { withPatch } = useSessionChangePatches({ cwd: 'C:/retry', sessionId: 'retry', rows: changes.rows, selectedId: '' });
+    const { withPatch } = useSessionChangePatches({
+      cwd: 'C:/retry',
+      sessionId: 'retry',
+      rows: changes.rows,
+      selectedId: '',
+    });
     drawn = changes.rows.map(withPatch);
     refresh = changes.refresh;
     return null;
@@ -638,7 +737,12 @@ test('a lane revision on the publication envelope refreshes the session diff alt
   const snapshot = { sessionId: 'lane-rev', items: [{ id: 'last', completedAt: 1 }], busy: false };
   const publish = (contentRevision) =>
     act(async () => {
-      defaultSessionLaneStore.apply({ sessionId: 'lane-rev', frameSource: 'live', snapshot: { ...snapshot }, contentRevision });
+      defaultSessionLaneStore.apply({
+        sessionId: 'lane-rev',
+        frameSource: 'live',
+        snapshot: { ...snapshot },
+        contentRevision,
+      });
     });
   await publish(1);
   await act(async () => view.root.render(h(Probe, { name: 'a', cwd: undefined, sessionId: 'lane-rev', active: true })));
@@ -678,7 +782,9 @@ test('without a publication revision, a tool completing before the last transcri
       });
     });
   await publish('running');
-  await act(async () => view.root.render(h(Probe, { name: 'a', cwd: undefined, sessionId: 'lane-no-rev', active: true })));
+  await act(async () =>
+    view.root.render(h(Probe, { name: 'a', cwd: undefined, sessionId: 'lane-no-rev', active: true }))
+  );
   await view.settle();
   const wait = (ms) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
   await wait(50);
@@ -714,7 +820,9 @@ test('with a publication revision the lane comparison never scans the transcript
       });
     });
   await publish(1);
-  await act(async () => view.root.render(h(Probe, { name: 'a', cwd: undefined, sessionId: 'lane-scan', active: true })));
+  await act(async () =>
+    view.root.render(h(Probe, { name: 'a', cwd: undefined, sessionId: 'lane-scan', active: true }))
+  );
   await view.settle();
   const base = scans;
   await publish(2);
@@ -722,7 +830,10 @@ test('with a publication revision the lane comparison never scans the transcript
   // Same-revision frames (deltas) are compared by revision, not by transcript.
   for (let frame = 0; frame < 5; frame += 1) await publish(2);
   await view.settle();
-  assert.ok(scans - afterMove < rows.length, `a revisioned lane is not scanned per frame (saw ${scans - afterMove} field reads)`);
+  assert.ok(
+    scans - afterMove < rows.length,
+    `a revisioned lane is not scanned per frame (saw ${scans - afterMove} field reads)`
+  );
 });
 
 test('a newer-generation lazy read failure is shown beside the last good text, then clears on success', async (t) => {
@@ -741,7 +852,12 @@ test('a newer-generation lazy read failure is shown beside the last good text, t
   let refresh;
   function Pane() {
     const changes = useSessionChanges({ cwd: 'C:/stale', sessionId: 'stale', active: true });
-    const { withPatch } = useSessionChangePatches({ cwd: 'C:/stale', sessionId: 'stale', rows: changes.rows, selectedId: '' });
+    const { withPatch } = useSessionChangePatches({
+      cwd: 'C:/stale',
+      sessionId: 'stale',
+      rows: changes.rows,
+      selectedId: '',
+    });
     drawn = changes.rows.map(withPatch);
     refresh = changes.refresh;
     return null;
@@ -803,7 +919,10 @@ test('a root that is not a repository falls back to the session diff', async (t)
   await view.settle();
   assert.equal(states.a.repository, false);
   assert.deepEqual(capabilities, ['getSessionReviewDiff']);
-  assert.deepEqual(states.a.rows.map((row) => row.path), ['notes.txt']);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['notes.txt']
+  );
   // The Git watch is gone: Git evidence no longer asks Git.
   await act(async () => view.window.dispatchEvent(new view.window.Event('mixdog:git-changed')));
   await view.settle(10_000);

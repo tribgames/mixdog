@@ -2,7 +2,7 @@
 // island's branch segment: search · "Worktree" · branches · "New branch", in
 // one theme. Its data, placement, actions and dialogs live here; each host
 // owns only its trigger.
-import { GitBranch, GitFork, Plus, X } from 'lucide-react';
+import { Check, GitBranch, GitFork, Plus, X } from 'lucide-react';
 import {
   type CSSProperties,
   type ReactNode,
@@ -10,6 +10,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
@@ -18,6 +19,7 @@ import { createPortal } from 'react-dom';
 import type { DesktopBranchMenu } from '../shared/contract';
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
+import { ProgressSpinner } from './ProgressSpinner';
 import { containDialogTab, PaneDialogLayer } from './sidebar-dialog';
 import { useSurfaceActive } from './surface-activity';
 import { touchPrimaryPointer } from './surface-input-focus';
@@ -34,7 +36,31 @@ import {
 
 const defaultApplied = new Set<string>();
 
+/** A failed eager read retries after this, doubling until it passes the cap. */
+const MENU_RETRY_FIRST_MS = 800;
+const MENU_RETRY_MAX_MS = 6000;
+
+type MenuRead = { menu: DesktopBranchMenu | null; recovery: boolean };
+
+/** The last menu read per session (or Project, for a draft). Module-level, so
+ *  a host that remounts — the island per session switch, the chip per route —
+ *  opens with the last known branch, workspace and branch list at once while
+ *  the fresh read lands in the background. */
+const lastMenuReads = new Map<string, MenuRead>();
+
+const menuReadKey = (draft: boolean, projectPath: string, sessionId: string) =>
+  draft ? `project\0${projectPath}` : `session\0${sessionId}`;
+
+/** For tests: forgets every cached menu read. */
+export function clearBranchMenuCache(): void {
+  lastMenuReads.clear();
+}
+
 export type CarryChoice = 'leave' | 'carry';
+
+/** The transition the user just chose: the "Worktree" item, a branch row
+ *  (`name`) or "New branch" (`name`, the created branch). */
+export type BranchMenuPending = { kind: 'worktree' | 'branch' | 'create'; name?: string; move: boolean };
 
 /** The menu's data: the session's branch menu, or a draft's Project menu,
  *  re-read whenever `refreshKey` changes (only while `eager`; a lazy host
@@ -55,10 +81,22 @@ export function useBranchMenuData({
   refreshKey: string;
   eager?: boolean;
 }) {
-  const [menu, setMenu] = useState<DesktopBranchMenu | null>(null);
-  const [recovery, setRecovery] = useState(false);
+  const readKey = menuReadKey(draft, projectPath, sessionId);
+  // A read answered for this key since mount (null menu: it failed); until
+  // then the cached read of the key, if any, stands in.
+  const [answered, setAnswered] = useState<(MenuRead & { key: string }) | null>(null);
+  const shown = answered?.key === readKey ? answered : (lastMenuReads.get(readKey) ?? null);
+  const menu = shown?.menu ?? null;
+  const recovery = shown?.recovery ?? false;
   const [notice, setNotice] = useState('');
   const loadId = useRef(0);
+  const setRead = useCallback(
+    (next: DesktopBranchMenu | null, recovering: boolean) => {
+      if (next) lastMenuReads.set(readKey, { menu: next, recovery: recovering });
+      setAnswered({ key: readKey, menu: next, recovery: recovering });
+    },
+    [readKey]
+  );
 
   // A draft has no session: the Project's own menu (real occupancy of the
   // project folder) from the runtime, never a client-side guess.
@@ -66,35 +104,55 @@ export function useBranchMenuData({
     () => invokeWorktree<DesktopBranchMenu>('getProjectBranchMenu', [{ projectPath }]),
     [projectPath]
   );
-  const load = useCallback(async () => {
+  /** Resolves false only when the read failed (the caller may retry). */
+  const load = useCallback(async (): Promise<boolean> => {
     const id = ++loadId.current;
     try {
       let next: DesktopBranchMenu | null = null;
       if (!draft) next = await invokeWorktree<DesktopBranchMenu>('getBranchMenu', [], sessionId);
       else if (projectPath) next = await projectMenu();
-      if (id !== loadId.current) return;
-      setMenu(next);
-      setRecovery(next?.workspace.transition.state === 'recovery');
+      if (id !== loadId.current) return true;
+      setRead(next, next?.workspace.transition.state === 'recovery');
     } catch (reason) {
-      if (id !== loadId.current) return;
+      if (id !== loadId.current) return true;
       const failure = worktreeFailure(reason);
       // A vanished worktree still offers the project's branches as the way out.
       if (failure.code === 'WORKTREE_MISSING' && projectPath) {
         const next = await projectMenu().catch(() => null);
         // A later load owns the menu, whichever way this fallback ended.
-        if (id !== loadId.current) return;
-        setMenu(next);
-        setRecovery(true);
+        if (id !== loadId.current) return true;
         setNotice(worktreeFailureText(failure));
-        return;
+        if (!next) {
+          // The last good menu stands; the caller retries.
+          if (!lastMenuReads.has(readKey)) setRead(null, false);
+          return false;
+        }
+        setRead(next, true);
+        return true;
       }
-      setMenu(null);
+      // The last good read stands; only a key that never had one reports the failure.
+      if (!lastMenuReads.has(readKey)) setRead(null, false);
+      return false;
     }
-  }, [draft, projectMenu, projectPath, sessionId]);
+    return true;
+  }, [draft, projectMenu, projectPath, readKey, sessionId, setRead]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey is the deliberate re-read trigger
   useEffect(() => {
-    if (eager) void load();
+    if (!eager) return undefined;
+    // A failed read (the runtime busy or not yet up) retries with backoff.
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = async (delay: number) => {
+      const ok = await load();
+      if (ok || cancelled || delay > MENU_RETRY_MAX_MS) return;
+      timer = setTimeout(() => void attempt(delay * 2), delay);
+    };
+    void attempt(MENU_RETRY_FIRST_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [eager, load, refreshKey]);
   // A New Task starts in the user's configured default; an explicit choice
   // later wins because the default applies once per draft.
@@ -110,7 +168,8 @@ export function useBranchMenuData({
       });
   }, [draft, intentKey]);
 
-  return { menu, recovery, notice, setNotice, load };
+  // Nothing read or cached for this key yet: the menu is still loading.
+  return { menu, recovery, loading: shown === null, notice, setNotice, load };
 }
 
 /** Open state and placement of the portal menu: it follows resize and
@@ -212,7 +271,7 @@ export function useBranchMenuActions({
   menu: DesktopBranchMenu | null;
   query: string;
   locked?: boolean;
-  load(): Promise<void>;
+  load(): Promise<unknown>;
   setNotice(notice: string): void;
   close(): void;
   /** Opens the menu again so a refusal after the uncommitted-files choice
@@ -222,6 +281,11 @@ export function useBranchMenuActions({
   onOpenSession(sessionId: string): void;
 }) {
   const [busy, setBusy] = useState(false);
+  // What the user chose, from the click until the new state is read back: the
+  // menu marks that row at once (a refusal can take seconds to arrive) and the
+  // island segment shows a pending mark. `move` is a worktree move, which
+  // runs for seconds (a carry for much longer) before the workspace switches.
+  const [pending, setPending] = useState<BranchMenuPending | null>(null);
   const [carry, setCarry] = useState<{
     count: number;
     paths: string[];
@@ -234,9 +298,10 @@ export function useBranchMenuActions({
    *  the menu notice. */
   const perform = async (
     call: (extra: { confirmLarge?: true; carryChanges?: CarryChoice }) => Promise<unknown>,
-    { checkout = false }: { checkout?: boolean } = {}
+    { checkout = false, mark }: { checkout?: boolean; mark: BranchMenuPending }
   ): Promise<boolean> => {
     setBusy(true);
+    setPending(mark);
     setNotice('');
     let extra: { confirmLarge?: true; carryChanges?: CarryChoice } = {};
     try {
@@ -257,9 +322,12 @@ export function useBranchMenuActions({
             // The choice is a dialog of its own, like the confirm popups: the
             // menu closes first so nothing of it is drawn over the dialog.
             close();
+            // Nothing runs while the user decides.
+            setPending(null);
             const choice = await new Promise<CarryChoice | null>((resolve) => setCarry({ count, paths, resolve }));
             setCarry(null);
             if (!choice) return false;
+            setPending(mark);
             extra = { ...extra, carryChanges: choice };
             continue;
           }
@@ -284,6 +352,17 @@ export function useBranchMenuActions({
     await load();
     queueMicrotask(() => trigger.current?.focus());
   };
+  /** One transition and its read-back: the mark stays until the new state is
+   *  read (a move shows as pending until the workspace has switched). */
+  const transition = async (...args: Parameters<typeof perform>): Promise<boolean> => {
+    try {
+      const ok = await perform(...args);
+      await finish(ok);
+      return ok;
+    } finally {
+      setPending(null);
+    }
+  };
 
   const revision = menu?.workspace.revision;
   const pickWorktree = async () => {
@@ -297,10 +376,11 @@ export function useBranchMenuActions({
       close();
       return;
     }
-    const ok = await perform((extra) =>
-      invokeWorktree('requestWorktree', [{ expectedRevision: revision, provision: true, ...extra }], sessionId)
+    await transition(
+      (extra) =>
+        invokeWorktree('requestWorktree', [{ expectedRevision: revision, provision: true, ...extra }], sessionId),
+      { mark: { kind: 'worktree', move: true } }
     );
-    await finish(ok);
   };
   // A draft switches the project folder through the runtime's guarded path
   // (repository lock, active-session and no-carry checks), like a session does.
@@ -315,10 +395,14 @@ export function useBranchMenuActions({
               [{ branch, ...createFlag, expectedRevision: revision, ...extra }],
               sessionId
             ),
-      { checkout: true }
+      { checkout: true, mark: { kind: create ? 'create' : 'branch', name: branch, move: false } }
     );
-    if (ok && draft) setWorktreeIntent(intentKey, false);
-    await finish(ok);
+    try {
+      if (ok && draft) setWorktreeIntent(intentKey, false);
+      await finish(ok);
+    } finally {
+      setPending(null);
+    }
   };
   const pickRow = (row: BranchRow) => {
     if (busy || row.disabled) return;
@@ -346,6 +430,7 @@ export function useBranchMenuActions({
 
   return {
     busy,
+    pending,
     pickWorktree,
     pickRow,
     createBranch,
@@ -522,7 +607,13 @@ export function WorktreeCarryDialog({
           <button type="button" data-choice="carry" onClick={() => onChoose('carry')}>
             {t('Bring changes')}
           </button>
-          <button ref={leaveRef} type="button" className="primary" data-choice="leave" onClick={() => onChoose('leave')}>
+          <button
+            ref={leaveRef}
+            type="button"
+            className="primary"
+            data-choice="leave"
+            onClick={() => onChoose('leave')}
+          >
             {t('Leave changes and move')}
           </button>
         </footer>
@@ -545,6 +636,8 @@ export function BranchMenuPanel({
   notice,
   intent,
   busy,
+  pending = null,
+  loading = false,
   locked = false,
   base,
   rows,
@@ -563,6 +656,10 @@ export function BranchMenuPanel({
   notice: string;
   intent: boolean;
   busy: boolean;
+  /** The chosen transition, marked with a spinner until its result arrives. */
+  pending?: BranchMenuPending | null;
+  /** No branch list has been read yet (none cached): a subtle loading line. */
+  loading?: boolean;
   locked?: boolean;
   base: string;
   rows: BranchRow[];
@@ -574,6 +671,33 @@ export function BranchMenuPanel({
   onEscape(): void;
 }) {
   const switchDisabled = busy || locked;
+  const list = useRef<HTMLDivElement>(null);
+  const track = useStableMenuList(list, rows, query);
+  const holderTitles = useHolderTitles(rows);
+  // The menu grows away from its trigger: opened upward the trigger is below
+  // it, so the actions sit last, beside the trigger (mirrored when it opens
+  // downward). Focus starts on the action nearest the trigger.
+  const upward = position.bottom !== undefined && position.top === undefined;
+  const actionGroup = worktreeActions ? (
+    <>
+      {upward && <hr className="branch-menu-rule" />}
+      <div className="branch-menu-actions" data-edge={upward ? 'bottom' : 'top'}>
+        {worktreeActions}
+      </div>
+      {!upward && <hr className="branch-menu-rule" />}
+    </>
+  ) : null;
+  // Once, when the menu opens.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only focus
+  useEffect(() => {
+    if (!worktreeActions || touchPrimaryPointer()) return;
+    const items = Array.from(
+      panel.current?.querySelectorAll<HTMLElement>(
+        '.branch-menu-actions .branch-menu-item:not([aria-disabled="true"])'
+      ) ?? []
+    );
+    (upward ? items[items.length - 1] : items[0])?.focus();
+  }, []);
   return (
     <div
       ref={panel}
@@ -590,12 +714,7 @@ export function BranchMenuPanel({
           {t("Branches and worktrees can't be changed while work is running.")}
         </p>
       )}
-      {worktreeActions && (
-        <>
-          <div className="branch-menu-actions">{worktreeActions}</div>
-          <hr className="branch-menu-rule" />
-        </>
-      )}
+      {!upward && actionGroup}
       <input
         type="search"
         className="branch-menu-search"
@@ -611,19 +730,26 @@ export function BranchMenuPanel({
           {notice}
         </p>
       )}
-      <div className="branch-menu-list">
+      <div className="branch-menu-list" ref={list} onScroll={track} onPointerOver={track} onFocusCapture={track}>
         {!worktreeActions && (
           <button
             type="button"
             className="branch-menu-item"
             data-kind="worktree"
             data-selected={intent || undefined}
+            data-pending={pending?.kind === 'worktree' || undefined}
             aria-disabled={switchDisabled || undefined}
             onClick={onPickWorktree}
           >
-            <GitFork size={14} className={intent ? 'branch-chip-fork' : undefined} aria-hidden="true" />
+            {pending?.kind === 'worktree' ? (
+              <ProgressSpinner size={14} aria-hidden="true" />
+            ) : (
+              <GitFork size={14} className={intent ? 'branch-chip-fork' : undefined} aria-hidden="true" />
+            )}
             <span>{t('Worktree')}</span>
-            <small>{intent && base ? t('New branch from {{base}}', { base }) : t('New branch · separate folder')}</small>
+            <small>
+              {intent && base ? t('New branch from {{base}}', { base }) : t('New branch · separate folder')}
+            </small>
           </button>
         )}
         <h3 className="branch-menu-label">{t('Branch')}</h3>
@@ -633,13 +759,23 @@ export function BranchMenuPanel({
             row={row}
             intent={intent}
             busy={busy}
+            pending={pending?.kind === 'branch' && pending.name === row.name}
             locked={locked}
             worktreeBound={worktreeBound}
+            holderTitle={(row.sessionId && holderTitles.get(row.sessionId)) || ''}
             onPick={onPickRow}
           />
         ))}
-        {rows.length === 0 && <p className="branch-menu-empty">{t('No matching branches.')}</p>}
+        {rows.length === 0 &&
+          (loading ? (
+            <p className="branch-menu-empty" data-loading role="status">
+              {t('Loading branches…')}
+            </p>
+          ) : (
+            <p className="branch-menu-empty">{t('No matching branches.')}</p>
+          ))}
       </div>
+      {upward && actionGroup}
       {!worktreeActions && (
         <>
           <hr className="branch-menu-rule" />
@@ -647,16 +783,59 @@ export function BranchMenuPanel({
             type="button"
             className="branch-menu-item"
             data-kind="create"
+            data-pending={pending?.kind === 'create' || undefined}
             aria-disabled={switchDisabled || undefined}
             onClick={onCreateBranch}
           >
-            <Plus size={14} aria-hidden="true" />
+            {pending?.kind === 'create' ? (
+              <ProgressSpinner size={14} aria-hidden="true" />
+            ) : (
+              <Plus size={14} aria-hidden="true" />
+            )}
             <span>{t('New branch')}</span>
           </button>
         </>
       )}
     </div>
   );
+}
+
+/** Keeps the branch list steady while a fresh read replaces the cached one:
+ *  its height never shrinks while the query is unchanged, and the row under
+ *  the pointer or focus (rows are keyed by branch name, so it is the same
+ *  element) stays where it was by correcting the list's scroll. Returns the
+ *  tracker the list calls when focus, pointer or scroll moves the anchor. */
+function useStableMenuList(list: RefObject<HTMLDivElement | null>, rows: BranchRow[], query: string) {
+  const floor = useRef(0);
+  const seenQuery = useRef(query);
+  const anchor = useRef<{ name: string; top: number } | null>(null);
+  const rowNodes = () => Array.from(list.current?.querySelectorAll<HTMLElement>('[data-branch]') ?? []);
+  const track = () => {
+    const active = document.activeElement;
+    const node = rowNodes().find((row) => row === active || row.matches(':hover'));
+    anchor.current = node?.dataset.branch ? { name: node.dataset.branch, top: node.getBoundingClientRect().top } : null;
+  };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: rows is the trigger; the effect reads the DOM it produced
+  useLayoutEffect(() => {
+    const element = list.current;
+    if (!element) return;
+    if (seenQuery.current !== query) {
+      // Filtering is the user's own change: no floor, no anchor.
+      seenQuery.current = query;
+      floor.current = 0;
+      anchor.current = null;
+      element.style.minHeight = '';
+    } else if (anchor.current) {
+      const { name, top } = anchor.current;
+      const node = rowNodes().find((row) => row.dataset.branch === name);
+      const shift = node ? node.getBoundingClientRect().top - top : 0;
+      if (shift) element.scrollTop += shift;
+    }
+    floor.current = Math.max(floor.current, element.offsetHeight);
+    element.style.minHeight = floor.current ? `${floor.current}px` : '';
+    track();
+  }, [rows, query]);
+  return track;
 }
 
 /** Menu keyboard: Escape closes, the arrow keys cycle through the search
@@ -677,15 +856,40 @@ function moveMenuFocus(event: React.KeyboardEvent, panel: HTMLDivElement | null,
   next?.focus();
 }
 
-function rowTooltip(row: BranchRow): string | undefined {
-  if (row.mark === 'inUse') return t('Open the session that uses this branch');
+/** Titles of the sessions holding branches, read once per menu open. */
+function useHolderTitles(rows: BranchRow[]): ReadonlyMap<string, string> {
+  const [titles, setTitles] = useState<ReadonlyMap<string, string>>(new Map());
+  const wanted = rows.some((row) => row.mark === 'inUse' && row.sessionId);
+  useEffect(() => {
+    if (!wanted) return undefined;
+    let active = true;
+    void Promise.resolve(window.mixdogDesktop?.listSessions?.())
+      .then((sessions) => {
+        if (active && Array.isArray(sessions)) setTitles(new Map(sessions.map((s) => [s.id, String(s.title || '')])));
+      })
+      .catch(() => {
+        // Without titles the tooltip names the action alone.
+      });
+    return () => {
+      active = false;
+    };
+  }, [wanted]);
+  return titles;
+}
+
+function rowTooltip(row: BranchRow, holderTitle = ''): string | undefined {
+  if (row.mark === 'inUse') {
+    return holderTitle
+      ? t('Open "{{title}}", the session that uses this branch', { title: holderTitle })
+      : t('Open the session that uses this branch');
+  }
   if (row.mark === 'external') return t('Checked out in an external worktree: {{path}}', { path: row.path ?? '' });
   return undefined;
 }
 
 function markLabel(mark: BranchRow['mark']): string {
   if (mark === 'current') return t('Current');
-  if (mark === 'inUse') return t('In use');
+  if (mark === 'inUse') return t('Other session');
   if (mark === 'project') return t('Project folder');
   return t('External');
 }
@@ -694,18 +898,24 @@ function BranchMenuRow({
   row,
   intent,
   busy,
+  pending,
   locked,
   worktreeBound,
+  holderTitle,
   onPick,
 }: {
   row: BranchRow;
   intent: boolean;
   busy: boolean;
+  /** This row was chosen and its result has not arrived. */
+  pending: boolean;
   locked: boolean;
   worktreeBound: boolean;
+  /** Title of the session holding this branch (an "Other session" row). */
+  holderTitle: string;
   onPick(row: BranchRow): void;
 }) {
-  const tooltip = rowTooltip(row);
+  const tooltip = rowTooltip(row, holderTitle);
   const bound = row.mark === 'current' && worktreeBound;
   // Opening the session that holds a branch, or the current row, switches nothing.
   const switches = row.mark !== 'inUse' && !(row.mark === 'current' && !intent);
@@ -714,21 +924,30 @@ function BranchMenuRow({
       type="button"
       className="branch-menu-item"
       data-kind="branch"
+      data-branch={row.name}
       data-mark={row.mark || undefined}
       data-selected={(row.mark === 'current' && !intent) || undefined}
+      data-pending={pending || undefined}
       aria-disabled={row.disabled || busy || (locked && switches) || undefined}
       aria-description={tooltip}
       data-tooltip={tooltip}
       data-tooltip-side={tooltip ? 'right' : undefined}
       onClick={() => onPick(row)}
     >
-      {bound ? (
+      {pending ? (
+        <ProgressSpinner size={14} aria-hidden="true" />
+      ) : bound ? (
         <GitFork size={14} className="branch-chip-fork" aria-hidden="true" />
       ) : (
         <GitBranch size={14} aria-hidden="true" />
       )}
       <span>{row.name}</span>
-      {row.mark && <small>{markLabel(row.mark)}</small>}
+      {row.mark === 'current' ? (
+        // The check alone marks the current branch; the label is for assistive tech.
+        <Check size={14} className="branch-menu-check" role="img" aria-label={markLabel('current')} />
+      ) : (
+        row.mark && <small>{markLabel(row.mark)}</small>
+      )}
     </button>
   );
 }
@@ -749,6 +968,7 @@ export function BranchMenuLayer({
   setNotice,
   intent,
   locked,
+  loading = false,
   base,
   rows,
   worktreeBound,
@@ -757,6 +977,8 @@ export function BranchMenuLayer({
   close,
 }: {
   visible: boolean;
+  /** No menu has been read or cached yet. */
+  loading?: boolean;
   namingBranch: boolean;
   setNamingBranch(naming: boolean): void;
   panelId: string;
@@ -776,7 +998,7 @@ export function BranchMenuLayer({
   actions: ReturnType<typeof useBranchMenuActions>;
   close(): void;
 }) {
-  const { busy, pickWorktree, pickRow, createBranch, carry } = actions;
+  const { busy, pending, pickWorktree, pickRow, createBranch, carry } = actions;
   return (
     <>
       {visible &&
@@ -802,6 +1024,8 @@ export function BranchMenuLayer({
               notice={notice}
               intent={intent}
               busy={busy}
+              pending={pending}
+              loading={loading}
               locked={locked}
               base={base}
               rows={rows}

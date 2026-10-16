@@ -525,6 +525,9 @@ export const MODEL_PROXY_CALLBACKS: ReadonlyMap<string, (args: unknown[]) => unk
   ['onTextReset', ([info]) => [scalarDetail(info) ?? {}]],
   // (call): a tool call the model made — model output, wire-copied.
   ['onToolCall', ([call]) => [call]],
+  // ({ name, index, pointer, reason, message }): a server tool left out for
+  // an invalid schema — about the server's own tool list, text redacted.
+  ['onToolExcluded', ([info]) => [scalarDetail(info) ?? {}]],
 ]);
 
 // ── Attachment references ───────────────────────────────────────────────────
@@ -710,7 +713,9 @@ async function execute(
   // A request the server forked from a session (/btw) names a transport scope
   // of its own. The server's scope string means nothing on this PC, so the
   // request gets one allocated here and released when it ends.
-  const forkedScope = record(call.options).transportScope ? forkTransportScope(String(options.sessionId || name), 'proxy') : '';
+  const forkedScope = record(call.options).transportScope
+    ? forkTransportScope(String(options.sessionId || name), 'proxy')
+    : '';
   if (forkedScope) options.transportScope = forkedScope;
   try {
     const value = await provider.send(messages, model, tools, options);

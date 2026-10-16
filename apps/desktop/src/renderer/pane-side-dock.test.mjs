@@ -1244,7 +1244,9 @@ test('dock header buttons and tab icons match the pane strip toggles, +, and tab
   // Every header control is a 16px lucide mark (open-in-system-browser included).
   const chrome = await read('./pane-dock-chrome.tsx');
   assert.match(chrome, /<Glyph size=\{15\} aria-hidden=\{true\} \/>/);
-  assert.match(chrome, /<MoreHorizontal size=\{15\}/);
+  // The ⋯ trigger (or a dedicated opener such as the visualize versions button) draws at 15px too.
+  assert.match(chrome, /TriggerGlyph = opener\?\.icon \?\? MoreHorizontal/);
+  assert.match(chrome, /<TriggerGlyph size=\{15\}/);
   assert.match(chrome, /<X size=\{15\}/);
   assert.match(await read('./BrowserPane.lazy.tsx'), /icon: ExternalLink/);
 });

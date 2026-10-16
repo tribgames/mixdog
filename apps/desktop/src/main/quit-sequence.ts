@@ -7,10 +7,14 @@
  * relaunches the app on its way out instead of reviving a quitting window.
  */
 
+import { IN_TREE_DAEMON_STOP_GRACE_MS } from '../../../../src/standalone/daemon-stop-budget.mjs';
+
 /** Bound on waiting for a daemon in this app's process tree to exit after its
  *  forced stop. A healthy daemon shutdown (PostgreSQL stop included) measures
- *  ~0.6 s; past this the app exits and the daemon dies with it. */
-export const DESKTOP_DAEMON_STOP_TIMEOUT_MS = 3_000;
+ *  ~0.6 s; past this the app exits and the daemon dies with it. The daemon
+ *  times its forced PostgreSQL stop from the same constant. Windows are
+ *  already hidden, so a longer wait only delays the invisible process exit. */
+export const DESKTOP_DAEMON_STOP_TIMEOUT_MS = IN_TREE_DAEMON_STOP_GRACE_MS;
 
 export interface QuitWindow {
   isDestroyed(): boolean;

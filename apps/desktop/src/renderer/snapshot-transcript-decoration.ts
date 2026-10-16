@@ -6,6 +6,7 @@
 // ("failed" ↔ "Failed · Retry") even though PaneConversation itself stayed
 // mounted. Both pipelines now pass through this same bounded decorator.
 import type { SessionSnapshot } from '../shared/contract';
+import { withStreamingPartial } from '../shared/streaming-partial';
 import { type Snapshot, type TranscriptItem, EMPTY_SNAPSHOT } from './desktop-types';
 import { createTranscriptIdentityReconciler } from './transcript-identity';
 import { reconcileTurnFailures, type TurnFailureModel } from './renderer-logic.mjs';
@@ -52,7 +53,9 @@ export function createTranscriptSnapshotDecorator({ register = true } = {}): Tra
     decorate(next) {
       const raw = next && typeof next === 'object' ? (next as Snapshot) : EMPTY_SNAPSHOT;
       if (raw === EMPTY_SNAPSHOT) return raw;
-      const state = identity.reconcile(raw);
+      // The live row paints the unfinished streamed line too, so every reader
+      // downstream (rows, pacer, metrics) sees one growing text.
+      const state = identity.reconcile(withStreamingPartial(raw));
       const sessionId = String(state.sessionId || '');
       const scope = `${String(state.currentProject || state.project || state.cwd || '')}\n${sessionId}`;
       const items = Array.isArray(state.items) ? state.items : null;

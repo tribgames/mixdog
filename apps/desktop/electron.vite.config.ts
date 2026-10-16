@@ -42,6 +42,20 @@ const selectedBuildTargets = new Set(
 const buildTargetEnabled = (target: 'main' | 'preload' | 'renderer'): boolean =>
   selectedBuildTargets.size === 0 || selectedBuildTargets.has(target);
 
+// scripts/dev-profile.mjs fixes each profile's renderer port: the dev origin
+// includes it, and localStorage (pane layout, caches) is per origin. strictPort
+// fails on a collision instead of silently moving to another origin. Only the
+// dev server reads this; production builds are unaffected.
+const devRendererPort = (() => {
+  const raw = process.env.MIXDOG_DEV_RENDERER_PORT;
+  if (!raw) return undefined;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`MIXDOG_DEV_RENDERER_PORT must be an integer from 1 to 65535, got ${JSON.stringify(raw)}.`);
+  }
+  return port;
+})();
+
 // Every bundled face (Inter/Geist/JetBrains Mono + Pretendard's 92 Hangul
 // subset slices) ships with font-display:swap, so text created AFTER first
 // paint — menu/tab navigation, new session rows — painted fallback glyphs and
@@ -370,6 +384,7 @@ export default defineConfig({
     plugins: [localFontDisplayFallback, inlineBootScript, firstScreenHints, react()],
     server: {
       host: '127.0.0.1',
+      ...(devRendererPort ? { port: devRendererPort, strictPort: true } : {}),
       // The translated changelogs (repo-root changelog/*.md) load as lazy
       // chunks, which the dev server only serves from allowed folders.
       fs: { allow: [searchForWorkspaceRoot(__dirname), resolve(__dirname, '../../changelog')] },

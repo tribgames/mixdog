@@ -351,7 +351,11 @@ test('phone finishing rules keep reading, touch and safe-area geometry aligned',
   );
   assert.match(
     mobileChromeSource,
-    /html\[data-mixdog-mobile-tabs\] \.jump-to-latest::before\s*\{[^}]*inset:\s*calc\(\(var\(--mx-touch-main\) - 28px\) \/ -2\);/su
+    /html\[data-mixdog-mobile-tabs\] \.jump-to-latest::before\s*\{[^}]*inset:\s*calc\(\(var\(--mx-touch-main\) - 36px\) \/ -2\);/su
+  );
+  assert.match(
+    mobileChromeSource,
+    /html\[data-mixdog-mobile-tabs\] \.jump-to-latest\s*\{[^}]*width:\s*36px;[^}]*height:\s*36px;/su
   );
   assert.match(mobileChromeSource, /settings-confirm-dialog > footer button,[\s\S]*?min-height:\s*var\(--mx-touch\);/u);
   assert.match(

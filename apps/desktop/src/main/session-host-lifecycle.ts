@@ -22,6 +22,7 @@ import type {
   ToolApprovalDecision,
 } from '../shared/contract';
 import { projectIdentity } from '../shared/project-identity';
+import { isSessionMissingError } from './session-final-answer';
 import { reportTranscriptRead, transcriptReadTraceId } from '../shared/transcript-read-diagnostics';
 import { normalizeSessionTitle, promptTitle } from '../shared/session-title.mjs';
 import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy';
@@ -269,11 +270,19 @@ export class SessionHostLifecycle {
 
   async deleteSession(sessionId: string): Promise<SessionSnapshot> {
     const id = sessionIdOf(sessionId);
-    if (!(await this.owner.listSessions()).some((row) => row.id === id)) {
-      throw new Error('Session is not available.');
-    }
-    if ((await this.owner.invokeControl('deleteSession', [id])) !== true) {
-      throw new Error('Session could not be deleted.');
+    // Deleting a missing or already-deleted session is a no-op, never an error
+    // surfaced to the UI; stale local state for it is still dropped below.
+    if ((await this.owner.listSessions()).some((row) => row.id === id)) {
+      let deleted = false;
+      try {
+        deleted = (await this.owner.invokeControl('deleteSession', [id])) === true;
+      } catch (error) {
+        if (!isSessionMissingError(error)) throw error;
+        deleted = true;
+      }
+      if (!deleted && (await this.owner.listSessions()).some((row) => row.id === id)) {
+        throw new Error('Session could not be deleted.');
+      }
     }
     await this.unsubscribeQuietly(id);
     this.owner.visibleSessionIds.delete(id);
@@ -540,6 +549,9 @@ export class SessionHostLifecycle {
     this.owner.pendingCatalogSessionIds.add(sessionId);
     this.owner.applySessionResult(sessionId, created);
     try {
+      // Record the applied draft, so a replay after an ambiguous submission
+      // goes straight to the idempotent submit even if the draft's workflow,
+      // mode or route can no longer be applied.
       if (request.phase === 'reserved') {
         await this.configureDraft(sessionId, draft);
         await request.commit('configured');

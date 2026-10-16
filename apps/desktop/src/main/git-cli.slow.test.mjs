@@ -574,8 +574,8 @@ describe('working tree and history', { concurrency: 4 }, () => {
       const find = (review, path) => review.files.find((file) => file.path === path);
       const first = await gitReview(cwd);
       assert.equal(find(first, 'gone.txt').revision, 'deleted');
-      assert.match(find(first, 'base.txt').revision, /^\d+:[\d.]+$/);
-      assert.match(find(first, 'new.txt').revision, /^\d+:[\d.]+$/);
+      assert.match(find(first, 'base.txt').revision, /^\d+(:\d+){3}$/);
+      assert.match(find(first, 'new.txt').revision, /^\d+(:\d+){3}$/);
       await writeFile(join(cwd, 'base.txt'), 'six\n', 'utf8');
       await utimes(join(cwd, 'base.txt'), new Date(), new Date(Date.now() + 5000));
       const second = await gitReview(cwd);
@@ -585,6 +585,129 @@ describe('working tree and history', { concurrency: 4 }, () => {
       assert.equal(a.deletions, b.deletions);
       assert.notEqual(a.revision, b.revision);
       assert.equal(find(second, 'new.txt').revision, find(first, 'new.txt').revision);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('a same-size rewrite that restores the modify time is counted again (untracked and tracked)', async () => {
+    const cwd = await createRepository();
+    try {
+      await commit(cwd, 'tracked.txt', 'a\nb\n', 'Initial');
+      const find = (review, path) => review.files.find((file) => file.path === path);
+      const counts = (file) => [file.additions, file.deletions];
+      // A fixed modify time, unlike the index entry's, so Git hashes the content.
+      const when = new Date('2001-02-03T04:05:06Z');
+      const rewrite = async (path, text) => {
+        await writeFile(join(cwd, path), text, 'utf8');
+        await utimes(join(cwd, path), when, when);
+      };
+      await rewrite('new.txt', 'a\nb\n');
+      await rewrite('tracked.txt', 'abc\n');
+      for (const source of ['uncommitted', 'branch']) {
+        const first = await gitReview(cwd, source);
+        assert.deepEqual(counts(find(first, 'new.txt')), [2, 0]);
+        assert.deepEqual(counts(find(first, 'tracked.txt')), [1, 2]);
+      }
+      const before = (await stat(join(cwd, 'tracked.txt'))).size;
+      // Ensure the change time can move on coarse clocks.
+      await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+      await rewrite('new.txt', 'abc\n');
+      await rewrite('tracked.txt', 'a\nc\n');
+      assert.equal((await stat(join(cwd, 'tracked.txt'))).size, before);
+      assert.equal((await stat(join(cwd, 'new.txt'))).mtimeMs, when.getTime());
+      for (const source of ['uncommitted', 'branch']) {
+        const second = await gitReview(cwd, source);
+        assert.deepEqual(counts(find(second, 'new.txt')), [1, 0], `${source}: untracked recount`);
+        assert.deepEqual(counts(find(second, 'tracked.txt')), [1, 1], `${source}: tracked re-diff`);
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('incremental review equals a full re-diff through edits, reverts, renames, binaries and commits', async () => {
+    const cwd = await createRepository();
+    try {
+      await commit(cwd, 'base.txt', 'one\ntwo\n', 'Initial');
+      await commit(cwd, 'keep.txt', 'keep\n', 'Keep');
+      await commit(cwd, 'old-name.txt', 'move me\n', 'Old name');
+      await git(cwd, ['switch', '-c', 'feature']);
+      await commit(cwd, 'feature.txt', 'a\nb\n', 'Feature');
+      // The full answer, read the way the review was before it cached rows:
+      // a whole `diff <ref>` for the rows and counts, status for untracked.
+      const fullReview = async (source) => {
+        const ref = source === 'uncommitted' ? 'HEAD' : (await git(cwd, ['merge-base', 'main', 'HEAD'])).trim();
+        const nameStatus = (await git(cwd, ['diff', ref, '--name-status', '--no-renames', '-z'])).split('\0');
+        const counts = (await git(cwd, ['diff', ref, '--numstat', '--no-renames', '-z'])).split('\0');
+        const rows = new Map();
+        for (let index = 0; index + 1 < nameStatus.length; index += 2) {
+          if (nameStatus[index + 1]) rows.set(nameStatus[index + 1], [nameStatus[index][0], 0, 0, false]);
+        }
+        for (const field of counts) {
+          const match = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(field);
+          const row = match && rows.get(match[3]);
+          if (row) [row[1], row[2]] = [Number(match[1]) || 0, Number(match[2]) || 0];
+        }
+        for (const entry of (await git(cwd, ['status', '--porcelain=v1', '-z', '-uall', '--no-renames'])).split('\0')) {
+          if (entry.startsWith('?? ')) rows.set(entry.slice(3), ['A', null, 0, true]);
+        }
+        return [...rows].map(([path, row]) => [path, ...row]).sort((a, b) => a[0].localeCompare(b[0]));
+      };
+      const shown = (review) =>
+        review.files.map((file) => [
+          file.path,
+          file.status,
+          file.untracked ? null : file.additions,
+          file.deletions,
+          file.untracked,
+        ]);
+      const untrackedCounts = (review) =>
+        Object.fromEntries(review.files.filter((file) => file.untracked).map((file) => [file.path, file.additions]));
+      const step = async (label, expectedUntracked) => {
+        for (const source of ['uncommitted', 'branch']) {
+          const review = await gitReview(cwd, source);
+          assert.deepEqual(shown(review), await fullReview(source), `${label} (${source})`);
+          if (expectedUntracked) assert.deepEqual(untrackedCounts(review), expectedUntracked, `${label} (${source})`);
+        }
+      };
+      await step('clean');
+      await writeFile(join(cwd, 'base.txt'), 'one\ntwo\nthree\n', 'utf8');
+      await step('edit');
+      // Same size, new content: only the worktree identity moved.
+      await writeFile(join(cwd, 'base.txt'), 'one\ntwo\nfour\n', 'utf8');
+      await utimes(join(cwd, 'base.txt'), new Date(), new Date(Date.now() + 5_000));
+      await writeFile(join(cwd, 'base.txt'), 'one\nsix\nfour\n', 'utf8');
+      await utimes(join(cwd, 'base.txt'), new Date(), new Date(Date.now() + 10_000));
+      await step('same-size rewrite');
+      await writeFile(join(cwd, 'base.txt'), 'one\ntwo\n', 'utf8');
+      await step('revert');
+      await writeFile(join(cwd, 'new.txt'), 'n1\nn2\n', 'utf8');
+      await step('new file', { 'new.txt': 2 });
+      await writeFile(join(cwd, 'new.txt'), 'n1\nn2\nn3\n', 'utf8');
+      await step('new file grows', { 'new.txt': 3 });
+      await rm(join(cwd, 'keep.txt'));
+      await step('delete');
+      await rename(join(cwd, 'old-name.txt'), join(cwd, 'new-name.txt'));
+      await step('rename');
+      await writeFile(join(cwd, 'base.txt'), Buffer.from([0, 1, 2, 3, 0, 255]));
+      await step('binary');
+      await writeFile(join(cwd, 'base.txt'), 'one\ntwo\nbinary no more\n', 'utf8');
+      await step('binary to text');
+      await writeFile(join(cwd, '.gitattributes'), 'base.txt -diff\n', 'utf8');
+      await step('attributes mark a file binary');
+      await rm(join(cwd, '.gitattributes'));
+      await step('attributes removed');
+      await git(cwd, ['add', 'base.txt']);
+      await writeFile(join(cwd, 'base.txt'), 'one\ntwo\nbinary no more\nstaged then edited\n', 'utf8');
+      await step('stage then edit');
+      await git(cwd, ['rm', '--cached', '--quiet', 'feature.txt']);
+      await step('index-only removal');
+      await git(cwd, ['add', '--all']);
+      await git(cwd, ['commit', '--quiet', '-m', 'Snapshot']);
+      await step('commit moves HEAD');
+      await writeFile(join(cwd, 'new.txt'), 'after commit\n', 'utf8');
+      await step('edit after commit');
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -2541,10 +2664,7 @@ test('only cherry-pick refuses to stack on a live Git operation', async () => {
     // in its OWN words ("Cannot do a soft reset in the middle of a merge",
     // unmerged entries), never with mixdog's "already in progress".
     // (Checking a commit out is the runtime's guarded selectProjectBranch.)
-    for (const action of [
-      () => gitResetToCommit(cwd, base, 'soft'),
-      () => gitRevertCommit(cwd, rival),
-    ]) {
+    for (const action of [() => gitResetToCommit(cwd, base, 'soft'), () => gitRevertCommit(cwd, rival)]) {
       await assert.rejects(action, (error) => !inProgress(error));
     }
 

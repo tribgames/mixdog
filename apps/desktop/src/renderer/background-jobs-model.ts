@@ -81,3 +81,45 @@ export function backgroundJobRows(snapshot: Snapshot, dismissed: ReadonlySet<str
     .sort((a, b) => b.startedAt - a.startedAt);
   return [...shell, ...finishedShell];
 }
+
+/** How long a running shell that left the host's running list may wait for its
+ *  finished record before it is dropped. */
+export const SHELL_FINISH_GRACE_MS = 2000;
+
+export type ShellRowRetention = {
+  /** The running rows of the last frame. */
+  running: ReadonlyMap<string, JobRow>;
+  /** Running rows that left the running list without a finished record yet. */
+  grace: ReadonlyMap<string, { row: JobRow; since: number }>;
+};
+
+export const EMPTY_SHELL_ROW_RETENTION: ShellRowRetention = { running: new Map(), grace: new Map() };
+
+/** The host drops a job from its running list a beat before the finished
+ *  record arrives. Keep such a job (still as running) until a row with its key
+ *  shows up, or `graceMs` pass. `expiresAt` is when the earliest kept row
+ *  lapses (0 when none is kept). */
+export function retainVanishedShellRows(
+  retention: ShellRowRetention,
+  rows: JobRow[],
+  now: number,
+  graceMs: number = SHELL_FINISH_GRACE_MS
+): { rows: JobRow[]; retention: ShellRowRetention; expiresAt: number } {
+  const present = new Set(rows.map((row) => row.key));
+  const grace = new Map<string, { row: JobRow; since: number }>();
+  for (const [key, entry] of retention.grace) {
+    if (!present.has(key) && now - entry.since < graceMs) grace.set(key, entry);
+  }
+  for (const [key, row] of retention.running) {
+    if (!present.has(key) && !grace.has(key) && !retention.grace.has(key)) grace.set(key, { row, since: now });
+  }
+  const running = new Map(rows.filter((row) => !row.finished).map((row) => [row.key, row]));
+  if (grace.size === 0) return { rows, retention: { running, grace }, expiresAt: 0 };
+  const kept = [...grace.values()].map((entry) => entry.row);
+  const merged = [
+    ...[...rows.filter((row) => !row.finished), ...kept].sort((a, b) => b.startedAt - a.startedAt),
+    ...rows.filter((row) => row.finished),
+  ];
+  const expiresAt = Math.min(...[...grace.values()].map((entry) => entry.since + graceMs));
+  return { rows: merged, retention: { running, grace }, expiresAt };
+}

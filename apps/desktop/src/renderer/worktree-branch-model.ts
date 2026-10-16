@@ -82,22 +82,42 @@ function carryRefusalText(failure: WorktreeFailure): string {
     case 'operation-in-progress':
       switch (details.operation) {
         case 'merge':
-          return t('A merge is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.');
+          return t(
+            'A merge is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.'
+          );
         case 'rebase':
-          return t('A rebase is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.');
+          return t(
+            'A rebase is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.'
+          );
         case 'cherry-pick':
-          return t('A cherry-pick is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.');
+          return t(
+            'A cherry-pick is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.'
+          );
         case 'revert':
-          return t('A revert is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.');
+          return t(
+            'A revert is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.'
+          );
+        case 'bisect':
+          return t(
+            'A bisect is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.'
+          );
         default:
-          return t('A Git operation is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.');
+          return t(
+            'A Git operation is in progress in the project folder. Finish or abort it, or leave the changes in the project folder.'
+          );
       }
     case 'unmerged-paths':
-      return t('The project folder has unresolved merge conflicts. Resolve them, or leave the changes in the project folder.');
+      return t(
+        'The project folder has unresolved merge conflicts. Resolve them, or leave the changes in the project folder.'
+      );
     case 'dirty-submodules':
-      return t("Submodules with changes can't be brought along. Commit or reset them, or leave the changes in the project folder.");
+      return t(
+        "Submodules with changes can't be brought along. Commit or reset them, or leave the changes in the project folder."
+      );
     case 'nested-repository':
-      return t("Untracked nested repositories can't be brought along. Leave the changes in the project folder instead.");
+      return t(
+        "Untracked nested repositories can't be brought along. Leave the changes in the project folder instead."
+      );
     case 'too-large': {
       const files = Number(details.files);
       const maxFiles = Number(details.maxFiles);
@@ -115,8 +135,20 @@ function carryRefusalText(failure: WorktreeFailure): string {
           )
         : t('The untracked files are too large to bring along. Leave the changes in the project folder instead.');
     }
+    case 'sparse-checkout':
+    case 'skip-worktree':
+    case 'assume-unchanged':
+      return t(
+        "Files hidden from Git (sparse checkout, skip-worktree or assume-unchanged) can't be brought along. Leave the changes in the project folder instead."
+      );
+    case 'intent-to-add':
+      return t(
+        "Files added with intent to add (git add -N) can't be brought along. Stage or unstage them, or leave the changes in the project folder."
+      );
     case 'filtered-paths':
-      return t("Files that use a Git filter (such as Git LFS) can't be brought along exactly. Leave the changes in the project folder instead.");
+      return t(
+        "Files that use a Git filter (such as Git LFS) can't be brought along exactly. Leave the changes in the project folder instead."
+      );
     case 'head-moved':
     case 'carry-failed':
     case 'carry-restore-refused':
@@ -129,7 +161,9 @@ function carryRefusalText(failure: WorktreeFailure): string {
 }
 
 function carryRefusedText(): string {
-  return t("The changes couldn't be brought into the worktree. Leave them in the project folder instead, or try again.");
+  return t(
+    "The changes couldn't be brought into the worktree. Leave them in the project folder instead, or try again."
+  );
 }
 
 /** User-facing text for a typed failure; untyped failures keep their message.
@@ -266,6 +300,9 @@ export function branchRows(menu: DesktopBranchMenu, ownSessionId: string, query:
     }
     rows.push(row);
   }
+  // The session's own branch leads; the rest keep their order.
+  const current = rows.findIndex((row) => row.mark === 'current');
+  if (current > 0) rows.unshift(...rows.splice(current, 1));
   return rows;
 }
 

@@ -184,12 +184,26 @@ export interface DesktopGoalState extends Readonly<Record<string, unknown>> {
   completedAt?: number | null;
 }
 
+/** Streamed text beyond the line-gated tail: `text` continues the tail whose
+ *  text is `from` characters long. Before the row's first completed line
+ *  there is no tail; `from` is 0 and `tail` carries the row identity. */
+export interface DesktopStreamingPartial extends Readonly<Record<string, unknown>> {
+  id: string | number;
+  from: number;
+  text: string;
+  tail?: DesktopTranscriptItem;
+}
+
 export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   items?: DesktopTranscriptItem[];
   /** `items` is a tail window and older history can be paged in; absent on a
    *  whole-transcript (legacy) body. */
   transcriptHasOlder?: boolean;
   streamingTail?: DesktopTranscriptItem | null;
+  /** The live row's unfinished line, which the line-gated `streamingTail`
+   *  holds back (see shared/streaming-partial.ts). Terminal clients drop it;
+   *  a client that predates it simply paints the line-gated tail. */
+  streamingPartial?: DesktopStreamingPartial | null;
   queued?: unknown[];
   busy?: boolean;
   commandBusy?: boolean;

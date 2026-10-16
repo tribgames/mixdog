@@ -8,6 +8,7 @@ import { useId, useRef, useState } from 'react';
 import { BranchMenuLayer, useBranchMenuActions, useBranchMenuData, useBranchMenuOverlay } from './branch-menu';
 import { t } from './i18n';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
+import { ProgressSpinner } from './ProgressSpinner';
 import { branchChipState, branchRows, useWorktreeIntent } from './worktree-branch-model';
 
 export function BranchChip({
@@ -122,7 +123,7 @@ export function BranchChip({
         }}
         onPointerCancel={clickGuard.clearPointerActivation}
       >
-        <ChipIcon recovery={recovery} forked={forked} />
+        <ChipIcon recovery={recovery} forked={forked} pending={Boolean(actions.pending)} />
         <span className="branch-chip-label">{label}</span>
         <ChevronDown size={12} aria-hidden="true" />
       </button>
@@ -149,7 +150,8 @@ export function BranchChip({
   );
 }
 
-function ChipIcon({ recovery, forked }: { recovery: boolean; forked: boolean }) {
+function ChipIcon({ recovery, forked, pending }: { recovery: boolean; forked: boolean; pending: boolean }) {
+  if (pending) return <ProgressSpinner size={14} aria-hidden="true" />;
   if (recovery) return <TriangleAlert size={14} aria-hidden="true" />;
   if (forked) return <GitFork size={14} className="branch-chip-fork" aria-hidden="true" />;
   return <GitBranch size={14} aria-hidden="true" />;

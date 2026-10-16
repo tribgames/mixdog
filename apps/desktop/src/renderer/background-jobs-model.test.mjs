@@ -91,3 +91,53 @@ test('dismissed finished rows never come back, and persist per session', () => {
   assert.equal(dismissedShellJobs('sess-y').size, 0);
   delete globalThis.localStorage;
 });
+
+test('a running shell that leaves the running list is kept until its finished record, or a bounded grace', async () => {
+  const { EMPTY_SHELL_ROW_RETENTION, retainVanishedShellRows, SHELL_FINISH_GRACE_MS } = await import(
+    './background-jobs-model.ts'
+  );
+  const running = (id, startedAt) => ({ shellJobs: { count: 1, jobs: [{ taskId: id, command: id, startedAt }] } });
+  const finished = (id, startedAt) => ({
+    shellJobs: {
+      count: 0,
+      jobs: [],
+      finished: [{ taskId: id, command: id, startedAt, status: 'completed', exitCode: 0, finishedAt: 5000 }],
+    },
+  });
+  let retention = EMPTY_SHELL_ROW_RETENTION;
+  const step = (snap, now) => {
+    const out = retainVanishedShellRows(retention, backgroundJobRows(snap), now);
+    retention = out.retention;
+    return out;
+  };
+  step(running('job_32', 1000), 10_000);
+  // The host frame between the two: not running, not yet finished.
+  const gap = step({ shellJobs: { count: 0, jobs: [], finished: [] } }, 10_050);
+  assert.deepEqual(
+    gap.rows.map((row) => [row.key, Boolean(row.finished)]),
+    [['shell:job_32', false]],
+    'never dropped'
+  );
+  assert.equal(gap.expiresAt, 10_050 + SHELL_FINISH_GRACE_MS);
+  const again = step({ shellJobs: { count: 0, jobs: [], finished: [] } }, 10_900);
+  assert.equal(again.rows.length, 1, 'still kept on a repeated frame');
+  assert.equal(again.expiresAt, 10_050 + SHELL_FINISH_GRACE_MS, 'the grace does not restart');
+  const done = step(finished('job_32', 1000), 11_000);
+  assert.deepEqual(
+    done.rows.map((row) => [row.key, Boolean(row.finished)]),
+    [['shell:job_32', true]],
+    'replaced, not duplicated'
+  );
+  assert.equal(done.expiresAt, 0);
+  // A finished record that never comes lapses after the grace.
+  step(running('job_40', 2000), 20_000);
+  step({ shellJobs: { count: 0, jobs: [], finished: [] } }, 20_100);
+  assert.equal(
+    step({ shellJobs: { count: 0, jobs: [], finished: [] } }, 20_100 + SHELL_FINISH_GRACE_MS - 1).rows.length,
+    1
+  );
+  assert.equal(
+    step({ shellJobs: { count: 0, jobs: [], finished: [] } }, 20_100 + SHELL_FINISH_GRACE_MS).rows.length,
+    0
+  );
+});

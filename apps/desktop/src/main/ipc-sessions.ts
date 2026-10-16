@@ -4,6 +4,7 @@ import { DESKTOP_IPC, type DesktopRemoteAccessInfo } from '../shared/contract';
 import type { BrowserHost } from './browser/host';
 import { readAttachmentThumbnail } from './attachment-thumbnail';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
+import { isSessionMissingError } from './session-final-answer';
 import type { DesktopService } from './desktop-service-contract';
 import {
   requiredAbortOptions,
@@ -91,7 +92,13 @@ export function registerSessionIpc({
   );
   handle(DESKTOP_IPC.deleteSession, async (_event, sessionId) => {
     const ownerSessionId = requiredSessionId(sessionId);
-    const snapshot = await host.deleteSession(ownerSessionId);
+    // A session that is already gone is a no-op, not an error for the UI.
+    let snapshot: unknown = null;
+    try {
+      snapshot = await host.deleteSession(ownerSessionId);
+    } catch (error) {
+      if (!isSessionMissingError(error)) throw error;
+    }
     browserHost?.releaseSession(ownerSessionId);
     return snapshot;
   });

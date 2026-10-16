@@ -38,7 +38,7 @@ export interface GitReviewFile {
   additions: number;
   deletions: number;
   untracked: boolean;
-  /** Worktree identity `${size}:${mtimeMs}`, or 'deleted' when the file is gone. */
+  /** Worktree identity `${size}:${mtimeNs}:${ctimeNs}:${ino}`, or 'deleted' when the file is gone. */
   revision: string;
 }
 
@@ -331,6 +331,163 @@ export async function gitShowFile(cwd: string, rev: string, path: string): Promi
   }
 }
 
+// ── Incremental review ───────────────────────────────────────────────────
+// The Changes pane and composer chip re-read the review on every burst of
+// file activity. A full `git diff <ref>` per read re-scanned the worktree
+// twice more than the status scan that already says which files can differ,
+// and re-counted every unchanged file. One status scan names the candidates;
+// only candidates whose status record or worktree identity moved are diffed
+// again (pathspec-limited), the rest keep their cached row.
+
+type ReviewRecord = { status: string; additions: number; deletions: number };
+
+interface ReviewCache {
+  /** The diff base the cached rows were counted against (ref and HEAD oid). */
+  refKey: string;
+  /** Tracked candidate → its key (status record + worktree identity), row (null: no diff) and read time. */
+  tracked: Map<string, { key: string; record: ReviewRecord | null; checkedAt: number }>;
+  /** Untracked file → the identity its line count was read at, and when. */
+  untracked: Map<string, { revision: string; additions: number; checkedAt: number }>;
+}
+
+const REVIEW_CACHE_MAX = 16;
+/** A cached row older than this is read again even when its identity stands,
+ *  so a tool that restores every stat field cannot keep a wrong row forever. */
+const REVIEW_REVALIDATE_MS = 30_000;
+const reviewCaches = new Map<string, ReviewCache>();
+/** `${root}\0${ref}\0${head}` → paths the two commits differ in (immutable). */
+const committedPathsCache = new Map<string, string[]>();
+const emptyTreeCache = new Map<string, string>();
+
+function boundedSet<K, V>(map: Map<K, V>, key: K, value: V): void {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > REVIEW_CACHE_MAX) map.delete(map.keys().next().value as K);
+}
+
+interface ReviewStatus {
+  head: string;
+  /** Tracked path → its status record(s): every path whose worktree may differ from HEAD. */
+  tracked: Map<string, string>;
+  untracked: string[];
+}
+
+/** One `status --porcelain=v2` scan: the HEAD oid, the tracked paths that
+ *  differ anywhere between HEAD, index and worktree, and the untracked files. */
+async function reviewStatus(root: string): Promise<ReviewStatus | null> {
+  let raw: string;
+  try {
+    raw = await run(root, [
+      '--no-optional-locks',
+      'status',
+      '--porcelain=v2',
+      '-z',
+      // Only `branch.oid` is read: no upstream ahead/behind walk.
+      '--branch',
+      '--no-ahead-behind',
+      '--untracked-files=all',
+      '--no-renames',
+    ]);
+  } catch {
+    return null;
+  }
+  const result: ReviewStatus = { head: '', tracked: new Map(), untracked: [] };
+  const fields = raw.split('\0');
+  for (let index = 0; index < fields.length; index++) {
+    const record = fields[index];
+    if (!record) continue;
+    if (record.startsWith('# branch.oid ')) result.head = record.slice('# branch.oid '.length);
+    else if (record.startsWith('? ')) result.untracked.push(record.slice(2));
+    else if (record.startsWith('1 ')) result.tracked.set(pathAfter(record, 8), record);
+    else if (record.startsWith('u ')) result.tracked.set(pathAfter(record, 10), record);
+    else if (record.startsWith('2 ')) {
+      // A rename (only under a config --no-renames does not reach): both sides.
+      const origin = fields[++index] ?? '';
+      result.tracked.set(pathAfter(record, 9), record);
+      if (origin) result.tracked.set(origin, record);
+    }
+  }
+  return result;
+}
+
+function pathAfter(record: string, fieldCount: number): string {
+  let offset = 0;
+  for (let index = 0; index < fieldCount; index++) {
+    offset = record.indexOf(' ', offset) + 1;
+    if (offset <= 0) return '';
+  }
+  return record.slice(offset);
+}
+
+/** `git diff <ref> --raw --numstat -z` rows by path (name-status letter and counts). */
+function parseRawNumstat(raw: string): Map<string, ReviewRecord> {
+  const records = new Map<string, ReviewRecord>();
+  const fields = raw.split('\0');
+  for (let index = 0; index < fields.length; index++) {
+    const field = fields[index];
+    if (field.startsWith(':')) {
+      const path = fields[++index];
+      if (!path) continue;
+      const status = field.slice(field.lastIndexOf(' ') + 1)[0] ?? 'M';
+      const known = records.get(path);
+      if (known) known.status = status;
+      else records.set(path, { status, additions: 0, deletions: 0 });
+    }
+  }
+  for (const [path, counts] of parseNumstat(raw)) {
+    const known = records.get(path);
+    if (known) Object.assign(known, counts);
+  }
+  return records;
+}
+
+async function cachedEmptyTree(root: string): Promise<string> {
+  const key = gitCacheKey(root);
+  let tree = emptyTreeCache.get(key);
+  if (!tree) {
+    tree = await emptyTree(root);
+    boundedSet(emptyTreeCache, key, tree);
+  }
+  return tree;
+}
+
+/** Paths a branch review's base and HEAD differ in: committed changes a
+ *  worktree status cannot name. Both are commit ids, so the answer is kept. */
+async function committedPaths(root: string, ref: string, head: string): Promise<string[]> {
+  const key = `${gitCacheKey(root)}\0${ref}\0${head}`;
+  const cached = committedPathsCache.get(key);
+  if (cached) return cached;
+  const raw = await run(root, ['--no-optional-locks', 'diff', '--name-only', '-z', '--no-renames', ref, head]);
+  const paths = raw.split('\0').filter(Boolean);
+  boundedSet(committedPathsCache, key, paths);
+  return paths;
+}
+
+/** Worktree identity: size, modify and change time (ns) and file id. Any write
+ *  moves the change time (Windows ChangeTime included) even when a tool puts
+ *  the modify time back, and a replacing rename moves the file id. */
+const worktreeRevision = (root: string, path: string): Promise<string> =>
+  stat(join(root, path), { bigint: true }).then(
+    (info) => `${info.size}:${info.mtimeNs}:${info.ctimeNs}:${info.ino}`,
+    () => 'deleted'
+  );
+
+/** Re-read the rows of `stale` paths against `ref`; `whole` when the path list
+ *  outgrew the command line and the whole diff was read instead. */
+async function diffStaleRows(
+  root: string,
+  ref: string,
+  stale: string[]
+): Promise<{ records: Map<string, ReviewRecord>; whole: boolean }> {
+  const args = ['-c', 'core.quotePath=false', '--no-optional-locks', '--literal-pathspecs', 'diff', ref];
+  const flags = ['--raw', '--numstat', '--no-renames', '-z'];
+  const argChars = stale.reduce((sum, path) => sum + path.length + 3, 0);
+  // Past the command-line budget the whole diff is read instead.
+  const whole = argChars > REVIEW_BATCH_ARGS_CHARS;
+  const raw = await run(root, whole ? [...args, ...flags] : [...args, ...flags, '--', ...stale]).catch(() => '');
+  return { records: parseRawNumstat(raw), whole };
+}
+
 export async function gitReview(cwd: string, source: GitReviewSource = 'branch'): Promise<GitReviewResult> {
   let root: string;
   try {
@@ -338,49 +495,97 @@ export async function gitReview(cwd: string, source: GitReviewSource = 'branch')
   } catch {
     return { repository: false, root: '', base: '', files: [], untrackedOmitted: 0 };
   }
-  const { base, ref } = await resolveReviewRef(root, source);
-  const files = new Map<string, GitReviewFile>();
-  const [nameStatus, numstat, worktreeStatus] = await Promise.all([
-    run(root, ['--no-optional-locks', 'diff', ref, '--name-status', '--no-renames', '-z']).catch(() => ''),
-    run(root, ['--no-optional-locks', 'diff', ref, '--numstat', '--no-renames', '-z']).catch(() => ''),
-    run(root, ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames']).catch(
-      () => ''
-    ),
+  // The merge-base read runs beside the status scan; an unborn HEAD drops it.
+  const [status, mergeBase] = await Promise.all([
+    reviewStatus(root),
+    source === 'uncommitted' ? null : resolveMergeBase(root),
   ]);
-  const fields = nameStatus.split('\0').filter(Boolean);
-  for (let i = 0; i + 1 < fields.length; i += 2) {
-    const path = fields[i + 1];
-    if (!path) continue;
-    files.set(path, { path, status: fields[i][0] ?? 'M', additions: 0, deletions: 0, untracked: false, revision: '' });
+  if (!status) {
+    const { base } = await resolveReviewRef(root, source);
+    return { repository: true, root, base, files: [], untrackedOmitted: 0 };
   }
-  for (const [path, stat] of parseNumstat(numstat)) {
-    const entry = files.get(path);
-    if (!entry) continue;
-    entry.additions = stat.additions;
-    entry.deletions = stat.deletions;
-  }
-  const untrackedPaths: string[] = [];
-  let untrackedOmitted = 0;
-  for (const entry of worktreeStatus.split('\0')) {
-    if (!entry.startsWith('?? ') || entry.length < 4) continue;
-    if (untrackedPaths.length >= REVIEW_UNTRACKED_LIMIT) {
-      untrackedOmitted += 1;
-      continue;
+  const unborn = !status.head || status.head === '(initial)';
+  let base = 'HEAD';
+  let ref = 'HEAD';
+  if (unborn) ref = await cachedEmptyTree(root);
+  else if (mergeBase) ({ base, ref } = mergeBase);
+  // Every path the worktree can differ from `ref` in: a status candidate, or
+  // (base ≠ HEAD) a path the commits since the base touched.
+  const candidates = new Map(status.tracked);
+  if (!unborn && ref !== 'HEAD' && ref !== status.head) {
+    for (const path of await committedPaths(root, ref, status.head).catch(() => [])) {
+      if (!candidates.has(path)) candidates.set(path, '');
     }
-    const path = entry.slice(3);
-    untrackedPaths.push(path);
-    files.set(path, { path, status: 'A', additions: 0, deletions: 0, untracked: true, revision: '' });
   }
+  const untrackedPaths = status.untracked.slice(0, REVIEW_UNTRACKED_LIMIT);
+  const untrackedOmitted = status.untracked.length - untrackedPaths.length;
+  const trackedPaths = [...candidates.keys()];
+  const revisions = new Map<string, string>();
+  await mapWithConcurrency([...trackedPaths, ...untrackedPaths], UNTRACKED_STAT_CONCURRENCY, async (path) => {
+    if (!revisions.has(path)) revisions.set(path, await worktreeRevision(root, path));
+  });
+  // Cached rows hold while the base, HEAD and every edited attributes file
+  // (which can turn a file binary or change its line endings) stand.
+  const attributes = [...trackedPaths, ...untrackedPaths]
+    .filter((path) => /(^|\/)\.gitattributes$/.test(path))
+    .map((path) => `${path}\0${revisions.get(path)}`);
+  const refKey = [ref, unborn ? '' : status.head, ...attributes].join('\0');
+  const cacheKey = `${gitCacheKey(root)}\0${source}`;
+  const previous = reviewCaches.get(cacheKey);
+  const priorTracked: ReviewCache['tracked'] = previous?.refKey === refKey ? previous.tracked : new Map();
+  const tracked: ReviewCache['tracked'] = new Map();
+  const stale: string[] = [];
+  const now = Date.now();
+  const fresh = (checkedAt: number): boolean => now - checkedAt < REVIEW_REVALIDATE_MS;
+  for (const path of trackedPaths) {
+    const key = `${candidates.get(path)}\0${revisions.get(path)}`;
+    const known = priorTracked.get(path);
+    if (known?.key === key && fresh(known.checkedAt)) tracked.set(path, known);
+    else {
+      tracked.set(path, { key, record: null, checkedAt: now });
+      stale.push(path);
+    }
+  }
+  if (stale.length) {
+    const { records, whole } = await diffStaleRows(root, ref, stale);
+    for (const path of stale) {
+      const entry = tracked.get(path);
+      if (entry) entry.record = records.get(path) ?? null;
+    }
+    if (whole) {
+      for (const [path, record] of records) {
+        if (!tracked.has(path)) tracked.set(path, { key: '', record, checkedAt: now });
+      }
+    }
+  }
+  const files = new Map<string, GitReviewFile>();
+  for (const [path, { record }] of tracked) {
+    if (!record) continue;
+    files.set(path, { path, ...record, untracked: false, revision: revisions.get(path) ?? '' });
+  }
+  const untracked: ReviewCache['untracked'] = new Map();
   await mapWithConcurrency(untrackedPaths, UNTRACKED_STAT_CONCURRENCY, async (path) => {
-    const entry = files.get(path);
-    if (entry) entry.additions = await untrackedStat(root, path);
+    const revision = revisions.get(path) ?? '';
+    const known = previous?.untracked.get(path);
+    // Recounting reads the file once, as a content hash would: any moved
+    // identity field or an aged row is simply counted again.
+    if (known?.revision === revision && fresh(known.checkedAt)) untracked.set(path, known);
+    else untracked.set(path, { revision, additions: await untrackedStat(root, path), checkedAt: now });
   });
-  await mapWithConcurrency([...files.values()], UNTRACKED_STAT_CONCURRENCY, async (entry) => {
-    entry.revision = await stat(join(root, entry.path)).then(
-      (info) => `${info.size}:${info.mtimeMs}`,
-      () => 'deleted'
-    );
-  });
+  for (const path of untrackedPaths) {
+    const entry = untracked.get(path);
+    files.set(path, {
+      path,
+      status: 'A',
+      additions: entry?.additions ?? 0,
+      deletions: 0,
+      untracked: true,
+      revision: entry?.revision ?? '',
+    });
+  }
+  // A row read past the arg budget has no key: it is read again next time.
+  for (const [path, entry] of tracked) if (!entry.key) tracked.delete(path);
+  boundedSet(reviewCaches, cacheKey, { refKey, tracked, untracked });
   return {
     repository: true,
     root,
