@@ -223,6 +223,32 @@ test('a first turn creates the session, folds MCP once, bridges the callbacks an
   );
 });
 
+test("an agent session's first turn waits for the initial MCP connect instead of the TTFT grace", async () => {
+  const h = makeHarness({
+    createCurrentSession: async () => {
+      const session = { id: 'sess_agent', owner: 'agent', deferredInitialRefreshPending: true };
+      h.sessions.set(session.id, session);
+      h.state.session = session;
+      return session;
+    },
+  });
+  await h.runner.ask('use the MCP tools', {});
+  assert.deepEqual(
+    h.named('mcpGrace'),
+    [['mcpGrace', undefined]],
+    'an undefined cap bounds the wait by the server startup budget only'
+  );
+  assert.equal(h.state.session.deferredInitialRefreshPending, false);
+
+  const later = await h.runner.ask('again', {});
+  assert.equal(later.session.id, 'sess_agent');
+  assert.deepEqual(
+    h.named('mcpGrace')[1],
+    ['mcpGrace', 250],
+    'later agent turns keep the late-tool path with the normal grace'
+  );
+});
+
 test('a later turn on an existing session skips creation, the first-turn fold and the one-shot warmups', async () => {
   const h = makeHarness();
   const existing = { id: 'sess_old', deferredInitialRefreshPending: false };

@@ -49,9 +49,9 @@ export function createTurnPreparation({
     // Slower servers remain available through the late-tool path; a reconnect
     // in flight gets the same short TTFT grace BEFORE folding the catalog so it
     // cannot hold the provider request. No reconnect in flight → no-op.
-    const awaitGrace = async () => {
+    const awaitGrace = async (options) => {
       try {
-        await turn.awaitTurn(() => turn.timing.awaitMcpGrace());
+        await turn.awaitTurn(() => turn.timing.awaitMcpGrace(options));
       } catch {
         /* gate must never break the turn */
       }
@@ -64,7 +64,12 @@ export function createTurnPreparation({
       // One-shot: cleared before the fold so a throw still never re-runs it,
       // and a resumed session (flag unset) skips straight to the late path.
       session0.deferredInitialRefreshPending = false;
-      await awaitGrace();
+      // A spawned agent runtime owns a fresh MCP scope whose connect starts at
+      // its boot, so the 0 ms default grace would hide every MCP tool from the
+      // agent's first (often only) turn. Agents are not on the user's TTFT
+      // path: wait for the initial connect within the server startup budget.
+      const agentOwned = session0.owner === 'agent' || session0.visibility === 'agent-only';
+      await awaitGrace({ untilConnected: agentOwned });
       try {
         refreshInitialDeferredMcpSurface(session0, scopedMcpTools(session0));
       } catch {
