@@ -469,6 +469,7 @@ export const ModelSelector = memo(function ModelSelector({
       setCatalogError('');
       setProviderSetupError('');
       const shared = requestModelCatalog(api);
+      let fullApplied = false;
       const setupRequest = shared.setup
         .then((setup) => {
           if (shared.isCurrent()) setProviderSetup(setup);
@@ -481,6 +482,7 @@ export const ModelSelector = memo(function ModelSelector({
       const fullRequest = shared.full
         .then((full) => {
           if (!shared.isCurrent() || !Array.isArray(full)) return;
+          fullApplied = true;
           setModels(full);
           setCatalogError('');
         })
@@ -497,7 +499,9 @@ export const ModelSelector = memo(function ModelSelector({
         });
       try {
         const quick = await shared.quick;
-        if (shared.isCurrent() && Array.isArray(quick) && quick.length > 0) {
+        // A reused shared request may already have resolved both answers.
+        // Its thin quick rows must not overwrite the full catalog above.
+        if (shared.isCurrent() && !fullApplied && Array.isArray(quick) && quick.length > 0) {
           setModels((current) => {
             const merged = new Map(current.map((option) => [`${option.provider}:${option.model}`, option]));
             for (const option of quick) {

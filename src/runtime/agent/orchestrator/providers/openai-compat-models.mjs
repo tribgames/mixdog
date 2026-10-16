@@ -2,11 +2,50 @@ import { resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { PROVIDER_GENERATE_TOTAL_TIMEOUT_MS, createTimeoutSignal, resolveTimeoutMs } from '../stall-policy.mjs';
+import { CUSTOM_EFFORT_LEVELS, normalizeCustomEffort } from './custom-reasoning.mjs';
 
 const MODEL_LIST_TIMEOUT_MS = resolveTimeoutMs('MIXDOG_COMPAT_MODEL_LIST_TIMEOUT_MS', 10_000, {
   minMs: 1_000,
   maxMs: PROVIDER_GENERATE_TOTAL_TIMEOUT_MS,
 });
+
+/** Preserve endpoint-declared effort levels without inventing a default ladder. */
+export function extractCompatReasoningEffort(model) {
+  if (!model || typeof model !== 'object') return null;
+  const rawLevels = [
+    model.reasoning_efforts,
+    model.reasoning_levels,
+    model.reasoningLevels,
+    model.capabilities?.reasoning_efforts,
+    model.capabilities?.reasoning_effort,
+  ].find(Array.isArray);
+  if (rawLevels) {
+    const declared = new Set(
+      rawLevels
+        .map((level) => (typeof level === 'string' ? level : level?.value))
+        .filter((level) => typeof level === 'string')
+        .map(normalizeCustomEffort)
+        .filter(Boolean)
+    );
+    const levels = CUSTOM_EFFORT_LEVELS.filter((level) => declared.has(level));
+    if (levels.length > 0) {
+      return {
+        supportsReasoning: levels.some((level) => level !== 'none'),
+        reasoningLevels: levels,
+        reasoningOptions: [{ type: 'effort', values: [...levels] }],
+      };
+    }
+    return null;
+  }
+  if (
+    model.supports_reasoning_effort === true ||
+    model.capabilities?.reasoning_effort === true ||
+    model.capabilities?.reasoning_efforts === true
+  ) {
+    return { supportsReasoning: true };
+  }
+  return null;
+}
 
 // `keyless` omits the Authorization header entirely (keyless endpoints);
 // `signal` aborts the request together with the list timeout.
@@ -81,6 +120,7 @@ export async function listCompatModels(provider, { throwOnError = false, signal 
       // own slug for routing; the slug it currently points at is retained for
       // capability lookup only.
       const aliasTarget = typeof m?.alias_target === 'string' ? m.alias_target : m?.alias_target?.slug;
+      const effortInfo = extractCompatReasoningEffort(m);
       models.push({
         id: m?.id,
         name: m?.id,
@@ -90,6 +130,7 @@ export async function listCompatModels(provider, { throwOnError = false, signal 
         created: typeof m?.created === 'number' ? m.created : null,
         ...(mode ? { mode } : {}),
         ...(typeof aliasTarget === 'string' && aliasTarget ? { aliasTarget } : {}),
+        ...(effortInfo || {}),
       });
     }
     const filtered = models.filter((m) => m.id);
