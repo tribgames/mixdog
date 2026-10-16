@@ -3,16 +3,18 @@
 // branch returns to the project folder keeping the worktree, the retained
 // branch re-enters it, and removal returns first, then deletes.
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
-import { configureWorktreeManager } from '../../runtime/shared/worktrees/manager.mjs';
+import { configureWorktreeManager, withWorktreeRecoveryStore } from '../../runtime/shared/worktrees/manager.mjs';
 import { samePath } from '../../runtime/shared/worktrees/paths.mjs';
 import {
   cleanupTempDirs,
   commitFile,
   git,
   makeRepo,
+  tempDir,
   useTempDataDir,
   writeFile,
 } from '../../runtime/shared/worktrees/test-support.mjs';
@@ -210,6 +212,59 @@ test('a live session moves into a new worktree: the dirty choice first, then its
     assert.equal(readFileSync(join(worktree, 'src', 'new.js'), 'utf8'), 'export {};\n');
     assert.deepEqual(moves, [{ from: repo, changes: 'carried' }]);
     assert.equal(git(repo, 'for-each-ref', 'refs/mixdog/carry/'), '', 'the committed move dropped its recovery ref');
+  } finally {
+    restore();
+  }
+});
+
+test('merged, cleanup blocked by retained recovery records: merge succeeds and the worktree and its records stay', async () => {
+  useTempDataDir();
+  const restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });
+  try {
+    const repo = makeRepo();
+    const session = {
+      id: `sess_recovery_${process.pid}`,
+      cwd: repo,
+      desktopSession: { classification: 'project', projectPath: repo },
+      messages: [],
+    };
+    let cwd = repo;
+    const api = createWorkspaceTransitions({
+      getSession: () => session,
+      getCurrentCwd: () => cwd,
+      getConfig: () => ({ worktree: { autoCleanup: true } }),
+      applyResolvedCwd: (next) => {
+        cwd = next;
+        session.cwd = next;
+      },
+      persistSession: () => {},
+      refreshWorkspaceContext: async () => {},
+      getActiveTurnCount: () => 0,
+      agentStatusState: () => ({ agentWorkers: [], agentJobs: [] }),
+      countOwnShellJobs: async () => 0,
+      listLiveSessions: () => [],
+      findRegisteredProject: async (path) => (samePath(path, repo) ? repo : null),
+    });
+    const entered = await api.requestWorktree({ provision: true, prompt: 'Recover edits', txId: 'merge-recovery' });
+    const worktree = entered.workspace.cwd;
+    commitFile(worktree, 'feature.txt', 'feature\n');
+    // An interrupted editor batch left a retained journal for this worktree.
+    const store = join(tempDir('mixdog-recovery-profile-'), 'editor-recovery',
+      createHash('sha256').update(resolve(worktree)).digest('hex'));
+    await withWorktreeRecoveryStore(worktree, store, 'write', async () => {
+      mkdirSync(join(store, 'record'), { recursive: true });
+      writeFileSync(join(store, 'record', 'manifest.json'), 'retained');
+    });
+
+    const result = await api.mergeWorkspace({ confirmed: true, target: 'main', cleanup: true });
+    assert.equal(result.merged, true, 'the merge is reported as a success');
+    assert.equal(git(repo, 'rev-parse', 'HEAD'), result.commit);
+    assert.equal(readFileSync(join(repo, 'feature.txt'), 'utf8'), 'feature\n');
+    assert.equal(result.cleanup.removed, false);
+    assert.equal(result.cleanup.reason, 'WORKTREE_FILE_RECOVERY');
+    assert.ok(existsSync(worktree), 'the worktree is kept');
+    assert.ok(samePath(cwd, worktree), 'the session stays in its worktree');
+    assert.equal(readFileSync(join(store, 'record', 'manifest.json'), 'utf8'), 'retained');
   } finally {
     restore();
   }

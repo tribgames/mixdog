@@ -872,7 +872,7 @@ test('merge with cleanup removes the merged worktree only when autoCleanup is on
     on.state.retained = on.entry;
     const plain = await on.api.mergeWorkspace({ confirmed: true, target: 'main' });
     assert.equal(plain.cleanup, undefined);
-    // A refused cleanup keeps the merge: merged, with the refusal's code and message.
+    // A refused cleanup keeps the merge: merged, with the refusal's reason, code and message.
     await on.api.requestWorktree();
     on.manager.removableImpl = async () => {
       throw worktreeError('WORKTREE_DIRTY', 'The worktree has uncommitted changes.', { count: 1 });
@@ -881,6 +881,7 @@ test('merge with cleanup removes the merged worktree only when autoCleanup is on
     assert.equal(refused.merged, true);
     assert.deepEqual(refused.cleanup, {
       removed: false,
+      reason: 'WORKTREE_DIRTY',
       code: 'WORKTREE_DIRTY',
       message: 'The worktree has uncommitted changes.',
     });

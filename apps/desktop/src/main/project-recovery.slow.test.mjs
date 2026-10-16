@@ -324,6 +324,49 @@ for (const replaceRoot of [true, false]) {
   });
 }
 
+test('explicit discard removes only a record that still validates as this root\'s inspected journal', async (t) => {
+  const f = await fixture(t);
+  const id = await record(f);
+  const location = await recoveryLocation(f.data, f.root, id);
+  const discard = (revision) => projectRecoveryIn(f.data, f.root, { action: 'discard', id, revision });
+  const listed = async () => (await projectRecoveryIn(f.data, f.root, { action: 'list' })).records.map((row) => row.id);
+
+  // Changed since inspection: an added entry or a swapped payload (even one
+  // already unusable at inspection) withdraws the approval.
+  await fs.writeFile(join(location, '0.after'), 'YY');
+  let approved = await inspect(f, id);
+  await fs.writeFile(join(location, '0.after'), 'ZZ');
+  await assert.rejects(discard(approved.revision), { code: 'RECOVERY_CHANGED' });
+  approved = await inspect(f, id);
+  await fs.writeFile(join(location, 'foreign.txt'), 'not part of the journal');
+  await assert.rejects(discard(approved.revision), { code: 'RECOVERY_CHANGED' });
+  await fs.rm(join(location, 'foreign.txt'));
+
+  // Wrong entry type: never inspected as a deletable flat store.
+  approved = await inspect(f, id);
+  await fs.mkdir(join(location, 'nested'));
+  await fs.writeFile(join(location, 'nested', 'keep'), 'keep');
+  await assert.rejects(inspect(f, id), { code: 'RECOVERY_STORAGE' });
+  await assert.rejects(discard(approved.revision), { code: 'RECOVERY_STORAGE' });
+  assert.equal(await fs.readFile(join(location, 'nested', 'keep'), 'utf8'), 'keep');
+  await fs.rm(join(location, 'nested'), { recursive: true });
+
+  // Foreign: a valid manifest of another project root is not this journal.
+  const manifest = JSON.parse(await fs.readFile(join(location, 'manifest.json'), 'utf8'));
+  const original = JSON.stringify(manifest);
+  await fs.writeFile(join(location, 'manifest.json'), JSON.stringify({ ...manifest, root: join(f.base, 'other-project') }));
+  approved = await inspect(f, id);
+  await assert.rejects(discard(approved.revision), { code: 'RECOVERY_MANUAL_INSPECTION' });
+  assert.deepEqual(await listed(), [id]);
+
+  // A valid, unchanged record of this root is discarded.
+  await fs.writeFile(join(location, 'manifest.json'), original);
+  approved = await inspect(f, id);
+  await discard(approved.revision);
+  assert.deepEqual(await listed(), []);
+  assert.equal(await fs.readFile(join(f.root, 'a.txt'), 'utf8'), 'A0');
+});
+
 test('invalid records can be inspected and discarded without any restoration authority', async (t) => {
   const f = await fixture(t);
   const parent = join(f.data, 'editor-recovery', recoveryDigest(f.root));

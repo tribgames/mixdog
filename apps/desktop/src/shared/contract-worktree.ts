@@ -103,7 +103,9 @@ export interface DesktopMergeWorkspaceInput {
   target: string;
   expectedRevision?: number;
   /** Merge and clean up: with autoCleanup on, the merged worktree is removed
-   *  right after (a dirty one is kept and reported in `cleanup`). */
+   *  right after. A cleanup that is refused or fails (dirty, retained file
+   *  recovery data, ...) keeps the worktree and is reported in `cleanup`;
+   *  the merge itself still succeeded. */
   cleanup?: boolean;
 }
 
