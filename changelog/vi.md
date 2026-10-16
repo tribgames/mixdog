@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.2.3 - 2026-10-16
+
 Kể từ khi ra mắt, số lượng người dùng Mixdog đã vượt xa dự kiến của chúng tôi và chúng tôi vô cùng biết ơn vì điều đó. Một số phần vẫn chưa thực sự ổn định và chúng tôi đang khắc phục chúng nhanh nhất có thể. Các issue và pull request của các bạn đã góp phần định hình phần lớn bản phát hành này. Nếu gặp sự cố, vui lòng cho chúng tôi biết tại **Cài đặt → Giới thiệu → Phản hồi**.
 
 Bạn mới sử dụng tính năng suy luận tự động? Một mô hình đánh giá nhỏ trên PC sẽ chọn mức độ suy nghĩ của mô hình cho từng tin nhắn và bước thực hiện. Hãy tìm hiểu cách thức hoạt động và kết quả trên Terminal-Bench 2.1 trong [Mức độ suy luận tự động](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).
