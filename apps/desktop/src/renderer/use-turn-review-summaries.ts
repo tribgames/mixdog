@@ -10,7 +10,7 @@ import {
   summarizeTurnReviewOperations,
 } from './turn-review-model';
 import { t } from './i18n';
-import { sessionChangesSourceLabel, useSessionChanges } from './session-changes-store';
+import { sessionChangesEmptyText, sessionChangesSourceLabel, useSessionChanges } from './session-changes-store';
 import type { useTurnReviewReads } from './use-turn-review-reads';
 
 type Reads = ReturnType<typeof useTurnReviewReads>;
@@ -217,5 +217,14 @@ export function useShownTurnReview({
   }, [sessionScoped, sessionSummary, sessionLabel, transcriptSummary, agentSources, authoritativeWorktreeSnapshot]);
   // The segment's name follows the source; a non-Git root lists the session's files.
   const segmentLabel = changes.repository ? sessionLabel : t('Files changed this session');
-  return { shownSummary, headlineStats, sources, segmentLabel };
+  return {
+    shownSummary,
+    headlineStats,
+    sources,
+    segmentLabel,
+    /** A Git root: the files menu offers the Changes source picker. */
+    sourcePicker: changes.repository,
+    emptyText: changes.repository ? sessionChangesEmptyText(changes.source) : t('No changes from this session.'),
+    ready: changes.ready,
+  };
 }

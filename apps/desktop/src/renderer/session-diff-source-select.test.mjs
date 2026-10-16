@@ -56,14 +56,14 @@ test('a Git root picks its Changes source in the toolbar; each source lists, emp
   const options = [...view.document.querySelectorAll('.mx-menu [role="option"]')];
   assert.deepEqual(
     options.map((option) => option.textContent),
-    ['Last turn', 'This branch', 'Uncommitted', 'Unstaged', 'Staged']
+    ['Last turn', 'Current session', 'This branch', 'Uncommitted', 'Unstaged', 'Staged']
   );
-  // The last turn stands apart: one rule between it and Git's sources.
+  // The conversation's sources stand apart: one rule between them and Git's.
   const separators = [...view.document.querySelectorAll('.mx-menu [role="separator"]')];
   assert.equal(separators.length, 1);
-  assert.equal(separators[0].previousElementSibling, options[0]);
-  assert.equal(separators[0].nextElementSibling, options[1]);
-  await act(async () => options[1].click());
+  assert.equal(separators[0].previousElementSibling, options[1]);
+  assert.equal(separators[0].nextElementSibling, options[2]);
+  await act(async () => options[2].click());
   await view.settle();
   assert.equal(view.window.localStorage.getItem('mixdog.session-changes-source.v1'), 'branch');
   assert.deepEqual(reviews, ['uncommitted', 'branch']);

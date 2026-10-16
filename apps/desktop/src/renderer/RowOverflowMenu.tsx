@@ -22,6 +22,9 @@ type RowOverflowMenuItem = {
   children?: RowOverflowMenuItem[];
 };
 
+/** Focusable entries: actions and check items alike. */
+const MENU_ENTRY = "[role='menuitem']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)";
+
 type RowOverflowOpener = (point?: { x: number; y: number }) => void;
 /** Each mounted menu registers its opener under its trigger button. */
 const rowOverflowOpeners = new WeakMap<Element, RowOverflowOpener>();
@@ -74,7 +77,7 @@ function useRowOverflowDismiss({
   // biome-ignore lint/correctness/useExhaustiveDependencies: panel/trigger are refs and setOpen is a useState setter (all stable); path is a deliberate trigger that refocuses the first item on each submenu level.
   useEffect(() => {
     if (!menuOpen) return undefined;
-    queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>("[role='menuitem']:not(:disabled)")?.focus());
+    queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(MENU_ENTRY)?.focus());
     const dismiss = (event: PointerEvent) => {
       const target = event.target as Node;
       if (!panel.current?.contains(target) && !trigger.current?.contains(target)) setOpen(false);
@@ -113,7 +116,7 @@ function rowOverflowMenuKeyDown(
     setOpen(open: boolean): void;
   }
 ): void {
-  const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not(:disabled)") || [])];
+  const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(MENU_ENTRY) || [])];
   if (!entries.length) return;
   const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
   let next = -1;
@@ -234,7 +237,16 @@ function renderRowOverflowPanel({
   );
 }
 
-export function RowOverflowMenu({ label, items }: { label: string; items: RowOverflowMenuItem[] }) {
+export function RowOverflowMenu({
+  label,
+  items,
+  tooltip,
+}: {
+  label: string;
+  items: RowOverflowMenuItem[];
+  /** The trigger's tooltip; "Actions" by default. */
+  tooltip?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState<number[]>([]);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -311,7 +323,7 @@ export function RowOverflowMenu({ label, items }: { label: string; items: RowOve
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        data-tooltip={t('Actions')}
+        data-tooltip={tooltip ?? t('Actions')}
         onPointerEnter={(event) => rememberAnchor(event.currentTarget)}
         onFocus={(event) => rememberAnchor(event.currentTarget)}
         // Pointer users see the menu on PRESS instead of waiting for release.

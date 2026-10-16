@@ -4,7 +4,7 @@ import { SESSION_CHANGES_SOURCE_KEY, type Snapshot, type TranscriptItem } from '
 import { createGitRefreshScheduler, watchGitRefreshEvidence, type GitRefreshReason } from './git-refresh-scheduler';
 import { t } from './i18n';
 import { RendererLruCache } from './renderer-lru-cache';
-import { fetchSessionDiffFilePatchResult, sessionDiffRevision } from './session-diff-cache';
+import { fetchSessionDiff, fetchSessionDiffFilePatchResult, sessionDiffRevision } from './session-diff-cache';
 import {
   buildSessionDiffRows,
   decodeSessionDiffFilePatch,
@@ -26,16 +26,23 @@ import {
   type TurnReviewCapabilityValue,
 } from './turn-review-model';
 import type { TurnReviewFile } from './turn-review-cache';
+import { useTurnChangesEpoch } from './turn-changes-model';
 import { useSessionDiffRefresh } from './use-session-diff-refresh';
 import { readCachedDockGitState, requestDockGitState } from './utility-dock-git-state';
 
 // ── Source preference ────────────────────────────────────────────────────
 // One global choice shared by the composer chip and every Changes pane.
 
-/** Menu order (Codex): the last turn, then — after a separator — Git's sources. */
-export const SESSION_CHANGES_SOURCES = ['last-turn', 'branch', 'uncommitted', 'unstaged', 'staged'] as const;
+/** Menu order (Codex): the conversation's own sources (the last turn, the
+ *  whole session), then — after a separator — Git's sources. */
+export const SESSION_CHANGES_SOURCES = ['last-turn', 'session', 'branch', 'uncommitted', 'unstaged', 'staged'] as const;
 export type SessionChangesSource = (typeof SESSION_CHANGES_SOURCES)[number];
 const DEFAULT_SOURCE: SessionChangesSource = 'uncommitted';
+
+/** The runtime's own-edit reviews: one per session, not per repository root. */
+function sessionScopedSource(source: SessionChangesSource): boolean {
+  return source === 'last-turn' || source === 'session';
+}
 
 function isSessionChangesSource(value: unknown): value is SessionChangesSource {
   return SESSION_CHANGES_SOURCES.includes(value as SessionChangesSource);
@@ -85,6 +92,8 @@ export function sessionChangesSourceLabel(source: SessionChangesSource): string 
       return t('Unstaged');
     case 'last-turn':
       return t('Last turn');
+    case 'session':
+      return t('Current session');
     default:
       return t('Uncommitted');
   }
@@ -100,6 +109,8 @@ export function sessionChangesEmptyText(source: SessionChangesSource): string {
       return t('No unstaged changes.');
     case 'last-turn':
       return t('No changes in the last turn.');
+    case 'session':
+      return t('No changes from this session.');
     default:
       return t('No uncommitted changes.');
   }
@@ -169,6 +180,9 @@ const cwdRoots = new Map<string, string>();
 
 function changesKey({ cwd, source, sessionId }: ChangesTarget): string {
   if (source === 'last-turn') return `last-turn\0${sessionId}`;
+  // The session review is read for the session's current workspace: a read
+  // still running for the previous one must not answer the new one.
+  if (source === 'session') return `session\0${sessionId}\0${cwd}`;
   return `${cwdRoots.get(cwd) || cwd}\0${source}`;
 }
 
@@ -237,6 +251,19 @@ function gitStatusRows(files: DesktopGitFile[], staged: boolean): ChangesRead['r
   return reviewRows(listed);
 }
 
+/** FNV-1a over a row's inline patch text: a short stand-in for it in the
+ *  entry signature. */
+function patchDigest(row: SessionDiffRow): string {
+  let hash = 0x811c9dc5;
+  for (const part of row.parts) {
+    for (let index = 0; index < part.patch.length; index += 1) {
+      hash = Math.imul(hash ^ part.patch.charCodeAt(index), 0x01000193);
+    }
+    hash = Math.imul(hash ^ 0x7c, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function lastTurnRows(decoded: { files: TurnReviewFile[]; leadPatch: string | null }): ChangesRead['rows'] {
   return buildSessionDiffRows({ files: decoded.files, patch: decoded.leadPatch ?? '' });
 }
@@ -283,13 +310,32 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
       diffTooLarge: false,
     };
   }
-  // The last turn is the runtime's own-edit review; the repository question is
-  // answered by the dock's shared status snapshot.
+  // The last turn and the whole session are the runtime's own-edit reviews;
+  // the repository question is answered by the dock's shared status snapshot.
   const cached = readCachedDockGitState(cwd);
-  const [dock, decoded] = await Promise.all([
-    cached.ready && !cached.error ? cached : requestDockGitState(cwd),
-    readTurnReview(sessionId, true, background),
-  ]);
+  const dockState = cached.ready && !cached.error ? Promise.resolve(cached) : requestDockGitState(cwd);
+  if (source === 'session') {
+    // The session's net change: its earliest baseline against the worktree,
+    // scoped to the files it touched (getSessionReviewDiff).
+    const [dock, result] = await Promise.all([dockState, fetchSessionDiff(sessionId, { force: true })]);
+    if (dock.error) throw new Error(dock.error);
+    if (!dock.status?.repository) return NO_REPOSITORY;
+    const rows = buildSessionDiffRows(result);
+    // A file's patch can move while its counts hold: an inline patch's digest
+    // does; a file listed without its patch is re-read with every fresh result
+    // (the cache's revision), as the non-Git session diff does.
+    const revision = `r${sessionDiffRevision(sessionId)}`;
+    return {
+      repository: true,
+      root: dock.status.root,
+      base: '',
+      rows,
+      untracked: new Set(),
+      revisions: new Map(rows.map((row) => [row.path, row.parts.length ? patchDigest(row) : revision])),
+      diffTooLarge: result?.diffTooLarge === true,
+    };
+  }
+  const [dock, decoded] = await Promise.all([dockState, readTurnReview(sessionId, true, background)]);
   if (dock.error) throw new Error(dock.error);
   if (!dock.status?.repository) return NO_REPOSITORY;
   return {
@@ -346,7 +392,7 @@ function keepRows(previous: readonly SessionDiffRow[] | undefined, next: readonl
 }
 
 function adopt(target: ChangesTarget, read: ChangesRead, mode: LoadMode): void {
-  if (read.root && target.source !== 'last-turn') cwdRoots.set(target.cwd, read.root);
+  if (read.root && !sessionScopedSource(target.source)) cwdRoots.set(target.cwd, read.root);
   const key = changesKey(target);
   const previous = entries.get(key);
   const wasStale = staleKeys.delete(key);
@@ -399,12 +445,20 @@ function loadChanges(target: ChangesTarget, mode: LoadMode): Promise<boolean> {
   return request;
 }
 
+/** A read that must start after now: one already running answers an earlier
+ *  state (a history mutation it predates), so this one follows it. */
+function reloadChanges(target: ChangesTarget): Promise<boolean> {
+  const pending = requests.get(changesKey(target));
+  if (!pending) return loadChanges(target, 'foreground');
+  return pending.then(() => loadChanges(target, 'foreground'));
+}
+
 const watches = new Map<string, { count: number; stop(): void }>();
 
 /** Ref-counted Git evidence watch per (cwd, source): the chip and the pane
  *  share one scheduler, which also performs the first read. */
 function retainChangesWatch(target: ChangesTarget): () => void {
-  const id = `${target.cwd}\0${target.source}\0${target.source === 'last-turn' ? target.sessionId : ''}`;
+  const id = `${target.cwd}\0${target.source}\0${sessionScopedSource(target.source) ? target.sessionId : ''}`;
   let watch = watches.get(id);
   if (!watch) {
     const stop = watchGitRefreshEvidence(
@@ -546,6 +600,9 @@ function readFilePatch(
       }
       return turn.then((patch) => textPatch(sessionDiffFilePatch(patch, path)));
     }
+    case 'session':
+      // Served from the shared session-diff cache the list read filled.
+      return fetchSessionDiffFilePatchResult(target.sessionId, { id: row.id, path, oldPath: row.oldPath });
     default:
       return (api?.gitReviewDiff?.(root, path, untracked, target.source) ?? Promise.resolve('')).then(textPatch);
   }
@@ -731,7 +788,7 @@ export function useSessionChangePatches({
   // with Git evidence. The last turn's and the session diff's with their result.
   const stampOf = (row: SessionDiffRow) => {
     if (!git) return `r${generation}`;
-    if (target.source === 'last-turn') return `g${generation}`;
+    if (sessionScopedSource(target.source)) return `g${generation}`;
     const untracked = entry.untracked.has(row.path) ? 'u' : '';
     const content =
       target.source === 'staged' || target.source === 'unstaged'
@@ -890,7 +947,7 @@ export function useSessionChanges({
   const entry = useSyncExternalStore(subscribeEntries, () => (project ? readEntry(target) : undefined));
   // A project folder is a Git candidate until a read answers otherwise.
   const git = Boolean(project) && entry?.repository !== false;
-  const watchable = git && (source !== 'last-turn' || Boolean(session));
+  const watchable = git && (!sessionScopedSource(source) || Boolean(session));
   const sameLane = useMemo(() => sessionDiffSnapshotsEqualFor(session), [session]);
   const lane = useSessionLane(session, defaultSessionLaneStore, sameLane, active);
   const laneRevision = useSessionLaneRevision(session, defaultSessionLaneStore, active);
@@ -901,6 +958,15 @@ export function useSessionChanges({
     if (!active || !watchable) return;
     return retainChangesWatch(target);
   }, [active, target, watchable]);
+  // Undo/Reapply and Delete history move the session review without touching
+  // Git evidence, so its entry re-reads on the session's history epoch.
+  const mutations = useTurnChangesEpoch(session);
+  const seenMutations = useRef(mutations);
+  useEffect(() => {
+    if (seenMutations.current === mutations) return;
+    seenMutations.current = mutations;
+    if (active && watchable && source === 'session') void reloadChanges(target);
+  }, [active, mutations, source, target, watchable]);
   const laneItems = lane?.items;
   const fallbackRows = useMemo(() => {
     if (git) return EMPTY_ROWS;

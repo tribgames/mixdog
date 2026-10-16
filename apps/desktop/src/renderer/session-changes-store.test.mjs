@@ -114,6 +114,19 @@ test('switching the source reads that source: review, index, worktree and the la
     },
     invokeCapability: async (request) => {
       calls.push(['capability', request.capability, request.sessionId]);
+      if (request.capability === 'getSessionReviewDiff') {
+        return {
+          value: {
+            supported: true,
+            authoritative: true,
+            files: [
+              { path: 'turn.ts', status: 'M', additions: 4, deletions: 2 },
+              { path: 'earlier.ts', status: 'A', additions: 7, deletions: 0 },
+            ],
+            patch: '',
+          },
+        };
+      }
       return {
         value: {
           supported: true,
@@ -177,6 +190,155 @@ test('switching the source reads that source: review, index, worktree and the la
     ['turn.ts']
   );
   assert.equal(states.a.summary.additions, 4);
+
+  // The whole session: the runtime's session review, still a Git root.
+  calls.length = 0;
+  await act(async () => states.a.setSource('session'));
+  await view.settle();
+  assert.deepEqual(
+    calls.filter((call) => call[0] === 'capability'),
+    [['capability', 'getSessionReviewDiff', 's1']]
+  );
+  assert.equal(states.a.repository, true);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['turn.ts', 'earlier.ts']
+  );
+  assert.equal(states.a.summary.additions, 11);
+});
+
+const sessionPatch = (path, line) =>
+  `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-x\n+${line}\n`;
+const sessionFile = (path) => ({ path, status: 'M', additions: 1, deletions: 1 });
+
+/** A Git root whose session review answers from `answer()` (gated when it returns a promise). */
+function mountSessionSource(t, answer) {
+  const view = mount(t, {
+    gitStatus: async (cwd) => ({ repository: true, root: cwd, files: [] }),
+    invokeCapability: async (request) => {
+      if (request.capability !== 'getSessionReviewDiff') return { value: null };
+      return { value: { supported: true, authoritative: true, ...(await answer()) } };
+    },
+  });
+  view.window.localStorage.setItem(SOURCE_KEY, 'session');
+  return view;
+}
+
+test('the session source re-reads after a history mutation that lands during a running read', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const { bumpTurnChangesEpoch } = await import('./turn-changes-model.ts');
+  let cleared = false;
+  const gate = Promise.withResolvers();
+  const view = mountSessionSource(t, async () => {
+    const before = cleared;
+    await gate.promise;
+    return before ? { files: [], patch: '' } : { files: [sessionFile('a.ts')], patch: sessionPatch('a.ts', 'y') };
+  });
+  const states = {};
+  const Probe = probes(states);
+  await act(async () =>
+    view.root.render(h(Probe, { name: 'a', cwd: 'C:/history', sessionId: 's-history', active: true }))
+  );
+  await view.settle();
+  // Delete history lands while the first read (of the old state) still runs.
+  cleared = true;
+  await act(async () => bumpTurnChangesEpoch('s-history'));
+  gate.resolve();
+  await view.settle(200);
+  await view.settle(200);
+  assert.deepEqual(states.a.rows, [], 'the read after the mutation answers');
+});
+
+test('a session-source read still running for the previous cwd never answers the new one', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const first = Promise.withResolvers();
+  let calls = 0;
+  const view = mountSessionSource(t, async () => {
+    calls += 1;
+    if (calls === 1) {
+      await first.promise;
+      return { files: [sessionFile('old.ts')], patch: sessionPatch('old.ts', 'y') };
+    }
+    return { files: [sessionFile('new.ts')], patch: sessionPatch('new.ts', 'y') };
+  });
+  const states = {};
+  const Probe = probes(states);
+  const render = (cwd) =>
+    act(async () => view.root.render(h(Probe, { name: 'a', cwd, sessionId: 's-ws', active: true })));
+  await render('C:/ws/one');
+  await view.settle();
+  await render('C:/ws/two');
+  await view.settle(200);
+  first.resolve();
+  await view.settle(200);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['new.ts']
+  );
+  assert.equal(states.a.root, 'C:/ws/two');
+});
+
+test('a session-source refresh adopts a file whose patch moved while its counts held', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  let line = 'y';
+  const view = mountSessionSource(t, async () => ({
+    files: [sessionFile('a.ts')],
+    patch: sessionPatch('a.ts', line),
+  }));
+  const states = {};
+  const Probe = probes(states);
+  await act(async () =>
+    view.root.render(h(Probe, { name: 'a', cwd: 'C:/patch', sessionId: 's-patch', active: true }))
+  );
+  await view.settle(200);
+  assert.match(states.a.rows[0].parts[0].patch, /\+y\n/);
+  line = 'z';
+  // The slow safety lane: no Git evidence, same counts.
+  await view.settle(30_000);
+  await view.settle(30_000);
+  assert.match(states.a.rows[0].parts[0].patch, /\+z\n/);
+});
+
+test('a session-source refresh re-reads a file listed without its patch', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  let line = 'y';
+  const fileReads = [];
+  const view = mount(t, {
+    gitStatus: async (cwd) => ({ repository: true, root: cwd, files: [] }),
+    invokeCapability: async (request) => {
+      if (request.capability === 'getSessionReviewFilePatch') {
+        fileReads.push(line);
+        return { value: { path: 'big.ts', patch: sessionPatch('big.ts', line) } };
+      }
+      if (request.capability !== 'getSessionReviewDiff') return { value: null };
+      const big = { ...sessionFile('big.ts'), patchOmitted: true, reason: 'too_large' };
+      return { value: { supported: true, authoritative: true, files: [big], patch: '' } };
+    },
+  });
+  view.window.localStorage.setItem(SOURCE_KEY, 'session');
+  const state = { drawn: [] };
+  function Pane() {
+    const changes = useSessionChanges({ cwd: 'C:/omitted', sessionId: 's-omitted', active: true });
+    const { withPatch } = useSessionChangePatches({
+      cwd: 'C:/omitted',
+      sessionId: 's-omitted',
+      rows: changes.rows,
+      selectedId: '',
+    });
+    state.drawn = changes.rows.map(withPatch);
+    return null;
+  }
+  await act(async () => view.root.render(h(Pane)));
+  await view.settle(200);
+  await view.settle(200);
+  assert.match(state.drawn[0].parts[0]?.patch ?? '', /\+y\n/);
+  line = 'z';
+  // The slow safety lane: same listing, same counts.
+  await view.settle(30_000);
+  await view.settle(200);
+  await view.settle(200);
+  assert.deepEqual(fileReads, ['y', 'z']);
+  assert.match(state.drawn[0].parts[0]?.patch ?? '', /\+z\n/);
 });
 
 test('the chip and the pane share one single-flight read per (root, source)', async (t) => {

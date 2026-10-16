@@ -114,9 +114,18 @@ export function turnReviewSegment({
   historyTurns,
   busy,
   label,
+  sourcePicker,
+  emptyText,
+  ready,
 }: {
   /** The Changes source's name (the segment's accessible label). */
   label: string;
+  /** A Git root: the menu names its source and offers the source picker. */
+  sourcePicker: boolean;
+  /** Shown in the open menu when its source has no files. */
+  emptyText: string;
+  /** The source's first read has answered (no empty notice before it). */
+  ready: boolean;
   fileCount: number;
   /** Every changed file, listed in the menu. */
   files: ReadonlyMap<string, TurnReviewFileEntry>;
@@ -136,6 +145,9 @@ export function turnReviewSegment({
       label={label}
       title={t('Files {{count}}', { count: fileCount })}
       files={files}
+      sourcePicker={sourcePicker}
+      emptyText={emptyText}
+      ready={ready}
       onViewChanges={onOpenChanges ?? (() => setExpanded(true))}
       onOpenFile={onOpenChangeFile ?? (() => setExpanded(true))}
     >

@@ -1303,6 +1303,105 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
   assert.equal(segment(), null, 'an empty history hides the segment');
 });
 
+test('a Git root picks its Changes source in the files menu; an empty source keeps the open menu', async (t) => {
+  const { root, document, window } = mount(t);
+  await import('./TurnReview');
+  window.localStorage.removeItem('mixdog.session-changes-source.v1');
+  window.mixdogDesktop.gitStatus = async () => ({ repository: true, root: 'C:/git-files', files: [] });
+  window.mixdogDesktop.gitReview = async () => ({
+    repository: true,
+    root: 'C:/git-files',
+    base: 'HEAD',
+    files: [{ path: 'left-over.ts', status: 'M', additions: 4, deletions: 1, untracked: false }],
+  });
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability === 'getTurnReviewDiff') {
+      return { value: { supported: true, authoritative: true, files: [], patch: '', historyTurns: 1 } };
+    }
+    // This session has touched nothing yet.
+    return { value: { supported: true, authoritative: true, files: [], patch: '' } };
+  };
+  await act(async () =>
+    root.render(
+      React.createElement(
+        ComposerDock,
+        dockProps({
+          reviewSessionId: 'island-source',
+          reviewCwd: 'C:/git-files',
+          reviewItems: [{ kind: 'turndone', id: 'island-source-done' }],
+          onOpenSessionDiff: () => {},
+        })
+      )
+    )
+  );
+  const flush = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const segment = () => document.querySelector('.turn-review-segment');
+  const panel = () => document.querySelector('.turn-review-files-panel');
+  const sourceName = () => panel()?.querySelector('.turn-review-files-source')?.textContent;
+  const sourceItems = () => [...document.querySelectorAll('.row-overflow-menu [role="menuitemcheckbox"]')];
+  const pick = async (label) => {
+    const trigger = panel().querySelector('.row-overflow-trigger');
+    await act(async () => {
+      trigger.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    });
+    const item = sourceItems().find((node) => node.textContent === label);
+    // A press inside the portaled picker belongs to it, not outside the island.
+    await act(async () => item.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 })));
+    await act(async () => item.click());
+    await flush();
+  };
+  await flush();
+  assert.ok(segment(), 'the Git root has uncommitted files');
+  await act(async () => segment().click());
+  await flush();
+  assert.equal(sourceName(), 'Uncommitted', 'the header names the source');
+  const trigger = panel().querySelector('.row-overflow-trigger');
+  assert.equal(trigger.getAttribute('aria-label'), 'Changes source');
+  assert.equal(trigger.dataset.tooltip, 'Changes source');
+  await act(async () => trigger.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 })));
+  assert.deepEqual(
+    sourceItems().map((item) => [item.textContent, item.getAttribute('aria-checked'), item.classList.contains('menu-separator')]),
+    [
+      ['Last turn', 'false', false],
+      ['Current session', 'false', false],
+      ['This branch', 'false', true],
+      ['Uncommitted', 'true', false],
+      ['Unstaged', 'false', false],
+      ['Staged', 'false', false],
+    ]
+  );
+  assert.equal(document.activeElement, sourceItems()[0], 'keyboard focus lands on the first source');
+  // Escape closes only the picker.
+  await act(async () =>
+    document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  );
+  assert.equal(document.querySelector('.row-overflow-menu'), null);
+  assert.ok(panel(), 'the files menu stays open');
+
+  await pick('Current session');
+  assert.equal(window.localStorage.getItem('mixdog.session-changes-source.v1'), 'session');
+  assert.ok(panel(), 'an empty source keeps the open menu');
+  assert.equal(sourceName(), 'Current session');
+  assert.equal(panel().querySelector('.turn-review-files-empty').textContent, 'No changes from this session.');
+  assert.equal(panel().querySelectorAll('.turn-review-files-row').length, 0);
+  assert.equal(panel().querySelector('.turn-review-files-foot').hidden, true);
+
+  // Back to a source with files, from the same menu.
+  await pick('Uncommitted');
+  assert.equal(panel().querySelector('.turn-review-files-empty'), null);
+  assert.deepEqual(
+    [...panel().querySelectorAll('.turn-review-files-row')].map((row) => row.textContent),
+    ['left-over.ts+4 −1']
+  );
+
+  // Closed on an empty source, the segment hides as before.
+  await pick('Current session');
+  await act(async () => panel().querySelector('.composer-island-close').click());
+  await flush();
+  assert.equal(segment(), null);
+  window.localStorage.removeItem('mixdog.session-changes-source.v1');
+});
+
 const worktreeWorkspace = (overrides = {}) => ({
   projectPath: '/repo',
   repoCommonDir: '/repo/.git',

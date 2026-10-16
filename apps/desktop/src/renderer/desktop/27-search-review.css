@@ -235,6 +235,41 @@
 .turn-review-files-menu > .mx-menu-item.danger {
   color: var(--mx-danger);
 }
+/* The header's Changes source picker (design/mockups/changes-source-menu):
+   the source name beside the tab, then ⋯ just before the close button, sized
+   and toned like it. */
+.turn-review-files-panel .composer-island-phead > .row-overflow + .composer-island-close {
+  margin-inline-start: 0;
+}
+.turn-review-files-panel .composer-island-phead .row-overflow-trigger {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+}
+.turn-review-files-panel .composer-island-phead .row-overflow-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+.turn-review-files-panel .composer-island-phead .row-overflow-trigger:is(:hover, :focus-visible) {
+  color: var(--mx-text);
+  background: var(--composer-island-wash);
+  outline: none;
+}
+.turn-review-files-source {
+  font-size: var(--mx-font-minor);
+  text-overflow: ellipsis;
+}
+.turn-review-files-empty {
+  margin: 0;
+  padding: 18px 8px 14px;
+  color: var(--mx-text-muted);
+  font-weight: var(--mx-weight-regular);
+  text-align: center;
+}
+.turn-review-files-foot[hidden] {
+  display: none;
+}
 .composer-island .turn-review-bar {
   background: transparent;
   box-shadow: none;

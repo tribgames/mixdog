@@ -9,6 +9,13 @@ import { trappedTabIndex } from './list-navigation';
 import { MxIcon } from './MxIcon';
 import { useMobileBack } from './mobile-back';
 import { acquireModalLayer } from './modal-layer';
+import { RowOverflowMenu } from './RowOverflowMenu';
+import {
+  SESSION_CHANGES_SOURCES,
+  sessionChangesSourceLabel,
+  setSessionChangesSource,
+  useSessionChangesSource,
+} from './session-changes-store';
 import { acquireTitleBarDim } from './titlebar-dim';
 import { bumpTurnChangesEpoch } from './turn-changes-model';
 import type { TurnReviewFileEntry } from './turn-review-model';
@@ -16,6 +23,28 @@ import type { TurnReviewFileEntry } from './turn-review-model';
 const MENU_ITEM = "[role='menuitem']:not(:disabled)";
 const runningTurnNotice = () =>
   new Error(t("Change history can't be deleted while a response is running. Try again after it finishes."));
+/** The source picker's menu is a body portal: presses and keys there belong to it. */
+const inSourceMenu = (target: EventTarget | null) =>
+  target instanceof Element && Boolean(target.closest('.row-overflow-menu'));
+
+/** The panel header's Changes source picker (shared with the Changes pane). */
+function ChangesSourceMenu() {
+  const source = useSessionChangesSource();
+  return (
+    <RowOverflowMenu
+      label={t('Changes source')}
+      tooltip={t('Changes source')}
+      items={SESSION_CHANGES_SOURCES.map((value) => ({
+        id: value,
+        label: sessionChangesSourceLabel(value),
+        checked: value === source,
+        // The conversation's own sources stand apart from Git's.
+        separatorBefore: value === 'branch',
+        onSelect: () => setSessionChangesSource(value),
+      }))}
+    />
+  );
+}
 
 /** The island's "Files N +a −b" segment as a menu trigger: every changed file
  *  in one scrolling list (a row opens that file's diff), with Delete history
@@ -29,6 +58,9 @@ export function TurnReviewFilesMenu({
   label,
   title,
   files,
+  sourcePicker = false,
+  emptyText = '',
+  ready = true,
   onViewChanges,
   onOpenFile,
   children,
@@ -42,6 +74,12 @@ export function TurnReviewFilesMenu({
   title: string;
   /** Every changed file with its line counts. */
   files: ReadonlyMap<string, TurnReviewFileEntry>;
+  /** A Git root: the header names the source (`label`) and offers its picker. */
+  sourcePicker?: boolean;
+  /** Shown while the open menu's source has no files. */
+  emptyText?: string;
+  /** The source has answered once; before that an empty list says nothing. */
+  ready?: boolean;
   onViewChanges(): void;
   /** Opens one file's diff. */
   onOpenFile(path: string): void;
@@ -80,18 +118,25 @@ export function TurnReviewFilesMenu({
     const dismiss = (event: PointerEvent) => {
       const island = panel.current?.closest('.composer-island') ?? panel.current;
       if (island && event.target instanceof Node && island.contains(event.target)) return;
+      if (inSourceMenu(event.target)) return;
       setOpen(false);
     };
     const keydown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+      // Escape while the source picker is open closes only the picker. This
+      // capture listener runs before the picker's own (registered later), so
+      // the picker is still open here.
+      if (inSourceMenu(event.target) || panel.current?.querySelector('.row-overflow-trigger[aria-expanded="true"]')) {
+        return;
+      }
       refocus.current = true;
       setOpen(false);
     };
     document.addEventListener('pointerdown', dismiss, true);
-    document.addEventListener('keydown', keydown);
+    document.addEventListener('keydown', keydown, true);
     return () => {
       document.removeEventListener('pointerdown', dismiss, true);
-      document.removeEventListener('keydown', keydown);
+      document.removeEventListener('keydown', keydown, true);
     };
   }, [open]);
 
@@ -160,6 +205,12 @@ export function TurnReviewFilesMenu({
             <span className="composer-island-tab turn-review-files-tab" data-active="true">
               {children}
             </span>
+            {sourcePicker && (
+              <>
+                <span className="composer-island-phead-meta turn-review-files-source">{label}</span>
+                <ChangesSourceMenu />
+              </>
+            )}
             <button
               type="button"
               className="composer-island-close"
@@ -176,6 +227,8 @@ export function TurnReviewFilesMenu({
             aria-label={t('Files menu')}
             onKeyDown={onKeyDown}
           >
+            {/* A source picked here with no files keeps the menu, saying so. */}
+            {files.size === 0 && <p className="turn-review-files-empty">{ready ? emptyText : ''}</p>}
             {/* Every changed file in one scrolling list; a row opens its diff. */}
             <div className="turn-review-files-list">
               {[...files.entries()].map(([path, entry]) => {
@@ -209,7 +262,7 @@ export function TurnReviewFilesMenu({
               })}
             </div>
             {error !== null && <ErrorNotice error={error} />}
-            <div className="turn-review-files-foot" role="none">
+            <div className="turn-review-files-foot" role="none" hidden={files.size === 0}>
               <button
                 type="button"
                 role="menuitem"

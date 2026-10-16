@@ -1,5 +1,6 @@
 import { memo, useEffect, useState } from 'react';
 import { t } from './i18n';
+import { useComposerIslandTab } from './composer-island-state';
 import { ErrorNotice } from './ErrorNotice';
 import { readDiffStyle, TURN_REVIEW_DIFF_STYLE_KEY, type TranscriptItem, writeDiffStyle } from './desktop-types';
 import { useTurnReviewDisclosure } from './use-turn-review-disclosure';
@@ -66,15 +67,19 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   const turn = useTurnReviewSummaries({ items, reviewScope, reviewState, revertedBoundary, turnBoundaryKey });
   const { authoritativeWorktreeSnapshot, transcriptSummary, agentSources, agentSummary } = turn;
   const sessionScoped = variant === 'segment';
-  const { shownSummary, headlineStats, sources, segmentLabel } = useShownTurnReview({
+  const { shownSummary, headlineStats, sources, segmentLabel, sourcePicker, emptyText, ready } = useShownTurnReview({
     sessionScoped,
     sessionId,
     active,
     cwd,
     turn,
   });
+  // An open files menu stays while its source has no files, so the source
+  // picker in it can switch back.
+  const [filesMenuOpen] = useComposerIslandTab('files-menu');
   // The island shows (and counts) its Changes source; it hides at zero files.
-  const reviewVisible = !entryPending && shownSummary.files.size > 0;
+  const reviewVisible =
+    !entryPending && (shownSummary.files.size > 0 || (variant === 'segment' && !expanded && filesMenuOpen));
   // An island tab whose files went away closes with them.
   const closeEmptyTab = islandTab && expanded && !reviewVisible;
   // biome-ignore lint/correctness/useExhaustiveDependencies: closeEmptyTab is the trigger; setExpanded is rebuilt each render
@@ -105,6 +110,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({
       sessionId,
       historyTurns: reviewState.historyTurns,
       busy,
+      sourcePicker,
+      emptyText,
+      ready,
     });
   }
   return (
