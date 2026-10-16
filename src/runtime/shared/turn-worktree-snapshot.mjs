@@ -381,10 +381,8 @@ async function resetShadowIndex(state) {
 }
 
 async function changedWorktreePaths(state) {
-  // The source's tracked list (re-read only after its index moved) is first
-  // needed once both scans are back, so it is read beside them, not before.
-  const [, tracked, untracked] = await Promise.all([
-    refreshSourceTracked(state),
+  await refreshSourceTracked(state);
+  const [tracked, untracked] = await Promise.all([
     runGit(shadowArgs(state, ['diff-files', '--name-only', '-z', '--', '.']), {
       cwd: state.root,
     }),
