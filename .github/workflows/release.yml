@@ -178,8 +178,17 @@ jobs:
         if: inputs.run_critical
         uses: ./.github/actions/office-runtime
 
-      - name: Cache the native spawn test build
+      # An exact hit restores the compiled binary itself and skips cargo.
+      - name: Cache the native spawn test binary
+        id: spawn-bin
         if: inputs.run_critical
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: native/mixdog-spawn/target/debug/mixdog-spawn
+          key: spawn-test-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/Cargo.toml', 'native/mixdog-spawn/build.rs', 'native/mixdog-spawn/src/**') }}
+
+      - name: Cache the native spawn test build
+        if: inputs.run_critical && steps.spawn-bin.outputs.cache-hit != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -189,10 +198,13 @@ jobs:
           key: spawn-test-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/src/**') }}
           restore-keys: spawn-test-cargo-${{ runner.os }}-
 
+      - name: Build the native spawn test binary
+        if: inputs.run_critical && steps.spawn-bin.outputs.cache-hit != 'true'
+        run: npm run build:spawn:test
+
       - name: Verify changed source-critical release invariants
         if: inputs.run_critical
         run: |
-          npm run build:spawn:test
           npm test
           npm run smoke:patch
 

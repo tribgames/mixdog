@@ -81,7 +81,7 @@ jobs:
       ref: ${{ inputs.ref || github.sha }}
 
   tests:
-    name: tests-${{ matrix.arch }}
+    name: tests-${{ matrix.suite }}-${{ matrix.arch }}
     needs: native-tools
     if: ${{ !cancelled() && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
@@ -92,14 +92,24 @@ jobs:
     # job packages nothing, so the skip cannot reach a shipped app.
     env:
       ONNXRUNTIME_NODE_INSTALL: skip
+    # The root and desktop suites are separate legs per arch so they run in
+    # parallel; each leg repeats only the setup.
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: ubuntu-24.04
             arch: x64
+            suite: root
+          - runner: ubuntu-24.04
+            arch: x64
+            suite: desktop
           - runner: ubuntu-24.04-arm
             arch: arm64
+            suite: root
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            suite: desktop
     steps:
       - uses: actions/checkout@v5
         with:
@@ -161,13 +171,16 @@ jobs:
           wait "$root_pid" || status=1
           wait "$desktop_pid" || status=1
           exit "$status"
+      # Fonts and LibreOffice serve the Office suites of the root lane only.
       - uses: ./.github/actions/office-runtime
+        if: matrix.suite == 'root'
       - name: Build native spawn test binary
         run: npm run build:spawn:test
       - name: Root tests
+        if: matrix.suite == 'root'
         run: npm test 2>&1 | tee root-tests.log
       - name: Chromium for browser-geometry tests (no Chrome on arm64 runners)
-        if: matrix.arch == 'arm64'
+        if: matrix.suite == 'desktop' && matrix.arch == 'arm64'
         run: |
           for attempt in 1 2 3; do
             npx --yes playwright@1.55.0 install --with-deps chromium && break
@@ -180,16 +193,18 @@ jobs:
           chmod +x "$HOME/chrome-wrapper"
           echo "CHROME_PATH=$HOME/chrome-wrapper" >> "$GITHUB_ENV"
       - name: Desktop tests
+        if: matrix.suite == 'desktop'
         run: npm test 2>&1 | tee ../../desktop-tests.log
         working-directory: apps/desktop
       - name: Desktop typecheck
+        if: matrix.suite == 'desktop'
         run: npx tsc -p tsconfig.json --noEmit
         working-directory: apps/desktop
       - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: test-logs-${{ matrix.arch }}
+          name: test-logs-${{ matrix.suite }}-${{ matrix.arch }}
           path: |
             root-tests.log
             desktop-tests.log

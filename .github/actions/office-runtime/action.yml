@@ -108,34 +108,69 @@ runs:
       with:
         path: ${{ steps.brew-cache.outputs.dir }}
         key: ${{ steps.brew-keep.outputs.key }}
-    - name: Install fonts and LibreOffice
+    # The Linux install took 310-738s and the PPA answered 503 twice, so the
+    # packages it downloads are cached as .deb files. The cache key is the
+    # package list plus the PPA's candidate versions (apt-cache policy, after
+    # refreshing only the PPA's own index) and the runner image version, which
+    # fixes the set of dependencies already installed. A hit installs the
+    # cached files with dpkg and no mirror; a miss, or a hit that does not
+    # install cleanly, runs the network install below, which also fills the
+    # cache directory for the next run.
+    - name: Add the LibreOffice PPA and resolve the package cache key
+      id: apt-key
       if: runner.os == 'Linux'
       shell: bash
       run: |
         set -euo pipefail
+        source "$GITHUB_ACTION_PATH/apt-helpers.sh"
         sudo gpg --dearmor --yes -o /usr/share/keyrings/libreoffice-ppa.gpg "$GITHUB_ACTION_PATH/libreoffice-ppa.asc"
         echo "deb [signed-by=/usr/share/keyrings/libreoffice-ppa.gpg] https://ppa.launchpadcontent.net/libreoffice/ppa/ubuntu $(lsb_release -cs) main" \
           | sudo tee /etc/apt/sources.list.d/libreoffice-ppa.list > /dev/null
         # man-db re-indexes every installed manual page afterwards (~11s);
         # nothing on a CI runner reads them.
         sudo rm -f /var/lib/man-db/auto-update
-        # A stuck mirror once held this step for 30+ minutes. A composite step
-        # has no timeout-minutes, so each apt call is bounded by timeout and
-        # retried, which fails over to another mirror address.
-        apt_retry() {
-          local limit="$1" attempt
-          shift
-          for attempt in 1 2 3; do
-            if sudo timeout -k 10 "$limit" apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "$@"; then
-              return 0
-            fi
-            echo "apt-get $1 failed (attempt ${attempt}/3)" >&2
-            sleep $((attempt * 5))
-          done
-          return 1
-        }
+        if apt_retry 120 update -qq -o Dir::Etc::sourcelist=sources.list.d/libreoffice-ppa.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0; then
+          candidates=$(apt-cache policy libreoffice-writer libreoffice-impress libreoffice-calc \
+            | awk '/^[^ ]/ { name = $1 } /Candidate:/ { print name "=" $2 }')
+          if [ -n "$candidates" ] && ! grep -q '=(none)$' <<< "$candidates"; then
+            hash=$(printf '%s\n%s\n%s\n%s\n' "$(tr ' ' '\n' <<< "$OFFICE_APT_PACKAGES" | sort)" "$candidates" "$(lsb_release -cs)" "${ImageVersion:-}" | sha256sum | cut -c1-32)
+            echo "key=office-debs-v1-${RUNNER_ARCH}-${hash}" >> "$GITHUB_OUTPUT"
+          fi
+        fi
+    - name: Restore the cached Office packages
+      id: apt-cache
+      if: runner.os == 'Linux' && steps.apt-key.outputs.key != ''
+      continue-on-error: true
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/office-debs
+        key: ${{ steps.apt-key.outputs.key }}
+    - name: Install fonts and LibreOffice
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        DEBS: ${{ runner.temp }}/office-debs
+        CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
+      run: |
+        set -euo pipefail
+        source "$GITHUB_ACTION_PATH/apt-helpers.sh"
+        if [ "$CACHE_HIT" = true ] && compgen -G "$DEBS/*.deb" > /dev/null; then
+          if sudo env DEBIAN_FRONTEND=noninteractive dpkg -i "$DEBS"/*.deb; then
+            exit 0
+          fi
+          echo "cached packages did not install; falling back to the network install" >&2
+        fi
+        mkdir -p "$DEBS"
+        sudo mkdir -p "$DEBS/partial"
         apt_retry 120 update -qq
-        apt_retry 480 install -y -qq --no-install-recommends fonts-liberation fonts-crosextra-carlito fonts-nanum libreoffice-writer libreoffice-impress libreoffice-calc
+        # Download first so the files land in the cache directory even if the
+        # install step fails; the install then reuses them without a fetch.
+        apt_retry 480 install -y -qq --no-install-recommends --download-only -o Dir::Cache::archives="$DEBS" -o APT::Keep-Downloaded-Packages=true $OFFICE_APT_PACKAGES
+        apt_retry 480 install -y -qq --no-install-recommends -o Dir::Cache::archives="$DEBS" -o APT::Keep-Downloaded-Packages=true $OFFICE_APT_PACKAGES
+        # apt ran as root: leave only files the cache action (the runner user)
+        # can read.
+        sudo rm -rf "$DEBS/partial" "$DEBS/lock"
+        sudo chown -R "$(id -u):$(id -g)" "$DEBS"
     # Decks author in Noto Sans, Noto Sans KR and Noto Sans JP, and a Latin
     # face's Hangul measures in Noto Sans KR where Malgun Gothic is missing.
     # The runtime's own provisioner installs them into the user font directory,

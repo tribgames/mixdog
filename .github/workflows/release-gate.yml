@@ -160,7 +160,7 @@ jobs:
             echo "mobile=false" >> "$GITHUB_OUTPUT"
           fi
 
-  # The default lane is split across two legs (node --test --test-shard), so
+  # The default lane is split across three legs (node --test --test-shard), so
   # its minutes of test time run side by side instead of in one job; each leg
   # repeats only the setup.
   runtime:
@@ -174,7 +174,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -195,7 +195,16 @@ jobs:
         uses: ./.github/actions/office-runtime
       # The tool-contract and shell-hardening suites drive the debug native
       # spawn binary; the build reuses the runner's preinstalled Rust toolchain.
+      # An exact hit restores the compiled binary itself, so cargo (13-18s
+      # even when its own cache was warm) does not run at all.
+      - name: Cache the native spawn test binary
+        id: spawn-bin
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: native/mixdog-spawn/target/debug/mixdog-spawn
+          key: spawn-test-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/Cargo.toml', 'native/mixdog-spawn/build.rs', 'native/mixdog-spawn/src/**') }}
       - name: Cache the native spawn test build
+        if: steps.spawn-bin.outputs.cache-hit != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -205,11 +214,12 @@ jobs:
           key: spawn-test-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/src/**') }}
           restore-keys: spawn-test-cargo-${{ runner.os }}-
       - name: Build the native spawn test binary
+        if: steps.spawn-bin.outputs.cache-hit != 'true'
         run: npm run build:spawn:test
       # Every *.test.mjs under src/ and scripts/ runs here by existing
       # (scripts/test.mjs); a suite that guards a contract cannot stay local.
-      - name: Run the default test lane (shard ${{ matrix.shard }}/2)
-        run: npm test -- --test-shard=${{ matrix.shard }}/2
+      - name: Run the default test lane (shard ${{ matrix.shard }}/3)
+        run: npm test -- --test-shard=${{ matrix.shard }}/3
       - name: Smoke apply_patch edits
         if: matrix.shard == 1
         run: npm run smoke:patch
@@ -244,7 +254,16 @@ jobs:
           exit 1
       - name: Install fonts and LibreOffice for the Office suites
         uses: ./.github/actions/office-runtime
+      # An exact hit restores the compiled binary itself, so cargo (13-18s
+      # even when its own cache was warm) does not run at all.
+      - name: Cache the native spawn test binary
+        id: spawn-bin
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: native/mixdog-spawn/target/debug/mixdog-spawn
+          key: spawn-test-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/Cargo.toml', 'native/mixdog-spawn/build.rs', 'native/mixdog-spawn/src/**') }}
       - name: Cache the native spawn test build
+        if: steps.spawn-bin.outputs.cache-hit != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -254,6 +273,7 @@ jobs:
           key: spawn-test-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/src/**') }}
           restore-keys: spawn-test-cargo-${{ runner.os }}-
       - name: Build the native spawn test binary
+        if: steps.spawn-bin.outputs.cache-hit != 'true'
         run: npm run build:spawn:test
       - name: Run the slow test lane (shard ${{ matrix.shard }}/2)
         run: npm run test:slow -- --test-shard=${{ matrix.shard }}/2
@@ -271,7 +291,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -290,7 +310,16 @@ jobs:
           exit 1
       - name: Install fonts and LibreOffice for the Office suites
         uses: ./.github/actions/office-runtime
+      # An exact hit restores the compiled binary itself, so cargo (13-18s
+      # even when its own cache was warm) does not run at all.
+      - name: Cache the native spawn test binary
+        id: spawn-bin
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: native/mixdog-spawn/target/debug/mixdog-spawn
+          key: spawn-test-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/Cargo.toml', 'native/mixdog-spawn/build.rs', 'native/mixdog-spawn/src/**') }}
       - name: Cache the native spawn test build
+        if: steps.spawn-bin.outputs.cache-hit != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -300,9 +329,10 @@ jobs:
           key: spawn-test-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/src/**') }}
           restore-keys: spawn-test-cargo-${{ runner.os }}-
       - name: Build the native spawn test binary
+        if: steps.spawn-bin.outputs.cache-hit != 'true'
         run: npm run build:spawn:test
-      - name: Run the default test lane (shard ${{ matrix.shard }}/2)
-        run: npm test -- --test-shard=${{ matrix.shard }}/2
+      - name: Run the default test lane (shard ${{ matrix.shard }}/3)
+        run: npm test -- --test-shard=${{ matrix.shard }}/3
 
   # The macOS/Linux Computer Use backend: unit tests on both systems, and on
   # Linux a real X11 session (Xvfb with a window manager) in which a GTK
@@ -419,6 +449,15 @@ jobs:
               'src/runtime/shared/**',
               '!src/runtime/shared/**/*.test.mjs'
             ) }}
+      # The electron postinstall downloads its zip into this cache.
+      - name: Cache the Electron download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/electron
+            ~/Library/Caches/electron
+            ~/AppData/Local/electron/Cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/desktop/package-lock.json') }}
       # The two installs are independent trees (the desktop package has no
       # install scripts that read the root tree), so they run side by side; each
       # is waited on by its own PID so either failure fails the step. The CSS-only
@@ -484,7 +523,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The fast lane is split in two (node --test --test-shard, forwarded
+          # The fast lane is split in three (node --test --test-shard, forwarded
           # by scripts/test.mjs). Every leg is its own machine, so the
           # electron-lane files never overlap on one.
           - runner: ubuntu-22.04
@@ -493,6 +532,9 @@ jobs:
           - runner: ubuntu-22.04
             lane: fast
             shard: 2
+          - runner: ubuntu-22.04
+            lane: fast
+            shard: 3
           - runner: ubuntu-22.04
             lane: slow
           # Computer Use compiles and executes a generated PowerShell input
@@ -509,6 +551,16 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/desktop/package-lock.json
+      # The electron postinstall downloads its zip into this cache (the
+      # Windows leg's lives under AppData).
+      - name: Cache the Electron download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/electron
+            ~/Library/Caches/electron
+            ~/AppData/Local/electron/Cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/desktop/package-lock.json') }}
       # The Computer Use suites import only node builtins and local .ts
       # modules, so the Windows leg skips the heavy root install
       # (sharp/onnxruntime/tesseract) — the slowest step on the slowest runner.
@@ -540,10 +592,10 @@ jobs:
           wait "$desktop_pid" || status=1
           if [[ -n "$root_pid" ]]; then wait "$root_pid" || status=1; fi
           exit "$status"
-      - name: Run the desktop fast lane (shard ${{ matrix.shard }}/2)
+      - name: Run the desktop fast lane (shard ${{ matrix.shard }}/3)
         if: matrix.lane == 'fast'
         shell: bash
-        run: npm test --prefix apps/desktop -- --test-shard=${{ matrix.shard }}/2
+        run: npm test --prefix apps/desktop -- --test-shard=${{ matrix.shard }}/3
       - name: Run the desktop slow lane
         if: matrix.lane == 'slow'
         shell: bash
