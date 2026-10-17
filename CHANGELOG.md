@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.2.4 - 2026-10-17
+
 Added agent session control and fallback model assignment, automatic worktree preparation, harness output optimization, and overall performance improvements.
 
 ### 1. Harness improvements: reduced output, cleaner styles, and general stabilization

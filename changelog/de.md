@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.2.4 - 2026-10-17
+
 Aktualisierung mit Steuerung von Agentensitzungen und Zuweisung von Fallback-Modellen, automatischer Worktree-Vorbereitung, Harness-Ausgabeoptimierung und allgemeinen Leistungsverbesserungen.
 
 ### 1. Harness-Verbesserungen: Reduzierte Ausgabe, sauberere Stile und allgemeine Stabilisierung

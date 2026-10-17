@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.2.4 - 2026-10-17
+
 Aggiornamento che include il controllo delle sessioni degli agenti e l'assegnazione di modelli di fallback, la preparazione automatica dei worktree, l'ottimizzazione dell'output dell'harness e miglioramenti generali delle prestazioni.
 
 ### 1. Miglioramenti dell'harness: riduzione dell'output, stili più puliti e stabilizzazione generale

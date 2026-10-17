@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.2.4 - 2026-10-17
+
 Actualización que incluye control de sesiones de agentes y asignación de modelos de respaldo, preparación automática de worktrees, optimización de la salida del harness y mejoras generales de rendimiento.
 
 ### 1. Mejoras en el harness: reducción de salida, estilos más limpios y estabilización general

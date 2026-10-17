@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.2.4 - 2026-10-17
+
 Bản cập nhật bao gồm kiểm soát phiên tác nhân và gán mô hình dự phòng, tự động chuẩn bị worktree, tối ưu hóa đầu ra harness và cải thiện hiệu năng tổng thể.
 
 ### 1. Cải tiến harness: giảm lượng đầu ra, tinh chỉnh kiểu hiển thị và ổn định chung

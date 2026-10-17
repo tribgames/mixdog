@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.2.4 - 2026-10-17
+
 Mise à jour comprenant le contrôle des sessions d'agents et l'attribution de modèles de secours, la préparation automatique des worktrees, l'optimisation des sorties du harness et des améliorations générales des performances.
 
 ### 1. Améliorations du harness : réduction de la sortie, styles plus clairs et stabilisation générale

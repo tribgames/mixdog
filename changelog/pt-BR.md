@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.2.4 - 2026-10-17
+
 Atualização com controle de sessões de agentes e atribuição de modelos de fallback, preparação automática de worktrees, otimização de saída do harness e melhorias gerais de desempenho.
 
 ### 1. Melhorias no harness: redução de saída, estilos mais limpos e estabilização geral
