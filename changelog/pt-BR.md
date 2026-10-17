@@ -4,9 +4,56 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
-### Correções de bugs
+Atualização com controle de sessões de agentes e atribuição de modelos de fallback, preparação automática de worktrees, otimização de saída do harness e melhorias gerais de desempenho.
 
-- Corrigidos os gateways personalizados compatíveis com OpenAI que perdiam os níveis de esforço de raciocínio que declaram, e as linhas de esforço e contexto que desapareciam ao reabrir o menu de modelos (#94, thanks @sukjong2002).
+### 1. Melhorias no harness: redução de saída, estilos mais limpos e estabilização geral
+
+- Os relatórios de conclusão do agente e os cartões de perguntas foram simplificados, reduzindo as saídas das ferramentas Git, busca e GitHub para economizar tokens.
+- A limpeza de processos de shell em segundo plano e ferramentas externas foi estabilizada, melhorando os critérios de detecção de agentes sem resposta em tarefas longas.
+
+### 2. Melhorias na geração de mídia
+
+- A estabilidade da geração de imagens do ChatGPT foi aprimorada, adicionado suporte a fundos transparentes e permitida a fixação de modelos preferidos por tipo de mídia.
+
+### 3. Atribuição de modelos de fallback para agentes
+
+- Adicionado suporte a modelos de fallback que entram em ação na ordem caso o modelo principal falhe, além de permitir especificar um modelo diretamente ao iniciar subagentes (#86).
+
+### 4. Melhorias em worktrees
+
+- Adicionadas instalação automática de pacotes e configuração do ambiente ao criar uma nova worktree, melhorando a capacidade de resposta do menu de branches.
+
+### 5. Estabilização de chamadas de ferramentas por provedor
+
+- Corrigidos erros no processamento de pensamento do Claude no Antigravity, adicionada a exibição de uso e reforçada a confiabilidade de raciocínio e chamadas de ferramentas em gateways personalizados (#79, #94, thanks @22nsuk and @sukjong2002).
+- A conexão e as novas tentativas do Antigravity foram estabilizadas, e a execução de ferramentas em ambientes compatíveis com Cursor e OpenAI foi melhorada.
+- Adicionada a capacidade de verificar o status dos provedores registrados no PC diretamente das janelas SSH remotas (#77, thanks @22nsuk).
+- Melhorada a compressão de solicitações da Anthropic e do ChatGPT com fallback seguro para acelerar o início das respostas.
+
+### 6. Renovação do gerenciamento de sessões de agentes
+
+- Ajustado para que agentes concluídos permaneçam no painel por 1 hora, restaurando o resumo de contagem de tarefas por status e os avisos de espera.
+
+### 7. Gerenciamento de sessões pelo agente principal
+
+- Adicionada a capacidade de o agente principal visualizar a lista e os conteúdos de outras sessões e gerenciá-las diretamente enviando mensagens, cancelando ou excluindo sessões.
+
+### 8. Otimizações de desempenho remoto e no desktop
+
+- As reconexões remotas agora recuperam rapidamente apenas o conteúdo perdido, melhorando a fluidez das respostas e a velocidade de troca de sessão em dispositivos móveis.
+- Permitida a reabertura direta das 2 sessões mais recentes no celular e corrigido o travamento na tela de inicialização.
+- Painéis do desktop, barra lateral, alternância de sessões, editor e telas de configurações foram otimizados para abrir mais rápido e com mais fluidez.
+
+### 9. Melhorias no download do app remoto
+
+- Adicionado download em ZIP de pastas excluindo arquivos desnecessários no web app remoto e ampliada a variedade de arquivos que podem ser baixados por links na conversa.
+- Melhorados o salvamento de arquivos no celular e a ativação de notificações (o salvamento de arquivos no Android/iOS se aplica após a atualização do app).
+
+### 10. Outras correções de bugs e pequenas melhorias
+
+- Removidos limites de chamadas e taxa de requisições nas conexões de modelos remotos via SSH (#101).
+- Retomada automática de Goals pausados assim que o uso for redefinido e corrigidos vários bugs no painel de alterações e na exibição de status dos comandos.
+- Corrigido o bloqueio do navegador interno no login do Google e nas verificações antibot (#102).
 
 ## v1.2.3 - 2026-10-16
 

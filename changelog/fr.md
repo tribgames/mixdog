@@ -5,9 +5,56 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
-### Corrections de bugs
+Mise à jour comprenant le contrôle des sessions d'agents et l'attribution de modèles de secours, la préparation automatique des worktrees, l'optimisation des sorties du harness et des améliorations générales des performances.
 
-- Correction des passerelles personnalisées compatibles OpenAI qui perdaient les niveaux d'effort de raisonnement qu'elles déclarent, et des lignes d'effort et de contexte qui disparaissaient à la réouverture du menu des modèles (#94, thanks @sukjong2002).
+### 1. Améliorations du harness : réduction de la sortie, styles plus clairs et stabilisation générale
+
+- Les rapports de fin d'agent et les cartes de questions ont été simplifiés, et les sorties des outils Git, recherche et GitHub ont été réduites pour économiser des jetons.
+- Le nettoyage des processus shell en arrière-plan et des outils externes a été stabilisé, et la détection d'agents ne répondant pas lors de longues tâches a été améliorée.
+
+### 2. Améliorations des outils de génération de médias
+
+- La stabilité de la génération d'images ChatGPT a été améliorée, la prise en charge des arrière-plans transparents a été ajoutée et les modèles préférés peuvent être épinglés par type de média.
+
+### 3. Attribution de modèles de secours pour les agents
+
+- Ajout de modèles de secours qui s'activent dans l'ordre en cas d'échec du modèle principal, et possibilité de spécifier directement un modèle lors du lancement de sous-agents (#86).
+
+### 4. Améliorations des worktrees
+
+- Ajout de l'installation automatique des paquets et de la configuration de l'environnement lors de la création d'un worktree, et amélioration de la réactivité du menu des branches.
+
+### 5. Stabilisation des appels d'outils par fournisseur
+
+- Correction des erreurs de traitement de la réflexion de Claude sur Antigravity, ajout du suivi d'utilisation et renforcement de la fiabilité du raisonnement et des appels d'outils sur les passerelles personnalisées (#79, #94, thanks @22nsuk and @sukjong2002).
+- Stabilisation de la connexion et des nouvelles tentatives d'Antigravity, et amélioration de l'exécution des outils dans les environnements compatibles Cursor et OpenAI.
+- Possibilité de vérifier directement l'état des fournisseurs enregistrés sur le PC depuis les fenêtres SSH distantes (#77, thanks @22nsuk).
+- Amélioration de la compression des requêtes Anthropic et ChatGPT avec repli sécurisé pour accélérer le début des réponses.
+
+### 6. Renouvellement de la gestion des sessions d'agents
+
+- Les agents terminés restent désormais dans le panneau pendant 1 heure, et le résumé du nombre de tâches par statut ainsi que les avis d'attente ont été rétablis.
+
+### 7. Gestion des sessions par l'agent principal
+
+- Possibilité pour l'agent principal de consulter la liste et le contenu des autres sessions et de les gérer directement en envoyant des messages, en annulant ou en supprimant des sessions.
+
+### 8. Optimisations des performances distantes et de bureau
+
+- Les reconnexions distantes ne récupèrent rapidement que le contenu manqué, et la fluidité de la diffusion ainsi que la vitesse de changement de session sur mobile ont été améliorées.
+- Réouverture directe des 2 sessions les plus récentes sur mobile et correction du blocage sur l'écran de démarrage.
+- Optimisation des panneaux de bureau, de la barre latérale, du changement de session, de l'éditeur et des paramètres pour une ouverture plus rapide et des transitions plus fluides.
+
+### 9. Améliorations du téléchargement depuis l'application distante
+
+- Ajout du téléchargement en ZIP de dossiers excluant les fichiers inutiles dans l'application web distante et élargissement des types de fichiers téléchargeables via des liens de conversation.
+- Amélioration de l'enregistrement de fichiers sur mobile et de l'activation des notifications (l'enregistrement de fichiers sur Android/iOS s'applique après mise à jour de l'application).
+
+### 10. Autres corrections de bogues et améliorations mineures
+
+- Suppression des limites d'appels et de débit sur les connexions de modèles distants SSH (#101).
+- Reprise automatique des Goals suspendus dès que l'utilisation est réinitialisée et correction de plusieurs bogues dans le panneau des modifications et l'affichage de l'état des commandes.
+- Correction du blocage du navigateur interne lors de la connexion Google et des contrôles antibots (#102).
 
 ## v1.2.3 - 2026-10-16
 

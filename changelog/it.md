@@ -4,9 +4,56 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
-### Correzioni di bug
+Aggiornamento che include il controllo delle sessioni degli agenti e l'assegnazione di modelli di fallback, la preparazione automatica dei worktree, l'ottimizzazione dell'output dell'harness e miglioramenti generali delle prestazioni.
 
-- Corretto il problema per cui i gateway personalizzati compatibili con OpenAI perdevano i livelli di sforzo di ragionamento da essi dichiarati e le righe di sforzo e contesto scomparivano alla riapertura del menu dei modelli (#94, thanks @sukjong2002).
+### 1. Miglioramenti dell'harness: riduzione dell'output, stili più puliti e stabilizzazione generale
+
+- I resoconti di completamento dell'agente e le schede delle domande sono stati semplificati, riducendo l'output degli strumenti Git, ricerca e GitHub per risparmiare token.
+- È stata stabilizzata la pulizia dei processi di shell in background e degli strumenti esterni, migliorando i criteri di rilevamento degli agenti che non rispondono durante attività prolungate.
+
+### 2. Miglioramenti agli strumenti di generazione multimediale
+
+- È stata aumentata la stabilità della generazione di immagini ChatGPT, aggiunto il supporto per gli sfondi trasparenti e consentito di bloccare i modelli preferiti in base al tipo di supporto.
+
+### 3. Assegnazione di modelli di fallback per gli agenti
+
+- Aggiunto il supporto per i modelli di fallback che subentrano in ordine se il modello principale fallisce, consentendo di specificare direttamente un modello all'avvio dei sotto-agenti (#86).
+
+### 4. Miglioramenti dei worktree
+
+- Aggiunta l'installazione automatica dei pacchetti e la configurazione dell'ambiente alla creazione di un nuovo worktree, migliorando la reattività del menu dei branch.
+
+### 5. Stabilizzazione delle chiamate agli strumenti per provider
+
+- Risolti gli errori nell'elaborazione del pensiero di Claude su Antigravity, aggiunto il monitoraggio dell'utilizzo e rafforzata l'affidabilità di ragionamento e chiamate agli strumenti sui gateway personalizzati (#79, #94, thanks @22nsuk and @sukjong2002).
+- Stabilizzate la connessione e i tentativi di Antigravity, migliorando l'esecuzione degli strumenti negli ambienti compatibili con Cursor e OpenAI.
+- Aggiunta la possibilità di verificare lo stato dei provider registrati sul PC direttamente dalle finestre SSH remote (#77, thanks @22nsuk).
+- Migliorata la compressione delle richieste Anthropic e ChatGPT con fallback sicuro per anticipare l'inizio della risposta.
+
+### 6. Rinnovo della gestione delle sessioni degli agenti
+
+- Modificato in modo che gli agenti completati rimangano nel pannello per 1 ora, ripristinando il riepilogo del conteggio delle attività per stato e gli avvisi di attesa.
+
+### 7. Gestione delle sessioni da parte dell'agente principale
+
+- Aggiunta la possibilità per l'agente principale di visualizzare l'elenco e i contenuti delle altre sessioni e gestirle direttamente inviando messaggi, annullando o eliminando le sessioni.
+
+### 8. Ottimizzazioni delle prestazioni remote e desktop
+
+- Le riconnessioni remote recuperano rapidamente solo i contenuti persi, migliorando la fluidità dello streaming e la velocità di cambio sessione su dispositivi mobili.
+- Consentita la riapertura immediata delle 2 sessioni più recenti su dispositivi mobili e risolto il blocco nella schermata di avvio.
+- Ottimizzati pannelli desktop, barra laterale, cambio sessione ed editor e schermate delle impostazioni per un'apertura più rapida e transizioni più fluide.
+
+### 9. Miglioramenti al download dell'app remota
+
+- Aggiunto il download in formato ZIP di cartelle escludendo i file non necessari nella web app remota ed estesa la gamma di file scaricabili tramite collegamenti nella conversazione.
+- Migliorato il salvataggio dei file su dispositivi mobili e l'attivazione delle notifiche (il salvataggio dei file su Android/iOS si applica dopo l'aggiornamento dell'app).
+
+### 10. Altre correzioni di bug e miglioramenti minori
+
+- Rimossi i limiti di chiamata e di frequenza sulle connessioni ai modelli remoti SSH (#101).
+- Ripresa automatica dei Goal in pausa dopo il ripristino dell'utilizzo e risolti diversi bug nel pannello delle modifiche e nella visualizzazione dello stato dei comandi.
+- Risolto il blocco del browser interno durante l'accesso a Google e i controlli bot (#102).
 
 ## v1.2.3 - 2026-10-16
 

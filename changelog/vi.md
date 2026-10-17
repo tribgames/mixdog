@@ -4,9 +4,56 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
-### Sửa lỗi
+Bản cập nhật bao gồm kiểm soát phiên tác nhân và gán mô hình dự phòng, tự động chuẩn bị worktree, tối ưu hóa đầu ra harness và cải thiện hiệu năng tổng thể.
 
-- Đã sửa lỗi các gateway tùy chỉnh tương thích OpenAI làm mất các mức suy luận mà chúng khai báo, và các hàng mức suy luận cùng ngữ cảnh biến mất khi mở lại menu mô hình (#94, thanks @sukjong2002).
+### 1. Cải tiến harness: giảm lượng đầu ra, tinh chỉnh kiểu hiển thị và ổn định chung
+
+- Đơn giản hóa báo cáo hoàn thành của tác nhân cùng thẻ câu hỏi, đồng thời giảm bớt đầu ra của các công cụ Git, tìm kiếm và GitHub để tiết kiệm token.
+- Ổn định quy trình dọn dẹp tiến trình shell chạy ngầm và công cụ bên ngoài, cải thiện tiêu chí nhận diện tác nhân không phản hồi trong các tác vụ dài.
+
+### 2. Cải tiến công cụ tạo phương tiện
+
+- Nâng cao tính ổn định khi tạo hình ảnh ChatGPT, hỗ trợ nền trong suốt và cho phép ghim mô hình ưu tiên theo từng loại phương tiện.
+
+### 3. Gán mô hình dự phòng cho tác nhân
+
+- Bổ sung hỗ trợ các mô hình dự phòng chuyển đổi theo thứ tự khi mô hình chính gặp lỗi, đồng thời cho phép chỉ định trực tiếp mô hình khi khởi chạy tác nhân phụ (#86).
+
+### 4. Cải tiến tính năng worktree
+
+- Tự động chuẩn bị cài đặt gói và thiết lập môi trường khi tạo worktree mới, đồng thời nâng cao tốc độ phản hồi của menu nhánh.
+
+### 5. Ổn định gọi công cụ theo nhà cung cấp
+
+- Sửa lỗi xử lý suy nghĩ của Claude trên Antigravity, bổ sung hiển thị mức sử dụng và tăng cường độ tin cậy khi suy luận cũng như gọi công cụ trên gateway tùy chỉnh (#79, #94, thanks @22nsuk and @sukjong2002).
+- Ổn định kết nối và cơ chế thử lại của Antigravity, cải thiện khả năng thực thi công cụ trong môi trường tương thích Cursor và OpenAI.
+- Bổ sung khả năng kiểm tra trực tiếp trạng thái các nhà cung cấp đã đăng ký trên PC ngay từ cửa sổ SSH từ xa (#77, thanks @22nsuk).
+- Cải thiện nén yêu cầu Anthropic và ChatGPT với cơ chế dự phòng an toàn để tăng tốc thời gian bắt đầu phản hồi.
+
+### 6. Làm mới quản lý phiên tác nhân
+
+- Thay đổi để các tác nhân đã hoàn thành lưu lại trên bảng điều khiển trong 1 giờ, khôi phục tóm tắt số lượng tác vụ theo trạng thái và thông báo chờ.
+
+### 7. Hỗ trợ tác nhân chính quản lý phiên
+
+- Bổ sung khả năng để tác nhân chính xem danh sách và nội dung các phiên khác, trực tiếp quản lý phiên bằng cách gửi tin nhắn, hủy hoặc xóa phiên.
+
+### 8. Tối ưu hóa hiệu năng từ xa và trên máy tính
+
+- Kết nối lại từ xa giờ đây nhanh chóng đồng bộ các nội dung bị lỡ, cải thiện độ mượt của văn bản phản hồi và tốc độ chuyển đổi phiên trên thiết bị di động.
+- Cho phép mở lại trực tiếp 2 phiên gần nhất trên thiết bị di động và sửa lỗi ứng dụng bị treo ở màn hình khởi động.
+- Tối ưu hóa bảng điều khiển máy tính, thanh bên, chuyển đổi phiên cùng màn hình trình soạn thảo và cài đặt để mở nhanh và mượt mà hơn.
+
+### 9. Cải tiến tính năng tải xuống ứng dụng từ xa
+
+- Hỗ trợ tải xuống thư mục dạng ZIP đã loại bỏ các tệp không cần thiết trên ứng dụng web từ xa, mở rộng phạm vi tệp có thể tải xuống qua liên kết trong cuộc trò chuyện.
+- Cải thiện khả năng lưu tệp và bật thông báo trên thiết bị di động (tính năng lưu tệp trên Android/iOS sẽ áp dụng sau khi cập nhật ứng dụng).
+
+### 10. Các bản sửa lỗi khác và cải tiến nhỏ
+
+- Gỡ bỏ giới hạn số lượng cuộc gọi và giới hạn tốc độ đối với kết nối mô hình SSH từ xa (#101).
+- Tự động tiếp tục các Goal bị tạm dừng khi mức sử dụng được đặt lại, sửa nhiều lỗi trong bảng thay đổi và hiển thị trạng thái lệnh.
+- Sửa lỗi trình duyệt nội bộ bị chặn khi đăng nhập Google và qua các bước kiểm tra bot (#102).
 
 ## v1.2.3 - 2026-10-16
 

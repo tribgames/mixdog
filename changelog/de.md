@@ -4,9 +4,56 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
-### Fehlerbehebungen
+Aktualisierung mit Steuerung von Agentensitzungen und Zuweisung von Fallback-Modellen, automatischer Worktree-Vorbereitung, Harness-Ausgabeoptimierung und allgemeinen Leistungsverbesserungen.
 
-- Behoben: Benutzerdefinierte OpenAI-kompatible Gateways verloren die von ihnen deklarierten Stufen für den Reasoning-Aufwand, und die Zeilen für Aufwand und Kontext verschwanden beim erneuten Öffnen des Modellmenüs (#94, thanks @sukjong2002).
+### 1. Harness-Verbesserungen: Reduzierte Ausgabe, sauberere Stile und allgemeine Stabilisierung
+
+- Agenten-Abschlussberichte und Fragekarten wurden vereinfacht und die Ausgaben der Git-, Such- und GitHub-Werkzeuge reduziert, um Tokens zu sparen.
+- Bereinigung von Hintergrund-Shells und externen Werkzeugprozessen wurde stabilisiert und die Kriterien zur Erkennung nicht reagierender Agenten bei langen Aufgaben wurden verbessert.
+
+### 2. Verbesserungen bei der Mediengenerierung
+
+- Stabilität der ChatGPT-Bilderzeugung wurde erhöht, Unterstützung für transparente Hintergründe hinzugefügt und bevorzugte Modelle nach Medientyp können nun fixiert werden.
+
+### 3. Zuweisung von Agenten-Fallback-Modellen
+
+- Unterstützung für Fallback-Modelle hinzugefügt, die der Reihe nach einspringen, wenn das Hauptmodell fehlschlägt, und Modelle können beim Starten von Sub-Agenten nun direkt angegeben werden (#86).
+
+### 4. Worktree-Verbesserungen
+
+- Automatische Paketinstallation und Umgebungseinrichtung beim Erstellen eines neuen Worktrees hinzugefügt und Reaktionszeit des Branch-Menüs verbessert.
+
+### 5. Stabilisierung von Provider-Toolaufrufen
+
+- Fehler bei der Claude-Denkverarbeitung auf Antigravity behoben, Nutzungsanzeige hinzugefügt und Zuverlässigkeit von Reasoning und Toolaufrufen auf benutzerdefinierten Gateways verstärkt (#79, #94, thanks @22nsuk and @sukjong2002).
+- Antigravity-Verbindungen und Wiederholungsversuche stabilisiert und Werkzeugausführung in Cursor- und OpenAI-kompatiblen Umgebungen verbessert.
+- Status von auf dem PC registrierten Providern kann nun direkt in Remote-SSH-Fenstern überprüft werden (#77, thanks @22nsuk).
+- Anthropic- und ChatGPT-Anfragekomprimierung mit sicherem Fallback verbessert, um den Beginn von Antworten zu beschleunigen.
+
+### 6. Überarbeitung der Agenten-Sitzungsverwaltung
+
+- Abgeschlossene Agenten bleiben nun 1 Stunde lang im Panel und die Zusammenfassung der Aufgabenanzahl nach Status sowie Wartehinweise wurden wiederhergestellt.
+
+### 7. Sitzungsverwaltung durch den Lead-Agenten
+
+- Lead-Agenten können nun andere Sitzungen und deren Inhalte einsehen und diese durch Senden von Nachrichten, Abbrechen oder Löschen direkt verwalten.
+
+### 8. Leistungsoptimierungen für Remote und Desktop
+
+- Bei Remote-Wiederverbindungen werden verpasste Inhalte schnell nachgeladen und Streaming-Ruckler sowie Sitzungswechsel auf Mobilgeräten wurden verbessert.
+- Die letzten 2 Sitzungen können auf Mobilgeräten nun direkt wieder geöffnet werden und Einfrieren beim Startbildschirm wurde behoben.
+- Desktop-Panels, Seitenleiste, Sitzungswechsel sowie Editor- und Einstellungsansichten öffnen schneller und wechseln flüssiger.
+
+### 9. Verbesserungen beim Remote-App-Download
+
+- ZIP-Download für Ordner unter Ausschluss unnötiger Dateien in der Remote-Web-App hinzugefügt und Bereich herunterladbarer Dateien über Chat-Links erweitert.
+- Speichern von mobilen Dateien und Aktivieren von Benachrichtigungen verbessert (Dateispeicherung unter Android/iOS greift nach einem App-Update).
+
+### 10. Sonstige Fehlerbehebungen und kleinere Verbesserungen
+
+- Aufruf- und Ratenbegrenzungen für SSH-Remote-Modellverbindungen entfernt (#101).
+- Pausierte Goals werden nach einem Nutzungsreset automatisch fortgesetzt und mehrere Fehler im Änderungs-Panel und bei der Befehlsstatusanzeige wurden behoben.
+- Blockierung des internen Browsers bei Google-Login und Bot-Prüfungen behoben (#102).
 
 ## v1.2.3 - 2026-10-16
 

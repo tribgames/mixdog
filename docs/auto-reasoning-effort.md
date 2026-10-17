@@ -61,9 +61,10 @@ It judges user-written prompts and agent briefs, not runtime-injected turns. A
 model that turns out to reject the change is switched off for auto at runtime.
 
 If the judge is missing, still loading, slow, or fails, the turn simply uses
-the default effort. A judgment normally has 0.4 s; the first use after
-startup waits up to about 3 s while the model loads (about 2 s on a desktop
-CPU).
+the default effort. A judgment normally has 0.4 s. The model starts loading in
+the background when a session is created or opened (about 2.3 s on a desktop
+CPU), so the first turn normally finds it ready; if it does not, that turn
+waits up to about 3 s for the load.
 
 ## The judge model
 

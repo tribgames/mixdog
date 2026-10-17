@@ -5,9 +5,56 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-### Bug fixes
+Added agent session control and fallback model assignment, automatic worktree preparation, harness output optimization, and overall performance improvements.
 
-- Fixed custom OpenAI-compatible gateways losing the reasoning effort levels they declare, and the effort and context rows disappearing when the model menu is reopened (#94, thanks @sukjong2002).
+### 1. Harness improvements: reduced output, cleaner styles, and general stabilization
+
+- Adjusted agent completion reports and question cards to be more concise, and reduced Git, search, and GitHub tool outputs to save tokens.
+- Changed background shell and external tool process cleanup to be more reliable, and adjusted unresponsive agent detection during long tasks.
+
+### 2. Media generation improvements
+
+- Added transparent background support and preferred model pinning by media type, and improved ChatGPT image generation stability.
+
+### 3. Agent fallback model assignment
+
+- Added fallback models that engage in order when the primary model fails, and allowed specifying a model directly when spawning sub-agents (#86).
+
+### 4. Worktree improvements
+
+- Added automatic package installation and environment setup when creating a new worktree, and improved branch menu responsiveness.
+
+### 5. Provider tool call stabilization
+
+- Fixed Claude thinking handling errors and added usage tracking on Antigravity, and reinforced reasoning and tool call reliability on custom gateways (#79, #94, thanks @22nsuk and @sukjong2002).
+- Adjusted Antigravity connection and retry handling for better stability, and improved tool execution in Cursor and OpenAI-compatible environments.
+- Added the ability to check the status of PC-registered providers directly from remote SSH windows (#77, thanks @22nsuk).
+- Changed Anthropic and ChatGPT request compression to handle large requests with safe fallback, speeding up initial responses.
+
+### 6. Agent session management refresh
+
+- Changed finished agents to remain in the panel for one hour, and restored the task count summary by status and waiting notices.
+
+### 7. Lead agent session management
+
+- Added the ability for lead agents to view other sessions and their contents, and manage them directly by sending messages, cancelling, or deleting sessions.
+
+### 8. Remote and desktop performance optimizations
+
+- Adjusted remote reconnects to quickly catch up on missed content, and improved mobile streaming smoothness and session switching speed.
+- Added reopening the two most recent sessions directly on mobile, and fixed freezes on the launch screen.
+- Adjusted desktop panels, sidebar, session switching, editor, and settings screens to open faster and transition more smoothly.
+
+### 9. Remote app download improvements
+
+- Added zip downloads for folders excluding unnecessary files in the remote web app, and expanded the range of downloadable files via conversation links.
+- Adjusted mobile file saving and notification enabling (file saving on Android/iOS applies after an app update).
+
+### 10. Other bug fixes and minor improvements
+
+- Changed SSH remote model connections to remove call and rate limits (#101).
+- Fixed paused Goals to resume automatically after usage resets, and fixed several bugs in the Changes panel and command status display.
+- Fixed the internal browser getting blocked by Google login and bot detection checks (#102).
 
 ## v1.2.3 - 2026-10-16
 

@@ -130,22 +130,12 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 - **모델은 내 PC의 로그인으로 실행됩니다.** 서버의 Mixdog은 모델 호출을 내 PC로 보내 달라고 요청하는 모드로만 연결됩니다. 이 모드가 아닌 Mixdog이 서버에서 돌고 있으면 서버의 계정 정보로 모델이 실행될 수 있어 연결하지 않습니다. 서버는 **연결되어 있는 동안에만** 내 계정을 사용합니다.
 - **서버별로 허용할 모델 제공자를 정할 수 있습니다.** [서버별 설정](#서버별-설정)의 "이 서버가 쓸 수 있는 모델"에서 고릅니다. 기본값은 이 PC에서 사용 설정된 모든 제공자입니다.
 - **서버가 내 PC의 모델을 부르는 방식에는 안전장치가 있습니다.** 서버가 내 계정을 마음대로 쓰지 못하도록 내 PC가 다음을 지킵니다.
-  - **모델 사용 허가는 내 PC가 만듭니다.** 해당 서버 창에서 내가 직접 한 작업이 있을 때만 허가가 생깁니다: 프롬프트나 새 작업 보내기, 이어서 보내기와 대기열 항목 보내기, 대기 중인 작업 앞당기기·다시 시작하기, 도구 사용 승인 요청을 허용하기(거부는 해당하지 않습니다), 질문에 답하기, 턴을 실행하는 슬래시 명령(`/compact`, `/goal`), 예약 작업 지금 실행, 대화를 새 세션이나 다른 모델로 이어 가기, 사용 한도가 풀리는 시각에 자동으로 다시 시작하도록 예약하기, 알림의 **계속 허용**. 서버가 보내는 세션 상태(예: "실행 중")로는 허가가 생기거나 연장되지 않습니다. 허가가 없으면 모델 호출을 거절합니다.
-  - 허가는 **마지막 작업 후 120분** 동안 유지됩니다(서버별 설정에서 10~1440분). 허가 하나로 **모델 호출 2000회, 토큰 2000만 개**까지 쓸 수 있으며, 토큰은 제공자가 알려 준 사용량을 내 PC가 직접 셉니다. 위의 작업을 할 때마다 허가가 새로 시작되거나(없거나 끝났을 때) 120분이 다시 시작됩니다(연장). 허가는 내 PC의 메모리에만 있으므로 앱을 다시 시작하면 사라집니다. 그때는 서버 창에서 직접 작업하거나 **계속 허용**을 누르십시오.
-  - **허가는 그 서버 전체에 적용됩니다.** 허가가 있는 동안에는 그 서버가 하는 모든 모델 사용이 허가로 처리되고 허가의 한도에서 차감됩니다. **내가 시작하지 않은 작업**(다른 세션, 예약·웹훅 작업, 서버에서 따로 실행한 작업 등)도 포함됩니다. 내가 시작한 작업의 하위 에이전트와 하위 세션이 끊기지 않도록 하기 위한 설계입니다.
-  - 실행 중인 호출마다 토큰을 미리 잡아 두고(호출당 최대 25만 개) 호출이 끝나면 실제 사용량으로 정산합니다. 그래서 여러 호출이 동시에 실행되어도 한도를 넘어서기 어렵습니다. 사용량을 알려 주지 않은 호출은 잡아 둔 양만큼 쓴 것으로 계산합니다. 다만 실패한 호출이 사용량도 알려 주지 않고 서버로 아무 출력(텍스트·도구 호출·진행 표시)도 보내지 않았다면 토큰은 0으로 계산합니다. 이 경우에도 호출 횟수와 속도 제한에는 포함됩니다.
-  - **덜 신뢰하는 서버에는** [서버별 설정](#서버별-설정)에서 "이 서버가 쓸 수 있는 모델"을 필요한 제공자로 좁히고, 허가 시간을 짧게(예: 10~30분) 설정하십시오.
-  - 한도가 풀리면 자동으로 재개하도록 예약해 두었더라도, 재개 시점에 허가가 이미 끝났다면 거절합니다. "예약·웹훅 작업에도 이 PC의 모델 사용 허용"을 켠 서버에서만 재개됩니다.
-  - 허가가 끝나면 서버 창에 **"이 서버의 모델 사용 허가가 끝났습니다"** 알림이 나타납니다. **계속 허용**을 누르거나 그 창에서 다시 작업하면 새 허가가 생깁니다. **계속 허용**은 그 서버 창 자신의 화면에서 누른 것만 받고, 창 안에 표시된 다른 페이지에서 온 요청은 받지 않습니다.
-  - 예약·웹훅·백그라운드 작업처럼 내가 창에 없을 때 도는 작업은 허가 없이 모델을 쓸 수 없습니다. 서버별 설정에서 **"예약·웹훅 작업에도 이 PC의 모델 사용 허용"**을 켠 경우에만(기본 꺼짐) 별도 한도 안에서 씁니다: **최근 1시간 120회, 최근 24시간 토큰 500만 개**. 이 별도 한도는 **허가가 없을 때만** 적용됩니다. 허가가 있는 동안에는 예약·웹훅 작업도 위와 같이 허가로 처리됩니다.
-  - 허가와 예약 작업의 한도는 이 PC의 서버 목록 파일(앱 데이터 폴더의 `ssh-hosts.json`)에서 서버 설정의 `grantCalls`, `grantTokens`, `backgroundCallsPerHour`, `backgroundTokensPerDay` 값으로 바꿀 수 있습니다.
-  - 모델 목록과 사용 가능 여부 확인은 허가 없이 처리하지만 아래 속도 제한에는 포함됩니다.
-  - 서버마다 **분당 60회**까지만 처리하며, 한꺼번에 몰리는 경우는 12회까지 받아 줍니다.
-  - 한 번의 호출은 **최대 15분**까지 실행되고 넘으면 중지됩니다.
-  - 동시에 처리하는 호출은 **최대 8개**입니다.
+  - **서버가 연결되어 있는 동안에는 모델 호출을 내 PC에서 로컬과 똑같이 처리합니다.** 모델 호출 횟수, 토큰 총량, 시간, 속도, 동시 호출 수, 한 번의 호출 시간에 따로 상한을 두지 않습니다. 예약·웹훅·백그라운드 작업이나 자동 재개도 서버가 연결되어 있으면 그대로 실행됩니다. 연결이 끊기면 진행 중이던 호출도 함께 취소됩니다.
+  - 호출 하나의 크기는 **128 MiB**까지, 서버 하나가 동시에 올려 두는 호출 데이터는 합계 **256 MiB**까지만 받습니다. 넘으면 그 호출만 거절합니다.
+  - 모델 목록과 사용 가능 여부 확인도 같은 방식으로 처리합니다.
+  - **덜 신뢰하는 서버에는** [서버별 설정](#서버별-설정)에서 "이 서버가 쓸 수 있는 모델"을 필요한 제공자로 좁히십시오.
   - 허용하지 않은 제공자의 호출은 처리하지 않습니다.
   - 서버는 **이 PC에 저장된 첨부 파일을 읽을 수 없습니다.** 서버가 대화에 직접 담아 보낸 내용만 모델에 전달되고, 이 PC의 첨부 저장소를 가리키는 항목은 "[attachment unavailable: …]" 문구로 바뀝니다.
-  - 속도나 실행 시간 제한이 걸리면 서버 창에 "이 서버의 모델 호출이 제한되었습니다" 알림이 나타납니다.
 - **에이전트·X11 포워딩은 끕니다.** Mixdog이 실행하는 모든 `ssh`에는 `ForwardAgent=no`, `ForwardX11=no`가 붙으므로, 내 ssh-agent의 키나 화면이 서버로 넘어가지 않습니다. 그 외에는 호스트 키를 엄격하게 확인하고(`StrictHostKeyChecking=yes`) 묻지 않는 모드(`BatchMode=yes`)로 접속합니다. 처음 시도와 백그라운드 연결(자동 재연결, 앱 시작 시 서버 창 다시 열기)은 항상 이 모드입니다. 로그인 거절 뒤 사용자가 직접 **다시 시도**를 누른 연결에서만 암호·비밀번호·인증 코드를 묻는 입력창(askpass)을 허용합니다.
 - **Mixdog 전용 `known_hosts`를 씁니다.** 새로 확인한 지문은 앱 데이터 폴더의 `ssh/known_hosts`에만 기록하며, `~/.ssh/known_hosts`는 읽기만 하고 수정하지 않습니다.
 - 주의: 서버 창의 에이전트는 **접속한 계정의 권한**으로 서버에서 명령을 실행하고 파일을 고칩니다. 평소 터미널로 SSH 접속해서 할 수 있는 일은 모두 할 수 있다고 생각하십시오.
@@ -206,8 +196,7 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 - **유지 시간(grace time)**: 내 PC가 사라진 뒤 서버가 Mixdog을 켜 둔 채 기다리는 시간입니다. 기본 30분이며 서버별 설정에서 1분~7일로 바꿀 수 있습니다. 이 시간 안에 다시 연결되면 같은 Mixdog에 그대로 이어서 붙습니다. 변경한 값은 서버의 Mixdog이 새로 시작될 때부터 적용됩니다.
 - 사람이 해결해야 하는 문제(서버 지문 변경, 로그인 거절, 서버의 Node.js 문제 등)는 자동으로 다시 시도하지 않고 멈춥니다. 안내에 따라 해결한 뒤 설정 → 연결에서 다시 연결하십시오.
 - 로그인한 모델 계정이 만료되면 "이 PC의 모델 로그인이 만료되었습니다"라고 알립니다. 서버가 아니라 **내 PC 창**의 설정 → 모델에서 다시 로그인하십시오.
-- **모델 사용 허가가 끝나면** 서버 창에 **"이 서버의 모델 사용 허가가 끝났습니다"** 알림과 **계속 허용** 버튼이 나타납니다. 이유는 알림에 함께 표시됩니다: "허가 시간이 지나도록 이 창에서 아무 작업도 하지 않았습니다.", "서버가 허가된 모델 호출 횟수를 모두 사용했습니다.", "서버가 허가된 토큰을 모두 사용했습니다.", 예약·웹훅 작업을 허용한 경우 "서버의 예약·웹훅 작업이 최근 1시간 동안 쓸 수 있는 모델 호출을 모두 사용했습니다." 또는 "…최근 24시간 동안 쓸 수 있는 토큰을 모두 사용했습니다." **계속 허용**을 누르거나 그 창에서 다시 작업하면 새 허가가 생깁니다. 앱을 다시 시작하면 허가가 사라지므로 같은 방식으로 다시 열어 주십시오.
-- **속도·시간 제한**: 서버가 너무 빠르게 호출하면 "서버가 이 PC에서 허용하는 것보다 빠르게 모델을 호출했습니다.", 한 호출이 너무 오래 걸리면 "모델 호출이 이 PC에서 허용하는 시간보다 오래 실행되어 중지되었습니다."라는 설명과 함께 **"이 서버의 모델 호출이 제한되었습니다"** 알림이 나타납니다. 자세한 기준은 [보안 구조](#보안-구조)를 참고하십시오.
+- **호출 크기 제한**: 호출 하나가 128 MiB를 넘거나 서버가 동시에 올린 호출 데이터가 256 MiB를 넘으면 그 호출만 거절됩니다. 자세한 기준은 [보안 구조](#보안-구조)를 참고하십시오.
 
 ## 서버별 설정
 
@@ -220,8 +209,6 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 | 연결이 끊어지면 자동으로 다시 연결 | 끄면 연결이 끊긴 뒤 직접 **다시 연결**을 누를 때까지 가만히 있습니다. |
 | 연결이 끊긴 뒤 서버 작업 유지 시간(분) | 위의 유지 시간. 기본 30분. |
 | 이 서버가 쓸 수 있는 모델 | 서버가 내 PC의 로그인으로 쓸 수 있는 모델 제공자. 기본은 이 PC에서 켠 모든 제공자. |
-| 서버 창에서 마지막으로 작업한 뒤 모델 사용 허가 시간(분) | 마지막 작업 후 모델 사용 허가가 유지되는 시간. 기본 120분, 10~1440분. 허가 하나의 예산은 모델 호출 2000회, 토큰 2000만 개입니다. |
-| 예약·웹훅 작업에도 이 PC의 모델 사용 허용 | 내가 창에서 작업하지 않을 때 도는 예약·웹훅·자동 재개 작업에도 이 PC의 모델을 쓰게 합니다. 기본 꺼짐. 켜면 최근 1시간 120회, 최근 24시간 토큰 500만 개까지 쓰고 그 뒤는 거절합니다. |
 
 앱 설정에는 "앱을 켤 때 서버 창 다시 열기"도 있습니다. 켜 두면 종료할 때 열려 있던 서버 창을 다음 실행 때 백그라운드로 다시 엽니다. 이 자동 연결은 묻지 않는 모드이므로, 비밀번호가 필요한 서버는 설정에서 직접 연결해야 합니다.
 
@@ -330,7 +317,7 @@ rm -rf ~/.npm
 
 **Reconnect banner.** While reconnecting it shows the attempt and a countdown with *Reconnect now* (runs the waiting attempt immediately; backoff and the grace clock continue unchanged). *Reconnect* and *Close window* appear only once reconnecting has stopped ("Connection to … lost"). Background connections always use `BatchMode`; only a user-initiated retry after a refused login may prompt (askpass).
 
-**Model-call safeguards.** The server cannot spend this PC's model accounts on its own. This PC opens a *grant* only when you act in that server's window (send a prompt or task, follow-up or queued item, prioritize/resume queued work, allow a tool approval (denying one does not count), answer a question, run `/compact` or `/goal`, run a schedule now, continue a conversation in a new session or model, schedule a quota auto-resume, or click *Keep allowing*); session state sent by the server never opens or extends one. A grant lasts 120 minutes after your last such action (per-server setting, 10–1440) and allows 2000 calls and 20M tokens. A grant covers the whole server: while it is active, any model use by that server counts against it, including work you did not start (other sessions, scheduled or webhook runs), so that subagents and child sessions of your work keep running. Each running call holds up to 250k tokens of the budget and settles to its reported usage (a call without reported usage is charged what it held, except a failed call that also sent no output to the server, which is charged 0 tokens but still counts as a call and toward the rate limit), so concurrent calls cannot jointly overshoot. For less-trusted servers, limit the allowed providers and keep the grant minutes short. Grants live in memory only: after an app restart, act in the window or click *Keep allowing*. When a grant ends the window shows "This server's permission to use this PC's models has ended" with *Keep allowing*. A quota-reset auto-resume that fires after the grant expired is refused unless "Allow this PC's models for scheduled and webhook work too" (off by default; 120 calls/hour and 5M tokens/24 h) is on; that background budget applies only while no grant is active. Further limits: 60 calls/min per server (burst 12), 15 minutes per call, 8 concurrent calls, only the providers allowed for that server, and no access to attachments stored on this PC. Rate or duration limits show "This server's model calls were limited".
+**Model-call safeguards.** While the SSH connection is open, the server's model calls run on this PC like local use: there is no grant, time limit, call or token budget, rate limit, concurrency cap or per-call time cap. Each call is limited in size (128 MiB) and a server may hold at most 256 MiB of call data at once. Calls are cancelled when the connection closes, and a call whose server stops answering for 20 seconds is abandoned. Only the providers allowed for that server can be used, and attachments stored on this PC are not readable by the server.
 
 **Housekeeping.** `daemon.log` over 5 MB is copied to `daemon.log.1` and truncated. Old `versions/` folders are removed keeping the current and previous version and any version a live process uses; nothing is removed if the process list cannot be read.
 

@@ -5,9 +5,56 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
-### Correcciones de errores
+Actualización que incluye control de sesiones de agentes y asignación de modelos de respaldo, preparación automática de worktrees, optimización de la salida del harness y mejoras generales de rendimiento.
 
-- Se corrigió que los gateways personalizados compatibles con OpenAI perdieran los niveles de esfuerzo de razonamiento que declaran, y que las filas de esfuerzo y contexto desaparecieran al volver a abrir el menú de modelos (#94, thanks @sukjong2002).
+### 1. Mejoras en el harness: reducción de salida, estilos más limpios y estabilización general
+
+- Se simplificaron los informes de finalización del agente y las tarjetas de preguntas, y se redujo la salida de las herramientas Git, búsqueda y GitHub para ahorrar tokens.
+- Se estabilizó la limpieza de procesos de shell en segundo plano y herramientas externas, y se mejoraron los criterios de detección de agentes que no responden en tareas prolongadas.
+
+### 2. Mejoras en la generación de medios
+
+- Se aumentó la estabilidad de la generación de imágenes de ChatGPT, se añadió soporte para fondos transparentes y se permite fijar modelos preferidos según el tipo de medio.
+
+### 3. Asignación de modelos de respaldo para agentes
+
+- Se añadió compatibilidad con modelos de respaldo que se activan en orden si falla el modelo principal, y se permite especificar un modelo directamente al iniciar subagentes (#86).
+
+### 4. Mejoras en worktrees
+
+- Se añadió la instalación automática de paquetes y configuración del entorno al crear un nuevo worktree, y se mejoró la capacidad de respuesta del menú de ramas.
+
+### 5. Estabilización de llamadas a herramientas por proveedor
+
+- Se corrigieron los errores en el procesamiento del razonamiento de Claude en Antigravity, se añadió el seguimiento de uso y se reforzó la fiabilidad del razonamiento y las llamadas a herramientas en puertas de enlace personalizadas (#79, #94, thanks @22nsuk and @sukjong2002).
+- Se estabilizaron la conexión y los reintentos de Antigravity, y se mejoró la ejecución de herramientas en entornos compatibles con Cursor y OpenAI.
+- Se añadió la posibilidad de consultar el estado de los proveedores registrados en el PC directamente desde ventanas SSH remotas (#77, thanks @22nsuk).
+- Se mejoró la compresión de solicitudes de Anthropic y ChatGPT con respaldo seguro para acelerar el inicio de las respuestas.
+
+### 6. Renovación de la gestión de sesiones de agentes
+
+- Se modificó para que los agentes completados permanezcan en el panel durante 1 hora y se restauraron el resumen de recuento de tareas por estado y los avisos de espera.
+
+### 7. Gestión de sesiones por parte del agente principal
+
+- Se añadió la capacidad de que el agente principal revise la lista y el contenido de otras sesiones y las gestione directamente enviando mensajes, cancelándolas o eliminándolas.
+
+### 8. Optimizaciones de rendimiento remoto y de escritorio
+
+- Las reconexiones remotas ahora recuperan rápidamente solo el contenido pendiente, y se mejoraron la fluidez de las respuestas y la velocidad de cambio de sesión en móviles.
+- Se permite reabrir directamente las 2 sesiones más recientes en móviles y se solucionó el bloqueo en la pantalla de inicio.
+- Se optimizaron los paneles de escritorio, la barra lateral, el cambio de sesión y las pantallas del editor y la configuración para abrirse más rápido y con mayor fluidez.
+
+### 9. Mejoras en la descarga de la aplicación remota
+
+- Se añadió la descarga en ZIP de carpetas excluyendo archivos innecesarios en la aplicación web remota y se amplió el rango de archivos descargables mediante enlaces de conversación.
+- Se mejoraron el guardado de archivos móviles y la activación de notificaciones (el guardado de archivos en Android/iOS se aplica tras actualizar la aplicación).
+
+### 10. Otras correcciones de errores y mejoras menores
+
+- Se eliminaron los límites de llamadas y velocidad en las conexiones remotas a modelos por SSH (#101).
+- Se reanudan automáticamente los Goals en pausa tras restablecerse el uso y se corrigieron varios errores en el panel de cambios y en la indicación del estado de comandos.
+- Se corrigió el bloqueo del navegador interno en el inicio de sesión de Google y en los controles antibot (#102).
 
 ## v1.2.3 - 2026-10-16
 
