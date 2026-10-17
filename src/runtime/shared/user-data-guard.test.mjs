@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs, { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 
@@ -117,6 +117,7 @@ test('a recreated profile at the same path is fresh, never a restore case', (t) 
 
 test('pruning keeps N backups per scope and never evicts another scope or legacy entries', (t) => {
   const { dir, backupRoot } = sandbox(t);
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const installed = dir('installed');
   const dev = dir('dev');
   writeFileSync(configFile(installed), JSON.stringify(complete('installed')));
@@ -276,6 +277,8 @@ test('a plain read restores a deleted config once, persists it and later reads h
 
 test('crash recovery restores the latest backup of the same data dir', (t) => {
   const { dir } = sandbox(t);
+  // Pre/post-write snapshots must retain creation order even at one clock tick.
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const a = dir('a');
   use(a);
   write('v1');
@@ -286,4 +289,90 @@ test('crash recovery restores the latest backup of the same data dir', (t) => {
   const stored = JSON.parse(readFileSync(configFile(a), 'utf8'));
   assert.equal(stored.agent.tag, 'v2');
   assert.equal(stored.ui.theme, 'after-restore');
+});
+
+for (const [firstKind, secondKind] of [
+  ['sync', 'sync'],
+  ['sync', 'async'],
+  ['async', 'sync'],
+  ['async', 'async'],
+]) {
+  test(`${firstKind}/${secondKind} snapshots in one millisecond preserve both versions and restore the latest`, async (t) => {
+    const { dir } = sandbox(t);
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    const a = dir('a');
+    const writers = { sync: backupUserData, async: backupUserDataAsync };
+    writeFileSync(configFile(a), JSON.stringify(complete('v1')));
+    const first = await writers[firstKind](a, 'snapshot');
+    writeFileSync(configFile(a), JSON.stringify(complete('v2')));
+    const second = await writers[secondKind](a, 'snapshot');
+    assert.notEqual(first.dir, second.dir);
+    for (const backup of [first, second]) {
+      assert.match(basename(backup.dir), /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-snapshot$/);
+    }
+    assert.ok(basename(second.dir).slice(0, 24) > basename(first.dir).slice(0, 24));
+    assert.equal(JSON.parse(readFileSync(join(first.dir, 'mixdog-config.json'), 'utf8')).agent.tag, 'v1');
+    assert.equal(JSON.parse(readFileSync(join(second.dir, 'mixdog-config.json'), 'utf8')).agent.tag, 'v2');
+    assert.equal(loadLatestMixdogConfigFromBackup(a).agent.tag, 'v2');
+  });
+}
+
+for (const kind of ['sync', 'async']) {
+  test(`a fresh ${kind} writer follows persisted backups even when the clock moves backwards`, async (t) => {
+    const { dir } = sandbox(t);
+    const now = Date.now();
+    t.mock.timers.enable({ apis: ['Date'], now });
+    const a = dir('a');
+    writeFileSync(configFile(a), JSON.stringify(complete('v1')));
+    const first = backupUserData(a, 'snapshot');
+    t.mock.timers.setTime(now - 1_000);
+    const freshWriter = await import(`./user-data-guard.mjs?backup-order-restart-${kind}`);
+    writeFileSync(configFile(a), JSON.stringify(complete('v2')));
+    const writeBackup = kind === 'sync' ? freshWriter.backupUserData : freshWriter.backupUserDataAsync;
+    const second = await writeBackup(a, 'snapshot');
+    assert.ok(basename(second.dir).slice(0, 24) > basename(first.dir).slice(0, 24));
+    assert.equal(JSON.parse(readFileSync(join(first.dir, 'mixdog-config.json'), 'utf8')).agent.tag, 'v1');
+    assert.equal(freshWriter.loadLatestMixdogConfigFromBackup(a).agent.tag, 'v2');
+  });
+}
+
+for (const kind of ['sync', 'async']) {
+  test(`overlapping async/${kind} snapshots at one clock tick get distinct backup paths`, async (t) => {
+    const { dir } = sandbox(t);
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    const a = dir('a');
+    writeFileSync(configFile(a), JSON.stringify(complete('v1')));
+    const writeBackup = kind === 'sync' ? backupUserData : backupUserDataAsync;
+    const backups = await Promise.all([backupUserDataAsync(a, 'snapshot'), writeBackup(a, 'snapshot')]);
+    assert.notEqual(backups[0].dir, backups[1].dir);
+    for (const backup of backups) {
+      assert.equal(JSON.parse(readFileSync(join(backup.dir, 'mixdog-config.json'), 'utf8')).agent.tag, 'v1');
+    }
+    assert.equal(loadLatestMixdogConfigFromBackup(a).agent.tag, 'v1');
+  });
+}
+
+test('allocation observes newer unfinished directories without restoring them or accepting unrelated names', async (t) => {
+  const { dir } = sandbox(t);
+  const now = Date.now();
+  t.mock.timers.enable({ apis: ['Date'], now });
+  const a = dir('a');
+  writeFileSync(configFile(a), JSON.stringify(complete('v1')));
+  const first = backupUserData(a, 'snapshot');
+  const scope = dirname(first.dir);
+  const future = new Date(now + 60_000).toISOString().replace(/[:.]/g, '-');
+  const unfinished = writeLegacyBackup(scope, `${future}-snapshot`, complete('unfinished'));
+  mkdirSync(join(scope, 'unrelated'));
+  mkdirSync(join(scope, '9999-99-99T99-99-99-999Z-invalid'));
+  mkdirSync(join(scope, '9999-02-29T00-00-00-000Z-invalid-calendar'));
+  writeFileSync(join(scope, '9999-12-31T23-59-59-999Z-file'), 'not a directory');
+  const freshWriter = await import('./user-data-guard.mjs?backup-order-unfinished');
+  assert.equal(freshWriter.loadLatestMixdogConfigFromBackup(a).agent.tag, 'v1');
+  writeFileSync(configFile(a), JSON.stringify(complete('v2')));
+  const second = await backupUserDataAsync(a, 'snapshot');
+  assert.ok(basename(second.dir).slice(0, 24) > future);
+  assert.ok(basename(second.dir).startsWith(future.slice(0, 10)));
+  assert.equal(loadLatestMixdogConfigFromBackup(a).agent.tag, 'v2');
+  assert.equal(JSON.parse(readFileSync(join(unfinished, 'mixdog-config.json'), 'utf8')).agent.tag, 'unfinished');
+  assert.equal(existsSync(join(unfinished, 'backup.json')), false);
 });
