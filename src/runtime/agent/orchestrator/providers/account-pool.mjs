@@ -428,7 +428,9 @@ function poolSend(providerName, account) {
       sends += 1;
       const bound = boundAccountSend(providerName, row, messages, options);
       try {
-        const result = await account(row.id).send(bound.history, model, tools, bound.opts);
+        const instance = account(row.id);
+        const confirmProxyUsage = options._captureModelProxyUsageAccount?.(providerName, row.id, instance);
+        const result = await instance.send(bound.history, model, tools, bound.opts);
         quotaStrikes.delete(`${providerName}:${row.id}`);
         // Headroom policy: a session's first pick, or its move off its account
         // on a limit, becomes the selection; continuing on its account does
@@ -439,6 +441,7 @@ function poolSend(providerName, account) {
           ? refusalScoped
           : policy === 'headroom' && leftBound && accountExhaustedForModelOnly(providerName, boundId, model);
         recordServingAccount(providerName, result, row.id, scoped && boundId ? boundId : row.id);
+        confirmProxyUsage?.(result);
         if (sessionKey && policy === 'headroom' && !scoped) rememberSessionAccount(sessionKey, row.id);
         const commit = policy !== 'headroom' || !boundId || leftBound;
         if (commit && (await commitFallbackAccount(providerName, pool, row, model, scoped, policy))) {

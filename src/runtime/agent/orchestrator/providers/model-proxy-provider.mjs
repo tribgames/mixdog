@@ -20,6 +20,7 @@ import {
   readAttachmentBuffer,
 } from '../../../attachments/store.mjs';
 import { MAX_ATTACHMENT_BLOB_BYTES } from '../../../attachments/limits.mjs';
+import { isModelProxyUsageAccount } from './model-proxy-usage-wire.mjs';
 
 /** Stored-attachment bytes one proxied call may carry inline: the store's own
  *  single-blob ceiling. Newer messages are inlined first; a reference past the
@@ -111,6 +112,12 @@ export class ModelProxyProvider {
     // Adapter traits are reported by the PC's real instance.
     if (typeof this.config.modelProxy?.nativePdf === 'boolean') this.nativePdf = this.config.modelProxy.nativePdf;
     if (this.config.modelProxy?.consumesReadWindows === true) this.consumesReadWindows = true;
+  }
+
+  usageAccountId(result) {
+    return isModelProxyUsageAccount(result?.modelProxyUsageAccount)
+      ? result.modelProxyUsageAccount
+      : 'proxy-unattributed';
   }
 
   #call(method, fields = {}, options = {}) {

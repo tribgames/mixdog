@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { after } from 'node:test';
+import { ModelProxyChannel, installModelProxyChannel, encodeModelProxyWire } from '../../runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
 
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-usage-dashboard-'));
@@ -23,6 +24,44 @@ const options = {
   },
   getProvider: () => null,
 };
+
+test('proxy dashboards use desktop quota/status only and never probe a local provider or account pool', async (t) => {
+  const previous = process.env.MIXDOG_MODEL_PROXY;
+  process.env.MIXDOG_MODEL_PROXY = 'client';
+  t.after(() => {
+    if (previous === undefined) delete process.env.MIXDOG_MODEL_PROXY;
+    else process.env.MIXDOG_MODEL_PROXY = previous;
+  });
+  const channel = new ModelProxyChannel();
+  t.after(installModelProxyChannel(channel));
+  let capability = false;
+  const account = `proxy-${'a'.repeat(64)}`;
+  t.after(channel.attachPublisher(({ requests }) => {
+    for (const { id } of requests) {
+      const claim = channel.claim(id);
+      if (!claim) continue;
+      const call = JSON.parse(claim.payload);
+      queueMicrotask(() => channel.resolve(id, true, encodeModelProxyWire(
+        call.method === 'providerConfig'
+          ? { ready: true, providers: { 'openai-oauth': { enabled: true, modelProxy: { oauthUsage: capability } } } }
+          : { status: 'unsupported', accounts: [account], account }
+      )));
+    }
+  }));
+  const remoteOptions = {
+    setup: { oauth: [{ id: 'openai-oauth', authenticated: true }] },
+    getProvider: () => { throw new Error('must not probe local providers'); },
+  };
+  const legacy = await createUsageDashboard({}, remoteOptions);
+  assert.equal(legacy.rows[0].desktopUsageStatus, 'unsupported-client');
+  assert.equal(legacy.rows[0].useCredits, undefined);
+  assert.deepEqual(legacy.rows[0].windows, []);
+  capability = true;
+  const unsupported = await createUsageDashboard({}, remoteOptions);
+  assert.equal(unsupported.rows[0].desktopUsageStatus, 'unsupported');
+  assert.equal(unsupported.rows[0].useCredits, undefined);
+  assert.equal(JSON.stringify(unsupported).includes('@'), false);
+});
 
 test('usage progress snapshots retain the state and totals from their publication', async () => {
   const updates = [];

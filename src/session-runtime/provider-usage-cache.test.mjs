@@ -3,6 +3,7 @@ import { setImmediate } from 'node:timers/promises';
 import test from 'node:test';
 import { createProviderReadiness } from './provider-readiness.mjs';
 import { createProviderUsage, USAGE_REFRESH_REUSE_MS } from './provider-usage.mjs';
+import { ModelProxyChannel, installModelProxyChannel } from '../runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
 
 function deferred() {
   const { promise, resolve } = Promise.withResolvers();
@@ -31,6 +32,49 @@ function fixture(overrides = {}) {
   });
   return { usage, invalidate: readiness.invalidateProviderCaches };
 }
+
+test('proxy dashboards bypass session caches and refresh setup; late generations cannot publish', async (t) => {
+  const previous = process.env.MIXDOG_MODEL_PROXY;
+  process.env.MIXDOG_MODEL_PROXY = 'client';
+  t.after(() => {
+    if (previous === undefined) delete process.env.MIXDOG_MODEL_PROXY;
+    else process.env.MIXDOG_MODEL_PROXY = previous;
+  });
+  const channel = new ModelProxyChannel();
+  t.after(installModelProxyChannel(channel));
+  let detach = channel.attachPublisher(() => {});
+  t.after(() => detach());
+  const calls = [];
+  const builds = [];
+  const f = fixture({
+    providerSetup: async (_config, options) => { calls.push(options); return {}; },
+    createUsageDashboard: async (_config, options) => {
+      builds.push(options);
+      return { generation: builds.length };
+    },
+  });
+  assert.equal((await f.usage.getUsageDashboard()).generation, 1);
+  assert.equal((await f.usage.getUsageDashboard()).generation, 2);
+  assert.ok(calls.every((options) => options.force === true));
+  assert.ok(builds.every((options) => options.preview !== true));
+  const gate = deferred();
+  const updates = [];
+  const late = fixture({
+    providerSetup: () => gate.promise,
+    createUsageDashboard: async (_config, options) => {
+      options.onUpdate?.({ generation: 'retired' });
+      return { generation: 'retired' };
+    },
+  });
+  const reading = late.usage.getUsageDashboard({ onUpdate: (value) => updates.push(value) });
+  detach();
+  detach = channel.attachPublisher(() => {});
+  gate.resolve({});
+  const result = await reading;
+  assert.equal(result.desktopUsageStatus, 'unavailable');
+  assert.deepEqual(result.rows, []);
+  assert.deepEqual(updates, []);
+});
 
 test('an invalidated setup request cannot overwrite or retire its replacement', async () => {
   const requests = [];

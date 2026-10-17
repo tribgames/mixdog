@@ -1,4 +1,9 @@
 {
+  "Live OAuth usage is unavailable.": "L’utilisation OAuth en direct est indisponible.",
+  "Update the desktop app and remote runtime to view OAuth usage.": "Mettez à jour l’application de bureau et l’environnement distant pour consulter l’utilisation OAuth.",
+  "Live OAuth usage is unavailable. Confirmed historical usage is still shown.": "L’utilisation OAuth en direct est indisponible. L’historique confirmé reste affiché.",
+  "Live OAuth usage measurement is unsupported. Historical usage is still shown when available.": "La mesure OAuth en direct n’est pas prise en charge. L’historique reste affiché lorsqu’il est disponible.",
+  "No eligible OAuth provider is enabled.": "Aucun fournisseur OAuth admissible n’est activé.",
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
   "— {{value0}}": "— {{value0}}",

@@ -368,6 +368,36 @@ test('records made before accounts were recorded belong to the account in use wh
   assert.equal(other.totals.turns, 1);
 });
 
+test('proxy quota scopes authorize multiple accounts and never adopt local, legacy or unattributed records', async (t) => {
+  const ledger = store(t);
+  const a = `proxy-${'a'.repeat(64)}`;
+  const b = `proxy-${'b'.repeat(64)}`;
+  const foreign = `proxy-${'c'.repeat(64)}`;
+  // Put the proven proxy record first: legacy owner inference must still not
+  // assign the following unlabelled request to it.
+  ledger.record([
+    request(at(0, 5), 'proven-a', { account: a }),
+    request(at(0, 10), 'legacy', { account: '' }),
+    request(at(0, 15), 'local', { account: 'default' }),
+    request(at(0, 20), 'unproven', { account: 'proxy-unattributed' }),
+    request(at(0, 25), 'proven-b', { account: b }),
+    request(at(0, 30), 'foreign', { account: foreign }),
+  ]);
+  for (const account of [a, b, foreign, 'default'])
+    ledger.recordQuota([reading(at(0, 45), 10, { account })]);
+  const options = { scopes: { 'anthropic-oauth': [a, b] }, inUse: { 'anthropic-oauth': b }, now: at(1) };
+  const selected = await ledger.quotaHistoryAsync(options);
+  assert.deepEqual(new Set(selected.subscriptions.map((row) => row.account)), new Set([a, b]));
+  assert.equal(selected.selection.account, b);
+  assert.deepEqual(Object.keys(byModel(selected)), ['proven-b']);
+  const first = await ledger.quotaHistoryAsync({ ...options, account: a });
+  assert.deepEqual(Object.keys(byModel(first)), ['proven-a']);
+  assert.equal(first.totals.turns, 1);
+  assert.ok([a, b].includes((await ledger.quotaWindowsAsync({ ...options, account: foreign })).selection.account));
+  assert.equal((await ledger.quotaHistoryAsync({ scopes: {}, now: at(1) })).selection, null);
+  assert.equal((await ledger.quotaWindowsAsync({ scopes: {}, now: at(1) })).selection, null);
+});
+
 test('windows reset, page and add up over a period', async (t) => {
   const ledger = store(t);
   const nextReset = resetAt + 5 * HOUR;

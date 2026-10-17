@@ -6,6 +6,8 @@
 // live-binding is preserved.
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { modelProxyClientMode } from '../runtime/shared/model-proxy-mode.mjs';
+import { getModelProxyChannel } from '../runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
+import { usageDashboardSnapshot } from './services/usage-dashboard-model.mjs';
 
 // A post-redeem dashboard rebuild is best effort: past this budget the caller
 // gets its confirmed outcome and the surface revalidates on its own cadence.
@@ -128,6 +130,13 @@ export function createProviderUsage({
   }
 
   async function getUsageDashboard(options = {}) {
+    // Ownership can change on the PC without invalidating any daemon cache.
+    // Ask for fresh setup and usage, never a session-local cached dashboard.
+    if (modelProxyClientMode())
+      return buildUsageDashboard(
+        { ...options, quickSetup: false },
+        { refreshUsage: options.refresh === true, forceSetup: true, scope: refreshScopeKey(options) }
+      );
     const refreshUsage = options?.refresh === true;
     const forceSetup = options?.force === true || (refreshUsage && options?.refreshSetup !== false);
     if (!forceSetup && !refreshUsage && caches.usageDashboardCache.dashboard) {
@@ -166,6 +175,17 @@ export function createProviderUsage({
   }
 
   async function buildUsageDashboard(options, { refreshUsage, forceSetup, scope }) {
+    const channel = modelProxyClientMode() ? getModelProxyChannel() : null;
+    const generation = channel?.generation;
+    const current = () => !channel || (channel.connected && channel.generation === generation);
+    const unavailable = () => ({
+      ...usageDashboardSnapshot([], { checkedAt: Date.now(), refresh: refreshUsage }),
+      desktopUsageStatus: 'unavailable',
+    });
+    if (channel && typeof options?.onUpdate === 'function') {
+      const onUpdate = options.onUpdate;
+      options = { ...options, onUpdate: (value) => current() && onUpdate(value) };
+    }
     if (!forceSetup && !refreshUsage && caches.usageDashboardPromise) return await caches.usageDashboardPromise;
     const cache = caches.usageDashboardCache;
     const request = {};
@@ -202,15 +222,17 @@ export function createProviderUsage({
         log('provider setup failed; falling back to quick setup');
         setup = await cachedProviderSetup({ force: forceSetup, quick: true });
       }
+      if (!current()) return unavailable();
       const dashboard = await createUsageDashboard(displayConfig(), {
         ...(options || {}),
         setup,
         getProvider,
         log,
       });
+      if (!current()) return unavailable();
       // A newer refresh supersedes this request; replacing the cache object
       // invalidates all older requests, including pre-redeem quota snapshots.
-      if (dashboardRequest === request && caches.usageDashboardCache === cache) {
+      if (!channel && dashboardRequest === request && caches.usageDashboardCache === cache) {
         const at = Date.now();
         // Only a sweep that forced EVERY provider live may stand in for a
         // later refresh; a plain build or a scoped one served cached quotas.

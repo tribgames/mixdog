@@ -6,6 +6,7 @@
  */
 import { readGlobalCapabilities } from './global-capability-reads';
 import { record } from './record-utils';
+import { subscribeModelCatalogInvalidation } from './model-catalog-cache';
 import { peekQuotaFocus, readQuotaSubscription, type QuotaFocus } from './usage-surface-mode';
 
 type Row = Record<string, unknown>;
@@ -16,15 +17,27 @@ const ANSWER_LIMIT = 24;
 const READ_AHEAD_FRESH_MS = 30_000;
 
 type QuotaCache = {
+  generation: number;
   answers: Map<string, { answer: Row; at: number }>;
   reads: Map<string, Promise<Row>>;
 };
 const caches = new WeakMap<QuotaApi, QuotaCache>();
+let generation = 0;
+let subscribedWindow: Window | undefined;
+let unsubscribeInvalidation: (() => void) | undefined;
 
 function cacheOf(api: QuotaApi): QuotaCache {
+  const host = typeof window === 'undefined' ? undefined : window;
+  if (!unsubscribeInvalidation || host !== subscribedWindow) {
+    unsubscribeInvalidation?.();
+    subscribedWindow = host;
+    generation += 1;
+    // One renderer-lifetime listener, never a closure retaining an API.
+    unsubscribeInvalidation = subscribeModelCatalogInvalidation(() => { generation += 1; });
+  }
   let cache = caches.get(api);
-  if (!cache) {
-    cache = { answers: new Map(), reads: new Map() };
+  if (!cache || cache.generation !== generation) {
+    cache = { generation, answers: new Map(), reads: new Map() };
     caches.set(api, cache);
   }
   return cache;
@@ -45,14 +58,20 @@ export function cachedQuotaAnswer(api: QuotaApi, question: Row): Row | undefined
   return cacheOf(api).answers.get(keyOf(question))?.answer;
 }
 
+export function invalidateQuotaAnswers(api: QuotaApi): void {
+  caches.delete(api);
+}
+
 /** Ask the ledger, joining a read of the same question already under way. */
 export function readQuotaAnswer(api: QuotaApi, question: Row): Promise<Row> {
-  const { reads } = cacheOf(api);
+  const cache = cacheOf(api);
+  const { reads } = cache;
   const key = keyOf(question);
   let read = reads.get(key);
   if (!read) {
     read = readGlobalCapabilities(api, [{ capability: 'getQuotaHistory', args: [question] }])
       .then(([value]) => {
+        if (cacheOf(api) !== cache) throw new ObsoleteQuotaRead();
         const answer = record(value);
         rememberQuotaAnswer(api, question, answer);
         return answer;
@@ -62,6 +81,9 @@ export function readQuotaAnswer(api: QuotaApi, question: Row): Promise<Row> {
   }
   return read;
 }
+
+/** Obsolete replies must not reach either the cache or an awaiting view. */
+export class ObsoleteQuotaRead extends Error {}
 
 /** What subscription usage opens on: the meter that asked, else the
  *  subscription and window shown last, else the one in use — always on the

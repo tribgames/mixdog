@@ -224,6 +224,20 @@ function cursorEnvTokenFingerprint() {
   return createHash('sha256').update(String(token)).digest('base64url').slice(0, 22);
 }
 
+// Internal identity evidence, not an account id. Unlike an identity comparison
+// alone, the existing file signature also notices an A -> B -> A replacement.
+// Never include this revision (or a token fingerprint) in a durable scope.
+export function oauthCredentialIdentityVersion(provider) {
+  if (modelProxyClientMode() || !OAUTH_PROBE_STATES.has(provider) || !isOAuthProviderAvailable(provider)) return null;
+  const bound = boundProviderAuthPath(provider);
+  if (provider === 'cursor-oauth' && !bound && process.env.CURSOR_ACCESS_TOKEN) {
+    return `env:${cursorEnvTokenFingerprint()}`;
+  }
+  const env = `${provider.replaceAll('-', '_').toUpperCase()}_CREDENTIALS_PATH`;
+  const file = provider === 'anthropic-oauth' ? 'anthropic-oauth-credentials.json' : `${provider}.json`;
+  return credentialPathsSignature([bound || process.env[env] || join(resolvePluginData(), file)]);
+}
+
 function cursorOAuthState() {
   // Match the adapter: selected account, then explicit path, then legacy file.
   // An environment token must not authenticate a different selected account.

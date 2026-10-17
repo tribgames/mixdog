@@ -1,4 +1,9 @@
 {
+  "Live OAuth usage is unavailable.": "Không có mức sử dụng OAuth trực tiếp.",
+  "Update the desktop app and remote runtime to view OAuth usage.": "Cập nhật ứng dụng máy tính và môi trường chạy từ xa để xem mức sử dụng OAuth.",
+  "Live OAuth usage is unavailable. Confirmed historical usage is still shown.": "Không có mức sử dụng OAuth trực tiếp. Lịch sử đã xác nhận vẫn được hiển thị.",
+  "Live OAuth usage measurement is unsupported. Historical usage is still shown when available.": "Không hỗ trợ đo mức sử dụng OAuth trực tiếp. Lịch sử vẫn được hiển thị nếu có.",
+  "No eligible OAuth provider is enabled.": "Chưa bật nhà cung cấp OAuth đủ điều kiện.",
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
   "— {{value0}}": "— {{value0}}",

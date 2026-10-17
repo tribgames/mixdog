@@ -66,6 +66,7 @@ import {
 } from '../../runtime/agent/orchestrator/providers/command-code-oauth-login.mjs';
 import {
   beginCursorOAuthLogin,
+  cursorTokenIdentity,
   describeCursorOAuthCredentials,
   forgetCursorOAuthCredentials,
   hasCursorOAuthCredentials,
@@ -81,19 +82,27 @@ import {
   loginOAuth as loginAntigravityOAuth,
 } from '../../runtime/agent/orchestrator/providers/antigravity-oauth-login.mjs';
 import { localProviderStatus } from '../../runtime/local-provider/managed-runtime.mjs';
-import { isOAuthProviderAvailable } from '../../runtime/agent/orchestrator/providers/oauth-credential-probes.mjs';
+import {
+  isOAuthProviderAvailable,
+  oauthCredentialIdentityVersion,
+} from '../../runtime/agent/orchestrator/providers/oauth-credential-probes.mjs';
 import {
   readProviderAccountPool,
   registerProviderAccount,
   newProviderAccountId,
   providerAccountPath,
+  providerAccountUsageIncarnation,
   changeProviderAccounts,
   removeProviderAccount,
   clearProviderAccountQuotaState,
   providerAccountLimit,
   ACCOUNT_PROVIDERS,
 } from '../../runtime/shared/provider-accounts.mjs';
-import { currentProviderAccountId, withProviderAccount } from '../../runtime/shared/provider-auth-binding.mjs';
+import {
+  boundProviderAuthPath,
+  currentProviderAccountId,
+  withProviderAccount,
+} from '../../runtime/shared/provider-auth-binding.mjs';
 import {
   CUSTOM_API_KEY_ENV_RE,
   effectiveCustomModelRows,
@@ -861,6 +870,45 @@ export function listProviderAccounts(provider) {
         ...(typeof auth.email === 'string' && auth.email.trim() ? { email: auth.email.trim() } : {}),
       };
     }),
+  };
+}
+
+// Internal desktop metering only. Display hints (including accountId, which
+// some adapters truncate) and roster labels are never durable identities.
+export function providerUsageAccounts(provider) {
+  requireLocalProviderManagement();
+  const oauth = availableOAuthProvider(provider);
+  if (!oauth) return { selectedId: null, accounts: [] };
+  const pool = readProviderAccountPool(provider);
+  const rows = pool.accounts.length ? pool.accounts : [{ id: 'default' }];
+  return {
+    selectedId: pool.selectedId || 'default',
+    accounts: rows.map(({ id }) =>
+      withProviderAccount(provider, id, () => {
+        const before = oauthCredentialIdentityVersion(provider);
+        const auth = oauth.describe?.() || {};
+        const envIdentity =
+          provider === 'cursor-oauth' && !boundProviderAuthPath(provider)
+            ? cursorTokenIdentity(process.env.CURSOR_ACCESS_TOKEN)
+            : null;
+        const identityId = auth.identityId || envIdentity?.id;
+        const email = auth.email || envIdentity?.email;
+        const identity =
+          typeof identityId === 'string' && identityId.trim()
+            ? { id: identityId.trim() }
+            : typeof email === 'string' && email.trim()
+              ? { email: email.trim().toLowerCase() }
+              : null;
+        const version = oauthCredentialIdentityVersion(provider);
+        return {
+          id,
+          authenticated: auth.authenticated === true && auth.reauthRequired !== true && before === version,
+          identity,
+          version,
+          ...(id === 'default' ? { incarnation: providerAccountUsageIncarnation(provider, id) } : {}),
+        };
+      })
+    ),
   };
 }
 

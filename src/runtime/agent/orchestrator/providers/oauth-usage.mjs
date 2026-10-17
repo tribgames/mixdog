@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
@@ -197,6 +198,8 @@ function newestProviderSnapshot(entries, provider, ttlMs) {
 }
 
 export function readCachedOAuthUsageSnapshot(routeInfo, options = {}) {
+  // This machine's cache cannot prove ownership for the connected desktop.
+  if (modelProxyClientMode()) return null;
   const key = routeKey(routeInfo);
   const providerOnlyKey = cacheProviderKey(routeInfo);
   const diskTtlMs = options?.allowStale === true ? STALE_DISK_CACHE_TTL_MS : DISK_CACHE_TTL_MS;
@@ -889,6 +892,26 @@ async function measureUsageWithAuthRetry(provider, providerObj, routeInfo) {
   }
 }
 
+// Desktop-only measurement: no roster-slot cache, local ledger writes, or
+// remote routing. The proxy owns the identity-scoped cache. Muse can return
+// its last good adapter reading during a failure; retain its observation time.
+export async function measureOAuthUsageSnapshot(routeInfo, providerObj) {
+  if (modelProxyClientMode()) return null;
+  const provider = providerKey(routeInfo);
+  const snapshot = await measureUsageWithAuthRetry(provider, providerObj, routeInfo);
+  if (!isContentfulSnapshot(snapshot)) return null;
+  const observedAt = snapshot.fetchedAt ?? snapshot.cachedAt;
+  const live =
+    provider === 'openai-oauth' ||
+    provider === 'anthropic-oauth' ||
+    provider === 'grok-oauth' ||
+    provider === 'cursor-oauth' ||
+    provider === 'antigravity-oauth';
+  const cachedAt = observedAt ?? (live ? Date.now() : null);
+  if (typeof cachedAt !== 'number' || !Number.isFinite(cachedAt) || cachedAt <= 0 || cachedAt > Date.now()) return null;
+  return { ...snapshot, cachedAt };
+}
+
 // The fallback reading after a failed measurement, and the bookkeeping a
 // failure implies. A credential the server refuses even after a forced
 // refresh cannot vouch for the reading it last produced: keeping a 100% meter
@@ -933,6 +956,10 @@ function cacheUsageSnapshot(snapshot, { routeInfo, provider, accountId, provider
 export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () => {}, options = {}) {
   const provider = providerKey(routeInfo);
   if (!provider.includes('oauth') && provider !== 'cursor-api') return null;
+  if (modelProxyClientMode()) {
+    const { readRemoteOAuthUsage } = await import('./model-proxy-usage.mjs');
+    return (await readRemoteOAuthUsage(provider, { force: options?.force === true })).snapshot ?? null;
+  }
   const accountId = routeInfo.accountId || providerObj?.providerAccountId || currentProviderAccountId(provider);
   routeInfo = { ...routeInfo, accountId };
   if (typeof providerObj?.forAccount === 'function') providerObj = providerObj.forAccount(accountId);

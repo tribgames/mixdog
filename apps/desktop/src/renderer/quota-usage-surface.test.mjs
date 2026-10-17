@@ -10,10 +10,49 @@ import { applyAccountUsageWindows } from './usage-dashboard-store.ts';
 import { t } from './i18n.ts';
 import { usageMoney } from './usage-format.ts';
 import { quotaValue } from './quota-usage-model.ts';
+import { invalidateSharedModelCatalogRequest } from './model-catalog-cache.ts';
+import { cachedQuotaAnswer, readQuotaAnswer, rememberQuotaAnswer, ObsoleteQuotaRead } from './quota-usage-cache.ts';
 import { UsageLedger, makeUsageRecord } from '../../../../src/runtime/shared/llm/usage-ledger.mjs';
 import { createUsageStatsApi } from '../../../../src/session-runtime/usage-stats-api.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+test('obsolete quota requests reject after provider/account invalidation and reconnect', async (context) => {
+  harness(context);
+  for (const invalidate of [
+    invalidateSharedModelCatalogRequest,
+    () => window.dispatchEvent(new window.Event('mixdog:remote-reconnected')),
+    invalidateSharedModelCatalogRequest,
+  ]) {
+    let resolve;
+    const api = { invokeCapability: () => new Promise((done) => { resolve = done; }) };
+    const question = { provider: '', account: '', window: '', view: 'window' };
+    const read = readQuotaAnswer(api, question);
+    const rejected = assert.rejects(read, ObsoleteQuotaRead);
+    invalidate();
+    resolve({ value: { selection: { account: 'obsolete' } } });
+    await rejected;
+    assert.equal(cachedQuotaAnswer(api, question), undefined);
+  }
+});
+
+test('desktop statuses distinguish no observations from unavailable, unsupported and old peers', async (context) => {
+  const render = harness(context);
+  window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'quota');
+  const messages = {
+    ready: 'No OAuth usage recorded yet.',
+    unavailable: 'Live OAuth usage is unavailable.',
+    unsupported: 'Live OAuth usage measurement is unsupported. Historical usage is still shown when available.',
+    'unsupported-client': 'Update the desktop app and remote runtime to view OAuth usage.',
+    'not-configured': 'No eligible OAuth provider is enabled.',
+  };
+  for (const [status, message] of Object.entries(messages)) {
+    const api = { invokeCapability: async () => ({ value: { desktopUsageStatus: status, subscriptions: [] } }) };
+    await render({ surface: 'stats', open: true, onClose() {}, api });
+    assert.ok(document.querySelector('.quota-surface').textContent.includes(t(message)));
+    if (status !== 'ready') assert.ok(!document.querySelector('.quota-surface').textContent.includes(t(messages.ready)));
+  }
+});
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 // A five-hour Claude window opened at 13:00, read at 13:30 and 14:00, viewed at 14:30.
@@ -21,6 +60,104 @@ const opened = new Date(2026, 8, 30, 13).getTime();
 const resetAt = opened + 5 * HOUR;
 const at = (hours, minutes = 0) => opened + hours * HOUR + minutes * MINUTE;
 const now = at(1, 30);
+
+function desktopQuota(account, usedPct, desktopUsageStatus) {
+  return {
+    ...(desktopUsageStatus ? { desktopUsageStatus } : {}),
+    generatedAt: now,
+    selection: { provider: 'anthropic-oauth', account, label: '7D' },
+    subscriptions: [{ provider: 'anthropic-oauth', account, windows: ['7D'] }],
+    view: 'window',
+    period: { fromMs: opened, toMs: resetAt },
+    focus: { usedPct, startMs: opened, endMs: resetAt },
+    summary: {},
+    models: [],
+  };
+}
+
+function desktopHistory(account, peak) {
+  return {
+    selection: { provider: 'anthropic-oauth', account, label: '7D' },
+    page: 0,
+    pageCount: 1,
+    windows: [{ key: 'window', startMs: opened, endMs: resetAt, peak }],
+  };
+}
+
+for (const event of ['reconnect', 'account switch']) {
+  test(`mounted main and history reject obsolete resolutions after ${event}`, async (context) => {
+    const render = harness(context);
+    window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'quota');
+    focusQuotaUsage({ provider: 'anthropic-oauth', window: '7D' });
+    const pending = [];
+    const api = {
+      invokeCapability: ({ capability, args }) => {
+        assert.equal(capability, 'getQuotaHistory');
+        return new Promise((resolve) => pending.push({ question: args[0], resolve }));
+      },
+    };
+    const question = { provider: 'anthropic-oauth', account: '', window: '7D', view: 'window' };
+    rememberQuotaAnswer(api, question, desktopQuota('old-scope', 91));
+    await render({ surface: 'stats', open: true, onClose() {}, api });
+    const oldMain = pending.find((request) => request.question.page == null);
+    const oldHistory = pending.find((request) => request.question.page === 0);
+    assert.ok(oldMain);
+    assert.ok(oldHistory);
+    await act(async () => {
+      if (event === 'reconnect') window.dispatchEvent(new window.Event('mixdog:remote-reconnected'));
+      else applyAccountUsageWindows('anthropic-oauth', undefined);
+    });
+    assert.equal(document.querySelector('.quota-history-table'), null);
+    assert.ok(!document.querySelector('.stats-cards').textContent.includes('91%'));
+    assert.equal(cachedQuotaAnswer(api, question), undefined);
+    const newMain = pending.filter((request) => request.question.page == null).at(-1);
+    assert.notEqual(newMain, oldMain, 'the confirming read must not join the obsolete request');
+    await act(async () => newMain.resolve({ value: desktopQuota('new-scope', 22) }));
+    const newHistory = pending.filter((request) => request.question.page === 0).at(-1);
+    assert.notEqual(newHistory, oldHistory);
+    await act(async () => newHistory.resolve({ value: desktopHistory('new-scope', 22) }));
+    const before = document.querySelector('.quota-surface').textContent;
+    await act(async () => oldHistory.resolve({ value: desktopHistory('old-scope', 98) }));
+    assert.equal(document.querySelector('.quota-surface').textContent, before);
+    assert.equal(cachedQuotaAnswer(api, oldHistory.question), undefined);
+    await act(async () => oldMain.resolve({ value: desktopQuota('old-scope', 99) }));
+    assert.equal(document.querySelector('.quota-surface').textContent, before);
+    assert.equal(cachedQuotaAnswer(api, question).selection.account, 'new-scope');
+    assert.equal(document.querySelector('.quota-history-table tbody tr').cells[1].textContent, '22%');
+    assert.equal(document.querySelector('.stats-card > b').textContent, '22%');
+  });
+}
+
+test('unavailable and unsupported retain historical subscriptions; absent status preserves local history', async (context) => {
+  const render = harness(context);
+  window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'quota');
+  let localContent;
+  for (const status of [undefined, 'unavailable', 'unsupported', undefined]) {
+    const api = {
+      invokeCapability: async ({ args }) => ({
+        value: args[0].page == null
+          ? desktopQuota('opaque-scope', 37, status)
+          : desktopHistory('opaque-scope', 37),
+      }),
+    };
+    await render({ surface: 'stats', open: true, onClose() {}, api });
+    assert.equal(document.querySelector('.stats-card > b').textContent, '37%');
+    assert.equal(document.querySelector('.quota-history-table tbody tr').cells[1].textContent, '37%');
+    assert.equal(document.querySelector('.quota-empty'), null);
+    const notice = document.querySelector('.quota-status');
+    if (status) {
+      assert.equal(notice.getAttribute('role'), 'status');
+      assert.equal(notice.textContent, t(status === 'unavailable'
+        ? 'Live OAuth usage is unavailable. Confirmed historical usage is still shown.'
+        : 'Live OAuth usage measurement is unsupported. Historical usage is still shown when available.'));
+    } else {
+      assert.equal(notice, null);
+      const content = document.querySelector('.quota-surface').textContent;
+      if (localContent) assert.equal(content, localContent);
+      localContent = content;
+    }
+  }
+});
 
 function harness(context) {
   const { dom } = installTestDom(null, {

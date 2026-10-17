@@ -1,4 +1,9 @@
 {
+  "Live OAuth usage is unavailable.": "Текущие данные OAuth недоступны.",
+  "Update the desktop app and remote runtime to view OAuth usage.": "Обновите настольное приложение и удалённую среду выполнения для просмотра использования OAuth.",
+  "Live OAuth usage is unavailable. Confirmed historical usage is still shown.": "Текущие данные OAuth недоступны. Подтверждённая история по-прежнему отображается.",
+  "Live OAuth usage measurement is unsupported. Historical usage is still shown when available.": "Измерение текущего использования OAuth не поддерживается. История отображается при наличии.",
+  "No eligible OAuth provider is enabled.": "Ни один подходящий провайдер OAuth не включён.",
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
   "— {{value0}}": "— {{value0}}",

@@ -1,4 +1,9 @@
 {
+  "Live OAuth usage is unavailable.": "实时 OAuth 用量不可用。",
+  "Update the desktop app and remote runtime to view OAuth usage.": "请更新桌面应用和远程运行时以查看 OAuth 用量。",
+  "Live OAuth usage is unavailable. Confirmed historical usage is still shown.": "实时 OAuth 用量不可用。仍会显示已确认的历史用量。",
+  "Live OAuth usage measurement is unsupported. Historical usage is still shown when available.": "不支持实时 OAuth 用量测量。仍会显示可用的历史用量。",
+  "No eligible OAuth provider is enabled.": "未启用符合条件的 OAuth 提供商。",
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
   "— {{value0}}": "— {{value0}}",

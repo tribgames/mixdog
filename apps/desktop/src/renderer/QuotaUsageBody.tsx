@@ -5,7 +5,7 @@
  * used up. The layout follows token usage: period, cards, mix, trend and the
  * model table, then the history of the windows.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { DayRange } from './DateRangePicker';
 import { ErrorNotice } from './ErrorNotice';
@@ -25,6 +25,8 @@ import {
 } from './quota-usage-model';
 import {
   cachedQuotaAnswer,
+  invalidateQuotaAnswers,
+  ObsoleteQuotaRead,
   openingQuotaQuestion,
   quotaHistoryQuestion,
   readQuotaAnswer,
@@ -49,6 +51,7 @@ import {
 } from './usage-stats-model';
 import { clearQuotaFocus, writeQuotaSubscription } from './usage-surface-mode';
 import { subscribeAccountSwitches } from './usage-dashboard-store';
+import { subscribeModelCatalogInvalidation } from './model-catalog-cache';
 
 type QuotaView = StatsView | 'window';
 type QuotaQuery = {
@@ -390,11 +393,19 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
   const [data, setData] = useState<Row | null>(() => cachedQuotaAnswer(api, quotaArgs(query)) ?? null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
+  const revision = useRef(0);
+  useEffect(() => subscribeModelCatalogInvalidation(() => {
+    revision.current += 1;
+    setData(null);
+    setHistoryAnswer(null);
+    setQuery(openingQuotaQuestion(null));
+  }), []);
   // Only the newest query may publish: clicking through the chips must not
   // let a slower earlier answer overwrite the current selection. A question
   // answered before paints that answer at once while the new one is read.
   useEffect(() => {
     let current = true;
+    const issued = revision.current;
     const question = quotaArgs(query);
     const known = cachedQuotaAnswer(api, question);
     if (known) setData(known);
@@ -402,7 +413,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
     setError('');
     readQuotaAnswer(api, question)
       .then((answer) => {
-        if (!current) return;
+        if (!current || issued !== revision.current) return;
         setData(answer);
         const shown = record(answer.selection);
         if (shown.provider) {
@@ -420,10 +431,10 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
         }
       })
       .catch((reason) => {
-        if (current) setError(String(reason?.message || reason));
+        if (current && issued === revision.current && !(reason instanceof ObsoleteQuotaRead)) setError(String(reason?.message || reason));
       })
       .finally(() => {
-        if (current) setBusy(false);
+        if (current && issued === revision.current) setBusy(false);
       });
     return () => {
       current = false;
@@ -443,6 +454,11 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
     () =>
       subscribeAccountSwitches((switched) => {
         if (switched !== provider) return;
+        invalidateQuotaAnswers(api);
+        revision.current += 1;
+        setData(null);
+        setHistoryAnswer(null);
+        setHistoryError('');
         setQuery((current) => ({
           ...current,
           provider,
@@ -451,7 +467,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
           ...(current.view === 'window' ? { anchor: undefined } : {}),
         }));
       }),
-    [provider, label]
+    [api, provider, label]
   );
 
   // The window history is read on its own, a page at a time, for the
@@ -469,15 +485,16 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
   useEffect(() => {
     if (!historyQuestion) return undefined;
     let current = true;
+    const issued = revision.current;
     const known = cachedQuotaAnswer(api, historyQuestion);
     if (known) setHistoryAnswer(known);
     setHistoryError('');
     readQuotaAnswer(api, historyQuestion)
       .then((answer) => {
-        if (current) setHistoryAnswer(answer);
+        if (current && issued === revision.current) setHistoryAnswer(answer);
       })
       .catch((reason) => {
-        if (current) setHistoryError(String(reason?.message || reason));
+        if (current && issued === revision.current && !(reason instanceof ObsoleteQuotaRead)) setHistoryError(String(reason?.message || reason));
       });
     return () => {
       current = false;
@@ -502,6 +519,18 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
   const outside = statsNumber(loaded.outside);
   const firstDay = String(record(loaded.range).firstDay || '');
   const empty = !loading && !subscriptions.length;
+  const status = String(loaded.desktopUsageStatus || '');
+  const statusMessage = status === 'unsupported-client'
+    ? t('Update the desktop app and remote runtime to view OAuth usage.')
+    : status === 'unavailable'
+      ? empty
+        ? t('Live OAuth usage is unavailable.')
+        : t('Live OAuth usage is unavailable. Confirmed historical usage is still shown.')
+      : status === 'unsupported'
+        ? t('Live OAuth usage measurement is unsupported. Historical usage is still shown when available.')
+        : status === 'not-configured'
+          ? t('No eligible OAuth provider is enabled.')
+          : '';
   const ranks = new Map(models.map((row, index) => [String(row.model || ''), index]));
   const seriesInk = (model: string) => quotaSeries(ranks.get(model) ?? -1);
   const change = (next: Partial<QuotaQuery>) => {
@@ -653,10 +682,11 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
           {t('Loading…')}
         </p>
       )}
+      {statusMessage && <p role="status" className="quota-status">{statusMessage}</p>}
       {empty ? (
         <p className="quota-empty">
-          <b>{t('No OAuth usage recorded yet.')}</b>
-          <span>{t('Mixdog records it from now on whenever it checks provider usage.')}</span>
+          {!statusMessage && <><b>{t('No OAuth usage recorded yet.')}</b>
+          <span>{t('Mixdog records it from now on whenever it checks provider usage.')}</span></>}
         </p>
       ) : (
         <>

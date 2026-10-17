@@ -1,4 +1,9 @@
 {
+  "Live OAuth usage is unavailable.": "現在のOAuth使用量を取得できません。",
+  "Update the desktop app and remote runtime to view OAuth usage.": "OAuth使用量を表示するには、デスクトップアプリとリモートランタイムを更新してください。",
+  "Live OAuth usage is unavailable. Confirmed historical usage is still shown.": "現在のOAuth使用量を取得できません。確認済みの使用履歴は引き続き表示されます。",
+  "Live OAuth usage measurement is unsupported. Historical usage is still shown when available.": "現在のOAuth使用量の測定には対応していません。使用履歴があれば引き続き表示されます。",
+  "No eligible OAuth provider is enabled.": "対象のOAuthプロバイダーが有効になっていません。",
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
   "— {{value0}}": "— {{value0}}",

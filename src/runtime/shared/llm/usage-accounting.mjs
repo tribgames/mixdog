@@ -85,7 +85,12 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       responseId: result.responseId,
       // The account this send is bound to, so quota history can tell one
       // connected subscription's records from another's.
-      account: ACCOUNT_PROVIDERS.includes(provider) ? currentProviderAccountId(provider) : '',
+      account:
+        typeof instance.usageAccountId === 'function'
+          ? instance.usageAccountId(timed ? result : null)
+          : ACCOUNT_PROVIDERS.includes(provider)
+            ? currentProviderAccountId(provider)
+            : '',
       durationMs: timed ? Date.now() - startedAt : 0,
     });
     // Committed by the ledger worker (batched with concurrent sends); the

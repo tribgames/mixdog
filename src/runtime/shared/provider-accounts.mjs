@@ -36,6 +36,17 @@ function validate(raw) {
   if (raw.version !== 1 || !raw.providers || typeof raw.providers !== 'object') {
     throw new Error('Provider account settings are unreadable.');
   }
+  if (raw.defaultAccountEpochs !== undefined) {
+    if (!raw.defaultAccountEpochs || typeof raw.defaultAccountEpochs !== 'object' || Array.isArray(raw.defaultAccountEpochs)) {
+      throw new Error('Provider account lifecycle settings are unreadable.');
+    }
+    for (const [provider, epoch] of Object.entries(raw.defaultAccountEpochs)) {
+      requireAccountProvider(provider);
+      if (typeof epoch !== 'string' || !/^[a-f0-9-]{36}$/.test(epoch)) {
+        throw new Error('Provider account lifecycle settings are unreadable.');
+      }
+    }
+  }
   for (const [provider, pool] of Object.entries(raw.providers)) {
     requireAccountProvider(provider);
     if (!Array.isArray(pool.accounts) || pool.accounts.length > MAX_ACCOUNTS) {
@@ -103,6 +114,15 @@ export function readProviderAccountPool(provider, dataDir = resolvePluginData())
   );
 }
 
+// Private metering lifecycle evidence, deliberately outside the public pool
+// shape. Legacy/implicit defaults retain their original scope until removal;
+// materializing a default or refreshing its credentials does not rotate it.
+export function providerAccountUsageIncarnation(provider, id, dataDir = resolvePluginData()) {
+  requireAccountProvider(provider);
+  requireAccountId(id);
+  return id === 'default' ? read(dataDir).defaultAccountEpochs?.[provider] ?? null : null;
+}
+
 async function update(provider, mutate) {
   requireAccountProvider(provider);
   // Read failures must not be interpreted as an empty account roster.
@@ -112,7 +132,7 @@ async function update(provider, mutate) {
     (raw) => {
       const state = validate(raw);
       const pool = state.providers[provider] || { accounts: [], selectedId: null, auto: true };
-      mutate(pool);
+      mutate(pool, state);
       state.providers[provider] = pool;
       return validate(state);
     },
@@ -238,7 +258,13 @@ export async function selectProviderAccountIf(provider, expectedSelectedId, id, 
 
 export async function removeProviderAccount(provider, id) {
   requireAccountId(id);
-  return update(provider, (pool) => {
+  return update(provider, (pool, state) => {
+    // A default can be authenticated without a materialized row. Its explicit
+    // removal is still a lifecycle boundary; keep the tombstone when empty so
+    // a later login cannot resurrect the removed lifetime's history scope.
+    if (id === 'default') {
+      state.defaultAccountEpochs = { ...state.defaultAccountEpochs, [provider]: randomUUID() };
+    }
     pool.accounts = pool.accounts.filter((row) => row.id !== id);
     if (pool.selectedId === id) pool.selectedId = pool.accounts[0]?.id || null;
   });

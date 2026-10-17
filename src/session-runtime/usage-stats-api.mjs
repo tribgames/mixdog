@@ -1,6 +1,8 @@
 // One durable accounting store. No transcript rescans or diagnostic retention
 // dependencies after the one-time import of surviving historical originals.
 import { getUsageLedger } from '../runtime/shared/llm/usage-ledger.mjs';
+import { modelProxyClientMode } from '../runtime/shared/model-proxy-mode.mjs';
+import { remoteQuotaScope } from '../runtime/agent/orchestrator/providers/model-proxy-usage.mjs';
 import { importUsageHistory } from '../runtime/shared/llm/usage-ledger-import.mjs';
 import { refreshUnpricedUsageAsync } from '../runtime/shared/llm/usage-pricing-refresh.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
@@ -245,7 +247,7 @@ export function createUsageStatsApi({
       const store = ledger();
       if (!store) throw new Error('Usage ledger is unavailable');
       await store.settleWrites();
-      const scopes = accountScopes(accountPool);
+      const scopes = modelProxyClientMode() ? [] : accountScopes(accountPool);
       const usage = await store.sessionUsageAsync(sessionUsageIdsFor(scopes, sessionId));
       const result = { sessionId, ...sessionUsageSnapshot(usage) };
       const others = otherSessionIds(options, sessionId);
@@ -270,6 +272,9 @@ export function createUsageStatsApi({
     async getQuotaHistory(options = {}) {
       const store = ledger();
       if (!store) throw new Error('Usage ledger is unavailable');
+      const remote = modelProxyClientMode()
+        ? await remoteQuotaScope({ provider: options?.page != null ? quotaText(options?.provider) : '' })
+        : null;
       // Prices of unpriced records are refreshed by the statistics read the
       // same dialog makes; repeating it here only queues behind it.
       await store.settleWrites();
@@ -277,10 +282,37 @@ export function createUsageStatsApi({
       const selection = {
         provider: quotaText(options?.provider),
         account: quotaText(options?.account),
-        inUse: accountsInUse(accountPool),
+        inUse: remote ? remote.inUse : accountsInUse(accountPool),
+        ...(remote ? { scopes: remote.scopes } : {}),
         label: quotaText(options?.window),
       };
-      if (options?.page != null) return store.quotaWindowsAsync({ ...selection, page: Number(options.page), now });
+      const finish = (history) => {
+        if (!remote) return history;
+        if (!remote.current()) {
+          return {
+            generatedAt: now,
+            selection: null,
+            ...(options?.page != null
+              ? { page: 0, pageCount: 0, total: 0, windows: [] }
+              : { view: options?.view || 'window', subscriptions: [], period: null }),
+            desktopUsageStatus: 'unavailable',
+          };
+        }
+        return {
+          ...history,
+          desktopUsageStatus: remote.status,
+          ...(history.subscriptions
+            ? {
+                subscriptions: history.subscriptions.map((row) => ({
+                  ...row,
+                  accountInRoster: true,
+                })),
+              }
+            : {}),
+        };
+      };
+      if (options?.page != null)
+        return finish(await store.quotaWindowsAsync({ ...selection, page: Number(options.page), now }));
       const view = options?.view == null || options.view === 'window' ? 'window' : options.view;
       const period = view === 'window' ? null : usagePeriodFor({ ...options, view }, now);
       const history = await store.quotaHistoryAsync({
@@ -291,7 +323,8 @@ export function createUsageStatsApi({
         toMs: period?.toMs ?? null,
         now,
       });
-      return labelQuotaHistory(period ? { ...history, period } : history, accountPool, accountEmails);
+      const result = period ? { ...history, period } : history;
+      return remote ? finish(result) : labelQuotaHistory(result, accountPool, accountEmails);
     },
   };
 }

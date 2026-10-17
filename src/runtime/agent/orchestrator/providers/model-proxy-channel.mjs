@@ -36,6 +36,7 @@ export const MODEL_PROXY_METHODS = Object.freeze([
   'isAvailable',
   'resolveWireRoute',
   'providerConfig',
+  'oauthUsage',
 ]);
 /** PC heartbeat cadence while it runs calls; well inside the lease. */
 export const MODEL_PROXY_HEARTBEAT_MS = 5_000;

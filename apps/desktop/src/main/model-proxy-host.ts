@@ -19,6 +19,7 @@ import {
   disposeTransportScope,
   forkTransportScope,
 } from '../../../../src/runtime/agent/orchestrator/providers/transport-scope.mjs';
+import { sanitizeModelProxyUsageReply } from '../../../../src/runtime/agent/orchestrator/providers/model-proxy-usage-wire.mjs';
 import { packagedRuntimeSourceRoot } from './runtime-layout';
 
 /** PC-side executor for "model calls via the client PC" (remote/SSH mode).
@@ -57,6 +58,12 @@ function firstResponseBudget(value: unknown): { transportMs: number; semanticMs:
 }
 
 export interface ModelProxyRuntime {
+  oauthUsage?(name: string, provider: ModelProxyProviderInstance | undefined, force: boolean): Promise<unknown>;
+  captureUsageAccount?(
+    name: string,
+    accountId: string,
+    provider: ModelProxyProviderInstance
+  ): (() => string | undefined) | undefined;
   /** The PC's providers — availability, adapter traits — with its registry
    *  loaded on demand first, so a cold PC never answers "nothing enabled".
    *  Reads which credentials exist, never a stored key's value. */
@@ -115,6 +122,7 @@ export interface ModelProxyHost {
 interface ProxyCall {
   provider?: unknown;
   method?: unknown;
+  force?: unknown;
   model?: unknown;
   messages?: unknown;
   tools?: unknown;
@@ -309,6 +317,7 @@ export const MODEL_PROXY_SEND_OPTION_KEYS: ReadonlySet<string> = new Set([
 
 /** Send options adapters read that a server may NOT set, with the reason. */
 export const MODEL_PROXY_DROPPED_SEND_OPTIONS: ReadonlyMap<string, string> = new Map([
+  ['_captureModelProxyUsageAccount', 'desktop-only serving identity proof; never supplied by the server'],
   ['baseURL', "would point this PC's credentials at another host"],
   ['requestHeaders', "arbitrary headers on this PC's authenticated request (adapters add their own)"],
   ['extraBody', 'arbitrary fields merged into the request body'],
@@ -450,7 +459,8 @@ function hiddenCustomModels(entry: Record<string, unknown>): string[] {
  *  hidden on this PC, so remote pickers hide them too. */
 export function publicProviderConfig(
   providers: unknown,
-  isProviderAllowed: (provider: string) => boolean
+  isProviderAllowed: (provider: string) => boolean,
+  supportsOAuthUsage = false
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [name, raw] of Object.entries(record(providers))) {
@@ -458,6 +468,7 @@ export function publicProviderConfig(
     const entry = record(raw);
     const traits = record(entry.modelProxy);
     const modelProxy: Record<string, unknown> = {};
+    if (supportsOAuthUsage) modelProxy.oauthUsage = true;
     if (typeof traits.inputExcludesCache === 'boolean') modelProxy.inputExcludesCache = traits.inputExcludesCache;
     if (typeof traits.nativePdf === 'boolean') modelProxy.nativePdf = traits.nativePdf;
     if (traits.consumesReadWindows === true) modelProxy.consumesReadWindows = true;
@@ -666,11 +677,26 @@ async function execute(
   if (!ALLOWED_METHODS.has(method)) throw new Error(`Model proxy method "${method}" is not allowed.`);
   if (method === 'providerConfig') {
     const answer = await runtime.providerConfig();
-    return { providers: publicProviderConfig(answer.providers, isProviderAllowed), ready: answer.ready !== false };
+    return {
+      providers: publicProviderConfig(answer.providers, isProviderAllowed, typeof runtime.oauthUsage === 'function'),
+      ready: answer.ready !== false,
+    };
   }
   // Restricted to the provider the daemon named; no other surface is reachable.
   const name = String(call.provider || '');
   if (name && !isProviderAllowed(name)) throw providerNotAllowed(name);
+  if (method === 'oauthUsage') {
+    if (!runtime.oauthUsage) return { status: 'unsupported', accounts: [] };
+    let instance: ModelProxyProviderInstance | undefined;
+    try {
+      instance = name ? await runtime.provider(name) : undefined;
+    } catch {
+      // Identity proof is independent of a registry/adapter load failure.
+    }
+    const reply = await runtime.oauthUsage(name, instance, call.force === true);
+    if (name && !isProviderAllowed(name)) throw providerNotAllowed(name);
+    return sanitizeModelProxyUsageReply(name, reply);
+  }
   const provider = name ? await runtime.provider(name) : undefined;
   if (!provider || typeof provider.send !== 'function') throw providerUnavailable(name);
   if (method === 'listModels') return catalog(provider, false);
@@ -711,8 +737,48 @@ async function execute(
     ? forkTransportScope(String(options.sessionId || name), 'proxy')
     : '';
   if (forkedScope) options.transportScope = forkedScope;
+  const provenAccounts = new WeakMap<object, () => string | undefined>();
+  if (runtime.captureUsageAccount) {
+    options._captureModelProxyUsageAccount = (
+      servingProvider: string,
+      id: string,
+      instance: ModelProxyProviderInstance
+    ) => {
+      if (servingProvider !== name) return undefined;
+      let confirm: (() => string | undefined) | undefined;
+      try {
+        confirm = runtime.captureUsageAccount?.(name, id, instance);
+      } catch {
+        return undefined;
+      }
+      return (result: unknown) => {
+        if (!result || typeof result !== 'object') return;
+        provenAccounts.set(result, () => {
+          const routing = record(record(result).providerMetadata).accountRouting;
+          if (
+            signal.aborted ||
+            !isProviderAllowed(name) ||
+            record(routing).provider !== name ||
+            record(routing).accountId !== id
+          ) return undefined;
+          try {
+            const scope = confirm?.();
+            return scope && /^proxy-[a-f0-9]{64}$/.test(scope) ? scope : undefined;
+          } catch {
+            return undefined;
+          }
+        });
+      };
+    };
+  }
   try {
-    return await provider.send(messages, model, tools, options);
+    const result = await provider.send(messages, model, tools, options);
+    if (result && typeof result === 'object' && !Array.isArray(result)) {
+      const { modelProxyUsageAccount: _unproven, ...answer } = result as Record<string, unknown>;
+      const account = !signal.aborted ? provenAccounts.get(result)?.() : undefined;
+      return account ? { ...answer, modelProxyUsageAccount: account } : answer;
+    }
+    return result;
   } finally {
     if (forkedScope) disposeTransportScope(forkedScope, provider);
   }
@@ -1061,6 +1127,14 @@ interface RuntimeLayoutOptions {
 
 /** The PC runtime modules a proxied call needs (injected for tests). */
 export interface ModelProxyRuntimeModules {
+  usage?: {
+    snapshot(name: string, provider: ModelProxyProviderInstance | undefined, options: { force: boolean }): Promise<unknown>;
+    captureAccount(
+      name: string,
+      accountId: string,
+      provider: ModelProxyProviderInstance
+    ): (() => string | undefined) | undefined;
+  };
   /** `secrets: 'presence'`: which credentials exist, no keychain value read. */
   loadConfig(options: { secrets: 'presence' }): { providers?: unknown } | null | undefined;
   initProviders(config: Record<string, unknown>): Promise<unknown>;
@@ -1090,6 +1164,13 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
   const credentialState = (name: string, entry: Record<string, unknown>) => {
     const environment = keyEnvironment(entry);
     return environment ? (process.env[environment] ? 'present' : 'absent') : modules.probeAuth(name, entry);
+  };
+  const usageEnabled = (name: string) => {
+    const configured = record(record(modules.loadConfig({ secrets: 'presence' })?.providers)[name]);
+    return (
+      (configured.enabled === true || configured.credentialProbeUnavailable === true) &&
+      credentialState(name, configured) !== 'absent'
+    );
   };
 
   /** Applies the current availability plus the keys loaded so far; serialized
@@ -1129,6 +1210,7 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
             }
           | undefined;
         const traits: Record<string, unknown> = {};
+        if (modules.usage) traits.oauthUsage = true;
         const excludes = instance?.constructor?.inputExcludesCache;
         if (typeof excludes === 'boolean') traits.inputExcludesCache = excludes;
         if (typeof instance?.nativePdf === 'boolean') traits.nativePdf = instance.nativePdf;
@@ -1166,6 +1248,20 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
       return modules.getProvider(name);
     },
     finalizeTools: (tools, nativePrefixCount) => modules.finalizeProviderRequestTools(tools, nativePrefixCount),
+    ...(modules.usage
+      ? {
+          oauthUsage: async (name: string, provider: ModelProxyProviderInstance | undefined, force: boolean) => {
+            if (!usageEnabled(name)) return { status: 'unavailable', accounts: [] };
+            const reply = await modules.usage!.snapshot(name, provider, { force });
+            return usageEnabled(name) ? reply : { status: 'unavailable', accounts: [] };
+          },
+          captureUsageAccount: (name: string, id: string, provider: ModelProxyProviderInstance) => {
+            if (!usageEnabled(name)) return undefined;
+            const confirm = modules.usage!.captureAccount(name, id, provider);
+            return () => (usageEnabled(name) ? confirm?.() : undefined);
+          },
+        }
+      : {}),
   };
 }
 
@@ -1196,7 +1292,7 @@ export function modelProxyRuntimeLoader({
   const moduleUrl = (...parts: string[]) => pathToFileURL(join(sourceRoot, ...parts)).href;
   let pending: Promise<ModelProxyRuntime> | null = null;
   const load = async (): Promise<ModelProxyRuntime> => {
-    const [configModule, registryModule, requestToolsModule, apiKeyModule, oauthProbeModule] = await Promise.all([
+    const [configModule, registryModule, requestToolsModule, apiKeyModule, oauthProbeModule, usageModule] = await Promise.all([
       import(/* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'config.mjs')),
       import(/* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'providers', 'registry.mjs')),
       import(
@@ -1206,6 +1302,7 @@ export function modelProxyRuntimeLoader({
       import(
         /* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'providers', 'oauth-credential-probes.mjs')
       ),
+      import(/* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'providers', 'model-proxy-usage-host.mjs')),
     ]);
     const config = configModule as unknown as Pick<ModelProxyRuntimeModules, 'loadConfig'>;
     const registry = registryModule as unknown as Pick<
@@ -1224,6 +1321,7 @@ export function modelProxyRuntimeLoader({
       oauthCredentialProbeState(name: string): 'present' | 'absent' | 'unreadable';
     };
     return createModelProxyRuntime({
+      usage: usageModule.createModelProxyUsage(),
       loadConfig: (options) => config.loadConfig(options),
       initProviders: (providers) => registry.initProviders(providers),
       getProvider: (name) => registry.getProvider(name),

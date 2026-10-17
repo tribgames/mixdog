@@ -5,7 +5,7 @@ export const MODEL_PROXY_OPERATIONS: Readonly<{
   resolve: 'modelProxyResolve';
   heartbeat: 'modelProxyHeartbeat';
 }>;
-export type ModelProxyMethod = 'send' | 'listModels' | 'refreshModels' | 'isAvailable' | 'resolveWireRoute' | 'providerConfig';
+export type ModelProxyMethod = 'send' | 'listModels' | 'refreshModels' | 'isAvailable' | 'resolveWireRoute' | 'providerConfig' | 'oauthUsage';
 export const MODEL_PROXY_METHODS: ReadonlyArray<ModelProxyMethod>;
 export const MODEL_PROXY_HEARTBEAT_MS: number;
 export const MODEL_PROXY_LEASE_MS: number;

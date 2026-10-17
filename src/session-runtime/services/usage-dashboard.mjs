@@ -13,6 +13,9 @@ import {
 } from '../../runtime/agent/orchestrator/providers/api-usage.mjs';
 import { num } from '../../runtime/agent/orchestrator/providers/lib/usage-primitives.mjs';
 import { readProviderAccountPool } from '../../runtime/shared/provider-accounts.mjs';
+import { modelProxyClientMode } from '../../runtime/shared/model-proxy-mode.mjs';
+import { getModelProxyChannel } from '../../runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
+import { readRemoteOAuthUsage } from '../../runtime/agent/orchestrator/providers/model-proxy-usage.mjs';
 import {
   creditsFromSnapshot,
   applyApiUnavailable,
@@ -36,6 +39,19 @@ import {
 const CREDIT_PROVIDERS = new Set(['openai-oauth', 'anthropic-oauth']);
 
 async function oauthSnapshot(providerId, { refresh, getProvider, log }) {
+  if (modelProxyClientMode()) {
+    const reply = await readRemoteOAuthUsage(providerId, { force: refresh });
+    if (reply.status === 'ready') return reply.snapshot;
+    const message =
+      reply.status === 'unsupported-client'
+        ? 'Desktop client does not support OAuth usage. Update the desktop client.'
+        : reply.status === 'unsupported'
+          ? 'Desktop provider does not report OAuth quota windows.'
+          : reply.status === 'not-configured'
+            ? 'Desktop OAuth provider is not configured.'
+            : 'Desktop OAuth usage is unavailable.';
+    throw Object.assign(new Error(message), { desktopUsageStatus: reply.status });
+  }
   const cached = readCachedOAuthUsageSnapshot({ provider: providerId, model: '' });
   if (!refresh && cached) return cached;
   // A rate-limited or failed forced refresh (Anthropic /oauth/usage 429s
@@ -210,7 +226,8 @@ async function oauthProviderRow(item, { providers, preview, snapshotOptions, row
   row.primary = row.authenticated ? '' : 'not signed in';
   row.detail = row.authenticated ? 'Checking provider usage' : item.detail || 'OAuth credentials missing';
   row.tone = rowTone(row);
-  if (CREDIT_PROVIDERS.has(item.id)) row.useCredits = readProviderAccountPool(item.id).useCredits === true;
+  if (!modelProxyClientMode() && CREDIT_PROVIDERS.has(item.id))
+    row.useCredits = readProviderAccountPool(item.id).useCredits === true;
   rows.push(row);
   emit(true);
 
@@ -222,6 +239,7 @@ async function oauthProviderRow(item, { providers, preview, snapshotOptions, row
   if (row.authenticated) {
     try {
       const snapshot = await oauthSnapshot(item.id, snapshotOptions(item.id));
+      if (modelProxyClientMode()) row.desktopUsageStatus = 'ready';
       const known = snapshotRemaining(snapshot);
       const windows = normaliseWindows(snapshot?.quotaWindows, clean(snapshot?.source) || 'provider-api');
       const resetCredits = normaliseResetCredits(snapshot?.resetCredits);
@@ -253,6 +271,7 @@ async function oauthProviderRow(item, { providers, preview, snapshotOptions, row
       row.sourceLabel = 'error';
       row.primary = 'fetch failed';
       row.detail = err?.message || String(err);
+      if (modelProxyClientMode()) row.desktopUsageStatus = err?.desktopUsageStatus || 'unavailable';
     }
   }
   row.tone = rowTone(row);
@@ -261,6 +280,9 @@ async function oauthProviderRow(item, { providers, preview, snapshotOptions, row
 }
 
 export async function createUsageDashboard(config = {}, options = {}) {
+  const channel = modelProxyClientMode() ? getModelProxyChannel() : null;
+  const generation = channel?.generation;
+  const current = () => !channel || (channel.connected && channel.generation === generation);
   const setup = options.setup || { api: [], oauth: [], local: [] };
   const providers = config.providers || {};
   const rows = [];
@@ -270,8 +292,9 @@ export async function createUsageDashboard(config = {}, options = {}) {
   const refreshFor = (id) => refresh && (!scope || scope.has(String(id || '').toLowerCase()));
   const snapshotOptions = (id) => ({ ...options, refresh: refreshFor(id) });
   const preview = options.preview === true;
-  const emit = (checking = true) =>
-    emitUsageDashboard(options, usageDashboardSnapshot(rows, { checkedAt, refresh, checking }));
+  const emit = (checking = true) => {
+    if (current()) emitUsageDashboard(options, usageDashboardSnapshot(rows, { checkedAt, refresh, checking }));
+  };
 
   const lane = { config, providers, preview, refreshFor, snapshotOptions, rows, emit };
   const apiTasks = (setup.api || []).map((item) => apiProviderRow(item, lane));
@@ -279,7 +302,8 @@ export async function createUsageDashboard(config = {}, options = {}) {
 
   await Promise.all([...apiTasks, ...oauthTasks]);
 
-  const dashboard = usageDashboardSnapshot(rows, { checkedAt, refresh, checking: preview });
+  const dashboard = usageDashboardSnapshot(current() ? rows : [], { checkedAt, refresh, checking: preview });
+  if (channel && !current()) dashboard.desktopUsageStatus = 'unavailable';
   emitUsageDashboard(options, dashboard);
   return dashboard;
 }
