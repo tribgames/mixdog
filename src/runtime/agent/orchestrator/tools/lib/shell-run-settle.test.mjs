@@ -506,62 +506,85 @@ test('a hold held by another process is released by request, only from a session
   assert.equal(existsSync(marker), true, 'the owning process sees the request at its next pass');
 });
 
+// On POSIX the descendant probe first asks the kernel whether the command's
+// process group still has members, and the scripted root pid names no real
+// group — so the probe would answer "nothing left" before ever reading the
+// (scripted) process table. The scripted root's group is declared alive, so
+// every platform reaches the table read these tests exercise.
+function withLiveRootGroup(body) {
+  return async () => {
+    const realKill = process.kill;
+    const spy = mock.method(process, 'kill', (pid, signal) =>
+      pid === -ROOT && signal === 0 ? true : realKill.call(process, pid, signal)
+    );
+    try {
+      await body();
+    } finally {
+      spy.mock.restore();
+    }
+  };
+}
+
 test(
   'an ordinary exit whose descendant probe fails stays visible, held, and releasable',
-  withTimers(async () => {
-    const repo = makeRepo();
-    const child = runningChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
-    run.killed = false;
-    let result = null;
-    run.resolveResult = (value) => {
-      result = value;
-    };
-    exitChild(child, 0);
-    tree.state.next = () => {
-      throw new Error('process enumeration denied');
-    };
-    await createSettle(run, () => {})(0, null);
-    await flush();
-    assert.ok(result, 'the command still returns');
-    assert.equal(result.exitCode, 1);
-    assert.equal(isHeld(repo), true, 'unverified descendants keep the folder held');
-    assert.equal(records.published.at(-1)?.terminationUnconfirmed, true, 'the record is kept, marked unconfirmed');
-    assert.equal(records.published.at(-1)?.jobId, 'job_unconfirmed_kill');
-    const retiredBefore = records.retired.length;
-    assert.deepEqual(await forceReleaseTerminationHold('job_unconfirmed_kill', { callerSessionId: 'session' }), {
-      released: true,
-    });
-    assert.equal(isHeld(repo), false);
-    assert.equal(run.workspaceAdmission, null);
-    assert.equal(records.retired.length, retiredBefore + 1, 'the release retires the kept record');
-    const reads = tree.state.reads;
-    await tick(30_000);
-    assert.equal(tree.state.reads, reads, 'the observation loop stopped');
-  })
+  withLiveRootGroup(
+    withTimers(async () => {
+      const repo = makeRepo();
+      const child = runningChild();
+      const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+      run.killed = false;
+      let result = null;
+      run.resolveResult = (value) => {
+        result = value;
+      };
+      exitChild(child, 0);
+      tree.state.next = () => {
+        throw new Error('process enumeration denied');
+      };
+      await createSettle(run, () => {})(0, null);
+      await flush();
+      assert.ok(result, 'the command still returns');
+      assert.equal(result.exitCode, 1);
+      assert.equal(isHeld(repo), true, 'unverified descendants keep the folder held');
+      assert.equal(records.published.at(-1)?.terminationUnconfirmed, true, 'the record is kept, marked unconfirmed');
+      assert.equal(records.published.at(-1)?.jobId, 'job_unconfirmed_kill');
+      const retiredBefore = records.retired.length;
+      assert.deepEqual(await forceReleaseTerminationHold('job_unconfirmed_kill', { callerSessionId: 'session' }), {
+        released: true,
+      });
+      assert.equal(isHeld(repo), false);
+      assert.equal(run.workspaceAdmission, null);
+      assert.equal(records.retired.length, retiredBefore + 1, 'the release retires the kept record');
+      const reads = tree.state.reads;
+      await tick(30_000);
+      assert.equal(tree.state.reads, reads, 'the observation loop stopped');
+    })
+  )
 );
 
 test(
   'an ordinary exit whose descendant probe fails is released once a later pass confirms nothing remains',
-  withTimers(async () => {
-    const repo = makeRepo();
-    const child = runningChild();
-    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
-    run.killed = false;
-    exitChild(child, 0);
-    let failures = 2;
-    tree.state.next = () => {
-      if (failures-- > 0) throw new Error('process enumeration denied');
-      return processTable([]);
-    };
-    await createSettle(run, () => {})(0, null);
-    await flush();
-    assert.equal(isHeld(repo), true);
-    const retiredBefore = records.retired.length;
-    await tick(5_000);
-    assert.equal(isHeld(repo), false, 'the termination watch confirms and releases');
-    assert.equal(records.retired.length, retiredBefore + 1);
-  })
+  withLiveRootGroup(
+    withTimers(async () => {
+      const repo = makeRepo();
+      const child = runningChild();
+      const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+      run.killed = false;
+      exitChild(child, 0);
+      let failures = 2;
+      tree.state.next = () => {
+        if (failures-- > 0) throw new Error('process enumeration denied');
+        return processTable([]);
+      };
+      await createSettle(run, () => {})(0, null);
+      await flush();
+      assert.equal(isHeld(repo), true);
+      const retiredBefore = records.retired.length;
+      await tick(5_000);
+      assert.equal(isHeld(repo), false, 'the termination watch confirms and releases');
+      assert.equal(records.retired.length, retiredBefore + 1);
+    })
+  )
 );
 
 test(

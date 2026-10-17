@@ -15,6 +15,11 @@ test('Cursor native grep round-trips real single-file and directory results and 
   try {
     await writeFile(join(root, 'a.txt'), 'needle one\nother\nneedle two\n');
     await writeFile(join(root, 'b.txt'), 'needle three\n');
+    // Every fixture exists before the first search: the native search server learns
+    // of files created afterwards only through an asynchronous filesystem watcher,
+    // which on macOS (FSEvents) can trail a create by longer than this test waits.
+    // The marker line deliberately lacks 'needle' so the needle counts stay unchanged.
+    await writeFile(join(root, 'a-12-b.txt'), 'filename-marker only\n');
     for (const path of ['a.txt', '.']) {
       for (const outputMode of ['content', 'count', 'files_with_matches']) {
         let call;
@@ -69,7 +74,6 @@ test('Cursor native grep round-trips real single-file and directory results and 
     sendToolResult({ write: (bytes) => frames.push(bytes) }, call, { content: result }, true);
     const output = decodeMessage('AgentClientMessage', frames[0].subarray(5));
     assert.equal(output.execClientMessage.grepResult.success.workspaceResults['.'].content.totalMatchedLines, 1);
-    await writeFile(join(root, 'a-12-b.txt'), 'filename-marker needle\n');
     let filenameCall;
     const filenameFrames = [];
     handleExecMessage(
@@ -87,7 +91,7 @@ test('Cursor native grep round-trips real single-file and directory results and 
     const filenameMatches = filenameWire.execClientMessage.grepResult.success.workspaceResults['.'].content.matches;
     assert.equal(filenameMatches.length, 1);
     assert.equal(filenameMatches[0].file.replace(/^\.\//, ''), 'a-12-b.txt');
-    assert.deepEqual(filenameMatches[0].matches, [{ lineNumber: 1, content: 'filename-marker needle' }]);
+    assert.deepEqual(filenameMatches[0].matches, [{ lineNumber: 1, content: 'filename-marker only' }]);
     for (const outputMode of ['content', 'count', 'files_with_matches']) {
       let emptyCall;
       const writes = [];

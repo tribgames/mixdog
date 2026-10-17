@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -167,8 +168,12 @@ test('a leased project file is re-authorized by where the opened file really is'
     writeFileSync(path, 'project clip');
   }
   // Another file now at the leased path is not the authorized one.
+  // The leased file is moved aside, not deleted: POSIX filesystems hand a
+  // freed inode number straight to the next file created, so a delete and
+  // rewrite can land on the very (dev, ino) the lease holds, and then it is
+  // the same file by identity. Windows file ids are not reused that way.
   const assetId = lease();
-  rmSync(path);
+  renameSync(path, join(project, 'media', 'clip.moved.mp4'));
   writeFileSync(path, 'replaced');
   assert.equal(await serve(assetId), 404);
 });
