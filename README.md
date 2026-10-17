@@ -159,6 +159,7 @@ the reference.
 - [Benchmarks](benchmarks/terminal-bench-2.1/)
 - [Code Tidy](docs/code-tidy.md)
 - [Git & GitHub](docs/git-github-integration.md)
+- [Web search](docs/web-search.md)
 - [SSH servers](docs/ssh-remote.md) (Korean, with an English summary)
 - [Language servers](docs/language-servers.md)
 - [Office runtime](src/runtime/office/README.md)
