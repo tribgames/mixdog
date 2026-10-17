@@ -2,14 +2,14 @@
 // Third-party derivation notices: NOTICE.md at the repository root.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { resolve } from 'node:path';
 
 // SWC transform (user: 빌드 과정이 느리다): no custom babel plugins exist, so
 // the babel-based @vitejs/plugin-react only cost time — SWC cuts the 3600-
 // module renderer transform roughly in half.
 import react from '@vitejs/plugin-react-swc';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
-import type { OutputAsset, OutputChunk } from 'rollup';
+import type { OutputChunk } from 'rollup';
 import { type Plugin, searchForWorkspaceRoot } from 'vite';
 import { stampRendererShell } from './scripts/renderer-shell';
 import { computerSourceVitePlugin } from './scripts/computer-source-assets.mjs';
@@ -22,16 +22,25 @@ import {
 // The ECharts browser build, bundled into the main process as a lazily loaded
 // string: scripted inline chart pages get it from the local page server (the
 // shipped app has no node_modules for dev dependencies, and never a CDN).
-const ECHARTS_SOURCE_MODULE = 'virtual:mixdog-echarts-source';
-const echartsSourceModule: Plugin = {
-  name: 'mixdog-echarts-source',
-  resolveId: (id) => (id === ECHARTS_SOURCE_MODULE ? `\0${ECHARTS_SOURCE_MODULE}` : null),
+const bundledSourceModule = (moduleId: string, file: string): Plugin => ({
+  name: moduleId,
+  resolveId: (id) => (id === moduleId ? `\0${moduleId}` : null),
   load(id) {
-    if (id !== `\0${ECHARTS_SOURCE_MODULE}`) return null;
-    const source = readFileSync(resolve(__dirname, 'node_modules/echarts/dist/echarts.min.js'), 'utf8');
+    if (id !== `\0${moduleId}`) return null;
+    const source = readFileSync(resolve(__dirname, file), 'utf8');
     return `export default ${JSON.stringify(source)};`;
   },
-};
+});
+const echartsSourceModule = bundledSourceModule(
+  'virtual:mixdog-echarts-source',
+  'node_modules/echarts/dist/echarts.min.js'
+);
+// The Mermaid browser build, for the hidden window that renders a diagram for
+// an export when no desktop panel can draw it.
+const mermaidSourceModule = bundledSourceModule(
+  'virtual:mixdog-mermaid-source',
+  'node_modules/mermaid/dist/mermaid.min.js'
+);
 
 const selectedBuildTargets = new Set(
   String(process.env.MIXDOG_ELECTRON_BUILD_TARGETS || '')
@@ -187,16 +196,11 @@ const firstScreenHints: Plugin = {
       // Everything walked so far is what must evaluate before the socket opens.
       const transportPath = new Set(modules);
       roots.forEach(visit);
-      // A first-screen chunk that constructs a Worker (the Markdown parser)
-      // otherwise fetches its script only after the transcript arrives and
-      // renders — a third serial round for the largest asset the restored
-      // conversation waits on. Prefetch is lowest priority, so it never takes
-      // a slot from the modules above; the Worker then reads it from cache.
-      const workerScripts = Object.values(bundle).filter(
-        (output): output is OutputAsset => output.type === 'asset'
-          && output.fileName.endsWith('.js')
-          && modules.some((chunk) => chunk.code.includes(basename(output.fileName))),
-      );
+      // No hint for the Markdown parser Worker: a phone's six connections took
+      // its ~200 KB (brotli) as soon as one freed, splitting the link with
+      // bootstrap for the whole first-screen download. The Markdown client
+      // constructs the Worker as it evaluates, so its script starts right
+      // behind the first-screen chunks instead.
       const styleHints = [...styles].map(
         (fileName) => `<link rel="stylesheet" fetchpriority="high" href="./${fileName}">`,
       );
@@ -207,12 +211,18 @@ const firstScreenHints: Plugin = {
             : ''}`
           + ` href="./${chunk.fileName}">`,
       );
-      const workerHints = workerScripts.map((asset) => `<link rel="prefetch" href="./${asset.fileName}">`);
       // The language is known synchronously in boot.js. Keep every catalog
       // inert in the template, then move only the resolved locale into <head>
       // so Korean does not pay a serial request after i18n evaluates.
+      // Chunk names are not unique: the translated changelogs
+      // (changelog/<lang>.md) produce chunks named after the same language
+      // codes, and a lookup by name alone hinted the Korean changelog at high
+      // priority while the catalog itself loaded serially after i18n.
+      const localeChunkFor = (name: string): OutputChunk | undefined =>
+        chunks.find((chunk) => chunk.name === name
+          && /[\\/]src[\\/]renderer[\\/]locales[\\/][^\\/]+\.json$/.test(chunk.facadeModuleId ?? ''));
       const localeHints = Object.entries(FIRST_SCREEN_LOCALE_CHUNKS).flatMap(([language, name]) => {
-        const fileName = chunkByName.get(name)?.fileName;
+        const fileName = localeChunkFor(name)?.fileName;
         return fileName
           ? [`<link rel="modulepreload" crossorigin data-mixdog-locale="${language}"`
             + ` href="./${fileName}">`]
@@ -223,18 +233,17 @@ const firstScreenHints: Plugin = {
       if (!entry
         || roots.length !== FIRST_SCREEN_ROOT_CHUNKS.length
         || styles.size === 0
-        || workerScripts.length === 0
         || desktopHints.length === 0
         || localeHints.length !== Object.keys(FIRST_SCREEN_LOCALE_CHUNKS).length) {
         console.warn(
           `[mixdog] first-screen hints matched ${entry ? 1 : 0}/1 entry,`
           + ` ${roots.length}/${FIRST_SCREEN_ROOT_CHUNKS.length} root chunks, ${styles.size} styles,`
-          + ` ${workerScripts.length} worker scripts, ${desktopHints.length} desktop hints`
+          + ` ${desktopHints.length} desktop hints`
           + ` and ${localeHints.length}/${Object.keys(FIRST_SCREEN_LOCALE_CHUNKS).length} locales;`
           + ' the web app boots the missing ones serially.',
         );
       }
-      const hints = [...styleHints, ...moduleHints, ...localeHints, ...workerHints, ...desktopHints].join('');
+      const hints = [...styleHints, ...moduleHints, ...localeHints, ...desktopHints].join('');
       return stampRendererShell(html.replace(
         placeholder,
         hints ? `<template id="mixdog-first-screen">${hints}</template>` : '',
@@ -248,13 +257,28 @@ const firstScreenHints: Plugin = {
 // afterwards with build-daemon.mjs. Without it the dev app never finishes
 // desktop init. Rebuild it after each development main build, before
 // Electron starts.
+// The bundle lands beside the main build that loads it, so an isolated dev
+// instance (scripts/dev-isolated.mjs, --outDir) never rewrites the shared out/.
+let devMainOutDir = resolve(__dirname, 'out/main');
 const devDesktopServiceBundle: Plugin = {
   name: 'mixdog-dev-desktop-service',
   apply: (_config, { mode }) => mode === 'development',
+  configResolved(config) {
+    devMainOutDir = resolve(config.root, config.build.outDir);
+  },
   closeBundle() {
-    execFileSync(process.execPath, [resolve(__dirname, 'scripts/build-daemon.mjs')], { stdio: 'inherit' });
+    execFileSync(
+      process.execPath,
+      [resolve(__dirname, 'scripts/build-daemon.mjs'), `--outfile=${resolve(devMainOutDir, 'daemon.cjs')}`],
+      { stdio: 'inherit' },
+    );
   },
 };
+
+// Each isolated dev instance optimizes renderer deps into its own cache: a
+// shared node_modules/.vite re-optimized by one dev server invalidates the
+// modules another (the 9342 app) is serving and forces it to reload.
+const devViteCacheDir = process.env.MIXDOG_DEV_VITE_CACHE_DIR;
 
 export default defineConfig({
   main: buildTargetEnabled('main') ? {
@@ -264,6 +288,7 @@ export default defineConfig({
     plugins: [
       computerSourceVitePlugin(),
       echartsSourceModule,
+      mermaidSourceModule,
       externalizeDepsPlugin({ exclude: ['qrcode'] }),
       devDesktopServiceBundle,
     ],
@@ -298,6 +323,7 @@ export default defineConfig({
     // The relay/VPS serves this renderer as an installable web app. Keep the
     // manifest, icon and network-only service worker at stable root paths.
     publicDir: resolve(__dirname, 'src/renderer/public'),
+    ...(devViteCacheDir ? { cacheDir: resolve(devViteCacheDir) } : {}),
     resolve: {
       alias: [
         {
@@ -376,6 +402,16 @@ export default defineConfig({
               '@tanstack/virtual-core',
               'i18next',
               'lucide-react',
+            ],
+            // Font faces and @property rules build into their own stylesheet:
+            // in the app sheet, every breakpoint a window drag crossed rebuilt
+            // them, relaying out all text (see src/renderer/font-faces.css).
+            'font-faces': [
+              '@fontsource-variable/jetbrains-mono',
+              'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css',
+              '@vscode/codicons/dist/codicon.css',
+              resolve(__dirname, 'src/renderer/font-faces.css'),
+              resolve(__dirname, 'src/renderer/font-faces-styles.ts'),
             ],
           },
         },

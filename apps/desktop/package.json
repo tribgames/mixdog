@@ -9,6 +9,10 @@
   "scripts": {
     "dev": "node scripts/dev-profile.mjs",
     "dev:fresh": "node scripts/dev-profile.mjs --fresh",
+    "dev:isolated": "node scripts/dev-isolated.mjs start",
+    "dev:isolated:stop": "node scripts/dev-isolated.mjs stop",
+    "dev:isolated:sweep": "node scripts/dev-isolated.mjs sweep",
+    "dev:isolated:list": "node scripts/dev-isolated.mjs list",
     "start": "npm run build && node scripts/dev-profile.mjs --preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",

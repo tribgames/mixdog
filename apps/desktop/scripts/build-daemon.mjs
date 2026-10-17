@@ -4,10 +4,12 @@ import { fileURLToPath } from 'node:url';
 
 import { build } from 'esbuild';
 
+import { optionValue } from './cli-args.mjs';
 import { writeRemoteServerDependencies } from './remote-server-deps.mjs';
 
 const desktopDir = join(dirname(fileURLToPath(import.meta.url)), '..');
-const outfile = join(desktopDir, 'out', 'main', 'daemon.cjs');
+// --outfile: the dev build's own main output (an isolated instance's --outDir).
+const outfile = optionValue('outfile') || join(desktopDir, 'out', 'main', 'daemon.cjs');
 // Loaded at runtime from node_modules, never bundled; a server install gets
 // them from its generated lockfile.
 const DAEMON_EXTERNALS = ['@homebridge/node-pty-prebuilt-multiarch'];
@@ -54,6 +56,8 @@ console.log(`Built plain-Node desktop service: ${outfile}`);
 const serverDepsDir = writeRemoteServerDependencies({
   rootDir: join(desktopDir, '..', '..'),
   desktopDir,
+  // Beside the outfile's out/main, so an isolated build never touches the shared out/.
+  outDir: join(dirname(outfile), '..', 'server', 'deps'),
   externals: DAEMON_EXTERNALS,
 });
 console.log(`Wrote remote server module lockfile: ${serverDepsDir}`);

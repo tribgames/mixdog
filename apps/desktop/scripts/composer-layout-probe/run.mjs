@@ -39,6 +39,7 @@ try {
     join(temp, 'index.html'),
     `<!doctype html><html><head>
     <link rel="stylesheet" href="${pathToFileURL(join(renderer, 'styles.css'))}">
+    <link rel="stylesheet" href="${pathToFileURL(join(renderer, 'font-faces.css'))}">
     <link rel="stylesheet" href="${pathToFileURL(join(renderer, 'desktop.css'))}">
     </head><body><div id="root"></div><script>
     window.probeErrors = [];

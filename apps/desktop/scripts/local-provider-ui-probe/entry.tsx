@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { BuiltInFeaturesPanel } from '../../src/renderer/settings/built-in-features-panel';
 import { initUiLanguage, setUiLanguagePreference } from '../../src/renderer/i18n';
+import '../../src/renderer/font-faces-styles';
 import '../../src/renderer/bootstrap-styles';
 import '../../src/renderer/settings/settings.css';
 import '../../src/renderer/desktop/31-extensions.css';

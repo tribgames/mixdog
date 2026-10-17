@@ -1,4 +1,5 @@
 // Production loads the desktop skin before the lazy Extensions stylesheet.
+import '../../src/renderer/font-faces-styles';
 import '../../src/renderer/bootstrap-styles';
 import type React from 'react';
 import { useState } from 'react';

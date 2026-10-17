@@ -15,6 +15,7 @@ import {
 } from '../../src/renderer/settings/extension-detail';
 import { OpenSelect } from '../../src/renderer/OpenSelect';
 import { initUiLanguage, setUiLanguagePreference } from '../../src/renderer/i18n';
+import '../../src/renderer/font-faces-styles';
 import '../../src/renderer/bootstrap-styles';
 import '../../src/renderer/settings/settings.css';
 import '../../src/renderer/desktop/31-extensions.css';
@@ -82,8 +83,8 @@ function Table({ head, children }: { head: string[]; children: ReactNode }) {
       <table className="usage-table">
         <thead>
           <tr>
-            {head.map((label, index) => (
-              <th key={index} scope="col">
+            {head.map((label) => (
+              <th key={label} scope="col">
                 {label}
               </th>
             ))}

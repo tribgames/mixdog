@@ -201,7 +201,8 @@ const [bundle, styles] = await Promise.all([
     stdin: {
       resolveDir,
       loader: 'css',
-      contents: '@import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";',
+      contents:
+        '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";',
     },
     outfile: 'island-layout.css',
     bundle: true,

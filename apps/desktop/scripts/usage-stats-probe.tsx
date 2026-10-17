@@ -7,6 +7,7 @@ import '@fontsource-variable/jetbrains-mono';
 import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 import '../src/renderer/ui/tokens.css';
 import '../src/renderer/styles.css';
+import '../src/renderer/font-faces.css';
 import '../src/renderer/desktop.css';
 import '../src/renderer/pane-layout.css';
 import '../src/renderer/mobile-web-runtime.css';
@@ -31,9 +32,15 @@ function Probe() {
   return (
     <>
       <nav style={{ position: 'fixed', top: 0, left: 0, zIndex: 100000 }}>
-        <button onClick={() => release?.()}>Load fixture</button>
-        <button onClick={() => setOpen(true)}>Reopen fixture</button>
-        <button onClick={() => setCompact(true)}>Compact fixture</button>
+        <button type="button" onClick={() => release?.()}>
+          Load fixture
+        </button>
+        <button type="button" onClick={() => setOpen(true)}>
+          Reopen fixture
+        </button>
+        <button type="button" onClick={() => setCompact(true)}>
+          Compact fixture
+        </button>
         <span> Synthetic usage layout fixture </span>
       </nav>
       {compact ? (

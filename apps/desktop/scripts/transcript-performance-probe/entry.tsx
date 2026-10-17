@@ -6,6 +6,7 @@ import { TranscriptRow } from '../../src/renderer/transcript-row';
 import { SurfaceActiveContext } from '../../src/renderer/surface-activity';
 import type { TranscriptRowModel } from '../../src/renderer/transcript-rows';
 import '../../src/renderer/styles.css';
+import '../../src/renderer/font-faces.css';
 import '../../src/renderer/desktop.css';
 
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));

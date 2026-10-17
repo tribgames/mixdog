@@ -4,6 +4,7 @@ import { Folder, Workflow, Clock, Plus, Settings, MessageSquare } from 'lucide-r
 import { SessionSidebar } from '../../src/renderer/session-sidebar';
 import { RowOverflowMenu } from '../../src/renderer/RowOverflowMenu';
 import { DialogFrame, MenuList } from '../../src/renderer/ui/primitives';
+import '../../src/renderer/font-faces-styles';
 import '../../src/renderer/bootstrap-styles';
 import { settleFrames } from '../probe-settle';
 
@@ -53,6 +54,7 @@ function ResourceRows() {
       </div>
       <div className="schedules-list">
         {resources.map(([name, description], index) => (
+          // biome-ignore lint/a11y/useSemanticElements: a <button> cannot hold the row's nested overflow-menu button, and the row styling targets the div.
           <div
             key={name}
             tabIndex={0}
@@ -75,25 +77,25 @@ function ResourceRows() {
 function Rail() {
   return (
     <nav className="activity-rail">
-      <button aria-label="새 작업">
+      <button type="button" aria-label="새 작업">
         <Plus />
       </button>
       <nav className="sidebar-primary-nav workbench-side-icon-bar is-vertical">
-        <button aria-label="세션">
+        <button type="button" aria-label="세션">
           <MessageSquare />
         </button>
-        <button aria-label="프로젝트" className="active">
+        <button type="button" aria-label="프로젝트" className="active">
           <Folder />
         </button>
-        <button aria-label="워크플로우">
+        <button type="button" aria-label="워크플로우">
           <Workflow />
         </button>
-        <button aria-label="스케줄">
+        <button type="button" aria-label="스케줄">
           <Clock />
         </button>
       </nav>
       <div className="activity-rail-spacer" />
-      <button aria-label="설정">
+      <button type="button" aria-label="설정">
         <Settings />
       </button>
     </nav>
@@ -144,8 +146,10 @@ function Scene({ view, mobile }: { view: string; mobile: boolean }) {
           onClose={noop}
           footer={
             <>
-              <button>취소</button>
-              <button className="primary">저장</button>
+              <button type="button">취소</button>
+              <button type="button" className="primary">
+                저장
+              </button>
             </>
           }
         >
@@ -166,7 +170,11 @@ function Scene({ view, mobile }: { view: string; mobile: boolean }) {
               변경 사항은 이 프로젝트에만 적용됩니다. 긴 내용은 본문에서 스크롤하고 버튼은 그대로 유지합니다.
             </p>
             {Array.from({ length: 8 }, (_, index) => (
-              <label key={index} className="schedules-field">
+              <label
+                // biome-ignore lint/suspicious/noArrayIndexKey: identical static fields.
+                key={index}
+                className="schedules-field"
+              >
                 <span>추가 설정 {index + 1}</span>
                 <input defaultValue="작은 창에서도 정렬 유지" />
               </label>
@@ -176,13 +184,14 @@ function Scene({ view, mobile }: { view: string; mobile: boolean }) {
       )}
       {view === 'select' && (
         <MenuList label="모델 선택">
-          <button className="mx-menu-item" aria-selected="true">
+          {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the menu item styling keys off aria-selected. */}
+          <button type="button" className="mx-menu-item" aria-selected="true">
             <span>GPT-6-Astra</span>
           </button>
-          <button className="mx-menu-item">
+          <button type="button" className="mx-menu-item">
             <span>GPT-5.6-Sol</span>
           </button>
-          <button className="mx-menu-item" disabled>
+          <button type="button" className="mx-menu-item" disabled>
             <span>사용할 수 없는 모델</span>
           </button>
         </MenuList>

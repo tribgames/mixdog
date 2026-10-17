@@ -43,7 +43,7 @@ export function remoteServerDependencies({ runtimePackage, runtimeLock, desktopL
   const dependencies = { ...runtimePackage.dependencies };
   const packages = {};
   for (const [key, entry] of Object.entries(runtimeLock.packages)) {
-    if (!key || !key.startsWith('node_modules/') || entry.dev || entry.link) continue;
+    if (!key?.startsWith('node_modules/') || entry.dev || entry.link) continue;
     packages[key] = lockEntry(entry);
   }
   const placed = new Map();
@@ -100,8 +100,8 @@ export function remoteServerDependencies({ runtimePackage, runtimeLock, desktopL
   return { packageJson, packageLock };
 }
 
-/** Write out/server/deps/{package.json,server-package-lock.json} for the desktop build. */
-export function writeRemoteServerDependencies({ rootDir, desktopDir, externals }) {
+/** Write {package.json,server-package-lock.json} into `outDir` (the build's out/server/deps). */
+export function writeRemoteServerDependencies({ rootDir, desktopDir, outDir, externals }) {
   const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
   const { packageJson, packageLock } = remoteServerDependencies({
     runtimePackage: readJson(join(rootDir, 'package.json')),
@@ -109,7 +109,6 @@ export function writeRemoteServerDependencies({ rootDir, desktopDir, externals }
     desktopLock: readJson(join(desktopDir, 'package-lock.json')),
     externals,
   });
-  const outDir = join(desktopDir, 'out', 'server', 'deps');
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`);
   writeFileSync(join(outDir, REMOTE_SERVER_LOCKFILE), `${JSON.stringify(packageLock, null, 2)}\n`);
