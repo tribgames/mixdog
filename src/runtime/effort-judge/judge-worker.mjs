@@ -94,7 +94,10 @@ async function load() {
     executionProviders: ['cpu'],
     graphOptimizationLevel: 'all',
     // One judgment runs at a time; 4 threads halve the long-input tail
-    // (p95 ~280 -> ~110 ms measured) for a ~0.1 s burst per turn.
+    // (p95 ~280 -> ~110 ms measured) for a ~0.1 s burst per turn. More threads
+    // did not help where agents share the CPU: with 3-4 agent-like loads on
+    // 20 logical cores, 6 threads timed out 8-16% (3 loads) and 78-87% (4 loads) of judgments against
+    // 0-5% for 4, so the count stays fixed.
     intraOpNumThreads: 4,
   });
   const settings = calibration();

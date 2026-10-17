@@ -20,7 +20,7 @@ import {
   importOriginKey,
 } from '../../runtime/agent/orchestrator/session/conversation-import/imported-session.mjs';
 import { IMPORT_WARNING_CWD_MISSING } from '../../runtime/agent/orchestrator/session/conversation-import/turns.mjs';
-import { sessionPath } from '../../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
+import { sessionPath } from '../../runtime/agent/orchestrator/session/store/session-paths.mjs';
 import {
   cachedMeta,
   convertCandidateFile,

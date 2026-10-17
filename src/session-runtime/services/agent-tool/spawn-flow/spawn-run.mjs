@@ -15,11 +15,13 @@ import {
 import { abnormalEmptyFinishError } from '../render.mjs';
 import { createProgressWatchdogRegistry } from '../../agent-watchdog-registry.mjs';
 import {
+  isAgentProgressWatchdogAbortError,
   resolveHandoffMessageStartIndex,
   turnPartialHandoff,
   watchdogPartialHandoffFromError,
   watchdogStoppedHandoff,
 } from '../../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
+import { settledWorkerStatus } from '../worker-index/row-liveness.mjs';
 import { saveSessionAsync } from '../../../../runtime/agent/orchestrator/session/store.mjs';
 import { presetDescriptor } from './spawn-prep.mjs';
 import { workerStageForStatus } from '../worker-rows.mjs';
@@ -35,7 +37,6 @@ export function createSpawnRunner({
   notifyStatusChange = () => {},
   notifySessionCompletion,
   emitSubagentEvent,
-  scheduleReap,
   sessionSurface = null,
   createTurnReviewCollector,
 }) {
@@ -128,6 +129,7 @@ export function createSpawnRunner({
     const turnReview = createTurnReviewCollector(session, tag, agent, notifyContext || {});
     const completionValue = completionValueFor(prepared);
     let finalStatus = 'idle';
+    let stalled = false;
     // SubagentStart: a worker session is about to run its first turn.
     emitSubagentEvent('start', agent, { session_id: session.id, tag });
     upsertWorkerSessionDeferred(session, tag, {
@@ -189,6 +191,7 @@ export function createSpawnRunner({
         settleCancelled(error);
         throw error;
       }
+      stalled = isAgentProgressWatchdogAbortError(error);
       const partial = watchdogPartialHandoffFromError(error, mgr.getSession(session.id), handoffMsgStart);
       if (partial) {
         finalStatus = 'idle';
@@ -211,13 +214,11 @@ export function createSpawnRunner({
       watchdog?.stop?.();
       upsertWorkerSessionDeferred(session, tag, {
         ...presetDescriptor(agent, preset, presetName),
-        status: finalStatus,
-        stage: finalStatus,
+        ...settledWorkerStatus(finalStatus, stalled),
         finishedAt: new Date().toISOString(),
       });
       setImmediate(notifyStatusChange);
       reconcileJobFinally(job, finalStatus);
-      scheduleReap(session.id);
       // SubagentStop: worker finished (terminal), regardless of outcome.
       emitSubagentEvent('stop', agent, { session_id: session.id, tag, status: finalStatus });
       // Keep the durable session/tag for same-tag follow-ups, but release every

@@ -301,8 +301,9 @@ export function formatGrepOutput({
   includeMatchCount = false,
 }) {
   const lines = headLimit === Infinity ? windowed : windowed.slice(0, headLimit);
+  const matchOnly = outputMode === 'content' && !(beforeN > 0 || afterN > 0 || contextN > 0);
   const normalized = lines.map((line) =>
-    relativeGrepLine(line, workDir, outputMode === 'files_with_matches', outputMode, filenameOmitted)
+    relativeGrepLine(line, workDir, outputMode === 'files_with_matches', outputMode, filenameOmitted, matchOnly)
   );
   const remaining = Math.max(0, totalWindowed - lines.length);
   const shown = lines.length;

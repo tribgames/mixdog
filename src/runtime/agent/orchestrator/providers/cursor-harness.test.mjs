@@ -215,7 +215,7 @@ test('Cursor injects the harness up front and only rebuilds changed live contrac
     assert.match(await response.text(), /"finish_reason":"stop"/);
   });
 
-  for (const change of ['rules', 'tools', 'tool-choice', 'model-parameters', 'max-mode']) {
+  for (const change of ['rules', 'tools', 'tool-choice', 'model-parameters', 'max-mode', 'compaction']) {
     await t.test(`${change} changes rebuild with current context and committed history`, async () => {
       const body = initialBody(`changed-${change}`);
       await park(body);
@@ -231,7 +231,12 @@ test('Cursor injects the harness up front and only rebuilds changed live contrac
       if (change === 'tool-choice') next.tool_choice = 'none';
       if (change === 'model-parameters') next.mixdog_model_parameters = [{ id: 'effort', value: 'high' }];
       if (change === 'max-mode') next.mixdog_max_mode = true;
-      const response = await runtime.handleChatCompletion(next, 'local-test-token');
+      if (change === 'compaction') {
+        next.messages[2] = { role: 'user', content: 'Compacted summary of the earlier conversation.' };
+      }
+      const response = await runtime.handleChatCompletion(next, 'local-test-token', {
+        resetActiveRun: change === 'compaction',
+      });
       const connection = await connections.next();
       const { runRequest } = await connection.messages.next();
       const context = runRequest.action.resumeAction.requestContext;
@@ -262,6 +267,10 @@ test('Cursor injects the harness up front and only rebuilds changed live contrac
       );
       assert.equal(history[1].content[0].toolCallId, 'read-call');
       assert.equal(history[2].content[0].result, 'Committed file contents.');
+      if (change === 'compaction') {
+        assert.equal(history[0].text, 'Compacted summary of the earlier conversation.');
+        assert.equal(state.tokenDetails?.usedTokens, undefined);
+      }
       connection.finish();
       assert.match(await response.text(), /"finish_reason":"stop"/);
     });

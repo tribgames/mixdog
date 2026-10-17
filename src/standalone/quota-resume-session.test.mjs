@@ -64,7 +64,7 @@ test('a quota-failed Lead or Goal turn queues its resume and a fire resumes it o
     contextWindow: 128000,
     async send(messages, model) {
       const users = messages.filter((message) => message.role === 'user');
-      sends.push({ messages: messages.length, lastUser: users.at(-1)?.content, users: users.length });
+      sends.push({ model, messages: messages.length, lastUser: users.at(-1)?.content, users: users.length });
       if (exhausted) {
         exhausted = false;
         throw Object.assign(new Error('All connected accounts have exhausted their quota.'), {
@@ -139,6 +139,9 @@ test('a quota-failed Lead or Goal turn queues its resume and a fire resumes it o
   const { createLocalSessionRuntime } = await import('./local-session-runtime.mjs');
   const store = await import('../runtime/shared/quota-resume-store.mjs');
   const { drainSessionStore } = await import('../runtime/agent/orchestrator/session/store.mjs');
+  const { restoreTranscriptItems } = await import(
+    '../runtime/agent/orchestrator/session/transcript-restore/restore.mjs'
+  );
   store.reloadQuotaResumeStore();
 
   let api = null;
@@ -184,9 +187,8 @@ test('a quota-failed Lead or Goal turn queues its resume and a fire resumes it o
   const entry = store.quotaResumeEntry(S);
   const state = api.getState();
   const turndone = state.items.findLast((item) => item.kind === 'turndone');
-  const user = state.items.findLast((item) => item.kind === 'user');
   assert.equal(turndone.quota.resetAt, RESET_AT);
-  assert.equal(entry.turnKey, `turn:${user.id}`);
+  assert.equal(entry.turnKey, `attempt:${turndone.attemptId}`);
   assert.equal(entry.resetAt, RESET_AT);
   await until(() => api.getState().quotaResume?.state === 'waiting', 'the snapshot field');
   assert.deepEqual(api.getState().quotaResume, {
@@ -200,11 +202,15 @@ test('a quota-failed Lead or Goal turn queues its resume and a fire resumes it o
   await until(() => store.quotaSuspendedGoal(S, entry.turnKey) === goalId, 'the suspended Goal note');
   await until(() => api.getState().goal.status === 'usage_limited', 'the Goal to wait on the limit');
 
-  assert.equal(api.fireQuotaResume({ generation: entry.generation }), 'fired');
+  await api.setRoute({ provider: 'openai', model: 'gpt-4o' });
+  assert.equal(store.quotaResumeEntry(S).generation, entry.generation, 'model switching preserves the reservation');
+  assert.equal(await api.fireQuotaResume({ generation: entry.generation }), 'fired');
+  assert.equal(await api.retryFailedTurn(S, entry.turnKey), false, 'a late manual click cannot enqueue a second retry');
   assert.equal(store.quotaResumeEntry(S), null);
   await until(() => api.getState().quotaResume === null, 'the snapshot field to clear');
   await until(() => sends.length >= sendsBefore + 2, 'the retry request');
   const retry = sends[sendsBefore + 1];
+  assert.equal(retry.model, 'gpt-4o', 'the reserved retry uses the newly selected model');
   const failedRequest = sends[sendsBefore];
   assert.equal(retry.lastUser, failedRequest.lastUser, 'the unanswered prompt is replayed');
   assert.equal(retry.users, failedRequest.users, 'the model sees the prompt once');
@@ -226,11 +232,12 @@ test('a quota-failed Lead or Goal turn queues its resume and a fire resumes it o
   await until(() => store.quotaResumeEntry(G) !== null && !api.getState().busy, 'the Goal turn resume');
   await until(() => api.getState().goal?.status === 'usage_limited', 'the Goal to wait on the limit');
   const goalEntry = store.quotaResumeEntry(G);
-  assert.match(goalEntry.turnKey, /^segment:/);
+  assert.match(goalEntry.turnKey, /^attempt:/);
   assert.equal(store.quotaSuspendedGoal(G, goalEntry.turnKey), lexerGoalId);
   const usersBefore = api.getState().items.filter((item) => item.kind === 'user').length;
   const goalSendsBefore = sends.length;
-  assert.equal(api.fireQuotaResume({ generation: goalEntry.generation }), 'fired');
+  assert.equal(await api.retryFailedTurn(G, goalEntry.turnKey), true);
+  assert.equal(api.fireQuotaResume({ generation: goalEntry.generation }), 'stale');
   assert.equal(store.quotaResumeEntry(G), null);
   await until(() => sends.length > goalSendsBefore, 'the Goal continuation request');
   // Provider dispatch reads the synchronous draft; getState exposes the
@@ -247,4 +254,58 @@ test('a quota-failed Lead or Goal turn queues its resume and a fire resumes it o
     'no prompt is replayed for a Goal turn'
   );
   await until(() => !api.getState().busy && api.getState().queued.length === 0, 'the Goal session to go idle');
+  await api.dispose();
+  api = await createLocalSessionRuntime({ provider: 'openai', model: 'gpt-4o-mini', toolMode: 'full', cwd });
+  const N = 'sess_quota_resume_notification';
+  assert.equal(api.reserveSession(N), true);
+  exhausted = true;
+  const notification = '<system-reminder>Internal task completed. Summarize the retained result.</system-reminder>';
+  const stopped = await api.submitAndWait(notification, { mode: 'task-notification' });
+  assert.equal(stopped.status, 'failed');
+  const notificationEntry = store.quotaResumeEntry(N);
+  assert.ok(notificationEntry, 'notification-only failure is eligible for automatic resume');
+  const beforeRetry = sends.at(-1);
+  await until(() => !api.getState().busy && api.getState().queued.length === 0, 'notification settlement');
+  await tick();
+  assert.equal(
+    await api.retryFailedTurn(N, notificationEntry.turnKey),
+    true,
+    JSON.stringify({
+      entry: notificationEntry,
+      items: api.getState().items,
+      messages: (await api.readModelMessages()).messages.slice(-1),
+    })
+  );
+  await until(() => sends.at(-1) !== beforeRetry && !api.getState().busy, 'notification retry');
+  assert.equal(sends.at(-1).lastUser, beforeRetry.lastUser, 'retained notification and context are reused verbatim');
+  assert.equal(sends.at(-1).users, beforeRetry.users, 'notification is not appended twice');
+  assert.equal(store.quotaResumeEntry(N), null);
+  const notificationGoal = await api.goalControl({ action: 'create', objective: 'Summarize completed work' });
+  await until(() => !api.getState().busy && api.getState().queued.length === 0, 'notification Goal idle');
+  exhausted = true;
+  const automaticFailure = await api.submitAndWait(notification, { mode: 'task-notification' });
+  assert.equal(automaticFailure.status, 'failed');
+  await tick();
+  const automaticEntry = store.quotaResumeEntry(N);
+  assert.ok(automaticEntry);
+  await until(
+    () => store.quotaSuspendedGoal(N, automaticEntry.turnKey) === notificationGoal.goal.id,
+    'notification Goal suspended'
+  );
+  await api.dispose();
+  api = await createLocalSessionRuntime({ provider: 'openai', model: 'gpt-4o-mini', toolMode: 'full', cwd });
+  assert.equal(await api.resume(N), true);
+  assert.equal(store.quotaResumeEntry(N).turnKey, automaticEntry.turnKey);
+  const automaticBefore = sends.at(-1);
+  assert.equal(await api.fireQuotaResume({ generation: automaticEntry.generation }), 'fired');
+  await until(() => sends.at(-1) !== automaticBefore && !api.getState().busy, 'automatic notification retry');
+  assert.equal(sends.at(-1).lastUser, automaticBefore.lastUser);
+  assert.equal(sends.at(-1).users, automaticBefore.users);
+  assert.equal(store.quotaResumeEntry(N), null);
+  const durableMessages = (await api.readModelMessages()).messages;
+  const restored = restoreTranscriptItems(durableMessages, { sessionId: N });
+  const failures = restored.filter((item) => item.kind === 'turndone' && item.status === 'failed');
+  assert.equal(failures.length, 2, 'both failed attempts remain in restored history after successful retries');
+  assert.equal(new Set(failures.map((item) => item.attemptId)).size, 2);
+  assert.deepEqual(restoreTranscriptItems(durableMessages, { sessionId: N, itemLimit: 2 }), restored.slice(-2));
 });

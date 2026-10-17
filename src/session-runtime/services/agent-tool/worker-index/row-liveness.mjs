@@ -1,9 +1,6 @@
 // worker-index/row-liveness.mjs
 // Whether an active-looking row still has a live worker behind it, and how a
-// row settles back to idle when it does not.
-import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
-
+// row settles (idle, or failed when its runtime died) when it does not.
 import { resolveAgentTerminalReapMs } from '../../../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { clean, positiveInt, runtimeAlive } from '../helpers.mjs';
 
@@ -25,24 +22,33 @@ export const isActiveWorkerRow = (row) =>
  *  with that process (daemon restart), so the flag must not stick. */
 export const isStaleApprovalWait = (row) => Boolean(row?.awaitingUser) && !runtimeAlive(row.runtimePid);
 
-export function createRowLiveness({ dataDir, cfgMod }) {
-  function heartbeatFresh(sessionId, now) {
-    const id = clean(sessionId);
-    if (!dataDir || !id) return false;
-    try {
-      const mtimeMs = statSync(resolve(dataDir, 'sessions', `${id}.hb`)).mtimeMs || 0;
-      return mtimeMs > 0 && now - mtimeMs <= WORKER_POOL_FRESH_MS;
-    } catch {
-      return false;
-    }
-  }
+/** The process that ran the row's turn is gone (a restart or crash ended it). */
+export const runtimeDied = (row) => Boolean(positiveInt(row?.runtimePid)) && !runtimeAlive(row.runtimePid);
 
-  /** Active status, but its runtime pid is dead, or neither its heartbeat nor
-   *  its own update stamp is fresh. */
+/** The row's turn ended because the process running it went away. */
+export const PROCESS_RESTART_FAILURE = 'process-restart';
+
+/** The row's turn was stopped by the progress (stall) watchdog. */
+export const WATCHDOG_STALL_FAILURE = 'stalled';
+
+/** A turn's settled row status and failure reason: a watchdog stop is a
+ *  failure whatever partial output it handed back (`finalStatus` may still
+ *  read `idle` for the job's sake); everything else keeps `finalStatus`. */
+export function settledWorkerStatus(finalStatus, stalled) {
+  return stalled
+    ? { status: 'failed', stage: 'failed', failureReason: WATCHDOG_STALL_FAILURE }
+    : { status: finalStatus, stage: finalStatus };
+}
+
+/** `isSessionRunning(sessionId)`: the daemon's in-memory answer to whether
+ *  that session's turn is in flight (every session runs in this process). */
+export function createRowLiveness({ cfgMod, isSessionRunning = () => false }) {
+  /** Active status, but its runtime pid is dead, or its turn is not running
+   *  here and its own update stamp is not fresh either. */
   function isStaleActive(row, now) {
     if (!isActiveWorkerRow(row)) return false;
-    if (positiveInt(row.runtimePid) && !runtimeAlive(row.runtimePid)) return true;
-    if (heartbeatFresh(row.sessionId, now)) return false;
+    if (runtimeDied(row)) return true;
+    if (isSessionRunning(clean(row.sessionId))) return false;
     const updated = Date.parse(clean(row.updatedAt)) || 0;
     return !(updated > 0 && now - updated <= WORKER_POOL_FRESH_MS);
   }
@@ -74,5 +80,11 @@ export function createRowLiveness({ dataDir, cfgMod }) {
     };
   }
 
-  return { isStaleActive, idleRow };
+  /** The row settled as failed: its turn never finished, and `failureReason`
+   *  says why. Stamps settle exactly as idleRow's. */
+  function failedRow(row, now, failureReason, touch = false) {
+    return { ...idleRow(row, now, touch), status: 'failed', stage: 'failed', failureReason };
+  }
+
+  return { isStaleActive, idleRow, failedRow };
 }

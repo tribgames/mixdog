@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createModelRouteApi } from './model-route-api.mjs';
-import { _buildWirePayload, _invalidateDeltaBaseline } from '../runtime/agent/orchestrator/session/store/save-delta.mjs';
+import {
+  _buildWirePayload,
+  _invalidateDeltaBaseline,
+} from '../runtime/agent/orchestrator/session/store/save-delta.mjs';
 import { createContextStatus } from '../runtime/agent/orchestrator/runtime-core/context-status.mjs';
 import { createRuntimeFacade } from './runtime-facade.mjs';
+import { trackSessionGeneration } from './model-route/route-ownership.mjs';
 import { createContextState } from '../tui/session/context-state.mjs';
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 import { restoreTranscriptItems } from '../runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
@@ -17,9 +21,10 @@ const heirRoute = {
   contextPercent: 70,
 };
 
-function fixture(extra = {}) {
+function fixture(extra = {}, deps = {}) {
   let config = { modelSettings: {} };
   const routeUpdates = [];
+  const leadDefaults = [];
   const state = {
     route: { ...sourceRoute, contextPercent: 100, effectiveEffort: 'high' },
     session: {
@@ -38,6 +43,7 @@ function fixture(extra = {}) {
       ...extra,
     },
   };
+  trackSessionGeneration(state);
   const api = createModelRouteApi({
     getConfig: () => config,
     getConfigHasSecrets: () => false,
@@ -46,6 +52,7 @@ function fixture(extra = {}) {
       state.route = value;
     },
     getSession: () => state.session,
+    getSessionGeneration: () => state.sessionGeneration,
     setSession: (value) => {
       state.session = value;
     },
@@ -56,7 +63,10 @@ function fixture(extra = {}) {
     adoptConfig: (value) => {
       config = value;
     },
-    persistLeadRoute: () => null,
+    persistLeadRoute: (route) => {
+      leadDefaults.push(route);
+      return null;
+    },
     saveConfigAndAdopt: (value) => {
       config = value;
     },
@@ -78,9 +88,178 @@ function fixture(extra = {}) {
         return state.session;
       },
     },
+    ...deps,
   });
-  return { api, state, routeUpdates };
+  return { api, state, routeUpdates, leadDefaults };
 }
+
+test('deferred selections leave history intact and apply only the latest route once', async () => {
+  const { api, state, routeUpdates } = fixture();
+  const before = structuredClone(state.session);
+  await api.setRoute(heirRoute, { deferUntilNextTurn: true, applyToCurrentSession: true });
+  assert.deepEqual(state.session, before);
+  assert.deepEqual(routeUpdates, []);
+  await api.setRoute({ ...heirRoute, effort: 'medium' }, { deferUntilNextTurn: true });
+  const boundary = api.applyPendingRoute();
+  assert.equal(state.session.model, heirRoute.model);
+  assert.equal(state.session.effort, 'medium');
+  assert.equal(boundary.modelId, heirRoute.model);
+  assert.equal(api.applyPendingRoute(), null);
+  assert.equal(routeUpdates.length, 1);
+});
+
+function replacementSession(state) {
+  return { ...structuredClone(state.session), id: 'session-replacement' };
+}
+
+test('a session replaced while the provider is made ready never receives the selection', async () => {
+  let replacement = null;
+  const { api, state, routeUpdates } = fixture(
+    {},
+    {
+      ensureProvidersReady: async () => {
+        state.session = replacement;
+      },
+    }
+  );
+  const before = { ...state.route };
+  replacement = replacementSession(state);
+  const replacementBefore = structuredClone(replacement);
+  await api.setRoute(heirRoute, { deferUntilNextTurn: true, applyToCurrentSession: true });
+  assert.equal(state.session, replacement);
+  assert.deepEqual(state.route, before, 'the route was not adopted for a session that is gone');
+  assert.equal(api.applyPendingRoute(), null);
+  assert.deepEqual(state.session, replacementBefore);
+  assert.deepEqual(routeUpdates, []);
+});
+
+test('a session replaced while the adopted route settles never receives a deferred selection', async () => {
+  let swap = false;
+  const { api, state, routeUpdates } = fixture(
+    {},
+    {
+      refreshRouteEffort: async () => {
+        if (swap) state.session = { ...replacementSession(state), model: sourceRoute.model };
+      },
+    }
+  );
+  swap = true;
+  await api.setRoute(heirRoute, { deferUntilNextTurn: true });
+  assert.equal(state.session.id, 'session-replacement');
+  assert.equal(api.applyPendingRoute(), null);
+  assert.equal(state.session.model, sourceRoute.model);
+  assert.deepEqual(routeUpdates, []);
+});
+
+test('a selection pending for one session is dropped when another replaces it', async () => {
+  const { api, state, routeUpdates } = fixture();
+  await api.setRoute(heirRoute, { deferUntilNextTurn: true });
+  state.session = replacementSession(state);
+  assert.equal(api.applyPendingRoute(), null);
+  assert.equal(state.session.model, sourceRoute.model);
+  assert.deepEqual(routeUpdates, []);
+});
+
+test('effort changed after a deferred model switch applies at the next turn', async () => {
+  const { api, state } = fixture();
+  await api.setRoute(heirRoute, { deferUntilNextTurn: true });
+  await api.setEffort('medium');
+  assert.equal(state.session.model, sourceRoute.model);
+  assert.equal(state.session.effort, sourceRoute.effort);
+  const boundary = api.applyPendingRoute();
+  assert.equal(boundary.modelId, heirRoute.model);
+  assert.equal(state.session.model, heirRoute.model);
+  assert.equal(state.session.effort, 'medium');
+});
+
+test('Fast changed after a deferred model switch applies at the next turn', async () => {
+  const { api, state } = fixture(
+    {},
+    // Fast support declared by the row, independent of the host's model catalog.
+    { lookupModelMeta: async (_provider, model) => ({ id: model, supportsFastMode: true }) }
+  );
+  await api.setRoute({ ...heirRoute, fast: false }, { deferUntilNextTurn: true });
+  assert.equal(await api.setFast(true), true);
+  assert.equal(state.session.fast, false);
+  api.applyPendingRoute();
+  assert.equal(state.session.model, heirRoute.model);
+  assert.equal(state.session.fast, true);
+  await api.setRoute(heirRoute, { deferUntilNextTurn: true });
+  assert.equal(await api.setFast(false), false);
+  api.applyPendingRoute();
+  assert.equal(state.session.fast, false);
+});
+
+test('returning to the original model creates no switch boundary', async () => {
+  const { api, state } = fixture();
+  await api.setRoute(heirRoute, { deferUntilNextTurn: true });
+  await api.setRoute(sourceRoute, { deferUntilNextTurn: true });
+  assert.equal(api.applyPendingRoute(), null);
+  assert.equal(state.session.model, sourceRoute.model);
+  assert.equal(state.session.messages.at(-1).meta, undefined);
+});
+
+test('quota continuation supersedes a previously deferred model', async () => {
+  const { api, state } = fixture();
+  await api.setRoute(heirRoute, { deferUntilNextTurn: true });
+  await api.continueSessionInModel(state.session.id, sourceRoute);
+  assert.equal(api.applyPendingRoute(), null);
+  assert.equal(state.session.model, sourceRoute.model);
+});
+
+test('a failed quota continuation preserves the pending selection', async () => {
+  const { api, state } = fixture();
+  await api.setRoute(heirRoute, { deferUntilNextTurn: true });
+  await assert.rejects(api.continueSessionInModel('wrong-session', sourceRoute));
+  api.applyPendingRoute();
+  assert.equal(state.session.model, heirRoute.model);
+});
+
+test('pending selection survives replacing the same durable session object', async () => {
+  const { api, state } = fixture();
+  await api.setRoute(heirRoute, { deferUntilNextTurn: true });
+  state.session = { ...state.session };
+  assert.equal(api.applyPendingRoute().modelId, heirRoute.model);
+  assert.equal(state.session.model, heirRoute.model);
+});
+
+test('pending selection cannot migrate to a different session', async () => {
+  const { api, state } = fixture();
+  await api.setRoute(heirRoute, { deferUntilNextTurn: true });
+  state.session = { ...state.session, id: 'another' };
+  assert.equal(api.applyPendingRoute(), null);
+  assert.equal(state.session.model, sourceRoute.model);
+});
+
+test('same-model context and effort edits stay deferred until send', async () => {
+  const { api, state } = fixture();
+  const before = structuredClone(state.session);
+  await api.setRoute({ ...sourceRoute, effort: 'low', contextPercent: 50 }, { deferUntilNextTurn: true });
+  assert.deepEqual(state.session, before);
+  assert.equal(api.applyPendingRoute(), null);
+  assert.equal(state.session.effort, 'low');
+  assert.equal(state.session.contextPercent, 50);
+});
+
+test('existing user and agent session model changes never replace the Lead default', async () => {
+  for (const owner of ['user', 'agent']) {
+    const normal = fixture({ owner });
+    await normal.api.setRoute(heirRoute, { applyToCurrentSession: true });
+    assert.equal(normal.state.session.model, heirRoute.model);
+    assert.deepEqual(normal.leadDefaults, []);
+    const recovery = fixture({ owner });
+    await recovery.api.continueSessionInModel(recovery.state.session.id, heirRoute);
+    assert.equal(recovery.state.session.model, heirRoute.model);
+    assert.deepEqual(recovery.leadDefaults, []);
+  }
+});
+
+test('an explicit New task default selection persists the Lead route', async () => {
+  const h = fixture({ messages: [] });
+  await h.api.setRoute(heirRoute, { applyToCurrentSession: true, keepMainModel: false });
+  assert.equal(h.leadDefaults.length, 1);
+  assert.equal(h.leadDefaults[0].model, heirRoute.model);
+});
 
 for (const [name, extra] of [
   ['established', {}],
@@ -225,7 +404,11 @@ test('continueSessionInModel moves an established session in place', async () =>
   const { api, state } = fixture();
   const result = await api.continueSessionInModel('session-route-lock', heirRoute);
   // The same boundary setRoute answers, so the surface shows the live divider.
-  assert.deepEqual(result.modelSwitch, { provider: heirRoute.provider, modelId: heirRoute.model, at: result.modelSwitch.at });
+  assert.deepEqual(result.modelSwitch, {
+    provider: heirRoute.provider,
+    modelId: heirRoute.model,
+    at: result.modelSwitch.at,
+  });
   assert.deepEqual(state.session.messages.at(-1).meta.modelSwitches, [result.modelSwitch]);
   assert.equal(state.session.id, 'session-route-lock');
   assert.equal(state.session.model, heirRoute.model);

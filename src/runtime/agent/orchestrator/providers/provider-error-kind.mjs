@@ -653,7 +653,6 @@ export function providerErrorKind(err, options = {}) {
   // Validated account-pool evidence and boundary-stamped re-auth decide first.
   if (err.quotaExhausted && typeof err.quotaExhausted === 'object') return describe('quota_exhausted');
   if (chain.some((item) => item?.reauthRequired === true)) return describe('auth');
-
   if (isInFlightBudget402(chain, status, inFlightAdviceMs(err))) return describe('transient', IN_FLIGHT_BUDGET);
   // Every other 402 is a billing refusal, whatever generic retryable code
   // (server_error, rate_limit_exceeded) its body also carries.

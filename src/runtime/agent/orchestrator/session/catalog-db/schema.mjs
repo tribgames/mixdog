@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 
 /** Bumped whenever the table layout or a codec changes: the DB is then
  *  dropped and backfilled again from the JSON catalog. */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 /** PRAGMA application_id ('MXSC'): a file without it is not this catalog. */
 export const APPLICATION_ID = 0x4d585343;
 
@@ -27,8 +27,6 @@ const FIELDS = [
   ['lastUsedAt', 'last_used_at', 'real'],
   ['createdAt', 'created_at', 'real'],
   ['lastHeartbeatAt', 'last_heartbeat_at', 'real'],
-  // Always 0 in a stored row: liveness is overlaid from `.hb` sidecars at read.
-  ['heartbeatAt', 'heartbeat_at', 'real'],
   ['closed', 'closed', 'bool'],
   ['status', 'status', 'text'],
   ['owner', 'owner', 'loose'],
@@ -195,16 +193,10 @@ export function rowFromDb(record) {
   return row;
 }
 
-// Overlays a listing adds at read time; never part of the comparison.
-const OVERLAY_KEYS = new Set(['heartbeatAt', 'agentHeartbeatAt']);
-
-/** Comparable JSON of a row's stored fields (overlays excluded). */
+/** Comparable JSON of a row's stored fields. */
 function comparable(row) {
   const out = [];
-  for (const [key] of FIELDS) {
-    if (OVERLAY_KEYS.has(key)) continue;
-    out.push(row[key] === undefined ? null : row[key]);
-  }
+  for (const [key] of FIELDS) out.push(row[key] === undefined ? null : row[key]);
   return JSON.stringify(out);
 }
 

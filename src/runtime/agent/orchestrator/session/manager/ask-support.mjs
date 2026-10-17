@@ -13,10 +13,6 @@ export async function settleAskCleanup(promise, { timeoutMs } = {}) {
 }
 
 // Live Agent projection is a per-ask send opt, never a session field.
-// Callers that pass onTextDelta/onAssistantText still need `liveProjection`
-// to un-suppress provider streaming: askSession always wraps those
-// callbacks for interruption tracking, so agent-loop cannot infer intent
-// from `typeof opts.onTextDelta === 'function'`.
 export function resolveAskLiveProjection(askOpts = {}) {
   return askOpts?.liveProjection === true;
 }

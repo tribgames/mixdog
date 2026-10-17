@@ -12,10 +12,16 @@ import {
   sleepWithAbort,
   withRetry,
 } from './retry-classifier.mjs';
-import { ANTIGRAVITY_RETRY, antigravity429WaitMs, isAntigravityCapacityError } from './antigravity-retry-policy.mjs';
-import { createTimeoutSignal } from '../stall-policy.mjs';
+import {
+  ANTIGRAVITY_RETRY,
+  ANTIGRAVITY_UNCLASSED_FIRST_BYTE,
+  antigravity429WaitMs,
+  isAntigravityCapacityError,
+} from './antigravity-retry-policy.mjs';
+import { createTimeoutSignal, firstByteWindowMs } from '../stall-policy.mjs';
+import { MODEL_THINKING_STAGE } from '../../../shared/quiet-progress.mjs';
+import { TIMEOUT_PHASE, isFirstByteTimeout } from '../../../shared/provider-timeout-phase.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
-import { GEMINI_FIRST_BYTE_TIMEOUT_MS } from './gemini-stream.mjs';
 import { _scrubTokens } from './antigravity-oauth-tokens.mjs';
 import { applyGeminiErrorContract } from './gemini-error-contract.mjs';
 import { DETERMINISTIC_KINDS, providerErrorKind } from './provider-error-kind.mjs';
@@ -108,19 +114,53 @@ export function antigravityError(res, text, endpoint) {
  * @param {object} deps.opts  send options (stage heartbeat)
  * @param {AbortSignal|null} deps.signal  retry-loop signal (session pass-through)
  * @param {{ beginAttempt: Function, consume: Function }} deps.collector
+ * @param {{ timeoutMs: number, maxMs: number, retries: number|null }} [deps.firstByte]
+ *   first-byte window per attempt (antigravityFirstBytePolicy)
  * @returns {() => Promise<object>} one retried request that resolves the final payload
  */
-export function createAntigravityRequest({ fetchFn, endpoint, headers, body, opts, signal, collector, sleepFn }) {
+export function createAntigravityRequest({
+  fetchFn,
+  endpoint,
+  headers,
+  body,
+  opts,
+  signal,
+  collector,
+  sleepFn,
+  firstByte = ANTIGRAVITY_UNCLASSED_FIRST_BYTE,
+}) {
   const log = (attempt, lastErr, delayMs) => {
+    // A first-byte timeout runs on its own, shorter retry budget.
+    const firstByteLimited = isFirstByteTimeout(lastErr) && firstByte.retries != null;
     emitProviderRetryStage(opts.onStageChange, {
       attempt: attempt + 1,
-      maxAttempts: ANTIGRAVITY_RETRY.maxAttempts,
+      maxAttempts: firstByteLimited
+        ? Math.min(ANTIGRAVITY_RETRY.maxAttempts, firstByte.retries + 1)
+        : ANTIGRAVITY_RETRY.maxAttempts,
       lastErr,
       delayMs,
     });
     process.stderr.write(`[antigravity] retry ${attempt + 1} after ${lastErr?.message || 'transient error'}\n`);
   };
-  const attemptOnce = () =>
+  // Stamps what the attempt tells the user: how many attempts ran and, for a
+  // first-byte timeout, how long the model was given in total. A timeout past
+  // the first-byte retry budget ends the ladder here. A caller's cancellation
+  // reason may be shared by other requests and is never stamped.
+  const noteFailure = (err, { attemptSignal, windowMs, send }) => {
+    if (!err || typeof err !== 'object' || attemptSignal?.aborted) return err;
+    send.attempts += 1;
+    err.attempts = send.attempts;
+    if (!isFirstByteTimeout(err)) return err;
+    send.firstByteTimeouts += 1;
+    send.firstByteWaitedMs += windowMs;
+    err.waitedMs = send.firstByteWaitedMs;
+    err.providerLabel = 'Antigravity';
+    if (firstByte.retries != null && send.firstByteTimeouts > firstByte.retries) {
+      markProviderRecoveryExhausted(err, { owner: 'antigravity-first-byte', attempts: send.attempts, terminal: true });
+    }
+    return err;
+  };
+  const attemptOnce = (send) =>
     withRetry(
       async ({ signal: attemptSignal }) => {
         try {
@@ -128,37 +168,63 @@ export function createAntigravityRequest({ fetchFn, endpoint, headers, body, opt
         } catch {
           /* heartbeat */
         }
-        const firstByte = createTimeoutSignal(attemptSignal, GEMINI_FIRST_BYTE_TIMEOUT_MS, 'Antigravity first byte');
-        let res;
+        const windowMs = firstByteWindowMs(firstByte, send.firstByteTimeouts);
         try {
-          res = await fetchFn(`${endpoint}/v1internal:streamGenerateContent?alt=sse`, {
-            method: 'POST',
-            headers,
-            body,
-            signal: firstByte.signal,
-            dispatcher: getLlmDispatcher(),
-          });
-        } catch (err) {
-          // Fetch surfaces AbortError; rethrow the timer/parent
-          // reason so same-host retry sees EPROVIDERTIMEOUT and
-          // a caller cancel stays a cancel.
-          if (firstByte.signal.aborted && firstByte.signal.reason instanceof Error) {
-            throw firstByte.signal.reason;
+          const firstByteTimer = createTimeoutSignal(attemptSignal, windowMs, 'Antigravity first byte');
+          let res;
+          try {
+            const response = fetchFn(`${endpoint}/v1internal:streamGenerateContent?alt=sse`, {
+              method: 'POST',
+              headers,
+              body,
+              signal: firstByteTimer.signal,
+              dispatcher: getLlmDispatcher(),
+            });
+            // The request is on the wire and its headers are pending: the
+            // gateway sends them only with the first chunk, so this wait is
+            // the model's queueing and thinking time.
+            try {
+              opts.onStageChange?.(MODEL_THINKING_STAGE);
+            } catch {
+              /* heartbeat */
+            }
+            res = await response;
+          } catch (err) {
+            // Fetch surfaces AbortError; rethrow the timer/parent
+            // reason so same-host retry sees EPROVIDERTIMEOUT and
+            // a caller cancel stays a cancel.
+            if (firstByteTimer.signal.aborted && firstByteTimer.signal.reason instanceof Error) {
+              const reason = firstByteTimer.signal.reason;
+              if (!attemptSignal?.aborted) reason.timeoutPhase = TIMEOUT_PHASE.HEADERS;
+              throw reason;
+            }
+            throw err;
+          } finally {
+            firstByteTimer.cleanup();
           }
-          throw err;
-        } finally {
-          firstByte.cleanup();
+          // Headers arrived: the connection is live even while the model
+          // has not produced its first chunk.
+          try {
+            opts.onStreamDelta?.('transport');
+          } catch {}
+          if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            const failure = antigravityError(res, text, endpoint);
+            // Capacity is paced by the local schedule below; the generic loop
+            // would sleep whatever wait the server names.
+            if (isCapacityFailure(failure)) markProviderRecoveryExhausted(failure, { owner: 'antigravity-capacity' });
+            throw failure;
+          }
+          try {
+            opts.onStageChange?.('streaming');
+          } catch {
+            /* heartbeat */
+          }
+          collector.beginAttempt();
+          return await collector.consume(res, attemptSignal, { firstByteTimeoutMs: windowMs });
+        } catch (err) {
+          throw noteFailure(err, { attemptSignal, windowMs, send });
         }
-        if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          const failure = antigravityError(res, text, endpoint);
-          // Capacity is paced by the local schedule below; the generic loop
-          // would sleep whatever wait the server names.
-          if (isCapacityFailure(failure)) markProviderRecoveryExhausted(failure, { owner: 'antigravity-capacity' });
-          throw failure;
-        }
-        collector.beginAttempt();
-        return collector.consume(res, attemptSignal);
       },
       {
         ...ANTIGRAVITY_RETRY,
@@ -173,9 +239,10 @@ export function createAntigravityRequest({ fetchFn, endpoint, headers, body, opt
   // gets one quick retry, a spent quota surfaces.
   return async () => {
     const state = { capacityRetries: 0, quickRetried: false };
+    const send = { attempts: 0, firstByteTimeouts: 0, firstByteWaitedMs: 0 };
     for (let tried = 1; ; tried++) {
       try {
-        return await attemptOnce();
+        return await attemptOnce(send);
       } catch (err) {
         const waitMs = antigravity429WaitMs(err, state);
         if (waitMs == null) {

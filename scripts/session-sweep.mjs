@@ -152,22 +152,6 @@ function fmtTs(ms) {
   }
 }
 
-// `.hb` sidecar bytes are attributed to their session so reclaimable bytes
-// reflect the full on-disk footprint of a session.
-function collectHbSidecarSizes(dir, files) {
-  const hbSizeById = new Map();
-  for (const f of files) {
-    if (!f.endsWith('.hb')) continue;
-    const id = f.slice(0, -3);
-    try {
-      hbSizeById.set(id, statSync(join(dir, f)).size || 0);
-    } catch {
-      /* ignore */
-    }
-  }
-  return hbSizeById;
-}
-
 // Authoritative per-file lifecycle via cheap top-level scan; the summary
 // index is stale here (most on-disk files are unindexed), so the file
 // itself — not the index — decides closed/age. Fall back to the index
@@ -200,7 +184,7 @@ function classifySessionFile({ full, mtimeMs, row, now, maxAgeMs, minClosedAgeMs
 
 // Disk scan for sizes + mtime fallback, then the retention verdict per file
 // rolled into the totals the report prints.
-function collectRetention({ dir, jsonFiles, hbSizeById, rowById, now, maxAgeMs, minClosedAgeMs }) {
+function collectRetention({ dir, jsonFiles, rowById, now, maxAgeMs, minClosedAgeMs }) {
   let totalFiles = 0;
   let totalBytes = 0;
   const candidates = []; // { id, reason, updatedAt, bytes, inIndex }
@@ -218,17 +202,15 @@ function collectRetention({ dir, jsonFiles, hbSizeById, rowById, now, maxAgeMs, 
     const id = f.slice(0, -5);
     fileIds.add(id);
     const full = join(dir, f);
-    let size = 0;
+    let bytes = 0;
     let mtimeMs = 0;
     try {
       const st = statSync(full);
-      size = st.size || 0;
+      bytes = st.size || 0;
       mtimeMs = st.mtimeMs || 0;
     } catch {
       /* skip */
     }
-    const hb = hbSizeById.get(id) || 0;
-    const bytes = size + hb;
     totalFiles += 1;
     totalBytes += bytes;
 
@@ -346,10 +328,8 @@ function main() {
   const rowById = new Map();
   for (const r of rows) if (r?.id) rowById.set(r.id, r);
 
-  const files = readdirSync(dir);
-  const jsonFiles = files.filter((f) => f.endsWith('.json'));
-  const hbSizeById = collectHbSidecarSizes(dir, files);
-  const retention = collectRetention({ dir, jsonFiles, hbSizeById, rowById, now, maxAgeMs, minClosedAgeMs });
+  const jsonFiles = readdirSync(dir).filter((f) => f.endsWith('.json'));
+  const retention = collectRetention({ dir, jsonFiles, rowById, now, maxAgeMs, minClosedAgeMs });
   process.stdout.write(renderReport({ dir, rows, now, maxAgeDays, minClosedAgeDays, retention }));
 }
 

@@ -12,6 +12,7 @@ import { createAgentOps } from '../../../../../session-runtime/turn/agent-ops.mj
 import { execShellCommand } from '../shell-command.mjs';
 import { killShellJob, shutdownShellJobs, watchBackgroundShellJob } from './shell-jobs.mjs';
 import { stopBackgroundShellJob } from './task-tool.mjs';
+import { PROCESS_TABLE_READ_BOUND_MS, TERMINATION_RECHECK_MS } from '../lib/shell-descendants.mjs';
 import {
   _resetNativeSpawnClientForTest,
   _setNativeSpawnBinaryForTest,
@@ -129,8 +130,12 @@ test('stopping a real background job settles it as cancelled in the shell-jobs s
   assert.equal(getBackgroundTask(jobId).status, 'cancelled');
   assert.match((await stopBackgroundShellJob(jobId, ctx(OWNER))).error, /already/);
 
+  // The record completes with the job's lifecycle: once its processes are
+  // confirmed gone — the kill's snapshot bound plus up to two observation
+  // passes (one may be unanswered under load).
   let bucket;
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  const deadline = Date.now() + PROCESS_TABLE_READ_BOUND_MS + 2 * TERMINATION_RECHECK_MS;
+  while (Date.now() < deadline) {
     bucket = shellJobsStatus({ clientHostPid: process.pid }).sessions?.[OWNER];
     if (bucket?.finished?.some((row) => row.taskId === jobId)) break;
     await delay(100);

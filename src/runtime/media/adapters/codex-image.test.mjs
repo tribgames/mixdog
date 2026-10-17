@@ -108,14 +108,20 @@ test('generation goes to the images endpoint and reports gpt-image-2 with image 
 
 test('reference images use the edits endpoint', async () => {
   const { calls, fetchFn } = router({ [EDITS_URL]: imagesOk });
-  await generateImage({ model: 'm', prompt: 'Edit.', references: [{ base64: 'Zm9v', mime: 'image/png' }] }, deps(fetchFn));
+  await generateImage(
+    { model: 'm', prompt: 'Edit.', references: [{ base64: 'Zm9v', mime: 'image/png' }] },
+    deps(fetchFn)
+  );
   assert.deepEqual(JSON.parse(calls[0].init.body).images, [{ image_url: 'data:image/png;base64,Zm9v' }]);
 });
 
 for (const [name, unavailable] of [
   ['404', () => new Response('', { status: 404 })],
   ['405', () => new Response('', { status: 405 })],
-  ['edge HTML 403', () => new Response('<html>blocked</html>', { status: 403, headers: { 'content-type': 'text/html' } })],
+  [
+    'edge HTML 403',
+    () => new Response('<html>blocked</html>', { status: 403, headers: { 'content-type': 'text/html' } }),
+  ],
 ]) {
   test(`an unavailable images endpoint (${name}) falls back to the hosted responses tool`, async () => {
     const { calls, fetchFn } = router({
@@ -248,6 +254,18 @@ test('a responses stream that fails on a usage limit maps to the limit message',
         type: 'response.failed',
         response: { error: { code: 'usage_limit_reached', message: 'raw', resets_at: 1792218828 } },
       }),
+  });
+  await assert.rejects(generateImage({ model: 'm', prompt: 'A fox.' }, deps(fetchFn)), {
+    code: 'MEDIA_USAGE_LIMIT',
+    message: /resets 2026-10-17 06:33 UTC/,
+  });
+});
+
+test('a top-level responses error event keeps its usage-limit code and reset', async () => {
+  const { fetchFn } = router({
+    [GENERATIONS_URL]: () => new Response('', { status: 404 }),
+    [CODEX_RESPONSES_URL]: () =>
+      sse({ type: 'error', code: 'usage_limit_reached', message: 'Usage limit reached', resets_at: 1792218828 }),
   });
   await assert.rejects(generateImage({ model: 'm', prompt: 'A fox.' }, deps(fetchFn)), {
     code: 'MEDIA_USAGE_LIMIT',

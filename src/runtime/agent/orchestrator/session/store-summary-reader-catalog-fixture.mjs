@@ -28,7 +28,7 @@ test.after(() => {
 });
 
 /** Point the reader at a fresh data dir with an empty sessions directory. */
-export function useDataDir(prefix) {
+export function isolateDataDir(prefix) {
   root = mkdtempSync(join(tmpdir(), prefix));
   roots.push(root);
   mkdirSync(join(root, 'sessions'));

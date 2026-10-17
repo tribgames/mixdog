@@ -15,6 +15,11 @@ import { join } from 'node:path';
 import { formatElapsed } from './statusline-format.mjs';
 import { positiveInt } from '../numbers.mjs';
 import { isPidAlive } from '../pid-liveness.mjs';
+import { workspaceSees } from '../worktrees/workspace-visibility.mjs';
+
+/** Whether an orphaned held shell (`status.orphaned`) belongs in the list of a
+ *  session working in `sessionCwd`. */
+export const shellJobVisibleFrom = (job, sessionCwd) => workspaceSees(job?.cwd, sessionCwd);
 
 const DEFAULT_MIXDOG_HOME = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
 const DEFAULT_STANDALONE_DATA_DIR = join(DEFAULT_MIXDOG_HOME, 'data');
@@ -85,6 +90,12 @@ export function shellJobsStatus({ clientHostPid, sessionId } = {}) {
   const sessions = freshestShellJobsSessions() ?? own.sessions;
   if (!scoped) return sessions === own.sessions ? own : { ...own, sessions };
   return (scope && sessions?.[scope]) || EMPTY_SHELL_JOBS_SESSION;
+}
+
+/** Listed jobs held only because their termination is unconfirmed. */
+export function unconfirmedShellCount(status) {
+  const jobs = Array.isArray(status?.jobs) ? status.jobs : [];
+  return jobs.filter((job) => job?.terminationUnconfirmed === true).length;
 }
 
 // Awaited fresh scan for pollers that own their cadence (desktop): the result
@@ -171,6 +182,7 @@ async function refreshShellJobsStatus(ownerPid) {
     let count = 0;
     let oldestMs = Infinity;
     const jobs = [];
+    const orphaned = [];
     // sessionId -> { count, oldestMs, jobs }. Jobs with no session stamp (legacy
     // records, plain CLI runs) still count toward the owner total but belong to
     // no pane, so they never light up a session's indicator.
@@ -183,11 +195,16 @@ async function refreshShellJobsStatus(ownerPid) {
       } catch {
         continue;
       }
-      if (!(await isShellJobAlive(detail, p, dir, id))) continue;
+      // A killed command whose processes are not confirmed gone has already
+      // reported its result, so its tool card is closed: it is listed until
+      // its owner retires the record. Its root pid may be gone while a
+      // descendant lives, so the owner's liveness decides, not the root's.
+      const unconfirmed = detail?.terminationUnconfirmed === true;
+      if (unconfirmed ? !isPidAlive(ownerByJob.get(id) || 0) : !(await isShellJobAlive(detail, p, dir, id))) continue;
       // A foreground command is awaited in its own tool card; listing it here
       // made every short command flash in and out of the shell list. Only
       // backgrounded jobs (including promoted ones) are background work.
-      if (detail?.foreground === true) continue;
+      if (detail?.foreground === true && !unconfirmed) continue;
       // Owner-wide totals stay this process's own; session buckets take every
       // live job regardless of which host published it.
       const ownedByThisHost = ownerByJob.get(id) === ownerPid;
@@ -204,8 +221,12 @@ async function refreshShellJobsStatus(ownerPid) {
         command: String(detail?.command || '').trim(),
         cwd: String(detail?.cwd || '').trim(),
         startedAt: detail?.startedAt || (Number.isFinite(jobMs) ? jobMs : null),
+        ...(unconfirmed ? { terminationUnconfirmed: true } : {}),
       };
       if (ownedByThisHost) jobs.push(job);
+      // Held by a session that has closed: every session that sees its
+      // folder lists it (shellJobVisibleFrom), not only the closed owner.
+      if (unconfirmed && detail?.ownerSessionClosed === true) orphaned.push(job);
       if (!owner) continue;
       const bucket = bySession.get(owner) || { count: 0, oldestMs: Infinity, jobs: [], finished: [] };
       bucket.count += 1;
@@ -244,6 +265,7 @@ async function refreshShellJobsStatus(ownerPid) {
     // count stays 0 (its publisher is a shard, not this host), so an empty
     // aggregate must NOT discard the session buckets.
     if (count || bySession.size) value = summarizeShellJobs({ count, oldestMs, jobs, bySession });
+    if (orphaned.length) value = { ...value, orphaned };
   } catch {
     value = EMPTY_SHELL_JOBS;
   }

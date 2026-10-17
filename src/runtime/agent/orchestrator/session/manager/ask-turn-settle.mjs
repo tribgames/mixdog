@@ -8,7 +8,7 @@ import { ingestSessionTurn } from '../../../../session-search/session-search-ing
 import { persistedAssistantTranscriptMetadata } from '../../../../shared/transcript-metadata.mjs';
 import { acknowledgePendingDeferredToolDelta } from '../../runtime-core/deferred-tool-delta.mjs';
 import { acknowledgePendingGoalReminder } from '../../runtime-core/goal-reminder.mjs';
-import { acknowledgePendingWorkspaceNotice } from './prompt-utils.mjs';
+import { acknowledgePendingSetupNotice, acknowledgePendingWorkspaceNotice } from './prompt-utils.mjs';
 import {
   finalizePendingMessageDelivery,
   drainPendingMessages,
@@ -43,6 +43,8 @@ export function attachAssistantTranscriptCompletion(messages, completion, turnSt
   }
   for (let index = messages.length - 1; index > turnStart; index -= 1) {
     const message = messages[index];
+    // An earlier turn's recorded end bounds this turn.
+    if (message?.meta?.transcript?.completion) break;
     if (message?.role !== 'assistant') continue;
     const content = message.content;
     const hasVisibleText =
@@ -70,6 +72,21 @@ export function attachAssistantTranscriptCompletion(messages, completion, turnSt
     return true;
   }
   return false;
+}
+
+/** Records a failed turn's end on its last message: its tool result, its
+ *  last reply, or the prompt itself when the turn produced nothing. Only for
+ *  a turn whose prompt survived in `messages`, so that message is the turn's. */
+export function attachFailedTurnCompletion(messages, completion) {
+  if (!Array.isArray(messages) || !completion || typeof completion !== 'object') return false;
+  const index = messages.length - 1;
+  const message = messages[index];
+  if (!message || message.role === 'system') return false;
+  const meta = message.meta && typeof message.meta === 'object' ? message.meta : {};
+  const transcript = meta.transcript && typeof meta.transcript === 'object' ? meta.transcript : {};
+  // A new object: the save worker detects changed messages by identity.
+  messages[index] = { ...message, meta: { ...meta, transcript: { ...transcript, completion } } };
+  return true;
 }
 
 /** Commits the loop result into the session: messages, usage, provider state
@@ -125,6 +142,7 @@ export async function commitAskTurn({ sessionId, opened, prepared, result, rawTr
   if (prepared.workspaceNotice) {
     acknowledgePendingWorkspaceNotice(session, prepared.workspaceNotice.revision);
   }
+  if (prepared.setupNotice) acknowledgePendingSetupNotice(session, prepared.setupNotice.revision);
   return {
     ...result,
     trimmed: messagesDropped > 0,

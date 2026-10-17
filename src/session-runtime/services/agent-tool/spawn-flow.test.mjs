@@ -167,6 +167,7 @@ test('a user-cancelled Agent turn settles the worker row as cancelled, not error
 // its session is closed, owned by a Lead that records every delivery.
 async function closeRunningWorker(partial) {
   const deliveries = [];
+  const closures = [];
   const session = { id: 'sess_close_worker', messages: [{ role: 'user', content: 'earlier turn' }] };
   let rejectTurn = null;
   let turnStarted;
@@ -181,7 +182,8 @@ async function closeRunningWorker(partial) {
         rejectTurn = reject;
         turnStarted();
       }),
-    closeSession() {
+    closeSession(...args) {
+      closures.push(args);
       rejectTurn?.(new Error('Session closed: closeSession'));
       return true;
     },
@@ -236,12 +238,14 @@ async function closeRunningWorker(partial) {
   const closed = await closeFlow.close({ tag: 'close-worker' }, lead);
   await job.promise;
   await new Promise((resolve) => setImmediate(resolve));
-  return { closed, deliveries, job };
+  return { closed, deliveries, job, closures };
 }
 
 test('agent close of a running agent notifies the owner once, as cancelled, with the partial output', async () => {
   try {
-    const { closed, deliveries, job } = await closeRunningWorker('half of the review');
+    const { closed, deliveries, job, closures } = await closeRunningWorker('half of the review');
+    assert.ok(closures.length >= 2, 'both task cancellation and explicit runtime close are exercised');
+    assert.ok(closures.every(([, , options]) => options?.tombstone === false));
     assert.equal(closed.closed, true);
     assert.equal(job.status, 'cancelled');
     assert.equal(deliveries.length, 1);

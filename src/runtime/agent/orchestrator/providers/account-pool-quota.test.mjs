@@ -179,7 +179,10 @@ test('an overload 429 with a long Retry-After never blocks the account', async (
   });
   const row = readProviderAccountPool(provider).accounts.find((entry) => entry.id === id);
   assert.ok(!(row.blockedUntil > Date.now()), 'the account is not blocked');
-  assert.equal(stages.some((message) => /Quota exhausted/.test(message)), false);
+  assert.equal(
+    stages.some((message) => /Quota exhausted/.test(message)),
+    false
+  );
   assert.equal((await gateway.send([], 'm', [], { onStageChange })).content, 'ok');
   assert.equal(calls, 2, 'the next send dispatches to the same account');
 });
@@ -205,7 +208,9 @@ test('a long Retry-After without quota evidence is a cooldown: rotates, blocks o
 test('a typed quota refusal blocks until the provider-named reset', async () => {
   await setup({ auto: false });
   const resetAt = Date.now() + 2 * 3_600_000;
-  const gateway = failing(() => Object.assign(new Error('limit'), { status: 429, code: 'usage_limit_reached', resetAt }));
+  const gateway = failing(() =>
+    Object.assign(new Error('limit'), { status: 429, code: 'usage_limit_reached', resetAt })
+  );
   await assert.rejects(gateway.send([], 'm', [], {}), (error) => {
     assert.ok(Math.abs(error.quotaExhausted.resetAt - resetAt) < 5);
     return true;
@@ -220,7 +225,8 @@ test('a provider-supplied accountCooldownPolicy sets reason-based cooldowns when
   const ids = [newProviderAccountId(), newProviderAccountId()];
   for (const [i, id] of ids.entries()) await registerProviderAccount(ag, id, { label: `AG ${i}` });
   await changeProviderAccounts(ag, { selectedId: ids[0], auto: false, useCredits: false });
-  const blockedFor = (id) => readProviderAccountPool(ag).accounts.find((row) => row.id === id).blockedUntil - Date.now();
+  const blockedFor = (id) =>
+    readProviderAccountPool(ag).accounts.find((row) => row.id === id).blockedUntil - Date.now();
   const near = (actual, expected) => Math.abs(actual - expected) < 5_000;
   // Cooldown waits are exercised separately; here every refusal surfaces.
   const noWait = { ...ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY, waitForCooldownMs: 0 };
@@ -252,11 +258,13 @@ test('a provider-supplied accountCooldownPolicy sets reason-based cooldowns when
   await assert.rejects(waited, /cancelled/);
   assert.ok(near(blockedFor(ids[0]), 30_000), 'rate limit 30s');
   await blockProviderAccount(ag, ids[0], 0);
-  const advised = () => Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 100 });
+  const advised = () =>
+    Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 100 });
   await assert.rejects(gateway(advised).send([], 'm', [], {}));
   assert.ok(near(blockedFor(ids[0]), 2_000), 'advised rate limit rotates; the advice (floored) is the cooldown');
   await blockProviderAccount(ag, ids[0], 0);
-  const longAdvice = () => Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 400_000 });
+  const longAdvice = () =>
+    Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 400_000 });
   await assert.rejects(gateway(longAdvice).send([], 'm', [], {}));
   assert.ok(near(blockedFor(ids[0]), 400_000), 'advice beyond the wait bound blocks for the advice');
   await blockProviderAccount(ag, ids[0], 0);
@@ -265,7 +273,9 @@ test('a provider-supplied accountCooldownPolicy sets reason-based cooldowns when
   assert.equal(readProviderAccountPool(ag).accounts.find((row) => row.id === ids[0]).blockedUntil > Date.now(), false);
   // Without a policy the inferred five minutes apply.
   const cursorIds = await setup({ auto: false });
-  await assert.rejects(failing(() => Object.assign(new Error('q'), { status: 429, code: 'quota_exceeded' })).send([], 'm', [], {}));
+  await assert.rejects(
+    failing(() => Object.assign(new Error('q'), { status: 429, code: 'quota_exceeded' })).send([], 'm', [], {})
+  );
   const cursorRow = readProviderAccountPool(provider).accounts.find((row) => row.id === cursorIds[0]);
   assert.ok(near(cursorRow.blockedUntil - Date.now(), 5 * 60_000));
 });
@@ -384,8 +394,7 @@ test('a roster that is only cooling down reports a rate limit advising the earli
   });
 });
 
-const cooling = (policy, send) =>
-  createAccountPoolProvider(provider, () => ({ accountCooldownPolicy: policy, send }));
+const cooling = (policy, send) => createAccountPoolProvider(provider, () => ({ accountCooldownPolicy: policy, send }));
 
 test('waitForCooldownMs waits out a cooldown-only roster inside the bound, then sends', async () => {
   const ids = await setup();
@@ -422,7 +431,12 @@ test('accountBlocked: a policy blockedMs cools that account and rotates; without
   const { ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY } = await import('./antigravity-retry-policy.mjs');
   assert.equal(ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY.blockedMs, 600_000);
   const blocked = () =>
-    Object.assign(new Error('verify'), { status: 403, code: 'validation_required', accountBlocked: true, unsafeToRetry: true });
+    Object.assign(new Error('verify'), {
+      status: 403,
+      code: 'validation_required',
+      accountBlocked: true,
+      unsafeToRetry: true,
+    });
   const ids = await setup();
   let calls = 0;
   const gateway = cooling({ blockedMs: 600_000 }, async () => {
@@ -438,7 +452,12 @@ test('accountBlocked: a policy blockedMs cools that account and rotates; without
 
   const plainIds = await setup();
   const error = blocked();
-  await assert.rejects(cooling(null, async () => { throw error; }).send([], 'm', [], {}), (thrown) => thrown === error);
+  await assert.rejects(
+    cooling(null, async () => {
+      throw error;
+    }).send([], 'm', [], {}),
+    (thrown) => thrown === error
+  );
   const plain = readProviderAccountPool(provider).accounts.find((entry) => entry.id === plainIds[0]);
   assert.equal(plain.blockedUntil > Date.now(), false, 'default: no block');
 
@@ -455,7 +474,8 @@ test('rotateOnRateLimit rotates an advised rate limit and the wait retries the a
   let calls = 0;
   const gateway = cooling({ rotateOnRateLimit: true, waitForCooldownMs: 10_000 }, async () => {
     calls += 1;
-    if (calls === 1) throw Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 100 });
+    if (calls === 1)
+      throw Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 100 });
     return { content: 'ok' };
   });
   const result = await gateway.send([], 'm', [], {});
@@ -659,6 +679,20 @@ test('a quota refusal scoped to a model family does not commit the fallback', as
   // An account-wide refusal still moves the selection.
   await serving(used, (id) => id === ids[0]).send([], 'claude-opus-4', [], {});
   assert.equal(readProviderAccountPool(provider).selectedId, ids[1]);
+});
+
+test('the pool keeps the tool executor identity, including an explicit empty one (model-proxy host)', async () => {
+  await setup();
+  const seen = [];
+  const gateway = createAccountPoolProvider(provider, () => ({
+    async send(_m, _model, _t, opts) {
+      seen.push(opts.toolExecutionSessionId);
+      return { content: 'ok' };
+    },
+  }));
+  await gateway.send([], 'm', [], { sessionId: 'local-session' });
+  await gateway.send([], 'm', [], { sessionId: 'proxied-session', toolExecutionSessionId: '' });
+  assert.deepEqual(seen, ['local-session', '']);
 });
 
 test('auto switching off: a full window on the selected account marks even with another account free', async () => {

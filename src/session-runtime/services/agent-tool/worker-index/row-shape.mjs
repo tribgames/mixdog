@@ -52,6 +52,9 @@ export function normalizeWorkerRows(value) {
       cwd: clean(row.cwd) || null,
       task_id: clean(row.task_id || row.taskId) || null,
       error: clean(row.error) || null,
+      // Why a `failed` row failed (row-liveness, a watchdog stop). Always
+      // present, so a later whole-row write clears a stale reason.
+      failureReason: clean(row.failureReason) || null,
       permission: clean(row.permission) || null,
       toolPermission: clean(row.toolPermission) || null,
       messages: positiveInt(row.messages) || 0,
@@ -101,14 +104,14 @@ export function workerRowFromSession(session, fallbackTag = '', extra = {}, getS
     // Turn dispatch stamps this; terminal upserts leave it null and the
     // merge in applyWorkerRowUpsert preserves the running turn's value.
     turnStartedAt: clean(extra.turnStartedAt) || null,
-    // Active/new work clears the previous lease. Terminal settlement writes
-    // the new absolute deadline immediately afterwards via scheduleReap().
+    // Kept for compatibility with older worker rows; no timer consumes it.
     reapAt: clean(extra.reapAt) || null,
     clientHostPid: positiveInt(extra.clientHostPid) || positiveInt(session?.clientHostPid),
     runtimePid: positiveInt(extra.runtimePid) || process.pid,
     cwd: clean(session?.cwd) || clean(extra.cwd) || null,
     task_id: clean(extra.task_id || extra.taskId) || null,
     error: clean(extra.error) || null,
+    failureReason: clean(extra.failureReason) || null,
     permission: clean(session?.permission) || null,
     toolPermission: clean(session?.toolPermission) || null,
     messages: Array.isArray(session?.messages) ? session.messages.length : 0,

@@ -70,6 +70,7 @@ export function createSessionEntries({
     publishExternalSessionState,
   });
   const loads = createSessionLoads({
+    pendingViewers,
     sessionExists,
     log,
     assertAvailable: lifecycle.assertAvailable,

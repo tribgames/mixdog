@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
+mock.module('../../../runtime/agent/orchestrator/providers/registry.mjs', {
+  namedExports: {
+    getProvider: (name) =>
+      name === 'antigravity-oauth'
+        ? { firstResponseBudget: (model) => ({ transportMs: `${model}:headers`, semanticMs: `${model}:output` }) }
+        : name === 'proxied-antigravity'
+          ? proxiedAntigravity
+          : undefined,
+  },
+});
 mock.module('../../../runtime/agent/orchestrator/agent-runtime/session-builder.mjs', {
   namedExports: {
     prepareAgentSession: (spec) => ({ session: { id: 'local', spec }, effectiveCwd: null }),
@@ -16,6 +29,12 @@ mock.module('../../route-state.mjs', {
 });
 
 const { createSpawnPreparer } = await import('./spawn-flow/spawn-prep.mjs');
+const { ModelProxyProvider } = await import('../../../runtime/agent/orchestrator/providers/model-proxy-provider.mjs');
+
+// The server-side stand-in for a provider on the PC, with the PC's budget.
+const proxiedAntigravity = new ModelProxyProvider('antigravity-oauth', {
+  modelProxy: { firstResponseBudget: { transportMs: 130_000, semanticMs: 250_000 } },
+});
 
 function preparer(sessionSurface) {
   return createSpawnPreparer({
@@ -24,6 +43,43 @@ function preparer(sessionSurface) {
     sessionSurface,
   });
 }
+
+test('watchdog overrides carry the agent definition deadline and the provider first-byte window', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-spawn-prep-'));
+  const sourceRoot = mkdtempSync(join(tmpdir(), 'mixdog-spawn-prep-src-'));
+  mkdirSync(join(dataDir, 'agents', 'art-director'), { recursive: true });
+  writeFileSync(
+    join(dataDir, 'agents', 'art-director', 'AGENT.md'),
+    '---\nname: art-director\nfirstResponseTimeoutMs: 900000\n---\nBody\n'
+  );
+  const { agentWatchdogOverrides } = createSpawnPreparer({
+    cfgMod: {},
+    dataDir,
+    STANDALONE_SOURCE_ROOT: sourceRoot,
+  });
+  assert.deepEqual(
+    agentWatchdogOverrides({ agent: 'art-director', provider: 'antigravity-oauth', model: 'gemini-4-argon' }),
+    {
+      firstResponseTimeoutMs: 900_000,
+      providerFirstByteTimeoutMs: 'gemini-4-argon:headers',
+      providerFirstOutputTimeoutMs: 'gemini-4-argon:output',
+    }
+  );
+  // A proxied provider forwards the PC's budget instead of the 120s / 600s defaults.
+  assert.deepEqual(
+    agentWatchdogOverrides({ agent: 'worker', provider: 'proxied-antigravity', model: 'gemini-4-argon' }),
+    {
+      firstResponseTimeoutMs: undefined,
+      providerFirstByteTimeoutMs: 130_000,
+      providerFirstOutputTimeoutMs: 250_000,
+    }
+  );
+  assert.deepEqual(agentWatchdogOverrides({ agent: 'worker', provider: 'openai', model: 'gpt' }), {
+    firstResponseTimeoutMs: undefined,
+    providerFirstByteTimeoutMs: undefined,
+    providerFirstOutputTimeoutMs: undefined,
+  });
+});
 
 test('spawned agent session receives contextPercent, selectedContextWindow and modelParameters', async () => {
   const preset = { provider: 'p', model: 'm', modelParameters: { context: '1m' }, contextPercent: 40 };

@@ -41,6 +41,43 @@ export function getMediaDefault(kind) {
   return lane ? { kind: key, lane, model: text(row?.model) } : null;
 }
 
+// Settings → Built-in → Media generation. Unlike the remembered selection above
+// (rewritten by every generation), a pin is only ever written by the user:
+// `{ lane, model, account }` per kind, where an empty model is the lane default
+// and an empty account follows that provider's currently selected account.
+const PINNED = 'pinned';
+
+function readPins() {
+  const pins = readAll()[PINNED];
+  return pins && typeof pins === 'object' && !Array.isArray(pins) ? pins : {};
+}
+
+/** `{ kind, lane, model, account }` for the kind, or null when it is on auto. */
+export function getMediaPin(kind) {
+  const key = text(kind);
+  if (!MEDIA_KINDS.includes(key)) return null;
+  const row = readPins()[key];
+  const lane = text(row?.lane);
+  return lane ? { kind: key, lane, model: text(row?.model), account: text(row?.account) } : null;
+}
+
+export function getMediaPins() {
+  return Object.fromEntries(MEDIA_KINDS.map((kind) => [kind, getMediaPin(kind)]));
+}
+
+/** Pin one kind to a lane/model/account; an empty `lane` returns it to auto. */
+export function setMediaPin({ kind, lane, model, account } = {}) {
+  const key = text(kind);
+  if (!MEDIA_KINDS.includes(key)) throw new TypeError(`kind must be one of ${MEDIA_KINDS.join(', ')}`);
+  const laneId = text(lane);
+  const { [key]: _previous, ...others } = readPins();
+  const pins = laneId ? { ...others, [key]: { lane: laneId, model: text(model), account: text(account) } } : others;
+  const path = defaultsPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeJsonAtomicSync(path, { ...readAll(), [PINNED]: pins });
+  return getMediaPin(key);
+}
+
 /** Remember the lane (and model) for one kind. `model` may be empty: the lane default then applies. */
 export function setMediaDefault({ kind, lane, model } = {}) {
   const key = text(kind);

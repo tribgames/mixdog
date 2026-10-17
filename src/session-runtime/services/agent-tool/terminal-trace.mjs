@@ -31,7 +31,6 @@ export function createTerminalTrace({ registry }) {
     if (!row) return false;
     registry.refreshTagsFromSessions({ context });
     const sessionId = clean(row.sessionId);
-    if (sessionId) registry.cancelReap(sessionId);
     registry.forgetTerminalSession(value, sessionId);
     return true;
   }

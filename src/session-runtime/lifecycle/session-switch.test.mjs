@@ -13,10 +13,10 @@ mock.module('../../runtime/session-search/session-search-ingest.mjs', {
   },
 });
 const { createSessionSwitching } = await import('./session-switch.mjs');
-const { getStoreDir } = await import('../../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs');
+const { getStoreDir } = await import('../../runtime/agent/orchestrator/session/store/session-paths.mjs');
 
-// listLeadSessions reads heartbeat sidecars from the store dir: keep the
-// catalog lookups inside a scratch data dir.
+// Deletion reads session files from the store dir: keep the catalog lookups
+// inside a scratch data dir.
 const dataRoot = mkdtempSync(join(tmpdir(), 'mixdog-session-switch-'));
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
 process.env.MIXDOG_DATA_DIR = dataRoot;
@@ -140,7 +140,10 @@ test('a deleted session hands its worktree to the autoCleanup policy; a bound cu
   await settled();
   const order = current.calls.map((call) => call[0]);
   assert.ok(order.indexOf('cwd') < order.indexOf('create'), 'the replacement starts in the project folder');
-  assert.deepEqual(current.calls.find((call) => call[0] === 'cwd'), ['cwd', 'C:\\project']);
+  assert.deepEqual(
+    current.calls.find((call) => call[0] === 'cwd'),
+    ['cwd', 'C:\\project']
+  );
   // Cleanup runs once the replacement exists and nothing runs in the worktree.
   assert.deepEqual(current.cleaned, [['parent', 'fresh', 'C:\\project']]);
   forgotten.length = 0;
@@ -153,32 +156,49 @@ test('deleteSession refuses malformed or unlisted ids without touching the store
   assert.deepEqual(calls, []);
 });
 
-test('deleting a session that is not current unlinks it and every valid linked child once', async () => {
+test('an agent session is listed and can be deleted directly like an ordinary session', async () => {
+  const child = {
+    ...leadRow('child'),
+    owner: 'agent',
+    agent: 'worker',
+    sourceType: 'agent',
+    visibility: 'agent-only',
+    parentSessionId: 'parent',
+  };
+  const { api, calls } = fixture({ current: { id: 'other' }, rows: [child] });
+  assert.equal(api.listSessions()[0].id, 'child');
+  assert.equal(await api.deleteSession('child'), true);
+  assert.deepEqual(
+    calls.filter(([name]) => name === 'delete'),
+    [['delete', 'child']]
+  );
+  assert.equal(
+    calls.some(([name]) => name === 'closeAll'),
+    false
+  );
+  forgotten.length = 0;
+});
+
+test('deleting a session that is not current leaves linked child sessions untouched', async () => {
   const { api, calls } = fixture({ current: { id: 'other' }, rows: [leadRow('parent')] });
   assert.equal(await api.deleteSession('parent'), true);
   assert.deepEqual(calls, [
     ['close', 'parent', 'desktop-session-delete', { tombstone: false }],
-    ['cancelTasks', { reason: 'desktop-session-delete', notify: false, callerSessionId: 'parent' }],
-    ['closeAll', 'desktop-session-delete', { callerSessionId: 'parent' }],
+    ['cancelTasks', { reason: 'desktop-session-delete', notify: false, executionSessionId: 'parent' }],
     ['clearRoute', 'parent'],
     ['delete', 'parent'],
-    ['delete', 'child-a'],
-    ['delete', 'child-b'],
   ]);
   assert.deepEqual(forgotten, ['parent']);
 });
 
-test('deleting the current session releases its work, tombstones parent and children, and recreates', async () => {
+test('deleting the current session tombstones only that session and recreates', async () => {
   const current = { id: 'parent', messages: [{ role: 'user', content: 'hi' }] };
   const { api, calls, state } = fixture({ current, rows: [leadRow('parent')] });
   assert.equal(await api.deleteSession('parent'), true);
   assert.deepEqual(calls, [
-    ['cancelTasks', { reason: 'desktop-session-delete', notify: false, callerSessionId: 'parent' }],
-    ['closeAll', 'desktop-session-delete', { callerSessionId: 'parent' }],
+    ['cancelTasks', { reason: 'desktop-session-delete', notify: false, executionSessionId: 'parent' }],
     ['clearRoute', 'parent'],
     ['close', 'parent', 'desktop-session-delete', { tombstone: true }],
-    ['close', 'child-a', 'desktop-session-delete', { tombstone: true }],
-    ['close', 'child-b', 'desktop-session-delete', { tombstone: true }],
     ['invalidateContext'],
     ['invalidateTools'],
     ['create'],
@@ -193,8 +213,7 @@ test('switchContext closes the open session, retargets cwd and returns to the co
   assert.deepEqual(calls, [
     ['clearPrep'],
     ['ingest', 'scratch'],
-    ['cancelTasks', { reason: 'desktop-context-switch', notify: false, callerSessionId: 'scratch' }],
-    ['closeAll', 'desktop-context-switch', { callerSessionId: 'scratch' }],
+    ['cancelTasks', { reason: 'desktop-context-switch', notify: false, executionSessionId: 'scratch' }],
     ['clearRoute', 'scratch'],
     ['closeSurface', 'scratch', 'desktop-context-switch', { tombstone: true }],
     ['cwd', 'C:\\two'],

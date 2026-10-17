@@ -2,8 +2,8 @@
  * Content-addressed prompt attachment store.
  *
  * Renderer/TUI inputs carry the bytes exactly once to the daemon intake. From
- * that boundary onward queues, checkpoints, session JSON, live-share frames,
- * and desktop snapshots carry only a sha256 reference plus byte-free metadata.
+ * that boundary onward queues, checkpoints, session JSON and desktop
+ * snapshots carry only a sha256 reference plus byte-free metadata.
  * Provider lowering resolves the reference at the last possible boundary.
  */
 import { createHash, randomBytes } from 'node:crypto';
@@ -214,11 +214,13 @@ export function storeInlineDocumentPart(part) {
     if (source?.type !== 'base64' || typeof source.data !== 'string') return null;
     data = source.data;
     const { source: _source, type: _type, mimeType: _mimeType, mediaType: _mediaType, ...rest } = part;
-    const mimeType = String(source.media_type || source.mediaType || part.mimeType || part.mediaType || 'application/pdf')
-      .trim()
-      .toLowerCase() || 'application/pdf';
+    const mimeType =
+      String(source.media_type || source.mediaType || part.mimeType || part.mediaType || 'application/pdf')
+        .trim()
+        .toLowerCase() || 'application/pdf';
     metadata = { ...rest, type: 'file', mimeType };
-    const filename = (typeof part.title === 'string' && part.title) || (typeof part.filename === 'string' && part.filename) || '';
+    const filename =
+      (typeof part.title === 'string' && part.title) || (typeof part.filename === 'string' && part.filename) || '';
     if (filename) metadata.filename = filename;
   } else if (part.type === 'file' && typeof part.data === 'string') {
     const { data: inline, ...rest } = part;
@@ -282,9 +284,7 @@ export function isMissingAttachmentError(error) {
 // never become readable. EBUSY/EPERM/EACCES/EMFILE and friends are transient:
 // callers must let them propagate rather than rewrite history around them.
 export function isPermanentAttachmentError(error) {
-  return (
-    isMissingAttachmentError(error) || error?.code === ATTACHMENT_INVALID || error?.code === ATTACHMENT_INTEGRITY
-  );
+  return isMissingAttachmentError(error) || error?.code === ATTACHMENT_INVALID || error?.code === ATTACHMENT_INTEGRITY;
 }
 
 export function readAttachmentBase64(value) {
@@ -532,6 +532,77 @@ export function materializePromptSubmission(prompt, options = {}) {
       ...(options?.pastedTexts ? { pastedTexts: textState.options } : {}),
     },
   };
+}
+
+const MAX_MESSAGE_ATTACHMENTS = 64;
+
+/**
+ * The user-attachment records of one materialized submission, for the message
+ * metadata (`meta.transcript.attachments`): every image, file and
+ * pasted/attached text that lives in the store, by its content hash. The id IS
+ * the `attachmentRef`; the record repeats it under that key so the store's
+ * mark-and-sweep census (which scans persisted sessions for `"attachmentRef"`)
+ * keeps the blob for as long as the message exists, even after compaction
+ * dropped the content part. Plain long prompt text (no `textKind`) is not an
+ * attachment.
+ */
+export function attachmentsForIntake(prompt, options = {}) {
+  const found = new Map();
+  const add = (ref, info) => {
+    if (!ATTACHMENT_REF_RE.test(String(ref || '')) || found.has(ref) || found.size >= MAX_MESSAGE_ATTACHMENTS) return;
+    found.set(ref, info);
+  };
+  const named = (raw, fallback) => String(raw?.filename || raw?.name || fallback).slice(0, 200);
+  const pastedImages = Object.values(options?.pastedImages || {}).filter((raw) => raw && typeof raw === 'object');
+  const pastedTexts = Object.values(options?.pastedTexts || {}).filter((raw) => raw && typeof raw === 'object');
+  const parts = Array.isArray(prompt) ? prompt : [];
+  for (const part of parts) {
+    if (!isAttachmentReference(part)) continue;
+    const mimeType = String(part.mimeType || part.mediaType || '').slice(0, 100);
+    if (part.type === 'image') {
+      const meta = pastedImages.find((raw) => raw.attachmentRef === part.attachmentRef);
+      add(part.attachmentRef, {
+        kind: 'image',
+        name: named(meta || part, 'image'),
+        mimeType: mimeType || String(meta?.mediaType || 'image/png'),
+        size: attachmentBlobSize(part, part.sizeBytes),
+      });
+    } else if (part.type === 'file') {
+      add(part.attachmentRef, {
+        kind: 'file',
+        name: named(part, 'attachment'),
+        mimeType: mimeType || 'application/octet-stream',
+        size: attachmentBlobSize(part, part.sizeBytes),
+      });
+    } else if (part.type === 'text' && (part.textKind === 'paste' || part.textKind === 'file')) {
+      add(part.attachmentRef, {
+        kind: 'text',
+        name: named(part, part.textKind === 'paste' ? 'pasted-text.txt' : 'attachment.txt'),
+        mimeType: mimeType || 'text/plain',
+        size: attachmentBlobSize(part, part.sizeBytes),
+      });
+    }
+  }
+  // Images the prompt carries only by side table (no matching content part).
+  for (const raw of pastedImages) {
+    if (!isAttachmentReference(raw)) continue;
+    add(raw.attachmentRef, {
+      kind: 'image',
+      name: named(raw, 'image'),
+      mimeType: String(raw.mediaType || 'image/png').slice(0, 100),
+      size: attachmentBlobSize(raw, raw.sizeBytes),
+    });
+  }
+  for (const raw of pastedTexts) {
+    if (!isAttachmentReference(raw)) continue;
+    add(raw.attachmentRef, {
+      kind: 'text',
+      name: named(raw, raw.source === 'file' ? 'attachment.txt' : 'pasted-text.txt'),
+      mimeType: String(raw.mimeType || 'text/plain').slice(0, 100),
+      size: attachmentBlobSize(raw, raw.sizeBytes),
+    });
+  }
+  return [...found].map(([ref, info]) => ({ id: ref, attachmentRef: ref, ...info }));
 }
 
 /**

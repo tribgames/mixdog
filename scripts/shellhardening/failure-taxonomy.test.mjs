@@ -285,18 +285,20 @@ test('asynchronous EACCES spawn errors remain shell tool failures', async (t) =>
 test('execShellCommand carries cancellation cause alongside process signal', async () => {
   const controller = new AbortController();
   const isWindows = process.platform === 'win32';
-  const promise = execShellCommand({
+  // Cancel once the command is visibly running: an abort that lands while the
+  // run is still being admitted or spawned is a spawn-phase failure, not a
+  // process kill, and a cold spawn path can take well over 100 ms.
+  const result = await execShellCommand({
     shell: isWindows ? process.env.ComSpec || 'cmd.exe' : '/bin/sh',
     shellArg: isWindows ? '/c' : '-c',
-    command: isWindows ? 'ping 127.0.0.1 -n 20 > nul' : 'sleep 10',
+    command: isWindows ? 'echo started& ping 127.0.0.1 -n 20 > nul' : 'echo started; sleep 10',
     env: process.env,
     cwd: process.cwd(),
-    timeoutMs: 5000,
+    timeoutMs: 15000,
     abortSignal: controller.signal,
     backgroundOnTimeout: false,
+    onOutputTail: () => controller.abort(),
   });
-  setTimeout(() => controller.abort(), 100);
-  const result = await promise;
   assert.equal(result.killed, true);
   assert.equal(result.killCause, 'cancellation');
   assert.ok(result.signal || process.platform === 'win32');

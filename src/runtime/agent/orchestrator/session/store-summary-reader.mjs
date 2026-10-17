@@ -29,7 +29,7 @@ import {
   storedTranscriptWorkerRunning,
 } from './store-transcript-worker.mjs';
 import { projectStoredTranscript } from './store-transcript-projection.mjs';
-import { dataDir, sessionHeartbeatMtimes } from './store-summary-locations.mjs';
+import { dataDir } from './store-summary-locations.mjs';
 import { isStoredSessionId, workspaceSummary } from './store-summary-fields.mjs';
 import { readArchivedAgentResult } from './store-summary-archived-agent.mjs';
 import { compactionArchivePath, readCompactionArchivePage } from './compaction-archive.mjs';
@@ -42,9 +42,9 @@ import {
   sameSessionStamp,
   isSettledSessionStamp,
 } from './store/canonical-reader.mjs';
-// Worker-pool row projection (child + Lead indexes, heartbeat lease, cancel
-// ranking) lives in store-agent-worker-rows.mjs; re-exported so prior
-// importers of this module stay unchanged.
+// Worker-pool row projection (child + Lead indexes, live-work evidence) lives
+// in store-agent-worker-rows.mjs; re-exported so prior importers of this
+// module stay unchanged.
 export { listStoredAgentWorkerLinks, listStoredAgentWorkers } from './store-agent-worker-rows.mjs';
 export { storedAgentWorkerIndexPath } from './store-summary-locations.mjs';
 
@@ -123,13 +123,12 @@ export function listStoredSessionSummaries(options = {}) {
   // nor empty: the scan still runs, and when IT cannot enumerate either, the
   // catalog reports nothing rather than inventing an empty truth.
   if (options.refreshFromStorage === true) {
-    const heartbeatMtimes = sessionHeartbeatMtimes();
-    return scanSessionFiles(heartbeatMtimes, index.rowsById, true) ?? indexListing(index, heartbeatMtimes) ?? [];
+    return scanSessionFiles(index.rowsById, true) ?? indexListing(index) ?? [];
   }
-  if (options.rebuildIfMissing === false) return indexListing(index, sessionHeartbeatMtimes()) ?? [];
+  if (options.rebuildIfMissing === false) return indexListing(index) ?? [];
   // A missing/malformed index leaves every file to be parsed (once per
   // stamp); a present one lets unchanged files reuse their durable summary.
-  return ordinaryCatalog.refresh(index).rows ?? indexListing(index, sessionHeartbeatMtimes()) ?? [];
+  return ordinaryCatalog.refresh(index).rows ?? indexListing(index) ?? [];
 }
 
 /** The catalog DB's answer to an ordinary listing (`{ rows, more }`), or

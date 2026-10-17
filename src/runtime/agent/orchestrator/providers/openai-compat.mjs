@@ -15,7 +15,12 @@ import {
 import { withEffortRejectionFallback } from './effort-rejection.mjs';
 import { applyCompatErrorContract } from './openai-compat-error-contract.mjs';
 import { sendCompatResponses } from './openai-compat-responses.mjs';
-import { COMPAT_RETRY_POLICY, COMPAT_RETRY_PROFILES, XAI_COMPAT_RETRY_POLICY } from './openai-compat-retry-profile.mjs';
+import {
+  COMPAT_RETRY_POLICY,
+  COMPAT_RETRY_PROFILES,
+  XAI_COMPAT_RETRY_POLICY,
+  compatFirstResponseBudget,
+} from './openai-compat-retry-profile.mjs';
 import { sendCompatChat, recoverCompatNonStreaming } from './openai-compat-chat-send.mjs';
 import { sendXaiResponses, sendXaiResponsesWebSocket } from './openai-compat-xai-send.mjs';
 import {
@@ -99,6 +104,11 @@ export class OpenAICompatProvider {
         /* best-effort */
       }
     }
+  }
+  // First-response budget of a chat profile with its own first-byte window;
+  // null keeps the agent watchdog default.
+  firstResponseBudget() {
+    return compatFirstResponseBudget(this.name, this.config?.chatProfile);
   }
   get _preconnectFn() {
     return typeof this.config?.preconnectFn === 'function' ? this.config.preconnectFn : preconnect;

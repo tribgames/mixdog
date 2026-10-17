@@ -259,6 +259,56 @@ export const PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS = resolveTimeoutMs(
   { minMs: 10_000, maxMs: Math.max(10_000, STALL_ABORT_MS - STALL_TICK_MS) }
 );
 
+/**
+ * The longest a provider's own first-byte handling may legitimately run
+ * before it gives up, over every attempt it permits: `windowMs(n)` is the wait
+ * of attempt n, applied to the response headers and again to the first chunk,
+ * and `backoffMs[n]` the sleep before attempt n (index 0 unused, the last
+ * value repeats). `transportMs` covers the header stage only; `semanticMs`
+ * covers headers plus first chunk. The agent watchdog's first-response
+ * deadlines sit above these, so the provider's timeout and retry decide first.
+ */
+export function providerFirstResponseBudget({ attempts, windowMs, backoffMs = [] }) {
+  let transportMs = 0;
+  let semanticMs = 0;
+  for (let attempt = 0; attempt < Math.max(1, attempts); attempt++) {
+    const backoff = attempt > 0 ? (backoffMs[Math.min(attempt, backoffMs.length - 1)] ?? 0) : 0;
+    const window = windowMs(attempt);
+    transportMs += backoff + window;
+    semanticMs += backoff + 2 * window;
+  }
+  return { transportMs, semanticMs };
+}
+
+/**
+ * A provider's first-byte policy `{ timeoutMs, maxMs, retries }`: `timeoutMs`
+ * is the first attempt's window (headers, and again the first chunk); each
+ * first-byte timeout doubles the next window up to `maxMs`, and `retries` caps
+ * how many of those timeouts are retried. `retries: null` leaves first-byte
+ * timeouts to the provider's ordinary ladder, every attempt on `timeoutMs`.
+ * Returns the window of an attempt after `timeouts` first-byte timeouts.
+ */
+export function firstByteWindowMs(policy, timeouts = 0) {
+  if (policy.retries == null) return policy.timeoutMs;
+  return Math.min(policy.timeoutMs * 2 ** timeouts, Math.max(policy.timeoutMs, policy.maxMs));
+}
+
+/**
+ * providerFirstResponseBudget for a first-byte policy over a ladder of
+ * `attempts` sends. Connection drops and 5xx responses share that ladder with
+ * first-byte timeouts, and such a failure can land just before the timeout, so
+ * every attempt is budgeted a full window. A window only grows with the
+ * timeouts before it and at most `retries` timeouts are retried, so the worst
+ * case has the timeouts first, then later attempts at the widest window.
+ */
+export function firstBytePolicyBudget(policy, { attempts, backoffMs }) {
+  return providerFirstResponseBudget({
+    attempts,
+    windowMs: (attempt) => firstByteWindowMs(policy, Math.min(attempt, policy.retries ?? 0)),
+    backoffMs,
+  });
+}
+
 // First retry has a small floor (250ms) instead of 0ms: an immediate reissue on
 // a transient 5xx burst lets parallel workers thundering-herd the backend in
 // lockstep (jitter alone can't decluster a 0ms base). Subsequent steps keep the

@@ -73,7 +73,9 @@ test('creation makes a locked, owned worktree on a new prefixed branch from the 
   assert.equal(lease.sessionId, sessionId);
   assert.equal(lease.runtimeToken, runtimeToken);
 
-  assert.deepEqual(await getSessionWorktree(sessionId), entry);
+  // `prepared` is the creation's one-off report for the first turn; the registry keeps the rest.
+  const { prepared: _prepared, ...stored } = entry;
+  assert.deepEqual(await getSessionWorktree(sessionId), stored);
   assert.equal(await getSessionWorktree('nobody'), null);
   // Path lookup is canonical: trailing separators, `..` segments and (on
   // Windows) other casing all find the entry.
@@ -94,7 +96,8 @@ test('a retried transaction or a second request of the session returns the same 
     txId: first.txId,
     nameHint: 'something else',
   });
-  assert.deepEqual(retry, first.entry);
+  const { prepared: _prepared, ...stored } = first.entry;
+  assert.deepEqual(retry, stored);
   const again = await createManagedWorktree({
     projectPath: repo,
     sessionId: first.sessionId,
@@ -113,7 +116,10 @@ test('a retried transaction or a second request of the session returns the same 
     createManagedWorktree({ projectPath: repo2, nameHint: 'dup', ...id }),
     createManagedWorktree({ projectPath: repo2, nameHint: 'dup', ...id }),
   ]);
-  assert.deepEqual(a, b);
+  // Only the request that created it carries the one-off `prepared` report.
+  const withoutReport = ({ prepared: _prepared, ...rest }) => rest;
+  assert.deepEqual(withoutReport(a), withoutReport(b));
+  assert.equal([a, b].filter((entry) => entry.prepared).length, 1);
   assert.deepEqual(prefixedBranches(repo2), ['mixdog/dup']);
 });
 
@@ -382,8 +388,15 @@ test('owner leases compare the exact owner, not the pid', async () => {
   assert.equal(await readOwnerLease(entry), null);
   // Durable ownership survives the lease.
   assert.equal((await getSessionWorktree(sessionId)).id, entry.id);
-  await assert.rejects(claimWorktreeOwner(entry.id, { sessionId: 'intruder', runtimeToken: 'x', pid: null }), {
-    code: 'WORKTREE_BRANCH_OCCUPIED',
+  const shared = await claimWorktreeOwner(entry.id, { sessionId: 'peer', runtimeToken: 'x', pid: null });
+  assert.equal(shared.entry.id, entry.id);
+  assert.equal(shared.lease.sessionId, 'peer');
+  assert.equal(await readOwnerLease(entry), null, 'a peer does not replace the creator lease');
+  assert.deepEqual(await releaseWorktreeOwner(entry.id, { sessionId: 'peer', runtimeToken: 'stale' }), {
+    released: false,
+  });
+  assert.deepEqual(await releaseWorktreeOwner(entry.id, { sessionId: 'peer', runtimeToken: 'x' }), {
+    released: true,
   });
 });
 

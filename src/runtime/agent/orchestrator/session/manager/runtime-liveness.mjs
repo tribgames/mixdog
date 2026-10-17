@@ -1,7 +1,10 @@
 // ── Runtime liveness map ──────────────────────────────────────────────
-// In-memory only. Tracks per-session stage + stream heartbeat so agent type=list
+// In-memory only. Tracks per-session stage + stream progress so agent type=list
 // can surface whether a session is actually alive vs stuck. Never persisted —
-// heartbeats would otherwise churn the session JSON on every SSE delta.
+// progress would otherwise churn the session JSON on every SSE delta. The Map
+// itself lives in the import-free leaf runtime-state.mjs so cold readers can
+// ask which turns are in flight (isSessionTurnInFlight /
+// inFlightSessionActivity); every mutation stays here.
 //
 // The Map and its timer companion are
 // module-level singletons — preserving the baseline's single-process shape.
@@ -20,14 +23,16 @@
 // }
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { emitSessionApprovalWaitChange } from '../../../../shared/session-approval-wait.mjs';
-import { publishHeartbeat, deleteHeartbeat } from '../store.mjs';
 import { DEFAULT_ACTIVITY_HEARTBEAT_MS } from '../../stall-policy.mjs';
+import { MODEL_THINKING_STAGE, awaitingModelResponse, lastProgressAt } from '../../../../shared/quiet-progress.mjs';
 import { finishBrowserTurn } from '../../../../browser-bridge/client.mjs';
 import { configureUsageMetricsRuntime, dropMetricSeenState, bumpUsageMetricsTurnId } from './usage-metrics.mjs';
+import { runtimeState as _runtimeState, isTurnInFlight } from './runtime-state.mjs';
+
+export { IN_FLIGHT_STAGES, inFlightSessionActivity } from './runtime-state.mjs';
 
 const HEARTBEAT_THROTTLE_MS = 60_000; // 60s
 
-const _runtimeState = new Map();
 const _toolActivityHeartbeats = new Map();
 const VALID_STAGES = new Set([
   'connecting',
@@ -99,7 +104,6 @@ function _touchSessionActivityProgress(id) {
   const now = Date.now();
   entry.lastProgressAt = now;
   entry.updatedAt = now;
-  publishHeartbeat(id, now);
 }
 
 function _startToolActivityHeartbeat(id) {
@@ -111,11 +115,17 @@ function _startToolActivityHeartbeat(id) {
 }
 
 export function updateSessionStage(id, stage) {
+  if (stage === MODEL_THINKING_STAGE) {
+    markSessionRequestSent(id);
+    return;
+  }
   if (!id || !VALID_STAGES.has(stage)) return;
   const entry = _touchRuntime(id);
   const now = Date.now();
   const priorStage = entry.stage;
   entry.stage = stage;
+  // A new stage (a retried attempt included) has not sent its request yet.
+  entry.requestSentAt = null;
   if (stage === 'requesting' && priorStage !== 'requesting') {
     entry.modelRequestStartedAt = now;
   }
@@ -148,6 +158,7 @@ export function markSessionAskStart(id) {
   entry.lastToolProtocolAt = null;
   entry.lastSemanticKind = null;
   entry.transportTrackingEnabled = false;
+  entry.requestSentAt = null;
   entry.lastToolCall = null;
   entry.toolStartedAt = null;
   entry.toolOutputTail = null;
@@ -166,14 +177,18 @@ export function markSessionAskStart(id) {
   entry.modelRequestStartedAt = null;
   entry.lastProgressAt = now;
   entry.updatedAt = now;
-  // Publish heartbeat immediately so the status aggregator picks the
-  // session up in the connecting / requesting window. Without this the
-  // .hb file only landed on the first stream chunk — producing a 3–10s
-  // (xhigh: 30s+) invisible gap where agent sessions ran but the
-  // statusline showed no maintenance/agent badge. STREAM_FRESH_MS (5 min)
-  // still drops a session whose provider truly never returns a chunk;
-  // markSessionStreamDelta keeps refreshing once chunks arrive.
-  return publishHeartbeat(id, now);
+}
+/** The provider put the request on the wire; its response headers are
+ *  pending. The turn stays `requesting` (every stage set and the watchdog
+ *  clock are unchanged); the send time lets surfaces show "model thinking"
+ *  until transport arrives. Not progress: lastProgressAt is untouched. */
+export function markSessionRequestSent(id) {
+  if (!id) return;
+  const entry = _runtimeState.get(id);
+  if (!entry || entry.closed || entry.controller?.signal?.aborted || entry.stage !== 'requesting') return;
+  const now = Date.now();
+  entry.requestSentAt = now;
+  entry.updatedAt = now;
 }
 export function enableSessionTransportTracking(id) {
   if (!id) return;
@@ -194,7 +209,6 @@ export function markSessionTransportActivity(id) {
   const now = Date.now();
   entry.lastTransportAt = now;
   entry.updatedAt = now;
-  publishHeartbeat(id, now);
 }
 function _normalizeModelProgressKind(kind) {
   let value = 'semantic';
@@ -211,10 +225,10 @@ export async function markSessionStreamDelta(id, kind = 'semantic') {
   // creates it before streaming begins). _touchRuntime would instead resurrect a
   // blank entry — and closeSession()/idle-sweep clear _runtimeState on a deferred
   // tick while a detached provider stream may still be trickling deltas. A delta
-  // arriving after that clear must NOT re-create an entry or it would republish the
-  // .hb heartbeat that markSessionClosed deleted, orphaning a dead session's
-  // heartbeat indefinitely (the disk tombstone blocks ask resumption but not this
-  // path). Skip a missing, tombstoned, or aborted entry — never refresh liveness.
+  // arriving after that clear must NOT re-create an entry or it would revive a
+  // dead session's runtime state (the disk tombstone blocks ask resumption but
+  // not this path). Skip a missing, tombstoned, or aborted entry — never refresh
+  // liveness.
   const entry = _runtimeState.get(id);
   if (!entry || entry.closed || entry.controller?.signal?.aborted || TERMINAL_STAGES.has(entry.stage)) return;
   const progressKind = _normalizeModelProgressKind(kind);
@@ -240,11 +254,7 @@ export async function markSessionStreamDelta(id, kind = 'semantic') {
   if (entry.stage === 'connecting' || entry.stage === 'requesting') {
     entry.stage = 'streaming';
   }
-  // Lightweight heartbeat (≤5s self-throttled) for the status aggregator.
-  // Disk-side session.lastHeartbeatAt below is the heavy 60s zombie-reaper
-  // signal; the .hb file is the fast fresh-session signal consumed by the
-  // status line.
-  publishHeartbeat(id, now);
+  // Disk-side session.lastHeartbeatAt is the 60s zombie-reaper signal.
   const session = entry.session;
   if (session && now - (session.lastHeartbeatAt || 0) > HEARTBEAT_THROTTLE_MS) {
     session.lastHeartbeatAt = now;
@@ -271,9 +281,7 @@ export function markSessionToolCall(id, toolName) {
   entry.lastToolProtocolAt = entry.toolStartedAt;
   entry.lastProgressAt = entry.toolStartedAt;
   entry.updatedAt = entry.toolStartedAt;
-  const heartbeat = publishHeartbeat(id, entry.toolStartedAt);
   _startToolActivityHeartbeat(id);
-  return heartbeat;
 }
 // Live shell-output tail for the CURRENT running tool. Written by the shell
 // tool's onOutputTail timer (~1 s cadence), read by engine transcript
@@ -341,10 +349,6 @@ export function markSessionDone(id, { empty = false } = {}) {
     entry.emptyFinal = false;
     entry.emptyFinalAt = null;
   }
-  // Terminal stage — drop the heartbeat so the status badge releases
-  // immediately. A subsequent ask on the same session re-publishes via
-  // markSessionStreamDelta on the first chunk.
-  return deleteHeartbeat(id);
 }
 // Tag a session as having completed with empty final synthesis (no
 // content/reasoning). Distinct from `markSessionDone`: still a success
@@ -368,9 +372,7 @@ export function markSessionError(id, msg) {
   // silent empty final). Clear the flag so the next ask starts clean.
   entry.emptyFinal = false;
   entry.emptyFinalAt = null;
-  const heartbeatDeleted = deleteHeartbeat(id);
   _unlinkParentAbortListener(entry);
-  return heartbeatDeleted;
 }
 export function markSessionCancelled(id) {
   if (!id) return;
@@ -380,24 +382,19 @@ export function markSessionCancelled(id) {
   _settleTerminalEntry(entry, 'done', null);
   entry.emptyFinal = false;
   entry.emptyFinalAt = null;
-  const heartbeatDeleted = deleteHeartbeat(id);
   _unlinkParentAbortListener(entry);
-  return heartbeatDeleted;
 }
 export function getSessionRuntime(id) {
   return id ? _runtimeState.get(id) || null : null;
 }
 
-// Stages that still own live provider/tool work: compaction, idle cleanup and
-// runtime unload all stay away from an entry in one of them.
-export const IN_FLIGHT_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'cancelling']);
+/** Whether this session's turn (provider or tool work) is running now. */
+export function isSessionTurnInFlight(sessionId) {
+  return Boolean(sessionId) && isTurnInFlight(_runtimeState.get(sessionId));
+}
 
 export function isSessionCompactionBlocked(sessionId) {
-  if (!sessionId) return false;
-  const entry = _runtimeState.get(sessionId);
-  if (!entry || entry.closed === true) return false;
-  if (entry.controller && !entry.controller.signal?.aborted) return true;
-  return IN_FLIGHT_STAGES.has(entry.stage);
+  return isSessionTurnInFlight(sessionId);
 }
 
 export function getSessionProgressSnapshot(sessionId) {
@@ -418,6 +415,9 @@ export function getSessionProgressSnapshot(sessionId) {
     firstActivityAt,
     firstSemanticAt,
     lastTransportAt: entry.lastTransportAt || 0,
+    requestSentAt: entry.requestSentAt || 0,
+    // Request on the wire, headers pending: the model is queued or thinking.
+    awaitingModelResponse: awaitingModelResponse(entry),
     lastSemanticAt: entry.lastSemanticAt || 0,
     lastSemanticKind: entry.lastSemanticKind || null,
     lastReasoningAt: entry.lastReasoningAt || 0,
@@ -482,14 +482,7 @@ export function getSessionAbortSignal(sessionId) {
  * either skip the watchdog or treat 0 as "no progress yet".
  */
 export function getSessionLastProgressAt(sessionId) {
-  const entry = _runtimeState.get(sessionId);
-  if (!entry) return 0;
-  return Math.max(
-    entry.lastProgressAt || 0,
-    entry.lastStreamDeltaAt || 0,
-    entry.toolStartedAt || 0,
-    entry.askStartedAt || 0
-  );
+  return lastProgressAt(_runtimeState.get(sessionId));
 }
 
 /**

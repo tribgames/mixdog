@@ -6,6 +6,7 @@ import { SESSION_READ_ACTION_SET } from '../../session-protocol.mjs';
 import { SESSION_ID_PATTERN } from '../agent-tree.mjs';
 import {
   loadLiveTranscriptHead,
+  readTranscriptRange,
   rebudgetTranscriptWindow,
   requestedHeldTranscript,
   requestedTranscriptWindow,
@@ -132,6 +133,11 @@ export function createSessionViewCalls(ctx) {
     if (!id) throw new TypeError('sessionId is required');
     const live = await liveEntryFor(id);
     assertAvailable(live);
+    if (params.transcriptRange) {
+      const range = await readTranscriptRange(live, id, readStoredSession, params.transcriptRange);
+      assertAvailable(live);
+      return { range };
+    }
     if (live) {
       return liveSessionReadResult(live, params, id, baseRevision);
     }

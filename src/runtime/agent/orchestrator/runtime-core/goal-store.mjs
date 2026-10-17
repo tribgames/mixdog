@@ -86,7 +86,7 @@ export function createGoalStore(ctx) {
     }
   };
 
-  const commit = async (sessionId, goal) => {
+  const commit = async (sessionId, goal, { isCurrent, accept } = {}) => {
     const id = assertSessionId(sessionId);
     const previous = goal ? readRecord(id).goal : null;
     let committedGoal = null;
@@ -101,7 +101,35 @@ export function createGoalStore(ctx) {
           ? previous.revision + Number(revisionStateKey(previous) !== revisionStateKey(committedGoal))
           : 1;
     }
-    await storage.write(id, { version: GOAL_FILE_VERSION, goal: committedGoal });
+    const rollback = async () => {
+      try {
+        await storage.write(id, { version: GOAL_FILE_VERSION, goal: previous });
+      } catch (error) {
+        error.quotaResumeRollbackFailed = true;
+        throw error;
+      }
+      ctx.deadlines.armDeadline(id);
+    };
+    try {
+      await storage.write(id, { version: GOAL_FILE_VERSION, goal: committedGoal });
+    } catch (error) {
+      if (isCurrent || accept) await rollback();
+      throw error;
+    }
+    if (isCurrent || accept) {
+      let accepted = false;
+      let admissionError = null;
+      try {
+        accepted = (!isCurrent || isCurrent()) && (!accept || accept() === true);
+      } catch (error) {
+        admissionError = error;
+      }
+      if (!accepted) {
+        await rollback();
+        if (admissionError) throw admissionError;
+        return null;
+      }
+    }
     ctx.deadlines.armDeadline(id);
     emit(id);
     return publicGoal(committedGoal, now());

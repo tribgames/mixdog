@@ -16,6 +16,7 @@ export function createWorkspaceToolHandlers({
   getWorkspaceApi = () => null,
   getSessionManager = () => null,
   getLifecycleApi = () => null,
+  executeSessionControl = null,
 }) {
   // The Lead's own worktree, on the user's request: the same authority the
   // branch chip menu drives, tolerating the calling turn but nothing else
@@ -63,6 +64,17 @@ export function createWorkspaceToolHandlers({
 
   const session = async (args, { callerCtx, callerCwd }) => {
     const action = clean(args?.action || (args?.path ? 'set-project' : 'status')).toLowerCase();
+    const target = clean(args?.session_id);
+    if (['list', 'read', 'send', 'cancel', 'delete'].includes(action) || (action === 'status' && target)) {
+      const callerSessionId = assertLead(action, callerCtx);
+      if (typeof executeSessionControl !== 'function') {
+        throw new Error('session: cross-session control is unavailable in this runtime');
+      }
+      return JSON.stringify(await executeSessionControl({ ...args, action }, { callerSessionId }));
+    }
+    if (target && target !== assertLead(action, callerCtx)) {
+      throw new Error(`session: action=${action} only applies to the current session`);
+    }
     if (WORKTREE_ACTIONS.has(action)) return worktreeAction(action, args, callerCtx);
     if (SIDEBAR_ACTIONS.has(action)) return sidebarAction(action, args, callerCtx);
     let currentCwd = callerCwd;

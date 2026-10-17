@@ -4,7 +4,7 @@
  * snapshot, or the evidence-backed failed-save snapshot. Nothing here writes;
  * the precedence rules are the whole responsibility.
  */
-import { sessionPath } from './paths-heartbeat.mjs';
+import { sessionPath } from './session-paths.mjs';
 import { _savePending } from './pending-saves.mjs';
 import { _liveSessions, _droppedSaveIds, getFailedSaveSnapshot } from './live-state.mjs';
 import { _readStoredSessionCached } from './load-cache.mjs';

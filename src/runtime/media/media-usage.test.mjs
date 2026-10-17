@@ -72,6 +72,7 @@ let geminiDownload = async () => Buffer.from('mp4');
 mock.module(here('./lanes.mjs'), {
   namedExports: {
     mediaError,
+    mediaLaneAccountProvider: () => '',
     resolveMediaRequest: async ({ lane, kind, model }) => ({
       kind,
       lane: { id: lane },
@@ -99,7 +100,12 @@ test.after(() => {
   globalThis.setTimeout = realSetTimeout;
 });
 
-const json = (body, status = 200) => ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) });
+const json = (body, status = 200) => ({
+  ok: status < 300,
+  status,
+  json: async () => body,
+  text: async () => JSON.stringify(body),
+});
 const eventRows = () => ledger.db.prepare('SELECT * FROM events').all();
 
 /** Run one job against a fake upstream; returns the job and the ledger rows it wrote. */
@@ -116,7 +122,14 @@ async function generate(request, upstream) {
 test('xai image: the billed cost is recorded as provider cost; grok-oauth keeps it as subscription', async () => {
   const body = (ticks) => ({ data: [{ b64_json: 'aW1n' }], ...(ticks ? { usage: { cost_in_usd_ticks: ticks } } : {}) });
   const api = await generate(
-    { lane: 'xai', kind: 'image', model: 'grok-imagine-image-2.0', prompt: 'p', sessionId: 's-api', sourceType: 'lead' },
+    {
+      lane: 'xai',
+      kind: 'image',
+      model: 'grok-imagine-image-2.0',
+      prompt: 'p',
+      sessionId: 's-api',
+      sourceType: 'lead',
+    },
     () => json(body(400000000))
   );
   assert.equal(api.job.status, 'done');
@@ -204,15 +217,13 @@ test('openai-oauth: Responses usage prices the orchestrator model as subscriptio
   );
   assert.equal(JSON.parse(row.rates).pricingModel, 'gpt-5.6-sol');
 
-  const failed = await generate(
-    { lane: 'openai-oauth', kind: 'image', model: 'gpt-image-2', prompt: 'p' },
-    (url) => (url.includes('responses') ? new Response(sse([{ ...completed, type: 'response.failed' }])) : undefined)
+  const failed = await generate({ lane: 'openai-oauth', kind: 'image', model: 'gpt-image-2', prompt: 'p' }, (url) =>
+    url.includes('responses') ? new Response(sse([{ ...completed, type: 'response.failed' }])) : undefined
   );
   assert.equal(failed.job.status, 'failed');
   assert.equal(failed.rows.length, 1, 'a failure with reported usage is still recorded');
-  const silent = await generate(
-    { lane: 'openai-oauth', kind: 'image', model: 'gpt-image-2', prompt: 'p' },
-    (url) => (url.includes('responses') ? new Response(sse([{ type: 'response.failed', response: {} }])) : undefined)
+  const silent = await generate({ lane: 'openai-oauth', kind: 'image', model: 'gpt-image-2', prompt: 'p' }, (url) =>
+    url.includes('responses') ? new Response(sse([{ type: 'response.failed', response: {} }])) : undefined
   );
   assert.equal(silent.rows.length, 0, 'tokens are never invented for a failure');
 });
@@ -252,15 +263,21 @@ test('gemini image: usageMetadata prices image tokens at the image-token rate; n
   assert.equal(unlisted.rows[0].cost_source, 'unpriced');
   assert.equal(unlisted.rows[0].output, 1350);
 
-  const refusal = await generate({ lane: 'gemini', kind: 'image', model: 'gemini-3-pro-image-preview', prompt: 'p' }, () =>
-    json({ candidates: [{ content: { parts: [{ text: 'no' }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 2 } })
+  const refusal = await generate(
+    { lane: 'gemini', kind: 'image', model: 'gemini-3-pro-image-preview', prompt: 'p' },
+    () =>
+      json({
+        candidates: [{ content: { parts: [{ text: 'no' }] } }],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 2 },
+      })
   );
   assert.equal(refusal.job.status, 'failed');
   assert.equal(refusal.rows.length, 1);
   assert.deepEqual([refusal.rows[0].input, refusal.rows[0].output], [10, 2]);
 
-  const rejected = await generate({ lane: 'gemini', kind: 'image', model: 'gemini-3-pro-image-preview', prompt: 'p' }, () =>
-    json({ error: { message: 'bad' } }, 400)
+  const rejected = await generate(
+    { lane: 'gemini', kind: 'image', model: 'gemini-3-pro-image-preview', prompt: 'p' },
+    () => json({ error: { message: 'bad' } }, 400)
   );
   assert.equal(rejected.rows.length, 0);
 });
@@ -403,10 +420,14 @@ test('media rows roll up into provider/model/day totals and per-session tokens',
     rows.reduce((sum, row) => sum + row.input + row.output + row.cache_read + row.cache_write, 0)
   );
   const providers = new Set(stats.providers.map((provider) => provider.provider));
-  for (const lane of ['xai', 'grok-oauth', 'openai-oauth', 'gemini', 'antigravity-oauth']) assert.ok(providers.has(lane), lane);
+  for (const lane of ['xai', 'grok-oauth', 'openai-oauth', 'gemini', 'antigravity-oauth'])
+    assert.ok(providers.has(lane), lane);
   const gemini = stats.providers.find((provider) => provider.provider === 'gemini');
   assert.ok(gemini.models.some((model) => model.model === 'veo-3.1-fast-generate-preview'));
-  assert.equal(stats.daily.reduce((sum, day) => sum + day.turns, 0), rows.length);
+  assert.equal(
+    stats.daily.reduce((sum, day) => sum + day.turns, 0),
+    rows.length
+  );
   const sessions = new Set(rows.map((row) => row.session_id).filter(Boolean));
   assert.equal(stats.totals.sessions, sessions.size);
 });

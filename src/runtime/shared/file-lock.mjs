@@ -278,12 +278,13 @@ function* releaseReclaimGuard(reclaim) {
 
 // A lock is reclaimable when its recorded owner is dead, or when it names no
 // owner at all and has outlived the stale window.
-function lockReclaimable(owner, stat, staleMs) {
+function lockReclaimable(owner, stat, staleMs, strictOwner = false) {
   if (owner.pid !== null) return !ownerIsLive(owner);
+  if (strictOwner) return false;
   return Date.now() - (Number(stat.mtimeMs) || 0) >= Math.max(0, staleMs);
 }
 
-function* tryReclaimStaleLock(lockPath, staleMs) {
+function* tryReclaimStaleLock(lockPath, staleMs, strictOwner = false) {
   let initial;
   try {
     initial = yield ['stat', lockPath];
@@ -291,7 +292,7 @@ function* tryReclaimStaleLock(lockPath, staleMs) {
     return false;
   }
   const owner = yield* readLockOwner(lockPath);
-  if (!lockReclaimable(owner, initial, staleMs)) return false;
+  if (!lockReclaimable(owner, initial, staleMs, strictOwner)) return false;
   const reclaim = yield* tryAcquireReclaimGuard(lockPath);
   if (reclaim === null) return false;
   try {
@@ -303,7 +304,7 @@ function* tryReclaimStaleLock(lockPath, staleMs) {
     }
     const currentOwner = yield* readLockOwner(lockPath);
     if (currentOwner.pid !== owner.pid || currentOwner.token !== owner.token) return false;
-    if (lockReclaimable(currentOwner, current, staleMs)) {
+    if (lockReclaimable(currentOwner, current, staleMs, strictOwner)) {
       try {
         yield ['unlink', lockPath];
         return true;
@@ -429,7 +430,7 @@ function* acquireLock(lockPath, opts, mode, markHeld, timing = null) {
       // The reclaim runs synchronously in both modes: it is a few metadata
       // calls, and an await inside it would let a process exit strand its guard.
       try {
-        if (runSync(tryReclaimStaleLock(lockPath, staleMs))) continue;
+        if (runSync(tryReclaimStaleLock(lockPath, staleMs, opts.strictOwner === true))) continue;
       } catch {}
       if (timeoutMs <= 0) throw contentionError(lockPath, error, yield* describeLockHolder(lockPath));
       if (Date.now() >= deadline) break;

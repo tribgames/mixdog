@@ -498,6 +498,14 @@ export function providerInputExcludesCache(name) {
 export function providerNativePdf(name) {
   return providerTakesNativePdf(providers.get(String(name || '').toLowerCase()));
 }
+/**
+ * Whether the named provider's adapter declares `consumesReadWindows`: it
+ * needs the structured clip report of read results. A pure lookup; a proxy
+ * stand-in carries the PC adapter's declared trait.
+ */
+export function providerConsumesReadWindows(name) {
+  return providers.get(String(name || '').toLowerCase())?.consumesReadWindows === true;
+}
 export function getAllProviders() {
   // Defensive copy — callers must not mutate the live registry or retain
   // stale entries across re-init (initProviders rebuilds the map in place).

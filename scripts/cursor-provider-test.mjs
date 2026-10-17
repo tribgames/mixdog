@@ -874,7 +874,9 @@ test('Cursor stamps the Fast tier it sent and prices pinned variants as their ca
   const runtime = {
     async handleChatCompletion(body) {
       sent.push(body.model);
-      return sseResponse([{ id: 'r', model: body.model, choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }]);
+      return sseResponse([
+        { id: 'r', model: body.model, choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] },
+      ]);
     },
     async getCursorModels() {
       return [
@@ -1185,7 +1187,10 @@ test('Cursor request context includes harness rules and MCP routing instructions
   // cloudRule leaves the server-side agent governed only by its own harness.
   assert.equal(context.cloudRule, 'mixdog rule');
   assert.equal(context.mcpInstructions[0].serverName, 'mixdog');
-  assert.match(context.mcpInstructions[0].instructions, /Prefer them over Cursor native tools/);
+  assert.match(
+    context.mcpInstructions[0].instructions,
+    /Do not use Cursor native tools; use only the tools provided by the mixdog MCP server/
+  );
 });
 
 test('Cursor checkpoint occupancy never becomes billable prompt tokens', async () => {

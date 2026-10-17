@@ -52,6 +52,14 @@ export function createMediaApi() {
     async setMediaDefault(input) {
       return (await defaults()).setMediaDefault(input || {});
     },
+    // Settings → Built-in → Media generation: the default generator the media
+    // tool uses per kind when the chat does not name one.
+    async getMediaPins() {
+      return (await defaults()).getMediaPins();
+    },
+    async setMediaPin(input) {
+      return (await defaults()).setMediaPin(input || {});
+    },
     async startMediaJob(input) {
       return (await jobs()).startMediaJob(input || {});
     },

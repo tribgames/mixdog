@@ -1,8 +1,10 @@
 /**
  * Managed git worktrees for Lead sessions.
  *
- * One retained worktree per Lead session, created lazily from the project's
- * current branch on "<branchPrefix><slug>" at managedWorktreePath(). Every
+ * Automatic worktrees are created lazily from the project's current branch
+ * on "<branchPrefix><slug>" at managedWorktreePath(). Explicit branch selection
+ * reuses its checkout or creates one for that exact branch. Creator retention
+ * and additional sessions' durable references protect shared checkouts. Every
  * mutation runs under withRepoLock (in-process git lock keyed by the common
  * git dir + cross-process file lock) and is recorded in the durable registry
  * (registry.mjs) before it touches anything:
@@ -32,7 +34,7 @@ import {
   retainedRecoveryScopes,
   validateRecoveryScope,
 } from './file-recovery.mjs';
-import { lstat, mkdir, readdir, readFile, rm, rmdir } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, rm, rmdir, stat } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import {
   managedWorktreePath,
@@ -69,12 +71,15 @@ import {
   applyIncludes,
   coveredByIncludes,
   modifiedIncludeCopies,
+  untrackedEnvFiles,
   planIncludes,
   readIncludeEntries,
   removeIncludeLinks,
+  restoreIncludeLinks,
 } from './include.mjs';
+import { linkWorktreeDependencies } from './dependencies.mjs';
 import { withRepoLock as withRepoMutationLock } from './lock.mjs';
-import { mergeBranchIntoCheckout } from './merge.mjs';
+import { mergeBranchIntoCheckout, operationInProgress } from './merge.mjs';
 import { readOwnerLease, removeOwnerLease, sameOwner, writeOwnerLease } from './owner.mjs';
 import { canonicalPath, checkoutFolder, isWithin, pathKey, projectSubdirOf, samePath } from './paths.mjs';
 import {
@@ -92,6 +97,8 @@ import { slugFromHint, uniqueSlug } from './slug.mjs';
 const WORKTREE_ADD_TIMEOUT_MS = 30 * 60_000;
 const REMOVE_RETRIES = 6;
 const REMOVE_RETRY_DELAY_MS = 150;
+// Entries a folder-only removal checks for unrecorded directory links.
+const LINK_SCAN_LIMIT = 250_000;
 // The session copies the project identity into each managed worktree; it is
 // Mixdog metadata, not user data, so it alone never makes a worktree dirty.
 const SESSION_PROJECT_ID_PATH = '.mixdog/project.id';
@@ -337,6 +344,7 @@ async function dirtyPaths(record) {
 }
 
 async function deleteBranchIfFree(record) {
+  if (record.existingBranch === true) return { deleted: false, reason: 'pre-existing' };
   const cwd = repoCwd(record);
   if (!(await branchCommit(cwd, record.branch))) return { deleted: false, reason: 'missing' };
   const holder = (await listWorktrees(cwd)).find((worktree) => worktree.branch === record.branch);
@@ -352,6 +360,10 @@ async function deleteBranchIfFree(record) {
 async function removeCheckout(record) {
   await assertRecoveryStoresClear(record);
   await assertManagedCheckoutPath(record);
+  // `git worktree remove --force` can descend through a junction on Windows
+  // (fs.rm below does not: it unlinks links), so an unknown directory link
+  // refuses this removal as it does the folder-only one.
+  await assertNoUnrecordedDirectoryLinks(record);
   const remaining = [];
   for (const path of await removeIncludeLinks(record.resources?.includes)) remaining.push({ kind: 'link', path });
   if (remaining.length) return remaining;
@@ -376,6 +388,128 @@ async function removeCheckout(record) {
   await pruneRegistration(record.repoCommonDir, record.path, { allowLocked: true });
   if (await registrationFor(record)) remaining.push({ kind: 'registration', path: record.path });
   return remaining;
+}
+
+/**
+ * Refuse a checkout that holds a directory link the ledger does not know (a
+ * junction or directory symlink made by the user or a build tool): `git
+ * worktree remove` can descend through it on Windows and delete the target's
+ * files. Refusing is chosen over unlinking: nothing the manager did not make
+ * is ever touched, and the user removes the link (never its target) and
+ * retries. The walk never follows a link, skips `.git` entries (the back link
+ * file, nested repositories' internals) and is bounded: a checkout too large
+ * to verify is refused as well. Recorded links are skipped (unlinked next).
+ */
+async function assertNoUnrecordedDirectoryLinks(record) {
+  const key = (path) => (process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path));
+  const recorded = new Set(
+    (record.resources?.includes || []).filter((item) => item.mode === 'link').map((item) => key(item.path))
+  );
+  const refuse = (message, details) =>
+    worktreeError('WORKTREE_PATH_UNSAFE', message, { entryId: record.id, path: record.path, ...details });
+  const found = [];
+  const pending = [record.path];
+  let scanned = 0;
+  while (pending.length) {
+    const dir = pending.pop();
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      throw refuse(
+        `The worktree folder could not be checked for links (${error?.code || error?.message}); nothing was deleted.`,
+        { reason: 'unreadable' }
+      );
+    }
+    for (const entry of entries) {
+      if (++scanned > LINK_SCAN_LIMIT) {
+        throw refuse(
+          `The worktree folder has more than ${LINK_SCAN_LIMIT} entries to check for links; nothing was deleted.`,
+          { reason: 'too-many-entries' }
+        );
+      }
+      if (entry.name.toLowerCase() === '.git') continue;
+      const path = join(dir, entry.name);
+      // A junction is a link here too (a reparse point), so it is never descended.
+      if (entry.isDirectory()) pending.push(path);
+      else if (entry.isSymbolicLink() && !recorded.has(key(path)) && (await linksToDirectory(path))) {
+        found.push(relative(record.path, path).split(sep).join('/'));
+      }
+    }
+  }
+  if (found.length) {
+    throw refuse(
+      `The worktree contains linked folders it did not create (${found.slice(0, 10).join(', ')}${found.length > 10 ? ', …' : ''}). ` +
+        'Removing the folder could delete their targets: remove those links (not their targets) first; nothing was deleted.',
+      { reason: 'unrecorded-links', links: found.slice(0, 50), count: found.length }
+    );
+  }
+}
+
+/** True when the link at `path` resolves to a directory (or cannot be ruled out). */
+async function linksToDirectory(path) {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch (error) {
+    // Dangling: nothing to descend into.
+    return error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR';
+  }
+}
+
+/** Explicit folder-only cleanup never force-removes a checkout or user files. */
+async function removeCheckoutSafely(record) {
+  const registration = await registrationFor(record);
+  if (!registration && !existsSync(record.path)) return [];
+  await assertManagedCheckoutPath(record);
+  await assertRecoveryStoresClear(record);
+  await assertRemovable(record);
+  if (await operationInProgress(gitStatusRunner, record.path)) {
+    throw worktreeError('WORKTREE_DIRTY', 'Finish the Git operation before removing this worktree.');
+  }
+  const ownedLock = `mixdog session=${record.ownerSessionId}`;
+  if (registration?.locked !== null && registration?.locked !== ownedLock) {
+    throw worktreeError('WORKTREE_BUSY_JOBS', 'The worktree has an external Git lock.');
+  }
+  // `git worktree remove` descends through a directory junction on Windows
+  // and would empty its target (a linked node_modules in the main checkout):
+  // an unknown link refuses the removal, the recorded links go first, by unlink only.
+  await assertNoUnrecordedDirectoryLinks(record);
+  const includes = record.resources?.includes;
+  if ((await removeIncludeLinks(includes)).length) {
+    const failures = await restoreIncludeLinks(includes);
+    throw withRollbackFailures(
+      worktreeError('WORKTREE_BUSY_JOBS', 'A linked folder in the worktree could not be unlinked.'),
+      failures.map((failure) => `${failure.path} (${failure.error})`)
+    );
+  }
+  let unlocked = false;
+  try {
+    if (registration?.locked === ownedLock) {
+      await runGit(repoCwd(record), ['worktree', 'unlock', record.path]);
+      unlocked = true;
+    }
+    await runGit(repoCwd(record), ['worktree', 'remove', record.path]);
+  } catch (error) {
+    const failures = (await restoreIncludeLinks(includes)).map((failure) => `${failure.path} (${failure.error})`);
+    if (unlocked && (await registrationFor(record))) {
+      try {
+        await runGit(repoCwd(record), ['worktree', 'lock', '--reason', ownedLock, record.path]);
+      } catch (lockError) {
+        failures.push(`worktree lock (${firstLine(lockError?.message) || lockError})`);
+      }
+    }
+    throw withRollbackFailures(error, failures);
+  }
+  return [];
+}
+
+/** Report what a failed safe removal could not put back on its error (never swallowed). */
+function withRollbackFailures(error, failures) {
+  if (!failures.length) return error;
+  error.rollbackFailures = failures;
+  error.message = `${error.message} Not restored: ${failures.join(', ')}.`;
+  return error;
 }
 
 /**
@@ -423,7 +557,11 @@ async function rollbackCreation(record, cause) {
     if (resources.worktree) {
       const left = await removeCheckout(record);
       remaining.push(...left);
-      if (!left.length) {
+      if (
+        !left.length &&
+        record.existingBranch !== true &&
+        !(record.exactBranch === true && resources.worktree !== 'created')
+      ) {
         // The slug was free when this transaction reserved it, so a branch
         // still at the base commit is the one `worktree add -b` made. A
         // branch that moved holds someone's commits and is kept.
@@ -473,7 +611,7 @@ async function finishDeletion(record) {
     for (const result of results) {
       if (!result.ok) remaining.push({ kind: 'cleanup', name: result.name, error: result.error.message });
     }
-    remaining.push(...(await removeCheckout(record)));
+    remaining.push(...(await (record.deleting?.safeOnly ? removeCheckoutSafely(record) : removeCheckout(record))));
   } catch (error) {
     remaining.push({ kind: 'error', error: String(error?.message || error) });
   }
@@ -485,7 +623,7 @@ async function finishDeletion(record) {
   let branch = { deleted: false, reason: 'kept' };
   let kept = { tip: null, recoveryRef: null };
   const merged = (await unmergedCommitCount(record)) === 0;
-  if (record.deleting?.force || merged) {
+  if (!record.deleting?.preserveBranch && (record.deleting?.force || merged)) {
     // Forced past unmerged commits: the tip stays reachable before `branch -D`.
     if (!merged) kept = await keepRemovedTip(record);
     else kept.tip = await branchCommit(repoCwd(record), record.branch);
@@ -532,6 +670,100 @@ export async function getWorktreeByPath(path) {
   const key = pathKey(path);
   const record = Object.values((await readRegistry()).entries).find((item) => pathKey(item.path) === key);
   return record ? entryView(record) : null;
+}
+
+/** Resolve a branch to its checkout without switching any existing folder. */
+export async function resolveBranchWorkspace({
+  projectPath,
+  branch,
+  create = false,
+  sessionId,
+  runtimeToken,
+  txId,
+  confirmLarge = false,
+  signal,
+} = {}) {
+  requireText(branch, 'branch');
+  const repo = await inspectRepo(projectPath, { signal });
+  return withRepoLock(repo.repoCommonDir, async () => {
+    if (!(await validBranchName(repo.projectPath, branch))) throw new TypeError('Invalid branch name.');
+    const records = Object.values((await readRegistry()).entries);
+    const transaction = records.find((record) => record.txId === txId);
+    if (
+      transaction &&
+      (transaction.ownerSessionId !== sessionId ||
+        transaction.branch !== branch ||
+        !samePath(transaction.repoCommonDir, repo.repoCommonDir))
+    ) {
+      throw worktreeError('WORKTREE_REVISION_CONFLICT', 'This transaction belongs to another workspace.');
+    }
+    const retry =
+      transaction ??
+      (create
+        ? records.find(
+            (record) =>
+              record.ownerSessionId === sessionId &&
+              record.branch === branch &&
+              record.exactBranch === true &&
+              samePath(record.repoCommonDir, repo.repoCommonDir)
+          )
+        : null);
+    if (retry?.state === 'ready') {
+      if (!existsSync(retry.path)) throw worktreeError('WORKTREE_MISSING');
+      await claimWorktreeOwner(retry.id, { sessionId, runtimeToken, pid: process.pid });
+      return { path: retry.path, branch, entry: entryView(retry), repoCommonDir: repo.repoCommonDir };
+    }
+    const branches = await localBranches(repo.projectPath, { signal });
+    if (create && branches.includes(branch))
+      throw worktreeError('WORKTREE_REVISION_CONFLICT', 'Branch already exists.');
+    if (!create && !branches.includes(branch)) throw worktreeError('WORKTREE_MISSING', 'Branch does not exist.');
+    const holder = (await listWorktrees(repo.projectPath)).find((item) => item.branch === branch && !item.prunable);
+    if (holder) {
+      if (!existsSync(holder.path)) throw worktreeError('WORKTREE_MISSING');
+      const entry = await getWorktreeByPath(holder.path);
+      const claim = entry ? await claimWorktreeOwner(entry.id, { sessionId, runtimeToken, pid: process.pid }) : null;
+      return {
+        path: holder.path,
+        branch,
+        entry,
+        referenceAdded: claim?.referenceAdded === true,
+        repoCommonDir: repo.repoCommonDir,
+      };
+    }
+    const entry = await createManagedWorktree({
+      projectPath,
+      sessionId,
+      runtimeToken,
+      txId,
+      branch,
+      existingBranch: !create,
+      baseBranch: create ? repo.currentBranch : branch,
+      nameHint: branch,
+      confirmLarge,
+      signal,
+    });
+    const record = await getRecord(entry.id);
+    record.mergeTarget = repo.currentBranch;
+    await putRecord(record);
+    entry.mergeTarget = repo.currentBranch;
+    return { path: entry.path, branch, entry, created: true, repoCommonDir: repo.repoCommonDir };
+  });
+}
+
+/** Remove only a deleted session's shared references, never its neighbours'. */
+export async function forgetSharedWorktreeSession(sessionId) {
+  for (const record of Object.values((await readRegistry()).entries)) {
+    if (!record.sharedSessionIds?.includes(sessionId)) continue;
+    await withRepoLock(record.repoCommonDir, async () => {
+      const current = await getRecord(record.id);
+      if (!current) return;
+      current.sharedSessionIds = (current.sharedSessionIds ?? []).filter((id) => id !== sessionId);
+      const leases = { ...current.sharedLeases };
+      delete leases[sessionId];
+      current.sharedLeases = leases;
+      await putRecord(current);
+    });
+  }
 }
 
 /** The managed worktree whose checkout is `path` or contains it (a subfolder Project's session root), or null. */
@@ -605,7 +837,7 @@ export async function markWorktreeDisposable(entryId, disposable = true) {
  * WORKTREE_REVISION_CONFLICT for another session's transaction, a ready
  * worktree of another repository, or an attempt that is still being cleaned up.
  */
-async function settleSessionAttempts({ txId, owner, repoCommonDir }) {
+async function settleSessionAttempts({ txId, owner, repoCommonDir, multiple = false }) {
   const doc = await readRegistry();
   const sameRepo = (record) => samePath(record.repoCommonDir, repoCommonDir);
 
@@ -619,6 +851,7 @@ async function settleSessionAttempts({ txId, owner, repoCommonDir }) {
   }
 
   for (const record of Object.values(doc.entries).filter((item) => item.ownerSessionId === owner.sessionId)) {
+    if (multiple && record.txId !== txId) continue;
     if (record.state === 'ready') {
       if (!sameRepo(record)) {
         throw worktreeError(
@@ -694,6 +927,8 @@ export async function createManagedWorktree({
   txId,
   signal,
   carryChanges = null,
+  branch: requestedBranch = null,
+  existingBranch = false,
 } = {}) {
   requireText(projectPath, 'projectPath');
   requireText(txId, 'txId');
@@ -704,7 +939,12 @@ export async function createManagedWorktree({
   throwIfAborted(signal);
   const repo = await inspectRepo(projectPath, { signal });
   return withRepoLock(repo.repoCommonDir, async () => {
-    const existing = await settleSessionAttempts({ txId, owner, repoCommonDir: repo.repoCommonDir });
+    const existing = await settleSessionAttempts({
+      txId,
+      owner,
+      repoCommonDir: repo.repoCommonDir,
+      multiple: requestedBranch !== null,
+    });
     if (existing) return existing;
     throwIfAborted(signal);
 
@@ -731,7 +971,11 @@ export async function createManagedWorktree({
       mergeTarget = baseBranch;
     }
 
-    const includePlan = await planIncludes(repo.topLevel, await readIncludeEntries(repo.topLevel));
+    // The main checkout's local env files come along on their own;
+    // `.worktreeinclude` applies on top.
+    const includePlan = await planIncludes(repo.topLevel, await readIncludeEntries(repo.topLevel), {
+      envFiles: await untrackedEnvFiles(repo.topLevel),
+    });
     const tracked = await trackedCheckoutBytes(repo.topLevel, baseCommit, { signal });
     const contentBytes = tracked.bytes + includePlan.copyBytes;
     const root = managedWorktreeRoot(repo.repoCommonDir);
@@ -767,10 +1011,16 @@ export async function createManagedWorktree({
       return reserved;
     };
     const addCheckout = (target) =>
-      runGit(repo.projectPath, ['worktree', 'add', '-b', target.branch, target.path, baseCommit], {
-        signal,
-        timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
-      });
+      runGit(
+        repo.projectPath,
+        existingBranch
+          ? ['worktree', 'add', target.path, target.branch]
+          : ['worktree', 'add', '-b', target.branch, target.path, baseCommit],
+        {
+          signal,
+          timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
+        }
+      );
     let record = await reserve();
     let carried = null;
 
@@ -780,6 +1030,7 @@ export async function createManagedWorktree({
       try {
         await addCheckout(record);
       } catch (error) {
+        if (requestedBranch) throw error;
         // Another process took the branch name (or folder) after the
         // reservation: git refused before making anything, so reserve the
         // next free name once and try again.
@@ -824,10 +1075,29 @@ export async function createManagedWorktree({
       }
       const applied = await applyIncludes(includePlan, record.path, (ledger) => recordInclude(record, ledger));
       throwIfAborted(signal);
+      // After the includes: one that already brought a node_modules wins.
+      const linkedDependencies = await linkWorktreeDependencies({
+        mainDir: repo.projectPath,
+        worktreeDir: projectSubdir ? join(record.path, ...projectSubdir.split('/')) : record.path,
+        worktreeRel: projectSubdir,
+        signal,
+        record: (ledger) => recordInclude(record, ledger),
+      });
+      throwIfAborted(signal);
       record.warnings = [...record.warnings, ...applied.warnings];
       record.state = 'ready';
       await putRecord(record);
-      return { ...entryView(record), ...(changes ? { changes } : {}) };
+      const made = (record.resources.includes || []).filter((item) => item.status === 'created');
+      const rels = (predicate) => made.filter(predicate).map((item) => item.rel);
+      // What creation did, for the agent's note at the first turn (transitions.mjs).
+      const prepared = {
+        root: repo.topLevel,
+        copied: rels((item) => item.mode === 'copy'),
+        linked: rels((item) => item.mode === 'link' && !item.dependency),
+        dependencies: linkedDependencies,
+        skipped: [...includePlan.warnings, ...applied.warnings],
+      };
+      return { ...entryView(record), prepared, ...(changes ? { changes } : {}) };
     } catch (error) {
       // Carried already: the changes go back to the project folder before the
       // worktree that holds them is rolled back (the recovery ref keeps them
@@ -858,7 +1128,7 @@ export async function createManagedWorktree({
           branches.has(`${settings.branchPrefix}${candidate}`.toLowerCase()) ||
           existsSync(join(root, candidate))
       );
-      const branch = worktreeBranchName(slug, settings.branchPrefix);
+      const branch = requestedBranch ?? worktreeBranchName(slug, settings.branchPrefix);
       if (!(await validBranchName(repo.projectPath, branch))) {
         throw worktreeError('WORKTREE_UNSUPPORTED_REPO', `Branch name ${branch} is not valid.`, { branch });
       }
@@ -874,6 +1144,8 @@ export async function createManagedWorktree({
         mergeTarget,
         createdAt: Date.now(),
         ownerSessionId: owner.sessionId,
+        existingBranch,
+        exactBranch: requestedBranch !== null,
         state: 'creating',
         disposable: false,
         warnings: [...(tracked.submodules ? ['submodules'] : []), ...includePlan.warnings],
@@ -923,10 +1195,21 @@ export async function claimWorktreeOwner(entryId, owner) {
     const current = await getRecord(entryId);
     if (current?.state !== 'ready') throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
     if (current.ownerSessionId && current.ownerSessionId !== claimant.sessionId) {
-      throw worktreeError('WORKTREE_BRANCH_OCCUPIED', 'The worktree is retained by another session.', {
-        entryId,
-        sessionId: current.ownerSessionId,
-      });
+      const references = new Set(current.sharedSessionIds ?? []);
+      const referenceAdded = !references.has(claimant.sessionId);
+      references.add(claimant.sessionId);
+      current.sharedSessionIds = [...references];
+      const previous = current.sharedLeases?.[claimant.sessionId] ?? null;
+      const lease = { ...claimant, entryId, claimedAt: Date.now() };
+      current.sharedLeases = { ...current.sharedLeases, [claimant.sessionId]: lease };
+      current.disposable = false;
+      await putRecord(current);
+      return {
+        entry: entryView(current),
+        lease,
+        referenceAdded,
+        replaced: previous && !sameOwner(previous, claimant) ? previous : null,
+      };
     }
     if (!current.ownerSessionId) {
       const other = findRecord(
@@ -951,13 +1234,23 @@ export async function claimWorktreeOwner(entryId, owner) {
  * Release the live lease when (and only when) it is held by exactly `owner`.
  * Durable ownership (the session retaining the worktree) is unchanged.
  */
-export async function releaseWorktreeOwner(entryId, owner) {
+export async function releaseWorktreeOwner(entryId, owner, { forgetReference = false } = {}) {
   const claimant = normalizeWorktreeOwner(owner);
   const record = await getRecord(entryId);
   if (!record) return { released: false };
   return withRepoLock(record.repoCommonDir, async () => {
     const current = await getRecord(entryId);
     if (!current) return { released: false };
+    const shared = current.sharedLeases?.[claimant.sessionId];
+    if (sameOwner(shared, claimant)) {
+      const leases = { ...current.sharedLeases };
+      delete leases[claimant.sessionId];
+      current.sharedLeases = leases;
+      if (forgetReference)
+        current.sharedSessionIds = (current.sharedSessionIds ?? []).filter((id) => id !== claimant.sessionId);
+      await putRecord(current);
+      return { released: true };
+    }
     const lease = await readOwnerLease(current);
     if (!sameOwner(lease, claimant)) return { released: false };
     await removeOwnerLease(current);
@@ -1203,6 +1496,27 @@ async function assertRemovable(record) {
   }
 }
 
+/** User changes, excluding the manager's own project identity and unchanged include copies. */
+export async function managedWorktreeDirtyPaths(entryId) {
+  const record = await getRecord(entryId);
+  if (!record) throw worktreeError('WORKTREE_MISSING');
+  return dirtyPaths(record);
+}
+
+// Durable references protect sleeping sessions as well as running runtimes.
+// Force may discard files, never another session's workspace.
+function assertNotShared(record, sessionId = record.ownerSessionId) {
+  const others = new Set(record.sharedSessionIds ?? []);
+  if (record.ownerSessionId) others.add(record.ownerSessionId);
+  if (sessionId) others.delete(sessionId);
+  if (others.size) {
+    throw worktreeError('WORKTREE_BUSY_JOBS', 'Other sessions retain this worktree; its folder must be kept.', {
+      reason: 'workspace-shared',
+      sessions: [...others],
+    });
+  }
+}
+
 /**
  * The refusal removeManagedWorktree would raise, checked before anything
  * moves (a session leaves its worktree only for a removal that can proceed).
@@ -1210,9 +1524,10 @@ async function assertRemovable(record) {
  * and non-ready entries; ordinary dirty/unmerged checks apply only to ready ones.
  * @param {{ entryId: string, force?: boolean }} input
  */
-export async function assertWorktreeRemovable({ entryId, force = false } = {}) {
+export async function assertWorktreeRemovable({ entryId, force = false, sessionId } = {}) {
   const record = await getRecord(entryId);
   if (!record) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
+  assertNotShared(record, sessionId);
   await assertRecoveryStoresClear(record);
   if (record.state !== 'ready') return;
   await assertManagedCheckoutPath(record);
@@ -1226,12 +1541,19 @@ export async function assertWorktreeRemovable({ entryId, force = false } = {}) {
  * @param {{ entryId: string, force?: boolean }} input
  * @returns {Promise<{ removed: boolean, retryable?: boolean, remaining?: object[], branchDeleted?: boolean }>}
  */
-export async function removeManagedWorktree({ entryId, force = false } = {}) {
+export async function removeManagedWorktree({
+  entryId,
+  force = false,
+  sessionId,
+  preserveBranch = false,
+  safeOnly = false,
+} = {}) {
   const record = await getRecord(entryId);
   if (!record) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
   return withRepoLock(record.repoCommonDir, async () => {
     const current = await getRecord(entryId);
     if (!current) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
+    assertNotShared(current, sessionId);
     if (current.state === 'creating' || current.state === 'recovery') {
       const rollback = await rollbackCreation(current);
       return rollback.complete ? { removed: true } : { removed: false, retryable: true, remaining: rollback.remaining };
@@ -1241,7 +1563,7 @@ export async function removeManagedWorktree({ entryId, force = false } = {}) {
       await assertManagedCheckoutPath(current);
       if (!force) await assertRemovable(current);
       current.state = 'deleting';
-      current.deleting = { force: force === true, startedAt: Date.now(), remaining: [] };
+      current.deleting = { force: force === true, preserveBranch, safeOnly, startedAt: Date.now(), remaining: [] };
       await putRecord(current);
     }
     return finishDeletion(current);
@@ -1268,7 +1590,9 @@ export async function listManagedWorktrees({ liveSessionIds = [], retainedSessio
     const ownerLive =
       (!!record.ownerSessionId && live.has(record.ownerSessionId)) || leaseProcessAlive(await readOwnerLease(record));
     const isRetained = !!record.ownerSessionId && retained.has(record.ownerSessionId);
-    let removable = record.state !== 'ready' || (!ownerLive && (record.disposable === true || !isRetained));
+    let removable =
+      !record.sharedSessionIds?.length &&
+      (record.state !== 'ready' || (!ownerLive && (record.disposable === true || !isRetained)));
     if (removable) {
       try {
         await assertRecoveryStoresClear(record);
@@ -1329,6 +1653,10 @@ export async function reconcileManagedWorktrees({
         for (const record of records) {
           const isRetained = !!record.ownerSessionId && retained.has(record.ownerSessionId);
           try {
+            if (record.sharedSessionIds?.length) {
+              report.kept.push({ id: record.id, reason: 'shared' });
+              continue;
+            }
             if (record.state === 'creating' || record.state === 'recovery') {
               if (isRetained) {
                 report.kept.push({ id: record.id, reason: 'retained' });

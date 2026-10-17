@@ -19,15 +19,8 @@ import { resolveRefusal } from './no-tool-turn/refusal.mjs';
 import { resumeContinuation } from './no-tool-turn/continuation.mjs';
 import { nudgeEmptyTurn } from './no-tool-turn/empty-nudge.mjs';
 
-export function createNoToolTurnResolver({
-  messages,
-  opts,
-  sessionId,
-  sessionAgent,
-  suppressMidTurnText,
-  drainSteering,
-}) {
-  const segments = createTurnSegments({ messages, opts, suppressMidTurnText });
+export function createNoToolTurnResolver({ messages, opts, sessionId, sessionAgent, drainSteering }) {
+  const segments = createTurnSegments({ messages, opts });
   // Per-turn recovery counters shared by the ladders.
   const state = {
     maxOutputRecoveryCount: 0,

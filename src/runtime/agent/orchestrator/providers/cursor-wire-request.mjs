@@ -61,7 +61,13 @@ function toolResultEntry(message, text, toolNames) {
   const isError = message.mixdog_tool_error === true;
   const toolName = toolNames.get(toolCallId) || '';
   return {
-    toolResult: { toolCallId, content: text, media, isError },
+    toolResult: {
+      toolCallId,
+      content: text,
+      media,
+      isError,
+      ...(message.mixdog_read_window?.lineClipped === true ? { readWindow: { lineClipped: true } } : {}),
+    },
     entry: {
       role: 'tool',
       id: toolCallId,
@@ -170,9 +176,7 @@ export function buildRequestContext(tools, cloudRule) {
           {
             serverName: 'mixdog',
             instructions:
-              'Use the tools provided by the mixdog MCP server for this task. ' +
-              'Follow their descriptions and input schemas. Prefer them over Cursor native tools; ' +
-              'native tools do not directly access the Mixdog environment. ' +
+              'Do not use Cursor native tools; use only the tools provided by the mixdog MCP server, following their descriptions and declared input schemas. ' +
               'If a needed tool is not available, use the provided tool discovery mechanism rather than inventing a tool.',
           },
         ]

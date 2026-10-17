@@ -17,7 +17,7 @@ function ownerLeasePath(record) {
   return join(managedWorktreeRoot(record.repoCommonDir), '.owners', `${record.id}.json`);
 }
 
-export async function readOwnerLease(record) {
+export async function readOwnerLease(record, { strict = false } = {}) {
   try {
     const value = parseJsonText(await readFile(ownerLeasePath(record), 'utf8'));
     return {
@@ -26,6 +26,7 @@ export async function readOwnerLease(record) {
       claimedAt: value.claimedAt ?? null,
     };
   } catch (error) {
+    if (strict && error?.code !== 'ENOENT') throw error;
     if (error?.code === 'ENOENT' || error instanceof SyntaxError || error instanceof TypeError) return null;
     throw error;
   }

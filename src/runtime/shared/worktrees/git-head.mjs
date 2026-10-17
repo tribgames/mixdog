@@ -19,42 +19,48 @@ const notRepos = new Map();
 /** git dir → last HEAD read, kept across a half-written HEAD. */
 const lastHeads = new Map();
 
-function readText(path) {
+function readText(path, strict = false) {
   try {
     return readFileSync(path, 'utf8');
-  } catch {
+  } catch (error) {
+    if (strict && error?.code !== 'ENOENT') throw error;
     return null;
   }
 }
 
-function isDirectory(path) {
+function isDirectory(path, strict = false) {
   try {
     return statSync(path).isDirectory();
-  } catch {
+  } catch (error) {
+    if (strict && !['ENOENT', 'ENOTDIR'].includes(error?.code)) throw error;
     return false;
   }
 }
 
-function isFile(path) {
+function isFile(path, strict = false) {
   try {
     return statSync(path).isFile();
-  } catch {
+  } catch (error) {
+    if (strict && !['ENOENT', 'ENOTDIR'].includes(error?.code)) throw error;
     return false;
   }
 }
 
-function layoutAbove(start) {
+function layoutAbove(start, strict = false) {
   for (let dir = start; ; dir = dirname(dir)) {
     const dotGit = resolve(dir, '.git');
     let gitDir = null;
-    if (isDirectory(dotGit)) {
+    if (isDirectory(dotGit, strict)) {
       gitDir = dotGit;
-    } else if (isFile(dotGit)) {
-      const pointer = /^gitdir:\s*(.+?)\s*$/m.exec(readText(dotGit) ?? '');
+    } else if (isFile(dotGit, strict)) {
+      const pointer = /^gitdir:\s*(.+?)\s*$/m.exec(readText(dotGit, strict) ?? '');
+      if (strict && !pointer) throw new Error(`Cannot inspect Git directory: ${dotGit}`);
       if (pointer) gitDir = resolve(dir, pointer[1]);
     }
-    if (gitDir && isFile(resolve(gitDir, 'HEAD'))) {
-      const common = readText(resolve(gitDir, 'commondir'))?.trim();
+    if (gitDir && strict && !isFile(resolve(gitDir, 'HEAD'), true))
+      throw new Error(`Cannot inspect Git HEAD: ${gitDir}`);
+    if (gitDir && isFile(resolve(gitDir, 'HEAD'), strict)) {
+      const common = readText(resolve(gitDir, 'commondir'), strict)?.trim();
       return {
         topLevel: canonicalPath(dir),
         gitDir,
@@ -66,8 +72,11 @@ function layoutAbove(start) {
 }
 
 /** The checkout layout containing `cwd`, or null outside a repository. */
-export function findGitLayout(cwd) {
+export function findGitLayout(cwd, { strict = false } = {}) {
   const start = resolve(String(cwd || '.'));
+  if (strict) {
+    return layoutAbove(start, true);
+  }
   const known = layouts.get(start);
   if (known && isFile(resolve(known.gitDir, 'HEAD'))) return known;
   layouts.delete(start);

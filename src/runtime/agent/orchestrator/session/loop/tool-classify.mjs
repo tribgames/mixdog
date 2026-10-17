@@ -14,6 +14,12 @@ export function _stripMcpPrefix(name) {
 export function _isReadTool(name) {
   return _stripMcpPrefix(name) === 'read';
 }
+
+// Cursor's native file protocol needs source content, not a receipt saying
+// the model has already seen it. Keep actual read caching and permissions.
+export function requiresReadBody(name, sessionRef) {
+  return name === 'read' && (sessionRef?.provider === 'cursor-oauth' || sessionRef?.provider === 'cursor-api');
+}
 export function _isMutationTool(name, args = null) {
   const n = String(_stripMcpPrefix(name) || '').toLowerCase();
   return n === 'apply_patch' || n === 'edit' || _isGitMutationTool(name, args);

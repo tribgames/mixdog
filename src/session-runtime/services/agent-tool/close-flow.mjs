@@ -58,21 +58,20 @@ export function createCloseFlow({ mgr, registry, views }) {
     if (isLeadPoolAgent(registry.getLiveSession(sessionId)?.agent)) {
       throw new Error(`agent close: target "${target}" is a Lead session`);
     }
-    registry.cancelReap(sessionId);
     const descendantSessionIds =
       typeof mgr.descendantSessionIds === 'function' ? mgr.descendantSessionIds(sessionId) : [];
     const tag = registry.tagForSession(sessionId);
     clearAgentStatuslineRoute(sessionId);
     cancelSessionTasks(sessionId, target, scopedContext);
-    // Close (and stamp cancelStatus) BEFORE dropping the worker row. Removing
-    // the row first left the next pool read with only a leftover heartbeat,
-    // which republished the session as `running`. The explicit task_id cancel
+    // Close (and stamp cancelStatus) BEFORE dropping the worker row, so the
+    // row never outlives an unrecorded cancel. The explicit task_id cancel
     // below is an idempotent no-op fallback once terminal.
-    const ok = await mgr.closeSession(sessionId, 'cli-agent-close');
+    // Closing a runtime cancels its work; only explicit session deletion
+    // may tombstone the conversation.
+    const ok = await mgr.closeSession(sessionId, 'cli-agent-close', { tombstone: false });
     if (task?.taskId) cancelBackgroundTask(task.taskId, CLOSE_REASON);
     // Drop the row only once the cancellation is DURABLY recorded: a failed
-    // close that still forgot the row left a fresh heartbeat with no cancelled
-    // state — the exact lingering row this path exists to prevent.
+    // close that still forgot the row would leave no cancelled state behind.
     if (ok) {
       registry.forgetTerminalSession(tag, sessionId);
       for (const descendantSessionId of descendantSessionIds) {

@@ -74,7 +74,9 @@ test('shell, edit, and task keep their execution contracts', () => {
     JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms', 'wait_ms']) ||
     shellProps.command?.minLength !== undefined
   ) {
-    throw new Error(`shell schema must expose only command, optional timeout_ms and wait_ms: ${JSON.stringify(shellProps)}`);
+    throw new Error(
+      `shell schema must expose only command, optional timeout_ms and wait_ms: ${JSON.stringify(shellProps)}`
+    );
   }
   // timeout_ms is DECLARED in the model-facing schema (the schema states the
   // contract) while the default stays "no deadline" — the description and
@@ -447,11 +449,17 @@ test('session and memory schemas stay minimal and direct', () => {
     SESSION_TOOL.title !== 'Session' ||
     SESSION_TOOL.annotations?.title !== 'Session' ||
     SESSION_TOOL.annotations?.agentHidden !== true ||
-    !/active Project/i.test(SESSION_TOOL.description || '') ||
-    !/shell-local cd does not change the Project/i.test(SESSION_TOOL.description || '') ||
-    Object.keys(sessionProps).join(',') !== 'action,title,path,compact,force,value' ||
+    SESSION_TOOL.annotations?.destructiveHint !== true ||
+    !/exact ID, never a guessed one/i.test(SESSION_TOOL.description || '') ||
+    !/Cancel\/delete and worktree actions require the user/i.test(SESSION_TOOL.description || '') ||
+    !/Shell cd does not switch Project/i.test(sessionProps.path?.description || '') ||
+    Object.keys(sessionProps).join(',') !==
+      'action,title,session_id,prompt,limit,cursor,offset,text_offset,item_id,path,compact,force,value' ||
     sessionProps.action?.enum?.join(',') !==
-      'status,rename,compact,fork,set-project,list-projects,favorite,archive,merge-worktree,remove-worktree,list-worktrees,prune-worktrees' ||
+      'status,list,read,send,cancel,delete,rename,compact,fork,set-project,list-projects,favorite,archive,merge-worktree,remove-worktree,list-worktrees,prune-worktrees' ||
+    !/cannot target the caller/i.test(sessionProps.session_id?.description || '') ||
+    sessionProps.limit?.minimum !== 1 ||
+    sessionProps.limit?.maximum !== 100 ||
     sessionProps.path?.minLength !== undefined ||
     sessionProps.path?.type !== 'string' ||
     sessionProps.compact?.type !== 'boolean' ||
@@ -459,7 +467,9 @@ test('session and memory schemas stay minimal and direct', () => {
     sessionProps.value?.type !== 'boolean' ||
     SESSION_TOOL.inputSchema?.additionalProperties !== false
   ) {
-    throw new Error('session schema must expose status/rename/compact/fork, the Project and worktree actions');
+    throw new Error(
+      'session schema must expose session lookup/control by exact id, status/rename/compact/fork, the Project and worktree actions'
+    );
   }
   const memoryTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'memory');
   const memoryProps = memoryTool?.inputSchema?.properties || {};

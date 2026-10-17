@@ -47,7 +47,6 @@ function fixture(t, sessions, tombstones = []) {
     },
   });
   t.after(() => {
-    registry.clearScheduledReaps();
     rmSync(root, { recursive: true, force: true });
   });
   return {

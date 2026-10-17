@@ -22,12 +22,36 @@ import {
   waitNativeTask,
 } from '../lib/native-spawn-client.mjs';
 import { attachJobInsights, shellJobPublicTaskResult } from './lib/shell-job-insights.mjs';
+import { tryAdmitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
+import { worktreeError } from '../../../../shared/worktrees/contract.mjs';
 import {
+  adoptShellWorkspaceAdmission,
+  clearTerminationHold,
   completeShellJobRecord,
   listShellJobRecords,
+  markShellJobTerminationUnconfirmed,
   publishShellJobRecord,
+  registerTerminationHold,
   retireShellJobRecord,
+  takeReleaseRequest,
 } from './lib/shell-job-records.mjs';
+import { createProcessTreeTracker, killAfterSnapshot, watchTermination } from '../lib/shell-descendants.mjs';
+import {
+  flushPendingOwnerCancels,
+  registerOwnedShellTree,
+  unregisterOwnedShellTree,
+} from '../lib/owned-shell-trees.mjs';
+
+// Pre-kill snapshot of a tracked background job: the promotion baseline, or a
+// fresh read when that did not complete. Marks the job killed, so its settle
+// relies on this snapshot instead of an after-exit observation.
+function prepareTrackedKill(entry) {
+  entry.killed = true;
+  if (entry.tracker.complete) return true;
+  return (entry.baseline || Promise.resolve(false)).then(
+    (complete) => complete || entry.tracker.capture().catch(() => false)
+  );
+}
 import { isPidAlive } from '../../../../shared/pid-liveness.mjs';
 import {
   renderShellCompletionEnvelope,
@@ -50,6 +74,8 @@ export function buildJobNotFoundMessage(jobId) {
 const promotedJobIds = new Set();
 const backgroundShellJobWatchers = new Map();
 const jobNotifyCtxByJobId = new Map();
+// jobId -> process-tree tracker of a published background job.
+const backgroundTrackers = new Map();
 
 function demoteBackgroundShellPriority(pid) {
   if (process.env.MIXDOG_BG_PRIORITY === '0') return;
@@ -63,18 +89,76 @@ function demoteBackgroundShellPriority(pid) {
 // also publishes a disk record for the out-of-process shell-count readers
 // (desktop pane chip, CLI statusline). The record is retired the moment the job
 // settles — completed, timed out, or killed.
+// The workspace admission a job record holds is released only once the job's
+// processes are confirmed gone — the same confirmation path a foreground run
+// uses, not the native terminal status alone.
 function trackShellJobRecord(task, options) {
   const jobId = String(task?.jobId || '').trim();
   if (!jobId) return;
   publishShellJobRecord(task, options);
+  if (task?.cwd) {
+    // The record's own reader is filed under the job's root pid, which the
+    // gate drops the moment that pid dies. Survivors must keep the folder
+    // reserved, so this runtime holds it under its own live pid as well.
+    const hold = tryAdmitWorkspaceActivity(options?.ownerSessionId || jobId, task.cwd, { kind: 'command' });
+    if (!hold) throw worktreeError('WORKTREE_BUSY_JOBS', 'The command folder is being managed.');
+    adoptShellWorkspaceAdmission(jobId, hold);
+  }
+  const tracker = task?.cwd ? createProcessTreeTracker({ pid: task.pid }) : null;
+  const entry = { tracker, killed: false, baseline: null };
+  if (tracker) {
+    backgroundTrackers.set(jobId, entry);
+    // Baseline identities while the promoted root is known to run, so a later
+    // kill (ours or the native timeout) has a pre-kill snapshot without
+    // waiting for one.
+    entry.baseline = tracker.capture().catch(() => false);
+    entry.owned = { ownerSessionId: options?.ownerSessionId || null, prepareKill: () => prepareTrackedKill(entry) };
+    registerOwnedShellTree(jobId, entry.owned);
+  }
   let unsubscribe = null;
+  let settled = false;
   const settle = (detail) => {
-    if (!detail || detail.status === 'running') return;
+    if (settled || !detail || detail.status === 'running') return;
+    settled = true;
     try {
       unsubscribe?.();
     } catch {}
     promotedJobIds.delete(jobId);
-    void completeShellJobRecord(jobId, normalizeShellJobDetail(detail));
+    if (entry.owned) unregisterOwnedShellTree(jobId, entry.owned);
+    const normalized = normalizeShellJobDetail(detail);
+    if (!tracker) {
+      void completeShellJobRecord(jobId, normalized);
+      return;
+    }
+    // A root that exited on its own is observed after exit, as a foreground
+    // settle does. A killed one relies on the snapshot taken before the kill.
+    const killed = entry.killed || detail.killed || detail.timedOut || String(detail.status) === 'cancelled';
+    if (!killed) tracker.acceptExitObservation();
+    // The completion notice is already on its way (watchBackgroundShellJob);
+    // the record — and with it the workspace admission — completes only once
+    // every process is confirmed gone, or the user releases it explicitly.
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      stop();
+      clearTerminationHold(jobId);
+      if (backgroundTrackers.get(jobId) === entry) backgroundTrackers.delete(jobId);
+      return completeShellJobRecord(jobId, normalized);
+    };
+    const stop = watchTermination({
+      tracker,
+      onTerminated: finish,
+      releaseRequested: () => takeReleaseRequest(jobId),
+      onUnconfirmed: () => {
+        void markShellJobTerminationUnconfirmed(jobId);
+        registerTerminationHold(jobId, {
+          ownerSessionId: options?.ownerSessionId || null,
+          cwd: task.cwd,
+          release: finish,
+        });
+      },
+    });
   };
   unsubscribe = subscribeNativeTask(jobId, settle);
   settle(getNativeTask(jobId) || task);
@@ -243,6 +327,16 @@ export function refreshShellJob(jobId) {
 }
 
 export function killShellJob(jobId) {
+  const tracked = backgroundTrackers.get(String(jobId || ''));
+  const current = tracked ? getNativeTask(jobId) : null;
+  if (current?.status === 'running') {
+    // The pre-kill snapshot is the promotion baseline (or, when that did not
+    // complete, a fresh read). The kill waits for it at most the read bound
+    // and is sent regardless; without a snapshot the outcome stays unknown and
+    // the folder stays held under the observation loop.
+    void killAfterSnapshot(prepareTrackedKill(tracked), () => cancelNativeTask(jobId));
+    return { ...attachJobInsights(normalizeShellJobDetail(current)), killed: true };
+  }
   const detail = cancelNativeTask(jobId);
   if (!detail) return null;
   const wasRunning = detail.status === 'running';
@@ -409,6 +503,7 @@ export function publishForegroundShellRecord({
   startedAtMs = 0,
   ownerSessionId = null,
   clientHostPid = null,
+  terminationUnconfirmed = false,
 }) {
   if (!jobId || !Number.isFinite(Number(pid)) || Number(pid) <= 0) return;
   publishShellJobRecord(
@@ -418,6 +513,7 @@ export function publishForegroundShellRecord({
       clientHostPid,
       startedAtMs,
       foreground: true,
+      terminationUnconfirmed,
     }
   );
 }
@@ -486,6 +582,9 @@ export async function reconcileRecoveredShellJobCompletions() {
 
 export async function shutdownShellJobs(_reason = 'runtime-close', { scope = null } = {}) {
   const scoped = Boolean(scope);
+  // Runtime shutdown: a session-close cancel still waiting for its snapshot
+  // is sent now, before the process can go away with it.
+  if (!scoped) flushPendingOwnerCancels();
   const ownerSessionId = scoped ? String(scope.ownerSessionId || '') : '';
   if (scoped && !ownerSessionId) {
     return { killed: 0, cancelledJobs: 0, cancelledWatchers: 0 };

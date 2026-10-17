@@ -211,7 +211,7 @@ test('a cancelled canonical worker never gets a new conversation from its own sh
   const filesBefore = sessionFiles();
   assert.equal(api.closeCanonicalSession('agent cancel'), true);
   const closed = loadSession(A);
-  assert.equal(closed.closed, true);
+  assert.equal(closed.closed, false, 'runtime close preserves the stored conversation');
   const closedGeneration = closed.generation;
   const closedMessages = JSON.stringify(closed.messages);
   deliver('shell-after-close');
@@ -226,7 +226,7 @@ test('a cancelled canonical worker never gets a new conversation from its own sh
   assert.equal(api.getState().sessionId, A, 'the entry still reports its own address');
   assert.deepEqual(sessionFiles(), filesBefore, 'no new conversation record (no ordinary Lead record)');
   const finalRecord = loadSession(A);
-  assert.equal(finalRecord.closed, true);
+  assert.equal(finalRecord.closed, false);
   assert.equal(finalRecord.generation, closedGeneration, 'same generation');
   assert.equal(JSON.stringify(finalRecord.messages), closedMessages, 'same transcript');
   assert.deepEqual(settled, ['rejected'], 'the queued submission is settled explicitly');

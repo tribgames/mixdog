@@ -29,7 +29,15 @@ export function conversationText(content) {
     .join('\n');
 }
 
-export function createTranscriptFile({ projectDir, transcriptPath, sessionId, resolvedCwd, logOnce, rotation }) {
+export function createTranscriptFile({
+  projectDir,
+  transcriptPath,
+  sessionId,
+  resolvedCwd,
+  logOnce,
+  rotation,
+  memoryEligible = true,
+}) {
   let projectDirReady = false;
   function ensureProjectDir() {
     if (projectDirReady) return;
@@ -81,6 +89,7 @@ export function createTranscriptFile({ projectDir, transcriptPath, sessionId, re
         const text = conversationText(message?.content);
         if (!text.trim()) continue;
         const entry = { type: role, sessionId, cwd: resolvedCwd };
+        if (!memoryEligible) entry.memoryEligible = false;
         if (message?.timestamp != null) entry.timestamp = message.timestamp;
         else if (message?.ts != null) entry.ts = message.ts;
         entry.message = { content: [{ type: 'text', text }] };

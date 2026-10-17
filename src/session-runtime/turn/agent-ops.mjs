@@ -3,7 +3,12 @@
  * runtime notifications, and the deferred tool surface (status + selection).
  */
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
-import { toolRow, toolSearchMatches, sortedNamesByMeasuredUsage, selectDeferredTools } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import {
+  toolRow,
+  toolSearchMatches,
+  sortedNamesByMeasuredUsage,
+  selectDeferredTools,
+} from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 
 function splitToolStatusCounts(rows) {
   const list = Array.isArray(rows) ? rows : [];
@@ -67,6 +72,39 @@ export function createAgentOps(deps) {
     });
   }
 
+  // Explicit user force-release ("Release anyway") of a shell job whose
+  // termination is unconfirmed: drops its workspace hold. The surface has
+  // already asked the user to confirm. The caller session's own holds, and
+  // holds of a closed session whose workspace this session's folder sees.
+  async function releaseShellJob(taskId) {
+    const session = getSession();
+    const { forceReleaseTerminationHold } = await import(
+      '../../runtime/agent/orchestrator/tools/builtin/lib/shell-job-records.mjs'
+    );
+    return forceReleaseTerminationHold(taskId, {
+      callerSessionId: session?.id || null,
+      callerCwd: getCurrentCwd?.() || null,
+    });
+  }
+
+  // This session's live shell jobs (the readout rows), each carrying
+  // `terminationUnconfirmed` when it is held without confirmed termination,
+  // plus held shells a closed session left in a workspace this session sees.
+  async function listShellJobs() {
+    const session = getSession();
+    const { shellJobsStatusFresh, shellJobVisibleFrom } = await import(
+      '../../runtime/shared/statusline/statusline-segments.mjs'
+    );
+    const status = await shellJobsStatusFresh({ clientHostPid: session?.clientHostPid || process.pid });
+    const own = session?.id ? status?.sessions?.[session.id]?.jobs : status?.jobs;
+    const jobs = Array.isArray(own) ? [...own] : [];
+    const cwd = getCurrentCwd?.() || null;
+    for (const job of status?.orphaned || []) {
+      if (shellJobVisibleFrom(job, cwd) && !jobs.some((row) => row.taskId === job.taskId)) jobs.push(job);
+    }
+    return { jobs };
+  }
+
   function onNotification(listener) {
     if (typeof listener !== 'function') return () => {};
     const sessionId = getSession()?.id || getReservedSessionId?.() || '';
@@ -105,5 +143,14 @@ export function createAgentOps(deps) {
     return { ...result, status: toolsStatus() };
   }
 
-  return { agentControl, taskControl, stopShellJob, onNotification, toolsStatus, selectTools };
+  return {
+    agentControl,
+    taskControl,
+    stopShellJob,
+    releaseShellJob,
+    listShellJobs,
+    onNotification,
+    toolsStatus,
+    selectTools,
+  };
 }

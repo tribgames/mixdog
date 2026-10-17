@@ -7,6 +7,7 @@
 // execution permission; continuation tokens only carry a position and grant
 // no authority.
 import { createHash } from 'node:crypto';
+import { BRIDGE_NAME_MAX_CHARS, isBridgeMetaTool } from './tool-bridge-contract.mjs';
 import { clean } from './session-text.mjs';
 import { isDeferredToolAvailable } from './deferred-tool-availability.mjs';
 import {
@@ -26,16 +27,13 @@ export { isToolBridgeEnabled } from './tool-exposure.mjs';
 
 export const BRIDGE_LOAD_TOOL_NAME = 'load_tool';
 export const BRIDGE_CALL_TOOL_NAME = 'call_tool';
-// Names call_tool may never target and search never lists.
-const BRIDGE_META_TOOL_NAMES = new Set(['load_tool', 'call_tool', 'tool_search']);
-
 const DESCRIBE_MAX_NAMES = 8;
 // Most definitions one request resolves to: every name an alias of the widest
 // alias. A token naming more was not issued by this tool.
 const MAX_ALIAS_MEMBERS = Math.max(1, ...Object.values(DEFERRED_SELECT_ALIASES).map((members) => members.length));
 
 export const BRIDGE_LIMITS = Object.freeze({
-  nameMaxChars: 256,
+  nameMaxChars: BRIDGE_NAME_MAX_CHARS,
   continuationMaxChars: 4096,
   continuationMaxTargets: DESCRIBE_MAX_NAMES * MAX_ALIAS_MEMBERS,
   describeMaxNames: DESCRIBE_MAX_NAMES,
@@ -300,7 +298,7 @@ function searchKeywords(session, keywords, mode, available) {
         const name = clean(tool?.name);
         return (
           !eagerNames.has(name) &&
-          !BRIDGE_META_TOOL_NAMES.has(name.toLowerCase()) &&
+          !isBridgeMetaTool(name) &&
           toolSearchMatches(tool, keyword) &&
           !bridgeBlockReason(session, tool, mode, eagerNames)
         );
@@ -343,10 +341,11 @@ function largestChunk(text, offset, buildPage) {
 }
 
 export function describeBridgeTools(session, args = {}, { mode } = {}) {
+  const syntaxHint = ' Use load_tool {"names":["exact_tool_name"]}; the required key is names, not name.';
   const invalid = unknownKeysError(args, DESCRIBE_KEYS, BRIDGE_LOAD_TOOL_NAME);
   if (invalid) {
     const hint = isPlainObject(args) && 'query' in args ? ' Pass exact names; the deferred tool list names them.' : '';
-    return bridgeError(invalid.error.code, `${invalid.error.message}${hint}`);
+    return bridgeError(invalid.error.code, `${invalid.error.message}${hint}${syntaxHint}`);
   }
   // A continuation token resumes an earlier request. It travels alone: names
   // is split exactly as for a lookup, and a token beside any other value is
@@ -376,7 +375,7 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
     if (!names) {
       return bridgeError(
         'INVALID_ARGUMENTS',
-        `names must be 1-${BRIDGE_LIMITS.describeMaxNames} exact tool names of at most ${BRIDGE_LIMITS.nameMaxChars} characters.`
+        `names must be 1-${BRIDGE_LIMITS.describeMaxNames} exact tool names of at most ${BRIDGE_LIMITS.nameMaxChars} characters.${syntaxHint}`
       );
     }
     ({ targets, missing, blocked } = resolveDescribeTargets(session, names, mode, available));
@@ -479,7 +478,7 @@ export function resolveBridgeTarget(session, rawName) {
   if (!name || name.length > BRIDGE_LIMITS.nameMaxChars) {
     return bridgeError('INVALID_ARGUMENTS', `name must be 1-${BRIDGE_LIMITS.nameMaxChars} characters.`);
   }
-  if (BRIDGE_META_TOOL_NAMES.has(name.toLowerCase())) {
+  if (isBridgeMetaTool(name)) {
     return bridgeError('BRIDGE_RECURSION', `call_tool cannot run the bridge tool "${name}"; call it directly.`);
   }
   const eager = lookupByName(Array.isArray(session?.tools) ? session.tools : [], name);

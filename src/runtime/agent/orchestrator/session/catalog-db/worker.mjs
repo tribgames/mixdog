@@ -2,8 +2,8 @@
 //
 // It owns `<dataDir>/session-catalog.sqlite` and runs the ordinary catalog
 // engine (store-summary-catalog.mjs): the summary index stamps and delta-log
-// apply, the sessions-directory name diff, per-file stamps, `.hb` liveness and
-// the background verification. An ordinary listing is one `list` request: the
+// apply, the sessions-directory name diff, per-file stamps and the background
+// verification. An ordinary listing is one `list` request: the
 // engine's cheap stamp check runs first (so changes by any writer appear as
 // soon as they do on the JSON path), its changes are written to the DB, and
 // the answer comes from the DB. When one of the daemon's own writes changed a
@@ -20,8 +20,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { postWorkerEvent, serveWorkerRequests } from '../../../../shared/worker-requests.mjs';
-import { agentHeartbeatsByOwner, createOrdinaryCatalog, isLeadVisibleRow } from '../store-summary-catalog.mjs';
-import { positiveNumber } from '../store-summary-fields.mjs';
+import { createOrdinaryCatalog, isLeadVisibleRow } from '../store-summary-catalog.mjs';
 import { SQLITE_REQUIREMENT, sqliteVersionSupported } from './sqlite-gate.mjs';
 import {
   APPLICATION_ID,
@@ -514,30 +513,15 @@ function switchedOff(s) {
   return s.switchOff.value;
 }
 
-/** Rows from the DB with the liveness of the current scan overlaid. */
+/** Rows from the DB. */
 function answer(s, page) {
-  const heartbeatMtimes = s.engine.current()?.heartbeatMtimes ?? new Map();
-  const live = [];
-  for (const [id, heartbeatAt] of heartbeatMtimes) {
-    const entry = resolve(s, id);
-    if (entry) live.push({ ...entry.row, heartbeatAt });
-  }
-  const agentHeartbeatByOwner = agentHeartbeatsByOwner(live);
-  const overlay = (row) => {
-    const agentHeartbeatAt = agentHeartbeatByOwner.get(row.id) || 0;
-    return {
-      ...row,
-      heartbeatAt: positiveNumber(heartbeatMtimes.get(row.id), 0),
-      ...(agentHeartbeatAt > 0 ? { agentHeartbeatAt } : {}),
-    };
-  };
   const { statements } = s;
-  if (!page) return { rows: statements.listAll.all().map((record) => overlay(rowFromDb(record))), more: false };
+  if (!page) return { rows: statements.listAll.all().map(rowFromDb), more: false };
   const { limit, after } = page;
   const records = after
     ? statements.listAfter.all(after.activity, after.activity, after.id, limit + 1)
     : statements.listFirst.all(limit + 1);
-  return { rows: records.slice(0, limit).map((record) => overlay(rowFromDb(record))), more: records.length > limit };
+  return { rows: records.slice(0, limit).map(rowFromDb), more: records.length > limit };
 }
 
 const unavailable = (reason, final = false) => ({ status: 'unavailable', reason, final });

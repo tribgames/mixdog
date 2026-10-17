@@ -12,7 +12,7 @@ import * as catalogDb from './index.mjs';
 const sqliteLoaded = () => process.moduleLoadList.some((entry) => /\bsqlite\b/.test(entry));
 
 test('an ordinary listing costs the main thread no fs call and no SQLite call', async (t) => {
-  fixture.useDataDir('mixdog-catalog-db-main-thread-');
+  fixture.isolateDataDir('mixdog-catalog-db-main-thread-');
   fixture.writeBase([]);
   catalogDb.configureSessionCatalogDbForTest({ writer: true, sqliteVersion: '3.51.3', log: () => {} });
   t.after(async () => {

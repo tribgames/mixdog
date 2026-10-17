@@ -15,12 +15,24 @@ const loadManager = () => import('./manager.mjs');
  * "no sessions", which would make every worktree look orphaned.
  */
 export async function storedSessionIds() {
-  const { getStoreDir } = await import('../../agent/orchestrator/session/store/paths-heartbeat.mjs');
+  const { getStoreDir } = await import('../../agent/orchestrator/session/store/session-paths.mjs');
   const names = await readdir(getStoreDir());
   return names
     .filter((name) => name.endsWith('.json'))
     .map((name) => name.slice(0, -5))
     .filter((id) => /^[A-Za-z0-9_-]+$/.test(id));
+}
+
+/** Authoritative consumers for destructive folder actions; unreadable records fail closed. */
+export async function storedWorkspaceConsumers() {
+  const { loadSession } = await import('../../agent/orchestrator/session/store/load-session.mjs');
+  return (await storedSessionIds())
+    .map((id) => {
+      const session = loadSession(id);
+      if (!session) throw new Error(`Cannot inspect session ${id}; no workspace was removed.`);
+      return session;
+    })
+    .filter((session) => session.closed !== true);
 }
 
 /**
@@ -80,6 +92,7 @@ export async function pruneWorktrees({ liveSessionIds = [], listSessionIds = sto
  */
 export async function cleanupDeletedSessionWorktree(sessionId, { manager = null, autoCleanup } = {}) {
   const backend = manager || (await loadManager());
+  await backend.forgetSharedWorktreeSession?.(sessionId);
   const entry = await backend.getSessionWorktree(sessionId);
   if (!entry) return null;
   const enabled = autoCleanup ?? (await backend.currentWorktreeSettings()).autoCleanup;
@@ -90,6 +103,7 @@ export async function cleanupDeletedSessionWorktree(sessionId, { manager = null,
   } catch (error) {
     if (
       isWorktreeError(error, 'WORKTREE_DIRTY') ||
+      isWorktreeError(error, 'WORKTREE_BUSY_JOBS') ||
       isWorktreeError(error, 'WORKTREE_UNMERGED') ||
       isWorktreeError(error, 'WORKTREE_FILE_RECOVERY')
     ) {

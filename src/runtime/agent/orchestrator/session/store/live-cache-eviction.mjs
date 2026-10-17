@@ -13,7 +13,7 @@ import {
 } from './live-state.mjs';
 import { _summaryCacheVersions } from './summary-cache.mjs';
 import { probePath, PROBE_PRESENT } from './fs-probe.mjs';
-import { sessionPath } from './paths-heartbeat.mjs';
+import { sessionPath } from './session-paths.mjs';
 import { _hasPendingPersistence } from './pending-saves.mjs';
 import { forgetSessionLoadCache } from './load-cache.mjs';
 

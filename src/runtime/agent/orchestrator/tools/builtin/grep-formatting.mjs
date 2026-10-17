@@ -9,7 +9,7 @@ export function splitGrepLineNumberOnlyPrefix(line) {
   };
 }
 
-export function splitGrepLinePrefix(line) {
+export function splitGrepLinePrefix(line, matchOnly = false) {
   const text = String(line || '');
   if (!text) return null;
   const searchFrom = /^[A-Za-z]:/.test(text) ? 2 : 0;
@@ -19,7 +19,9 @@ export function splitGrepLinePrefix(line) {
   // Caller context decides whether line-number-only output is possible. A
   // relative path may itself start with digits + '-' (e.g. `12-x\path.txt`),
   // so this parser must not reject `^\d+[:\-]` by shape alone.
-  const delim = text.slice(searchFrom).match(/([:-])(\d+)\1/);
+  // `matchOnly`: the caller ran rg without context lines, so only `:N:` is a
+  // delimiter and a `-N-` segment belongs to the filename (`config-12-a.txt`).
+  const delim = text.slice(searchFrom).match(matchOnly ? /(:)(\d+):/ : /([:-])(\d+)\1/);
   if (!delim) return null;
   const pathEnd = searchFrom + delim.index;
   if (pathEnd <= 0) return null;
@@ -68,7 +70,13 @@ export function parseGrepContextHeader(line) {
   };
 }
 
-export function normalizeGrepLine(line, pathOnly = false, outputMode = 'content', filenameOmitted = false) {
+export function normalizeGrepLine(
+  line,
+  pathOnly = false,
+  outputMode = 'content',
+  filenameOmitted = false,
+  matchOnly = false
+) {
   if (process.platform !== 'win32') return line;
   // files_with_matches mode: the WHOLE line is a path, so every separator is
   // a path separator and a full `\`->`/` normalisation is correct.
@@ -79,7 +87,7 @@ export function normalizeGrepLine(line, pathOnly = false, outputMode = 'content'
   // There is no path prefix to normalise; everything after ^\d+[:\-] is
   // source content and must remain byte-exact.
   if (filenameOmitted && splitGrepLineNumberOnlyPrefix(line)) return line;
-  const split = splitGrepLinePrefix(line);
+  const split = splitGrepLinePrefix(line, matchOnly);
   if (split) {
     return line.slice(0, split.pathEnd).replace(/\\/g, '/') + line.slice(split.pathEnd);
   }
@@ -99,7 +107,8 @@ export function normalizeGrepLine(line, pathOnly = false, outputMode = 'content'
 function parseGrepContentLine(line) {
   const text = String(line || '');
   if (!text || text === '--' || text.startsWith('... [')) return null;
-  const split = splitGrepLinePrefix(text);
+  // Grouping only runs on context-free content output.
+  const split = splitGrepLinePrefix(text, true);
   if (split?.delimiter !== ':') return null;
   const content = text.slice(split.markerEnd);
   return { path: split.path, lineNo: split.lineNo, content };

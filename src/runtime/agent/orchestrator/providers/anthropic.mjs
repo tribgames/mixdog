@@ -13,6 +13,7 @@ import { ANTHROPIC_MAX_MIDSTREAM_RETRIES, parseSSEStream } from './anthropic-sse
 import { buildAnthropicBetaHeaders } from './anthropic-betas.mjs';
 import { buildAnthropicApiRequest } from './anthropic-api-request.mjs';
 import { isCustomProviderName } from './custom-reasoning.mjs';
+import { createAnthropicApiKeyFetch } from './anthropic-api-key-fetch.mjs';
 import { ANTHROPIC_EFFORT_LEVELS, withEffortRejectionFallback } from './effort-rejection.mjs';
 import { armFirstByteWatchdog, createAnthropicApiTransport } from './anthropic-api-transport.mjs';
 import { createAnthropicApiRecovery } from './anthropic-api-recovery.mjs';
@@ -75,6 +76,9 @@ export class AnthropicProvider {
     return new (loadAnthropic())({
       ...credentials,
       ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
+      // Gzip only toward the official origin (decided per request URL); a
+      // custom-* gateway keeps the SDK's plain fetch.
+      ...(custom ? {} : { fetch: createAnthropicApiKeyFetch() }),
       defaultHeaders: {
         ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}),
         ...(keyless ? { 'x-api-key': null, authorization: null } : {}),

@@ -37,8 +37,24 @@ import {
   isTranscriptCancelledStatusText,
 } from '../../../../shared/tool-execution-contract.mjs';
 import { toolResultTerminalStatus } from '../../../../shared/tool-status.mjs';
-import { transcriptRouteMetadataFields } from '../../../../shared/transcript-metadata.mjs';
+import { transcriptAttachmentFields, transcriptRouteMetadataFields } from '../../../../shared/transcript-metadata.mjs';
 import { isImportedMessage } from '../imported-message.mjs';
+import { isContextAckMessage } from '../compact/user-message-kind.mjs';
+
+/** A failed turn's recorded end: its route, reason and quota stop, the same
+ *  fields the live turndone carries. */
+function restoredFailureFields(value) {
+  if (value.status !== 'failed') return {};
+  const errorKind = value.errorKind && typeof value.errorKind === 'object' ? value.errorKind : null;
+  const quota = value.quota && typeof value.quota === 'object' ? value.quota : null;
+  return {
+    ...transcriptRouteMetadataFields(value),
+    ...(typeof value.detail === 'string' && value.detail ? { detail: value.detail } : {}),
+    ...(typeof value.errorDetails === 'string' && value.errorDetails ? { errorDetails: value.errorDetails } : {}),
+    ...(errorKind && typeof errorKind.kind === 'string' ? { errorKind: { ...errorKind } } : {}),
+    ...(quota && typeof quota.provider === 'string' ? { quota: { ...quota } } : {}),
+  };
+}
 
 function restoredTranscriptMetadata(message) {
   const value = message?.meta?.transcript;
@@ -53,6 +69,10 @@ function restoredTranscriptMetadata(message) {
     if (typeof completionValue.checkpointId === 'string' && completionValue.checkpointId) {
       completion.checkpointId = completionValue.checkpointId;
     }
+    Object.assign(completion, restoredFailureFields(completionValue));
+    const attemptId = completionValue.attemptId || value.attemptId;
+    if (typeof attemptId === 'string' && attemptId) completion.attemptId = attemptId;
+    if (Number.isFinite(Number(completionValue.at))) completion.at = Number(completionValue.at);
   }
   return {
     // The stable message id lets a live view map a compaction's dropped
@@ -63,6 +83,9 @@ function restoredTranscriptMetadata(message) {
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
     ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
     ...(typeof value.checkpointId === 'string' && value.checkpointId ? { checkpointId: value.checkpointId } : {}),
+    // The attachments this prompt carried, by content hash: a restored row
+    // opens/downloads them by id from the attachment store.
+    ...transcriptAttachmentFields(value),
     // Skills this user turn explicitly loaded (header selection or `$name`).
     ...(Array.isArray(value.appliedSkills) && value.appliedSkills.length
       ? { appliedSkills: value.appliedSkills.filter((name) => typeof name === 'string' && name) }
@@ -71,21 +94,42 @@ function restoredTranscriptMetadata(message) {
   };
 }
 
+function restoredTurnDoneItem(completion, metadata, nextId, finalAssistantId = '') {
+  const at = Number.isFinite(completion.at) ? completion.at : metadata.at;
+  return {
+    kind: 'turndone',
+    id: nextId(),
+    ...completion,
+    ...(completion.status === 'done' && finalAssistantId ? { finalAssistantId } : {}),
+    ...(Number.isFinite(at) ? { at } : {}),
+    ...(metadata.messageId ? { messageId: metadata.messageId } : {}),
+  };
+}
+
 function restoredAssistantTranscriptItems(message, nextId) {
   const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)).trim();
   if (!text) return [];
   const { completion, ...metadata } = restoredTranscriptMetadata(message);
   const items = [{ kind: 'assistant', id: nextId(), text, ...metadata }];
-  if (completion) {
-    items.push({
-      kind: 'turndone',
-      id: nextId(),
-      ...completion,
-      ...(completion.status === 'done' ? { finalAssistantId: items[0].id } : {}),
-      ...(metadata.at ? { at: metadata.at } : {}),
-      ...(metadata.messageId ? { messageId: metadata.messageId } : {}),
-    });
+  // A failed end follows the message's tool calls (restoreTranscriptRange).
+  if (completion && completion.status !== 'failed') {
+    items.push(restoredTurnDoneItem(completion, metadata, nextId, items[0].id));
   }
+  return items;
+}
+
+/** The failed end recorded on a message that holds no reply text before it:
+ *  the prompt itself, a tool call or a tool result. */
+function restoredFailedTurnItems(message, nextId) {
+  const { completion, ...metadata } = restoredTranscriptMetadata(message);
+  const previous = Array.isArray(message?.meta?.transcript?.previousCompletions)
+    ? message.meta.transcript.previousCompletions
+    : [];
+  const items = previous.flatMap((value) => {
+    const historical = restoredTranscriptMetadata({ meta: { transcript: { completion: value, at: value?.at } } });
+    return historical.completion ? [restoredTurnDoneItem(historical.completion, historical, nextId)] : [];
+  });
+  if (completion?.status === 'failed') items.push(restoredTurnDoneItem(completion, metadata, nextId));
   return items;
 }
 
@@ -289,13 +333,17 @@ function restoredMessageItemUpperBound(message) {
   const boundaries =
     (Array.isArray(message?.meta?.sessionInheritances) ? message.meta.sessionInheritances.length : 0) +
     (Array.isArray(message?.meta?.modelSwitches) ? message.meta.modelSwitches.length : 0);
-  if (message?.role === 'user') return 1 + boundaries;
-  if (message?.role !== 'assistant') return boundaries;
+  const completionCount =
+    Number(Boolean(message?.meta?.transcript?.completion)) +
+    (Array.isArray(message?.meta?.transcript?.previousCompletions)
+      ? message.meta.transcript.previousCompletions.length
+      : 0);
+  if (message?.role === 'user') return 1 + completionCount + boundaries;
+  if (message?.role !== 'assistant') return completionCount + boundaries;
   const calls = restoredMessageToolCalls(message);
   const content = message?.content;
   const hasContent = typeof content === 'string' ? content.length > 0 : Array.isArray(content) && content.length > 0;
-  const hasCompletion = Boolean(message?.meta?.transcript?.completion);
-  return Number(hasContent) + Number(hasCompletion) + calls.length + boundaries;
+  return Number(hasContent) + completionCount + calls.length + boundaries;
 }
 
 // One restored tool card for a parsed notification/completion envelope.
@@ -404,12 +452,14 @@ function restoreTranscriptRange(messages, start, sessionId) {
     const restoredId = () => `hist_${sessionId}_${index}_${++part}`;
     if (message?.role === 'user') {
       items.push(...restoredUserTranscriptItems(message, restoredId));
-    } else if (message?.role === 'assistant') {
+    } else if (message?.role === 'assistant' && !isContextAckMessage(message, messages[index - 1])) {
       items.push(...restoredAssistantTranscriptItems(message, restoredId));
       items.push(...restoredToolCallItems(message, restoredId, pendingToolCalls));
     } else if (message?.role === 'tool') {
       attachRestoredToolResult(message, pendingToolCalls);
     }
+    const eventStart = items.length;
+    items.push(...restoredFailedTurnItems(message, restoredId));
     for (const boundary of Array.isArray(message?.meta?.sessionInheritances) ? message.meta.sessionInheritances : []) {
       if (!boundary?.sessionId || !boundary?.provider || !boundary?.modelId) continue;
       items.push({
@@ -426,6 +476,13 @@ function restoreTranscriptRange(messages, start, sessionId) {
     for (const boundary of Array.isArray(message?.meta?.modelSwitches) ? message.meta.modelSwitches : []) {
       if (!boundary?.provider || !boundary?.modelId) continue;
       items.push(modelSwitchItem(restoredId(), boundary));
+    }
+    if (message?.meta?.transcript?.previousCompletions?.length) {
+      const events = items.slice(eventStart);
+      if (events.every((item) => Number.isFinite(item.at))) {
+        events.sort((left, right) => left.at - right.at);
+        items.splice(eventStart, events.length, ...events);
+      }
     }
   }
   return mergeRestoredToolItems(items);

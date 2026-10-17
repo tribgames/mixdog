@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createModelRouteApi } from './model-route-api.mjs';
-import { WEB_SEARCH_DEFAULT_MODEL, WEB_SEARCH_DEFAULT_PROVIDER } from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import {
+  WEB_SEARCH_DEFAULT_MODEL,
+  WEB_SEARCH_DEFAULT_PROVIDER,
+} from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 
 const sourceRoute = { provider: 'openai', model: 'gpt-5.4', effort: 'high', fast: false };
 
-function fixture({ session, updateSessionRoute, lookupModelMeta } = {}) {
-  let config = { modelSettings: {} };
+function fixture({ session, updateSessionRoute, lookupModelMeta, config: initialConfig } = {}) {
+  let config = initialConfig || { modelSettings: {} };
   const calls = [];
+  const persisted = [];
   const state = {
     route: { ...sourceRoute, contextPercent: 100, effectiveEffort: 'high' },
     session: session === undefined ? { id: 'empty-1', ...sourceRoute, messages: [] } : session,
@@ -21,6 +25,7 @@ function fixture({ session, updateSessionRoute, lookupModelMeta } = {}) {
       state.route = value;
     },
     getSession: () => state.session,
+    getSessionGeneration: () => 0,
     setSession: (value) => {
       calls.push(['setSession', value?.id ?? null]);
       state.session = value;
@@ -41,6 +46,7 @@ function fixture({ session, updateSessionRoute, lookupModelMeta } = {}) {
     },
     persistLeadRoute: () => null,
     saveConfigAndAdopt: (value) => {
+      persisted.push(value);
       config = value;
     },
     refreshRouteEffort: async () => {
@@ -70,7 +76,7 @@ function fixture({ session, updateSessionRoute, lookupModelMeta } = {}) {
         }),
     },
   });
-  return { api, state, calls, getConfig: () => config };
+  return { api, state, calls, persisted, getConfig: () => config };
 }
 
 test('setRoute on an empty session without an explicit address recreates the session for the new route', async () => {
@@ -113,6 +119,32 @@ test('setRoute rejects a model the provider catalog cannot resolve', async () =>
     () => api.setRoute({ model: 'gpt-9.9-nonexistent-zz' }),
     /unknown model: openai\/gpt-9.9-nonexistent-zz/
   );
+});
+
+test('a session-only route change leaves Main selection, defaults and per-model settings untouched', async () => {
+  const before = {
+    modelSettings: { 'openai/gpt-5.4': { effort: 'medium', fast: false } },
+    default: 'lead',
+    presets: [{ id: 'lead', provider: 'openai', model: 'gpt-5.4' }],
+  };
+  const session = { id: 'child-1', ...sourceRoute, messages: [{ role: 'assistant', content: 'hi' }] };
+  const request = { provider: 'openai', model: 'gpt-5.4', effort: 'low', fast: true };
+  const options = { switchEstablished: true, deferUntilNextTurn: true };
+
+  const scoped = fixture({ session, config: before });
+  await scoped.api.setRoute(request, { ...options, sessionOnly: true });
+  assert.equal(scoped.getConfig(), before, 'config is neither replaced nor rewritten');
+  assert.deepEqual(scoped.persisted, [], 'nothing is persisted, lead preset included');
+  assert.equal(scoped.state.route.effort, 'low', 'the child runtime itself follows the request');
+  assert.equal(scoped.state.route.fast, true);
+
+  // Without the scope the same request rewrites the shared per-model bucket.
+  const shared = fixture({ session, config: before });
+  await shared.api.setRoute(request, options);
+  const bucket = shared.getConfig().modelSettings['openai/gpt-5.4'];
+  assert.equal(bucket.effort, 'low');
+  assert.equal(bucket.fast, true);
+  assert.ok(shared.persisted.length > 0);
 });
 
 test('setWebSearchRoute with an empty provider resets to the default route and keeps toolType', async () => {

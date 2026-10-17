@@ -9,7 +9,7 @@ import { isAgentOwner } from '../../agent-owner.mjs';
 import { listStoredAgentWorkerLinks } from '../store-agent-worker-rows.mjs';
 import { listStoredSessionSummaries } from './listing.mjs';
 import { STORED_SESSION_UNREADABLE, _storedSessionFromFile } from './serialize.mjs';
-import { getStoreDir, sessionPath, deleteSessionPresence } from './paths-heartbeat.mjs';
+import { getStoreDir, sessionPath } from './session-paths.mjs';
 import {
   readCanonicalSessionRecord as _readCanonicalRecord,
   CANONICAL_RECORD_UNREADABLE as LIFECYCLE_AMBIGUOUS,
@@ -32,7 +32,7 @@ import {
 import { purgeSessionSaveBookkeeping as _purgeSessionSaveBookkeeping } from './save-worker.mjs';
 import { _uncacheSessionSummary, _queueSessionSummaryRemoval, _cachedSummaryRows } from './summary-cache.mjs';
 import { _savePending, _clearDebounce, _releasePendingSlot } from './pending-saves.mjs';
-import { _runtimeLivenessVeto, _heartbeatLivenessVeto, _deleteHeartbeatUnlessNewer } from './liveness-veto.mjs';
+import { _runtimeLivenessVeto } from './liveness-veto.mjs';
 import { _runSessionPurgeHooks } from './session-observers.mjs';
 import { deleteCompactionArchive } from '../compaction-archive.mjs';
 
@@ -40,8 +40,8 @@ import { deleteCompactionArchive } from '../compaction-archive.mjs';
  * metadata only (the summary rows and the agent-worker links — no folder
  * scan); each candidate's own file is then read strictly and must still be an
  * agent-owned record linked to this parent, so a stale/foreign metadata row
- * can never name a deletion target. Used only by explicit parent deletion;
- * ordinary close/context switches keep the relationship intact. */
+ * can never name a deletion target. Parent deletion no longer removes these
+ * children; they outlive the parent as independent sessions. */
 export function listOwnedAgentSessionIds(ownerSessionId) {
   const ownerId = String(ownerSessionId || '').trim();
   if (!/^[A-Za-z0-9_-]+$/.test(ownerId)) return [];
@@ -78,14 +78,11 @@ function knownSessionCwds(id) {
 export function deleteSession(id, options = {}) {
   // Keep caller probes and all vetoes ahead of the non-reentrant lock and
   // ahead of pending-save disruption, matching markSessionClosed().
-  if (_runtimeLivenessVeto(id, options) || _heartbeatLivenessVeto(id, options)) return false;
+  if (_runtimeLivenessVeto(id, options)) return false;
   const deleteGuard = _guardedSaveOptions(id);
   const commitControl = _acquireWriteCommit(deleteGuard);
   if (commitControl === false) return false;
   try {
-    // Cross-process revival after full-TTL silence remains best-effort; the
-    // tombstone resurrection guard is authoritative. Only re-stat .hb here.
-    if (_heartbeatLivenessVeto(id, options)) return false;
     // ── 1. unlink FIRST, still holding the commit lock ─────────────────────
     // A failed unlink is NOT a delete: the canonical bytes are still there, so
     // nothing may be purged, cancelled or closed — every pending write, parked
@@ -141,9 +138,6 @@ export function deleteSession(id, options = {}) {
     _savePending.delete(id);
     _purgeSessionSaveBookkeeping(id);
     _runSessionPurgeHooks(id, { cwds: knownSessionCwds(id) });
-    // Preserve a sidecar published strictly after the sweep's scan snapshot.
-    _deleteHeartbeatUnlessNewer(id, options);
-    deleteSessionPresence(id);
     // The display-only compaction archive has no meaning without its session.
     deleteCompactionArchive(getStoreDir(), id);
     _clearLiveSession(id);

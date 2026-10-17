@@ -35,7 +35,7 @@ export function createRouteResolution({ rt, collectProviderModels, ensureProvide
     return rt.route;
   }
 
-  async function refreshRouteEffort(modelMetaOverride = null, expectedRoute = null, signal = null) {
+  async function refreshRouteEffort(modelMetaOverride = null, expectedRoute = null, signal = null, lease = null) {
     const targetRoute = expectedRoute || rt.route;
     await runAbortable(signal, () => ensureProvidersReady(ensureProviderEnabled(rt.config, targetRoute.provider)));
     const modelMeta =
@@ -43,7 +43,9 @@ export function createRouteResolution({ rt, collectProviderModels, ensureProvide
     throwIfAborted(signal);
     // A rapid second resume/model change can replace the route while provider
     // metadata is loading. Never let the older completion overwrite it.
+    // A selection whose session was replaced while this loaded owns nothing.
     if (expectedRoute && rt.route !== expectedRoute) return null;
+    if (lease && !lease.valid()) return null;
     const { effectiveEffort, fastCapable } = resolveRouteEffortState(targetRoute, modelMeta);
     const contextState = resolveRouteContextState(targetRoute, modelMeta);
     const contextValue = clean(targetRoute.modelParameters?.context);

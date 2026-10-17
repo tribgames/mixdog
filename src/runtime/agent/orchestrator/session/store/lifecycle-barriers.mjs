@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
 import { PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../../../../../lib/mixdog-debug.cjs';
 import { createAsyncLogAppender } from '../../../../shared/async-log-appender.mjs';
-import { sessionPath, deleteHeartbeat } from './paths-heartbeat.mjs';
+import { sessionPath } from './session-paths.mjs';
 import {
   readCanonicalSessionRecord as _readCanonicalRecord,
   CANONICAL_RECORD_UNREADABLE as LIFECYCLE_AMBIGUOUS,
@@ -36,7 +36,7 @@ import {
 } from './live-state.mjs';
 import { _uncacheSessionSummary, _queueSessionSummaryUpsert } from './summary-cache.mjs';
 import { _savePending, _clearDebounce } from './pending-saves.mjs';
-import { _runtimeLivenessVeto, _heartbeatLivenessVeto, _deleteHeartbeatUnlessNewer } from './liveness-veto.mjs';
+import { _runtimeLivenessVeto } from './liveness-veto.mjs';
 import { loadSession } from './load-session.mjs';
 
 // Cancellation truth, single rule: an UNCONFIRMED stop outranks a confirmed
@@ -185,15 +185,11 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
   // Caller-provided probes may re-enter the store, so evaluate them before
   // taking the non-reentrant Atomics commit lock. A veto must also precede
   // pending-save cancellation so debounce durability remains intact.
-  if (_runtimeLivenessVeto(id, options) || _heartbeatLivenessVeto(id, options)) return null;
+  if (_runtimeLivenessVeto(id, options)) return null;
   const closeGuard = _guardedSaveOptions(id);
   const commitControl = _acquireWriteCommit(closeGuard);
   if (commitControl === false) return null;
   try {
-    // Cross-process heartbeat revival after full-TTL silence is accepted as a
-    // best-effort race: the tombstone resurrection guard is the authoritative
-    // post-race arbiter. Re-stat here, but never invoke caller code under lock.
-    if (_heartbeatLivenessVeto(id, options)) return null;
     const authority = _readLifecycleAuthority(id, reason, 'close');
     if (authority === LIFECYCLE_AMBIGUOUS) return null;
     // Only a committed close may disrupt pending persistence.
@@ -230,7 +226,7 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
     const tombstone = {
       ...base,
       closed: true,
-      closedReason: alreadyClosed ? base.closedReason || reason : reason,
+      closedReason: alreadyClosed && reason !== 'desktop-session-delete' ? base.closedReason || reason : reason,
       status: 'closed',
       generation: newGen,
       updatedAt: closeTime,
@@ -240,8 +236,6 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
     _savePending.delete(id);
     clearSessionSaveError(id);
     _clearLiveSession(id);
-    // Preserve a sidecar published strictly after the sweep's scan snapshot.
-    _deleteHeartbeatUnlessNewer(id, options);
     _queueSessionSummaryUpsert(tombstone);
     _droppedSaveIds.delete(id);
     // Emit the close metric only on the FIRST close — a re-close of an
@@ -257,7 +251,7 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
 /**
  * Bump a session's generation WITHOUT planting a closed:true tombstone.
  * Used by closeSession(id, reason, { tombstone: false }) — the runtime side
- * (heartbeat, bash shells, controller, in-memory entry) is detached, but the
+ * (bash shells, controller, in-memory entry) is detached, but the
  * session file itself stays valid/resumable. The generation bump alone is
  * what protects it from a late save race: any saveSession() still in flight
  * from the detached turn was issued with the OLD generation as its
@@ -299,7 +293,6 @@ export function bumpSessionGeneration(id, reason = 'detach', options = {}) {
     _savePending.delete(id);
     clearSessionSaveError(id);
     _clearLiveSession(id);
-    deleteHeartbeat(id);
     _queueSessionSummaryUpsert(detached);
     _droppedSaveIds.delete(id);
     return newGen;

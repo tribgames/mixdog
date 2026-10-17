@@ -3,6 +3,7 @@
 // wrappers are installed on the caller's opts in place for ONE send, and the
 // returned restore unwinds only our own wrappers.
 import { isVisibleStreamProgress } from '../../../shared/stream-progress.mjs';
+import { MODEL_THINKING_STAGE } from '../../../shared/quiet-progress.mjs';
 
 // Bench-only turn timing (MIXDOG_TURN_TIMING=1): one stderr line per
 // provider request — TTFT (first visible model progress) and total stream
@@ -61,7 +62,7 @@ function retryVisibilityWrappers(opts, timedOpts, retryAttemptNumber, retryMaxFo
   if (!(retryAttemptNumber > 0 && prevOnStageChange)) return wrappers;
   let progressObserved = false;
   wrappers.onStageChange = (stage, detail) => {
-    if (!progressObserved && (stage === 'requesting' || stage === 'streaming')) {
+    if (!progressObserved && (stage === 'requesting' || stage === 'streaming' || stage === MODEL_THINKING_STAGE)) {
       return prevOnStageChange('reconnecting', {
         ...(detail && typeof detail === 'object' ? detail : {}),
         attempt: retryAttemptNumber,

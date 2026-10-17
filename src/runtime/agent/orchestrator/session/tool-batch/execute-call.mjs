@@ -78,7 +78,12 @@ export async function executeBatchCall(batch, call, callIndex) {
 // Read entries are stat-validated; scoped entries retain dependency
 // invalidation and their bounded TTL. A miss proceeds to execution.
 function lookupCaches(batch, call, exec) {
-  const cached = lookupToolResultReuse({ sessionId: batch.sessionId, call, cwd: batch.cwd });
+  const cached = lookupToolResultReuse({
+    sessionId: batch.sessionId,
+    call,
+    cwd: batch.cwd,
+    sessionRef: batch.sessionRef,
+  });
   if (cached?.kind === 'read') exec.readCacheHit = cached.entry;
   else if (cached?.kind === 'scoped') exec.scopedCacheHit = cached.entry;
 }

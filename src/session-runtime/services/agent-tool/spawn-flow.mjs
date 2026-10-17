@@ -14,7 +14,7 @@ export function createSpawnFlow(deps) {
     notifyStatusChange: deps.notifyStatusChange ?? (() => {}),
     notifySessionCompletion: deps.notifySessionCompletion,
   });
-  const { prepareSpawn, prepareSpawnInProcess } = createSpawnPreparer(deps);
+  const { prepareSpawn, prepareSpawnInProcess, agentWatchdogOverrides } = createSpawnPreparer(deps);
   const runner = createSpawnRunner(deps);
   const { closePreparedSpawn, startDeferredSpawnJob } = createDeferredSpawn({
     ...deps,
@@ -35,6 +35,7 @@ export function createSpawnFlow(deps) {
     progressStamper: runner.progressStamper,
     prepareSpawn,
     prepareSpawnInProcess,
+    agentWatchdogOverrides,
     runSpawn: runner.runSpawn,
   };
 }

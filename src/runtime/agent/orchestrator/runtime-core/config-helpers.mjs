@@ -189,18 +189,20 @@ const AUTO_CLEAR_DEFAULT_IDLE_MS = 60 * 60 * 1000;
 // rewrite the accumulated tail. Anthropic agent tails are 5m and compact once
 // expired; their terminal reap keeps this 1h window so a completed agent stays
 // reusable. Gemini, xAI and Mistral
-// caches run ~1h, Groq's implicit cache persists ~2h, OpenAI/DeepSeek
-// key-prefix/implicit caches persist far longer (~24h), and OpenAI OAuth
-// (Codex backend) guarantees a 30-minute minimum prompt-cache TTL on
-// GPT-5.6+ models (prompt_cache_options.ttl=30m, refreshed on use), so the
-// sweep matches that window to avoid clearing a still-warm cache.
+// caches run ~1h, Groq's implicit cache persists ~2h, and DeepSeek's
+// implicit cache is evicted after "a few hours to a few days" (kept at 24h).
+// OpenAI (direct and OAuth/Codex) guarantees a 30-minute minimum prompt-cache
+// TTL on GPT-5.6+ (refreshed on use; no 24h retention there), so the sweep
+// matches that window. Older OpenAI models that still take
+// prompt_cache_retention='24h' are not distinguished: these call sites only
+// know the provider, not the model, so 30m applies to the whole provider.
 // Unknown/unrecognized providers fall back to the 'default' 1h entry.
 const AUTO_CLEAR_PROVIDER_IDLE_MS = Object.freeze({
   anthropic: 60 * 60 * 1000,
   'anthropic-oauth': 60 * 60 * 1000,
   gemini: 60 * 60 * 1000,
   groq: 2 * 60 * 60 * 1000,
-  openai: 24 * 60 * 60 * 1000,
+  openai: 30 * 60 * 1000,
   deepseek: 24 * 60 * 60 * 1000,
   xai: 60 * 60 * 1000,
   'openai-oauth': 30 * 60 * 1000,

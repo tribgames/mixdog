@@ -18,7 +18,7 @@ import {
   settle,
   spyFs,
   touchDirectory,
-  useDataDir,
+  isolateDataDir,
   view,
   writeBase,
 } from './store-summary-reader-catalog-fixture.mjs';
@@ -26,7 +26,7 @@ import { encodeSummaryOps } from './store-summary-log.mjs';
 import { listStoredSessionSummaries, verifyStoredSessionCatalog } from './store-summary-reader.mjs';
 
 test('an unreadable record keeps exactly the rows it kept before', async (t) => {
-  useDataDir('mixdog-reader-catalog-unreadable-');
+  isolateDataDir('mixdog-reader-catalog-unreadable-');
   replace('indexed_a', 'alpha');
   replace('plain_b', 'bravo');
   // The index row no longer describes the file: only unreadability retains it.
@@ -46,7 +46,7 @@ test('an unreadable record keeps exactly the rows it kept before', async (t) => 
 });
 
 test('the delta log: appended lines apply alone; a torn line or a rewritten log never loses an op', () => {
-  useDataDir('mixdog-reader-catalog-log-');
+  isolateDataDir('mixdog-reader-catalog-log-');
   replace('log_x', 'xray');
   replace('log_y', 'yankee');
   writeBase([indexRow('log_x', 'xray'), indexRow('log_y', 'yankee')]);
@@ -69,7 +69,7 @@ test('the delta log: appended lines apply alone; a torn line or a rewritten log 
 });
 
 test('a missing index: rows come from the files, and an index appearing or vanishing is followed', async (t) => {
-  useDataDir('mixdog-reader-catalog-noindex-');
+  isolateDataDir('mixdog-reader-catalog-noindex-');
   replace('plain_e', 'echo');
   replace('plain_f', 'foxtrot');
   const parsed = { plain_e: '|echo', plain_f: '|foxtrot' };
@@ -129,7 +129,7 @@ test('index updates written by another process', (t) => {
 });
 
 test('without a base index, the store’s own saves still refresh their session', () => {
-  useDataDir('mixdog-reader-catalog-logonly-');
+  isolateDataDir('mixdog-reader-catalog-logonly-');
   saveIndexed('indexed_l', 'first');
   assert.equal(view().indexed_l, '|first');
   saveIndexed('indexed_l', 'second');
@@ -138,7 +138,7 @@ test('without a base index, the store’s own saves still refresh their session'
 });
 
 test('a failed index read is retried on the next call, retained rows included', (t) => {
-  useDataDir('mixdog-reader-catalog-index-eio-');
+  isolateDataDir('mixdog-reader-catalog-index-eio-');
   replace('indexed_m', 'mike');
   writeBase([indexRow('indexed_m', 'mike')]);
   const failing = new Set();

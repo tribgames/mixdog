@@ -49,7 +49,8 @@ test('the stored agent pool rows carry the session totals', () => {
   process.env.MIXDOG_DATA_DIR = root;
   try {
     mkdirSync(join(root, 'sessions'));
-    const stamp = '2026-01-01T00:00:00.000Z';
+    // Settled agents are listed only inside the pane window after they finish.
+    const stamp = new Date().toISOString();
     const write = (id, extra) =>
       writeFileSync(
         join(root, 'sessions', `${id}.json`),
@@ -62,8 +63,8 @@ test('the stored agent pool rows carry the session totals', () => {
       join(root, 'agent-workers.json'),
       JSON.stringify({
         workers: [
-          { sessionId: 'usage-child', tag: 'a', agent: 'reviewer', status: 'idle' },
-          { sessionId: 'usage-legacy', tag: 'b', agent: 'reviewer', status: 'idle' },
+          { sessionId: 'usage-child', tag: 'a', agent: 'reviewer', status: 'completed', updatedAt: stamp },
+          { sessionId: 'usage-legacy', tag: 'b', agent: 'reviewer', status: 'completed', updatedAt: stamp },
         ],
       })
     );

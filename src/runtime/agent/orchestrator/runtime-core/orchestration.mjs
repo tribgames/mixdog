@@ -5,9 +5,10 @@ const BATCHING = {
 self-contained supporting work, one agent per role; batch related tasks
 rather than splitting them for parallelism.`,
   balanced: `Delegate independent work by coherent feature or module, one agent per
-scope. Batch related tasks within the same change scope rather than
-splitting every file or step.`,
-  swarm: `Delegate every independent scope to its own agent. Treat disjoint file or
+scope; a scope is one verifiable deliverable. Batch related tasks within the
+same change scope rather than splitting every file or step.`,
+  swarm: `Delegate every independent scope to its own agent; a scope is one
+verifiable deliverable, not a bundle of steps. Treat disjoint file or
 module sets as independent and merge scopes only on a true output
 dependency. Prefer parallel scopes over sequential slices in one agent.`,
 };
@@ -38,6 +39,10 @@ scopes does not change this.
 
 Dispatch all ready independent scopes in one turn. Only a scope that requires
 another's output waits. Brief each agent as the Lead rules describe.
+A running agent receives only changes within its own scope; a new independent
+need goes to a new agent. When scopes touch the same file, name one owner for
+that file in each brief. Agents run only the checks covering their own change;
+Lead runs the full suite once after integration.
 Use only available agents; when none fits a role, Lead does that work itself
 and never changes settings to enable one. If the reviewer is disabled or
 unavailable, Lead alone reviews the result against the approved scope and

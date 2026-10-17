@@ -165,6 +165,7 @@ test('auto-clear resets preserve unrelated overrides; percentage budgets replace
   const api = createSettingsApi({
     getConfig: () => config,
     getSession: () => session,
+    getSessionGeneration: () => 0,
     hasOwn: (value, key) => Object.hasOwn(value, key),
     normalizeAutoClearConfig,
     normalizeCompactionConfig,

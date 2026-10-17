@@ -31,6 +31,7 @@ export function createRuntimeFacade({
   const currentSessionId = () => state.session?.id || state.reservedSessionId || state.addressedSessionId || null;
   return {
     ...leadingApi,
+    isSessionTerminal: () => state.admission === 'terminal',
     /** Bind the durable address to the conversation this runtime just
      *  loaded (resume / load-on-demand). Idempotent for the same id. */
     bindSessionAddress(sessionId) {
@@ -134,6 +135,11 @@ export function createRuntimeFacade({
     },
     get session() {
       return state.session;
+    },
+    /** Advances whenever another conversation (or none) is installed; a route
+     *  selection captures it when enqueued (see model-route/route-ownership). */
+    get sessionGeneration() {
+      return state.sessionGeneration;
     },
     contextStatus(options) {
       return getContextStatus(options);

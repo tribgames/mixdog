@@ -97,6 +97,7 @@ function routeInput(source) {
   if (Object.hasOwn(source, 'contextPercent')) next.contextPercent = source.contextPercent;
   if (Object.hasOwn(source, 'contextTokens')) next.contextTokens = source.contextTokens;
   if (Object.hasOwn(source, 'disabled')) next.disabled = source.disabled;
+  if (Object.hasOwn(source, 'fallbacks')) next.fallbacks = source.fallbacks.map(routeInput);
   return next;
 }
 
@@ -378,6 +379,9 @@ function validateSetupInput(args) {
     if (action !== 'set_agent_route' && Object.hasOwn(args.route, 'disabled')) {
       throw new Error('route.disabled is only accepted by set_agent_route');
     }
+    if (Object.hasOwn(args.route, 'fallbacks') && !['set_agent_route', 'set_web_search_route'].includes(action)) {
+      throw new Error('route.fallbacks is only accepted by set_agent_route and set_web_search_route');
+    }
     for (const field of ['contextPercent', 'contextTokens', 'autoEffort']) {
       if (action !== 'set_route' && action !== 'set_agent_route' && Object.hasOwn(args.route, field)) {
         throw new Error(`route.${field} is only accepted by set_route and set_agent_route`);
@@ -445,7 +449,7 @@ const SETUP_ACTION_HANDLERS = {
   open: (_rt, args, { openSurface }) => openSurface(args.target),
   set_route: async (rt, args) => {
     const route = routeInput(args.route);
-    const next = await rt.setRoute(route);
+    const next = await rt.setRoute(route, { keepMainModel: false });
     return { route: next, appliesTo: 'next session (a conversation keeps its frozen route)' };
   },
   set_agent_route: async (rt, args) => {

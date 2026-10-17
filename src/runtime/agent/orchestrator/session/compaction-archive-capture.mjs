@@ -25,7 +25,7 @@ import { renameWithRetrySync } from '../../../shared/atomic-file.mjs';
 import { writeStderrBestEffort } from '../../../shared/best-effort-stderr.mjs';
 
 import { sanitizeContentForStoredHistory } from '../providers/media-normalization.mjs';
-import { getStoreDir } from './store/paths-heartbeat.mjs';
+import { getStoreDir } from './store/session-paths.mjs';
 import { forgetSessionSaveBaseline } from './store/save-worker.mjs';
 import { messageIdOf, stampMessageIds } from './message-ids.mjs';
 import { restoreTranscriptItems } from './transcript-restore/restore.mjs';

@@ -282,12 +282,44 @@ test('an acknowledged cancelled agent task is never notified', async () => {
   }
 });
 
-test('owner teardown and delete cancel agent tasks silently', async () => {
+test('execution-scoped cancellation follows binding, independently of surface and notification owner', () => {
+  const cancelled = [];
+  const add = (label, owner, sessionId, surface = 'tool') =>
+    registerBackgroundTask({
+      label,
+      surface,
+      context: { callerSessionId: owner, clientHostPid: process.pid },
+      meta: sessionId ? { sessionId } : {},
+      cancel: () => cancelled.push(label),
+    });
+  try {
+    add('shell', 'parent', null, 'shell');
+    add('local', 'parent');
+    const pending = add('pending', 'parent');
+    const bound = add('bound', 'parent');
+    bound.meta.sessionId = 'child';
+    const agent = add('agent', 'parent', 'child', 'agent');
+    const generic = add('generic', 'parent', 'child');
+    add('sibling', 'sibling');
+    add('unattributed', null);
+    cancelBackgroundTasks({ executionSessionId: 'parent', notify: false });
+    assert.deepEqual(cancelled.sort(), ['local', 'pending', 'shell']);
+    assert.equal(pending.status, 'cancelled');
+    for (const task of [bound, agent, generic]) assert.equal(task.status, 'running');
+    cancelBackgroundTasks({ executionSessionId: 'child', notify: false });
+    assert.deepEqual(cancelled.sort(), ['agent', 'bound', 'generic', 'local', 'pending', 'shell']);
+    for (const task of [bound, agent, generic]) assert.equal(task.status, 'cancelled');
+  } finally {
+    cleanupBackgroundTasks({ force: true });
+  }
+});
+
+test('intentional caller cancellation and process exit cancel agent tasks silently', async () => {
   const notifications = [];
   const runs = [controlledRun(), controlledRun()];
   try {
     const deleted = startCancellableAgent(notifications, runs[0]);
-    cancelBackgroundTasks({ reason: 'desktop-session-delete', notify: false, callerSessionId: CANCEL_OWNER });
+    cancelBackgroundTasks({ reason: 'caller-cancel', notify: false, callerSessionId: CANCEL_OWNER });
     const exited = startCancellableAgent(notifications, runs[1]);
     cancelBackgroundTasks({ reason: 'cli-exit', notify: false });
     assert.equal(deleted.status, 'cancelled');
@@ -304,13 +336,13 @@ test('owner teardown and delete cancel agent tasks silently', async () => {
   }
 });
 
-test('an owner delete silences an agent cancellation still waiting for its run to settle', async () => {
+test('an intentional caller cancellation silences an agent cancellation still waiting for its run to settle', async () => {
   const notifications = [];
   const runs = [controlledRun(), controlledRun()];
   try {
     const bulk = startCancellableAgent(notifications, runs[0]);
     cancelBackgroundTask(bulk.taskId, 'cancelled by agent close');
-    cancelBackgroundTasks({ reason: 'desktop-session-delete', notify: false, callerSessionId: CANCEL_OWNER });
+    cancelBackgroundTasks({ reason: 'caller-cancel', notify: false, callerSessionId: CANCEL_OWNER });
     const single = startCancellableAgent(notifications, runs[1]);
     cancelBackgroundTask(single.taskId, 'cancelled by agent close');
     cancelBackgroundTask(single.taskId, 'desktop-session-delete', { notify: false });

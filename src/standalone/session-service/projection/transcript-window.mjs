@@ -386,3 +386,42 @@ export async function loadLiveTranscriptHead(entry, sessionId, readStoredSession
   view.headOlder = from > 0 || stored.transcriptHasOlder === true;
   return true;
 }
+
+/** A one-shot range must not grow or rebudget an attached desktop's window. */
+export async function readTranscriptRange(entry, sessionId, readStoredSession, { offset, limit }) {
+  if (
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > 100 ||
+    !Number.isSafeInteger(offset + limit)
+  )
+    throw new TypeError('invalid transcript range');
+  const requested = offset + limit;
+  let snapshot;
+  if (entry) {
+    const state = entry.runtime.getState();
+    const isolated = { runtime: { getState: () => state } };
+    requestLiveTranscriptWindow(isolated, { limit: requested, byteBudget: null, pageBase: 0 });
+    windowTranscriptSnapshot(isolated, state);
+    isolated.transcriptView.paged = true;
+    await loadLiveTranscriptHead(isolated, sessionId, readStoredSession);
+    snapshot = windowTranscriptSnapshot(isolated, state);
+  } else {
+    snapshot = await readStoredSession(sessionId, { transcriptItemLimit: requested });
+  }
+  if (!snapshot) throw new Error(`session ${sessionId} is not available`);
+  const source = snapshot.items || [];
+  if (offset >= source.length && snapshot.transcriptHasOlder) {
+    throw new Error('session: requested history is not available in the retained projection');
+  }
+  const end = Math.max(0, source.length - offset);
+  const start = Math.max(0, end - limit);
+  return {
+    sessionId,
+    offset,
+    items: sanitizeForWire(source.slice(start, end)),
+    hasOlder: start > 0 || snapshot.transcriptHasOlder === true,
+  };
+}

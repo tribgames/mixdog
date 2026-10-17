@@ -10,6 +10,7 @@ import { bootProfile } from '../boot-profile.mjs';
 import { createHookPayload } from '../hook-payload.mjs';
 import { readRuntimeTunables } from '../runtime-tunables.mjs';
 import { initSessionAddress } from '../session-address.mjs';
+import { trackSessionGeneration } from '../model-route/route-ownership.mjs';
 import { resolveRoute } from './shared.mjs';
 
 export async function resolveConfig(boot) {
@@ -74,6 +75,7 @@ export async function resolveConfig(boot) {
 
 function initRuntimeState(rt, params) {
   rt.mode = normalizeToolMode(params.toolMode);
+  trackSessionGeneration(rt);
   rt.session = null;
   // A daemon-issued address may exist before provider setup. It is consumed by
   // createCurrentSession on the first actual turn, avoiding eager auth/model

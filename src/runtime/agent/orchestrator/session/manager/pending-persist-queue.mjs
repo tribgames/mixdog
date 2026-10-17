@@ -93,7 +93,7 @@ export function persistPendingMessages(sessionId, messages) {
       // schedule the retry HERE. Waiting for "the next scheduled flush or
       // session takeover" meant a FINAL submit (nothing else ever
       // enqueues afterwards) stayed process-local forever, while
-      // enqueue/enqueueRemotePendingMessage had already reported success.
+      // enqueuePendingMessage had already reported success.
       try {
         // Closed/detached since this write started: its buffer and its
         // retry timer were torn down on purpose — do not rebuild them.

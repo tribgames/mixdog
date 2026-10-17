@@ -6,7 +6,7 @@
 import { closeSync, fsyncSync, openSync, writeFileSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { sessionPath } from './store/paths-heartbeat.mjs';
+import { sessionPath } from './store/session-paths.mjs';
 import {
   guardedSaveOptions as _guardedSaveOptions,
   cancelSessionWrites as _cancelSessionWrites,
@@ -30,17 +30,6 @@ export {
   _upsertSessionSummary,
   _removeSessionSummary,
 } from './store-summary-index.mjs';
-export {
-  publishHeartbeat,
-  deleteHeartbeat,
-  publishSessionPresence,
-  deleteSessionPresence,
-  readSessionPresenceMtime,
-  isSessionPresenceOwnerDead,
-  readSessionHeartbeatOwnerPid,
-  isSessionHeartbeatOwnerDead,
-  isProcessAlive,
-} from './store/paths-heartbeat.mjs';
 import { _sessionForDisk, _ensureLifecycleFields } from './store/serialize.mjs';
 import {
   _cacheSessionSummary,
@@ -55,11 +44,9 @@ import {
   withdrawPendingOwnCommit as _withdrawPendingOwnCommit,
   recordOwnSessionCommit as _recordOwnSessionCommit,
 } from './store/canonical-reader.mjs';
-// Durable lifecycle reads, heartbeat freshness and live-cache reclamation are
-// owned by dedicated modules; re-exported so prior importers of store.mjs
-// stay unchanged.
+// Durable lifecycle reads and live-cache reclamation are owned by dedicated
+// modules; re-exported so prior importers of store.mjs stay unchanged.
 export { readSessionLifecycleFromDisk, readSessionLifecycleStateFromDisk } from './store/lifecycle-read.mjs';
-export { readSessionHeartbeatMtime } from './store/liveness-veto.mjs';
 export { evictLiveSession, evictIdleLiveSessions } from './store/live-cache-eviction.mjs';
 import {
   setLiveSession,

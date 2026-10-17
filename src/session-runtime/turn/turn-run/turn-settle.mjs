@@ -86,11 +86,16 @@ export function createTurnSettlement({
     turn.releaseFirstTitle?.();
     turn.emitTiming(turn.timing.status);
     turn.armHeavyRuntimeWarmup('turn-settled');
+    let settleError;
     try {
       await turn.snapshot.finish(turn.signal, turn.awaitTurn);
-    } finally {
-      // The turn no longer works in its checkout: transitions may proceed.
+    } catch (error) {
+      settleError = error;
+    }
+    try {
       turn.releaseWorkspace?.();
+    } catch (error) {
+      settleError = settleError ? new AggregateError([settleError, error], 'Turn cleanup failed.') : error;
     }
     try {
       turn.unregister?.();
@@ -101,6 +106,7 @@ export function createTurnSettlement({
       /* lead pool must never break turn teardown */
     }
     setActiveTurnCount(Math.max(0, getActiveTurnCount() - 1));
+    if (settleError) throw settleError;
     // A compaction the model scheduled (session tool) runs once the turn is over.
     // Only while the settled session is still the live one; otherwise it stays
     // pending for that session and never compacts another. The runner chains

@@ -6,7 +6,10 @@ import test from 'node:test';
 
 import { createLifecycleApi, resolveResumeCwd } from './lifecycle-api.mjs';
 import { BUILTIN_TOOLS } from '../runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
-import { applyDeferredToolSurface, renderToolSearch } from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import {
+  applyDeferredToolSurface,
+  renderToolSearch,
+} from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 
 test('project resume prefers canonical session cwd over stale desktop metadata', () => {
   assert.equal(
@@ -170,7 +173,7 @@ test('resume binds the session to the runtime MCP registry scope', async () => {
   assert.equal(receivedOptions?.mcpScopeId, 'runtime-scope-1234');
 });
 
-test('lifecycle listSessions applies durable child visibility at the public catalog boundary', () => {
+test('lifecycle listSessions preserves child classification without hiding their records', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-lifecycle-visibility-'));
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
@@ -235,7 +238,7 @@ test('lifecycle listSessions applies durable child visibility at the public cata
     const listed = api.listSessions({ refreshFromStorage: true });
     assert.deepEqual(
       listed.map((row) => row.id),
-      ['ordinary-user', 'ordinary-schedule', 'root-lead', 'self-parent-lead']
+      ['ordinary-user', 'ordinary-schedule', 'explicit-child', 'legacy-child', 'root-lead', 'self-parent-lead']
     );
     assert.deepEqual(calls, [{ refreshFromStorage: true }]);
   } finally {
@@ -247,7 +250,7 @@ test('lifecycle listSessions applies durable child visibility at the public cata
 
 test('canonical child close uses the ordinary durable tombstone barrier', () => {
   const calls = [];
-  let current = { id: 'sess_agent_child', remoteAttached: false };
+  let current = { id: 'sess_agent_child' };
   let invalidations = 0;
   const api = createLifecycleApi({
     getSession: () => current,

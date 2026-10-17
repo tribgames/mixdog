@@ -17,11 +17,11 @@ import { createRowSettlement } from './lead-worker-index/row-settlement.mjs';
 import { createLeadReapTimers } from './lead-worker-index/reap-timers.mjs';
 import { createForgottenLeads } from './lead-worker-index/forgotten-leads.mjs';
 
-export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession }) {
+export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession, isSessionRunning }) {
   const activeLeadSessions = new Set();
   const index = createLeadIndexFile({ dataDir });
   const forgotten = createForgottenLeads(dataDir);
-  const settlement = createRowSettlement({ dataDir, cfgMod });
+  const settlement = createRowSettlement({ cfgMod, isSessionRunning });
   const reaps = createLeadReapTimers({ removeRow: (sessionId, reapAt) => removeLeadWorkerRow(sessionId, reapAt) });
 
   function removeLeadWorkerRow(sessionId, expectedReapAt = '') {
@@ -73,8 +73,11 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
       updatedAt: new Date(now).toISOString(),
     });
     if (!row) return false;
+    const settled = !ACTIVE_LEAD_STATUS.test(status) && !ACTIVE_LEAD_STATUS.test(stage);
     const normalized = {
       ...row,
+      // The pane lists a settled Lead for a fixed window from this stamp.
+      finishedAt: settled ? row.finishedAt || new Date(now).toISOString() : row.finishedAt,
       // Liveness identity of the runtime that owns this status. A row stamped
       // by a process that no longer exists is recovered on the next boot.
       runtimePid: process.pid,
@@ -89,12 +92,12 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
       },
       { rerun: true }
     );
-    if (ACTIVE_LEAD_STATUS.test(status) || ACTIVE_LEAD_STATUS.test(stage)) {
-      activeLeadSessions.add(session.id);
-      reaps.cancel(session.id);
-    } else {
+    if (settled) {
       activeLeadSessions.delete(session.id);
       reaps.schedule(normalized);
+    } else {
+      activeLeadSessions.add(session.id);
+      reaps.cancel(session.id);
     }
     return true;
   }

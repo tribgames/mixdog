@@ -1,7 +1,7 @@
 /**
  * The parse/recovery/projection body of one stored transcript read: durable
  * turn-checkpoint recovery for interrupted turns, the read-only checkpoint
- * projection for a live foreign owner, the cold context projection and the
+ * projection for a live turn, the cold context projection and the
  * pane-facing transcript shape.
  *
  * Kept apart from the cache/fingerprint policy in store-summary-reader.mjs
@@ -12,7 +12,7 @@
 import { sessionContextMeasurement, contextMeasurementStats } from '../../../shared/context-measurement.mjs';
 import { nextProjectionStamp } from './store-transcript-cache.mjs';
 import { join } from 'node:path';
-import { cleanValue, desktopSession, positiveNumber } from './store-summary-fields.mjs';
+import { desktopSession, positiveNumber } from './store-summary-fields.mjs';
 import { compactionArchiveRange, readCompactionArchivePage } from './compaction-archive.mjs';
 import { dataDir } from './store-summary-locations.mjs';
 
@@ -20,27 +20,20 @@ import { dataDir } from './store-summary-locations.mjs';
  *  per distinct content; its result is shared read-only through the cache. */
 export async function projectStoredTranscript(sessionId, doc, options) {
   let session = doc;
-  const owner = cleanValue(session.owner).toLowerCase();
-  const agent = cleanValue(session.agent).toLowerCase();
-  const liveDetachedAgent =
-    session.closed === true &&
-    (owner === 'agent' || (agent && agent !== 'lead')) &&
-    Boolean(cleanValue(session.ownerSessionId || session.parentSessionId));
   if (!options.checkpointAbsent) {
     const { projectTurnCheckpointMessages, readTurnCheckpoint } = await import('./manager/turn-checkpoint.mjs');
     const projectCheckpoint = () => {
       const checkpoint = readTurnCheckpoint(sessionId);
       if (checkpoint) session = { ...session, messages: projectTurnCheckpointMessages(session, checkpoint) };
     };
-    if (liveDetachedAgent) {
-      projectCheckpoint();
-    } else {
-      const { recoverSessionAfterProcessRestart } = await import('./manager.mjs');
+    const { isSessionTurnLive, recoverSessionAfterProcessRestart } = await import(
+      './manager/turn-checkpoint-recovery.mjs'
+    );
+    // A running turn is never recovered: project its checkpoint read-only.
+    if (isSessionTurnLive(sessionId)) projectCheckpoint();
+    else {
       session = recoverSessionAfterProcessRestart(sessionId) || session;
-      // A live foreign owner is intentionally not recovered/mutated.
-      // Project its durable working checkpoint read-only so the cold pane
-      // never repaints the stale pre-compaction session.messages while it
-      // waits for the owner's live-share frame.
+      // A closed session keeps its marker unrecovered.
       if (session?.activeTurnCheckpoint) projectCheckpoint();
     }
   }
@@ -134,9 +127,5 @@ export async function projectStoredTranscript(sessionId, doc, options) {
           displayContextWindow: displayContextWindow || null,
           autoCompactTokenLimit: autoCompactTokenLimit || null,
         }),
-    // Desktop must not ask its unrelated active engine to recover/peek an
-    // externally owned child: that runtime can only return the detached
-    // Task row and masks this checkpoint projection.
-    readOnlyDetachedAgent: liveDetachedAgent,
   };
 }

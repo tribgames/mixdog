@@ -5,30 +5,27 @@
  */
 export function listStoredAgentWorkers({
   now,
-  heartbeatMtimes,
+  runningSessionIds,
   storedAgentWorkerIndexRows,
   projectChildWorkerRow,
-  promoteHeartbeatSidecar,
   storedLeadWorkerRows,
   projectLeadWorkerRow,
   pruneOrphanChildRows,
 }) {
+  const context = { now, runningSessionIds };
   const bySessionId = new Map();
   for (const row of storedAgentWorkerIndexRows()) {
-    const projected = projectChildWorkerRow(row, { now, heartbeatMtimes });
+    const projected = projectChildWorkerRow(row, context);
     if (projected) bySessionId.set(projected.sessionId, projected);
-  }
-  for (const [sessionId, heartbeatAt] of heartbeatMtimes) {
-    promoteHeartbeatSidecar(bySessionId, sessionId, heartbeatAt);
   }
   const liveLeadSessionIds = new Set();
   for (const row of storedLeadWorkerRows()) {
-    const projected = projectLeadWorkerRow(row, { now, heartbeatMtimes });
+    const projected = projectLeadWorkerRow(row, context);
     if (!projected) continue;
     liveLeadSessionIds.add(projected.sessionId);
     bySessionId.set(projected.sessionId, projected);
   }
-  pruneOrphanChildRows(bySessionId, { liveLeadSessionIds, heartbeatMtimes, now });
+  pruneOrphanChildRows(bySessionId, { liveLeadSessionIds });
   return [...bySessionId.values()].sort((left, right) => {
     const leftTime = Date.parse(String(left.startedAt || '')) || 0;
     const rightTime = Date.parse(String(right.startedAt || '')) || 0;

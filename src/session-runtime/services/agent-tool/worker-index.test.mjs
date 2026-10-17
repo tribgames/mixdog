@@ -12,6 +12,7 @@ import {
 } from '../../../runtime/agent/orchestrator/session/manager/runtime-liveness.mjs';
 import { flushAllIndexWritesSync } from './index-write-queue.mjs';
 import { createWorkerIndex } from './worker-index.mjs';
+import { settledWorkerStatus } from './worker-index/row-liveness.mjs';
 
 function readPersistedWorkers(root) {
   flushAllIndexWritesSync(); // the index persists through an async writer queue
@@ -103,20 +104,68 @@ test('worker boot recovery settles a running row whose runtime died', () => {
 
     workerIndex(root);
 
+    // The turn never finished: a failure with its reason, not a rest.
     const stored = readPersistedWorkers(root);
-    assert.equal(stored.workers.crashed.status, 'idle');
-    assert.equal(stored.workers.crashed.stage, 'idle');
+    assert.equal(stored.workers.crashed.status, 'failed');
+    assert.equal(stored.workers.crashed.stage, 'failed');
+    assert.equal(stored.workers.crashed.failureReason, 'process-restart');
     assert.equal(stored.workers.crashed.turnStartedAt, null);
     assert.equal(stored.workers.live.status, 'running');
 
-    const pool = listStoredAgentWorkers();
-    assert.equal(pool.find((row) => row.sessionId === 'crashed')?.status, 'idle');
+    // The pool keeps the failed row visible, with its reason.
+    const pool = listStoredAgentWorkers({ runningSessionIds: new Set(['live']) });
+    const crashed = pool.find((row) => row.sessionId === 'crashed');
+    assert.equal(crashed?.status, 'failed');
+    assert.equal(crashed?.failureReason, 'process-restart');
     assert.equal(pool.find((row) => row.sessionId === 'live')?.status, 'running');
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('recovery keeps a long turn that is still in flight in this daemon and settles a stalled one', () => {
+  withDataDir('mixdog-worker-recover-inflight-', (root) => {
+    const old = new Date(Date.now() - 10 * 60_000).toISOString();
+    writeWorkers(root, {
+      long: runningRow('long', { turnStartedAt: old, updatedAt: old }),
+      stalled: runningRow('stalled', { turnStartedAt: old, updatedAt: old }),
+    });
+    workerIndex(root, {
+      getSessionRuntime: () => null,
+      isSessionTurnInFlight: (sessionId) => sessionId === 'long',
+    }).dispose();
+    const { workers } = readPersistedWorkers(root);
+    assert.equal(workers.long.status, 'running');
+    assert.equal(workers.stalled.status, 'idle');
+  });
+});
+
+test('a turn this process still runs at exit settles as failed, and new work clears the reason', () => {
+  withDataDir('mixdog-worker-exit-failed-', (root) => {
+    const index = workerIndex(root);
+    try {
+      index.upsertWorkerRow(runningRow('busy'));
+      index.flushActiveWorkerRows();
+      const exited = readPersistedWorkers(root).workers.busy;
+      assert.equal(exited.status, 'failed');
+      assert.equal(exited.failureReason, 'process-restart');
+      // A later whole-row write for new work carries no stale reason.
+      index.upsertWorkerRow(runningRow('busy'));
+      const rerun = readPersistedWorkers(root).workers.busy;
+      assert.equal(rerun.status, 'running');
+      assert.equal(rerun.failureReason, null);
+    } finally {
+      index.dispose();
+    }
+  });
+});
+
+test('a watchdog stop settles the worker row as failed (stalled); any other outcome keeps its status', () => {
+  assert.deepEqual(settledWorkerStatus('idle', true), { status: 'failed', stage: 'failed', failureReason: 'stalled' });
+  assert.deepEqual(settledWorkerStatus('error', false), { status: 'error', stage: 'error' });
+  assert.deepEqual(settledWorkerStatus('idle', false), { status: 'idle', stage: 'idle' });
 });
 
 test('an approval wait is persisted on the worker row and reaches the pool only while it lasts', () => {
@@ -142,14 +191,15 @@ test('an approval wait is persisted on the worker row and reaches the pool only 
 
     const release = beginSessionApprovalWait('asking');
     assert.equal(readPersistedWorkers(root).workers.asking.awaitingUser, 'approval');
-    assert.equal(listStoredAgentWorkers().find((row) => row.sessionId === 'asking')?.awaitingUser, 'approval');
+    const inFlight = { runningSessionIds: new Set(['asking']) };
+    assert.equal(listStoredAgentWorkers(inFlight).find((row) => row.sessionId === 'asking')?.awaitingUser, 'approval');
     // A session without a worker row (the Lead's own approval) writes nothing.
     assert.equal(index.setAwaitingUser('lead-only', 'approval'), false);
     beginSessionApprovalWait('lead-only')();
 
     release();
     assert.equal('awaitingUser' in readPersistedWorkers(root).workers.asking, false);
-    assert.equal('awaitingUser' in listStoredAgentWorkers().find((row) => row.sessionId === 'asking'), false);
+    assert.equal('awaitingUser' in listStoredAgentWorkers(inFlight).find((row) => row.sessionId === 'asking'), false);
 
     // A terminal settlement never carries a wait forward, whoever wrote it.
     const releaseAgain = beginSessionApprovalWait('asking');
@@ -185,7 +235,7 @@ test('startup recovery clears an approval wait left by a runtime that is gone', 
       ...extra,
     });
     writeWorkers(root, {
-      // The daemon died mid-approval: its row is idled and the wait dropped.
+      // The daemon died mid-approval: its row settles as failed and the wait drops.
       crashed: row('crashed', { status: 'running', stage: 'running', runtimePid: 0x7fffffff }),
       // A settled row from a dead runtime still holding the flag.
       settled: row('settled', { status: 'idle', stage: 'idle', runtimePid: 0x7fffffff }),
@@ -196,7 +246,7 @@ test('startup recovery clears an approval wait left by a runtime that is gone', 
     workerIndex(root).dispose();
 
     const { workers } = readPersistedWorkers(root);
-    assert.equal(workers.crashed.status, 'idle');
+    assert.equal(workers.crashed.status, 'failed');
     assert.equal('awaitingUser' in workers.crashed, false);
     assert.equal(workers.settled.status, 'idle');
     assert.equal('awaitingUser' in workers.settled, false);
@@ -316,7 +366,7 @@ test('approval transitions are fenced to their turn and re-checked against the l
   });
 });
 
-test('cold pool reader does not trust an expired running worker row', () => {
+test('the pool never trusts a running worker row the daemon does not report in flight', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-cold-stale-'));
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
@@ -336,9 +386,9 @@ test('cold pool reader does not trust an expired running worker row', () => {
       },
     });
 
-    // A row that claims to be running with no fresh heartbeat is reported as
-    // `unknown`, not as idle: the cold reader cannot see the runtime, so it
-    // states that rather than asserting a settled state it never observed.
+    // A row that claims to be running without the daemon's in-flight answer is
+    // reported as `unknown`, not as idle or running: the row alone is not
+    // evidence of either.
     const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'stale');
     assert.equal(row?.status, 'unknown');
     assert.equal(row?.stage, 'unknown');
@@ -374,8 +424,10 @@ test('worker exit flush commits queued state before settling active work', () =>
     index.flushWorkerIndexOnExit();
 
     const stored = readPersistedWorkers(root);
-    assert.equal(stored.workers['exit-worker'].status, 'idle');
-    assert.equal(stored.workers['exit-worker'].stage, 'idle');
+    // The turn dies with the process: a failure, not a rest.
+    assert.equal(stored.workers['exit-worker'].status, 'failed');
+    assert.equal(stored.workers['exit-worker'].stage, 'failed');
+    assert.equal(stored.workers['exit-worker'].failureReason, 'process-restart');
     assert.equal(stored.workers['exit-worker'].turnStartedAt, null);
   } finally {
     rmSync(root, { recursive: true, force: true });

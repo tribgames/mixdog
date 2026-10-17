@@ -2,7 +2,6 @@ import { EFFORT_BETA_HEADER } from './anthropic-effort.mjs';
 import { normalizeClaudeModelId } from './anthropic-thinking-contract.mjs';
 import { getModelMetadataSync } from './model-catalog.mjs';
 
-const EXTENDED_CACHE_TTL_BETA_HEADER = 'extended-cache-ttl-2025-04-11';
 const INTERLEAVED_THINKING_BETA_HEADER = 'interleaved-thinking-2025-05-14';
 const FAST_MODE_BETA_HEADER = 'fast-mode-2026-02-01';
 const TOOL_SEARCH_BETA_HEADER = 'advanced-tool-use-2025-11-20';
@@ -23,7 +22,7 @@ export function supportsAnthropicFastMode(model) {
 }
 
 export function buildAnthropicBetaHeaders({
-  base = `${INTERLEAVED_THINKING_BETA_HEADER},${EXTENDED_CACHE_TTL_BETA_HEADER}`,
+  base = INTERLEAVED_THINKING_BETA_HEADER,
   fastMode = false,
   toolSearch = false,
   effort = false,

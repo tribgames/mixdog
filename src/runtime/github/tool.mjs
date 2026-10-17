@@ -1,4 +1,4 @@
-import { GITHUB_ACTIONS } from './contract.mjs';
+import { DEFAULT_GITHUB_HOSTNAME, GITHUB_ACTIONS } from './contract.mjs';
 import { executeGithubRequest } from './client.mjs';
 import { GITHUB_OUTPUT_MAX_BYTES } from '../shared/tool-output-limit.mjs';
 import { persistToolResultArtifactSync } from '../agent/orchestrator/session/tool-result-offload.mjs';
@@ -6,19 +6,19 @@ import { normalizeOutputPath } from '../agent/orchestrator/tools/builtin/path-ut
 
 // Model-facing reduction only; executeGithubRequest (also used by Desktop)
 // keeps the raw REST response, and the agent's copy is preserved as `raw`.
-const KEPT_URL_KEYS = new Set([
-  'html_url',
-  'browser_download_url',
-  'diff_url',
-  'patch_url',
-  'clone_url',
-  'ssh_url',
-  'tarball_url',
-  'zipball_url',
-  'target_url',
-  'details_url',
+// html_url is the one page link the model can hand to a user; the asset,
+// status and check links are the only other URLs not derivable from ids.
+const KEPT_URL_KEYS = new Set(['html_url', 'browser_download_url', 'target_url', 'details_url']);
+const DROPPED_KEYS = new Set([
+  'url',
+  'node_id',
+  '_links',
+  'gravatar_id',
+  'performed_via_github_app',
+  'author_association',
+  'sub_issues_summary',
+  'issue_dependencies_summary',
 ]);
-const DROPPED_KEYS = new Set(['node_id', '_links', 'gravatar_id']);
 const USER_KEYS = new Set([
   'user',
   'owner',
@@ -55,10 +55,20 @@ function reduceGithubData(value, key, parentKey) {
   if (isNestedRepository(key, parentKey) && typeof value.full_name === 'string') return value.full_name;
   const reduced = {};
   for (const [name, item] of Object.entries(value)) {
-    if (DROPPED_KEYS.has(name) || (name.endsWith('_url') && !KEPT_URL_KEYS.has(name))) continue;
+    if (DROPPED_KEYS.has(name) || name.endsWith('node_id') || (name.endsWith('_url') && !KEPT_URL_KEYS.has(name))) {
+      continue;
+    }
+    // Numbered objects (issues, PRs, milestones) are addressed by number; their id is noise.
+    if (name === 'id' && typeof value.number === 'number') continue;
+    if (name === 'reactions' && isEmptyReactions(item)) continue;
     reduced[name] = reduceGithubData(item, name, key);
   }
   return reduced;
+}
+
+function isEmptyReactions(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.values(value).every((item) => typeof item !== 'number' || item === 0);
 }
 
 const EXCERPT_MAX = 140;
@@ -149,6 +159,89 @@ const LIST_PROJECTORS = {
 function projectList(action, data) {
   const project = LIST_PROJECTORS[action];
   return project && Array.isArray(data) ? data.map(project) : undefined;
+}
+
+const BODY_MAX = 1500;
+
+function bodyText(body) {
+  if (typeof body !== 'string') return undefined;
+  const text = body.replace(/\r\n/g, '\n').trim();
+  if (!text) return undefined;
+  if (text.length <= BODY_MAX) return text;
+  const cut = /[\ud800-\udbff]/.test(text[BODY_MAX - 1]) ? BODY_MAX - 1 : BODY_MAX;
+  return `${text.slice(0, cut)}… ${text.length - cut} more chars in raw`;
+}
+
+function logins(list) {
+  const names = (Array.isArray(list) ? list : []).map(login).filter(Boolean);
+  return names.length ? names : undefined;
+}
+
+const stamp = (value) => (typeof value === 'string' ? value : undefined);
+const repoName = (repo) => (typeof repo === 'string' ? repo : repo?.full_name);
+
+// Single-item projections: the decision fields of one issue/PR. Nulls that
+// mean "not yet" (open PR closed_at) are dropped; `mergeable`/`mergeable_state`
+// stay as returned because null there means GitHub is still computing.
+const VIEW_PROJECTORS = {
+  'pr.view': (pr) => ({
+    number: pr.number,
+    title: pr.title,
+    state: pr.state,
+    draft: pr.draft,
+    merged: pr.merged,
+    mergeable: pr.mergeable,
+    mergeable_state: pr.mergeable_state,
+    user: login(pr.user),
+    labels: labelNames(pr.labels),
+    assignees: logins(pr.assignees),
+    requested_reviewers: logins(pr.requested_reviewers),
+    head: pr.head && { ref: pr.head.ref, sha: pr.head.sha, repo: repoName(pr.head.repo) },
+    base: pr.base && { ref: pr.base.ref, sha: pr.base.sha },
+    commits: pr.commits,
+    additions: pr.additions,
+    deletions: pr.deletions,
+    changed_files: pr.changed_files,
+    comments: pr.comments,
+    review_comments: pr.review_comments,
+    html_url: pr.html_url,
+    created_at: stamp(pr.created_at),
+    updated_at: stamp(pr.updated_at),
+    closed_at: stamp(pr.closed_at),
+    merged_at: stamp(pr.merged_at),
+    body: bodyText(pr.body),
+  }),
+  'issue.view': (issue) => ({
+    number: issue.number,
+    title: issue.title,
+    state: issue.state,
+    state_reason: issue.state_reason || undefined,
+    user: login(issue.user),
+    labels: labelNames(issue.labels),
+    assignees: logins(issue.assignees),
+    milestone: issue.milestone?.title,
+    comments: issue.comments,
+    html_url: issue.html_url,
+    created_at: stamp(issue.created_at),
+    updated_at: stamp(issue.updated_at),
+    closed_at: stamp(issue.closed_at),
+    body: bodyText(issue.body),
+  }),
+};
+
+function projectView(action, data) {
+  const project = VIEW_PROJECTORS[action];
+  return project && data && typeof data === 'object' && !Array.isArray(data) ? project(data) : undefined;
+}
+
+// Rows whose excerpt/description was shortened ("…") need raw for the rest.
+function rowsWereCut(rows) {
+  return rows.some(
+    (row) =>
+      row &&
+      typeof row === 'object' &&
+      Object.values(row).some((value) => typeof value === 'string' && value.endsWith('…'))
+  );
 }
 
 const fits = (text) => Buffer.byteLength(text, 'utf8') <= GITHUB_OUTPUT_MAX_BYTES;
@@ -303,7 +396,7 @@ export const GITHUB_TOOL_DEF = {
   },
   trigger: 'GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).',
   description:
-    'GitHub repositories, issues, PRs and reviews, Actions/logs, releases, and notifications through the signed-in GitHub CLI. Local Git history/diffs/staging belong to git. One action per call; writes are serialized and never retried. Obtain user approval before writes; workflow runs and published releases may deploy. repo is owner/name; omit to resolve the current Project. Lists use page/limit and return compact rows (issues/PRs: number, title, state, author, updated, labels, 140-char excerpt; other lists: ids and status fields); open a row with its *.view action for bodies and details. Review/merge requires the current PR head sha. Install/connect in Extensions → Plugin → Git & GitHub. Results omit API-only URLs and node ids and name users/repos by login/full_name; `raw` is a readable file with the full response, and long results state what is shown.',
+    'GitHub repositories, issues, PRs and reviews, Actions/logs, releases, and notifications through the signed-in GitHub CLI. Local Git history/diffs/staging belong to git. One action per call; writes are serialized and never retried. Obtain user approval before writes; workflow runs and published releases may deploy. repo is owner/name; omit to resolve the current Project. Lists use page/limit and return compact rows (issues/PRs: number, title, state, author, updated, labels, 140-char excerpt; other lists: ids and status fields); open a row with its *.view action for bodies and details. Review/merge requires the current PR head sha. Install/connect in Extensions → Plugin → Git & GitHub. Results omit API-only URLs and node ids and name users/repos by login/full_name; issue/PR views keep decision fields and cap the body; `raw`, present whenever rows, text or fields were cut or dropped, is a readable file with the full response, and long results state what is shown.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -357,9 +450,17 @@ export const GITHUB_TOOL_DEF = {
 export async function executeGithubTool(args, cwd, options = {}) {
   try {
     const result = await executeGithubRequest(args, cwd, options);
-    const reduced = { ...result, data: projectList(args.action, result.data) ?? reduceGithubData(result.data) };
+    const data =
+      projectList(args.action, result.data) ?? projectView(args.action, result.data) ?? reduceGithubData(result.data);
+    const reduced = { ...result, data };
+    if (reduced.hostname === DEFAULT_GITHUB_HOSTNAME) delete reduced.hostname;
     const text = JSON.stringify(reduced);
-    if (text === JSON.stringify(result) && fits(text)) return text;
+    // Lists point at raw only when a row or excerpt was cut; they are projected
+    // by design. Everything else needs raw whenever the reduction dropped data.
+    const lossy = GITHUB_ACTIONS[args.action]?.list
+      ? Array.isArray(data) && rowsWereCut(data)
+      : JSON.stringify(data) !== JSON.stringify(result.data);
+    if (!lossy && fits(text)) return text;
     const raw = persistToolResultArtifactSync({
       sessionId: options.sessionId,
       toolCallId: options.toolCallId,

@@ -18,6 +18,7 @@ import {
 } from '../../tools/builtin/runtime-capabilities.mjs';
 import { captureOriginalUserCwd } from '../../../../shared/user-cwd.mjs';
 import { delegationDisabled } from './session-tool-surface.mjs';
+import { contextAckMessage } from '../compact/user-message-kind.mjs';
 
 // Preserve the exact pre-layout environment payload: Lead carried the
 // shell preference in Profile Preferences, while any routing surface with
@@ -89,6 +90,23 @@ export function buildWorkspacePromptContext(session, cwd) {
 
 // BP1/BP2/BP3 rule blocks plus the volatile environment, composed into the
 // four system blocks; environmentTailContext is the persisted env tail.
+export function sessionRolePromptFields(identity, { ownerIsAgent, toolFreeRole, delegationFree }) {
+  const skipRules = identity.skipAgentRules || toolFreeRole;
+  let roleRules = '';
+  if (!skipRules) {
+    roleRules = ownerIsAgent
+      ? _buildAgentRules(identity.agentRulesProfile)
+      : _buildLeadRules({ includeLeadBrief: !delegationFree });
+  }
+  return {
+    roleRules,
+    userPrompt: identity.systemPrompt,
+    skipRoleCatalog: !ownerIsAgent,
+    agent: identity.agent,
+    profile: { skip: identity.profileSkip },
+  };
+}
+
 export function composeSessionSystem(opts, { profile, providerName, modelName, surface }) {
   const { ownerIsAgent, resolvedAgent, skills } = surface;
   // A tool-free hidden role (a one-shot classifier or title writer) carries
@@ -105,12 +123,14 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
         model: modelName,
       });
   const delegationFree = delegationDisabled(opts, ownerIsAgent);
-  let roleRules = '';
-  if (!skipAgentRules) {
-    roleRules = ownerIsAgent
-      ? _buildAgentRules(surface.agentRulesProfile)
-      : _buildLeadRules({ includeLeadBrief: !delegationFree });
-  }
+  const promptIdentity = {
+    systemPrompt: opts.systemPrompt || '',
+    skipAgentRules: opts.skipAgentRules === true,
+    profileSkip: { ...profile?.skip },
+    agent: resolvedAgent,
+    agentRulesProfile: surface.agentRulesProfile,
+  };
+  const roleFields = sessionRolePromptFields(promptIdentity, { ownerIsAgent, toolFreeRole, delegationFree });
   const leadOnly = !skipAgentRules && !ownerIsAgent;
   const metaContext = leadOnly ? _buildLeadMetaContext() : '';
   // Lead-only response language; closes the environment block so no English
@@ -132,14 +152,10 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
       ? ''
       : loadInstructionFilesContext({ mode: configuredInstructionFilesMode(), cwd: opts.cwd });
   const composed = composeSystemPrompt({
-    userPrompt: opts.systemPrompt,
+    ...roleFields,
     agentRules: injectedRules || undefined,
-    roleRules: roleRules || undefined,
     metaContext: metaContext || undefined,
     languageContext: languageContext || undefined,
-    skipRoleCatalog: !ownerIsAgent,
-    profile: profile || undefined,
-    agent: resolvedAgent,
     workflowContext: opts.workflowContext || null,
     coreMemoryContext: opts.coreMemoryContext || null,
     instructionFilesContext: instructionFilesContext || null,
@@ -147,7 +163,7 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
     environmentContext: shellEnvironmentContext,
     provider: providerName || null,
   });
-  return { ...composed, environmentTailContext };
+  return { ...composed, environmentTailContext, promptIdentity };
 }
 
 // 4-BP layout (see composeSystemPrompt docs):
@@ -188,7 +204,7 @@ export function seedSessionMessages({ baseRules, stableSystemContext, sessionMar
   if (files?.length) {
     const fileContext = files.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
     messages.push({ role: 'user', content: `Reference files:\n\n${fileContext}` });
-    messages.push({ role: 'assistant', content: '.' });
+    messages.push(contextAckMessage());
   }
   return messages;
 }

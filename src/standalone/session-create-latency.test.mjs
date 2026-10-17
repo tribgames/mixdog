@@ -148,7 +148,6 @@ test('warm session creation stays under budget without blocking the event loop',
   const { drainSessionStore, loadSession } = await import('../runtime/agent/orchestrator/session/store.mjs');
 
   const { settleSessionSummaryIndex } = await import('../runtime/agent/orchestrator/session/store/listing.mjs');
-  const { settleSessionPresence } = await import('../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs');
   const { settlePendingMessageWrites } = await import(
     '../runtime/agent/orchestrator/session/manager/pending-messages.mjs'
   );
@@ -174,7 +173,6 @@ test('warm session creation stays under budget without blocking the event loop',
       // process against new starts and awaits the one under way.
       await stopOwnedPgForShutdown();
       for (const id of sessionIds) {
-        await settleSessionPresence(id);
         assert.equal(await settleTurnJournalWrites(id), true);
       }
       await settlePendingMessageWrites({ throwOnTimeout: true });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   executeBashTool,
   _shellFamilyForSpawn,
-  descendantsAlive,
+  observeDescendants,
   killShellDescendants,
   buildShellCompletion,
   killShellJob,
@@ -259,7 +259,11 @@ for (const entry of DETACHING_SHELL_CASES) {
     const handle = result.descendants;
     assert.ok(handle, `${entry.name}: surviving descendants must be observed:\n${JSON.stringify(result, null, 2)}`);
     assert.ok(handle.taskId, `${entry.name}: the survivors must carry a task id`);
-    assert.equal(descendantsAlive(handle), true, `${entry.name}: the observed survivors must still be alive`);
+    assert.equal(
+      await observeDescendants(handle),
+      'running',
+      `${entry.name}: the observed survivors must still be alive`
+    );
     const killed = await killShellDescendants(handle);
     // A reachable survivor must actually be gone; an unreachable one (Windows
     // keeps no live link to a process whose parent already exited) is reported
@@ -270,9 +274,11 @@ for (const entry of DETACHING_SHELL_CASES) {
         true,
         `${entry.name}: cancellation must leave no process behind, survivors=${killed.survivors.join(',')}`
       );
+      // killShellDescendants already re-observed by identity; a fresh
+      // observation must agree that nothing of the tree is left.
       assert.equal(
-        await waitUntil(() => !descendantsAlive(handle), 10_000),
-        true,
+        await observeDescendants(handle),
+        'gone',
         `${entry.name}: no descendant may outlive the cancellation`
       );
     } else {

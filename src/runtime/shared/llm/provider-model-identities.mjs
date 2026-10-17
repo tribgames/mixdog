@@ -28,6 +28,7 @@ export const ANTIGRAVITY_MODELS = Object.freeze([
     low: 'gemini-3.1-pro-low',
     high: 'gemini-3.1-pro-high',
   }),
+  fallbackModel('gemini-4-argon', 'Gemini 4 Argon', 'gemini-pro', 1048576, 'gemini-4-argon', ['low', 'medium', 'high']),
   fallbackModel('claude-opus-4-6-thinking', 'Claude Opus 4.6 (Thinking)', null, 250000, 'claude-opus-4-6-thinking', [
     'low',
     'medium',

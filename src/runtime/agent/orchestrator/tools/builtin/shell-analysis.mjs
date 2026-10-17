@@ -3,6 +3,7 @@ import { assertPathReachable, assertPathsReachable } from './fs-reachability.mjs
 import { isAbsolute, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { isBuiltin } from 'node:module';
 import { cwdRelativePath, normalizeInputPath, normalizeOutputPath, resolveAgainstCwd } from './path-utils.mjs';
 
 // Hard-block patterns live exclusively in ../shell-policy.mjs (BLOCKED_PATTERNS /
@@ -661,6 +662,24 @@ const LONG_INLINE_SCRIPT_RE =
   /\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)')/i;
 const POWERSHELL_FILE_SEMANTIC_RE = /\$(?:PSScriptRoot|PSCommandPath|MyInvocation)\b|^\s*(?:param\s*\(|#requires\b)/im;
 
+// `node -e` resolves a package name from the working directory; a hoisted file
+// resolves it from the temp directory it lives in, where no node_modules is.
+// Any package specifier (not a Node builtin), require.resolve, or a specifier
+// that is not a string literal therefore keeps the -e form.
+const NODE_SPECIFIER_RE = /(?:\brequire\s*\(\s*|\bimport\s*\(\s*|\bfrom\s+|\bimport\s+)['"]([^'"]+)['"]/g;
+const NODE_LOADER_CALL_RE = /\b(?:require|import)\s*\(/g;
+const NODE_LITERAL_LOADER_CALL_RE = /\b(?:require|import)\s*\(\s*['"][^'"]+['"]/g;
+function importsPackage(body) {
+  if (/\brequire\s*\.\s*resolve\b/.test(body)) return true;
+  if ((body.match(NODE_LOADER_CALL_RE) || []).length !== (body.match(NODE_LITERAL_LOADER_CALL_RE) || []).length) {
+    return true;
+  }
+  for (const [, specifier] of body.matchAll(NODE_SPECIFIER_RE)) {
+    if (!isBuiltin(specifier)) return true;
+  }
+  return false;
+}
+
 /** File extension a hoisted inline script gets: Python, or the Node module kind the flags declare. */
 function inlineScriptExtension(isNode, esm) {
   if (!isNode) return '.py';
@@ -684,6 +703,7 @@ export function planInlineScriptHoist(command) {
   const [whole, exe, rawFlags, , body] = match;
   if (INLINE_UNSAFE_BODY.test(body)) return null;
   if (INLINE_FILE_RELATIVE.test(body)) return null;
+  if (/^node/i.test(exe) && importsPackage(body)) return null;
   const { extension, keptFlags } = inlineScriptFileShape(exe, rawFlags);
   return {
     exe,

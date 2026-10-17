@@ -4,7 +4,7 @@
 // sidecars. The generator yields between records so cooperative hosts never
 // hold the event loop for a whole directory scan; the synchronous wrapper
 // drains it in one go.
-import { getStoreDir } from '../paths-heartbeat.mjs';
+import { getStoreDir } from '../session-paths.mjs';
 import { probePath, PROBE_PRESENT } from '../fs-probe.mjs';
 import { persistSweepRecordCache, pruneSweepRecordCache } from './sweep-record.mjs';
 import { collectSweepRows, createSweepTally, resolveSweepPlan } from './sweep-plan.mjs';

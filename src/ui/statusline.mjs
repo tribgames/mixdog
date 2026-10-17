@@ -31,7 +31,11 @@ import {
   num,
   formatElapsed,
 } from '../runtime/shared/statusline/statusline-format.mjs';
-import { shellJobsStatus, memoryCycleStatus } from '../runtime/shared/statusline/statusline-segments.mjs';
+import {
+  shellJobsStatus,
+  memoryCycleStatus,
+  unconfirmedShellCount,
+} from '../runtime/shared/statusline/statusline-segments.mjs';
 import {
   agentStatuslinePayload,
   classifyAgentWorkers,
@@ -397,9 +401,15 @@ function activitySegments({ sessionId, clientHostPid, agentWorkers, agentJobs, a
     const n = runningWorkers.length;
     segment(`Running ${n} Agent${n === 1 ? '' : 's'}`, agentsElapsed(runningWorkers));
   }
-  if (shellStatus.count > 0) {
-    const n = shellStatus.count;
+  const unconfirmed = unconfirmedShellCount(shellStatus);
+  if (shellStatus.count - unconfirmed > 0) {
+    const n = shellStatus.count - unconfirmed;
     segment(`Running ${n} Shell${n === 1 ? '' : 's'}`, shellStatus.elapsedLabel);
+  }
+  if (unconfirmed > 0) {
+    parts.push(
+      `${YLW}⚠ ${unconfirmed} Shell${unconfirmed === 1 ? '' : 's'} termination unconfirmed${R} ${D}·${R} /shells`
+    );
   }
   const webSearch = webSearchActivity(activeTools, { sessionId, clientHostPid });
   if (webSearch.count > 0) segment('Web Searching', webSearch.elapsed);

@@ -4,6 +4,7 @@
  * follow-Main default.
  */
 import { webSearchRouteOrDefault } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import { routeChain, canonicalRouteProvider } from '../../runtime/shared/model-route-chain.mjs';
 
 export function createWebSearchRouteCandidates({
   getRoute,
@@ -50,35 +51,47 @@ export function createWebSearchRouteCandidates({
     // before the Main Model was ever consulted.
     const webSearchRoute = webSearchRouteOrDefault(cfg.webSearchRoute, getWebSearchRoute());
     setWebSearchRoute(webSearchRoute);
+    const candidates = [];
+    const seen = new Set();
+    for (const selected of routeChain(webSearchRoute)) {
+      const candidate = await resolveCandidate(selected, cfg, route);
+      if (!candidate) continue;
+      const provider = canonicalRouteProvider(candidate.provider);
+      if (seen.has(provider)) continue;
+      seen.add(provider);
+      candidates.push({ ...candidate, provider });
+    }
+    return candidates;
+  }
+
+  async function resolveCandidate(webSearchRoute, cfg, route) {
     if (isDefaultWebSearchRouteConfig(webSearchRoute)) {
       const loadedRow = route?.provider && route?.model ? await loadMainCatalogRow(cfg, route) : null;
       const mainModel = currentMainWebSearchModelMeta(loadedRow);
-      if (!mainModel || !webSearchCapableFor(route.provider, mainModel)) return [];
-      return [
-        {
-          key: `default\n${route.provider}\n${route.model}`,
-          provider: normalizeWebSearchProviderId(route.provider),
-          model: route.model,
-          source: 'default-web-search-route',
-          effort: route.effectiveEffort || route.effort || null,
-          fast: route.fast === true,
-          toolType: webSearchRoute.toolType || null,
-        },
-      ];
+      if (!mainModel || !webSearchCapableFor(route.provider, mainModel)) return null;
+      return {
+        key: `default\n${route.provider}\n${route.model}`,
+        provider: normalizeWebSearchProviderId(route.provider),
+        model: route.model,
+        source: 'default-web-search-route',
+        effort: route.effectiveEffort || route.effort || null,
+        fast: route.fast === true,
+        modelParameters: route.modelParameters || {},
+        toolType: webSearchRoute.toolType || null,
+      };
     }
     const providerName = normalizeWebSearchProviderId(webSearchRoute.provider);
-    if (!isWebSearchCapableProvider(providerName)) return [];
-    return [
-      {
-        key: `${providerName}\n${webSearchRoute.model}`,
-        provider: providerName,
-        model: webSearchRoute.model,
-        source: 'web-search-route',
-        effort: webSearchRoute.effort || null,
-        fast: webSearchRoute.fast === true,
-        toolType: webSearchRoute.toolType || null,
-      },
-    ];
+    if (!isWebSearchCapableProvider(providerName)) return null;
+    return {
+      key: `${providerName}\n${webSearchRoute.model}`,
+      provider: providerName,
+      model: webSearchRoute.model,
+      source: 'web-search-route',
+      effort: webSearchRoute.effort || null,
+      fast: webSearchRoute.fast === true,
+      modelParameters: webSearchRoute.modelParameters || {},
+      toolType: webSearchRoute.toolType || null,
+    };
   }
 
   return { currentMainWebSearchModelMeta, nativeWebSearchRoutes };

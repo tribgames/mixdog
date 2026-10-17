@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { agentLoop, shouldSuppressAgentMidTurnText } from './agent-loop.mjs';
+import { agentLoop } from './agent-loop.mjs';
 
 function agentSession(extra = {}) {
   return {
@@ -14,17 +14,7 @@ function agentSession(extra = {}) {
   };
 }
 
-test('Agent mid-turn text stays suppressed unless live projection is explicit', () => {
-  const session = agentSession();
-  assert.equal(shouldSuppressAgentMidTurnText(session, {}), true);
-  assert.equal(shouldSuppressAgentMidTurnText(session, { liveProjection: false }), true);
-  assert.equal(shouldSuppressAgentMidTurnText(session, { onTextDelta: () => {} }), true);
-  assert.equal(shouldSuppressAgentMidTurnText(session, { liveProjection: true }), false);
-  assert.equal(shouldSuppressAgentMidTurnText(agentSession({ interactiveSessionSurface: true }), {}), false);
-  assert.equal(shouldSuppressAgentMidTurnText({ owner: 'cli' }, {}), false);
-});
-
-test('silent Agent dispatch does not hand onTextDelta to the provider', async () => {
+test('Agent dispatch preserves text deltas without requiring live projection', async () => {
   const session = agentSession();
   let providerSawTextDelta = false;
   const deltas = [];
@@ -41,8 +31,8 @@ test('silent Agent dispatch does not hand onTextDelta to the provider', async ()
     onTextDelta: (chunk) => deltas.push(chunk),
   });
   assert.equal(result.content, 'final');
-  assert.equal(providerSawTextDelta, false);
-  assert.deepEqual(deltas, []);
+  assert.equal(providerSawTextDelta, true);
+  assert.deepEqual(deltas, ['secret-preamble']);
   assert.equal(Object.hasOwn(session, 'interactiveSessionSurface'), false);
   assert.equal(Object.hasOwn(session, 'liveProjection'), false);
 });
@@ -116,7 +106,7 @@ test('live Agent tool-call turns keep preamble text and surface buffered assista
   assert.equal(session.interactiveSessionSurface, undefined);
 });
 
-test('suppressed Agent tool-call turns blank preamble history and skip buffered text', async () => {
+test('Agent tool-call turns preserve emitted prose in history and buffered text', async () => {
   const session = agentSession();
   const assistantTexts = [];
   const committed = [];
@@ -148,8 +138,8 @@ test('suppressed Agent tool-call turns blank preamble history and skip buffered 
     }
   );
   assert.equal(result.content, 'final-answer');
-  assert.deepEqual(assistantTexts, []);
-  assert.equal(committed[0]?.content, '');
+  assert.deepEqual(assistantTexts, ['Now let me look']);
+  assert.equal(committed[0]?.content, 'Now let me look');
   assert.equal(committed[0]?.toolCalls?.[0]?.name, 'definitely_missing_silent_proj_tool');
 });
 

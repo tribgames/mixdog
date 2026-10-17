@@ -316,27 +316,50 @@ function agentDefinitionFiles(cleanAgent, dataDir, standaloneSourceRoot) {
   return candidates;
 }
 
-export function readAgentFrontmatterPermission(agent, dataDir, standaloneSourceRoot) {
+const _frontmatterFirstResponseCache = new Map(); // key -> { value, atMs }
+
+// The first definition (in precedence order) whose frontmatter yields a value
+// through `pick`, cached per agent for the frontmatter TTL.
+function cachedFrontmatterValue(cache, agent, dataDir, standaloneSourceRoot, pick) {
   const cleanAgent = clean(agent);
   if (!cleanAgent) return null;
   if (agentDeleted(cleanAgent, dataDir)) return null;
   const cacheKey = `${dataDir || ''}\u0000${cleanAgent}`;
-  const cached = _frontmatterPermCache.get(cacheKey);
+  const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.atMs < FRONTMATTER_PERM_CACHE_TTL_MS) {
     return cached.value;
   }
   let resolved = null;
   for (const file of agentDefinitionFiles(cleanAgent, dataDir, standaloneSourceRoot)) {
     if (!existsSync(file)) continue;
-    const fm = parseMarkdownFrontmatter(readFileSync(file, 'utf8'));
-    const permission = normalizeAgentPermissionOrNone(fm.permission);
-    if (permission) {
-      resolved = permission;
+    const value = pick(parseMarkdownFrontmatter(readFileSync(file, 'utf8')));
+    if (value != null) {
+      resolved = value;
       break;
     }
   }
-  _frontmatterPermCache.set(cacheKey, { value: resolved, atMs: Date.now() });
+  cache.set(cacheKey, { value: resolved, atMs: Date.now() });
   return resolved;
+}
+
+export function readAgentFrontmatterPermission(agent, dataDir, standaloneSourceRoot) {
+  return cachedFrontmatterValue(
+    _frontmatterPermCache,
+    agent,
+    dataDir,
+    standaloneSourceRoot,
+    (fm) => normalizeAgentPermissionOrNone(fm.permission) || null
+  );
+}
+
+/** The agent definition's `firstResponseTimeoutMs` (a non-negative integer;
+ *  0 disables the first-response deadline), or null when it sets none. */
+export function readAgentFirstResponseTimeoutMs(agent, dataDir, standaloneSourceRoot) {
+  return cachedFrontmatterValue(_frontmatterFirstResponseCache, agent, dataDir, standaloneSourceRoot, (fm) => {
+    const raw = String(fm.firstResponseTimeoutMs ?? '').trim();
+    const ms = Number(raw);
+    return raw && Number.isFinite(ms) && ms >= 0 ? Math.floor(ms) : null;
+  });
 }
 
 // Agents are global definitions (agents/<id>/ under the data dir or the

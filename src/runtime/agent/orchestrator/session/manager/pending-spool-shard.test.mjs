@@ -20,7 +20,7 @@ process.on('exit', () => {
   }
 });
 
-const { enqueueRemotePendingMessage, settlePendingMessageWrites, sweepOrphanedPendingMessages } = await import(
+const { enqueuePendingMessage, settlePendingMessageWrites, sweepOrphanedPendingMessages } = await import(
   './pending-messages.mjs'
 );
 const { pendingMessagesPath, legacyPendingMessagesPath } = await import('./pending-spool-path.mjs');
@@ -43,8 +43,8 @@ function writeLegacy(sessions, touched = {}) {
 }
 
 test('every session persists into its own shard file with its own lock', async () => {
-  assert.equal(enqueueRemotePendingMessage('sess_shard_a', { id: 'pm_a', content: 'to a' }), 1);
-  assert.equal(enqueueRemotePendingMessage('sess_shard_b', { id: 'pm_b', content: 'to b' }), 1);
+  assert.equal(enqueuePendingMessage('sess_shard_a', 'to a'), 1);
+  assert.equal(enqueuePendingMessage('sess_shard_b', 'to b'), 1);
   assert.equal(await settlePendingMessageWrites({ timeoutMs: 4000 }), true);
   assert.deepEqual(Object.keys(readShard('sess_shard_a').sessions), ['sess_shard_a']);
   assert.deepEqual(Object.keys(readShard('sess_shard_b').sessions), ['sess_shard_b']);
@@ -76,10 +76,10 @@ test('a lock held on one session never delays or fails another session', async (
     );
     // The blocked shard's failed commit would requeue and retry; the free
     // session's commit lands on its first attempt regardless.
-    assert.equal(enqueueRemotePendingMessage('sess_free', { id: 'pm_free', content: 'unblocked' }), 1);
+    assert.equal(enqueuePendingMessage('sess_free', 'unblocked'), 1);
     await updatePendingShard('sess_free', () => undefined);
     assert.equal(await settlePendingMessageWrites({ timeoutMs: 4000 }), true);
-    assert.equal(readShard('sess_free').sessions.sess_free[0].id, 'pm_free');
+    assert.equal(readShard('sess_free').sessions.sess_free[0].message, 'unblocked');
   } finally {
     rmSync(held, { force: true });
   }
@@ -129,7 +129,8 @@ test('a migration interrupted after the merge re-runs without duplicating rows',
 
 test('concurrent processes migrating the same legacy file land every row exactly once', async () => {
   const sessions = {};
-  for (let i = 0; i < 12; i += 1) sessions[`sess_conc_${i}`] = [{ id: `pm_conc_${i}`, message: 'c', enqueuedAt: i + 1 }];
+  for (let i = 0; i < 12; i += 1)
+    sessions[`sess_conc_${i}`] = [{ id: `pm_conc_${i}`, message: 'c', enqueuedAt: i + 1 }];
   writeLegacy(sessions);
   const shardModule = new URL('./pending-spool-shard.mjs', import.meta.url).href;
   const source = `const m = await import(${JSON.stringify(shardModule)}); await m.ensurePendingSpoolMigrated();`;

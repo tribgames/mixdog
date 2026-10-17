@@ -75,10 +75,11 @@ function parseAnchor(line, { workDir, rgSpawnCwd, grepResolvedPath, searchPath, 
       content: String(line).slice(split.markerEnd),
     };
   }
-  const raw = splitGrepLinePrefix(line);
+  // The anchor pass runs rg without context lines: every line is a match.
+  const raw = splitGrepLinePrefix(line, true);
   if (raw?.delimiter !== ':') return null;
-  const normalized = relativeGrepLine(line, workDir, false, outputMode, false);
-  const display = splitGrepLinePrefix(normalized);
+  const normalized = relativeGrepLine(line, workDir, false, outputMode, false, true);
+  const display = splitGrepLinePrefix(normalized, true);
   if (display?.delimiter !== ':') return null;
   return {
     path: display.path,

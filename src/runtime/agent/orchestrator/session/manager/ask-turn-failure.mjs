@@ -17,6 +17,31 @@ import {
 import { _getRuntimeEntry, markSessionCancelled, markSessionError } from './runtime-liveness.mjs';
 import { SessionClosedError } from './session-errors.mjs';
 import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
+import { attachFailedTurnCompletion } from './ask-turn-settle.mjs';
+import { turnFailureRecord } from '../turn-failure.mjs';
+import { transcriptRouteMetadataFields } from '../../../../shared/transcript-metadata.mjs';
+
+/** The durable end of a failed turn: the live turndone's status, reason and
+ *  quota stop, so a reopened session renders the same failure. */
+function failedTurnCompletion({ session, err, transcriptMeta, askStartedAt }) {
+  const raw = transcriptMeta && typeof transcriptMeta === 'object' ? transcriptMeta : {};
+  const route = { provider: session?.provider || raw.provider, model: session?.model || raw.modelId };
+  const { errorKind, quota, detail, errorDetails } = turnFailureRecord(err, route);
+  const startedAt = Number(raw.at || askStartedAt || Date.now());
+  return {
+    status: 'failed',
+    attemptId: raw.attemptId || globalThis.crypto.randomUUID(),
+    at: startedAt,
+    verb: typeof raw.completionVerb === 'string' && raw.completionVerb ? raw.completionVerb : 'Thought',
+    elapsedMs: Math.max(0, Date.now() - startedAt),
+    ...(typeof raw.checkpointId === 'string' && raw.checkpointId ? { checkpointId: raw.checkpointId } : {}),
+    ...transcriptRouteMetadataFields(raw),
+    ...(detail ? { detail } : {}),
+    ...(errorDetails ? { errorDetails } : {}),
+    errorKind,
+    ...(quota ? { quota } : {}),
+  };
+}
 
 /** Durable failure identity: every surfaced (non-cancel) turn error logs ONE
  *  structured line to stderr — the shard host mirrors it into daemon.log — so
@@ -118,6 +143,8 @@ async function finalizeCancelledTurn({
  * @param {number} input.generation      the ask generation every save is scoped to
  * @param {string} input.turnCheckpointToken
  * @param {object} input.runtime         the session's runtime entry at turn start
+ * @param {object} [input.transcriptMeta] the caller's raw transcript metadata
+ * @param {number} [input.askStartedAt]
  */
 export async function finalizeAskTurnFailure({
   sessionId,
@@ -129,9 +156,13 @@ export async function finalizeAskTurnFailure({
   generation,
   turnCheckpointToken,
   runtime,
+  transcriptMeta = null,
+  askStartedAt = 0,
 }) {
   checkpoint.stop();
   const session = turn.session;
+  const recordFailure = () =>
+    attachFailedTurnCompletion(session.messages, failedTurnCompletion({ session, err, transcriptMeta, askStartedAt }));
   // Cancellation/error paths bypass the commit point; drop the live-turn
   // alias so contextStatus() stops estimating from the stale in-flight array
   // once the turn unwinds.
@@ -187,6 +218,7 @@ export async function finalizeAskTurnFailure({
   let errorStateDurable = false;
   if (preserveProviderPartial && session && interruption.hasResponseStarted()) {
     const finalized = prepareCloseSnapshot('provider-error');
+    if (finalized.responsePreserved) recordFailure();
     errorStateDurable = await persistFinalizedSession({
       session,
       sessionId,
@@ -208,6 +240,7 @@ export async function finalizeAskTurnFailure({
     );
     const promptPersisted = compactPersist.settled && compactPersist.value === true;
     if (promptPersisted) {
+      recordFailure();
       errorStateDurable = await persistFinalizedSession({
         session,
         sessionId,

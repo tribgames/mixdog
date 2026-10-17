@@ -27,6 +27,7 @@ export function createInlineSessionRuntimeHost({
     await keychain.prewarmSecrets();
   },
   executeAgentControl = null,
+  executeSessionControl = null,
 } = {}) {
   let closed = false;
   let closePromise = null;
@@ -59,6 +60,7 @@ export function createInlineSessionRuntimeHost({
       ...options,
       ...(options.cwd ? {} : { cwd }),
       ...(typeof executeAgentControl === 'function' ? { executeAgentControl } : {}),
+      ...(typeof executeSessionControl === 'function' ? { executeSessionControl } : {}),
     });
     if (closed) {
       try {

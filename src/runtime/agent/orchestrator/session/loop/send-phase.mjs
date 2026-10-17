@@ -18,6 +18,7 @@ import { runWithProviderRequestToolsScope } from '../../runtime-core/provider-re
 import { REPEAT_FAIL_LIMIT } from './loop-state.mjs';
 import { createToolCallIdResolver } from './tool-call-ids.mjs';
 import { captureSideQuestionRequest } from '../side-question-store.mjs';
+import { advanceAgentRoute } from './route-fallback.mjs';
 import {
   beginProviderToolExclusions,
   dropSessionTool,
@@ -205,7 +206,8 @@ export async function sendProviderRequest(state, round) {
     );
   } catch (error) {
     sideQuestion?.discard();
-    throw error;
+    if (!(await advanceAgentRoute(state, error))) throw error;
+    result = { action: 'retry_route' };
   }
   if (result.action === 'proceed') sideQuestion?.settle(result.response);
   else sideQuestion?.discard();
@@ -233,6 +235,8 @@ function appendRecoveryNotice(state, notice) {
  *  instead of processing a response. */
 export function applyRetryAction(state, result) {
   switch (result.action) {
+    case 'retry_route':
+      return true;
     case 'retry':
       // Keep opts.cacheBreakIntent: the failed send never consumed the tag,
       // and the reactive-compact retry that follows IS the tagged transition.

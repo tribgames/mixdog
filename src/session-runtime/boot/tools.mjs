@@ -255,6 +255,7 @@ function wireInternalTools(boot) {
       getWorkspaceApi: () => boot.workspaceApi || null,
       getSessionManager: () => boot.mgr || null,
       getLifecycleApi: () => boot.lifecycleApi || null,
+      executeSessionControl: boot.params.executeSessionControl,
     }),
   });
   Object.assign(boot, { setupTool, disposeInternalTools });

@@ -6,10 +6,9 @@ import { leadPoolTag } from '../worker-rows.mjs';
 export const ACTIVE_LEAD_STATUS =
   /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
 
-// Mirror of the pool reader's freshness window (store-summary-reader): a row is
-// only believed to be working while its heartbeat sidecar or its own stamp sits
-// inside this window. Recovery applies the SAME rule, so the index can never
-// keep claiming work the panel has already stopped believing.
+// Recovery's freshness window: an active row whose turn is not in flight in
+// this daemon is only believed while its own stamp sits inside this window
+// (it covers a row written just before its turn's runtime entry exists).
 export const LEAD_POOL_FRESH_MS = 2 * 60 * 1000;
 
 export const isActiveLeadRow = (row) => ACTIVE_LEAD_STATUS.test(clean(row?.status || row?.stage));

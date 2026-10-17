@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -8,12 +8,15 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import {
+  _shellJobRecordWritesSettledForTest,
   completeShellJobRecord,
   listShellJobRecords,
   publishShellJobRecord,
   readShellJobRecord,
   retireShellJobRecord,
 } from './shell-job-records.mjs';
+import { holdWorkspaceActivity } from '../../../../../shared/worktrees/activity-gate.mjs';
+import { cleanupTempDirs, makeRepo } from '../../../../../shared/worktrees/test-support.mjs';
 import { executeTaskTool } from '../task-tool.mjs';
 import { shellJobsStatus } from '../../../../../shared/statusline/statusline-segments.mjs';
 
@@ -296,6 +299,36 @@ test('the newest completion owns expiry and removes its files after the TTL', as
     assert.ok(existsSync(json));
     t.mock.timers.tick(TTL_MS);
     assert.ok(await waitFor(() => !existsSync(json), 2000), 'the current incarnation expired');
+  });
+});
+
+test('a failed terminal-record write still releases the workspace admission', async () => {
+  await withDataDir('mixdog-shell-records-write-fail-', async (root) => {
+    const repo = makeRepo();
+    const jobId = `job_write_fail_${process.pid}`;
+    const isHeld = () => {
+      try {
+        holdWorkspaceActivity([repo])();
+        return false;
+      } catch (error) {
+        assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
+        return true;
+      }
+    };
+    try {
+      publishShellJobRecord({ jobId, pid: process.pid, command: 'sleep 1', cwd: repo }, { ownerSessionId: 'sess-w' });
+      await _shellJobRecordWritesSettledForTest(jobId);
+      assert.equal(isHeld(), true);
+      // The records directory becomes unwritable: every terminal write fails.
+      rmSync(join(root, 'shell-jobs'), { recursive: true, force: true });
+      writeFileSync(join(root, 'shell-jobs'), '');
+      assert.equal(await completeShellJobRecord(jobId, { status: 'completed', exitCode: 0 }), false);
+      assert.equal(isHeld(), false, 'the admission does not depend on the record write');
+    } finally {
+      retireShellJobRecord(jobId);
+      await _shellJobRecordWritesSettledForTest(jobId);
+      cleanupTempDirs();
+    }
   });
 });
 

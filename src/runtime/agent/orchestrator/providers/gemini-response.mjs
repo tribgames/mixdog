@@ -149,6 +149,7 @@ export function resolveGeminiUsage(response, opts, cachedContent, useModel) {
 }
 
 export function geminiSendResult(parsed, useModel, opts, resolvedUsage) {
+  if (parsed.providerReplay) parsed.providerReplay.requestContext = { model: useModel };
   return {
     content: parsed.content,
     model: useModel,

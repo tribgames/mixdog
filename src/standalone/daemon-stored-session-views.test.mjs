@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { runtimeState } from '../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
 import { createStoredSessionViews } from './daemon-stored-session-views.mjs';
 import { createSessionActionCalls } from './session-service/session-calls/session-action.mjs';
 
@@ -40,6 +41,59 @@ test('ordinary listings use the async reader; only `page` pages; a refresh is ne
     ['async', { refreshFromStorage: false }],
     ['page', { limit: 2, cursor: 'c' }],
     ['async', { refreshFromStorage: true }],
+  ]);
+});
+
+test('catalog rows carry the in-memory turn activity of this daemon, never a stored liveness', async (t) => {
+  const rows = [{ id: 'lead' }, { id: 'agent' }, { id: 'idle' }, { id: 'other-lead' }];
+  const store = {
+    listStoredSessionSummariesAsync: async () => rows,
+    listStoredSessionSummaryPage: async () => ({ sessions: rows, nextCursor: null }),
+  };
+  const stored = createStoredSessionViews({ desktopRuntime: { loadSessionStore: async () => store } });
+  t.after(() => runtimeState.clear());
+  runtimeState.set('agent', { stage: 'tool_running', session: { owner: 'agent', ownerSessionId: 'lead' } });
+  runtimeState.set('other-lead', { stage: 'streaming', session: { owner: 'user', agent: 'lead' } });
+  runtimeState.set('idle', { stage: 'done', session: { owner: 'agent', ownerSessionId: 'other-lead' } });
+  const expected = [
+    { id: 'lead', agentWorking: true },
+    { id: 'agent', working: true },
+    { id: 'idle' },
+    { id: 'other-lead', working: true },
+  ];
+  assert.deepEqual(await stored.listSessions(), expected);
+  assert.deepEqual(await stored.listSessions({ page: { limit: 4 } }), { sessions: expected, nextCursor: null });
+  runtimeState.clear();
+  assert.deepEqual(await stored.listSessions(), rows, 'a settled daemon overlays nothing');
+});
+
+test('working clears when the daemon is lost and returns only for the turns the reconnected daemon runs', async (t) => {
+  const rows = [{ id: 'lead' }, { id: 'agent' }, { id: 'idle' }];
+  const store = { listStoredSessionSummariesAsync: async () => rows };
+  const stored = createStoredSessionViews({ desktopRuntime: { loadSessionStore: async () => store } });
+  t.after(() => runtimeState.clear());
+  const running = (stage, session) => ({ stage, session });
+  const agentTurn = (stage) => running(stage, { owner: 'agent', ownerSessionId: 'lead' });
+
+  runtimeState.set('lead', running('streaming', { owner: 'user', agent: 'lead' }));
+  runtimeState.set('agent', agentTurn('tool_running'));
+  assert.deepEqual(await stored.listSessions(), [
+    { id: 'lead', working: true, agentWorking: true },
+    { id: 'agent', working: true },
+    { id: 'idle' },
+  ]);
+
+  // The daemon goes away: its in-memory turns die with it and the catalog,
+  // still carrying the same durable rows, reports nothing as working.
+  runtimeState.clear();
+  assert.deepEqual(await stored.listSessions(), rows, 'no stale working survives the disconnect');
+
+  // A reconnected daemon reports only the turn it actually runs again.
+  runtimeState.set('agent', agentTurn('requesting'));
+  assert.deepEqual(await stored.listSessions(), [
+    { id: 'lead', agentWorking: true },
+    { id: 'agent', working: true },
+    { id: 'idle' },
   ]);
 });
 

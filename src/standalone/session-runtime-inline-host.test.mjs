@@ -201,11 +201,13 @@ test('cold session creation waits asynchronously for shared credentials and resp
 
 test('inline host keeps session actors in the daemon process and releases them', async () => {
   const events = [];
+  const executeSessionControl = async (args, context) => ({ args, context });
   const host = createInlineSessionRuntimeHost({
     cwd: 'C:\\project',
     loadLocalModule: async () => createFakeLocalModule(events),
     warmKeychain: async () => {},
     executeAgentControl: async (args) => JSON.stringify(args),
+    executeSessionControl,
   });
 
   const first = await host.create({ sessionId: 'session-a' });
@@ -216,6 +218,8 @@ test('inline host keeps session actors in the daemon process and releases them',
   assert.equal(host.status.worker.runtimes, 2);
   assert.equal(events[0][1].cwd, 'C:\\project');
   assert.equal(events[1][1].cwd, 'D:\\other');
+  assert.equal(events[0][1].executeSessionControl, executeSessionControl);
+  assert.equal(events[1][1].executeSessionControl, executeSessionControl);
   assert.equal(await host.agentControl({ type: 'list' }, { callerSessionId: 'session-a' }), '{"type":"list"}');
   const completionMeta = { type: 'agent_task_result', execution_id: 'task-agent-1' };
   assert.equal(host.notifySessionCompletion('session-a', 'Agent handoff', completionMeta), true);

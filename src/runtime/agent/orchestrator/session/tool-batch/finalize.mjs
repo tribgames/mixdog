@@ -15,6 +15,8 @@ import { crossTurnSignature, isEditProgressTool } from '../loop/completion-guard
 import { isEagerDispatchable, isToolCallDedupEligible, parseNativeToolSearchPayload } from '../loop/tool-helpers.mjs';
 import { restoreToolCallBodyForId } from '../loop/stored-tool-args.mjs';
 import { stageToolResult } from './state.mjs';
+import { providerConsumesReadWindows } from '../../providers/registry.mjs';
+import { remoteReadWindowReport } from '../../tools/builtin/external-tool-adapters.mjs';
 import { toolMetaPatchFromMessage } from '../transcript-restore/tool-result-status.mjs';
 import {
   compactToolResultImage,
@@ -42,9 +44,27 @@ export async function finalizeBatchResults(batch) {
   for (const state of offloadStates) {
     if (state?.result && typeof state.result === 'object') state.result = await compactResultImages(state.result);
   }
+  await reportReadWindows(batch);
   for (let index = 0; index < batch.completed.length; index += 1) {
     postProcessCompleted(batch, batch.completed[index], offloadStates[index]);
     batch.throwIfAborted();
+  }
+}
+
+// A provider that declares `consumesReadWindows` (also through a remote/proxy
+// stand-in) only receives the read text. Its read results carry the
+// structured clip report next to the text, for every serving path (live,
+// eager or cached). Failure fails closed.
+async function reportReadWindows(batch) {
+  if (!providerConsumesReadWindows(batch.sessionRef?.provider)) return;
+  for (const completed of batch.completed) {
+    if (!completed.executeOk || !_isReadTool(completed.call.name)) continue;
+    try {
+      const report = await remoteReadWindowReport(completed.call.arguments, batch.cwd, completed.result);
+      if (report) completed.readWindow = report;
+    } catch {
+      completed.readWindow = { lineClipped: true };
+    }
   }
 }
 
@@ -284,6 +304,7 @@ function completedToolResult(completed, result, postprocessStartedAt) {
     toolKind: completed.resultKind,
     toolTiming: toolTiming(completed, postprocessStartedAt),
     ...(completed.nativeToolSearch ? { nativeToolSearch: completed.nativeToolSearch } : {}),
+    ...(completed.readWindow ? { readWindow: completed.readWindow } : {}),
     ...(uiDiff !== null ? { uiDiff } : {}),
     ...toolMetaPatchFromMessage(completed.result),
   };

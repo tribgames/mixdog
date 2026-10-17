@@ -5,7 +5,7 @@
  * that decide whether bytes may be committed — no queueing, no commit, no
  * markers — which is why they stay out of the write pipeline itself.
  */
-import { sessionPath } from './paths-heartbeat.mjs';
+import { sessionPath } from './session-paths.mjs';
 import {
   readCanonicalSessionRecord as _readCanonicalRecord,
   CANONICAL_RECORD_UNREADABLE as LIFECYCLE_AMBIGUOUS,

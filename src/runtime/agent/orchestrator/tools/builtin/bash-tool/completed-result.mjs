@@ -1,5 +1,6 @@
 import { renderBackgroundTask, startBackgroundTask } from '../../../../../shared/background-tasks.mjs';
 import { killShellDescendants, waitForShellDescendants } from '../../lib/shell-descendants.mjs';
+import { releaseShellJobWorkspace } from '../lib/shell-job-records.mjs';
 import { consumeFilterTeeCapture } from '../shell-analysis.mjs';
 import { compactShellOutputLosslessly, renderShellOutputBody } from '../shell-lossless-compact.mjs';
 import { removeTransportFileNow } from './transport-artifacts.mjs';
@@ -33,7 +34,10 @@ function trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs 
       meta: { task_id: handle.taskId, stdout: null, stderr: null, cwd, timeoutMs: 0 },
       resultType: 'shell_task_result',
       run: async () => {
-        await waitForShellDescendants(handle, { pollMs: 1_000 });
+        await waitForShellDescendants(handle);
+        // The folder reservation the finished command handed to its
+        // survivors ends with the last of them.
+        releaseShellJobWorkspace(handle.taskId);
         return {
           task_id: handle.taskId,
           status: 'completed',

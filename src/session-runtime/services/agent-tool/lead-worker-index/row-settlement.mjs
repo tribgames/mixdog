@@ -1,34 +1,23 @@
 // When an active Lead row is no longer believable, and how it settles to idle:
-// runtime liveness, the heartbeat sidecar, the stamp freshness window, and the
-// terminal reap deadline from config.
-import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
+// runtime liveness, the daemon's in-memory turn state, the stamp freshness
+// window, and the terminal reap deadline from config.
 import { clean, runtimeAlive } from '../helpers.mjs';
 import { createRowLiveness } from '../worker-index/row-liveness.mjs';
 import { isActiveLeadRow, LEAD_POOL_FRESH_MS } from './lead-rows.mjs';
 
-export function createRowSettlement({ dataDir, cfgMod }) {
+/** `isSessionRunning(sessionId)`: whether that Lead's turn is in flight in
+ *  this process (every session runs inline in the daemon). */
+export function createRowSettlement({ cfgMod, isSessionRunning = () => false }) {
   // Lead rows settle to idle exactly like worker rows: same stamps, same
   // config-driven terminal reap deadline.
-  const { idleRow } = createRowLiveness({ dataDir, cfgMod });
-
-  function leadHeartbeatFresh(sessionId, now) {
-    const id = clean(sessionId);
-    if (!dataDir || !id) return false;
-    try {
-      const mtimeMs = statSync(resolve(dataDir, 'sessions', `${id}.hb`)).mtimeMs || 0;
-      return mtimeMs > 0 && now - mtimeMs <= LEAD_POOL_FRESH_MS;
-    } catch {
-      return false;
-    }
-  }
+  const { idleRow } = createRowLiveness({ cfgMod });
 
   function staleActiveLeadRow(row, now) {
     if (!isActiveLeadRow(row)) return false;
     // The runtime that stamped the turn is gone: no wall-clock window can make
     // that row true again, so the panel must not wait one out.
     if (!runtimeAlive(row.runtimePid)) return true;
-    if (leadHeartbeatFresh(row.sessionId, now)) return false;
+    if (isSessionRunning(clean(row.sessionId))) return false;
     const updated = Date.parse(clean(row.updatedAt)) || 0;
     return !(updated > 0 && now - updated <= LEAD_POOL_FRESH_MS);
   }

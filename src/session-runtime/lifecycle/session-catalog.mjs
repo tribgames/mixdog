@@ -7,7 +7,6 @@ import {
   isAgentOnlySession,
   isRootLeadSession,
 } from '../../runtime/agent/orchestrator/session/store-summary-visibility.mjs';
-import { listSessionHeartbeatMtimes } from '../../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
 import {
   sessionMessageText,
   isSessionPreviewNoise,
@@ -58,23 +57,25 @@ function previewOf(s) {
   return { preview, messageCount, realTurnCount };
 }
 
-export function leadSessionRow(s, heartbeatMtimes) {
-  // Durable visibility is the catalog boundary. Apply it before the legacy
-  // lead-shape heuristics so an explicitly agent-only child cannot leak just
-  // because its owner field looks ordinary.
-  if (isAgentOnlySession(s)) return null;
+/** `working`: this session's turn is running in the daemon right now. */
+export function leadSessionRow(s, working = false) {
+  const agentSession = isAgentOnlySession(s) || isAgentOwner(s);
   const owner = clean(s.owner || 'user').toLowerCase();
   // A root Lead can carry Agent ownership plus a self-link after recovery;
   // it remains an ordinary resumable session, not a child dispatch.
-  if (!isRootLeadSession(s) && owner && !VISIBLE_OWNERS.includes(owner)) return null;
+  if (!agentSession && !isRootLeadSession(s) && owner && !VISIBLE_OWNERS.includes(owner)) return null;
   const sourceType = clean(s.sourceType || '').toLowerCase();
   // One-shot `mixdog exec` runs are never resumable conversations.
   if (sourceType === 'exec') return null;
-  if (!isLeadShaped(s, owner, sourceType)) return null;
+  if (!agentSession && !isLeadShaped(s, owner, sourceType)) return null;
   const { preview, messageCount, realTurnCount } = previewOf(s);
   if (!preview && messageCount === 0) return null;
   return {
     id: s.id,
+    agent: s.agent || null,
+    owner,
+    visibility: isAgentOnlySession(s) ? 'agent-only' : 'ordinary',
+    ownerSessionId: s.ownerSessionId || s.parentSessionId || null,
     // Durable provenance the desktop uses to tell a real conversation from
     // resume scratch or synthetic-only rows when no title source survives.
     ...(realTurnCount === null ? {} : { realTurnCount }),
@@ -91,12 +92,10 @@ export function leadSessionRow(s, heartbeatMtimes) {
     messageCount,
     title: cleanSessionPreview(s.title || '', 100),
     preview,
-    // Working indicator: the .hb sidecar ALONE is the liveness signal. Its
-    // deletion at turn end IS the completion signal, so the persisted
-    // lastHeartbeatAt JSON field (refreshed by the final save) must not be
-    // folded in — it pinned desktop spinners on for the full 2-minute TTL
-    // after a turn had already finished.
-    heartbeatAt: Number(heartbeatMtimes.get(s.id)) || 0,
+    // Working indicator: the in-memory runtime state ALONE is the liveness
+    // signal. The persisted lastHeartbeatAt JSON field (refreshed by the final
+    // save) must not be folded in — it outlives the turn it describes.
+    ...(working ? { working: true } : {}),
     desktopSession: s.desktopSession || null,
     // Automation origin: lets the desktop group schedule/webhook runner
     // sessions under the sidebar Automations section instead of Recent.
@@ -108,9 +107,8 @@ export function leadSessionRow(s, heartbeatMtimes) {
 }
 
 export function listLeadSessions(mgr, options = {}) {
-  const heartbeatMtimes = listSessionHeartbeatMtimes();
   return mgr
     .listSessions({ refreshFromStorage: options?.refreshFromStorage === true })
-    .map((s) => leadSessionRow(s, heartbeatMtimes))
+    .map((s) => leadSessionRow(s, mgr.isSessionTurnInFlight?.(s.id) === true))
     .filter(Boolean);
 }

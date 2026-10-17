@@ -138,6 +138,8 @@ export function buildSessionRecord({ opts, route, presetObj, surface, prompt, me
     agent: opts.agent,
     owner: opts.owner || 'user',
     bp3CoreContext: prompt.sessionMarkerCore,
+    promptIdentity: prompt.promptIdentity,
+    callerDisallowedTools: [...(opts.callerDisallowedTools ?? opts.disallowedTools ?? [])],
     bp3EnvironmentContext: prompt.environmentTailContext,
     // BP3 core and the volatile environment live in SEPARATE system
     // blocks (cacheTier 'tier3' vs 'env'). Legacy persisted sessions
@@ -162,9 +164,7 @@ export function buildSessionRecord({ opts, route, presetObj, surface, prompt, me
     totalInputTokens: 0,
     totalOutputTokens: 0,
     totalToolCalls: 0,
-    // Refreshed on each completed ask() — surfaced by agent type=list for
-    // debugging + consumed by store.mjs's idle-sweep to reclaim stalled
-    // agent sessions past RUNNING_STALL_MS.
+    // Refreshed on each completed ask() — surfaced by agent type=list.
     lastUsedAt: Date.now(),
     tokensCumulative: 0,
     ...origin,

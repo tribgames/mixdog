@@ -75,6 +75,8 @@ export function createAskCallbacks({ transcript, notifyFnForSession, scheduleSea
       transcriptMeta: stampCheckpoint(options),
       promptSource: options.promptSource,
       retryFailedTurn: options.retryFailedTurn === true,
+      retryTurnId: options.retryTurnId,
+      retryAttemptId: options.retryAttemptId,
       onTextDelta: options.onTextDelta,
       onTextReset: options.onTextReset,
       onReasoningDelta: options.onReasoningDelta,

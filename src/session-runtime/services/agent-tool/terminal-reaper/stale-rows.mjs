@@ -1,5 +1,5 @@
 // Stale non-terminal rows: an index row whose session is gone and whose
-// heartbeat is older than the reap window becomes a tombstone so its tag is
+// last row stamp is older than the reap window becomes a tombstone so its tag is
 // freed instead of blocking spawn forever.
 import { clean, positiveInt } from '../helpers.mjs';
 import { TAG_TOMBSTONE_TTL_MS, isLeadPoolAgent, workerRowTime } from '../worker-rows.mjs';
@@ -16,9 +16,9 @@ export function createStaleRowTransition({ cfgMod, tagMaps, index, getLiveSessio
       if (getLiveSession(clean(row.sessionId))) return false;
       const rowTime = workerRowTime(row);
       const reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row.provider);
-      // A row with no timestamp has no usable heartbeat at all. Explicitly
+      // A row with no timestamp has no usable stamp at all. Explicitly
       // disabled terminal reaping still gets the tombstone TTL as a finite
-      // stale-heartbeat bound, so malformed/running index rows cannot block a
+      // staleness bound, so malformed/running index rows cannot block a
       // tag forever.
       return rowTime <= 0 || Date.now() - rowTime >= (reapMs ?? TAG_TOMBSTONE_TTL_MS);
     });

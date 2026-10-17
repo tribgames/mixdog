@@ -1,6 +1,8 @@
 /**
- * set-route.mjs — select the main route: resolve and validate the request,
- * adopt it into config, then decide how the current session follows it
+ * set-route.mjs — select the runtime's route: resolve and validate the
+ * request, adopt it as the live route (its per-model settings saved; the main
+ * model only on an explicit main-model choice, keepMainModel: false), then
+ * decide when the current session follows it
  * (untouched, tuned, recreated, updated in place when empty, or switched in
  * place when the selection is addressed to an established conversation).
  */
@@ -21,6 +23,7 @@ import {
   shouldRecreateEmptySessionForRouteChange,
 } from '../../runtime/agent/orchestrator/runtime-core/session-route-policy.mjs';
 import { rebuildToolSurfaceForProviderWithMigration } from '../../runtime/agent/orchestrator/session/loop/tool-exposure-migration.mjs';
+import { UNOWNED_LEASE, openRouteLease } from './route-ownership.mjs';
 
 /** The request, completed from the live route where the caller left gaps. */
 function completeRequest(deps, next) {
@@ -80,20 +83,26 @@ async function resolveSelectedRoute(deps, next) {
 }
 
 /** Close the empty session and materialize a fresh one for the new provider. */
-async function recreateEmptySession(deps) {
+async function recreateEmptySession(deps, lease) {
   const { getSession, setSession, mgr, statusRoutes, createCurrentSession, invalidatePreSessionToolSurface } = deps;
   // If the boot create is still finishing SessionStart/deferred-surface
   // work, drain that promise first. Otherwise createCurrentSession()
   // would return the old in-flight promise after we tombstone/null the
   // session, racing the intended rebuild for the new provider.
   await createCurrentSession('model-switch-empty-drain');
-  const emptySession = getSession();
-  if (!emptySession?.id || sessionHasRouteHistory(emptySession)) return;
-  statusRoutes?.clearGatewaySessionRoute?.(emptySession.id);
-  mgr.closeSession?.(emptySession.id, 'cli-model-switch-empty', { tombstone: true });
-  setSession(null);
-  invalidatePreSessionToolSurface?.();
-  await createCurrentSession('model-switch-empty');
+  const closed = lease.run(
+    () => {
+      const emptySession = getSession();
+      if (!emptySession?.id || sessionHasRouteHistory(emptySession)) return false;
+      statusRoutes?.clearGatewaySessionRoute?.(emptySession.id);
+      mgr.closeSession?.(emptySession.id, 'cli-model-switch-empty', { tombstone: true });
+      setSession(null);
+      invalidatePreSessionToolSurface?.();
+      return true;
+    },
+    () => false
+  );
+  if (closed) await createCurrentSession('model-switch-empty');
 }
 
 /** Rewrite the addressed empty session to the route it was asked to run on. */
@@ -164,7 +173,7 @@ function switchSessionInPlace(deps, session) {
 }
 
 /** Validate, persist and adopt the requested route as the runtime's route. */
-async function adoptRoute(deps, persist, next, options) {
+async function adoptRoute(deps, persist, next, options, lease) {
   const {
     getConfig,
     getRoute,
@@ -175,15 +184,40 @@ async function adoptRoute(deps, persist, next, options) {
     scheduleStatuslineUsageRefresh,
   } = deps;
   const { selectedRoute, fastCapable, modelMeta } = await resolveSelectedRoute(deps, next);
-  persist.saveRouteModelSettings(selectedRoute, fastCapable);
-  // An heir opening on its source's model is not a main-model choice.
-  const leadRoute = persist.persistAdoptedModelSettings(selectedRoute, {
-    keepMainModel: options?.keepMainModel === true,
-  });
-  setRouteState(resolveRoute(getConfig(), leadRoute ? { model: workflowPresetId('lead') } : selectedRoute));
-  await refreshRouteEffort(modelMeta);
-  refreshStatuslineUsageSnapshot(getRoute());
-  scheduleStatuslineUsageRefresh();
+  // Provider readiness may outlast the session the selection was made for.
+  const adopted = lease.run(
+    () => {
+      if (options?.sessionOnly === true) {
+        // An agent child's route belongs to that session alone: the shared
+        // modelSettings bucket (saved effort/Fast per model) and the main
+        // model (lead preset / default model) are never written.
+        setRouteState(resolveRoute(getConfig(), selectedRoute));
+      } else {
+        persist.saveRouteModelSettings(selectedRoute, fastCapable);
+        // The main model changes only on an explicit main-model choice
+        // (keepMainModel: false, e.g. the setup tool); every other selection
+        // — the session surface's model pick, an heir — keeps it.
+        const leadRoute = persist.persistAdoptedModelSettings(selectedRoute, {
+          keepMainModel: options?.keepMainModel !== false,
+        });
+        setRouteState(resolveRoute(getConfig(), leadRoute ? { model: workflowPresetId('lead') } : selectedRoute));
+      }
+      return true;
+    },
+    () => false
+  );
+  if (!adopted) return false;
+  // The refresh completes against the route just adopted and only while the
+  // selection still owns it.
+  await refreshRouteEffort(modelMeta, getRoute(), null, lease);
+  return lease.run(
+    () => {
+      refreshStatuslineUsageSnapshot(getRoute());
+      scheduleStatuslineUsageRefresh();
+      return true;
+    },
+    () => false
+  );
 }
 
 /**
@@ -194,17 +228,25 @@ async function adoptRoute(deps, persist, next, options) {
  * `{ modelSwitch }` with the recorded boundary (as setRoute does) so the
  * session surface shows the same live divider, or true when nothing switched.
  */
-export function createContinueSessionInModel(deps, persist) {
-  const { getSession, invalidateContextStatusCache } = deps;
+export function createContinueSessionInModel(deps, persist, clearPendingRoute) {
+  const { getSession, getSessionGeneration, invalidateContextStatusCache } = deps;
   return async function continueSessionInModel(sessionId, next) {
     const session = getSession();
     if (!sessionId || !session?.id || session.id !== sessionId) {
       throw new Error(`session ${sessionId || ''} is not the active session`);
     }
-    await adoptRoute(deps, persist, next, {});
-    const modelSwitch = switchSessionInPlace(deps, session);
-    invalidateContextStatusCache();
-    return modelSwitch ? { modelSwitch } : true;
+    const lease = openRouteLease(getSessionGeneration);
+    const adopted = await adoptRoute(deps, persist, next, {}, lease);
+    return lease.run(
+      () => {
+        if (!adopted) return true;
+        const modelSwitch = switchSessionInPlace(deps, session);
+        invalidateContextStatusCache();
+        clearPendingRoute?.();
+        return modelSwitch ? { modelSwitch } : true;
+      },
+      () => true
+    );
   };
 }
 
@@ -215,9 +257,10 @@ async function validateSelectedRoute(deps, next) {
 }
 
 export function createSetRoute(deps, persist) {
-  const { getRoute, getSession, invalidateContextStatusCache, createCurrentSession } = deps;
+  const { getRoute, getSession, getSessionGeneration, invalidateContextStatusCache, createCurrentSession } = deps;
+  let pending = null;
 
-  return async function setRoute(next, options = {}) {
+  async function setRoute(next, options = {}) {
     // Without an explicit durable address a selection is for a new/inherited
     // session and never rewrites an existing conversation's model, unless it
     // is the user's model choice for this conversation (`switchEstablished`,
@@ -225,11 +268,28 @@ export function createSetRoute(deps, persist) {
     // place while an empty one follows the unaddressed rules below.
     const applyToCurrentSession = options?.applyToCurrentSession === true;
     const switchEstablished = applyToCurrentSession || options?.switchEstablished === true;
-    // Lets a caller prove the selection is acceptable before it does
-    // irreversible work (compaction) ahead of the switch; changes nothing.
+    // Validate without persisting the selection or changing the session.
     if (options?.validateOnly === true) return validateSelectedRoute(deps, next);
-    await adoptRoute(deps, persist, next, options);
+    // A selection addressed to a conversation belongs to the session
+    // generation it was enqueued under (the surface's enqueue boundary names
+    // it; a direct call is enqueued now). Once that generation has moved, every
+    // route or session effect is skipped by the lease and the current route
+    // stands.
+    const addressed = switchEstablished || options?.deferUntilNextTurn === true;
+    const lease = addressed ? openRouteLease(getSessionGeneration, options?.originGeneration) : UNOWNED_LEASE;
+    const adopted = await adoptRoute(deps, persist, next, options, lease);
+    if (!adopted) return getRoute();
+    return lease.run(() => followSession(options, lease, { switchEstablished, applyToCurrentSession }), getRoute);
+  }
+
+  /** What the adopted route does to the session it was selected for. */
+  async function followSession(options, lease, { switchEstablished, applyToCurrentSession }) {
     const session = getSession();
+    if (options.deferUntilNextTurn === true) {
+      pending = session?.id ? { generation: lease.token } : null;
+      return getRoute();
+    }
+    pending = null;
     // A session the user has already talked in or compacted keeps its route
     // unless the selection was addressed to it. A current session with no
     // model reply, no compaction summary and no in-flight first turn — empty,
@@ -240,8 +300,8 @@ export function createSetRoute(deps, persist) {
       if (!switchEstablished) return getRoute();
       const route = getRoute();
       // An addressed selection of another model switches the conversation
-      // itself in place; the caller (session surface) refuses it while a
-      // turn runs. A same-model update (effort/Fast) only tunes the session
+      // itself in place; the session surface defers it to the next turn
+      // instead. A same-model update (effort/Fast) only tunes the session
       // from its next turn.
       if (session && (route.provider !== session.provider || route.model !== session.model)) {
         const modelSwitch = switchSessionInPlace(deps, session);
@@ -259,7 +319,9 @@ export function createSetRoute(deps, persist) {
       session?.id &&
       typeof createCurrentSession === 'function'
     ) {
-      await recreateEmptySession(deps);
+      // The recreation installs a new session itself, so nothing after it
+      // acts for the selection beyond dropping the stale gauge.
+      await recreateEmptySession(deps, lease);
       invalidateContextStatusCache();
       return getRoute();
     }
@@ -272,5 +334,23 @@ export function createSetRoute(deps, persist) {
       invalidateContextStatusCache();
     }
     return getRoute();
+  }
+  setRoute.applyPendingRoute = () => {
+    if (!pending) return null;
+    const selection = pending;
+    if (selection.generation !== getSessionGeneration()) {
+      pending = null;
+      return null;
+    }
+    // The live route is the latest selection: effort/Fast tuned after the
+    // deferred model choice replace it, so no snapshot is kept.
+    const modelSwitch = switchSessionInPlace(deps, getSession());
+    invalidateContextStatusCache();
+    pending = null;
+    return modelSwitch;
   };
+  setRoute.clearPendingRoute = () => {
+    pending = null;
+  };
+  return setRoute;
 }

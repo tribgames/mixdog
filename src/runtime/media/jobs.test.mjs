@@ -9,6 +9,8 @@ let adapterCalls = [];
 mock.module(here('./lanes.mjs'), {
   namedExports: {
     mediaError: (message, code, status) => Object.assign(new Error(message), { code, status }),
+    // The fake gemini lane stands in for an account-backed lane.
+    mediaLaneAccountProvider: (lane) => (lane === 'gemini' ? 'openai-oauth' : ''),
     resolveMediaRequest: async ({ model }) => ({
       kind: 'image',
       lane: { id: 'gemini' },
@@ -35,6 +37,7 @@ mock.module(here('./adapters/gemini-image.mjs'), {
   },
 });
 const { getMediaJob, startMediaJob } = await import('./jobs.mjs');
+const { currentProviderAccountId } = await import('../shared/provider-auth-binding.mjs');
 
 const settled = async (id) => {
   for (let i = 0; i < 200 && getMediaJob(id).status === 'running'; i++) await new Promise((r) => setTimeout(r, 10));
@@ -80,4 +83,19 @@ test('an adapter failure ends the job as failed with its message and code', asyn
   assert.equal(failed.error, 'upstream refused');
   assert.equal(failed.errorCode, 'MEDIA_UPSTREAM');
   assert.equal(typeof failed.endedAt, 'number');
+});
+
+test('a job started with an account runs the adapter as that account, whatever the caller is using', async () => {
+  const account = '0b1c2d3e-0000-4000-8000-000000000001';
+  const seen = [];
+  generate = async () => {
+    seen.push(currentProviderAccountId('openai-oauth'));
+    return { bytes: Buffer.from('png'), mime: 'image/png' };
+  };
+  const pinned = await startMediaJob({ lane: 'gemini', kind: 'image', model: 'm1', prompt: 'a', account });
+  assert.equal((await settled(pinned.id)).status, 'done');
+  const plain = await startMediaJob({ lane: 'gemini', kind: 'image', model: 'm1', prompt: 'b' });
+  assert.equal((await settled(plain.id)).status, 'done');
+  assert.equal(seen[0], account);
+  assert.notEqual(seen[1], account, 'without a pinned account the job follows the current one');
 });

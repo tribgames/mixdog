@@ -14,7 +14,12 @@ export function createAgentTurns({
   takeWatchdogStop,
   takeCancelTranscript,
 }) {
-  const createAgentChild = createAgentChildFactory({ registry, rehydrateAgentSessions, createSession });
+  const createAgentChild = createAgentChildFactory({
+    registry,
+    rehydrateAgentSessions,
+    createSession,
+    entryForSession,
+  });
 
   // The turn was stopped (progress watchdog or cancellation): rethrow its error
   // carrying the assistant text the turn produced, so the owner still gets a
@@ -35,6 +40,7 @@ export function createAgentTurns({
   async function runAgentTurn({ session, prompt, context = null, onToolResult, onTerminalResult } = {}) {
     await rehydrateAgentSessions();
     const sessionId = String(session?.id || session || '').trim();
+    const cancelEpoch = registry.assertAdmission(sessionId);
     const descriptor = registry.get(sessionId);
     if (!descriptor || descriptor.closed) {
       throw new Error(`agent session ${sessionId || '(empty)'} is closed`);
@@ -46,6 +52,7 @@ export function createAgentTurns({
       toolMode: 'full',
     });
     const target = entry.runtime.submitAndWait;
+    registry.assertAdmission(sessionId, cancelEpoch);
     if (typeof target !== 'function') {
       throw new TypeError('session runtime must implement submitAndWait');
     }
@@ -55,6 +62,7 @@ export function createAgentTurns({
     // Transcript length before this turn: where a watchdog stop's partial
     // output starts.
     const { messageCount: messageStart } = await entry.runtime.readModelMessages(Number.MAX_SAFE_INTEGER);
+    registry.assertAdmission(sessionId, cancelEpoch);
     descriptor.status = 'running';
     descriptor.stage = 'running';
     descriptor.updatedAt = Date.now();

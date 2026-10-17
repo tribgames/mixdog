@@ -28,9 +28,8 @@ export function loadAnthropic() {
 
 // 4-BP cache policy aligned with anthropic-oauth — system + tier3 +
 // messages-tail. Tool schemas sit before system and are covered by the system
-// breakpoint, so they do not spend a separate cache_control slot. 1h TTL
-// requires the extended-cache-ttl beta header, which we set on the client via
-// defaultHeaders below.
+// breakpoint, so they do not spend a separate cache_control slot. The 1h TTL
+// is requested with cache_control ttl:"1h"; no beta header is needed.
 
 // BP3 (tier3) rides its own `system` role block (the 3rd system block, tagged
 // cacheTier:'tier3'). buildSystemBlocks applies the tier3 1h cache_control to

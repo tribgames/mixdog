@@ -114,7 +114,7 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
       // A task that dies for a reason its owner never asked for must still be reported.
       cancelBackgroundTasks(
         scope.scopedTeardown
-          ? { reason, notify: true, callerSessionId: scope.closingSessionId }
+          ? { reason, notify: true, executionSessionId: scope.closingSessionId }
           : { reason, notify: false }
       );
     } catch {}
@@ -196,24 +196,15 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
       // session-pinned intent so the resumed session can reclaim it.
       preserveRemoteIntent: true,
     });
-    // Agent workers die with a REAL teardown only (process exit, explicit
-    // close). A keepBackgroundWork dispose (daemon idle eviction) reclaims
-    // memory and must leave workers/rows for the re-materialized owner.
-    // Scoped teardown closes only THIS session's workers — the worker index
-    // is shared across every Lead in the process.
+    // Only process-wide teardown closes delegated sessions. Session-local
+    // disposal already stopped its own execution work above.
     let closing = null;
     while (indexDisposal) await indexDisposal;
-    if (scope.teardownReapsWork) {
-      // Every close runs its OWN scope's closeAll: a scoped close for one Lead
-      // never stands in for a process-wide close. Closing produces final index
-      // writes (settled rows, tombstones); the deadline only bounds how long
-      // teardown waits and does not stop the close.
+    if (scope.teardownReapsWork && !scope.scopedTeardown) {
       const settled = () => {
         outstandingCloses.delete(closing);
       };
-      closing = new Promise((resolve) =>
-        resolve(agentTool.closeAll(reason, scope.scopedTeardown ? { callerSessionId: scope.closingSessionId } : {}))
-      ).then(settled, settled);
+      closing = new Promise((resolve) => resolve(agentTool.closeAll(reason, {}))).then(settled, settled);
       outstandingCloses.add(closing);
       try {
         await withTeardownDeadline(closing, CLOSE_ALL_DEADLINE_MS, false);
@@ -259,7 +250,7 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
   }
 
   return {
-    closeCanonicalSession: (reason) => closeCanonicalSession(deps, reason),
+    closeCanonicalSession: (reason, options) => closeCanonicalSession(deps, reason, options),
     close,
     abort: (reason) => abortRuntime(deps, reason),
   };

@@ -20,7 +20,8 @@ import { normalizeCompatChatResponse } from './openai-compat-response-normalizat
 import { applyCompatToolChoice, compatStreamRetryReporter } from './compat-request-policy.mjs';
 import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import { xaiCacheRouting } from './openai-compat-xai.mjs';
-import { compatRetryOptions, withCompatRetryProfile } from './openai-compat-retry-profile.mjs';
+import { compatFirstByteWindowMs, compatRetryOptions, withCompatRetryProfile } from './openai-compat-retry-profile.mjs';
+import { TIMEOUT_PHASE } from '../../../shared/provider-timeout-phase.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { customWireFormat, isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
 import { geminiAcceptedTools } from './gemini-schema.mjs';
@@ -140,29 +141,39 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
       assembled = await withRetry(
         withCompatRetryProfile(
           provider.name,
-          refineAttemptErrors(profile, async ({ signal: attemptSignal }) => {
+          refineAttemptErrors(profile, async ({ signal: attemptSignal, firstByteTimeouts = 0 }) => {
             try {
               opts.onStageChange?.('requesting');
             } catch {
               /* heartbeat best-effort */
             }
-            const stream = await withRetry(
-              ({ signal: openSignal }) =>
-                provider.client.chat.completions.create(params, {
-                  signal: openSignal,
-                  ...(requestHeaders ? { headers: requestHeaders } : {}),
-                }),
-              {
-                signal: attemptSignal,
-                // Single attempt: this inner wrapper exists only to
-                // apply the first-byte per-attempt timeout. Retry is
-                // owned by the outer withRetry — nesting retry loops
-                // here multiplied tail latency (5x5).
-                maxAttempts: 1,
-                perAttemptTimeoutMs: firstByteTimeoutMs,
-                perAttemptLabel: `${provider.name} first byte`,
+            const windowMs = compatFirstByteWindowMs(provider.name, firstByteTimeoutMs, firstByteTimeouts);
+            let stream;
+            try {
+              stream = await withRetry(
+                ({ signal: openSignal }) =>
+                  provider.client.chat.completions.create(params, {
+                    signal: openSignal,
+                    ...(requestHeaders ? { headers: requestHeaders } : {}),
+                  }),
+                {
+                  signal: attemptSignal,
+                  // Single attempt: this inner wrapper exists only to
+                  // apply the first-byte per-attempt timeout. Retry is
+                  // owned by the outer withRetry — nesting retry loops
+                  // here multiplied tail latency (5x5).
+                  maxAttempts: 1,
+                  perAttemptTimeoutMs: windowMs,
+                  perAttemptLabel: `${provider.name} first byte`,
+                }
+              );
+            } catch (error) {
+              // The per-attempt window (the only timer here) expired before headers.
+              if (error?.code === 'EPROVIDERTIMEOUT' && !attemptSignal?.aborted) {
+                error.timeoutPhase = TIMEOUT_PHASE.HEADERS;
               }
-            );
+              throw error;
+            }
             try {
               opts.onStageChange?.('streaming');
             } catch {
@@ -181,7 +192,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
                 // recovered leaked calls only synthesize when they name
                 // a tool actually offered to this request.
                 knownToolNames: knownToolNamesFromOpenAITools(params.tools),
-                ...(profile?.firstByteTimeoutMs ? { firstByteTimeoutMs: profile.firstByteTimeoutMs } : {}),
+                ...(profile?.firstByteTimeoutMs ? { firstByteTimeoutMs: windowMs } : {}),
                 ...(profile?.semanticIdleTimeoutMs ? { semanticIdleTimeoutMs: profile.semanticIdleTimeoutMs } : {}),
               });
             } catch (error) {

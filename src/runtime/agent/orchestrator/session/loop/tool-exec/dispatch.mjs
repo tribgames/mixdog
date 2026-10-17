@@ -15,6 +15,8 @@ import { executeInternalTool, isInternalTool } from '../../../internal-tools.mjs
 import { buildSkillsListResponse, viewSkill } from '../tool-helpers.mjs';
 import { isOnDeferredToolSurface } from '../deferred-call-through.mjs';
 import { _executeCodeGraphToolLazy } from '../../manager/runtime-loaders.mjs';
+import { requiresReadBody } from '../tool-classify.mjs';
+import { executeCursorNativeBuiltin } from '../../../tools/builtin/external-tool-adapters.mjs';
 
 function dispatchMcp(name, args, { cwd, callerSessionId, sessionRef, executeOpts }) {
   const mcpScopeId = sessionRef?.mcpScopeId || null;
@@ -100,11 +102,22 @@ export function dispatchToolCall({ name, args }, ctx) {
   if (name === 'shell' || isBuiltinTool(name) || isExternalAdapterTool(name)) {
     const builtinOpts = {
       ...completionToolOpts,
-      ...(executeOpts.suppressReadUnchangedStub ? { suppressReadUnchangedStub: true } : {}),
+      ...(executeOpts.suppressReadUnchangedStub || requiresReadBody(name, sessionRef)
+        ? { suppressReadUnchangedStub: true }
+        : {}),
       // Runtime-granted only; any value inherited from executeOpts is overridden.
       elevationApproved: ctx.elevationApproved === true,
     };
-    return executeBuiltinTool(name, args, cwd, builtinOpts);
+    return executeCursorNativeBuiltin(
+      name,
+      args,
+      cwd,
+      {
+        ...builtinOpts,
+        toolCallId: executeOpts.toolCallId || null,
+      },
+      executeBuiltinTool
+    );
   }
   return formatUnknownBuiltinToolMessage(name, args, 'tool');
 }

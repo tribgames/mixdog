@@ -14,12 +14,6 @@ test('success, failure and cancellation request cleanup for the exact turn witho
     },
   });
   t.mock.module('./timing.mjs', { namedExports: { traceBrowserTiming() {} } });
-  t.mock.module('../agent/orchestrator/session/store.mjs', {
-    namedExports: {
-      publishHeartbeat() {},
-      deleteHeartbeat() {},
-    },
-  });
   t.mock.module('../agent/orchestrator/session/manager/usage-metrics.mjs', {
     namedExports: {
       configureUsageMetricsRuntime() {},

@@ -32,7 +32,7 @@ const {
   stampCompactionMessageIds,
 } = await import('./compaction-archive-capture.mjs');
 const { stampMessageIds } = await import('./message-ids.mjs');
-const { isProtectedContextAckMessage } = await import('./compact/messages.mjs');
+const { contextAckMessage, isProtectedContextAckMessage } = await import('./compact/messages.mjs');
 const { restoreTranscriptItems } = await import('./transcript-restore/restore.mjs');
 const { toAnthropicMessages } = await import('../providers/lib/anthropic-request-utils.mjs');
 const { toOpenAIMessages } = await import('../providers/openai-compat-wire.mjs');
@@ -242,15 +242,46 @@ for (const path of ['rules', 'summary']) {
       const id = message?.meta && typeof message.meta === 'object' ? message.meta.transcript?.messageId : '';
       if (id) assert.ok(ids.has(id), `rewrite with a foreign id: ${JSON.stringify(message).slice(0, 120)}`);
       // A message without an id is a compaction product (handoff summary,
-      // re-attached context, the protected-context '.' ack): it renders
-      // nothing, or is the ack, so nothing kept can show twice.
-      else if (!isProtectedContextAckMessage(message)) {
-        assert.deepEqual(restoreTranscriptItems([message], { sessionId: session.id }), []);
-      }
+      // re-attached context, the context ack): it renders nothing, so nothing
+      // kept can show twice.
+      else assert.deepEqual(restoreTranscriptItems([message], { sessionId: session.id }), []);
     }
     await flushCompactionArchiveWrites();
   });
 }
+
+test('recompacting a compacted transcript keeps the summary ack and archives nothing', async () => {
+  const session = storedSession('ack-repeat');
+  session.messages.push({ role: 'user', content: 'latest request' });
+  await compact(session, summaryProvider([]));
+  await flushCompactionArchiveWrites();
+  const ack = session.messages.find(isProtectedContextAckMessage);
+  assert.ok(ack);
+  assert.equal(archiveLines(session.id).length, 1);
+  session.compaction.conversationThresholdTokens = 100_000_000;
+  const repeat = await compact(session, summaryProvider([]));
+  await flushCompactionArchiveWrites();
+  assert.equal(repeat.droppedMessages, 0);
+  assert.equal(idOf(session.messages.find(isProtectedContextAckMessage)), idOf(ack));
+  assert.equal(session.messages.filter((message) => message.meta?.transcript?.messageId === idOf(ack)).length, 1);
+  assert.equal(archiveLines(session.id).length, 1);
+});
+
+test('context acks never render; a bare "." reply still does', () => {
+  const rows = (messages) =>
+    restoreTranscriptItems(messages, { sessionId: 'ack' }).map((item) => `${item.kind}:${item.text}`);
+  assert.deepEqual(rows([contextAckMessage()]), []);
+  const legacyAck = { role: 'assistant', content: '.' };
+  assert.deepEqual(rows([SUMMARY_MESSAGE, legacyAck, { role: 'user', content: 'next' }]), ['user:next']);
+  assert.deepEqual(rows([{ role: 'user', content: '<system-reminder>\nctx\n</system-reminder>' }, legacyAck]), []);
+  assert.ok(
+    !rows([{ role: 'user', content: 'Reference files:\n\n### a.md\nbody' }, legacyAck]).includes('assistant:.')
+  );
+  assert.deepEqual(rows([{ role: 'user', content: 'reply with a dot' }, legacyAck]), [
+    'user:reply with a dot',
+    'assistant:.',
+  ]);
+});
 
 test('a rewrite-only compaction archives nothing', async () => {
   const session = storedSession('rewrite');

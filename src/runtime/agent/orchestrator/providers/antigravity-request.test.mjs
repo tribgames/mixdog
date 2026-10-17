@@ -107,14 +107,21 @@ test('the full built-in + bridge surface is valid 2020-12 as authored, sent unch
   const opus = claudeRequest(surface, 'claude-opus-4-6-thinking');
   assert.deepEqual(sonnet.warnings, []);
   assert.deepEqual(sonnet.declarations, opus.declarations);
-  assert.deepEqual(sonnet.declarations.map((d) => d.name), surface.map((t) => t.name));
+  assert.deepEqual(
+    sonnet.declarations.map((d) => d.name),
+    surface.map((t) => t.name)
+  );
   const meta = new Ajv2020({ strict: false, validateFormats: false });
   for (const [i, declaration] of sonnet.declarations.entries()) {
     const schema = declaration.parametersJsonSchema;
     assert.equal(declaration.parameters, undefined, declaration.name);
     // Authored schemas pass unchanged; a per-action input union opts into its
     // nested form on this verified path.
-    assert.deepEqual(schema, actionInputUnionFor(surface[i].inputSchema), `${declaration.name} must be sent as authored`);
+    assert.deepEqual(
+      schema,
+      actionInputUnionFor(surface[i].inputSchema),
+      `${declaration.name} must be sent as authored`
+    );
     assert.equal(meta.validateSchema(schema), true, `${declaration.name}: ${meta.errorsText(meta.errors)}`);
     assert.equal(schema.type, 'object', declaration.name);
     for (const key of ['anyOf', 'oneOf', 'allOf', 'not']) assert.equal(schema[key], undefined, declaration.name);
@@ -277,12 +284,21 @@ test('an invalid tool is left out with a warning (tool, index, pointer, reason);
     'claude-sonnet-4-6',
     { nativeTools: [{ type: 'google_search' }] }
   );
-  assert.deepEqual(declarations.map((d) => d.name), ['first', 'second', 'third']);
+  assert.deepEqual(
+    declarations.map((d) => d.name),
+    ['first', 'second', 'third']
+  );
   assert.deepEqual(request.tools[0], { googleSearch: {} });
   assert.deepEqual(request.toolConfig, { functionCallingConfig: { mode: 'VALIDATED' } });
   assert.equal(warnings.length, 2);
-  assert.match(warnings[0], /"badtype" \(tools\[1\]\) excluded: invalid input schema at "\/properties\/a\/type": .*2020-12/);
-  assert.match(warnings[1], /"missing" \(tools\[3\]\) excluded: invalid input schema at "\/properties\/value\/\$ref": unresolvable \$ref/);
+  assert.match(
+    warnings[0],
+    /"badtype" \(tools\[1\]\) excluded: invalid input schema at "\/properties\/a\/type": .*2020-12/
+  );
+  assert.match(
+    warnings[1],
+    /"missing" \(tools\[3\]\) excluded: invalid input schema at "\/properties\/value\/\$ref": unresolvable \$ref/
+  );
 });
 
 test('roots the provider forbids exclude the tool; nothing is merged or widened', () => {
@@ -300,13 +316,20 @@ test('roots the provider forbids exclude the tool; nothing is merged or widened'
 
 test('schemas invalid under their dialect are excluded with the standard reason', () => {
   assert.match(excluded({ type: 'object', required: ['a', 'a'] }), /"\/required": .*2020-12/);
-  assert.match(excluded({ type: 'object', properties: { a: { type: 'bogus-type' } } }), /"\/properties\/a\/type": .*2020-12/);
+  assert.match(
+    excluded({ type: 'object', properties: { a: { type: 'bogus-type' } } }),
+    /"\/properties\/a\/type": .*2020-12/
+  );
   assert.match(
     excluded({ type: 'object', properties: { a: { $ref: 'https://example.invalid/a.json' } } }),
     /"\/properties\/a\/\$ref": unresolvable \$ref/
   );
   assert.match(
-    excluded({ $schema: 'http://json-schema.org/draft-07/schema#', type: 'object', properties: { a: { items: [{}], prefixItems: [{}] } } }),
+    excluded({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      type: 'object',
+      properties: { a: { items: [{}], prefixItems: [{}] } },
+    }),
     /"\/properties\/a\/items": tuple "items"/
   );
 });
@@ -328,8 +351,14 @@ test('the default warning channel is console.warn, reported once per distinct pr
 });
 
 test('a missing schema excludes the tool; declaration order of valid tools is kept', () => {
-  const source = [mcp('b', { type: 'object', properties: {} }), mcp('a', { type: 'object', properties: { x: { type: 'string' } } })];
-  assert.deepEqual(claudeDeclarations(source).map((d) => d.name), ['b', 'a']);
+  const source = [
+    mcp('b', { type: 'object', properties: {} }),
+    mcp('a', { type: 'object', properties: { x: { type: 'string' } } }),
+  ];
+  assert.deepEqual(
+    claudeDeclarations(source).map((d) => d.name),
+    ['b', 'a']
+  );
 });
 
 test('Gemini declarations are unchanged by the Claude normalization', () => {
@@ -406,7 +435,12 @@ test('a Claude assistant turn that held only empty parts is omitted, not sent as
     {
       role: 'assistant',
       content: '',
-      providerReplay: { version: 1, provider: 'antigravity', items: [{ text: '' }, { text: '' }], requestContext: { model } },
+      providerReplay: {
+        version: 1,
+        provider: 'antigravity',
+        items: [{ text: '' }, { text: '' }],
+        requestContext: { model },
+      },
     },
     { role: 'user', content: 'second' },
   ];
@@ -416,7 +450,10 @@ test('a Claude assistant turn that held only empty parts is omitted, not sent as
     claude.some((content) => !content.parts?.length),
     false
   );
-  assert.equal(claude.some((content) => content.role === 'model'), false);
+  assert.equal(
+    claude.some((content) => content.role === 'model'),
+    false
+  );
   // Gemini history is left as recorded.
   assert.equal(contents('gemini-3.8-flash').filter((content) => content.role === 'model').length, 1);
 });
@@ -457,4 +494,324 @@ test('Claude replay rejoins streamed thinking deltas into one signed block', () 
     ]
   );
   assert.equal(modelParts('gemini-3.8-flash').filter((part) => part.thought === true).length, 4);
+});
+
+// ---- Unsigned thinking from history never reaches the Claude bridge ----
+// "messages.N.content.M.thinking.signature: Field required": every thinking
+// block a Claude request carries must hold the signature this route recorded.
+const CLAUDE = 'claude-sonnet-4-6';
+const GEMINI = 'gemini-3.8-flash';
+const SENTINEL = 'skip_thought_signature_validator';
+const replayOf = (items, model, provider = 'antigravity') => ({
+  version: 1,
+  provider,
+  items,
+  ...(model ? { requestContext: { model } } : {}),
+});
+const modelTurns = (history, model) =>
+  buildAntigravityRequest(history, model, BUILTIN_TOOLS, {}).request.contents.filter((c) => c.role === 'model');
+const thoughtsOf = (turns) =>
+  turns.flatMap((turn) => turn.parts.filter((part) => part.thought === true)).map((p) => [p.text, p.thoughtSignature]);
+const assertClaudeThoughtsSigned = (turns) => {
+  for (const turn of turns) {
+    for (const part of turn.parts) {
+      if (part.thought !== true) continue;
+      assert.equal(typeof part.thoughtSignature, 'string');
+      assert.notEqual(part.thoughtSignature, '');
+      assert.notEqual(part.thoughtSignature, SENTINEL);
+    }
+  }
+};
+const toolTurn = (assistant, id = 'toolu_9') => [
+  { role: 'user', content: 'go' },
+  { ...assistant, toolCalls: [{ id, name: 'glob', arguments: { pattern: '*' } }] },
+  { role: 'tool', toolCallId: id, content: 'ok' },
+  { role: 'user', content: 'next' },
+];
+const call = (id = 'toolu_9') => ({ functionCall: { name: 'glob', args: { pattern: '*' }, id } });
+
+test('plain history without a providerReplay (imported, compacted, leak-scrubbed) drops thinking for Claude', () => {
+  const history = toolTurn({
+    role: 'assistant',
+    content: 'answer',
+    providerMetadata: { gemini: { thoughtParts: [{ text: 'because', thoughtSignature: 'unknown-origin' }] } },
+  });
+  const claude = modelTurns(history, CLAUDE);
+  assert.deepEqual(thoughtsOf(claude), []);
+  assert.ok(claude[0].parts.some((part) => part.functionCall?.name === 'glob'));
+  assert.ok(claude[0].parts.some((part) => part.text === 'answer'));
+  // Gemini keeps the recovery sentinel.
+  assert.deepEqual(thoughtsOf(modelTurns(history, GEMINI)), [['because', SENTINEL]]);
+});
+
+test('a replay recorded by another family or provider drops its thinking and signatures for Claude', () => {
+  const items = [
+    { thought: true, text: 'gemini thought', thoughtSignature: 'gemini-sig' },
+    { text: 'answer', thoughtSignature: 'gemini-text-sig' },
+    { ...call(), thoughtSignature: 'gemini-call-sig' },
+  ];
+  for (const providerReplay of [
+    replayOf(items, 'gemini-3.1-pro-high'),
+    replayOf(items, 'gemini-3.1-pro-high', 'gemini'),
+    replayOf(items, undefined, 'gemini'),
+  ]) {
+    const claude = modelTurns(toolTurn({ role: 'assistant', content: 'answer', providerReplay }), CLAUDE);
+    assert.deepEqual(thoughtsOf(claude), []);
+    assert.ok(claude[0].parts.some((part) => part.functionCall?.name === 'glob'));
+    assert.ok(claude[0].parts.some((part) => part.text === 'answer'));
+    assert.equal(
+      claude[0].parts.some((part) => 'thoughtSignature' in part),
+      false
+    );
+  }
+});
+
+test('an interrupted thought run with no signature is dropped for Claude and keeps the sentinel for Gemini', () => {
+  const history = (model) =>
+    toolTurn({
+      role: 'assistant',
+      content: '',
+      providerReplay: replayOf(
+        [{ thought: true, text: 'cut ' }, { thought: true, text: 'off' }, { text: '' }, call()],
+        model
+      ),
+    });
+  const claude = modelTurns(history(CLAUDE), CLAUDE);
+  assert.deepEqual(thoughtsOf(claude), []);
+  assert.ok(claude[0].parts.some((part) => part.functionCall?.name === 'glob'));
+  assert.deepEqual(thoughtsOf(modelTurns(history(GEMINI), GEMINI)), [
+    ['cut ', SENTINEL],
+    ['off', SENTINEL],
+  ]);
+});
+
+test('a recorded sentinel or empty signature is not an own Claude signature', () => {
+  const history = toolTurn({
+    role: 'assistant',
+    content: '',
+    providerReplay: replayOf(
+      [
+        { thought: true, text: 'a', thoughtSignature: SENTINEL },
+        { thought: true, text: 'b', thoughtSignature: '' },
+        call(),
+      ],
+      CLAUDE
+    ),
+  });
+  assert.deepEqual(thoughtsOf(modelTurns(history, CLAUDE)), []);
+});
+
+test('a thinking-only Claude turn without a signature is omitted; a signed one is kept', () => {
+  const history = (items, model) => [
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: '', providerReplay: replayOf(items, model) },
+    { role: 'user', content: 'second' },
+  ];
+  const unsigned = [{ thought: true, text: 'thinking' }, { text: '' }];
+  const contents = buildAntigravityRequest(history(unsigned, CLAUDE), CLAUDE, [], {}).request.contents;
+  assert.equal(
+    contents.some((c) => c.role === 'model'),
+    false
+  );
+  assert.equal(
+    contents.some((c) => !c.parts?.length),
+    false
+  );
+  const signed = [
+    { thought: true, text: 'thinking' },
+    { thought: true, text: '', thoughtSignature: 'sig' },
+  ];
+  assert.deepEqual(thoughtsOf(modelTurns(history(signed, CLAUDE), CLAUDE)), [['thinking', 'sig']]);
+  assert.deepEqual(thoughtsOf(modelTurns(history(unsigned, GEMINI), GEMINI)), [['thinking', SENTINEL]]);
+});
+
+test('thinking after a tool call keeps its signed run and drops an unsigned one', () => {
+  const history = toolTurn({
+    role: 'assistant',
+    content: '',
+    providerReplay: replayOf(
+      [
+        { thought: true, text: 'before', thoughtSignature: 'sig-1' },
+        call(),
+        { thought: true, text: 'after ' },
+        { thought: true, text: 'call' },
+        { thought: true, text: '', thoughtSignature: 'sig-2' },
+        { thought: true, text: 'tail without signature' },
+      ],
+      CLAUDE
+    ),
+  });
+  const claude = modelTurns(history, CLAUDE);
+  assertClaudeThoughtsSigned(claude);
+  assert.deepEqual(thoughtsOf(claude), [
+    ['before', 'sig-1'],
+    ['after call', 'sig-2'],
+  ]);
+  assert.equal(
+    claude[0].parts.findIndex((part) => part.functionCall),
+    1
+  );
+});
+
+test('thought runs never merge across messages or across other part types', () => {
+  const history = [
+    { role: 'user', content: 'go' },
+    {
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'toolu_a', name: 'glob', arguments: { pattern: '*' } }],
+      providerReplay: replayOf([{ thought: true, text: 'unsigned head' }, call('toolu_a')], CLAUDE),
+    },
+    { role: 'tool', toolCallId: 'toolu_a', content: 'ok' },
+    {
+      role: 'assistant',
+      content: 'done',
+      providerReplay: replayOf(
+        [
+          { thought: true, text: 'split ' },
+          { text: 'interleaved' },
+          { thought: true, text: 'run', thoughtSignature: 'sig-b' },
+        ],
+        CLAUDE
+      ),
+    },
+    { role: 'user', content: 'next' },
+  ];
+  const claude = modelTurns(history, CLAUDE);
+  assertClaudeThoughtsSigned(claude);
+  assert.deepEqual(thoughtsOf([claude[0]]), []);
+  assert.deepEqual(thoughtsOf([claude[1]]), [['run', 'sig-b']]);
+  assert.deepEqual(
+    claude[1].parts.map((part) => part.text),
+    ['interleaved', 'run']
+  );
+});
+
+// ---- Closing a tool loop whose turn lost its thinking ----
+const THINKING = 'claude-opus-4-6-thinking';
+const wire = (history, model = THINKING, opts = {}) =>
+  buildAntigravityRequest(history, model, BUILTIN_TOOLS, opts).request.contents;
+const openLoop = (assistant) => [
+  { role: 'user', content: 'earlier' },
+  {
+    role: 'assistant',
+    content: 'earlier answer',
+    providerReplay: replayOf(
+      [{ thought: true, text: 'old', thoughtSignature: 'sig-old' }, { text: 'earlier answer' }],
+      THINKING
+    ),
+  },
+  { role: 'user', content: 'go' },
+  { ...assistant, toolCalls: [{ id: 'toolu_9', name: 'glob', arguments: { pattern: '*' } }] },
+  { role: 'tool', toolCallId: 'toolu_9', content: 'ok' },
+];
+const assertWellFormed = (contents) => {
+  for (const content of contents) assert.ok(content.parts.length, 'no empty turn');
+  for (let i = 1; i < contents.length; i += 1) {
+    if (contents[i].role === 'model') assert.equal(contents[i - 1].role, 'user', `turn ${i} follows a user turn`);
+  }
+  for (const [i, content] of contents.entries()) {
+    if (content.parts.some((part) => part.functionCall)) {
+      assert.ok(
+        contents[i + 1]?.parts.some((part) => part.functionResponse),
+        'each call is answered'
+      );
+    }
+  }
+};
+const synthetic = [
+  { role: 'model', parts: [{ text: '[Tool result received.]' }] },
+  { role: 'user', parts: [{ text: '[Continue.]' }] },
+];
+
+test('an open tool loop whose thinking was dropped is closed with a fresh turn, wire-only', () => {
+  const cases = {
+    interrupted: {
+      role: 'assistant',
+      content: '',
+      providerReplay: replayOf([{ thought: true, text: 'cut' }, call()], THINKING),
+    },
+    foreign: {
+      role: 'assistant',
+      content: '',
+      providerReplay: replayOf(
+        [{ thought: true, text: 'g', thoughtSignature: 'gemini-sig' }, call()],
+        'gemini-3.1-pro-high'
+      ),
+    },
+    // Compaction keeps the call and its result but no thinking or replay.
+    compacted: { role: 'assistant', content: '' },
+  };
+  for (const [name, assistant] of Object.entries(cases)) {
+    const history = openLoop(assistant);
+    const snapshot = structuredClone(history);
+    const contents = wire(history);
+    assert.deepEqual(contents.slice(-2), synthetic, name);
+    assert.ok(
+      contents.at(-3).parts.some((part) => part.functionResponse),
+      name
+    );
+    assert.equal(
+      contents.some((c) => c.parts.some((part) => part.thought === true)),
+      false,
+      `${name}: the closed part keeps no thinking`
+    );
+    assertWellFormed(contents);
+    assert.deepEqual(history, snapshot, `${name}: the transcript and its replays are unchanged`);
+  }
+});
+
+test('a signed loop, a turn without an open loop, thinking off and Gemini are left as built', () => {
+  const signed = openLoop({
+    role: 'assistant',
+    content: '',
+    providerReplay: replayOf([{ thought: true, text: 'plan', thoughtSignature: 'sig-plan' }, call()], THINKING),
+  });
+  const signedContents = wire(signed);
+  assert.ok(signedContents.at(-1).parts.some((part) => part.functionResponse));
+  assert.deepEqual(thoughtsOf(signedContents.filter((c) => c.role === 'model')), [
+    ['old', 'sig-old'],
+    ['plan', 'sig-plan'],
+  ]);
+
+  const compacted = openLoop({ role: 'assistant', content: '' });
+  const answered = [...compacted, { role: 'assistant', content: 'done' }, { role: 'user', content: 'next' }];
+  assert.equal(wire(answered).at(-1).parts[0].text, 'next');
+  assert.ok(
+    wire(compacted, 'claude-sonnet-4-6')
+      .at(-1)
+      .parts.some((part) => part.functionResponse)
+  );
+  assert.equal(wire(compacted, 'claude-sonnet-4-6', { effort: 'high' }).at(-1).parts[0].text, '[Continue.]');
+  assert.ok(
+    wire(compacted, GEMINI)
+      .at(-1)
+      .parts.some((part) => part.functionResponse)
+  );
+});
+
+test('later steps keep the closure in place and the fresh turn keeps its signed thinking', () => {
+  const history = [
+    ...openLoop({ role: 'assistant', content: '' }),
+    {
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'toolu_10', name: 'glob', arguments: { pattern: '*.md' } }],
+      providerReplay: replayOf(
+        [
+          { thought: true, text: 'fresh', thoughtSignature: 'sig-fresh' },
+          { functionCall: { name: 'glob', args: { pattern: '*.md' }, id: 'toolu_10' } },
+        ],
+        THINKING
+      ),
+    },
+    { role: 'tool', toolCallId: 'toolu_10', content: 'README.md' },
+  ];
+  const contents = wire(history);
+  const closure = contents.findIndex((c) => c.role === 'model' && c.parts[0]?.text === '[Tool result received.]');
+  assert.ok(closure > 0);
+  assert.deepEqual(contents.slice(closure, closure + 2), synthetic);
+  assert.deepEqual(thoughtsOf(contents.slice(closure + 2)), [['fresh', 'sig-fresh']]);
+  assert.ok(contents.at(-1).parts.some((part) => part.functionResponse));
+  assertWellFormed(contents);
 });

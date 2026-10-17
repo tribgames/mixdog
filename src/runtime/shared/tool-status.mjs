@@ -49,9 +49,10 @@ export function isUserControlCancellation(text) {
 }
 
 // A non-zero exit the tool itself marked as a signal (search no-match, a
-// `git diff --exit-code` difference) rather than a command failure.
+// `git diff --exit-code` difference, a `git merge-tree` conflict report) rather
+// than a command failure.
 export function hasBenignExitOutcome(text) {
-  return /^\[outcome:\s*(?:no-match|no-change)\]\s*$/im.test(String(text || ''));
+  return /^\[outcome:\s*(?:no-match|no-change|conflicts)\]\s*$/im.test(String(text || ''));
 }
 
 // The status a task/bridge envelope reports in its leading block. A `<status>`

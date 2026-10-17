@@ -108,3 +108,41 @@ test('gemini cache usage: clamps over-reported cache and falls back only for att
   assert.equal(noFallbackWithoutAttachment.cachedTokens, 0);
   assert.equal(noFallbackWithoutAttachment.cacheTokenSource, 'none');
 });
+
+test('gemini cache usage: a reported zero never becomes a cache-create estimate', () => {
+  for (const field of [
+    'cachedContentTokenCount',
+    'cached_content_token_count',
+    'totalCachedTokens',
+    'total_cached_tokens',
+  ]) {
+    const result = _resolveGeminiCacheUsage({
+      usageMetadata: { promptTokenCount: 100, [field]: 0 },
+      cachedContent: 'cachedContents/zero',
+      providerState: { gemini: { cacheTokenSize: 80 } },
+    });
+    assert.equal(result.inputTokens, 100, field);
+    assert.equal(result.reportedCachedTokens, 0, field);
+    assert.equal(result.cachedTokens, 0, field);
+    assert.equal(result.cacheTokenSource, 'usage_metadata', field);
+  }
+});
+
+test('gemini cache usage: missing fields may fall back, and canonical zero wins over convenience aliases', () => {
+  const options = {
+    cachedContent: 'cachedContents/fixture',
+    providerState: { gemini: { cacheTokenSize: 80 } },
+  };
+  const absent = _resolveGeminiCacheUsage({
+    ...options,
+    usageMetadata: { promptTokenCount: 100, cachedContentTokenCount: null },
+  });
+  assert.equal(absent.cachedTokens, 80);
+  assert.equal(absent.cacheTokenSource, 'cache_create_fallback');
+  const explicit = _resolveGeminiCacheUsage({
+    ...options,
+    usageMetadata: { promptTokenCount: 100, cachedContentTokenCount: 0, totalCachedTokens: 80 },
+  });
+  assert.equal(explicit.cachedTokens, 0);
+  assert.equal(explicit.cacheTokenSource, 'usage_metadata');
+});

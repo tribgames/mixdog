@@ -6,7 +6,16 @@
  * Returns an OK response whose body is ready to stream; every failure path
  * throws with the initial-response markers the retry classifier reads.
  */
+import { promisify } from 'node:util';
 import zlib from 'node:zlib';
+import {
+  REQ_COMPRESSION_MIN_BYTES,
+  compressBody,
+  createCompressionLatch,
+  hasContentEncoding,
+  resendIfEncodingRejected,
+  withContentEncoding,
+} from './lib/request-compression.mjs';
 import { traceAgentFetch } from '../agent-trace.mjs';
 import { PROVIDER_HTTP_RESPONSE_TIMEOUT_MS, createTimeoutSignal } from '../stall-policy.mjs';
 import { CODEX_REQUEST_RETRY_BACKOFF_MS, CODEX_RETRY_JITTER_RATIO } from './openai-retry-policy.mjs';
@@ -37,7 +46,6 @@ const OPENAI_REQUEST_RETRY_OPTS = Object.freeze({
   retryJitterRatio: CODEX_RETRY_JITTER_RATIO,
 });
 
-
 // Request-layer retry: 5xx and typed transport
 // failures only. 408 and 429 are NOT retried here; they surface to the outer
 // stream-retry layer, which owns their budget and honors Retry-After.
@@ -52,31 +60,29 @@ function isRetryableHttpFailure(err) {
 }
 // Request-body zstd gate. Namespace import: on Node runtimes without zlib
 // zstd bindings the named export would fail at module load, so the call site
-// typeof-guards zlib.zstdCompressSync instead.
-const OPENAI_REQ_ZSTD_MIN_BYTES = 8 * 1024;
-let _openaiReqZstdLatch = false;
-function _openaiReqZstdDisabled() {
-  return _openaiReqZstdLatch || process.env.MIXDOG_OPENAI_REQ_ZSTD === '0';
-}
-function _disableOpenaiReqZstd() {
-  _openaiReqZstdLatch = true;
-}
-function _zstdHeaders(headers, bodyForSend) {
-  return bodyForSend.encoding ? { ...headers, 'Content-Encoding': bodyForSend.encoding } : headers;
-}
+// typeof-guards zlib.zstdCompress instead.
+const _openaiReqZstdLatch = createCompressionLatch('MIXDOG_OPENAI_REQ_ZSTD');
+export const _resetOpenaiReqZstdLatchForTest = _openaiReqZstdLatch.reset;
 
 // Request-body zstd: compression is enabled for the codex backend on the
 // OpenAI provider — the server decompresses Content-Encoding: zstd.
-// openai-direct is excluded: only the codex backend is verified. Env
-// kill-switch plus a process-wide latch flipped on the first 400 seen on
-// a compressed request, which then replays that attempt uncompressed.
-function encodeRequestBody(auth, rawBytes) {
-  return auth?.type !== 'openai-direct' &&
-    !_openaiReqZstdDisabled() &&
-    typeof zlib.zstdCompressSync === 'function' &&
-    rawBytes.length >= OPENAI_REQ_ZSTD_MIN_BYTES
-    ? { bytes: zlib.zstdCompressSync(rawBytes), encoding: 'zstd' }
-    : { bytes: rawBytes, encoding: null };
+// openai-direct is excluded: only the codex backend is verified. Compression
+// runs on the libuv threadpool (zlib.zstdCompress, promisified) so it never
+// blocks the main thread; runtimes without the async zstd binding send plain.
+// Env kill-switch; the 400/415 resend + latch policy is shared
+// (lib/request-compression.mjs).
+async function encodeRequestBody(auth, headers, rawBytes) {
+  const plain = { bytes: rawBytes, encoding: null };
+  if (
+    auth?.type === 'openai-direct' ||
+    _openaiReqZstdLatch.disabled() ||
+    typeof zlib.zstdCompress !== 'function' ||
+    rawBytes.length < REQ_COMPRESSION_MIN_BYTES ||
+    hasContentEncoding(headers)
+  ) {
+    return plain;
+  }
+  return compressBody(rawBytes, promisify(zlib.zstdCompress), 'zstd');
 }
 
 async function postWithRetries({
@@ -91,15 +97,32 @@ async function postWithRetries({
   _sleepFn,
 }) {
   const label = httpLabel(auth);
-  let bodyForSend = encodeRequestBody(auth, rawBytes);
-  let response;
-  let httpError = null;
-  for (let attempt = 0; attempt <= CODEX_REQUEST_MAX_RETRIES; attempt++) {
+  const bodyForSend = await encodeRequestBody(auth, headers, rawBytes);
+  const fetchOnce = async (bytes, sendHeaders) => {
     const headerTimeout = createTimeoutSignal(
       totalTimeout.signal,
       PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
       `${label} initial response`
     );
+    try {
+      return await fetchFn(responsesUrl, {
+        method: 'POST',
+        headers: sendHeaders,
+        body: bytes,
+        signal: headerTimeout.signal,
+        dispatcher: getLlmDispatcher(),
+      });
+    } catch (err) {
+      throw headerTimeout.signal?.aborted && headerTimeout.signal.reason instanceof Error
+        ? headerTimeout.signal.reason
+        : err;
+    } finally {
+      headerTimeout.cleanup();
+    }
+  };
+  let response;
+  let httpError = null;
+  for (let attempt = 0; attempt <= CODEX_REQUEST_MAX_RETRIES; attempt++) {
     let requestError = null;
     try {
       // Keep the established stage name for consumers, while making each
@@ -113,32 +136,20 @@ async function postWithRetries({
           retry: attempt > 0,
         });
       } catch {}
-      response = await fetchFn(responsesUrl, {
-        method: 'POST',
-        headers: _zstdHeaders(headers, bodyForSend),
-        body: bodyForSend.bytes,
-        signal: headerTimeout.signal,
-        dispatcher: getLlmDispatcher(),
+      response = bodyForSend.encoding
+        ? await fetchOnce(bodyForSend.bytes, withContentEncoding(headers, bodyForSend.encoding))
+        : await fetchOnce(rawBytes, headers);
+      // Encoding rejection (400/415): resent uncompressed inside this attempt,
+      // so it never consumes a retry; the latch flips only if that succeeds.
+      response = await resendIfEncodingRejected({
+        response,
+        encoded: Boolean(bodyForSend.encoding),
+        resend: () => fetchOnce(rawBytes, headers),
+        latch: _openaiReqZstdLatch,
       });
     } catch (err) {
-      requestError =
-        headerTimeout.signal?.aborted && headerTimeout.signal.reason instanceof Error
-          ? headerTimeout.signal.reason
-          : err;
-    } finally {
-      headerTimeout.cleanup();
-    }
-
-    // zstd rejection fallback: a 400 on a compressed request latches
-    // compression OFF process-wide and replays this attempt uncompressed.
-    if (response && response.status === 400 && bodyForSend.encoding) {
-      _disableOpenaiReqZstd();
-      bodyForSend = { bytes: rawBytes, encoding: null };
-      await response.arrayBuffer().catch(() => {});
       response = undefined;
-      // The uncompressed replay is not a retry: it must not consume an attempt.
-      attempt--;
-      continue;
+      requestError = err;
     }
     // The error body is read exactly once, here, into the contract fields.
     httpError = null;
@@ -183,8 +194,9 @@ async function postWithRetries({
       // Uncapped for retryable errors; the attempt count is
       // the bound, and the abort signal cancels the wait.
       // The shared schedule carries a leading duplicate (withRetry convention).
-    const raw = OPENAI_REQUEST_RETRY_OPTS.backoffMs[attempt + 1];
-      const delayMs = retryAfterMsFromError(attemptFailure) ?? jitterDelayMs(raw, OPENAI_REQUEST_RETRY_OPTS.retryJitterRatio);
+      const raw = OPENAI_REQUEST_RETRY_OPTS.backoffMs[attempt + 1];
+      const delayMs =
+        retryAfterMsFromError(attemptFailure) ?? jitterDelayMs(raw, OPENAI_REQUEST_RETRY_OPTS.retryJitterRatio);
       emitProviderRetryStage(onStageChange, {
         attempt: attempt + 2,
         maxAttempts: CODEX_REQUEST_MAX_RETRIES + 1,

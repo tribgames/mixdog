@@ -23,5 +23,5 @@ export function writeJsonAtomicAsync(
 export function withFileLock<T>(
   lockPath: string,
   task: () => T | Promise<T>,
-  options?: { timeoutMs?: number; staleMs?: number; secret?: boolean }
+  options?: { timeoutMs?: number; staleMs?: number; secret?: boolean; strictOwner?: boolean }
 ): Promise<T>;

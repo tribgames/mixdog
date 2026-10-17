@@ -76,7 +76,7 @@ export function createEagerAdmission({ tools, cwd, sessionId, sessionRef, repeat
     // The same cache policy authorizes both serial cache hits and short
     // cross-turn references. Recheck there: an entry can expire or be
     // invalidated between streaming admission and serial consumption.
-    if (lookupToolResultReuse({ sessionId, call, cwd, touch: false }) !== null) return null;
+    if (lookupToolResultReuse({ sessionId, call, cwd, touch: false, sessionRef }) !== null) return null;
     return { sig, dedupEligible };
   }
 

@@ -8,6 +8,7 @@ import { _gitCommandInternals } from './git-command-tool.mjs';
 import { gitRepoLockKey } from './git-repo-rw-lock.mjs';
 import { createDiffSnapshot } from './git-partial-stage.mjs';
 
+const NOTE = 'ids number the +/- runs in diff order; [whole file] ids stage the entire file';
 const plan = { operation: 'diff', cwd: process.cwd(), args: [], globalArgs: [] };
 const result = (stdout, stderr = '', exitCode = 0) => ({ stdout, stderr, exitCode });
 const patch =
@@ -23,20 +24,28 @@ test('git single output preserves whitespace, JSON-looking blobs and stderr', ()
   assert.equal(commandResult(plan, { ...result(''), timedOut: true }, 50).text, 'error: git command timed out');
 });
 
+// The body as the model sees it: `index abc..def` lines are dropped.
+const shownPatch = patch.replace(/^index .*\n/m, '');
+const HINT =
+  'hint: large diff - run with --stat first for per-file sizes, add -U1 for less context, and page by file with -- <path>';
+const HINT_RE = new RegExp(`\\n${HINT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+
 test('git line caps include blank lines, retain headers, and count all omissions', () => {
   const { commandResult } = _gitCommandInternals;
   assert.equal(
     commandResult(plan, result('a\n\nb\nc\n'), 2).text,
     'a\n\n... [2 more lines omitted; raise output_limit or narrow the command]'
   );
+  const capped = commandResult(plan, result(patch), 4).text;
   assert.equal(
-    commandResult(plan, result(patch), 4).text,
-    `${patch.split('\n').slice(0, 4).join('\n')}\n... [6 more lines omitted; raise output_limit or narrow the command]`
+    capped.replace(HINT_RE, ''),
+    `${shownPatch.split('\n').slice(0, 4).join('\n')}\n... [5 more lines omitted; raise output_limit or narrow the command]`
   );
+  assert.match(capped, HINT_RE);
   assert.equal(commandResult(plan, result('a\nb\n'), 2).text, 'a\nb\n');
 });
 
-test('stage discovery lists every change independently of the body cap and retains raw body', () => {
+test('stage discovery lists one id range per file independently of the body cap and retains the body', () => {
   const snapshot = createDiffSnapshot({
     repo: process.cwd(),
     scope: process.cwd(),
@@ -44,16 +53,113 @@ test('stage discovery lists every change independently of the body cap and retai
     argv: ['diff'],
     raw: patch.trimEnd(),
   });
-  assert.equal(snapshot.changes.length, 2);
+  assert.deepEqual(
+    snapshot.changes.map(({ id }) => id),
+    ['c1', 'c2']
+  );
   const text = _gitCommandInternals.stageableDiffResult(plan, result(patch), snapshot, 50).text;
-  const manifest = `diff_id: ${snapshot.diffId}\nfile: "a.txt"\n${snapshot.changes
-    .map((change) => `change:${change.id} @@ -${change.old_start},1 +${change.new_start},1 @@`)
-    .join('\n')}`;
-  assert.equal(text, `${patch}${manifest}`);
+  const manifest = `diff_id: ${snapshot.diffId} (${NOTE})\na.txt: c1-c2`;
+  assert.equal(text, `${shownPatch}${manifest}`);
   const capped = _gitCommandInternals.stageableDiffResult(plan, result(patch), snapshot, 4).text;
   assert.equal(
     capped,
-    `${patch.split('\n').slice(0, 4).join('\n')}\n... [6 more lines omitted; raise output_limit or narrow the command]\n${manifest}`
+    `${shownPatch.split('\n').slice(0, 4).join('\n')}\n... [5 more lines omitted; raise output_limit or narrow the command]\n${HINT}\n${manifest}`
+  );
+});
+
+test('index lines and line-ending warnings are dropped; content that merely looks like them is kept', () => {
+  const { commandResult } = _gitCommandInternals;
+  const warning = "warning: in the working copy of 'a.txt', LF will be replaced by CRLF the next time Git touches it\n";
+  assert.equal(commandResult(plan, result(patch, warning), 50).text, shownPatch);
+  assert.equal(
+    commandResult({ operation: 'add' }, result('', `${warning}warning: other thing\n`), 50).text,
+    'warning: other thing\n'
+  );
+  assert.equal(
+    commandResult(
+      { operation: 'add' },
+      result('', "warning: in the working copy of 'b.txt', CRLF will be replaced by LF the next time Git touches it\n"),
+      50
+    ).text,
+    ''
+  );
+  // Not a patch: a blob that contains an index-looking line is returned verbatim.
+  const blob = 'index abc..def 100644\nbody\n';
+  assert.equal(commandResult({ operation: 'show' }, result(blob), 50).text, blob);
+  // A diff content line is prefixed, so it is never mistaken for a header.
+  const withContent = `${shownPatch}+index abc..def\n`;
+  assert.equal(commandResult(plan, result(`${patch}+index abc..def\n`), 50).text, withContent);
+  // A warning-only stderr no longer hides a diff --quiet exit signal.
+  assert.equal(
+    commandResult({ operation: 'diff', args: ['--quiet'] }, result('', warning, 1), 50).text,
+    'exit 1\n[outcome: no-match]'
+  );
+});
+
+test('large diffs get a one-line paging hint; stat-style and small output do not', () => {
+  const { commandResult } = _gitCommandInternals;
+  const bigPatch = `diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,300 +1,300 @@\n${Array.from(
+    { length: 300 },
+    (_, index) => `+line ${index}`
+  ).join('\n')}\n`;
+  // Over ~200 lines even when the caller's cap lets all of it through.
+  const whole = commandResult(plan, result(bigPatch), 500).text;
+  assert.equal([...whole.matchAll(/^hint: /gm)].length, 1);
+  assert.match(whole, HINT_RE);
+  assert.doesNotMatch(commandResult(plan, result(shownPatch), 50).text, /hint:/);
+  const stat = ' a.txt | 300 ++++\n 1 file changed, 300 insertions(+)\n';
+  assert.doesNotMatch(commandResult({ operation: 'diff', args: ['--stat'] }, result(stat), 1).text, /hint:/);
+});
+
+test('output is also capped by characters per command and says what was cut and how to page', () => {
+  const { commandResult } = _gitCommandInternals;
+  const lines = Array.from({ length: 400 }, (_, index) => `${String(index).padStart(3, '0')} ${'x'.repeat(96)}`);
+  const text = `${lines.join('\n')}\n`;
+  const defaultCap = commandResult({ operation: 'log' }, result(text), 500).text;
+  assert.ok(defaultCap.length < 12_500, String(defaultCap.length));
+  assert.match(
+    defaultCap,
+    /\n\.\.\. \[\d+ more lines \(\d+ chars\) omitted; output limited to 12000 chars - narrow the command \(-- <path>, -n\/--skip\) to page\]$/
+  );
+  // Cut on a line boundary: the last shown line is whole.
+  const shown = defaultCap.split('\n').slice(0, -1);
+  assert.ok(shown.every((line) => line.length === 100));
+  const omitted = Number(/\[(\d+) more lines/.exec(defaultCap)[1]);
+  assert.equal(shown.length + omitted, 400);
+  // The array-wide share arrives as a smaller per-command budget.
+  const share = commandResult({ operation: 'log' }, result(text), { lines: 500, chars: 2000 }).text;
+  assert.match(share, /output limited to 2000 chars/);
+  assert.ok(share.length < 2300);
+  // A single over-long line is still cut.
+  assert.match(
+    commandResult({ operation: 'log' }, result('y'.repeat(30_000)), { lines: 50, chars: 1000 }).text,
+    /^y{1000}\n\.\.\. \[0 more lines \(29000 chars\) omitted;/
+  );
+  // Under both caps the text is untouched.
+  assert.equal(commandResult({ operation: 'log' }, result(text.slice(0, 5000)), 500).text, text.slice(0, 5000));
+});
+
+test('merge-tree conflicts are an outcome, not a failure; Auto-merging lines go', () => {
+  const { commandResult } = _gitCommandInternals;
+  const tree = 'a'.repeat(40);
+  const report = `${tree}\n100644 ${'b'.repeat(40)} 1\tclash.txt\n\nAuto-merging clash.txt\nAuto-merging quiet.txt\nCONFLICT (content): Merge conflict in clash.txt\n`;
+  const conflicted = commandResult({ operation: 'merge-tree', args: [] }, result(report, '', 1), 50);
+  assert.equal(conflicted.failed, false);
+  assert.match(conflicted.text, /^exit 1\n\[outcome: conflicts\]\nmerge has conflicts \(see the CONFLICT lines\)/);
+  assert.match(conflicted.text, new RegExp(tree));
+  assert.match(conflicted.text, /CONFLICT \(content\): Merge conflict in clash\.txt/);
+  assert.match(conflicted.text, /clash\.txt/);
+  assert.doesNotMatch(conflicted.text, /Auto-merging/);
+  // exit 1 without a report, or with stderr, is an ordinary failure.
+  assert.deepEqual(commandResult({ operation: 'merge-tree', args: [] }, result('', '', 1), 50), {
+    text: 'exit 1',
+    failed: true,
+  });
+  assert.equal(commandResult({ operation: 'merge-tree', args: [] }, result(report, 'fatal: x\n', 1), 50).failed, true);
+  // Success also loses the Auto-merging lines.
+  assert.equal(
+    commandResult({ operation: 'merge-tree', args: [] }, result(`${tree}\nAuto-merging a\n`), 50).text,
+    `${tree}\n`
   );
 });
 
@@ -64,14 +170,12 @@ test('a one-line body cap still lists edit groups, whole files and new files exa
   const snapshot = createDiffSnapshot({ repo: process.cwd(), scope: process.cwd(), plan, argv: ['diff'], raw });
   assert.equal(snapshot.changes.length, 4);
   const text = _gitCommandInternals.stageableDiffResult(plan, result(raw), snapshot, 1).text;
-  const ids = [...text.matchAll(/^change:(chg_[0-9a-f]{16}) /gm)].map((match) => match[1]);
   assert.deepEqual(
-    ids,
-    snapshot.changes.map(({ id }) => id)
+    snapshot.changes.map(({ id }) => id),
+    ['c1', 'c2', 'c3', 'c4']
   );
-  assert.match(text, /file: "mode.txt"\nchange:\S+ file/);
-  assert.match(text, /file: "new file.txt"\nchange:\S+ new_file/);
-  assert.doesNotMatch(text, /changes omitted/);
+  assert.match(text, /\na\.txt: c1-c2\nmode\.txt: c3 \[whole file\]\nnew file\.txt: c4 \[whole file\]$/);
+  assert.doesNotMatch(text, /changes omitted|^change:|^file:/m);
 });
 
 test('a diff with no selectable changes has no staging metadata', () => {
@@ -80,37 +184,26 @@ test('a diff with no selectable changes has no staging metadata', () => {
   assert.equal(_gitCommandInternals.stageableDiffResult(plan, result(raw), snapshot, 50).text, raw);
 });
 
-test('grouped manifests preserve every ID, path and location including escaped filenames', () => {
-  const paths = ['한글 file.txt', 'quote"file.txt', 'line\nbreak.txt', 'back\\slash.txt'];
+test('grouped listings keep every id range and path, quoting only names that would break a line', () => {
+  const paths = ['한글 file.txt', 'quote"file.txt', 'line\nbreak.txt', 'back\\slash.txt', 'single.txt'];
+  let ordinal = 0;
   const changes = paths.flatMap((path, file) =>
-    Array.from({ length: 5 }, (_, i) => ({
-      path,
-      id: `chg_${file}_${i}`,
-      old_start: i + 1,
-      new_start: i + 2,
-      deletions: i,
-      additions: i + 1,
-    }))
+    Array.from({ length: file === 4 ? 1 : 5 }, () => ({ path, id: `c${++ordinal}` }))
   );
   const snapshot = { diffId: 'diff_lossless', changes };
   const text = _gitCommandInternals.stageableDiffResult(plan, result('body\n'), snapshot, 1).text;
-  const decoded = [];
-  let path;
-  for (const line of text.split('\n')) {
-    if (line.startsWith('file: ')) path = JSON.parse(line.slice(6));
-    const match = /^change:(\S+) (.+)$/.exec(line);
-    if (match) decoded.push({ id: match[1], path, location: match[2] });
-  }
-  assert.deepEqual(
-    decoded,
-    changes.map((change) => ({
-      id: change.id,
-      path: change.path,
-      location: `@@ -${change.old_start},${change.deletions} +${change.new_start},${change.additions} @@`,
-    }))
+  assert.equal(
+    text,
+    [
+      'body',
+      `diff_id: diff_lossless (${NOTE})`,
+      '한글 file.txt: c1-c5',
+      `${JSON.stringify('quote"file.txt')}: c6-c10`,
+      `${JSON.stringify('line\nbreak.txt')}: c11-c15`,
+      'back\\slash.txt: c16-c20',
+      'single.txt: c21',
+    ].join('\n')
   );
-  assert.equal(text.split('\nfile: ').length - 1, paths.length);
-  assert.ok(text.startsWith('body\ndiff_id: diff_lossless\n'));
 });
 
 test('the repository lock key is the common git dir shared by the main checkout and linked worktrees', async () => {

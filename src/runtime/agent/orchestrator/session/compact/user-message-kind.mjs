@@ -55,6 +55,34 @@ export function isInjectedSkillBodyMessage(m) {
   return typeof m.content === 'string' && m.content.trimStart().startsWith('<skill>');
 }
 
+const CONTEXT_ACK_SOURCE = 'context-ack';
+
+/** The assistant `.` that closes an injected context turn (compact summary,
+ *  reminder, reference files) so the next prompt stays its own message. It is
+ *  model context only and never displayed. */
+export function contextAckMessage() {
+  return { role: 'assistant', content: '.', meta: { source: CONTEXT_ACK_SOURCE } };
+}
+
+/** Whether `message` is a context ack: marked, or (stored before the marker
+ *  existed) a bare `.` right after injected context (`previous`). */
+export function isContextAckMessage(message, previous = null) {
+  if (
+    message?.role !== 'assistant' ||
+    typeof message.content !== 'string' ||
+    message.content.trim() !== '.' ||
+    Array.isArray(message.toolCalls)
+  ) {
+    return false;
+  }
+  if (message.meta?.source === CONTEXT_ACK_SOURCE) return true;
+  return (
+    isSummaryMessage(previous) ||
+    isProtectedContextUserMessage(previous) ||
+    (previous?.role === 'user' && /^Reference files:\s*/i.test(userMessageText(previous).trimStart()))
+  );
+}
+
 const SYNTHETIC_USER_SOURCES = new Set([
   'goal-continuation',
   'goal-closeout',

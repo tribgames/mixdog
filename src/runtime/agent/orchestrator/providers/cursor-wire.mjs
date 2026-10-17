@@ -328,11 +328,12 @@ function createPendingToolBatchResponse(active, model, key) {
 }
 
 // Stream state shared by the sink, the message router and the bridge controller.
-function freshStreamState(sawTurnEnded) {
+function freshStreamState(sawTurnEnded, executions) {
   return {
     outputTokens: 0,
     contextTokens: null,
     pending: [],
+    executions,
     closed: false,
     sawEnd: false,
     sawTurnEnded: sawTurnEnded === true,
@@ -360,7 +361,9 @@ function createStreamResponse({
   // Owning session, carried into the stored run so a session close can find
   // and tear down the pending batch's bridge/heartbeat.
   sessionId = '',
+  ownerSessionId = sessionId,
   sawTurnEnded = false,
+  executions = new Map(),
   restart = null,
   sleep = undefined,
   onStageChange = null,
@@ -376,7 +379,7 @@ function createStreamResponse({
   const stream = new ReadableStream({
     start(controller) {
       const filter = thinkingFilter();
-      const state = freshStreamState(sawTurnEnded);
+      const state = freshStreamState(sawTurnEnded, executions);
       const tuning = resolveCursorStreamTuning();
       watchdog = createCursorStreamWatchdog({
         idleTimeoutMs: tuning.idleTimeoutMs,
@@ -400,7 +403,7 @@ function createStreamResponse({
         watchdog,
         sink,
         tuning,
-        run: { key, conversation, tools, cloudRule, modelParameters, maxMode, sessionId },
+        run: { key, conversation, tools, cloudRule, modelParameters, maxMode, sessionId, ownerSessionId },
         runs,
         restart,
         sleep,
@@ -449,6 +452,7 @@ function resumeRun(active, toolResults, userText, model, key) {
     }
     const payload = { ...result, content: String(result.content ?? '') };
     if (pendingUserText && pending.exec.execId === lastExecId) {
+      if (pending.native?.resultType === 'readResult') pending.nativeUserMessage = pendingUserText;
       payload.content += `\n\n<user_message>\n${pendingUserText}\n</user_message>`;
       userTextDelivered = true;
     }
@@ -471,7 +475,11 @@ function noUserMessageResponse() {
   });
 }
 
-export async function handleChatCompletion(body, accessToken, { onStageChange = null, getAccessToken = null } = {}) {
+export async function handleChatCompletion(
+  body,
+  accessToken,
+  { onStageChange = null, getAccessToken = null, resetActiveRun = false, ownerSessionId = '' } = {}
+) {
   await warmCursorClientVersion();
   const parsed = parseMessages(body.messages);
   if (
@@ -492,6 +500,7 @@ export async function handleChatCompletion(body, accessToken, { onStageChange = 
   const cloudRule = parsed.systems.join('\n\n') || undefined;
   const active = activeRuns.get(key);
   if (
+    !resetActiveRun &&
     active &&
     parsed.toolResults.length &&
     active.bridge.alive &&
@@ -531,6 +540,7 @@ export async function handleChatCompletion(body, accessToken, { onStageChange = 
     maxMode,
     key,
     sessionId,
+    ownerSessionId,
     onStageChange,
     restart: async ({ fromCheckpoint, reason, error }) => {
       if (reason === 'throttle') {

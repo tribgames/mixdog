@@ -71,6 +71,30 @@ function coalesceClaudeThoughts(parts) {
   return out;
 }
 
+// The validator-bypass sentinel is a Gemini wire token: the Claude bridge
+// sends a thinking block carrying it (or no signature at all) without a
+// signature and Anthropic rejects the request ("thinking.signature: Field
+// required"). Only a signature this route recorded is replayed to Claude;
+// any other signature is removed, and a thinking block left without one (an
+// interrupted run, another model's or provider's turn, legacy metadata) is
+// dropped rather than turned into visible text.
+const hasOwnClaudeSignature = (part) =>
+  typeof part.thoughtSignature === 'string' &&
+  part.thoughtSignature !== '' &&
+  part.thoughtSignature !== THOUGHT_SIGNATURE_SENTINEL;
+
+function claudeReplayParts(parts, own) {
+  const signed = parts.map((part) => {
+    if (!part || typeof part !== 'object' || !('thoughtSignature' in part)) return part;
+    if (own && hasOwnClaudeSignature(part)) return part;
+    const { thoughtSignature: _foreign, ...unsigned } = part;
+    return unsigned;
+  });
+  return coalesceClaudeThoughts(signed.filter((part) => !isEmptyPlainTextPart(part))).filter(
+    (part) => part?.thought !== true || hasOwnClaudeSignature(part)
+  );
+}
+
 function signatureSafeMessages(messages, model) {
   const claude = isAntigravityClaude(model);
   return messages.flatMap((message) => {
@@ -79,11 +103,8 @@ function signatureSafeMessages(messages, model) {
     // Repair tool signatures only after the complete history establishes
     // the active turn, not while normalizing an isolated older message.
     const sourceParts = ownParts || toGeminiContents([message], model, { repairToolSignatures: false })[0]?.parts;
-    const parts =
-      claude && sourceParts
-        ? coalesceClaudeThoughts(sourceParts.filter((part) => !isEmptyPlainTextPart(part)))
-        : sourceParts;
-    // A turn that held only empty parts is omitted, not sent as parts:[].
+    const parts = claude && sourceParts ? claudeReplayParts(sourceParts, !!ownParts) : sourceParts;
+    // A turn that held only empty or dropped parts is omitted, not sent as parts:[].
     if (sourceParts?.length && !parts.length) return [];
     if (!parts?.length) return [message];
     for (const part of parts) {
@@ -98,6 +119,56 @@ function signatureSafeMessages(messages, model) {
     return [{ ...message, providerReplay: createProviderReplay('antigravity', parts) }];
   });
 }
+
+const isToolResultTurn = (content) =>
+  content?.role === 'user' && !!content.parts?.some((part) => part?.functionResponse);
+const isPromptTurn = (content) => content?.role === 'user' && !isToolResultTurn(content);
+const hasSignedThinking = (content) =>
+  !!content?.parts?.some((part) => part?.thought === true && hasOwnClaudeSignature(part));
+
+// With thinking on, Claude rejects a tool loop whose turn did not open with a
+// signed thinking block, and a block that was dropped (unsigned, foreign or
+// compacted away) cannot be restored. The outgoing request closes that loop
+// instead: the closed part loses its thinking, a short model reply
+// acknowledges the tool results, and a user nudge opens a fresh turn that
+// Claude starts with new thinking. The closure sits after the results of the
+// turn's last unthought model message, so later steps keep the signed
+// thinking that the fresh turn produced. Wire-only: the caller's messages and
+// recorded replays are never touched.
+function closeUnthoughtToolLoop(contents) {
+  if (!isToolResultTurn(contents.at(-1))) return contents;
+  const promptIndex = contents.findLastIndex(isPromptTurn);
+  const modelIndexes = [];
+  for (let index = promptIndex + 1; index < contents.length; index += 1) {
+    if (contents[index]?.role === 'model') modelIndexes.push(index);
+  }
+  if (!modelIndexes.length || hasSignedThinking(contents[modelIndexes[0]])) return contents;
+  const unthought = modelIndexes.findLast((index) => !hasSignedThinking(contents[index]));
+  let cut = unthought + 1;
+  let results = 0;
+  while (isToolResultTurn(contents[cut])) {
+    results += contents[cut].parts.filter((part) => part?.functionResponse).length;
+    cut += 1;
+  }
+  if (!results) return contents;
+  const closed = contents.slice(0, cut).flatMap((content) => {
+    if (content?.role !== 'model') return [content];
+    const parts = content.parts.filter((part) => part?.thought !== true);
+    return parts.length ? [{ ...content, parts }] : [];
+  });
+  const ack = results === 1 ? '[Tool result received.]' : `[${results} tool results received.]`;
+  return [
+    ...closed,
+    { role: 'model', parts: [{ text: ack }] },
+    { role: 'user', parts: [{ text: '[Continue.]' }] },
+    ...contents.slice(cut),
+  ];
+}
+
+// The request turns Claude thinking on through an effort level or token
+// budget; a `-thinking` wire id thinks without either.
+const claudeThinkingEnabled = (model, thinkingConfig) =>
+  !!(thinkingConfig.thinkingLevel || thinkingConfig.thinkingBudget) || /-thinking$/i.test(String(model));
 
 function sessionId(contents) {
   const first = contents.find((content) => content?.role === 'user');
@@ -154,10 +225,11 @@ export function buildAntigravityRequest(messages, model, tools, opts = {}, proje
     .map((message) => message.content)
     .join('\n\n');
   const chatMessages = messages.filter((message) => message.role !== 'system');
-  const contents = toGeminiContents(signatureSafeMessages(chatMessages, model), model);
-  if (!contents.length) throw new Error('No messages to send');
+  const history = toGeminiContents(signatureSafeMessages(chatMessages, model), model);
+  if (!history.length) throw new Error('No messages to send');
   const claude = isAntigravityClaude(model);
   const thinkingConfig = claude ? claudeThinkingConfig(opts) : antigravityGeminiThinkingConfig(model, opts);
+  const contents = claude && claudeThinkingEnabled(model, thinkingConfig) ? closeUnthoughtToolLoop(history) : history;
   const generationConfig = {
     ...(claude ? { maxOutputTokens: CLAUDE_MAX_OUTPUT_TOKENS } : {}),
     ...(thinkingConfig ? { thinkingConfig } : {}),

@@ -17,7 +17,8 @@ import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
 import { forgetSessionSaveBaseline } from '../store/save-worker.mjs';
 import { forgetSessionLoadCache } from '../store/load-cache.mjs';
 import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
-import { cancelNativeTasks } from '../../tools/lib/native-spawn-client.mjs';
+import { cancelOwnedShellTrees } from '../../tools/lib/owned-shell-trees.mjs';
+import { noteShellOwnerSessionClosed } from '../../tools/builtin/lib/shell-job-records.mjs';
 import { forgetSideQuestion } from '../side-question-store.mjs';
 
 /**
@@ -47,15 +48,17 @@ export function closeSession(id, reason = 'manual', opts = {}) {
   const entry = _getRuntimeEntry(id);
   // askSession owns the interruption tracker that can merge committed
   // iterations, the current partial response, and observed tool results into
-  // one canonical transcript. Finalize that in-memory snapshot synchronously
+  // one canonical transcript. Stage that in-memory snapshot synchronously
   // BEFORE the lifecycle generation changes; once generation is bumped, the
-  // normal cancellation cleanup save is intentionally rejected as stale.
+  // normal cancellation cleanup save is intentionally rejected as stale. It
+  // is only staged: a refused barrier rolls it back so the turn keeps running
+  // and checkpointing as if no close had been attempted.
+  let closeSnapshot = null;
   try {
-    entry?.prepareCloseSnapshot?.(reason);
+    closeSnapshot = entry?.prepareCloseSnapshot?.tentative?.(reason) ?? null;
   } catch {
     /* best-effort */
   }
-  _stopToolActivityHeartbeat(id);
   // 1. Tombstone first — this wins the race against saveSession().
   //    Skipped when tombstone=false: no closed:true marker is planted, so
   //    the session file stays intact and resumeSession() will accept it.
@@ -87,12 +90,16 @@ export function closeSession(id, reason = 'manual', opts = {}) {
   // a late save could clobber and nothing left open to resume. That close
   // succeeds and tears the runtime down normally.
   if (typeof newGen !== 'number' && outcome.absent !== true) {
+    closeSnapshot?.rollback();
     reportCloseBarrierFailure({ id, reason, tombstone, entry });
     return false;
   }
+  // The staged snapshot was folded into the synchronous generation write
+  // above; committing it stops the turn's checkpoint writer. Only now is it
+  // safe to remove the crash fallback.
+  closeSnapshot?.commit();
+  _stopToolActivityHeartbeat(id);
   cancelOwnedShellProcesses({ id, reason, tombstone });
-  // prepareCloseSnapshot was folded into the synchronous generation write
-  // above. Only now is it safe to remove the crash fallback.
   clearTurnCheckpoint(id);
   teardownSessionRuntime({ id, entry, reason, tombstone, newGen });
   return true;
@@ -138,16 +145,27 @@ function reportCloseBarrierFailure({ id, reason, tombstone, entry }) {
  * with the unconfirmed outcome. The re-stamp is idempotent: markSessionClosed
  * keeps the original close time and generation and only upgrades the cancel
  * scalars (unconfirmed never downgrades back to cancelled).
+ *
+ * Every tree records its process identities before the kill (the kill may
+ * break the parent chain). When a snapshot is still pending the cancel is
+ * sent once it lands or after PROCESS_TABLE_READ_BOUND_MS, whichever first;
+ * the close itself does not wait. Holds this session leaves behind become
+ * releasable from any session that sees their workspace.
  */
 function cancelOwnedShellProcesses({ id, reason, tombstone }) {
-  let cancelConfirmed = true;
+  const record = (result) => {
+    if (tombstone && result?.confirmed === false) markSessionClosed(id, reason, { cancelStatus: 'cancel-unconfirmed' });
+  };
+  // A cancel that threw proved nothing either.
+  const unconfirmed = () => record({ confirmed: false });
   try {
-    cancelConfirmed = cancelNativeTasks({ ownerSessionId: id })?.confirmed !== false;
+    const result = cancelOwnedShellTrees(id);
+    if (typeof result?.then === 'function') result.then(record, unconfirmed);
+    else record(result);
   } catch {
-    // A cancel that threw proved nothing either.
-    cancelConfirmed = false;
+    unconfirmed();
   }
-  if (tombstone && !cancelConfirmed) markSessionClosed(id, reason, { cancelStatus: 'cancel-unconfirmed' });
+  noteShellOwnerSessionClosed(id);
 }
 
 /**
@@ -275,8 +293,8 @@ export function abortSessionTurn(id, reason = 'turn-abort') {
  *     what a settled turn left behind;
  *   - offload sidecars, the turn checkpoint and persisted pending messages
  *     are left intact — they are the follow-up turn's context, not runtime.
- * Terminal ownership stays with the caller's own reap path (agent-tool
- * scheduleReap → closeSession('terminal-reap')).
+ * A terminal session is never closed here; it stays open until it is
+ * explicitly cancelled or deleted.
  *
  * Returns false (changing nothing) when the session is still in flight.
  */

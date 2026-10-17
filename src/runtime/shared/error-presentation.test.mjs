@@ -3,7 +3,7 @@ import test from 'node:test';
 import { describeError, safeErrorDetails } from './error-presentation.mjs';
 import { anthropicQuotaError } from '../agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs';
 import { presentErrorText } from './err-text.mjs';
-import { providerErrorKind } from '../agent/orchestrator/providers/provider-error-kind.mjs';
+import { DETERMINISTIC_KINDS, providerErrorKind } from '../agent/orchestrator/providers/provider-error-kind.mjs';
 
 const providerFailure = (index) =>
   new Error(
@@ -101,7 +101,11 @@ test('typed codes classify errors; the wait and reset time are shown when known'
   const overloaded = Object.assign(new Error('Overloaded'), { status: 529 });
   assert.equal(describeError(overloaded).providerKind, 'overloaded');
   assert.equal(presentErrorText(overloaded), 'Provider is busy at capacity.');
-  const limited = Object.assign(new Error('slow down'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 90_000 });
+  const limited = Object.assign(new Error('slow down'), {
+    status: 429,
+    code: 'rate_limit_exceeded',
+    retryAfterMs: 90_000,
+  });
   const rate = describeError(limited);
   assert.equal(rate.kind, 'rate-limit');
   assert.equal(rate.recovery, 'Try again in 2m.');
@@ -113,10 +117,7 @@ test('typed codes classify errors; the wait and reset time are shown when known'
   assert.match(quota.recovery, /^It resets at (?:\d+\/\d+ )?\d{2}:\d{2}\. Switch accounts or providers/);
   assert.equal(describeError({ message: 'x', errorKind: { kind: 'quota_exhausted' } }).params, null);
   assert.equal(describeError(Object.assign(new Error('forbidden'), { status: 403 })).providerKind, 'permission');
-  assert.equal(
-    describeError(Object.assign(new Error('nope'), { status: 400, code: 'cyber_policy' })).kind,
-    'policy'
-  );
+  assert.equal(describeError(Object.assign(new Error('nope'), { status: 400, code: 'cyber_policy' })).kind, 'policy');
   assert.equal(
     describeError(Object.assign(new Error('x'), { code: 'context_length_exceeded', status: 400 })).kind,
     'context-overflow'
@@ -129,6 +130,12 @@ test('typed codes classify errors; the wait and reset time are shown when known'
     presentErrorText(new Error('Anthropic OAuth API 429 quota/rate limit retryAfter=214641s')),
     'Anthropic quota/rate limit hit; retry after 2d 11h 37m.'
   );
+});
+
+test('a 403 keeps its account-permission reading: no model-proxy gate kind exists', () => {
+  assert.equal(providerErrorKind(Object.assign(new Error('forbidden'), { status: 403 })).kind, 'permission');
+  assert.equal(DETERMINISTIC_KINDS.has('model_proxy_permission'), false);
+  assert.equal(DETERMINISTIC_KINDS.has('model_proxy_wait'), false);
 });
 
 test('a persisted kind beats auth wording in the text', () => {
@@ -152,7 +159,13 @@ test('typed kinds skip every wording heuristic; wording only serves untyped item
     assert.equal(rejected.providerKind, providerKind);
     assert.notEqual(rejected.kind, 'request', `${providerKind} must not read as a retryable rejection`);
   }
-  assert.equal(describeError({ message: 'Anthropic OAuth API 429 request rejected', errorKind: { kind: 'rate_limited', status: 429 } }).kind, 'request');
+  assert.equal(
+    describeError({
+      message: 'Anthropic OAuth API 429 request rejected',
+      errorKind: { kind: 'rate_limited', status: 429 },
+    }).kind,
+    'request'
+  );
   // Legacy untyped wording still reads as sign-in expiry.
   assert.equal(describeError('refresh failed: invalid_grant').kind, 'reauth');
   assert.equal(describeError({ message: 'refresh failed: invalid_grant' }).kind, 'reauth');
@@ -187,7 +200,10 @@ test('a persisted descriptor presents exactly like the live error it came from',
   assert.equal(tier.kind, 'service-tier');
   assert.equal(tier.providerKind, 'service_tier_unavailable');
   assert.equal(tier.summary, 'The requested service tier is unavailable right now.');
-  assert.equal(describeError({ message: 'invalid_grant', errorKind: { kind: 'service_tier_unavailable' } }).kind, 'service-tier');
+  assert.equal(
+    describeError({ message: 'invalid_grant', errorKind: { kind: 'service_tier_unavailable' } }).kind,
+    'service-tier'
+  );
   assert.equal(describeError({ message: 'x', errorKind: providerErrorKind(live.invalid_request) }).kind, 'request');
   assert.equal(describeError({ message: 'x', errorKind: providerErrorKind(live.transient_503) }).kind, 'connection');
 });

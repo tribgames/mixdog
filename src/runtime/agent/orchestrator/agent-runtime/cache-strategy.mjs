@@ -493,19 +493,10 @@ export function buildProviderCacheOpts(provider, _sessionId, agent, options = {}
   const ttls = resolveCacheStrategy(agent, options);
   const capability = cacheCapabilityForProvider(provider);
   if (capability === 'explicit-breakpoint') {
-    // 2026-03-06 Anthropic dropped default TTL 1h→5m. We send
-    // extended-cache-ttl-2025-04-11 header to retain 1h.
+    // 2026-03-06 Anthropic dropped default TTL 1h→5m. We request 1h via
+    // cache_control ttl:"1h"; no beta header is required.
     // Verified 2026-04-17 (ephemeral_1h_input_tokens=4722).
     return { cacheStrategy: ttls, ...oneShotPromptCacheOpts(agent) };
-  }
-  // NOTE: createSession's direct-call site (manager.mjs) only invokes this
-  // for explicit-breakpoint (Anthropic-family) providers, so this branch
-  // stays reachable only from other callers (none in-tree today) — keeping
-  // it here preserves the documented public API/behavior of this function.
-  if (provider === 'openai') {
-    // Public OpenAI API: prompt_cache_retention extends prefix retention.
-    // openai-oauth rejects the header — falls through to default.
-    return { cacheRetention: '24h' };
   }
   return {};
 }

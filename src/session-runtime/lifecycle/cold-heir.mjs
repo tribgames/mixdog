@@ -35,7 +35,6 @@ const SOURCE_RUNTIME_FIELDS = [
   'toolApprovalHook',
   '_providerPrefixGuardState',
   'activeTurnCheckpoint',
-  'remoteAttached',
   'deferredInitialRefreshPending',
   'pendingGoalReminder',
   'goalReminderRevision',

@@ -165,6 +165,8 @@ function boundAccountSend(providerName, row, messages, options) {
     };
   }
   if (options.sessionId) {
+    // An explicit empty executor (model-proxy host) must stay empty.
+    opts.toolExecutionSessionId = options.toolExecutionSessionId ?? options.sessionId;
     opts.sessionId = accountScopedSessionId(providerName, row.id, options.sessionId);
     // The spend still belongs to the visible session (usage-accounting.mjs).
     opts.usageSessionId = options.usageSessionId || options.sessionId;

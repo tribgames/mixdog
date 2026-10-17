@@ -1,9 +1,8 @@
 // The ordinary (no refreshFromStorage) catalog answers an unchanged call from
-// cheap stamps — summary index base + log, the sessions directory, the live
-// `.hb` sidecars — and re-reconciles only what a changed stamp points at.
+// cheap stamps — summary index base + log and the sessions directory — and
+// re-reconciles only what a changed stamp points at.
 import assert from 'node:assert/strict';
-import { statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { statSync, unlinkSync, utimesSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -15,22 +14,20 @@ import {
   replace,
   rewriteInPlace,
   saveIndexed,
-  sessionsDir,
   settle,
   spyFs,
-  useDataDir,
+  isolateDataDir,
   view,
   writeBase,
 } from './store-summary-reader-catalog-fixture.mjs';
 import { subscribeStoredSessionCatalogChanges, verifyStoredSessionCatalog } from './store-summary-reader.mjs';
 
-useDataDir('mixdog-reader-catalog-');
+isolateDataDir('mixdog-reader-catalog-');
 
 test('an unchanged call does no per-file filesystem work', async (t) => {
   replace('indexed_a', 'alpha');
   replace('plain_b', 'bravo');
   writeBase([indexRow('indexed_a', 'alpha')]);
-  writeFileSync(join(sessionsDir(), 'indexed_a.hb'), '1\n1\n');
   const expected = { indexed_a: 'indexed:alpha|alpha', plain_b: '|bravo' };
   assert.deepEqual(view(), expected);
   await settle();
@@ -44,8 +41,8 @@ test('an unchanged call does no per-file filesystem work', async (t) => {
   assert.equal(counts.readdirs, 0, 'the directory is not enumerated');
   assert.equal(counts.reads, 0, 'nothing is read');
   assert.equal(counts.asyncStats, 0, 'no background pass within its interval');
-  // sessions directory + index base + delta log (absent) + the live sidecar.
-  assert.equal(counts.stats, 4);
+  // sessions directory + index base + delta log (absent).
+  assert.equal(counts.stats, 3);
 
   assert.throws(() => {
     rows[0].preview = 'mutated by a caller';
@@ -55,15 +52,6 @@ test('an unchanged call does no per-file filesystem work', async (t) => {
   assert.ok(rows.every(deepFrozen), 'rows and everything in them are frozen');
   rows.pop();
   assert.deepEqual(view(), expected, 'a caller cannot change what the next caller gets');
-
-  // Heartbeat sidecars are rewritten in place: liveness still follows them.
-  const later = new Date(Date.now() + 60_000);
-  utimesSync(join(sessionsDir(), 'indexed_a.hb'), later, later);
-  const live = list().find((row) => row.id === 'indexed_a');
-  assert.equal(live.heartbeatAt, statSync(join(sessionsDir(), 'indexed_a.hb')).mtimeMs);
-  assert.equal(counts.sessionFileStats.size, 0);
-  unlinkSync(join(sessionsDir(), 'indexed_a.hb'));
-  assert.equal(list().find((row) => row.id === 'indexed_a').heartbeatAt, 0);
 });
 
 test('an index-updating writer: create, rewrite and delete show on the next call', async (t) => {
@@ -132,7 +120,7 @@ test('a writer that never updates the index: create and delete at once, replacem
 });
 
 test('the background pass sees a same-size replacement with a preserved mtime', async () => {
-  useDataDir('mixdog-reader-catalog-identity-');
+  isolateDataDir('mixdog-reader-catalog-identity-');
   const pinned = new Date(Math.floor(Date.now() / 1000) * 1000 - 60_000);
   replace('plain_h', 'hotel');
   utimesSync(fileOf('plain_h'), pinned, pinned);
@@ -149,7 +137,7 @@ test('the background pass sees a same-size replacement with a preserved mtime', 
 });
 
 test('an indexed session replaced at equal length with a preserved mtime is re-read from the file', async () => {
-  useDataDir('mixdog-reader-catalog-indexed-identity-');
+  isolateDataDir('mixdog-reader-catalog-indexed-identity-');
   let notified = 0;
   const unsubscribe = subscribeStoredSessionCatalogChanges(() => notified++);
   try {
@@ -173,7 +161,7 @@ test('an indexed session replaced at equal length with a preserved mtime is re-r
 });
 
 test('a listing during a background pass schedules the next pass', async (t) => {
-  useDataDir('mixdog-reader-catalog-rearm-');
+  isolateDataDir('mixdog-reader-catalog-rearm-');
   replace('plain_v', 'victor');
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
   let notified = 0;

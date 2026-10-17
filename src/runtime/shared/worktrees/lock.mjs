@@ -20,7 +20,7 @@ const REPO_LOCK_TIMEOUT_MS = 120_000;
 const heldRepoLocks = new AsyncLocalStorage();
 
 /** Cross-process lock file for one repository (outside the removable root). */
-export function repoLockPath(repoCommonDir, { dataDir = resolvePluginData() } = {}) {
+function repoLockPath(repoCommonDir, { dataDir = resolvePluginData() } = {}) {
   return join(dataDir, WORKTREE_STORE_DIR, `${repoHash(canonicalPath(repoCommonDir))}.lock`);
 }
 

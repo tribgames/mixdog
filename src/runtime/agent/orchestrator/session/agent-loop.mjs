@@ -9,7 +9,7 @@ import {
 } from './loop/tool-helpers.mjs';
 import { repairTranscriptBeforeProviderSend } from './loop/transcript-repair.mjs';
 import { resetAccountProbePacing } from '../providers/account-pool.mjs';
-import { createLoopState, finishLoop, shouldSuppressAgentMidTurnText } from './loop/loop-state.mjs';
+import { createLoopState, finishLoop } from './loop/loop-state.mjs';
 import { applyRetryAction, beginIteration, sendProviderRequest, settleSendResult } from './loop/send-phase.mjs';
 import { runToolPhase } from './loop/tool-phase.mjs';
 
@@ -25,7 +25,6 @@ export {
   resolvePreToolAskApproval,
   approvalGranted,
   approvalReason,
-  shouldSuppressAgentMidTurnText,
 };
 
 /**

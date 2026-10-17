@@ -1,4 +1,4 @@
-// Session transcript writer: every user-facing main session owns a
+// Session transcript writer: every session owns a
 // conversation JSONL that the always-on memory watcher tails. The mutable
 // runtime-core locals it needs are injected as accessors.
 import { createTranscriptWriter } from '../runtime/shared/transcript-writer.mjs';
@@ -20,12 +20,10 @@ export function createSessionTranscript({ getSession, getCwd }) {
     ensureSessionTranscriptWriter,
   };
 
-  // Every user-facing main session owns a conversation JSONL. The always-on
-  // memory watcher tails this same file. Agent-owned sessions stay out of the
-  // user's recall pool and generate a session-local handoff when compacting.
+  // Agent conversations use the same writer but remain outside memory ingestion.
   function ensureSessionTranscriptWriter() {
     const session = getSession();
-    if (!session?.id || isAgentOwner(session)) return false;
+    if (!session?.id) return false;
     const cwd = getCwd();
     const key = `${session.id}\u0000${cwd}`;
     if (writerKey !== key) {
@@ -35,6 +33,7 @@ export function createSessionTranscript({ getSession, getCwd }) {
           sessionId: session.id,
           cwd,
           pid: process.pid,
+          memoryEligible: !isAgentOwner(session),
         });
         writerKey = key;
       } catch (error) {

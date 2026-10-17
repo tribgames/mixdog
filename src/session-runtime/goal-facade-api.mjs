@@ -44,9 +44,9 @@ export function createGoalFacadeApi({ agentStatusState, createCurrentSession, ge
       const sessionId = getSessionId();
       return sessionId ? goalRuntime.settleTurn(sessionId, detail) : null;
     },
-    reactivateUsageLimitedGoal(goalId) {
+    reactivateUsageLimitedGoal(goalId, options) {
       const sessionId = getSessionId();
-      return sessionId ? goalRuntime.reactivateUsageLimited(sessionId, goalId) : null;
+      return sessionId ? goalRuntime.reactivateUsageLimited(sessionId, goalId, options) : null;
     },
     archiveCompletedGoalOnUserInput() {
       const sessionId = getSessionId();

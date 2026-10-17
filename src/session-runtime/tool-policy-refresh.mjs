@@ -4,17 +4,23 @@
 // updated policy.
 import { sessionHasConversationMessages } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { toSessionWorkflowMeta } from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
-import { applyDeferredToolSurface, filterDisallowedTools } from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import {
+  applyDeferredToolSurface,
+  filterDisallowedTools,
+} from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 import { deferredSurfaceModeForLead } from '../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import {
   applyInitialDeferredToolManifestToBp2,
   composeSystemPrompt,
 } from '../runtime/agent/orchestrator/context/collect.mjs';
+import { _buildBaseRules } from '../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
+import { sessionRolePromptFields } from '../runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs';
 import {
-  _buildBaseRules,
-  _buildLeadRules,
-  _buildLeadLanguageContext,
-} from '../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
+  delegationDisabled,
+  honoredSchemaAllowlist,
+} from '../runtime/agent/orchestrator/session/manager/session-tool-surface.mjs';
+import { finalizeSessionToolList } from '../runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
+import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
 import { unusedModelEditToolName } from '../runtime/shared/edit-tool-dialect.mjs';
 
 function toolNames(list) {
@@ -69,6 +75,7 @@ export function createToolPolicyRefresh({
   getMode,
   getConfig,
   getDataDir,
+  getActiveTurnCount,
   modelStandaloneTools,
   featureDisallowedTools,
   loadCoreMemoryContext,
@@ -78,13 +85,23 @@ export function createToolPolicyRefresh({
 }) {
   // Denied tools leave every surface, then the deferred surface is rebuilt
   // for the lead's current mode.
-  function applyToolDenials(session, denied) {
+  function applyToolDenials(session, denied, schemaAllowedTools, ownerIsAgent) {
     session.disallowedTools = denied;
     session.tools = filterDisallowedTools(session.tools, denied);
     if (Array.isArray(session.deferredToolCatalog)) {
       session.deferredToolCatalog = filterDisallowedTools(session.deferredToolCatalog, denied);
     }
-    applyDeferredToolSurface(session, deferredSurfaceModeForLead(getMode()), modelStandaloneTools(), {
+    const catalogTools = finalizeSessionToolList(modelStandaloneTools(), {
+      schemaAllowedTools,
+      disallowedTools: denied,
+      ownerIsAgent,
+    });
+    session.tools = finalizeSessionToolList(session.tools, {
+      schemaAllowedTools,
+      disallowedTools: denied,
+      ownerIsAgent,
+    });
+    applyDeferredToolSurface(session, deferredSurfaceModeForLead(getMode()), catalogTools, {
       provider: getRoute()?.provider,
     });
     const catalog = Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : [];
@@ -101,16 +118,40 @@ export function createToolPolicyRefresh({
     }
   }
 
+  // A turn is executing from the moment it opens until it settles, even when
+  // its transcript holds only notifications (which are not conversation
+  // content). Its tool surface is frozen for that whole span.
+  function turnInFlight(session) {
+    return (getActiveTurnCount?.() || 0) > 0 || Array.isArray(session.liveTurnMessages);
+  }
+
+  // Admission: the session is still the current one, no turn is executing and
+  // no conversation has started. Checked before staging and again right
+  // before the staged change is applied.
+  function admitsRefresh(session) {
+    return (
+      getSession?.() === session &&
+      !turnInFlight(session) &&
+      !sessionHasConversationMessages(session) &&
+      !sessionHasConversationMessages({ messages: session.liveTurnMessages })
+    );
+  }
+
   async function refreshEmptySessionToolPolicy() {
     invalidatePreSessionToolSurface?.();
     const session = getSession?.();
     if (!session?.id) return { appliedToCurrentSession: true };
-    if (
-      sessionHasConversationMessages(session) ||
-      sessionHasConversationMessages({ messages: session.liveTurnMessages })
-    ) {
-      return { appliedToCurrentSession: false };
-    }
+    if (!admitsRefresh(session)) return { appliedToCurrentSession: false };
+    // Older records contain only compiled prompt text; rebuilding would guess
+    // away custom instructions. Keep that immutable material for every owner.
+    const identity = session.promptIdentity;
+    if (!identity) return { appliedToCurrentSession: false, reason: 'missing-prompt-identity' };
+    const ownerIsAgent = isAgentOwner(session);
+    const schemaAllowedTools = honoredSchemaAllowlist(session.schemaAllowedTools, {
+      ownerIsAgent,
+      agent: identity.agent,
+    });
+    const toolFreeRole = ownerIsAgent && schemaAllowedTools?.length === 0;
 
     const {
       summary: workflow,
@@ -118,34 +159,44 @@ export function createToolPolicyRefresh({
       packContext,
       orchestrationMode,
     } = activeWorkflowContext(getConfig(), getDataDir());
-    const workflowContext = session.owner === 'agent' ? packContext : leadWorkflowContext;
-    const denied = [...featureDisallowedTools(), ...(workflow?.delegatesAgents === false ? ['agent'] : [])]
+    const workflowContext = ownerIsAgent ? packContext : leadWorkflowContext;
+    const denied = [
+      ...session.callerDisallowedTools,
+      ...featureDisallowedTools(),
+      ...(workflow?.delegatesAgents === false ? ['agent'] : []),
+    ]
       .map((name) => String(name || ''))
       .filter(Boolean);
-    session.workflow = toSessionWorkflowMeta(workflow);
-    session.orchestrationMode = orchestrationMode;
-    applyToolDenials(session, denied);
 
-    const allowsAgents = workflow?.delegatesAgents !== false;
-    const baseRules = _buildBaseRules({
-      omitTools: [...denied, unusedModelEditToolName(getRoute()?.model)],
-      allowTools: session.schemaAllowedTools,
-      provider: getRoute()?.provider,
-      model: getRoute()?.model,
-    });
-    const roleRules = _buildLeadRules({ includeLeadBrief: allowsAgents });
+    // Stage: everything below is computed without touching the session, so a
+    // turn that starts during the async rebuild cannot lose tools to it.
+    const baseRules =
+      identity.skipAgentRules || toolFreeRole
+        ? ''
+        : _buildBaseRules({
+            omitTools: [...denied, unusedModelEditToolName(getRoute()?.model)],
+            allowTools: schemaAllowedTools,
+            provider: getRoute()?.provider,
+            model: getRoute()?.model,
+          });
     const coreMemoryContext = await leadCoreMemoryContext();
     const { sessionMarkerCore } = composeSystemPrompt({
-      roleRules,
-      skipRoleCatalog: true,
+      ...sessionRolePromptFields(identity, {
+        ownerIsAgent,
+        toolFreeRole,
+        delegationFree: delegationDisabled(session, ownerIsAgent),
+      }),
+      provider: getRoute()?.provider,
       workflowContext,
       coreMemoryContext,
       // The rebuilt core keeps (or newly applies) the instruction-files setting.
-      instructionFilesContext: loadInstructionFilesContext?.(session) || null,
-      // BP3 rebuild must keep the trailing language block, or a workflow
-      // switch would silently drop the response-language directive.
-      languageContext: _buildLeadLanguageContext(),
+      instructionFilesContext: toolFreeRole ? null : loadInstructionFilesContext?.(session) || null,
     });
+    // Apply: re-check admission after the await, then mutate synchronously.
+    if (!admitsRefresh(session)) return { appliedToCurrentSession: false };
+    session.workflow = toSessionWorkflowMeta(workflow);
+    session.orchestrationMode = orchestrationMode;
+    applyToolDenials(session, denied, schemaAllowedTools, ownerIsAgent);
     rewriteSystemHeading(session, '# Tool Use', baseRules);
     rewriteBp3Core(session, sessionMarkerCore);
     session.updatedAt = Date.now();

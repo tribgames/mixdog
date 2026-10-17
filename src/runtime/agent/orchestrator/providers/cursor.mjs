@@ -49,6 +49,7 @@ function toCursorMessages(messages, providerName, { nativePdf } = {}) {
       ...toolMessage,
       mixdog_tool_error: message.toolKind === 'error' || message.isError === true,
       ...(media.length ? { mixdog_tool_media: media } : {}),
+      ...(message.readWindow?.lineClipped === true ? { mixdog_read_window: { lineClipped: true } } : {}),
     });
   }
   return output;
@@ -545,6 +546,9 @@ function selectCursorVariant(group, { effort = null, fast = false } = {}) {
 class CursorProviderBase {
   // Cursor's chat wire has no document block: PDFs lower to text.
   nativePdf = false;
+  // Native read results are judged as exact source windows, so the tool
+  // finalizer reports their clipped lines next to the text.
+  consumesReadWindows = true;
 
   static inputExcludesCache = false;
   // The in-place stream retry budget is the whole recovery: a spent budget
@@ -640,6 +644,13 @@ class CursorProviderBase {
       const response = await runtime.handleChatCompletion(body, accessToken, {
         onStageChange: sendOpts.onStageChange,
         getAccessToken: (options) => this._accessToken({ signal, ...options }),
+        // A deliberate history reset must reach Cursor's private parked run,
+        // not just the orchestrator's providerState.
+        resetActiveRun: Boolean(sendOpts.cacheBreakIntent),
+        // Native read/edit capabilities are process-local. An explicit empty
+        // executor (the model-proxy host: tools run in the server daemon)
+        // keeps every call an ordinary Mixdog tool call.
+        ownerSessionId: String(sendOpts.toolExecutionSessionId ?? (sendOpts.sessionId || '')),
       });
       try {
         sendOpts.onStageChange?.('streaming');

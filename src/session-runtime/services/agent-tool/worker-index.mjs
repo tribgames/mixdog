@@ -18,7 +18,13 @@ import {
   registerApprovalWaitWriter,
 } from './worker-index/approval-wait.mjs';
 import { createMutationBatch } from './worker-index/mutation-batch.mjs';
-import { createRowLiveness, isActiveWorkerRow, isStaleApprovalWait } from './worker-index/row-liveness.mjs';
+import {
+  createRowLiveness,
+  isActiveWorkerRow,
+  isStaleApprovalWait,
+  PROCESS_RESTART_FAILURE,
+  runtimeDied,
+} from './worker-index/row-liveness.mjs';
 import { normalizeWorkerRows, workerRowFromSession } from './worker-index/row-shape.mjs';
 import { acquireWorkerRowStore } from './worker-index/row-store.mjs';
 import { findTagTombstone, tagTombstoneKey, tombstoneBlocksWork } from '../../../runtime/shared/agent-reap-state.mjs';
@@ -35,9 +41,13 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     unreconciled.clear();
     for (const id of ids) reconcileAwaitingUser(id);
   });
-  const liveness = createRowLiveness({ dataDir, cfgMod });
-  // Rows this process marked active; settled to idle on exit so a crash of
-  // the host never leaves them "running" forever.
+  const liveness = createRowLiveness({
+    cfgMod,
+    isSessionRunning: (sessionId) => mgr.isSessionTurnInFlight?.(sessionId) === true,
+  });
+  // Rows this process marked active; settled as failed on exit (their turn
+  // dies with the process) so a crash of the host never leaves them
+  // "running" forever.
   const activeWorkerKeys = new Set();
 
   function readWorkerRows(context = {}) {
@@ -144,13 +154,17 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
       for (const key of keys) {
         const current = byKey.get(key);
         if (!current || positiveInt(current.runtimePid) !== process.pid) continue;
-        if (isActiveWorkerRow(current)) byKey.set(key, liveness.idleRow(current, now, true));
+        if (isActiveWorkerRow(current)) {
+          byKey.set(key, liveness.failedRow(current, now, PROCESS_RESTART_FAILURE, true));
+        }
       }
     });
   }
 
-  // Startup recovery: stale active rows settle to idle, and an approval wait
-  // left behind by a runtime that is gone (daemon restart) is cleared.
+  // Startup recovery: stale active rows settle — as failed when the process
+  // that ran their turn is gone (the turn never finished), otherwise to idle —
+  // and an approval wait left behind by a runtime that is gone (daemon
+  // restart) is cleared.
   function recoverStaleWorkerRows() {
     const now = Date.now();
     const rows = store.readAll();
@@ -162,7 +176,13 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
         for (const row of staleActive) {
           const key = workerRowKey(row);
           const current = byKey.get(key);
-          if (current && liveness.isStaleActive(current, now)) byKey.set(key, liveness.idleRow(current, now));
+          if (!current || !liveness.isStaleActive(current, now)) continue;
+          byKey.set(
+            key,
+            runtimeDied(current)
+              ? liveness.failedRow(current, now, PROCESS_RESTART_FAILURE)
+              : liveness.idleRow(current, now)
+          );
         }
       });
     }

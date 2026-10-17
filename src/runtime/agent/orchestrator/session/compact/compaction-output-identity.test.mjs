@@ -4,7 +4,7 @@
 // compaction performance work (header hashed once per fit, cached prompt
 // lines, sliced estimate priming, per-message encoding comparison), then
 // recaptured when Compact began keeping opaque replay only on the newest
-// assistant message. Any change to the compacted messages, archive bytes,
+// assistant message and when the context ack began carrying its source. Any change to the compacted messages, archive bytes,
 // token numbers, summary prompts or trace byte counts breaks them. The trace
 // numbers are also checked against an independent JSON.stringify of the
 // transcripts.
@@ -369,12 +369,12 @@ const EXPECTED = {
       pressureTokens: 266_587,
     }),
     messages: 18,
-    messagesSha: 'f57479daed33eea2d1f51d4892d6a389368025b753f24eaa3623c3decd77f750',
+    messagesSha: 'd89583696c55212f4f7664679831f5c30286bd93ce950174657f19d6f320754b',
     recordSha: '3a9873f764d37644d91eb75f3a318957968a45a171193f0323d9068b7e322139',
     sends: 2,
     promptsSha: 'f47b552495036c5098cf3aaf74e3ccabda7a60424d8157e0783f225364d8e098',
     archives: [archive('bd4fed4e389f3f965b81f7d8b2bc43e178edc95943686e245c8592e161da93ae', 835_274)],
-    traceBytes: [714_283, 12_520],
+    traceBytes: [714_283, 12_552],
   },
   large: {
     numbers: numbersFor('session-local', 400_000, 71_428, {
@@ -387,12 +387,12 @@ const EXPECTED = {
       pressureTokens: 1_351_475,
     }),
     messages: 36,
-    messagesSha: 'b969af7d617a512a32d8bb6574ae9ed5fb2b02d5b6f26fc3204ca327ddd88357',
+    messagesSha: '9452534a958a7631ce70b44b4e6f93b2d24c7cda67940fba8d38c3edcaef70a3',
     recordSha: '1000350f3cc26878a2902ea5d3bc8b1765b65fdbcbd43737517c11903a54b3f9',
     sends: 1,
     promptsSha: '48d26a7766c196e3365f6209046c1dc9a6b7b1b6451e76c2fb54f6d106ec9d59',
     archives: [archive('a2430042581139bf089a8b606009bc5ede869e4cec25d543f4053bb515c12312', 3_577_119)],
-    traceBytes: [3_380_664, 72_485],
+    traceBytes: [3_380_664, 72_517],
   },
 };
 

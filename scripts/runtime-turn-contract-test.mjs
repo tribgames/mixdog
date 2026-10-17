@@ -225,7 +225,6 @@ function makeTurnHarness({
 } = {}) {
   const session = {
     id: sessionId,
-    remoteAttached: false,
     deferredInitialRefreshPending: false,
     messages: [],
   };

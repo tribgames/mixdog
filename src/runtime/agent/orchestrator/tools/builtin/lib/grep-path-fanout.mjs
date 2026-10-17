@@ -82,23 +82,25 @@ function combinedPathRequest(args, defaultHeadLimit) {
 // order; null when one is a glob, unreachable, or on a share — the legacy
 // fan-out owns those diagnostics.
 async function resolvePathRoots(list, workDir) {
-  const roots = await Promise.all(list.map(async (p) => {
-    const cleaned = normalizeInputPath(p);
-    if (hasGlobMagic(cleaned)) return null;
-    const resolved = resolveSearchScope(cleaned, workDir);
-    if (isUncOrSmbPath(cleaned) || isUncOrSmbPath(resolved)) return null;
-    let st;
-    try {
-      st = await statReachable(resolved);
-    } catch {
-      return null;
-    }
-    return {
-      arg: p,
-      abs: normalizeOutputPath(isAbsolute(resolved) ? await trueCasePath(resolved) : resolved),
-      isDir: st.isDirectory(),
-    };
-  }));
+  const roots = await Promise.all(
+    list.map(async (p) => {
+      const cleaned = normalizeInputPath(p);
+      if (hasGlobMagic(cleaned)) return null;
+      const resolved = resolveSearchScope(cleaned, workDir);
+      if (isUncOrSmbPath(cleaned) || isUncOrSmbPath(resolved)) return null;
+      let st;
+      try {
+        st = await statReachable(resolved);
+      } catch {
+        return null;
+      }
+      return {
+        arg: p,
+        abs: normalizeOutputPath(isAbsolute(resolved) ? await trueCasePath(resolved) : resolved),
+        isDir: st.isDirectory(),
+      };
+    })
+  );
   if (roots.some((root) => !root)) return null;
   // An overlapping operand would scan a file twice and then attribute both
   // copies to each containing section. Keep independent scope semantics.
@@ -123,7 +125,7 @@ function attributeLinesToRoots(lines, roots, wdFwd) {
   for (const line of lines) {
     const norm = line.replace(/\\/g, '/');
     const lineKey = pathKey(norm);
-    const rel = lineKey.startsWith(workDirKey) ? norm.slice(wdFwd.length + 1) : line;
+    const rel = lineKey.startsWith(workDirKey) ? line.slice(wdFwd.length + 1) : line;
     for (let i = 0; i < roots.length; i++) {
       const rootKey = pathKey(roots[i].abs);
       if (lineKey === rootKey || lineKey.startsWith(`${rootKey}/`) || lineKey.startsWith(`${rootKey}:`)) {
@@ -143,7 +145,7 @@ function renderedRootLines(root, windowedLines, wdFwd) {
   const rootPrefix = `${pathKey(rootRel)}:`;
   return windowedLines.map((l) => {
     const lineFwd = l.replace(/\\/g, '/');
-    return pathKey(lineFwd).startsWith(rootPrefix) ? lineFwd.slice(rootRel.length + 1) : l;
+    return pathKey(lineFwd).startsWith(rootPrefix) ? l.slice(rootRel.length + 1) : l;
   });
 }
 
@@ -151,13 +153,13 @@ async function combinedPathBody(request, root, linesFor, { workDir, wdFwd, optio
   const { pattern, outMode, headLimit, offset, contextN, autoContext, caseInsensitive } = request;
   if (outMode === 'content' && (autoContext || contextN > 0)) {
     const ctx = await expandGrepAnchorContextOutput({
-      allLines: linesFor,
+      allLines: renderedRootLines(root, linesFor, wdFwd),
       workDir,
       rgSpawnCwd: wdFwd,
       grepResolvedPath: root.abs,
       searchPath: root.arg,
       outputMode: outMode,
-      filenameOmitted: false,
+      filenameOmitted: !root.isDir,
       headLimit,
       offset,
       totalKnown: true,
@@ -229,29 +231,31 @@ async function runCombinedPathFanout({ args, list, workDir, options, callContext
 
 // One rg invocation over every root's files at once.
 async function combinedPathRgArgs(args, request, roots, workDir) {
-  const perRoot = await Promise.all(roots.map(async (root) => {
-    const scope = await resolveGrepScope({ ...args, path: root.arg }, workDir);
-    if (scope.result !== undefined) return null;
-    return buildGrepRgArgs({
-      patterns: [request.pattern],
-      includeNoise: args.include_noise === true,
-      text: args.text === true,
-      searchPath: isAbsolute(scope.searchPath) ? root.abs : scope.searchPath,
-      // Match buildGrepScope: an explicit file operand wins over its glob.
-      globPatterns: root.isDir ? scope.normalizedGlobPatterns : [],
-      outputMode: request.outMode,
-      caseInsensitive: request.caseInsensitive,
-      showLineNumbers: true,
-      beforeN: null,
-      afterN: null,
-      contextN: null,
-      multilineMode: false,
-      fileType: '',
-      onlyMatching: false,
-      pcre2: false,
-      withFilename: true,
-    }).slice(0, -1);
-  }));
+  const perRoot = await Promise.all(
+    roots.map(async (root) => {
+      const scope = await resolveGrepScope({ ...args, path: root.arg }, workDir);
+      if (scope.result !== undefined) return null;
+      return buildGrepRgArgs({
+        patterns: [request.pattern],
+        includeNoise: args.include_noise === true,
+        text: args.text === true,
+        searchPath: isAbsolute(scope.searchPath) ? root.abs : scope.searchPath,
+        // Match buildGrepScope: an explicit file operand wins over its glob.
+        globPatterns: root.isDir ? scope.normalizedGlobPatterns : [],
+        outputMode: request.outMode,
+        caseInsensitive: request.caseInsensitive,
+        showLineNumbers: true,
+        beforeN: null,
+        afterN: null,
+        contextN: null,
+        multilineMode: false,
+        fileType: '',
+        onlyMatching: false,
+        pcre2: false,
+        withFilename: true,
+      }).slice(0, -1);
+    })
+  );
   if (perRoot.some((argv) => !argv)) return null;
   const first = JSON.stringify(perRoot[0]);
   // Native filters are rooted at each operand. Only identical normalized

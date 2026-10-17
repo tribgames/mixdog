@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as pathJoin } from 'node:path';
@@ -23,12 +24,15 @@ export function hoistInlineScript(command, shellType) {
     planLongShellScriptFileTransport(command, transport);
   if (!hoist) return { command, hoistPath: null };
   try {
-    const file = pathJoin(tmpdir(), `mixdog-inline-${process.pid}-${Date.now().toString(36)}${hoist.extension}`);
+    // One file per command: parallel calls start within the same millisecond,
+    // and a shared name let a later script overwrite an earlier one before it
+    // ran. The exclusive flag refuses any name that already exists.
+    const file = pathJoin(tmpdir(), `mixdog-inline-${process.pid}-${randomUUID()}${hoist.extension}`);
     // Windows PowerShell 5.1 interprets UTF-8 without BOM as the active ANSI
     // codepage. Preserve non-ASCII command text when the transport changes a
     // long command into a .ps1 file.
     const fileBody = hoist.extension === '.ps1' ? `\uFEFF${hoist.body}` : hoist.body;
-    writeFileSync(file, fileBody, 'utf8');
+    writeFileSync(file, fileBody, { encoding: 'utf8', flag: 'wx' });
     return { command: hoist.replace(file.replace(/\\/g, '/')), hoistPath: file };
   } catch {
     return { command, hoistPath: null };

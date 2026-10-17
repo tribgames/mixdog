@@ -156,6 +156,17 @@ const ROUTE_SCHEMA = {
   },
 };
 
+ROUTE_SCHEMA.properties.fallbacks = {
+  type: 'array',
+  description: 'Agent and Web Search routes only: ordered fallback models; [] clears the list.',
+  items: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['provider', 'model'],
+    properties: Object.fromEntries(Object.entries(ROUTE_SCHEMA.properties).filter(([key]) => key !== 'disabled')),
+  },
+};
+
 export const SETUP_TOOL_DEFS = Object.freeze([
   {
     name: 'setup',

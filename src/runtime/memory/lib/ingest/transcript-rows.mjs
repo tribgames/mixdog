@@ -69,6 +69,7 @@ export function cwdFromTranscriptPath(fp) {
  *  prefix envelopes, drops synthetic reference-files/compaction/ack/
  *  internal-notification rows). */
 export function transcriptRowFromLine(parsed) {
+  if (parsed.memoryEligible === false) return null;
   const role =
     parsed.message?.role ?? (parsed.type === 'user' || parsed.type === 'assistant' ? parsed.type : undefined);
   if (role !== 'user' && role !== 'assistant') return null;

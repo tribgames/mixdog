@@ -90,6 +90,15 @@ export function inlineModelProxyAttachments(messages, { maxBytes = MODEL_PROXY_I
   return out ?? messages;
 }
 
+/** A first-response budget the PC reported, or null for anything malformed. */
+function reportedBudget(value) {
+  const transportMs = Number(value?.transportMs);
+  const semanticMs = Number(value?.semanticMs);
+  return transportMs > 0 && semanticMs > 0 && Number.isFinite(transportMs) && Number.isFinite(semanticMs)
+    ? { transportMs, semanticMs }
+    : null;
+}
+
 export class ModelProxyProvider {
   #channel;
   #modelInfo = new Map();
@@ -101,6 +110,7 @@ export class ModelProxyProvider {
     this.#channel = channel;
     // Adapter traits are reported by the PC's real instance.
     if (typeof this.config.modelProxy?.nativePdf === 'boolean') this.nativePdf = this.config.modelProxy.nativePdf;
+    if (this.config.modelProxy?.consumesReadWindows === true) this.consumesReadWindows = true;
   }
 
   #call(method, fields = {}, options = {}) {
@@ -110,18 +120,16 @@ export class ModelProxyProvider {
   async send(messages, model, tools, sendOpts) {
     const { options, callbacks } = splitModelProxySendOptions(sendOpts);
     const finalized = isFinalizedProviderRequestTools(tools);
-    const result = await this.#call(
-      'send',
-      {
-        model: model ?? null,
-        messages: inlineModelProxyAttachments(messages),
-        tools: Array.isArray(tools) ? tools : null,
-        toolsFinalized: finalized,
-        nativePrefixCount: finalized ? providerNativeToolPrefixCount(tools) : 0,
-        options,
-      },
-      { signal: sendOpts?.signal || null, callbacks }
-    );
+    const fields = {
+      model: model ?? null,
+      messages: inlineModelProxyAttachments(messages),
+      tools: Array.isArray(tools) ? tools : null,
+      toolsFinalized: finalized,
+      nativePrefixCount: finalized ? providerNativeToolPrefixCount(tools) : 0,
+      options,
+    };
+    const signal = sendOpts?.signal || null;
+    const result = await this.#call('send', fields, { signal, callbacks });
     // The PC rerouted the wire (a clear "unsupported" refusal) and reports the
     // route it used: the daemon's own session adopts it, so the next proxied
     // turn starts on the new wire instead of repeating the refusal.
@@ -161,6 +169,16 @@ export class ModelProxyProvider {
 
   getCachedModelInfo(model) {
     return this.#modelInfo.get(String(model ?? '')) ?? null;
+  }
+
+  /** The PC adapter's first-response budget for `model`: the catalog's
+   *  model-specific figure, else the adapter's own from its provider config;
+   *  null keeps the agent watchdog default. */
+  firstResponseBudget(model) {
+    return (
+      reportedBudget(this.getCachedModelInfo(model)?.firstResponseBudget) ??
+      reportedBudget(this.config.modelProxy?.firstResponseBudget)
+    );
   }
 
   /** The PC adapter's wire route for `model` (its config and roster decide);
@@ -239,9 +257,13 @@ export function loadModelProxyProviderConfig({
   // A forced read starts after the caller's change, never reuses an older
   // snapshot. Short setup reads also cannot inherit a registry init's budget.
   if (
-    !force && inFlight && inFlight.channel === channel &&
-    inFlight.generation === generation && inFlight.waitMs === waitMs
-  ) return inFlight.promise;
+    !force &&
+    inFlight &&
+    inFlight.channel === channel &&
+    inFlight.generation === generation &&
+    inFlight.waitMs === waitMs
+  )
+    return inFlight.promise;
   const promise = (async () => {
     const deadline = Date.now() + waitMs;
     let delay = CONFIG_RETRY_FIRST_MS;
@@ -257,9 +279,10 @@ export function loadModelProxyProviderConfig({
         const remaining = deadline - Date.now();
         if (remaining <= 0) throw new ModelProxyUnavailableError('the desktop provider request timed out');
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(
-          new ModelProxyUnavailableError('the desktop provider request timed out')
-        ), remaining);
+        const timer = setTimeout(
+          () => controller.abort(new ModelProxyUnavailableError('the desktop provider request timed out')),
+          remaining
+        );
         timer.unref?.();
         let reply;
         try {

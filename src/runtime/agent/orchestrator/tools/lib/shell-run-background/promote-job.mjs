@@ -84,4 +84,6 @@ export async function handOverLease(run) {
   const lease = run.resourceLease;
   run.resourceLease = null;
   await lease?.release();
+  run.workspaceAdmission?.();
+  run.workspaceAdmission = null;
 }

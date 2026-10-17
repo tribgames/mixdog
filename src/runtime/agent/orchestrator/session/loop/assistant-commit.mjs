@@ -100,15 +100,12 @@ export function buildIntermediateAssistantMessage(resp, opts) {
 // recovery, and interruption; deferBodies keeps mutation bodies verbatim for
 // the rest of the session (collapsing them later rewrote an already-cached
 // prefix and re-billed the request uncached).
-export function buildToolCallAssistantMessage(response, { calls, suppressMidTurnText, opts }) {
+export function buildToolCallAssistantMessage(response, { calls, opts }) {
   return attachAssistantTranscriptMetadata(
     {
       role: 'assistant',
       createdAt: Date.now(),
-      // Sub-agent tool-call turns carry only mid-turn preamble in
-      // response.content (the real result rides the later final-answer
-      // turn). Blank it so it never accumulates as input tokens.
-      content: suppressMidTurnText ? '' : response.content || '',
+      content: response.content || '',
       toolCalls: compactToolCallsForHistory(calls, { deferBodies: true }),
       ...assistantEchoFields(assistantEchoPayloads(response, { keepAssistantBlocks: true })),
     },

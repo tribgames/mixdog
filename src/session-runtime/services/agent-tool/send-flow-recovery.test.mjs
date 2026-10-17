@@ -48,6 +48,7 @@ test('a cancelled send ends its worker row as cancelled, not error', async () =>
     },
     views: { isSessionBusy: () => false, renderJob: () => ({ status: 'running' }) },
     spawnFlow: {
+      agentWatchdogOverrides: () => ({}),
       startProgressIdleWatchdog: () => ({ stop() {} }),
       turnStartStamper: () => () => {},
       progressStamper: () => () => {},
@@ -63,6 +64,40 @@ test('a cancelled send ends its worker row as cancelled, not error', async () =>
   await assert.rejects(run({ status: 'cancelled' }, null), /aborted/);
   assert.equal(upserts.at(-3).status, 'error');
   assert.equal(upserts.at(-1).status, 'cancelled');
+});
+
+test('a send arms the watchdog with the agent definition and provider first-byte window', async () => {
+  const requested = [];
+  const policies = [];
+  let run;
+  const session = { id: 'child', agent: 'art-director', provider: 'antigravity-oauth', model: 'gemini-4-argon' };
+  const api = createSendFlow({
+    mgr: { getSession: () => session, askSession: async () => ({ content: 'done' }) },
+    canUseSessionSurface: () => false,
+    registry: { tagForSession: () => 'art', upsertWorkerSessionDeferred() {}, scheduleReap() {} },
+    views: { isSessionBusy: () => false, renderJob: () => ({ status: 'running' }) },
+    spawnFlow: {
+      agentWatchdogOverrides: (target) => {
+        requested.push(target);
+        return { firstResponseTimeoutMs: 900_000, providerFirstByteTimeoutMs: 466_000 };
+      },
+      startProgressIdleWatchdog: (_id, policy) => {
+        policies.push(policy);
+        return { stop() {} };
+      },
+      turnStartStamper: () => () => {},
+      progressStamper: () => () => {},
+      workerNotifyFn: () => () => {},
+      startJob: (_kind, _meta, fn) => {
+        run = fn;
+        return {};
+      },
+    },
+  });
+  await api.dispatchToExistingSession({ session, sessionId: 'child', prompt: 'p', args: {} });
+  await run({}, null);
+  assert.deepEqual(requested, [{ agent: 'art-director', provider: 'antigravity-oauth', model: 'gemini-4-argon' }]);
+  assert.equal(policies[0].firstTransportMs, 900_000);
 });
 
 test('a worker that became idle before enqueue uses the normal admitted continuation', async () => {

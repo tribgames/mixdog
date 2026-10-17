@@ -15,7 +15,7 @@ import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
 import { _getAgentLoop } from './runtime-loaders.mjs';
 import { runAbortable, throwIfAborted } from '../../../../shared/abort-race.mjs';
 import { applyTurnContextMeta, buildUserTurn, startProviderPrewarm, traceTurnContext } from './ask-turn-prepare.mjs';
-import { rewindUnansweredPrompt } from './failed-turn-rewind.mjs';
+import { retainedFailedTurnInput, rewindUnansweredPrompt } from './failed-turn-rewind.mjs';
 import { buildAgentLoopOptions, trackedToolCallHook } from './ask-turn-loop-options.mjs';
 import { _api_call_with_interrupt } from './ask-call-interrupt.mjs';
 import { backfillFallbackSessionTitle } from './session-fallback-title.mjs';
@@ -25,6 +25,9 @@ import { backfillFallbackSessionTitle } from './session-fallback-title.mjs';
 export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, transcriptMeta }) {
   const { turn, runtime, turnSignal, askGeneration, checkpoint, turnToken, startedAt, codexTurnId } = opened;
   const session = turn.session;
+  const retained = input.retryTurnId
+    ? retainedFailedTurnInput(session.messages, input.retryTurnId, input.retryAttemptId)
+    : null;
   const provider = getProvider(session.provider);
   // Register the live session object for synchronous close snapshots.
   runtime.session = session;
@@ -44,7 +47,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   // A failed-turn retry resubmits the prompt the failure left unanswered;
   // rewind that copy so the model sees the prompt once (an answered tail is
   // kept and the retry continues from it).
-  if (input.retryFailedTurn === true) rewindUnansweredPrompt(session, input.prompt);
+  if (input.retryFailedTurn === true && !input.retryTurnId) rewindUnansweredPrompt(session, input.prompt);
   if (session.sessionStartMetaInjected !== true && !hasUserConversationMessage(session.messages)) {
     refreshSessionBp3Environment(session, effectiveCwd);
   }
@@ -61,16 +64,37 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   });
   const [autoEffort, userTurn] = await Promise.all([
     autoEffortPending,
-    buildUserTurn({
-      session,
-      prompt: input.prompt,
-      context: input.context,
-      explicitPrefetch: input.explicitPrefetch,
-      turnSignal,
-      transcriptMeta,
-      turnPromptSource: input.promptSource,
-      effortConfiguration: null,
-    }),
+    retained
+      ? (() => {
+          const historyMessages = filterModelVisibleSessionMessages(session.messages.slice(0, retained.index));
+          const { completion, ...previousTranscript } = retained.message.meta.transcript;
+          const userTurnMessage = {
+            ...retained.message,
+            meta: {
+              ...retained.message.meta,
+              transcript: {
+                ...previousTranscript,
+                ...transcriptMeta,
+                messageId: previousTranscript.messageId,
+                previousCompletions: [
+                  ...(previousTranscript.previousCompletions || []),
+                  { ...completion, at: completion.at ?? previousTranscript.at },
+                ],
+              },
+            },
+          };
+          return { historyMessages, userTurnMessage, outgoing: [...historyMessages, userTurnMessage] };
+        })()
+      : buildUserTurn({
+          session,
+          prompt: input.prompt,
+          context: input.context,
+          explicitPrefetch: input.explicitPrefetch,
+          turnSignal,
+          transcriptMeta,
+          turnPromptSource: input.promptSource,
+          effortConfiguration: null,
+        }),
     wireRoutePending,
   ]);
   const turnEffort = autoEffort?.applied ? autoEffort.effort : session.effort || null;
@@ -163,6 +187,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
     deferredToolDelta: userTurn.deferredToolDelta,
     goalReminder: userTurn.goalReminder,
     workspaceNotice: userTurn.workspaceNotice,
+    setupNotice: userTurn.setupNotice,
   };
 }
 
@@ -186,7 +211,7 @@ export async function runAskAgentLoop({
     session.toolApprovalHook = askOpts.onToolApproval;
   }
   try {
-    if (!input.promptSource) {
+    if (!input.promptSource && !input.retryTurnId) {
       const applied = await prepareExplicitSkills(input.prompt, outgoing, session, {
         cwd: effectiveCwd,
         signal: turnSignal,

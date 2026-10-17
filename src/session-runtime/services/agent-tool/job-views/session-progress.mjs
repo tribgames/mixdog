@@ -38,7 +38,7 @@ export function terminalJobFrozenFields(status, now = Date.now()) {
 }
 
 /** A worker/job row as the published session state carries it. That state
- *  (statusline, desktop, phone, live-share viewers) re-reads agent status on a
+ *  (statusline, desktop, phone) re-reads agent status on a
  *  2s pulse, and these fields are the agent card's diagnostics, derived from
  *  the read time or the last stream delta: they changed on every read while
  *  nothing a surface shows did, so each pulse re-sent both row lists. Surfaces
@@ -64,7 +64,10 @@ export function createSessionProgress({ mgr }) {
     const runtime = mgr.getSessionRuntime?.(sessionId) || null;
     const snapshot =
       typeof mgr.getSessionProgressSnapshot === 'function' ? mgr.getSessionProgressSnapshot(sessionId) : null;
-    const policy = role ? resolveAgentWatchdogPolicy(role) : null;
+    // The armed watchdog's own policy (agent definition and provider budget
+    // applied); the role default only when none is registered.
+    const watchdogState = getProgressWatchdogState(mgr, sessionId);
+    const policy = watchdogState.policy || (role ? resolveAgentWatchdogPolicy(role) : null);
     const queuedFollowups =
       typeof mgr.getSessionPendingMessageDepth === 'function' ? mgr.getSessionPendingMessageDepth(sessionId) : null;
     return buildAgentTaskProgressFields({
@@ -74,7 +77,7 @@ export function createSessionProgress({ mgr }) {
       snapshot,
       runtime,
       policy,
-      watchdogState: getProgressWatchdogState(mgr, sessionId),
+      watchdogState,
       queuedFollowups,
       taskStatus,
       lastToolCall: runtime?.lastToolCall || null,

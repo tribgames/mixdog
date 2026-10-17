@@ -246,7 +246,8 @@ async function generateViaResponses({ model, prompt, options, references, signal
           continue;
         }
         if (event?.type === 'response.failed' || event?.type === 'error') {
-          failure = event?.response?.error || event?.error || { message: event?.message };
+          // A top-level `error` event carries code/type/resets_at on itself.
+          failure = event?.response?.error || event?.error || event;
         }
         collectImage(event, state);
       }

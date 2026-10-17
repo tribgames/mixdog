@@ -107,6 +107,31 @@ export function worktreeError(code, message, details) {
 }
 
 /**
+ * Why a workspace management action (merge, folder cleanup, branch deletion,
+ * checkout) was refused because something still uses an affected folder. Every
+ * surface shows the same meaning: the runtime throws exactly this text (TUI,
+ * remote) and the desktop translates the same English source string.
+ * @readonly
+ */
+export const WORKTREE_REFUSAL_REASONS = Object.freeze({
+  'workspace-retained': 'Sessions still retain this folder. Close or remove those sessions before cleaning it up.',
+  'workspace-lease': 'A runtime still holds this folder. Stop its work and release the workspace first.',
+  'folder-in-use': 'Sessions or workers still use an affected folder. Finish or move them before continuing.',
+  'folder-shell-jobs': 'Background commands still use an affected folder. Wait for them or stop them first.',
+  'workspace-admission-unreadable': 'Workspace activity cannot be verified. Nothing was changed.',
+});
+
+/**
+ * WORKTREE_BUSY_JOBS with the shared text of `reason` (WORKTREE_REFUSAL_REASONS).
+ * @param {keyof typeof WORKTREE_REFUSAL_REASONS} reason
+ * @param {Record<string, unknown>} [details]
+ */
+export function worktreeRefusal(reason, details = {}) {
+  if (!Object.hasOwn(WORKTREE_REFUSAL_REASONS, reason)) throw new TypeError(`Unknown refusal reason "${reason}".`);
+  return worktreeError('WORKTREE_BUSY_JOBS', WORKTREE_REFUSAL_REASONS[reason], { ...details, reason });
+}
+
+/**
  * @param {unknown} error
  * @param {WorktreeErrorCode} [code] When given, also require this code.
  * @returns {boolean}

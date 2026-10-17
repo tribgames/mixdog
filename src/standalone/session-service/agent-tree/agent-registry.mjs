@@ -6,6 +6,8 @@ export const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 export function createAgentRegistry() {
   const agentSessions = new Map();
   const agentChildren = new Map();
+  const cancellationCounts = new Map();
+  const cancellationEpochs = new Map();
 
   function linkAgentDescriptor(descriptor) {
     const sessionId = String(descriptor?.id || '').trim();
@@ -54,6 +56,27 @@ export function createAgentRegistry() {
   }
 
   return {
+    assertAdmission(id, epoch = cancellationEpochs.get(id) || 0) {
+      if (cancellationCounts.has(id) || (cancellationEpochs.get(id) || 0) !== epoch) {
+        throw new Error(`agent session ${id} was cancelled during admission`);
+      }
+      return epoch;
+    },
+    beginCancellation(ids) {
+      for (const id of ids) {
+        cancellationCounts.set(id, (cancellationCounts.get(id) || 0) + 1);
+        cancellationEpochs.set(id, (cancellationEpochs.get(id) || 0) + 1);
+      }
+      return () => {
+        for (const id of ids) {
+          const remaining = (cancellationCounts.get(id) || 0) - 1;
+          if (remaining > 0) cancellationCounts.set(id, remaining);
+          else cancellationCounts.delete(id);
+        }
+      };
+    },
+    isCancelling: (id) => cancellationCounts.has(id),
+    cancellationEpoch: (id) => cancellationEpochs.get(id) || 0,
     linkAgentDescriptor,
     agentDescendantSessionIds,
     get: (sessionId) => agentSessions.get(String(sessionId || '').trim()),
@@ -68,6 +91,8 @@ export function createAgentRegistry() {
     clear() {
       agentSessions.clear();
       agentChildren.clear();
+      cancellationCounts.clear();
+      cancellationEpochs.clear();
     },
   };
 }

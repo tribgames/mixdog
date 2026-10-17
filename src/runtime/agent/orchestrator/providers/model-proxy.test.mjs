@@ -228,7 +228,10 @@ test('a daemon-side abort rejects at once and cancels the PC-side call', async (
   assert.equal(late.cancelled, true);
   assert.deepEqual(deltas, [], 'no callback runs after the daemon gave up');
   assert.deepEqual(op(channel, 'heartbeat', [id]).cancelled, [id]);
-  assert.equal(op(channel, 'resolve', id, false, null, encodeModelProxyWire(modelProxyErrorToWire(new Error('x')))), true);
+  assert.equal(
+    op(channel, 'resolve', id, false, null, encodeModelProxyWire(modelProxyErrorToWire(new Error('x')))),
+    true
+  );
   assert.deepEqual(channel.snapshot(), { requests: [], cancelled: [] });
 
   // Aborted before any client claimed it: the call is simply withdrawn.
@@ -388,8 +391,19 @@ test('proxy mode never looks up a server-side model credential', async (t) => {
 
 test('a PC-side wire reroute is adopted by the daemon session and not repeated', async () => {
   const { ModelProxyProvider } = await import('./model-proxy-provider.mjs');
-  const pin = { provider: 'command-code-oauth', model: 'gpt-5.5', wire: 'responses', profileId: 'command-code-oauth:responses' };
-  const rerouted = { ...pin, wire: 'chat', profileId: 'command-code-oauth:chat', source: 'reroute', reroutedFrom: 'responses' };
+  const pin = {
+    provider: 'command-code-oauth',
+    model: 'gpt-5.5',
+    wire: 'responses',
+    profileId: 'command-code-oauth:responses',
+  };
+  const rerouted = {
+    ...pin,
+    wire: 'chat',
+    profileId: 'command-code-oauth:chat',
+    source: 'reroute',
+    reroutedFrom: 'responses',
+  };
   const calls = [];
   const channel = {
     request: async (call, options) => {
@@ -410,4 +424,34 @@ test('a PC-side wire reroute is adopted by the daemon session and not repeated',
   channel.request = async () => ({ content: 'ok', wireReroute: foreign });
   await provider.send([], 'x', [], { session: other });
   assert.equal(other.wireRoute.wire, 'responses');
+});
+
+test('the proxied provider forwards the PC’s first-response budget, model-specific first', async () => {
+  const { ModelProxyProvider } = await import('./model-proxy-provider.mjs');
+  const providerBudget = { transportMs: 130_000, semanticMs: 250_000 };
+  const argonBudget = { transportMs: 577_000, semanticMs: 1_147_000 };
+  const channel = {
+    request: async () => ({
+      models: ['gemini-4-argon', 'plain'],
+      modelInfo: {
+        'gemini-4-argon': { id: 'gemini-4-argon', firstResponseBudget: argonBudget },
+        plain: { id: 'plain' },
+        broken: { firstResponseBudget: { transportMs: 'soon', semanticMs: -1 } },
+      },
+    }),
+  };
+  const provider = new ModelProxyProvider(
+    'antigravity-oauth',
+    { modelProxy: { firstResponseBudget: providerBudget } },
+    channel
+  );
+  // Before any catalog: the adapter's own figure from the provider config.
+  assert.deepEqual(provider.firstResponseBudget('gemini-4-argon'), providerBudget);
+  await provider.listModels();
+  assert.deepEqual(provider.firstResponseBudget('gemini-4-argon'), argonBudget);
+  assert.deepEqual(provider.firstResponseBudget('plain'), providerBudget);
+  assert.deepEqual(provider.firstResponseBudget('unlisted'), providerBudget);
+  // A malformed figure is ignored; a PC that reports none leaves the watchdog default.
+  assert.deepEqual(provider.firstResponseBudget('broken'), providerBudget);
+  assert.equal(new ModelProxyProvider('openai', {}, channel).firstResponseBudget('plain'), null);
 });

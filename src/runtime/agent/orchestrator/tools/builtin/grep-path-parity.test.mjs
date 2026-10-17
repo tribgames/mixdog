@@ -46,12 +46,24 @@ test('filtered multi-path searches retain legacy results across scope and paging
   // as a guaranteed ordering contract. A complete scan can report an exact
   // total where a bounded legacy scan only knows that more matches exist;
   // check paging separately against the fixture's two matching lines.
-  const normalized = (value) => String(value).replaceAll('\\', '/').split('\n')
-    .filter((line) => line && !/^\[\d+(?: of \d+)? shown/.test(line)).sort();
+  const normalized = (value) =>
+    String(value)
+      .replaceAll('\\', '/')
+      .split('\n')
+      .filter((line) => line && !/^\[\d+(?: of \d+)? shown/.test(line))
+      .sort();
   for (const args of cases) {
-    const search = () => executeGrepTool({
-      pattern: 'needle', path: ['one', 'two'], mode: 'files', limit: 100, ...args,
-    }, root);
+    const search = () =>
+      executeGrepTool(
+        {
+          pattern: 'needle',
+          path: ['one', 'two'],
+          mode: 'files',
+          limit: 100,
+          ...args,
+        },
+        root
+      );
     process.env.MIXDOG_GREP_PATH_COMBINED = '0';
     invalidateBuiltinResultCache();
     const legacy = await search();
@@ -84,7 +96,10 @@ for (const context of [0, 2, undefined]) {
       const outcome = { complete: true, cacheSafe: true };
       const result = await executeGrepTool(
         { path: file, pattern: 'needle', output_mode: 'content', ...(context === undefined ? {} : { context }) },
-        root, undefined, null, { scopedCacheOutcome: outcome }
+        root,
+        undefined,
+        null,
+        { scopedCacheOutcome: outcome }
       );
       assert.ok(result.includes(value), result);
       assert.equal(outcome.complete, true);
@@ -92,3 +107,62 @@ for (const context of [0, 2, undefined]) {
     }
   });
 }
+
+test('explicit-file batches retain numeric-hyphen filenames and literal source text', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-grep-file-prefix-'));
+  t.after(() => {
+    invalidateBuiltinResultCache();
+    rmSync(root, { recursive: true, force: true });
+  });
+  const first = 'needle first C:\\source\\a :42: -12-';
+  const middle = 'context C:\\source\\middle :42: -12-';
+  const last = 'needle last C:\\source\\b';
+  writeFileSync(join(root, 'a-12-b.txt'), `${first}\n${middle}\n${last}\n`);
+  writeFileSync(join(root, 'beta.txt'), 'needle beta\n');
+  for (const absolute of [false, true]) {
+    const path = ['a-12-b.txt', 'beta.txt'].map((file) => (absolute ? join(root, file) : file));
+    for (const context of [undefined, 2, 0]) {
+      invalidateBuiltinResultCache();
+      const result = await executeGrepTool(
+        {
+          path,
+          pattern: 'needle',
+          mode: 'content',
+          ...(context === undefined ? {} : { context }),
+        },
+        root
+      );
+      assert.doesNotMatch(result, /\(no matches\)|Error:/);
+      for (const expected of [first, last, 'needle beta']) assert.ok(result.includes(expected), result);
+      if (context !== 0) assert.ok(result.includes(middle), result);
+      assert.ok(result.includes('a-12-b.txt'), result);
+    }
+    const count = await executeGrepTool({ path, pattern: 'needle', mode: 'count' }, root);
+    assert.match(count, /\[total 2 matches across 1 file\]/);
+    assert.match(count, /\[total 1 match across 1 file\]/);
+  }
+});
+
+test('directory searches keep matches in numeric-hyphen filenames', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-grep-dir-prefix-'));
+  t.after(() => {
+    invalidateBuiltinResultCache();
+    rmSync(root, { recursive: true, force: true });
+  });
+  mkdirSync(join(root, 'd'));
+  writeFileSync(join(root, 'd', 'config-12-a.txt'), 'MODE=a\r\nLIMIT=45\r\n');
+  writeFileSync(join(root, 'd', 'v-2-x.mjs'), 'x\nLIMIT=7\n');
+  writeFileSync(join(root, 'd', 'plain.txt'), 'LIMIT=9\n');
+  for (const context of [undefined, 2, 0]) {
+    invalidateBuiltinResultCache();
+    const result = await executeGrepTool(
+      { path: 'd', pattern: 'LIMIT=\\d+', ...(context === undefined ? {} : { context }) },
+      root
+    );
+    for (const expected of ['d/config-12-a.txt', 'LIMIT=45', 'd/v-2-x.mjs', 'LIMIT=7', 'LIMIT=9']) {
+      assert.ok(result.includes(expected), `context=${context}\n${result}`);
+    }
+    // Context-free content groups every file the same way.
+    if (context === 0) assert.match(result, /^d\/config-12-a\.txt\n {2}2: LIMIT=45$/m, result);
+  }
+});

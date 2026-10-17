@@ -1,13 +1,13 @@
 // Committed-but-unsealed text segments of one user turn.
 //
-// Max-output recovery parts plus (Lead/TUI only) text-only continuation
+// Max-output recovery parts plus text-only continuation
 // segments (provider pause_turn / terminal steering / stop hook). The terminal
 // response returns content = parts + terminal so the UI row that accumulated
 // every streamed segment is not overwritten down to only the last segment;
 // historyContent keeps persistence single-copy.
 import { buildIntermediateAssistantMessage, commitAssistantMessage } from '../assistant-commit.mjs';
 
-export function createTurnSegments({ messages, opts, suppressMidTurnText }) {
+export function createTurnSegments({ messages, opts }) {
   const parts = [];
   return {
     parts,
@@ -18,15 +18,9 @@ export function createTurnSegments({ messages, opts, suppressMidTurnText }) {
       return true;
     },
     // Record a mid-turn segment for the caller-facing aggregate and surface it
-    // live. A suppressed sub-agent session neither surfaces nor accumulates
-    // text — except on the max-output ladder, whose parts must still rebuild
-    // the complete answer the caller receives (keepWhenSuppressed).
+    // live for every session.
     // `committed: true` marks text that is the just-committed message's own.
-    record(text, { keepWhenSuppressed = false, committed = false } = {}) {
-      if (suppressMidTurnText) {
-        if (keepWhenSuppressed) parts.push(text);
-        return;
-      }
+    record(text, { committed = false } = {}) {
       parts.push(text);
       try {
         opts.onAssistantText?.(text, { committed });

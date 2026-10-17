@@ -876,11 +876,11 @@ const isFailedToolResult = (message) => message.toolKind === 'error' || message.
 // recorded part, and a recorded Gemini part may carry no id at all, in which
 // case the response carries none either. An unmatched result keeps its own id.
 function toGeminiToolResult(message, toolNameByCallId, nestMedia, callsByFinalId) {
-  const functionName = toolNameByCallId?.get(message.toolCallId) || message.toolCallId || '';
+  const replayedCall = callsByFinalId?.get(message.toolCallId);
+  const functionName = replayedCall?.name || toolNameByCallId?.get(message.toolCallId) || message.toolCallId || '';
   const { response: rawResponse, mediaParts } = splitGeminiToolContent(message.content);
   const response = isFailedToolResult(message) && 'result' in rawResponse ? { error: rawResponse.result } : rawResponse;
   const functionResponse = { name: functionName, response };
-  const replayedCall = callsByFinalId?.get(message.toolCallId);
   const responseId = replayedCall ? replayedCall.id : message.toolCallId;
   if (typeof responseId === 'string' && responseId) functionResponse.id = responseId;
   if (!nestMedia) return { functionResponsePart: { functionResponse }, mediaParts };
@@ -895,16 +895,20 @@ function toGeminiToolResult(message, toolNameByCallId, nestMedia, callsByFinalId
 // A replay recorded by a non-Gemini model (Claude behind Antigravity) carries
 // signatures Gemini rejects: its replay envelope and the signed metadata
 // derived from the same response must not reach a Gemini request.
-function hasForeignReplay(message) {
+function hasForeignReplay(message, model) {
   const replay = message?.providerReplay;
   if (replay?.provider !== 'gemini' && replay?.provider !== 'antigravity') return false;
   const recorded = replay.requestContext?.model;
-  return typeof recorded === 'string' && recorded !== '' && !isGeminiFamilyModel(recorded);
+  return (
+    typeof recorded === 'string' &&
+    recorded !== '' &&
+    (!isGeminiFamilyModel(recorded) || (replay.provider === 'gemini' && model && recorded !== model))
+  );
 }
 
-function toGeminiContent(message) {
+function toGeminiContent(message, model) {
   if (!message || message.role === 'system') return null;
-  const foreign = message.role === 'assistant' && hasForeignReplay(message);
+  const foreign = message.role === 'assistant' && hasForeignReplay(message, model);
   if (foreign) message = { ...message, providerMetadata: undefined };
   const orderedReplay =
     message.role === 'assistant' && !foreign ? providerReplayItems(message, ['gemini', 'antigravity']) : undefined;
@@ -1019,7 +1023,7 @@ export function toGeminiContents(messages, model = '', { repairToolSignatures = 
       for (const tc of m.toolCalls) {
         if (tc?.id && tc?.name) toolNameByCallId.set(tc.id, tc.name);
       }
-      const content = toGeminiContent(m);
+      const content = toGeminiContent(m, model);
       assistantContent.set(m, content);
       const replayed = (content?.parts || []).filter((part) => part?.functionCall);
       m.toolCalls.forEach((tc, index) => {
@@ -1039,6 +1043,7 @@ export function toGeminiContents(messages, model = '', { repairToolSignatures = 
   // first (one per call, in call order), then the media the results carried as
   // sibling inlineData/fileData parts.
   let toolTurn = null;
+  let toolCallOrder = new Map();
   const nestMedia = supportsFunctionResponseParts(model);
   for (const message of messages) {
     if (message?.role === 'tool') {
@@ -1049,16 +1054,23 @@ export function toGeminiContents(messages, model = '', { repairToolSignatures = 
         callsByFinalId
       );
       if (!toolTurn) {
-        toolTurn = { content: { role: 'user', parts: [] }, responseCount: 0 };
+        toolTurn = { content: { role: 'user', parts: [] }, responseCount: 0, responseOrder: [] };
         contents.push(toolTurn.content);
       }
-      toolTurn.content.parts.splice(toolTurn.responseCount, 0, functionResponsePart);
+      // Completion order is not call order. Anonymous parallel calls to the
+      // same function can only be correlated by their original position.
+      const order = toolCallOrder.get(message.toolCallId) ?? Infinity;
+      const next = toolTurn.responseOrder.findIndex((value) => value > order);
+      const index = next < 0 ? toolTurn.responseCount : next;
+      toolTurn.responseOrder.splice(index, 0, order);
+      toolTurn.content.parts.splice(index, 0, functionResponsePart);
       toolTurn.responseCount += 1;
       toolTurn.content.parts.push(...mediaParts);
       continue;
     }
     toolTurn = null;
-    const content = assistantContent.has(message) ? assistantContent.get(message) : toGeminiContent(message);
+    toolCallOrder = new Map((message.toolCalls || []).map((call, index) => [call.id, index]));
+    const content = assistantContent.has(message) ? assistantContent.get(message) : toGeminiContent(message, model);
     if (content) contents.push(content);
   }
   return repairToolSignatures ? ensureGeminiToolCallSignatures(contents, model) : contents;

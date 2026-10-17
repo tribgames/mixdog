@@ -6,6 +6,7 @@
 // abort-aware call wrapper is ask-call-interrupt. This file owns the lock,
 // the loop and the runtime bookkeeping around each turn.
 import { createHash } from 'node:crypto';
+import { admitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
 import {
   persistedAssistantTranscriptMetadata,
   persistedUserTranscriptMetadata,
@@ -38,6 +39,16 @@ const traceAskStart = (sessionId, explicitPrefetch) => {
   );
 };
 
+/** A background follow-up ask has no caller to reject to; its failure would
+ *  otherwise strand the pending input silently. */
+const logFollowUpFailure = (sessionId) => (error) => {
+  try {
+    process.stderr.write(`[agent-ask] follow-up ask failed session=${sessionId}: ${error?.message || error}\n`);
+  } catch {
+    /* best-effort */
+  }
+};
+
 /** The transcript timestamps the caller supplied for this ask: the persisted
  *  user metadata plus a one-shot reader for the assistant metadata. */
 export function createAskTranscriptMeta(rawTranscriptMeta) {
@@ -66,7 +77,13 @@ export function createAskTranscriptMeta(rawTranscriptMeta) {
  *  the turn state and rethrows. Returns the terminal result preview and the
  *  follow-ups drained right after the provider accepted the turn. */
 async function runAskTurn({ sessionId, opened, input, askOpts, onToolCall, cwdOverride, transcript, askStartedAt }) {
+  let releaseWorkspace;
   try {
+    releaseWorkspace = await admitWorkspaceActivity(
+      sessionId,
+      cwdOverride || opened.turn.session.cwd || process.cwd(),
+      opened.runtime.controller?.signal
+    );
     const prepared = await prepareAskTurn({ sessionId, opened, input, cwdOverride, transcriptMeta: transcript.user });
     const result = await runAskAgentLoop({
       sessionId,
@@ -105,8 +122,12 @@ async function runAskTurn({ sessionId, opened, input, askOpts, onToolCall, cwdOv
       generation: opened.askGeneration,
       turnCheckpointToken: opened.turnToken,
       runtime: opened.runtime,
+      transcriptMeta: transcript.raw,
+      askStartedAt,
     });
     throw err;
+  } finally {
+    releaseWorkspace?.();
   }
 }
 
@@ -122,9 +143,12 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
     process.stderr.write(`[agent-trace] lock-acquired waitedMs=${Date.now() - askStartedAt}\n`);
   }
   // A non-empty cross-process sweep starts an empty follow-up ask once the
-  // current session lock is released; it never delays completion.
+  // current session lock is released; it never delays completion. The
+  // failed-turn retry identity is one-shot: a follow-up runs queued input,
+  // never the retried turn. Nobody awaits it, so a failure is logged.
+  const followUpOpts = { ...askOpts, retryFailedTurn: undefined, retryTurnId: undefined, retryAttemptId: undefined };
   const kickFollowUpAsk = () => {
-    askSession(sessionId, '', null, onToolCall, cwdOverride, null, askOpts).catch(() => {});
+    askSession(sessionId, '', null, onToolCall, cwdOverride, null, followUpOpts).catch(logFollowUpFailure(sessionId));
   };
   // The mutex is held for the WHOLE askSession call, including any follow-up
   // turns drained from the pending-message queue below — the single outer
@@ -141,6 +165,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
   // A failed-turn retry rewinds only the turn it retries, never a drained
   // follow-up turn.
   let retryFailedTurn = askOpts.retryFailedTurn === true;
+  let retryTurnId = askOpts.retryTurnId;
   try {
     // Turn loop (pendingMessages pattern): run the current prompt, then drain
     // any `agent type=send` messages that were queued while this turn was in
@@ -162,6 +187,11 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
       if (retryFailedTurn) {
         input.retryFailedTurn = true;
         retryFailedTurn = false;
+      }
+      if (retryTurnId) {
+        input.retryTurnId = retryTurnId;
+        input.retryAttemptId = askOpts.retryAttemptId;
+        retryTurnId = null;
       }
       // Synchronous pre-await setup (must happen before any await so
       // closeSession() can't interleave between load and registration).
@@ -217,7 +247,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             if (count <= 0) return;
             kickFollowUpAsk();
           })
-          .catch(() => {});
+          .catch(logFollowUpFailure(sessionId));
       });
       return result;
     }

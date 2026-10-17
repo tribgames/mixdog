@@ -15,7 +15,10 @@ test('foreground commands stay out of the shell job list', async () => {
     const dir = join(root, 'shell-jobs');
     mkdirSync(dir, { recursive: true });
     const write = (jobId, record) => {
-      writeFileSync(join(dir, `${jobId}.json`), JSON.stringify({ pid: process.pid, ownerSessionId: 'sess-fg', ...record }));
+      writeFileSync(
+        join(dir, `${jobId}.json`),
+        JSON.stringify({ pid: process.pid, ownerSessionId: 'sess-fg', ...record })
+      );
       writeFileSync(join(dir, `${jobId}.owner-${process.pid}`), '');
     };
     write(`job_${Date.now()}_bg`, { command: 'npm run dev' });
@@ -48,14 +51,35 @@ test('recently finished background jobs ride in the session bucket without count
     mkdirSync(dir, { recursive: true });
     const now = Date.now();
     const write = (jobId, record, done) => {
-      writeFileSync(join(dir, `${jobId}.json`), JSON.stringify({ pid: process.pid, ownerSessionId: 'sess-fin', ...record }));
+      writeFileSync(
+        join(dir, `${jobId}.json`),
+        JSON.stringify({ pid: process.pid, ownerSessionId: 'sess-fin', ...record })
+      );
       writeFileSync(join(dir, `${jobId}.owner-${process.pid + 300_000}`), '');
       if (done) writeFileSync(join(dir, `${jobId}.done`), '');
     };
     write(`job_${now}_run`, { command: 'npm run dev' });
-    write(`job_${now - 1}_ok`, { command: 'make', status: 'completed', exitCode: 0, finishedAt: new Date(now - 1000).toISOString() }, true);
-    write(`job_${now - 2}_fg`, { command: 'git status', foreground: true, status: 'completed', exitCode: 0, finishedAt: new Date(now).toISOString() }, true);
-    write(`job_${now - 3}_old`, { command: 'old', status: 'completed', exitCode: 0, finishedAt: new Date(now - 3 * 3600_000).toISOString() }, true);
+    write(
+      `job_${now - 1}_ok`,
+      { command: 'make', status: 'completed', exitCode: 0, finishedAt: new Date(now - 1000).toISOString() },
+      true
+    );
+    write(
+      `job_${now - 2}_fg`,
+      {
+        command: 'git status',
+        foreground: true,
+        status: 'completed',
+        exitCode: 0,
+        finishedAt: new Date(now).toISOString(),
+      },
+      true
+    );
+    write(
+      `job_${now - 3}_old`,
+      { command: 'old', status: 'completed', exitCode: 0, finishedAt: new Date(now - 3 * 3600_000).toISOString() },
+      true
+    );
     const ownerPid = process.pid + 300_000;
     const get = () => shellJobsStatus({ clientHostPid: ownerPid, sessionId: 'sess-fin' });
     let status = get();
@@ -190,6 +214,39 @@ test('finished shells do not blink out when an owner is polled again after its c
     assert.equal(finished(ownerA), 1);
   } finally {
     Date.now = realNow;
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a foreground command whose termination is unconfirmed stays listed after its root exits', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-statusline-unconfirmed-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    const dir = join(root, 'shell-jobs');
+    mkdirSync(dir, { recursive: true });
+    const jobId = `job_${Date.now()}_unconfirmed`;
+    // The root pid is gone; a descendant may still be alive. The owner lives.
+    writeFileSync(
+      join(dir, `${jobId}.json`),
+      JSON.stringify({
+        pid: 2_147_483_646,
+        ownerSessionId: 'sess-unconfirmed',
+        command: 'node server.js',
+        foreground: true,
+        terminationUnconfirmed: true,
+      })
+    );
+    writeFileSync(join(dir, `${jobId}.owner-${process.pid}`), '');
+    const status = await shellJobsStatusFresh({ clientHostPid: process.pid });
+    assert.equal(status.count, 1);
+    assert.deepEqual(
+      status.sessions['sess-unconfirmed'].jobs.map((job) => [job.command, job.terminationUnconfirmed]),
+      [['node server.js', true]]
+    );
+  } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(root, { recursive: true, force: true });

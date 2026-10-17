@@ -64,7 +64,38 @@ test('file IDs identify quoted UTF-8 paths and allow selecting just one new file
   );
   assert.equal(buildSelectedStagePatch(raw, [changes[0].id]).patch, first);
   assert.equal(buildSelectedStagePatch(raw, [changes[1].id]).patch, second);
-  assert.deepEqual(buildSelectedStagePatch(raw, ['chg_missing']).missing, ['chg_missing']);
+  assert.deepEqual(buildSelectedStagePatch(raw, ['c99']).missing, ['c99']);
+  assert.deepEqual(buildSelectedStagePatch(raw, ['chg_0123456789abcdef']).missing, ['chg_0123456789abcdef']);
+});
+
+test('change ids are ordinals in diff order, shared across files and stable for the same diff', () => {
+  const raw =
+    'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+A\n@@ -9 +9 @@\n-z\n+Z\n' +
+    'diff --git a/mode.txt b/mode.txt\nold mode 100644\nnew mode 100755\n' +
+    'diff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1,3 +1,3 @@\n-x\n+X\n y\n-z\n+Z\n';
+  const first = snapshotOf(raw);
+  assert.deepEqual(
+    first.changes.map(({ id, path }) => [id, path]),
+    [
+      ['c1', 'a.txt'],
+      ['c2', 'a.txt'],
+      ['c3', 'mode.txt'],
+      ['c4', 'b.txt'],
+      ['c5', 'b.txt'],
+    ]
+  );
+  // Distinct snapshots of the same diff number identically; the diff_id is the scope.
+  const second = snapshotOf(raw);
+  assert.notEqual(first.diffId, second.diffId);
+  assert.deepEqual(
+    second.changes.map(({ id }) => id),
+    ['c1', 'c2', 'c3', 'c4', 'c5']
+  );
+  assert.equal(
+    buildSelectedStagePatch(raw, ['c5']).patch,
+    'diff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1,3 +1,3 @@\n x\n y\n-z\n+Z\n'
+  );
+  assert.deepEqual(buildSelectedStagePatch(raw, ['c2', 'c3']).selected, ['c2', 'c3']);
 });
 
 test('zero-context insertion groups and ordinary edit groups remain independently selectable', () => {

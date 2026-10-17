@@ -87,7 +87,19 @@ const SCHEMAS = {
     ['clientHeartbeat', 7, 'ClientHeartbeat'],
   ]),
   TextDeltaUpdate: fields([['text', 1, 'string']]),
-  ToolCall: fields([['mcpToolCall', 15, 'McpToolCall']]),
+  ToolCall: fields([
+    ['editToolCall', 12, 'NativeEditToolCall'],
+    ['mcpToolCall', 15, 'McpToolCall'],
+  ]),
+  NativeEditToolCall: fields([['result', 2, 'NativeEditResult']]),
+  NativeEditResult: fields([
+    ['success', 1, 'raw'],
+    ['fileNotFound', 2, 'raw'],
+    ['readPermissionDenied', 3, 'raw'],
+    ['writePermissionDenied', 4, 'raw'],
+    ['rejected', 6, 'raw'],
+    ['error', 7, 'raw'],
+  ]),
   McpToolCall: fields([
     ['args', 1, 'McpArgs'],
     ['result', 2, 'McpResult'],
@@ -422,6 +434,7 @@ const SCHEMAS = {
     ['totalLines', 3, 'int'],
     ['fileSize', 4, 'int'],
     ['truncated', 6, 'bool'],
+    ['rangeApplied', 8, 'bool'],
   ]),
   ReadRejected: fields([
     ['path', 1, 'string'],
@@ -430,7 +443,9 @@ const SCHEMAS = {
   ReadResult: fields([
     ['success', 1, 'ReadSuccess'],
     ['rejected', 3, 'ReadRejected'],
+    ['fileNotFound', 4, 'ReadFileNotFound'],
   ]),
+  ReadFileNotFound: fields([['path', 1, 'string']]),
   WriteSuccess: fields([
     ['path', 1, 'string'],
     ['linesCreated', 2, 'int'],
@@ -440,8 +455,13 @@ const SCHEMAS = {
     ['path', 1, 'string'],
     ['reason', 2, 'string'],
   ]),
+  WriteError: fields([
+    ['path', 1, 'string'],
+    ['error', 2, 'string'],
+  ]),
   WriteResult: fields([
     ['success', 1, 'WriteSuccess'],
+    ['error', 5, 'WriteError'],
     ['rejected', 6, 'WriteRejected'],
   ]),
   DeleteRejected: fields([
@@ -610,7 +630,7 @@ const SCHEMAS = {
   JsonValue: fields([
     ['nullValue', 1, 'int'],
     ['numberValue', 2, 'double'],
-    ['stringValue', 3, 'string'],
+    ['stringValue', 3, 'string', { presence: true }],
     ['boolValue', 4, 'bool'],
     ['structValue', 5, 'JsonStruct'],
     ['listValue', 6, 'JsonList'],
@@ -620,7 +640,8 @@ const SCHEMAS = {
 };
 
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
+// A protobuf string is data, not a text document with a disposable BOM.
+const textDecoder = new TextDecoder('utf-8', { ignoreBOM: true });
 
 function concatBytes(parts) {
   const length = parts.reduce((sum, part) => sum + part.length, 0);
@@ -709,7 +730,10 @@ export function encodeMessage(type, value = {}) {
     let values = [fieldValue];
     if (descriptor.repeated) values = Array.isArray(fieldValue) ? fieldValue : [];
     for (const item of values) {
-      if (shouldWrite(descriptor.type, item)) parts.push(encodeField(descriptor.no, descriptor.type, item));
+      // A oneof's explicit empty string is a value, not an absent field.
+      if ((descriptor.presence && item != null) || shouldWrite(descriptor.type, item)) {
+        parts.push(encodeField(descriptor.no, descriptor.type, item));
+      }
     }
   }
   return concatBytes(parts);

@@ -4,8 +4,37 @@
 // tree-kill. The spawn, settle and auto-background phases live in their own
 // modules and read/write this one record.
 import { randomUUID } from 'node:crypto';
-import { retireForegroundShellRecord } from '../builtin/shell-jobs.mjs';
+import { publishForegroundShellRecord, retireForegroundShellRecord } from '../builtin/shell-jobs.mjs';
 import { ShellTextDecoder, TaskOutput, treeKill } from '../shell-exec-output.mjs';
+import { createProcessTreeTracker, killAfterSnapshot } from './shell-descendants.mjs';
+import { registerOwnedShellTree } from './owned-shell-trees.mjs';
+
+/** One pre-kill identity read of the run's tree (every kill path shares it):
+ *  resolves true once the capture is complete, false when it failed. */
+export function capturePreKill(run) {
+  run.terminationTracker = run.terminationTracker || createProcessTreeTracker({ pid: run.child.pid });
+  const rootExited = run.child.exitCode != null || run.child.signalCode != null;
+  return run.terminationTracker.capture({ rootExited }).catch(() => false);
+}
+
+/** Session close cancels every tree its session owns. For a foreground run
+ *  that cancel must snapshot the identities first, exactly like the run's own
+ *  kill, and mark the run owner-cancelled so its settle completes on confirmed
+ *  termination instead of on the root's exit. */
+export function registerForegroundOwnedTree(run, ownerSessionId) {
+  if (!ownerSessionId) return;
+  run.ownedTree = {
+    ownerSessionId,
+    prepareKill: () => {
+      if (run.settled || run.autoBackgrounded || !run.child?.pid) return true;
+      run.killed = true;
+      run.ownerCancelled = true;
+      run.killCause = run.killCause || 'session-close';
+      return run.terminationTracker?.complete === true || capturePreKill(run);
+    },
+  };
+  registerOwnedShellTree(run.foregroundRecordId, run.ownedTree);
+}
 
 // Treekill + exit confirmation. treeKill alone leaves settle() pending on
 // 'close'/'exit'; on Windows a taskkill miss or a grandchild holding stdio
@@ -85,6 +114,12 @@ export function createShellRun({ abortSignal, resolve, jobId = null }) {
     foregroundRecordId: jobId || `job_${Date.now()}_${randomUUID().slice(0, 6)}`,
     foregroundRecordTimer: null,
     foregroundRecordPublished: false,
+    // Command/cwd/owner the live record is published with.
+    foregroundRecordInput: null,
+    // Process identities captured before a kill, and the stop() of the
+    // observation loop that holds the workspace until they are gone.
+    terminationTracker: null,
+    stopTerminationWatch: null,
   };
 }
 
@@ -149,6 +184,49 @@ export function clearForegroundRecord(run) {
 // Runtime of the COMMAND (see startMs).
 export const elapsedSinceStart = (run) => Math.max(0, Date.now() - (run.commandStartedAtMs || run.startMs));
 
+/** The command's result is reported, but its processes are not confirmed
+ *  gone: the live record stays — now marked unconfirmed — until the
+ *  termination watch retires it. */
+export function keepTerminationUnconfirmedRecord(run) {
+  if (run.foregroundRecordTimer) {
+    clearTimeout(run.foregroundRecordTimer);
+    run.foregroundRecordTimer = null;
+  }
+  if (!run.foregroundRecordInput || !run.child?.pid) return;
+  try {
+    publishForegroundShellRecord({
+      ...run.foregroundRecordInput,
+      jobId: run.foregroundRecordId,
+      pid: run.child.pid,
+      startedAtMs: run.commandStartedAtMs,
+      terminationUnconfirmed: true,
+    });
+    run.foregroundRecordPublished = true;
+  } catch {
+    /* the record is presentation; the workspace admission stays held */
+  }
+}
+
+// Record the tree's identities while the root is still alive, THEN kill: once
+// an intermediate dies its children's parent links dangle and a snapshot taken
+// afterwards can no longer find them.
+// The kill waits for the snapshot at most PROCESS_TABLE_READ_BOUND_MS and is
+// sent whether the snapshot succeeded, failed or is still pending (a late
+// snapshot is still absorbed; a missing one leaves the outcome unknown, so the
+// workspace stays held under the observation loop). The confirmation deadline
+// starts once the kill is actually issued.
+function snapshotThenKill(run, afterKill) {
+  if (!run.child?.pid) {
+    treeKill(run.child);
+    afterKill();
+    return;
+  }
+  void killAfterSnapshot(capturePreKill(run), () => {
+    treeKill(run.child);
+    afterKill();
+  });
+}
+
 export function treeKillForceSettle(run, cause) {
   run.killed = true;
   run.killCause = run.killCause || cause || 'runtime-guard';
@@ -161,8 +239,7 @@ export function treeKillForceSettle(run, cause) {
       if (run.child?.exitCode != null || run.child?.signalCode != null) return;
       attempts += 1;
       if (attempts < KILL_CONFIRM_ATTEMPTS) {
-        treeKill(run.child);
-        armConfirmation();
+        snapshotThenKill(run, armConfirmation);
         return;
       }
       run.partialOutput = true;
@@ -172,6 +249,5 @@ export function treeKillForceSettle(run, cause) {
     }, KILL_CONFIRM_INTERVAL_MS);
     if (deadline.unref) deadline.unref();
   };
-  treeKill(run.child);
-  armConfirmation();
+  snapshotThenKill(run, armConfirmation);
 }

@@ -20,7 +20,7 @@ function resumePrompt(response, attempt) {
 }
 
 export function resolveOutputLimit(response, { state, segments, messages }) {
-  segments.record(response.content, { keepWhenSuppressed: true });
+  segments.record(response.content);
   if (state.maxOutputRecoveryCount < MAX_OUTPUT_RECOVERY_LIMIT) {
     // The partial assistant turn must be visible to the model so it can
     // resume at the exact cutoff instead of reconstructing or repeating

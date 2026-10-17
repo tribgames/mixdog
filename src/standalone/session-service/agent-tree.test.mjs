@@ -8,10 +8,11 @@ import { AgentStallAbortError } from '../../runtime/agent/orchestrator/agent-run
 // are linked and rooted, what a turn does to a descriptor, how cancellation
 // cascades, and what rehydration rebuilds from stored rows.
 
-function createHarness({ rows = [], stored = {}, busyIds = new Set() } = {}) {
+function createHarness({ rows = [], stored = {}, busyIds = new Set(), beforeCreate = async () => {} } = {}) {
   const created = [];
   const turns = [];
   const closed = [];
+  const closeOptions = [];
   const retained = [];
   const logs = [];
   let nextId = 1;
@@ -20,6 +21,10 @@ function createHarness({ rows = [], stored = {}, busyIds = new Set() } = {}) {
     if (!runtimes.has(id)) {
       runtimes.set(id, {
         messages: [],
+        terminal: false,
+        isSessionTerminal() {
+          return this.terminal;
+        },
         readModelMessages(start) {
           const list = runtimeFor(id).messages;
           return { messageCount: list.length, messages: list.slice(start) };
@@ -30,8 +35,10 @@ function createHarness({ rows = [], stored = {}, busyIds = new Set() } = {}) {
           return runtimeFor(id).reply(prompt);
         },
         reply: async (prompt) => ({ status: 'done', result: { content: `echo:${prompt}` } }),
-        async closeCanonicalSession(reason) {
+        async closeCanonicalSession(reason, options) {
+          this.terminal = true;
           closed.push([id, reason]);
+          closeOptions.push([id, options]);
           return true;
         },
       });
@@ -47,12 +54,13 @@ function createHarness({ rows = [], stored = {}, busyIds = new Set() } = {}) {
     entryForSession: async (id) => ({ runtime: runtimeFor(id) }),
     retainUnwatched: (_entry, reason) => retained.push(reason),
     createSession: async (input) => {
+      await beforeCreate();
       const sessionId = `child-${nextId++}`;
       created.push({ sessionId, ...input });
       return { sessionId };
     },
   });
-  return { tree, created, turns, closed, retained, logs, runtimeFor };
+  return { tree, created, turns, closed, closeOptions, retained, logs, runtimeFor };
 }
 
 const spec = (parentSessionId, extra = {}) => ({
@@ -79,15 +87,45 @@ test('a busy child accepts follow-ups on its existing runtime', async () => {
   assert.equal(accepted[0].options.context, 'extra');
 });
 
+test('setRoute saves a reused child model through the runtime route API, even while it is busy', async () => {
+  const h = createHarness({ busyIds: new Set(['child-1']) });
+  const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  const requests = [];
+  h.runtimeFor(session.id).setRoute = async (route) => {
+    requests.push(route);
+    return { provider: 'anthropic', model: 'opus', ...route };
+  };
+  const route = { provider: 'anthropic', model: 'opus', effort: 'low', fast: true };
+  await h.tree.agentSurface.setRoute({ session, route });
+  assert.deepEqual(requests, [{ ...route, sessionOnly: true }], 'scoped to the child, never Main');
+  assert.equal(h.tree.agentDescriptor(session.id).model, 'opus');
+  assert.equal(h.tree.agentDescriptor(session.id).provider, 'anthropic');
+  // A tuning-only change names no model: the descriptor keeps the selected one.
+  await h.tree.agentSurface.setRoute({ session, route: { fast: false } });
+  assert.deepEqual(requests.at(-1), { fast: false, sessionOnly: true });
+  assert.equal(h.tree.agentDescriptor(session.id).model, 'opus');
+});
+
 test('createAgentChild passes the preset Auto effort explicitly and records only the off state', async () => {
   const h = createHarness();
   const { session: on } = await h.tree.createAgentChild({ spec: spec('lead-1') });
-  const off = (await h.tree.createAgentChild({ spec: spec('lead-1', { preset: { ...spec('').preset, autoEffort: false } }) }))
-    .session;
+  const off = (
+    await h.tree.createAgentChild({ spec: spec('lead-1', { preset: { ...spec('').preset, autoEffort: false } }) })
+  ).session;
   assert.equal(h.created[0].autoEffort, true, 'explicit, so the Main model bucket cannot decide it');
   assert.equal(h.created[1].autoEffort, false);
   assert.equal(Object.hasOwn(on, 'autoEffort'), false);
   assert.equal(off.autoEffort, false);
+});
+
+test('canonical child forwards its ordered fallback chain through the runtime profile', async () => {
+  const h = createHarness();
+  const fallbacks = [
+    { provider: 'anthropic', model: 'second', contextTokens: 48000 },
+    { provider: 'gemini', model: 'third', effort: 'low' },
+  ];
+  await h.tree.createAgentChild({ spec: spec('lead-1', { preset: { ...spec('').preset, fallbacks } }) });
+  assert.deepEqual(h.created[0].sessionProfile.routeFallbacks, fallbacks);
 });
 
 test('createAgentChild links the child under its parent with the root owner carried down the chain', async () => {
@@ -182,7 +220,21 @@ test('a watchdog stop surfaces as its stall error with the turn partial output, 
   await assert.rejects(() => h.tree.runAgentTurn({ session, prompt: 'again' }), /agent session turn cancelled/);
 });
 
-test('cancelAgentTree closes descendants first and marks every descriptor closed', async () => {
+test('concurrent cancellation of cyclic parent links settles and closes each runtime once', {
+  timeout: 2000,
+}, async () => {
+  const h = createHarness();
+  const { session: first } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  const { session: second } = await h.tree.createAgentChild({ spec: spec(first.id) });
+  h.tree.linkAgentDescriptor({ ...h.tree.agentDescriptor(first.id), parentSessionId: second.id });
+  assert.deepEqual(await Promise.all([h.tree.cancelAgentTree(first.id), h.tree.cancelAgentTree(second.id)]), [
+    true,
+    true,
+  ]);
+  assert.deepEqual(h.closed.map(([id]) => id).sort(), [first.id, second.id].sort());
+});
+
+test('cancelAgentTree closes runtimes descendants-first and allows same-session follow-ups', async () => {
   const h = createHarness();
   const { session: child } = await h.tree.createAgentChild({ spec: spec('lead-1') });
   await h.tree.createAgentChild({ spec: spec(child.id) });
@@ -191,16 +243,20 @@ test('cancelAgentTree closes descendants first and marks every descriptor closed
     ['child-2', 'parent stopped'],
     ['child-1', 'parent stopped'],
   ]);
-  assert.equal(h.tree.agentDescriptor('child-1').status, 'closed');
-  assert.equal(h.tree.agentDescriptor('child-2').closed, true);
+  assert.deepEqual(h.closeOptions, [
+    ['child-2', { tombstone: false }],
+    ['child-1', { tombstone: false }],
+  ]);
+  assert.equal(h.tree.agentDescriptor('child-1').status, 'cancelled');
+  assert.equal(h.tree.agentDescriptor('child-2').closed, false);
   assert.equal(await h.tree.cancelAgentTree('child-1'), true, 'a closed child is already done');
   assert.equal(h.closed.length, 2);
   assert.equal(await h.tree.cancelAgentDescendants('lead-1'), true, 'children still listed');
   assert.equal(await h.tree.cancelAgentDescendants('nobody'), false);
-  await assert.rejects(() => h.tree.runAgentTurn({ session: child, prompt: 'x' }), /is closed/);
+  assert.equal((await h.tree.runAgentTurn({ session: child, prompt: 'x' })).content, 'echo:x');
   assert.deepEqual(
     h.tree.agentManager.listSessions().map((s) => s.id),
-    []
+    ['child-1', 'child-2']
   );
   assert.deepEqual(
     h.tree.agentManager
@@ -209,6 +265,110 @@ test('cancelAgentTree closes descendants first and marks every descriptor closed
       .sort(),
     ['child-1', 'child-2']
   );
+});
+
+test('a failing descendant does not stop sibling and parent cancellation, and is reported', async () => {
+  const h = createHarness();
+  const { session: parent } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  const { session: failing } = await h.tree.createAgentChild({ spec: spec(parent.id) });
+  const { session: sibling } = await h.tree.createAgentChild({ spec: spec(parent.id) });
+  h.runtimeFor(failing.id).closeCanonicalSession = async () => {
+    throw new Error('close exploded');
+  };
+  await assert.rejects(() => h.tree.cancelAgentTree(parent.id, 'stop all'), /^Error: close exploded$/);
+  const { session: failing2 } = await h.tree.createAgentChild({ spec: spec(parent.id) });
+  h.runtimeFor(failing2.id).closeCanonicalSession = async () => {
+    throw new Error('second boom');
+  };
+  await assert.rejects(
+    () => h.tree.cancelAgentTree(parent.id, 'stop all'),
+    (error) =>
+      error instanceof AggregateError &&
+      error.errors.length === 2 &&
+      /close exploded/.test(error.message) &&
+      /second boom/.test(error.message)
+  );
+  assert.deepEqual(h.closed, [
+    [sibling.id, 'stop all'],
+    [parent.id, 'stop all'],
+  ]);
+  assert.equal(h.tree.agentDescriptor(parent.id).status, 'cancelled');
+  assert.equal(h.tree.agentDescriptor(sibling.id).status, 'cancelled');
+});
+
+test('cancellation follows the current runtime after an ordinary session reopen', async () => {
+  const h = createHarness();
+  const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  await h.tree.cancelAgentTree(session.id);
+  h.runtimeFor(session.id).terminal = false;
+  await h.tree.cancelAgentTree(session.id);
+  assert.equal(h.closed.length, 2);
+});
+
+test('cancellation during transcript loading prevents turn submission', async () => {
+  const h = createHarness();
+  const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  h.runtimeFor(session.id).readModelMessages = async () => {
+    await h.tree.cancelAgentTree(session.id);
+    return { messageCount: 0, messages: [] };
+  };
+  await assert.rejects(h.tree.runAgentTurn({ session, prompt: 'do not submit' }), /cancelled during admission/);
+  assert.equal(h.turns.length, 0);
+});
+
+test('a pending child creation cannot escape explicit parent cancellation', async () => {
+  let started;
+  let release;
+  const ready = new Promise((resolve) => {
+    started = resolve;
+  });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const h = createHarness({
+    beforeCreate: async () => {
+      started();
+      await gate;
+    },
+  });
+  const creating = h.tree.createAgentChild({ spec: spec('lead-1') });
+  await ready;
+  await h.tree.cancelAgentDescendants('lead-1');
+  release();
+  await assert.rejects(creating, /cancelled during admission/);
+  assert.equal(h.turns.length, 0);
+  assert.deepEqual(h.closeOptions, [['child-1', { tombstone: false }]], 'the runtime created meanwhile is closed');
+  assert.equal(h.tree.agentDescriptor('child-1'), null);
+});
+
+test('busy follow-ups are rejected while subtree cancellation is in progress', async () => {
+  const h = createHarness({ busyIds: new Set(['child-1']) });
+  const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  let started;
+  let release;
+  const ready = new Promise((resolve) => {
+    started = resolve;
+  });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const runtime = h.runtimeFor(session.id);
+  runtime.closeCanonicalSession = async () => {
+    started();
+    await gate;
+    return true;
+  };
+  let submitted = false;
+  runtime.submitAsync = async () => {
+    submitted = true;
+    return true;
+  };
+  const closing = h.tree.cancelAgentTree(session.id);
+  await ready;
+  await assert.rejects(h.tree.agentSurface.enqueueTurn({ session, prompt: 'late' }), /cancelled during admission/);
+  assert.equal(submitted, false);
+  release();
+  await closing;
 });
 
 test('rehydration rebuilds children from stored rows, resolving roots through the parent chain', async () => {

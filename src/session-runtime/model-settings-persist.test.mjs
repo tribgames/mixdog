@@ -138,6 +138,7 @@ function stubRouteApi({
       route = next;
     },
     getSession: () => session,
+    getSessionGeneration: () => 0,
     setSession: () => {},
     getConfigHasSecrets: () => false,
     getWebSearchRouteState: () => null,
@@ -243,11 +244,25 @@ test('only a model choice replaces the main model; tuning another live model kee
   });
   // Tuning the main model itself keeps its preset current.
   assert.deepEqual(await run(undefined, effort), { persisted: ['gpt-5.4'], debounceCalls: 0 });
-  // Choosing a different model makes it the main model.
+  // Only an explicit default selection changes the main model.
   assert.deepEqual(await run(astra, (api) => api.setRoute({ provider: 'openai', model: 'gpt-6-astra' })), {
-    persisted: ['gpt-6-astra'],
-    debounceCalls: 0,
+    persisted: [],
+    debounceCalls: 1,
   });
+  assert.deepEqual(
+    await run(astra, (api) => api.setRoute({ provider: 'openai', model: 'gpt-6-astra' }, { keepMainModel: false })),
+    {
+      persisted: ['gpt-6-astra'],
+      debounceCalls: 0,
+    }
+  );
+  assert.deepEqual(
+    await run(astra, (api) => api.setRoute({ provider: 'openai', model: 'gpt-5.4' }, { keepMainModel: false })),
+    {
+      persisted: ['gpt-5.4'],
+      debounceCalls: 0,
+    }
+  );
   // An heir opening on its source's model never replaces the main model.
   const heir = (api) => api.setRoute({ provider: 'openai', model: 'gpt-6-sol' }, { keepMainModel: true });
   assert.deepEqual(await run(astra, heir), { persisted: [], debounceCalls: 1 });

@@ -58,7 +58,7 @@ export async function forgetSessionSearch(sessionId) {
 
 async function loadStoreDeps() {
   const [{ getStoreDir }, { _storedSessionFromFile, STORED_SESSION_UNREADABLE }] = await Promise.all([
-    import('../agent/orchestrator/session/store/paths-heartbeat.mjs'),
+    import('../agent/orchestrator/session/store/session-paths.mjs'),
     import('../agent/orchestrator/session/store/serialize.mjs'),
   ]);
   return {

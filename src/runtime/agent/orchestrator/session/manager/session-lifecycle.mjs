@@ -7,7 +7,7 @@ import { getProvider } from '../../providers/registry.mjs';
 import { invalidateContextUsageSnapshot, invalidateProviderContextBaseline } from '../loop/compact-policy.mjs';
 import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession } from '../store.mjs';
 import { _liveSessions } from '../store/live-state.mjs';
-import { _isActivelyOwnedElsewhere, _recoverTurnCheckpointDurably } from './session-owner-liveness.mjs';
+import { _recoverTurnCheckpointDurably } from './turn-checkpoint-recovery.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { getHiddenAgent } from '../../internal-agents.mjs';
 import { loadConfig } from '../../config.mjs';
@@ -37,14 +37,15 @@ import { getAgentRuntimeSync, warnAgentRuntimeResolveFailureOnce } from './agent
 import { ensureCodexWireSessionId, mintSessionId } from './session-id.mjs';
 import { providerCacheKey } from './provider-cache-key.mjs';
 import { buildSessionRecord, normalizeDesktopSessionMetadata, sessionOriginFields } from './session-record.mjs';
+import { normalizeWorkflowRoute } from '../../runtime-core/workflow.mjs';
 import { applyPendingWorkspaceReroot, refreshSessionBp3Environment } from './prompt-utils.mjs';
 import { isWorktreeBound } from '../../../../shared/worktrees/contract.mjs';
 import { applyAgentToolExposure } from '../loop/tool-exposure-migration.mjs';
+import { prewarmSessionAutoEffort } from './ask-turn-auto-effort.mjs';
 
-// Owner liveness (attach-on-resume guard) and the durable turn-checkpoint
-// recovery it gates; re-exported so prior importers of this module stay
-// unchanged.
-export { isSessionOwnerGone, recoverSessionAfterProcessRestart } from './session-owner-liveness.mjs';
+// Durable turn-checkpoint recovery; re-exported so prior importers of this
+// module stay unchanged.
+export { recoverSessionAfterProcessRestart } from './turn-checkpoint-recovery.mjs';
 // Prepared-surface cache warmers (desktop hover prefetch, pane projection);
 // re-exported so prior importers of this module stay unchanged.
 export { prefetchSession, prepareSessionProjection } from './prepared-resume-cache.mjs';
@@ -211,6 +212,11 @@ export function createSession(opts) {
   const { profile } = resolved;
   const route = resolveSessionRoute(opts, presetObj, profile);
   const { providerName, modelName, provider, toolPreset, id } = route;
+  const routeFallbacks = normalizeWorkflowRoute({
+    provider: providerName,
+    model: modelName,
+    fallbacks: Object.hasOwn(opts, 'routeFallbacks') ? opts.routeFallbacks : presetObj?.fallbacks,
+  })?.fallbacks;
   // Provider cache strategy — agentRuntime.resolveSync() above is a
   // best-effort injection point (setAgentRuntime() has no live caller
   // today, so that branch never fires); build it directly here so every
@@ -218,11 +224,7 @@ export function createSession(opts) {
   // 'lead', or no agent at all — raw/CLI callers) get their BP4 message
   // tail TTL linked to the user's autoClear idle-sweep config; hidden and
   // public agents keep the flat 5m default (see cache-strategy.mjs docs).
-  // Scoped to explicit-breakpoint (Anthropic-family) providers only — the
-  // non-Anthropic branches of buildProviderCacheOpts (e.g. the 'openai'
-  // cacheRetention:'24h' shape) were never exercised by createSession
-  // before this change, and are left untouched to avoid altering live
-  // OpenAI/other-provider request shape as a side effect of this fix.
+  // Scoped to explicit-breakpoint (Anthropic-family) providers only.
   const providerCacheOpts = resolved.providerCacheOpts || buildSessionProviderCacheOpts(providerName, id, opts.agent);
   const surface = resolveSessionToolSurface(opts, { profile, toolPreset, modelName });
   const prompt = composeSessionSystem(opts, { profile, providerName, modelName, surface });
@@ -244,6 +246,7 @@ export function createSession(opts) {
     origin: sessionOriginFields(opts, { profile, presetObj, providerCacheOpts, surface }),
   });
   session.providerCacheOptsOverride = Boolean(resolved.providerCacheOpts);
+  if (routeFallbacks?.length) session.routeFallbacks = routeFallbacks;
   // A non-native agent sends core + bridge, built from its filtered tools.
   applyAgentToolExposure(session);
   refreshSessionBp3Environment(session, opts.cwd);
@@ -251,6 +254,7 @@ export function createSession(opts) {
   // reads live memory; disk flush is for cross-process / restart durability.
   setLiveSession(session);
   saveSession(session);
+  prewarmSessionAutoEffort(session, provider);
   return session;
 }
 
@@ -460,9 +464,8 @@ export function updateSessionRoute(id, route = {}, options = {}) {
 }
 
 // --- resume (reload tools for a stored session) ---
-// Whether another live process is driving the session (and therefore whether
-// this resume attaches as a viewer) is decided by session-owner-liveness.mjs;
-// the prepared tool surface it consumes is cached in prepared-resume-cache.mjs.
+// Interrupted-turn recovery lives in turn-checkpoint-recovery.mjs; the
+// prepared tool surface it consumes is cached in prepared-resume-cache.mjs.
 
 // Desktop callers pass their selected durable classification as a
 // capability check. Refuse a stale/tampered cross-class resume before any
@@ -494,25 +497,6 @@ function _applyDesktopResumeScope(session, options) {
         )
       : expectedDesktop;
   return true;
-}
-
-// ATTACH (viewer mode, zero ownership): hand back the live transcript
-// under the SAME id, flagged remoteAttached. No tool refresh, no save,
-// no generation claim — the session file remains exclusively the
-// owner's. session-turn-api routes this surface's submits into the
-// shared pending spool instead of running a local turn.
-function _attachViewerSession(session, sessionId) {
-  const attached = { ...session, remoteAttached: true };
-  delete attached.liveTurnMessages;
-  delete attached.toolApprovalHook;
-  if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
-    try {
-      process.stderr.write(`[session] attach-on-resume: ${sessionId} is live elsewhere → viewer attach\n`);
-    } catch {
-      /* best-effort */
-    }
-  }
-  return attached;
 }
 
 // Refreshes the session's tool surface from the prepared resume when it still
@@ -551,7 +535,6 @@ export async function resumeSession(sessionId, preset, options = {}) {
   if (Object.hasOwn(options, 'mcpScopeId')) {
     session.mcpScopeId = String(options.mcpScopeId || '').trim() || null;
   }
-  if (_isActivelyOwnedElsewhere(session, sessionId)) return _attachViewerSession(session, sessionId);
   _recoverTurnCheckpointDurably(session, sessionId);
   _refreshResumedTools(session, sessionId, preset);
   refreshSessionProviderCacheOpts(session);
@@ -563,5 +546,6 @@ export async function resumeSession(sessionId, preset, options = {}) {
       process.stderr.write(`[session] resume save failed: ${err?.message || err}\n`);
     } catch {}
   });
+  prewarmSessionAutoEffort(session, session.provider ? getProvider(session.provider) : null);
   return session;
 }

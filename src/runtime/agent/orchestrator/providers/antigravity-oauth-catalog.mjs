@@ -194,6 +194,18 @@ function antigravityCatalogModels() {
 }
 
 /**
+ * The catalog `family` ('gemini-pro', 'gemini-flash', 'gpt-oss') of a picker
+ * id or one of its wire ids, or null when no record carries one (Claude, or
+ * an id the catalog does not list).
+ */
+export function antigravityModelFamily(model, models = antigravityCatalogModels()) {
+  const id = String(model || '');
+  const wires = (entry) => (entry?.wire && typeof entry.wire === 'object' ? Object.values(entry.wire) : [entry?.wire]);
+  const record = models.find((entry) => entry?.id === id) || models.find((entry) => wires(entry).includes(id));
+  return typeof record?.family === 'string' && record.family ? record.family : null;
+}
+
+/**
  * Turn a picker model + effort into the wire id the gateway accepts. Tiered
  * families consume the effort (the id encodes it); a bare id whose record
  * lists levels keeps it for thinkingLevel; every other record drops it
@@ -228,17 +240,34 @@ function quotaRow(label, bucket) {
   };
 }
 
-/** Shared Gemini 5H/7D rows from retrieveUserQuotaSummary. Missing fields stay omitted. */
+// The gateway's bucket ids; group names are display text and may change.
+const GEMINI_5H_BUCKET_ID = 'gemini-5h';
+const GEMINI_WEEKLY_BUCKET_ID = 'gemini-weekly';
+const ARGON_WEEKLY_BUCKET_ID = 'gemini-argon-wtu-weekly';
+// The "Claude and GPT models" group (Claude Opus, Claude Sonnet, GPT-OSS) has
+// its own pair of buckets, separate from the Gemini counters.
+const THIRD_PARTY_5H_BUCKET_ID = '3p-5h';
+const THIRD_PARTY_WEEKLY_BUCKET_ID = '3p-weekly';
+
+/**
+ * Gemini 5H/7D rows from retrieveUserQuotaSummary, the separate weekly limit
+ * of the Gemini 4 Argon group (its own group with only a weekly bucket), and
+ * the Claude/GPT-OSS 5H/7D pair. Rows are selected by bucket id and window.
+ * Missing fields stay omitted.
+ */
 export function antigravityQuotaWindows(summary) {
-  const groups = Array.isArray(summary?.groups) ? summary.groups : [];
-  const group = groups.find((entry) => entry && typeof entry === 'object' && entry.displayName === 'Gemini Models');
-  const buckets = Array.isArray(group?.buckets) ? group.buckets : [];
-  let fiveHour = null;
-  let weekly = null;
-  for (const bucket of buckets) {
-    if (!bucket || typeof bucket !== 'object') continue;
-    if (!fiveHour && bucket.window === '5h') fiveHour = bucket;
-    if (!weekly && bucket.window === 'weekly') weekly = bucket;
-  }
-  return [quotaRow('5H', fiveHour), quotaRow('7D', weekly)].filter(Boolean);
+  const groups = (Array.isArray(summary?.groups) ? summary.groups : []).filter(
+    (entry) => entry && typeof entry === 'object'
+  );
+  const buckets = groups.flatMap((entry) => (Array.isArray(entry.buckets) ? entry.buckets : []));
+  const bucket = (id, window) =>
+    buckets.find((entry) => entry && typeof entry === 'object' && entry.bucketId === id && entry.window === window) ??
+    null;
+  return [
+    quotaRow('5H', bucket(GEMINI_5H_BUCKET_ID, '5h')),
+    quotaRow('7D', bucket(GEMINI_WEEKLY_BUCKET_ID, 'weekly')),
+    quotaRow('7D Argon', bucket(ARGON_WEEKLY_BUCKET_ID, 'weekly')),
+    quotaRow('5H Claude/GPT', bucket(THIRD_PARTY_5H_BUCKET_ID, '5h')),
+    quotaRow('7D Claude/GPT', bucket(THIRD_PARTY_WEEKLY_BUCKET_ID, 'weekly')),
+  ].filter(Boolean);
 }

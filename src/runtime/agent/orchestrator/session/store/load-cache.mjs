@@ -8,7 +8,7 @@ import {
   readCanonicalSessionRecord,
   acceptStrictSessionRecords,
 } from './canonical-reader.mjs';
-import { sessionPath } from './paths-heartbeat.mjs';
+import { sessionPath } from './session-paths.mjs';
 import { noteMemoryRelease } from '../../../../shared/idle-gc.mjs';
 
 // Recent full-session reads are much hotter than writes while a user hops

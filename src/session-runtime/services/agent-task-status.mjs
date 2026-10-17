@@ -111,6 +111,7 @@ function cleanStage(value) {
 }
 
 function describeLastProgress({ stage, snapshot, runtime, silentFor, lastToolCall, now }) {
+  if (snapshot?.awaitingModelResponse) return 'model thinking (request sent; awaiting response headers)';
   if (snapshot?.waitingForTransport) return 'awaiting model transport';
   if (snapshot?.waitingForFirstSemantic) {
     return 'transport active; awaiting first model event';
@@ -169,6 +170,7 @@ function describeAgentDiagnostic({ taskStatus, sessionStatus, stage, snapshot, s
     if (abortErr) return `stale: ${abortErr.message.replace(/^agent /i, '')}`;
   }
 
+  if (snapshot?.awaitingModelResponse) return 'model thinking; request sent, response headers pending';
   if (snapshot?.waitingForTransport) return 'waiting for model transport';
   if (snapshot?.waitingForFirstSemantic) {
     return 'transport healthy; waiting for first semantic model event';

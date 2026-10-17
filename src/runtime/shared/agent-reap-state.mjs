@@ -3,6 +3,19 @@ import { positiveInt } from './numbers.mjs';
 
 export const TAG_TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+// How long a finished agent (completed, failed or cancelled child, or a Lead
+// row) stays listed in the Agents pane, measured from its finish stamp. This is
+// pane visibility only: session reuse and cache reaping keep their own windows
+// (resolveAgentTerminalReapMs).
+export const AGENT_PANE_VISIBLE_MS = 60 * 60 * 1000;
+
+/** Whether a row finished at `finishedAtMs` is still inside the pane window.
+ *  Index rows are always stamped; a row with no usable stamp has no provable
+ *  age and stays listed rather than vanishing on a guess. */
+export function agentPaneVisible(finishedAtMs, now) {
+  return !(finishedAtMs > 0) || now - finishedAtMs < AGENT_PANE_VISIBLE_MS;
+}
+
 export function stampMs(value) {
   if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : 0;
   const text = clean(value);

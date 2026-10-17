@@ -509,6 +509,90 @@ test('the first turn after an in-place model switch is sent on the new model', a
   });
 });
 
+test('a quota failure without output preserves its notification and failure after restoration', async (t) => {
+  const { restoreTranscriptItems } = await import('../transcript-restore/restore.mjs');
+  await withAskHarness(t, async ({ session, askSession, loadSession, setReply }) => {
+    const notification = islandNotification();
+    const quota = { provider: session.provider, model: session.model, resetAt: null };
+    setReply(async () => {
+      throw Object.assign(new Error('quota exhausted'), { httpStatus: 400, quotaExhausted: quota });
+    });
+    await assert.rejects(
+      askSession(session.id, notification, null, null, null, null, { promptSource: 'task-notification' }),
+      /quota exhausted/
+    );
+    const stored = JSON.parse(JSON.stringify(loadSession(session.id).messages));
+    const prompt = stored.find((message) => message.content === notification);
+    assert.ok(prompt, 'the notification survives a failure with no output');
+    assert.equal(prompt.meta.transcript.completion.status, 'failed');
+    assert.deepEqual(prompt.meta.transcript.completion.quota, quota);
+    const items = restoreTranscriptItems(stored, { sessionId: session.id });
+    assert.equal(items.at(-1).kind, 'turndone');
+    assert.equal(items.at(-1).status, 'failed');
+    assert.deepEqual(items.at(-1).quota, quota);
+    assert.equal(items.at(-1).detail, 'Provider usage limit reached.');
+    assert.ok(
+      items.some((item) => item.kind === 'tool'),
+      'the notification card survives'
+    );
+    setReply(async () => ({ content: 'recovered' }));
+    await askSession(session.id, 'continue', null, null, null, null, {});
+    const recovered = loadSession(session.id).messages.find((message) => message.content === notification);
+    assert.deepEqual(recovered.meta.transcript.completion, prompt.meta.transcript.completion);
+  });
+});
+
+test('a close refused by its lifecycle barrier leaves the turn running and checkpointing', async (t) => {
+  const { closeSession } = await import('./session-close.mjs');
+  const { readTurnCheckpoint } = await import('./turn-checkpoint.mjs');
+  const { sessionPath } = await import('../store/session-paths.mjs');
+  const { existsSync, readFileSync, unlinkSync, writeFileSync } = await import('node:fs');
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  await withAskHarness(t, async ({ session, askSession, loadSession, setReply }) => {
+    let refused = null;
+    let checkpointed = null;
+    setReply(async (_messages, sendOpts) => {
+      sendOpts.onTextDelta?.('before');
+      // Let the turn's preflight save land before replacing the record.
+      await sleep(100);
+      const path = sessionPath(session.id);
+      const original = existsSync(path) ? readFileSync(path) : null;
+      // Another session's record renamed onto this path: the barrier refuses it.
+      writeFileSync(path, JSON.stringify({ id: 'sess_someone_else', messages: [] }));
+      const stderrWrite = process.stderr.write;
+      process.stderr.write = () => true;
+      try {
+        refused = closeSession(session.id, 'cli-agent-close');
+      } finally {
+        process.stderr.write = stderrWrite;
+        if (original) writeFileSync(path, original);
+        else unlinkSync(path);
+      }
+      sendOpts.onTextDelta?.(' after');
+      await sleep(400);
+      checkpointed = readTurnCheckpoint(session.id);
+      return { content: 'before after', usage: { inputTokens: 1, outputTokens: 1 } };
+    });
+    const result = await askSession(session.id, 'keep going', null, null, null, null, {});
+    assert.equal(refused, false, 'the close was refused');
+    assert.equal(
+      checkpointed?.interruption?.partialAssistantContent,
+      'before after',
+      'the checkpoint kept recording after the refused close'
+    );
+    assert.equal(result.content, 'before after');
+    const stored = loadSession(session.id);
+    assert.notEqual(stored.closed, true);
+    assert.equal(stored.messages.at(-1).role, 'assistant');
+    assert.equal(stored.messages.at(-1).content, 'before after');
+    assert.equal(
+      stored.messages.some((m) => /Request interrupted/.test(String(m.content))),
+      false,
+      'the refused close left no interruption snapshot behind'
+    );
+  });
+});
+
 test('a provider failure rejects, keeps the session usable, and an abort surfaces as a closed-session error', async (t) => {
   await withAskHarness(t, async ({ session, askSession, loadSession, SessionClosedError, sends, setReply }) => {
     // A 400 is terminal for the loop's retry classifier: no transport retries.

@@ -138,6 +138,7 @@ function wireToolPolicyRefresh(boot) {
     getMode: () => rt.mode,
     getConfig: () => rt.config,
     getDataDir: () => dataDirOf(cfgMod),
+    getActiveTurnCount: () => rt.activeTurnCount || 0,
     modelStandaloneTools: boot.modelStandaloneTools,
     featureDisallowedTools: boot.featureDisallowedTools,
     loadCoreMemoryContext: boot.loadCoreMemoryContext,
@@ -492,6 +493,7 @@ function modelRouteApiFor(boot) {
       rt.route = v;
     },
     getSession: () => rt.session,
+    getSessionGeneration: () => rt.sessionGeneration,
     setSession: boot.adoptSession,
     getAddressedSessionId: () => rt.addressedSessionId,
     getConfigHasSecrets: () => rt.configHasSecrets,
@@ -572,7 +574,10 @@ function workspaceApiFor(boot) {
     getConfig: () => rt.config,
     createCurrentSession: (reason) => boot.createCurrentSession(reason),
     applyResolvedCwd: (cwd, options) => boot.applyResolvedCwd(cwd, options),
-    persistSession: (session) => saveSession(session, { immediate: true }),
+    // Durable save: on disk when it returns, throws when the write fails
+    // (immediate mode only queues it). Synchronous, so a transition never
+    // waits on the save worker, which may never come up.
+    persistSession: (session) => saveSession(session, { sync: true }),
     refreshWorkspaceContext: (session, cwd, move) =>
       refreshWorkspacePrompt(session, cwd, { loadCoreMemoryContext: boot.loadCoreMemoryContext, move }),
     invalidateCaches: () => {
@@ -590,6 +595,7 @@ function workspaceApiFor(boot) {
 function sessionTurnApiFor(boot) {
   const { rt, tunables, remoteTranscript, routePreparation } = boot;
   return createSessionTurnApi({
+    applyPendingRoute: () => boot.modelRouteApi.applyPendingRoute(),
     prepareTurnWorkspace: boot.workspaceApi.prepareTurnWorkspace,
     admitTurnWorkspace: boot.workspaceApi.admitTurnWorkspace,
     getSession: () => rt.session,

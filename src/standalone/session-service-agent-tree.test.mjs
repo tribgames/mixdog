@@ -124,6 +124,7 @@ function cancellationRaceRuntimeFactory(events, controls) {
 
 function durableRuntimeFactory(events, records) {
   return async (options = {}) => {
+    let terminal = false;
     const listeners = new Set();
     const state = {
       sessionId: null,
@@ -165,6 +166,7 @@ function durableRuntimeFactory(events, records) {
         return { provider: options.provider };
       },
       getState: () => state,
+      isSessionTerminal: () => terminal,
       subscribe(listener) {
         listeners.add(listener);
         return () => listeners.delete(listener);
@@ -178,7 +180,7 @@ function durableRuntimeFactory(events, records) {
       },
       resume(sessionId) {
         const stored = records.get(sessionId);
-        if (!stored) return false;
+        if (!stored || stored.closed === true) return false;
         state.sessionId = sessionId;
         state.provider = stored.provider;
         state.model = stored.model;
@@ -228,12 +230,13 @@ function durableRuntimeFactory(events, records) {
         emit();
         return { aborted: true };
       },
-      async closeCanonicalSession(reason) {
+      async closeCanonicalSession(reason, closeOptions = {}) {
         events.push(['close', state.sessionId, reason]);
+        terminal = true;
         state.busy = false;
         persist({
-          closed: true,
-          status: 'closed',
+          closed: closeOptions.tombstone === true,
+          status: closeOptions.tombstone === true ? 'closed' : 'cancelled',
           closedReason: reason,
         });
         emit();
@@ -356,8 +359,8 @@ test('canonical Agent children use ordinary session turns, retain Parent–Child
   const closedIds = events.filter(([kind]) => kind === 'close').map(([, id]) => id);
   assert.equal(closedIds.includes(firstSession.id), true);
   assert.equal(closedIds.includes(nested.session.id), true);
-  assert.equal(service.agentDescriptor(firstSession.id).status, 'closed');
-  assert.equal(service.agentDescriptor(nested.session.id).status, 'closed');
+  assert.equal(service.agentDescriptor(firstSession.id).status, 'cancelled');
+  assert.equal(service.agentDescriptor(nested.session.id).status, 'cancelled');
 });
 
 test('turn abort does not hydrate the durable Agent catalog', async (t) => {
@@ -962,10 +965,12 @@ test('public Agent APIs rehydrate and reuse durable canonical ancestry after dae
   const closedIds = events.filter(([kind]) => kind === 'close').map(([, id]) => id);
   assert.equal(closedIds.includes(sessionId), true);
   assert.equal(closedIds.includes(nestedSessionId), true);
-  assert.equal(service.agentDescriptor(sessionId).status, 'closed');
-  assert.equal(service.agentDescriptor(nestedSessionId).status, 'closed');
-  assert.equal(records.get(sessionId)?.closed, true);
-  assert.equal(records.get(nestedSessionId)?.closed, true);
+  assert.equal(service.agentDescriptor(sessionId).status, 'cancelled');
+  assert.equal(service.agentDescriptor(nestedSessionId).status, 'cancelled');
+  assert.equal(records.get(sessionId)?.closed, false);
+  assert.equal(records.get(nestedSessionId)?.closed, false);
+  const resumed = await service.agentSurface.runTurn({ session: { id: sessionId }, prompt: 'resume after cancel' });
+  assert.equal(resumed.content, 'handoff:resume after cancel');
 
   await service.stop('second simulated daemon replacement');
   cleanupBackgroundTasks({ surface: 'agent', force: true });
@@ -976,15 +981,15 @@ test('public Agent APIs rehydrate and reuse durable canonical ancestry after dae
     {
       type: 'send',
       sessionId,
-      message: 'must not resurrect',
+      message: 'continue retained conversation',
     },
     context
   );
-  assert.match(statusAfterClose, /"status": "closed"/);
-  assert.match(sendAfterClose, /Error:.*(?:closed|not found)/i);
+  assert.doesNotMatch(statusAfterClose, /"status": "closed"/);
+  assert.match(await waitForAgentTask(agent, sendAfterClose, context), /handoff:continue retained conversation/);
   assert.equal(records.size, 2);
-  assert.equal(records.get(sessionId)?.closed, true);
-  assert.equal(records.get(nestedSessionId)?.closed, true);
+  assert.equal(records.get(sessionId)?.closed, false);
+  assert.equal(records.get(nestedSessionId)?.closed, false);
 
   const reservedIds = events.filter(([kind]) => kind === 'reserve').map(([, id]) => id);
   assert.deepEqual(new Set(reservedIds), new Set([sessionId, nestedSessionId]));
@@ -1043,12 +1048,12 @@ test('load-on-demand binds the loaded id as the durable address and a failed dur
         bound.push(sessionId);
         return true;
       },
-      async closeCanonicalSession(reason) {
+      async closeCanonicalSession(reason, closeOptions) {
         if (failClose) {
           events.push(['close-failed', runtime.getState().sessionId, reason]);
           return false;
         }
-        return runtime.closeCanonicalSession(reason);
+        return runtime.closeCanonicalSession(reason, closeOptions);
       },
     };
   };
@@ -1111,7 +1116,7 @@ test('load-on-demand binds the loaded id as the durable address and a failed dur
     [session.id],
     'no second conversation was ever reserved'
   );
-  assert.equal(records.get(session.id).closed, true);
+  assert.equal(records.get(session.id).closed, false);
   assert.equal(JSON.stringify(records.get(session.id).messages), transcript, 'transcript untouched by the close');
   assert.equal(records.size, 1);
 });

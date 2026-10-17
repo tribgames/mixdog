@@ -477,7 +477,7 @@ test('MiMo widens the stream waits; the shared default stays untouched', async (
   try {
     await assert.rejects(
       consumeCompatChatCompletionStream(silent, { label: 'x', providerName: 'x', firstByteTimeoutMs: 30 }),
-      /first byte timed out after 30ms/
+      (err) => /first byte timed out after 30ms/.test(err.message) && err.timeoutPhase === 'first-chunk'
     );
   } finally {
     clearInterval(keepAlive);

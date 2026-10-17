@@ -45,3 +45,19 @@ export function rewindUnansweredPrompt(session, prompt) {
   delete session._providerPrefixGuardState;
   return true;
 }
+
+/** Resolve a retry against the durable failure, never against display text. */
+export function retainedFailedTurnInput(messages, messageId, attemptId) {
+  const list = Array.isArray(messages) ? messages : [];
+  const index = list.findLastIndex((message) => message?.role !== 'system');
+  const message = list[index];
+  const transcript = message?.meta?.transcript;
+  if (!messageId || transcript?.messageId !== messageId || transcript?.completion?.status !== 'failed') {
+    throw new Error('The failed turn is no longer the latest execution.');
+  }
+  if (transcript.completion.attemptId && transcript.completion.attemptId !== attemptId) {
+    throw new Error('The failed attempt is no longer the latest execution.');
+  }
+  if (message.role !== 'user') return null;
+  return { index, message };
+}

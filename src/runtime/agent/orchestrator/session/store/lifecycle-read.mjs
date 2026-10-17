@@ -6,7 +6,7 @@
  * path and of the in-memory snapshot caches.
  */
 import { readCanonicalSessionRecord, CANONICAL_RECORD_UNREADABLE } from './canonical-reader.mjs';
-import { sessionPath } from './paths-heartbeat.mjs';
+import { sessionPath } from './session-paths.mjs';
 
 /**
  * Cheap authoritative lifecycle read straight from disk (no live/pending

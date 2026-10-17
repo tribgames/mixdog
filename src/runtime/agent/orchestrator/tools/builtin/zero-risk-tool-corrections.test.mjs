@@ -87,7 +87,7 @@ test('git: pipe rejection names the replacement; stringified command array runs 
     assert.match(substitution, /shell operators/);
     assert.doesNotMatch(substitution, /output_limit/);
     const out = await executeGitTool({ command: '["git --version","git --version"]' }, dir);
-    assert.equal(out.match(/^## git --version/gm)?.length, 2, out);
+    assert.equal(out.match(/^## \d+: git version/gm)?.length, 2, out);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

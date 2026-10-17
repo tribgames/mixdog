@@ -6,6 +6,7 @@ import { ensureProviderEnabled } from '../../runtime/agent/orchestrator/runtime-
 import { resolveRouteContextState, selectionFastCapable } from '../route-state.mjs';
 import { canonicalizeAgentRouteStorage, withAgentDisabled } from '../../runtime/shared/agent-route-config.mjs';
 import { agentEditorId } from './shared.mjs';
+import { routeChain, validateRouteChainProviders } from '../../runtime/shared/model-route-chain.mjs';
 
 // Agent route persistence. Route-scope isolation: an agent route owns its
 // model AND its effort/fast, stored in config.agents[<id>]. The shared
@@ -109,7 +110,21 @@ export function createAgentRouteApi(deps) {
     }
     if (!clean(requested.provider)) return clearOverride(id);
     if (!clean(requested.model)) throw new Error('agent route requires provider and model');
-    const routeToSave = normalizeWorkflowRoute(await resolveSelectedRoute(requested, stored));
+    const chain = routeChain({
+      ...requested,
+      fallbacks: hasOwn(requested, 'fallbacks') ? requested.fallbacks : stored.fallbacks,
+    });
+    validateRouteChainProviders(chain);
+    const storedChain = routeChain(stored);
+    const resolved = [];
+    for (const entry of chain) {
+      const previous = storedChain.find(
+        (candidate) => candidate.provider === entry.provider && candidate.model === entry.model
+      );
+      resolved.push(await resolveSelectedRoute(entry, previous || {}));
+    }
+    const [primary, ...fallbacks] = resolved;
+    const routeToSave = normalizeWorkflowRoute({ ...primary, fallbacks });
     if (!routeToSave) throw new Error('agent route requires provider and model');
     // Picking a model is also the "on" switch unless the request keeps it off.
     const nextConfig = withAgentDisabled(getConfig(), id, keepOff);

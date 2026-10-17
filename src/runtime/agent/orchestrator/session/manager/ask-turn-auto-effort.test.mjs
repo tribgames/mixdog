@@ -3,9 +3,63 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { resolveTurnAutoEffort } from './ask-turn-auto-effort.mjs';
+import { prewarmSessionAutoEffort, resolveTurnAutoEffort } from './ask-turn-auto-effort.mjs';
 
 const ENV_KEYS = ['MIXDOG_AUTO_EFFORT', 'MIXDOG_EFFORT_JUDGE_DIR', 'MIXDOG_EFFORT_DECISIONS_LOG'];
+
+test('session pre-warm starts the judge only when Auto effort is on and the route can be judged', async (t) => {
+  const original = await import('../../../../effort-judge/judge-client.mjs');
+  let starts = 0;
+  t.mock.module('../../../../effort-judge/judge-client.mjs', {
+    namedExports: {
+      ...original,
+      prewarmEffortJudge: () => {
+        starts += 1;
+        return true;
+      },
+    },
+  });
+  const saved = process.env.MIXDOG_AUTO_EFFORT;
+  t.after(() => {
+    if (saved === undefined) delete process.env.MIXDOG_AUTO_EFFORT;
+    else process.env.MIXDOG_AUTO_EFFORT = saved;
+  });
+  const { prewarmSessionAutoEffort: prewarm } = await import(`./ask-turn-auto-effort.mjs?prewarm=${Date.now()}`);
+  const opus = { provider: 'anthropic-oauth', model: 'claude-opus-5-5' };
+  const provider = { name: 'anthropic-oauth' };
+
+  process.env.MIXDOG_AUTO_EFFORT = 'off';
+  assert.equal(prewarm(opus, provider), false);
+  assert.equal(starts, 0, 'Auto effort off starts nothing');
+
+  process.env.MIXDOG_AUTO_EFFORT = 'on';
+  assert.equal(prewarm({ ...opus, autoEffort: false }, provider), false);
+  assert.equal(prewarm({ provider: 'anthropic-oauth', model: 'claude-3-5-haiku' }, provider), false);
+  assert.equal(starts, 0, 'a route that turned it off, or one whose effort cannot change, starts nothing');
+
+  assert.equal(prewarm(opus, provider), true);
+  assert.equal(starts, 1);
+  assert.equal(prewarm(null, null), false, 'a malformed session never throws');
+});
+
+test('session pre-warm spawns no worker when the model is missing', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-prewarm-missing-'));
+  const previous = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+  process.env.MIXDOG_AUTO_EFFORT = 'on';
+  process.env.MIXDOG_EFFORT_JUDGE_DIR = root;
+  try {
+    assert.equal(
+      prewarmSessionAutoEffort({ provider: 'anthropic-oauth', model: 'claude-opus-5-5' }, { name: 'anthropic-oauth' }),
+      false
+    );
+  } finally {
+    for (const key of ENV_KEYS) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('a session whose route turned Auto effort off is never judged; an absent flag still is', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-auto-effort-route-'));

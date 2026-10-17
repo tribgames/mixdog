@@ -5,6 +5,7 @@
 // ./goal-recovery.mjs.
 import { createGoalRecovery } from './goal-recovery.mjs';
 import {
+  attachmentsForIntake,
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
 } from '../../../runtime/attachments/store.mjs';
@@ -52,18 +53,28 @@ export function createSessionTurnCalls(ctx) {
     const entry = await entryForSession(id, openHints || {});
     const target = entry.runtime.submitAsync;
     if (typeof target !== 'function') throw new TypeError('session runtime must implement submitAsync');
-    const intake = await preparePromptSubmissionForProvider(
-      materializePromptSubmission(prompt, options || {}),
-      { nativePdf: providerNativePdf(entry.runtime.provider || entry.runtime.session?.provider || '') }
-    );
+    const intake = await preparePromptSubmissionForProvider(materializePromptSubmission(prompt, options || {}), {
+      nativePdf: providerNativePdf(entry.runtime.provider || entry.runtime.session?.provider || ''),
+    });
     // Await intake only: submitAsync resolves once the prompt is represented by
     // the queue/user row, while provider execution remains daemon-owned and
     // detached.
     let submissionOptions = intake.options;
-    if (entry.runtime.externalAction === true) {
+    // Every send (desktop or paired device) reaches the engine here: the
+    // message records its attachments by content hash, so any device can open
+    // or download them by id later (and the store's census keeps the blobs).
+    const attachments = attachmentsForIntake(intake.prompt, intake.options);
+    if (attachments.length || entry.runtime.externalAction === true) {
       const transcriptMeta = intake.options?.transcriptMeta;
       const baseMeta = transcriptMeta && typeof transcriptMeta === 'object' ? transcriptMeta : {};
-      submissionOptions = { ...intake.options, transcriptMeta: { ...baseMeta, sender: 'user' } };
+      submissionOptions = {
+        ...intake.options,
+        transcriptMeta: {
+          ...baseMeta,
+          ...(attachments.length ? { attachments } : {}),
+          ...(entry.runtime.externalAction === true ? { sender: 'user' } : {}),
+        },
+      };
     }
     const accepted = await Promise.resolve(target.call(entry.runtime, intake.prompt, submissionOptions));
     if (accepted === true) {

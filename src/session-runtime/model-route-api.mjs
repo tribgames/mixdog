@@ -19,10 +19,12 @@ export { shouldRecreateEmptySessionForRouteChange } from '../runtime/agent/orche
 
 export function createModelRouteApi(deps) {
   const persist = createRoutePersistence(deps);
+  const setRoute = createSetRoute(deps, persist);
   return {
     ...createWebSearchRouteApi(deps),
-    setRoute: createSetRoute(deps, persist),
-    continueSessionInModel: createContinueSessionInModel(deps, persist),
+    setRoute,
+    applyPendingRoute: setRoute.applyPendingRoute,
+    continueSessionInModel: createContinueSessionInModel(deps, persist, setRoute.clearPendingRoute),
     ...createRouteTuning(deps, persist),
   };
 }

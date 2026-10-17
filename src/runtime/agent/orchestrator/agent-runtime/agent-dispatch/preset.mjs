@@ -30,6 +30,7 @@ function maintenanceRouteToPreset(routeOrName, agent) {
     type: 'agent',
     provider,
     model,
+    ...(routeOrName.fallbacks?.length ? { fallbacks: routeOrName.fallbacks } : {}),
     tools: 'full',
   };
   const effort = String(routeOrName.effort || '').trim();

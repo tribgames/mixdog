@@ -104,14 +104,19 @@ function parseFiles(raw) {
   return files;
 }
 
+// Change ids are ordinals (c1, c2, …) in diff order. They are only meaningful
+// together with the diff_id they were listed under: staging first verifies the
+// working diff still hashes to that snapshot, so an ordinal can never address a
+// different change than the one the model saw.
 function annotateChanges(files) {
   const changes = [];
+  let ordinal = 0;
   for (const file of files) {
     if (!file.stageable) continue;
     if (file.kind) {
       const entries = file.hunks.flatMap((hunk) => hunk.entries);
       changes.push({
-        id: `chg_${digest(file.lines.join('\n')).slice(0, 16)}`,
+        id: `c${++ordinal}`,
         path: file.path,
         kind: file.kind,
         additions: entries.filter(({ line }) => line.startsWith('+')).length,
@@ -126,9 +131,7 @@ function annotateChanges(files) {
       let group = null;
       const finishGroup = () => {
         if (!group) return;
-        const id = `chg_${digest(
-          [file.path, hunkIndex, group.oldStart, group.newStart, group.lines.join('\n')].join('\0')
-        ).slice(0, 16)}`;
+        const id = `c${++ordinal}`;
         for (const entry of group.entries) entry.changeId = id;
         changes.push({
           id,
@@ -137,7 +140,6 @@ function annotateChanges(files) {
           new_start: group.newStart,
           additions: group.additions,
           deletions: group.deletions,
-          preview: group.lines.slice(0, 4).map((line) => (line.length <= 180 ? line : `${line.slice(0, 180)}…`)),
         });
         group = null;
       };

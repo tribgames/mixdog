@@ -106,12 +106,11 @@ test('checkpoint recovery and cached bindings cannot revive a reaped worker', ()
     registry.refreshTagsFromSessions({ scanSessions: true });
     assert.equal(registry.agentSessionEntries().length, 1, 'a new real turn remains visible');
   } finally {
-    registry.clearScheduledReaps();
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('session scan does not resurrect a session the reaper just tombstoned', () => {
+test('boot and session scans preserve completed sessions without terminal expiration', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-tag-reap-scan-'));
   const now = Date.now();
   const finishedAt = iso(now - 2 * HOUR_MS);
@@ -135,30 +134,30 @@ test('session scan does not resurrect a session the reaper just tombstoned', () 
       },
     });
 
-    // Boot recovery: the 60m window elapsed long ago -> reap + tombstone.
+    // An old completion is still an ordinary resumable conversation.
     const registry = makeRegistry(root, mgr);
-    assert.deepEqual(storedRows(root), []);
+    assert.equal(storedRows(root).length, 1);
     assert.equal(
       storedTombstones(root).some((row) => row.tag === 'review1'),
-      true
+      false
     );
-    assert.equal(mgr.hidden.includes('child-a'), true);
+    assert.equal(mgr.hidden.includes('child-a'), false);
 
     registry.refreshTagsFromSessions({ scanSessions: true });
     registry.flushWorkerIndexMutations();
-    assert.deepEqual(storedRows(root), []);
-    assert.equal(registry.tags.has('review1'), false);
+    assert.equal(storedRows(root).length, 1);
+    assert.equal(registry.tags.has('review1'), true);
 
-    assert.deepEqual(registry.agentSessionEntries({ scanSessions: true }), []);
+    assert.equal(registry.agentSessionEntries({ scanSessions: true }).length, 1);
     registry.flushWorkerIndexMutations();
-    assert.deepEqual(storedRows(root), []);
-    assert.equal(storedTombstones(root).filter((row) => row.tag === 'review1').length, 1);
+    assert.equal(storedRows(root).length, 1);
+    assert.equal(storedTombstones(root).filter((row) => row.tag === 'review1').length, 0);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('scanned terminal sessions keep their own stamps and elapsed leases reap at once', () => {
+test('scanned terminal sessions keep their own stamps without expiration', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-tag-rebind-stamps-'));
   const now = Date.now();
   const staleStamp = iso(now - 2 * HOUR_MS);
@@ -176,14 +175,14 @@ test('scanned terminal sessions keep their own stamps and elapsed leases reap at
     // Elapsed window: reaped immediately instead of buying a fresh one.
     assert.equal(
       storedRows(root).some((row) => row.sessionId === 'stale-child'),
-      false
+      true
     );
     assert.equal(
       storedTombstones(root).some((row) => row.tag === 'stale1'),
-      true
+      false
     );
-    assert.equal(mgr.hidden.includes('stale-child'), true);
-    assert.equal(registry.tags.has('stale1'), false);
+    assert.equal(mgr.hidden.includes('stale-child'), false);
+    assert.equal(registry.tags.has('stale1'), true);
 
     // Still inside the window: the row inherits the session's terminal stamps
     // and the deadline is derived from them, not from the scan.
@@ -191,10 +190,8 @@ test('scanned terminal sessions keep their own stamps and elapsed leases reap at
     assert.ok(recent);
     assert.equal(recent.updatedAt, recentStamp);
     assert.equal(recent.finishedAt, recentStamp);
-    assert.equal(recent.reapAt, iso(Date.parse(recentStamp) + HOUR_MS));
-    assert.equal(registry.reapTimers.has('recent-child'), true);
+    assert.equal(recent.reapAt, null);
   } finally {
-    registry.cancelReap('recent-child');
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -227,7 +224,6 @@ test('repeated list reads never extend a terminal row lease', () => {
       assert.equal(row.reapAt, first.reapAt);
     }
   } finally {
-    registry.cancelReap('idle-child');
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -238,7 +234,7 @@ for (const [label, encode] of [
   ['numeric', (ms) => ms],
   ['numeric string', (ms) => String(ms)],
 ]) {
-  test(`terminal sessions with ${label} stamps reap on their own deadline`, () => {
+  test(`terminal sessions with ${label} stamps are retained`, () => {
     const root = mkdtempSync(join(tmpdir(), 'mixdog-tag-numeric-stamp-'));
     const now = Date.now();
     const staleMs = now - 2 * HOUR_MS;
@@ -255,19 +251,19 @@ for (const [label, encode] of [
 
       assert.equal(
         storedRows(root).some((row) => row.sessionId === 'stale-child'),
-        false
+        true
       );
       assert.equal(
         storedTombstones(root).some((row) => row.tag === 'stale1'),
-        true
+        false
       );
-      assert.equal(mgr.hidden.includes('stale-child'), true);
+      assert.equal(mgr.hidden.includes('stale-child'), false);
 
       const recent = storedRows(root).find((row) => row.sessionId === 'recent-child');
       assert.ok(recent);
       assert.equal(recent.updatedAt, iso(recentMs));
       assert.equal(recent.finishedAt, iso(recentMs));
-      assert.equal(recent.reapAt, iso(recentMs + HOUR_MS));
+      assert.equal(recent.reapAt, null);
 
       for (let i = 0; i < 3; i += 1) {
         registry.refreshTagsFromSessions({ scanSessions: true });
@@ -280,10 +276,9 @@ for (const [label, encode] of [
       }
       assert.equal(
         storedRows(root).some((row) => row.sessionId === 'stale-child'),
-        false
+        true
       );
     } finally {
-      registry.cancelReap('recent-child');
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -313,6 +308,7 @@ test('tag reuse after a reap consumes the tombstone and binds the fresh session'
     });
     const registry = makeRegistry(root, mgr);
     const context = { clientHostPid: HOST_PID };
+    registry.tombstoneTerminalSession('review1', reaped.id, reaped);
 
     // Spawn path: the tombstone still proves tag ownership and is consumed.
     const tombstone = registry.tagTombstoneForTag('review1', context);

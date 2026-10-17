@@ -67,34 +67,37 @@ test('lazy provisioning, branch return, re-entry and removal against a real repo
     assert.equal(session.desktopSession.projectPath, repo);
 
     const back = await api.selectBranch({ branch: 'dev', expectedRevision: first.revision });
-    assert.equal(back.workspace.cwd, repo);
-    assert.equal(git(repo, 'symbolic-ref', '--short', 'HEAD'), 'dev');
+    assert.notEqual(back.workspace.cwd, repo);
+    assert.equal(git(back.workspace.cwd, 'symbolic-ref', '--short', 'HEAD'), 'dev');
+    assert.equal(git(repo, 'symbolic-ref', '--short', 'HEAD'), 'main');
     assert.ok(existsSync(worktree), 'the worktree stays retained');
 
     const menu = await api.getBranchMenu();
-    assert.equal(menu.retainedWorktree.branch, 'mixdog/fix-the-login-page');
-    assert.equal(menu.occupancy.find((row) => row.branch === 'dev').kind, 'current');
+    assert.equal(
+      menu.retainedWorktree.branch,
+      'dev',
+      'actions target the selected checkout, not the first created one'
+    );
+    assert.equal(menu.occupancy.find((row) => row.branch === 'dev').kind, 'session');
     assert.equal(menu.occupancy.find((row) => row.branch === 'mixdog/fix-the-login-page').kind, 'session');
     assert.deepEqual(
       menu.branches.find((row) => row.name === 'dev'),
-      { name: 'dev', current: true, remote: false, upstream: '' },
+      { name: 'dev', current: false, remote: false, upstream: '' },
       'branch rows carry the DesktopGitBranch shape'
     );
 
     // The session-less (draft) menu and checkout read and guard the same folder.
     const projectMenu = await api.getProjectBranchMenu({ projectPath: repo });
-    assert.equal(projectMenu.workspace.branch, 'dev');
+    assert.equal(projectMenu.workspace.branch, 'main');
     assert.equal(projectMenu.retainedWorktree, null);
     await assert.rejects(api.getProjectBranchMenu({ projectPath: join(repo, '..') }), {
       code: 'WORKTREE_PROJECT_UNKNOWN',
     });
     assert.equal(projectMenu.occupancy.find((row) => row.branch === 'mixdog/fix-the-login-page').kind, 'session');
     writeFile(repo, 'README.md', 'edited\n');
-    await assert.rejects(api.selectProjectBranch({ projectPath: repo, branch: 'main' }), { code: 'WORKTREE_DIRTY' });
-    assert.equal(git(repo, 'symbolic-ref', '--short', 'HEAD'), 'dev');
+    assert.equal(git(repo, 'symbolic-ref', '--short', 'HEAD'), 'main');
+    assert.equal(readFileSync(join(repo, 'README.md'), 'utf8'), 'edited\n');
     git(repo, 'checkout', '-q', '--', 'README.md');
-    assert.equal((await api.selectProjectBranch({ projectPath: repo, branch: 'main' })).changed, true);
-    assert.equal((await api.selectProjectBranch({ projectPath: repo, branch: 'dev' })).changed, true);
 
     const again = await api.selectBranch({ branch: 'mixdog/fix-the-login-page' });
     assert.ok(samePath(again.workspace.cwd, worktree));
@@ -217,7 +220,7 @@ test('a live session moves into a new worktree: the dirty choice first, then its
   }
 });
 
-test('merged, cleanup blocked by retained recovery records: merge succeeds and the worktree and its records stay', async () => {
+test('merged, cleanup refused while the session still uses the worktree: it, its records and the session stay', async () => {
   useTempDataDir();
   const restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });
   try {
@@ -249,8 +252,11 @@ test('merged, cleanup blocked by retained recovery records: merge succeeds and t
     const worktree = entered.workspace.cwd;
     commitFile(worktree, 'feature.txt', 'feature\n');
     // An interrupted editor batch left a retained journal for this worktree.
-    const store = join(tempDir('mixdog-recovery-profile-'), 'editor-recovery',
-      createHash('sha256').update(resolve(worktree)).digest('hex'));
+    const store = join(
+      tempDir('mixdog-recovery-profile-'),
+      'editor-recovery',
+      createHash('sha256').update(resolve(worktree)).digest('hex')
+    );
     await withWorktreeRecoveryStore(worktree, store, 'write', async () => {
       mkdirSync(join(store, 'record'), { recursive: true });
       writeFileSync(join(store, 'record', 'manifest.json'), 'retained');
@@ -261,7 +267,7 @@ test('merged, cleanup blocked by retained recovery records: merge succeeds and t
     assert.equal(git(repo, 'rev-parse', 'HEAD'), result.commit);
     assert.equal(readFileSync(join(repo, 'feature.txt'), 'utf8'), 'feature\n');
     assert.equal(result.cleanup.removed, false);
-    assert.equal(result.cleanup.reason, 'WORKTREE_FILE_RECOVERY');
+    assert.equal(result.cleanup.reason, 'WORKTREE_BUSY_JOBS', 'no session is moved off a folder to clean it');
     assert.ok(existsSync(worktree), 'the worktree is kept');
     assert.ok(samePath(cwd, worktree), 'the session stays in its worktree');
     assert.equal(readFileSync(join(store, 'record', 'manifest.json'), 'utf8'), 'retained');

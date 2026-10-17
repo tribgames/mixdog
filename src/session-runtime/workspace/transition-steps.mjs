@@ -1,7 +1,9 @@
 /**
  * The steps of one Lead workspace transaction (transitions.mjs runs them
  * serialized): commit a new workspace, enter the retained or a new worktree,
- * move to a project-folder branch, remove the retained worktree. Every step
+ * move to a branch's checkout (the project folder, a linked checkout or a
+ * managed worktree made for it), remove the retained worktree. Every save is
+ * awaited (persistSession resolves once durable, rejects on failure). Every step
  * pushes the exact undo of what it changed onto the transaction `journal`;
  * the caller runs it (undoAll) when the transaction fails.
  */
@@ -15,7 +17,7 @@ import {
 } from '../../runtime/shared/worktrees/contract.mjs';
 import { throwIfAborted } from '../../runtime/shared/worktrees/git.mjs';
 import { checkoutFolder, projectSubdirOf, samePath } from '../../runtime/shared/worktrees/paths.mjs';
-import { setWorkspaceCwdLock, workspaceCwdLock } from './admission-gate.mjs';
+import { retainAdmittedTurnWorkspace, setWorkspaceCwdLock, workspaceCwdLock } from './admission-gate.mjs';
 import { copyProjectIdentity } from './workspace-state.mjs';
 
 // workspaceReroot: the staged working-folder change and its pending notice
@@ -118,16 +120,16 @@ export function createTransitionSteps({
       if (samePath(worker.cwd || '', cwd)) continue;
       const priorCwd = worker.cwd;
       const restorePrompt = snapshotPrompt(worker);
-      journal.push(() => {
+      journal.push(async () => {
         worker.cwd = priorCwd;
         restorePrompt();
         worker.updatedAt = Date.now();
-        persistSession(worker);
+        await persistSession(worker);
       });
       worker.cwd = cwd;
       await refreshWorkspaceContext(worker, cwd, move);
       worker.updatedAt = Date.now();
-      persistSession(worker);
+      await persistSession(worker);
     }
   }
 
@@ -151,17 +153,20 @@ export function createTransitionSteps({
       lock: workspaceCwdLock([session.id]),
       prompt: snapshotPrompt(session),
     };
-    journal.push(() => {
+    // The in-memory state goes back first; the save of it is awaited last, so
+    // a failing rollback save still leaves this process on the old workspace.
+    journal.push(async () => {
       applyResolvedCwd(prior.cwd);
       session.cwd = prior.sessionCwd;
       session.workspace = prior.workspace;
       setWorkspaceCwdLock(session.id, prior.lock);
       prior.prompt();
       session.updatedAt = Date.now();
-      persistSession(session);
       moveLeadRow(session.id, prior.sessionCwd || prior.cwd);
       invalidateCaches();
+      await persistSession(session);
     });
+    retainAdmittedTurnWorkspace(session.id, next.cwd);
     applyResolvedCwd(next.cwd);
     session.cwd = next.cwd;
     session.workspace = next;
@@ -196,7 +201,7 @@ export function createTransitionSteps({
       lock: workspaceCwdLock([session.id]),
       prompt: snapshotPrompt(session),
     };
-    journal.push(() => {
+    journal.push(async () => {
       applyResolvedCwd(prior.cwd);
       for (const [name, had, value] of sessionFields) {
         if (had) session[name] = value;
@@ -206,26 +211,28 @@ export function createTransitionSteps({
       setWorkspaceCwdLock(session.id, prior.lock);
       prior.prompt();
       session.updatedAt = Date.now();
-      persistSession(session);
       moveLeadRow(session.id, session.cwd || prior.cwd);
       invalidateCaches();
+      await persistSession(session);
     });
     const changed = !samePath(prior.cwd || '', cwd);
+    if (changed) retainAdmittedTurnWorkspace(session.id, cwd);
     applyResolvedCwd(cwd, { persistProjectSelection: true, classifyByMembership });
     if (changed) {
       moveLeadRow(session.id, cwd);
       await refreshWorkspaceContext(session, cwd);
       await retargetWorkers(session, cwd, journal);
       session.updatedAt = Date.now();
-      persistSession(session);
+      // Awaited: a failed save fails the switch (and its journal undoes it).
+      await persistSession(session);
     }
     invalidateCaches();
     return { cwd: getCurrentCwd(), workspace: session.workspace ?? null };
   }
 
-  async function releaseOwner(backendApi, entryId, sessionId) {
+  async function releaseOwner(backendApi, entryId, sessionId, options) {
     try {
-      await backendApi.releaseWorktreeOwner(entryId, owner(sessionId));
+      await backendApi.releaseWorktreeOwner(entryId, owner(sessionId), options);
     } catch (error) {
       // A worktree that vanished has no owner left to release.
       if (!isWorktreeError(error, 'WORKTREE_MISSING')) throw error;
@@ -244,6 +251,7 @@ export function createTransitionSteps({
     const projectPath = previous.projectPath;
     const project = await inspectProject(projectPath, { signal });
     let entry = await backendApi.getSessionWorktree(session.id);
+    const created = !entry;
     if (entry) {
       if (!existsSync(entry.path)) {
         throw worktreeError('WORKTREE_MISSING', undefined, { worktreeId: entry.id, path: entry.path });
@@ -281,9 +289,10 @@ export function createTransitionSteps({
           : await create();
       const recoveryRef = entry.changes?.recoveryRef;
       if (recoveryRef) {
-        // Anything that fails before the move is committed puts the changes
-        // back into the project folder and drops the worktree made for them;
-        // a restore that is refused keeps both (and the recovery ref).
+        // Anything that fails before the move is committed and durably saved
+        // puts the changes back into the project folder and drops the
+        // worktree made for them; a restore that is refused keeps both (and
+        // the recovery ref).
         const created = entry;
         journal.push(async () => {
           await backendApi.restoreCarriedChanges({ projectPath, recoveryRef });
@@ -317,98 +326,83 @@ export function createTransitionSteps({
       // the project-folder paths of the conversation so far map to the worktree.
       isWorktreeBound(previous) ? null : { from: previous.cwd, changes: entry.changes?.mode ?? null }
     );
-    // The move is committed and persisted: the carried changes' recovery ref
+    // The move is committed and its save has landed (commit awaits the
+    // durable save and throws on failure): the carried changes' recovery ref
     // has done its job (a failure to drop it only leaves a spare ref).
     if (entry.changes?.recoveryRef) {
       await backendApi.dropCarryRecoveryRef({ projectPath, recoveryRef: entry.changes.recoveryRef }).catch(() => {});
     }
     // Creation notes (submodules, include entries missing or already present).
+    // `created`: a new checkout, whose first-turn preparation still awaits
+    // (`prepared`: what creation did and what the turn still has to run).
     return {
       ...entered,
+      ...(created
+        ? {
+            created: {
+              prepared: entry.prepared ?? null,
+              root: entry.prepared?.root || project.topLevel || projectPath,
+            },
+          }
+        : {}),
       warnings: Array.isArray(entry.warnings) ? [...entry.warnings] : [],
       ...(entry.changes ? { changes: { mode: entry.changes.mode, count: entry.changes.count } } : {}),
     };
   }
 
-  async function enterProjectBranch(session, previous, { branch, create, signal, journal }) {
+  async function enterProjectBranch(session, previous, { branch, create, signal, journal, txId, confirmLarge }) {
     const backendApi = await backend();
     const projectPath = previous.projectPath;
     const project = await inspectProject(projectPath, { signal });
-    const bound = isWorktreeBound(previous);
-    const finalize = async () => {
-      const result = await commit(
-        session,
-        previous,
-        { projectPath, repoCommonDir: project.repoCommonDir, cwd: projectPath, branch },
-        journal
-      );
-      if (bound) await releaseOwner(backendApi, previous.worktreeId, session.id);
-      return result;
-    };
-    if (create !== true && project.currentBranch === branch) {
-      if (!bound && previous.branch === branch && samePath(previous.cwd, projectPath)) {
-        return { revision: previous.revision, workspace: previous };
-      }
-      return finalize();
-    }
-    // The checkout stays held until the session is finalized on it, or put
-    // back: no other session's turn starts on a half-switched folder.
-    return withProjectFolder(session.id, project.topLevel || projectPath, async () => {
-      await backendApi.checkoutProjectBranch({ projectPath, branch, create: create === true });
-      try {
-        return await finalize();
-      } catch (error) {
-        await undoAll(journal, error);
-        journal.length = 0;
-        const context = { backendApi, projectPath, project, branch, bound, error };
-        throw await revertProjectCheckout(session, previous, context);
-      }
+    const resolved = await backendApi.resolveBranchWorkspace({
+      projectPath,
+      branch,
+      create,
+      sessionId: session.id,
+      runtimeToken,
+      txId,
+      confirmLarge,
+      signal,
     });
-  }
-
-  /**
-   * A branch switch whose finalization failed after git switched: switch the
-   * project folder back when that is safe (the manager refuses a dirty tree
-   * or a vanished branch) and rethrow the cause. Otherwise the session record
-   * is made to match the real checkout and the failure becomes
-   * WORKTREE_PARTIAL_TRANSITION naming the branch actually checked out.
-   */
-  async function revertProjectCheckout(session, previous, context) {
-    const { backendApi, projectPath, project, branch, bound, error } = context;
-    const previousBranch = project.currentBranch;
-    let revertError = null;
-    if (previousBranch) {
-      try {
-        await backendApi.checkoutProjectBranch({ projectPath, branch: previousBranch });
-        return error;
-      } catch (cause) {
-        revertError = cause;
-      }
-    }
-    if (!bound) {
-      // The session runs in the project folder, which is now on `branch`.
-      session.workspace = normalizeSessionWorkspace({
-        ...previous,
-        repoCommonDir: project.repoCommonDir,
-        branch,
-        revision: nextRevision(previous),
-        transition: { state: 'idle', txId: null },
-      });
-      session.updatedAt = Date.now();
-      persistSession(session);
-      invalidateCaches();
-    }
-    return worktreeError(
-      'WORKTREE_PARTIAL_TRANSITION',
-      `The branch change failed (${error?.message || error}) and the project folder could not be switched back` +
-        `${previousBranch ? ` to "${previousBranch}"` : ''}; it is now on "${branch}".`,
+    const entry = resolved.entry;
+    if (entry)
+      journal.push(() =>
+        releaseOwner(backendApi, entry.id, session.id, {
+          forgetReference: resolved.referenceAdded === true,
+        })
+      );
+    if (entry) assertRetainedFits(entry, project, projectPath);
+    throwIfAborted(signal);
+    const cwd = checkoutFolder(resolved.path, projectSubdirOf(project.topLevel, project.projectPath || projectPath));
+    if (!existsSync(cwd)) throw worktreeError('WORKTREE_MISSING', 'The selected branch has no project subfolder.');
+    if (entry) copyProjectIdentity(projectPath, cwd);
+    const result = await commit(
+      session,
+      previous,
       {
-        checkout: branch,
-        previousBranch: previousBranch ?? null,
-        reason: String(error?.message || error),
-        revertReason: revertError ? String(revertError.message || revertError) : 'detached',
-      }
+        projectPath,
+        repoCommonDir: resolved.repoCommonDir,
+        cwd,
+        branch,
+        worktreeId: entry?.id ?? null,
+        baseCommit: entry?.baseCommit ?? null,
+        mergeTarget: project.currentBranch,
+      },
+      journal,
+      { from: previous.cwd, changes: 'left' }
     );
+    if (previous.worktreeId && previous.worktreeId !== entry?.id) {
+      journal.push(() => backendApi.claimWorktreeOwner(previous.worktreeId, owner(session.id)));
+      await releaseOwner(backendApi, previous.worktreeId, session.id, { forgetReference: true });
+    }
+    // A managed worktree made for the branch: its first-turn preparation awaits.
+    if (resolved.created === true && entry) {
+      return {
+        ...result,
+        created: { prepared: entry.prepared ?? null, root: entry.prepared?.root || project.topLevel || projectPath },
+      };
+    }
+    return result;
   }
 
   /**
@@ -419,8 +413,13 @@ export function createTransitionSteps({
    */
   async function removeRetainedWorktree(session, previous, { force, signal, journal }) {
     const backendApi = await backend();
-    const entry = await backendApi.getSessionWorktree(session.id);
-    if (entry) await backendApi.assertWorktreeRemovable({ entryId: entry.id, force: force === true });
+    const entry = previous.worktreeId
+      ? await backendApi.findWorktreeContaining(previous.cwd)
+      : samePath(previous.cwd, previous.projectPath)
+        ? await backendApi.getSessionWorktree(session.id)
+        : null;
+    if (entry)
+      await backendApi.assertWorktreeRemovable({ entryId: entry.id, force: force === true, sessionId: session.id });
     let result = { revision: previous.revision, workspace: previous };
     if (isWorktreeBound(previous)) {
       const project = await inspectProject(previous.projectPath, { signal });
@@ -443,7 +442,11 @@ export function createTransitionSteps({
     if (!entry) return { ...result, removed: null };
     let removed;
     try {
-      removed = await backendApi.removeManagedWorktree({ entryId: entry.id, force: force === true });
+      removed = await backendApi.removeManagedWorktree({
+        entryId: entry.id,
+        force: force === true,
+        sessionId: session.id,
+      });
     } catch (error) {
       // Refused before anything was deleted: the journal puts the session back.
       // Once the checkout may be (partly) gone, the session stays in the

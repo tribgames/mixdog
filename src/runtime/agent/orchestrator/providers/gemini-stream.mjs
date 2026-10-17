@@ -513,10 +513,21 @@ function createLeakGuardFinalizer(textLeakGuard) {
 // `unwrapChunk` adapts a transport that nests the Gemini payload one level
 // deeper. Cloud Code Assist (Antigravity) streams `{ response: { candidates … } }`
 // while the public API streams the candidates directly; everything downstream —
-// aggregation, leak guard, watchdogs — stays shared.
+// aggregation, leak guard, watchdogs — stays shared. `firstByteTimeoutMs` is
+// the wait for the first chunk once the response headers arrived.
 export async function consumeGeminiRestStreamResponse(
   response,
-  { signal, onStreamDelta, onTextDelta, textLeakGuard, label, unwrapChunk = null, onChunk = null, failureUsage = null }
+  {
+    signal,
+    onStreamDelta,
+    onTextDelta,
+    textLeakGuard,
+    label,
+    unwrapChunk = null,
+    onChunk = null,
+    failureUsage = null,
+    firstByteTimeoutMs = GEMINI_FIRST_BYTE_TIMEOUT_MS,
+  }
 ) {
   const unwrap =
     typeof unwrapChunk === 'function'
@@ -539,7 +550,7 @@ export async function consumeGeminiRestStreamResponse(
   const watchdogs = createRestStreamWatchdogs({
     reader,
     label,
-    firstByteTimeoutMs: GEMINI_FIRST_BYTE_TIMEOUT_MS,
+    firstByteTimeoutMs,
     timeoutError: geminiTimeoutError,
   });
   // One decoded chunk: collected for aggregation and relayed to every sink.

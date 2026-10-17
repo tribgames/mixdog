@@ -15,6 +15,7 @@ import { createGoalContinuation } from '../tui/session/goal-continuation.mjs';
 import { createToolApproval } from '../tui/session/tool-approval.mjs';
 import { createToolCardResults } from '../tui/session/tool-card-results.mjs';
 import { createAgentJobFeed } from '../tui/session/agent-job-feed.mjs';
+import { createWorktreeSetupNotices } from '../tui/session/worktree-setup-notice.mjs';
 import { createContextState } from '../tui/session/context-state.mjs';
 import { createSessionFlow } from '../tui/session/session-flow.mjs';
 import { createRunTurn } from '../tui/session/turn.mjs';
@@ -28,7 +29,7 @@ import { createActiveToolTracker } from '../tui/session/active-tool-summary.mjs'
 import { createTranscriptStore } from '../tui/session/transcript-store.mjs';
 import { createTranscriptIntake } from '../tui/session/transcript-intake.mjs';
 import { createNoticeSurface } from '../tui/session/notice-surface.mjs';
-import { attachCrossSurfaceShare } from '../tui/session/cross-surface-share.mjs';
+import { rearmGoalContinuationOnSessionBoundaries } from '../tui/session/goal-continuation/session-boundary.mjs';
 import { createTranscriptRouteMetadata } from '../runtime/shared/transcript-metadata.mjs';
 import { formatDoctorReport, runDoctorChecks } from '../tui/app/doctor.mjs';
 // tuiDebug is an opt-in diagnostic trace for the hang chain (runTurn start/end,
@@ -109,7 +110,6 @@ export { parseBackgroundTaskEnvelope } from '../tui/session/agent-envelope.mjs';
  */
 export function createRuntimePulse({
   flags,
-  liveShareMirroring,
   getState,
   getPublishedState,
   set,
@@ -138,13 +138,6 @@ export function createRuntimePulse({
   const pulse = () => {
     if (flags.disposed) return;
     if (flags.pendingSessionReset) return;
-    // Attached viewer with a live pipe: the owner's frames are authoritative
-    // for stats/agent/tool state. Recomputing them locally here would stomp
-    // the mirror with this process's empty registries every 2s.
-    if (liveShareMirroring()) {
-      publishChanged({ ...routeState() });
-      return;
-    }
     syncContextStats({ allowEstimated: true });
     publishChanged({
       ...routeState(),
@@ -177,6 +170,7 @@ export async function createLocalSessionRuntime({
   sessionProfile,
   worktree,
   executeAgentControl,
+  executeSessionControl,
 } = {}) {
   const startedAt = performance.now();
   bootProfile('session:create:start', { provider: providerName, model, toolMode, remote });
@@ -209,6 +203,7 @@ export async function createLocalSessionRuntime({
     // Session creation worktree intent; consumed by the workspace transition scope.
     ...(worktree && typeof worktree === 'object' ? { worktree } : {}),
     ...(typeof executeAgentControl === 'function' ? { executeAgentControl } : {}),
+    ...(typeof executeSessionControl === 'function' ? { executeSessionControl } : {}),
   });
   bootProfile('session:create:runtime-ready', { ms: (performance.now() - startedAt).toFixed(1) });
   const runtimeCwd = runtime.cwd || process.cwd();
@@ -322,7 +317,6 @@ export async function createLocalSessionRuntime({
   );
   const runtimePulse = createRuntimePulse({
     flags,
-    liveShareMirroring: () => bag.liveShareMirroring?.() === true,
     getState,
     getPublishedState,
     set,
@@ -374,9 +368,14 @@ export async function createLocalSessionRuntime({
     itemIndexById,
   });
   lifecycle.unsubscribeRuntimeNotifications = subscribeRuntimeNotifications();
+  if (typeof runtime.onWorktreeSetup === 'function') {
+    lifecycle.unsubscribeWorktreeSetup = runtime.onWorktreeSetup(
+      createWorktreeSetupNotices({ pushItem, patchItem, nextId })
+    );
+  }
   if (typeof runtime.onAgentStatusChange === 'function') {
     lifecycle.unsubscribeAgentStatus = runtime.onAgentStatusChange(() => {
-      if (flags.disposed || flags.pendingSessionReset || bag.liveShareMirroring?.()) return;
+      if (flags.disposed || flags.pendingSessionReset) return;
       set({ ...agentStatusState({ force: true }) });
       bag.scheduleGoalContinuation?.();
     });
@@ -474,7 +473,7 @@ export async function createLocalSessionRuntime({
   bag.runTurn = createRunTurn(bag);
   bag.doctor = { runDoctorChecks, formatDoctorReport };
   const api = createSessionApi(bag);
-  attachCrossSurfaceShare({ runtime, api, bag, flags, getState, getPublishedState, listeners, set });
+  rearmGoalContinuationOnSessionBoundaries({ api, bag });
   void Promise.resolve(bag.restoreLeadSteeringFromDisk())
     .catch(() => {})
     .finally(() => {

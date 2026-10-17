@@ -25,7 +25,7 @@ const { candidateId, convertCandidateFile, getCandidate, resetConversationDiscov
 const { deleteSession, listStoredSessionSummaries, loadSession } = await import(
   '../../runtime/agent/orchestrator/session/store.mjs'
 );
-const { sessionPath } = await import('../../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs');
+const { sessionPath } = await import('../../runtime/agent/orchestrator/session/store/session-paths.mjs');
 const { _withRegisteredProviderForTestAsync } = await import('../../runtime/agent/orchestrator/providers/registry.mjs');
 const { modelToolSchemaAllowlist } = await import('../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs');
 process.on('exit', () => {

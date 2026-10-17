@@ -108,6 +108,169 @@ function service({ storedSessions, created, retries, readings }) {
   });
 }
 
+for (const oldRouteUsable of [true, false]) {
+  test(`a model switch during quota lookup ignores the old result (${oldRouteUsable})`, async (t) => {
+    isolateDataDir(t);
+    let clock = PAST + 1000;
+    let route = { sessionProvider: 'openai-oauth', sessionModel: 'gpt-x' };
+    const readings = [];
+    const fired = [];
+    const scheduler = createQuotaResumeScheduler({
+      store: quotaResumeStore,
+      materializeSession: async () => ({
+        getState: () => route,
+        fireQuotaResume: (options) => {
+          fired.push(options);
+          return 'fired';
+        },
+      }),
+      readQuotaUsable: async (provider, model) => {
+        readings.push([provider, model]);
+        if (readings.length === 1) {
+          route = { sessionProvider: 'anthropic-oauth', sessionModel: 'claude-new' };
+          return oldRouteUsable;
+        }
+        return true;
+      },
+      now: () => clock,
+      setTimer: () => null,
+      clearTimer: () => {},
+    });
+    const entry = quotaResumeStore.scheduleQuotaResumeEntry({
+      sessionId: SESSION,
+      turnKey: 'turn:u1',
+      provider: 'openai-oauth',
+      model: 'gpt-x',
+      resetAt: PAST,
+    });
+    await scheduler.tick();
+    assert.deepEqual(fired, []);
+    const pending = quotaResumeStore.quotaResumeEntry(SESSION);
+    assert.equal(pending.generation, entry.generation);
+    assert.equal(pending.attempts, 0);
+    assert.equal(pending.resetAt, clock + QUOTA_RESUME_BUSY_RECHECK_MS);
+    clock = pending.resetAt;
+    await scheduler.tick();
+    assert.deepEqual(readings, [
+      ['openai-oauth', 'gpt-x'],
+      ['anthropic-oauth', 'claude-new'],
+    ]);
+    assert.deepEqual(fired, [{ generation: entry.generation }]);
+  });
+}
+
+test('failed asynchronous resume keeps and defers the same reservation', async (t) => {
+  isolateDataDir(t);
+  const clock = PAST + 1000;
+  const scheduler = createQuotaResumeScheduler({
+    store: quotaResumeStore,
+    materializeSession: async () => ({
+      fireQuotaResume: async () => {
+        throw new Error('Goal storage failed');
+      },
+    }),
+    readQuotaUsable: async () => true,
+    now: () => clock,
+    setTimer: () => null,
+    clearTimer: () => {},
+  });
+  const entry = quotaResumeStore.scheduleQuotaResumeEntry({
+    sessionId: SESSION,
+    turnKey: 'segment:n1',
+    provider: 'openai-oauth',
+    model: 'gpt-x',
+    resetAt: PAST,
+  });
+  await scheduler.tick();
+  const pending = quotaResumeStore.quotaResumeEntry(SESSION);
+  assert.equal(pending.generation, entry.generation);
+  assert.equal(pending.resetAt, clock + QUOTA_RESUME_RETRY_MS);
+});
+
+test('a persisted reservation checks the current model after a route change', async (t) => {
+  isolateDataDir(t);
+  const readings = [];
+  const fired = [];
+  const scheduler = createQuotaResumeScheduler({
+    store: quotaResumeStore,
+    materializeSession: async () => ({
+      getState: () => ({ sessionProvider: 'anthropic-oauth', sessionModel: 'claude-new' }),
+      fireQuotaResume: (options) => {
+        fired.push(options);
+        return 'fired';
+      },
+    }),
+    readQuotaUsable: async (...route) => {
+      readings.push(route);
+      return true;
+    },
+    setTimer: () => null,
+    clearTimer: () => {},
+  });
+  const entry = quotaResumeStore.scheduleQuotaResumeEntry({
+    sessionId: SESSION,
+    turnKey: 'turn:u1',
+    provider: 'openai-oauth',
+    model: 'gpt-x',
+    resetAt: PAST,
+  });
+  quotaResumeStore.reloadQuotaResumeStore();
+  await scheduler.tick();
+  assert.deepEqual(readings, [['anthropic-oauth', 'claude-new']]);
+  assert.deepEqual(fired, [{ generation: entry.generation }]);
+  assert.equal(quotaResumeStore.quotaResumeEntry(SESSION), null);
+});
+
+test('a deferred route selection is the route checked, and a selection change during the check is noticed', async (t) => {
+  isolateDataDir(t);
+  let clock = PAST + 1000;
+  let selected = { provider: 'anthropic-oauth', model: 'claude-new' };
+  const readings = [];
+  const fired = [];
+  const scheduler = createQuotaResumeScheduler({
+    store: quotaResumeStore,
+    materializeSession: async () => ({
+      getState: () => ({
+        sessionProvider: 'openai-oauth',
+        sessionModel: 'gpt-x',
+        provider: selected.provider,
+        model: selected.model,
+      }),
+      fireQuotaResume: (options) => {
+        fired.push(options);
+        return 'fired';
+      },
+    }),
+    readQuotaUsable: async (provider, model) => {
+      readings.push([provider, model]);
+      if (readings.length === 1) selected = { provider: 'google-oauth', model: 'gemini-new' };
+      return true;
+    },
+    now: () => clock,
+    setTimer: () => null,
+    clearTimer: () => {},
+  });
+  const entry = quotaResumeStore.scheduleQuotaResumeEntry({
+    sessionId: SESSION,
+    turnKey: 'turn:u1',
+    provider: 'openai-oauth',
+    model: 'gpt-x',
+    resetAt: PAST,
+  });
+  await scheduler.tick();
+  assert.deepEqual(fired, []);
+  const pending = quotaResumeStore.quotaResumeEntry(SESSION);
+  assert.equal(pending.generation, entry.generation);
+  assert.equal(pending.attempts, 0);
+  clock = pending.resetAt;
+  await scheduler.tick();
+  assert.deepEqual(readings, [
+    ['anthropic-oauth', 'claude-new'],
+    ['google-oauth', 'gemini-new'],
+  ]);
+  assert.deepEqual(fired, [{ generation: entry.generation }]);
+});
+
 test('an overdue resume runs after a daemon restart with the session unloaded', async (t) => {
   isolateDataDir(t);
   const storedSessions = new Map([[SESSION, storedTranscript(SESSION)]]);
@@ -245,7 +408,7 @@ test('a usable re-check fires, and a busy session is re-checked without spending
   assert.equal(quotaResumeStore.quotaResumeEntry(SESSION), null);
 });
 
-test('a persisted resume entry of an agent-only session never fires', async (t) => {
+test('a persisted agent reservation fires under the same policy as a Lead reservation', async (t) => {
   isolateDataDir(t);
   const fired = [];
   let readings = 0;
@@ -262,7 +425,7 @@ test('a persisted resume entry of an agent-only session never fires', async (t) 
     setTimer: () => null,
     clearTimer: () => {},
   });
-  quotaResumeStore.scheduleQuotaResumeEntry({
+  const entry = quotaResumeStore.scheduleQuotaResumeEntry({
     sessionId: SESSION,
     turnKey: 'turn:u1',
     provider: 'openai-oauth',
@@ -270,9 +433,9 @@ test('a persisted resume entry of an agent-only session never fires', async (t) 
     resetAt: PAST,
   });
   await scheduler.tick();
-  assert.deepEqual(fired, []);
-  assert.equal(readings, 0);
-  assert.equal(quotaResumeStore.quotaResumeEntry(SESSION), null, 'the agent entry is dropped');
+  assert.deepEqual(fired, [{ generation: entry.generation }]);
+  assert.equal(readings, 1);
+  assert.equal(quotaResumeStore.quotaResumeEntry(SESSION), null);
 });
 
 test('a cancel landing during the usage reading prevents the fire', async (t) => {

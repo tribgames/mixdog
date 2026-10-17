@@ -265,19 +265,23 @@ export function _resolveGeminiCacheUsage({ usageMetadata, cachedContent, provide
   // the prompt portion.
   const toolUseTokens = firstFinite(usageMetadata?.toolUsePromptTokenCount, usageMetadata?.tool_use_prompt_token_count);
   const inputTokens = hasExplicitPromptTokens ? promptTokens + toolUseTokens : Math.max(0, totalTokens - outputTokens);
-  const reportedCachedTokens = firstFinite(
+  const reportedCachedCount = [
     // generateContent UsageMetadata field.
     usageMetadata?.cachedContentTokenCount,
     usageMetadata?.cached_content_token_count,
     // Newer SDK convenience alias documented for implicit cache hits.
     usageMetadata?.totalCachedTokens,
-    usageMetadata?.total_cached_tokens
-  );
+    usageMetadata?.total_cached_tokens,
+  ]
+    .map((value) => (value == null ? NaN : Number(value)))
+    .find((value) => Number.isFinite(value) && value >= 0);
+  const reportedCachedTokens = reportedCachedCount ?? 0;
   const cachedFallbackTokens = cachedContent ? Number(providerState?.gemini?.cacheTokenSize || 0) || 0 : 0;
-  const rawCachedTokens = reportedCachedTokens > 0 ? reportedCachedTokens : cachedFallbackTokens;
+  // An explicit zero is a measured miss, not missing usage metadata.
+  const rawCachedTokens = reportedCachedCount ?? cachedFallbackTokens;
   const cachedTokens = inputTokens > 0 ? Math.min(rawCachedTokens, inputTokens) : rawCachedTokens;
   let cacheTokenSource = 'none';
-  if (reportedCachedTokens > 0) cacheTokenSource = 'usage_metadata';
+  if (reportedCachedCount !== undefined) cacheTokenSource = 'usage_metadata';
   else if (cachedFallbackTokens > 0) cacheTokenSource = 'cache_create_fallback';
   return {
     inputTokens,

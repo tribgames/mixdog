@@ -1,4 +1,5 @@
 import {
+  isAgentProgressWatchdogAbortError,
   resolveAgentWatchdogPolicy,
   resolveHandoffMessageStartIndex,
   turnPartialHandoff,
@@ -15,6 +16,7 @@ import {
   terminalResultHook,
 } from './job-task-reconcile.mjs';
 import { createTurnReviewCollector } from './turn-review.mjs';
+import { settledWorkerStatus } from './worker-index/row-liveness.mjs';
 
 // `send` to an existing worker: resolve the live session, run one follow-up
 // turn under the progress watchdog, and reconcile the job/worker row. Busy
@@ -28,7 +30,6 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     if (!sessionId) throw new Error(`agent send: target "${target}" not found`);
     const session = mgr.getSession(sessionId);
     if (!session || session.closed) throw new Error(`agent send: session "${sessionId}" is closed`);
-    registry.cancelReap(sessionId);
     const prompt = await resolvePrompt(args, session.cwd || defaultCwd);
     return { args, session, sessionId, prompt };
   }
@@ -82,13 +83,18 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     const tag = registry.tagForSession(sessionId);
     // Queued sends run as follow-up turns inside this same askSession call;
     // the watchdog sweep re-stamps turnStartedAt at each turn boundary.
-    const watchdog = spawnFlow.startProgressIdleWatchdog(sessionId, resolveAgentWatchdogPolicy(sendAgent), sendAgent, {
+    const watchdogPolicy = resolveAgentWatchdogPolicy(
+      sendAgent,
+      spawnFlow.agentWatchdogOverrides({ agent: sendAgent, provider: session.provider, model: session.model })
+    );
+    const watchdog = spawnFlow.startProgressIdleWatchdog(sessionId, watchdogPolicy, sendAgent, {
       onTurnStart: spawnFlow.turnStartStamper(session, tag),
       onProgress: spawnFlow.progressStamper(session, tag),
     });
     const turnReview = createTurnReviewCollector(session, tag, sendAgent, notifyContext || {});
     const completionValue = completionValueFor({ session, tag, sessionId, sendAgent });
     let finalStatus = 'idle';
+    let stalled = false;
     registry.upsertWorkerSessionDeferred(session, tag, {
       status: 'running',
       stage: 'running',
@@ -129,6 +135,7 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
         settleCancelled(error);
         throw error;
       }
+      stalled = isAgentProgressWatchdogAbortError(error);
       const partial = watchdogPartialHandoffFromError(error, mgr.getSession(sessionId), handoffMsgStart);
       if (partial) {
         finalStatus = 'idle';
@@ -152,12 +159,10 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
       turnReview.complete();
       watchdog?.stop?.();
       registry.upsertWorkerSessionDeferred(session, tag, {
-        status: finalStatus,
-        stage: finalStatus,
+        ...settledWorkerStatus(finalStatus, stalled),
         finishedAt: new Date().toISOString(),
       });
       reconcileJobFinally(job, finalStatus);
-      registry.scheduleReap(sessionId);
       // Same lifecycle as a fresh spawn: the transcript/tag stays resumable,
       // while heavy process-local runtime state is reclaimed immediately.
       try {
@@ -166,11 +171,24 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     }
   }
 
+  // An explicit model on a reused tag goes through the session's own route
+  // API, which saves it and applies it from the session's next turn: the
+  // dispatched prompt when the session is idle, a later one while it is busy.
+  async function applyRequestedRoute(prepared) {
+    const { session, sessionId, route } = prepared;
+    if (!canUseSessionSurface(session) || typeof sessionSurface.setRoute !== 'function') {
+      throw new Error(`agent spawn: this surface cannot change the model of reused session "${sessionId}"`);
+    }
+    await sessionSurface.setRoute({ session, route });
+    return { ...prepared, session: mgr.getSession(sessionId) || session };
+  }
+
   // Shared send dispatch for an already-resolved live session. Used by the
   // `send` branch AND by the `spawn` branch when an explicit tag maps to a
   // live session (reuse path). Busy sessions queue the prompt; idle ones run a
   // background send job that continues the existing session (context kept).
-  async function dispatchToExistingSession(prepared, notifyContext, extras = {}) {
+  async function dispatchToExistingSession(requested, notifyContext, extras = {}) {
+    const prepared = requested.route ? await applyRequestedRoute(requested) : requested;
     const { session, sessionId, prompt } = prepared;
     const tag = registry.tagForSession(sessionId);
     if (canUseSessionSurface(session) && views.isSessionBusy(sessionId)) {

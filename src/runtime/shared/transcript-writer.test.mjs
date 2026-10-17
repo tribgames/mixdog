@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { drainPathSync } from './buffered-appender.mjs';
 import { createTranscriptWriter } from './transcript-writer.mjs';
+import { transcriptRowFromLine } from '../memory/lib/ingest/transcript-rows.mjs';
 
 function withHome(run) {
   const home = mkdtempSync(join(tmpdir(), 'mixdog-transcript-writer-'));
@@ -22,6 +23,35 @@ const rows = (writer) => {
     .filter(Boolean)
     .map((line) => JSON.parse(line));
 };
+
+test('agent conversation backfill and appends persist without memory ingestion or PID-record replacement', () => {
+  withHome((home) => {
+    const cwd = join(home, 'project');
+    const lead = createTranscriptWriter({ mixdogHome: home, sessionId: 'lead', cwd, pid: 42 });
+    lead.writeSessionRecord();
+    const record = readFileSync(lead.sessionRecordPath, 'utf8');
+    const worker = createTranscriptWriter({
+      mixdogHome: home,
+      sessionId: 'worker',
+      cwd,
+      pid: 42,
+      memoryEligible: false,
+    });
+    worker.ensureConversationBackfill([{ role: 'user', content: 'earlier prompt' }]);
+    worker.appendAssistant('emitted prose');
+    worker.writeSessionRecord();
+    worker.refresh();
+    const stored = rows(worker);
+    assert.deepEqual(
+      stored.map((row) => row.message.content[0].text),
+      ['earlier prompt', 'emitted prose']
+    );
+    assert.ok(stored.every((row) => row.memoryEligible === false));
+    assert.deepEqual(stored.map(transcriptRowFromLine), [null, null]);
+    assert.equal(readFileSync(lead.sessionRecordPath, 'utf8'), record);
+    assert.equal(worker.ensureConversationBackfill([{ role: 'user', content: 'duplicate' }]), false);
+  });
+});
 
 test('createTranscriptWriter requires home, session and cwd', () => {
   assert.throws(() => createTranscriptWriter({ sessionId: 's', cwd: 'c' }), /mixdogHome is required/);

@@ -79,10 +79,15 @@ export function parseLineLimitArg(value, defaultValue) {
   return Math.max(1, Math.trunc(n));
 }
 
+/** Whether the read display clips this source line. */
+export function isReadLineClipped(line, { truncateLongLine = true } = {}) {
+  return truncateLongLine && String(line ?? '').length > READ_MAX_RENDERED_LINE_CHARS;
+}
+
 export function truncateReadLineText(line, { truncateLongLine = true } = {}) {
   let text = String(line ?? '');
   const originalLength = text.length;
-  if (truncateLongLine && text.length > READ_MAX_RENDERED_LINE_CHARS) {
+  if (isReadLineClipped(text, { truncateLongLine })) {
     const cps = [...text];
     const head = cps.slice(0, 1_500).join('');
     const tail = cps.slice(-300).join('');

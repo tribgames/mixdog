@@ -48,8 +48,8 @@ import { operationInProgress } from './merge.mjs';
 const IDENTITY_PATH = '.mixdog/project.id';
 const RECOVERY_REF_PREFIX = 'refs/mixdog/carry/';
 /** Untracked files beyond these limits are refused rather than snapshotted. */
-export const CARRY_UNTRACKED_MAX_BYTES = 256 * 1024 * 1024;
-export const CARRY_UNTRACKED_MAX_FILES = 10_000;
+const CARRY_UNTRACKED_MAX_BYTES = 256 * 1024 * 1024;
+const CARRY_UNTRACKED_MAX_FILES = 10_000;
 const CHECK_ATTR_CHUNK = 200;
 // Recovery commits are Mixdog's own, independent of the user's identity config.
 const COMMIT_ENV = Object.freeze({

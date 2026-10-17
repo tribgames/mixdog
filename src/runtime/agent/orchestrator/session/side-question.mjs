@@ -54,7 +54,7 @@ function sideQuestionPrompt(question) {
 function replyMessages(response) {
   if (!response) return [];
   const reply = response.toolCalls?.length
-    ? buildToolCallAssistantMessage(response, { calls: response.toolCalls, suppressMidTurnText: false, opts: {} })
+    ? buildToolCallAssistantMessage(response, { calls: response.toolCalls, opts: {} })
     : buildIntermediateAssistantMessage(response, {});
   if (!reply) return [];
   const stubs = collectAssistantToolCallIds(reply).map((id) => ({

@@ -171,8 +171,9 @@ export function createGoalTurnLifecycle(ctx) {
     // A quota resume revives exactly the Goal its failure suspended, and only
     // while that Goal is still waiting on the limit: a Goal the user paused,
     // stopped, replaced or completed meanwhile stays as it is.
-    reactivateUsageLimited(sessionId, goalId) {
+    reactivateUsageLimited(sessionId, goalId, options = {}) {
       return withMutation(sessionId, async (id) => {
+        if (options.isCurrent && !options.isCurrent()) return null;
         const goal = readRecord(id).goal;
         if (!goal || goal.archivedAt || goal.id !== clean(goalId) || goal.status !== 'usage_limited') return null;
         try {
@@ -180,7 +181,7 @@ export function createGoalTurnLifecycle(ctx) {
         } catch {
           return null;
         }
-        return commit(id, goal);
+        return commit(id, goal, options);
       });
     },
     continuation(sessionId, { agentStatus = null } = {}) {

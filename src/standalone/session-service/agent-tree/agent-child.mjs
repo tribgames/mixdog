@@ -3,11 +3,12 @@
 // caller's spec, creation of the runtime behind it, and the descriptor linked
 // into the agent registry. Running a turn on that child is ./agent-turns.mjs.
 
-export function createAgentChildFactory({ registry, rehydrateAgentSessions, createSession }) {
+export function createAgentChildFactory({ registry, rehydrateAgentSessions, createSession, entryForSession }) {
   return async function createAgentChild({ spec = {}, tag = null } = {}) {
     await rehydrateAgentSessions();
     const parentSessionId = String(spec.parentSessionId || '').trim();
     if (!parentSessionId) throw new TypeError('agent child parentSessionId is required');
+    const parentEpoch = registry.assertAdmission(parentSessionId);
     const ownerSessionId = String(
       spec.ownerSessionId || registry.get(parentSessionId)?.ownerSessionId || parentSessionId
     );
@@ -29,6 +30,7 @@ export function createAgentChildFactory({ registry, rehydrateAgentSessions, crea
       sourceType: spec.sourceType || 'agent',
       sourceName: spec.sourceName || spec.agent || 'agent',
       clientHostPid: spec.clientHostPid || null,
+      ...(preset.fallbacks !== undefined ? { routeFallbacks: preset.fallbacks } : {}),
     };
     const created = await createSession({
       cwd: spec.cwd || process.cwd(),
@@ -45,6 +47,22 @@ export function createAgentChildFactory({ registry, rehydrateAgentSessions, crea
       toolMode: 'full',
       sessionProfile,
     });
+    try {
+      registry.assertAdmission(parentSessionId, parentEpoch);
+    } catch (error) {
+      // The parent was cancelled while the runtime was being created: close it
+      // like any cancelled child instead of leaving it unlinked and open.
+      try {
+        const entry = await entryForSession?.(created.sessionId, {
+          cwd: spec.cwd || process.cwd(),
+          provider,
+          model,
+          toolMode: 'full',
+        });
+        await entry?.runtime?.closeCanonicalSession?.('parent cancelled during agent creation', { tombstone: false });
+      } catch {}
+      throw error;
+    }
     const descriptor = registry.linkAgentDescriptor({
       id: created.sessionId,
       ...sessionProfile,

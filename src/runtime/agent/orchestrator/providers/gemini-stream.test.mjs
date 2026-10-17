@@ -148,9 +148,26 @@ for (const { name, consume } of protocols) {
 
 test('Gemini REST in-band error in the unterminated tail is typed, not corruption', async () => {
   await assert.rejects(
-    consumeGeminiRestStreamResponse(new Response(`data: ${JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE' } })}`), {
-      label: 'fixture',
-    }),
+    consumeGeminiRestStreamResponse(
+      new Response(`data: ${JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE' } })}`),
+      {
+        label: 'fixture',
+      }
+    ),
     (error) => error.status === 503 && error.code === 'unavailable' && !error.truncatedStream
+  );
+});
+
+test('Gemini REST first-chunk window follows the caller and names its phase', { timeout: 5000 }, async (t) => {
+  const silent = new Response(new ReadableStream({ start() {} }));
+  // The watchdog timer is unref'd; keep the loop alive while it runs.
+  const keepAlive = setInterval(() => {}, 1000);
+  t.after(() => clearInterval(keepAlive));
+  await assert.rejects(
+    consumeGeminiRestStreamResponse(silent, { label: 'fixture', firstByteTimeoutMs: 25 }),
+    (error) =>
+      error.code === 'EGEMINITIMEOUT' &&
+      error.timeoutPhase === 'first-chunk' &&
+      /fixture first byte timed out after 25ms/.test(error.message)
   );
 });

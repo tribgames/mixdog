@@ -91,7 +91,10 @@ test('media is one deferred tool whose description names no lane', () => {
   assert.deepEqual(TOOL_DEFS[0].inputSchema.properties.action.enum, MEDIA_ACTIONS);
   assert.doesNotMatch(TOOL_DEFS[0].description, /grok|gemini|openai|kling/i);
   const size = JSON.stringify(TOOL_DEFS[0]).length;
-  assert.ok(size < 3000, `media tool schema is ${size} chars; budget 3000 — trim the description or justify raising the budget`);
+  assert.ok(
+    size < 3000,
+    `media tool schema is ${size} chars; budget 3000 — trim the description or justify raising the budget`
+  );
 });
 
 test("list narrows: lanes → models for a kind → one model's controls, signed-out lanes only named", () => {
@@ -325,7 +328,9 @@ const namedLane = (id, authenticated = true, kinds = ['image']) => ({
   image: { defaultModel: `${id}-image`, models: [{ id: `${id}-image`, label: id, controls: { maxReferences: 1 } }] },
 });
 const catalogOrder = (signedIn) =>
-  ['grok-oauth', 'xai', 'openai-oauth', 'gemini', 'antigravity-oauth'].map((id) => namedLane(id, signedIn.includes(id)));
+  ['grok-oauth', 'xai', 'openai-oauth', 'gemini', 'antigravity-oauth'].map((id) =>
+    namedLane(id, signedIn.includes(id))
+  );
 
 test('default lane prefers the signed-in ChatGPT lane, below requested and remembered', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-media-default-'));
@@ -368,9 +373,10 @@ test('a lane named by the user is passed explicitly and used', async () => {
   await writeFile(graph.assetPath, Buffer.from('png-bytes'));
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-media-named-'));
   const generate = (lane) =>
-    executeMediaTool({ action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', lane }, { cwd, deps: graph }).then(
-      parse
-    );
+    executeMediaTool(
+      { action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', lane },
+      { cwd, deps: graph }
+    ).then(parse);
   for (const lane of ['grok-oauth', 'antigravity-oauth', 'openai-oauth']) {
     const result = await generate(lane);
     assert.deepEqual([result.lane, result.laneSource], [lane, 'requested']);
@@ -396,4 +402,96 @@ test('background is passed only when the model lists it; auto sends nothing', ()
   assert.throws(() => buildOptions(openai, 'image', listed, { aspect: '16:9' }), /not supported/);
   assert.throws(() => buildOptions(LANES[0], 'image', controls(), { background: 'transparent' }), /background/);
   assert.ok(TOOL_DEFS[0].inputSchema.properties.background.description.includes('only when the model lists'));
+});
+
+function pinnedGraph(pins, { outcome = 'done' } = {}) {
+  const graph = fakeGraph({ outcome, remembered: { kind: 'image', lane: 'lane-b', model: 'b-image' } });
+  const started = [];
+  const scoped = [];
+  const start = graph.jobs.startMediaJob;
+  graph.jobs.startMediaJob = async (request) => {
+    started.push(request);
+    return start(request);
+  };
+  graph.defaults.getMediaPin = (kind) => (pins[kind] ? { kind, account: '', model: '', ...pins[kind] } : null);
+  graph.lanes.mediaLaneAccountProvider = (id) => (id === 'lane-a' ? 'acct-provider' : '');
+  graph.accounts = {
+    withProviderAccount: (provider, account, run) => {
+      scoped.push([provider, account]);
+      return run();
+    },
+  };
+  return { graph, started, scoped };
+}
+
+const generatePinned = (graph, extra = {}) =>
+  executeMediaTool(
+    { action: 'generate', kind: 'image', prompt: 'x', path: 'pinned.png', ...extra },
+    { cwd: tmpdir(), deps: graph }
+  ).then(parse);
+
+test('a pinned model is used when the chat names none, ahead of the remembered choice', async () => {
+  const { graph, started } = pinnedGraph({ image: { lane: 'lane-a', model: 'a-image' } });
+  await writeFile(graph.assetPath, Buffer.from('png'));
+  try {
+    const result = await generatePinned(graph);
+    assert.equal(result.lane, 'lane-a');
+    assert.equal(result.model, 'a-image');
+    assert.equal(result.laneSource, 'pinned');
+    assert.equal(started[0].lane, 'lane-a');
+    assert.ok(!('account' in started[0]), 'no pinned account → the call follows the current account');
+
+    const auto = await generatePinned(pinnedGraph({}).graph);
+    assert.equal(auto.laneSource, 'remembered', "auto keeps today's ordered behaviour");
+    const otherKind = await generatePinned(pinnedGraph({ video: { lane: 'lane-a', model: 'a-video' } }).graph);
+    assert.equal(otherKind.laneSource, 'remembered', 'a video pin never steers an image call');
+  } finally {
+    await rm(graph.assetPath, { force: true });
+  }
+});
+
+test('a generator the chat names wins over the pin for that call', async () => {
+  const { graph, started } = pinnedGraph({ image: { lane: 'lane-a', model: 'a-image', account: 'acct-2' } });
+  await writeFile(graph.assetPath, Buffer.from('png'));
+  try {
+    const named = await generatePinned(graph, { lane: 'lane-b' });
+    assert.equal(named.lane, 'lane-b');
+    assert.equal(named.laneSource, 'requested');
+    assert.ok(!('account' in started[0]), "the pin's account does not follow a named generator");
+    const again = await generatePinned(graph);
+    assert.equal(again.lane, 'lane-a', 'the next call without a name is pinned again');
+  } finally {
+    await rm(graph.assetPath, { force: true });
+  }
+});
+
+test('a pinned account routes the call through that account', async () => {
+  const { graph, started, scoped } = pinnedGraph({ image: { lane: 'lane-a', model: '', account: 'acct-2' } });
+  await writeFile(graph.assetPath, Buffer.from('png'));
+  try {
+    const result = await generatePinned(graph);
+    assert.equal(result.lane, 'lane-a');
+    assert.equal(result.model, 'a-image', 'an empty pinned model is the generator default');
+    assert.deepEqual(scoped, [['acct-provider', 'acct-2']], 'the catalog is read as the pinned account');
+    assert.equal(started[0].account, 'acct-2');
+  } finally {
+    await rm(graph.assetPath, { force: true });
+  }
+});
+
+test('a pinned generator never falls back to another when it cannot serve', async () => {
+  const signedOut = pinnedGraph({ image: { lane: 'lane-out', model: 'x' } });
+  const missingModel = pinnedGraph({ image: { lane: 'lane-a', model: 'gone' } });
+  const failing = pinnedGraph(
+    { image: { lane: 'lane-a', model: 'a-image', account: 'acct-2' } },
+    { outcome: 'failed' }
+  );
+  assert.match((await generatePinned(signedOut.graph)).error, /lane "lane-out" is not signed in/);
+  assert.equal(signedOut.started.length, 0, 'no other lane is tried');
+  assert.match((await generatePinned(missingModel.graph)).error, /model "gone" is not available on lane-a/);
+  assert.equal(missingModel.started.length, 0);
+  const quota = await generatePinned(failing.graph);
+  assert.equal(quota.ok, false);
+  assert.match(quota.error, /generation failed on lane-a\/a-image: provider said no/);
+  assert.equal(failing.started.length, 1, 'the failure is reported as is, with no second attempt');
 });

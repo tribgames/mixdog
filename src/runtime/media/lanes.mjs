@@ -8,6 +8,7 @@
  * an unauthenticated lane fails closed.
  */
 import { hasAgentApiKey } from '../shared/provider-api-key.mjs';
+import { ACCOUNT_PROVIDERS } from '../shared/provider-accounts.mjs';
 // Credential probes are file-level checks: the catalog must not drag the whole
 // provider graph in just to render lane availability.
 import {
@@ -101,6 +102,13 @@ const LANES = Object.freeze([
 
 const LANE_BY_ID = new Map(LANES.map((lane) => [lane.id, lane]));
 
+/** The provider whose connected accounts a lane can generate through, or ''
+ *  for a lane that authenticates with a single API key. */
+export function mediaLaneAccountProvider(laneId) {
+  const provider = LANE_BY_ID.get(String(laneId || '').trim())?.auth.provider;
+  return ACCOUNT_PROVIDERS.includes(provider) ? provider : '';
+}
+
 const OAUTH_PROBES = Object.freeze({
   'grok-oauth': hasGrokOAuthCredentials,
   'openai-oauth': hasOpenAIOAuthCredentials,
@@ -144,6 +152,9 @@ export function createMediaLaneCatalog({ loadModels = loadMediaModels, authentic
       authType: lane.auth.type,
       authProvider: lane.auth.provider,
       authenticated: signedIn,
+      // What the lane can generate once signed in; `kinds` lists only what its
+      // live catalog offers right now.
+      supportedKinds: MEDIA_KINDS.filter((kind) => lane[kind]),
       kinds: [],
       image: null,
       video: null,

@@ -1,6 +1,5 @@
 /**
- * src/session-runtime/turn/turn-run.mjs - one user turn end to end: viewer
- * forwarding, turn open (abort controller, timing, warmup arming), session
+ * src/session-runtime/turn/turn-run.mjs - one user turn end to end: turn open (abort controller, timing, warmup arming), session
  * preparation (workspace provisioning, then the worktree review snapshot), the
  * askSession callback bridge, and the settlement that always runs. The phases
  * live under turn-run/.
@@ -49,18 +48,6 @@ export function createTurnRunner(deps) {
     deferComputerSessionRelease,
   });
 
-  const enqueueRemoteAttachedPrompt = (prompt) => {
-    const attachedSession = getSession();
-    if (!attachedSession?.remoteAttached || !attachedSession.id) return false;
-    try {
-      // prompt may be a string or { content/text, id } so the submission id
-      // survives spool fallback after a live-share ack miss.
-      return Number(mgr.enqueueRemotePendingMessage?.(attachedSession.id, prompt)) > 0;
-    } catch {
-      return false;
-    }
-  };
-
   function getTurnLiveness() {
     const sessionId = getSession()?.id;
     if (!sessionId || typeof mgr.getSessionProgressSnapshot !== 'function') return null;
@@ -69,28 +56,7 @@ export function createTurnRunner(deps) {
     return { ...snapshot };
   }
 
-  // Remote-attach: this surface is a viewer on a session that another live
-  // process owns. Never run a turn here — persist the prompt into the shared
-  // pending spool; the owner's injection poller submits it as a normal user
-  // turn and this surface refreshes from disk.
-  function forwardAttachedPrompt(attachedSession, prompt, options) {
-    // Carry the submission id into the spool: the owner reuses it for the
-    // queue entry and the settled user row, so the submitting surface's
-    // optimistic bubble is reconciled with the mirrored row.
-    const submissionId = String(options.id || '').trim();
-    const delivered = enqueueRemoteAttachedPrompt(submissionId ? { content: prompt, id: submissionId } : prompt);
-    return {
-      // This branch is only a race-safe fallback for callers that reached
-      // ask() before the live pipe was ready. Never manufacture an
-      // assistant response: the owner's mirrored transcript is authoritative.
-      result: { content: '', remoteAttached: true, delivered },
-      session: attachedSession,
-    };
-  }
-
   async function runTurn(prompt, options) {
-    const attachedSession = getSession();
-    if (attachedSession?.remoteAttached) return forwardAttachedPrompt(attachedSession, prompt, options);
     const turn = openTurn(options);
     try {
       const session0 = await prepareSession(turn, prompt, options);
@@ -129,7 +95,6 @@ export function createTurnRunner(deps) {
   }
 
   return {
-    enqueueRemoteAttachedPrompt,
     getTurnLiveness,
     ask: (prompt, options = {}) => runWithCwdOverride(getCurrentCwd(), () => runTurn(prompt, options)),
   };

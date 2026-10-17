@@ -25,3 +25,15 @@ export function isPidAlive(value) {
     return error?.code === 'EPERM';
   }
 }
+
+/** Destructive operations require proof of death, not merely a failed probe. */
+export function isPidAliveOrUnknown(value) {
+  const pid = parsePid(value);
+  if (!pid) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== 'ESRCH';
+  }
+}

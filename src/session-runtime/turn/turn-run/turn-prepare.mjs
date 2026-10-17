@@ -23,6 +23,7 @@ export function createTurnPreparation({
   assertSessionAdmission,
   prepareTurnWorkspace,
   admitTurnWorkspace,
+  applyPendingRoute,
 }) {
   const scopedMcpTools = (session) => scopedMcpToolsFor(session, getConfig());
 
@@ -129,6 +130,9 @@ export function createTurnPreparation({
       throwIfAborted(turn.signal);
       assertSessionAdmission?.();
     }
+    const modelSwitch = applyPendingRoute?.();
+    options.onRouteApplied?.(getSession());
+    if (modelSwitch) options.onModelSwitch?.(modelSwitch);
     ensureSessionTranscriptWriter?.();
     transcript.appendUser(prompt);
     const session0 = getSession();

@@ -14,6 +14,7 @@ mock.module(catalogUrl, {
 const effortRow = (...values) => ({ supportsReasoning: true, reasoningOptions: [{ type: 'effort', values }] });
 
 const {
+  antigravityModelFamily,
   antigravityQuotaWindows,
   fetchAvailableModels,
   fetchUserQuotaSummary,
@@ -156,7 +157,11 @@ test('bare Gemini ids with no catalog row keep low/medium/high and pass the effo
   });
   for (const model of models) {
     assert.deepEqual(model.reasoningLevels, ['low', 'medium', 'high'], model.id);
-    assert.deepEqual(resolveAntigravityWireModel(model.id, 'high', models), { model: model.id, effort: 'high' }, model.id);
+    assert.deepEqual(
+      resolveAntigravityWireModel(model.id, 'high', models),
+      { model: model.id, effort: 'high' },
+      model.id
+    );
   }
 });
 
@@ -205,6 +210,14 @@ test('the curated fallback resolves the same way as a live catalog', () => {
   for (const model of ANTIGRAVITY_MODELS) assert.equal(model.provider, 'antigravity-oauth');
 });
 
+test('the curated fallback classes Gemini 4 Argon as gemini-pro and keeps its thinking level', () => {
+  assert.equal(antigravityModelFamily('gemini-4-argon', ANTIGRAVITY_MODELS), 'gemini-pro');
+  assert.deepEqual(resolveAntigravityWireModel('gemini-4-argon', 'medium', ANTIGRAVITY_MODELS), {
+    model: 'gemini-4-argon',
+    effort: 'medium',
+  });
+});
+
 const GEMINI_GROUP = {
   displayName: 'Gemini Models',
   description: 'Models within this group: Gemini Flash, Gemini Pro',
@@ -248,6 +261,74 @@ test('quota windows map Gemini 5-hour and weekly summary buckets to 5H/7D', () =
   assert.deepEqual(windows, [
     { label: '5H', usedPct: 50, resetAt: Date.parse('2026-09-04T12:00:00Z'), source: 'antigravity-quota-summary' },
     { label: '7D', usedPct: 12, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
+    { label: '5H Claude/GPT', usedPct: 95, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
+    { label: '7D Claude/GPT', usedPct: 93, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
+  ]);
+});
+
+test('quota windows show the Claude/GPT buckets by bucket id, even without the Gemini group or its display text', () => {
+  const group = {
+    displayName: 'Renamed',
+    buckets: [
+      { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 0.25, resetTime: RESET },
+      { bucketId: '3p-5h', window: '5h', remainingFraction: 0.5, resetTime: RESET },
+    ],
+  };
+  assert.deepEqual(antigravityQuotaWindows({ groups: [group] }), [
+    { label: '5H Claude/GPT', usedPct: 50, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
+    { label: '7D Claude/GPT', usedPct: 75, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
+  ]);
+  // A group whose text names Claude but whose buckets carry other ids is not mapped.
+  assert.deepEqual(
+    antigravityQuotaWindows({
+      groups: [{ ...CLAUDE_GPT_GROUP, buckets: [{ bucketId: 'other', window: 'weekly', remainingFraction: 0.1 }] }],
+    }),
+    []
+  );
+});
+
+test('quota windows add the separate Gemini 4 Argon weekly bucket as 7D Argon', () => {
+  const argonGroup = {
+    displayName: 'Gemini 4 Argon',
+    description: 'For paid Pro plans, Argon quota is separate.',
+    buckets: [
+      {
+        bucketId: 'gemini-argon-wtu-weekly',
+        displayName: 'Gemini 4 Argon Weekly Limit',
+        window: 'weekly',
+        resetTime: '2026-10-24T08:11:47Z',
+        remainingFraction: 0.75,
+      },
+    ],
+  };
+  const gemini = {
+    ...GEMINI_GROUP,
+    buckets: [{ bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.88, resetTime: RESET }],
+  };
+  const argonRow = {
+    label: '7D Argon',
+    usedPct: 25,
+    resetAt: Date.parse('2026-10-24T08:11:47Z'),
+    source: 'antigravity-quota-summary',
+  };
+  assert.deepEqual(antigravityQuotaWindows({ groups: [gemini, argonGroup] }), [
+    { label: '7D', usedPct: 12, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
+    argonRow,
+  ]);
+  // The Argon limit shows even when the shared Gemini group is absent.
+  assert.deepEqual(antigravityQuotaWindows({ groups: [argonGroup] }), [argonRow]);
+  // Shared Gemini rows also follow their bucket ids when the group is renamed.
+  assert.deepEqual(antigravityQuotaWindows({ groups: [{ ...gemini, displayName: 'Renamed' }] }), [
+    { label: '7D', usedPct: 12, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
+  ]);
+  // The bucket id, not the group's display text, selects it.
+  assert.deepEqual(antigravityQuotaWindows({ groups: [{ ...argonGroup, displayName: 'Renamed' }] }), [argonRow]);
+  const decoy = {
+    displayName: 'Argon Preview',
+    buckets: [{ bucketId: 'other-weekly', window: 'weekly', remainingFraction: 0.1, resetTime: RESET }],
+  };
+  assert.deepEqual(antigravityQuotaWindows({ groups: [decoy, { displayName: 'Argon', buckets: [] }, argonGroup] }), [
+    argonRow,
   ]);
 });
 
@@ -361,10 +442,10 @@ test('quota windows omit lookalike labels and keep usedPct/resetAt on the same s
         {
           ...GEMINI_GROUP,
           buckets: [
-            { window: '5h', remainingFraction: 0.1, resetTime: firstReset },
-            { window: '5h', remainingFraction: 0.9, resetTime: laterReset },
-            { window: 'weekly', remainingFraction: 0.8, resetTime: firstReset },
-            { window: 'weekly', remainingFraction: 0.2, resetTime: laterReset },
+            { bucketId: 'gemini-5h', window: '5h', remainingFraction: 0.1, resetTime: firstReset },
+            { bucketId: 'gemini-5h', window: '5h', remainingFraction: 0.9, resetTime: laterReset },
+            { bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.8, resetTime: firstReset },
+            { bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.2, resetTime: laterReset },
           ],
         },
       ],

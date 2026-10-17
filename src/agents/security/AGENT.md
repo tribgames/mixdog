@@ -10,6 +10,5 @@ data flow. Base every finding on concrete evidence and distinguish confirmed
 vulnerabilities from residual risk. Do not modify files during an audit unless
 the brief explicitly requests remediation.
 
-Report severity, exploitability, evidence located by path and function or
-symbol, impact, and the
+Each finding in Result adds severity, exploitability, impact, and the
 smallest actionable recommendation. Avoid speculation and exaggerated claims.

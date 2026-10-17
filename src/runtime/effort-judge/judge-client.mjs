@@ -1,7 +1,8 @@
-// Effort-judge client. The judge loads on the first turn that uses it (a model
-// with Auto effort support) and then stays resident until the feature is
-// turned off or a model update replaces its files, so users who never send
-// such a turn never hold it in memory. A turn waits for a still-loading judge
+// Effort-judge client. The judge loads when a session that uses it (a model
+// with Auto effort support) is created or opened, or on the first judged turn,
+// and then stays resident until the feature is turned off or a model update
+// replaces its files, so users who never open such a session never hold it in
+// memory. A turn waits for a still-loading judge
 // only briefly; when the model is missing, still loading, slow, or failing,
 // `judgeTurn` returns a `skipped` reason and the turn keeps its default
 // effort. Decisions are logged locally (lengths and probabilities only, never
@@ -235,6 +236,22 @@ export function refreshEffortJudge() {
     // An older complete install still works.
     process.stderr.write(`[effort-judge] model update failed: ${error?.message || error}\n`);
   });
+}
+
+/**
+ * Starts the judge worker ahead of the first judged turn so its cold load
+ * (about 2.3 s) is over by then. Fire-and-forget: it spawns nothing when the
+ * platform is unsupported, the model is missing or being installed, or a
+ * failed load is still inside LOAD_RETRY_MS. Returns whether a worker is
+ * running or loading.
+ */
+export function prewarmEffortJudge() {
+  if (!onnxRuntimeSupported() || installing) return false;
+  const dir = effortJudgeModelDir();
+  if (!effortJudgeAvailable(dir)) return false;
+  if (!worker && lastLoadError && Date.now() - lastLoadErrorAt < LOAD_RETRY_MS) return false;
+  ensureWorker(dir);
+  return true;
 }
 
 export function effortJudgeReady() {

@@ -1,8 +1,7 @@
 // Characterization of one user turn end to end through createTurnRunner:
 // first-turn session creation + MCP fold, hook context merge, the askSession
 // callback bridge (transcript, first-visible timing, warmup arming), the
-// settlement that always runs, blocked/failed turns, and remote-attached
-// forwarding.
+// settlement that always runs, and blocked/failed turns.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -57,10 +56,6 @@ function makeHarness(overrides = {}) {
       toolSelfDeadlineMs: 9,
       extra: 1,
     }),
-    enqueueRemotePendingMessage: (id, prompt) => {
-      record('enqueueRemote', id, prompt);
-      return 1;
-    },
   };
   h.runner = createTurnRunner({
     getSession: () => state.session,
@@ -309,22 +304,6 @@ test('an askSession failure classifies the StopFailure error type and rethrows',
   );
 });
 
-test('a remote-attached session forwards the prompt into the owner spool instead of running a turn', async () => {
-  const h = makeHarness();
-  const attached = { id: 'sess_remote', remoteAttached: true };
-  h.state.session = attached;
-  const outcome = await h.runner.ask('forward me', { id: 'sub-1' });
-  assert.deepEqual(outcome, { result: { content: '', remoteAttached: true, delivered: true }, session: attached });
-  assert.deepEqual(h.named('enqueueRemote'), [
-    ['enqueueRemote', 'sess_remote', { content: 'forward me', id: 'sub-1' }],
-  ]);
-  assert.deepEqual(h.named('askSession'), []);
-  assert.deepEqual(h.named('emit'), []);
-  assert.equal(h.runner.enqueueRemoteAttachedPrompt('plain'), true);
-  h.state.session = { id: 'sess_local' };
-  assert.equal(h.runner.enqueueRemoteAttachedPrompt('plain'), false);
-});
-
 test('workspace provisioning runs after session creation and before the user row, snapshot and hooks', async () => {
   const h = makeHarness({
     prepareTurnWorkspace: async ({ submissionId, signal, confirmLarge }) => {
@@ -458,12 +437,24 @@ test('headless usage totals include a native web search run through ask and the 
   );
   h.askResult = async (callbacks) => {
     callbacks.onProviderSendStarted();
-    callbacks.onUsageDelta({ model: 'gpt-test', deltaInput: 100, deltaCachedRead: 20, deltaCacheWrite: 5, deltaOutput: 10 });
+    callbacks.onUsageDelta({
+      model: 'gpt-test',
+      deltaInput: 100,
+      deltaCachedRead: 20,
+      deltaCacheWrite: 5,
+      deltaOutput: 10,
+    });
     // Run the tool from a context detached from this ask, as a pooled
     // transport's stream callback would.
     await new Promise((resolve) => setImmediate(resolve));
     await executeTool('web_search', { prompt: 'q' }, toolSession.cwd, toolSession.id, toolSession);
-    callbacks.onUsageDelta({ model: 'gpt-test', deltaInput: 30, deltaCachedRead: 0, deltaCacheWrite: 0, deltaOutput: 4 });
+    callbacks.onUsageDelta({
+      model: 'gpt-test',
+      deltaInput: 30,
+      deltaCachedRead: 0,
+      deltaCacheWrite: 0,
+      deltaOutput: 4,
+    });
     return { content: 'done' };
   };
   const code = await runHeadlessExec({

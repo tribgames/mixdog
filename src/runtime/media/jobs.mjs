@@ -8,7 +8,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import { MAX_GENERATED_MEDIA_BYTES } from './download.mjs';
-import { mediaError, resolveMediaRequest } from './lanes.mjs';
+import { mediaError, mediaLaneAccountProvider, resolveMediaRequest } from './lanes.mjs';
+import { withProviderAccount } from '../shared/provider-auth-binding.mjs';
 import { saveMediaAsset } from './store.mjs';
 import { setMediaDefault } from './defaults.mjs';
 import { recordMediaUsage } from './media-usage.mjs';
@@ -77,8 +78,17 @@ async function runAdapter({ lane, kind, model, requestModel, prompt, options, re
 /**
  * Validate + start one generation. Returns the initial snapshot immediately;
  * the caller polls getMediaJob for progress and the finished asset id.
+ * `account` runs the whole job (catalog check, credentials, adapter) as that
+ * connected account of the lane's provider, whatever the chat is using; an
+ * account that cannot serve the call fails it, never another account.
  */
-export async function startMediaJob({
+export async function startMediaJob(input = {}) {
+  const account = String(input?.account || '').trim();
+  const provider = account ? mediaLaneAccountProvider(input.lane) : '';
+  return provider ? withProviderAccount(provider, account, () => beginMediaJob(input)) : beginMediaJob(input);
+}
+
+async function beginMediaJob({
   lane: laneId,
   kind,
   model,

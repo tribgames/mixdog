@@ -13,9 +13,11 @@
  * - Each worktree-bound Lead's execution root, which every worker of that Lead
  *   runs in.
  */
-import { worktreeError } from '../../runtime/shared/worktrees/contract.mjs';
+import { worktreeError, worktreeRefusal } from '../../runtime/shared/worktrees/contract.mjs';
 import { throwIfAborted } from '../../runtime/shared/worktrees/git.mjs';
 import { isWithin } from '../../runtime/shared/worktrees/paths.mjs';
+import { tryAdmitWorkspaceActivity } from '../../runtime/shared/worktrees/activity-gate.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 /** @type {Map<string, { txId: string, settled: Promise<void> }>} Lead session id → in-flight transition. */
 const transitions = new Map();
@@ -42,8 +44,8 @@ function once(fn) {
   let done = false;
   return () => {
     if (done) return;
-    done = true;
     fn();
+    done = true;
   };
 }
 
@@ -78,21 +80,18 @@ export function beginWorkspaceTransition(sessionId, txId) {
  * admitted turn runs inside it, and (`transition`) while another change holds
  * an overlapping checkout; turns arriving meanwhile wait (admitTurn). The
  * holder's own turns are its own business (the Lead busy check).
+ * `hold: false` (an external checkout, never lock-blocked) only refuses.
  * @param {string|null} sessionId The changing session; '' / null for a session-less change.
  * @returns {() => void} Release.
  */
-export function holdCheckoutFolder(sessionId, folder) {
+export function holdCheckoutFolder(sessionId, folder, { hold = true } = {}) {
   const id = key(sessionId);
   const users = new Set();
   for (const turn of turns.values()) {
     if (turn.sessionId !== id && within(folder, turn.cwd())) users.add(turn.sessionId);
   }
-  if (users.size) {
-    throw worktreeError('WORKTREE_BUSY_JOBS', 'Other sessions are working in the project folder.', {
-      reason: 'folder-in-use',
-      sessions: [...users],
-    });
-  }
+  if (users.size) throw worktreeRefusal('folder-in-use', { sessions: [...users] });
+  if (!hold) return () => {};
   if ([...folderHolds.values()].some((hold) => within(hold.folder, folder) || within(folder, hold.folder))) {
     throw worktreeError('WORKTREE_BUSY_JOBS', 'Another branch change is in progress in the project folder.', {
       reason: 'transition',
@@ -145,14 +144,44 @@ function settledOrAborted(promise, signal) {
  */
 export async function admitTurn({ sessionId, cwd, signal }) {
   const id = key(sessionId);
-  for (let blocker = admissionBlocker(id, cwd); blocker; blocker = admissionBlocker(id, cwd)) {
+  for (;;) {
     throwIfAborted(signal);
-    await settledOrAborted(blocker, signal);
+    const blocker = admissionBlocker(id, cwd);
+    if (blocker) {
+      await settledOrAborted(blocker, signal);
+      continue;
+    }
+    const release = tryAdmitWorkspaceActivity(id, cwd());
+    if (!release) {
+      await delay(100, undefined, { signal });
+      continue;
+    }
+    const token = Symbol('turn');
+    const leases = [release];
+    turns.set(token, { sessionId: id, cwd, leases });
+    return once(() => {
+      const errors = [];
+      for (const leave of leases) {
+        try {
+          leave();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      turns.delete(token);
+      if (errors.length) throw new AggregateError(errors, 'Workspace admission could not be released.');
+    });
   }
-  throwIfAborted(signal);
-  const token = Symbol('turn');
-  turns.set(token, { sessionId: id, cwd });
-  return once(() => turns.delete(token));
+}
+
+/** Keep the old root protected and acquire the destination before an admitted turn moves. */
+export function retainAdmittedTurnWorkspace(sessionId, cwd) {
+  for (const turn of turns.values()) {
+    if (turn.sessionId !== key(sessionId) || turn.cwd() === cwd) continue;
+    const leave = tryAdmitWorkspaceActivity(sessionId, cwd);
+    if (!leave) throw worktreeRefusal('folder-in-use');
+    turn.leases.push(leave);
+  }
 }
 
 /**

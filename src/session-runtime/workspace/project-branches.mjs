@@ -2,32 +2,15 @@
  * Session-less branch operations on a registered Project's folder (a New
  * Task draft, the source-control dock): its branch menu, a guarded checkout
  * and a guarded merge. They act only on a registered Project (a repository
- * subfolder Project included) and hold the checkout (withProjectFolder) while
- * git changes it.
+ * subfolder Project included): a checkout holds the folder (withProjectFolder)
+ * while git changes it, a merge takes the shared management path.
  */
 import { branchMenuEntries, projectWorkspace, worktreeError } from '../../runtime/shared/worktrees/contract.mjs';
+import * as branchManagement from '../../runtime/shared/worktrees/branch-management.mjs';
 
 function requireText(value, name) {
   if (typeof value !== 'string' || !value.trim()) throw new TypeError(`${name} must be a non-empty string.`);
   return value.trim();
-}
-
-/**
- * WORKTREE_UNSUPPORTED_REPO when the project folder has no checked-out branch
- * to merge into; WORKTREE_TARGET_MISMATCH when the confirmed `target` (null:
- * none confirmed) is no longer the checked-out branch.
- */
-export function assertMergeTarget(currentBranch, target) {
-  if (!currentBranch) {
-    throw worktreeError('WORKTREE_UNSUPPORTED_REPO', 'The project folder has no checked-out branch to merge into.');
-  }
-  if (target !== null && target !== currentBranch) {
-    throw worktreeError(
-      'WORKTREE_TARGET_MISMATCH',
-      `The project folder is now on "${currentBranch}"; confirm the merge again.`,
-      { target, current: currentBranch }
-    );
-  }
 }
 
 /**
@@ -36,8 +19,15 @@ export function assertMergeTarget(currentBranch, target) {
  * @param {(path: string) => Promise<any>} deps.inspectProject
  * @param {(path: string) => Promise<string|null>} deps.findRegisteredProject
  * @param {<T>(sessionId: string|null, folder: string, fn: () => Promise<T>) => Promise<T>} deps.withProjectFolder
+ * @param {Function} deps.withManagementFolders The shared admission of every merge and cleanup.
  */
-export function createProjectBranchOps({ backend, inspectProject, findRegisteredProject, withProjectFolder }) {
+export function createProjectBranchOps({
+  backend,
+  inspectProject,
+  findRegisteredProject,
+  withProjectFolder,
+  withManagementFolders,
+}) {
   /** WORKTREE_PROJECT_UNKNOWN unless `projectPath` is a registered Project. */
   async function registeredProject(projectPath) {
     const path = requireText(projectPath, 'projectPath');
@@ -114,25 +104,27 @@ export function createProjectBranchOps({ backend, inspectProject, findRegistered
   /**
    * Merge a local branch into a Project folder's checked-out branch with no
    * session: `target` is the branch the user confirmed and must still be
-   * checked out (WORKTREE_TARGET_MISMATCH); refused while another session
-   * works in that checkout, which is held (turn admission waits) until the
-   * merge is done.
+   * checked out (WORKTREE_TARGET_MISMATCH). The same guarded path as the
+   * branch-row merge (manageProjectBranch): source and destination validated
+   * and both folders held.
    */
   async function mergeProjectBranch({ projectPath, branch, target } = {}) {
     const path = await registeredProject(projectPath);
-    const source = requireText(branch, 'branch');
-    const confirmedTarget = requireText(target, 'target');
-    const project = await inspectProject(path);
-    assertMergeTarget(project.currentBranch, confirmedTarget);
-    return withProjectFolder(null, project.topLevel || path, async () =>
-      (await backend()).mergeBranchIntoProject({
-        projectPath: path,
-        source,
-        target: confirmedTarget,
-        confirmed: true,
-      })
+    return branchManagement.mergeConfirmedTarget(
+      { projectPath: path, branch: requireText(branch, 'branch'), target: requireText(target, 'target') },
+      withManagementFolders
     );
   }
 
-  return { getProjectBranchMenu, selectProjectBranch, mergeProjectBranch };
+  async function inspectProjectBranch({ projectPath, branch } = {}) {
+    const path = await registeredProject(projectPath);
+    return branchManagement.inspectProjectBranch({ projectPath: path, branch: requireText(branch, 'branch') });
+  }
+
+  async function manageProjectBranch(input = {}) {
+    const path = await registeredProject(input.projectPath);
+    return branchManagement.manageProjectBranch({ ...input, projectPath: path }, withManagementFolders);
+  }
+
+  return { getProjectBranchMenu, selectProjectBranch, mergeProjectBranch, inspectProjectBranch, manageProjectBranch };
 }

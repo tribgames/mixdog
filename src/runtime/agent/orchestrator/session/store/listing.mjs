@@ -5,7 +5,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
 import { getPluginData } from '../../config.mjs';
-import { getStoreDir } from './paths-heartbeat.mjs';
+import { getStoreDir } from './session-paths.mjs';
 import { probePath, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
 import { isCancelledWrite as _isCancelledWrite } from './write-guards.mjs';
 import {
@@ -29,7 +29,6 @@ import {
 import { _saveAsyncQueued, _saveWorkerPending } from './save-worker.mjs';
 import { STORED_SESSION_UNREADABLE, _ensureLifecycleFields, _storedSessionFromFile } from './serialize.mjs';
 import { _savePending } from './pending-saves.mjs';
-import { isOrdinarySession } from '../store-summary-visibility.mjs';
 import { closeSessionCatalogDb } from '../catalog-db/index.mjs';
 
 // Disk mtime of the summary index when the in-memory cache was last refreshed
@@ -63,10 +62,7 @@ export function listStoredSessions(options = {}) {
     options.includeLive === true
       ? _withUnpersistedSessions(stored, invalidStorageIds)
       : stored.sort((a, b) => b.updatedAt - a.updatedAt);
-  // This full-record API is the ordinary catalog boundary. Agent discovery
-  // uses the durable summary/worker indexes instead; callers that explicitly
-  // own an Agent surface can request the unfiltered internal rows.
-  return options.includeAgentOnly === true ? listed : listed.filter(isOrdinarySession);
+  return listed;
 }
 
 function _withUnpersistedSessions(stored, invalidStorageIds = new Set()) {

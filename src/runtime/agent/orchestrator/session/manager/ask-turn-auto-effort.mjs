@@ -16,7 +16,12 @@ import {
 } from '../../providers/auto-effort.mjs';
 import { builtinFeatureActive } from '../../runtime-core/builtin-features.mjs';
 import { effortOptionsFor, warnEmptyAutoEffortLadder } from '../../runtime-core/effort.mjs';
-import { effortJudgeSupportsSteps, judgeTurn, recordEffortDecision } from '../../../../effort-judge/judge-client.mjs';
+import {
+  effortJudgeSupportsSteps,
+  judgeTurn,
+  prewarmEffortJudge,
+  recordEffortDecision,
+} from '../../../../effort-judge/judge-client.mjs';
 import { promptContentText } from './prompt-utils.mjs';
 
 // Every cache-safe route judges its tool-result steps the same way. Measured
@@ -50,6 +55,21 @@ export function autoEffortMode() {
     return builtinFeatureActive(readSection('agent'), 'autoEffort') ? 'on' : 'off';
   } catch {
     return 'off';
+  }
+}
+
+/**
+ * Starts the judge worker when a session is created or opened on a route that
+ * Auto effort can judge, so the first judged turn does not wait for the cold
+ * load. Fire-and-forget: it never throws and never waits on the load.
+ */
+export function prewarmSessionAutoEffort(session, provider) {
+  try {
+    if (autoEffortMode() === 'off' || session?.autoEffort === false) return false;
+    if (!turnEffortConfigurationMode(session, provider)) return false;
+    return prewarmEffortJudge();
+  } catch {
+    return false;
   }
 }
 

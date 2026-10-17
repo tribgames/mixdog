@@ -80,10 +80,11 @@ export function createAntigravityStreamCollector({ tools, useModel, onToolCall, 
     textLeakGuard = null;
   };
 
-  const consume = async (res, attemptSignal) => {
+  const consume = async (res, attemptSignal, { firstByteTimeoutMs } = {}) => {
     try {
       return await consumeGeminiRestStreamResponse(res, {
         signal: attemptSignal,
+        firstByteTimeoutMs,
         onStreamDelta,
         onTextDelta: relayText,
         onChunk,

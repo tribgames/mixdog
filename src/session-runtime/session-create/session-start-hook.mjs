@@ -1,6 +1,7 @@
 // session-create/session-start-hook.mjs — the SessionStart project hook:
 // best-effort dispatch whose additionalContext lands before the first turn.
 import { runAbortable, throwIfAborted } from '../../runtime/shared/abort-race.mjs';
+import { contextAckMessage } from '../../runtime/agent/orchestrator/session/compact/user-message-kind.mjs';
 
 function sessionStartSource(reason) {
   const reasonText = String(reason || '');
@@ -29,7 +30,7 @@ export async function dispatchSessionStart(deps, reason, signal) {
         role: 'user',
         content: `<system-reminder>\n# SessionStart Hook Context\n${startContext.trim()}\n</system-reminder>`,
       });
-      rt.session.messages.push({ role: 'assistant', content: '.' });
+      rt.session.messages.push(contextAckMessage());
       rt.session.updatedAt = Date.now();
     }
   } catch {

@@ -91,6 +91,7 @@ import { createLagProfiler } from './daemon-lag-profiler.mjs';
 import { createChannelsRuntimeLoader } from './daemon-channels-loader.mjs';
 import { createDesktopRuntime } from './daemon-desktop-runtime.mjs';
 import { createCanonicalAgentControl } from './daemon-agent-control.mjs';
+import { createSessionControl } from './daemon-session-control.mjs';
 import { flushAllIndexWrites } from '../session-runtime/services/agent-tool/index-write-queue.mjs';
 import { registerAutomationAgentTool } from '../session-runtime/automation-agents.mjs';
 import {
@@ -913,6 +914,7 @@ async function main() {
     log,
     measureBootPhase: bootPhases.measure,
     executeAgentControl: agentControl.execute,
+    executeSessionControl: createSessionControl({ getSessionService: () => sessionService }),
   });
   // Codex-style runtime: daemon routing and independent async session actors
   // share one V8 isolate and module graph. CPU-heavy work stays in bounded

@@ -6,6 +6,7 @@
 // converge on one runtime.
 
 export function createSessionLoads({
+  pendingViewers,
   sessionExists,
   log,
   assertAvailable,
@@ -20,12 +21,21 @@ export function createSessionLoads({
   const sessionLoads = new Map(); // sessionId -> Promise<entry>
 
   function getOrCreateSessionEntry(sessionId, create) {
-    const owner = sessionOwner(sessionId);
-    if (owner) return Promise.resolve(owner);
     const inFlight = sessionLoads.get(sessionId);
     if (inFlight) return inFlight;
     const loading = Promise.resolve()
-      .then(create)
+      .then(async () => {
+        const owner = sessionOwner(sessionId);
+        if (owner) {
+          if ((await owner.runtime.isSessionTerminal?.()) !== true) return owner;
+          if (owner.subscribers?.size) {
+            if (!pendingViewers.has(sessionId)) pendingViewers.set(sessionId, new Set());
+            for (const subscriber of owner.subscribers) pendingViewers.get(sessionId).add(subscriber);
+          }
+          await destroy(owner, 'replace terminal runtime', { keepBackgroundWork: true, announce: false });
+        }
+        return create();
+      })
       .finally(() => {
         if (sessionLoads.get(sessionId) === loading) sessionLoads.delete(sessionId);
       });
@@ -84,11 +94,12 @@ export function createSessionLoads({
    *  flight), or null where answering would take a fresh load. */
   async function hostedEntryForSession(sessionId) {
     assertAvailable();
+    if (sessionLoads.has(sessionId)) return sessionLoads.get(sessionId);
     const owner = sessionOwner(sessionId);
-    if (owner) return owner;
+    if (owner) return (await owner.runtime.isSessionTerminal?.()) === true ? null : owner;
     const external = await bindExternalSessionView(sessionId);
     const acquiredOwner = sessionOwner(sessionId);
-    if (acquiredOwner) return acquiredOwner;
+    if (acquiredOwner) return (await acquiredOwner.runtime.isSessionTerminal?.()) === true ? null : acquiredOwner;
     if (external?.runtime?.externalAction === true) return external;
     return sessionLoads.get(sessionId) || null;
   }

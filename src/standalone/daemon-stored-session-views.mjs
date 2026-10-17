@@ -11,6 +11,23 @@ import {
   readStoredGoalSnapshot,
 } from '../runtime/agent/orchestrator/runtime-core/goal-runtime.mjs';
 
+/** Catalog rows with the daemon's in-memory turn activity overlaid: `working`
+ *  on a session whose own turn is in flight, `agentWorking` on a Lead with an
+ *  in-flight Agent session. Every session runs in this process, so the runtime
+ *  state is the whole answer — storage carries no liveness. */
+async function withRuntimeActivity(rows) {
+  // The import-free leaf holding the runtime map: no session manager graph.
+  const { inFlightSessionActivity } = await import('../runtime/agent/orchestrator/session/manager/runtime-state.mjs');
+  const { working, agentWorking } = inFlightSessionActivity();
+  if (!working.size) return rows;
+  return rows.map((row) => {
+    const own = working.has(row?.id);
+    const agents = agentWorking.has(row?.id);
+    if (!own && !agents) return row;
+    return { ...row, ...(own ? { working: true } : {}), ...(agents ? { agentWorking: true } : {}) };
+  });
+}
+
 export function createStoredSessionViews({ desktopRuntime, dataDir }) {
   return {
     // Settled identity of the files a stored projection is built from; the
@@ -86,11 +103,14 @@ export function createStoredSessionViews({ desktopRuntime, dataDir }) {
       // ignored, full array). An authoritative refresh is never paged.
       const page = options.page && typeof options.page === 'object' ? options.page : null;
       if (page && !refreshFromStorage && store.listStoredSessionSummaryPage) {
-        return store.listStoredSessionSummaryPage({ limit: page.limit, cursor: page.cursor });
+        const listed = await store.listStoredSessionSummaryPage({ limit: page.limit, cursor: page.cursor });
+        return { ...listed, sessions: await withRuntimeActivity(listed.sessions) };
       }
       // The async listing may answer from the session catalog DB.
-      if (store.listStoredSessionSummariesAsync) return store.listStoredSessionSummariesAsync({ refreshFromStorage });
-      return store.listStoredSessionSummaries({ refreshFromStorage });
+      const rows = store.listStoredSessionSummariesAsync
+        ? await store.listStoredSessionSummariesAsync({ refreshFromStorage })
+        : store.listStoredSessionSummaries({ refreshFromStorage });
+      return withRuntimeActivity(rows);
     },
   };
 }

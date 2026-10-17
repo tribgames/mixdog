@@ -42,6 +42,73 @@ test('the model refresh starts on the first judged turn, once, and not on import
   assert.equal(installs, 1, 'later turns do not start another');
 });
 
+function prewarmHarness(t, { model = true } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-prewarm-'));
+  if (model) for (const file of ['model.onnx', 'tokenizer.json']) writeFileSync(join(dir, file), '');
+  const saved = process.env.MIXDOG_EFFORT_JUDGE_DIR;
+  process.env.MIXDOG_EFFORT_JUDGE_DIR = dir;
+  t.after(() => {
+    if (saved === undefined) delete process.env.MIXDOG_EFFORT_JUDGE_DIR;
+    else process.env.MIXDOG_EFFORT_JUDGE_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const spawned = [];
+  class FakeWorker extends EventEmitter {
+    constructor() {
+      super();
+      spawned.push(this);
+    }
+    postMessage() {}
+    unref() {}
+    async terminate() {}
+  }
+  t.mock.module('node:worker_threads', { namedExports: { Worker: FakeWorker } });
+  return { spawned };
+}
+
+test('prewarm starts the judge worker once when the model is installed, without waiting for the load', async (t) => {
+  const { spawned } = prewarmHarness(t);
+  const client = await import(`./judge-client.mjs?prewarm=${Date.now()}`);
+  assert.equal(spawned.length, 0, 'importing the client spawns nothing');
+  assert.equal(client.prewarmEffortJudge(), true);
+  assert.equal(spawned.length, 1);
+  assert.equal(client.effortJudgeReady(), false, 'the call returns before the model has loaded');
+  assert.equal(client.prewarmEffortJudge(), true);
+  assert.equal(spawned.length, 1, 'a worker that is loading or loaded is reused');
+  spawned[0].emit('message', { type: 'ready' });
+  assert.equal(client.effortJudgeReady(), true);
+});
+
+test('prewarm spawns nothing when the model is missing', async (t) => {
+  const { spawned } = prewarmHarness(t, { model: false });
+  const client = await import(`./judge-client.mjs?prewarm-missing=${Date.now()}`);
+  assert.equal(client.prewarmEffortJudge(), false);
+  assert.equal(spawned.length, 0);
+});
+
+test('prewarm spawns nothing on an unsupported platform', async (t) => {
+  const { spawned } = prewarmHarness(t);
+  t.mock.module('../shared/onnx-runtime-support.mjs', { namedExports: { onnxRuntimeSupported: () => false } });
+  const client = await import(`./judge-client.mjs?prewarm-unsupported=${Date.now()}`);
+  assert.equal(client.prewarmEffortJudge(), false);
+  assert.equal(spawned.length, 0);
+});
+
+test('prewarm retries a failed load no sooner than the load retry interval', async (t) => {
+  const { spawned } = prewarmHarness(t);
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  const client = await import(`./judge-client.mjs?prewarm-retry=${Date.now()}`);
+  assert.equal(client.prewarmEffortJudge(), true);
+  spawned[0].emit('message', { type: 'load-error', message: 'broken model' });
+  spawned[0].emit('exit', 1);
+  t.mock.timers.tick(59_999);
+  assert.equal(client.prewarmEffortJudge(), false, 'still inside the retry interval');
+  assert.equal(spawned.length, 1);
+  t.mock.timers.tick(1);
+  assert.equal(client.prewarmEffortJudge(), true);
+  assert.equal(spawned.length, 2);
+});
+
 test('a judgment that missed its deadline holds the next request until the worker answers it', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-queue-'));
   for (const file of ['model.onnx', 'tokenizer.json']) writeFileSync(join(dir, file), '');

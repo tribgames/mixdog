@@ -53,7 +53,9 @@ export function createJobStarter({ mgr, notifyStatusChange, notifySessionComplet
         const currentMeta = task?.meta || jobMeta;
         if (currentMeta?.sessionId) {
           try {
-            Promise.resolve(mgr.closeSession(currentMeta.sessionId, 'agent-task-cancel')).catch(() => {});
+            Promise.resolve(mgr.closeSession(currentMeta.sessionId, 'agent-task-cancel', { tombstone: false })).catch(
+              () => {}
+            );
           } catch {}
         }
         setImmediate(notifyStatusChange);

@@ -134,6 +134,11 @@ async function exists(path) {
   }
 }
 
+/** Link the directory `source` at `dest`: a directory junction on Windows, a symlink elsewhere. */
+export function linkDirectory(source, dest) {
+  return symlink(source, dest, process.platform === 'win32' ? 'junction' : 'dir');
+}
+
 async function isUnityProject(dir) {
   try {
     return (await stat(join(dir, UNITY_MARKER))).isFile();
@@ -169,10 +174,12 @@ async function treeBytes(path) {
 /**
  * Resolve and validate every entry against the repository before anything is
  * allocated. Missing sources are skipped with a warning.
+ * `envFiles` (untrackedEnvFiles) are copied like pattern matches.
  * @param {string} repoRoot
  * @param {Array<{ mode: 'copy'|'link', rel: string, line: number }>} entries
+ * @param {{ envFiles?: string[] }} [options]
  */
-export async function planIncludes(repoRoot, entries) {
+export async function planIncludes(repoRoot, entries, { envFiles = [] } = {}) {
   const rootReal = await realpath(repoRoot);
   const items = [];
   const warnings = [];
@@ -188,7 +195,11 @@ export async function planIncludes(repoRoot, entries) {
   const overlaps = (a, b) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
   const covered = (rel) => explicit.some((entry) => overlaps(relKey(rel), relKey(entry.rel)));
   const planned = [...explicit];
-  for (const path of matched) {
+  // An env file a pattern match already brings (inside a matched folder) is
+  // not planned twice; one the patterns explicitly exclude (`!`) is not copied.
+  const kept = await withoutNegated(repoRoot, envFiles, patterns, warnings);
+  const env = kept.filter((rel) => !matched.some((path) => overlaps(relKey(rel), relKey(path))));
+  for (const path of [...matched, ...env]) {
     let rel;
     try {
       rel = validateIncludePath(path);
@@ -235,6 +246,78 @@ export async function planIncludes(repoRoot, entries) {
     items.push({ mode: entry.mode, rel: entry.rel, source: sourceReal, directory: info.isDirectory(), bytes });
     return bytes;
   }
+}
+
+/**
+ * The local env files of the main checkout a new worktree starts with, with
+ * nothing to configure: every untracked `.env` or `.env.*` file, git-ignored
+ * or not, at the root or nested (never inside node_modules), that is a
+ * regular file, not a link. All of them: the query names only env files, so
+ * it has no match cap. They are copied like `.worktreeinclude` pattern
+ * matches, so the same rules hold (inside the repository, never
+ * overwriting); explicit include entries and `!` exclusions win. A git
+ * failure means none.
+ * @returns {Promise<string[]>} Forward-slash paths relative to `repoRoot`.
+ */
+export async function untrackedEnvFiles(repoRoot) {
+  const listed = await runGit(
+    repoRoot,
+    [
+      '-c',
+      'core.quotePath=false',
+      'ls-files',
+      '-z',
+      '--others',
+      '--',
+      ':(glob)**/.env',
+      ':(glob)**/.env.*',
+      ':(exclude,glob)**/node_modules/**',
+    ],
+    { allowFailure: true, readOnly: true }
+  );
+  if (listed.code !== 0) return [];
+  const files = [];
+  for (const rel of listed.stdout.split('\0').filter(Boolean)) {
+    try {
+      if ((await lstat(join(repoRoot, ...rel.split('/')))).isFile()) files.push(rel);
+    } catch {
+      /* gone since the listing */
+    }
+  }
+  return files;
+}
+
+/**
+ * `paths` minus those a `!` pattern of `patterns` explicitly excludes, by
+ * gitignore order: every path starts selected (directories stay open, so a
+ * nested negation can apply) and git evaluates the patterns after that, so
+ * the last matching pattern decides. A git failure keeps none and warns.
+ */
+async function withoutNegated(repoRoot, paths, patterns, warnings) {
+  if (!paths.length || !patterns.some((pattern) => pattern.startsWith('!'))) return paths;
+  const listed = await runGit(
+    repoRoot,
+    [
+      '-c',
+      'core.quotePath=false',
+      'ls-files',
+      '-z',
+      '--others',
+      '--ignored',
+      '--exclude=*',
+      '--exclude=!*/',
+      ...patterns.map((pattern) => `--exclude=${pattern}`),
+      '--',
+      ...paths.map((rel) => `:(literal)${rel}`),
+    ],
+    { allowFailure: true, readOnly: true }
+  );
+  if (listed.code !== 0) {
+    warnings.push('include-invalid:patterns');
+    return [];
+  }
+  const selected = new Set(listed.stdout.split('\0').filter(Boolean));
+  return paths.filter((rel) => selected.has(rel));
 }
 
 /**
@@ -347,26 +430,37 @@ async function assertPlainParents(worktreePath, dest) {
   }
 }
 
+/**
+ * Make one link of the recorded `type`: 'directory' (junction on Windows,
+ * symlink elsewhere), 'file' (file symlink) or 'hard' (Windows hard link).
+ */
+function makeLinkOfType(type, source, dest) {
+  if (type === 'file') return symlink(source, dest, 'file');
+  if (type === 'hard') return link(source, dest);
+  return linkDirectory(source, dest);
+}
+
+/** Link `item` at `dest`; returns the link type made (see makeLinkOfType). */
 async function makeLink(item, dest) {
   const failures = [];
   if (item.directory) {
     try {
-      await symlink(item.source, dest, process.platform === 'win32' ? 'junction' : 'dir');
-      return;
+      await linkDirectory(item.source, dest);
+      return 'directory';
     } catch (error) {
       failures.push(error);
     }
   } else {
     try {
       await symlink(item.source, dest, 'file');
-      return;
+      return 'file';
     } catch (error) {
       failures.push(error);
     }
     if (process.platform === 'win32') {
       try {
         await link(item.source, dest);
-        return;
+        return 'hard';
       } catch (error) {
         failures.push(error);
       }
@@ -402,10 +496,13 @@ export async function applyIncludes(plan, worktreePath, record) {
       continue;
     }
     const ledger = { mode: item.mode, rel: item.rel, path: dest, status: 'pending', digest: null };
+    // A link records its target and (once made) its type, so a removal that
+    // does not go through can put the same kind of link back (restoreIncludeLinks).
+    if (item.mode === 'link') ledger.source = item.source;
     await record(ledger);
     await mkdir(dirname(dest), { recursive: true });
     if (item.mode === 'link') {
-      await makeLink(item, dest);
+      ledger.linkType = await makeLink(item, dest);
     } else if (item.directory) {
       await cp(item.source, dest, {
         recursive: true,
@@ -457,6 +554,27 @@ export async function removeIncludeLinks(items) {
     }
   }
   return remaining;
+}
+
+/**
+ * Put back the links removeIncludeLinks took away (those that record their
+ * `source`) after a removal that did not go through, each with its recorded
+ * `linkType` (a record without one — dependency links, older records — is a
+ * directory link). A path that exists again is left alone.
+ * @returns {Promise<Array<{ path: string, error: string }>>} Links that could not be restored.
+ */
+export async function restoreIncludeLinks(items) {
+  const failures = [];
+  for (const item of items || []) {
+    if (item.mode !== 'link' || !item.source || item.status !== 'created') continue;
+    if (await exists(item.path)) continue;
+    try {
+      await makeLinkOfType(item.linkType || 'directory', item.source, item.path);
+    } catch (error) {
+      failures.push({ path: item.path, error: error?.code || error?.message || String(error) });
+    }
+  }
+  return failures;
 }
 
 /** Copied include paths whose content changed since creation (or unknown). */

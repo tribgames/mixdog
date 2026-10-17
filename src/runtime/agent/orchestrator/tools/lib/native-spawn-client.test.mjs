@@ -12,11 +12,11 @@ import {
   _assertNativeSpawnCapabilitiesForTest,
   _resetNativeSpawnClientForTest,
   _setNativeSpawnBinaryForTest,
-  cancelNativeTasks,
   listNativeTasks,
   shutdownNativeSpawnServer,
   waitNativeTask,
 } from './native-spawn-client.mjs';
+import { cancelOwnedShellTrees } from './owned-shell-trees.mjs';
 
 test('native spawn rejects binaries without the required lifecycle protocol', () => {
   assert.throws(
@@ -94,7 +94,9 @@ test('foreground shell has stable owner identity before promotion', { timeout: 1
     assert.equal(result.backgrounded, true);
     assert.equal(result.jobId, jobId);
 
-    assert.ok(cancelNativeTasks({ ownerSessionId }).cancelled >= 1);
+    // The owner-wide cancel a session close sends: identities first (bounded),
+    // then the native cancel, so the record can confirm the tree is gone.
+    assert.ok((await cancelOwnedShellTrees(ownerSessionId)).cancelled >= 1);
     const terminal = await waitNativeTask(jobId, 3_000);
     assert.notEqual(terminal?.status, 'running');
     assert.equal(terminal?.status, 'cancelled');

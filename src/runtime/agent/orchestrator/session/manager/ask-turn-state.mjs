@@ -3,6 +3,7 @@
 // throttled crash-recovery checkpoint sidecar, and the close snapshot that
 // canonicalizes the transcript when the turn is interrupted.
 import { captureTurnCheckpointContextState, createTurnCheckpointRecorder } from './turn-checkpoint.mjs';
+import { finalizeTurnInterruptionSnapshot } from './turn-interruption.mjs';
 
 // Coalescing window for streaming-delta flushes. Each flush journals only the
 // delta since the previous one, so the window just bounds syscalls.
@@ -83,28 +84,46 @@ export function createTurnCheckpointScheduler({ sessionId, generation, turnToken
   };
 }
 
+// The live-session fields a staged close snapshot rewrites.
+const CLOSE_SNAPSHOT_SESSION_FIELDS = [
+  'liveTurnMessages',
+  '_providerPrefixGuardState',
+  'messages',
+  'activeTurnCheckpoint',
+  'providerState',
+  'updatedAt',
+  'lastUsedAt',
+];
+
 /** closeSession is synchronous and generation-first by design. This turn-local
  *  hook lets it canonicalize the in-flight transcript before
  *  bumpSessionGeneration()/markSessionClosed() writes the disk snapshot and
  *  invalidates the ordinary cancellation cleanup save. Finalizes at most once;
- *  later calls return the same snapshot. */
+ *  later calls return the same snapshot.
+ *
+ *  `prepare.tentative(reason)` stages the snapshot on the live session only:
+ *  the checkpoint scheduler and the interruption tracker keep running until
+ *  `commit()`, and `rollback()` restores the live session exactly, so a close
+ *  whose lifecycle barrier is refused leaves the turn as it was. */
 export function createCloseSnapshot({ turn, interruption, checkpoint, runtime }) {
   let snapshot = null;
-  return (abortReason) => {
-    if (snapshot) return snapshot;
+  const stage = (abortReason) => {
     const session = turn.session;
     if (!session) return null;
-    checkpoint.stop();
-    session.liveTurnMessages = null;
-    // Interruption finalize below rewrites the transcript; the
-    // mid-turn provider prefix snapshot must not survive it.
-    delete session._providerPrefixGuardState;
-    interruption.restoreTombstonedText();
-    const finalized = interruption.finalize({
+    const saved = CLOSE_SNAPSHOT_SESSION_FIELDS.map((key) => [key, Object.hasOwn(session, key), session[key]]);
+    const savedRuntimeSession = runtime.session;
+    // The tracker snapshot already counts retracted (tombstoned) text as
+    // output, so finalizing from it leaves the tracker itself untouched.
+    const finalized = finalizeTurnInterruptionSnapshot({
       turnOutgoing: turn.outgoing || session.messages,
       currentUserContent: turn.userTurnContent,
-      abortReason,
+      snapshot: interruption.snapshot(),
+      abortReason: abortReason ?? null,
     });
+    session.liveTurnMessages = null;
+    // The finalized transcript is a rewrite; the mid-turn provider prefix
+    // snapshot must not survive it.
+    delete session._providerPrefixGuardState;
     session.messages = finalized.messages;
     delete session.activeTurnCheckpoint;
     // A preserved response — or a non-user detach that keeps the provisional
@@ -113,7 +132,32 @@ export function createCloseSnapshot({ turn, interruption, checkpoint, runtime })
     session.updatedAt = Date.now();
     session.lastUsedAt = Date.now();
     runtime.session = session;
-    snapshot = finalized;
-    return finalized;
+    return {
+      snapshot: finalized,
+      commit() {
+        checkpoint.stop();
+        interruption.restoreTombstonedText();
+        snapshot = finalized;
+      },
+      rollback() {
+        for (const [key, had, value] of saved) {
+          if (had) session[key] = value;
+          else delete session[key];
+        }
+        runtime.session = savedRuntimeSession;
+      },
+    };
   };
+  const prepare = (abortReason) => {
+    if (snapshot) return snapshot;
+    const staged = stage(abortReason);
+    if (!staged) return null;
+    staged.commit();
+    return staged.snapshot;
+  };
+  prepare.tentative = (abortReason) => {
+    if (snapshot) return { snapshot, commit() {}, rollback() {} };
+    return stage(abortReason);
+  };
+  return prepare;
 }

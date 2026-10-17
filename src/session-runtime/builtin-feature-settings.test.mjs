@@ -227,9 +227,16 @@ test('built-in tool setting rejects names outside the first-party registry', asy
   const state = fixture();
   await assert.rejects(
     state.api.setBuiltinToolEnabled('shell', false),
-    /git, office, tidy, localProvider, autoEffort, or visualize/
+    /git, office, tidy, localProvider, autoEffort, visualize, or media/
   );
   assert.deepEqual(state.config(), {});
+});
+
+test('media generation is on by default and its switch persists as the media module flag', async () => {
+  const state = fixture();
+  assert.deepEqual(state.api.getToolModuleSettings().media, { enabled: true, installed: true });
+  assert.equal((await state.api.setBuiltinToolEnabled('media', false)).media.enabled, false);
+  assert.equal((await state.api.setBuiltinToolEnabled('media', true)).media.enabled, true);
 });
 
 test('tool module settings include memory model metadata even before activation', () => {

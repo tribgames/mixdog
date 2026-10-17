@@ -1,6 +1,6 @@
 // Code-graph prewarm worker. Runs the heavy CPU/sync-fs traversal in a
 // dedicated worker thread so the main event loop (Claude stream readers,
-// MCP socket pumps, .hb writes, aiWrapped worker startup) is never starved
+// MCP socket pumps, aiWrapped worker startup) is never starved
 // by a cold build (~3s typical, 90s outlier observed in PG telemetry).
 //
 // Contract:

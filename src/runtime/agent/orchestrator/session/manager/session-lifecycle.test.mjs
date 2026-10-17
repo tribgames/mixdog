@@ -82,6 +82,23 @@ test('an explicitly selected context window survives a route update', () => {
   );
 });
 
+test('resolved fallback context survives route-update recomputation without double scaling', () => {
+  const provider = {
+    name: 'anthropic',
+    getCachedModelInfo: () => ({ contextWindow: 200000, effectiveContextWindowPercent: 80 }),
+  };
+  for (const [selection, expectedRaw] of [
+    [{ contextTokens: 48000 }, 48000],
+    [{ contextPercent: 40 }, 200000],
+  ]) {
+    const selectedContextWindow = resolveSessionContextMeta(provider, 'fallback-test', selection).rawContextWindow;
+    const seed = contextSeedForRouteUpdate({ ...selection, selectedContextWindow }, true, true);
+    const result = resolveSessionContextMeta(provider, 'fallback-test', seed);
+    assert.equal(result.rawContextWindow, expectedRaw);
+    assert.equal(result.contextWindow, expectedRaw * 0.8);
+  }
+});
+
 test('a cold projection preserves the provider-aligned active tool surface', () => {
   const messages = [{ role: 'user', content: 'continue the existing task' }];
   const tools = [

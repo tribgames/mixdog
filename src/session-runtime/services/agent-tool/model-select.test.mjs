@@ -76,6 +76,23 @@ test('unknown model or provider fails without substitution', async () => {
   await assert.rejects(resolveRequestedModel({ model: 'kimi', provider: 'nope' }, list), /has no available models/);
 });
 
+test('a query with no matchable characters matches nothing, even with a single model', async () => {
+  const only = [ROWS[4]];
+  await assert.rejects(resolveRequestedModel({ model: '???' }, catalog(only).list), /"\?\?\?" not found/);
+  await assert.rejects(resolveRequestedModel({ model: ' - ' }, catalog().list), /not found/);
+});
+
+test('a punctuation-only model is refused with or without a catalog', async () => {
+  await assert.rejects(
+    resolveRequestedModel({ provider: 'command-code', model: '???' }, null),
+    /"\?\?\?" for provider "command-code" not found/
+  );
+  await assert.rejects(
+    resolveRequestedModel({ provider: 'command-code', model: '???' }, catalog().list),
+    /"\?\?\?" for provider "command-code" not found/
+  );
+});
+
 test('without a catalog only exact provider + model pass through', async () => {
   const args = { model: 'kimi-k3', provider: 'command-code' };
   assert.equal(await resolveRequestedModel(args, null), args);

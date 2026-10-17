@@ -18,6 +18,8 @@ export function getProgressWatchdogState(mgr, sessionId) {
     registered: Boolean(state?.linked && !state.controller.signal.aborted),
     lastCheckedAt: state?.lastCheckedAt || null,
     error: state?.error || null,
+    // The policy this session's watchdog actually enforces.
+    policy: state?.watchdogPolicy || null,
   };
 }
 

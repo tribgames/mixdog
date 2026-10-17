@@ -9,6 +9,7 @@ const tasks = new Map();
 const events = new EventEmitter();
 const survivors = new Set();
 const cancels = [];
+const ownerCancels = [];
 function setTask(jobId, status, ownerSessionId = 'sess_x') {
   const task = { jobId, status, ownerSessionId, command: `cmd ${jobId}` };
   tasks.set(jobId, task);
@@ -38,7 +39,10 @@ mock.module('../lib/native-spawn-client.mjs', {
     setNativeTaskOutputPaths: noop,
     setNativeTaskStartedAt: noop,
     trackNativeForegroundTask: async () => null,
-    cancelNativeTasks: () => ({ cancelled: 0, unconfirmed: [], confirmed: true }),
+    cancelNativeTasks: ({ ownerSessionId }) => {
+      ownerCancels.push(ownerSessionId);
+      return { cancelled: 1, unconfirmed: [], confirmed: true };
+    },
     tryNativeSpawn: () => null,
     ensureNativeSpawnServer: async () => null,
     warmNativeSpawnServer: async () => null,
@@ -54,6 +58,25 @@ mock.module('../lib/native-spawn-client.mjs', {
 
 const { otherSessionBackgroundShellJobCount, promoteForegroundShellJob, shutdownShellJobs, shellShutdownSurvivors } =
   await import('./shell-jobs.mjs');
+const { cancelOwnedShellTrees, registerOwnedShellTree } = await import('../lib/owned-shell-trees.mjs');
+const { PROCESS_TABLE_READ_BOUND_MS } = await import('../lib/shell-descendants.mjs');
+
+test('runtime shutdown sends a session-close cancel still waiting for its snapshot', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  // A snapshot read that never answers: the close is waiting on its bound.
+  registerOwnedShellTree('job_snapshot_pending', {
+    ownerSessionId: 'sess_closing',
+    prepareKill: () => new Promise(noop),
+  });
+  const closing = cancelOwnedShellTrees('sess_closing');
+  assert.equal(typeof closing.then, 'function');
+  assert.deepEqual(ownerCancels, [], 'the close is still waiting for the snapshot');
+  await shutdownShellJobs('runtime-close');
+  assert.deepEqual(ownerCancels, ['sess_closing'], 'shutdown sent the kill at once');
+  t.mock.timers.tick(PROCESS_TABLE_READ_BOUND_MS);
+  assert.deepEqual((await closing).cancelled, 1);
+  assert.deepEqual(ownerCancels, ['sess_closing'], 'the kill is sent exactly once');
+});
 
 test('shutdown keeps retrying a survivor until its exit is confirmed', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });

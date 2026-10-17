@@ -37,7 +37,7 @@ import {
   isThinkingReplayRejection,
   repairThinkingReplayInPlace,
 } from './thinking-replay-recovery.mjs';
-import { readStreamOutcome } from '../providers/lib/stream-outcome.mjs';
+import { readStreamOutcome, stampStreamOutcome } from '../providers/lib/stream-outcome.mjs';
 import { cloneProviderReplay } from '../providers/lib/provider-replay.mjs';
 import { resolveWorkerCompactPolicy } from './loop/compact-policy.mjs';
 import { agentContextOverflowError } from './loop/context-overflow.mjs';
@@ -260,6 +260,7 @@ export async function sendWithRecovery(ctx) {
       hooks.logTurnTiming('ok');
     } catch (sendErr) {
       hooks.logTurnTiming(`err:${sendErr?.code || sendErr?.name || 'unknown'}`);
+      stampStreamOutcome(sendErr, hooks.relayWitness);
       return await recoverFromSendError(sendErr, { ...ctx, relayWitness: hooks.relayWitness });
     }
     return { action: 'proceed', response };

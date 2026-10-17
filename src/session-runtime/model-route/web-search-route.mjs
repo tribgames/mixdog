@@ -6,6 +6,7 @@ import { clean, hasOwn } from '../../runtime/agent/orchestrator/runtime-core/ses
 import { coerceEffortFor } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { ensureProviderEnabled } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { selectionFastCapable } from '../route-state.mjs';
+import { routeChain } from '../../runtime/shared/model-route-chain.mjs';
 import {
   isDefaultWebSearchRouteConfig,
   isWebSearchCapableProvider,
@@ -93,9 +94,13 @@ export function createWebSearchRouteApi(deps) {
       if (isDefaultWebSearchRouteConfig(selectedRoute)) {
         await awaitKeychainPrewarm();
         ensureFullConfig();
-        return saveWebSearchRoute(defaultWebSearchRoute(selectedRoute.toolType));
       }
-      return saveWebSearchRoute(await resolveExplicitRoute(selectedRoute));
+      const resolved = [];
+      for (const entry of routeChain(selectedRoute)) {
+        resolved.push(isDefaultWebSearchRouteConfig(entry) ? entry : await resolveExplicitRoute(entry));
+      }
+      const [primary, ...fallbacks] = resolved;
+      return saveWebSearchRoute(normalizeWebSearchRouteConfig({ ...primary, fallbacks }));
     },
   };
 }

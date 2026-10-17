@@ -1,7 +1,7 @@
 // Managed worktree removal, reconcile, prune and the deleted-session cleanup
 // against real git (creation and merge: manager.slow.test.mjs).
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, afterEach, beforeEach, test } from 'node:test';
 import { managedWorktreeRoot, registerRootCleanup, registerRootReleaser } from './contract.mjs';
@@ -170,7 +170,12 @@ test("removing a worktree leaves its turns' change records listed but without Un
       }),
       state,
     });
-    await upsertTurnChangeRecord(sessionId, { checkpointId: 'cp', kind: 'git', root: entry.path, files: [file('a.txt')] });
+    await upsertTurnChangeRecord(sessionId, {
+      checkpointId: 'cp',
+      kind: 'git',
+      root: entry.path,
+      files: [file('a.txt')],
+    });
     await updateTurnChangeRecord(sessionId, 'cp', (record) => [...record.files, file('b.txt', 'reverted')]);
     const before = await getTurnChanges(sessionId, { checkpointId: 'cp' });
     assert.equal(before.canUndo, true);
@@ -508,4 +513,82 @@ test('an interrupted removal of a half-deleted folder still finishes', async () 
   mkdirSync(join(entry.path, 'left-over'), { recursive: true });
   assert.equal((await removeManagedWorktree({ entryId: entry.id })).removed, true);
   assert.equal(existsSync(entry.path), false);
+});
+
+test('forced removal refuses an unrecorded directory link and never touches its target', async () => {
+  const repo = makeRepo();
+  const { entry, sessionId } = await create(repo);
+  const target = tempDir('mixdog-wt-link-target-');
+  writeFileSync(join(target, 'precious.txt'), 'keep\n');
+  writeFileSync(join(entry.path, 'scratch.txt'), 'dirty\n');
+  const linkPath = join(entry.path, 'out');
+  symlinkSync(target, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+  const refused = await removeManagedWorktree({ entryId: entry.id, sessionId, force: true });
+  assert.equal(refused.removed, false, JSON.stringify(refused));
+  assert.equal(refused.remaining.length, 1);
+  assert.match(refused.remaining[0].error, /linked folders it did not create \(out\)/);
+  assert.equal(readFileSync(join(target, 'precious.txt'), 'utf8'), 'keep\n');
+  assert.ok(existsSync(join(entry.path, 'README.md')), 'nothing was deleted');
+  assert.equal(lstatSync(linkPath).isSymbolicLink(), true);
+  rmSync(linkPath);
+  const removed = await removeManagedWorktree({ entryId: entry.id, sessionId, force: true });
+  assert.equal(removed.removed, true, JSON.stringify(removed));
+  assert.equal(existsSync(entry.path), false);
+  assert.equal(readFileSync(join(target, 'precious.txt'), 'utf8'), 'keep\n');
+});
+
+test('folder-only removal refuses an unrecorded directory link and never touches its target', async () => {
+  const repo = makeRepo();
+  commitFile(repo, '.gitignore', 'build/\n');
+  const { entry, sessionId } = await create(repo);
+  const target = tempDir('mixdog-wt-link-target-');
+  writeFileSync(join(target, 'precious.txt'), 'keep\n');
+  // An ignored junction a build tool made: the ledger does not know it.
+  const linkPath = join(entry.path, 'build', 'out');
+  mkdirSync(join(entry.path, 'build'), { recursive: true });
+  symlinkSync(target, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+  const refused = await removeManagedWorktree({ entryId: entry.id, sessionId, safeOnly: true });
+  assert.equal(refused.removed, false, JSON.stringify(refused));
+  assert.equal(refused.remaining.length, 1);
+  assert.match(refused.remaining[0].error, /build\/out/);
+  assert.equal(readFileSync(join(target, 'precious.txt'), 'utf8'), 'keep\n');
+  assert.ok(existsSync(join(entry.path, 'README.md')), 'nothing was deleted');
+  assert.equal(lstatSync(linkPath).isSymbolicLink(), true);
+  // With the link itself gone, the cleanup finishes and the target stays.
+  rmSync(linkPath);
+  const removed = await removeManagedWorktree({ entryId: entry.id, sessionId, safeOnly: true });
+  assert.equal(removed.removed, true, JSON.stringify(removed));
+  assert.equal(existsSync(entry.path), false);
+  assert.equal(readFileSync(join(target, 'precious.txt'), 'utf8'), 'keep\n');
+});
+
+test('a failed folder-only removal restores a file link with its own type and the session lock', async () => {
+  const repo = makeRepo();
+  commitFile(repo, '.gitignore', 'config.json\n');
+  writeFile(repo, 'config.json', '{"cfg":1}\n');
+  // An explicit copy of an untracked, unignored file: not dirt to the manager,
+  // but `git worktree remove` (no --force) refuses the untracked file.
+  writeFile(repo, 'notes.txt', 'notes\n');
+  writeFile(repo, '.worktreeinclude', 'copy notes.txt\nlink config.json\n');
+  const { entry, sessionId } = await create(repo);
+  const linked = join(entry.path, 'config.json');
+  const symbolic = lstatSync(linked).isSymbolicLink();
+  const record = await getRecord(entry.id);
+  const ledger = record.resources.includes.find((item) => item.rel === 'config.json');
+  assert.equal(ledger.linkType, symbolic ? 'file' : 'hard');
+
+  const failed = await removeManagedWorktree({ entryId: entry.id, sessionId, safeOnly: true });
+  assert.equal(failed.removed, false, JSON.stringify(failed));
+  assert.deepEqual(
+    failed.remaining.map((item) => item.kind),
+    ['error']
+  );
+  assert.doesNotMatch(failed.remaining[0].error, /Not restored/);
+  const info = lstatSync(linked);
+  assert.equal(info.isSymbolicLink(), symbolic, 'the same kind of link is back');
+  assert.equal(info.isDirectory(), false);
+  if (!symbolic) assert.equal(info.ino, lstatSync(join(repo, 'config.json')).ino, 'the same hard-linked file');
+  assert.equal(readFileSync(linked, 'utf8'), '{"cfg":1}\n');
+  assert.match(git(repo, 'worktree', 'list', '--porcelain'), new RegExp(`locked mixdog session=${sessionId}`));
+  assert.equal(readFileSync(join(repo, 'config.json'), 'utf8'), '{"cfg":1}\n');
 });

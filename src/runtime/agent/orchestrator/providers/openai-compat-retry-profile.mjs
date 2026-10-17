@@ -21,13 +21,18 @@
 //     and jittered by jitterRatio (the advice of the excepted statuses stays raw).
 //   recycleDispatcherOn5xx — a retried 5xx rebuilds the shared HTTP pool.
 //   adviceAtLeastBackoff — the advice is a floor under the jittered backoff step.
+//   firstByteRetries — a header or first-chunk timeout (`timeoutPhase`) is
+//     retried at most this many times, each retry on a doubled window capped
+//     at PROVIDER_MAX_BEFORE_WARN_MS; other transient errors keep the ladder.
 // Every stop is provider-terminal: the profile's limits are final, so the
 // agent loop never re-runs a stopped or exhausted request (see
 // COMPAT_RETRY_POLICY).
 import { markProviderRecoveryExhausted } from './retry-classifier.mjs';
 import { retryAfterMsFromError } from './provider-error-kind.mjs';
 import { STREAM_TRANSPORTS, stampStreamOutcome } from './lib/stream-outcome.mjs';
-import { jitterDelayMs } from './retry-backoff.mjs';
+import { DEFAULT_BACKOFF_MS, DEFAULT_MAX_ATTEMPTS, jitterDelayMs } from './retry-backoff.mjs';
+import { PROVIDER_MAX_BEFORE_WARN_MS, firstBytePolicyBudget, firstByteWindowMs } from '../stall-policy.mjs';
+import { isFirstByteTimeout } from '../../../shared/provider-timeout-phase.mjs';
 
 const statusOf = (err) => Number(err?.httpStatus || err?.status || err?.response?.status || 0);
 
@@ -75,9 +80,11 @@ export const COMPAT_RETRY_PROFILES = Object.freeze({
   }),
   // server budget 8 retries (2s doubling to 30s,
   // ±10%), rate-limit budget 5 retries; 408, 409, 501 and 505 are terminal
-  // (425 stays retryable); a Retry-After beyond 300s is not waited out.
+  // (425 stays retryable); a Retry-After beyond 300s is not waited out. A
+  // first-byte timeout gets one longer retry instead of the whole ladder.
   'mimo-oauth': Object.freeze({
     maxAttempts: 9,
+    firstByteRetries: 1,
     backoffMs: [2000, 2000, 4000, 8000, 16000, 30000],
     retryJitterRatio: 0.1,
     statusRetryCaps: { 429: 5 },
@@ -110,6 +117,40 @@ export function compatRetryOptions(providerName) {
     ...(profile.recycleDispatcherOn5xx ? { recycleDispatcherOn5xx: true } : {}),
     ...(profile.retryJitterMode ? { retryJitterMode: profile.retryJitterMode } : {}),
   };
+}
+
+// The provider's first-byte policy (see firstByteWindowMs) on a base window:
+// a profile's `firstByteRetries` caps first-byte retries on a doubling window;
+// without it every attempt keeps the base window.
+function compatFirstBytePolicy(providerName, baseMs) {
+  return {
+    timeoutMs: baseMs,
+    maxMs: PROVIDER_MAX_BEFORE_WARN_MS,
+    retries: COMPAT_RETRY_PROFILES[providerName]?.firstByteRetries ?? null,
+  };
+}
+
+/** First-byte window of an attempt after `timeouts` first-byte timeouts. */
+export function compatFirstByteWindowMs(providerName, baseMs, timeouts = 0) {
+  return firstByteWindowMs(compatFirstBytePolicy(providerName, baseMs), timeouts);
+}
+
+/**
+ * First-response budget of a chat profile that sets its own first-byte window
+ * (`firstByteTimeoutMs`, applied to the headers and to the first chunk): the
+ * worst case over the profile's whole ladder, where drops and 5xx use up
+ * attempts and backoff alongside the first-byte timeouts the profile permits
+ * (see firstBytePolicyBudget). Null for a profile on the shared window, which
+ * the agent watchdog's default already covers.
+ */
+export function compatFirstResponseBudget(providerName, chatProfile) {
+  const windowMs = Number(chatProfile?.firstByteTimeoutMs);
+  if (!(windowMs > 0)) return null;
+  const options = compatRetryOptions(providerName);
+  return firstBytePolicyBudget(compatFirstBytePolicy(providerName, windowMs), {
+    attempts: options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
+    backoffMs: options.backoffMs ?? DEFAULT_BACKOFF_MS,
+  });
 }
 
 function profileStops(profile, err, { attempt, elapsedMs }) {
@@ -170,10 +211,11 @@ export function withCompatRetryProfile(providerName, attemptFn) {
   const profile = COMPAT_RETRY_PROFILES[providerName];
   if (!profile) return attemptFn;
   let emptyRetries = 0;
+  let firstByteTimeouts = 0;
   return async (ctx) => {
     const startedAt = Date.now();
     try {
-      const result = await attemptFn(ctx);
+      const result = await attemptFn({ ...ctx, firstByteTimeouts });
       if (profile.retryEmptyResponse && isEmptyNormalFinish(result)) {
         const bound = profile.retryEmptyResponse === true ? Infinity : profile.retryEmptyResponse;
         if (emptyRetries < bound) {
@@ -183,6 +225,12 @@ export function withCompatRetryProfile(providerName, attemptFn) {
       }
       return result;
     } catch (err) {
+      if (profile.firstByteRetries != null && isFirstByteTimeout(err) && !ctx?.signal?.aborted) {
+        firstByteTimeouts += 1;
+        if (firstByteTimeouts > profile.firstByteRetries) {
+          throw markProviderRecoveryExhausted(err, { owner: `${providerName}-first-byte`, terminal: true });
+        }
+      }
       if (profileStops(profile, err, { attempt: ctx?.attempt | 0, elapsedMs: Date.now() - startedAt })) {
         throw markProviderRecoveryExhausted(err, { owner: `${providerName}-retry-profile`, terminal: true });
       }

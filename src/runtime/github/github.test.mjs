@@ -267,6 +267,7 @@ test('model-facing results drop API-only fields, keep decision fields, and prese
     const user = (login, type = 'User') => ({ login, id: 1, node_id: 'U', type, avatar_url: 'a', followers_url: 'f' });
     const nested = { full_name: 'fork/project', id: 2, owner: user('fork'), forks_url: 'x', clone_url: 'c' };
     const pr = {
+      id: 123,
       number: 7,
       title: 'Fix',
       state: 'open',
@@ -276,6 +277,10 @@ test('model-facing results drop API-only fields, keep decision fields, and prese
       html_url: 'https://github.com/x',
       diff_url: 'd',
       comments_url: 'c',
+      author_association: 'MEMBER',
+      performed_via_github_app: null,
+      reactions: { url: 'u', total_count: 0, '+1': 0 },
+      milestone: { id: 3, number: 2, title: 'M', url: 'u' },
       user: user('alice'),
       assignees: [user('bob')],
       requested_reviewers: [user('ci', 'Bot')],
@@ -286,20 +291,20 @@ test('model-facing results drop API-only fields, keep decision fields, and prese
       _links: { self: 'x' },
     };
     const value = JSON.parse(
-      await executeGithubTool({ action: 'pr.view', repo, number: 7 }, cwd, {
+      await executeGithubTool({ action: 'run.view', repo, id: 7 }, cwd, {
         sessionId: 'sess_github_raw',
         toolCallId: 'call_1',
         run: async () => JSON.stringify(pr),
       })
     );
+    assert.equal(value.hostname, undefined);
     assert.deepEqual(value.data, {
       number: 7,
       title: 'Fix',
       state: 'open',
       body: 'details',
-      url: 'https://api.github.com/x',
       html_url: 'https://github.com/x',
-      diff_url: 'd',
+      milestone: { number: 2, title: 'M' },
       user: 'alice',
       assignees: ['bob'],
       requested_reviewers: ['ci (Bot)'],
@@ -315,7 +320,7 @@ test('model-facing results drop API-only fields, keep decision fields, and prese
         run: async () => JSON.stringify({ ...nested, full_name: repo }),
       })
     );
-    assert.deepEqual(repoView.data, { full_name: repo, id: 2, owner: 'fork', clone_url: 'c' });
+    assert.deepEqual(repoView.data, { full_name: repo, id: 2, owner: 'fork' });
     assert.match(repoView.raw, /unavailable/);
 
     const bodies = await executeGithubTool({ action: 'pr.list', repo, limit: 2 }, cwd, {
@@ -370,21 +375,33 @@ test('list actions return compact projected rows while raw keeps the full respon
   try {
     const user = { login: 'alice', id: 1, type: 'User', avatar_url: 'a' };
     const body = `line one\n\n  line   two ${'x'.repeat(300)}`;
-    const common = { user, body, updated_at: '2026-10-01T12:00:00Z', url: 'https://api.github.com/x', reactions: { total_count: 3 } };
-    const call = async (action, items, extra = {}, collection) => {
+    const common = {
+      user,
+      body,
+      updated_at: '2026-10-01T12:00:00Z',
+      url: 'https://api.github.com/x',
+      reactions: { total_count: 3 },
+    };
+    // raw is only attached when a row or excerpt was cut.
+    const call = async (action, items, extra = {}, collection, expectRaw = false) => {
       const text = await executeGithubTool({ action, repo, ...extra }, cwd, {
         sessionId: 'sess_github_list',
         toolCallId: `call_${action}`,
         run: async () => JSON.stringify(collection ? { [collection]: items } : items),
       });
       const parsed = JSON.parse(text);
-      assert.deepEqual(JSON.parse(await readFile(parsed.raw, 'utf8')), items);
+      if (expectRaw) assert.deepEqual(JSON.parse(await readFile(parsed.raw, 'utf8')), items);
+      else assert.equal(parsed.raw, undefined, action);
       return parsed.data;
     };
 
-    const [issue] = await call('issue.list', [
-      { ...common, number: 1, title: 'Bug', state: 'open', labels: [{ name: 'bug', id: 9 }], comments: 2 },
-    ]);
+    const [issue] = await call(
+      'issue.list',
+      [{ ...common, number: 1, title: 'Bug', state: 'open', labels: [{ name: 'bug', id: 9 }], comments: 2 }],
+      {},
+      undefined,
+      true
+    );
     assert.deepEqual(issue, {
       number: 1,
       title: 'Bug',
@@ -398,16 +415,34 @@ test('list actions return compact projected rows while raw keeps the full respon
     assert.equal(issue.excerpt.length, 140);
     assert.ok(issue.excerpt.startsWith('line one line two x'));
     assert.ok(issue.excerpt.endsWith('…'));
-    const [bare] = await call('issue.list', [{ number: 2, title: 'T', state: 'closed', user, body: '', labels: [], comments: 0 }]);
+    const [bare] = await call('issue.list', [
+      { number: 2, title: 'T', state: 'closed', user, body: '', labels: [], comments: 0 },
+    ]);
     assert.deepEqual(bare, { number: 2, title: 'T', state: 'closed', author: 'alice' });
 
     const head = { ref: 'feature', sha, repo: { full_name: 'fork/project' } };
     const base = { ref: 'main', sha, repo: { full_name: repo } };
-    const prs = await call('pr.list', [
-      { ...common, number: 3, title: 'A', state: 'closed', merged_at: '2026-10-02T00:00:00Z', head, base, draft: false, merge_commit_sha: sha },
-      { ...common, number: 4, title: 'B', state: 'closed', merged_at: null, head, base },
-      { ...common, number: 5, title: 'C', state: 'open', draft: true, head, base, labels: [{ name: 'x' }] },
-    ]);
+    const prs = await call(
+      'pr.list',
+      [
+        {
+          ...common,
+          number: 3,
+          title: 'A',
+          state: 'closed',
+          merged_at: '2026-10-02T00:00:00Z',
+          head,
+          base,
+          draft: false,
+          merge_commit_sha: sha,
+        },
+        { ...common, number: 4, title: 'B', state: 'closed', merged_at: null, head, base },
+        { ...common, number: 5, title: 'C', state: 'open', draft: true, head, base, labels: [{ name: 'x' }] },
+      ],
+      {},
+      undefined,
+      true
+    );
     assert.deepEqual(
       prs.map((item) => [item.state, item.draft, item.head, item.base]),
       [
@@ -420,30 +455,91 @@ test('list actions return compact projected rows while raw keeps the full respon
     assert.equal(prs[0].merge_commit_sha, undefined);
 
     assert.deepEqual(
-      await call('repo.list', [{ full_name: 'o/r', description: 'd', private: true, language: 'JS', pushed_at: '2026-09-01T00:00:00Z', id: 1 }]),
+      await call('repo.list', [
+        { full_name: 'o/r', description: 'd', private: true, language: 'JS', pushed_at: '2026-09-01T00:00:00Z', id: 1 },
+      ]),
       [{ name: 'o/r', description: 'd', visibility: 'private', language: 'JS', updated: '2026-09-01' }]
     );
     assert.deepEqual(
       await call(
         'run.list',
-        [{ id: 8, name: 'CI', display_title: 'Fix', status: 'completed', conclusion: 'failure', head_branch: 'main', event: 'push', actor: user, updated_at: '2026-10-03T00:00:00Z', head_commit: {} }],
+        [
+          {
+            id: 8,
+            name: 'CI',
+            display_title: 'Fix',
+            status: 'completed',
+            conclusion: 'failure',
+            head_branch: 'main',
+            event: 'push',
+            actor: user,
+            updated_at: '2026-10-03T00:00:00Z',
+            head_commit: {},
+          },
+        ],
         {},
         'workflow_runs'
       ),
-      [{ id: 8, name: 'Fix', workflow: 'CI', status: 'completed', conclusion: 'failure', branch: 'main', event: 'push', actor: 'alice', updated: '2026-10-03' }]
+      [
+        {
+          id: 8,
+          name: 'Fix',
+          workflow: 'CI',
+          status: 'completed',
+          conclusion: 'failure',
+          branch: 'main',
+          event: 'push',
+          actor: 'alice',
+          updated: '2026-10-03',
+        },
+      ]
     );
     assert.deepEqual(
-      await call('release.list', [{ id: 5, tag_name: 'v1', name: 'One', draft: false, prerelease: true, author: user, published_at: '2026-10-04T00:00:00Z', body }]),
+      await call('release.list', [
+        {
+          id: 5,
+          tag_name: 'v1',
+          name: 'One',
+          draft: false,
+          prerelease: true,
+          author: user,
+          published_at: '2026-10-04T00:00:00Z',
+          body,
+        },
+      ]),
       [{ id: 5, tag: 'v1', name: 'One', prerelease: true, author: 'alice', published: '2026-10-04' }]
     );
     assert.deepEqual(
       await call('notification.list', [
-        { id: '9', unread: true, reason: 'mention', updated_at: '2026-10-05T00:00:00Z', subject: { type: 'PullRequest', title: 'P', url: 'https://api.github.com/repos/o/r/pulls/12' }, repository: { full_name: 'o/r', id: 1 } },
+        {
+          id: '9',
+          unread: true,
+          reason: 'mention',
+          updated_at: '2026-10-05T00:00:00Z',
+          subject: { type: 'PullRequest', title: 'P', url: 'https://api.github.com/repos/o/r/pulls/12' },
+          repository: { full_name: 'o/r', id: 1 },
+        },
       ]),
-      [{ id: '9', unread: true, reason: 'mention', type: 'PullRequest', title: 'P', number: 12, repo: 'o/r', updated: '2026-10-05' }]
+      [
+        {
+          id: '9',
+          unread: true,
+          reason: 'mention',
+          type: 'PullRequest',
+          title: 'P',
+          number: 12,
+          repo: 'o/r',
+          updated: '2026-10-05',
+        },
+      ]
     );
     assert.deepEqual(
-      await call('workflow.list', [{ id: 3, name: 'CI', path: '.github/workflows/ci.yml', state: 'active', badge_url: 'b' }], {}, 'workflows'),
+      await call(
+        'workflow.list',
+        [{ id: 3, name: 'CI', path: '.github/workflows/ci.yml', state: 'active', badge_url: 'b' }],
+        {},
+        'workflows'
+      ),
       [{ id: 3, name: 'CI', path: '.github/workflows/ci.yml', state: 'active' }]
     );
 
@@ -454,6 +550,178 @@ test('list actions return compact projected rows while raw keeps the full respon
     );
     assert.equal(view.data.body, body);
     assert.equal(view.data.author, undefined);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
+});
+
+test('pr.view and issue.view keep the decision fields, cap the body and keep raw whole', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'mixdog-github-view-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  try {
+    const user = { login: 'alice', id: 1, node_id: 'U', type: 'User', avatar_url: 'a' };
+    const noise = {
+      id: 99,
+      node_id: 'N',
+      url: 'https://api.github.com/x',
+      comments_url: 'c',
+      commits_url: 'c',
+      diff_url: 'd',
+      author_association: 'MEMBER',
+      performed_via_github_app: null,
+      reactions: { url: 'u', total_count: 0, '+1': 0, '-1': 0 },
+      sub_issues_summary: { total: 0, completed: 0, percent_completed: 0 },
+      issue_dependencies_summary: { blocked_by: 0, blocking: 0 },
+      _links: { self: 'x' },
+    };
+    const body = `${'b'.repeat(1499)}\r\n${'tail'.repeat(100)}`;
+    const view = async (args, payload) =>
+      JSON.parse(
+        await executeGithubTool({ repo, ...args }, cwd, {
+          sessionId: 'sess_github_view',
+          toolCallId: `call_${args.action}`,
+          run: async () => JSON.stringify(payload),
+        })
+      );
+
+    const pr = {
+      ...noise,
+      number: 7,
+      title: 'Fix',
+      state: 'open',
+      draft: false,
+      merged: false,
+      mergeable: null,
+      mergeable_state: null,
+      user,
+      labels: [{ id: 1, node_id: 'L', url: 'u', name: 'bug', color: 'f00' }],
+      head: { ref: 'feature', sha, label: 'fork:feature', repo: { full_name: 'fork/project', id: 5 }, user },
+      base: { ref: 'main', sha: 'b'.repeat(40), label: 'o:main', repo: { full_name: repo } },
+      commits: 3,
+      additions: 10,
+      deletions: 2,
+      changed_files: 4,
+      comments: 1,
+      review_comments: 2,
+      html_url: 'https://github.com/owner/project/pull/7',
+      created_at: '2026-10-01T00:00:00Z',
+      updated_at: '2026-10-02T00:00:00Z',
+      closed_at: null,
+      merged_at: null,
+      body,
+    };
+    const prResult = await view({ action: 'pr.view', number: 7 }, pr);
+    assert.equal(prResult.hostname, undefined);
+    const { body: prBody, ...prData } = prResult.data;
+    assert.deepEqual(prData, {
+      number: 7,
+      title: 'Fix',
+      state: 'open',
+      draft: false,
+      merged: false,
+      mergeable: null,
+      mergeable_state: null,
+      user: 'alice',
+      labels: ['bug'],
+      head: { ref: 'feature', sha, repo: 'fork/project' },
+      base: { ref: 'main', sha: 'b'.repeat(40) },
+      commits: 3,
+      additions: 10,
+      deletions: 2,
+      changed_files: 4,
+      comments: 1,
+      review_comments: 2,
+      html_url: 'https://github.com/owner/project/pull/7',
+      created_at: '2026-10-01T00:00:00Z',
+      updated_at: '2026-10-02T00:00:00Z',
+    });
+    assert.ok('mergeable' in prData && 'mergeable_state' in prData);
+    assert.match(prBody, /^b{1499}\n… 400 more chars in raw$/);
+    assert.deepEqual(JSON.parse(await readFile(prResult.raw, 'utf8')), pr);
+
+    const issue = {
+      ...noise,
+      number: 7,
+      title: 'Bug',
+      state: 'closed',
+      state_reason: 'completed',
+      user,
+      labels: [{ name: 'bug' }, 'p1'],
+      assignees: [user],
+      milestone: { id: 4, number: 1, title: 'v1', url: 'u' },
+      comments: 5,
+      html_url: 'https://github.com/owner/project/issues/7',
+      created_at: '2026-10-01T00:00:00Z',
+      updated_at: '2026-10-02T00:00:00Z',
+      closed_at: '2026-10-03T00:00:00Z',
+      body: 'short body',
+    };
+    const issueResult = await view({ action: 'issue.view', number: 7 }, issue);
+    assert.deepEqual(issueResult.data, {
+      number: 7,
+      title: 'Bug',
+      state: 'closed',
+      state_reason: 'completed',
+      user: 'alice',
+      labels: ['bug', 'p1'],
+      assignees: ['alice'],
+      milestone: 'v1',
+      comments: 5,
+      html_url: 'https://github.com/owner/project/issues/7',
+      created_at: '2026-10-01T00:00:00Z',
+      updated_at: '2026-10-02T00:00:00Z',
+      closed_at: '2026-10-03T00:00:00Z',
+      body: 'short body',
+    });
+    assert.deepEqual(JSON.parse(await readFile(issueResult.raw, 'utf8')), issue);
+
+    // Generic reduction drops the same noise from non-projected views.
+    const generic = await view({ action: 'run.view', id: 5 }, { ...noise, name: 'CI', status: 'completed' });
+    assert.deepEqual(generic.data, { id: 99, name: 'CI', status: 'completed' });
+
+    // Enterprise hosts stay named; github.com is implied.
+    const enterprise = JSON.parse(
+      await executeGithubTool({ action: 'repo.view', repo, hostname: 'ghe.example.com' }, cwd, {
+        run: async () => '{"full_name":"owner/project"}',
+      })
+    );
+    assert.equal(enterprise.hostname, 'ghe.example.com');
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
+});
+
+test('list results omit raw unless rows or excerpts were cut', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'mixdog-github-list-raw-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  try {
+    const list = async (items, extra = {}) =>
+      JSON.parse(
+        await executeGithubTool({ action: 'issue.list', repo, ...extra }, cwd, {
+          sessionId: 'sess_github_list_raw',
+          toolCallId: `call_${items.length}_${extra.limit || 0}`,
+          run: async () => JSON.stringify(items),
+        })
+      );
+    const whole = await list([{ number: 1, title: 'T', state: 'open', body: 'short', url: 'u' }]);
+    assert.equal(whole.raw, undefined);
+    assert.equal(whole.hostname, undefined);
+    assert.equal(whole.data[0].excerpt, 'short');
+
+    const excerptCut = await list([{ number: 1, title: 'T', state: 'open', body: 'x'.repeat(500) }]);
+    assert.ok(excerptCut.raw);
+    assert.equal(JSON.parse(await readFile(excerptCut.raw, 'utf8'))[0].body.length, 500);
+
+    const many = Array.from({ length: 60 }, (_, index) => ({ number: index + 1, title: 't'.repeat(200) }));
+    const rowsCut = await list(many, { limit: 60 });
+    assert.ok(rowsCut.data.length < 60);
+    assert.equal(JSON.parse(await readFile(rowsCut.raw, 'utf8')).length, 60);
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;

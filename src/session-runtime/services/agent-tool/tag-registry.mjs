@@ -1,7 +1,7 @@
 // Tag registry: owns the tag maps (tag -> sessionId/agent/cwd) and every
 // resolution/mutation path — resolve/next/bind/forget and the session-index
 // refresh. Worker-index persistence lives in worker-index.mjs and terminal
-// tombstones/reap timers in terminal-reaper.mjs; the tag maps are shared by
+// tombstones in terminal-reaper.mjs; the tag maps are shared by
 // reference so all three sides see the same live state.
 import { agentTagOf } from './helpers.mjs';
 import { createLeadWorkerIndex } from './lead-worker-index.mjs';
@@ -27,6 +27,7 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     dataDir,
     cfgMod,
     workerRowFromSession: index.workerRowFromSession,
+    isSessionRunning: (sessionId) => mgr.isSessionTurnInFlight?.(sessionId) === true,
   });
 
   const { upsertLeadSession, updateLeadWorkerCwd, forgetLeadSession } = leadIndex;
@@ -66,7 +67,7 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     return null;
   }
 
-  const reaper = createTerminalReaper({ cfgMod, mgr, tagMaps, index, getLiveSession, tagForSession });
+  const reaper = createTerminalReaper({ cfgMod, mgr, tagMaps, index, getLiveSession });
 
   function wantsSessionScan(args = {}) {
     return args.recover === true || args.scanSessions === true || args.scan_sessions === true;
@@ -102,8 +103,6 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     removeWorkerRow({ tag, sessionId });
   }
 
-  reaper.recoverTerminalReaps();
-
   return {
     dispose,
     disposeAsync,
@@ -123,7 +122,6 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     tags,
     tagAgents: tagMaps.tagAgents,
     tagCwds: tagMaps.tagCwds,
-    reapTimers: reaper.reapTimers,
     wantsSessionScan,
     resolveTag,
     getLiveSession,
@@ -138,10 +136,6 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     tombstoneTerminalSession: reaper.tombstoneTerminalSession,
     tagTombstoneForTag: reaper.tagTombstoneForTag,
     consumeTagTombstone: reaper.consumeTagTombstone,
-    cancelReap: reaper.cancelReap,
-    clearScheduledReaps: reaper.clearScheduledReaps,
-    scheduleReap: reaper.scheduleReap,
-    recoverTerminalReaps: reaper.recoverTerminalReaps,
     transitionStaleNonterminalRows: reaper.transitionStaleNonterminalRows,
   };
 }

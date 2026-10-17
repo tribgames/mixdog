@@ -1,6 +1,23 @@
 import { clean, rowMatchesContext } from './helpers.mjs';
 import { resolveRequestedModel } from './model-select.mjs';
 
+// What an explicit (already resolved) spawn asks a reused session to change:
+// the model, the tuning, or both — only what it names, or null when it names
+// nothing. It is a partial request: the session's route write completes it
+// against the latest selected route (and drops it when nothing differs), so
+// no descriptor snapshot decides what the other tuning becomes.
+function requestedRoute(args) {
+  const model = clean(args.model);
+  const effort = clean(args.effort);
+  const route = {
+    ...(model ? { provider: clean(args.provider), model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(args.fast === undefined ? {} : { fast: args.fast === true }),
+    ...(args.autoEffort === undefined ? {} : { autoEffort: args.autoEffort !== false }),
+  };
+  return Object.keys(route).length ? route : null;
+}
+
 // Spawn request dispatch: deciding what an explicitly tagged spawn means before
 // a job is started, and starting it.
 //
@@ -34,7 +51,12 @@ export function createSpawnDispatch({
     }
     if (liveSessionId && registry.getLiveSession(liveSessionId)) {
       const prepared = await sendFlow.prepareSend({ ...args, tag: explicitTag }, scopedContext);
-      return { reused: sendFlow.dispatchToExistingSession(prepared, notifyContext, { reused: true }) };
+      const route = requestedRoute(args);
+      return {
+        reused: sendFlow.dispatchToExistingSession(route ? { ...prepared, route } : prepared, notifyContext, {
+          reused: true,
+        }),
+      };
     }
     if (terminalTrace.hasTerminalTrace(explicitTag, scopedContext)) {
       terminalTrace.reapTerminalTraceForTag(explicitTag, scopedContext);

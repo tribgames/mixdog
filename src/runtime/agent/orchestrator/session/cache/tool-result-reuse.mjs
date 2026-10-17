@@ -1,13 +1,21 @@
 // One freshness authority for eager admission, cross-turn references and
 // serial cache hits. A readOnlyHint alone never proves a result reusable.
 import { tryReadCached } from './read-cache.mjs';
+import { isCursorNativeCallId } from '../../providers/cursor-native-context.mjs';
 import { tryScopedToolCached } from './scoped-cache.mjs';
-import { _isReadTool, _isScopedCacheableTool, _stripMcpPrefix } from '../loop/tool-classify.mjs';
+import { _isReadTool, _isScopedCacheableTool, _stripMcpPrefix, requiresReadBody } from '../loop/tool-classify.mjs';
 
-export function lookupToolResultReuse({ sessionId, call, cwd, touch = true }) {
+export function lookupToolResultReuse({ sessionId, call, cwd, touch = true, sessionRef = null }) {
+  if (isCursorNativeCallId(call.id)) return null;
   if (!sessionId) return null;
   if (_isReadTool(call.name)) {
     const entry = tryReadCached({ sessionId, args: call.arguments, cwd });
+    if (
+      requiresReadBody(call.name, sessionRef) &&
+      typeof entry?.content === 'string' &&
+      /^(?:\[file unchanged:|\[cross-turn-dedup\]|\[intra-turn-dedup\])/.test(entry.content)
+    )
+      return null;
     return entry === null ? null : { kind: 'read', entry };
   }
   if (_isScopedCacheableTool(call.name)) {

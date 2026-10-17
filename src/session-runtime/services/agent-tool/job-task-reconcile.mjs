@@ -57,13 +57,18 @@ export function terminalResultHook({ job, turnReview, completionValue, notifyEar
   };
 }
 
-/** Watchdog stall that still recovered a partial handoff: a completion. */
+/** Watchdog stall that still recovered a partial handoff: the turn never
+ *  finished, so the owner is told it FAILED (stalled), with the partial
+ *  output it produced before the stop. */
+export const WATCHDOG_STOP_ERROR = 'stalled: the progress watchdog stopped the turn';
+
 export function reconcileJobWatchdogPartial(job, value) {
   if (!job?.taskId) return;
   try {
     reconcileBackgroundTask(job.taskId, {
-      status: 'completed',
+      status: 'failed',
       result: value,
+      error: WATCHDOG_STOP_ERROR,
       terminalReason: 'agent-watchdog-partial',
     });
   } catch {}

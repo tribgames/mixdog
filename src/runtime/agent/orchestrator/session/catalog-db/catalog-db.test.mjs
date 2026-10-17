@@ -15,8 +15,7 @@ import {
   indexRow,
   replace,
   rewriteInPlace,
-  sessionsDir,
-  useDataDir,
+  isolateDataDir,
   writeBase,
 } from '../store-summary-reader-catalog-fixture.mjs';
 import {
@@ -40,6 +39,7 @@ import {
   SESSION_CATALOG_DB_FILE,
   SESSION_STORE_CONFIG_DEFAULTS,
 } from './index.mjs';
+import { APPLICATION_ID, SCHEMA_SQL, SCHEMA_VERSION } from './schema.mjs';
 import { sqliteVersionSupported } from './sqlite-gate.mjs';
 
 let logs = [];
@@ -53,7 +53,7 @@ function configure(extra = {}) {
 /** A fresh data dir (valid empty index base) and daemon-role catalog DB
  *  settings; the test runtime's SQLite is reported as a supported version. */
 function setup(t, prefix, extra = {}) {
-  useDataDir(prefix);
+  isolateDataDir(prefix);
   writeBase([]);
   clearStoredSessionCatalog();
   logs = [];
@@ -162,17 +162,14 @@ test('below the SQLite gate everything stays JSON', async (t) => {
 test('the worker detects storage changes itself; listings equal JSON in exact order', async (t) => {
   setup(t, 'mixdog-catalog-db-detect-', { backfillBatch: 2 });
   seed();
-  writeFileSync(join(sessionsDir(), 'lead_b.hb'), '1\n');
-  writeFileSync(join(sessionsDir(), 'agent_x.hb'), '1\n');
   assert.equal(await db().list(), null, 'until the backfill completes the JSON path answers');
   assert.deepEqual(await listStoredSessionSummariesAsync(), json());
   const status = await db().settled();
-  assert.equal(status.lastBackfill.rows, 5, 'hidden agent rows are stored too');
-  assert.match(shadowLines()[0], /^\[session-catalog-db\] shadow-verify ok json=4 db=4$/);
-  const served = await dbList();
-  assert.deepEqual(served, json());
-  assert.ok(served.find((row) => row.id === 'lead_a').agentHeartbeatAt > 0, 'liveness overlays');
-  assert.ok(served.find((row) => row.id === 'lead_b').heartbeatAt > 0);
+  // Agent sessions are listed like any other session (the desktop sidebar
+  // filters to Leads itself), so all five rows are stored and served.
+  assert.equal(status.lastBackfill.rows, 5);
+  assert.match(shadowLines()[0], /^\[session-catalog-db\] shadow-verify ok json=5 db=5$/);
+  assert.deepEqual(await dbList(), json());
 
   // Another process's JSON-only writes appear on the very next listing.
   const step = async (label) => assert.deepEqual(await dbList(), json(), label);
@@ -193,8 +190,6 @@ test('the worker detects storage changes itself; listings equal JSON in exact or
   assert.equal((await dbList()).find((row) => row.id === 'plain_d').preview, 'delta two');
   unlinkSync(fileOf('plain_f'));
   await step('delete without the index');
-  unlinkSync(join(sessionsDir(), 'lead_b.hb'));
-  await step('liveness follows the sidecars');
   await db().settled();
   assert.ok(
     shadowLines().every((line) => line.includes(' ok ')),
@@ -366,7 +361,7 @@ test('a shadow mismatch is logged, stops serving and rebuilds the DB from JSON',
   assert.deepEqual([report.missing, report.extra, report.order, report.fields], [1, 0, 0, 1]);
   assert.equal(
     shadowLines().at(-1),
-    '[session-catalog-db] shadow-verify mismatch json=6 db=5 missing=1 extra=0 order=0 fields=1 first=missing:lead_c fields:lead_b'
+    '[session-catalog-db] shadow-verify mismatch json=7 db=6 missing=1 extra=0 order=0 fields=1 first=missing:lead_c fields:lead_b'
   );
   assert.ok(logs.includes('[session-catalog-db] listings use JSON until the DB is rebuilt'));
   const status = await db().settled();
@@ -412,6 +407,65 @@ test('a corrupt DB is moved aside and rebuilt from JSON', async (t) => {
   assert.match(logs.join('\n'), /corrupt DB \(.*\) moved aside to .*session-catalog\.sqlite\.corrupt-/);
   assert.ok(readdirSync(dataDir()).some((name) => name.startsWith(`${SESSION_CATALOG_DB_FILE}.corrupt-`)));
   assert.deepEqual(await dbList(), json());
+});
+
+test('a v5 catalog DB opens through openChecked and is rebuilt to v6 with the catalog intact', async (t) => {
+  setup(t, 'mixdog-catalog-db-v5-');
+  seed();
+  // The v5 layout: today's table plus the `heartbeat_at` column v6 dropped,
+  // holding a row (with a heartbeat) that the JSON catalog does not have.
+  const v5Sql = SCHEMA_SQL.replace('last_heartbeat_at REAL', 'last_heartbeat_at REAL,\n    heartbeat_at REAL');
+  assert.notEqual(v5Sql, SCHEMA_SQL);
+  const v5 = new DatabaseSync(dbPath());
+  try {
+    v5.exec(`PRAGMA application_id=${APPLICATION_ID}`);
+    v5.exec(v5Sql);
+    v5.prepare("INSERT INTO meta(key, value) VALUES ('schema_version', '5'), ('backfill_complete', '1')").run();
+    v5.exec(
+      `INSERT INTO sessions(id, heartbeat_at, activity, title_norm, lead_visible, row_sig)
+       VALUES ('v5_stale', 123, 1, '', 1, 'stale')`
+    );
+    assert.ok(
+      v5
+        .prepare('PRAGMA table_info(sessions)')
+        .all()
+        .some((column) => column.name === 'heartbeat_at')
+    );
+  } finally {
+    v5.close();
+  }
+
+  const status = await ready();
+  assert.match(logs.join('\n'), new RegExp(`schema=${SCHEMA_VERSION} \\(new\\) rows=0 backfill=pending`));
+  assert.equal(status.lastBackfill.rows, 5, 'every catalog session is backfilled into the rebuilt DB');
+  assert.deepEqual(await dbList(), json(), 'the rebuilt DB serves the intact catalog');
+  assert.equal(
+    (await dbList()).some((row) => row.id === 'v5_stale'),
+    false,
+    'the v5 content is not carried over'
+  );
+  assert.ok(
+    json().every((row) => !('heartbeatAt' in row) && !('agentHeartbeatAt' in row)),
+    'no liveness overlay remains'
+  );
+
+  await closeSessionCatalogDb();
+  const rebuilt = new DatabaseSync(dbPath());
+  try {
+    assert.equal(SCHEMA_VERSION, 6);
+    assert.equal(rebuilt.prepare("SELECT value FROM meta WHERE key='schema_version'").get().value, '6');
+    assert.equal(rebuilt.prepare('PRAGMA application_id').get().application_id, APPLICATION_ID);
+    const columns = rebuilt
+      .prepare('PRAGMA table_info(sessions)')
+      .all()
+      .map((column) => column.name);
+    assert.equal(columns.includes('heartbeat_at'), false);
+    assert.equal(columns.includes('last_heartbeat_at'), true);
+    assert.equal(rebuilt.prepare('SELECT count(*) AS n FROM sessions').get().n, 5);
+    assert.equal(rebuilt.prepare("SELECT count(*) AS n FROM sessions WHERE id='v5_stale'").get().n, 0);
+  } finally {
+    rebuilt.close();
+  }
 });
 
 test('teardown closes the DB so the data dir can be removed', async (t) => {

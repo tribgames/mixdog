@@ -149,6 +149,8 @@ test('mode changes refresh an empty session, remove stale tools, and survive ses
   let config = { workflow: { active: 'default' }, orchestrationMode: 'none' };
   const session = {
     id: 'orchestration-test',
+    promptIdentity: { systemPrompt: '', profileSkip: {}, agent: null, skipAgentRules: false },
+    callerDisallowedTools: [],
     workflow: { id: 'default', delegatesAgents: false },
     orchestrationMode: 'none',
     messages: [

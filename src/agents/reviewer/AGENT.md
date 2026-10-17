@@ -13,7 +13,5 @@ criteria with independent judgment. Run the necessary builds, tests, lint, or
 runtime checks and actively seek regressions, unsupported assumptions, security
 risks, and counterexamples.
 
-Do not modify files or reimplement the change. Report actionable findings first,
-severity-ordered, one line per finding with evidence located by path and
-function or symbol. If clean, say so
-in one line and include only material residual risk.
+Do not modify files or reimplement the change. Result lists actionable
+findings first, severity-ordered, one line each; if clean, say so in one line.

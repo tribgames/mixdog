@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import zlib from 'node:zlib';
 
-import { openHttpSseResponse } from './openai-http-sse-request.mjs';
+import { _resetOpenaiReqZstdLatchForTest, openHttpSseResponse } from './openai-http-sse-request.mjs';
 
 const noopTimeout = () =>
   new (class {
@@ -244,3 +244,126 @@ test('a zstd 400 on the last attempt still replays uncompressed and surfaces a r
   assert.equal(response.status, 200);
   assert.deepEqual(seen, [true, true, true, true, true, false]);
 });
+
+const zstdSkip = { skip: typeof zlib.zstdCompress !== 'function' };
+const openBig = (fetchFn, auth = { type: 'openai-oauth' }, headers = {}) =>
+  openHttpSseResponse({
+    auth,
+    body: { input: 'x'.repeat(16 * 1024) },
+    headers,
+    poolKey: 'zstd-policy',
+    turnId: 'turn',
+    useModel: 'test-model',
+    fetchFn,
+    totalTimeout: noopTimeout(),
+    _sleepFn: async () => {},
+  });
+
+for (const status of [400, 415]) {
+  test(
+    `zstd ${status}: one plain resend without consuming an attempt; latch only after it succeeds`,
+    zstdSkip,
+    async () => {
+      _resetOpenaiReqZstdLatchForTest();
+      const seen = [];
+      const fetchFn = async (_url, init) => {
+        const compressed = init.headers['Content-Encoding'] === 'zstd';
+        seen.push(compressed);
+        return compressed ? new Response('bad', { status }) : new Response('data: {}\n\n', { status: 200 });
+      };
+      assert.equal((await openBig(fetchFn)).status, 200);
+      assert.deepEqual(seen, [true, false]);
+      assert.equal((await openBig(fetchFn)).status, 200);
+      assert.deepEqual(seen, [true, false, false], 'latched off after the successful resend');
+      _resetOpenaiReqZstdLatchForTest();
+    }
+  );
+}
+
+test('zstd: no latch when the plain resend also fails; its error surfaces', zstdSkip, async () => {
+  _resetOpenaiReqZstdLatchForTest();
+  const seen = [];
+  const fetchFn = async (_url, init) => {
+    const compressed = init.headers['Content-Encoding'] === 'zstd';
+    seen.push(compressed);
+    return new Response('{"error":{"message":"bad"}}', { status: compressed ? 400 : 422 });
+  };
+  await assert.rejects(openBig(fetchFn), (err) => err.status === 422);
+  assert.deepEqual(seen, [true, false]);
+  const again = [];
+  await assert.rejects(
+    openBig(async (_url, init) => {
+      again.push(init.headers['Content-Encoding']);
+      return new Response('x', { status: 422 });
+    })
+  );
+  assert.deepEqual(again, ['zstd'], 'still compressing: not latched');
+  _resetOpenaiReqZstdLatchForTest();
+});
+
+test('zstd: a throwing compressor fails open; existing Content-Encoding is not double-encoded', zstdSkip, async () => {
+  _resetOpenaiReqZstdLatchForTest();
+  const original = zlib.zstdCompress;
+  zlib.zstdCompress = (_buf, cb) => cb(new Error('boom'));
+  const sent = [];
+  const fetchFn = async (_url, init) => {
+    sent.push(init.headers);
+    return new Response('data: {}\n\n', { status: 200 });
+  };
+  try {
+    assert.equal((await openBig(fetchFn)).status, 200);
+  } finally {
+    zlib.zstdCompress = original;
+  }
+  assert.equal(sent[0]['Content-Encoding'], undefined);
+  const preset = { 'content-encoding': 'br' };
+  await openBig(fetchFn, undefined, preset);
+  assert.equal(sent[1], preset);
+});
+
+test('zstd: openai-direct is never compressed', zstdSkip, async () => {
+  const sent = [];
+  await openBig(
+    async (_url, init) => {
+      sent.push(init.headers['Content-Encoding']);
+      return new Response('data: {}\n\n', { status: 200 });
+    },
+    { type: 'openai-direct', apiKey: 'k' }
+  );
+  assert.deepEqual(sent, [undefined]);
+});
+
+test(
+  'zstd compression is asynchronous: the sync API is never used and the event loop keeps running',
+  zstdSkip,
+  async () => {
+    _resetOpenaiReqZstdLatchForTest();
+    const originalAsync = zlib.zstdCompress;
+    const originalSync = zlib.zstdCompressSync;
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    zlib.zstdCompressSync = () => {
+      throw new Error('sync zstd must not be used');
+    };
+    zlib.zstdCompress = (buf, cb) => {
+      gate.then(() => originalAsync(buf, cb));
+    };
+    let fetched = 0;
+    try {
+      const pending = openBig(async () => {
+        fetched++;
+        return new Response('data: {}\n\n', { status: 200 });
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(fetched, 0, 'request waits on the threadpool compression while the loop is free');
+      release();
+      assert.equal((await pending).status, 200);
+      assert.equal(fetched, 1);
+    } finally {
+      zlib.zstdCompress = originalAsync;
+      zlib.zstdCompressSync = originalSync;
+    }
+  }
+);

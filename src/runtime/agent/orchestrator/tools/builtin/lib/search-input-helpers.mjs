@@ -3,12 +3,19 @@ import { canonicalizeGlobSlashes } from '../path-utils.mjs';
 import { relativePathPrefix } from '../search-path-diagnostics.mjs';
 import { normalizeGrepLine, splitGrepCountPrefix, splitGrepLinePrefix } from '../grep-formatting.mjs';
 
-export function relativeGrepLine(line, workDir, pathOnly = false, outputMode = 'content', filenameOmitted = false) {
-  const normalized = normalizeGrepLine(line, pathOnly, outputMode, filenameOmitted);
+export function relativeGrepLine(
+  line,
+  workDir,
+  pathOnly = false,
+  outputMode = 'content',
+  filenameOmitted = false,
+  matchOnly = false
+) {
+  const normalized = normalizeGrepLine(line, pathOnly, outputMode, filenameOmitted, matchOnly);
   if (!workDir) return normalized;
   if (pathOnly) return relativePathPrefix(normalized, workDir);
   if (filenameOmitted) return normalized;
-  const split = splitGrepLinePrefix(normalized);
+  const split = splitGrepLinePrefix(normalized, matchOnly);
   if (split) {
     return relativePathPrefix(normalized.slice(0, split.pathEnd), workDir) + normalized.slice(split.pathEnd);
   }

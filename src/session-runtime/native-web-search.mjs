@@ -14,6 +14,7 @@ import {
 } from './native-web-search/tool-shape.mjs';
 import { createWebSearchRouteCandidates } from './native-web-search/routes.mjs';
 import { reportNativeWebSearchUsage } from './native-web-search-usage.mjs';
+import { canFallbackRoute } from '../runtime/shared/model-route-fallback.mjs';
 
 export function createNativeWebSearch(deps) {
   const {
@@ -98,14 +99,14 @@ export function createNativeWebSearch(deps) {
     if (!candidates.length) throw noCandidateError();
     const errors = [];
     for (const candidate of candidates) {
-      for (const toolType of toolTypesFor(candidate)) {
-        try {
-          return await sendCandidate(candidate, toolType, webSearchArgs, signal);
-        } catch (err) {
-          errors.push(
-            `${candidate.provider}${candidate.model ? `/${candidate.model}` : ''}/${toolType}: ${err?.message || String(err)}`
-          );
-        }
+      const [toolType] = toolTypesFor(candidate);
+      try {
+        return await sendCandidate(candidate, toolType, webSearchArgs, signal);
+      } catch (err) {
+        if (!canFallbackRoute(err, { signal })) throw err;
+        errors.push(
+          `${candidate.provider}${candidate.model ? `/${candidate.model}` : ''}/${toolType}: ${err?.message || String(err)}`
+        );
       }
     }
     throw new Error(`native web search failed: ${errors.join(' | ')}`);

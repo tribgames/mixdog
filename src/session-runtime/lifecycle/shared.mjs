@@ -12,7 +12,11 @@ export { SESSION_ID_PATTERN } from '../../runtime/agent/orchestrator/runtime-cor
 // message there, not yet in session.messages, so it must also be checked or a
 // first-turn exit could still burn a real session.
 export function isScratchConversation(messages, liveTurnMessages) {
-  return !hasUserConversationMessage(messages) && !hasUserConversationMessage(liveTurnMessages);
+  return [messages, liveTurnMessages].every(
+    (items) =>
+      !hasUserConversationMessage(items) &&
+      !(Array.isArray(items) && items.some((message) => message?.meta?.transcript?.completion))
+  );
 }
 
 export function isScratchSession(session) {
@@ -22,11 +26,6 @@ export function isScratchSession(session) {
 export function createSurfaceSessionCloser(mgr) {
   return function closeSurfaceSession(session, reason, options) {
     if (!session?.id) return false;
-    // A remote-attached session is only a viewer handle owned by this surface.
-    // Closing it through the shared manager bumps the durable generation and
-    // invalidates the real owner's in-flight turn. Viewer exits therefore
-    // detach locally; only the process that owns the runtime may close it.
-    if (session.remoteAttached === true) return true;
     return mgr.closeSession(session.id, reason, options);
   };
 }

@@ -34,6 +34,7 @@ export function createInternalToolExecutor({
   getWorkspaceApi,
   getSessionManager,
   getLifecycleApi,
+  executeSessionControl,
 }) {
   const handlers = {
     ...createBridgeToolHandlers({ rt }),
@@ -58,6 +59,7 @@ export function createInternalToolExecutor({
       getWorkspaceApi,
       getSessionManager,
       getLifecycleApi,
+      executeSessionControl,
     }),
   };
 

@@ -10,9 +10,6 @@ export function createCloseAll({ registry, close }) {
   const { tags, tagAgents, tagCwds } = registry;
 
   function resetLocalTagState() {
-    for (const timer of registry.reapTimers.values()) clearTimeout(timer);
-    registry.reapTimers.clear();
-    registry.clearScheduledReaps();
     tags.clear();
     tagAgents.clear();
     tagCwds.clear();

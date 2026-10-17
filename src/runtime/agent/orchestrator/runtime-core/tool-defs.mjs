@@ -67,14 +67,14 @@ export const SESSION_TOOL = {
   annotations: {
     title: 'Session',
     readOnlyHint: false,
-    destructiveHint: false,
+    destructiveHint: true,
     idempotentHint: false,
     openWorldHint: false,
     agentHidden: true,
   },
-  trigger: 'Session status, rename the title, compact, fork into a new session, switch Project, worktrees.',
+  trigger: 'Session lookup/control, title, compact, fork, Project and worktrees.',
   description:
-    'Manage the current session. status shows session id, title, Project and model; rename sets the session title; compact runs after this turn ends; fork copies this conversation into a new session. set-project switches the active Project; list-projects returns the registered projects (name, path); a project name instead of a path → list-projects first, then set-project with the matching path, ask only if several match. path must be an existing directory. A shell-local cd does not change the Project. Worktree actions act on this session’s git worktree only when the user explicitly asks.',
+    'Inspect sessions or control another by exact ID, never a guessed one. send acknowledges queue intake, not completion. Cancel/delete and worktree actions require the user’s request. Other actions affect only the current session.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -82,6 +82,11 @@ export const SESSION_TOOL = {
         type: 'string',
         enum: [
           'status',
+          'list',
+          'read',
+          'send',
+          'cancel',
+          'delete',
           'rename',
           'compact',
           'fork',
@@ -95,14 +100,47 @@ export const SESSION_TOOL = {
           'prune-worktrees',
         ],
         description:
-          'status (default without path) shows the session; rename sets title; compact schedules a compaction right after this turn; fork creates a new session copying this conversation (returns its sessionId; this session stays current); set-project switches to path; list-projects returns registered projects; favorite/archive set this session’s sidebar flag to value; merge-worktree merges this session’s worktree into the project folder’s checked-out branch, remove-worktree deletes it (returning to the project folder; call again if it reports WORKTREE_REMOVAL_INCOMPLETE); list-worktrees lists every managed worktree and who retains it; prune-worktrees removes clean, merged ones no session retains.',
+          'status defaults to current; list pages sessions; read returns latest items; send queues prompt; cancel stops the turn; delete removes the session. compact runs after this turn; fork copies it without switching. merge-worktree merges into the Project’s checked-out branch; remove-worktree returns to the Project (repeat on WORKTREE_REMOVAL_INCOMPLETE); list-worktrees includes retaining sessions; prune-worktrees removes only clean, merged, unretained worktrees.',
       },
-      title: { type: 'string', description: 'rename: the new session title.' },
-      path: { type: 'string', description: 'Existing directory to switch to (implies action=set-project).' },
-      compact: { type: 'boolean', description: 'fork: compact the copied conversation.' },
+      title: { type: 'string', description: 'rename: new current-session title.' },
+      session_id: {
+        type: 'string',
+        description:
+          'ID from list; required for read/send/cancel/delete, optional for status. send/cancel/delete cannot target the caller.',
+      },
+      prompt: { type: 'string', description: 'send: message to enqueue; loads a cold session.' },
+      limit: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 100,
+        description:
+          'list/read: maximum rows, default 25. Output: 8KiB per page, 12KiB for initial read tail; follow nextOffset/nextTextOffset for more.',
+      },
+      cursor: { type: 'string', description: 'list: returned nextCursor.' },
+      offset: {
+        type: 'integer',
+        minimum: 0,
+        description:
+          'read: newest items to skip, default 0 (tail). Use nextOffset for older pages; appends/rewinds shift positions.',
+      },
+      text_offset: {
+        type: 'integer',
+        minimum: 0,
+        description: 'read: UTF-16 text position from nextTextOffset; requires offset, limit:1, item_id.',
+      },
+      item_id: {
+        type: 'string',
+        description: 'read: returned item id; rejects a shifted position instead of reading another item.',
+      },
+      path: {
+        type: 'string',
+        description:
+          'Existing directory; implies set-project. Resolve names with list-projects first. Shell cd does not switch Project.',
+      },
+      compact: { type: 'boolean', description: 'fork: compact the copy.' },
       force: {
         type: 'boolean',
-        description: 'remove-worktree: delete even with uncommitted or unmerged work (only when the user says so).',
+        description: 'remove-worktree: allow uncommitted/unmerged work only when explicitly requested.',
       },
       value: { type: 'boolean', description: 'favorite/archive: on or off.' },
     },

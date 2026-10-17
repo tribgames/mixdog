@@ -10,6 +10,8 @@ import {
   textByteLength,
 } from './text-utils.mjs';
 import {
+  contextAckMessage,
+  isProtectedContextAckMessage,
   isSummaryMessage,
   latestActualUserInstructionIndex,
   latestActualUserInstructionMessage,
@@ -20,7 +22,7 @@ import { buildExecutionTail } from './execution-tail.mjs';
 import { latestSkillBodies } from '../../context/skill-state.mjs';
 import { effectiveBudget } from './budget.mjs';
 import { stripRuntimeUserContext, withRuntimeUserContext } from '../runtime-user-context.mjs';
-import { carryMessageId } from '../message-ids.mjs';
+import { carryMessageId, messageIdOf } from '../message-ids.mjs';
 import { normalizeIngestRole, shouldExcludeIngestMessage } from '../../../../memory/lib/session-ingest.mjs';
 import { codexWireSendOpts } from '../manager/session-id.mjs';
 import { rebaseCompactedEffortConfiguration } from '../../providers/effort-configuration.mjs';
@@ -48,9 +50,11 @@ function splitFreshSource(messages) {
   const sanitized = redactToolCallSecretsInMessages(reconcileDedupStubs(sanitizeToolPairs(messages)));
   const { protectedPrefix, conversation } = splitProtectedContext(sanitized);
   let previousSummaryMessage = null;
+  let previousAck = null;
   for (let index = conversation.length - 1; index >= 0; index -= 1) {
     if (isSummaryMessage(conversation[index])) {
       previousSummaryMessage = conversation[index];
+      if (isProtectedContextAckMessage(conversation[index + 1])) previousAck = conversation[index + 1];
       break;
     }
   }
@@ -59,6 +63,7 @@ function splitFreshSource(messages) {
     protectedPrefix,
     previousSummary: previousSummaryMessage?.content || null,
     previousSummaryMessage,
+    previousAck,
     // Budgeting, AI input and rule-only retention use this same projection.
     // Keep current-turn reminders; remove only proven runtime additions from
     // older requests. Unmarked legacy text remains part of the summary budget.
@@ -505,6 +510,15 @@ function freshSkillBudget(targetBudget, budget, committed) {
   return Math.max(0, Math.min(25_000, Math.floor(targetBudget * 0.2), budget - estimateMessagesTokens(committed)));
 }
 
+// Every pass rebuilds the ack; it keeps the previous ack's id so the archive
+// does not count an unchanged ack as dropped, unless the tail still holds it.
+function stableAckMessage(previousAck, volatileTail) {
+  const ack = contextAckMessage();
+  const id = messageIdOf(previousAck);
+  if (!id || volatileTail.some((message) => messageIdOf(message) === id)) return ack;
+  return carryMessageId(ack, previousAck);
+}
+
 // The pieces every fresh context carries: the protected prefix, the handoff
 // summary (or the previous one when no handoff was produced), the stable
 // acknowledgement between them and the volatile tail. `mandatory` is what
@@ -518,7 +532,7 @@ function freshContextLayout(source, budgetTokens, opts) {
     ? fitFreshContextSummaryMessage(source.live, handoffText, Number.MAX_SAFE_INTEGER)
     : source.previousSummaryMessage;
   const tail = freshContextTail(source, budgetTokens, !replaceConversation, opts);
-  const stableAck = tail.latestUser && summaryMessage ? { role: 'assistant', content: '.' } : null;
+  const stableAck = tail.latestUser && summaryMessage ? stableAckMessage(source.previousAck, tail.volatileTail) : null;
   const stableHead = [
     ...source.protectedPrefix,
     ...(summaryMessage ? [summaryMessage] : []),

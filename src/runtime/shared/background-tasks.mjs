@@ -330,13 +330,18 @@ export function settleCancelledBackgroundTask(taskId, { result } = {}) {
 export function cancelBackgroundTasks(options = {}) {
   const reason = clean(options.reason) || 'cancelled';
   const wanted = clean(options.surface);
+  const executionSessionId = clean(options.executionSessionId);
   let cancelled = 0;
   for (const task of [...tasks.values()]) {
     if (wanted && task.surface !== wanted) continue;
     // Scoped teardown must be exact. Legacy tasks without ownership stay
     // visible/recoverable, but may not be claimed by whichever session happens
     // to close first.
-    if (!taskMatchesScope(task, options, { includeUnattributed: false })) continue;
+    if (executionSessionId) {
+      // Delegated work executes in its bound session; before binding it still
+      // belongs to the registering session. Notification ownership is separate.
+      if ((clean(task.meta?.sessionId) || task.ownerSessionId) !== executionSessionId) continue;
+    } else if (!taskMatchesScope(task, options, { includeUnattributed: false })) continue;
     if (TERMINAL_STATUSES.has(task.status)) {
       if (options.notify === false) silenceCancelledNotification(task);
       continue;

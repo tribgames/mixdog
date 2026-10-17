@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { gunzipSync, gzipSync } from 'node:zlib';
+import { anthropicGzipLatch } from '../lib/request-compression.mjs';
 import { postMessages } from './gzip-post.mjs';
 
 // The live CLI-version lookup also uses fetch; keep it out of the call counts.
@@ -52,7 +53,33 @@ test('small bodies are sent uncompressed', async () => {
   );
 });
 
+test('a failed plain resend does not latch; a throwing compressor fails open; encoded headers are kept', async () => {
+  anthropicGzipLatch.reset();
+  const requestBody = largeBody();
+  await withFetch(
+    (count) => new Response('{}', { status: count === 1 ? 415 : 500 }),
+    async (calls) => {
+      const response = await postMessages({ accessToken: 't', requestBody, betaHeaders: 'b' });
+      assert.equal(response.status, 500);
+      assert.equal(calls.length, 2);
+      assert.equal(anthropicGzipLatch.disabled(), false);
+    }
+  );
+  await withFetch(
+    () => new Response('{}', { status: 200 }),
+    async (calls) => {
+      const compress = async () => {
+        throw new Error('boom');
+      };
+      await postMessages({ accessToken: 't', requestBody, betaHeaders: 'b', compress });
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].init.headers['Content-Encoding'], undefined);
+    }
+  );
+});
+
 test('a 400 on a gzipped body retries uncompressed and latches gzip off', async () => {
+  anthropicGzipLatch.reset();
   const requestBody = largeBody();
   const raw = JSON.stringify(requestBody);
   await withFetch(

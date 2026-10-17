@@ -18,7 +18,6 @@ export function createTagRefresh({ tags, tagMaps, mgr, reaper, refreshTagsFromIn
     // Tags missing from the index are exactly the ones a reap just removed, so
     // the tombstone (not the still-open session record) decides whether this
     // scan may re-bind them.
-    const pendingTerminal = [];
     for (const session of mgr.listSessions({ includeClosed: false }) || []) {
       if (isLeadPoolAgent(session?.agent)) continue;
       if (session?.closed === true) continue;
@@ -27,8 +26,7 @@ export function createTagRefresh({ tags, tagMaps, mgr, reaper, refreshTagsFromIn
       if (!sessionMatchesContext(session, context)) continue;
       if (reaper.tombstoneBlocksScan(session, tag, tombstones)) continue;
       tagMaps.bind(tag, session);
-      reaper.scanUpsertSession(session, tag, tombstones, pendingTerminal);
+      reaper.scanUpsertSession(session, tag, tombstones);
     }
-    reaper.settleScannedTerminalRows(pendingTerminal);
   };
 }

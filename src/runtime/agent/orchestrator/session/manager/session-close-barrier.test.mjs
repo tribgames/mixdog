@@ -96,6 +96,21 @@ test('re-closing an already tombstoned session stays a clean close', async () =>
   assert.equal(loadSession(id)?.closed, true);
 });
 
+test('explicit deletion replaces automatic-close provenance without resetting its fence or age', async () => {
+  for (const owner of ['user', 'agent']) {
+    const id = `sess_delete_historical_${owner}`;
+    await saveSessionAsync({ ...session(id), owner });
+    const generation = markSessionClosed(id, 'idle-sweep');
+    const closedAt = loadSession(id).updatedAt;
+    assert.equal(markSessionClosed(id, 'desktop-session-delete'), generation);
+    const deleted = loadSession(id);
+    assert.equal(deleted.closedReason, 'desktop-session-delete');
+    assert.equal(deleted.closed, true);
+    assert.equal(deleted.updatedAt, closedAt);
+    assert.equal(deleted.generation, generation);
+  }
+});
+
 test('a barrier that really failed is still reported and the close is refused', () => {
   const id = 'sess_close_foreign_bytes';
   mkdirSync(join(root, 'sessions'), { recursive: true });

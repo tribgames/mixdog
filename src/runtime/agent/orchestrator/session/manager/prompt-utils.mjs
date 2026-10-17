@@ -419,6 +419,7 @@ function workspaceNoticeContent({ seen, target }) {
     [
       '# Working Folder Changed',
       `The working folder is now ${target.cwd}. This replaces the Cwd and environment facts given earlier in this conversation; relative paths and shell commands resolve here.`,
+      'Keep the conversation goals and decisions, but treat earlier file contents, search results and Git observations as historical, not as evidence of this checkout. Check the target project instructions and Git status, and re-read the files needed for the next edit before continuing. A folder change alone does not transfer uncommitted changes.',
       ...workspaceMoveLines(target.move, target.cwd),
       changed('environmentContext') ? target.environmentContext : '',
     ]
@@ -454,6 +455,25 @@ export function snapshotPendingWorkspaceNotice(session) {
   if (!pending) return null;
   const content = workspaceNoticeContent(pending);
   return content ? { revision: pending.revision, content } : null;
+}
+
+/**
+ * The report of a new worktree's preparation (session.pendingSetupNotice, set
+ * by the first turn's workspace gate) for this turn, or null. Acknowledged
+ * when the provider accepted the turn, like the workspace notice.
+ * @returns {{ revision: number, content: string } | null}
+ */
+export function snapshotPendingSetupNotice(session) {
+  const pending = session?.pendingSetupNotice;
+  return typeof pending?.content === 'string' && pending.content
+    ? { revision: pending.revision, content: pending.content }
+    : null;
+}
+
+export function acknowledgePendingSetupNotice(session, revision) {
+  if (session?.pendingSetupNotice?.revision !== revision) return false;
+  delete session.pendingSetupNotice;
+  return true;
 }
 
 /** The notice of `revision` reached the model: what it was told is now the target. */

@@ -20,7 +20,11 @@ import { preconnect } from '../../../shared/llm/http-agent.mjs';
 import { createAntigravityStreamCollector } from './antigravity-stream.mjs';
 import { createAntigravityRequest } from './antigravity-transport.mjs';
 import { finalizeAntigravityTurn } from './antigravity-response.mjs';
-import { ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY } from './antigravity-retry-policy.mjs';
+import {
+  ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY,
+  antigravityFirstBytePolicy,
+  antigravityFirstResponseBudget,
+} from './antigravity-retry-policy.mjs';
 import {
   CONTENT_ENDPOINT,
   ANTIGRAVITY_MODELS,
@@ -97,6 +101,13 @@ export class AntigravityOAuthProvider {
     return configured || CONTENT_ENDPOINT;
   }
 
+  // Longest one send to `model` may wait for response headers / first output,
+  // the whole transport retry ladder included; the agent watchdog's
+  // first-response deadlines are floored above it.
+  firstResponseBudget(model) {
+    return antigravityFirstResponseBudget(antigravityFirstBytePolicy(model || DEFAULT_ANTIGRAVITY_MODEL));
+  }
+
   _buildBody(messages, model, tools, opts) {
     const body = buildAntigravityRequest(messages, model, tools, opts, this._projectId);
     dumpAntigravityRequest(body);
@@ -169,6 +180,7 @@ export class AntigravityOAuthProvider {
       signal: passthrough.signal,
       collector,
       sleepFn: this.config.sleepFn,
+      firstByte: antigravityFirstBytePolicy(useModel),
     });
     try {
       try {

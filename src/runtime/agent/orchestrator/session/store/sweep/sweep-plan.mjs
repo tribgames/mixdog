@@ -2,7 +2,6 @@
 // One sweep's resolved options (what to sweep and with which bounds), the
 // candidate rows it visits, and the tally it fills in.
 import { readdirSync } from 'node:fs';
-import { loadConfig } from '../../../config.mjs';
 import { listStoredSessionSummaries } from '../listing.mjs';
 import { DEFAULT_SESSION_TTL_MS, RESUMABLE_OPEN_MAX_AGE_MS, RESUMABLE_OPEN_MAX_COUNT } from './sweep-record.mjs';
 
@@ -11,12 +10,6 @@ export function resolveSweepPlan(ttlMs, options = {}) {
     options = ttlMs;
     ttlMs = options.ttlMs;
   }
-  let terminalReapConfig = null;
-  try {
-    terminalReapConfig = loadConfig({ secrets: false });
-  } catch {
-    /* built-ins remain available */
-  }
   const sweepIdle = options.sweepIdle !== false;
   const tombstoneMaxAgeMs = Number(options.tombstoneMaxAgeMs);
   const optAge = Number(options.openMaxAgeMs);
@@ -24,7 +17,6 @@ export function resolveSweepPlan(ttlMs, options = {}) {
   return {
     maxAge: ttlMs || DEFAULT_SESSION_TTL_MS,
     sweepIdle,
-    terminalReapConfig,
     tombstoneMaxAgeMs,
     sweepTombstones: Number.isFinite(tombstoneMaxAgeMs) && tombstoneMaxAgeMs > 0,
     // Retention cap for resumable open sessions runs only on the idle sweep

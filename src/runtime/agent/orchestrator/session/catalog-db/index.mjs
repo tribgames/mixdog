@@ -3,8 +3,8 @@
  * the ordinary session catalog.
  *
  * Everything runs on one worker thread (./worker.mjs): the catalog engine's
- * change detection (summary index, sessions directory, per-file stamps, `.hb`
- * liveness, background verification) feeds `<dataDir>/session-catalog.sqlite`
+ * change detection (summary index, sessions directory, per-file stamps,
+ * background verification) feeds `<dataDir>/session-catalog.sqlite`
  * and an ordinary listing is one request that answers from it. This thread
  * does no filesystem work for it and never loads node:sqlite.
  *

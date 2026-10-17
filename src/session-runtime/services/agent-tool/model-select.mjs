@@ -30,6 +30,8 @@ function providerRows(rows, provider) {
 function matchModels(rows, query) {
   const wanted = norm(query);
   const words = terms(query);
+  // Nothing to match on ("???"): `[].every` would accept every row.
+  if (!words.length) return [];
   const tiers = [
     (row) => norm(row.id) === wanted,
     (row) => norm(row.display) === wanted,
@@ -58,6 +60,8 @@ export async function resolveRequestedModel(args, listProviderModels) {
   }
   if (typeof listProviderModels !== 'function') {
     if (!provider) throw new Error('agent spawn: model requires provider on this surface');
+    // Punctuation alone names no model; the catalog path rejects it the same way.
+    if (!terms(model).length) throw new Error(`agent spawn: model "${model}" for provider "${provider}" not found`);
     return args;
   }
   let pool = providerRows(await listProviderModels(), provider);

@@ -2,9 +2,10 @@ import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { stripAnsi } from '../../shell-exec-output.mjs';
 import { FileEncodingSniffer, ShellStreamDecoder, alignedOffset, oemTextEncoding } from '../../shell-codepage.mjs';
 
-const PAGE_BYTES = 8 * 1024;
-const COMPLETION_BYTES = 12 * 1024;
+import { TOOL_OUTPUT_PAGE_BYTES, TOOL_OUTPUT_TAIL_BYTES } from '../../../../../shared/tool-output-budget.mjs';
 const cursors = new WeakMap();
+const ESC = '\x1b';
+const PENDING_ANSI_INTRODUCER = new RegExp(`${ESC}(?:\\[[0-?]*[ -/]*|\\](?:(?!${ESC}\\\\)[^\x07\x9c])*)?$`);
 
 function newCursor() {
   return {
@@ -36,7 +37,7 @@ function visibleText(cursor, text) {
   const value = cursor.ansi + text;
   // Retain only the introducer of an unfinished CSI/OSC, not its potentially
   // unbounded payload. It will be stripped with the following chunk.
-  const pending = /\x1b(?:\[[0-?]*[ -/]*|\](?:(?!\x1b\\)[^\x07\x9c])*)?$/.exec(value);
+  const pending = PENDING_ANSI_INTRODUCER.exec(value);
   cursor.ansi = '';
   if (!pending) return stripAnsi(value);
   const sequence = pending[0];
@@ -53,7 +54,7 @@ function visibleText(cursor, text) {
 export function readShellTaskOutput(task, result = {}, { output = 'new' } = {}) {
   const replay = output === 'tail';
   const terminal = task.status !== 'running';
-  const limit = terminal || replay ? COMPLETION_BYTES : PAGE_BYTES;
+  const limit = terminal || replay ? TOOL_OUTPUT_TAIL_BYTES : TOOL_OUTPUT_PAGE_BYTES;
   let streams = replay ? new Map() : cursors.get(task);
   if (!streams) {
     streams = new Map();

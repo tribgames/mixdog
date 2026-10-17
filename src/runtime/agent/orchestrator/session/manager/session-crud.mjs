@@ -29,7 +29,7 @@ import { hideCompactionArchive } from '../compaction-archive-capture.mjs';
 import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
 import { forgetSideQuestion } from '../side-question-store.mjs';
 
-/** Force-flush session metrics to disk. Used by watchdog terminal-reap (fix B). */
+/** Force-flush session metrics to disk. */
 export async function flushSessionMetrics(sessionId) {
   if (!sessionId) return;
   const session = loadSession(sessionId);

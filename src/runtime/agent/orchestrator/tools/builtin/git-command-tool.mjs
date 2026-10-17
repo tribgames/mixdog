@@ -74,7 +74,7 @@ export const GIT_TOOL_DEF = {
     compressible: true,
   },
   description:
-    'Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns selected locations.',
+    'Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns per-file staged counts.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -142,45 +142,147 @@ function outputLines(value) {
   return String(value || '').match(/[^\n]*\n|[^\n]+$/g) || [];
 }
 
-function capOutput(text, limit) {
+// A line cap alone lets a few very long lines (minified files, lockfiles)
+// through, so each command also gets a character budget, and a command array
+// shares one. A cut always states what was omitted and how to page.
+const COMMAND_CHAR_BUDGET = 12_000;
+const ARRAY_CHAR_BUDGET = 24_000;
+const MIN_COMMAND_CHARS = 1_000;
+const LARGE_DIFF_LINES = 200;
+const LARGE_DIFF_HINT =
+  'hint: large diff - run with --stat first for per-file sizes, add -U1 for less context, and page by file with -- <path>';
+
+// Line-ending warnings are noise the model cannot act on; the content is unchanged.
+const CRLF_WARNING_RE = /^warning: in the working copy of .* (?:CRLF|LF) will be replaced[^\n]*(?:\n|$)/gm;
+// `index abc..def` carries abbreviated object ids the model never uses; mode
+// changes keep their own `old mode`/`new mode`/`new file mode` lines.
+const DIFF_INDEX_LINE_RE = /^index [0-9a-f,]+\.\.[0-9a-f]+(?: [0-7]+)?\r?(?:\n|$)/gm;
+const PATCH_OPERATIONS = new Set(['diff', 'diff-files', 'diff-index', 'diff-tree', 'show', 'log']);
+
+function visibleStderr(value) {
+  return String(value || '').replace(CRLF_WARNING_RE, '');
+}
+
+function presentStdout(plan, value) {
+  const stdout = String(value || '');
+  if (plan.operation === 'merge-tree') return stdout.replace(/^Auto-merging .*(?:\r?\n|$)/gm, '');
+  if (PATCH_OPERATIONS.has(plan.operation) && /^diff --git /m.test(stdout)) {
+    return stdout.replace(DIFF_INDEX_LINE_RE, '');
+  }
+  return stdout;
+}
+
+function normalizeCap(limit) {
+  return typeof limit === 'object' ? limit : { lines: limit, chars: COMMAND_CHAR_BUDGET };
+}
+
+function capOutput(text, cap) {
   const lines = outputLines(text);
-  if (lines.length <= limit) return text;
-  return appendText(
-    lines.slice(0, limit).join(''),
-    `... [${lines.length - limit} more lines omitted; raise output_limit or narrow the command]`
-  );
+  const lineCut = lines.length > cap.lines;
+  const kept = lineCut ? lines.slice(0, cap.lines).join('') : text;
+  if (kept.length <= cap.chars) {
+    return {
+      text: lineCut
+        ? appendText(
+            kept,
+            `... [${lines.length - cap.lines} more lines omitted; raise output_limit or narrow the command]`
+          )
+        : text,
+      truncated: lineCut,
+      totalLines: lines.length,
+    };
+  }
+  const newline = kept.lastIndexOf('\n', cap.chars - 1);
+  const cut = newline > 0 ? newline + 1 : cap.chars;
+  const shown = outputLines(kept.slice(0, cut)).length;
+  return {
+    text: appendText(
+      kept.slice(0, cut),
+      `... [${lines.length - shown} more lines (${text.length - cut} chars) omitted; output limited to ${cap.chars} chars - narrow the command (-- <path>, -n/--skip) to page]`
+    ),
+    truncated: true,
+    totalLines: lines.length,
+  };
 }
 
 function commandResult(plan, result, limit) {
-  const output = capOutput(appendText(String(result.stdout || ''), String(result.stderr || '')), limit);
+  const stdout = presentStdout(plan, result.stdout);
+  const capped = capOutput(appendText(stdout, visibleStderr(result.stderr)), normalizeCap(limit));
+  let output = capped.text;
+  if ((capped.truncated || capped.totalLines > LARGE_DIFF_LINES) && /^diff --git /m.test(stdout)) {
+    output = appendText(output, LARGE_DIFF_HINT);
+  }
   if (succeeded(result)) return { text: output, failed: false };
   const processError = result.error || result.timedOut || result.aborted || result.overflow || result.exitCode == null;
-  // An exit signal is still a non-zero exit, so a command array stops on it;
-  // the outcome line only keeps the card from reporting a failure.
-  const exitHeader = exitSignal(plan, result)
-    ? `exit ${result.exitCode}\n[outcome: no-match]`
-    : `exit ${result.exitCode}`;
+  if (processError) return { text: appendText(fail(gitFailureReason(plan, result)), output), failed: true };
+  const outcome = exitSignal(plan, result);
+  if (outcome === 'conflicts') {
+    // A conflicted merge-tree is its answer, not a failed command: the array continues.
+    return {
+      text: appendText(
+        `exit ${result.exitCode}\n[outcome: conflicts]\nmerge has conflicts (see the CONFLICT lines); this is a result, not a command failure`,
+        output
+      ),
+      failed: false,
+    };
+  }
+  // A no-match signal is still a non-zero exit, so a command array stops on
+  // it; the outcome line only keeps the card from reporting a failure.
   return {
-    text: appendText(processError ? fail(gitFailureReason(plan, result)) : exitHeader, output),
+    text: appendText(outcome ? `exit ${result.exitCode}\n[outcome: ${outcome}]` : `exit ${result.exitCode}`, output),
     failed: true,
   };
+}
+
+// Paths come from git unquoted; only a name that would break the one-line
+// listing (control characters, quotes) is JSON-quoted.
+function listedPath(path) {
+  return [...path].some((char) => char.charCodeAt(0) < 0x20 || char === '"') ? JSON.stringify(path) : path;
 }
 
 function stageableDiffResult(plan, result, snapshot, limit) {
   if (!snapshot.diffId) return commandResult(plan, result, limit);
   const rendered = commandResult(plan, result, limit);
-  rendered.text = appendText(rendered.text, `diff_id: ${snapshot.diffId}`);
-  let previousPath;
+  // The hunk headers are already in the body; one line per file names the id range.
+  const files = [];
   for (const change of snapshot.changes) {
-    if (change.path !== previousPath) {
-      rendered.text = appendText(rendered.text, `file: ${JSON.stringify(change.path)}`);
-      previousPath = change.path;
-    }
-    const location =
-      change.kind || `@@ -${change.old_start},${change.deletions} +${change.new_start},${change.additions} @@`;
-    rendered.text = appendText(rendered.text, `change:${change.id} ${location}`);
+    const last = files.at(-1);
+    if (last?.path === change.path && !change.kind && !last.kind) last.end = change.id;
+    else files.push({ path: change.path, start: change.id, end: change.id, kind: change.kind });
   }
+  const listing = files.map(
+    ({ path, start, end, kind }) =>
+      `${listedPath(path)}: ${start === end ? start : `${start}-${end}`}${kind ? ' [whole file]' : ''}`
+  );
+  rendered.text = appendText(
+    rendered.text,
+    [
+      `diff_id: ${snapshot.diffId} (ids number the +/- runs in diff order; [whole file] ids stage the entire file)`,
+      ...listing,
+    ].join('\n')
+  );
   return rendered;
+}
+
+// Per-file staged counts; the paths and ranges the model already holds are not repeated per change.
+function stagedSummary(changes) {
+  const files = new Map();
+  for (const { path, additions = 0, deletions = 0 } of changes) {
+    const entry = files.get(path) || { count: 0, additions: 0, deletions: 0 };
+    entry.count += 1;
+    entry.additions += additions;
+    entry.deletions += deletions;
+    files.set(path, entry);
+  }
+  return {
+    changes: changes.length,
+    additions: [...files.values()].reduce((sum, entry) => sum + entry.additions, 0),
+    deletions: [...files.values()].reduce((sum, entry) => sum + entry.deletions, 0),
+    files: [...files].map(
+      ([path, entry]) =>
+        `${path}: ${entry.count} ${entry.count === 1 ? 'change' : 'changes'} +${entry.additions} -${entry.deletions}`
+    ),
+  };
 }
 
 // A provider sometimes delivers the whole command as one quoted scalar
@@ -351,14 +453,16 @@ function succeeded(result) {
 
 // `git grep` exits 1 for no match and `git diff --exit-code/--quiet/--check`
 // exits 1 to report a difference; the shell tool marks the same exits as
-// signals, so the git tool does too.
+// signals, so the git tool does too. `git merge-tree` exits 1 with its report
+// on stdout when the merge has conflicts. Returns the outcome name or null.
 function exitSignal(plan, result) {
-  if (result.exitCode !== 1 || String(result.stderr || '').trim()) return false;
-  if (plan.operation === 'grep') return true;
-  if (plan.operation !== 'diff') return false;
+  if (result.exitCode !== 1 || visibleStderr(result.stderr).trim()) return null;
+  if (plan.operation === 'grep') return 'no-match';
+  if (plan.operation === 'merge-tree') return String(result.stdout || '').trim() ? 'conflicts' : null;
+  if (plan.operation !== 'diff') return null;
   const separator = plan.args.indexOf('--');
   const options = separator === -1 ? plan.args : plan.args.slice(0, separator);
-  return options.some((arg) => GIT_DIFF_EXIT_SIGNAL_FLAGS.has(arg));
+  return options.some((arg) => GIT_DIFF_EXIT_SIGNAL_FLAGS.has(arg)) ? 'no-match' : null;
 }
 
 // ENOENT from the spawn itself is a capability fact, not a git error: the
@@ -690,10 +794,7 @@ async function executeGitStage(input, workDir, options = {}) {
           if (!succeeded(applied)) return commandFailure(applyPlan, applied, limit);
           deleteDiffSnapshot(request.diffId);
           invalidateAfterGitMutation();
-          return ok({
-            staged: true,
-            changes: built.changes.map(({ id, preview, ...change }) => change),
-          });
+          return ok({ staged: true, ...stagedSummary(built.changes) });
         });
       }),
     { signal }
@@ -703,7 +804,13 @@ async function executeGitStage(input, workDir, options = {}) {
 async function executeSingleGitTool(input, workDir, options = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return rejected('git requires an arguments object');
   const hasCommand = typeof input.command === 'string' && Boolean(input.command.trim());
-  if (!hasCommand) return rejected('git requires command');
+  if (!hasCommand) {
+    return rejected(
+      input.include_stage_ids === true
+        ? 'git requires command; staging IDs come from command:"git diff" (or "git diff -- <paths>") with include_stage_ids:true'
+        : 'git requires command: a full command starting with git, e.g. command:"git status"'
+    );
+  }
   let plan;
   try {
     plan = localizeConfigPlan(parseCommand(input.command, workDir));
@@ -717,7 +824,10 @@ async function executeSingleGitTool(input, workDir, options = {}) {
     return rejected('git archive requires -o/--output; binary stdout is not returned');
   }
   const limitDefault = plan.operation === 'log' ? 10 : 50;
-  const limit = outputLimit(input.output_limit, limitDefault);
+  const limit = {
+    lines: outputLimit(input.output_limit, limitDefault),
+    chars: options.charBudget ?? COMMAND_CHAR_BUDGET,
+  };
   const signal = abortSignalOf(options);
   if (plan.operation === 'init' || plan.operation === 'clone') {
     const target = creationTarget(plan);
@@ -870,13 +980,14 @@ export async function executeGitTool(rawInput, workDir, options = {}) {
     return fail(`git command array requires 1 to ${GIT_COMMAND_ARRAY_LIMIT} commands`);
   }
 
+  const operations = [];
   for (let index = 0; index < commands.length; index += 1) {
     const command = commands[index];
     if (typeof command !== 'string' || !command.trim()) {
       return fail(`git command ${index + 1} must be a non-empty string`);
     }
     try {
-      localizeConfigPlan(parseCommand(command, workDir));
+      operations.push(localizeConfigPlan(parseCommand(command, workDir)).operation);
     } catch (error) {
       return fail(`git command ${index + 1}: ${error.message}`);
     }
@@ -887,12 +998,22 @@ export async function executeGitTool(rawInput, workDir, options = {}) {
   // not produce. Every command is parsed above before any runs, so a typo in
   // command 3 never leaves commands 1-2 half applied. Each command still
   // acquires its own repository lock inside executeSingleGitTool.
+  // Headers name the position and subcommand only: echoing the argument list
+  // (a 22-path `add`) cost more than the result it labelled.
   const results = [];
-  for (const command of commands) {
-    const result = await executeSingleGitTool({ ...input, command }, workDir, options);
-    results.push(`## ${command}\n${result.text}`);
+  let used = 0;
+  for (let index = 0; index < commands.length; index += 1) {
+    const label = `${index + 1}: git ${operations[index]}`;
+    const charBudget = Math.min(COMMAND_CHAR_BUDGET, Math.max(MIN_COMMAND_CHARS, ARRAY_CHAR_BUDGET - used));
+    const result = await executeSingleGitTool({ ...input, command: commands[index] }, workDir, {
+      ...options,
+      charBudget,
+    });
+    const section = `## ${label}\n${result.text}`;
+    used += section.length;
+    results.push(section);
     if (result.failed) {
-      return appendText(results.join('\n'), `error: command failed: ${command}`);
+      return appendText(results.join('\n'), `error: command failed: ${label}`);
     }
   }
   return results.join('\n');

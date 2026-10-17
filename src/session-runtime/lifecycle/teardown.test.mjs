@@ -200,12 +200,16 @@ test('close waits for agent closing to finish before draining the index writers'
       },
     },
   });
-  const closing = f.teardown.close('dispose', { detach: true });
+  const closing = f.teardown.close('cli-exit', { detach: true });
   await sleep(20);
   assert.deepEqual(events, ['closeAll:start'], 'no drain while closing is still producing writes');
   finishClose();
   await closing;
-  assert.deepEqual(events, ['closeAll:start', 'closeAll:final-write', 'drain', 'disposeAsync'], 'drain only after closing, then release');
+  assert.deepEqual(
+    events,
+    ['closeAll:start', 'closeAll:final-write', 'drain', 'disposeAsync'],
+    'drain only after closing, then release'
+  );
   f.cleanup();
 });
 
@@ -257,7 +261,7 @@ test('overlapping closes each run their own closeAll and their rows reach disk',
     },
   });
   try {
-    await f.teardown.close('dispose', { detach: true }); // returns past its deadline
+    await f.teardown.close('cli-exit', { detach: true }); // returns past its deadline
     await f.teardown.close('cli-exit', { detach: true });
     await sleep(120);
     assert.equal(closeCalls, 2, 'each close ran its own closeAll');
@@ -310,6 +314,7 @@ test("a process-exit close after a Lead A scoped close still closes Lead B's wor
     idx.worker.queueWorkerIndexMutation(rowFor('wb', 'lead-b'));
     await idx.worker.flushWorkerIndexWrites();
     const releaseLock = await idx.holdLock(); // the scoped close's drain blocks on the lock
+    idx.worker.queueWorkerIndexMutation(rowFor('wa', 'lead-a'));
     const scoped = f.teardown.close('dispose', { detach: true }); // Lead A's scoped teardown
     await sleep(50);
     f.state.session = { id: 'lead-b', messages: [] };
@@ -318,7 +323,7 @@ test("a process-exit close after a Lead A scoped close still closes Lead B's wor
     assert.equal(exitFlushCount(), before, 'exit hook kept until the final drain');
     await releaseLock();
     await Promise.all([scoped, exit]);
-    assert.deepEqual(closedSessions, ['wa', 'wa', 'wb'], 'the scoped close closed A, the exit close closed A and B');
+    assert.deepEqual(closedSessions, ['wa', 'wb'], 'only process exit closes delegated sessions');
     assert.deepEqual(idx.readRows(), {}, "Lead B's worker row is purged, not left indexed");
     assert.equal(exitFlushCount(), before - 1, 'exit hook released at final shutdown');
   } finally {
@@ -395,6 +400,12 @@ test('two overlapping timed-out process-exit closes dispose once, after both set
   const before = exitFlushCount();
   const finishers = [];
   let disposals = 0;
+  // Resolves once the (single) disposal has finished: the assertions wait on
+  // the disposal itself, not on a guess of how long the drain takes.
+  let disposed;
+  const disposalDone = new Promise((resolve) => {
+    disposed = resolve;
+  });
   const f = fixture({
     withTeardownDeadline: shortDeadline,
     agentTool: {
@@ -409,7 +420,7 @@ test('two overlapping timed-out process-exit closes dispose once, after both set
       flushIndexWrites: () => idx.worker.flushWorkerIndexWrites(),
       disposeAsync: () => {
         disposals += 1;
-        return idx.worker.disposeAsync();
+        return idx.worker.disposeAsync().finally(disposed);
       },
     },
   });
@@ -422,7 +433,8 @@ test('two overlapping timed-out process-exit closes dispose once, after both set
     assert.equal(disposals, 0, 'no disposal while the second close is still pending');
     assert.equal(exitFlushCount(), before, 'exit hook kept while a close is outstanding');
     finishers[1]();
-    await sleep(60);
+    await disposalDone;
+    await sleep(60); // a second, erroneous disposal would land in this window
     assert.equal(disposals, 1, 'disposal ran exactly once');
     assert.equal(exitFlushCount(), before - 1);
     const rows = idx.readRows();
@@ -456,9 +468,9 @@ test("a non-exit close reaps only this session's work, with notification", async
   const f = fixture();
   await f.teardown.close('dispose', { detach: true });
   assert.deepEqual(f.named('cancelBackgroundTasks'), [
-    ['cancelBackgroundTasks', { reason: 'dispose', notify: true, callerSessionId: 's1' }],
+    ['cancelBackgroundTasks', { reason: 'dispose', notify: true, executionSessionId: 's1' }],
   ]);
-  assert.deepEqual(f.named('agentTool.closeAll'), [['agentTool.closeAll', 'dispose', { callerSessionId: 's1' }]]);
+  assert.deepEqual(f.named('agentTool.closeAll'), []);
   assert.deepEqual(f.named('closePatchRuntime'), [['closePatchRuntime', { waitForExit: false }]]);
   assert.deepEqual(f.named('channels.stop'), [
     ['channels.stop', 'dispose', { waitForExit: false, preserveRemoteIntent: true }],
@@ -496,17 +508,14 @@ test('a scratch session is tombstoned and an empty runtime closes without a sess
   empty.cleanup();
 });
 
-test('closeCanonicalSession plants the tombstone barrier without whole-process teardown', () => {
+test('closeCanonicalSession fences execution without tombstoning a conversation', () => {
   const f = fixture();
   assert.equal(f.teardown.closeCanonicalSession(), true);
   assert.deepEqual(f.named('mgr.closeSession'), [
-    ['mgr.closeSession', 's1', 'canonical-session-close', { tombstone: true }],
+    ['mgr.closeSession', 's1', 'canonical-session-close', { tombstone: false }],
   ]);
   assert.equal(f.state.session, null);
   assert.deepEqual(f.named('channels.stop'), []);
-  const attached = fixture({ session: { id: 's3', remoteAttached: true } });
-  assert.equal(attached.teardown.closeCanonicalSession(), false);
-  attached.cleanup();
   f.cleanup();
 });
 

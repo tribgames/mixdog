@@ -23,7 +23,7 @@ test('cached pool metadata preserves routing and display fields without dependin
   try {
     mkdirSync(join(root, 'sessions'));
     const id = 'header-child';
-    const stamp = '2026-01-01T00:00:00.000Z';
+    const stamp = new Date().toISOString();
     const session = {
       id,
       owner: 'agent',
@@ -128,7 +128,7 @@ test('agent pool lists living idle workers and drops dead ones', () => {
     );
     const rows = listStoredAgentWorkers();
     assert.deepEqual(rows.map((row) => row.sessionId).sort(), ['child-a', 'child-b']);
-    assert.equal(rows.find((row) => row.sessionId === 'child-a')?.status, 'idle');
+    assert.equal(rows.find((row) => row.sessionId === 'child-a')?.status, 'completed');
     assert.equal(rows.find((row) => row.sessionId === 'child-a')?.title, 'Review dependency update');
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
@@ -203,7 +203,7 @@ test('agent pool joins a resident Lead lease without projecting session history'
   }
 });
 
-test('agent pool drops reaped Leads and does not revive historical Lead sessions', () => {
+test('agent pool drops Leads past the pane window and does not revive historical Lead sessions', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-lead-reaped-'));
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
@@ -228,8 +228,8 @@ test('agent pool drops reaped Leads and does not revive historical Lead sessions
             agent: 'lead',
             status: 'idle',
             stage: 'idle',
-            updatedAt: new Date(Date.now() - 120_000).toISOString(),
-            reapAt: new Date(Date.now() - 60_000).toISOString(),
+            updatedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+            reapAt: new Date(Date.now() + 60_000).toISOString(),
           },
         },
       })
@@ -324,13 +324,14 @@ test('a working child outlives its Lead row so live work stays visible', () => {
         stage: 'running',
       },
     });
-    writeFreshHeartbeat(root, 'child-working');
-    const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-working');
+    const row = listStoredAgentWorkers({ runningSessionIds: new Set(['child-working']) }).find(
+      (entry) => entry.sessionId === 'child-working'
+    );
     assert.equal(row?.status, 'running');
   });
 });
 
-test('child terminal leases persist provider deadlines across registry recreation', () => {
+test('completed child sessions remain available across registry recreation without expiration', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-child-reap-persist-'));
   const sessions = new Map([
     [
@@ -372,18 +373,11 @@ test('child terminal leases persist provider deadlines across registry recreatio
         stage: 'idle',
         finishedAt: new Date(startedAt).toISOString(),
       });
-      assert.equal(registry.scheduleReap(session.id), true);
     }
     let stored = readPersistedIndex(root, 'agent-workers.json');
     const rows = Object.values(stored.workers);
-    const openaiDeadline = Date.parse(rows.find((row) => row.sessionId === 'openai-child').reapAt);
-    const anthropicDeadline = Date.parse(rows.find((row) => row.sessionId === 'anthropic-child').reapAt);
-    assert.ok(openaiDeadline - startedAt >= 29 * 60_000);
-    assert.ok(openaiDeadline - startedAt <= 31 * 60_000);
-    assert.ok(anthropicDeadline - startedAt >= 59 * 60_000);
-    assert.ok(anthropicDeadline - startedAt <= 61 * 60_000);
-    registry.cancelReap('openai-child');
-    registry.cancelReap('anthropic-child');
+    assert.equal(rows.length, 2);
+    assert.ok(rows.every((row) => row.reapAt === null));
 
     const restarted = createTagRegistry({
       dataDir: root,
@@ -393,24 +387,14 @@ test('child terminal leases persist provider deadlines across registry recreatio
     });
     stored = readPersistedIndex(root, 'agent-workers.json');
     const restartedRows = Object.values(stored.workers);
-    assert.equal(
-      restartedRows.find((row) => row.sessionId === 'openai-child').reapAt,
-      new Date(openaiDeadline).toISOString()
-    );
-    assert.equal(
-      restartedRows.find((row) => row.sessionId === 'anthropic-child').reapAt,
-      new Date(anthropicDeadline).toISOString()
-    );
-    assert.equal(restarted.reapTimers.has('openai-child'), true);
-    assert.equal(restarted.reapTimers.has('anthropic-child'), true);
-    restarted.cancelReap('openai-child');
-    restarted.cancelReap('anthropic-child');
+    assert.deepEqual(restartedRows, rows);
+    assert.equal(restarted.agentSessionEntries().length, 2);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('child boot recovery reaps expired legacy idle rows and preserves remaining lease time', () => {
+test('boot preserves old and recent child rows instead of expiring them', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-child-reap-recover-'));
   const now = Date.now();
   try {
@@ -452,16 +436,13 @@ test('child boot recovery reaps expired legacy idle rows and preserves remaining
     const rows = Object.values(stored.workers);
     assert.equal(
       rows.some((row) => row.sessionId === 'expired-child'),
-      false
+      true
     );
     const remaining = rows.find((row) => row.sessionId === 'remaining-child');
     assert.ok(remaining);
-    const remainingDeadline = Date.parse(remaining.reapAt);
-    assert.ok(remainingDeadline - now >= 19 * 60_000);
-    assert.ok(remainingDeadline - now <= 21 * 60_000);
-    assert.equal(registry.reapTimers.has('remaining-child'), true);
-    assert.ok(Object.values(stored.tombstones).some((row) => row.tag === 'old-review' && row.reapedAt));
-    registry.cancelReap('remaining-child');
+    assert.equal(rows.length, 2);
+    assert.equal(registry.agentSessionEntries().length, 2);
+    assert.equal(Object.values(stored.tombstones || {}).length, 0);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -576,7 +557,7 @@ test('Lead boot recovery settles a running row whose runtime died, and keeps a l
     assert.equal(stored.workers.crashed.turnStartedAt, null);
     assert.equal(stored.workers.live.status, 'running');
 
-    const pool = listStoredAgentWorkers();
+    const pool = listStoredAgentWorkers({ runningSessionIds: new Set(['live']) });
     assert.equal(pool.find((row) => row.sessionId === 'crashed')?.status, 'idle');
     assert.equal(pool.find((row) => row.sessionId === 'live')?.status, 'running');
   } finally {
@@ -584,6 +565,55 @@ test('Lead boot recovery settles a running row whose runtime died, and keeps a l
     else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('a settled Lead upsert stamps the finish the pane window counts from; a running one does not', () => {
+  withAgentPoolRoot('mixdog-lead-finish-stamp-', (root) => {
+    const index = createLeadWorkerIndex({
+      dataDir: root,
+      cfgMod: { loadConfig: () => ({}) },
+      workerRowFromSession: (session, tag, extra) => ({ tag, sessionId: session.id, ...extra }),
+    });
+    try {
+      const session = { id: 'lead-stamp', owner: 'user', agent: 'lead', messages: [] };
+      index.upsertLeadSession(session, { status: 'running', stage: 'running' });
+      assert.equal(index.readLeadWorkerRows()[0].finishedAt ?? null, null);
+      index.upsertLeadSession(session, { status: 'idle', stage: 'idle' });
+      const settled = index.readLeadWorkerRows()[0];
+      assert.ok(Date.parse(settled.finishedAt) > 0);
+      assert.equal(listStoredAgentWorkers().find((row) => row.sessionId === 'lead-stamp')?.status, 'idle');
+    } finally {
+      index.dispose();
+    }
+  });
+});
+
+test('Lead recovery keeps a long turn still in flight in this daemon and settles a stalled one', () => {
+  withAgentPoolRoot('mixdog-lead-recover-inflight-', (root) => {
+    const old = new Date(Date.now() - 10 * 60_000).toISOString();
+    const running = (sessionId) => ({
+      sessionId,
+      agent: 'lead',
+      status: 'running',
+      stage: 'running',
+      runtimePid: process.pid,
+      turnStartedAt: old,
+      updatedAt: old,
+    });
+    writeFileSync(
+      join(root, 'lead-workers.json'),
+      JSON.stringify({ workers: { long: running('long'), stalled: running('stalled') } })
+    );
+    createLeadWorkerIndex({
+      dataDir: root,
+      cfgMod: { loadConfig: () => ({}) },
+      workerRowFromSession: (session, tag, extra) => ({ tag, sessionId: session.id, ...extra }),
+      isSessionRunning: (sessionId) => sessionId === 'long',
+    }).dispose();
+    const stored = readPersistedIndex(root, 'lead-workers.json');
+    assert.equal(stored.workers.long.status, 'running');
+    assert.equal(stored.workers.stalled.status, 'idle');
+  });
 });
 
 function withAgentPoolRoot(prefix, body) {
@@ -630,11 +660,67 @@ function writeAgentWorkerIndex(root, workers) {
   writeFileSync(join(root, 'agent-workers.json'), JSON.stringify({ workers }));
 }
 
-function writeFreshHeartbeat(root, sessionId) {
-  writeFileSync(join(root, 'sessions', `${sessionId}.hb`), `${Date.now()}\n${process.pid}\n`);
-}
+test('a cancelled or cancel-unconfirmed Lead the daemon still runs is not shown running', () => {
+  withAgentPoolRoot('mixdog-lead-cancel-running-', (root) => {
+    const lead = (sessionId, status) => ({ sessionId, agent: 'lead', status, stage: status });
+    writeFileSync(
+      join(root, 'lead-workers.json'),
+      JSON.stringify({
+        workers: {
+          'lead-cancelled': lead('lead-cancelled', 'cancelled'),
+          'lead-unconfirmed': lead('lead-unconfirmed', 'cancel-unconfirmed'),
+          'lead-idle': lead('lead-idle', 'idle'),
+        },
+      })
+    );
+    const rows = listStoredAgentWorkers({
+      runningSessionIds: new Set(['lead-cancelled', 'lead-unconfirmed', 'lead-idle']),
+    });
+    const status = (id) => rows.find((entry) => entry.sessionId === id)?.status;
+    assert.equal(status('lead-cancelled'), 'cancelled');
+    assert.equal(status('lead-unconfirmed'), 'cancel-unconfirmed');
+    assert.equal(status('lead-idle'), 'running', 'an uncancelled running Lead is still working');
+  });
+});
 
-test('reaped rows and leftover heartbeats stay hidden after recovery saves', () => {
+test('a child the daemon runs stays listed whatever stale terminal status its row carries', () => {
+  withAgentPoolRoot('mixdog-running-stale-terminal-', (root) => {
+    const workers = {};
+    for (const status of ['done', 'error']) {
+      const sessionId = `child-${status}`;
+      writeAgentChild(root, sessionId, { status, stage: status, tag: status });
+      workers[status] = {
+        tag: status,
+        sessionId,
+        agent: 'worker',
+        ownerSessionId: 'lead-a',
+        status,
+        stage: status,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    writeAgentWorkerIndex(root, workers);
+    const running = listStoredAgentWorkers({ runningSessionIds: new Set(['child-done', 'child-error']) });
+    for (const status of ['done', 'error']) {
+      const row = running.find((entry) => entry.sessionId === `child-${status}`);
+      assert.equal(row?.status, 'running', status);
+      assert.equal(row?.stage, 'running', status);
+    }
+    // Not running in the daemon: a completed row is listed as completed and a
+    // failed one as the failure it is, each for the pane window.
+    assert.deepEqual(
+      listStoredAgentWorkers({ runningSessionIds: new Set() })
+        .filter((entry) => entry.sessionId.startsWith('child-'))
+        .map((entry) => [entry.sessionId, entry.status]),
+      [
+        ['child-done', 'completed'],
+        ['child-error', 'error'],
+      ]
+    );
+  });
+});
+
+test('reaped rows stay hidden after recovery saves', () => {
   withAgentPoolRoot('mixdog-reaped-pool-', (root) => {
     const now = Date.now();
     const row = {
@@ -662,7 +748,6 @@ test('reaped rows and leftover heartbeats stay hidden after recovery saves', () 
         })
       );
     writeIndex({ old: row });
-    writeFreshHeartbeat(root, row.sessionId);
     assert.equal(
       listStoredAgentWorkers().some((r) => r.sessionId === row.sessionId),
       false
@@ -681,7 +766,7 @@ test('reaped rows and leftover heartbeats stay hidden after recovery saves', () 
   });
 });
 
-test('expired running-worker evidence is unknown rather than normal idle', () => {
+test('a declared-working row the daemon does not report in flight is unknown, never guessed running', () => {
   withAgentPoolRoot('mixdog-unknown-worker-', (root) => {
     writeAgentChild(root, 'child-stale', { status: 'running', tag: 'stale' });
     writeAgentWorkerIndex(root, {
@@ -692,13 +777,61 @@ test('expired running-worker evidence is unknown rather than normal idle', () =>
         ownerSessionId: 'lead-a',
         status: 'running',
         stage: 'running',
-        runtimePid: process.pid,
-        updatedAt: new Date(Date.now() - 180_000).toISOString(),
+        updatedAt: new Date().toISOString(),
       },
     });
-    const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-stale');
-    assert.equal(row?.status, 'unknown');
-    assert.equal(row?.stage, 'unknown');
+    // No daemon answer, or a daemon whose runtime does not have this turn in
+    // flight: the row's own claim is not evidence.
+    for (const options of [undefined, { runningSessionIds: new Set(['other']) }]) {
+      const row = listStoredAgentWorkers(options).find((entry) => entry.sessionId === 'child-stale');
+      assert.equal(row?.status, 'unknown');
+      assert.equal(row?.stage, 'unknown');
+      assert.equal(row?.turnStartedAt, null);
+    }
+    const live = listStoredAgentWorkers({ runningSessionIds: new Set(['child-stale']) });
+    assert.equal(live.find((entry) => entry.sessionId === 'child-stale')?.status, 'running');
+  });
+});
+
+test('a long turn the daemon reports in flight stays running whatever its row stamp says', () => {
+  withAgentPoolRoot('mixdog-long-turn-', (root) => {
+    const old = new Date(Date.now() - 30 * 60_000).toISOString();
+    writeAgentChild(root, 'child-long', { status: 'running', tag: 'long' });
+    writeAgentWorkerIndex(root, {
+      long: {
+        tag: 'long',
+        sessionId: 'child-long',
+        agent: 'worker',
+        ownerSessionId: 'lead-a',
+        status: 'running',
+        stage: 'running',
+        turnStartedAt: old,
+        updatedAt: old,
+      },
+    });
+    writeFileSync(
+      join(root, 'lead-workers.json'),
+      JSON.stringify({
+        workers: {
+          'lead-a': {
+            sessionId: 'lead-a',
+            agent: 'lead',
+            status: 'running',
+            stage: 'running',
+            turnStartedAt: old,
+            updatedAt: old,
+            reapAt: new Date(Date.now() - 60_000).toISOString(),
+          },
+        },
+      })
+    );
+    const rows = listStoredAgentWorkers({ runningSessionIds: new Set(['child-long', 'lead-a']) });
+    const child = rows.find((entry) => entry.sessionId === 'child-long');
+    assert.equal(child?.status, 'running');
+    assert.equal(child?.turnStartedAt, old);
+    const lead = rows.find((entry) => entry.sessionId === 'lead-a');
+    assert.equal(lead?.status, 'running', 'a working Lead outlasts the reap deadline stamped at its turn start');
+    assert.equal(lead?.turnStartedAt, old);
   });
 });
 
@@ -716,7 +849,6 @@ test('a running worker stays in the pool whatever runtime phase its stage carrie
         ownerSessionId: 'lead-a',
         status: 'running',
         stage,
-        runtimePid: process.pid,
         updatedAt: new Date(now).toISOString(),
         turnStartedAt: new Date(now - 5_000).toISOString(),
       };
@@ -730,25 +862,97 @@ test('a running worker stays in the pool whatever runtime phase its stage carrie
       ownerSessionId: 'lead-a',
       status: 'idle',
       stage: 'streaming',
-      runtimePid: process.pid,
       updatedAt: new Date(now).toISOString(),
       turnStartedAt: new Date(now - 5_000).toISOString(),
     };
     writeAgentWorkerIndex(root, workers);
-    const rows = listStoredAgentWorkers();
+    const running = new Set(
+      Object.values(workers)
+        .map((row) => row.sessionId)
+        .filter((sessionId) => sessionId !== 'child-settled')
+    );
+    const rows = listStoredAgentWorkers({ runningSessionIds: running });
     for (const stage of ['idle', 'done', 'error']) {
       const row = rows.find((entry) => entry.sessionId === `child-${stage}`);
       assert.equal(row?.status, 'running', `stage ${stage}`);
       assert.equal(row?.turnStartedAt, workers[stage].turnStartedAt, `stage ${stage} keeps its turn stamp`);
     }
     const settled = rows.find((entry) => entry.sessionId === 'child-settled');
-    assert.equal(settled?.status, 'idle');
-    assert.equal(settled?.turnStartedAt, null, 'an idle status is not live work');
+    assert.equal(settled?.status, 'completed');
+    assert.equal(settled?.turnStartedAt, null, 'a completed status is not live work');
   });
 });
 
-test('a cancelled session whose heartbeat is still fresh is not reported as running', () => {
-  withAgentPoolRoot('mixdog-cancel-hb-', (root) => {
+test('a finished agent stays listed for one hour from its finish stamp, then drops out; new work revives it', () => {
+  withAgentPoolRoot('mixdog-pane-window-', (root) => {
+    const HOUR = 3_600_000;
+    const at = (ageMs) => new Date(Date.now() - ageMs).toISOString();
+    const outcomes = { completed: 'idle', failed: 'failed', cancelled: 'cancelled' };
+    const workers = {};
+    for (const [name, status] of Object.entries(outcomes)) {
+      for (const [phase, age] of [
+        ['fresh', HOUR - 60_000],
+        ['stale', HOUR + 60_000],
+      ]) {
+        const sessionId = `child-${name}-${phase}`;
+        writeAgentChild(root, sessionId, { status, stage: status, tag: sessionId });
+        workers[sessionId] = {
+          tag: sessionId,
+          sessionId,
+          agent: 'worker',
+          ownerSessionId: 'lead-a',
+          status,
+          stage: status,
+          // Updated long ago: only the finish stamp decides.
+          updatedAt: at(age),
+          finishedAt: at(age),
+          // A provider cache window shorter than the pane window changes nothing.
+          reapAt: at(age + 1),
+        };
+      }
+    }
+    writeAgentWorkerIndex(root, workers);
+    const lead = (sessionId, age) => ({
+      sessionId,
+      agent: 'lead',
+      status: 'idle',
+      stage: 'idle',
+      updatedAt: at(age),
+      finishedAt: at(age),
+      // A 24h provider reap window does not extend the pane window.
+      reapAt: new Date(Date.now() + 24 * HOUR).toISOString(),
+    });
+    writeFileSync(
+      join(root, 'lead-workers.json'),
+      JSON.stringify({
+        workers: { 'lead-fresh': lead('lead-fresh', HOUR - 60_000), 'lead-stale': lead('lead-stale', HOUR + 60_000) },
+      })
+    );
+    const status = (rows, id) => rows.find((entry) => entry.sessionId === id)?.status;
+    const rows = listStoredAgentWorkers({ runningSessionIds: new Set() });
+    assert.equal(status(rows, 'child-completed-fresh'), 'completed');
+    assert.equal(status(rows, 'child-failed-fresh'), 'failed');
+    assert.equal(status(rows, 'child-cancelled-fresh'), 'cancelled');
+    assert.equal(status(rows, 'lead-fresh'), 'idle');
+    for (const id of ['child-completed-stale', 'child-failed-stale', 'child-cancelled-stale', 'lead-stale']) {
+      assert.equal(status(rows, id), undefined, `${id} is past the window`);
+    }
+
+    // New work on a finished agent shows it working again, however old its stamp.
+    const revived = listStoredAgentWorkers({
+      runningSessionIds: new Set(['child-completed-stale', 'child-failed-stale', 'lead-stale']),
+    });
+    for (const id of ['child-completed-stale', 'child-failed-stale', 'lead-stale']) {
+      assert.equal(status(revived, id), 'running', id);
+    }
+    // A cancel still outranks the daemon's running report, and stays inside its window.
+    const cancelRunning = listStoredAgentWorkers({ runningSessionIds: new Set(['child-cancelled-fresh']) });
+    assert.equal(status(cancelRunning, 'child-cancelled-fresh'), 'cancelled');
+  });
+});
+
+test('a cancelled worker row is reported cancelled, not running', () => {
+  withAgentPoolRoot('mixdog-cancel-row-', (root) => {
     writeAgentChild(root, 'child-cancel', { status: 'cancelled', stage: 'running' });
     writeAgentWorkerIndex(root, {
       review: {
@@ -760,7 +964,6 @@ test('a cancelled session whose heartbeat is still fresh is not reported as runn
         stage: 'running',
       },
     });
-    writeFreshHeartbeat(root, 'child-cancel');
     const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-cancel');
     assert.ok(row, 'cancelled worker stays in the pool so consumers see the cancel');
     assert.equal(row.status, 'cancelled');
@@ -768,14 +971,49 @@ test('a cancelled session whose heartbeat is still fresh is not reported as runn
   });
 });
 
-test('heartbeat lease does not resurrect a cancelled session after the index drops it', () => {
-  withAgentPoolRoot('mixdog-cancel-hb-dropped-', (root) => {
-    writeAgentChild(root, 'child-dropped', { status: 'cancelled', stage: 'cancelled' });
-    writeFreshHeartbeat(root, 'child-dropped');
-    const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-dropped');
-    assert.ok(row);
-    assert.equal(row.status, 'cancelled');
-    assert.equal(row.stage, 'cancelled');
+test('a session the daemon runs is working even when its durable row says idle; an explicit cancel outranks it', () => {
+  withAgentPoolRoot('mixdog-running-idle-row-', (root) => {
+    writeAgentChild(root, 'child-idle-row', { status: 'idle', stage: 'idle', tag: 'idle-row' });
+    writeAgentChild(root, 'child-cancel-row', { status: 'cancelled', stage: 'running', tag: 'cancel-row' });
+    writeAgentChild(root, 'child-unconfirmed-row', {
+      status: 'cancel-unconfirmed',
+      stage: 'running',
+      tag: 'unconfirmed',
+    });
+    const worker = (tag, sessionId, status, stage) => ({
+      tag,
+      sessionId,
+      agent: 'worker',
+      ownerSessionId: 'lead-a',
+      status,
+      stage,
+      turnStartedAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: new Date().toISOString(),
+    });
+    writeAgentWorkerIndex(root, {
+      'idle-row': worker('idle-row', 'child-idle-row', 'idle', 'idle'),
+      'cancel-row': worker('cancel-row', 'child-cancel-row', 'cancelled', 'running'),
+      unconfirmed: worker('unconfirmed', 'child-unconfirmed-row', 'cancel-unconfirmed', 'running'),
+    });
+    const rows = listStoredAgentWorkers({
+      runningSessionIds: new Set(['child-idle-row', 'child-cancel-row', 'child-unconfirmed-row']),
+    });
+    const idle = rows.find((entry) => entry.sessionId === 'child-idle-row');
+    assert.equal(idle?.status, 'running');
+    assert.equal(idle?.stage, 'running');
+    assert.equal(idle?.turnStartedAt, '2026-01-01T00:00:00.000Z');
+    assert.equal(idle?.idleSince, null, 'working rows carry no idle stamp');
+    const cancelled = rows.find((entry) => entry.sessionId === 'child-cancel-row');
+    assert.equal(cancelled?.status, 'cancelled');
+    assert.equal(cancelled?.turnStartedAt, null);
+    const unconfirmed = rows.find((entry) => entry.sessionId === 'child-unconfirmed-row');
+    assert.equal(unconfirmed?.status, 'cancel-unconfirmed');
+    assert.equal(unconfirmed?.turnStartedAt, null);
+    // The same idle row without the daemon's running report reads completed.
+    const quiet = listStoredAgentWorkers({ runningSessionIds: new Set() }).find(
+      (entry) => entry.sessionId === 'child-idle-row'
+    );
+    assert.equal(quiet?.status, 'completed');
   });
 });
 
@@ -792,8 +1030,11 @@ test('cancel that removes the worker row does not publish the session as running
         stage: 'running',
       },
     });
-    writeFreshHeartbeat(root, 'child-forget');
-    assert.equal(listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-forget')?.status, 'running');
+    const running = { runningSessionIds: new Set(['child-forget']) };
+    assert.equal(
+      listStoredAgentWorkers(running).find((entry) => entry.sessionId === 'child-forget')?.status,
+      'running'
+    );
 
     createTagRegistry({
       dataDir: root,
@@ -803,7 +1044,7 @@ test('cancel that removes the worker row does not publish the session as running
     }).forgetTerminalSession('review', 'child-forget');
 
     // closeSession('cli-agent-close') tombstones status=closed and stamps
-    // cancelStatus so the pool can derive the cancel after the row is gone.
+    // cancelStatus.
     writeAgentChild(root, 'child-forget', {
       status: 'closed',
       stage: 'closed',
@@ -812,73 +1053,18 @@ test('cancel that removes the worker row does not publish the session as running
       cancelStatus: 'cancelled',
       cancelledAt: 1_000,
     });
-    writeFreshHeartbeat(root, 'child-forget');
 
     const stored = readPersistedIndex(root, 'agent-workers.json');
     const remaining = Array.isArray(stored.workers) ? stored.workers : Object.values(stored.workers || {});
     assert.equal(remaining.filter((row) => row?.sessionId === 'child-forget').length, 0);
 
-    const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-forget');
-    assert.ok(row, 'every consumer must still see the cancellation');
-    assert.equal(row.status, 'cancelled');
-    assert.notEqual(row.status, 'running');
+    const row = listStoredAgentWorkers(running).find((entry) => entry.sessionId === 'child-forget');
+    assert.notEqual(row?.status, 'running');
   });
 });
 
-test('genuinely new work on a previously cancelled session still reports running', () => {
-  withAgentPoolRoot('mixdog-cancel-hb-newwork-', (root) => {
-    writeAgentChild(root, 'child-reuse', { status: 'cancelled', stage: 'cancelled' });
-    writeAgentWorkerIndex(root, {
-      review: {
-        tag: 'review',
-        sessionId: 'child-reuse',
-        ownerSessionId: 'lead-a',
-        agent: 'reviewer',
-        status: 'cancelled',
-        stage: 'cancelled',
-        startedAt: '1000',
-      },
-    });
-    writeFreshHeartbeat(root, 'child-reuse');
-    assert.equal(listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-reuse')?.status, 'cancelled');
-
-    writeAgentChild(root, 'child-reuse', {
-      status: 'running',
-      stage: 'running',
-      cancelStatus: 'cancelled',
-      cancelledAt: 1_000,
-    });
-    writeAgentWorkerIndex(root, {
-      review: {
-        tag: 'review',
-        sessionId: 'child-reuse',
-        ownerSessionId: 'lead-a',
-        agent: 'reviewer',
-        status: 'running',
-        stage: 'streaming',
-        startedAt: '2000',
-        turnStartedAt: '2000',
-      },
-    });
-    writeFreshHeartbeat(root, 'child-reuse');
-    const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-reuse');
-    assert.equal(row?.status, 'running');
-    assert.equal(row?.stage, 'running');
-  });
-});
-
-test('a never-cancelled session with a fresh heartbeat still reports running', () => {
-  withAgentPoolRoot('mixdog-hb-live-', (root) => {
-    writeAgentChild(root, 'child-live', { status: 'closed', stage: 'closed' });
-    writeFreshHeartbeat(root, 'child-live');
-    const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-live');
-    assert.equal(row?.status, 'running');
-    assert.equal(row?.stage, 'running');
-  });
-});
-
-test('cancel-unconfirmed stays distinguishable from a confirmed cancel under a fresh heartbeat', () => {
-  withAgentPoolRoot('mixdog-cancel-unconfirmed-hb-', (root) => {
+test('cancel-unconfirmed stays distinguishable from a confirmed cancel', () => {
+  withAgentPoolRoot('mixdog-cancel-unconfirmed-', (root) => {
     writeAgentChild(root, 'child-unconfirmed', { status: 'cancel-unconfirmed', stage: 'cancelling' });
     writeAgentWorkerIndex(root, {
       review: {
@@ -890,12 +1076,105 @@ test('cancel-unconfirmed stays distinguishable from a confirmed cancel under a f
         stage: 'cancelling',
       },
     });
-    writeFreshHeartbeat(root, 'child-unconfirmed');
     const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-unconfirmed');
     assert.equal(row?.status, 'cancel-unconfirmed');
     assert.equal(row?.stage, 'cancelling');
     assert.notEqual(row?.status, 'running');
     assert.notEqual(row?.status, 'cancelled');
+  });
+});
+
+test('a cancel in the session header or the row stage holds over a stale running row until newer work', () => {
+  withAgentPoolRoot('mixdog-cancel-sources-', (root) => {
+    const cancelledAt = Date.now() - 60_000;
+    const worker = (tag, sessionId, extra = {}) => ({
+      tag,
+      sessionId,
+      agent: 'worker',
+      ownerSessionId: 'lead-a',
+      status: 'running',
+      stage: 'running',
+      turnStartedAt: new Date(cancelledAt - 60_000).toISOString(),
+      updatedAt: new Date().toISOString(),
+      ...extra,
+    });
+    // Durable close stamped cancel-unconfirmed; the index row still says running.
+    writeAgentChild(root, 'child-header', {
+      tag: 'header',
+      status: 'closed',
+      stage: 'closed',
+      cancelStatus: 'cancel-unconfirmed',
+      cancelledAt,
+    });
+    // A confirmed cancel on the row never masks the header's unconfirmed one.
+    writeAgentChild(root, 'child-mixed', {
+      tag: 'mixed',
+      status: 'closed',
+      cancelStatus: 'cancel-unconfirmed',
+      cancelledAt,
+    });
+    // The cancel recorded only in the row's stage.
+    writeAgentChild(root, 'child-stage', { tag: 'stage', status: 'running' });
+    // A turn started after the header's cancel is newer work.
+    writeAgentChild(root, 'child-newer', {
+      tag: 'newer',
+      status: 'idle',
+      cancelStatus: 'cancelled',
+      cancelledAt,
+    });
+    writeAgentWorkerIndex(root, {
+      header: worker('header', 'child-header'),
+      mixed: worker('mixed', 'child-mixed', { stage: 'cancelled' }),
+      stage: worker('stage', 'child-stage', { stage: 'cancelled' }),
+      newer: worker('newer', 'child-newer', { turnStartedAt: new Date(cancelledAt + 30_000).toISOString() }),
+    });
+    for (const runningSessionIds of [
+      new Set(),
+      new Set(['child-header', 'child-mixed', 'child-stage', 'child-newer']),
+    ]) {
+      const rows = listStoredAgentWorkers({ runningSessionIds });
+      const row = (id) => rows.find((entry) => entry.sessionId === id);
+      assert.equal(row('child-header')?.status, 'cancel-unconfirmed');
+      assert.equal(row('child-header')?.stage, 'cancel-unconfirmed');
+      assert.equal(row('child-header')?.turnStartedAt, null);
+      assert.equal(row('child-mixed')?.status, 'cancel-unconfirmed');
+      assert.equal(row('child-stage')?.status, 'cancelled');
+      assert.equal(row('child-stage')?.stage, 'cancelled');
+      assert.equal(row('child-newer')?.status, runningSessionIds.size ? 'running' : 'unknown');
+    }
+  });
+});
+
+test('an expired confirmed-cancel row still shows its header cancel-unconfirmed', () => {
+  withAgentPoolRoot('mixdog-expired-cancel-header-', (root) => {
+    const longAgo = Date.now() - 48 * 60 * 60_000;
+    const stamp = new Date(longAgo).toISOString();
+    const worker = (tag, sessionId) => ({
+      tag,
+      sessionId,
+      agent: 'worker',
+      ownerSessionId: 'lead-a',
+      status: 'cancelled',
+      stage: 'cancelled',
+      updatedAt: stamp,
+      finishedAt: stamp,
+    });
+    writeAgentChild(root, 'child-expired-unconfirmed', {
+      tag: 'expired-unconfirmed',
+      status: 'closed',
+      stage: 'closed',
+      cancelStatus: 'cancel-unconfirmed',
+      cancelledAt: longAgo,
+    });
+    writeAgentChild(root, 'child-expired-confirmed', { tag: 'expired-confirmed', status: 'idle' });
+    writeAgentWorkerIndex(root, {
+      'expired-unconfirmed': worker('expired-unconfirmed', 'child-expired-unconfirmed'),
+      'expired-confirmed': worker('expired-confirmed', 'child-expired-confirmed'),
+    });
+    const rows = listStoredAgentWorkers();
+    const row = (id) => rows.find((entry) => entry.sessionId === id);
+    assert.equal(row('child-expired-unconfirmed')?.status, 'cancel-unconfirmed');
+    assert.equal(row('child-expired-confirmed'), undefined, 'a confirmed cancel past its window is dropped');
   });
 });
 
@@ -935,6 +1214,15 @@ test('stored Agent pool preserves root ownership and immediate nested parent lin
         status: 'idle',
         stage: 'idle',
       },
+      // No ancestry on the row: the session header must carry the same
+      // production ancestry shape for a nested descendant.
+      nested: {
+        tag: 'nested',
+        sessionId: 'grandchild',
+        agent: 'reviewer',
+        status: 'idle',
+        stage: 'idle',
+      },
     });
     writeFileSync(
       join(root, 'lead-workers.json'),
@@ -952,10 +1240,6 @@ test('stored Agent pool preserves root ownership and immediate nested parent lin
         },
       })
     );
-    // No worker-index row: the heartbeat/session fallback must carry the same
-    // production ancestry shape for a live nested descendant.
-    writeFreshHeartbeat(root, 'grandchild');
-
     const rows = listStoredAgentWorkers();
     const rootLead = rows.find((row) => row.sessionId === 'root-lead');
     const direct = rows.find((row) => row.sessionId === 'child-direct');

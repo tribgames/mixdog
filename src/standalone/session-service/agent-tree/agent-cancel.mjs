@@ -24,7 +24,7 @@ export function createAgentCancellation({
   log,
   rememberCancelTranscript,
 }) {
-  const agentCancelRuns = new Map();
+  const agentCloseRuns = new Map();
 
   /** The runtime entry that can close this descriptor: the live owner, else a
    *  freshly loaded one (null when loading fails, which is logged). */
@@ -44,66 +44,108 @@ export function createAgentCancellation({
     }
   };
 
-  function cancelAgentTree(sessionId, reason = 'agent session cancelled') {
-    const id = String(sessionId || '').trim();
-    if (!id) return Promise.resolve(false);
-    const active = agentCancelRuns.get(id);
+  function closeOne(id, reason, options) {
+    const active = agentCloseRuns.get(id);
     if (active) return active;
     let run;
-    run = (async () => {
-      await rehydrateAgentSessions();
-      cancelBackgroundTasks({
-        surface: 'agent',
-        callerSessionId: id,
-        reason,
+    run = Promise.resolve()
+      .then(async () => {
+        cancelBackgroundTasks({
+          surface: 'agent',
+          callerSessionId: id,
+          reason,
+        });
+        cancelOwnAgentTasks(id, reason);
+        const descriptor = registry.get(id);
+        if (!descriptor) return false;
+        if ((await sessionOwner(id)?.runtime?.isSessionTerminal?.()) === true) return true;
+        const entry = await closableEntry(id, descriptor);
+        const closeCanonical = entry?.runtime?.closeCanonicalSession;
+        if (typeof closeCanonical !== 'function') {
+          throw new TypeError('session runtime must implement closeCanonicalSession');
+        }
+        // The close clears the transcript: capture a running turn's transcript
+        // first so the cancelled turn still hands off its partial output.
+        if (descriptor.status === 'running') {
+          try {
+            const { messages } = await entry.runtime.readModelMessages(0);
+            rememberCancelTranscript(id, messages);
+          } catch (error) {
+            log(`agent cancel transcript read failed session=${id}: ${error?.message || error}`);
+          }
+        }
+        const closed = await closeCanonical.call(entry.runtime, reason, { tombstone: options.tombstone === true });
+        if (closed !== true) throw new Error(`agent session ${id} could not be durably closed`);
+        descriptor.closed = options.tombstone === true;
+        descriptor.status = descriptor.closed ? 'closed' : 'cancelled';
+        descriptor.stage = descriptor.status;
+        descriptor.updatedAt = Date.now();
+        return true;
+      })
+      .finally(() => {
+        if (agentCloseRuns.get(id) === run) agentCloseRuns.delete(id);
       });
-      const children = registry.childrenOf(id);
-      await Promise.all(children.map((childId) => cancelAgentTree(childId, reason)));
-      cancelOwnAgentTasks(id, reason);
-      const descriptor = registry.get(id);
-      if (!descriptor) return children.length > 0;
-      if (descriptor.closed) return true;
-      const entry = await closableEntry(id, descriptor);
-      const closeCanonical = entry?.runtime?.closeCanonicalSession;
-      if (typeof closeCanonical !== 'function') {
-        throw new TypeError('session runtime must implement closeCanonicalSession');
-      }
-      // The close clears the transcript: capture a running turn's transcript
-      // first so the cancelled turn still hands off its partial output.
-      if (descriptor.status === 'running') {
+    agentCloseRuns.set(id, run);
+    return run;
+  }
+
+  async function cancelAgentTree(sessionId, reason = 'agent session cancelled', options = {}) {
+    const id = String(sessionId || '').trim();
+    if (!id) return false;
+    await rehydrateAgentSessions();
+    const seen = new Set();
+    const ordered = [];
+    const visit = (current) => {
+      if (seen.has(current)) return;
+      seen.add(current);
+      for (const child of registry.childrenOf(current)) visit(child);
+      ordered.push(current);
+    };
+    visit(id);
+    const release = registry.beginCancellation(ordered);
+    try {
+      let closed = false;
+      const failures = [];
+      // Descendant-first, one at a time; a failed member never skips the rest.
+      for (const current of ordered) {
         try {
-          const { messages } = await entry.runtime.readModelMessages(0);
-          rememberCancelTranscript(id, messages);
+          closed = (await closeOne(current, reason, options)) || closed;
         } catch (error) {
-          log(`agent cancel transcript read failed session=${id}: ${error?.message || error}`);
+          log(`agent cancel failed session=${current}: ${error?.message || error}`);
+          failures.push(error);
         }
       }
-      const closed = await closeCanonical.call(entry.runtime, reason);
-      if (closed !== true) throw new Error(`agent session ${id} could not be durably closed`);
-      descriptor.closed = true;
-      descriptor.status = 'closed';
-      descriptor.stage = 'closed';
-      descriptor.updatedAt = Date.now();
-      return true;
-    })().finally(() => {
-      if (agentCancelRuns.get(id) === run) agentCancelRuns.delete(id);
-    });
-    agentCancelRuns.set(id, run);
-    return run;
+      if (failures.length === 1) throw failures[0];
+      if (failures.length) {
+        const details = failures.map((error) => error?.message || String(error)).join('; ');
+        throw new AggregateError(
+          failures,
+          `agent tree cancel failed for ${failures.length} of ${ordered.length} sessions: ${details}`
+        );
+      }
+      return closed;
+    } finally {
+      release();
+    }
   }
 
   async function cancelAgentDescendants(parentSessionId, reason = 'parent session cancelled') {
     await rehydrateAgentSessions();
     const parentId = String(parentSessionId || '');
-    cancelBackgroundTasks({
-      surface: 'agent',
-      callerSessionId: parentId,
-      reason,
-    });
-    const children = registry.childrenOf(parentId);
-    if (!children.length) return false;
-    await Promise.all(children.map((childId) => cancelAgentTree(childId, reason)));
-    return true;
+    const release = registry.beginCancellation([parentId]);
+    try {
+      cancelBackgroundTasks({
+        surface: 'agent',
+        callerSessionId: parentId,
+        reason,
+      });
+      const children = registry.childrenOf(parentId);
+      if (!children.length) return false;
+      await Promise.all(children.map((childId) => cancelAgentTree(childId, reason)));
+      return true;
+    } finally {
+      release();
+    }
   }
 
   return { cancelAgentTree, cancelAgentDescendants };

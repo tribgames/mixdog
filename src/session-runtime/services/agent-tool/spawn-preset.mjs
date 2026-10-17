@@ -41,6 +41,9 @@ export function resolveAgentSpawnPreset(config, args = {}) {
         type: 'agent',
         provider: agentRoute.provider,
         model: agentRoute.model,
+        ...(config.agents?.[agentName]?.fallbacks?.length
+          ? { fallbacks: config.agents[agentName].fallbacks.map(normalizeAgentRoute) }
+          : {}),
         effort: agentRoute.effort,
         fast: agentRoute.fast === true,
         ...(agentRoute.autoEffort === false ? { autoEffort: false } : {}),

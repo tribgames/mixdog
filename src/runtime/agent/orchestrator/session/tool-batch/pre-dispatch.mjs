@@ -3,7 +3,12 @@
 // and the repeat-failure / argument-shape guards. `skip` is the staged tool
 // message for a resolved call, or null when the call may execute.
 import { appendAgentTrace } from '../../agent-trace.mjs';
-import { _argShapeSig, _repeatFailureSig, _repeatFailurePatternWouldContinue } from '../loop/tool-classify.mjs';
+import {
+  _argShapeSig,
+  _repeatFailureSig,
+  _repeatFailurePatternWouldContinue,
+  requiresReadBody,
+} from '../loop/tool-classify.mjs';
 import { preDispatchDenyForSession } from '../loop/pre-dispatch-deny.mjs';
 import { crossTurnSignature, crossTurnDedupStub } from '../loop/completion-guards.mjs';
 import { isToolCallDedupEligible } from '../loop/tool-helpers.mjs';
@@ -27,7 +32,7 @@ export function preDispatchSkip(batch, call) {
       'error'
     );
   }
-  if (plan.duplicateCallIds.has(call.id)) {
+  if (plan.duplicateCallIds.has(call.id) && !requiresReadBody(call.name, sessionRef)) {
     const firstId = plan.dupFirstId.get(call.id);
     // Explicitly NOT a success: no tool executed for this call. 'skipped'
     // keeps the transcript/UI non-error while the unresolved-tool-failure
@@ -43,7 +48,7 @@ export function preDispatchSkip(batch, call) {
   let ctSig = null;
   if (isToolCallDedupEligible(call.name, tools)) {
     ctSig = crossTurnSignature(call.name, call.arguments);
-    const stub = crossTurnStub(batch, call, ctSig);
+    const stub = requiresReadBody(call.name, sessionRef) ? null : crossTurnStub(batch, call, ctSig);
     if (stub !== null) return skipped(stub, 'skipped', ctSig);
   }
   const sigs = {
@@ -60,7 +65,13 @@ export function preDispatchSkip(batch, call) {
 function crossTurnStub(batch, call, ctSig) {
   const prior = batch.crossTurnCalls.get(ctSig);
   if (!prior || prior.firstIteration >= batch.iterations) return null;
-  const cached = lookupToolResultReuse({ sessionId: batch.sessionId, call, cwd: batch.cwd, touch: false });
+  const cached = lookupToolResultReuse({
+    sessionId: batch.sessionId,
+    call,
+    cwd: batch.cwd,
+    touch: false,
+    sessionRef: batch.sessionRef,
+  });
   if (!cached || !prior.toolUseId || cached.entry.firstToolUseId !== prior.toolUseId) {
     batch.crossTurnCalls.delete(ctSig);
     return null;
