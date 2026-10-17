@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import OpenAI from 'openai';
+import { isVisibleStreamProgress } from '../../../shared/stream-progress.mjs';
 import {
   effortConfigurationMode,
   prepareTurnEffortConfiguration,
@@ -38,7 +39,6 @@ for (const callback of ['onStreamDelta', 'onTextDelta', 'onToolCall']) {
     assert.equal(effortConfigurationMode(provider, MODEL, MODE), 'responses', 'do not poison the capability');
   });
 }
-
 
 for (const kind of ['transport', 'semantic', 'ack']) {
   test(`effort update fallback allows a pre-output rejection after ${kind} health progress`, async () => {
@@ -172,7 +172,7 @@ test('a failed effort update replay is never replayed a third time', async () =>
   assert.equal(attempts, 2);
 });
 
-function fixture(suffix, { sdk = false, defaultHeaders, clientOptions = {} } = {}) {
+function fixture(suffix, { sdk = false, defaultHeaders, clientOptions = {}, reply } = {}) {
   const requests = [];
   const row = {
     id: MODEL,
@@ -217,14 +217,18 @@ function fixture(suffix, { sdk = false, defaultHeaders, clientOptions = {} } = {
       ...clientOptions,
       fetch: async (_url, init) => {
         requests.push({ body: JSON.parse(init.body), headers: new Headers(init.headers) });
-        return new Response(`data: ${JSON.stringify(completed())}\n\n`, {
-          headers: { 'content-type': 'text/event-stream' },
-        });
+        if (reply) return reply(requests.length, completed);
+        return sse(completed());
       },
     });
   }
   return { provider, requests };
 }
+
+const sse = (...events) =>
+  new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), {
+    headers: { 'content-type': 'text/event-stream' },
+  });
 
 function appendTurn(session, provider, effort) {
   session.effort = effort;
@@ -363,4 +367,143 @@ test('empty and undefined-only header arrays do not suppress generated identitie
   assert.equal(requests[0].headers.get('session-id'), 'generated');
   assert.equal(requests[0].headers.get('x-client-request-id'), 'generated');
   assert.deepEqual(requestHeaders, { 'session-id': [undefined], 'x-client-request-id': [] });
+});
+
+const REJECTION_TEXT = 'Unsupported input item type: configuration_update';
+const rejected400 = () =>
+  new Response(JSON.stringify({ error: { message: REJECTION_TEXT, type: 'invalid_request_error' } }), {
+    status: 400,
+    headers: { 'content-type': 'application/json' },
+  });
+const createdEvent = { type: 'response.created', response: { id: 'r-created', model: MODEL, status: 'in_progress' } };
+const failedEvent = {
+  type: 'response.failed',
+  response: {
+    id: 'r-failed',
+    model: MODEL,
+    status: 'failed',
+    error: { status: 400, code: 'invalid_request_error', message: REJECTION_TEXT },
+  },
+};
+const textDeltaEvent = {
+  type: 'response.output_text.delta',
+  item_id: 'msg-partial',
+  output_index: 0,
+  content_index: 0,
+  delta: 'partial',
+};
+
+// Two turns at different efforts, so the second request carries an update item.
+function updatedTurn(provider) {
+  const session = { provider: provider.name, model: MODEL, messages: [] };
+  appendTurn(session, provider, 'low');
+  session.messages.push({ role: 'assistant', content: 'ok' });
+  return { messages: session.messages, opts: appendTurn(session, provider, 'high') };
+}
+
+const REJECTING_STREAMS = {
+  'HTTP 400 before the stream opens': rejected400,
+  'response.failed after the response.created ack': () => sse(createdEvent, failedEvent),
+};
+for (const [shape, reject] of Object.entries(REJECTING_STREAMS)) {
+  test(`an effort update rejection replays once through the Responses stream (${shape})`, async () => {
+    const { provider, requests } = fixture(`e2e-retry-${shape.split(' ')[0]}`, {
+      sdk: true,
+      reply: (attempt, completed) => (attempt === 1 ? reject() : sse(completed())),
+    });
+    const { messages, opts } = updatedTurn(provider);
+    const progress = [];
+    const result = await sendCompatResponses(provider, messages, MODEL, [], {
+      ...opts,
+      onStreamDelta: (kind) => progress.push([requests.length, kind]),
+    });
+    assert.equal(result.content, 'ok');
+    assert.equal(requests.length, 2);
+    assert.equal(updatesOf(requests[0].body).length, 1, 'the first request carried the update');
+    assert.deepEqual(updatesOf(requests[1].body), [], 'the replay drops it');
+    assert.deepEqual(requests[1].body.reasoning, { effort: 'H' }, 'the replay keeps the current effort');
+    assert.equal(requests[1].body.prompt_cache_key, 'boundary-session');
+    assert.ok(
+      progress.every(([attempt, kind]) => attempt === 2 || !isVisibleStreamProgress(kind)),
+      'no visible output before the replay'
+    );
+    assert.equal(effortConfigurationMode(provider.name, MODEL, MODE), null);
+  });
+}
+
+test('a Responses stream that rejects the effort update after visible output is not replayed', async () => {
+  const { provider, requests } = fixture('e2e-visible', {
+    sdk: true,
+    reply: () => sse(createdEvent, textDeltaEvent, failedEvent),
+  });
+  const { messages, opts } = updatedTurn(provider);
+  const text = [];
+  await assert.rejects(
+    sendCompatResponses(provider, messages, MODEL, [], { ...opts, onTextDelta: (delta) => text.push(delta) }),
+    (error) => error.message.includes(REJECTION_TEXT)
+  );
+  assert.equal(requests.length, 1);
+  assert.deepEqual(text, ['partial']);
+  assert.equal(effortConfigurationMode(provider.name, MODEL, MODE), 'responses');
+});
+
+test('a Responses effort update rejection after cancellation is not replayed', async () => {
+  const controller = new AbortController();
+  const { provider, requests } = fixture('e2e-cancelled', {
+    sdk: true,
+    reply: () => {
+      controller.abort();
+      return rejected400();
+    },
+  });
+  const { messages, opts } = updatedTurn(provider);
+  await assert.rejects(sendCompatResponses(provider, messages, MODEL, [], { ...opts, signal: controller.signal }));
+  assert.equal(requests.length, 1);
+  assert.equal(effortConfigurationMode(provider.name, MODEL, MODE), 'responses');
+});
+
+const AUTH_SESSION_HEADERS = {
+  record: { 'Session-ID': 'caller-session', 'X-Client-Request-ID': null },
+  pairs: [
+    ['Session-ID', 'caller-session'],
+    ['X-Client-Request-ID', null],
+  ],
+  Headers: new Headers({ 'Session-ID': 'caller-session' }),
+};
+for (const [format, requestHeaders] of Object.entries(AUTH_SESSION_HEADERS)) {
+  test(`session header override and deletion keep the SDK auth headers (${format})`, async () => {
+    const { provider, requests } = fixture(`auth-${format}`, {
+      sdk: true,
+      defaultHeaders: { 'api-key': 'gateway-key' },
+    });
+    await sendCompatResponses(provider, [{ role: 'user', content: 'hi' }], MODEL, [], {
+      sessionId: 'generated',
+      requestHeaders,
+    });
+    const wire = requests[0].headers;
+    assert.equal(wire.get('authorization'), 'Bearer test-only', 'exactly the SDK credential');
+    assert.equal(wire.get('api-key'), 'gateway-key');
+    assert.equal(wire.get('session-id'), 'caller-session');
+    if (format === 'Headers') assert.equal(wire.get('x-client-request-id'), 'generated');
+    else assert.equal(wire.has('x-client-request-id'), false);
+  });
+}
+
+test('session header merging neither synthesizes nor drops Authorization', async () => {
+  const plain = fixture('auth-not-synthesized');
+  await sendCompatResponses(plain.provider, [{ role: 'user', content: 'hi' }], MODEL, [], {
+    sessionId: 'generated',
+    requestHeaders: { 'Session-ID': null },
+  });
+  const names = Object.keys(plain.requests[0].headers).map((name) => name.toLowerCase());
+  assert.equal(names.includes('authorization'), false, 'the SDK alone owns the credential');
+  const sdk = fixture('auth-caller-override', { sdk: true });
+  await sendCompatResponses(sdk.provider, [{ role: 'user', content: 'hi' }], MODEL, [], {
+    sessionId: 'generated',
+    requestHeaders: { Authorization: 'Bearer caller', 'Session-ID': null },
+  });
+  const wire = sdk.requests[0].headers;
+  assert.equal(wire.get('authorization'), 'Bearer caller');
+  assert.equal(wire.has('session-id'), false);
+  assert.equal(wire.get('x-client-request-id'), 'generated');
 });

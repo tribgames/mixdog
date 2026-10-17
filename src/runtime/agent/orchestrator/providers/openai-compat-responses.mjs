@@ -141,8 +141,7 @@ function customSessionHeaders(provider, sessionCacheKey, requestHeaders) {
     : provider.defaultHeaders;
   const entries = (source) =>
     source instanceof Headers || Array.isArray(source) ? source : Object.entries(source || {});
-  const hasValue = (value) =>
-    Array.isArray(value) ? value.some((item) => item !== undefined) : value !== undefined;
+  const hasValue = (value) => (Array.isArray(value) ? value.some((item) => item !== undefined) : value !== undefined);
   for (const source of [configured, requestHeaders]) {
     for (const [name, value] of entries(source)) {
       if (hasValue(value)) delete headers[name.toLowerCase()];

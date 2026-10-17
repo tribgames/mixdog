@@ -19,7 +19,8 @@ process.env.MIXDOG_QUIET_PROVIDER_LOG = '1';
 const noopTimeout = () => ({ signal: new AbortController().signal, cleanup() {} });
 const json = (status, body, headers = {}) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
-const within = (value, base) => value >= base * (1 - CODEX_RETRY_JITTER_RATIO) && value <= base * (1 + CODEX_RETRY_JITTER_RATIO);
+const within = (value, base) =>
+  value >= base * (1 - CODEX_RETRY_JITTER_RATIO) && value <= base * (1 + CODEX_RETRY_JITTER_RATIO);
 
 function open(fetchFn, delays) {
   return openHttpSseResponse({
@@ -41,13 +42,19 @@ test('(1) HTTP request loop uses the shared request schedule (leading duplicate 
   const delays = [];
   await assert.rejects(open(async () => json(500, { error: { message: 'boom' } }), delays));
   assert.equal(delays.length, 4);
-  CODEX_REQUEST_RETRY_BACKOFF_MS.slice(1, 5).forEach((base, i) => assert.ok(within(delays[i], base), `${delays[i]} ~ ${base}`));
+  for (const [i, base] of CODEX_REQUEST_RETRY_BACKOFF_MS.slice(1, 5).entries()) {
+    assert.ok(within(delays[i], base), `${delays[i]} ~ ${base}`);
+  }
 });
 
 test('(1) HTTP overload retries only with server advice', async () => {
   let calls = 0;
   const overloaded = { error: { code: 'server_is_overloaded', message: 'busy' } };
-  await assert.rejects(open(async () => (calls++, json(503, overloaded)), []), (err) => err.status === 503);
+  const rejectOverloaded = async () => {
+    calls += 1;
+    return json(503, overloaded);
+  };
+  await assert.rejects(open(rejectOverloaded, []), (err) => err.status === 503);
   assert.equal(calls, 1, 'no advice: not retried');
   calls = 0;
   const delays = [];
