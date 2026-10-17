@@ -414,6 +414,7 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
         return {
           popup: root.getPropertyValue('--mx-popup-bg').trim(),
           base: root.getPropertyValue('--mx-bg-base').trim(),
+          layer1: root.getPropertyValue('--mx-bg-layer-1').trim(),
           cards: [read('item-usage', '::before'), read('item-selected'), read('item-bubble')],
         };
       }, theme);
@@ -428,7 +429,9 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
       if (theme === 'light') {
         assert.deepEqual([selected.background, bubble.background], ['rgb(230, 230, 230)', 'rgb(238, 238, 238)']);
       }
-      assert.equal(items.popup, items.base, 'popups use the base plate');
+      // Dark popups sit one step above the dialog plate so they read over a
+      // dialog; white popups keep the base plate.
+      assert.equal(items.popup, theme === 'dark' ? items.layer1 : items.base, 'popup plate');
     }
   });
   await t.test('windows share one grammar in both themes: framed cards, unbanded tables, filled controls', async () => {
