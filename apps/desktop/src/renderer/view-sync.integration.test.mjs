@@ -309,6 +309,8 @@ test('real host, relay and browser shim recover through reconnects and backgroun
       const before = sockets.length;
       sockets.at(-1).terminate();
       await until(() => handle.clientCount === 0);
+      // The kept transcript stays on screen while the phone reconnects.
+      assert.equal(text.textContent, largeAnswer);
       f.put('lead', 'changed while away');
       await until(
         () =>

@@ -83,7 +83,7 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
       stdin: {
         resolveDir,
         loader: 'css',
-        contents: '@import "./ui/tokens.css"; @import "./desktop.css";',
+        contents: '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./desktop.css";',
       },
       outfile: 'usage-stats-layout.css',
       bundle: true,

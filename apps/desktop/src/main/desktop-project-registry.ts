@@ -1,6 +1,7 @@
 // Desktop project registry: the shared core projects.json store plus the
 // desktop-only preferences sidecar (aliases, pins, legacy hidden tombstones).
 import { isAbsolute, resolve } from 'node:path';
+import { PROJECT_UNAVAILABLE } from '../shared/file-error-codes';
 import { LocalAccessDeniedError } from './local-access-denied';
 
 import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
@@ -178,14 +179,16 @@ export class DesktopProjectRegistry {
 
   private known(store: ProjectAuthorityStore, projectPath: string): MixdogProject {
     const requested = projectPath.trim();
-    if (!requested) throw new LocalAccessDeniedError('Project is not available.');
+    if (!requested) throw new LocalAccessDeniedError('Project is not available.', PROJECT_UNAVAILABLE);
     const resolved = store.resolveProjectPath?.(requested) || resolve(requested);
     const key = normalizedProjectKey(resolved);
     const strict = typeof store.listProjectsStrict === 'function';
     const project = this.registered(store, strict).find((entry) => normalizedProjectKey(entry.path) === key);
     if (!project) {
-      const Refusal = strict ? LocalAccessDeniedError : Error;
-      throw new Refusal('Project is not available.');
+      // An older runtime's tolerant list cannot prove removal: that refusal
+      // is no denial, so it carries no denial code.
+      if (!strict) throw new Error('Project is not available.');
+      throw new LocalAccessDeniedError('Project is not available.', PROJECT_UNAVAILABLE);
     }
     return project;
   }

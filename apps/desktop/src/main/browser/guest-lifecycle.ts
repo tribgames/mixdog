@@ -14,6 +14,7 @@ import { redactBrowserUrl } from './redaction';
 import { type BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID } from './session-registry';
 import { createBrowserPageOwner } from './page-owner';
 import { injectPageScrollbarCss } from './page-scrollbar-css';
+import { injectJsonViewerTweaks } from './page-json-viewer';
 import { adoptBrowserPageWindow, browserPageWindow, createBrowserPageWindow } from './page-window';
 import { assertBackgroundTabCapacity, backgroundPageIdle, normalizeBackgroundTabName } from './tab-policy';
 import type { BackgroundPage } from './tabs-contract';
@@ -243,6 +244,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     state.for(guest);
     host.onGuest?.(guest);
     injectPageScrollbarCss(guest);
+    injectJsonViewerTweaks(guest);
     const blockNavigation = blockUnsafeNavigation(state, urlPolicy, guest);
     guest.on('will-navigate', blockNavigation);
     guest.on('will-redirect', blockNavigation);

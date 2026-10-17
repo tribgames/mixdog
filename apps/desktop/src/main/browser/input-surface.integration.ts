@@ -406,6 +406,11 @@ export async function exerciseBrowserInputSurface(options: {
     await exerciseBrowserErrorNotice(host, guest, shell, log);
     await exerciseBrowserPrompts(guest, shell, log);
     await shell.executeJavaScript('window.setSurfaceActive(false)');
+    // Unmounting the pane reports the page as undisplayed, which stops it
+    // painting (page-power). The viewport check reads pixels, so keep the
+    // page displayed once the unmount's own report has landed.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    host.setGuestActive('visible-session', guest.id, true);
     await exerciseBrowserViewportResolutions(host, guest, next, log);
     await shell.executeJavaScript('window.setSurfaceActive(false)');
     await exerciseBrowserTabHandover({ host, guest, shell, origin, command, log });

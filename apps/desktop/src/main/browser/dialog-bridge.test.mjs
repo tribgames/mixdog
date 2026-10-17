@@ -153,9 +153,46 @@ test('only the bridge notice parses as a dismissed dialog, bounded and typed lik
   });
 });
 
+test('the bridge leaves no trace a page can read: no global, native names, arity and source', () => {
+  const page = bridgedPage(() => {}, JSON.stringify({ accept: true, promptText: '' }));
+  assert.deepEqual(Object.keys(page.window).sort(), ['alert', 'confirm', 'prompt']);
+  for (const name of ['alert', 'confirm', 'prompt']) {
+    const fn = page.window[name];
+    assert.equal(fn.name, name);
+    assert.equal(Function.prototype.toString.call(fn), 'function () { [native code] }', name);
+  }
+  assert.equal(page.window.alert.length, 1, "the arity is the page's own function's");
+  assert.doesNotMatch(DIALOG_BRIDGE_SCRIPT, /(?:window|globalThis)\.__/);
+});
+
+test('a page replacing XMLHttpRequest afterwards never sees a bridge request', () => {
+  class Request {
+    responseText = JSON.stringify({ accept: true, promptText: '' });
+    open() {}
+    send() {}
+  }
+  const context = {
+    URL,
+    URLSearchParams,
+    XMLHttpRequest: Request,
+    console: { debug() {} },
+    location: { href: 'https://example.test/' },
+    window: { confirm: () => false },
+  };
+  runInNewContext(DIALOG_BRIDGE_SCRIPT, context);
+  const seen = [];
+  Request.prototype.open = (...args) => seen.push(args);
+  Request.prototype.send = (...args) => seen.push(args);
+  assert.equal(context.window.confirm('Continue?'), true);
+  assert.deepEqual(seen, []);
+});
+
 test('accepting a prompt default unchanged keeps the full default, past the shown copy', () => {
   const long = 'y'.repeat(3_000);
-  const kept = bridgedPage(() => {}, JSON.stringify({ accept: true, promptText: 'y'.repeat(2_000), keepDefault: true }));
+  const kept = bridgedPage(
+    () => {},
+    JSON.stringify({ accept: true, promptText: 'y'.repeat(2_000), keepDefault: true })
+  );
   assert.equal(kept.window.prompt('Value?', long), long);
   const edited = bridgedPage(() => {}, JSON.stringify({ accept: true, promptText: 'edited' }));
   assert.equal(edited.window.prompt('Value?', long), 'edited');

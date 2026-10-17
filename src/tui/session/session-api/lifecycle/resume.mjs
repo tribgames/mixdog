@@ -1,5 +1,5 @@
 // Resume: reopen a stored session, rebuild the visible transcript from its
-// messages and reconcile live-share and steering at the same boundary.
+// messages and reconcile steering at the same boundary.
 import { primeContextEstimates } from '../../../../runtime/agent/orchestrator/session/context-utils.mjs';
 import { resumedTranscriptArchive } from '../../compaction-view.mjs';
 
@@ -63,12 +63,7 @@ export function createResumeAction(bag, { restoreTranscriptItems }) {
           ...routeState(),
           stats: { ...getState().stats },
         });
-        // Reconcile the live-share legs NOW (viewer pipe attach / owner pipe
-        // start). The 3s share tick otherwise leaves a live-owned session on
-        // the stale disk snapshot and then full-swaps it seconds after entry —
-        // the visible transcript lurch. Connecting here makes the owner's
-        // full frame land at the resume boundary, so entry paints settled.
-        bag.ensureLiveShare?.();
+        bag.reconcileQuotaResume?.();
         // A shard/process restart recreates the runtime before resuming its
         // durable session. Restore accepted steering while commandBusy is
         // still held so the central release hook drains it exactly once after

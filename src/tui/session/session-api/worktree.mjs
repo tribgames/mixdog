@@ -23,8 +23,7 @@
  *     (expectedRevision: WORKTREE_REVISION_CONFLICT when the session moved on)
  *     (WORKTREE_REMOVAL_INCOMPLETE: partly removed; call again to finish)
  *   listWorktrees()                                → every managed worktree with its retention
- *   pruneWorktrees()                               → reconcile report (never a retained worktree)
- */
+ *   pruneWorktrees()                               → reconcile report (never a retained worktree) */
 import { worktreeError } from '../../../runtime/shared/worktrees/contract.mjs';
 
 /** Session actions of the Lead worktree feature (settings live in settings.mjs). */
@@ -34,6 +33,8 @@ export const SESSION_WORKTREE_ACTIONS = Object.freeze([
   'selectBranch',
   'selectProjectBranch',
   'mergeProjectBranch',
+  'inspectProjectBranch',
+  'manageProjectBranch',
   'requestWorktree',
   'mergeWorkspace',
   'removeWorktree',

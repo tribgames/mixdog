@@ -12,53 +12,6 @@
   color: var(--mx-accent);
   background: color-mix(in srgb, var(--mx-accent) 14%, transparent);
 }
-.visualize-comment-hint {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 32px;
-  padding: 0 8px 0 10px;
-  box-sizing: border-box;
-  border-bottom: 1px solid var(--mx-border);
-  background: color-mix(in srgb, var(--mx-visualize-pin) 10%, var(--mx-bg-base));
-  color: var(--mx-text);
-  font-size: 12px;
-}
-.visualize-comment-hint-dot {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--mx-visualize-pin);
-}
-.visualize-comment-hint-actions {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 10px;
-  color: var(--mx-text-muted);
-}
-.visualize-comment-hint-count {
-  flex: none;
-  color: var(--mx-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-.visualize-comment-hint button {
-  flex: none;
-  padding: 2px 6px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--mx-text-muted);
-  font: inherit;
-  cursor: pointer;
-}
-.visualize-comment-hint button:hover {
-  color: var(--mx-text);
-  background: var(--mx-border);
-}
-.visualize-comment-hint kbd,
 .visualize-region-note kbd {
   padding: 2px 5px;
   border: 1px solid var(--mx-border);
@@ -68,9 +21,6 @@
     600 11px / 1 system-ui,
     -apple-system,
     sans-serif;
-}
-.visualize-comment-hint kbd + kbd {
-  margin-left: 2px;
 }
 .visualize-region-layer {
   position: absolute;

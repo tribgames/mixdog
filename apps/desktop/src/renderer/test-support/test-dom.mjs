@@ -37,6 +37,11 @@ export function installTestDom(t, options = {}) {
   const installed = {
     window,
     document: window.document,
+    // Node has no animation frames and jsdom only has them when pretending to
+    // be visible; renderer code that waits for "the next frame" (the markdown
+    // parse allowance) needs one that fires.
+    requestAnimationFrame: (callback) => setTimeout(() => callback(performance.now()), 16),
+    cancelAnimationFrame: (handle) => clearTimeout(handle),
     ...Object.fromEntries(expose.map((key) => [key, window[key]])),
     ...globals,
   };

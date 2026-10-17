@@ -133,6 +133,64 @@ test('remote document clicks keep their internal page-viewer tab instead of call
   assert.equal(view.opened[0][0].rel, 'deck.pptx');
 });
 
+test('on a paired device the ⋯ menu offers Download / Share, never the host-only default app', async (t) => {
+  window.mixdogRemoteServer = 'wss://relay.example';
+  window.mixdogDesktop = {};
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    delete window.mixdogRemoteServer;
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  await act(async () =>
+    root.render(
+      React.createElement(EditorBreadcrumbs, {
+        projectPath: 'C:/Project/demo',
+        relPath: 'report.pdf',
+        load: { content: '', binary: true, tooLarge: false, mtimeMs: 1, encoding: 'utf8' },
+        preview: { kind: 'pdf', mime: 'application/pdf', url: 'blob:x', mtimeMs: 1, size: 1 },
+        dirty: false,
+        saving: false,
+        reverting: false,
+        cursorLine: 1,
+        outline: [],
+        onSave() {},
+        onRevert() {},
+        onFocusEditor() {},
+        onRevealSymbol() {},
+      })
+    )
+  );
+  await act(async () => host.querySelector('.dock-header-more').click());
+  const labels = [...host.ownerDocument.querySelectorAll('.dock-header-menu [role="menuitem"]')].map(
+    (node) => node.textContent
+  );
+  assert.ok(labels.includes('Download / Share'));
+  assert.equal(labels.includes('Open in default app'), false);
+});
+
+test('opening a file externally on a paired device downloads it instead of toasting a dead end', async (t) => {
+  const notices = [];
+  const receive = (event) => notices.push(event.detail);
+  window.addEventListener(DESKTOP_TOAST_EVENT, receive);
+  window.mixdogRemoteServer = 'wss://relay.example';
+  const opened = [];
+  window.mixdogDesktop = { openFilePath: async (...args) => opened.push(args) };
+  t.after(() => {
+    delete window.mixdogRemoteServer;
+    window.removeEventListener(DESKTOP_TOAST_EVENT, receive);
+  });
+  const { openEditorFileExternally } = await import('./editor-external-file.ts');
+  await openEditorFileExternally('C:/Project/demo', 'docs/a.zip');
+  assert.deepEqual(opened, []);
+  // This host serves no downloads: the download path says why, not the old "host computer only" note.
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].tone, 'error');
+  assert.match(notices[0].text, /Update Mixdog on the PC/);
+});
+
 test('the external-open escape stays visible even for a successfully loaded PDF preview', async (t) => {
   const opened = [];
   window.mixdogDesktop = { openFilePath: async (...args) => opened.push(args) };

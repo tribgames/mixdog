@@ -78,6 +78,8 @@ interface TerminalViewState {
 const terminalViews = new Map<string, TerminalView>();
 const DOCK_TERMINAL_KEY = '__dock__';
 const TERMINAL_VIEW_STATE_KEY = 'mixdog.desktop-terminal-view.v1';
+/** How long a hidden terminal keeps its WebGL context (see the activity effect). */
+const TERMINAL_RENDERER_RELEASE_DELAY_MS = 5_000;
 
 /** A per-terminal record map persisted under one storage key. Throws on
  *  unavailable or corrupt storage; every caller treats that as best-effort. */
@@ -456,6 +458,13 @@ export default function TerminalPane({
       fitScheduler.schedule();
     };
     view.refit = refit;
+    // Phone: send the PTY ensure before the blocking xterm attach so the
+    // relay round trip overlaps it instead of following it.
+    let earlyEnsure: ReturnType<NonNullable<typeof window.mixdogDesktop.termEnsure>> | null = null;
+    if (isMobileRemoteSurface() && connectionLinkView()?.terminalsAvailable !== false) {
+      earlyEnsure = window.mixdogDesktop.termEnsure?.(view.id ?? terminalId ?? null, cwd, shell || null) ?? null;
+      earlyEnsure?.catch(() => {});
+    }
     if (term.element) container.appendChild(term.element);
     else term.open(container);
     if (activeRef.current) tryEnableWebglRenderer(view);
@@ -478,6 +487,14 @@ export default function TerminalPane({
     // cover up until the replay buffer is written and the first fit has run —
     // the ensure path fires onReady right after that. This timer only guards
     // a stalled PTY host so the gate can never hang on a blank pane.
+    // Nothing can dump in, though, when this renderer already holds the tab's
+    // screen (view.id) or the tab never ran (no saved view, so no scrollback
+    // to replay): the frame and the cursor line show at once, fitted, and the
+    // prompt prints into them as it arrives.
+    if (view.id || !readTerminalViewState(key)) {
+      fitScheduler.schedule();
+      if (term.element?.querySelector('.xterm-screen')) onReadyRef.current?.();
+    }
     revealTimer = window.setTimeout(() => {
       revealTimer = 0;
       if (!disposed && term.element?.querySelector('.xterm-screen')) {
@@ -489,6 +506,8 @@ export default function TerminalPane({
       // A strip shell change respawns THIS tab's PTY: dispose the old
       // process, clear the scrollback, and let ensure() below create the
       // replacement under the same terminal id (tab identity holds).
+      const early = view.id && view.shell !== undefined && view.shell !== shell ? null : earlyEnsure;
+      earlyEnsure = null;
       if (view.id && view.shell !== undefined && view.shell !== shell) {
         const previous = view.id;
         view.id = null;
@@ -501,7 +520,8 @@ export default function TerminalPane({
         }
         await window.mixdogDesktop.termDispose?.(previous);
       }
-      const ensured = await window.mixdogDesktop.termEnsure?.(view.id ?? terminalId ?? null, cwd, shell || null);
+      const ensured = await (early ??
+        window.mixdogDesktop.termEnsure?.(view.id ?? terminalId ?? null, cwd, shell || null));
       reportBootSurfaceStage('terminal', key, 'data', ensured ? 'pty-ready' : 'shell-only');
       if (!ensured) {
         if (!disposed) onReadyRef.current?.();
@@ -695,12 +715,19 @@ export default function TerminalPane({
   }, [cwd, key, shell, terminalId]);
   useEffect(() => {
     const view = terminalViews.get(key);
+    let releaseTimer = 0;
     applyTerminalActivity(active, {
       enableRenderer: () => {
         if (view) tryEnableWebglRenderer(view);
       },
+      // Releasing the GL context swaps xterm to its DOM renderer, which
+      // measures the cell box: a forced layout of the whole window inside the
+      // commit that hides the terminal. The hidden terminal keeps its context
+      // for a while; a reopen inside that window reuses it.
       releaseRenderer: () => {
-        if (view) releaseWebglRenderer(view);
+        releaseTimer = window.setTimeout(() => {
+          if (view) releaseWebglRenderer(view);
+        }, TERMINAL_RENDERER_RELEASE_DELAY_MS);
       },
       scheduleFit: () => fitSchedulerRef.current?.schedule(),
       pauseFit: () => fitSchedulerRef.current?.pause(),
@@ -712,7 +739,7 @@ export default function TerminalPane({
         }
       },
     });
-    return undefined;
+    return () => window.clearTimeout(releaseTimer);
   }, [active, key]);
   const phoneLayout = useMobileRemoteSurface();
   // While the phone shows this terminal its grid is the PTY's: renew the claim

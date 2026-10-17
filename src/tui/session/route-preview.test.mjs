@@ -118,16 +118,19 @@ test('rapid model choices stay immediate while every write is serialized during 
   assert.equal(harness.state().busy, true, 'model persistence must not end or restart the running turn');
 });
 
-test('a model choice does not bypass an unrelated session command', async () => {
+test('a model choice is saved while an unrelated session command runs, and leaves that command its lock', async () => {
+  const route = { provider: 'openai-oauth', model: 'gpt-saved' };
+  const seen = [];
   const harness = createRouteHarness(
-    () => {
-      assert.fail('the runtime must not be called while another command owns the session');
+    (next) => {
+      seen.push(next);
+      return route;
     },
-    { commandBusy: true }
+    { commandBusy: true, busy: true }
   );
-  assert.equal(await harness.api.setRoute({ provider: 'openai-oauth', model: 'gpt-blocked' }), false);
-  assert.equal(harness.state().model, 'gpt-5');
-  assert.equal(harness.state().commandBusy, true);
+  assert.deepEqual(await harness.api.setRoute(route), route);
+  assert.deepEqual(seen, [route]);
+  assert.equal(harness.state().commandBusy, true, 'the other command still owns its lock');
 });
 
 test('a queued route survives an earlier failure and its own failure restores the last applied route', async () => {

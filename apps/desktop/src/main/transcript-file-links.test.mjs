@@ -5,21 +5,73 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 
 import {
-  assistantItemLink,
+  assistantLinkedPath,
   assistantLinkTargets,
   resolveLinkedPath,
   sessionGeneratedAssetIds,
   sessionLinkedPaths,
-  settledAssistantItem,
+  sessionReferencedPaths,
 } from './transcript-file-links.ts';
+
+test("only completed tool rows' output fields reference paths; tool inputs and streaming rows never do", () => {
+  const cwd = resolve('/work/project');
+  const at = (name) => resolve(`/host/${name}`).replace(/\\/g, '/');
+  const referenced = sessionReferencedPaths(
+    {
+      items: [
+        // Inputs: a prompt can make the model write any path here.
+        { id: 1, kind: 'tool', name: 'shell', args: { path: at('args.txt') }, result: 'ok' },
+        { id: 2, kind: 'tool', name: 'read', input: { file: at('input.txt') }, result: 'ok' },
+        { id: 3, kind: 'tool', name: 'github', subject: at('subject.txt'), result: 'ok' },
+        { id: 4, kind: 'tool', name: 'shell', detail: at('detail.txt'), result: 'ok' },
+        // Not completed.
+        { id: 5, kind: 'tool', name: 'shell', streaming: true, result: at('streaming.txt') },
+        { id: 6, kind: 'tool', name: 'shell', status: 'running', result: at('running.txt') },
+        { id: 7, kind: 'tool', name: 'shell', completedCount: 0, count: 1, result: at('partial.txt') },
+        {
+          id: 8,
+          kind: 'tool',
+          aggregate: true,
+          toolMembers: [
+            {
+              name: 'shell',
+              args: { command: `cat ${at('member-args.txt')}` },
+              result: `wrote ${at('member-out.txt')}`,
+            },
+          ],
+        },
+        // Genuine, completed output.
+        { id: 9, kind: 'tool', name: 'shell', result: `wrote ${at('result.txt')}` },
+        { id: 10, kind: 'tool', name: 'shell', completedAt: 1, rawResult: JSON.stringify({ output: at('raw.txt') }) },
+        { id: 11, kind: 'tool', name: 'screenshot', completedAt: 1, output: at('output.png') },
+      ],
+    },
+    cwd
+  );
+  assert.deepEqual(
+    referenced.map((path) => path.replace(/\\/g, '/')).sort(),
+    ['member-out.txt', 'output.png', 'raw.txt', 'result.txt'].map(at).sort()
+  );
+});
 
 test("generated assets come only from the built-in media tool's completed, successful results", () => {
   const result = (assetId, extra = {}) => JSON.stringify({ ok: true, status: 'done', assetId, ...extra });
-  const tool = (id, assetId, row = {}, extra = {}) => ({ id, kind: 'tool', name: 'media', result: result(assetId, extra), ...row });
+  const tool = (id, assetId, row = {}, extra = {}) => ({
+    id,
+    kind: 'tool',
+    name: 'media',
+    result: result(assetId, extra),
+    ...row,
+  });
   const ids = sessionGeneratedAssetIds({
     items: [
       tool(1, 'own'),
-      { id: 2, kind: 'tool', name: 'media', result: { structuredContent: { ok: true, assetId: 'structured', output: '/o.png' } } },
+      {
+        id: 2,
+        kind: 'tool',
+        name: 'media',
+        result: { structuredContent: { ok: true, assetId: 'structured', output: '/o.png' } },
+      },
       { id: 3, kind: 'tool', aggregate: true, toolMembers: [{ name: 'media', result: result('member') }] },
       tool(4, 'output-only', {}, { status: undefined, output: '/x.png' }),
       // Counterexamples: none of these establish ownership.
@@ -94,17 +146,27 @@ test('only settled assistant rows link; approval preview images are included', (
       { id: 1, kind: 'assistant', text: 'Wrote out/a.pdf' },
       { id: 's', kind: 'assistant', streaming: true, text: 'out/streaming.pdf' },
     ],
-    toolApproval: { args: { preview: { images: [{ path: resolve('/tmp/preview-1.png') }], visualDiff: { images: [{ path: 'relative.png' }] } } } },
+    toolApproval: {
+      args: {
+        preview: {
+          images: [{ path: resolve('/tmp/preview-1.png') }],
+          visualDiff: { images: [{ path: 'relative.png' }] },
+        },
+      },
+    },
   };
-  assert.equal(settledAssistantItem(snapshot, 'u'), null);
-  assert.equal(settledAssistantItem(snapshot, 's'), null);
-  const item = settledAssistantItem(snapshot, '1');
-  assert.equal(assistantItemLink(item, './out/a.pdf:3', cwd), resolve(cwd, 'out/a.pdf'));
-  assert.equal(assistantItemLink(item, 'out/user.pdf', cwd), null);
+  assert.equal(assistantLinkedPath(snapshot, './out/a.pdf:3', cwd), resolve(cwd, 'out/a.pdf'));
+  assert.equal(assistantLinkedPath(snapshot, 'out/user.pdf', cwd), null);
+  assert.equal(assistantLinkedPath(snapshot, 'out/streaming.pdf', cwd), null);
+  // An approval preview is no reply's link.
+  assert.equal(assistantLinkedPath(snapshot, resolve('/tmp/preview-1.png'), cwd), null);
   const linked = sessionLinkedPaths(snapshot, cwd);
   assert.ok(linked.includes(resolve(cwd, 'out/a.pdf')));
   assert.ok(linked.includes(resolve('/tmp/preview-1.png')));
   assert.equal(linked.includes(resolve(cwd, 'out/user.pdf')), false);
   assert.equal(linked.includes(resolve(cwd, 'out/streaming.pdf')), false);
-  assert.equal(linked.some((path) => path.endsWith('relative.png')), false);
+  assert.equal(
+    linked.some((path) => path.endsWith('relative.png')),
+    false
+  );
 });

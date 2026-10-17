@@ -1,4 +1,5 @@
 import {
+  startTransition,
   useCallback,
   type Dispatch,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -27,6 +28,7 @@ import { AskUserRecord, splitAskUser } from './ask-user-record';
 import { TurnChangesCard } from './TurnChangesCard';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
 import { nextComposerSubmissionId } from './composer-draft';
+import { isMobileRemoteSurface } from './mobile-surface';
 
 /** The pane-local actions the composer is handed. They are wired once and
  *  address the pane's own route through refs, so a prop change never
@@ -132,9 +134,17 @@ export function useConversationComposerActions({
     if (!queuedBehindTurnAtSubmit.current) {
       goalSubmission.current = { id: submissionId, scope: goalSubmitScopeRef.current };
     }
-    setOptimisticPrompts((current) => [...current.filter((item) => item.id !== submissionId), optimistic]);
+    const showPendingRow = () => {
+      setOptimisticPrompts((current) => [...current.filter((item) => item.id !== submissionId), optimistic]);
+      armFollowOnSubmitRef.current();
+    };
+    // Phone: the composer clears on the tap's own commit (a small render) and
+    // the pending row — a transcript-wide render — follows as a transition, so
+    // it never gates the tap's first frame. A host refusal below removes the
+    // row on the urgent lane, which the update queue's order still honours.
+    if (isMobileRemoteSurface()) startTransition(showPendingRow);
+    else showPendingRow();
     window.mixdogDesktop?.perfLog?.(`prompt-submit phase=renderer-queued id=${submissionId}`);
-    armFollowOnSubmitRef.current();
     const acceptedStartedAt = performance.now();
     let accepted: unknown;
     try {

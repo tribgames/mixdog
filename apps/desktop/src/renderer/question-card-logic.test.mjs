@@ -7,7 +7,9 @@ import {
   initQuestionState,
   pickOption,
   primaryAction,
+  queuedPlainAnswer,
   questionAwareSubmit,
+  steerQueuedAsAnswer,
   questionReducer,
   typeText,
 } from './question-card-logic.ts';
@@ -60,6 +62,68 @@ test('attachments and slash commands dismiss the question, then submit', async (
   }
 });
 
+test('send path: a failed or throwing answer never enqueues the text', async () => {
+  for (const answer of [
+    async () => false,
+    async () => {
+      throw new Error('offline');
+    },
+  ]) {
+    const calls = [];
+    const wrapped = questionAwareSubmit(
+      async () => (calls.push('submit'), true),
+      answer,
+      async () => (calls.push('dismiss'), true)
+    );
+    const outcome = await wrapped('plain', { id: 'q1' }).catch((error) => error.message);
+    assert.ok(outcome === false || outcome === 'offline');
+    assert.deepEqual(calls, []);
+  }
+});
+
+test('queue path: only plain queued follow-ups answer', () => {
+  assert.equal(queuedPlainAnswer({ id: 'a', text: ' yes ' }), 'yes');
+  assert.equal(queuedPlainAnswer({ id: 'a', text: '/model' }), null);
+  assert.equal(queuedPlainAnswer({ id: 'a', text: 'look', images: [{ id: 1 }] }), null);
+  assert.equal(queuedPlainAnswer({ id: 'a', text: 'look', pastedTexts: { 1: { id: 1 } } }), null);
+  assert.equal(queuedPlainAnswer({ id: 'a', text: 'x', images: [], pastedImages: {} }), 'x');
+});
+
+test('steer path: Steer now answers the question instead of interrupting', async () => {
+  const answers = [];
+  const ok = await steerQueuedAsAnswer(
+    async () => ' go ',
+    async (reply) => (answers.push(reply), true)
+  );
+  assert.deepEqual(ok, { text: 'go', answered: true });
+  assert.deepEqual(answers, ['go']);
+  // A refused or throwing answer hands the text back for the composer.
+  assert.deepEqual(
+    await steerQueuedAsAnswer(
+      async () => 'go',
+      async () => false
+    ),
+    { text: 'go', answered: false }
+  );
+  assert.deepEqual(
+    await steerQueuedAsAnswer(
+      async () => 'go',
+      async () => {
+        throw new Error('x');
+      }
+    ),
+    { text: 'go', answered: false }
+  );
+  // Nothing restored from the queue: nothing is answered.
+  assert.deepEqual(
+    await steerQueuedAsAnswer(
+      async () => undefined,
+      async () => true
+    ),
+    { text: '', answered: false }
+  );
+});
+
 test('adaptive primary button', () => {
   let drafts = questions.map(emptyDraft);
   assert.equal(primaryAction(drafts, 0), 'skip');
@@ -104,7 +168,9 @@ test('approvalQuestions rejects missing questions', () => {
 
 test('approvalQuestions keeps each option tradeoff for the card', () => {
   const [q] = approvalQuestions({
-    questions: [{ question: 'Q?', header: 'h', options: [{ label: 'A', description: 'Fast, local only.' }, { label: 'B' }] }],
+    questions: [
+      { question: 'Q?', header: 'h', options: [{ label: 'A', description: 'Fast, local only.' }, { label: 'B' }] },
+    ],
   });
   assert.deepEqual(q.options, [
     { label: 'A', description: 'Fast, local only.' },

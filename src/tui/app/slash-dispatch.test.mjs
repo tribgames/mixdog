@@ -499,3 +499,35 @@ test('palette acceptance preserves the full /new alias while partial matches use
     ['newSession', 'clear']
   );
 });
+
+test('/shells lists held shells and releases one only with --confirm', async () => {
+  const h = createHarness({
+    store: {
+      listShellJobs: async () => ({
+        jobs: [
+          { taskId: 'job_a', command: 'npm run dev' },
+          { taskId: 'job_b', command: 'node server.js', terminationUnconfirmed: true },
+        ],
+      }),
+      releaseShellJob: async (taskId) => {
+        h.calls.push(['releaseShellJob', taskId]);
+        return { released: true };
+      },
+    },
+  });
+  h.runSlashCommand('shells', '');
+  await flush();
+  assert.equal(h.notices.length, 1);
+  const [listing, tone] = h.notices[0];
+  assert.equal(tone, 'warn');
+  assert.match(listing, /job_a {2}running {2}npm run dev/);
+  assert.match(listing, /job_b {2}termination unconfirmed {2}node server\.js/);
+  h.runSlashCommand('shells', 'release job_b');
+  await flush();
+  assert.match(h.notices[1][0], /may still be running.*\/shells release job_b --confirm/);
+  assert.deepEqual(h.calls, [], 'nothing is released without --confirm');
+  h.runSlashCommand('shells', 'release job_b --confirm');
+  await flush();
+  assert.deepEqual(h.calls, [['releaseShellJob', 'job_b']]);
+  assert.deepEqual(h.notices[2], ['Released job_b.', 'info']);
+});

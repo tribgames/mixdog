@@ -6,6 +6,7 @@
 // scalars); every function here takes it as its first argument.
 import { TUI_FRAME_MS, yieldToRenderer } from './render-timing.mjs';
 import { retryStatusLine } from '../../runtime/shared/err-text.mjs';
+import { MODEL_THINKING_STAGE } from '../../runtime/shared/quiet-progress.mjs';
 import { newTranscriptMessageId } from '../../runtime/shared/transcript-metadata.mjs';
 
 // Share Ink's exact 120fps cadence with the frame-batched store. A separate
@@ -590,9 +591,12 @@ export async function applyStageChange(stream, stage, detail = null) {
     await yieldToRenderer();
     return;
   }
-  if (value === 'requesting' || value === 'streaming') stream.compactingActive = false;
+  if (value === 'requesting' || value === 'streaming' || value === MODEL_THINKING_STAGE) {
+    stream.compactingActive = false;
+  }
   let mode = null;
   if (value === 'requesting') mode = 'requesting';
+  else if (value === MODEL_THINKING_STAGE) mode = 'model-thinking';
   else if (value === 'streaming') mode = getState().spinner.thinking ? 'thinking' : 'responding';
   if (!mode || getState().spinner.mode === mode) return;
   set({ spinner: { ...getState().spinner, mode } });

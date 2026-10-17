@@ -85,6 +85,13 @@ test('git exits render like shell exits and diff exit-code signals stay successf
   const signal = settledCard('git', { command: 'git diff --quiet' }, 'exit 1\n[outcome: no-match]\n');
   assert.equal(signal.model.terminalStatus, 'completed');
   assert.equal(signal.tone, 'success');
+  const conflicts = settledCard(
+    'git',
+    { command: 'git merge-tree --write-tree a b' },
+    'exit 1\n[outcome: conflicts]\nmerge has conflicts (see the CONFLICT lines); this is a result, not a command failure\n'
+  );
+  assert.equal(conflicts.model.terminalStatus, 'completed');
+  assert.equal(conflicts.tone, 'success');
 });
 
 test('graph file misses and out-of-range reads are empty results, not failures', () => {

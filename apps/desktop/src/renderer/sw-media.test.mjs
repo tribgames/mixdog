@@ -3,18 +3,14 @@
 // that forwards bytes untouched. Whatever the worker returns to an element is
 // what a <video>/<img> would receive.
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 
 import { leaseMediaFile } from '../main/media-leases.ts';
-import {
-  DOWNLOAD_WINDOW_MAX_BYTES,
-  MEDIA_WINDOW_MAX_BYTES,
-  createRelayMediaLane,
-} from '../main/remote-relay-media.ts';
+import { DOWNLOAD_WINDOW_MAX_BYTES, MEDIA_WINDOW_MAX_BYTES, createRelayMediaLane } from '../main/remote-relay-media.ts';
 import { FileDownloadError } from '../shared/file-downloads.ts';
 import { MEDIA_SEGMENT_BYTES } from '../shared/remote-media-crypto.ts';
 import { fileDownloadLaneUrl, publishMediaKey, revokeMediaKey } from './remote-media-lane.ts';
@@ -32,7 +28,7 @@ function lease(name, size, mime = 'video/mp4') {
   for (let index = 0; index < size; index += 1) bytes[index] = (index * 131 + (index >> 10)) & 0xff;
   const path = join(dir, name);
   writeFileSync(path, bytes);
-  return { bytes, assetId: leaseMediaFile(path, mime) };
+  return { bytes, assetId: leaseMediaFile(path, mime, { within: dir, identity: statSync(path, { bigint: true }) }) };
 }
 
 async function setup({ mutate, redirect, downloads, device = PHONE_DEVICE } = {}) {
@@ -289,8 +285,11 @@ const transferOf = (size, overrides = {}) => ({
 /** The URL the page itself builds (remote-media-lane.ts), as a controlled page. */
 function pageUrl(key, transfer) {
   const saved = ['navigator', 'location'].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
-  const define = (name, value) => Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
-  define('navigator', { serviceWorker: { controller: { postMessage: () => undefined }, addEventListener: () => undefined } });
+  const define = (name, value) =>
+    Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  define('navigator', {
+    serviceWorker: { controller: { postMessage: () => undefined }, addEventListener: () => undefined },
+  });
   define('location', { origin: ORIGIN });
   try {
     publishMediaKey(SID, key, { base: ORIGIN, token: () => 'tok' });
@@ -477,7 +476,10 @@ test('download file names are sanitized into a safe attachment header', async ()
   );
   assert.equal(disposition('CON.txt'), `attachment; filename="_CON.txt"; filename*=UTF-8''_CON.txt`);
   assert.equal(disposition('100%;x'), `attachment; filename="100__x"; filename*=UTF-8''100%25%3Bx`);
-  assert.equal(disposition("it's (1).txt"), `attachment; filename="it's (1).txt"; filename*=UTF-8''it%27s%20%281%29.txt`);
+  assert.equal(
+    disposition("it's (1).txt"),
+    `attachment; filename="it's (1).txt"; filename*=UTF-8''it%27s%20%281%29.txt`
+  );
   for (const empty of ['', ' ... ', '\u202E', '\ud800']) {
     assert.equal(disposition(empty), `attachment; filename="download"; filename*=UTF-8''download`);
   }
@@ -503,7 +505,9 @@ test('download routes are matched only with their full contract, and leases neve
       download: { size: 10, version: VERSION, name: 'a.txt', token: '' },
     }
   );
-  assert.ok(worker.match({ ...navigate, mode: 'cors', destination: '' }, at(`/__mixdog-download__/${LEASE_ID}?${query}`)));
+  assert.ok(
+    worker.match({ ...navigate, mode: 'cors', destination: '' }, at(`/__mixdog-download__/${LEASE_ID}?${query}`))
+  );
   for (const path of [
     `/__mixdog-download__/${LEASE_ID}?${query.replace('enc=e2ee1', 'enc=e2ee0')}`,
     `/__mixdog-download__/${LEASE_ID}?${query.replace(`v=${VERSION}`, 'v=short')}`,

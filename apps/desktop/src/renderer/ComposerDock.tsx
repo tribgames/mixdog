@@ -1,10 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ComposerQueueTrayContext } from './composer-island-state';
 import { ComposerIsland, type ComposerIslandFlash, type ComposerIslandQuotaResume } from './ComposerIsland';
 import { ComposerQuotaCard, type ComposerQuotaCardModel } from './ComposerQuotaCard';
 import type { DesktopSessionWorkspace } from '../shared/contract';
 import type { TranscriptItem } from './desktop-types';
 import { BranchIslandSegment } from './WorktreeIslandSegment';
+import { IslandGitSegment } from './IslandGitSegment';
 import { SessionGoalHost } from './session-goal-submission';
 import { requestSessionDiffFile, requestSessionDiffList } from './session-diff-focus';
 
@@ -48,7 +49,6 @@ export function ComposerDock({
   onOpenAgentSession,
   workspace,
   queuedInput = false,
-  onOpenSession,
   children,
 }: {
   /** The pane's visible session ('' while hidden or a draft): the island's
@@ -80,8 +80,6 @@ export function ComposerDock({
   workspace?: DesktopSessionWorkspace | null;
   /** Composer input waits in the queue: the branch segment cannot switch. */
   queuedInput?: boolean;
-  /** Opens the session that holds a branch (the branch menu's In use rows). */
-  onOpenSession?: (sessionId: string) => void;
   children: ReactNode;
 }) {
   const [reviewModule, setReviewModule] = useState(() => loadedReviewModule);
@@ -98,6 +96,28 @@ export function ComposerDock({
   }, [worktreeFlash]);
   const [moduleFailure, setModuleFailure] = useState<{ error: unknown } | null>(null);
   const [queueTray, setQueueTray] = useState<HTMLDivElement | null>(null);
+  // The draft context bar's height as last committed (0 once it is gone): the
+  // island that replaces it in the next commit (the draft's first submit)
+  // mounts at that height, so the swap moves nothing even when the new
+  // session's pill has nothing to carry yet.
+  const contextBarRef = useRef<HTMLDivElement | null>(null);
+  const contextBarHeight = useRef(0);
+  // Observed rather than read every commit: an offsetHeight read in a layout
+  // effect forces a synchronous layout inside each click commit.
+  // Observed rather than read every commit: an offsetHeight read in a layout
+  // effect forces a synchronous layout inside each click commit.
+  useEffect(() => {
+    const bar = showProjectSelector ? contextBarRef.current : null;
+    if (!bar) return undefined;
+    const observer = new ResizeObserver(() => {
+      contextBarHeight.current = bar.offsetHeight;
+    });
+    observer.observe(bar);
+    return () => {
+      observer.disconnect();
+      contextBarHeight.current = 0;
+    };
+  }, [showProjectSelector]);
   useEffect(() => {
     if (reviewModule) return undefined;
     let active = true;
@@ -153,7 +173,11 @@ export function ComposerDock({
 
   return (
     <div className="composer-region">
-      {showProjectSelector && <div className="composer-context-bar">{contextBar}</div>}
+      {showProjectSelector && (
+        <div ref={contextBarRef} className="composer-context-bar">
+          {contextBar}
+        </div>
+      )}
       {!showProjectSelector && !awaitingLane && (
         // One island per session: a surviving slot carried the outgoing
         // session's height into the new one and animated toward it (with the
@@ -162,6 +186,7 @@ export function ComposerDock({
         // changes in the same commit as the transcript, unlike the snapshot.
         <ComposerIsland
           key={reviewSessionId}
+          routeSessionId={reviewSessionId}
           sessionId={sessionId}
           onOpenAgentSession={onOpenAgentSession}
           goal={<SessionGoalHost submissionId={goalSubmissionId}>{goalIsland}</SessionGoalHost>}
@@ -175,12 +200,13 @@ export function ComposerDock({
               locked={locked}
               onViewChanges={openChanges}
               onFlash={(flash, owner) => setWorktreeFlash({ sessionId: owner, flash })}
-              onOpenSession={onOpenSession}
             />
           )}
+          git={<IslandGitSegment sessionId={sessionId} cwd={workspace?.cwd || reviewCwd} />}
           approval={approval}
           flash={islandFlash ?? (sessionId && worktreeFlash?.sessionId === sessionId ? worktreeFlash.flash : null)}
           quotaResume={quotaResume}
+          heldHeight={contextBarHeight.current}
         />
       )}
       {!showProjectSelector && quotaCard ? <ComposerQuotaCard card={quotaCard} /> : null}

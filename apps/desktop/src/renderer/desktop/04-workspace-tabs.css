@@ -175,6 +175,11 @@
     transition: none;
   }
 }
+/* The shell itself resized (WorkspaceTabStrip observeWidths): the run snaps to
+   its new cells in that frame; only adds, closes and reorders glide. */
+.workspace-tabs-shell[data-geometry-snap="true"] :is(.workspace-tab, .workspace-tab-main) {
+  transition: none;
+}
 /* Visibility ladder:
    1) inactive tabs drop the close button once contents fall under
       the minimum contents width for close buttons (68 + 16px insets = 84);

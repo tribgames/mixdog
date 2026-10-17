@@ -4,7 +4,9 @@
  * grant serves exactly one HTML file; only an explicit project grant serves
  * relative web assets (styles, scripts, fonts, media, data and documents; no
  * dotfiles, no source files). Each URL has its own bounded lease and rechecks
- * its originating permission before returning bytes.
+ * its originating permission before returning bytes. A paired device's lease
+ * (`remote`) also judges every request — the page and each asset it pulls in —
+ * by name and by the opened file's real location, under the remote deny list.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
@@ -15,6 +17,8 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileExtension } from '../shared/file-extension';
 import { withSandboxStorageShim } from '../shared/sandbox-storage-shim';
 import { isLocalAccessDenied, LocalAccessDeniedError } from './local-access-denied';
+import { type AuthorizedFile, comparablePath, openAuthorizedFile } from './opened-file-authorization';
+import { requiredSensitivePolicy, type SensitivePolicy } from './remote-sensitive-paths';
 
 const PAGE_ASSET_TYPES: Readonly<Record<string, string>> = Object.freeze({
   html: 'text/html; charset=utf-8',
@@ -70,6 +74,11 @@ export interface LocalPageAccess {
   authorize(): Promise<void>;
   /** Desktop renderer that requested the preview, not the untrusted page. */
   owner?: object;
+  /** A paired device's page: the deny policy of the process that authorized
+   *  it. Every request of the lease — the page and each asset it references —
+   *  is then opened first and served only from a handle whose real location
+   *  is inside the root and not secret-bearing (openAuthorizedFile). */
+  remote?: SensitivePolicy;
 }
 
 /** One in-memory file of a virtual page (nothing on disk). */
@@ -85,6 +94,7 @@ interface PageLease {
   virtual?: ReadonlyMap<string, VirtualPageFile>;
   scope: LocalPageAccess['scope'];
   owner?: object;
+  remote?: SensitivePolicy;
   authorize(): Promise<void>;
   expiresAt: number;
   timer: NodeJS.Timeout;
@@ -224,29 +234,63 @@ async function serve(request: IncomingMessage, response: ServerResponse, port: n
   }
   let file: string;
   let size: number;
+  // A remote lease reads every response through the handle it authorized.
+  let opened: AuthorizedFile | null = null;
   try {
-    file = await realpath(target);
-    const info = await stat(file);
-    if (!info.isFile()) return reply(response, 404);
-    size = info.size;
+    if (lease.remote) {
+      opened = await openAuthorizedFile(target, root, lease.remote);
+      file = opened.location;
+      size = opened.size;
+    } else {
+      file = await realpath(target);
+      const info = await stat(file);
+      if (!info.isFile()) return reply(response, 404);
+      size = info.size;
+    }
   } catch {
     return reply(response, 404);
   }
+  try {
+    // A stream from the handle takes it over (and closes it).
+    if (await serveFile(request, response, token, lease, file, size, opened)) opened = null;
+  } finally {
+    await opened?.handle.close().catch(() => undefined);
+  }
+}
+
+/** The response for `file` (canonical, `size` bytes) of a disk lease; read
+ *  from `opened` when the lease is remote. True when it streams from
+ *  `opened`, which the stream then closes. */
+async function serveFile(
+  request: IncomingMessage,
+  response: ServerResponse,
+  token: string,
+  lease: PageLease,
+  file: string,
+  size: number,
+  opened: AuthorizedFile | null
+): Promise<boolean> {
+  const refuse = (status: number): false => {
+    reply(response, status);
+    return false;
+  };
+  const { root } = lease;
+  const isPage = comparablePath(file) === comparablePath(lease.page);
   // A symlink or junction must obey the same boundary, hidden-path and
   // file-type restrictions as the requested path.
   const type = pageAssetType(root, file);
-  if (!type || (lease.scope === 'file' && file !== lease.page)) return reply(response, 404);
+  if (!type || (lease.scope === 'file' && !isPage)) return refuse(404);
   try {
     await lease.authorize();
   } catch (error) {
     if (isLocalAccessDenied(error)) revokeLease(token);
     // A timeout or failed lookup denies this response, not future attempts.
     // Expiry, eviction and owner closure still win over a late failure.
-    return reply(response, activeLease(token, lease) ? 503 : 404);
+    return refuse(activeLease(token, lease) ? 503 : 404);
   }
   // Expiry, capacity eviction or owner closure can happen while authorization
   // awaits the daemon. A late success must not resurrect an old lease.
-  if (!activeLease(token, lease)) return reply(response, 404);
+  if (!activeLease(token, lease)) return refuse(404);
   // Successful GET/HEAD makes this lease most recently used. Bad paths and
   // failed authorization cannot keep a lease warm or renew its absolute TTL.
   leases.delete(token);
@@ -255,12 +299,12 @@ async function serve(request: IncomingMessage, response: ServerResponse, port: n
   let page: Buffer | undefined;
   if (lease.scope === 'file' && ['html', 'htm'].includes(fileExtension(file))) {
     try {
-      page = withShim(await readFile(file));
+      page = withShim(opened ? await opened.handle.readFile() : await readFile(file));
     } catch {
-      return reply(response, 404);
+      return refuse(404);
     }
     // Expiry or owner closure during the read must not still return the page.
-    if (!activeLease(token, lease)) return reply(response, 404);
+    if (!activeLease(token, lease)) return refuse(404);
     size = page.length;
   }
   response.writeHead(200, {
@@ -273,11 +317,18 @@ async function serve(request: IncomingMessage, response: ServerResponse, port: n
     // origin/storage/window authority on this loopback server.
     ...(lease.scope === 'file' ? { 'Content-Security-Policy': 'sandbox allow-scripts' } : {}),
   });
-  if (request.method === 'HEAD') return void response.end();
-  if (page) return void response.end(page);
-  createReadStream(file)
+  if (request.method === 'HEAD') {
+    response.end();
+    return false;
+  }
+  if (page) {
+    response.end(page);
+    return false;
+  }
+  (opened ? opened.handle.createReadStream({ start: 0 }) : createReadStream(file))
     .on('error', () => response.destroy())
     .pipe(response);
+  return opened !== null;
 }
 
 function serverPort(): Promise<number> {
@@ -346,6 +397,7 @@ export async function localPageUrl(root: string, rel: string, access: LocalPageA
   }
   // Copy policy fields; mutating the caller's options cannot widen a live URL.
   const { scope, authorize, owner } = access;
+  const remote = access.remote === undefined ? undefined : requiredSensitivePolicy(access.remote);
   await authorize();
   const location = await pageLocation(root, rel);
   const port = await serverPort();
@@ -358,6 +410,7 @@ export async function localPageUrl(root: string, rel: string, access: LocalPageA
     ...location,
     scope,
     owner,
+    ...(remote ? { remote } : {}),
     async authorize() {
       await authorize();
       const current = await pageLocation(root, rel);

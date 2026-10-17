@@ -9,6 +9,7 @@ import {
   MarkdownSessionContext,
 } from './MarkdownLink';
 import { usePersistedThumbnail } from './persisted-thumbnail';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { parseLocalFileLocation } from '../shared/local-files';
 
 /** `![alt](local/image.png)` as an inline thumbnail that opens the lightbox.
@@ -40,7 +41,8 @@ export function MarkdownLocalImage({
   const url = usePersistedThumbnail(session, `markdown-image|${project}|${path}`, live || undefined) ?? '';
   const ready = Boolean(url);
   const target = live ? preview.target : null;
-  const openDefault = target ? () => void openProjectFileInDefaultApp(target) : undefined;
+  // The host's OS cannot open anything for a paired device (the lightbox offers Download / Share).
+  const openDefault = target && !isRemoteHostRenderer() ? () => void openProjectFileInDefaultApp(target) : undefined;
   useLightboxRegistration(button, ready ? { id, src: url, name, target, openDefault } : null);
   if (!ready && (preview.unavailable || broken)) return <>{children}</>;
   if (!ready) return <span className="markdown-local-image" data-state="loading" aria-hidden="true" />;

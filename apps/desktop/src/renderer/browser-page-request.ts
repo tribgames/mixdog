@@ -15,8 +15,9 @@ const revealListeners = new Set<RevealListener>();
 const addressListeners = new Map<string, Set<AddressListener>>();
 const pendingAddress = new Map<string, { url: string; newTab: boolean }>();
 
-/** True while a shell that can reveal a browser pane is mounted. A surface
- *  without one (a paired phone) shows no "open" affordance. */
+/** True while a shell that can reveal a browser pane is mounted. A paired
+ *  phone mounts one too: its pane streams the host's browser, so a requested
+ *  address is navigated on the PC (see onBrowserPageAddressTaken). */
 export function browserPageRequestsAvailable(): boolean {
   return revealListeners.size > 0;
 }

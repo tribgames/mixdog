@@ -4,6 +4,7 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { DESKTOP_IPC } from '../../shared/contract.ts';
+import { ipcErrorFromEnvelope } from '../../shared/file-error-codes.ts';
 import { registerDesktopIpc } from '../ipc.ts';
 import {
   REMOTE_ENSURE_TIMEOUT_MS,
@@ -226,10 +227,11 @@ test('a server window refuses the features that act on this PC', async (t) => {
   await assert.rejects(f.invoke(f.server.webContents, DESKTOP_IPC.chooseProject), /remote-picker-required/);
   assert.deepEqual(f.dialogCalls, [], 'no local dialog opens for a server window');
   // A server window's grants name server files only: this PC's never apply.
-  await assert.rejects(
-    f.invoke(f.server.webContents, DESKTOP_IPC.readProjectFile, '/srv/repo', 'a.txt', 'token'),
-    /selected-file permission is unavailable/
+  const refused = ipcErrorFromEnvelope(
+    await f.invoke(f.server.webContents, DESKTOP_IPC.readProjectFile, '/srv/repo', 'a.txt', 'token')
   );
+  assert.equal(refused.code, 'SELECTED_FILE_GRANT_UNAVAILABLE');
+  assert.match(refused.message, /selected-file permission is unavailable/);
   // Server paths stay POSIX paths when the daemon watches them.
   const watched = await f.invoke(f.server.webContents, DESKTOP_IPC.folderWatch, '/srv/repo/../repo', true);
   assert.deepEqual(watched.args, ['/srv/repo', true]);

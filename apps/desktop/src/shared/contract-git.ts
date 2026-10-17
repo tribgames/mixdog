@@ -146,6 +146,17 @@ export interface DesktopGitBranch {
   behind?: number;
 }
 
+/** Read-only snapshot for the island Git request (see main/git-request-context.ts). */
+export interface DesktopGitRequestContext {
+  statusShort: string;
+  diffStat: string;
+  files: { path: string; patch: string; truncated: boolean }[];
+  recentSubjects: string[];
+  branchCommits: string;
+  branchDiffStat: string;
+  pr: { number: number; title: string; url: string; state: string; baseRefName: string } | null;
+}
+
 export interface DesktopGitLogEntry {
   hash: string;
   shortHash: string;

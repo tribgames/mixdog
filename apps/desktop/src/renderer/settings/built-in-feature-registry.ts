@@ -4,6 +4,7 @@ export type BuiltInFeatureId =
   | 'browser'
   | 'computer'
   | 'office'
+  | 'media'
   | 'tidy'
   | 'localProvider'
   | 'autoEffort'
@@ -41,6 +42,11 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
     id: 'office',
     title: 'Office',
     description: 'Create, review, and edit documents, spreadsheets, and presentations.',
+  },
+  {
+    id: 'media',
+    title: 'Media generation',
+    description: 'Create images and videos in chat.',
   },
   {
     id: 'tidy',

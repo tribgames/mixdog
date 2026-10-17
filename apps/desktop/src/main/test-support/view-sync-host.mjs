@@ -9,7 +9,9 @@ export async function viewSyncHost({ runTurns = false } = {}) {
   process.env.MIXDOG_DATA_DIR = directory;
   const records = new Map();
   const sinks = new Set();
-  const state = { creates: 0, submits: 0, agents: [], reads: 0 };
+  // `working` holds the ids the daemon reports as running in its catalog rows.
+  const state = { creates: 0, submits: 0, agents: [], reads: 0, working: new Set() };
+  let loseTransport = () => {};
   const full = (record) => ({
     sessionId: record.id,
     revision: record.revision,
@@ -34,8 +36,9 @@ export async function viewSyncHost({ runTurns = false } = {}) {
       queued: [],
     });
   const runtime = {
-    async attachSessionClient({ onFrame }) {
+    async attachSessionClient({ onFrame, onFatal }) {
       sinks.add(onFrame);
+      loseTransport = (reason) => onFatal?.(reason);
       return {
         async list() {
           return {
@@ -46,6 +49,7 @@ export async function viewSyncHost({ runTurns = false } = {}) {
               cwd: directory,
               updatedAt: Date.now(),
               messageCount: row.snapshot.items.length,
+              ...(state.working.has(row.id) ? { working: true } : {}),
             })),
           };
         },
@@ -134,6 +138,8 @@ export async function viewSyncHost({ runTurns = false } = {}) {
     state,
     put,
     putSnapshot,
+    /** The daemon connection is lost for good (the client's `onFatal`). */
+    loseTransport: (reason = 'test transport loss') => loseTransport(reason),
     async close() {
       await host.dispose();
       if (previousDataDirectory === undefined) delete process.env.MIXDOG_DATA_DIR;

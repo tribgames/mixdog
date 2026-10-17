@@ -1,4 +1,5 @@
-import { ExternalLink } from 'lucide-react';
+import { Download, ExternalLink } from 'lucide-react';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { ErrorNotice } from './ErrorNotice';
 import type { ReactNode, RefObject } from 'react';
 import type { EditorFileLoad } from './editor-file-loader';
@@ -6,6 +7,18 @@ import type { EditorRecovery, FilePreview } from './editor-pane-model';
 import { ProgressSpinner } from './ProgressSpinner';
 import { t } from './i18n';
 import { ZoomFrame, ZoomImage, useImageSize } from './ZoomFrame';
+
+/** The host's OS app on the desktop; on a paired device the file downloads
+ *  (openEditorFileExternally routes it) under the Download / Share label. */
+export function OpenExternallyLabel({ onOpen }: { onOpen(): void }) {
+  const remote = isRemoteHostRenderer();
+  const Icon = remote ? Download : ExternalLink;
+  return (
+    <button type="button" onClick={onOpen}>
+      <Icon size={14} aria-hidden="true" /> {remote ? t('Download / Share') : t('Open in default app')}
+    </button>
+  );
+}
 
 export function EditorPaneNoticeSurface({ breadcrumbs, children }: { breadcrumbs: ReactNode; children: ReactNode }) {
   return (
@@ -49,9 +62,7 @@ export function EditorPaneFileFallback({
           ? t('Binary file — in-app editing is unavailable.')
           : t('File exceeds the 10 MB in-app viewing cap.')}
       </p>
-      <button type="button" onClick={onOpen}>
-        <ExternalLink size={14} aria-hidden="true" /> {t('Open in default app')}
-      </button>
+      <OpenExternallyLabel onOpen={onOpen} />
       {onRetry && (
         <button type="button" onClick={onRetry}>
           {t('Retry')}
@@ -142,11 +153,7 @@ export function EditorPanePreviewSurface({
         <ErrorNotice
           error={error}
           className="editor-pane-preview-error"
-          action={
-            <button type="button" onClick={onOpen}>
-              <ExternalLink size={14} aria-hidden="true" /> {t('Open in default app')}
-            </button>
-          }
+          action={<OpenExternallyLabel onOpen={onOpen} />}
         />
       )}
     </>
@@ -250,7 +257,9 @@ export function EditorPaneReadOnlyNotice({ reason }: { reason?: 'encoding' }) {
   return (
     <p className="editor-pane-readonly-notice" role="status">
       {reason === 'encoding'
-        ? t('Read-only: this file has invalid text encoding. Convert or repair it in an external editor to avoid data loss.')
+        ? t(
+            'Read-only: this file has invalid text encoding. Convert or repair it in an external editor to avoid data loss.'
+          )
         : t('Read-only: this file is over 1 MB, so it can be viewed but not edited.')}
     </p>
   );

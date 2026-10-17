@@ -13,6 +13,7 @@ import { SERVER_DOWNLOAD_MAX_BYTES, SERVER_UPLOAD_CHUNK_BYTES, SERVER_UPLOAD_MAX
 import { filePreviewTypeForPath, type DesktopFilePreviewKind } from '../shared/file-preview';
 import { FILE_PREVIEW_SCHEME } from './file-preview';
 import { requiredString } from './ipc-validation';
+import { SELECTED_FILE_GRANT_UNAVAILABLE } from '../shared/file-error-codes';
 import { LocalAccessDeniedError } from './local-access-denied';
 
 export type ServerInvoke = <T>(method: string, args: unknown[]) => Promise<T>;
@@ -187,6 +188,14 @@ export class ServerFileGrants {
   }
 
   grant(absolutePath: string): string {
+    // Describing a granted file again keeps its token (most recently used):
+    // a fresh token per link verification evicted open files' grants.
+    for (const [token, granted] of this.#grants) {
+      if (granted !== absolutePath) continue;
+      this.#grants.delete(token);
+      this.#grants.set(token, absolutePath);
+      return token;
+    }
     const token = randomUUID();
     this.#grants.set(token, absolutePath);
     while (this.#grants.size > MAX_GRANTS) {
@@ -241,7 +250,8 @@ export class ServerFileGrants {
   requireGrant(accessToken: unknown, projectPath: unknown, relPath: unknown) {
     const token = requiredString(accessToken, 'file access token', 128);
     const granted = this.#grants.get(token);
-    if (!granted) throw new LocalAccessDeniedError('The selected-file permission is unavailable.');
+    if (!granted)
+      throw new LocalAccessDeniedError('The selected-file permission is unavailable.', SELECTED_FILE_GRANT_UNAVAILABLE);
     const requested = posix.resolve(
       absoluteServerPath(requiredString(projectPath, 'projectPath')),
       requiredString(relPath, 'relPath', 4_096)

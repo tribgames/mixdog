@@ -10,6 +10,44 @@ const recordState = (record) => ({
   invalidateInteraction() {},
 });
 
+test("a site's permission request is a prompt only the pane answers, after the page's own dialog", async () => {
+  const record = { pendingDialog: null, dismissedDialog: null };
+  const answers = [];
+  let pending = { id: 'permission_1', origin: 'https://site.test', keys: ['notifications'] };
+  const service = createBrowserLocalPrompts({
+    state: recordState(record),
+    controller: () => 's1',
+    dialogs: {},
+    uploads: {},
+    chooseFiles: async () => ({ canceled: true, filePaths: [] }),
+    permissions: {
+      pending: () => pending,
+      answer: (_guest, id, allow) => {
+        answers.push([id, allow]);
+        if (id !== pending?.id) return false;
+        pending = undefined;
+        return true;
+      },
+    },
+  });
+  record.pendingDialog = { type: 'alert', message: 'first', openedAt: 0 };
+  assert.equal(service.describe({}).dialog.type, 'alert', 'a blocking dialog comes first');
+  record.pendingDialog = null;
+  assert.deepEqual(service.describe({}).dialog, {
+    id: 'permission_1',
+    type: 'permission',
+    message: '',
+    permission: { origin: 'https://site.test', keys: ['notifications'] },
+  });
+  await assert.rejects(
+    service.answer({}, { type: 'answer-dialog', requestId: 'permission_0', accept: true }, () => {}),
+    /prompt changed/
+  );
+  await service.answer({}, { type: 'answer-dialog', requestId: 'permission_1', accept: true }, () => {});
+  assert.deepEqual(answers.at(-1), ['permission_1', true]);
+  assert.equal(service.describe({}).dialog, undefined);
+});
+
 test('file selection cannot cross document, prompt, cancellation, or ownership changes, and cancel preserves files', async () => {
   for (const reason of ['document', 'prompt', 'signal', 'cancel', 'valid']) {
     const chooser = { mode: 'selectSingle' };
@@ -162,7 +200,11 @@ test("another session's dialog blocks the view without its content or an answer"
     const shown = f.service.describe(f.popup).dialog;
     assert.deepEqual(shown, { id: shown.id, type: 'blocked', message: '' }, 'no message, default or type');
     await assert.rejects(
-      f.service.answer(f.popup, { type: 'answer-dialog', requestId: shown.id, accept: true, promptText: 'x' }, () => {}),
+      f.service.answer(
+        f.popup,
+        { type: 'answer-dialog', requestId: shown.id, accept: true, promptText: 'x' },
+        () => {}
+      ),
       /another session's page/
     );
     assert.deepEqual(f.answered, []);

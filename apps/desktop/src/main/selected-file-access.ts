@@ -2,12 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import type { DesktopLocalPathEntry } from '../shared/contract';
+import { SELECTED_FILE_GRANT_UNAVAILABLE } from '../shared/file-error-codes';
 import { absoluteLocalPath } from './local-files';
 import { requiredString } from './ipc-validation';
 import { LocalAccessDeniedError } from './local-access-denied';
 import { readSecretFile, writeSecretFile } from './secret-file';
 import { createKeyedSerialQueue } from '../../../../src/runtime/shared/keyed-serial-queue.mjs';
 import {
+  comparablePath,
   MAX_SELECTED_FILE_GRANTS,
   owningProject,
   parseSelectedFileGrants,
@@ -25,6 +27,9 @@ export class SelectedFileAccess {
   readonly #storePath;
   readonly #listProjects;
   #grants = new Map<string, string>();
+  /** The token this process issued per file (comparable path), while its
+   *  grant lives: describing a file again hands the same token back. */
+  readonly #tokens = new Map<string, string>();
   #loaded = false;
   #loadRequest: Promise<void> | null = null;
   readonly #commits = createKeyedSerialQueue();
@@ -67,6 +72,11 @@ export class SelectedFileAccess {
     await writeSecretFile(this.#storePath, serializeSelectedFileGrants(grants));
   }
 
+  #liveToken(absolutePath: string): string | undefined {
+    const token = this.#tokens.get(comparablePath(absolutePath));
+    return token && this.#grants.has(selectedFileGrantKey(token)) ? token : undefined;
+  }
+
   async describe(paths: unknown): Promise<DesktopLocalPathEntry[]> {
     if (!Array.isArray(paths) || paths.length === 0 || paths.length > 100) {
       throw new TypeError('paths are invalid.');
@@ -74,6 +84,7 @@ export class SelectedFileAccess {
     await this.#load();
     const projects = await this.#listProjects().catch(() => []);
     const pendingGrants = new Map<string, string>();
+    const pendingTokens = new Map<string, string>();
     const rows: DesktopLocalPathEntry[] = [];
     for (const raw of paths) {
       const absolutePath = absoluteLocalPath(raw);
@@ -90,8 +101,12 @@ export class SelectedFileAccess {
           row.projectPath = owner.project.path;
           row.relPath = relative(owner.root, absolutePath).replace(/\\/g, '/');
         } else {
-          const accessToken = randomUUID();
+          // Every link verification and hover describes its file again. A
+          // fresh token each time evicted the grants of open editors and
+          // links (cap 100): reopening one failed with a permission error.
+          const accessToken = this.#liveToken(absolutePath) ?? randomUUID();
           pendingGrants.set(selectedFileGrantKey(accessToken), absolutePath);
+          pendingTokens.set(comparablePath(absolutePath), accessToken);
           row.projectPath = dirname(absolutePath);
           row.relPath = basename(absolutePath);
           row.accessToken = accessToken;
@@ -104,7 +119,11 @@ export class SelectedFileAccess {
       // is serialized; independent filesystem inspection remains concurrent.
       await this.#commits(this.#storePath, async () => {
         const grants = new Map(this.#grants);
-        for (const [key, file] of pendingGrants) grants.set(key, file);
+        // A described file becomes the most recently used grant.
+        for (const [key, file] of pendingGrants) {
+          grants.delete(key);
+          grants.set(key, file);
+        }
         while (grants.size > MAX_SELECTED_FILE_GRANTS) {
           const oldest = grants.keys().next().value;
           if (!oldest) break;
@@ -112,6 +131,10 @@ export class SelectedFileAccess {
         }
         await this.#persist(grants);
         this.#grants = grants;
+        for (const [file, token] of pendingTokens) this.#tokens.set(file, token);
+        for (const [file, token] of this.#tokens) {
+          if (!grants.has(selectedFileGrantKey(token))) this.#tokens.delete(file);
+        }
       });
     }
     return rows;
@@ -125,7 +148,8 @@ export class SelectedFileAccess {
     await this.#load();
     const token = requiredString(accessToken, 'file access token', 128);
     const granted = this.#grants.get(selectedFileGrantKey(token));
-    if (!granted) throw new LocalAccessDeniedError('The selected-file permission is unavailable.');
+    if (!granted)
+      throw new LocalAccessDeniedError('The selected-file permission is unavailable.', SELECTED_FILE_GRANT_UNAVAILABLE);
     const requested = resolve(requiredString(projectPath, 'projectPath'), requiredString(relPath, 'relPath'));
     if (!sameGrantedPath(granted, requested))
       throw new LocalAccessDeniedError('The selected-file permission does not match this path.');

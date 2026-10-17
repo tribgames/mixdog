@@ -1,5 +1,6 @@
 import { t } from './i18n';
 import { isLocalMarkdownLink, localMarkdownPath, projectRelativeFilePath } from './markdown-url';
+import { fileErrorCode, PROJECT_UNAVAILABLE } from '../shared/file-error-codes';
 import { localLinkKind } from '../shared/local-files';
 
 export interface ResolvedLocalLink {
@@ -14,11 +15,18 @@ function projectKey(project: string): string {
   return /^[a-z]:\//i.test(path) ? path.toLowerCase() : path;
 }
 
+// Errors are told apart by their structured `code` (the preload and the remote
+// client rebuild it on the error), never by their message: a message can carry
+// a file name such as "ENOENT.txt" and is only for display.
 function missingFile(error: unknown): boolean {
-  const failure = error as { code?: string; message?: string };
-  // Electron's invoke errors retain the Node error code in the message,
-  // rather than preserving the Error object's custom `code` property.
-  return failure?.code === 'ENOENT' || /\bENOENT\b/.test(String(failure?.message || ''));
+  return fileErrorCode(error) === 'ENOENT';
+}
+
+/** A Project that holds no answer: its folder is gone, or the folder is not
+ *  a registered Project. Anything else (an access or path-boundary refusal,
+ *  an I/O fault) is the link's real answer and is never replaced by a miss. */
+function projectUnavailable(error: unknown): boolean {
+  return missingFile(error) || fileErrorCode(error) === PROJECT_UNAVAILABLE;
 }
 
 async function findInProject(project: string, path: string, search: boolean): Promise<ResolvedLocalLink[]> {
@@ -65,13 +73,17 @@ async function resolveAbsolute(target: string, path: string, sessionId?: string)
   const resolvePaths = window.mixdogDesktop?.resolveLocalPaths;
   if (!resolvePaths) throw new Error(t('Local file links can only be opened in the desktop app.'));
   // The conversation lets a paired device's host find the reply that links it.
-  const [entry] = await (sessionId ? resolvePaths([target], sessionId) : resolvePaths([target])).catch((error: unknown) => {
-    if (missingFile(error)) return [];
-    throw error;
-  });
+  const [entry] = await (sessionId ? resolvePaths([target], sessionId) : resolvePaths([target])).catch(
+    (error: unknown) => {
+      if (missingFile(error)) return [];
+      throw error;
+    }
+  );
   if (entry?.dir) return { project: entry.absolutePath, path: '.', directory: true };
   if (!entry?.projectPath || !entry.relPath) {
-    throw new Error(t('File not found (it may have been deleted or moved): {{file}}', { file: path }));
+    throw Object.assign(new Error(t('File not found (it may have been deleted or moved): {{file}}', { file: path })), {
+      code: 'ENOENT',
+    });
   }
   return entry.accessToken
     ? { project: entry.projectPath, path: entry.relPath, accessToken: entry.accessToken }
@@ -97,8 +109,9 @@ export async function resolveLocalLink(project: string, path: string, sessionId?
   if (relative) {
     try {
       found = await findInProject(project, relative, searchable);
-    } catch {
+    } catch (error) {
       // The conversation may run in a folder that is not a registered Project.
+      if (!projectUnavailable(error)) throw error;
     }
   }
   if (found) {
@@ -109,7 +122,8 @@ export async function resolveLocalLink(project: string, path: string, sessionId?
     try {
       return await resolveAbsolute(target, path, sessionId);
     } catch (error) {
-      if (!searchable) throw error;
+      // Only a miss goes on to the other Projects.
+      if (!searchable || !missingFile(error)) throw error;
     }
   }
   const projects = (await window.mixdogDesktop?.listProjects?.()) || [];
@@ -120,7 +134,19 @@ export async function resolveLocalLink(project: string, path: string, sessionId?
         .map((entry) => [projectKey(entry.path), entry.path])
     ).values(),
   ];
-  const matches = (await Promise.all(others.map((root) => findInProject(root, relative!, searchable)))).flat();
+  // A registered Project whose folder is gone holds no match; it must not
+  // turn a plain miss into its own ENOENT. An access refusal in any of them
+  // is still the answer.
+  const matches = (
+    await Promise.all(
+      others.map((root) =>
+        findInProject(root, relative!, searchable).catch((error: unknown) => {
+          if (projectUnavailable(error)) return [];
+          throw error;
+        })
+      )
+    )
+  ).flat();
   const match = uniqueTarget(matches, path);
   if (match) return match;
   throw new Error(t('File not found in the Project: {{file}}', { file: path }));
@@ -133,6 +159,20 @@ export async function resolveLocalLink(project: string, path: string, sessionId?
 // written.
 const VERIFIED_TTL_MS = 30_000;
 const MISSING_TTL_MS = 3_000;
+/** The target a click opens. A verified location is reused as is, but a file
+ *  outside every Project carries a one-off access token that main may have
+ *  dropped since (grants are capped): it is described again at click time, so
+ *  a link reopened later never presents an expired token. */
+export function resolveLocalLinkForOpen(
+  verified: ResolvedLocalLink | null | undefined,
+  project: string,
+  path: string,
+  sessionId?: string
+): Promise<ResolvedLocalLink> {
+  if (verified && !verified.accessToken) return Promise.resolve(verified);
+  return resolveLocalLink(project, path, sessionId);
+}
+
 const VERIFICATION_CACHE_LIMIT = 256;
 
 interface Verification {

@@ -115,7 +115,8 @@ export function BreadcrumbPicker({
       aria-label={picker.kind === 'files' ? t('File Breadcrumbs') : t('Symbol Breadcrumbs')}
       style={{
         left: picker.anchor.x,
-        top: picker.anchor.y,
+        top: picker.anchor.top,
+        bottom: picker.anchor.bottom,
         width: picker.anchor.width,
         maxHeight: picker.anchor.maxHeight,
       }}

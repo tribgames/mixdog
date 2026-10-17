@@ -29,9 +29,9 @@ export function createSessionSettingsApi(bag) {
 
   return {
     // A model selector (/model, a preset) is the user's model choice like any
-    // picker selection: the route surface switches an established
-    // conversation in place (pre-compaction, busy refusal, divider). False
-    // while another command holds the lock.
+    // picker selection: the route surface saves it for the conversation's
+    // next turn (a running turn keeps its model) and applies it there. Never
+    // refused: another command's lock does not block a selection.
     setModel: async (m) => (await bag.setSessionRoute({ model: m })) !== false,
     setEffort: withCommandLock(
       async (value) => {

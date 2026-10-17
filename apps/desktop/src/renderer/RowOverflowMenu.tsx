@@ -4,9 +4,10 @@ import { createPortal } from 'react-dom';
 
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { t } from './i18n';
+import { useMenuDismiss } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
 import { useSurfaceActive } from './surface-activity';
-import { captureRowMenuAnchor, positionRowMenu } from './row-menu-geometry';
+import { captureRowMenuAnchor, positionRowMenu, useRowMenuClamp } from './row-menu-geometry';
 import { isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
 
 type RowOverflowMenuItem = {
@@ -60,7 +61,8 @@ export function rowOverflowHostProps() {
 }
 
 /** An open menu closes on an outside pointer, on Escape (which returns focus
- *  to the trigger), and on anything that moves it: resize or scroll. */
+ *  to the trigger), on Tab (menu-dismiss.ts) and on anything that moves it:
+ *  resize or scroll. */
 function useRowOverflowDismiss({
   menuOpen,
   path,
@@ -74,27 +76,15 @@ function useRowOverflowDismiss({
   trigger: RefObject<HTMLButtonElement | null>;
   setOpen(open: boolean): void;
 }): void {
-  // biome-ignore lint/correctness/useExhaustiveDependencies: panel/trigger are refs and setOpen is a useState setter (all stable); path is a deliberate trigger that refocuses the first item on each submenu level.
+  useMenuDismiss({ open: menuOpen, close: () => setOpen(false), trigger, panels: () => [panel.current] });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: panel is a ref and setOpen a useState setter (both stable); path is a deliberate trigger that refocuses the first item on each submenu level.
   useEffect(() => {
     if (!menuOpen) return undefined;
     queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(MENU_ENTRY)?.focus());
-    const dismiss = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!panel.current?.contains(target) && !trigger.current?.contains(target)) setOpen(false);
-    };
-    const keydown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      setOpen(false);
-      trigger.current?.focus();
-    };
     const close = () => setOpen(false);
-    document.addEventListener('pointerdown', dismiss, true);
-    document.addEventListener('keydown', keydown, true);
     window.addEventListener('resize', close);
     window.addEventListener('scroll', close, true);
     return () => {
-      document.removeEventListener('pointerdown', dismiss, true);
-      document.removeEventListener('keydown', keydown, true);
       window.removeEventListener('resize', close);
       window.removeEventListener('scroll', close, true);
     };
@@ -108,12 +98,10 @@ function rowOverflowMenuKeyDown(
     panel,
     path,
     setPath,
-    setOpen,
   }: {
     panel: RefObject<HTMLDivElement | null>;
     path: number[];
     setPath(update: (current: number[]) => number[]): void;
-    setOpen(open: boolean): void;
   }
 ): void {
   const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(MENU_ENTRY) || [])];
@@ -132,10 +120,7 @@ function rowOverflowMenuKeyDown(
     return;
   } else if (event.key === 'Home') next = 0;
   else if (event.key === 'End') next = entries.length - 1;
-  else if (event.key === 'Tab') {
-    setOpen(false);
-    return;
-  } else return;
+  else return;
   event.preventDefault();
   entries[next]?.focus();
 }
@@ -286,6 +271,7 @@ export function RowOverflowMenu({
     window.innerWidth,
     window.innerHeight
   );
+  useRowMenuClamp(menuOpen, panel);
   const rememberAnchor = (element: HTMLButtonElement) => {
     anchorBounds.current = captureRowMenuAnchor(element);
   };
@@ -350,7 +336,7 @@ export function RowOverflowMenu({
           menuItems,
           hasCheckItems,
           placement,
-          onKeyDown: (event) => rowOverflowMenuKeyDown(event, { panel, path, setPath, setOpen }),
+          onKeyDown: (event) => rowOverflowMenuKeyDown(event, { panel, path, setPath }),
           setPath,
           setOpen,
         })}

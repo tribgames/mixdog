@@ -20,7 +20,15 @@ export const BOOT_WARMUP = Object.freeze({
   sidebarPanel: 20,
   /** The rail usage flyout, so its first open paints rows, not a placeholder. */
   usageFlyoutModule: 25,
+  /** The Monaco editor and Markdown preview chunks, so the first file open
+   *  hydrates at once; ahead of the slow lane tail because a file is the
+   *  first thing most sessions open. */
+  editorModule: 27,
+  /** The Studio chunk, so its first open mounts without a placeholder frame. */
+  studioModule: 28,
   utilityDockModule: 30,
+  /** A phone's agent catalog read, held off its first screen. */
+  agentPool: 35,
   dockGitState: 40,
   dockBody: 45,
   transcript: 50,
@@ -34,13 +42,15 @@ export const BOOT_WARMUP = Object.freeze({
   /** Hidden mount of the composer's full model list, so the Model row opens
    *  onto rows that already exist. */
   modelCatalog: 65,
-  studioModule: 70,
   commandSurfaceModule: 72,
   /** The subscription usage that dialog opens on, so its first open paints
    *  instead of waiting on a cold ledger read. */
   quotaUsage: 74,
   settingsPreload: 80,
   settingsMount: 85,
+  /** A phone's side-sheet pane chunks (diff, Terminal, Browser, Visualize, editor):
+   *  the lane's tail, after everything its first screen needs. */
+  phoneSheetPane: 90,
 });
 
 interface IdleHost {

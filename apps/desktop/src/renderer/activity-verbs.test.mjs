@@ -21,6 +21,7 @@ const MODES = [
   'auto-clear',
   'resuming',
   'task-wait',
+  'model-thinking',
   'reconnecting',
 ];
 const RUNTIME_VERBS = [
@@ -35,7 +36,7 @@ const RUNTIME_VERBS = [
 const NON_LATIN = new Set(['ko', 'ja', 'ru', 'zh-CN', 'zh-TW']);
 const catalog = (language) => JSON.parse(readFileSync(new URL(`./locales/${language}.json`, import.meta.url), 'utf8'));
 
-async function useLanguage(language) {
+async function switchLanguage(language) {
   if (language !== 'en') i18n.addResourceBundle(language, 'translation', catalog(language));
   await i18n.changeLanguage(language);
 }
@@ -49,6 +50,8 @@ test('every localized spinner key exists in all 11 locales', () => {
     'Auto-clearing conversation',
     'Resuming conversation',
     'Waiting for tasks',
+    'Model thinking',
+    'model thinking',
     'Thinking (spinner)',
   ];
   for (const { value: language } of SUPPORTED_UI_LANGUAGES) {
@@ -62,7 +65,7 @@ test('non-English UI never yields an English verb in any mode', async () => {
   try {
     for (const { value: language } of SUPPORTED_UI_LANGUAGES) {
       if (language === 'en') continue;
-      await useLanguage(language);
+      await switchLanguage(language);
       for (const mode of MODES) {
         for (const runtimeVerb of RUNTIME_VERBS) {
           for (const now of [0, 31_000, 95_000, 400_000]) {
@@ -88,14 +91,20 @@ test('the verb pool follows the active language and updates on a switch', async 
     assert.equal(activityVerbPool(), SPINNER_VERBS);
     assert.equal(reconnectActivityVerb('Connection lost · retry 1/3 in 15s'), 'Connection lost · retry 1/3 in 15s');
     assert.equal(thinkingEffortLabel('High'), 'Thinking (High)');
-    await useLanguage('ko');
+    await switchLanguage('ko');
     assert.equal(activityVerbPool(), LOCALIZED_ACTIVITY_VERBS);
     assert.equal(reconnectActivityVerb('Reconnecting... 2/3'), `${catalog('ko')['Reconnecting…']} 2/3`);
-    await useLanguage('ja');
+    await switchLanguage('ja');
     assert.equal(activityVerb({ mode: 'resuming', anchor: 1, now: 1 }), catalog('ja')['Resuming conversation']);
+    // A request waiting for its headers reads as the model thinking, not a pool verb.
+    assert.equal(activityVerb({ mode: 'model-thinking', anchor: 1, now: 1 }), catalog('ja')['Model thinking']);
+    i18n.addResourceBundle('de', 'translation', catalog('de'));
+    await i18n.changeLanguage('de');
+    assert.equal(activityVerb({ mode: 'model-thinking', anchor: 1, now: 400_000 }), 'Modell denkt nach');
     await i18n.changeLanguage('en');
     assert.equal(activityVerbPool(), SPINNER_VERBS);
     assert.equal(activityVerb({ mode: 'compacting', anchor: 1, now: 1 }), 'Compacting conversation');
+    assert.equal(activityVerb({ mode: 'model-thinking', anchor: 1, now: 1 }), 'Model thinking');
   } finally {
     await i18n.changeLanguage('en');
   }

@@ -10,12 +10,16 @@
 import {
   FileDownloadError,
   fileDownloadErrorReason,
+  FOLDER_ZIP_MAX_BYTES,
+  FOLDER_ZIP_MAX_FILES,
+  folderTooLargeCounts,
   type FileDownloadApi,
   type FileDownloadChunk,
   type FileDownloadErrorReason,
   type FileDownloadPurpose,
   type FileDownloadSource,
   type FileDownloadTransfer,
+  type FolderLeftOut,
 } from '../shared/file-downloads';
 import { nativeAppInfo } from '../shared/native-app';
 import {
@@ -30,6 +34,11 @@ import { base64Bytes } from './studio-pane-support';
 
 /** Largest file the browser fallback assembles in memory. */
 export const BLOB_FALLBACK_MAX_BYTES = 32 * 1024 * 1024;
+/** Largest lane download the page itself reads into a Blob (Range windows
+ *  through the worker); a larger one is handed to the browser as the lane URL. */
+export const LANE_BLOB_MAX_BYTES = 128 * 1024 * 1024;
+/** One Range request of the page's own lane read. */
+export const LANE_WINDOW_BYTES = 4 * 1024 * 1024;
 
 type NativeSaveMethod = Exclude<keyof NativeFileSaveCalls, 'getNativeCapabilities'>;
 /** The shell's bridge narrowed to the save calls. */
@@ -55,8 +64,15 @@ export interface FileDownloadEnvironment {
   /** Confirms the lane serves `url` before the browser is sent there:
    *  `changed` when the worker reports the file moved on (412). */
   probeLane(url: string): Promise<LaneProbe>;
+  /** Bytes `offset..offset+length` of a lane URL (a Range request the worker
+   *  answers); rejects `changed` when the worker reports the file moved on. */
+  readLane(url: string, offset: number, length: number, signal: AbortSignal): Promise<ArrayBuffer>;
   /** Hands a lane URL or an assembled file to the browser. */
   deliver(target: { url: string } | { blob: Blob }, transfer: FileDownloadTransfer): Promise<BrowserDelivery>;
+  /** The share sheet for an assembled file, offered again from the download
+   *  row (a fresh tap, after a long read lost the user activation); null when
+   *  this browser cannot share files. */
+  shareLater?(blob: Blob, transfer: FileDownloadTransfer): (() => Promise<NativeShareResult>) | null;
 }
 
 export type FileDownloadPhase = 'preparing' | 'downloading' | 'saving' | 'sharing';
@@ -85,6 +101,8 @@ export interface FileDownloadOutcome {
   persisted?: boolean;
   /** Native only: the share sheet again, for the finished file. */
   shareAgain?: () => Promise<NativeShareResult>;
+  /** A folder zip only: the files it left out. */
+  leftOut?: FolderLeftOut;
 }
 
 /** Why this device could not save, as opposed to the host refusing. */
@@ -128,8 +146,12 @@ export function fileDownloadReasonMessage(reason: FileDownloadErrorReason): stri
       return t('Only files this conversation links can be downloaded.');
     case 'outside-project':
       return t("The file is outside the conversation's Project.");
+    case 'sensitive':
+      return t('This file can hold credentials or secrets and cannot be downloaded.');
     case 'too-large':
       return t('Files larger than 256 MB cannot be downloaded.');
+    case 'folder-too-large':
+      return t('This folder is too large to zip (up to 64 MB and 2,000 files). Download files from it one by one.');
     case 'changed':
       return t('The file changed on the PC during the download. Try again.');
     case 'expired':
@@ -168,6 +190,20 @@ export function fileSaveFailureMessage(reason: FileSaveFailureReason): string {
 /** The message a failed download shows. */
 export function fileDownloadFailureMessage(error: unknown): string {
   const reason = fileDownloadErrorReason(error);
+  if (reason === 'folder-too-large') {
+    // The host states what it counted; an older host's wording has no counts.
+    const counts = folderTooLargeCounts(error instanceof Error ? error.message : '');
+    if (counts) {
+      return t(
+        'This folder is too large to zip: {{files}} files and {{size}} after leaving out ignored files (limit {{maxFiles}} files and {{maxSize}}). Pick a subfolder to download instead.',
+        {
+          ...counts,
+          maxFiles: FOLDER_ZIP_MAX_FILES.toLocaleString('en-US'),
+          maxSize: `${FOLDER_ZIP_MAX_BYTES / (1024 * 1024)} MB`,
+        }
+      );
+    }
+  }
   if (reason) return fileDownloadReasonMessage(reason);
   if (error instanceof FileSaveError) return fileSaveFailureMessage(error.reason);
   return errorMessageText(error);
@@ -340,6 +376,27 @@ async function readSmallFile(
   return new Blob(parts, { type: transfer.mime });
 }
 
+/** Browser lane read: the file in LANE_WINDOW_BYTES Range windows, then one Blob. */
+async function readLaneFile(
+  env: FileDownloadEnvironment,
+  url: string,
+  transfer: FileDownloadTransfer,
+  signal: AbortSignal,
+  report: (progress: Omit<FileDownloadProgress, 'name' | 'total'>) => void
+): Promise<Blob> {
+  const parts: ArrayBuffer[] = [];
+  let received = 0;
+  while (received < transfer.size) {
+    const length = Math.min(LANE_WINDOW_BYTES, transfer.size - received);
+    const part = await abortable(env.readLane(url, received, length, signal), signal);
+    if (part.byteLength !== length) throw new FileDownloadError('changed', 'The file changed on the host.');
+    parts.push(part);
+    received += length;
+    report({ phase: 'downloading', received });
+  }
+  return new Blob(parts, { type: transfer.mime });
+}
+
 /** Downloads one host file to this device. Rejects FileDownloadCancelledError
  *  when the user cancelled; anything else is a failure to show. */
 export async function runFileDownload(
@@ -355,8 +412,7 @@ export async function runFileDownload(
   const purpose: FileDownloadPurpose = sink.kind === 'native' ? 'share' : 'save';
   let name = '';
   let total = 0;
-  const report = (progress: Omit<FileDownloadProgress, 'name' | 'total'>) =>
-    onProgress?.({ ...progress, name, total });
+  const report = (progress: Omit<FileDownloadProgress, 'name' | 'total'>) => onProgress?.({ ...progress, name, total });
   report({ phase: 'preparing', received: 0 });
   const state: RunState = { transferId: null, handle: null };
   try {
@@ -381,6 +437,7 @@ export async function runFileDownload(
       size: total,
       destination,
       result,
+      ...(grant.leftOut ? { leftOut: grant.leftOut } : {}),
     });
     if (sink.kind === 'native') {
       const saved = await saveNatively(api, sink.call, transfer, purpose, state, signal, report);
@@ -392,20 +449,29 @@ export async function runFileDownload(
     const url = transfer.size > 0 ? env.laneUrl(transfer) : null;
     const probe = url ? await abortable(env.probeLane(url), signal) : 'unavailable';
     if (probe === 'changed') throw new FileDownloadError('changed', 'The file changed on the host.');
+    let blob: Blob;
     if (url && probe === 'ok') {
-      // The lease now belongs to the lane: the browser reads it on its own.
+      // The lease now belongs to the lane (the worker reads it).
       state.transferId = null;
-      report({ phase: 'saving', received: 0 });
-      await env.deliver({ url }, transfer);
-      return outcome('lane', 'started');
+      if (transfer.size > LANE_BLOB_MAX_BYTES) {
+        // Too large to hold: the browser downloads the lane URL on its own.
+        report({ phase: 'saving', received: 0 });
+        await env.deliver({ url }, transfer);
+        return outcome('lane', 'started');
+      }
+      // Read by the page itself, so progress, errors and the share sheet stay
+      // here instead of depending on how the browser treats a worker download.
+      blob = await readLaneFile(env, url, transfer, signal, report);
+    } else {
+      if (transfer.size > BLOB_FALLBACK_MAX_BYTES) throw new FileSaveError('browser-too-large');
+      blob = await readSmallFile(api, transfer, signal, report);
+      await abortable(api.finish(transfer.transferId), signal);
+      state.transferId = null;
     }
-    if (transfer.size > BLOB_FALLBACK_MAX_BYTES) throw new FileSaveError('browser-too-large');
-    const blob = await readSmallFile(api, transfer, signal, report);
     report({ phase: 'saving', received: total });
-    await abortable(api.finish(transfer.transferId), signal);
-    state.transferId = null;
     const delivered = await env.deliver({ blob }, transfer);
-    return outcome('blob', delivered);
+    const shareAgain = delivered === 'shared' ? null : (env.shareLater?.(blob, transfer) ?? null);
+    return { ...outcome('blob', delivered), ...(shareAgain ? { shareAgain } : {}) };
   } catch (error) {
     const call = sink.kind === 'native' ? sink.call : null;
     if (state.handle && call) void call('fileSaveAbort', { handle: state.handle }).catch(noop);
@@ -428,7 +494,7 @@ function clickDownload(url: string, name: string): void {
  *  (a dismissed sheet is the user's choice), else a download link. */
 async function deliverInBrowser(
   target: { url: string } | { blob: Blob },
-  transfer: FileDownloadTransfer
+  transfer: Pick<FileDownloadTransfer, 'name' | 'mime'>
 ): Promise<BrowserDelivery> {
   if ('url' in target) {
     clickDownload(target.url, transfer.name);
@@ -462,7 +528,42 @@ async function probeLaneUrl(url: string): Promise<LaneProbe> {
   }
 }
 
+/** One Range window of a lane URL through the service worker. */
+async function readLaneWindow(url: string, offset: number, length: number, signal: AbortSignal): Promise<ArrayBuffer> {
+  const response = await fetch(url, {
+    headers: { Range: `bytes=${offset}-${offset + length - 1}` },
+    cache: 'no-store',
+    signal,
+  });
+  if (response.status === 412) throw new FileDownloadError('changed', 'The file changed on the host.');
+  if (response.status === 404 || response.status === 410) {
+    throw new FileDownloadError('expired', 'This download is no longer available.');
+  }
+  // A 200 would be the whole file again, not this window.
+  if (response.status !== 206) throw new FileSaveError('device', `lane-${response.status}`);
+  return response.arrayBuffer();
+}
+
+/** The browser share sheet for `blob`, when this browser shares files. */
+function browserShareLater(blob: Blob, transfer: Pick<FileDownloadTransfer, 'name' | 'mime'>) {
+  const file = new File([blob], transfer.name, { type: transfer.mime });
+  if (!navigator.canShare?.({ files: [file] })) return null;
+  return async (): Promise<NativeShareResult> => {
+    try {
+      await navigator.share({ files: [file] });
+      return 'shared';
+    } catch (reason) {
+      return reason instanceof DOMException && reason.name === 'AbortError' ? 'dismissed' : 'share-failed';
+    }
+  };
+}
+
 let sinkProbe: Promise<FileSaveSink> | null = null;
+
+function cachedSink(): Promise<FileSaveSink> {
+  sinkProbe ??= probeSink();
+  return sinkProbe;
+}
 
 /** The phone app's native sink when its shell implements one; inside the app
  *  without it nothing can save (its WebView drops browser downloads); a
@@ -481,16 +582,109 @@ function probeSink(): Promise<FileSaveSink> {
   );
 }
 
+function bytesBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
+}
+
+/** What happened to bytes handed to this device: `saved` and `shared` are
+ *  confirmed; `dismissed` is the user backing out of the sheet or dialog. */
+export type DeviceSaveResult = BrowserDelivery;
+
+/** Puts `blob` on this device through `sink`: the phone app's native save
+ *  (chunked writes, then its share sheet), or a browser's share sheet / anchor
+ *  download. Rejects when this device cannot save or the save failed. */
+export async function saveBlobWithSink(
+  sink: FileSaveSink,
+  blob: Blob,
+  name: string,
+  deliver: typeof deliverInBrowser = deliverInBrowser
+): Promise<DeviceSaveResult> {
+  const mime = blob.type || 'application/octet-stream';
+  if (sink.kind === 'none') throw new FileSaveError('no-sink');
+  if (sink.kind === 'browser') return deliver({ blob }, { name, mime });
+  const call = sink.call;
+  let handle = '';
+  let persisted = true;
+  try {
+    handle = (await nativeStep(call, 'fileSaveBegin', { name, mime, size: blob.size, purpose: 'share' })).handle;
+    let written = 0;
+    while (written < blob.size) {
+      const end = Math.min(written + NATIVE_FILE_SAVE_MAX_CHUNK_BYTES, blob.size);
+      const data = bytesBase64(new Uint8Array(await blob.slice(written, end).arrayBuffer()));
+      const ack = await nativeStep(call, 'fileSaveWrite', { handle, offset: written, data });
+      if (ack.written !== end) throw new FileSaveError('device', 'offset-mismatch');
+      written = end;
+    }
+    persisted = (await nativeStep(call, 'fileSaveFinish', { handle, size: blob.size })).persisted !== false;
+  } catch (error) {
+    if (handle) void call('fileSaveAbort', { handle }).catch(noop);
+    if (error instanceof FileDownloadCancelledError) return 'dismissed';
+    throw error;
+  }
+  const shared = await shareNatively(call, handle);
+  if (shared === 'shared') return 'shared';
+  if (persisted) return 'saved';
+  if (shared === 'dismissed') return 'dismissed';
+  throw new FileSaveError('device', 'share-failed');
+}
+
+/** The bytes behind a data: / blob: / http(s) URL. data: is decoded here (a
+ *  page CSP may refuse fetch of it); the rest is fetched, and a failed fetch
+ *  is an error rather than an empty file. */
+export async function blobFromUrl(url: string): Promise<Blob> {
+  const data = /^data:([^;,]*)((?:;[^;,]+)*),/i.exec(url);
+  if (data) {
+    const payload = url.slice(data[0].length);
+    const mime = data[1] || 'application/octet-stream';
+    if (/;base64/i.test(data[2])) return new Blob([base64Bytes(payload)], { type: mime });
+    return new Blob([decodeURIComponent(payload)], { type: mime });
+  }
+  const response = await fetch(url);
+  if (!response.ok) throw new FileSaveError('device', `fetch-${response.status}`);
+  return response.blob();
+}
+
+/** Saves the bytes behind `url` as `name` on this device. */
+export async function saveUrlOnDevice(url: string, name: string): Promise<DeviceSaveResult> {
+  return saveBlobOnDevice(await blobFromUrl(url), name);
+}
+
+/** Saves `blob` as `name` on this device (see saveBlobWithSink). */
+export function saveBlobOnDevice(blob: Blob, name: string): Promise<DeviceSaveResult> {
+  return defaultFileDownloadEnvironment()
+    .sink()
+    .then((sink) => saveBlobWithSink(sink, blob, name));
+}
+
+/** Hands a finished Blob to the phone app's native save bridge when the shell
+ *  has one (its WebView drops browser downloads, and the page CSP blocks
+ *  fetching a blob: URL, so the bridge gets the Blob itself); otherwise the
+ *  browser path. A lane URL has no Blob to hand over and stays with the browser. */
+export async function deliverPreferNative(
+  target: { url: string } | { blob: Blob },
+  transfer: Pick<FileDownloadTransfer, 'name' | 'mime'>,
+  deliver: typeof deliverInBrowser = deliverInBrowser
+): Promise<BrowserDelivery> {
+  if ('blob' in target) {
+    const sink = await cachedSink();
+    if (sink.kind === 'native') return saveBlobWithSink(sink, target.blob, transfer.name, deliver);
+  }
+  return deliver(target, transfer);
+}
+
 /** This page's download environment. */
 export function defaultFileDownloadEnvironment(): FileDownloadEnvironment {
   return {
     api: window.mixdogDesktop?.fileDownloads,
-    sink: () => {
-      sinkProbe ??= probeSink();
-      return sinkProbe;
-    },
+    sink: cachedSink,
     laneUrl: fileDownloadLaneUrl,
     probeLane: probeLaneUrl,
-    deliver: deliverInBrowser,
+    readLane: readLaneWindow,
+    deliver: deliverPreferNative,
+    shareLater: browserShareLater,
   };
 }

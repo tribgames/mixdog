@@ -1092,7 +1092,7 @@ async function run(): Promise<void> {
     // string that also names the embedding app contradicts them, and sites
     // answer that mismatch with a login wall or an unsupported-browser page.
     const agent = await command({ action: 'evaluate', script: 'navigator.userAgent', tab: 'beta' });
-    assert.doesNotMatch(agent.text, /Electron|mixdog-desktop/i);
+    assert.doesNotMatch(agent.text, /Electron|mixdog/i);
     assert.match(agent.text, /Chrome\/\d+/);
     // Normalising the agent string must not take the session's language
     // negotiation with it: a request that carries no Accept-Language asks
@@ -1105,6 +1105,28 @@ async function run(): Promise<void> {
       tab: 'beta',
     });
     assert.doesNotMatch(defaultLanguage.text, /missing/, 'the browser still negotiates a language by default');
+    // The brands a page reads and the ones its requests send name the same
+    // Chrome; what a page can read of the host's own scripts looks native.
+    const identity = await command({
+      action: 'evaluate',
+      script: `Promise.all([
+          fetch(${JSON.stringify(`${origin}/api/echo-headers`)}).then((response) => response.json()),
+          navigator.permissions.query({ name: 'notifications' }),
+        ]).then(([payload, notifications]) => [
+          'header=' + /Google Chrome/.test(payload.headers['sec-ch-ua'] || ''),
+          'brands=' + navigator.userAgentData.brands.some((entry) => entry.brand === 'Google Chrome'),
+          'chrome=' + Object.keys(window.chrome).join('+'),
+          'alert=' + /\\[native code\\]/.test(String(window.alert)),
+          'globals=' + Object.getOwnPropertyNames(window).filter((name) => /mixdog/i.test(name)).length,
+          'notifications=' + notifications.state,
+          'notification=' + Notification.permission,
+        ].join(' '))`,
+      tab: 'beta',
+    });
+    assert.match(
+      identity.text,
+      /header=true brands=true chrome=loadTimes\+csi\+app alert=true globals=0 notifications=prompt notification=default/
+    );
     progress('pages are told the Chrome build that renders them');
     await command({
       action: 'storage',

@@ -28,6 +28,27 @@
   min-height: 112px;
   padding: 20px 12px;
 }
+.initial-surface--rows {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 28px 0 0;
+}
+.initial-surface-row {
+  display: flex;
+  align-items: center;
+  height: 32px;
+}
+.initial-surface-row.tall {
+  height: 48px;
+}
+.initial-surface-row > i {
+  display: block;
+  height: 10px;
+  width: 64%;
+  border-radius: var(--mx-radius-sm);
+  background: var(--mx-border-muted);
+}
 .initial-surface--control {
   display: flex;
   align-items: center;

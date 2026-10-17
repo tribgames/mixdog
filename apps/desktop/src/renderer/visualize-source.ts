@@ -5,6 +5,7 @@
 import { common, createLowlight } from 'lowlight';
 
 import type { VisualizeInlineKind, VisualizePaneView } from '../shared/visualize';
+import { type DeviceSaveResult, saveBlobOnDevice } from './file-download-transfer';
 
 const lowlight = createLowlight(common);
 
@@ -81,19 +82,20 @@ export function highlightSourceLines(source: string, language: string): SourceLi
 
 /** The file a download of a pane's source gets. */
 export function visualizeSourceFileName(pane: Pick<VisualizePaneView, 'label' | 'inline'>): string {
-  const base = pane.label.replace(/[\\/:*?"<>|\0-\x1f]+/g, '-').trim().slice(0, 80) || 'visual';
-  const extension = { mermaid: 'mmd', svg: 'svg', chart: 'json', html: 'html', markdown: 'md' }[pane.inline?.kind ?? 'html'];
+  const base =
+    pane.label
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: strips C0 control characters from file names on purpose.
+      .replace(/[\\/:*?"<>|\0-\x1f]+/g, '-')
+      .trim()
+      .slice(0, 80) || 'visual';
+  const extension = { mermaid: 'mmd', svg: 'svg', chart: 'json', html: 'html', markdown: 'md' }[
+    pane.inline?.kind ?? 'html'
+  ];
   return base.toLowerCase().endsWith(`.${extension}`) ? base : `${base}.${extension}`;
 }
 
-/** Save `blob` on this device through a download link. */
-export function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+/** Save `blob` on this device: the phone app's native save, else the
+ *  browser's share sheet or a download link. */
+export function downloadBlob(blob: Blob, fileName: string): Promise<DeviceSaveResult> {
+  return saveBlobOnDevice(blob, fileName);
 }

@@ -183,6 +183,15 @@ export interface DesktopBrowserPageDialog {
   type: string;
   message: string;
   defaultPrompt?: string;
+  /** A `permission` dialog names who asks and for what; the pane words it. */
+  permission?: {
+    /** The origin of the frame asking. */
+    origin: string;
+    /** The top-level site embedding it, when that is another site. */
+    embedder?: string;
+    /** What it asks for (`notifications`, `media:video`, `clipboard-read`, ...). */
+    keys: string[];
+  };
 }
 
 export type DesktopBrowserPageAction =

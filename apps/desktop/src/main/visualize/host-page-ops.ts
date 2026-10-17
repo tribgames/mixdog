@@ -7,8 +7,8 @@ import type { BrowserWindow } from 'electron';
 import type { VisualizeTabView } from '../../shared/visualize';
 import { visualizeInspectScript } from '../../shared/visualize-inspect';
 import { htmlFrames, leasePrefix, paneFrames, retry, shownBody, sleep } from './host-frames';
+import { type VisualizeAnnotation, visualizePaneMarks } from '../../shared/visualize-annotations';
 import { type VisualizeOverlayResult, visualizeOverlayScript } from './overlay-script';
-import type { VisualizeAnnotateOp } from './targets';
 
 /** After a pane frame is resized, before the page is read (its layout and
  *  resize handlers settle). */
@@ -75,13 +75,15 @@ export async function requireShownWindow(
   }
 }
 
-/** Runs the overlay operation in every HTML pane of the tab. */
-export async function annotatePanes(window: BrowserWindow, tab: VisualizeTabView, op: VisualizeAnnotateOp) {
+/** Shows exactly each HTML pane's marks of `marks` in that pane's frames. */
+export async function annotatePanes(window: BrowserWindow, tab: VisualizeTabView, marks: VisualizeAnnotation[]) {
   const frames = await shownHtmlFrames(window, tab);
   return Promise.all(
-    frames.map(async ({ pane, frame }) => ({
+    frames.map(async ({ pane, index, frame }) => ({
       pane,
-      result: (await frame.executeJavaScript(visualizeOverlayScript(op))) as VisualizeOverlayResult,
+      result: (await frame.executeJavaScript(
+        visualizeOverlayScript(visualizePaneMarks(marks, index))
+      )) as VisualizeOverlayResult,
     }))
   );
 }

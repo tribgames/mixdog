@@ -5,7 +5,9 @@
 import { useSyncExternalStore } from 'react';
 
 import type { DesktopVisualizeEvent, VisualizeCommandResult, VisualizeSessionState } from '../shared/visualize';
-import { requestBrowserPage } from './browser-page-request';
+import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
+import { linkOpenTarget } from './link-open-target';
+import { emitVisualizeZoomInput, emitVisualizeZoomModifier } from './visualize-zoom';
 
 type Listener = () => void;
 type RevealListener = (sessionId: string) => void;
@@ -133,8 +135,31 @@ function setState(state: VisualizeSessionState): void {
   emit();
 }
 
+/** A web link clicked in a pane page opens where a chat web link would: the
+ *  app window may not frame another origin (its CSP frame-src), so the page
+ *  script hands the address over instead of navigating to an error page. A
+ *  click in the pane frame activates this document too; a message a page
+ *  script posts by itself carries no activation and opens nothing. */
+export function openVisualizePageLink(sessionId: string, url: string, external = false): void {
+  if (typeof navigator === 'undefined' || !navigator.userActivation?.isActive) return;
+  if (linkOpenTarget({ sessionId, paneAvailable: browserPageRequestsAvailable(), external }) === 'pane') {
+    requestBrowserPage(sessionId, url, { newTab: true });
+    return;
+  }
+  void window.mixdogDesktop?.openExternal?.(url)?.catch(() => {});
+}
+
 /** Apply one main-process event (exported for tests). */
 export function applyVisualizeEvent(event: DesktopVisualizeEvent): void {
+  // A zoom gesture from inside a pane frame names no session.
+  if (event?.zoomModifier !== undefined) {
+    emitVisualizeZoomModifier(event.zoomModifier);
+    return;
+  }
+  if (event?.zoom) {
+    emitVisualizeZoomInput(event.zoom, event.point);
+    return;
+  }
   const sessionId = String(event?.sessionId || '');
   if (!sessionId) return;
   if (event.openUrl) requestBrowserPage(sessionId, event.openUrl, { newTab: true, agent: true });
@@ -292,37 +317,24 @@ export function visualizePanesStacked(bodyWidth: number, paneCount: number): boo
   return paneCount > 1 && bodyWidth > 0 && bodyWidth < VISUALIZE_SIDE_BY_SIDE_MIN_WIDTH;
 }
 
-/** Below this panel width the header keeps only Comment and Tweaks as
- *  buttons (beside ⋯, expand and close); the other toolbar toggles become
- *  ⋯ items so the tab strip keeps room for the active tab's label. */
-export const VISUALIZE_HEADER_FOLD_WIDTH = 520;
-const VISUALIZE_HEADER_PINNED: ReadonlySet<string> = new Set(['comment', 'tweaks', 'versions']);
-
 interface VisualizeHeaderAction {
   id: string;
   inline?: boolean;
-  checked?: boolean;
   checkbox?: boolean;
   separatorBefore?: boolean;
 }
 
-/** The panel's header actions at `panelWidth` (0 = unmeasured: as wide).
- *  Folded toggles lead the ⋯ menu as checkbox items, ahead of the menu's
- *  own items (exports) behind a separator; attention and badges ride along. */
-export function visualizeHeaderActions<T extends VisualizeHeaderAction>(
-  actions: readonly T[],
-  panelWidth: number
-): T[] {
-  if (!(panelWidth > 0 && panelWidth < VISUALIZE_HEADER_FOLD_WIDTH)) return [...actions];
-  const folds = (action: T) => Boolean(action.inline) && !VISUALIZE_HEADER_PINNED.has(action.id);
-  const folded = actions
-    .filter(folds)
-    .map((action) => ({ ...action, inline: false, ...(action.checked === undefined ? {} : { checkbox: true }) }));
-  const menu = actions.filter((action) => !action.inline);
+/** The panel's header actions. Only Comment and Versions are header buttons
+ *  (beside ⋯, expand and close). Every toggle (All visuals, Source, Elements,
+ *  Tweaks, Zoom bar) is a checkbox item that leads the ⋯ menu, ahead of the
+ *  menu's own items (exports) behind a separator. */
+export function visualizeHeaderActions<T extends VisualizeHeaderAction>(actions: readonly T[]): T[] {
+  const toggles = actions.filter((action) => !action.inline && action.checkbox);
+  const menu = actions.filter((action) => !action.inline && !action.checkbox);
   return [
-    ...actions.filter((action) => action.inline && !folds(action)),
-    ...folded,
-    ...menu.map((action, index) => (index === 0 && folded.length ? { ...action, separatorBefore: true } : action)),
+    ...actions.filter((action) => action.inline),
+    ...toggles,
+    ...menu.map((action, index) => (index === 0 && toggles.length ? { ...action, separatorBefore: true } : action)),
   ];
 }
 
@@ -453,12 +465,6 @@ export function toggleVisualizeCompare(sessionId: string, tab: VisualizeTabState
   if (typeof version === 'number') showVisualizeVersion(sessionId, tab.id, version, true);
 }
 
-/** Allow (or block again) outside network for a tab's HTML pages; the tab
- *  reloads under the new policy. Desktop only. */
-export function setVisualizeNetwork(sessionId: string, tabId: string, allow: boolean): void {
-  void window.mixdogDesktop?.visualizeCommand?.({ sessionId, tabId, action: 'network', allow })?.catch(() => {});
-}
-
 /** Tabs whose pages the user chose to run on this paired remote client,
  *  remembered for this device session (the page's lifetime). */
 const scriptRuns = new Set<string>();
@@ -494,7 +500,8 @@ export function reportVisualizeRender(
   renderId: string | undefined,
   error?: string
 ): void {
-  // Only panes of the desktop window carry an id; remote clients render locally.
+  // Panes carry the id issued for this render (the desktop window's, or a
+  // paired client's own); older hosts issue none to remote clients.
   if (!renderId) return;
   void window.mixdogDesktop
     ?.visualizeCommand?.({

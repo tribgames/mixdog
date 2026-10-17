@@ -9,6 +9,7 @@ import {
 } from './editor-language-store';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
+import { isPhoneSurfaceMarked } from './mobile-surface';
 import { acquireModalLayer } from './modal-layer';
 import { acquireTitleBarDim } from './titlebar-dim';
 
@@ -428,7 +429,7 @@ export function WorkbenchQuickAccess({
                     <small>{row.command.category}</small>
                     {row.command.label}
                   </span>
-                  {row.command.shortcut && <kbd>{row.command.shortcut}</kbd>}
+                  {row.command.shortcut && !isPhoneSurfaceMarked() && <kbd>{row.command.shortcut}</kbd>}
                 </button>
               );
             }

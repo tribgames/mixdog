@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
 import { DesktopServiceClient } from './desktop-service-client.ts';
+import { DESKTOP_SERVICE_METHODS } from './desktop-service-contract.ts';
+import { readSessionAttachment } from './session-attachments.ts';
 import { RemoteBootstrapError } from './ssh/remote-bootstrap.ts';
 
 class TestTransport extends EventEmitter {
@@ -84,8 +87,49 @@ test('an aborted final-answer read rejects with the abort reason and drops the l
     await assert.rejects(read, (error) => error === reason);
     assert.equal(client.pending.size, 0);
     transport.respond(transport.requests[0], null);
-    await assert.rejects(client.readSessionFinalAnswer('session_a', 1_000, controller.signal), (error) => error === reason);
+    await assert.rejects(
+      client.readSessionFinalAnswer('session_a', 1_000, controller.signal),
+      (error) => error === reason
+    );
     assert.equal(transport.requests.length, 1, 'an already-aborted read is never sent');
+  } finally {
+    await client.dispose();
+  }
+});
+
+test('a window opens a sent attachment: the client reads the transcript the service holds', async () => {
+  const bytes = Buffer.from('png bytes');
+  const id = createHash('sha256').update(bytes).digest('hex');
+  const transport = new ControlledTransport();
+  const client = new DesktopServiceClient({
+    connect: () => transport,
+    sessionOptions: () => ({ userDataPath: 'C:/tmp/mixdog', packaged: false }),
+    startupTimeoutMs: 1_000,
+  });
+  const answers = {
+    readSessionTranscript: {
+      items: [{ id: 'u1', kind: 'user', text: '', images: [{ id: 1, name: 'shot.png', attachmentRef: id }] }],
+    },
+    readAttachmentImage: bytes.toString('base64'),
+  };
+  const served = (async () => {
+    for (let answered = 0; answered < 2; ) {
+      const request = transport.requests[answered];
+      if (!request) {
+        await new Promise((resolve) => setImmediate(resolve));
+        continue;
+      }
+      transport.respond(request, answers[request.method]);
+      answered += 1;
+    }
+  })();
+  try {
+    assert.ok(DESKTOP_SERVICE_METHODS.includes('readSessionTranscript'));
+    const { meta, bytes: read } = await readSessionAttachment(client, 'session_a', id);
+    await served;
+    assert.equal(meta.name, 'shot.png');
+    assert.deepEqual(read, bytes);
+    assert.deepEqual(transport.requests[0].args, ['session_a']);
   } finally {
     await client.dispose();
   }

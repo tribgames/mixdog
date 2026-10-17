@@ -57,13 +57,11 @@ function useEnabledProviders(api: CapabilityApi): Provider[] | null {
   return providers;
 }
 
-/** Which of this PC's models the server may use, and for how long after the last action. */
+/** Which of this PC's models the server may use. */
 function useModelAccess(api: CapabilityApi, settings: DesktopSshHostSettings | undefined) {
   const providers = useEnabledProviders(api);
   const [allowAll, setAllowAll] = useState(settings?.allowedProviders == null);
   const [allowed, setAllowed] = useState<Set<string>>(() => new Set(settings?.allowedProviders ?? []));
-  const [grantMinutes, setGrantMinutes] = useState(String(settings?.grantMinutes ?? 120));
-  const [allowBackground, setAllowBackground] = useState(settings?.allowBackgroundModelUse === true);
   const toggleProvider = (id: string, on: boolean): void => {
     setAllowed((current) => {
       const next = new Set(current);
@@ -72,17 +70,7 @@ function useModelAccess(api: CapabilityApi, settings: DesktopSshHostSettings | u
       return next;
     });
   };
-  return {
-    providers,
-    allowAll,
-    setAllowAll,
-    allowed,
-    toggleProvider,
-    grantMinutes,
-    setGrantMinutes,
-    allowBackground,
-    setAllowBackground,
-  };
+  return { providers, allowAll, setAllowAll, allowed, toggleProvider };
 }
 
 type ModelAccess = ReturnType<typeof useModelAccess>;
@@ -112,22 +100,6 @@ function ModelAccessFieldset({ access }: { access: ModelAccess }) {
       </CheckRow>
       <ProviderChoices access={access} />
       <p className="conn-note">{t('The server uses your accounts through this PC only while it is connected.')}</p>
-      <label className="conn-field">
-        <span>{t('Model permission after your last action in the server window (minutes)')}</span>
-        <input
-          type="number"
-          className="conn-input"
-          min={10}
-          max={1440}
-          step={1}
-          inputMode="numeric"
-          value={access.grantMinutes}
-          onChange={(event) => access.setGrantMinutes(event.currentTarget.value)}
-        />
-      </label>
-      <CheckRow checked={access.allowBackground} onChange={access.setAllowBackground}>
-        {t('Allow this PC’s models for scheduled and webhook work too')}
-      </CheckRow>
     </fieldset>
   );
 }
@@ -166,13 +138,6 @@ export function SshHostSettingsDialog({
         allowedProviders: access.allowAll
           ? null
           : [...access.allowed].filter((id) => !providers || providers.some((provider) => provider.id === id)),
-        grantMinutes: access.grantMinutes.trim() === '' ? undefined : Number(access.grantMinutes),
-        allowBackgroundModelUse: access.allowBackground,
-        // Budget overrides have no fields here: saved ones are kept.
-        grantCalls: host.settings?.grantCalls,
-        grantTokens: host.settings?.grantTokens,
-        backgroundCallsPerHour: host.settings?.backgroundCallsPerHour,
-        backgroundTokensPerDay: host.settings?.backgroundTokensPerDay,
       })
     )
       .then(() => {

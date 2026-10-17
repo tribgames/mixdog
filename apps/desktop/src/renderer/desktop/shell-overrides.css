@@ -489,11 +489,15 @@ html[data-mixdog-mobile-tabs] .settings-shortcut-row {
   row-gap: 4px;
   padding-block: 8px;
 }
-html[data-mixdog-mobile-tabs] .settings-shortcut-row kbd {
-  margin-left: auto;
-  overflow-wrap: normal;
-  text-align: right;
-  white-space: normal;
+/* The phone is touch-only: desktop keyboard-shortcut hints never show there.
+   (Menus/palette also skip them in JS; this covers static markup.) Only the
+   app's own key chips: a <kbd> inside rendered message text is content. */
+html[data-mixdog-mobile-tabs] .mx-keybind,
+html[data-mixdog-mobile-tabs] .welcome-keys,
+html[data-mixdog-mobile-tabs] .question-key,
+html[data-mixdog-mobile-tabs] .visualize-region-note-keys,
+html[data-mixdog-mobile-tabs] .dock-file-menu-key {
+  display: none !important;
 }
 
 /* Pairing v2 PC switcher: the chip is a 40dp hit area that keeps its 28dp

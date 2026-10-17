@@ -16,6 +16,8 @@ const RENDER_TIMEOUT_MS = 30_000;
 const RESIZE_MS = 300;
 /** Time for scripts and fonts to settle after the load event. */
 const SETTLE_MS = 500;
+/** Gap between asks of a page whether it has drawn (`options.ready`). */
+const READY_POLL_MS = 50;
 
 /** Whether the export window may make `url`'s request: its lease's own
  *  origin and inline `data:` / `blob:` / `about:` content always; any other
@@ -66,7 +68,11 @@ const LOOPBACK_LEASE = /https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d+(?:\/[\
  *  host path (anything under `roots` is dropped, any other reduced to its
  *  file name) survives in it. */
 export function exportProblemLine(kind: string, message: string, line = 0, roots: readonly string[] = []): string {
-  const text = localizeProblemText(message, roots).replace(LOOPBACK_LEASE, '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const text = localizeProblemText(message, roots)
+    .replace(LOOPBACK_LEASE, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300);
   return line > 0 ? `${kind}: ${text} (line ${line})` : `${kind}: ${text}`;
 }
 
@@ -98,12 +104,14 @@ export async function renderPageExport(pageUrl: string, format: 'png' | 'pdf', a
 /** The export plus what went wrong in the page while it rendered (uncaught
  *  errors and console errors/warnings, blocked requests, failed loads and
  *  subresources). `options.signal` aborts the render and destroys its window;
- *  `options.roots` are host folders kept out of every problem line. */
+ *  `options.roots` are host folders kept out of every problem line.
+ *  `options.ready` is a script the page answers `true` once it has drawn
+ *  (polled after the load), or an error text when it cannot. */
 export async function renderPageExportDetailed(
   pageUrl: string,
   format: 'png' | 'pdf',
   allowNetwork: boolean,
-  options: { roots?: readonly string[]; signal?: AbortSignal } = {}
+  options: { roots?: readonly string[]; signal?: AbortSignal; ready?: string } = {}
 ): Promise<{ data: Buffer; problems: string[] }> {
   const roots = options.roots ?? [];
   options.signal?.throwIfAborted();
@@ -165,6 +173,14 @@ export async function renderPageExportDetailed(
     });
     const render = async (): Promise<Buffer> => {
       await window.loadURL(pageUrl);
+      if (options.ready) {
+        for (;;) {
+          const state = await contents.executeJavaScript(options.ready);
+          if (state === true) break;
+          if (typeof state === 'string') throw new Error(state);
+          await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
+        }
+      }
       await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
       if (format === 'pdf') return contents.printToPDF({ printBackground: true, preferCSSPageSize: true });
       // Size the window to the whole page and take what it shows. (Not the

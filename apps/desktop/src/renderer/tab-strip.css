@@ -137,6 +137,19 @@
   white-space: nowrap;
   text-align: left;
 }
+/* Terminal command activity: running (accent) or finished while unfocused
+   (success) — the dot trails the shell name. */
+.terminal-tab-activity {
+  display: block;
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mx-accent);
+}
+.terminal-tab-activity.is-finished {
+  background: var(--mx-success);
+}
 .browser-tab-select small {
   flex: none;
   color: var(--mx-text-faint);
@@ -367,10 +380,10 @@
   display: flex;
   flex-direction: column;
   padding: 4px;
-  border: 1px solid var(--mx-border);
-  border-radius: var(--mx-radius-md);
-  background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
-  box-shadow: var(--mx-overlay);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .dock-header-menu > button {
   flex: none;

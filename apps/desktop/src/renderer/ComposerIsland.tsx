@@ -10,6 +10,8 @@ import {
 } from 'react';
 import { dismissShellJobs, useDismissedShellJobs } from './background-jobs-dismissed-store';
 import { AgentPoolRow } from './AgentActivityPane';
+import { clearableAgentNode, dismissFinishedAgentRows, useVisibleAgentPool } from './agent-dismiss';
+import type { DesktopAgentActivityState } from '../shared/agent-activity';
 import {
   AGENT_POOL_RECONCILE_MS,
   agentPoolStore,
@@ -22,6 +24,7 @@ import {
 import {
   backgroundJobRows,
   EMPTY_SHELL_ROW_RETENTION,
+  expiredShellRows,
   retainVanishedShellRows,
   type JobKind,
   type JobRow,
@@ -103,12 +106,19 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
     const pill = pillRef.current;
     const stage = island?.parentElement;
     if (!island || !pill || !stage) return undefined;
-    const fitLabels = () => {
-      island.removeAttribute('data-compact');
-      island.setAttribute('data-measuring', '');
-      const needed = pill.offsetWidth;
-      island.removeAttribute('data-measuring');
-      island.toggleAttribute('data-compact', needed > stage.clientWidth);
+    // The pill's full-label width depends on its content only, so it is read
+    // (data-measuring, two style passes) when the content changes; a resize
+    // of the room — every step of a window drag — only compares against it.
+    let needed = -1;
+    const fitLabels = (contentChanged: boolean) => {
+      if (contentChanged || needed < 0) {
+        island.removeAttribute('data-compact');
+        island.setAttribute('data-measuring', '');
+        needed = pill.offsetWidth;
+        island.removeAttribute('data-measuring');
+      }
+      const compact = needed > stage.clientWidth;
+      if (compact !== island.hasAttribute('data-compact')) island.toggleAttribute('data-compact', compact);
     };
     // The worktree name is the one label that gives way after compact (which
     // already drops its prefix and caps it): a name squeezed below its cap
@@ -124,14 +134,14 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
       }
       if (cut() && name.clientWidth < WORKTREE_NAME_MIN_PX) island.setAttribute('data-fit-glyph', '');
     };
-    const fit = () => {
-      fitLabels();
+    const fit = (contentChanged: boolean) => {
+      fitLabels(contentChanged);
       fitWorktree();
     };
-    fit();
-    const resize = new ResizeObserver(fit);
+    fit(true);
+    const resize = new ResizeObserver(() => fit(false));
     resize.observe(stage);
-    const mutation = new MutationObserver(fit);
+    const mutation = new MutationObserver(() => fit(true));
     mutation.observe(pill, {
       subtree: true,
       childList: true,
@@ -149,13 +159,67 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
  *  content returning within it (one segment handing over to the next) moves
  *  nothing. */
 export const ISLAND_COLLAPSE_GRACE_MS = 500;
+/** How long a mount reserving its session's remembered height waits for the
+ *  first segment before it takes the ordinary collapse. */
+export const ISLAND_RESERVE_HOLD_MS = 2_000;
 /** What the island carries; the stylesheet's empty-island rule tests the same. */
 const ISLAND_CONTENT =
   '.composer-island-seg, .session-goal-island, .composer-island-approval, .composer-island-flash, .composer-island-quota, .turn-review-bar';
 
 type SlotPresence = 'open' | 'grace' | 'closing' | 'closed';
+
+/** Each session's last resting (pill) slot height, 0 once its island emptied.
+ *  A session switch remounts the island before its segments have read their
+ *  state; the slot reserves this height for the mount instead of opening late
+ *  and lifting the composer. Kept across reloads (most recent sessions only);
+ *  a session never shown has no entry and mounts at its true state. */
+const RESTING_SLOT_HEIGHTS_KEY = 'mixdog:composer-island-resting-heights';
+const RESTING_SLOT_HEIGHTS_MAX = 200;
+let restingSlotHeights: Map<string, number> | null = null;
+
+function slotHeights(): Map<string, number> {
+  if (restingSlotHeights) return restingSlotHeights;
+  restingSlotHeights = new Map();
+  try {
+    const stored: unknown = JSON.parse(window.localStorage.getItem(RESTING_SLOT_HEIGHTS_KEY) || '[]');
+    if (Array.isArray(stored)) {
+      for (const entry of stored) {
+        if (Array.isArray(entry) && typeof entry[0] === 'string' && Number.isFinite(entry[1])) {
+          restingSlotHeights.set(entry[0], entry[1]);
+        }
+      }
+    }
+  } catch {
+    /* an unreadable cache only costs one late opening per session */
+  }
+  return restingSlotHeights;
+}
+
+function reservedSlotHeight(sessionId: string): number {
+  return (sessionId && slotHeights().get(sessionId)) || 0;
+}
+
+function rememberSlotHeight(sessionId: string, height: number): void {
+  if (!sessionId) return;
+  const heights = slotHeights();
+  if (heights.get(sessionId) === height) return;
+  // Most recent last, so the oldest entry is the first to go.
+  heights.delete(sessionId);
+  heights.set(sessionId, height);
+  for (const oldest of heights.keys()) {
+    if (heights.size <= RESTING_SLOT_HEIGHTS_MAX) break;
+    heights.delete(oldest);
+  }
+  try {
+    window.localStorage.setItem(RESTING_SLOT_HEIGHTS_KEY, JSON.stringify([...heights]));
+  } catch {
+    /* quota or a disabled store: the in-memory cache still serves this run */
+  }
+}
 /** The slot's eased height; the stylesheet rounds it to whole pixels. */
 const SLOT_HEIGHT = '--island-slot-height';
+/** Pane height above an open panel's floor; the stylesheet caps the panel to it. */
+const PANEL_ROOM = '--island-panel-room';
 
 /**
  * Owns the slot's explicit height and data-presence. Content opens the slot
@@ -170,15 +234,33 @@ const SLOT_HEIGHT = '--island-slot-height';
  * Content changes are read in the mutation microtask, before the frame's
  * layout, so the transcript's viewport observer sees the new dock in the same
  * frame. Segments render from their own state, so the island's DOM, not its
- * props, is watched.
+ * props, is watched. An island mounted in place of other dock chrome
+ * (heldHeightRef, the draft context bar) starts at that chrome's height:
+ * empty, it stays there for the mount frame and then takes the ordinary
+ * grace and collapse, as if its last content had just left. Otherwise an
+ * island remounted for a session it showed before starts at that session's
+ * resting height and holds it up to ISLAND_RESERVE_HOLD_MS for the first
+ * segment, so a revisit opens without moving the composer.
  */
-function useIslandSlotPresence(slotRef: RefObject<HTMLDivElement | null>, islandRef: RefObject<HTMLDivElement | null>) {
+function useIslandSlotPresence(
+  slotRef: RefObject<HTMLDivElement | null>,
+  islandRef: RefObject<HTMLDivElement | null>,
+  heldHeightRef: RefObject<number>,
+  sessionIdRef: RefObject<string>
+) {
   useLayoutEffect(() => {
     const slot = slotRef.current;
     const island = islandRef.current;
     const stage = island?.parentElement;
     if (!slot || !island || !stage) return undefined;
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    // Dock chrome this island replaces wins; otherwise the session's resting
+    // height is reserved for the mount (see restingSlotHeights).
+    const held = heldHeightRef.current > 0 ? heldHeightRef.current : reservedSlotHeight(sessionIdRef.current);
+    // A reserved mount waits for its segments' first read (a cold session's
+    // lane and git state), which outlasts the ordinary grace; the hold ends
+    // with the first content.
+    let reserving = heldHeightRef.current <= 0 && held > 0;
     let armed = false;
     let grace = 0;
     let height = -1;
@@ -218,7 +300,17 @@ function useIslandSlotPresence(slotRef: RefObject<HTMLDivElement | null>, island
         presence('closed');
       }
     };
+    // A panel paints upward from the pill's resting floor, so its real room is
+    // the pane's top down to that floor (the dock's height varies).
+    const pane = slot.closest('.conversation');
+    const measureRoom = () => {
+      if (!pane) return;
+      const room = stage.getBoundingClientRect().top - pane.getBoundingClientRect().top + pillHeight();
+      slot.style.setProperty(PANEL_ROOM, `${Math.max(0, Math.floor(room))}px`);
+    };
+    const pillHeight = () => Number.parseFloat(getComputedStyle(slot).getPropertyValue('--island-pill-height')) || 0;
     const sync = () => {
+      if (island.getAttribute('data-mode') === 'panel') measureRoom();
       const animate = armed && !reducedMotion.matches;
       const content = Boolean(island.querySelector(ISLAND_CONTENT));
       const mode = island.getAttribute('data-mode');
@@ -229,22 +321,37 @@ function useIslandSlotPresence(slotRef: RefObject<HTMLDivElement | null>, island
       shape = mode;
       if (content) {
         cancelGrace();
+        reserving = false;
         // Shown first: a closed slot has no box to measure.
         presence('open');
-        resize(natural(), animate);
+        const target = natural();
+        resize(target, animate);
+        if (mode === 'pill') rememberSlotHeight(sessionIdRef.current, target);
         return;
       }
       if (!armed) {
         cancelGrace();
+        if (held > 0) {
+          presence('grace');
+          resize(held, false);
+          return;
+        }
         collapse(false);
         return;
       }
-      if (slot.getAttribute('data-presence') !== 'open') return;
+      // A held mount's grace starts once the island is armed.
+      const state = slot.getAttribute('data-presence');
+      if (state !== 'open' && !(state === 'grace' && !grace)) return;
       presence('grace');
-      grace = window.setTimeout(() => {
-        grace = 0;
-        collapse(!reducedMotion.matches);
-      }, ISLAND_COLLAPSE_GRACE_MS);
+      grace = window.setTimeout(
+        () => {
+          grace = 0;
+          reserving = false;
+          rememberSlotHeight(sessionIdRef.current, 0);
+          collapse(!reducedMotion.matches);
+        },
+        reserving ? ISLAND_RESERVE_HOLD_MS : ISLAND_COLLAPSE_GRACE_MS
+      );
     };
     const onTransitionEnd = (event: TransitionEvent) => {
       if (event.target === slot && event.propertyName === SLOT_HEIGHT) endMotion();
@@ -258,12 +365,30 @@ function useIslandSlotPresence(slotRef: RefObject<HTMLDivElement | null>, island
     // The first painted frame shows the true state; changes after it animate.
     const frame = window.requestAnimationFrame(() => {
       armed = true;
+      if (slot.getAttribute('data-presence') === 'grace') sync();
     });
     const mutation = new MutationObserver(sync);
     mutation.observe(island, { subtree: true, childList: true, characterData: true, attributes: true });
     // Size changes without a DOM change (wrapping, the pane's height bound).
-    const resizeObserver = new ResizeObserver(sync);
+    // Only a HEIGHT change can move the slot's target: a width-only change
+    // (every step of a window drag) must not toggle data-measuring and force
+    // two style passes for a target that cannot have changed.
+    const observedHeights = new WeakMap<Element, number>();
+    const resizeObserver = new ResizeObserver((entries) => {
+      let heightChanged = false;
+      for (const entry of entries) {
+        const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+        if (observedHeights.get(entry.target) === height) continue;
+        observedHeights.set(entry.target, height);
+        heightChanged = true;
+      }
+      if (heightChanged) sync();
+    });
     resizeObserver.observe(island);
+    // The dock (textarea, queue, /btw) and the pane move the panel's floor.
+    if (pane) resizeObserver.observe(pane);
+    const region = slot.closest('.composer-region');
+    if (region) resizeObserver.observe(region);
     for (const child of island.children) resizeObserver.observe(child);
     const children = new MutationObserver(() => {
       for (const child of island.children) resizeObserver.observe(child);
@@ -280,7 +405,7 @@ function useIslandSlotPresence(slotRef: RefObject<HTMLDivElement | null>, island
       slot.removeEventListener('transitionend', onTransitionEnd);
       reducedMotion.removeEventListener('change', onMotionPreference);
     };
-  }, [slotRef, islandRef]);
+  }, [slotRef, islandRef, heldHeightRef, sessionIdRef]);
 }
 
 /** An agent blocked on the user is marked for attention and never pulses;
@@ -335,16 +460,18 @@ function ShellJobItem({
 }
 
 /** A jobs panel's header: its own title chip, optional state counts beside
- *  it, and the close button. */
+ *  it, an optional header action, and the close button. */
 function JobsPanelHead({
   mark,
   title,
   meta,
+  action,
   onClose,
 }: {
   mark: ReactNode;
   title: string;
   meta?: ReactNode;
+  action?: ReactNode;
   onClose(): void;
 }) {
   return (
@@ -354,6 +481,7 @@ function JobsPanelHead({
         {title}
       </span>
       {meta ? <span className="composer-island-phead-meta">{meta}</span> : null}
+      {action}
       <button
         type="button"
         className="composer-island-close"
@@ -367,19 +495,52 @@ function JobsPanelHead({
   );
 }
 
-/** How many listed agents run, need the user, or wait: beside the title. */
+/** The listed agents tallied by state, read by both the pill segment and the
+ *  panel head. `waiting` is queued or waiting on tasks; `idle` rests. */
+function islandAgentCounts(agents: readonly IslandAgentRow[]) {
+  const count = (...states: DesktopAgentActivityState[]) => agents.filter(({ state }) => states.includes(state)).length;
+  return {
+    running: count('running', 'cancel-unconfirmed'),
+    needsUser: count('needs-user'),
+    failed: count('failed'),
+    waiting: count('queued', 'waiting'),
+    idle: count('idle'),
+  };
+}
+
+/** One attention state of the agents segment: its mark, then its words on a
+ *  wide island or the bare count on a compact one. */
+function IslandSegState({
+  kind,
+  mark,
+  word,
+  count,
+}: {
+  kind: DesktopAgentActivityState;
+  mark: ReactNode;
+  word: string;
+  count: number;
+}) {
+  return (
+    <span className="composer-island-seg-state" data-kind={kind}>
+      {mark}
+      <span className="composer-island-seg-word">{word}</span>
+      <span className="composer-island-seg-num" data-count={count} aria-hidden="true" />
+    </span>
+  );
+}
+
+/** How many listed agents run, need the user, failed or wait: beside the title. */
 function AgentsStateCounts({ agents }: { agents: IslandAgentRow[] }) {
-  const running = agents.filter(({ state }) => state === 'running' || state === 'cancel-unconfirmed').length;
-  const needsUser = agents.filter(({ state }) => state === 'needs-user').length;
-  const waiting = agents.filter(
-    ({ state }) => state === 'queued' || state === 'waiting' || state === 'idle'
-  ).length;
+  const { running, needsUser, failed, waiting: queued, idle } = islandAgentCounts(agents);
+  const waiting = queued + idle;
   return (
     <>
       <span>
         {t('Island: Running')} <b>{statsCount(running)}</b>
       </span>
       {needsUser > 0 ? <span>{t('Needs you {{needs}}', { needs: needsUser })}</span> : null}
+      {failed > 0 ? <span className="composer-island-failed">{t('{{failed}} failed', { failed })}</span> : null}
       {waiting > 0 ? <span>{t('Island: {{waiting}} waiting', { waiting })}</span> : null}
     </>
   );
@@ -392,6 +553,7 @@ function AgentsSummary({ usage }: { usage: IslandUsageSummary }) {
   const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd } = usage;
   if (totalTokens === null && cacheHitRate === null && costUsd === null) return null;
   return (
+    // biome-ignore lint/a11y/useSemanticElements: fieldset default border/padding/margin would change the styling.
     <div className="composer-island-summary" role="group" aria-label={t('Session usage')}>
       {totalTokens !== null && leadTokens !== null && agentTokens !== null ? (
         <span>
@@ -434,12 +596,25 @@ function AgentsPanel({
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }) {
   const clock = useClock(true);
+  // The listed rows are already the tree flattened: each is judged on its own node.
+  const clearable = agents.filter(({ node }) => clearableAgentNode(node)).map(({ node }) => node.agent);
   return (
     <section className="composer-island-panel" aria-label={t('Agents')}>
       <JobsPanelHead
         mark={jobsTabMark('agent', agents, 0)}
         title={t('Agent {{agent}}', { agent: agents.length })}
         meta={<AgentsStateCounts agents={agents} />}
+        action={
+          clearable.length > 0 ? (
+            <button
+              type="button"
+              className="composer-island-button composer-island-phead-action"
+              onClick={() => dismissFinishedAgentRows(clearable)}
+            >
+              {t('Clear finished')}
+            </button>
+          ) : undefined
+        }
         onClose={onClose}
       />
       {/* The Agents window's own tree and row component; each row's own
@@ -485,21 +660,37 @@ function ShellsPanel({
   shells,
   onClose,
   onDismiss,
+  onDismissAll,
 }: {
   sessionId: string;
   shells: JobRow[];
   onClose(): void;
   /** Hides a finished shell row for good. */
   onDismiss(row: JobRow): void;
+  /** Hides every listed finished shell row for good. */
+  onDismissAll(rows: JobRow[]): void;
 }) {
   const clock = useClock(true);
   const { stopOf, stop } = useShellStops(sessionId);
   const runningShells = shells.filter((row) => !row.finished).length;
+  const finished = shells.filter((row) => row.finished);
   return (
     <section className="composer-island-panel" aria-label={t('Background tasks')}>
       <JobsPanelHead
         mark={jobsTabMark('shell', [], runningShells)}
-        title={t('Shell {{shell}}', { shell: shells.length })}
+        title={runningShells > 0 ? t('Shell {{shell}}', { shell: runningShells }) : t('Shell')}
+        meta={finished.length > 0 ? <span>{t('Island: Ended {{count}}', { count: finished.length })}</span> : undefined}
+        action={
+          finished.length > 0 ? (
+            <button
+              type="button"
+              className="composer-island-button composer-island-phead-action"
+              onClick={() => onDismissAll(finished)}
+            >
+              {t('Island: Close all')}
+            </button>
+          ) : undefined
+        }
         onClose={onClose}
       />
       <ul className="composer-island-pbody composer-island-jobs">
@@ -533,11 +724,35 @@ function useShellRowsUntilFinished(sessionId: string, hostRows: JobRow[]): JobRo
   return result.rows;
 }
 
+/** Dismisses each cleanly exited shell row SHELL_AUTO_DISMISS_MS after it
+ *  finished (after it was first listed, when its finish time is unknown). */
+function useAutoDismissShells(sessionId: string, rows: JobRow[]): void {
+  const seen = useRef({ sessionId, at: new Map<string, number>() });
+  const [tick, setTick] = useState(0);
+  // `tick` re-evaluates once the next row's listing time is over.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tick is the clock input
+  useEffect(() => {
+    if (!sessionId) return undefined;
+    if (seen.current.sessionId !== sessionId) seen.current = { sessionId, at: new Map() };
+    const now = Date.now();
+    const at = seen.current.at;
+    for (const row of rows) if (row.finished && !at.has(row.key)) at.set(row.key, now);
+    const { keys, nextAt } = expiredShellRows(rows, now, (row) => at.get(row.key) ?? now);
+    if (keys.length > 0) dismissShellJobs(sessionId, keys);
+    if (!nextAt) return undefined;
+    const timer = setTimeout(() => setTick((value) => value + 1), Math.max(0, nextAt - now) + 1);
+    return () => clearTimeout(timer);
+  }, [sessionId, rows, tick]);
+}
+
 /** The session's agent rows, finished ones included; polls the shared pool
  *  only while any of them is active. */
 function useIslandAgentRows(sessionId: string): IslandAgentRow[] {
   const poolStore = useMemo(() => agentPoolStore(window.mixdogDesktop), []);
-  const pool = useSyncExternalStore(poolStore.subscribe, poolStore.getSnapshot, poolStore.getSnapshot);
+  // Rows the user cleared ("Clear finished") are not listed.
+  const pool = useVisibleAgentPool(
+    useSyncExternalStore(poolStore.subscribe, poolStore.getSnapshot, poolStore.getSnapshot)
+  );
   const agentRows = useMemo(() => islandAgentRows(pool, sessionId), [pool, sessionId]);
   const hasActive = agentRows.some((row) => !row.finished);
   useEffect(() => {
@@ -562,13 +777,12 @@ function AgentsSegment({
 }) {
   const total = agents.length;
   const active = agents.filter((row) => !row.finished).length;
-  const needsUser = agents.filter(({ state }) => state === 'needs-user').length;
-  const working = agents.filter(({ state }) => state === 'running' || state === 'cancel-unconfirmed').length;
-  const waiting = agents.filter(({ state }) => state === 'queued' || state === 'waiting').length;
+  const { needsUser, failed, running: working, waiting } = islandAgentCounts(agents);
   const title = [
     t('Agent {{agent}}', { agent: total }),
     active === 0 ? t('Done') : '',
     needsUser > 0 ? t('Needs you {{needs}}', { needs: needsUser }) : '',
+    failed > 0 ? t('{{failed}} failed', { failed }) : '',
     waiting > 0 ? t('Island: {{waiting}} waiting', { waiting }) : '',
   ]
     .filter(Boolean)
@@ -584,21 +798,31 @@ function AgentsSegment({
     >
       <IslandSegLabel text={t('Island: {{count}} agents', { count: total })} count={total} icon="agent" />
       {needsUser === 0 ? <AgentMark working={working + waiting > 0} /> : null}
-      {(needsUser > 0 || waiting > 0) && (
+      {(needsUser > 0 || failed > 0 || waiting > 0) && (
         <span className="composer-island-seg-states">
           {needsUser > 0 ? (
-            <span className="composer-island-seg-state">
-              <MxIcon name="warning" size={14} className="composer-island-attention" aria-hidden="true" />
-              <span className="composer-island-seg-word">{t('Needs you {{needs}}', { needs: needsUser })}</span>
-              <span className="composer-island-seg-num" data-count={needsUser} aria-hidden="true" />
-            </span>
+            <IslandSegState
+              kind="needs-user"
+              mark={<MxIcon name="warning" size={14} className="composer-island-attention" aria-hidden="true" />}
+              word={t('Needs you {{needs}}', { needs: needsUser })}
+              count={needsUser}
+            />
+          ) : null}
+          {failed > 0 ? (
+            <IslandSegState
+              kind="failed"
+              mark={<span className="composer-island-dot composer-island-dot-failed" aria-hidden="true" />}
+              word={t('{{failed}} failed', { failed })}
+              count={failed}
+            />
           ) : null}
           {waiting > 0 ? (
-            <span className="composer-island-seg-state" data-kind="waiting">
-              <span className="composer-island-dot composer-island-dot-idle" aria-hidden="true" />
-              <span className="composer-island-seg-word">{t('Island: {{waiting}} waiting', { waiting })}</span>
-              <span className="composer-island-seg-num" data-count={waiting} aria-hidden="true" />
-            </span>
+            <IslandSegState
+              kind="waiting"
+              mark={<span className="composer-island-dot composer-island-dot-idle" aria-hidden="true" />}
+              word={t('Island: {{waiting}} waiting', { waiting })}
+              count={waiting}
+            />
           ) : null}
         </span>
       )}
@@ -606,8 +830,9 @@ function AgentsSegment({
   );
 }
 
-/** The pill's shell segment always reads "N shells" (running + finished not yet
- *  dismissed); only the mark says whether any still runs, so the width is stable. */
+/** The pill's shell segment counts running shells only. With only finished
+ *  shells left (not yet dismissed) it reads "Shell", muted and without a
+ *  number; with none it is gone. */
 function ShellsSegment({
   runningCount,
   finishedCount,
@@ -620,18 +845,28 @@ function ShellsSegment({
   onClick(): void;
 }) {
   const live = runningCount > 0;
-  const count = runningCount + finishedCount;
-  if (count === 0) return null;
+  if (!live && finishedCount === 0) return null;
   return (
     <button
       type="button"
       className="composer-island-seg composer-island-seg-shell"
       data-finished={live ? undefined : 'true'}
       aria-expanded={expanded}
-      title={t('Shell {{shell}}', { shell: count })}
+      title={live ? t('Shell {{shell}}', { shell: runningCount }) : t('Shell')}
       onClick={onClick}
     >
-      <IslandSegLabel text={t('Island: {{count}} shells', { count })} count={count} icon="shell-prompt" />
+      {live ? (
+        <IslandSegLabel
+          text={t('Island: {{count}} shells', { count: runningCount })}
+          count={runningCount}
+          icon="shell-prompt"
+        />
+      ) : (
+        <>
+          <MxIcon name="shell-prompt" size={14} className="composer-island-seg-icon" aria-hidden="true" />
+          <span className="composer-island-seg-word">{t('Shell')}</span>
+        </>
+      )}
       <StateMark working={live} />
     </button>
   );
@@ -706,26 +941,35 @@ function ResumePanel({ resume }: { resume: ComposerIslandQuotaResume }) {
  */
 export function ComposerIsland({
   sessionId,
+  routeSessionId = sessionId,
   goal,
   files,
   branch,
+  git,
   workBusy = false,
   approval,
   flash,
   quotaResume,
+  heldHeight = 0,
   onOpenAgentSession,
 }: {
   /** The pane's session ('' while hidden): background jobs read its lane. */
   sessionId: string;
+  /** The route address the island is mounted (keyed) for; its resting slot
+   *  height is remembered per address. Defaults to `sessionId`. */
+  routeSessionId?: string;
   /** Opens an agent's session (same action as the Agents pane rows). */
   onOpenAgentSession?(sessionId: string, title: string, ownerSessionId: string): void;
   goal?: ReactNode;
   /** The changed-files segment: opens the side dock, or where the surface has
    *  none, expands into the turn's file list like the Goal tab. */
   files?: ReactNode;
-  /** The branch segment (BranchIslandSegment), last in the pill; `locked`
-   *  while the session has work running (no branch or worktree switch). */
+  /** The branch segment (BranchIslandSegment), first of the git group after
+   *  the divider; `locked` while the session has work running (no branch or
+   *  worktree switch). */
   branch?: (locked: boolean) => ReactNode;
+  /** The git action (IslandGitSegment), last in the pill. */
+  git?: ReactNode;
   /** A running turn or command, or queued composer input. */
   workBusy?: boolean;
   /** The live tool approval card: the island grows into it. */
@@ -733,12 +977,17 @@ export function ComposerIsland({
   flash?: ComposerIslandFlash | null;
   /** A waiting auto-resume: a pill segment that expands into its panel. */
   quotaResume?: ComposerIslandQuotaResume | null;
+  /** The height of the dock chrome this island replaces at mount (the draft's
+   *  context bar on its first submit): an empty island holds it instead of
+   *  closing in that frame. Read once, at mount. */
+  heldHeight?: number;
 }) {
   const lane = useSessionLane(sessionId, defaultSessionLaneStore, desktopHeaderSnapshotsEqual, Boolean(sessionId));
   const snapshot = lane ?? EMPTY_SNAPSHOT;
   const dismissedShells = useDismissedShellJobs(sessionId);
   const hostJobRows = useMemo(() => backgroundJobRows(snapshot, dismissedShells), [snapshot, dismissedShells]);
   const jobRows = useShellRowsUntilFinished(sessionId, hostJobRows);
+  useAutoDismissShells(sessionId, jobRows);
   const agentRows = useIslandAgentRows(sessionId);
   const shellRows = jobRows.filter((row) => !row.finished);
   const finishedShellCount = jobRows.filter((row) => row.finished).length;
@@ -761,7 +1010,10 @@ export function ComposerIsland({
   const pillRef = useRef<HTMLDivElement | null>(null);
   const slotRef = useRef<HTMLDivElement | null>(null);
   useIslandFit(islandRef, pillRef);
-  useIslandSlotPresence(slotRef, islandRef);
+  const heldHeightRef = useRef(heldHeight);
+  const routeSessionIdRef = useRef(routeSessionId);
+  routeSessionIdRef.current = routeSessionId;
+  useIslandSlotPresence(slotRef, islandRef, heldHeightRef, routeSessionIdRef);
   // Finished background work announces nothing: a flash per job would make
   // the island pop in and out.
   const visibleFlash = useIslandFlash(flash ?? null);
@@ -776,10 +1028,11 @@ export function ComposerIsland({
   useEffect(() => {
     setExpanded('');
   }, [sessionId]);
-  // Outside press or Escape collapses the island's own tabs. The Goal tab
-  // owns its dismissal (it also guards its edit dialog).
+  // Outside press or Escape collapses the island's own tabs and the branch
+  // and git tabs. The Goal and files tabs own their dismissal (they also
+  // guard their dialogs and pickers).
   useEffect(() => {
-    if (expanded !== 'agents' && expanded !== 'shells' && expanded !== 'resume') return undefined;
+    if (!['agents', 'shells', 'resume', 'branch', 'git'].includes(expanded)) return undefined;
     const onPointerDown = (event: PointerEvent) => {
       const island = islandRef.current;
       if (island && event.target instanceof Node && island.contains(event.target)) return;
@@ -852,8 +1105,12 @@ export function ComposerIsland({
                 expanded={expanded === 'shells'}
                 onClick={() => toggle('shells')}
               />
-              {files}
+              {/* Work (agents, shells) │ git (branch, files, git action); the
+                  stylesheet shows the divider only between two groups. */}
+              <span className="composer-island-divider" aria-hidden="true" />
               {branch?.(locked)}
+              {files}
+              {git}
             </div>
             {resumePanel && quotaResume ? <ResumePanel resume={quotaResume} /> : null}
             {shellsPanel && (
@@ -862,6 +1119,12 @@ export function ComposerIsland({
                 shells={jobRows}
                 onClose={() => setExpanded('')}
                 onDismiss={(row) => dismissShellJobs(sessionId, [row.key])}
+                onDismissAll={(rows) =>
+                  dismissShellJobs(
+                    sessionId,
+                    rows.map((row) => row.key)
+                  )
+                }
               />
             )}
             {agentsPanel && (

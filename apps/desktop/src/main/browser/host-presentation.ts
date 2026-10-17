@@ -125,7 +125,16 @@ export function createBrowserHostPresentation(options: {
   window: BrowserWindow;
   base: Pick<
     BrowserHostFoundation,
-    'sessions' | 'state' | 'cdp' | 'leave' | 'display' | 'displayTextures' | 'urls' | 'urlPolicy' | 'sendToRenderer'
+    | 'sessions'
+    | 'state'
+    | 'cdp'
+    | 'leave'
+    | 'display'
+    | 'displayTextures'
+    | 'urls'
+    | 'urlPolicy'
+    | 'sendToRenderer'
+    | 'partition'
   >;
   lifecycle: Lifecycle;
   tools: Pick<Toolkit, 'emulation' | 'dispatchInput' | 'dialogs' | 'refActions'>;
@@ -170,6 +179,7 @@ export function createBrowserHostPresentation(options: {
         })),
     controller: (guest) => sessions.sessionIdForGuest(guest),
     leave,
+    permissions: options.base.partition.permissions,
   });
   const remote = createBrowserHostRemoteControl({
     sessionTabs,

@@ -1,4 +1,5 @@
 import type { TranscriptItem } from './desktop-types';
+import type { PatchSectionDigest } from './renderer-logic.mjs';
 import { t, uiFormatLocale } from './i18n';
 import { asRecord, oneLine } from './text-format';
 // biome-ignore format: @ts-expect-error must precede the specifier
@@ -73,6 +74,57 @@ export function shouldSuppressFullyFailedToolItem(item: TranscriptItem) {
   return completed >= count && errors >= count && !isHookApprovalDenialToolItem(item) && !toolResultText(item);
 }
 
+/** The diff a phone's copy of a call carries instead of its text: one digest
+ *  per file section, computed by the host with `patchSectionDigests`
+ *  (`remote-transcript.ts`). Null on a row that holds its diff, or has none. */
+export interface UiDiffSummary {
+  sections: PatchSectionDigest[];
+}
+export function uiDiffDigest(item: TranscriptItem): UiDiffSummary | null {
+  const digest = item.uiDiffSummary as Partial<UiDiffSummary> | null | undefined;
+  return digest && typeof digest === 'object' && Array.isArray(digest.sections) ? (digest as UiDiffSummary) : null;
+}
+
+/** FNV-1a over the whole text: one linear pass, no allocation. */
+function textHash(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/** What a fetched full output or diff is bound to: the parts of a row that
+ *  change when its output or diff does. A text fetched for one revision is
+ *  never shown for another. */
+export function toolRowRevision(item: TranscriptItem): string {
+  const digest = uiDiffDigest(item);
+  const signature = digest
+    ? digest.sections
+        .map(
+          (section) =>
+            `${section.names.join('>')}:${section.counts.additions}/${section.counts.deletions}:${section.statuses.join('')}`
+        )
+        .join(';')
+    : '';
+  const identity = (value: unknown) => (typeof value === 'string' ? `${value.length}.${textHash(value)}` : '0');
+  return [
+    item.remoteOutputTruncated ?? 0,
+    item.completedAt ?? '',
+    item.count ?? '',
+    identity(item.result),
+    identity(item.rawResult),
+    identity(item.uiDiff),
+    signature,
+  ].join('|');
+}
+
+/** The call changed something: it holds a diff, or (on a phone) the digest of one. */
+export function toolItemHasDiff(item: TranscriptItem): boolean {
+  return (typeof item.uiDiff === 'string' && Boolean(item.uiDiff.trim())) || uiDiffDigest(item) !== null;
+}
+
 export function toolItemDone(item: TranscriptItem): boolean {
   return (
     item.completedAt != null ||
@@ -86,7 +138,7 @@ export function toolActivityItemTone(item: TranscriptItem): 'error' | 'warning' 
   const count = Math.max(1, Math.round(Number(item.count || 1)));
   const callFailedCount = Math.max(0, Number(item.callErrorCount || 0));
   const exitFailedCount = Math.max(0, Number(item.exitErrorCount || 0));
-  const partialMutation = callFailedCount > 0 && typeof item.uiDiff === 'string' && Boolean(item.uiDiff.trim());
+  const partialMutation = callFailedCount > 0 && toolItemHasDiff(item);
   let terminalStatus = '';
   if (isHookApprovalDenialToolItem(item)) terminalStatus = 'denied';
   else if (resultTerminalStatus(item.result ?? item.rawResult) === 'cancelled') terminalStatus = 'cancelled';

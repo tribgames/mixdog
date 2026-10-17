@@ -37,6 +37,7 @@ import type { ProviderModelsChange } from './provider-models';
 import type { SettingsChange } from './settings-changed';
 import type { HostDisplayPreferences } from './host-display-preferences';
 import type { TerminalSizeOwnerEvent } from './terminal-size-owner';
+import type { TerminalActivityEvent } from './terminal-activity';
 import type { DesktopTerminalRunRequest } from './terminal-command';
 import type {
   DesktopVisualizeEvent,
@@ -44,6 +45,7 @@ import type {
   VisualizeCommandResult,
   VisualizePaneSource,
   VisualizePaneText,
+  VisualizeRemoteExport,
   VisualizeSessionState,
 } from './visualize';
 import type {
@@ -91,6 +93,7 @@ import type {
   DesktopGitGlobalConfigKey,
   DesktopGitIgnoreScope,
   DesktopGitLogEntry,
+  DesktopGitRequestContext,
   DesktopGitReview,
   DesktopGitReviewDiffRequest,
   DesktopGitReviewDiffs,
@@ -424,11 +427,21 @@ export interface DesktopApi {
    *  runtime (the task tool's cancel). `stopped` is true only when the job was
    *  actually cancelled; unknown, finished or failed cancels carry `error`. */
   stopShellJob?(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }>;
+  /** Explicit "Release anyway" for a shell job whose termination is
+   *  unconfirmed: drops its workspace hold in the owning runtime. The caller
+   *  confirms with the user first. */
+  releaseShellJob?(sessionId: string, taskId: string): Promise<{ released: boolean; error?: string }>;
   /** Whether quota-stopped sessions resume by themselves at reset (default true). */
   getQuotaAutoResume(): Promise<boolean>;
   /** The device name this window's own actions are stamped with (the host's
    *  name locally, the paired client's name on a remote surface). */
   viewerDevice?(): Promise<string>;
+  /** Remote surface only: the uncapped output of one tool row whose output the
+   *  host cut for the phone (`remoteOutputTruncated`); null when it is gone. */
+  readTranscriptItem?(
+    sessionId: string,
+    itemId: string
+  ): Promise<{ id: string; result?: unknown; rawResult?: unknown; uiDiff?: unknown; withheld?: true } | null>;
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
   setSessionFavorite?(sessionId: string, favorite: boolean): Promise<void>;
@@ -535,9 +548,6 @@ export interface DesktopApi {
   closeConnectionWindow?(): Promise<void>;
   /** Shows Settings → Connection in this PC's window. */
   openConnectionSettings?(): Promise<void>;
-  /** "Keep allowing": this server window lets its server use this PC's
-   *  models again (a new grant). */
-  allowServerModelUse?(): Promise<void>;
   /** "Reopen server windows when the app starts" (this PC's window only). */
   getReopenServerWindows?(): Promise<boolean>;
   setReopenServerWindows?(enabled: boolean): Promise<boolean>;
@@ -621,6 +631,11 @@ export interface DesktopApi {
   subscribeTermData?(listener: (event: { id: string; data: string }) => void): () => void;
   /** A phone claimed, released or lost a PTY's size; other views follow or re-fit. */
   subscribeTermSizeOwner?(listener: (event: TerminalSizeOwnerEvent) => void): () => void;
+  /** Every live terminal whose command activity is known (integrated shells). */
+  termActivity?(): Promise<TerminalActivityEvent[]>;
+  /** This view shows `id` focused (renewed while it stays so) or left it. */
+  termFocus?(id: string, focused: boolean): void;
+  subscribeTermActivity?(listener: (event: TerminalActivityEvent) => void): () => void;
   /** Shells detected on this machine for the terminal strip's picker. */
   termProfiles?(): Promise<Array<{ id: string; label: string; path: string; default?: boolean }>>;
   /** Dock Git panel: plain git CLI over the active project directory. */
@@ -669,6 +684,8 @@ export interface DesktopApi {
   gitLog?(cwd: string, query?: string, skip?: number, limit?: number): Promise<DesktopGitLogEntry[]>;
   gitShow?(cwd: string, hash: string): Promise<DesktopGitCommitDetails>;
   gitShowDiff?(cwd: string, hash: string, path: string): Promise<string>;
+  /** Island Git request: read-only snapshot of status, diffs, history and the branch's PR. */
+  gitRequestContext?(cwd: string, input: { paths: string[]; base: string }): Promise<DesktopGitRequestContext>;
   /** Diff tab editor mode: file content at `HEAD`/`:0`/commit (null if absent). */
   gitShowFile?(cwd: string, rev: string, path: string): Promise<string | null>;
   /**
@@ -723,6 +740,18 @@ export interface DesktopApi {
    *  bounded original for a paired phone; null when missing, unreadable or not
    *  an image. */
   readAttachmentThumbnail?(attachmentRef: string): Promise<string | null>;
+  /** An attachment a message of this session carries, by id (the content hash
+   *  recorded in the message metadata, or an older image's own reference),
+   *  read from the host's attachment store as a `data:` URL. Rejects for an id
+   *  the session's transcript does not name. Desktop windows only. */
+  readSessionAttachment?(
+    sessionId: string,
+    attachmentId: string
+  ): Promise<{ name: string; mimeType: string; size: number; dataUrl: string }>;
+  /** A paired device: opens that attachment through the remote file preview —
+   *  a staged file on the PC plus a one-file grant scoped to the session
+   *  (`accessToken`), like any previewable file row. */
+  openSessionAttachment?(sessionId: string, attachmentId: string): Promise<DesktopLocalPathEntry>;
   /** Any `data:` attachment → OS app, keeping the (safe) extension of `name`. */
   openAttachmentFile?(dataUrl: string, name: string): Promise<void>;
   /** Writes a `data:` attachment to the temp dir and returns a one-file access
@@ -797,6 +826,22 @@ export interface DesktopApi {
   /** Paired web app only: one visualize pane's content, fetched over the
    *  encrypted RPC lane (pane URLs name the host's loopback servers). */
   visualizePaneSource?(sessionId: string, tabId: string, index: number): Promise<VisualizePaneSource>;
+  /** Paired web app only: a PDF or Office pane rasterized to page images
+   *  (a phone cannot show a PDF in a frame). */
+  visualizePanePages?(
+    sessionId: string,
+    tabId: string,
+    index: number,
+    options: { pages: number[]; maxWidth?: number }
+  ): Promise<DesktopDocumentPreviewPages>;
+  /** Paired web app only: render displayed pane `pane` as PNG / PDF on the
+   *  host and answer with the download source this device redeems. */
+  visualizeExport?(
+    sessionId: string,
+    tabId: string,
+    format: 'png' | 'pdf',
+    pane: number
+  ): Promise<VisualizeRemoteExport>;
   /** Desktop only: run the feedback page script (Comment pins, `data-choice`
    *  picks) in a visualize tab's loaded HTML panes. */
   visualizeFeedbackAttach?(sessionId: string, tabId: string): Promise<void>;

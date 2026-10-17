@@ -4,6 +4,7 @@ import type { BrowserGuestStateStore } from './guest-state';
 import type { createBrowserDialogReport } from './dialog-report';
 import type { createBrowserRefActions } from './ref-actions';
 import type { BrowserLeaveConfirmation } from './leave-confirmation';
+import type { BrowserPermissions } from './permissions';
 
 type PromptControl = Extract<DesktopBrowserPageControl, { type: 'answer-dialog' | 'choose-files' }>;
 
@@ -29,6 +30,9 @@ export function createBrowserLocalPrompts(host: {
   controller(guest: WebContents): string | undefined;
   /** A person's leave request the page vetoed, asked as a beforeunload dialog. */
   leave?: Pick<BrowserLeaveConfirmation, 'pending' | 'answer'>;
+  /** Site permission requests, asked as a `permission` dialog only a person
+   *  answers; the agent's handle_dialog never reaches them. */
+  permissions?: Pick<BrowserPermissions, 'pending' | 'answer'>;
 }) {
   const ids = new WeakMap<object, string>();
   const picking = new WeakSet<object>();
@@ -72,6 +76,11 @@ export function createBrowserLocalPrompts(host: {
     }
     const leave = host.leave?.pending(guest);
     if (leave) return { id: leave, type: 'beforeunload', message: '' };
+    const permission = host.permissions?.pending(guest);
+    if (permission) {
+      const { id: permissionId, ...asking } = permission;
+      return { id: permissionId, type: 'permission', message: '', permission: asking };
+    }
     const dismissed = host.state.for(guest).dismissedDialog;
     if (dismissed && !acknowledged.has(dismissed)) return { id: id(dismissed), type: 'dismissed', message: '' };
     return undefined;
@@ -106,8 +115,11 @@ export function createBrowserLocalPrompts(host: {
     assertCurrent();
     const leave = host.leave;
     const dismissed = host.state.for(guest).dismissedDialog;
+    const permissions = host.permissions;
     if (leave?.pending(guest)) {
       if (!leave.answer(guest, input.requestId, input.accept)) throw new Error(PROMPT_CHANGED);
+    } else if (permissions?.pending(guest)) {
+      if (!permissions.answer(guest, input.requestId, input.accept)) throw new Error(PROMPT_CHANGED);
     } else if (dismissed && id(dismissed) === input.requestId) {
       acknowledged.add(dismissed);
     } else throw new Error(PROMPT_CHANGED);

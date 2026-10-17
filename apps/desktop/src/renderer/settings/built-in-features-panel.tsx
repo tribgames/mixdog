@@ -43,6 +43,12 @@ import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from '.
 import { useTidyEngineStatus } from './tidy-status';
 import { useAutoEffortStatus } from './auto-effort-status';
 import { TidyEngines } from './tidy-engines';
+import {
+  MediaGenerationSettings,
+  mediaGeneratorNames,
+  useMediaGeneration,
+  type MediaGenerationData,
+} from './media-generation-settings';
 import { computerReadinessBlocking } from './computer-readiness';
 import { ComputerReadinessSection, useComputerReadiness } from './computer-readiness-section';
 import { isSshConnectionWindow } from '../desktop-connection';
@@ -222,8 +228,10 @@ function FeatureDetailDialog({
   tidyStatus,
   tidyInstallStatus,
   computerReadiness,
+  media,
 }: {
   api: PanelContext['api'];
+  media: MediaGenerationData;
   state: FeatureState;
   computerReadiness: ReturnType<typeof useComputerReadiness>;
   gitStatus: DesktopGitCliStatus | null;
@@ -271,6 +279,9 @@ function FeatureDetailDialog({
       {feature.id === 'git' && <GitPanel api={api} />}
       {feature.id === 'localProvider' && <LocalProviderModels status={state.localProvider} actions={localActions} />}
       {feature.id === 'tidy' && <TidyEngines status={tidyStatus} installStatus={tidyInstallStatus} />}
+      {/* Provider accounts live on the desktop, so a server window has no
+          generators or accounts to choose from. */}
+      {feature.id === 'media' && !serverWindow && <MediaGenerationSettings data={media} />}
       {bundledSkills.length > 0 && (
         <ExtensionSection title={t('Skills')} count={bundledSkills.length}>
           <ExtensionItemList>
@@ -333,6 +344,7 @@ export function BuiltInFeaturesPanel({
   );
   const autoEffort = useAutoEffortStatus(api, toolModules.autoEffort);
   const computerReadiness = useComputerReadiness(api, openId === 'computer');
+  const media = useMediaGeneration(api, openId === 'media' && !serverWindow);
   const voice = record(data.voice);
   const progress = voiceProgress(snapshot);
   // Built-in skills ride their feature's Install and toggle, so the card names
@@ -361,6 +373,8 @@ export function BuiltInFeaturesPanel({
       browser: settings?.browserInstalled === true,
       computer: settings?.computerInstalled === true,
       office: record(toolModules.office).installed === true,
+      // Ships with the app and has no install step: toggle only.
+      media: true,
       tidy: record(toolModules.tidy).installed === true,
       localProvider: localProvider.installed === true,
       autoEffort: autoEffort.installed === true,
@@ -377,6 +391,7 @@ export function BuiltInFeaturesPanel({
       browser: settings?.browserControl === true,
       computer: settings?.computerControl === true,
       office: record(toolModules.office).enabled !== false,
+      media: record(toolModules.media).enabled !== false,
       tidy: record(toolModules.tidy).enabled !== false,
       localProvider: localProvider.enabled === true,
       autoEffort: autoEffort.enabled === true,
@@ -408,6 +423,7 @@ export function BuiltInFeaturesPanel({
     if (
       id === 'git' ||
       id === 'office' ||
+      id === 'media' ||
       id === 'localProvider' ||
       id === 'tidy' ||
       id === 'autoEffort' ||
@@ -438,7 +454,7 @@ export function BuiltInFeaturesPanel({
       .finally(() => setOptimistic(null));
   };
   const install = (id: BuiltInFeatureId) => {
-    if (id === 'localProvider' || id === 'visualize') return;
+    if (id === 'localProvider' || id === 'visualize' || id === 'media') return;
     if ((action && action.status !== 'failed') || pending) return;
     setAction({ id, status: 'installing' });
     void (async () => {
@@ -532,7 +548,10 @@ export function BuiltInFeaturesPanel({
             : null,
       progressPercent,
       localProvider,
-      info: record(feature.id === 'voice' ? voice.info : record(toolModules[feature.id]).info),
+      info:
+        feature.id === 'media'
+          ? { generators: mediaGeneratorNames(media.lanes) }
+          : record(feature.id === 'voice' ? voice.info : record(toolModules[feature.id]).info),
       readinessBlocking: feature.id === 'computer' && computerReadinessBlocking(computerReadiness.rows),
     };
   };
@@ -566,6 +585,7 @@ export function BuiltInFeaturesPanel({
           tidyStatus={tidy.status}
           tidyInstallStatus={tidy.installStatus}
           computerReadiness={computerReadiness}
+          media={media}
           onInstall={() => install(open.id)}
           onToggle={(next) => toggle(open.id, next)}
           onClose={() => setOpenId(null)}

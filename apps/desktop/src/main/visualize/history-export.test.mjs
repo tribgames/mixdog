@@ -17,7 +17,13 @@ import test from 'node:test';
 
 import { MAX_VISUALIZE_HISTORY, remoteVisualizeState } from '../../shared/visualize.ts';
 import { createRemoteVisualizeMethods, createRemoteVisualizeMirror } from '../remote-visualize.ts';
-import { exportProblemLine, exportRequestAllowed, failedRequestLine, MAX_EXPORT_PIXELS, planPngExport } from './export-render.ts';
+import {
+  exportProblemLine,
+  exportRequestAllowed,
+  failedRequestLine,
+  MAX_EXPORT_PIXELS,
+  planPngExport,
+} from './export-render.ts';
 import { inlineExtension, mockupSlug, saveInlineToProject } from './export.ts';
 import { historyId, historyItems, MAX_HISTORY_INLINE_BYTES, rememberHistory } from './history.ts';
 import { createVisualizeService } from './service.ts';
@@ -92,10 +98,13 @@ test('inline sources in the history stay within a byte budget, newest kept', () 
 test('history items mark open entries and take the remote label for clients', () => {
   const list = [entry('a', { label: '/home/me/secret/a.html', remoteLabel: 'a.html', versions: 2 }), entry('b')];
   const items = historyItems(list, new Map([['a', 5]]), false);
-  assert.deepEqual(items.map((item) => [item.label, item.open, item.versions]), [
-    ['/home/me/secret/a.html', true, 5],
-    ['b', false, 1],
-  ]);
+  assert.deepEqual(
+    items.map((item) => [item.label, item.open, item.versions]),
+    [
+      ['/home/me/secret/a.html', true, 5],
+      ['b', false, 1],
+    ]
+  );
   assert.equal(historyItems(list, new Map(), true)[0].label, 'a.html');
 });
 
@@ -108,17 +117,26 @@ test('the session list covers closed tabs and reopening an entry takes no agent 
   await open({ content: { kind: 'mermaid', source: 'graph TD; A-->B', title: 'Flow' } });
   await open({ targets: ['two.html'] });
   let state = service.snapshot()[0];
-  assert.deepEqual(state.history.map((item) => [item.label, item.kind, item.open]), [
-    ['two.html', 'html', true],
-    ['Flow', 'mermaid', true],
-    ['one.html', 'html', true],
-  ]);
+  assert.deepEqual(
+    state.history.map((item) => [item.label, item.kind, item.open]),
+    [
+      ['two.html', 'html', true],
+      ['Flow', 'mermaid', true],
+      ['one.html', 'html', true],
+    ]
+  );
 
   await service.command({ sessionId: 's1', tabId: 'v1', action: 'close' });
   await service.command({ sessionId: 's1', tabId: 'v2', action: 'close' });
   state = service.snapshot()[0];
-  assert.deepEqual(state.tabs.map((tab) => tab.id), ['v3']);
-  assert.deepEqual(state.history.map((item) => item.open), [true, false, false]);
+  assert.deepEqual(
+    state.tabs.map((tab) => tab.id),
+    ['v3']
+  );
+  assert.deepEqual(
+    state.history.map((item) => item.open),
+    [true, false, false]
+  );
 
   // A closed entry opens again; an open one is only selected.
   const flow = state.history.find((item) => item.label === 'Flow');
@@ -164,10 +182,13 @@ test('mockup slugs are file-name safe and unicode-aware', () => {
   assert.equal(mockupSlug('***', 'svg'), 'svg');
   assert.equal(mockupSlug('con', 'x'), 'con-mockup');
   assert.ok(mockupSlug('a'.repeat(200), 'x').length <= 48);
-  assert.deepEqual(
-    ['mermaid', 'svg', 'chart', 'html', 'markdown'].map(inlineExtension),
-    ['mmd', 'svg', 'json', 'html', 'md']
-  );
+  assert.deepEqual(['mermaid', 'svg', 'chart', 'html', 'markdown'].map(inlineExtension), [
+    'mmd',
+    'svg',
+    'json',
+    'html',
+    'md',
+  ]);
 });
 
 test('save to project writes design/mockups/<slug>/<slug>.<ext> and never overwrites', async () => {
@@ -198,7 +219,10 @@ test('save to project refuses to leave the working directory through a link', as
     t.skip('symlinks are unavailable here');
     return;
   }
-  await assert.rejects(saveInlineToProject(cwd, { kind: 'html', source: '<p/>', title: 'Page' }, 'Page'), /outside the working directory/);
+  await assert.rejects(
+    saveInlineToProject(cwd, { kind: 'html', source: '<p/>', title: 'Page' }, 'Page'),
+    /outside the working directory/
+  );
   assert.equal(existsSync(join(outside, 'page')), false);
 });
 
@@ -239,7 +263,10 @@ test('a parent already replaced by a link is refused before anything is created'
     t.skip('symlinks are unavailable here');
     return;
   }
-  await assert.rejects(saveInlineToProject(cwd, { kind: 'svg', source: '<svg/>' }, 'x'), /outside the working directory/);
+  await assert.rejects(
+    saveInlineToProject(cwd, { kind: 'svg', source: '<svg/>' }, 'x'),
+    /outside the working directory/
+  );
   assert.deepEqual(readdirSync(outside), []);
 });
 
@@ -363,7 +390,9 @@ test('remote export: png/pdf stay on the desktop, project saves on the host and 
     invokeDesktopOperation: async () => null,
     hostRequest: async (method, args) => {
       requests.push([method, args]);
-      return method === 'visualizeCommand' ? { path: 'design/mockups/x/x.svg', openable: true, host: join(cwd, 'secret') } : [];
+      return method === 'visualizeCommand'
+        ? { path: 'design/mockups/x/x.svg', openable: true, host: join(cwd, 'secret') }
+        : [];
     },
   });
   const base = { sessionId: 's1', tabId: 'v1', action: 'export' };
@@ -462,7 +491,7 @@ test('export renders an HTML page off screen into the project and reports path, 
   assert.doesNotMatch(result.text, new RegExp(cwd.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')));
   assert.deepEqual(readFileSync(join(cwd, 'design/shots/page.png')), pngBytes());
   assert.deepEqual(captured, [], 'no screen capture was needed');
-  assert.deepEqual(rendered, [{ url: 'fake://page.html', format: 'png', allowNetwork: false }]);
+  assert.deepEqual(rendered, [{ url: 'fake://page.html', format: 'png', allowNetwork: true }]);
 
   const pdf = await run({ tab: 'v1', format: 'pdf', output: 'design/shots/page.pdf' });
   assert.match(pdf.text, /\(pdf, 10 B; rendered off screen/);
@@ -478,10 +507,16 @@ test('export: png of other kinds falls back to the capture path, pdf is for HTML
   assert.match(result.text, /captured as the panel shows it/);
   assert.equal(readFileSync(join(cwd, 'shots/pic.png'), 'utf8'), 'CAPTURED');
   assert.equal(captured.length, 1);
-  await assert.rejects(run({ tab: 'v1', format: 'pdf', output: 'shots/pic.pdf' }), /Save as PDF is for a single HTML page/);
+  await assert.rejects(
+    run({ tab: 'v1', format: 'pdf', output: 'shots/pic.pdf' }),
+    /Save as PDF is for a single HTML page/
+  );
   await assert.rejects(run({ tab: 'v1', format: 'png', output: 'shots/pic.png', version: 1 }), /no version 1/);
   await open({ content: { kind: 'svg', source: '<svg/>', title: 'S' } });
-  await assert.rejects(run({ tab: 'v2', format: 'pdf', output: 'shots/s.pdf' }), /Save as PDF is for a single HTML page/);
+  await assert.rejects(
+    run({ tab: 'v2', format: 'pdf', output: 'shots/s.pdf' }),
+    /Save as PDF is for a single HTML page/
+  );
 });
 
 test('export refuses to overwrite unless the path is under design/ and overwrite is true', async () => {
@@ -509,7 +544,10 @@ test('export keeps to the project: outside paths, links and wrong extensions are
   const { open, run } = exportSetup(cwd);
   await open({ targets: ['page.html'] });
   await assert.rejects(run({ tab: 'v1', format: 'png', output: '../escape.png' }), /outside the working directory/);
-  await assert.rejects(run({ tab: 'v1', format: 'png', output: join(outside, 'abs.png') }), /outside the working directory/);
+  await assert.rejects(
+    run({ tab: 'v1', format: 'png', output: join(outside, 'abs.png') }),
+    /outside the working directory/
+  );
   await assert.rejects(run({ tab: 'v1', format: 'png', output: 'shot.pdf' }), /output must be a \.png path/);
   await assert.rejects(run({ tab: 'v1', format: 'pdf', output: 'shot.png' }), /output must be a \.pdf path/);
   try {
@@ -560,7 +598,10 @@ test('export of a kept inline version renders that version, with the tab off scr
     ['fake://inline/<p>two</p>', 'fake://inline/<p>one</p>']
   );
   assert.match(old.text, /Exported tab v1 v1 to design\/old\.png/);
-  await assert.rejects(run({ tab: 'v1', format: 'png', output: 'design/x.png', version: 9 }), /no version 9; kept versions: 1, 2/);
+  await assert.rejects(
+    run({ tab: 'v1', format: 'png', output: 'design/x.png', version: 9 }),
+    /no version 9; kept versions: 1, 2/
+  );
   assert.deepEqual(captured, []);
 });
 
@@ -587,7 +628,10 @@ test('export of a kept file version renders its snapshot, not the live file', as
   assert.equal(readFileSync(rendered[0].url.split('|')[1], 'utf8'), '<h1>one</h1>');
   assert.notEqual(rendered[0].url.split('|')[1], page);
   assert.equal(service.snapshot()[0].tabs[0].version ?? null, null, 'the panel view is untouched');
-  await assert.rejects(run({ tab: 'v1', format: 'png', output: 'design/x.png', version: 7 }), /no version 7; kept versions: 1, 2/);
+  await assert.rejects(
+    run({ tab: 'v1', format: 'png', output: 'design/x.png', version: 7 }),
+    /no version 7; kept versions: 1, 2/
+  );
 });
 test('export problem lines carry no host path and no page-server lease URL', () => {
   const token = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
@@ -601,7 +645,11 @@ test('export problem lines carry no host path and no page-server lease URL', () 
     exportProblemLine('error', 'read /home/someone/private/data.json failed'),
   ];
   for (const line of lines) {
-    assert.doesNotMatch(line, new RegExp(`${token}|127\\.0\\.0\\.1|localhost|secret-project|someone|C:\\\\|/home/`), line);
+    assert.doesNotMatch(
+      line,
+      new RegExp(`${token}|127\\.0\\.0\\.1|localhost|secret-project|someone|C:\\\\|/home/`),
+      line
+    );
   }
   assert.equal(lines[0], 'error: Uncaught Error at app.js (line 3) (line 3)');
   assert.match(lines[3], /read design[\\/]a\.png failed/);
@@ -612,7 +660,9 @@ test('failed subresource loads become problem lines, except ones the export bloc
   const base = `http://127.0.0.1:51234/${token}`;
   const none = new Set();
   assert.equal(
-    failedRequestLine({ id: 1, url: `${base}/style.css?v=2`, resourceType: 'stylesheet', statusCode: 404 }, none, [root]),
+    failedRequestLine({ id: 1, url: `${base}/style.css?v=2`, resourceType: 'stylesheet', statusCode: 404 }, none, [
+      root,
+    ]),
     'failed request: HTTP 404 style.css'
   );
   assert.equal(
@@ -620,14 +670,24 @@ test('failed subresource loads become problem lines, except ones the export bloc
     'failed request: HTTP 500 img/logo.png'
   );
   assert.equal(
-    failedRequestLine({ id: 3, url: 'https://cdn.example.com/lib.js', resourceType: 'script', error: 'net::ERR_NAME_NOT_RESOLVED' }, none),
+    failedRequestLine(
+      { id: 3, url: 'https://cdn.example.com/lib.js', resourceType: 'script', error: 'net::ERR_NAME_NOT_RESOLVED' },
+      none
+    ),
     'failed request: net::ERR_NAME_NOT_RESOLVED https://cdn.example.com/lib.js'
   );
   assert.equal(failedRequestLine({ id: 4, url: `${base}/ok.css`, statusCode: 200 }, none), null);
   assert.equal(failedRequestLine({ id: 5, url: `${base}/x.js`, statusCode: 304 }, none), null);
-  assert.equal(failedRequestLine({ id: 6, url: 'https://x.test/a.js', error: 'net::ERR_BLOCKED_BY_CLIENT' }, new Set([6])), null, 'blocked by the export itself');
+  assert.equal(
+    failedRequestLine({ id: 6, url: 'https://x.test/a.js', error: 'net::ERR_BLOCKED_BY_CLIENT' }, new Set([6])),
+    null,
+    'blocked by the export itself'
+  );
   assert.equal(failedRequestLine({ id: 7, url: `${base}/a.js`, error: 'net::ERR_ABORTED' }, none), null);
-  assert.equal(failedRequestLine({ id: 8, url: `${base}/`, resourceType: 'mainFrame', error: 'net::ERR_FAILED' }, none), null);
+  assert.equal(
+    failedRequestLine({ id: 8, url: `${base}/`, resourceType: 'mainFrame', error: 'net::ERR_FAILED' }, none),
+    null
+  );
   assert.doesNotMatch(failedRequestLine({ id: 9, url: `${base}`, statusCode: 404 }, none), new RegExp(token));
 });
 
@@ -671,7 +731,10 @@ test('an export past the host deadline aborts the render and writes no file', as
       }),
   });
   await honouring.open({ targets: ['page.html'] });
-  await assert.rejects(honouring.run({ tab: 'v1', format: 'png', output: 'design/slow.png' }), /export timed out after 0s; no file was written/);
+  await assert.rejects(
+    honouring.run({ tab: 'v1', format: 'png', output: 'design/slow.png' }),
+    /export timed out after 0s; no file was written/
+  );
   assert.equal(signalSeen.aborted, true);
   assert.equal(existsSync(join(cwd, 'design', 'slow.png')), false);
 

@@ -8,6 +8,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -21,6 +22,7 @@ import { DockHeaderRow, PaneDockExpandContext } from './pane-dock-chrome';
 import { PaneDockDiffColumn } from './pane-dock-diff-column';
 import { PaneDockFileSurface } from './PaneDockFileSurface';
 import { SESSION_BOUND_VIEWS } from './pane-dock-toggles';
+import { usePhoneSheetBodyReady } from './phone-deferred-mount';
 import { publishPhoneDockSwitch, type PhoneDockSwitchItem } from './phone-dock-switch';
 import {
   commitWidthPref,
@@ -53,6 +55,7 @@ import {
 import { getSidePanelMode, sidePanelLayout, subscribeSidePanelMode } from './side-panel-preferences';
 import { t } from './i18n';
 import { getLinkPreview, subscribeLinkPreview } from './link-preview-preference';
+import { syncTranscriptWidths } from './transcript-list-resize-patch';
 import {
   closeSideFileTab,
   keepSideFileTabs,
@@ -1402,6 +1405,7 @@ function renderPaneDockMain(
     diffColumn,
     surfaces,
     surfacesActive,
+    bodyShown,
     asideWidth,
     panelWidthDrag,
     widthRange,
@@ -1411,6 +1415,7 @@ function renderPaneDockMain(
     diffColumn: ReactNode;
     surfaces: ReactNode;
     surfacesActive: boolean;
+    bodyShown: boolean;
     asideWidth: number;
     panelWidthDrag: ReturnType<typeof usePanelWidthDrag>;
     widthRange: ReturnType<typeof dockWidthRange>;
@@ -1436,7 +1441,9 @@ function renderPaneDockMain(
         widthOverride={asideWidth}
         onWidthDrag={panelWidthDrag}
         widthRange={widthRange}
-        renderView={(id, active, titleDragProps) => (dockBodyMounted ? renderView(id, active, titleDragProps) : null)}
+        renderView={(id, active, titleDragProps) =>
+          dockBodyMounted ? renderView(id, active && bodyShown, titleDragProps) : null
+        }
       />
     </div>
   );
@@ -1531,12 +1538,42 @@ function expandedHostStyle(
   };
 }
 
+/** The dock body shows one frame after the dock opens. The opening commit
+ *  carries only the sheet at its final width — the pane's edge, the
+ *  transcript's rewrap and its anchor (syncTranscriptWidths) — so the click
+ *  paints at once; the body's own reveal (style and layout of a retained diff
+ *  tree, a terminal's focus and fit, a view's reopen reset) lands in the next
+ *  commit, inside a sheet whose size no longer changes. A close hides the body
+ *  in its own commit. The phone sheet overlays the conversation (no width
+ *  changes under it) and keeps showing its body with the sheet. */
+export function useDockBodyShown(openNow: boolean, deferred: boolean): boolean {
+  const [shownOpen, setShownOpen] = useState(openNow);
+  useEffect(() => {
+    if (!openNow) {
+      setShownOpen(false);
+      return undefined;
+    }
+    if (shownOpen) return undefined;
+    const frame = window.requestAnimationFrame(() => startTransition(() => setShownOpen(true)));
+    return () => window.cancelAnimationFrame(frame);
+  }, [openNow, shownOpen]);
+  return openNow && (shownOpen || !deferred);
+}
+
 export function PaneSideDock(props: PaneSideDockProps) {
   const { leafId, entry, groups, focused, prewarm = false, onClose, onCloseDiff, onFocusPane, openFileTab } = props;
   const openNow = entry.open && (entry.view !== null || entry.surface !== '');
-  const { panelMounted, dockBodyMounted } = useDockMounting(openNow, prewarm);
+  const { panelMounted, dockBodyMounted: dockBodyMountedRaw } = useDockMounting(openNow, prewarm);
+  const mobileSheet = useMobileRemoteSurface();
+  // Phone: the sheet paints and starts sliding before its body mounts.
+  const phoneBodyReady = usePhoneSheetBodyReady(openNow, dockBodyMountedRaw);
+  const dockBodyMounted = dockBodyMountedRaw && phoneBodyReady;
+  const bodyShown = useDockBodyShown(openNow, !mobileSheet);
   const fileProblems = useSideFileProblems((entry.files?.length ?? 0) > 0);
+  // Geometry follows `openNow`; what the body's children treat as showing
+  // (their activity, focus, fit) follows `bodyShown`.
   const showing = paneDockShowing(entry, openNow);
+  const bodyShowing = paneDockShowing(entry, bodyShown);
   const { browserShowing, terminalShowing, sessionSurfaceShowing, diffShowing, sessionDiffPanelShowing } = showing;
   // The dock measures its own pane cell (see resolveDockLayout).
   const { panelPref, setPanelPref, diffPref, setDiffPref, browserPref, setBrowserPref, terminalPref, setTerminalPref } =
@@ -1591,7 +1628,15 @@ export function PaneSideDock(props: PaneSideDockProps) {
     focused,
     onClose
   );
-  const mobileSheet = useMobileRemoteSurface();
+  // The pane edge this render commits (recorded below); its layout effect
+  // re-measures the transcripts it narrowed or widened in the same frame.
+  const committedEdge = useRef('');
+  const syncedEdge = useRef('');
+  useLayoutEffect(() => {
+    if (committedEdge.current === syncedEdge.current) return;
+    syncedEdge.current = committedEdge.current;
+    syncTranscriptWidths();
+  });
   if (groups.length === 0) return null;
   const sheetFrame = mobileSheet ? 0 : PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
   const session = dockSessionWidths(terminalShowing, terminalPref, browserPref);
@@ -1611,8 +1656,20 @@ export function PaneSideDock(props: PaneSideDockProps) {
   const dockExpanded = expanded && openNow && !mobileSheet;
   const dockExpandValue = mobileSheet ? null : { expanded: dockExpanded, toggle: toggleExpanded };
   const asideWidth = expandedAsideWidth(baseAsideWidth, expandedRect, pairShowing ? diffWidth : 0);
-  const diffContext: DockDiffSurfaceContext = { diffShowing, diffView, openFileTab, onCloseDiff };
-  const surfaces = renderPaneDockSurfaces(props, { showing, dockBodyMounted, twoDepth, fileProblems, diffContext });
+  committedEdge.current = `${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}`;
+  const diffContext: DockDiffSurfaceContext = {
+    diffShowing: bodyShowing.diffShowing,
+    diffView,
+    openFileTab,
+    onCloseDiff,
+  };
+  const surfaces = renderPaneDockSurfaces(props, {
+    showing: bodyShowing,
+    dockBodyMounted,
+    twoDepth,
+    fileProblems,
+    diffContext,
+  });
   // File Diff: PAIRED to the LEFT of the panel view under the same header
   // selection; a project-tool click replaces the file in place. The narrow
   // 2뎁스 stage retires the pair column — the diff stacks over the panel.
@@ -1637,6 +1694,7 @@ export function PaneSideDock(props: PaneSideDockProps) {
         data-open={openNow ? 'true' : 'false'}
         data-overlay={overlay ? 'true' : 'false'}
         data-expanded={dockExpanded ? 'true' : 'false'}
+        data-body-pending={openNow && !bodyShown ? 'true' : undefined}
         style={expandedHostStyle(dockExpanded, expandedRect)}
         onPointerDownCapture={
           focused
@@ -1655,6 +1713,7 @@ export function PaneSideDock(props: PaneSideDockProps) {
             diffColumn,
             surfaces,
             surfacesActive: sessionSurfaceShowing || twoDepth,
+            bodyShown,
             asideWidth,
             panelWidthDrag,
             widthRange: dockWidthRange(sessionSurfaceShowing, session),

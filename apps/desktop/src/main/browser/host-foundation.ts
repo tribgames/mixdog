@@ -91,10 +91,15 @@ function createBrowserHostStorage(
 }
 
 /** CDP over the guest state, with the document readers and settle built on it. */
-function createBrowserHostDevtools(state: BrowserGuestStateStore, urlPolicy: BrowserUrlPolicy) {
+function createBrowserHostDevtools(
+  state: BrowserGuestStateStore,
+  urlPolicy: BrowserUrlPolicy,
+  permissionRefused: (origin: string, name: string) => boolean
+) {
   const intercept = createBrowserIntercept();
   const cdp = createBrowserGuestCdp({
     state,
+    permissionRefused,
     interceptFetchPatterns: intercept.interceptFetchPatterns,
     matchInterceptRule: intercept.matchInterceptRule,
     pageGuardScripts: () => browserPageGuardScripts(urlPolicy),
@@ -172,7 +177,7 @@ export function createBrowserHostFoundation(
   const urls = createBrowserUrlAdmission({ policy: urlPolicy });
   const nativeView = /^(?:1|true|yes)$/i.test(String(process.env.MIXDOG_BROWSER_NATIVE_VIEW || ''));
   const storage = createBrowserHostStorage(state, sessions, urls, options.onDiagnostic);
-  const devtools = createBrowserHostDevtools(state, urlPolicy);
+  const devtools = createBrowserHostDevtools(state, urlPolicy, storage.partition.permissions.refused);
   const displayTextures = createBrowserHostTextures(window, state);
   const display = createBrowserDisplayTracking(sessions);
   const pageIdentity = createBrowserHostPageIdentity({

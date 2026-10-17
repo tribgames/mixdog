@@ -3,6 +3,7 @@
 import { DESKTOP_IPC, type DesktopRemoteAccessInfo } from '../shared/contract';
 import type { BrowserHost } from './browser/host';
 import { readAttachmentThumbnail } from './attachment-thumbnail';
+import { attachmentViewName, readSessionAttachment } from './session-attachments';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
 import { isSessionMissingError } from './session-final-answer';
 import type { DesktopService } from './desktop-service-contract';
@@ -48,6 +49,15 @@ export function registerSessionIpc({
   remoteHosts,
 }: SessionIpcOptions): void {
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
+  handle(DESKTOP_IPC.readSessionAttachment, async (_event, sessionId, attachmentId) => {
+    const { meta, bytes } = await readSessionAttachment(host, requiredSessionId(sessionId), attachmentId);
+    return {
+      name: attachmentViewName(meta),
+      mimeType: meta.mimeType,
+      size: bytes.length,
+      dataUrl: `data:${meta.mimeType};base64,${bytes.toString('base64')}`,
+    };
+  });
   handle(DESKTOP_IPC.readAttachmentThumbnail, (_event, attachmentRef) =>
     readAttachmentThumbnail(
       attachmentRef,
@@ -213,6 +223,9 @@ function registerSessionRoutingIpc({ handle, host }: Pick<SessionIpcOptions, 'ha
   handle(DESKTOP_IPC.cancelQuotaResume, (_event, sessionId) => host.cancelQuotaResume(requiredSessionId(sessionId)));
   handle(DESKTOP_IPC.stopShellJob, (_event, sessionId, taskId) =>
     host.stopShellJob(requiredSessionId(sessionId), requiredString(taskId, 'taskId', 256))
+  );
+  handle(DESKTOP_IPC.releaseShellJob, (_event, sessionId, taskId) =>
+    host.releaseShellJob(requiredSessionId(sessionId), requiredString(taskId, 'taskId', 256))
   );
   handle(DESKTOP_IPC.getQuotaAutoResume, () => host.getQuotaAutoResume());
   handle(DESKTOP_IPC.viewerDevice, () => hostDeviceName());

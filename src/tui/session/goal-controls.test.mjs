@@ -35,15 +35,11 @@ test('goal control persists pause or stop before cancelling the live turn', asyn
   }
 });
 
-test('idle release schedules once and yields queued work to remote ownership', async () => {
+test('idle release schedules the continuation once', async () => {
   const state = { sessionId: 'goal-owner', busy: false, commandBusy: true, goal: { id: 'goal', status: 'active' } };
   const pending = [];
-  let listener;
   const runtime = {
-    onGoalStatusChange: (callback) => {
-      listener = callback;
-      return () => {};
-    },
+    onGoalStatusChange: () => () => {},
     goalContinuation: () => ({ run: state.goal.status === 'active', goal: state.goal, prompt: 'Continue' }),
   };
   const controller = createGoalContinuation({
@@ -63,10 +59,6 @@ test('idle release schedules once and yields queued work to remote ownership', a
     controller.scheduleGoalContinuation();
     await immediate();
     assert.equal(pending.length, 1);
-    state.sessionRemoteAttached = true;
-    listener({ sessionId: state.sessionId, goal: state.goal });
-    await immediate();
-    assert.equal(pending.length, 0);
   } finally {
     controller.disposeGoalContinuation();
   }

@@ -4,8 +4,7 @@
  * definitions, output style and orchestration mode.
  */
 import { modelSwitchItem } from '../../../runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
-import { selectedModel, switchesSessionModel } from '../../../session-runtime/model-route/model-switch-target.mjs';
-import { latestQuotaFailure } from '../quota-resume.mjs';
+import { selectedModel } from '../../../session-runtime/model-route/model-switch-target.mjs';
 import { createApiHelpers } from './shared.mjs';
 
 // Optimistic route preview: the requested provider/model/effort/fast are
@@ -50,6 +49,36 @@ function optimisticRoutePatch(requested = {}, current = {}) {
   return patch;
 }
 
+const SESSION_ONLY_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'autoEffort']);
+
+/**
+ * A session-only request (an agent child's route) may name just the model, just
+ * the tuning, or both. Completed here, inside the serialized route write,
+ * against the latest selected route — so a Fast-only change keeps the effort a
+ * previous write selected. `unchanged` when it asks for nothing the selected
+ * route does not already have.
+ */
+function completeSessionOnlyRequest(request, selected) {
+  const named = Boolean(request.provider || request.model);
+  const target = named ? request : { ...request, provider: selected.provider, model: selected.model };
+  const sameModel = target.provider === selected.provider && target.model === selected.model;
+  if (!sameModel) return { request: target, unchanged: false };
+  const unchanged =
+    Object.keys(request).every((key) => SESSION_ONLY_KEYS.has(key)) &&
+    (request.effort === undefined || request.effort === selected.effort) &&
+    (request.fast === undefined || request.fast === (selected.fast === true)) &&
+    (request.autoEffort === undefined || request.autoEffort === (selected.autoEffort !== false));
+  return {
+    unchanged,
+    request: {
+      ...(selected.effort ? { effort: selected.effort } : {}),
+      fast: selected.fast === true,
+      autoEffort: selected.autoEffort !== false,
+      ...target,
+    },
+  };
+}
+
 /** The live divider of an in-place model switch (restored from message meta
  *  after a reload); every switch path publishes it the same way. */
 export function publishModelSwitch(bag, modelSwitch) {
@@ -76,6 +105,8 @@ export function createSessionRouteApi(bag) {
   });
   let routeWrite = null;
   let routeSequence = 0;
+  // Whether this API (not another command) is the one holding commandBusy.
+  let routeLocked = false;
 
   // A preset selector previews as the preset's model, never as its id.
   const previewedRequest = (routeOpts) => {
@@ -84,86 +115,79 @@ export function createSessionRouteApi(bag) {
     return target.provider ? { ...routeOpts, ...target } : routeOpts;
   };
 
-  // Auto-compact on model change (default on): compact on the CURRENT model,
-  // whose cache and window still hold the history, before the switch. A model
-  // stopped on its quota cannot run it; the next turn's auto-compaction on the
-  // new model fits the history instead. A failure never blocks the switch.
-  const compactBeforeModelSwitch = async () => {
-    if (runtime.getCompactionSettings?.()?.onModelChange === false) return;
-    if (latestQuotaFailure(getState().items)) return;
-    if (typeof bag.compactBeforeModelSwitch !== 'function') return;
-    set({
-      commandStatus: { active: true, verb: 'Compacting conversation', startedAt: Date.now(), mode: 'compacting' },
-    });
-    flushEmitImmediate();
-    try {
-      await bag.compactBeforeModelSwitch();
-    } catch {
-      /* the switch goes ahead; next-turn auto-compaction fits the window */
-    } finally {
-      set({ commandStatus: null });
-    }
-  };
-
   const setRoute = async (opts) => {
-    if (getState().commandBusy && !routeWrite) return false;
     const routeOpts = opts && typeof opts === 'object' ? opts : {};
-    // Every user model choice on this surface (composer picker, /model,
-    // presets, the TUI picker) switches the conversation itself in place.
-    const switchesModel = switchesSessionModel(runtime, routeOpts);
-    // A running turn keeps the route it started on.
-    if (switchesModel && getState().busy) {
-      throw new Error('The model cannot change while a response is running. Try again when it finishes.');
-    }
-    // Any route change supersedes waiting for the old route's quota reset.
-    bag.supersedeQuotaResume?.(getState().sessionId);
+    // All model pickers save a selection for the conversation's next turn; a
+    // running turn keeps the session model it started on. A selection is never
+    // refused: another command's lock neither blocks it nor is released by it.
     const token = ++routeSequence;
     const previousWrite = routeWrite;
+    // The session generation this selection was made under. The write below
+    // waits behind earlier ones, so "current" is never read later: the runtime
+    // validates this token before every route side effect, and `settle` below
+    // is the only place the display is touched once the write has started.
+    const originGeneration = runtime.sessionGeneration;
+    const owned = () => runtime.sessionGeneration === originGeneration;
     const preview = optimisticRoutePatch(previewedRequest(routeOpts), getState());
     // Preview immediately, serialize persistence without dropping a later
     // click. Earlier completions cannot replace the newest visible choice.
-    // A model switch previews once its pre-compaction (which republishes the
-    // current route) is done.
-    set({ commandBusy: true, ...(switchesModel ? {} : preview || {}) });
+    if (!getState().commandBusy) routeLocked = true;
+    set({ ...(routeLocked ? { commandBusy: true } : {}), ...(preview || {}) });
     flushEmitImmediate();
     const write = (async () => {
       if (previousWrite) await previousWrite.catch(() => {});
       const previousRoute = routeState();
+      // A stale selection only republishes the route that is actually
+      // selected; it never restores or announces its own session's state.
+      const settle = ({ failed = false, sync = false, modelSwitch = null } = {}) => {
+        const stillOwned = owned();
+        if (stillOwned) publishModelSwitch(bag, modelSwitch);
+        // A newer selection publishes the final route itself.
+        if (token !== routeSequence) return;
+        if (stillOwned && failed) {
+          if (preview) set({ ...previousRoute, stats: { ...getState().stats } });
+          return;
+        }
+        if (stillOwned && sync) syncContextStats({ allowEstimated: true });
+        publishRoute();
+      };
       try {
-        // Explicit addressing applies the route to this session: an empty
-        // one is initialized in place. Either way an established
-        // conversation follows the user's choice in place.
+        // Keep the durable session address while deferring route application.
         const applyToCurrentSession = routeOpts.applyToCurrentSession === true;
-        const keepMainModel = routeOpts.keepMainModel === true;
-        const { applyToCurrentSession: _drop, keepMainModel: _keep, ...nextRoute } = routeOpts;
-        if (switchesModel) {
-          // The destination must be accepted before the history is compacted.
-          await runtime.setRoute(nextRoute, { validateOnly: true });
-          await compactBeforeModelSwitch();
-          if (token === routeSequence && preview) {
-            set(preview);
-            flushEmitImmediate();
+        const keepMainModel = routeOpts.keepMainModel !== false;
+        const sessionOnly = routeOpts.sessionOnly === true;
+        const { applyToCurrentSession: _drop, keepMainModel: _keep, sessionOnly: _scope, ...requested } = routeOpts;
+        let nextRoute = requested;
+        if (sessionOnly) {
+          const completed = completeSessionOnlyRequest(requested, previousRoute);
+          if (completed.unchanged) {
+            // An earlier failed write skipped its rollback because this one is
+            // newer, so the shown route may still be that write's preview.
+            settle();
+            return previousRoute;
           }
+          nextRoute = completed.request;
         }
         const resolvedRoute = await runtime.setRoute(nextRoute, {
           applyToCurrentSession,
           keepMainModel,
+          ...(sessionOnly ? { sessionOnly } : {}),
+          ...(originGeneration !== undefined ? { originGeneration } : {}),
           switchEstablished: true,
+          deferUntilNextTurn: true,
         });
-        if (token === routeSequence) {
-          if (applyToCurrentSession || resolvedRoute?.modelSwitch) syncContextStats({ allowEstimated: true });
-          publishRoute();
-        }
-        publishModelSwitch(bag, resolvedRoute?.modelSwitch);
+        settle({
+          sync: applyToCurrentSession || Boolean(resolvedRoute?.modelSwitch),
+          modelSwitch: resolvedRoute?.modelSwitch,
+        });
         return resolvedRoute;
       } catch (error) {
-        if (token === routeSequence && preview) {
-          set({ ...previousRoute, stats: { ...getState().stats } });
-        }
+        settle({ failed: true });
         throw error;
       } finally {
         if (token === routeSequence) {
-          set({ commandBusy: false });
+          if (routeLocked) set({ commandBusy: false });
+          routeLocked = false;
           // Publish the resolved route (or rollback) before an RPC reply
           // reads getState(), even while the display-frame clock is busy.
           flushEmitImmediate();

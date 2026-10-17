@@ -59,7 +59,9 @@ function MarkdownTable({ children }: { children?: ReactNode }) {
     const sync = () => {
       box.toggleAttribute('data-overflowing', table.getBoundingClientRect().width > box.clientWidth + 0.5);
     };
-    sync();
+    // No read in the commit: the observer's initial delivery runs after the
+    // frame's own layout and before its paint, so the first frame still
+    // carries the flag without forcing a layout per table on a session switch.
     const observer = new ResizeObserver(sync);
     observer.observe(box);
     observer.observe(table);
@@ -68,13 +70,13 @@ function MarkdownTable({ children }: { children?: ReactNode }) {
   return (
     <div className="markdown-table-frame">
       {/* biome-ignore lint/a11y/useSemanticElements: tag must stay a div; <section> would change the table scroller's structure. */}
-      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users need to focus this scroll region to scroll it. */}
       <div
         ref={scroller}
         className="markdown-table"
         role="region"
         aria-label={t('Scrollable table')}
         data-scrollable
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users need to focus this scroll region to scroll it.
         tabIndex={0}
       >
         <table>{children}</table>

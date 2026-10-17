@@ -51,10 +51,8 @@ function harness() {
   let notified = 0;
   const listeners = new Set([() => notified++]);
   const store = createSessionDraftStore({ draft, listeners, isDisposed: () => false, onBusyReleased() {} });
-  let mirroring = false;
   const pulse = createRuntimePulse({
     flags,
-    liveShareMirroring: () => mirroring,
     getState: store.getState,
     getPublishedState: store.getPublishedState,
     set: store.set,
@@ -72,9 +70,6 @@ function harness() {
     store,
     tick,
     notifications: () => notified,
-    setMirroring: (value) => {
-      mirroring = value;
-    },
   };
 }
 
@@ -125,22 +120,6 @@ test('the pulse publishes route, context stats and agent status changes', () => 
   tick();
   assert.equal(store.getPublishedState(), settled, 'quiet again once the change is published');
   assert.equal(notifications(), count);
-});
-
-test('a live-share viewer pulse publishes only a changed route', () => {
-  const { runtime, store, tick, notifications, setMirroring } = harness();
-  tick();
-  setMirroring(true);
-  const settled = store.getPublishedState();
-  const count = notifications();
-  runtime.context = { ...runtime.context, lastApiRequestTokens: 9999 };
-  tick();
-  assert.equal(store.getPublishedState(), settled, 'owner frames own stats; nothing local republished');
-  assert.equal(notifications(), count);
-  runtime.effort = 'high';
-  tick();
-  assert.equal(store.getPublishedState().effort, 'high');
-  assert.equal(store.getPublishedState().stats.currentContextTokens, 1000);
 });
 
 test('the pulse publishes the resolved turn effort as it changes', () => {

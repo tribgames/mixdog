@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { DESKTOP_IPC } from '../shared/contract';
+import { ipcErrorFromEnvelope } from '../shared/file-error-codes';
 import { registerDesktopIpc } from './ipc';
 import * as projectFiles from './project-files';
 
@@ -88,8 +89,16 @@ test('chat file IPC opens relative, absolute and file URLs with decoded document
 test('chat links to images, SVG, PDF, media and Office documents open in the editor with zero OS launches', async (t) => {
   const f = await fixture(t);
   const names = [
-    '제안서 100% #1.pptx', 'preview.pdf', 'verification-summary.docx', '도표 #1.svg', 'Chart.SVG', 'shot.png',
-    'song.mp3', 'clip.mp4', 'sheet.xlsx', 'Legacy.DOC',
+    '제안서 100% #1.pptx',
+    'preview.pdf',
+    'verification-summary.docx',
+    '도표 #1.svg',
+    'Chart.SVG',
+    'shot.png',
+    'song.mp3',
+    'clip.mp4',
+    'sheet.xlsx',
+    'Legacy.DOC',
   ];
   for (const name of names) {
     const file = join(f.project, 'output', name);
@@ -112,9 +121,16 @@ test('reveal validates the project boundary and reveals the real file', async (t
   await writeFile(file, 'sample');
   const reveal = f.handlers.get(DESKTOP_IPC.revealFile);
   await reveal(f.event, f.project, 'output/report.pdf');
-  assert.deepEqual(f.revealed.map((p) => p.replace(/\\/g, '/')), [file.replace(/\\/g, '/')]);
+  assert.deepEqual(
+    f.revealed.map((p) => p.replace(/\\/g, '/')),
+    [file.replace(/\\/g, '/')]
+  );
   await assert.rejects(async () => reveal(f.event, f.project, '../outside.pdf'));
-  await assert.rejects(async () => reveal(f.event, f.project, '../../outside.pdf', 'bad-token'));
+  // A token main does not grant is refused with its code in the IPC envelope.
+  assert.equal(
+    ipcErrorFromEnvelope(await reveal(f.event, f.project, '../../outside.pdf', 'bad-token')).code,
+    'SELECTED_FILE_GRANT_UNAVAILABLE'
+  );
   assert.equal(f.revealed.length, 1);
   assert.deepEqual(f.opened, []);
 });
@@ -148,6 +164,35 @@ test('external chat files use existing selected-file access for reading and savi
     /does not match/
   );
   assert.deepEqual(f.opened, []);
+});
+
+test('file IPC carries a structured refusal code through the envelope Electron would otherwise strip', async (t) => {
+  const f = await fixture(t);
+  const file = join(f.directory, 'external.ts');
+  await writeFile(file, 'export const value = 1;\n');
+  const invoke = (channel, ...args) => f.handlers.get(channel)(f.event, ...args);
+  const [target] = await invoke(DESKTOP_IPC.resolveLocalPaths, [file]);
+  // A held token the main process no longer grants: the refusal arrives as an envelope with its code.
+  const gone = ipcErrorFromEnvelope(
+    await invoke(DESKTOP_IPC.readProjectFile, target.projectPath, target.relPath, 'dropped-token')
+  );
+  assert.equal(gone.code, 'SELECTED_FILE_GRANT_UNAVAILABLE');
+  assert.equal(gone.message, 'The selected-file permission is unavailable.');
+  // The same wrapper covers open and reveal, and a filesystem fault keeps its errno code.
+  for (const channel of [DESKTOP_IPC.openFilePath, DESKTOP_IPC.revealFile]) {
+    const refused = ipcErrorFromEnvelope(await invoke(channel, target.projectPath, target.relPath, 'dropped-token'));
+    assert.equal(refused?.code, 'SELECTED_FILE_GRANT_UNAVAILABLE', channel);
+  }
+  await rm(file);
+  const missing = ipcErrorFromEnvelope(
+    await invoke(DESKTOP_IPC.readProjectFile, target.projectPath, target.relPath, target.accessToken)
+  );
+  assert.equal(missing.code, 'ENOENT');
+  // A refusal without a structured code still rejects as before.
+  await assert.rejects(
+    invoke(DESKTOP_IPC.readProjectFile, target.projectPath, 'other.ts', target.accessToken),
+    /does not match/
+  );
 });
 
 test('chat file IPC rejects traversal, network paths, schemes and malformed paths before launch', async (t) => {
@@ -204,7 +249,11 @@ test('external selected executables need the same confirmation through editor IP
   const [target] = await f.handlers.get(DESKTOP_IPC.resolveLocalPaths)(f.event, [file]);
   const open = (confirmedPath) =>
     f.handlers.get(DESKTOP_IPC.openFilePath)(
-      f.event, target.projectPath, target.relPath, target.accessToken, confirmedPath
+      f.event,
+      target.projectPath,
+      target.relPath,
+      target.accessToken,
+      confirmedPath
     );
   const canonical = await realpath(file);
   assert.deepEqual(await open(), { confirmationPath: canonical });
@@ -226,21 +275,7 @@ test('application directories request confirmation instead of launching as ordin
 
 test('chat file IPC never launches scripts, shortcuts, macro-enabled or text files; it hands them to the editor', async (t) => {
   const f = await fixture(t);
-  for (const name of [
-    'cmd',
-    'bat',
-    'ps1',
-    'js',
-    'vbs',
-    'lnk',
-    'url',
-    'appref-ms',
-    'scf',
-    'pptm',
-    'md',
-    'json',
-    'ts',
-  ]
+  for (const name of ['cmd', 'bat', 'ps1', 'js', 'vbs', 'lnk', 'url', 'appref-ms', 'scf', 'pptm', 'md', 'json', 'ts']
     .map((extension) => `output/payload.${extension}`)
     .concat('output/Dockerfile')) {
     await writeFile(join(f.project, name), 'untrusted');

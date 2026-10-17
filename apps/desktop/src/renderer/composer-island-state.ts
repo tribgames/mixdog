@@ -3,7 +3,16 @@ import { createContext, type Dispatch, type SetStateAction, useContext, useState
 /** The island's expandable tabs. Only one is open at a time; the files
  *  segment opens the pane's side dock instead, and is a tab only where the
  *  surface has no dock. */
-export type ComposerIslandTab = '' | 'goal' | 'agents' | 'shells' | 'files' | 'files-menu' | 'resume';
+export type ComposerIslandTab =
+  | ''
+  | 'goal'
+  | 'agents'
+  | 'shells'
+  | 'files'
+  | 'files-menu'
+  | 'branch'
+  | 'git'
+  | 'resume';
 
 export const ComposerIslandContext = createContext<{
   expanded: ComposerIslandTab;

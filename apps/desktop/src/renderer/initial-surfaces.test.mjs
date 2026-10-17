@@ -147,7 +147,7 @@ test('cold lists expose a neutral pending state on their very first render', asy
 });
 
 for (const navigation of ['close', 'tab', 'project', 'remount']) {
-  test(`Source Control validates cached rows before first paint and after ${navigation}`, async (t) => {
+  test(`Source Control paints cached rows at once and replaces them with fresh status after ${navigation}`, async (t) => {
     const view = harness(t, { globalTimers: true });
     const { UtilityDock, prewarmUtilityDockGitState } = await import('./UtilityDock.tsx');
     const requests = [];
@@ -177,7 +177,12 @@ for (const navigation of ['close', 'tab', 'project', 'remount']) {
     let firstPaint;
     function FirstPaint({ children }) {
       useLayoutEffect(() => {
-        firstPaint ||= view.host.cloneNode(true);
+        // The row window measures its viewport in a layout effect and
+        // re-renders synchronously, still before paint: snapshot after that
+        // flush, which is what the browser's first painted frame shows.
+        queueMicrotask(() => {
+          firstPaint ||= view.host.cloneNode(true);
+        });
       });
       return children;
     }
@@ -185,17 +190,20 @@ for (const navigation of ['close', 'tab', 'project', 'remount']) {
       firstPaint = null;
       await view.render(React.createElement(FirstPaint, null, React.createElement(UtilityDock, next)));
     };
-    const assertPending = () => {
+    // The last known status paints in the very first commit, with no loading
+    // cover, while the entry revalidation runs in the background.
+    const assertCached = (name) => {
       for (const element of [firstPaint, view.host]) {
-        assert.ok(element.querySelector('[role="status"][aria-busy="true"]'));
-        assert.doesNotMatch(element.textContent, /cached-old\.ts|current\.ts/);
+        assert.equal(element.querySelector('.utility-dock-pane[data-tab="source-control"] [aria-busy="true"]'), null);
+        assert.match(element.querySelector('.utility-dock-pane[data-tab="source-control"]').textContent, name);
       }
     };
     await render();
-    assertPending();
+    assertCached(/cached-old\.ts/);
     assert.equal(requests.length, 2);
     await view.settle(() => requests[1].resolve(status('current.ts')));
     assert.match(view.host.textContent, /current\.ts/);
+    assert.doesNotMatch(view.host.textContent, /cached-old\.ts/);
 
     // Live refresh keeps the established list rather than replaying entry loading.
     await view.advance(3_000);
@@ -217,7 +225,7 @@ for (const navigation of ['close', 'tab', 'project', 'remount']) {
     }
     const before = requests.length;
     await render(next);
-    assertPending();
+    assertCached(navigation === 'project' ? /cached-old\.ts/ : /current\.ts/);
     assert.equal(requests.length, before + 1);
     await view.settle(() => requests.at(-1).resolve(status('latest.ts')));
     assert.match(view.host.textContent, /latest\.ts/);

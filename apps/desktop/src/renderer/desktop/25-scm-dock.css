@@ -462,7 +462,7 @@
   border-radius: var(--mx-radius-hair);
   outline: 0;
   color: var(--mx-text);
-  background: var(--mx-workspace-sheet);
+  background: transparent;
   font-size: var(--mx-font-minor);
 }
 .dock-scm-branch-picker > header input:focus {

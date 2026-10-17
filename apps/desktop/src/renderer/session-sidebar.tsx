@@ -10,6 +10,7 @@ import {
   useSessionRowReorder,
   useSidebarBootSurface,
   useSidebarOpenState,
+  useSidebarSessionFilter,
 } from './session-sidebar-state';
 import { useSidebarMenus } from './session-sidebar-menus';
 import {
@@ -20,6 +21,7 @@ import {
   type SessionRowContext,
   type SidebarSectionContext,
 } from './session-sidebar-render';
+import { sessionAttentionOf, useSessionAttentionIndex } from './session-attention-index';
 import { sessionLabel } from './session-sidebar-rows';
 import {
   MIN_SIDEBAR_WIDTH,
@@ -186,19 +188,24 @@ function useSessionEditor(
 
 /** Sessions in sidebar order: activity-sorted task rows, split into favorites and
  *  the rest, with the user's list-order preferences applied. */
-function useSessionOrdering(sessions: readonly DesktopSessionSummary[], hasSessionSurface: boolean) {
+function useSessionOrdering(
+  sessions: readonly DesktopSessionSummary[],
+  hasSessionSurface: boolean,
+  showAgents: boolean
+) {
   const allRows = useMemo(
     () =>
       !hasSessionSurface
         ? []
         : sessions
+            .filter((session) => showAgents || !session.agentSession)
             .filter((session) => session.classification === 'task' || session.classification === 'project')
             .sort((left, right) => {
               const leftActivityAt = Number(left.activityAt) || left.updatedAt;
               const rightActivityAt = Number(right.activityAt) || right.updatedAt;
               return rightActivityAt - leftActivityAt || left.id.localeCompare(right.id);
             }),
-    [hasSessionSurface, sessions]
+    [hasSessionSurface, sessions, showAgents]
   );
   const [orderPrefs, setOrderPrefs] = useState(readOrderPrefs);
   const [customOrders, setCustomOrders] = useState(readCustomOrders);
@@ -531,6 +538,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const editor = useSessionEditor(sessions, onRenameSession);
   const [panelActionSlot, setPanelActionSlot] = useState<HTMLDivElement | null>(null);
   const { sidebarWidth, resizeStart, updateSidebarWidth, finishSidebarResize } = useSidebarWidth();
+  const { showAgents, updateShowAgents } = useSidebarSessionFilter();
   const {
     allRows,
     orderPrefs,
@@ -541,7 +549,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     rows,
     updateOrderPrefs,
     updateCustomOrders,
-  } = useSessionOrdering(sessions, hasSessionSurface);
+  } = useSessionOrdering(sessions, hasSessionSurface, showAgents);
   const openState = useSidebarOpenState(allRows);
   const archivedRows = useMemo(() => allRows.filter((session) => session.archived), [allRows]);
   const automationRows = useMemo(
@@ -651,10 +659,17 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     onRenameProject,
     onOpenProjectSettings,
   });
+  const attentionIndex = useSessionAttentionIndex();
+  const attentionOf = (sessionId: string) =>
+    sessionAttentionOf(attentionIndex, sessionId, {
+      running: workingSessionIds?.has(sessionId) === true,
+      unread: unreadSessionIds?.has(sessionId) === true,
+    });
   const rowContext: SessionRowContext = {
     selection,
     workingSessionIds,
     unreadSessionIds,
+    attentionOf,
     editor,
     sessionReorder,
     requestPrefetch,
@@ -694,6 +709,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     sessionsReady,
     workingSessionIds,
     unreadSessionIds,
+    attentionOf,
     onAddProject,
     onNewProjectTask,
     onNewTask,
@@ -724,7 +740,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         panelTitle,
         panelTitleDragProps,
         setPanelActionSlot,
-        orderMenuItems: sessionOrderMenuItems(orderPrefs, updateOrderPrefs),
+        orderMenuItems: sessionOrderMenuItems(orderPrefs, updateOrderPrefs, showAgents, updateShowAgents),
       })}
       {hasSessionSurface &&
         sessionsSurface({

@@ -830,6 +830,9 @@ export class DesktopServiceClient implements DesktopService {
   stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }> {
     return this.invoke('stopShellJob', [sessionId, taskId]);
   }
+  releaseShellJob(sessionId: string, taskId: string): Promise<{ released: boolean; error?: string }> {
+    return this.invoke('releaseShellJob', [sessionId, taskId]);
+  }
   getQuotaAutoResume(): Promise<boolean> {
     return this.invoke('getQuotaAutoResume', []);
   }
@@ -838,6 +841,11 @@ export class DesktopServiceClient implements DesktopService {
   }
   readAttachmentImage(attachmentRef: string): Promise<string | null> {
     return this.invokeRead('readAttachmentImage', [attachmentRef]);
+  }
+  /** The provenance behind attachment opens and file grants: main's IPC
+   *  checks a request against the transcript the service holds. */
+  readSessionTranscript(sessionId: string): Promise<SessionSnapshot> {
+    return this.invokeRead('readSessionTranscript', [sessionId]);
   }
 
   readSessionFinalAnswer(

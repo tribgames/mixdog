@@ -119,6 +119,55 @@ export const sessionCommands = {
     return true;
   },
 
+  // /shells — this session's shells, each marked running or "termination
+  // unconfirmed". `/shells release <id>` explains what releasing means and
+  // asks for `--confirm`; only then is the workspace hold dropped.
+  shells(ctx, arg) {
+    const { store } = ctx;
+    const [action, taskId, flag] = String(arg || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (!action) {
+      void Promise.resolve(store.listShellJobs?.())
+        .then((result) => {
+          const jobs = Array.isArray(result?.jobs) ? result.jobs : [];
+          if (!jobs.length) {
+            store.pushNotice('No shells are running.', 'info');
+            return;
+          }
+          const lines = jobs.map(
+            (job) =>
+              `${job.taskId}  ${job.terminationUnconfirmed ? 'termination unconfirmed' : 'running'}  ${job.command}`
+          );
+          const held = jobs.some((job) => job.terminationUnconfirmed);
+          if (held) lines.push('Release a held shell with /shells release <task_id>.');
+          store.pushNotice(lines.join('\n'), held ? 'warn' : 'info');
+        })
+        .catch((error) => store.pushNotice(`Couldn’t list shells: ${error?.message || error}`, 'error'));
+      return true;
+    }
+    if (action !== 'release' || !taskId) {
+      store.pushNotice('usage: /shells [release <task_id> [--confirm]]', 'warn');
+      return true;
+    }
+    if (flag !== '--confirm') {
+      store.pushNotice(
+        `Releasing ${taskId} unlocks its folder although its processes may still be running. To proceed, run /shells release ${taskId} --confirm`,
+        'warn'
+      );
+      return true;
+    }
+    void Promise.resolve(store.releaseShellJob?.(taskId))
+      .then((result) =>
+        result?.released
+          ? store.pushNotice(`Released ${taskId}.`, 'info')
+          : store.pushNotice(`Couldn’t release ${taskId}: ${result?.error || 'unavailable'}`, 'warn')
+      )
+      .catch((error) => store.pushNotice(`Couldn’t release ${taskId}: ${error?.message || error}`, 'error'));
+    return true;
+  },
+
   doctor(ctx) {
     const { state, store, deps } = ctx;
     if (state.commandBusy) {

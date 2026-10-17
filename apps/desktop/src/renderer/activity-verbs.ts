@@ -30,6 +30,7 @@ const MODE_VERB_KEYS: Record<string, string> = {
   'auto-clear': 'Auto-clearing conversation',
   resuming: 'Resuming conversation',
   'task-wait': 'Waiting for tasks',
+  'model-thinking': 'Model thinking',
 };
 
 const HAS_LATIN = /[A-Za-z]/;

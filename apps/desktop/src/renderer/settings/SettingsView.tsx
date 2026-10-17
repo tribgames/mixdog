@@ -25,6 +25,7 @@ import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { isSshConnectionWindow } from '../desktop-connection';
 import { useRemoteHostOpenAccess } from '../remote-host-access';
 import { t } from '../i18n';
+import { useMobileRemoteSurface } from '../mobile-surface';
 import { acquireTitleBarDim, refreshTitleBarDim } from '../titlebar-dim';
 import { CapabilitySettings, getCachedCapabilitySettings, preloadCapabilitySettings } from './CapabilitySettings';
 import { preloadConnectionInfo } from './connection-info';
@@ -99,12 +100,14 @@ export const SettingsView = memo(function SettingsView({
   const hostOpenAccess = useRemoteHostOpenAccess();
   // A server window has no phone access: Connection pairs phones with THIS PC.
   const serverWindow = isSshConnectionWindow();
+  // The Shortcuts reference is keyboard-only, so the phone drops the tab.
+  const phone = useMobileRemoteSurface();
   const visibleCategories = settingsCategoriesForSurface(remoteSettings, hostOpenAccess).filter(
-    (item) => !(serverWindow && item.value === 'connection')
+    (item) => !(serverWindow && item.value === 'connection') && !(phone && item.value === 'shortcuts')
   );
   const surfaceCategory = (next: SettingsCategory): SettingsCategory => {
     const resolved = settingsCategoryForSurface(next, remoteSettings, hostOpenAccess);
-    return serverWindow && resolved === 'connection' ? 'general' : resolved;
+    return (serverWindow && resolved === 'connection') || (phone && resolved === 'shortcuts') ? 'general' : resolved;
   };
   const resolveCategory = (next: SettingsCategory): SettingsCategory => surfaceCategory(next);
   // On a remote surface the theme lives on the device's own Display page.

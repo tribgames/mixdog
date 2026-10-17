@@ -4,7 +4,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSessionWorktreeApi, SESSION_WORKTREE_ACTIONS } from './worktree.mjs';
-import { worktreeError } from '../../../runtime/shared/worktrees/contract.mjs';
+import {
+  WORKTREE_REFUSAL_REASONS,
+  worktreeError,
+  worktreeRefusal,
+} from '../../../runtime/shared/worktrees/contract.mjs';
 import { createCallRoute } from '../../../standalone/session-transport/call-route.mjs';
 import { createAttachmentCalls } from '../../../standalone/session-client/attachment-calls.mjs';
 
@@ -76,4 +80,21 @@ test('a WorktreeError code crosses the daemon call envelope', async () => {
   await assert.rejects(client.call('session.mergeWorkspace', { args: [{ confirmed: true }] }), {
     code: 'WORKTREE_NOT_IMPLEMENTED',
   });
+});
+
+test('every management refusal reaches TUI and remote clients with its one shared text', async () => {
+  for (const [reason, text] of Object.entries(WORKTREE_REFUSAL_REASONS)) {
+    const api = createSessionWorktreeApi({
+      runtime: {
+        manageProjectBranch: async () => {
+          throw worktreeRefusal(reason);
+        },
+      },
+    });
+    await assert.rejects(wire(api).call('session.manageProjectBranch', { args: [{}] }), (error) => {
+      assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
+      assert.equal(error.message, text);
+      return true;
+    });
+  }
 });

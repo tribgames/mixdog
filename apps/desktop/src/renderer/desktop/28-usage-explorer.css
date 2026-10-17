@@ -1716,15 +1716,7 @@ button.quota-chart-slot[aria-expanded="true"] {
   background: var(--mx-warning);
   color: var(--mx-bg-deep);
 }
-/* Seti icon font — bundled file icon theme; attribution and license in
-   LICENSES/editor-assets-NOTICE.txt and THIRD-PARTY-NOTICES.txt. */
-@font-face {
-  font-family: "seti";
-  src: url("../seti.woff") format("woff");
-  font-weight: normal;
-  font-style: normal;
-  font-display: block;
-}
+/* Seti icon font (its @font-face lives in font-faces.css). */
 .seti-icon {
   /* biome-ignore lint/a11y/useGenericFontNames: icon font; a generic fallback would render glyph codes as text. */
   font-family: "seti";

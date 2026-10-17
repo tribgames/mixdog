@@ -150,6 +150,27 @@ test('the lightbox navigates across the message images, zooms, pans and closes',
   assert.equal(f.doc.querySelector('dialog'), null);
 });
 
+test('on a paired device the lightbox drops the host-only default app and offers Download / Share', async (t) => {
+  t.after(() => {
+    delete globalThis.window.mixdogRemoteServer;
+  });
+  const f = await mount(t, '![one](output/a.png)', () => {
+    globalThis.window.mixdogRemoteServer = 'wss://relay.example';
+  });
+  await f.press(f.doc.querySelector('button.markdown-local-image'));
+  assert.equal(button(f.doc, 'Open in default app'), null);
+  assert.ok(button(f.doc, 'Download / Share'), 'device save is offered');
+  assert.equal(button(f.doc, 'Save as'), null);
+  assert.deepEqual(f.local, []);
+});
+
+test('on the desktop the lightbox offers the default app, not Download / Share', async (t) => {
+  const f = await mount(t, '![one](output/a.png)');
+  await f.press(f.doc.querySelector('button.markdown-local-image'));
+  assert.ok(button(f.doc, 'Open in default app'));
+  assert.equal(button(f.doc, 'Download / Share'), null);
+});
+
 test('the lightbox opens the file in a tab or the default app, and closes on the backdrop', async (t) => {
   const f = await mount(t, '![one](output/a.png)');
   await f.press(f.doc.querySelector('button.markdown-local-image'));

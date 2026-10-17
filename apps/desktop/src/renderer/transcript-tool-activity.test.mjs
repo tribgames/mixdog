@@ -502,9 +502,18 @@ test('a continued bridge describe and a retired search_tools call from an old tr
   const continuedView = desktopToolActivityItemPresentation(continued);
   assert.equal(continuedView.title, 'Tool description');
   assert.equal(continuedView.subject, 'mcp__big__configure');
-  const searchResult = JSON.stringify({ tools: [{ name: 'web_fetch', description: 'Fetch a page.' }], nextCursor: null });
+  const searchResult = JSON.stringify({
+    tools: [{ name: 'web_fetch', description: 'Fetch a page.' }],
+    nextCursor: null,
+  });
   // Sessions written while search_tools existed keep their calls.
-  const retired = { kind: 'tool', id: 'retired', name: 'search_tools', args: { query: 'fetch page' }, result: searchResult };
+  const retired = {
+    kind: 'tool',
+    id: 'retired',
+    name: 'search_tools',
+    args: { query: 'fetch page' },
+    result: searchResult,
+  };
   const retiredView = desktopToolActivityItemPresentation(retired);
   assert.ok(retiredView.title);
   assert.ok(desktopToolActivitySummary([retired]));
@@ -1250,7 +1259,10 @@ test('desktop labels name the operation actually called and its real outcome', a
     ]),
     'Browser 2 actions'
   );
-  assert.equal(desktopToolActivitySummary([item('browser', { action: 'navigate', url: 'https://a.b' })]), 'Browser action');
+  assert.equal(
+    desktopToolActivitySummary([item('browser', { action: 'navigate', url: 'https://a.b' })]),
+    'Browser action'
+  );
 
   // Terminal is its own category with action verbs, never "External tools".
   const list = item('terminal', { action: 'list' });
@@ -1711,4 +1723,12 @@ test('an edit row opens in place under its path line; the path opens the side di
       dom.close();
     }
   }
+});
+
+test('toolRowRevision changes when output or diff text changes at the same length', async () => {
+  const { toolRowRevision } = await import('./transcript-tool-core.ts');
+  const row = (result, uiDiff) => ({ kind: 'tool', id: 'r', name: 'shell', result, uiDiff });
+  assert.notEqual(toolRowRevision(row('aaaa', 'x')), toolRowRevision(row('aaab', 'x')));
+  assert.notEqual(toolRowRevision(row('aaaa', 'x')), toolRowRevision(row('aaaa', 'y')));
+  assert.equal(toolRowRevision(row('aaaa', 'x')), toolRowRevision(row('aaaa', 'x')));
 });

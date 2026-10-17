@@ -25,6 +25,16 @@ for (const key of [
   globalThis[key] = dom.window[key];
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+// These tests describe the desktop window, which persists its Studio draft in
+// localStorage; an https page is a remote surface that keeps it in memory only.
+const browserWindow = globalThis.window;
+globalThis.window = new Proxy(browserWindow, {
+  get(target, key) {
+    if (key === 'location') return { pathname: '/', protocol: 'file:', origin: 'null' };
+    const value = Reflect.get(target, key);
+    return typeof value === 'function' ? value.bind(target) : value;
+  },
+});
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 window.requestAnimationFrame = (callback) => window.setTimeout(callback, 0);
 window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);

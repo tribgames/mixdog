@@ -7,11 +7,12 @@
 // while the lanes already deliver concurrent live output.
 
 import type React from 'react';
-import { useLayoutEffect } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useVisibleSessions } from './use-visible-sessions';
 import { t } from './i18n';
 import { useMobileRemoteSurface } from './mobile-surface';
+import { DownloadSessionContext } from './project-file-download';
 import { PaneSplitLayout } from './PaneSplitLayout';
 import {
   isConversationSelection,
@@ -25,7 +26,7 @@ import {
   usePaneSelectionFence,
   useSinglePaneMode,
 } from './use-pane-workspace-interactions';
-import { PersistentPanePortal } from './PaneSurfaceGate';
+import { PersistentPanePortal, TranscriptSkeletonCover } from './PaneSurfaceGate';
 import type { NavigationSelection, WorkspaceSelection } from './nav-types';
 import { paneActiveSessionIds, paneActiveSelection, paneLeavesInVisualOrder, type PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
@@ -73,6 +74,51 @@ function mobileVisibleSessionIds(leaves: readonly PaneLeaf[], focusedLeafId: str
   return active?.kind === 'session' ? [active.id] : [];
 }
 
+/** Sessions a phone keeps mounted besides the shown one, so switching back
+ *  to a recent session flips visibility instead of rendering its transcript
+ *  again. Each costs one Conversation's DOM and row caches; the lanes stay
+ *  unregistered with the host while retained. */
+const MOBILE_RETAINED_CONVERSATIONS = 2;
+
+/** A retained conversation is frozen: the app re-creates its props on every
+ *  workspace render, and re-rendering an unpainted transcript is pure cost.
+ *  Its own lane subscriptions still update it.
+ *
+ *  `deferMount`: a cold session on a phone paints its transcript skeleton in
+ *  the opening frame and mounts the Conversation (rows, composer, dock) in the
+ *  next one, so the tap answers at once. The gate follows the selection, not
+ *  the owner: an owner handed from one session to a cold one closes it again,
+ *  while a draft that became its session keeps its Conversation. */
+const RetainedConversation = memo(
+  function RetainedConversation({
+    selectionKey,
+    deferMount,
+    children,
+  }: {
+    retained: boolean;
+    selectionKey: string;
+    deferMount: boolean;
+    children: React.ReactNode;
+  }) {
+    const [gate, setGate] = useState({ selectionKey, deferred: deferMount, mounted: !deferMount });
+    let current = gate;
+    if (gate.selectionKey !== selectionKey && (deferMount || gate.deferred)) {
+      current = { selectionKey, deferred: deferMount, mounted: !(deferMount && gate.deferred) };
+      setGate(current);
+    }
+    const { mounted } = current;
+    useEffect(() => {
+      if (mounted) return undefined;
+      const frame = window.requestAnimationFrame(() =>
+        setGate((state) => (state.selectionKey === selectionKey ? { ...state, mounted: true } : state))
+      );
+      return () => window.cancelAnimationFrame(frame);
+    }, [mounted, selectionKey]);
+    return mounted ? children : <TranscriptSkeletonCover label={t('Loading conversation…')} />;
+  },
+  (previous, next) => previous.retained && next.retained
+);
+
 function dropZoneStyle(preview: DropPreview): React.CSSProperties {
   const { left, top, width, height } = preview.rect;
   switch (preview.zone) {
@@ -113,12 +159,14 @@ export function PaneWorkspace({
   /** Per-group tab strip. */
   renderStrip?: (leaf: PaneLeaf) => React.ReactNode;
   /** One permanently mounted chat surface per session/draft pane. Focus is a
-   *  prop change only. */
+   *  prop change only. `warm`: this surface already painted `selection` (a
+   *  retained phone session), so no close handoff may present another. */
   renderConversation?: (
     selection: NavigationSelection,
     focused: boolean,
     focusPane: () => void,
-    leafId: string
+    leafId: string,
+    warm: boolean
   ) => React.ReactNode;
   /** File editors stay mounted in their owning group while dirty. The active
    *  file renders in-place even when another pane has focus. */
@@ -178,32 +226,48 @@ export function PaneWorkspace({
   const { focusedLeafId } = workspace;
   const multi = workspace.leaves.length > 1;
   const { currentPaneSurfaces, paneSurfaceHandoffs } = usePaneSurfaceHandoffs(workspace.leaves);
-  const { conversationLeaves, ownerByLeaf } = usePaneConversationOwners(workspace, paneSurfaceHandoffs);
+  const { conversationLeaves } = usePaneConversationOwners(
+    workspace,
+    paneSurfaceHandoffs,
+    mobileSurface ? MOBILE_RETAINED_CONVERSATIONS : 0
+  );
   // Conversation owns scroll, virtualizer, parsed Markdown and composer state.
   // Keep one stable owner per visible pane instead of keying it by the active
   // session. When an active tab/group moves to another leaf, match its prior
   // selection first so the same owner follows the move; ordinary tab switches
   // then fall back to the existing leaf owner and never remount Conversation.
+  // A phone also keeps its last few sessions mounted (retained, unpainted).
   let conversationPortals: React.ReactNode[] = [];
   if (renderConversation) {
-    conversationPortals = conversationLeaves.map(({ leaf, active, handoff, parked }) => {
-      const focused = leaf.id === focusedLeafId;
-      const focusPane = (): void => {
-        workspace.focusLeaf(leaf.id);
-        onFocusSelection(active);
-      };
-      return (
-        <PersistentPanePortal
-          key={ownerByLeaf.get(leaf.id)}
-          targetId={paneConversationSlotId(leaf.id)}
-          className={`conversation-persistent-surface${handoff ? ' is-handoff' : ''}`}
-        >
-          {renderConversation(active, focused && !handoff && !parked, focusPane, leaf.id)}
-        </PersistentPanePortal>
-      );
-    });
+    conversationPortals = conversationLeaves.map(
+      ({ leaf, active, selectionKey, handoff, parked, retained, warm, owner }) => {
+        const focused = leaf.id === focusedLeafId;
+        const focusPane = (): void => {
+          workspace.focusLeaf(leaf.id);
+          onFocusSelection(active);
+        };
+        return (
+          <PersistentPanePortal
+            key={owner}
+            targetId={paneConversationSlotId(leaf.id)}
+            className={`conversation-persistent-surface${handoff ? ' is-handoff' : ''}`}
+            retained={retained}
+          >
+            <RetainedConversation
+              retained={retained}
+              selectionKey={selectionKey}
+              deferMount={mobileSurface && active.kind === 'session'}
+            >
+              {renderConversation(active, focused && !handoff && !parked && !retained, focusPane, leaf.id, warm)}
+            </RetainedConversation>
+          </PersistentPanePortal>
+        );
+      }
+    );
   }
-  const conversationEntryByLeaf = new Map(conversationLeaves.map((entry) => [entry.leaf.id, entry]));
+  const conversationEntryByLeaf = new Map(
+    conversationLeaves.filter((entry) => !entry.retained).map((entry) => [entry.leaf.id, entry])
+  );
   const conversationSlot = (leafId: string, parked: boolean) => (
     <div
       id={paneConversationSlotId(leafId)}
@@ -307,15 +371,26 @@ export function PaneWorkspace({
   };
   // Every cell layout stacks the same four parts: strip, surfaces, the file
   // editor's Problems panel and the pane's side dock.
+  // The conversation a pane's editor, Explorer and Review surfaces download
+  // as: the session the pane showed last, kept per pane while a file or
+  // utility tab covers it.
+  const downloadOwners = useRef(new Map<string, string>());
+  const downloadSessionOf = (leaf: PaneLeaf): string => {
+    const active = paneActiveSelection(leaf);
+    if (active?.kind === 'session') downloadOwners.current.set(leaf.id, active.id);
+    const owner = downloadOwners.current.get(leaf.id);
+    if (owner) return owner;
+    return leaf.tabs.find((tab) => tab.kind === 'session')?.id ?? '';
+  };
   const paneCellBody = (leaf: PaneLeaf, focused: boolean) => (
-    <>
+    <DownloadSessionContext.Provider value={downloadSessionOf(leaf)}>
       {renderStrip?.(leaf)}
       {renderPaneSurfaceStack(leaf, focused)}
       {renderProblems?.(leaf, focused)}
       {/* Main-tab file footer (EditorPane portals into it): the sheet's last row. */}
       <div className="pane-footer-slot" />
       {renderSideDock?.(leaf, focused)}
-    </>
+    </DownloadSessionContext.Provider>
   );
   if (workspace.layout.type === 'leaf') {
     const leaf = workspace.layout;

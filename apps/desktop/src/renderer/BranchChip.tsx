@@ -9,7 +9,7 @@ import { BranchMenuLayer, useBranchMenuActions, useBranchMenuData, useBranchMenu
 import { t } from './i18n';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { ProgressSpinner } from './ProgressSpinner';
-import { branchChipState, branchRows, useWorktreeIntent } from './worktree-branch-model';
+import { branchChipState, branchRows, getBranchIntent, useWorktreeIntent } from './worktree-branch-model';
 
 export function BranchChip({
   sessionId,
@@ -17,7 +17,6 @@ export function BranchChip({
   projectPath,
   disabled = false,
   refreshKey = '',
-  onOpenSession,
 }: {
   /** The pane's session; '' for a New Task draft. */
   sessionId: string;
@@ -26,8 +25,6 @@ export function BranchChip({
   disabled?: boolean;
   /** Changes whenever the session may have moved (turn start/end): re-reads the menu. */
   refreshKey?: string;
-  /** Navigates to the Mixdog session that holds a branch. */
-  onOpenSession(sessionId: string): void;
 }) {
   const draft = !sessionId;
   // Only a draft keeps a client-side "Worktree" choice (lazy creation at its
@@ -65,7 +62,6 @@ export function BranchChip({
     close,
     reopen,
     trigger,
-    onOpenSession,
   });
 
   const toggle = () => {
@@ -90,7 +86,7 @@ export function BranchChip({
   const rows = branchRows(menu, sessionId, query);
   const base = workspace.mergeTarget || workspace.branch || '';
   const forked = state.kind !== 'branch';
-  const label = recovery ? t('Worktree missing') : state.label;
+  const label = recovery ? t('Worktree missing') : (draft ? getBranchIntent(intentKey)?.branch : null) || state.label;
   return (
     <div
       className="composer-branch-context"

@@ -29,7 +29,9 @@ export function changedFileMenuItems({
   busy: boolean;
   canRevert: boolean;
   canIgnore: boolean;
-  canReveal: boolean;
+  /** null: the surface has no file manager to show the file in (a paired
+   *  device), so the item is left out instead of shown disabled. */
+  canReveal: boolean | null;
   canOpenDefault: boolean;
   missingChannel(label: string): string;
   guarded(action: () => void): void;
@@ -99,17 +101,22 @@ export function changedFileMenuItems({
       label: t('Copy relative file path'),
       onSelect: onCopyRelativePath,
     },
-    {
-      id: 'reveal',
-      label: t('Show in Explorer'),
-      separatorBefore: true,
-      disabled: !canReveal,
-      title: canReveal ? undefined : missingChannel(t('Showing a file in Explorer')),
-      onSelect: onReveal,
-    },
+    ...(canReveal === null
+      ? []
+      : [
+          {
+            id: 'reveal',
+            label: t('Show in Explorer'),
+            separatorBefore: true,
+            disabled: !canReveal,
+            title: canReveal ? undefined : missingChannel(t('Showing a file in Explorer')),
+            onSelect: onReveal,
+          },
+        ]),
     {
       id: 'open-default',
-      label: t('Open with default program'),
+      label: canReveal === null ? t('Download / Share') : t('Open with default program'),
+      ...(canReveal === null ? { separatorBefore: true } : {}),
       disabled: !canOpenDefault,
       title: canOpenDefault ? undefined : missingChannel(t('Opening a file')),
       onSelect: onOpenDefault,

@@ -444,6 +444,59 @@
   width: 100%;
   height: 100%;
 }
+/* First-open text cover (editor-text-placeholder.tsx): the file's own lines in
+   the editor's font, line height and gutter, standing in for Monaco while it
+   mounts behind the pane gate. Line numbers sit where Monaco draws them
+   (glyph margin + right-aligned numbers + decoration/folding gutter) and the
+   body keeps Monaco's 4px top padding, so the swap repaints in place. */
+.editor-text-placeholder {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--mx-workspace-sheet);
+  pointer-events: none;
+  user-select: none;
+}
+.editor-text-placeholder-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  padding-top: 4px;
+  font-family: var(--editor-placeholder-font);
+  font-size: var(--editor-placeholder-size);
+  line-height: var(--editor-placeholder-line);
+  tab-size: var(--editor-placeholder-tab);
+}
+.editor-text-placeholder-body > pre {
+  margin: 0;
+  font: inherit;
+  letter-spacing: normal;
+}
+.editor-text-placeholder-gutter {
+  flex: none;
+  box-sizing: content-box;
+  width: calc(var(--editor-placeholder-gutter-chars) * 1ch);
+  /* Monaco: the glyph margin is one line tall wide; folding adds 16px to the
+     10px decoration gutter. */
+  padding-left: var(--editor-placeholder-line);
+  padding-right: 26px;
+  text-align: right;
+  color: var(--mx-text-faint);
+}
+.editor-text-placeholder[data-side="true"] .editor-text-placeholder-gutter {
+  padding-left: 0;
+  padding-right: 12px;
+}
+.editor-text-placeholder-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: pre;
+  color: var(--mx-text);
+}
 .editor-pane-body > .editor-pane-preview,
 .editor-pane-body > .editor-zoom-frame {
   height: 100%;
@@ -1221,8 +1274,13 @@
   overflow: hidden;
   pointer-events: auto;
 }
-.session-terminal-surface-container[data-parked="true"] {
+/* Parked (and before its first placement) the root is not drawn at all: a
+   painted box moving between the parking spot and the dock was scored as one
+   window-sized layout shift on every open and close. Its layout — the grid
+   xterm measured — is kept. */
+.session-terminal-surface-container:not([data-parked="false"]) {
   z-index: -1;
+  visibility: hidden;
   pointer-events: none;
 }
 .session-terminal-surface-container > .pane-surface-gate,

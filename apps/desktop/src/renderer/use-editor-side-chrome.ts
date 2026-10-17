@@ -1,7 +1,7 @@
 // The file editor's chrome model. ONE object feeds both modes: the side dock
 // (header actions + footer) and the main tab (footer; actions live in the
 // breadcrumb row).
-import { useEffect, useMemo, useRef } from 'react';
+import { useContext, useEffect, useMemo, useRef } from 'react';
 import { t } from './i18n';
 import {
   delimiterForPath,
@@ -14,6 +14,7 @@ import type { editorViewKindForPath } from './editor-delimited';
 import type { DocumentPreview } from './editor-document-model';
 import type { EditorFileLoad } from './editor-file-loader';
 import { openEditorFileExternally } from './editor-external-file';
+import { DownloadSessionContext, startProjectFileDownload } from './project-file-download';
 import { revealFileFromWindow } from './server-transfers';
 import { editorLanguageLabel, type FilePreview } from './editor-pane-model';
 import { explorerAbsolutePath } from './explorer-tree-model';
@@ -40,6 +41,7 @@ export function selectionStatusLabel(
 }
 
 export function useEditorSideChrome({
+  zoomable,
   api,
   projectPath,
   relPath,
@@ -67,6 +69,8 @@ export function useEditorSideChrome({
   gotoLine,
   onSideChrome,
 }: {
+  /** An image/SVG/PDF/Office preview with a zoom bar: ⋯ gets the Zoom bar toggle. */
+  zoomable: boolean;
   api: typeof window.mixdogDesktop;
   projectPath: string;
   relPath: string;
@@ -127,8 +131,10 @@ export function useEditorSideChrome({
       ? { onOpen: onOpenPreviewToSide }
       : undefined;
   const remote = isRemoteHostRenderer();
+  const sessionId = useContext(DownloadSessionContext);
   const fileChrome: SideFileChrome = {
     editable: sideEditable,
+    zoomable,
     dirty,
     saving,
     tableSize,
@@ -145,7 +151,12 @@ export function useEditorSideChrome({
     reveal: remote ? undefined : () => void revealFileFromWindow(projectPath, relPath, accessToken),
     copyPath: remote ? () => void copyTextToClipboard(explorerAbsolutePath(projectPath, relPath)) : undefined,
     openDefault:
-      sideOpenDefault && !remote ? () => void openEditorFileExternally(projectPath, relPath, accessToken) : undefined,
+      sideOpenDefault && !remote
+        ? () => void openEditorFileExternally(projectPath, relPath, accessToken, sessionId)
+        : undefined,
+    download: remote
+      ? () => void startProjectFileDownload(sessionId, relPath, undefined, accessToken ? projectPath : undefined)
+      : undefined,
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: fileChrome is rebuilt every render; the listed primitives are its change signature, so the dock is told only when something it shows changed.
   useEffect(() => {
@@ -165,6 +176,7 @@ export function useEditorSideChrome({
     formattingAvailable,
     formatDocument,
     sideEditable,
+    zoomable,
     sideViewToggle,
     sideOpenDefault,
     viewMode,

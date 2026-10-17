@@ -121,6 +121,7 @@ export function ConversationTranscript({
   viewerDevice,
   renderRow,
   itemCount,
+  cover,
 }: {
   view: Pick<
     ConversationViewport,
@@ -148,6 +149,8 @@ export function ConversationTranscript({
   viewerDevice: string | null;
   renderRow: (row: TranscriptRowModel) => ReactNode;
   itemCount: number;
+  /** Loading cover over the viewport alone (never the composer dock). */
+  cover?: ReactNode;
 }) {
   const { viewport, content, follow } = view;
   const { requestEarlierTranscript } = source;
@@ -164,6 +167,12 @@ export function ConversationTranscript({
   });
   return (
     <div className="transcript-shell">
+      {/* The top scroll fade (12-transcript.css). A real hidden element, not
+        the shell's ::before: its scroll-driven opacity restyles it on every
+        scroll frame, and a pseudo-element's restyle made Chromium's
+        accessibility tree re-serialize the whole shell — every transcript row
+        — each update (~100 ms tasks on a phone while a followed reply grew). */}
+      <div className="transcript-scroll-fade" aria-hidden="true" />
       <div
         className="transcript"
         ref={viewport}
@@ -241,6 +250,7 @@ export function ConversationTranscript({
         </div>
       </div>
       {itemCount > 0 && <JumpToLatestButton visible={follow.showJump} onJump={timeline.jumpToLatest} />}
+      {cover}
     </div>
   );
 }

@@ -35,6 +35,34 @@ test('fixed runtime failure sentences are localized and keep their diagnostic co
   assert.equal(localizedTurnFailureReason('Could not reach the provider.'), 'Could not reach the provider');
 });
 
+test('provider-thinking, agent-watchdog and dropped-stream turn failures are localized', async () => {
+  await i18n.changeLanguage('ko');
+  try {
+    assert.equal(
+      localizedTurnFailureReason('Model still thinking: no output in 465s; Antigravity sent nothing yet; attempts: 2.'),
+      '모델이 아직 생각 중입니다: 465s 동안 출력이 없고 Antigravity에서 아직 아무것도 보내지 않았습니다. 시도 2회.'
+    );
+    assert.equal(
+      localizedTurnFailureReason('Model still thinking: no output in 1m; the provider sent nothing yet'),
+      '모델이 아직 생각 중입니다: 1m 동안 출력이 없고 프로바이더에서 아직 아무것도 보내지 않았습니다.'
+    );
+    assert.equal(
+      localizedTurnFailureReason('Agent watchdog stopped the run: no model response in 481s.'),
+      '에이전트 감시가 실행을 중지했습니다: 481s 동안 모델 응답이 없습니다.'
+    );
+    assert.equal(
+      localizedTurnFailureReason('Connection to the provider was lost (TRUNCATED_STREAM).'),
+      '프로바이더와의 연결이 끊어졌습니다 (TRUNCATED_STREAM)'
+    );
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+  assert.equal(
+    localizedTurnFailureReason('Agent watchdog stopped the run: no model response in 481s.'),
+    'Agent watchdog stopped the run: no model response in 481s.'
+  );
+});
+
 test('free-form reasons pass through verbatim', async () => {
   await i18n.changeLanguage('ko');
   assert.equal(

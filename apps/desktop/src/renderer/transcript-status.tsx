@@ -9,13 +9,15 @@ import { modelDisplayName, modelRouteDisplayParts } from './provider-display';
 import { uiCurrency } from './ui-format';
 import { liveAgentRows } from './agent-activity-model';
 import { onSessionPreviewsDeleted } from './image-preview-store';
-import { MxIcon } from './MxIcon';
 import { goalHasBackgroundWork } from './session-goal-presentation';
+import { MxIcon } from './MxIcon';
 import { showDesktopToast } from './notifications';
 import { asRecord, formatElapsed, publicThinkingSummary } from './text-format';
 import { completionTone, formatTokenCount, TextShimmer } from './transcript-primitives';
 import { localizedTurnFailureReason } from './transcript-failure-text';
 import { activityVerb, thinkingEffortLabel } from './activity-verbs';
+import { QuietCue, useLaneSpinnerQuiet } from './quiet-cue';
+import type { QuietProgressParts } from '../../../../src/runtime/shared/quiet-progress.mjs';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { buildSpinnerMeta } from '../../../../src/tui/spinner-meta.mjs';
 
@@ -311,6 +313,7 @@ export function LiveActivity({
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [clockPaused, startedAt]);
+  const quiet = useLaneSpinnerQuiet(liveSessionId, asRecord(activity)?.quiet);
   if (!activity && !optimisticActivity && !snapshot.thinking && !startedAt) {
     anchorRef.current = 0;
     return null;
@@ -360,7 +363,11 @@ export function LiveActivity({
     // What the runtime actually resolved this turn/step (Auto judge); the saved
     // level when nothing was recorded (Auto off, or a model without it).
     effort: String(snapshot.turnEffort || (autoShown ? '' : snapshot.effort) || ''),
+    // The turn's published quiet state: the quiet-time cue below.
+    quiet,
+    now: nowMs,
   });
+  const quietParts = meta.quietParts as QuietProgressParts | null;
   // The TUI formats these parts as lowercase English; the desktop translates them.
   const thinkingLabel = (() => {
     const parts = meta.thinkingParts as
@@ -388,6 +395,7 @@ export function LiveActivity({
         <LiveActivityIcon gradientId={logoGradientId} />
         <TextShimmer text={verb} />
         {activityMeta ? <span className="live-activity-meta">{activityMeta}</span> : null}
+        {quietParts ? <QuietCue parts={quietParts} sessionId={liveSessionId} className="live-activity-quiet" /> : null}
       </div>
       {reasoning && (
         <details className="thinking-disclosure">

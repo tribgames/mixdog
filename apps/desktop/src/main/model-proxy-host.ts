@@ -19,16 +19,6 @@ import {
   disposeTransportScope,
   forkTransportScope,
 } from '../../../../src/runtime/agent/orchestrator/providers/transport-scope.mjs';
-import {
-  createModelProxyGrants,
-  usageTokens,
-  type ModelProxyAdmission,
-  type ModelProxyGrantEnd,
-  type ModelProxyGrantPolicy,
-  type ModelProxyGrants,
-  type ModelProxyGrantView,
-  type ModelProxyTokenReservation,
-} from './model-proxy-grants';
 import { packagedRuntimeSourceRoot } from './runtime-layout';
 
 /** PC-side executor for "model calls via the client PC" (remote/SSH mode).
@@ -50,6 +40,20 @@ export interface ModelProxyProviderInstance {
   resolveWireRoute?(model: string, ctx: { agent: boolean; legacy: boolean }): Promise<unknown> | unknown;
   releaseTransportScope?(scope: string): void;
   getCachedModelInfo?(model: string): unknown;
+  firstResponseBudget?(model?: string): unknown;
+}
+
+/** A provider's first-response budget when it is a usable pair of durations. */
+function firstResponseBudget(value: unknown): { transportMs: number; semanticMs: number } | undefined {
+  const { transportMs, semanticMs } = record(value);
+  return typeof transportMs === 'number' &&
+    typeof semanticMs === 'number' &&
+    Number.isFinite(transportMs) &&
+    Number.isFinite(semanticMs) &&
+    transportMs > 0 &&
+    semanticMs > 0
+    ? { transportMs, semanticMs }
+    : undefined;
 }
 
 export interface ModelProxyRuntime {
@@ -63,8 +67,6 @@ export interface ModelProxyRuntime {
   finalizeTools(tools: unknown[], nativePrefixCount: number): unknown[];
 }
 
-/** Concurrent calls one server may run on this PC at a time. */
-export const MODEL_PROXY_MAX_CONCURRENT_CALLS = 8;
 /** Largest call payload (wire JSON characters) this PC accepts from a server:
  *  room for the 64 MiB of inlined attachments as base64 plus the transcript. */
 export const MODEL_PROXY_MAX_REQUEST_BYTES = 128 * 1024 * 1024;
@@ -76,14 +78,6 @@ export const MODEL_PROXY_MAX_SNAPSHOT_ENTRIES = 64;
 export const MODEL_PROXY_CLAIM_TIMEOUT_MS = 15_000;
 /** Largest event-reply results text decoded (callback return values are tiny). */
 export const MODEL_PROXY_MAX_EVENT_REPLY_CHARS = 1024 * 1024;
-/** Per-host call rate: a token bucket of `burst` refilled at `perMinute`. */
-export const MODEL_PROXY_RATE_LIMIT = Object.freeze({ perMinute: 60, burst: 12 });
-/** Longest one proxied call may run on this PC. */
-export const MODEL_PROXY_MAX_CALL_MS = 15 * 60_000;
-
-/** Why this PC refused or stopped a server's model call. A missing permission
- *  is told again after each send it admitted; the others once per window. */
-export type ModelProxyLimit = 'not-authorized' | 'rate-limited' | 'call-too-long';
 
 export interface ModelProxyHostOptions {
   invoke(operation: string, args: unknown[]): Promise<unknown>;
@@ -91,17 +85,6 @@ export interface ModelProxyHostOptions {
   /** Which of this PC's providers the server may use (the per-host setting);
    *  every provider when absent. */
   isProviderAllowed?: (provider: string) => boolean;
-  /** A server connection's grant policy: model sends run only under a grant
-   *  this PC opened from a trusted action (`trust()`), or on the background
-   *  budget the policy allows (model-proxy-grants). Absent: no grant gate. */
-  grantPolicy?: () => ModelProxyGrantPolicy;
-  /** Tokens each send holds against its grant or background budget while it runs. */
-  tokenReservation?: ModelProxyTokenReservation;
-  rateLimit?: { perMinute: number; burst: number };
-  maxCallMs?: number;
-  /** A limit refused or stopped a call; `reason` says why permission was missing. */
-  onLimited?(limit: ModelProxyLimit, reason?: ModelProxyGrantEnd): void;
-  maxConcurrentCalls?: number;
   maxRequestBytes?: number;
   maxInflightBytes?: number;
   maxSnapshotEntries?: number;
@@ -125,11 +108,6 @@ export interface ModelProxyCallSettled {
 export interface ModelProxyHost {
   /** Feed one desktop event; true when it was the model-proxy lane. */
   handleDesktopEvent(name: string, value: unknown): boolean;
-  /** A trusted user action in the server's window: opens this PC's grant or
-   *  extends it. Nothing without a grant policy. */
-  trust(): void;
-  /** The grant as this PC counts it; null without a grant policy. */
-  grant(): ModelProxyGrantView | null;
   readonly running: number;
   dispose(): void;
 }
@@ -344,6 +322,10 @@ export const MODEL_PROXY_DROPPED_SEND_OPTIONS: ReadonlyMap<string, string> = new
   ['responsesTransport', 'a provider config setting of this PC (adapters discard it from send options)'],
   ['signal', 'cancellation is this PC-side controller, driven by the channel'],
   [
+    'toolExecutionSessionId',
+    'native Cursor tool authorization is process-local and the server daemon executes the tools; execute sets it empty so proxied Cursor calls stay ordinary Mixdog tool calls',
+  ],
+  [
     'transportScope',
     "a process-local connection scope; the server's value is never used (execute allocates and disposes this PC's own for a request that carries one)",
   ],
@@ -475,9 +457,12 @@ export function publicProviderConfig(
     if (!isProviderAllowed(name)) continue;
     const entry = record(raw);
     const traits = record(entry.modelProxy);
-    const modelProxy: Record<string, boolean> = {};
+    const modelProxy: Record<string, unknown> = {};
     if (typeof traits.inputExcludesCache === 'boolean') modelProxy.inputExcludesCache = traits.inputExcludesCache;
     if (typeof traits.nativePdf === 'boolean') modelProxy.nativePdf = traits.nativePdf;
+    if (traits.consumesReadWindows === true) modelProxy.consumesReadWindows = true;
+    const budget = firstResponseBudget(traits.firstResponseBudget);
+    if (budget) modelProxy.firstResponseBudget = budget;
     out[name] = {
       enabled: entry.enabled === true,
       ...(entry.type === 'custom' ? { type: 'custom', hiddenModels: hiddenCustomModels(entry) } : {}),
@@ -510,10 +495,6 @@ function scalarDetail(value: unknown): Record<string, unknown> | undefined {
 }
 
 const shortText = (value: unknown): string | undefined => (typeof value === 'string' ? value.slice(0, 64) : undefined);
-
-/** Callbacks that carry model output: a failed call that invoked one is charged
- *  its token reservation when the provider reported no usage. */
-const MODEL_PROXY_OUTPUT_CALLBACKS: ReadonlySet<string> = new Set(['onTextDelta', 'onToolCall', 'onStreamDelta']);
 
 /** The send-option callbacks a provider may invoke back on the server, each
  *  with the projection of its arguments that may leave this PC. Any other
@@ -664,7 +645,11 @@ async function catalog(provider: ModelProxyProviderInstance, refresh: boolean) {
       const id = typeof row === 'string' ? row : record(row).id;
       if (typeof id !== 'string' || !id) continue;
       const info = provider.getCachedModelInfo(id);
-      if (info != null) modelInfo[id] = info;
+      if (info == null) continue;
+      // The budget depends on the model (a Pro-class model waits longer), so
+      // it rides with the model's own catalog entry.
+      const budget = typeof info === 'object' ? firstResponseBudget(provider.firstResponseBudget?.(id)) : undefined;
+      modelInfo[id] = budget ? { ...record(info), firstResponseBudget: budget } : info;
     }
   }
   return { models: rows, modelInfo };
@@ -675,10 +660,7 @@ async function execute(
   call: ProxyCall,
   signal: AbortSignal,
   emit: (name: string, args: unknown[]) => Promise<unknown>,
-  isProviderAllowed: (provider: string) => boolean,
-  /** Settles a send's token reservation to the provider's usage (a failure's
-   *  partial usage too); undefined when the provider reported none. */
-  settle?: (tokens: number | undefined) => void
+  isProviderAllowed: (provider: string) => boolean
 ): Promise<unknown> {
   const method = String(call.method || '') as ModelProxyMethod;
   if (!ALLOWED_METHODS.has(method)) throw new Error(`Model proxy method "${method}" is not allowed.`);
@@ -708,24 +690,20 @@ async function execute(
     return route ?? null;
   }
   const options = serverSendOptions(call.options);
-  // Whether model output (text, tool calls, stream progress) reached the server.
-  let emittedOutput = false;
   for (const callback of Array.isArray(call.callbacks) ? call.callbacks : []) {
     const project = typeof callback === 'string' ? MODEL_PROXY_CALLBACKS.get(callback) : undefined;
     if (!project) continue;
-    const output = MODEL_PROXY_OUTPUT_CALLBACKS.has(callback);
-    options[callback] = (...args: unknown[]) => {
-      if (output) emittedOutput = true;
-      return emit(callback, project(args));
-    };
+    options[callback] = (...args: unknown[]) => emit(callback, project(args));
   }
   options.signal = signal;
+  // No tool executes in this process: an empty executor keeps a provider from
+  // issuing process-local tool capabilities (Cursor native read/edit) that the
+  // server daemon could never honor.
+  options.toolExecutionSessionId = '';
   let tools = Array.isArray(call.tools) ? call.tools : undefined;
   if (tools && call.toolsFinalized === true) tools = runtime.finalizeTools(tools, Number(call.nativePrefixCount) || 0);
   const model = typeof call.model === 'string' ? call.model : undefined;
   const messages = withoutAttachmentReferences(Array.isArray(call.messages) ? call.messages : []);
-  const inputExcludesCache =
-    (provider as { constructor?: { inputExcludesCache?: unknown } }).constructor?.inputExcludesCache === true;
   // A request the server forked from a session (/btw) names a transport scope
   // of its own. The server's scope string means nothing on this PC, so the
   // request gets one allocated here and released when it ends.
@@ -734,43 +712,10 @@ async function execute(
     : '';
   if (forkedScope) options.transportScope = forkedScope;
   try {
-    const value = await provider.send(messages, model, tools, options);
-    settle?.(usageTokens(record(value).usage, inputExcludesCache));
-    return value;
-  } catch (error) {
-    // A failure that reported no usage and sent no output is charged nothing
-    // (it still counted as a call); one that streamed output is charged its
-    // reservation.
-    const used = usageTokens(record(error).partialUsage, inputExcludesCache);
-    settle?.(used ?? (emittedOutput ? undefined : 0));
-    throw error;
+    return await provider.send(messages, model, tools, options);
   } finally {
     if (forkedScope) disposeTransportScope(forkedScope, provider);
   }
-}
-
-/** What the daemon is told when a send has no permission on this PC. */
-const NOT_AUTHORIZED_MESSAGES: Record<ModelProxyGrantEnd, string> = {
-  none: 'This PC runs this server’s model calls only after you start or continue work in its window.',
-  expired: 'This PC’s permission for this server’s model calls ended: its window saw no action for too long.',
-  calls: 'This server used all the model calls this PC’s permission allows.',
-  tokens: 'This server used all the tokens this PC’s permission allows.',
-  'background-calls': 'Work on this server without a permission used up its model calls on this PC for the last hour.',
-  'background-tokens': 'Work on this server without a permission used up its tokens on this PC for the last 24 hours.',
-};
-
-/** A token bucket: `burst` calls at once, refilled at `perMinute`. */
-function createRateLimiter({ perMinute, burst }: { perMinute: number; burst: number }, now: () => number) {
-  let tokens = burst;
-  let at = now();
-  return (): boolean => {
-    const time = now();
-    tokens = Math.min(burst, tokens + ((time - at) * perMinute) / 60_000);
-    at = time;
-    if (tokens < 1) return false;
-    tokens -= 1;
-    return true;
-  };
 }
 
 /** Aborts the running calls a daemon snapshot or heartbeat reply lists as cancelled. */
@@ -899,29 +844,7 @@ function createClaims({
   return { claim, refuse };
 }
 
-/** Aborts `controller` once the call has run longer than `maxCallMs`. */
-function startCallTimer(controller: AbortController, maxCallMs: number, onTooLong: () => void): NodeJS.Timeout {
-  const timer = setTimeout(() => {
-    onTooLong();
-    controller.abort(
-      Object.assign(
-        refusal(
-          'The model call ran longer than this PC allows a server call to run.',
-          'MODEL_PROXY_CALL_TOO_LONG',
-          408
-        ),
-        {
-          name: 'AbortError',
-        }
-      )
-    );
-  }, maxCallMs);
-  timer.unref?.();
-  return timer;
-}
-
-/** Tells the daemon a call failed and how it ended: a call this PC stopped
- *  fails with this PC's reason, not the provider's abort. */
+/** Tells the daemon a call failed and how it ended. */
 async function failCall(
   invoke: ModelProxyHostOptions['invoke'],
   id: string,
@@ -930,7 +853,6 @@ async function failCall(
   error: unknown
 ): Promise<{ failure: unknown; outcome: Exclude<ModelProxyCallSettled['outcome'], 'answered'> }> {
   const reason = controller.signal.reason as { code?: unknown } | undefined;
-  const failure = reason?.code === 'MODEL_PROXY_CALL_TOO_LONG' ? reason : error;
   let outcome: Exclude<ModelProxyCallSettled['outcome'], 'answered'> =
     reason?.code === 'MODEL_PROXY_UNAVAILABLE' ? 'abandoned' : 'failed';
   await lane.flush().catch(() => {});
@@ -938,26 +860,20 @@ async function failCall(
     id,
     false,
     null,
-    encodeModelProxyWire(proxyErrorRecord(failure)),
+    encodeModelProxyWire(proxyErrorRecord(error)),
   ]).then(
     () => true,
     () => false
   );
   if (!delivered && outcome === 'failed') outcome = 'undelivered';
-  return { failure, outcome };
-}
-
-/** A claimed call that passed this PC's limits. */
-interface AdmittedCall {
-  call: ProxyCall;
-  admission: Extract<ModelProxyAdmission, { ok: true }> | undefined;
+  return { failure: error, outcome };
 }
 
 /** Runs an admitted call and answers the daemon with its outcome. */
 async function serveCall(
   id: string,
   payload: string,
-  { call, admission }: AdmittedCall,
+  call: ProxyCall,
   {
     running,
     inflight,
@@ -965,8 +881,6 @@ async function serveCall(
     liveness,
     loadRuntime,
     isProviderAllowed,
-    maxCallMs,
-    notices,
     onCallSettled,
   }: {
     running: Map<string, AbortController>;
@@ -975,8 +889,6 @@ async function serveCall(
     liveness: ReturnType<typeof createDaemonLiveness>;
     loadRuntime: ModelProxyHostOptions['loadRuntime'];
     isProviderAllowed: (provider: string) => boolean;
-    maxCallMs: number;
-    notices: ReturnType<typeof createLimitNotices>;
     onCallSettled: ModelProxyHostOptions['onCallSettled'];
   }
 ): Promise<void> {
@@ -984,29 +896,17 @@ async function serveCall(
   running.set(id, controller);
   inflight.bytes += payload.length;
   liveness.ensure();
-  const callTimer = startCallTimer(controller, maxCallMs, () => notices.tell('call-too-long'));
   const lane = createEventLane(id, invoke, controller);
   const provider = String(call.provider || '');
   let settled: ModelProxyCallSettled['outcome'] = 'answered';
   let failure: unknown;
   try {
-    const value = await execute(
-      await loadRuntime(),
-      call,
-      controller.signal,
-      lane.emit,
-      isProviderAllowed,
-      admission?.settle
-    );
+    const value = await execute(await loadRuntime(), call, controller.signal, lane.emit, isProviderAllowed);
     await lane.flush();
     await invoke(MODEL_PROXY_OPERATIONS.resolve, [id, true, encodeModelProxyWire(value), null]);
   } catch (error) {
     ({ failure, outcome: settled } = await failCall(invoke, id, lane, controller, error));
   } finally {
-    // A send that never reached the provider (refused or failed before it)
-    // frees its call and reservation; a settled one is unaffected.
-    admission?.cancel();
-    clearTimeout(callTimer);
     inflight.bytes -= payload.length;
     running.delete(id);
     if (!running.size) liveness.stop();
@@ -1014,46 +914,12 @@ async function serveCall(
   onCallSettled?.({ provider, outcome: settled, ...(failure === undefined ? {} : { error: failure }) });
 }
 
-/** Tells the user about a refused or stopped call: each limit once per window,
- *  a missing permission again after each send it admitted. */
-function createLimitNotices(onLimited: ModelProxyHostOptions['onLimited']) {
-  const told = new Set<ModelProxyLimit>();
-  return {
-    tell(limit: ModelProxyLimit, reason?: ModelProxyGrantEnd): void {
-      if (told.has(limit)) return;
-      told.add(limit);
-      try {
-        onLimited?.(limit, reason);
-      } catch {
-        /* a notice never changes the refusal */
-      }
-    },
-    permissionRestored(): void {
-      told.delete('not-authorized');
-    },
-  };
-}
-
-/** The claimed payload checked against this PC's limits, or the refusal to send. */
+/** The claimed payload checked against this PC's size limits, or the refusal to send. */
 function admitPayload(
   payload: string,
   inflightBytes: number,
-  {
-    maxRequestBytes,
-    maxInflightBytes,
-    rateLimit,
-    grants,
-    takeToken,
-    notices,
-  }: {
-    maxRequestBytes: number;
-    maxInflightBytes: number;
-    rateLimit: { perMinute: number };
-    grants: ModelProxyGrants | null;
-    takeToken(): boolean;
-    notices: ReturnType<typeof createLimitNotices>;
-  }
-): AdmittedCall | Error {
+  { maxRequestBytes, maxInflightBytes }: { maxRequestBytes: number; maxInflightBytes: number }
+): ProxyCall | Error {
   // Sized before anything is decoded or held.
   if (payload.length > maxRequestBytes) {
     return refusal(
@@ -1069,35 +935,11 @@ function admitPayload(
       429
     );
   }
-  let call: ProxyCall;
   try {
-    call = record(decodeModelProxyWire(payload)) as ProxyCall;
+    return record(decodeModelProxyWire(payload)) as ProxyCall;
   } catch {
     return refusal('The model call is malformed.', 'MODEL_PROXY_REQUEST_INVALID', 400);
   }
-  const method = String(call.method || '');
-  // Only a send spends: it needs this PC's grant (or the background budget).
-  const admission = method === 'send' ? grants?.admit() : undefined;
-  if (admission && !admission.ok) {
-    notices.tell('not-authorized', admission.reason);
-    return refusal(NOT_AUTHORIZED_MESSAGES[admission.reason], 'MODEL_PROXY_NOT_AUTHORIZED', 403);
-  }
-  // Admitted: a later missing permission is news again.
-  if (admission) notices.permissionRestored();
-  // Reading this PC's own provider list spends nothing; everything else counts.
-  if (method !== 'providerConfig' && !takeToken()) {
-    admission?.cancel();
-    notices.tell('rate-limited');
-    return Object.assign(
-      refusal(
-        'This server is making model calls faster than this PC allows; try again shortly.',
-        'MODEL_PROXY_RATE_LIMITED',
-        429
-      ),
-      { retryAfterMs: Math.ceil(60_000 / Math.max(1, rateLimit.perMinute)) }
-    );
-  }
-  return { call, admission };
 }
 
 /** The request ids a snapshot advertises that this PC could take up: bounded
@@ -1116,12 +958,6 @@ export function createModelProxyHost({
   invoke: invokeOperation,
   loadRuntime,
   isProviderAllowed = () => true,
-  grantPolicy,
-  tokenReservation,
-  rateLimit = MODEL_PROXY_RATE_LIMIT,
-  maxCallMs = MODEL_PROXY_MAX_CALL_MS,
-  onLimited,
-  maxConcurrentCalls = MODEL_PROXY_MAX_CONCURRENT_CALLS,
   maxRequestBytes = MODEL_PROXY_MAX_REQUEST_BYTES,
   maxInflightBytes = MODEL_PROXY_MAX_INFLIGHT_BYTES,
   maxSnapshotEntries = MODEL_PROXY_MAX_SNAPSHOT_ENTRIES,
@@ -1137,11 +973,6 @@ export function createModelProxyHost({
   let advertised = new Set<string>();
   const inflight = { bytes: 0 };
   let disposed = false;
-  const takeToken = createRateLimiter(rateLimit, now);
-  const grants = grantPolicy
-    ? createModelProxyGrants({ policy: grantPolicy, now, reservation: tokenReservation })
-    : null;
-  const notices = createLimitNotices(onLimited);
   const liveness = createDaemonLiveness({
     invoke: invokeOperation,
     running,
@@ -1155,26 +986,17 @@ export function createModelProxyHost({
 
   /** Synchronous, so the in-flight check and the call taking its share
    *  (`serve`) are one step. */
-  const admit = (payload: string): AdmittedCall | Error =>
-    admitPayload(payload, inflight.bytes, {
-      maxRequestBytes,
-      maxInflightBytes,
-      rateLimit,
-      grants,
-      takeToken,
-      notices,
-    });
+  const admit = (payload: string): ProxyCall | Error =>
+    admitPayload(payload, inflight.bytes, { maxRequestBytes, maxInflightBytes });
 
-  const serve = (id: string, payload: string, admitted: AdmittedCall): Promise<void> =>
-    serveCall(id, payload, admitted, {
+  const serve = (id: string, payload: string, call: ProxyCall): Promise<void> =>
+    serveCall(id, payload, call, {
       running,
       inflight,
       invoke,
       liveness,
       loadRuntime,
       isProviderAllowed,
-      maxCallMs,
-      notices,
       onCallSettled,
     });
 
@@ -1196,11 +1018,10 @@ export function createModelProxyHost({
     else await serve(id, payload, admitted);
   };
 
-  /** Takes up advertised requests while there is room; nothing is claimed at the cap. */
+  /** Takes up every advertised request not already in progress. */
   function pump(): void {
     if (disposed) return;
     for (const id of advertised) {
-      if (running.size + claiming.size >= maxConcurrentCalls) break;
       advertised.delete(id);
       if (!running.has(id) && !claiming.has(id)) void run(id).finally(pump);
     }
@@ -1220,12 +1041,6 @@ export function createModelProxyHost({
       );
       pump();
       return true;
-    },
-    trust(): void {
-      if (grants?.trust()) notices.permissionRestored();
-    },
-    grant() {
-      return grants?.view() ?? null;
     },
     get running() {
       return running.size;
@@ -1306,12 +1121,21 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
       const providers: Record<string, unknown> = {};
       for (const name of new Set([...Object.keys(available), ...live.keys()])) {
         const instance = live.get(name) as
-          | { constructor?: { inputExcludesCache?: unknown }; nativePdf?: unknown }
+          | {
+              constructor?: { inputExcludesCache?: unknown };
+              nativePdf?: unknown;
+              consumesReadWindows?: unknown;
+              firstResponseBudget?: () => unknown;
+            }
           | undefined;
-        const traits: Record<string, boolean> = {};
+        const traits: Record<string, unknown> = {};
         const excludes = instance?.constructor?.inputExcludesCache;
         if (typeof excludes === 'boolean') traits.inputExcludesCache = excludes;
         if (typeof instance?.nativePdf === 'boolean') traits.nativePdf = instance.nativePdf;
+        if (instance?.consumesReadWindows === true) traits.consumesReadWindows = true;
+        // The adapter's own figure, for a model the catalog has no entry for.
+        const budget = firstResponseBudget(instance?.firstResponseBudget?.());
+        if (budget) traits.firstResponseBudget = budget;
         const configured = record(available[name]);
         const authState = credentialState(name, configured);
         const configuredEnabled = configured.enabled === true || configured.credentialProbeUnavailable === true;
@@ -1379,7 +1203,9 @@ export function modelProxyRuntimeLoader({
         /* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'runtime-core', 'provider-request-tools.mjs')
       ),
       import(/* @vite-ignore */ moduleUrl('runtime', 'shared', 'provider-api-key.mjs')),
-      import(/* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'providers', 'oauth-credential-probes.mjs')),
+      import(
+        /* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'providers', 'oauth-credential-probes.mjs')
+      ),
     ]);
     const config = configModule as unknown as Pick<ModelProxyRuntimeModules, 'loadConfig'>;
     const registry = registryModule as unknown as Pick<

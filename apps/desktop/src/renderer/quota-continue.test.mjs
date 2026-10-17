@@ -44,7 +44,7 @@ test('quota failure: only the latest failed turndone with quota and no later tur
 test('panel visibility: idle, undismissed, quota present', () => {
   const failure = { turnKey: 'turn:u1', kind: 'quota_exhausted', quota };
   const state = { failure, sessionId: 's1', busy: false, dismissedKey: '' };
-  assert.equal(quotaPanelVisible(state), false, 'exhausted quota with no known reset: plain notice only');
+  assert.equal(quotaPanelVisible(state), true, 'exhausted quota stays visible without a known reset');
   const known = { ...failure, quota: { ...quota, resetAt: 5_000 } };
   assert.equal(quotaPanelVisible({ ...state, failure: known }), true);
   assert.equal(quotaPanelVisible({ ...state, failure: { ...failure, kind: 'billing' } }), true);
@@ -75,7 +75,7 @@ test('the switch-and-retry flow is gone: no picker hand-off, no renderer retry c
   for (const name of ['beginQuotaContinue', 'takeQuotaContinue', 'cancelQuotaContinue']) {
     assert.equal(name in quotaContinue, false, name);
   }
-  assert.equal(DESKTOP_CAPABILITIES.includes('retryFailedTurn'), false);
+  assert.equal(DESKTOP_CAPABILITIES.includes('retryFailedTurn'), true);
 });
 
 test('account guidance needs a manual roster with another signed-in account', () => {
@@ -92,7 +92,11 @@ test('account guidance needs a manual roster with another signed-in account', ()
     rosterOffersOtherAccount({
       policy: 'manual',
       selectedId: 'a',
-      accounts: [accounts[0], { id: 'b', authenticated: true, reauthRequired: true }, { id: 'c', authenticated: false }],
+      accounts: [
+        accounts[0],
+        { id: 'b', authenticated: true, reauthRequired: true },
+        { id: 'c', authenticated: false },
+      ],
     }),
     false,
     'signed-out accounts do not count'
@@ -158,7 +162,13 @@ test('the quota banner is one line between the island and the composer, with no 
 
   const resetAt = Date.now() + (2 * 60 + 15) * 60_000 - 1_000;
   const time = quotaResetLabel(resetAt);
-  await render({ resetAt, otherAccount: false, reserved: false, busy: false, onToggleResume: () => calls.push('toggle') });
+  await render({
+    resetAt,
+    otherAccount: false,
+    reserved: false,
+    busy: false,
+    onToggleResume: () => calls.push('toggle'),
+  });
   const section = banner(document);
   const order = [...document.querySelector('.composer-region').children].map((child) => child.className);
   assert.deepEqual(order, ['composer-island-slot', 'composer-quota-card', 'composer-queue-tray', 'composer']);
@@ -185,7 +195,13 @@ test('the quota banner is one line between the island and the composer, with no 
   assert.deepEqual(calls, ['toggle']);
 
   // Reserved: the same button spins and pressing it cancels.
-  await render({ resetAt, otherAccount: false, reserved: true, busy: false, onToggleResume: () => calls.push('toggle') });
+  await render({
+    resetAt,
+    otherAccount: false,
+    reserved: true,
+    busy: false,
+    onToggleResume: () => calls.push('toggle'),
+  });
   const reserved = banner(document).querySelector('button');
   assert.equal(reserved.getAttribute('aria-pressed'), 'true');
   assert.equal(reserved.dataset.reserved, 'true', 'on: the icon spins');
@@ -282,14 +298,19 @@ const conversation = [
 const quotaStop = (resetAt) => [
   ...conversation,
   { kind: 'user', id: 'u2', text: 'do it' },
-  { kind: 'turndone', id: 'd2', status: 'failed', quota: { provider: 'anthropic-oauth', model: 'claude-opus', resetAt } },
+  {
+    kind: 'turndone',
+    id: 'd2',
+    status: 'failed',
+    quota: { provider: 'anthropic-oauth', model: 'claude-opus', resetAt },
+  },
 ];
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /** The host's quota calls and the exhausted provider's account roster. */
 function quotaHost(document, roster = null) {
-  const host = { schedules: [], cancels: [], rosterReads: [], roster };
+  const host = { schedules: [], cancels: [], retries: [], rosterReads: [], roster };
   document.defaultView.mixdogDesktop = {
     scheduleQuotaResume: async (sessionId) => {
       host.schedules.push(sessionId);
@@ -299,7 +320,11 @@ function quotaHost(document, roster = null) {
       host.cancels.push(sessionId);
       return true;
     },
-    invokeCapability: async ({ capability, args }) => {
+    invokeCapability: async ({ capability, args, sessionId }) => {
+      if (capability === 'retryFailedTurn') {
+        host.retries.push({ sessionId, args });
+        return { value: true };
+      }
       assert.equal(capability, 'getProviderAccounts');
       host.rosterReads.push(args[0]);
       if (!host.roster) throw new Error('no roster');
@@ -323,22 +348,108 @@ function quotaProps(overrides = {}) {
   };
 }
 
-test('the banner leaves when the chat runs on another model; the exhausted model keeps it', async (t) => {
+test('a changed model offers immediate resume without automatically submitting', async (t) => {
   const { root, document } = mount(t);
-  quotaHost(document);
+  const host = quotaHost(document);
   const render = (chatProvider, chatModel) =>
     act(async () => {
-      root.render(React.createElement(QuotaHarness, quotaProps({ chatProvider, chatModel })));
+      root.render(
+        React.createElement(
+          QuotaHarness,
+          quotaProps({
+            chatProvider,
+            chatModel,
+          })
+        )
+      );
       await settle();
     });
   await render('anthropic-oauth', 'claude-opus');
   assert.ok(banner(document), 'still on the exhausted model');
   await render('anthropic-oauth', 'claude-sonnet');
-  assert.equal(banner(document), null, 'same provider, other model: its next turn runs there');
+  assert.equal(banner(document).querySelectorAll('button').length, 1);
+  assert.equal(banner(document).querySelector('button').textContent, translate('Resume with changed model'));
   await render('openai-oauth', 'gpt-5.1');
-  assert.equal(banner(document), null, 'other provider');
+  assert.equal(banner(document).querySelectorAll('button').length, 1);
+  assert.deepEqual(host.retries, []);
+  await act(async () => {
+    banner(document).querySelector('button').click();
+    await settle();
+  });
+  assert.deepEqual(host.retries, [{ sessionId: 's1', args: ['s1', 'turn:u2'] }]);
   await render('', '');
   assert.ok(banner(document), 'unknown chat route keeps the banner');
+});
+
+test('one button cancels an existing reservation before offering changed-model resume', async (t) => {
+  const { root, document } = mount(t);
+  const host = quotaHost(document);
+  const resetAt = Date.now() + 3_600_000;
+  const render = (quotaResume) =>
+    act(async () => {
+      root.render(
+        React.createElement(
+          QuotaHarness,
+          quotaProps({
+            chatProvider: 'openai-oauth',
+            chatModel: 'gpt-new',
+            settledItems: quotaStop(resetAt),
+            snapshot: { sessionId: 's1', quotaResume },
+          })
+        )
+      );
+      await settle();
+    });
+  await render({ state: 'waiting', turnKey: 'turn:u2', provider: 'anthropic-oauth', model: 'claude-opus', resetAt });
+  assert.equal(banner(document).querySelectorAll('button').length, 1);
+  const button = banner(document).querySelector('button');
+  assert.equal(button.textContent, translate('Cancel resume'));
+  assert.equal(button.dataset.reserved, 'true');
+  await act(async () => {
+    button.click();
+    await settle();
+  });
+  assert.deepEqual(host.cancels, ['s1']);
+  assert.deepEqual(host.retries, []);
+  await render(null);
+  assert.equal(banner(document).querySelector('button').textContent, translate('Resume with changed model'));
+  await act(async () => {
+    banner(document).querySelector('button').click();
+    await settle();
+  });
+  assert.equal(host.retries.length, 1);
+});
+
+test('a refused immediate resume reports an actionable error instead of silently doing nothing', async (t) => {
+  const { root, document } = mount(t);
+  quotaHost(document);
+  document.defaultView.mixdogDesktop.invokeCapability = async () => ({ value: false });
+  const errors = [];
+  await act(async () => {
+    root.render(
+      React.createElement(
+        QuotaHarness,
+        quotaProps({
+          chatProvider: 'openai-oauth',
+          chatModel: 'gpt-new',
+          invokeResult: async (action) => {
+            try {
+              return await action();
+            } catch (error) {
+              errors.push(error.message);
+            }
+          },
+        })
+      )
+    );
+    await settle();
+  });
+  await act(async () => {
+    banner(document).querySelector('button').click();
+    await settle();
+  });
+  assert.deepEqual(errors, [translate('Unable to resume this turn. Check its status or send a new message.')]);
+  assert.equal(banner(document).querySelector('button').disabled, false);
 });
 
 test('a manual roster with another signed-in account adds the account guidance', async (t) => {
@@ -377,7 +488,7 @@ test('a reopened banner reads the roster afresh; a failed read drops the earlier
   await render('claude-opus');
   assert.equal(banner(document).querySelector('.composer-quota-card-guide').textContent, `· ${guidanceText(true)}`);
   await render('claude-sonnet');
-  assert.equal(banner(document), null, 'hidden while on another model');
+  assert.equal(banner(document).querySelector('button').textContent, translate('Resume with changed model'));
   host.roster = null;
   await render('claude-opus');
   assert.deepEqual(host.rosterReads, ['anthropic-oauth', 'anthropic-oauth'], 'read again on reopening');
@@ -399,7 +510,13 @@ test('the resume button toggles the reservation and the banner stays; no island 
   const { root, document } = mount(t);
   const host = quotaHost(document);
   const resetAt = Date.now() + 3_600_000;
-  const waitingResume = { state: 'waiting', turnKey: 'turn:u2', provider: 'anthropic-oauth', model: 'claude-opus', resetAt };
+  const waitingResume = {
+    state: 'waiting',
+    turnKey: 'turn:u2',
+    provider: 'anthropic-oauth',
+    model: 'claude-opus',
+    resetAt,
+  };
   const render = (snapshot) =>
     act(async () => {
       root.render(React.createElement(QuotaHarness, quotaProps({ snapshot, settledItems: quotaStop(resetAt) })));
@@ -443,7 +560,13 @@ test('a reservation without a banner still shows the island pill, which offers o
         quotaProps({
           snapshot: {
             sessionId: 's1',
-            quotaResume: { state: 'waiting', turnKey: 'turn:u2', provider: 'anthropic-oauth', model: 'claude-opus', resetAt },
+            quotaResume: {
+              state: 'waiting',
+              turnKey: 'turn:u2',
+              provider: 'anthropic-oauth',
+              model: 'claude-opus',
+              resetAt,
+            },
           },
           settledItems: quotaStop(resetAt),
           pendingPromptCount: 1,

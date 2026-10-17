@@ -49,6 +49,7 @@ import { TurnChangesContext } from './TurnChangesCard';
 import { requestSessionDiffFile } from './session-diff-focus';
 import { capPatchLines } from './renderer-logic.mjs';
 import { CopyControl } from './transcript-primitives';
+import { FullToolOutputButton, useFullToolOutput } from './tool-full-output';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
 import { useBrowserPageIdentity } from './browser-page-identity';
@@ -75,6 +76,7 @@ import {
   TOOL_DETAIL_LABELS,
   toolActivityIsCompleted,
   toolItemDone,
+  toolItemHasDiff,
   type ToolActivityBrowserPage,
   type ToolCardModel,
 } from './transcript-tool-model';
@@ -248,6 +250,7 @@ const Elapsed = React.memo(function Elapsed({
   minMs?: number;
 }) {
   const [now, setNow] = useState(() => Date.now());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: startedAt restarts the ticker and resets the clock.
   useEffect(() => {
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -426,6 +429,7 @@ function ToolBrowserPageCard({ page, sessionId }: { page: ToolActivityBrowserPag
     );
   }
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: wrapper only catches context-menu requests (right-click / menu key) bubbling from its child controls.
     <div
       className={`transcript-browser-page${thumbnail ? ' has-thumbnail' : ''}`}
       onContextMenu={(event) => {
@@ -1096,7 +1100,7 @@ function ToolActivityPreview({
 }
 
 function ToolActivityItem({
-  item,
+  item: shownItem,
   disclosureKey,
   defaultOpen,
   contentId,
@@ -1109,6 +1113,8 @@ function ToolActivityItem({
   scope: string;
 }) {
   const [open, onToggle, chosen, keepOpen] = useRememberedDisclosure(disclosureKey, defaultOpen);
+  const fullOutput = useFullToolOutput(scope, shownItem, open);
+  const item = fullOutput.item;
   const outcomeUnknown = useToolOutcomeUnknown()(item.id);
   const visualizeTabTitle = visualizeCallTabTitle(scope, item);
   const presentation = useMemo(() => {
@@ -1123,7 +1129,11 @@ function ToolActivityItem({
   // diff pane on that file (with the way back to the list), where a session
   // has that pane.
   const turnChanges = useContext(TurnChangesContext);
-  const diffPath = presentation.diffPatch && !presentation.pending ? diffTargetPath(presentation.diffPatch) : '';
+  const diffPath = presentation.pending
+    ? ''
+    : presentation.diffPatch
+      ? diffTargetPath(presentation.diffPatch)
+      : presentation.diffDigestPath;
   const openDiff =
     diffPath && turnChanges?.sessionId && turnChanges.onOpenSessionDiff
       ? () => {
@@ -1144,6 +1154,7 @@ function ToolActivityItem({
       {rendered &&
         presentation.hasDetails &&
         renderToolActivityDetails(presentation, contentId, chosen ? null : keepOpen, openDiff)}
+      {rendered && presentation.hasDetails && <FullToolOutputButton output={fullOutput} />}
     </article>
   );
 }
@@ -1189,7 +1200,7 @@ export function ToolCard({ item, disclosureScope = '' }: { item: TranscriptItem;
   const hasResult = typeof rawResult === 'string' ? Boolean(rawResult.trim()) : rawResult != null;
   const hasDetails = Boolean(model.detailLine);
   const count = Math.max(1, Math.round(Number(item.count || 1)));
-  const partialMutation = callFailedCount > 0 && typeof item.uiDiff === 'string' && Boolean(item.uiDiff.trim());
+  const partialMutation = callFailedCount > 0 && toolItemHasDiff(item);
   const outcomeTone = deriveToolOutcomeTone({
     pending: model.pending,
     groupCount: count,

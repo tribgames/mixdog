@@ -1,6 +1,7 @@
 /* The side dock's visualize view: the agent's artifacts beside the chat. One
    tab body holds 1-3 panes side by side, each under a small caption. */
 .visualize-pane {
+  position: relative;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -62,24 +63,31 @@
   flex-direction: column;
   background: var(--mx-bg-base);
 }
-.visualize-pane-label {
-  flex: 0 0 auto;
-  padding: 2px 8px;
-  font-size: 11px;
-  line-height: 18px;
-  color: var(--mx-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  border-bottom: 1px solid var(--mx-border);
-}
 .visualize-pane-content {
   flex: 1;
   min-height: 0;
   display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: auto;
+}
+/* Holds a pane's content; the zoom bar scales it (transform + 1/scale size),
+   so it always fills the pane. It takes the pane's height by stretching, not
+   by `height: 100%`, so it is full height from the first frame. */
+.visualize-zoom-layer {
+  flex: none;
+  width: 100%;
+  height: 100%;
+  display: flex;
   align-items: center;
   justify-content: center;
-  overflow: auto;
+  transform-origin: 0 0;
+}
+/* A remote pane's loading / error note is the same element the page box later
+   reuses (React keeps the div), so it fills the layer from the first frame
+   instead of sitting centred at its own height and then growing. */
+.visualize-zoom-layer > .visualize-empty {
+  align-self: stretch;
 }
 .visualize-pane-content iframe {
   width: 100%;
@@ -91,11 +99,24 @@
      color-scheme Chromium backs a light-scheme frame with an opaque canvas. */
   background: transparent;
 }
+/* Chromium's PDF viewer zooms by itself on Ctrl+wheel / Ctrl +/-/0, stacking
+   a second zoom on the pill's. While Ctrl/Cmd is held the document frame lets
+   the wheel through to the panel, whose zoom is the only one (visualize-zoom.ts;
+   main swallows the keys, host-zoom-input.ts). */
+.visualize-pane[data-zoom-modifier] .visualize-document-frame {
+  pointer-events: none;
+}
 .visualize-pane-content img,
 .visualize-pane-content video {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+}
+/* A zoomed image (its layer grows by the scale) is drawn at the scale times
+   its fitted size: `zoom` multiplies its natural size, and the max-size caps
+   resolve against the grown layer, so a small image zooms too. */
+.visualize-zoom-layer img {
+  zoom: var(--visualize-zoom, 1);
 }
 .visualize-pane-content audio {
   width: calc(100% - 24px);
@@ -156,9 +177,6 @@
 .visualize-problem-count {
   color: var(--mx-text-muted);
 }
-.visualize-pane-label.is-snapshot {
-  background: color-mix(in srgb, var(--mx-warning, #e0a030) 14%, transparent);
-}
 /* Comparing a 2-3 pane tab: version | live pairs in two columns. */
 .visualize-body.is-compare-grid {
   display: grid;
@@ -170,7 +188,7 @@
   color: var(--mx-text-muted);
 }
 
-/* Outside network toggle in the toolbar: highlighted once something was blocked. */
+/* Toolbar button highlighted for attention (e.g. Versions while a kept version shows). */
 .visualize-pane .browser-pane-nav-button[data-attention="true"] {
   color: var(--mx-warning, #e0a030);
   background: color-mix(in srgb, var(--mx-warning, #e0a030) 16%, transparent);
@@ -194,6 +212,30 @@
 .visualize-script-pane iframe {
   flex: 1;
   min-height: 0;
+}
+/* A remote PDF / Office pane: its pages as images, scrolled top to bottom. */
+.visualize-document-pages {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  box-sizing: border-box;
+}
+.visualize-pane-content .visualize-document-pages img {
+  display: block;
+  width: calc(100% - 16px);
+  height: auto;
+  max-height: none;
+  background: #fff;
+}
+.visualize-document-more {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--mx-text-muted, inherit);
 }
 
 /* Inline (direct-renderer) panes: a failed render shows its error and source. */

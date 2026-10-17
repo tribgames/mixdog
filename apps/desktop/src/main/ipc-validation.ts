@@ -285,13 +285,22 @@ const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh', 'unlockKeychain', 'recheckKeychain']);
 const SKILLS_STATUS_OPTION_KEYS = new Set(['projectPath']);
 const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason', 'answers', 'reply']);
-const TOGGLEABLE_BUILTIN_TOOLS = new Set(['git', 'office', 'localProvider', 'tidy', 'autoEffort', 'visualize']);
+const TOGGLEABLE_BUILTIN_TOOLS = new Set([
+  'git',
+  'office',
+  'localProvider',
+  'tidy',
+  'autoEffort',
+  'visualize',
+  'media',
+]);
 const INSTALLABLE_BUILTIN_FEATURES = new Set(['git', 'memory', 'office', 'localProvider', 'tidy', 'autoEffort']);
 
 const CAPABILITY_ARITY = {
   prioritizeQueued: [1, 1],
   restoreQueued: [0, 2],
   rewindToItem: [1, 1],
+  retryFailedTurn: [2, 2],
   setEffort: [1, 1],
   setToolMode: [1, 1],
   getAutoClear: [0, 0],
@@ -462,6 +471,8 @@ const CAPABILITY_ARITY = {
   getMediaJob: [1, 1],
   getMediaDefault: [1, 1],
   setMediaDefault: [1, 1],
+  getMediaPins: [0, 0],
+  setMediaPin: [1, 1],
   startMediaJob: [1, 1],
   cancelMediaJob: [1, 1],
   deleteMediaAsset: [1, 1],
@@ -1003,11 +1014,18 @@ export function requiredNewTaskDraft(value: unknown): DesktopNewTaskDraft {
     const value = input.worktree;
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('worktree is invalid.');
     const record = value as Record<string, unknown>;
-    requireAllowedKeys(record, new Set(['confirmLarge']), 'new task worktree');
+    requireAllowedKeys(record, new Set(['confirmLarge', 'branch', 'create']), 'new task worktree');
     if (record.confirmLarge !== undefined && typeof record.confirmLarge !== 'boolean') {
       throw new TypeError('worktree.confirmLarge must be a boolean.');
     }
     worktree = record.confirmLarge === true ? { confirmLarge: true } : {};
+    if (record.branch !== undefined) worktree.branch = requiredString(record.branch, 'worktree.branch');
+    if (record.create !== undefined) {
+      if (typeof record.create !== 'boolean' || !worktree.branch) {
+        throw new TypeError('worktree.create requires a branch and must be a boolean.');
+      }
+      worktree.create = record.create;
+    }
   }
   return {
     ...(projectPath ? { projectPath } : {}),
@@ -1056,6 +1074,11 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     throw new TypeError(`capability ${capability} received an invalid number of arguments.`);
   }
   validateStructuredValue(args);
+  if (capability === 'retryFailedTurn') {
+    const target = requiredSessionId(args[0]);
+    requiredString(args[1], 'turn key', 512);
+    if (input.sessionId !== target) throw new TypeError('retry session must match the addressed session.');
+  }
   if (isWorktreeCapability(capability)) validateWorktreeCapabilityArgs(capability, args);
   if (isImportCapability(capability)) validateImportCapabilityArgs(capability, args);
   if (capability === 'contextStatus' && args.length) validateContextStatusArgs(args[0]);
@@ -1130,7 +1153,9 @@ function validateSettingCapabilityArgs(capability: DesktopCapability, args: read
     throw new TypeError(`${capability} requires a boolean value.`);
   }
   if (capability === 'setBuiltinToolEnabled' && !TOGGLEABLE_BUILTIN_TOOLS.has(args[0] as string)) {
-    throw new TypeError('setBuiltinToolEnabled requires git, office, localProvider, tidy, autoEffort, or visualize.');
+    throw new TypeError(
+      'setBuiltinToolEnabled requires git, office, localProvider, tidy, autoEffort, visualize, or media.'
+    );
   }
   if (capability === 'setDeveloperOption') requiredString(args[0], 'developer option id', 128);
   if (capability === 'installBuiltinFeature' && !INSTALLABLE_BUILTIN_FEATURES.has(args[0] as string)) {
@@ -1388,6 +1413,17 @@ export function requiredGitPaths(value: unknown): string[] {
     throw new TypeError('git paths are invalid.');
   }
   return value.map(requiredGitPath);
+}
+
+/** Island Git request: the listed files (may be empty) and an optional base branch. */
+export function requiredGitRequestContextInput(value: unknown): { paths: string[]; base: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('git request input is invalid.');
+  const { paths, base } = value as Record<string, unknown>;
+  if (!Array.isArray(paths) || paths.length > 500) throw new TypeError('git paths are invalid.');
+  return {
+    paths: paths.map(requiredGitPath),
+    base: base === undefined || base === '' ? '' : requiredGitBranchName(base),
+  };
 }
 
 export function requiredReviewDiffFiles(value: unknown): { path: string; untracked: boolean }[] {

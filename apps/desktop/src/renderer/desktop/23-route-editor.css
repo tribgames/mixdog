@@ -611,13 +611,8 @@
 /* A list that scrolls on fades its last visible row out instead of cutting
    it mid-line (user: 드랍다운 아래 글자 잘리는 경우가 많고). The fade
    shrinks to nothing over the final 24px of scroll, and a palette that does
-   not scroll has no timeline, so it never fades. */
-@property --mx-palette-fade {
-  syntax: "<length>";
-  /* The ::after that paints the fade reads it from the palette. */
-  inherits: true;
-  initial-value: 0px;
-}
+   not scroll has no timeline, so it never fades. --mx-palette-fade is
+   registered in font-faces.css. */
 @keyframes mx-palette-end-fade {
   from {
     --mx-palette-fade: 24px;
@@ -1421,4 +1416,16 @@
   color: var(--mx-text-faint);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* A listed model its provider cannot serve yet (signed out): muted, with the
+   reason on the trailing edge instead of the selection check. */
+.model-option-row[data-unavailable] {
+  color: var(--mx-text-muted);
+  cursor: default;
+}
+.model-option-row .model-row-unavailable {
+  margin-left: auto;
+  color: var(--mx-warning);
+  font-size: var(--mx-font-small, 12px);
 }

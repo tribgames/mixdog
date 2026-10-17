@@ -87,21 +87,6 @@ export function registerConnectionLinkIpc<T extends LinkedConnection>(deps: Conn
       },
     ],
     [
-      DESKTOP_IPC.connectionAllowModelUse,
-      (event) => {
-        // "Keep allowing" is a trusted action (model-proxy-grants): only the
-        // server window's own main frame may give it, never a frame inside it.
-        if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) {
-          throw new Error('Only the server window itself can allow its model use.');
-        }
-        const connection = connectionOf(event);
-        if (connection.kind !== 'ssh' || !connection.modelProxy) {
-          throw new Error('Only a server window has model use to allow.');
-        }
-        connection.modelProxy.trust();
-      },
-    ],
-    [
       DESKTOP_IPC.reopenServerWindowsGet,
       (event) => {
         localOnly(event);

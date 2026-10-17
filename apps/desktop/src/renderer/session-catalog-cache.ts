@@ -1,6 +1,7 @@
 import type { DesktopSessionSummary } from '../shared/contract';
 import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';
 import { deleteSessionImagePreviews } from './image-preview-store';
+import { contentLocalStorage } from './remote-conversation-privacy';
 
 const SESSION_CATALOG_STORAGE_KEY = 'mixdog.desktop-session-catalog.v1';
 const SESSION_CATALOG_LIMIT = 500;
@@ -78,7 +79,7 @@ function normalizeCachedSessionCatalog(value: unknown): CachedSessionCatalog {
 
 export function readCachedSessionCatalog(): DesktopSessionSummary[] {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY)) || 'null');
+    const stored = JSON.parse(contentLocalStorage().getItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY)) || 'null');
     return normalizeCachedSessionCatalog(stored).rows;
   } catch {
     return [];
@@ -92,7 +93,7 @@ export function writeCachedSessionCatalog(rows: DesktopSessionSummary[], scope =
     rows,
   });
   try {
-    window.localStorage.setItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY, scope), JSON.stringify(catalog));
+    contentLocalStorage().setItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY, scope), JSON.stringify(catalog));
   } catch {
     // The authoritative live catalog remains usable when storage is unavailable.
   }

@@ -57,6 +57,17 @@ const SIDEBAR_REFERENCE_KEYS: readonly SidebarReferenceKey[] = [
   'webSearchModels',
 ];
 
+/** The Workflows panel's reference set; boot prewarm and rail hover warm the
+ *  same keys the panel reads so its first open paints rows at once. */
+export const WORKFLOW_REFERENCE_KEYS = [
+  'workflows',
+  'agents',
+  'webSearchRoute',
+  'webSearchModels',
+  'providerSetup',
+  'quickProviderModels',
+] as const satisfies readonly SidebarReferenceKey[];
+
 // TTLs reflect how fast each resource actually moves. Channel setup carries
 // the schedule/webhook rows a user edits inside the app, so it revalidates
 // quickly; catalogs that only change when a provider or pack changes hold

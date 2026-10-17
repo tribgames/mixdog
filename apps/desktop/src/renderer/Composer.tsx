@@ -273,6 +273,8 @@ export type ComposerProps = {
   paneActive?: boolean;
   /** Replaces the rotating placeholder (a pending question: sending answers it). */
   placeholderOverride?: string;
+  /** Set while a question waits: "Steer now" on a plain queued follow-up answers it. */
+  answerQuestion?: ((reply: string) => Promise<unknown>) | null;
 };
 
 export const Composer = memo(function Composer(props: ComposerProps) {
@@ -306,6 +308,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     hiddenQueueIds,
     pendingSubmissionIds,
     onQueuedRestored,
+    answerQuestion,
     promptRestore,
     userMessages,
     submit,
@@ -430,6 +433,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     mergeRestoredAttachments,
     showNotice: showComposerNotice,
     onQueuedRestored,
+    answerQuestion,
     scope: historyScope,
   });
   useComposerPromptRestore({ promptRestore, setDraft, draftRef, textarea, onQueuedRestored });

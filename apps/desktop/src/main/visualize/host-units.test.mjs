@@ -7,6 +7,7 @@ import test from 'node:test';
 import { exportTabBytes } from './host-export-path.ts';
 import { capturedPng, captureWindowRect, htmlFrames, paneFrames, windowAccess } from './host-frames.ts';
 import { watchFile } from './host-file-watch.ts';
+import { pagePoint, visualizeZoomKey, watchVisualizeZoomInput } from './host-zoom-input.ts';
 import { watchPageProblems } from './host-page-observer.ts';
 import { requireShownWindow } from './host-page-ops.ts';
 
@@ -170,4 +171,92 @@ test('exportTabBytes refuses a PDF of a non-HTML pane and captures the panel for
   const tab = { panes: [{ kind: 'image', url: '' }] };
   await assert.rejects(exportTabBytes(capture, tab, 'pdf', 0), /Save as PDF is for HTML pages/);
   assert.equal((await exportTabBytes(capture, tab, 'png', 0)).toString(), 'shot');
+});
+
+test('zoom gestures inside a pane frame are forwarded to the renderer, once per window', () => {
+  const key = (key, extra = {}) => ({ type: 'keyDown', key, control: true, meta: false, alt: false, ...extra });
+  assert.equal(visualizeZoomKey(key('=')), 'in');
+  assert.equal(visualizeZoomKey(key('+')), 'in');
+  assert.equal(visualizeZoomKey(key('-')), 'out');
+  assert.equal(visualizeZoomKey(key('0', { control: false, meta: true })), 'reset');
+  assert.equal(visualizeZoomKey(key('=', { control: false })), null);
+  assert.equal(visualizeZoomKey(key('=', { alt: true })), null);
+  assert.equal(visualizeZoomKey(key('=', { type: 'keyUp' })), null);
+  assert.equal(visualizeZoomKey(key('a')), null);
+
+  // Every registration is recorded: a Map keyed by event name would hide a
+  // second listener for the same event.
+  const registrations = [];
+  const handlers = { get: (name) => registrations.find(([event]) => event === name)?.[1] };
+  const sent = [];
+  const mainFrame = {};
+  const contents = {
+    mainFrame,
+    focusedFrame: mainFrame,
+    isDestroyed: () => false,
+    on: (name, handler) => registrations.push([name, handler]),
+    send: (channel, event) => sent.push([channel, event]),
+  };
+  const cursor = { x: 40, y: 50 };
+  watchVisualizeZoomInput(contents, () => cursor);
+  const wired = registrations.length;
+  assert.deepEqual(registrations.map(([name]) => name).sort(), ['before-input-event', 'blur', 'zoom-changed'].sort());
+  watchVisualizeZoomInput(contents, () => cursor);
+  assert.equal(registrations.length, wired, 'a second watch must not register again');
+
+  // Ctrl+wheel the frame's page left alone: the pointer's place goes with it.
+  // A wheel input-event carries no position (only type and modifiers), so the
+  // place cannot come from it.
+  handlers.get('input-event')?.({}, { type: 'mouseWheel', modifiers: ['control'] });
+  handlers.get('zoom-changed')({}, 'in');
+  assert.deepEqual(sent.pop()[1], { sessionId: '', zoom: 'in', point: { x: 40, y: 50 } });
+
+  // A zoom key counts only while a subframe holds focus; the panel's own
+  // document handles the main frame's keys itself.
+  const press = (input) => {
+    let prevented = false;
+    handlers.get('before-input-event')({ preventDefault: () => (prevented = true) }, input);
+    return prevented;
+  };
+  assert.equal(press(key('=')), false);
+  assert.equal(sent.length, 0);
+  contents.focusedFrame = {};
+  // The key is swallowed (the PDF viewer must not zoom too) and forwarded;
+  // Ctrl already went down under the main frame (the panel's document saw it),
+  // so only the zoom is reported.
+  assert.equal(press(key('-')), true);
+  assert.deepEqual(
+    sent.map(([, event]) => event),
+    [{ sessionId: '', zoom: 'out' }]
+  );
+  sent.length = 0;
+  assert.equal(press(key('x')), false);
+  assert.equal(sent.length, 0);
+  // Windows reports the release of Ctrl with Ctrl's own flag still set.
+  press({ type: 'keyUp', key: 'Control', control: true, meta: false, alt: false });
+  assert.deepEqual(sent.pop()[1], { sessionId: '', zoomModifier: false });
+
+  // Focus transitions: Ctrl pressed in the frame, window blurs, Ctrl released
+  // elsewhere, and a new press in the frame must be reported again.
+  press({ type: 'keyDown', key: 'Control', control: true, meta: false, alt: false });
+  assert.deepEqual(sent.pop()[1], { sessionId: '', zoomModifier: true });
+  handlers.get('blur')();
+  contents.focusedFrame = mainFrame;
+  press({ type: 'keyUp', key: 'Control', control: true, meta: false, alt: false });
+  contents.focusedFrame = {};
+  press({ type: 'keyDown', key: 'Control', control: true, meta: false, alt: false });
+  assert.deepEqual(sent.pop()[1], { sessionId: '', zoomModifier: true });
+  // Release in the main frame without a blur is tracked too.
+  contents.focusedFrame = mainFrame;
+  press({ type: 'keyUp', key: 'Control', control: true, meta: false, alt: false });
+  contents.focusedFrame = {};
+  press({ type: 'keyDown', key: 'Control', control: true, meta: false, alt: false });
+  assert.deepEqual(sent.pop()[1], { sessionId: '', zoomModifier: true });
+});
+
+test('the cursor maps to page CSS px through the window origin and a non-1 zoom factor', () => {
+  assert.deepEqual(pagePoint({ x: 300, y: 200 }, { x: 100, y: 50 }, 1), { x: 200, y: 150 });
+  // At 150% a page px is 1.5 device px: 300 device px right of the origin is 200 CSS px.
+  assert.deepEqual(pagePoint({ x: 400, y: 350 }, { x: 100, y: 50 }, 1.5), { x: 200, y: 200 });
+  assert.deepEqual(pagePoint({ x: 400, y: 350 }, { x: 100, y: 50 }, 0), { x: 300, y: 300 });
 });

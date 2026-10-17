@@ -1,10 +1,12 @@
+import { ANCHORED_PANEL_EDGE, ANCHORED_PANEL_GAP, anchoredPanelGeometry } from './anchored-panel';
+
 export type RouteSheetPane = 'model' | 'effort' | 'context' | 'speed' | `parameter:${string}`;
 
 export const ROUTE_PANEL_PADDING = 4;
 export const ROUTE_SHEET_ROW_HEIGHT = 36;
 
-const ROUTE_PANEL_EDGE = 8;
-const ROUTE_PANEL_GAP = 6;
+const ROUTE_PANEL_EDGE = ANCHORED_PANEL_EDGE;
+const ROUTE_PANEL_GAP = ANCHORED_PANEL_GAP;
 // Codex-scale panel: the pill expands to this same width, so it stays modest.
 export const ROUTE_PANEL_WIDTH = 224;
 
@@ -15,6 +17,22 @@ export interface RoutePanelBox {
   height: number;
   maxHeight: number;
   placement?: 'above' | 'below' | 'left' | 'right';
+  /** A side flyout sizes to its content: the row top it hangs from and the
+   *  band it must stay inside, so a measured height can re-place it. */
+  fit?: { anchorTop: number; minTop: number; maxBottom: number };
+}
+
+/** Fixed-position style of a panel box. A side flyout leaves its height to
+ *  its content (capped by max-height); every other box is sized. */
+export function routePanelStyle(box: RoutePanelBox): {
+  left: number;
+  top: number;
+  width: number;
+  maxHeight: number;
+  height?: number;
+} {
+  const style = { left: box.left, top: box.top, width: box.width, maxHeight: box.maxHeight };
+  return box.fit ? style : { ...style, height: box.height };
 }
 
 interface RouteAnchorRect {
@@ -45,30 +63,58 @@ export function routeSheetWidth(viewport: { width: number }, preferredWidth = RO
   );
 }
 
+/** Route sheet box: the shared anchored-popup rule (anchored-panel.ts). The
+ *  composer's pill sits at the bottom of the screen, so its sheet opens
+ *  `above`; a dialog or settings field opens `below` like every other popup.
+ *  `align` picks the trigger edge the sheet lines up with. */
 export function routeSheetBox(
   trigger: RouteAnchorRect,
   preferredHeight: number,
   viewport: RouteViewport,
-  preferredWidth = ROUTE_PANEL_WIDTH
+  preferredWidth = ROUTE_PANEL_WIDTH,
+  placement: 'above' | 'below' = 'above',
+  align: 'start' | 'end' = 'end'
 ): RoutePanelBox {
-  const viewportLeft = viewport.left ?? 0;
-  const viewportTop = viewport.top ?? 0;
-  const viewportRight = viewportLeft + viewport.width;
-  const viewportBottom = viewportTop + viewport.height;
+  const bounds = viewportBounds(viewport);
   const width = routeSheetWidth(viewport, preferredWidth);
-  const left = clamp(trigger.right - width, viewportLeft + ROUTE_PANEL_EDGE, viewportRight - width - ROUTE_PANEL_EDGE);
-  const spaceAbove = Math.max(1, trigger.top - viewportTop - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
-  const spaceBelow = Math.max(1, viewportBottom - trigger.bottom - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
-  const openAbove = spaceAbove >= preferredHeight || spaceAbove > spaceBelow;
-  const height = Math.min(preferredHeight, openAbove ? spaceAbove : spaceBelow);
-  const top = openAbove ? trigger.top - ROUTE_PANEL_GAP - height : trigger.bottom + ROUTE_PANEL_GAP;
+  const geometry = anchoredPanelGeometry({
+    // Copied field by field: a DOMRect's edges are prototype getters.
+    trigger: {
+      left: trigger.left,
+      right: trigger.right,
+      top: trigger.top,
+      bottom: trigger.bottom,
+      width: trigger.right - trigger.left,
+      height: trigger.bottom - trigger.top,
+    },
+    bounds,
+    preferredWidth: width,
+    minWidth: width,
+    naturalHeight: preferredHeight,
+    align,
+    placement,
+  });
+  const height = Math.max(1, Math.min(preferredHeight, geometry.maxHeight));
   return {
-    left,
-    top: clamp(top, viewportTop + ROUTE_PANEL_EDGE, viewportBottom - height - ROUTE_PANEL_EDGE),
+    left: geometry.left,
+    top: geometry.top,
     width,
     height,
     maxHeight: height,
-    placement: openAbove ? 'above' : 'below',
+    placement: geometry.placement,
+  };
+}
+
+function viewportBounds(viewport: RouteViewport) {
+  const left = viewport.left ?? 0;
+  const top = viewport.top ?? 0;
+  return {
+    left,
+    top,
+    right: left + viewport.width,
+    bottom: top + viewport.height,
+    width: viewport.width,
+    height: viewport.height,
   };
 }
 
@@ -117,7 +163,8 @@ export function routeDrillBox(sheet: RoutePanelBox, preferredHeight: number, vie
   const above = sheet.placement !== 'below';
   const pinned = above ? sheet.top + sheet.height : sheet.top;
   const room = above ? pinned - viewportTop - ROUTE_PANEL_EDGE : viewportBottom - pinned - ROUTE_PANEL_EDGE;
-  const height = Math.max(ROUTE_SHEET_ROW_HEIGHT, Math.min(preferredHeight, room));
+  // One row is the floor only while the surface has room for it.
+  const height = Math.max(Math.min(ROUTE_SHEET_ROW_HEIGHT, Math.max(1, room)), Math.min(preferredHeight, room));
   return {
     left: sheet.left,
     top: above ? pinned - height : pinned,
@@ -128,38 +175,59 @@ export function routeDrillBox(sheet: RoutePanelBox, preferredHeight: number, vie
   };
 }
 
+/** Re-place a side flyout for its measured content height: top on its row,
+ *  shifted up only as far as the band requires. */
+export function routeFlyoutFit(box: RoutePanelBox, contentHeight: number, anchorTop?: number): RoutePanelBox {
+  if (!box.fit) return box;
+  const anchor = anchorTop ?? box.fit.anchorTop;
+  const height = Math.max(1, Math.min(contentHeight, box.maxHeight));
+  const top = clamp(anchor, box.fit.minTop, box.fit.maxBottom - height);
+  if (height === box.height && top === box.top && anchor === box.fit.anchorTop) return box;
+  return { ...box, top, height, fit: { ...box.fit, anchorTop: anchor } };
+}
+
+/** `maxHeight` is the pane's cap; `contentHeight` (default: the cap) is what
+ *  its content needs — a short list makes a short flyout. */
 export function routeFlyoutBox(
   sheet: RoutePanelBox,
-  preferredHeight: number,
+  maxHeight: number,
   viewport: RouteViewport,
   anchorTop?: number,
   preferredWidth?: number,
-  preferredSide: 'left' | 'right' | null = null
+  preferredSide: 'left' | 'right' | null = null,
+  contentHeight = maxHeight
 ): RoutePanelBox {
   const viewportTop = viewport.top ?? 0;
   const viewportBottom = viewportTop + viewport.height;
-  // Open the submenu beside the sheet, top-aligned with the row that
-  // spawned it (clamped into the viewport). Stacking above/below is only the
-  // fallback for viewports too narrow to fit a second column.
+  // Open the submenu beside the sheet (right first), top-aligned with the
+  // row that spawned it. Stacking above/below is only the fallback for
+  // viewports too narrow to fit a second column.
   const { sideWidth, canOpenLeft, canOpenRight } = flyoutSides(sheet, viewport, preferredWidth);
   if (canOpenLeft || canOpenRight) {
     const openLeft = preferredSide === 'right' ? !canOpenRight && canOpenLeft : canOpenLeft;
-    const height = Math.min(preferredHeight, Math.max(1, viewport.height - ROUTE_PANEL_EDGE * 2));
     // A sheet that opened above its pill ends at the composer: a submenu from
     // a low row grows upward from that edge instead of covering the composer.
-    const lowestTop =
+    const maxBottom =
       sheet.placement === 'above'
-        ? Math.min(viewportBottom - height - ROUTE_PANEL_EDGE, sheet.top + sheet.height - height)
-        : viewportBottom - height - ROUTE_PANEL_EDGE;
-    return {
-      left: openLeft ? sheet.left - ROUTE_PANEL_GAP - sideWidth : sheet.left + sheet.width + ROUTE_PANEL_GAP,
-      top: clamp(anchorTop ?? sheet.top, viewportTop + ROUTE_PANEL_EDGE, lowestTop),
-      width: sideWidth,
-      height,
-      maxHeight: height,
-      placement: openLeft ? 'left' : 'right',
-    };
+        ? Math.min(viewportBottom - ROUTE_PANEL_EDGE, sheet.top + sheet.height)
+        : viewportBottom - ROUTE_PANEL_EDGE;
+    const minTop = viewportTop + ROUTE_PANEL_EDGE;
+    // The cap is the band the flyout may occupy, not the whole viewport.
+    const cap = Math.min(maxHeight, Math.max(1, maxBottom - minTop));
+    return routeFlyoutFit(
+      {
+        left: openLeft ? sheet.left - ROUTE_PANEL_GAP - sideWidth : sheet.left + sheet.width + ROUTE_PANEL_GAP,
+        top: anchorTop ?? sheet.top,
+        width: sideWidth,
+        height: cap,
+        maxHeight: cap,
+        placement: openLeft ? 'left' : 'right',
+        fit: { anchorTop: anchorTop ?? sheet.top, minTop, maxBottom },
+      },
+      contentHeight
+    );
   }
+  const preferredHeight = Math.min(maxHeight, contentHeight);
   const sheetBottom = sheet.top + sheet.height;
   const spaceAbove = Math.max(1, sheet.top - viewportTop - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
   const spaceBelow = Math.max(1, viewportBottom - sheetBottom - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);

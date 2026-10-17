@@ -92,6 +92,7 @@ test('disposeTerminalsUnder kills only terminals inside the removed root', () =>
   const entry = (cwd) => ({
     pty: { kill: () => killed.push(cwd) },
     buffer: new TerminalReplayBuffer(),
+    activity: { exit() {}, dispose() {} },
     disposed: false,
     outputPaused: false,
     shell: 'sh',
@@ -103,7 +104,10 @@ test('disposeTerminalsUnder kills only terminals inside the removed root', () =>
   manager.terminals.set('session-terminal:a:2', entry(`${root}${sep}src`));
   manager.terminals.set('session-terminal:a:3', entry(`${root}-sibling`));
   manager.terminals.set('session-terminal:a:4', entry(null));
-  assert.deepEqual(manager.disposeTerminalsUnder(`${root}${sep}`).sort(), ['session-terminal:a', 'session-terminal:a:2']);
+  assert.deepEqual(manager.disposeTerminalsUnder(`${root}${sep}`).sort(), [
+    'session-terminal:a',
+    'session-terminal:a:2',
+  ]);
   assert.equal(killed.length, 2);
   assert.deepEqual([...manager.terminals.keys()].sort(), ['session-terminal:a:3', 'session-terminal:a:4']);
 });

@@ -6,6 +6,7 @@
 // session's list, so removing one renumbers the rest everywhere alike.
 import { useSyncExternalStore } from 'react';
 
+import { isRemoteContentSurface } from './remote-conversation-privacy';
 import type { VisualizePaneKind, VisualizePaneView } from '../shared/visualize';
 import {
   formatVisualizeTime,
@@ -13,7 +14,8 @@ import {
   visualizeCommentKind,
   visualizeCommentLabel,
 } from '../shared/visualize-comment-kinds';
-import { type VisualizeFeedbackRect, type VisualizePageMarker, visualizeUnitRect } from '../shared/visualize-feedback';
+import type { VisualizePageMarker } from '../shared/visualize-feedback';
+import { type VisualizeFeedbackRect, visualizeUnitRect } from '../shared/visualize-rect';
 import type { VisualizeTweakChange } from '../shared/visualize-tweaks';
 
 /** The file a pin names: project-relative on the desktop (`file`), and the
@@ -240,6 +242,7 @@ const EMPTY: VisualizeFeedback = Object.freeze({ pins: [], choices: [], tweaks: 
 const STORAGE_KEY = 'mixdog:visualize-feedback:v1';
 
 function storedFeedback(): Map<string, VisualizeFeedback> {
+  if (isRemoteContentSurface()) return new Map();
   try {
     const raw = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || '[]') as unknown;
     if (!Array.isArray(raw)) return new Map();
@@ -274,6 +277,7 @@ const lastPinNumber = (map: Map<string, VisualizeFeedback>): number =>
   Math.max(0, ...[...map.values()].flatMap((value) => value.pins.map((pin) => Number(pin.id.slice(1)) || 0)));
 
 function store(map: Map<string, VisualizeFeedback>): void {
+  if (isRemoteContentSurface()) return;
   try {
     if (map.size) sessionStorage.setItem(STORAGE_KEY, JSON.stringify([...map]));
     else sessionStorage.removeItem(STORAGE_KEY);

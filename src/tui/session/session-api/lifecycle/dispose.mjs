@@ -1,4 +1,4 @@
-// Dispose: release presence, timers, subscriptions, approvals and OAuth flows,
+// Dispose: release timers, subscriptions, approvals and OAuth flows,
 // persist steering, then close the runtime — once.
 import { flushTuiSteeringPersist } from '../../tui-steering-persist.mjs';
 
@@ -20,14 +20,6 @@ export function createDisposeAction(bag, { oauthFlows }) {
       if (flags.disposed) return;
       disposeEmit?.();
       flags.disposed = true;
-      // Release the interactive-presence beacon so a cross-open after this
-      // surface exits takes normal ownership instead of viewer-attaching to a
-      // dead owner (crash paths fall back to the 2min staleness window).
-      try {
-        runtime.clearSessionPresence?.();
-      } catch {
-        /* best-effort */
-      }
       clearToastTimers();
       disposeTranscriptSpill?.();
       disposeGoalContinuation?.();
@@ -41,6 +33,7 @@ export function createDisposeAction(bag, { oauthFlows }) {
         'unsubscribeRemoteState',
         'unsubscribeCompletionWakeGate',
         'unsubscribeGitHeadWatch',
+        'unsubscribeWorktreeSetup',
       ]) {
         try {
           lifecycle[key]?.();

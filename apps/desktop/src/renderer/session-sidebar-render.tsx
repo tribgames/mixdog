@@ -2,6 +2,7 @@ import { Search, Sparkles, SquarePen } from 'lucide-react';
 import type React from 'react';
 import { Fragment } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
+import type { SessionAttention } from '../shared/session-attention';
 import { t } from './i18n';
 import type { NavigationSelection } from './nav-types';
 import { RowOverflowMenu } from './RowOverflowMenu';
@@ -10,6 +11,7 @@ import { groupForkRows, type ForkRowRole } from './session-fork-groups';
 import { isOpen } from './sidebar-open-state';
 import { listOrderId, type SessionOrderPrefs } from './session-order';
 import { SessionSidebarRow, type SessionRowReorder } from './session-sidebar-rows';
+import { loadStudioViewModule } from './studio-loader';
 import { RECENT_SESSION_INITIAL_ROWS } from './session-sidebar-scroll';
 import {
   archivedSection,
@@ -22,6 +24,10 @@ import {
 } from './session-sidebar-sections';
 import type { useProjectFolderState, useSidebarOpenState } from './session-sidebar-state';
 import type { usePersistedListOrder } from './use-persisted-list-order';
+
+const prefetchStudioIntent = () => {
+  void loadStudioViewModule().catch(() => undefined);
+};
 
 type ListOrder = ReturnType<typeof usePersistedListOrder>;
 type ProjectsSectionProps = Parameters<typeof projectsSection>[0];
@@ -45,6 +51,8 @@ export interface SessionRowContext {
   selection: NavigationSelection;
   workingSessionIds?: ReadonlySet<string>;
   unreadSessionIds?: ReadonlySet<string>;
+  /** The strongest status of one session (needs you > failed > running > unread). */
+  attentionOf(sessionId: string): SessionAttention | '';
   editor: SessionRowEditor;
   sessionReorder: Pick<ListOrder, 'getReorderProps'>;
   requestPrefetch(sessionId: string): void;
@@ -104,7 +112,7 @@ export function renderSessionRow(
       reorder={reorderFor()}
       active={selection.kind === 'session' && selection.id === session.id}
       working={ctx.workingSessionIds?.has(session.id) === true}
-      unread={ctx.unreadSessionIds?.has(session.id) === true}
+      attention={ctx.attentionOf(session.id)}
       rowKey={`${rowScope}:${session.id}`}
       editingRowKey={editor.editingRowKey}
       sessionTitleDraft={editor.sessionTitleDraft}
@@ -244,7 +252,16 @@ export function sessionsSurface({
           <SquarePen className="session-launcher-icon" size={16} aria-hidden="true" />
           <span className="session-launcher-label">{t('New task')}</span>
         </button>
-        <button type="button" className="task-link session-launcher-row" onClick={onNewStudio}>
+        {/* Hover/focus/touch-down is intent: the Studio chunk starts loading
+            before the click (a phone has no hover, so touch-down stands in). */}
+        <button
+          type="button"
+          className="task-link session-launcher-row"
+          onClick={onNewStudio}
+          onPointerEnter={prefetchStudioIntent}
+          onPointerDown={prefetchStudioIntent}
+          onFocus={prefetchStudioIntent}
+        >
           <Sparkles className="session-launcher-icon" size={16} aria-hidden="true" />
           <span className="session-launcher-label">{t('New Studio')}</span>
         </button>
@@ -261,9 +278,23 @@ export function sessionsSurface({
 /** The Sessions header ⋯ menu: sort mode of the session lists and of Favorites. */
 export function sessionOrderMenuItems(
   orderPrefs: SessionOrderPrefs,
-  updateOrderPrefs: (update: Partial<SessionOrderPrefs>) => void
+  updateOrderPrefs: (update: Partial<SessionOrderPrefs>) => void,
+  showAgents: boolean,
+  updateShowAgents: (show: boolean) => void
 ): React.ComponentProps<typeof RowOverflowMenu>['items'] {
   return [
+    {
+      id: 'sessions-lead-only',
+      label: t('Show Lead sessions only'),
+      checked: !showAgents,
+      onSelect: () => updateShowAgents(false),
+    },
+    {
+      id: 'sessions-all',
+      label: t('Show all sessions'),
+      checked: showAgents,
+      onSelect: () => updateShowAgents(true),
+    },
     { id: 'sessions-order-label', label: t('Session order'), disabled: true },
     ...(['recent', 'custom'] as const).map((mode) => ({
       id: `sessions-order-${mode}`,
@@ -317,6 +348,7 @@ export interface SidebarSectionContext {
   sessionsReady: boolean;
   workingSessionIds?: ReadonlySet<string>;
   unreadSessionIds?: ReadonlySet<string>;
+  attentionOf(sessionId: string): SessionAttention | '';
   onAddProject?(onAdded?: (projectPath: string) => void): void;
   onNewProjectTask?(projectPath: string): void;
   onNewTask(): void;
@@ -357,7 +389,7 @@ export function renderSidebarSection(section: string, ctx: SidebarSectionContext
           onNewTask: (projectPath) => (onNewProjectTask ? onNewProjectTask(projectPath) : onNewTask()),
           folderReorderProps: ctx.projectOrder.getReorderProps,
           headerProps,
-          unreadSessionIds,
+          attentionOf: ctx.attentionOf,
           renderRows: (list, limit, groupKey) => renderForkRows(ctx, list, limit, `project:${groupKey}`),
           onFolderMenu: ctx.openProjectMenu,
           rename: ctx.projectRenameEditor,

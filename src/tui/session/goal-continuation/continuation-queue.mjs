@@ -8,7 +8,7 @@ import { isGoalQueuedEntry } from '../queue-helpers.mjs';
 export function createContinuationQueue({ runtime, flags, getState, getPending, enqueue, visibility }) {
   let scheduled = null;
   let disposed = false;
-  const halted = () => disposed || flags.disposed || flags.pendingSessionReset;
+  const halted = () => disposed || flags.disposed || flags.pendingSessionReset || flags.quotaResumePending;
 
   const cancelQueuedGoalContinuations = ({ keepCloseoutFor = null } = {}) => {
     const pending = getPending();
@@ -38,7 +38,6 @@ export function createContinuationQueue({ runtime, flags, getState, getPending, 
 
   const shouldRunGoalContinuation = (entry) => {
     if (halted()) return false;
-    if (getState().sessionRemoteAttached) return false;
     if (entry?.mode === 'goal-closeout') {
       const goal = visibility.refreshGoalState();
       return goal?.status === 'duration_reached' && clean(entry.goalId) === clean(goal.id);
@@ -55,7 +54,7 @@ export function createContinuationQueue({ runtime, flags, getState, getPending, 
       scheduled = null;
       if (halted()) return;
       const state = getState();
-      if (state.busy || state.commandBusy || state.sessionRemoteAttached) return;
+      if (state.busy || state.commandBusy) return;
       // Queued user work runs first, and a queued Goal entry already carries
       // the next continuation.
       if (getPending().length > 0) return;

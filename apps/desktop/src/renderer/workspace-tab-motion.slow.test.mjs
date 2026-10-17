@@ -51,7 +51,7 @@ test('tab creation keeps fitting runs anchored and still reveals genuine overflo
       ],
     });
     assert.equal(bundle.errors.length, 0);
-    const links = ['styles.css', 'desktop.css', 'pane-layout.css']
+    const links = ['font-faces.css', 'styles.css', 'desktop.css', 'pane-layout.css']
       .map((name) => `<link rel="stylesheet" href="${pathToFileURL(join(rendererDir, name)).href}">`)
       .join('\n');
     await writeFile(

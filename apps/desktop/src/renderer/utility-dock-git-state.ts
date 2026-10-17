@@ -8,8 +8,9 @@ export type DockGitState = {
   error: string;
 };
 
-/** Git status outlives each movable Dock view. Cached snapshots serve Search
- * and preloads, but Source Control validates each entry before showing rows. */
+/** Git status outlives each movable Dock view. The last known snapshot per
+ * project paints at once; every entry revalidates in the background and
+ * replaces it in place. */
 const dockGitCache = new Map<string, DockGitState>();
 const dockGitRequests = new Map<string, Promise<DockGitState>>();
 

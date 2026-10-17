@@ -37,13 +37,30 @@ export const FILE_DOWNLOAD_PURPOSES: readonly FileDownloadPurpose[] = ['save', '
 export type FileDownloadSource =
   /** A file of the session's registered project, project-relative. */
   | { kind: 'project'; sessionId: string; relPath: string }
-  /** A local link inside one settled assistant row of the session: `itemId`
-   *  is the transcript row id, `href` the link target exactly as the row's
-   *  markdown wrote it (an absolute path, a `file:` URL, or a path relative
-   *  to the session's folder; a `:line`/`#L` suffix is ignored). */
+  /** A local link a settled assistant reply of the session writes: `href` is
+   *  the link target exactly as the reply's markdown wrote it (an absolute
+   *  path, a `file:` URL, or a path relative to the session's folder; a
+   *  `:line`/`#L` suffix is ignored). `itemId` names the row the device
+   *  showed it in; the host does not match it, since each surface numbers
+   *  restored rows itself, and accepts any settled reply of the session. */
   | { kind: 'link'; sessionId: string; itemId: string; href: string }
+  /** A file the session's transcript references or its tools produced (a
+   *  link, a tool result's path, a shell/agent output, a screenshot), outside
+   *  any project too: `path` is absolute or relative to the session's folder,
+   *  and the host serves it only when it matches that session's referenced
+   *  set (transcript-file-links.ts sessionReferencedPaths). */
+  | { kind: 'session'; sessionId: string; path: string }
+  /** An attachment the session's messages carry, by content hash (the
+   *  message metadata's attachment id): served only for an id THIS session's
+   *  transcript names. */
+  | { kind: 'attachment'; sessionId: string; attachmentId: string }
+  /** A referenced FOLDER, zipped by the host on demand (size-capped). */
+  | { kind: 'folder'; sessionId: string; path: string }
   /** A generated media asset (its original rendition) by gallery asset id. */
-  | { kind: 'media'; sessionId: string; assetId: string };
+  | { kind: 'media'; sessionId: string; assetId: string }
+  /** A visualize PNG/PDF export the host rendered for this device
+   *  (`visualizeExport`); only the device it was rendered for may redeem it. */
+  | { kind: 'export'; sessionId: string; exportId: string };
 
 export type FileDownloadSourceKind = FileDownloadSource['kind'];
 
@@ -64,6 +81,18 @@ export interface FileDownloadGrant {
   version: string;
   /** Epoch ms after which `begin` refuses the grant (`expired`). */
   expiresAt: number;
+  /** A zipped folder or a cut document export only: what it leaves out
+   *  (absent for other sources). */
+  leftOut?: FolderLeftOut;
+}
+
+/** What a download leaves out. A folder zip leaves out git-ignored (or
+ *  generated-folder) content and secret files; a visualize PNG of a long
+ *  document includes only its first `pages.included` of `pages.total` pages. */
+export interface FolderLeftOut {
+  ignored: number;
+  secret: number;
+  pages?: { included: number; total: number };
 }
 
 /** Media-lane form of a transfer lease (streaming hook, later scope): the
@@ -135,7 +164,9 @@ export const FILE_DOWNLOAD_REMOTE_METHODS = {
 export type FileDownloadErrorReason =
   | 'not-linked'
   | 'outside-project'
+  | 'sensitive'
   | 'too-large'
+  | 'folder-too-large'
   | 'changed'
   | 'expired'
   | 'host-too-old'
@@ -147,7 +178,9 @@ export type FileDownloadErrorReason =
 export const FILE_DOWNLOAD_ERROR_REASONS: readonly FileDownloadErrorReason[] = [
   'not-linked',
   'outside-project',
+  'sensitive',
   'too-large',
+  'folder-too-large',
   'changed',
   'expired',
   'host-too-old',
@@ -156,6 +189,30 @@ export const FILE_DOWNLOAD_ERROR_REASONS: readonly FileDownloadErrorReason[] = [
   'busy',
   'unavailable',
 ];
+
+/** A zipped folder holds at most this many bytes of files, in this many files. */
+export const FOLDER_ZIP_MAX_BYTES = 64 * 1024 * 1024;
+export const FOLDER_ZIP_MAX_FILES = 2_000;
+
+const megabytes = (bytes: number): string => (bytes / (1024 * 1024)).toFixed(1);
+const FOLDER_TOO_LARGE_COUNTS = /has ([\d,]+) files \(([\d.]+) MB\)/;
+
+/** The `folder-too-large` refusal text: the counted files and size (after
+ *  exclusions) against the caps, and the way out. */
+export function folderTooLargeMessage(files: number, bytes: number): string {
+  return (
+    `This folder has ${files.toLocaleString('en-US')} files (${megabytes(bytes)} MB) after leaving out ` +
+    `ignored files, over the limit of ${FOLDER_ZIP_MAX_FILES.toLocaleString('en-US')} files and ` +
+    `${megabytes(FOLDER_ZIP_MAX_BYTES)} MB. Pick a subfolder to download instead.`
+  );
+}
+
+/** The counted files and size (`"65.0 MB"`) a `folder-too-large` message
+ *  states, or null for a message of another host version. */
+export function folderTooLargeCounts(message: string): { files: string; size: string } | null {
+  const found = FOLDER_TOO_LARGE_COUNTS.exec(message);
+  return found ? { files: found[1], size: `${found[2]} MB` } : null;
+}
 
 const ERROR_CODE_PREFIX = 'file-download:';
 

@@ -4,7 +4,7 @@
  * that lets a host prove a longer text is an append of the same stream.
  */
 // Non-enumerable so the marker never enters persisted transcript items,
-// live-share JSON, or renderer snapshots. The desktop host reads the shared
+// wire JSON, or renderer snapshots. The desktop host reads the shared
 // Symbol.for key before cloning and uses it to prove that a growing text is
 // an append, avoiding an O(total text) startsWith check on every frame.
 const streamingTailTextEpochKey = Symbol.for('mixdog.streaming-tail-text-epoch');

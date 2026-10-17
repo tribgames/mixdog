@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { compactionArchivedRows } from './compaction-view.mjs';
+import { SPINNER_MODE_OVERRIDE_VERBS } from '../spinner-verbs.mjs';
 import {
   appendAssistantText,
   appendTextDelta,
@@ -399,6 +400,16 @@ test('the terminal view never holds the partial line and never re-renders for it
     'a'
   );
   assert.equal(Object.hasOwn(projection.getState(), 'streamingPartial'), false);
+});
+
+test('a sent request waiting for headers shows the model-thinking mode until the stream starts', async () => {
+  const { stream, spinner } = streamWithSpinner();
+  await applyStageChange(stream, 'requesting');
+  await applyStageChange(stream, 'model_thinking');
+  assert.equal(spinner().mode, 'model-thinking');
+  assert.equal(SPINNER_MODE_OVERRIDE_VERBS[spinner().mode], 'Model thinking');
+  await applyStageChange(stream, 'streaming');
+  assert.equal(spinner().mode, 'responding');
 });
 
 test('a reconnect notice without a retry time keeps its own message', async () => {

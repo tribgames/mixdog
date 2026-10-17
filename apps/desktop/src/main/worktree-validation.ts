@@ -45,6 +45,8 @@ export function worktreeErrorWithCode(error: unknown): unknown {
 
 /** Arity per capability, merged into the IPC arity table. */
 export const WORKTREE_CAPABILITY_ARITY = {
+  inspectProjectBranch: [1, 1],
+  manageProjectBranch: [1, 1],
   getBranchMenu: [0, 0],
   getProjectBranchMenu: [1, 1],
   selectBranch: [1, 1],
@@ -109,7 +111,11 @@ function optionalBoolean(input: Record<string, unknown>, key: string, name: stri
 /** Session-less capabilities whose `projectPath` must name a registered Project. */
 export function isProjectScopedCapability(capability: string): boolean {
   return (
-    capability === 'getProjectBranchMenu' || capability === 'selectProjectBranch' || capability === 'mergeProjectBranch'
+    capability === 'getProjectBranchMenu' ||
+    capability === 'selectProjectBranch' ||
+    capability === 'mergeProjectBranch' ||
+    capability === 'inspectProjectBranch' ||
+    capability === 'manageProjectBranch'
   );
 }
 
@@ -120,6 +126,32 @@ export function isWorktreeCapability(capability: DesktopCapability): capability 
 /** Throws TypeError when `args` (already arity-checked) do not fit `capability`. */
 export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapability, args: unknown[]): void {
   switch (capability) {
+    case 'inspectProjectBranch': {
+      const input = objectArg(args[0], 'inspectProjectBranch input');
+      allowKeys(input, ['projectPath', 'branch'], 'inspectProjectBranch input');
+      projectPathText(input.projectPath, 'projectPath');
+      refText(input.branch, 'branch');
+      return;
+    }
+    case 'manageProjectBranch': {
+      const input = objectArg(args[0], 'manageProjectBranch input');
+      allowKeys(
+        input,
+        ['projectPath', 'branch', 'action', 'commit', 'target', 'targetCommit', 'confirmed'],
+        'manageProjectBranch input'
+      );
+      projectPathText(input.projectPath, 'projectPath');
+      refText(input.branch, 'branch');
+      commitIdText(input.commit, 'commit');
+      if (!['merge', 'remove-worktree', 'delete-branch'].includes(String(input.action)) || input.confirmed !== true) {
+        throw new TypeError('A supported branch action and explicit confirmation are required.');
+      }
+      if (input.action !== 'remove-worktree') {
+        refText(input.target, 'target');
+        commitIdText(input.targetCommit, 'targetCommit');
+      }
+      return;
+    }
     case 'selectBranch': {
       const input = objectArg(args[0], 'selectBranch input');
       allowKeys(input, ['branch', 'create', 'expectedRevision', 'confirmLarge'], 'selectBranch input');

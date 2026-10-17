@@ -35,6 +35,8 @@ interface SessionHostPublicationOwner {
   snapshotWithShellJobs(sessionId: string, snapshot: SessionSnapshot): SessionSnapshot;
   trackShellJobsEngineState(snapshot: SessionSnapshot): void;
   onShellPublished(): void;
+  /** Drops the daemon-reported turn activity the host caches for its catalog. */
+  clearSessionActivity(): void;
 }
 
 /** The patched snapshot, or null when the patch cannot apply to this one. */
@@ -508,6 +510,10 @@ export class SessionHostPublication {
   handleSessionTransportLoss(): void {
     this.owner.setControlSessionId('');
     this.projections.clear();
+    // `working` is the daemon's in-memory run state: with the daemon gone no
+    // turn is running, and the next catalog read after recovery restores it
+    // from the daemon's own report.
+    this.owner.clearSessionActivity();
     for (const sessionId of this.owner.visibleSessionIds()) {
       // Recovery re-attaches to the daemon and resyncs. Until it lands, a
       // pane keeps showing what it already has instead of blanking.

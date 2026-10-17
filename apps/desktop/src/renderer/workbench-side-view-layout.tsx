@@ -688,7 +688,10 @@ export function WorkbenchSidePanel({
               className="workbench-side-panel-body"
               ref={selected ? panelBodyRef : undefined}
               hidden={!selected}
-              style={selected && surfacesActive ? { visibility: 'hidden' } : undefined}
+              // Under a showing surface (terminal, browser) the view stays
+              // mounted but skips layout and paint: a large diff laid out
+              // behind the terminal cost ~160ms on every terminal open.
+              style={selected && surfacesActive ? { visibility: 'hidden', contentVisibility: 'hidden' } : undefined}
               inert={!selected || surfacesActive ? true : undefined}
               aria-hidden={!selected || surfacesActive ? true : undefined}
               onDragOver={(event) => {

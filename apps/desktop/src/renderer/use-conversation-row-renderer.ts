@@ -6,8 +6,7 @@ import type { Snapshot, TranscriptItem } from './desktop-types';
 import type { TranscriptRowModel } from './transcript-rows';
 import { useConversationRetry } from './use-conversation-retry';
 
-/** Renders one transcript row with the pane's retry, disclosure scope and
- *  latest completion. */
+/** Renders one transcript row with the pane's retry and disclosure scope. */
 export function useConversationRowRenderer({
   snapshot,
   disclosureScope,

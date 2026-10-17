@@ -5,7 +5,7 @@ import type {
   DesktopOrchestrationMode,
   SessionSnapshot,
 } from '../shared/contract';
-import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
+import { beginBootSurface, holdBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
 import { routePreferenceStore } from './app-route-preference';
 import { useModelSelection } from './use-model-selection';
 import type { RecordValue } from './desktop-types';
@@ -395,6 +395,10 @@ export const ModelSelector = memo(function ModelSelector({
   const latestRouteToken = useRef(0);
   const modelBootKey = `${provider || 'none'}:${model || 'none'}`;
   beginBootSurface('model-controls', modelBootKey);
+  // A restored session renders its controls before its route is known
+  // (`none:none`), then re-keys on the route: the superseded key must not
+  // hold the boot cover waiting for a ready no render will report.
+  useEffect(() => holdBootSurface('model-controls', modelBootKey), [modelBootKey]);
   // An in-flight write no longer locks the controls. The selection is previewed
   // locally the moment it is clicked, so disabling the picker until the runtime
   // replied only made it look frozen — and swallowed the next click.

@@ -13,13 +13,22 @@ import {
   requestSessionRead,
 } from './app-snapshot-views';
 import { armBootWarmup, BOOT_WARMUP, BOOT_WARMUP_ARM_DELAY_MS, scheduleBootWarmup } from './boot-warmup';
+import { onFirstConversationPaint } from './boot-metrics';
 import { loadCommandSurfaceModule } from './command-surface-loader';
+import { FIRST_SCREEN_DEFERRED_MODULES, visualizePaneModule } from './first-screen-deferred';
 import { desktopFeatureEnabled, desktopSidebarDestinationEnabled } from './desktop-feature-config';
 import { applyDesktopThemePreference, getDesktopThemePreference } from './desktop-theme';
 import { installHostDisplaySync } from './host-display-sync';
 import type { RecordValue } from './desktop-types';
-import { prefetchSurfaceForSelection } from './lazy-widgets';
+import {
+  prefetchBrowserPane,
+  prefetchDiffView,
+  prefetchEditorPane,
+  prefetchSurfaceForSelection,
+  prefetchTerminalPane,
+} from './lazy-widgets';
 import { prefetchQuotaUsage } from './quota-usage-cache';
+import { loadSidebarReferences, WORKFLOW_REFERENCE_KEYS } from './sidebar-reference-cache';
 import { connectionQuality } from './network-conditions';
 import { paneActiveSessionIds } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
@@ -36,6 +45,8 @@ import type { DesktopSessionSummary } from '../shared/contract';
 /** Bounded so the warm reads stay a few small tails inside the renderer lane
  *  and daemon idle budgets. */
 const RECENT_SESSION_WARMUP_COUNT = 6;
+/** A phone with no touch this long takes its side-sheet panes anyway. */
+const PHONE_SHEET_PANE_IDLE_MS = 30_000;
 
 /** Background data stays cold on a metered/slow link (never on the native shell). */
 function backgroundWarmupThrottled(): boolean {
@@ -46,12 +57,21 @@ type ShellPanels = ReturnType<typeof useAppShellPanels>;
 type SidebarModuleTracker = ShellPanels['trackSidebarPanelModule'];
 type WarmupWorkspace = Pick<ReturnType<typeof usePaneWorkspace>, 'leaves' | 'focusedLeafId'>;
 
+/** A phone keeps the panels it does not show at start (Settings and the rail
+ *  panels: Workflows, Extensions, Schedules, Webhooks, Projects) cold until
+ *  they open: their hidden mounts are capability reads queued on the relay
+ *  link and main-thread work on a slow CPU, for surfaces most opens never
+ *  visit. Desktop windows keep warming them. */
+function hiddenPanelsStayCold(): boolean {
+  return isMobileDeviceSurface();
+}
+
 export function useAppSettingsMount(settingsOpen: boolean) {
   const settingsMounted = useRef(false);
   if (settingsOpen) settingsMounted.current = true;
   const [settingsPrewarmed, setSettingsPrewarmed] = useState(false);
   useEffect(() => {
-    if (!desktopFeatureEnabled('settings') || settingsPrewarmed) return undefined;
+    if (!desktopFeatureEnabled('settings') || settingsPrewarmed || hiddenPanelsStayCold()) return undefined;
     return scheduleBootWarmup({
       id: 'settings:mount',
       priority: BOOT_WARMUP.settingsMount,
@@ -64,6 +84,53 @@ export function useAppSettingsMount(settingsOpen: boolean) {
   return { settingsMounted, settingsPrewarmed };
 }
 
+/** The phone's side-sheet panes (Changes' diff view, Terminal, Browser,
+ *  Visualize, the editor), last in the lane — which a phone only opens once
+ *  its first conversation painted — and only on a normal link. Tapped cold, each chunk was fetched over the
+ *  relay and evaluated inside the tap (Monaco alone ~760ms at a phone's CPU),
+ *  so the sheet opened onto a blank body. */
+function phoneSheetPaneWarmups(): Array<() => void> {
+  if (connectionQuality() !== 'normal') return [];
+  const panes: Array<[string, () => Promise<unknown>]> = [
+    ['diff', prefetchDiffView],
+    ['terminal', prefetchTerminalPane],
+    ['browser', prefetchBrowserPane],
+    ['visualize', () => visualizePaneModule.load()],
+    ['editor', prefetchEditorPane],
+    // The chunk only: its capability reads still wait for the first open.
+    ...(desktopFeatureEnabled('settings')
+      ? ([['settings', loadSettingsViewModule]] as Array<[string, () => Promise<unknown>]>)
+      : []),
+  ];
+  // Fetching and evaluating five chunks right after the first paint doubled
+  // the blocking time of a cold open, so the lane takes them only once the
+  // user touches the page, or after a long idle.
+  let cancels: Array<() => void> = [];
+  const queue = () => {
+    release();
+    cancels = panes.map(([name, load], index) =>
+      scheduleBootWarmup({
+        id: `module:phone-sheet:${name}`,
+        priority: BOOT_WARMUP.phoneSheetPane + index,
+        run: () => load().catch(() => {}),
+      })
+    );
+  };
+  const events = ['pointerdown', 'keydown'] as const;
+  const timer = window.setTimeout(queue, PHONE_SHEET_PANE_IDLE_MS);
+  function release() {
+    window.clearTimeout(timer);
+    for (const event of events) window.removeEventListener(event, queue, true);
+  }
+  for (const event of events) window.addEventListener(event, queue, { capture: true, passive: true });
+  return [
+    () => {
+      release();
+      for (const cancel of cancels) cancel();
+    },
+  ];
+}
+
 export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelModule: SidebarModuleTracker) {
   useEffect(() => {
     if (!startupSettled) return undefined;
@@ -74,6 +141,17 @@ export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelMod
         priority: BOOT_WARMUP.studioModule,
         run: () => loadStudioViewModule().catch(() => {}),
       }),
+      // Monaco + the Markdown preview. A phone opens no file at start, so it
+      // takes them, with the other side-sheet panes, at the lane's tail.
+      ...(hiddenPanelsStayCold()
+        ? phoneSheetPaneWarmups()
+        : [
+            scheduleBootWarmup({
+              id: 'module:editor',
+              priority: BOOT_WARMUP.editorModule,
+              run: () => prefetchEditorPane().catch(() => {}),
+            }),
+          ]),
       // The /context · /usage dialog chunk. A native window used to skip this
       // lane and pay the whole import on the first open (user: 컨텍스트창 왜
       // 바로 안 열리고 로딩이 심하지); the idle lane still yields to input.
@@ -87,6 +165,20 @@ export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelMod
         priority: BOOT_WARMUP.sessionGoalModule,
         run: () => preloadSessionGoalIsland().catch(() => {}),
       }),
+      // Surfaces kept off the first screen's bundle, one per idle slice, so
+      // their first open renders at once instead of through a placeholder.
+      // Phones never render the starter guide.
+      ...Object.entries(FIRST_SCREEN_DEFERRED_MODULES).flatMap(([name, module]) =>
+        name === 'starter-guide' && hiddenPanelsStayCold()
+          ? []
+          : [
+              scheduleBootWarmup({
+                id: `module:deferred:${name}`,
+                priority: BOOT_WARMUP.surfaceChunk,
+                run: () => module.load().catch(() => {}),
+              }),
+            ]
+      ),
     ];
     // The subscription usage that dialog opens on: its first open after boot
     // waited on a cold ledger read (user: 처음에 유즈에이지 창 눌러서 진입할 때
@@ -100,7 +192,7 @@ export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelMod
         })
       );
     }
-    if (!nativeWindow) {
+    if (!nativeWindow && !hiddenPanelsStayCold()) {
       if (connectionQuality() === 'normal') {
         cancels.push(
           scheduleBootWarmup({
@@ -120,6 +212,15 @@ export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelMod
                 trackSidebarPanelModule(panel, module);
                 return module.catch(() => {});
               },
+            })
+          );
+        }
+        if (desktopSidebarDestinationEnabled('workflows')) {
+          cancels.push(
+            scheduleBootWarmup({
+              id: 'data:sidebar-workflows',
+              priority: BOOT_WARMUP.sidebarPanel,
+              run: () => loadSidebarReferences(window.mixdogDesktop, WORKFLOW_REFERENCE_KEYS).catch(() => {}),
             })
           );
         }
@@ -149,11 +250,21 @@ export function useStartupCommitMeasurement() {
 
 export function useAppSettingsPreload() {
   useEffect(() => {
-    preloadAgentPool(window.mixdogDesktop);
+    // The agents panel is not on a phone's first screen: its catalog read
+    // waits in the idle lane, behind the opening conversation.
+    if (!hiddenPanelsStayCold()) {
+      preloadAgentPool(window.mixdogDesktop);
+      return undefined;
+    }
+    return scheduleBootWarmup({
+      id: 'data:agent-pool',
+      priority: BOOT_WARMUP.agentPool,
+      run: () => preloadAgentPool(window.mixdogDesktop),
+    });
   }, []);
   // The capability sweep remains behind the opening conversation in the idle lane.
   useEffect(() => {
-    if (!desktopFeatureEnabled('settings')) return undefined;
+    if (!desktopFeatureEnabled('settings') || hiddenPanelsStayCold()) return undefined;
     return scheduleBootWarmup({
       id: 'settings:preload',
       priority: BOOT_WARMUP.settingsPreload,
@@ -337,6 +448,10 @@ export function useAppWorkspaceWarmup({
       window.clearTimeout(fallbackTimer);
       armBootWarmup(BOOT_WARMUP_ARM_DELAY_MS);
     };
+    // Every warm-up on a phone is a relay round trip or a chunk download on
+    // the same link the opening transcript arrives on: the lane opens only
+    // once that first conversation has painted.
+    if (hiddenPanelsStayCold()) return onFirstConversationPaint(arm);
     if (!nativeWindow || host.__mixdogWindowShown) arm();
     else {
       window.addEventListener('mixdog:window-shown', arm, { once: true });
@@ -366,7 +481,7 @@ export function useAppWorkspaceWarmup({
         })
       );
     }
-    const panels: SidebarPanelKey[] = ['schedules', 'webhooks', 'projects', 'extensions'];
+    const panels: SidebarPanelKey[] = hiddenPanelsStayCold() ? [] : ['schedules', 'webhooks', 'projects', 'extensions'];
     panels.forEach((panel, index) => {
       if (!desktopSidebarDestinationEnabled(panel)) return;
       cancels.push(

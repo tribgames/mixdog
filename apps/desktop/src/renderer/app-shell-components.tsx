@@ -1,11 +1,16 @@
 import type React from 'react';
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
+import { useDeferredModule } from './deferred-module';
+import { EditorTextPlaceholder, useEditorTextPlaceholder } from './editor-text-placeholder';
 import { GitDiffPane } from './GitDiffPane';
-import { EditorPane, TerminalPane } from './lazy-widgets';
+import { editorPaneModule, type TerminalPane, terminalPaneModule, type EditorPaneProps } from './lazy-widgets';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
+import { PhoneDeferredMount } from './phone-deferred-mount';
 import { editorLoadKey, ensureEditorLoad } from './renderer-load-metrics';
-import { loadStudioViewModule } from './studio-loader';
+import type { StudioPane as StudioPaneComponent } from './StudioView';
+import { studioViewModule } from './studio-loader';
 import { t } from './i18n';
 import { navigationKey } from './text-format';
 import { desktopFeatureEnabled } from './desktop-feature-config';
@@ -132,16 +137,18 @@ export const createWorkflowsPane = () =>
 export const createExtensionsPane = () =>
   lazy(() => loadSidebarPanelModule.extensions().then((module) => ({ default: module.ExtensionsPane })));
 
-const StudioPane = lazy(() => loadStudioViewModule().then((module) => ({ default: module.StudioPane })));
-
 const EDITOR_COVER_MAX_MS = 900;
 const TERMINAL_COVER_MAX_MS = 2_000;
 export const EDITOR_STARTUP_DELAY_MS = 32;
 export const DIFF_STARTUP_DELAY_MS = 64;
 export const TERMINAL_STARTUP_DELAY_MS = 96;
 
-export function ReadyEditorPane(props: React.ComponentProps<typeof EditorPane>) {
+export function ReadyEditorPane(props: EditorPaneProps) {
   const metricKey = editorLoadKey(props.projectPath, props.relPath, props.accessToken);
+  // Rendered synchronously once the idle lane (or a hover) has loaded it.
+  const editorModule = useDeferredModule(editorPaneModule);
+  // The file's plain text covers the pane until the editor is ready.
+  const textCover = useEditorTextPlaceholder(props.projectPath, props.relPath, props.accessToken, props.workspaceFile);
   beginBootSurface('editor', metricKey);
   ensureEditorLoad(props.projectPath, props.relPath, props.accessToken);
   reportBootSurfaceStage('editor', metricKey, 'boundary');
@@ -151,27 +158,45 @@ export function ReadyEditorPane(props: React.ComponentProps<typeof EditorPane>) 
   const [readyKey, setReadyKey] = useState('');
   const [expiredKey, setExpiredKey] = useState('');
   const [revealed, setRevealed] = useState(false);
+  // The phone paints the file's text first: Monaco's mount is a long task on
+  // its CPU, so it waits until the cover's read answered, then mounts one
+  // frame after the cover shows (PhoneDeferredMount). The cover's expiry runs
+  // from that mount.
+  const phone = useMobileRemoteSurface();
+  const editorHeld = phone && !textCover.settled;
   useEffect(() => {
+    if (editorHeld) return undefined;
     const timer = window.setTimeout(() => setExpiredKey(metricKey), EDITOR_COVER_MAX_MS);
     return () => window.clearTimeout(timer);
-  }, [metricKey]);
+  }, [metricKey, editorHeld]);
   return (
     <PaneSurfaceGate
       ready={readyKey === metricKey || expiredKey === metricKey}
       transitionKey={metricKey}
       label={t('Loading editor…')}
+      fallback={
+        textCover.eligible ? (
+          <EditorTextPlaceholder
+            relPath={props.relPath}
+            content={textCover.content}
+            side={Boolean(props.onSideChrome)}
+          />
+        ) : undefined
+      }
       onRevealedChange={setRevealed}
     >
-      <Suspense fallback={<div className="editor-pane editor-pane-cold-shell" aria-hidden="true" />}>
-        <EditorPane
-          {...props}
-          revealed={revealed}
-          onReady={() => {
-            setReadyKey(metricKey);
-            reportBootSurfaceStage('editor', metricKey, 'dom', 'shell');
-          }}
-        />
-      </Suspense>
+      {editorModule && !editorHeld ? (
+        <PhoneDeferredMount>
+          <editorModule.default
+            {...props}
+            revealed={revealed}
+            onReady={() => {
+              setReadyKey(metricKey);
+              reportBootSurfaceStage('editor', metricKey, 'dom', 'shell');
+            }}
+          />
+        </PhoneDeferredMount>
+      ) : null}
     </PaneSurfaceGate>
   );
 }
@@ -182,8 +207,10 @@ export function ReadyEditorPane(props: React.ComponentProps<typeof EditorPane>) 
 // a catalog error and a Retry of its own.
 const STUDIO_COVER_MAX_MS = 1_500;
 
-export function ReadyStudioPane(props: React.ComponentProps<typeof StudioPane>) {
+export function ReadyStudioPane(props: React.ComponentProps<typeof StudioPaneComponent>) {
   const metricKey = 'studio';
+  // Rendered synchronously once the idle lane (or a row hover) has loaded it.
+  const studioModule = useDeferredModule(studioViewModule);
   beginBootSurface('studio', metricKey);
   reportBootSurfaceStage('studio', metricKey, 'boundary');
   useEffect(() => {
@@ -197,21 +224,23 @@ export function ReadyStudioPane(props: React.ComponentProps<typeof StudioPane>) 
   }, []);
   return (
     <PaneSurfaceGate ready={ready || expired} transitionKey={metricKey} label={t('Preparing Studio…')}>
-      <Suspense fallback={null}>
-        <StudioPane
+      {studioModule && (
+        <studioModule.StudioPane
           {...props}
           onReady={() => {
             setReady(true);
             reportBootSurfaceStage('studio', metricKey, 'dom', 'shell');
           }}
         />
-      </Suspense>
+      )}
     </PaneSurfaceGate>
   );
 }
 
 export function ReadyTerminalPane(props: React.ComponentProps<typeof TerminalPane>) {
   const metricKey = props.terminalId || 'bottom-terminal';
+  // Rendered synchronously once loaded (the phone's lane, a touch-down).
+  const terminalModule = useDeferredModule(terminalPaneModule);
   beginBootSurface('terminal', metricKey);
   reportBootSurfaceStage('terminal', metricKey, 'boundary');
   useEffect(() => {
@@ -233,15 +262,15 @@ export function ReadyTerminalPane(props: React.ComponentProps<typeof TerminalPan
       transitionKey={metricKey}
       label={t('Loading terminal…')}
     >
-      <Suspense fallback={null}>
-        <TerminalPane
+      {terminalModule ? (
+        <terminalModule.default
           {...props}
           onReady={() => {
             setReadyKey(metricKey);
             reportBootSurfaceStage('terminal', metricKey, 'interactive');
           }}
         />
-      </Suspense>
+      ) : null}
     </PaneSurfaceGate>
   );
 }

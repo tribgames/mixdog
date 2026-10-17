@@ -1,11 +1,10 @@
-// Input and chrome behavior of ZoomFrame, one hook per concern: when the pill
-// shows, how the scroller's viewport is tracked, wheel/key zoom, and mouse
+// Input behavior of ZoomFrame, one hook per concern: hover scope for the zoom
+// keys, how the scroller's viewport is tracked, wheel/key zoom, and mouse
 // drag-pan / click-toggle. ZoomFrame owns the zoom state they act on.
-import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
+import { useEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
 import { clickZoomTarget, stepSnapped, wheelZoomScale, type ZoomMode, type ZoomRange } from './zoom-range';
+import { registerZoomTarget } from './zoom-target';
 
-const REVEAL_ZONE_PX = 72;
-const HIDE_DELAY_MS = 400;
 const DRAG_SLOP_PX = 4;
 export const SAME_SCALE = 0.005;
 const INTERACTIVE = 'button, a, input, [role="button"]';
@@ -30,55 +29,18 @@ export function contentOrigin(node: HTMLElement) {
   };
 }
 
-/** The pill is hidden until the pointer nears the bottom edge, a zoom gesture
- *  runs, or the pill is hovered / focused / open. `hover` is the pointer being
- *  over the frame, which also scopes the zoom keys. */
-export function useZoomPillVisibility() {
-  const [visible, setVisible] = useState(false);
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const inZone = useRef(false);
-  const pillActive = useRef(false);
-  const show = useCallback(() => {
-    clearTimeout(hideTimer.current);
-    setVisible(true);
-  }, []);
-  const scheduleHide = useCallback(() => {
-    clearTimeout(hideTimer.current);
-    if (inZone.current || pillActive.current) return;
-    hideTimer.current = setTimeout(() => setVisible(false), HIDE_DELAY_MS);
-  }, []);
-  const flash = useCallback(() => {
-    show();
-    scheduleHide();
-  }, [scheduleHide, show]);
-  useEffect(() => () => clearTimeout(hideTimer.current), []);
-  const onPillActive = useCallback(
-    (active: boolean) => {
-      pillActive.current = active;
-      if (active) show();
-      else scheduleHide();
-    },
-    [scheduleHide, show]
-  );
+/** `hover` is the pointer being over the frame, which scopes the zoom keys. */
+export function useZoomFrameHover() {
   const hover = useRef(false);
   const frameHandlers = {
     onPointerEnter() {
       hover.current = true;
     },
-    onPointerMove(event: PointerEvent<HTMLDivElement>) {
-      if (event.pointerType !== 'mouse') return;
-      const box = event.currentTarget.getBoundingClientRect();
-      inZone.current = event.clientY >= box.bottom - REVEAL_ZONE_PX;
-      if (inZone.current) show();
-      else scheduleHide();
-    },
     onPointerLeave() {
       hover.current = false;
-      inZone.current = false;
-      scheduleHide();
     },
   };
-  return { visible, hover, frameHandlers, flash, onPillActive };
+  return { hover, frameHandlers };
 }
 
 /** Tracks the scroller's size and the content point at its centre. Fixed mode
@@ -128,8 +90,8 @@ export function useZoomViewport({
   return viewport;
 }
 
-/** Ctrl+wheel zooms at the cursor; Ctrl/Cmd +, -, 0 zoom at the centre while
- *  the pointer is over the frame or focus is inside it. */
+/** Ctrl+wheel zooms at the cursor; Ctrl/Cmd +, -, 0 zoom at the centre when
+ *  this frame is the zoom target (focus inside it, else the pointer over it). */
 export function useZoomWheelAndKeys({
   scroller,
   frameRef,
@@ -138,7 +100,6 @@ export function useZoomWheelAndKeys({
   range,
   setFixed,
   setFit,
-  flash,
 }: {
   scroller: RefObject<HTMLDivElement | null>;
   frameRef: RefObject<HTMLDivElement | null>;
@@ -147,7 +108,6 @@ export function useZoomWheelAndKeys({
   range: ZoomRange;
   setFixed(value: number, px?: number, py?: number): void;
   setFit(px?: number, py?: number): void;
-  flash(): void;
 }) {
   useEffect(() => {
     const node = scroller.current;
@@ -162,26 +122,27 @@ export function useZoomWheelAndKeys({
         event.clientX - box.left - node.clientLeft,
         event.clientY - box.top - node.clientTop
       );
-      flash();
     };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
-      if (!live.current.ready) return;
-      if (!hover.current && !frameRef.current?.contains(document.activeElement)) return;
-      if (event.key === '=' || event.key === '+') setFixed(stepSnapped(live.current.scale, 1, range));
-      else if (event.key === '-' || event.key === '_') setFixed(stepSnapped(live.current.scale, -1, range));
-      else if (event.key === '0') setFit();
-      else return;
-      event.preventDefault();
-      flash();
-    };
+    // Keys go through the shared target registry, which hands one to the
+    // focused zoom host (else the hovered one) - never to two at once.
+    const frame = frameRef.current;
+    const unregister = frame
+      ? registerZoomTarget({
+          element: frame,
+          enabled: () => live.current.ready,
+          hovered: () => hover.current,
+          command(input) {
+            if (input === 'reset') setFit();
+            else setFixed(stepSnapped(live.current.scale, input === 'in' ? 1 : -1, range));
+          },
+        })
+      : undefined;
     node.addEventListener('wheel', onWheel, { passive: false });
-    document.addEventListener('keydown', onKeyDown);
     return () => {
       node.removeEventListener('wheel', onWheel);
-      document.removeEventListener('keydown', onKeyDown);
+      unregister?.();
     };
-  }, [flash, frameRef, hover, live, range, scroller, setFit, setFixed]);
+  }, [frameRef, hover, live, range, scroller, setFit, setFixed]);
 }
 
 /** A mouse can drag-pan overflow, and (clickToggle) a click on an image toggles

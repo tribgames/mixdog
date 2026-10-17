@@ -2,6 +2,7 @@
  *  the `emulate` command defines and return a label for what changed. */
 import type { WebContents } from 'electron';
 
+import { browserUserAgentOverride } from './browser-identity';
 import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommand } from './command';
 import type { NetworkProfile } from './emulation-validation';
@@ -10,7 +11,8 @@ export async function resetEmulation(cdp: BrowserCdpPort, guest: WebContents, si
   await Promise.all([
     cdp.call(guest, 'Emulation.clearDeviceMetricsOverride', {}, signal),
     cdp.call(guest, 'Emulation.setTouchEmulationEnabled', { enabled: false }, signal),
-    cdp.call(guest, 'Network.setUserAgentOverride', { userAgent: '' }, signal),
+    // Back to the partition's own identity, which is itself an override.
+    cdp.call(guest, 'Network.setUserAgentOverride', browserUserAgentOverride(guest.getUserAgent()), signal),
     cdp.call(guest, 'Emulation.setTimezoneOverride', { timezoneId: '' }, signal),
     cdp.call(guest, 'Emulation.setLocaleOverride', { locale: '' }, signal),
     cdp.call(guest, 'Emulation.setEmulatedMedia', { features: [] }, signal),
@@ -78,10 +80,7 @@ async function applyLocaleOverride(
     await cdp.call(
       guest,
       'Network.setUserAgentOverride',
-      {
-        userAgent: guest.getUserAgent(),
-        ...(command.locale ? { acceptLanguage: command.locale } : {}),
-      },
+      browserUserAgentOverride(guest.getUserAgent(), command.locale || undefined),
       signal
     );
   }

@@ -6,6 +6,8 @@ import React, { useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { InitialSurface } from './InitialSurface';
 import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
+import { strongestSessionAttention, type SessionAttention } from '../shared/session-attention';
+import { SessionRowStatusIcon, SessionRowUnreadDot } from './session-status-mark';
 import {
   clampDesktopPanelWidth,
   DESKTOP_SIDEBAR_DEFAULT_WIDTH,
@@ -460,7 +462,9 @@ interface ProjectsSectionProps {
   onNewTask(projectPath: string): void;
   folderReorderProps(key: string): ReorderProps;
   headerProps?: ReorderProps;
-  unreadSessionIds?: ReadonlySet<string>;
+  /** The strongest status of one session; a collapsed folder shows its
+   *  sessions' strongest. */
+  attentionOf(sessionId: string): SessionAttention | '';
   renderRows(rows: readonly DesktopSessionSummary[], limit: number, groupKey: string): React.ReactNode;
 }
 
@@ -475,7 +479,7 @@ function projectFolderGroup(
     onNewTask,
     onToggleProject,
     folderReorderProps,
-    unreadSessionIds,
+    attentionOf,
     renderRows,
     onFolderMenu,
     rename,
@@ -485,7 +489,8 @@ function projectFolderGroup(
   const expanded = isOpen(projectOpen, group.key);
   const reorder = folderReorderProps(group.key);
   const limit = rowLimits.get(group.key) ?? PROJECT_SESSION_PAGE_ROWS;
-  const unread = !expanded && group.rows.some((session) => unreadSessionIds?.has(session.id));
+  // A collapsed folder speaks for its hidden sessions with their strongest status.
+  const attention = expanded ? '' : strongestSessionAttention(group.rows.map((session) => attentionOf(session.id)));
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop target; the keyboard path is the session menu's Move to project
     <div
@@ -557,17 +562,16 @@ function projectFolderGroup(
           <span className="session-row-copy">
             <b>{group.name}</b>
           </span>
-          {unread && (
-            <span
-              className="session-row-unread-dot"
-              role="status"
-              aria-label={t('{{name}} has new activity', { name: group.name })}
-            />
+          {attention === 'unread' && <SessionRowUnreadDot name={group.name} />}
+          {attention && attention !== 'unread' && (
+            <span className="session-row-status">
+              <SessionRowStatusIcon status={attention} name={group.name} />
+            </span>
           )}
         </button>
-        {/* Like a collapsed section heading: the unread dot takes the
+        {/* Like a collapsed section heading: the status mark takes the
             trailing slot, so the + yields until the folder opens. */}
-        {!unread && (
+        {!attention && (
           <button
             type="button"
             className="row-overflow-trigger project-folder-new"

@@ -18,6 +18,7 @@ const ConnectionStatusBanner = lazy(() =>
 );
 import { RemoteClaimPrompt } from './RemoteClaimPrompt';
 import { DesktopErrorBoundary, installGlobalRendererDiagnostics } from './RendererRecovery';
+import './font-faces-styles';
 import './bootstrap-styles';
 import './webview-zoom';
 import { isNativeDesktopWindow } from './remote-ui-projection';

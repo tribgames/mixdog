@@ -106,13 +106,11 @@ test('route replies cannot rewind streamed selections and baseline gaps recover 
     assert.equal(configureCalls, 2, 'mutations must not be replayed');
     assert.equal(updates.at(-1).snapshot.fast, false);
 
-    const rejected = host.setModelRoute({ provider: 'openai', model: 'gpt-rejected' }, id);
+    // A model selection is never refused: it is saved for the next turn, so
+    // the host never turns a reply into a "not applied" error.
+    const accepted = host.setModelRoute({ provider: 'openai', model: 'gpt-later' }, id);
     configured.resolve({ sessionId: id, revision, full: current, value: false });
-    await assert.rejects(
-      rejected,
-      /Model change was not applied/,
-      'a busy-command refusal must not be acknowledged as a successful model selection'
-    );
+    assert.equal((await accepted).sessionId, id);
   } finally {
     await host?.dispose();
     await rm(userDataPath, { recursive: true, force: true });

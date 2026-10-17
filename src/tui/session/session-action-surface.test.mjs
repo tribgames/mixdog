@@ -91,8 +91,8 @@ test('canonical child close is exposed on the session surface', () => {
   const api = createSessionApi(
     stubBag({
       runtime: {
-        closeCanonicalSession(reason) {
-          calls.push(reason);
+        closeCanonicalSession(reason, options) {
+          calls.push([reason, options]);
           return true;
         },
       },
@@ -100,8 +100,8 @@ test('canonical child close is exposed on the session surface', () => {
   );
 
   assert.equal(typeof api.closeCanonicalSession, 'function');
-  assert.equal(api.closeCanonicalSession('cli-agent-close'), true);
-  assert.deepEqual(calls, ['cli-agent-close']);
+  assert.equal(api.closeCanonicalSession('cli-agent-close', { tombstone: false }), true);
+  assert.deepEqual(calls, [['cli-agent-close', { tombstone: false }]]);
 });
 
 test('canonical Agent completion is delivered through the session surface', () => {

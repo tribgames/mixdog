@@ -44,6 +44,30 @@ async function mount(t, sessions, handlers = {}) {
 const ids = (section) =>
   [...section.querySelectorAll('.session-row[data-session-id]')].map((el) => el.dataset.sessionId);
 
+test('Lead-only display hides agent rows without removing them from the supplied catalog', async (t) => {
+  const sessions = [row('lead'), row('worker', { agentSession: true })];
+  const document = await mount(t, sessions);
+  assert.ok(document.querySelector('[data-session-id="lead"]'));
+  assert.equal(document.querySelector('[data-session-id="worker"]'), null);
+  assert.equal(sessions.length, 2);
+  await act(async () => document.querySelector('button[aria-label="Session order"]').click());
+  const all = [...document.querySelectorAll('[role^="menuitem"]')].find(
+    (item) => item.textContent === 'Show all sessions'
+  );
+  assert.ok(all);
+  await act(async () => all.click());
+  assert.ok(document.querySelector('[data-session-id="worker"]'));
+  assert.equal(document.defaultView.localStorage.getItem('mixdog:session-sidebar-show-agents'), 'true');
+  await act(async () => document.querySelector('button[aria-label="Session order"]').click());
+  const leadOnly = [...document.querySelectorAll('[role^="menuitem"]')].find(
+    (item) => item.textContent === 'Show Lead sessions only'
+  );
+  await act(async () => leadOnly.click());
+  assert.equal(document.querySelector('[data-session-id="worker"]'), null);
+  assert.equal(document.defaultView.localStorage.getItem('mixdog:session-sidebar-show-agents'), 'false');
+  assert.equal(sessions.length, 2);
+});
+
 test('Favorites render first, are excluded from Recent, and never include archived sessions', async (t) => {
   const document = await mount(t, [
     row('fav', { favorite: true }),

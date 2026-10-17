@@ -5,7 +5,7 @@ import { ArrowUp, Mic, X } from 'lucide-react';
 import React, { useEffect, useRef, type CSSProperties, type MutableRefObject, type RefObject } from 'react';
 import { composerAttachmentSource } from './attachment-menu';
 import { AttachmentCard, composerCardKind, composerCardMeta } from './attachment-card';
-import { useAttachmentContextMenu, type AttachmentOpenFile } from './attachment-context-menu';
+import { openAttachmentSource, useAttachmentContextMenu, type AttachmentOpenFile } from './attachment-context-menu';
 import { CapabilityIcon } from './CapabilityIcon';
 import type { SkillMentionResult } from './composer-skill-mentions';
 import { queuedFollowupPreview, type ComposerAttachment } from './composer-support';
@@ -272,21 +272,6 @@ export function SkillMentionPalette({
   );
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-async function openAttachmentImage(attachment: ComposerAttachment, onError: (message: string) => void) {
-  onError('');
-  try {
-    const api = window.mixdogDesktop;
-    if (!api?.openAttachmentImage) throw new Error('Unable to open image: image viewer is unavailable.');
-    await api.openAttachmentImage(`data:${attachment.mimeType};base64,${attachment.data}`, attachment.name);
-  } catch (error) {
-    onError(errorText(error));
-  }
-}
-
 export function AttachmentChips({
   attachments,
   onRemove,
@@ -319,7 +304,14 @@ export function AttachmentChips({
             content={image ? undefined : attachment.data}
             meta={composerCardMeta(attachment)}
             menu={menuProps(composerAttachmentSource(attachment))}
-            onOpen={image ? () => void openAttachmentImage(attachment, onError) : undefined}
+            onOpen={
+              image
+                ? () => {
+                    onError('');
+                    openAttachmentSource(composerAttachmentSource(attachment), onOpenFile);
+                  }
+                : undefined
+            }
             onEdit={editable ? () => onEdit(attachment) : undefined}
             onRemove={() => onRemove(attachment)}
           />

@@ -136,7 +136,6 @@ test('the row node renders the card after its row', () => {
     retryDisabled: false,
     settledItems: [],
     settledTurnKeys: [],
-    latestCompletion: undefined,
     snapshot: { sessionId: 's' },
     onRetryTurn() {},
     onOpenSettings() {},

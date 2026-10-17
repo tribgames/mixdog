@@ -16,6 +16,7 @@ import { MIXDOG_PROJECT_PATHS_MIME } from './file-drag';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { OpenSelect } from './OpenSelect';
+import { contentLocalStorage } from './remote-conversation-privacy';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import { asRecord, displayProject, queueText } from './text-format';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
@@ -115,7 +116,7 @@ function normalizedHistoryEntry(value: unknown): ComposerHistoryEntry | null {
 
 export function readPromptHistory(scope: string) {
   try {
-    const value = JSON.parse(window.localStorage.getItem(promptHistoryStorageKey(scope)) || '[]');
+    const value = JSON.parse(contentLocalStorage().getItem(promptHistoryStorageKey(scope)) || '[]');
     if (!Array.isArray(value)) return [];
     return value
       .map(normalizedHistoryEntry)
@@ -139,7 +140,7 @@ export function writePromptHistory(scope: string, entries: ComposerHistoryEntry[
     stored.push(JSON.parse(value));
     used += value.length + 1;
   }
-  window.localStorage.setItem(promptHistoryStorageKey(scope), JSON.stringify(stored));
+  contentLocalStorage().setItem(promptHistoryStorageKey(scope), JSON.stringify(stored));
 }
 
 export function queuedFollowupPreview(entry: unknown) {

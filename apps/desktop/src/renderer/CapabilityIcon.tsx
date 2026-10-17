@@ -41,6 +41,7 @@ const BUILT_IN_ARTWORK: Record<string, CapabilityArtwork> = {
   browser: 'browser',
   computer: 'computer',
   office: 'office',
+  media: 'image',
   localProvider: 'local',
   voice: 'voice',
   tidy: 'tidy',

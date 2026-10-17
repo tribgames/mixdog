@@ -83,7 +83,8 @@ import { TerminalBridgeServer } from './terminal/bridge-server';
 import { requiredVisualizeTabCommand } from './ipc-validation';
 import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
-import { localPageOrigin } from './local-page-server';
+import { localPageOrigin, localPageUrl } from './local-page-server';
+import { requiredSensitivePolicy } from './remote-sensitive-paths';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import { createTerminalRunRequests } from './terminal/run-requests';
 import type { SessionTerminalTab } from './terminal-manager';
@@ -888,7 +889,9 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
         request.method === 'displayPreferences' ||
         request.method === 'visualizeState' ||
         request.method === 'visualizeCommand' ||
-        request.method === 'captureFileSnapshot')
+        request.method === 'visualizeExport' ||
+        request.method === 'captureFileSnapshot' ||
+        request.method === 'localPageUrl')
     ) {
       const hostMethod = request.method;
       void (async () => {
@@ -907,9 +910,24 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
             result = visualize.hostSnapshot();
           } else if (hostMethod === 'visualizeCommand') {
             result = (await visualize.command(requiredVisualizeTabCommand(args[0]))) ?? null;
+          } else if (hostMethod === 'visualizeExport') {
+            // A paired device's PNG/PDF: rendered to a temp file the daemon
+            // turns into that device's download.
+            result = await visualize.exportForDevice(requiredVisualizeTabCommand(args[0]));
           } else if (hostMethod === 'captureFileSnapshot') {
             // The daemon already confined the path; this only renders it.
             result = await fileSnapshots.capture(String(args[0] || ''), String(args[1] || ''), args[2] === true);
+          } else if (hostMethod === 'localPageUrl') {
+            // The daemon already confined the path; this only mints the lease,
+            // owned by the window so it dies with it. A paired device's lease
+            // carries the daemon's deny policy: every asset the page pulls in
+            // is judged by it, through the opened file.
+            result = await localPageUrl(String(args[0] || ''), String(args[1] || ''), {
+              scope: args[2] === 'file' ? 'file' : 'project',
+              owner: mainWindow?.webContents,
+              authorize: async () => {},
+              remote: requiredSensitivePolicy(args[3]),
+            });
           } else {
             result = desktopUpdater.getState();
             installAfterAnswer = desktopUpdater.getState().status === 'ready';
@@ -2278,7 +2296,12 @@ if (!app.requestSingleInstanceLock()) {
       // cacheable, range-able resources fetched straight by the DOM. The lane
       // reads this PC's files, so only this PC's window session has it.
       registerMediaProtocol(localService);
-      registerSshHostIpc({ ipcMain, routes: windowRoutes, userDataPath: desktopUserData, connections: sshConnections });
+      registerSshHostIpc({
+        ipcMain,
+        routes: windowRoutes,
+        userDataPath: desktopUserData,
+        connections: sshConnections,
+      });
       registerServerPortsIpc({
         ipcMain,
         routes: windowRoutes,

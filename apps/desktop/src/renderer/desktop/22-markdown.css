@@ -537,6 +537,13 @@ html[data-window-material="mica"] .jump-to-latest {
 .markdown li:has(> p) {
   margin-bottom: 12px;
 }
+/* The last item's gap separates nothing: it collapsed through its list and
+   the reply's body, so a reply ending in a list held 2px (12px loose) past
+   its text while streaming — space the completion footer's margin then
+   absorbed, nudging the followed thread up at every such turn end. */
+.markdown li:last-child {
+  margin-bottom: 0;
+}
 /* The marker is structure, not decoration — faint ink lost the ordinal
    numbers against the prose they index. */
 .markdown li::marker {
@@ -705,17 +712,18 @@ html[data-window-material="mica"] .jump-to-latest {
 /* Links wear the inline-code ink:
    the underline and, for files, the type glyph carry the affordance, and a
    medium weight lifts it a step off the 400 prose.
-   Pending mentions share ink and weight so resolving one never recolours or
-   reflows the line. Ink and underline live in ONE rule; they used to sit ~6k
-   lines apart, so a later edit could retune half a link. */
+   A healed explicit link still streaming shares that ink. Ink and underline
+   live in ONE rule; they used to sit ~6k lines apart, so a later edit could
+   retune half a link. */
 .markdown a,
 .markdown .markdown-link-pending {
   color: var(--mx-md-code);
   font-weight: inherit;
 }
-/* A file mention that was not found (or not yet) stays plain text: an
-   underline would promise a click that does nothing. The underline never
-   changes geometry, so verifying a mention still cannot reflow the line. */
+/* A file mention that was not found (or not yet) is a span, so it stays
+   plain text: an underline would promise a click that does nothing. Neither
+   ink nor underline changes geometry, so verifying a mention cannot reflow
+   the line. */
 .markdown a {
   text-decoration: underline;
   /* 75%, not 45%: the underline is what separates a link from same-ink
@@ -726,12 +734,17 @@ html[data-window-material="mica"] .jump-to-latest {
 .markdown a:hover {
   text-decoration-color: currentColor;
 }
-/* Pending file mentions have the exact same icon, caption and wrapping as
-   verified links. Resolving a file must never reflow a finished line. Chat
-   file links share the link ink above; the icon marks them as files. */
+/* Explicit file links keep their icon and caption on one line. */
 .markdown .markdown-path-link,
 .tool-path-link {
   white-space: nowrap;
+}
+/* An automatic file mention is the reply's own text in every state (pending,
+   missing, verified): it wraps as that text does, and a verified one only
+   gains the link ink and underline above, which change no glyph width or
+   line height. */
+.markdown .markdown-path-mention {
+  white-space: inherit;
 }
 .markdown a > .seti-icon,
 .markdown .markdown-path-link .seti-icon,

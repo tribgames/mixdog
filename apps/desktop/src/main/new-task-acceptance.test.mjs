@@ -285,6 +285,40 @@ test('a worktree draft enters its worktree before the prompt is submitted; a lar
   assert.equal(f.state.submits.length, 1);
 });
 
+for (const create of [false, true]) {
+  test(`a branch draft resolves its checkout before first send (create=${create})`, async (t) => {
+    const f = await fixture(t, `branch-${create}`);
+    let applied = false;
+    const requests = [];
+    f.state.onConfigure = async (params) => {
+      assert.equal(params.action, 'selectBranch');
+      assert.equal(f.state.submits.length, 0, 'the prompt cannot precede the workspace move');
+      requests.push(params.args[0]);
+      return {
+        sessionId: f.sessionId,
+        revision: 1,
+        full: { sessionId: f.sessionId, items: [] },
+        value: { workspace: { branch: applied ? 'feature/login' : 'main', worktreeId: create ? 'login' : null } },
+      };
+    };
+    const draft = { worktree: { branch: 'feature/login', create } };
+    await assert.rejects(f.host.submitNewTask('Accepted work', f.options, draft), /WORKTREE_NOT_IMPLEMENTED/);
+    assert.equal(f.state.submits.length, 0);
+    applied = true;
+    const result = await f.host.submitNewTask('Accepted work', f.options, draft);
+    assert.equal(result.accepted, true);
+    assert.deepEqual(
+      requests,
+      Array.from({ length: 2 }, () => ({
+        branch: 'feature/login',
+        create,
+        confirmLarge: false,
+      }))
+    );
+    assert.equal(f.state.submits.length, 1);
+  });
+}
+
 test('a draft remembering a deleted workflow starts on Default; other workflow failures still refuse', async (t) => {
   const f = await fixture(t);
   const workflows = [];

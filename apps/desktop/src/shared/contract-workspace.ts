@@ -91,6 +91,8 @@ export interface DesktopRemoteHost {
 
 export interface DesktopSessionSummary {
   id: string;
+  /** Presentation classification only; all sessions share lifecycle operations. */
+  agentSession?: boolean;
   preview: string;
   title: string;
   updatedAt: number;
@@ -107,11 +109,11 @@ export interface DesktopSessionSummary {
   cwd: string;
   classification: DesktopSessionClassification;
   projectPath: string | null;
-  /** Fresh cross-process turn heartbeat; independent of which session is selected. */
+  /** The daemon's in-memory run state has a turn of this session (or its agents) in flight; independent of which session is selected. */
   working?: boolean;
-  /** Fresh heartbeat from this session's Lead, excluding child-agent work. */
+  /** The daemon is running this session's own Lead turn, excluding child-agent work. */
   leadWorking?: boolean;
-  /** Fresh heartbeat from a running child agent owned by this lead session. */
+  /** The daemon is running a child agent owned by this lead session. */
   agentWorking?: boolean;
   /** Archive: hidden from Recent, restorable; file stays on disk. */
   archived?: boolean;

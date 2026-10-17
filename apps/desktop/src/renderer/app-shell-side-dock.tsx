@@ -6,7 +6,9 @@ import { paneActiveSelection } from './pane-layout';
 import { navigationKey } from './text-format';
 import { paneDockActiveRoot, paneDockFileCloseEndsDock, PaneSideDock, type PaneSideDockFile } from './pane-side-dock';
 import { PaneDockToggles } from './pane-dock-toggles';
-import { PaneDockFilesSurface } from './pane-dock-files';
+import type { PaneDockFilesSurface as PaneDockFilesSurfaceComponent } from './pane-dock-files';
+import { useDeferredModule } from './deferred-module';
+import { paneDockFilesModule } from './first-screen-deferred';
 import { DeferredPersistentSurface } from './PaneSurfaceGate';
 import { EDITOR_STARTUP_DELAY_MS, ReadyEditorPane } from './app-shell-components';
 import { DesktopLoadingSurface } from './RendererRecovery';
@@ -27,6 +29,13 @@ import type {
   WorkbenchSideViewDescriptor,
   WorkbenchSideViewId,
 } from './workbench-side-view-layout';
+
+/** The Files tree (Explorer) is no first screen's surface: its chunk loads on
+ *  first mount or from the idle lane, behind the delayed loading surface. */
+function PaneDockFilesSurface(props: React.ComponentProps<typeof PaneDockFilesSurfaceComponent>) {
+  const module = useDeferredModule(paneDockFilesModule, { bootSurface: props.active ? 'dock-files' : undefined });
+  return module ? <module.PaneDockFilesSurface {...props} /> : <DesktopLoadingSurface label={t('Loading view…')} />;
+}
 
 interface PaneDockContext {
   paneWorkspace: ReturnType<typeof usePaneWorkspace>;

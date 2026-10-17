@@ -8,6 +8,9 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ReadyTerminalPane } from './app-shell-components';
 import { t } from './i18n';
 import { disposeTerminalPane } from './lazy-widgets';
+import { useForegroundMedia } from './media-lifecycle';
+import { getTerminalActivityStates, holdTerminalFocus, subscribeTerminalActivity } from './terminal-activity-store';
+import type { TerminalActivityState } from '../shared/terminal-activity';
 import { wrappedNavigationIndex } from './list-navigation';
 import { DockHeaderRow, requestPaneDockClose, scrollTabListByWheel, type DockAction } from './pane-dock-chrome';
 import {
@@ -37,17 +40,50 @@ import './tab-strip.css';
 
 const ARROW_OFFSETS: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
 
+/** The default shell's name as last detected, so a terminal opened before
+ *  this run's detection answers already names it (no "Default shell" →
+ *  "PowerShell" swap in the tab). */
+const DEFAULT_SHELL_LABEL_KEY = 'mixdog.desktop.terminal-default-shell-label.v1';
+
+export function rememberedDefaultShellLabel(): string {
+  try {
+    return window.localStorage.getItem(DEFAULT_SHELL_LABEL_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function rememberDefaultShellLabel(label: string): void {
+  try {
+    if (window.localStorage.getItem(DEFAULT_SHELL_LABEL_KEY) !== label) {
+      window.localStorage.setItem(DEFAULT_SHELL_LABEL_KEY, label);
+    }
+  } catch {
+    /* the next run detects it again */
+  }
+}
+
+/** The default tab's shell name: the detected default once profiles answer,
+ *  the remembered one while they are still loading. */
+export function knownDefaultShellLabel(
+  defaultProfile: ShellProfile | null,
+  profiles: readonly ShellProfile[] | null,
+  remembered: () => string
+): string {
+  return defaultProfile?.label ?? (profiles ? '' : remembered());
+}
+
 // Tab names: the shell's own name (the default tab names the shell it
 // actually spawned); a repeated name gets " 2", " 3", … in tab order.
-function terminalTabTitles(
+// `defaultLabel`: the detected default shell's name, or the remembered one
+// while detection is still answering.
+export function terminalTabTitles(
   tabs: readonly SessionTerminalTab[],
   profiles: readonly ShellProfile[] | null,
-  defaultProfile: ShellProfile | null
+  defaultLabel: string
 ): Map<string, string> {
   const shellName = (shell: string) =>
-    shell
-      ? profiles?.find((profile) => profile.id === shell)?.label || shell
-      : defaultProfile?.label || t('Default shell');
+    shell ? profiles?.find((profile) => profile.id === shell)?.label || shell : defaultLabel || t('Default shell');
   const nameCounts = new Map<string, number>();
   // Tabs in different roots (project folder vs. a worktree) show their folder.
   const mixedRoots = new Set(tabs.map((tab) => tab.cwd || '')).size > 1;
@@ -96,6 +132,7 @@ function TerminalTabItem({
   id,
   title,
   isActive,
+  activity,
   onSelect,
   onClose,
   onMenu,
@@ -103,6 +140,8 @@ function TerminalTabItem({
   id: string;
   title: string;
   isActive: boolean;
+  /** Known command activity; undefined (unknown) or idle shows no dot. */
+  activity?: TerminalActivityState;
   onSelect(): void;
   onClose(): void;
   onMenu(title: string, point: { x: number; y: number }): void;
@@ -138,6 +177,18 @@ function TerminalTabItem({
       >
         <Terminal size={15} aria-hidden="true" />
         <span>{title}</span>
+        {(activity === 'running' || activity === 'finished') && (
+          <i
+            className={`terminal-tab-activity is-${activity}`}
+            data-terminal-activity={activity}
+            role="status"
+            aria-label={
+              activity === 'running'
+                ? t('{{name}} is running a command', { name: title })
+                : t('{{name}} finished a command', { name: title })
+            }
+          />
+        )}
       </button>
       <button
         type="button"
@@ -166,6 +217,14 @@ export function SessionTerminalTabs({
   onToggleExpanded?(): void;
 }) {
   const state = useSyncExternalStore(subscribeSessionTerminalTabs, () => getSessionTerminalTabs(sessionId));
+  const activity = useSyncExternalStore(subscribeTerminalActivity, getTerminalActivityStates);
+  // The selected tab of a shown terminal in a focused, visible window is the
+  // one the user is looking at: it holds focus, so it never turns "finished".
+  const engaged = useForegroundMedia(active);
+  useEffect(
+    () => (engaged && state.activeId ? holdTerminalFocus(state.activeId) : undefined),
+    [engaged, state.activeId]
+  );
   const strip = useRef<HTMLDivElement | null>(null);
   const followedRoot = useRef<string | null>(null);
   const hasTabs = state.tabs.length > 0;
@@ -217,7 +276,11 @@ export function SessionTerminalTabs({
   const defaultShellLabel = defaultProfile
     ? t('Default ({{label}})', { label: defaultProfile.label })
     : t('Default shell');
-  const tabTitles = terminalTabTitles(state.tabs, profiles, defaultProfile);
+  const knownDefaultLabel = knownDefaultShellLabel(defaultProfile, profiles, rememberedDefaultShellLabel);
+  useEffect(() => {
+    if (defaultProfile?.label) rememberDefaultShellLabel(defaultProfile.label);
+  }, [defaultProfile?.label]);
+  const tabTitles = terminalTabTitles(state.tabs, profiles, knownDefaultLabel);
   const closeTab = (id: string) => {
     if (!closeSessionTerminalTab(sessionId, id)) return;
     if (!getSessionTerminalTabs(sessionId).tabs.length) requestPaneDockClose('terminal');
@@ -278,6 +341,7 @@ export function SessionTerminalTabs({
                   id={tab.id}
                   title={tabTitles.get(tab.id) ?? ''}
                   isActive={tab.id === state.activeId}
+                  activity={activity.get(tab.id)}
                   onSelect={() => selectSessionTerminalTab(sessionId, tab.id)}
                   onClose={() => closeTab(tab.id)}
                   onMenu={(title, point) => openMenu(tab.id, title, point)}

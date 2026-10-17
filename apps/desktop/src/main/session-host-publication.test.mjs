@@ -10,6 +10,7 @@ function owner(overrides = {}) {
   const reads = [];
   const tracked = [];
   let shells = 0;
+  let activityCleared = 0;
   const held = [];
   return {
     isDisposed: () => disposed,
@@ -34,6 +35,10 @@ function owner(overrides = {}) {
     onShellPublished: () => {
       shells += 1;
     },
+    clearSessionActivity: () => {
+      activityCleared += 1;
+    },
+    activityCleared: () => activityCleared,
     dispose() {
       disposed = true;
     },
@@ -225,6 +230,7 @@ test('transport loss reports disconnected for visible ids without blanking the r
   publication.subscribeSessionStates((update) => updates.push(update));
   publication.handleSessionTransportLoss();
   assert.equal(lane.controlSessionId(), '');
+  assert.equal(lane.activityCleared(), 1, 'the cached daemon activity is dropped with the connection');
   assert.equal(updates.length, 1);
   assert.equal(updates[0].laneEnd, 'disconnected');
   assert.equal(updates[0].snapshot, null);

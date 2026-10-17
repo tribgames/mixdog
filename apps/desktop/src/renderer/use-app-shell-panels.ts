@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import { paintDrawerIntent, settleDrawerIntent } from './drawer-intent';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import {
   getSidePanelMode,
@@ -114,9 +123,24 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   const [sidebarMotion, setSidebarMotion] = useState<'animated' | 'instant'>('animated');
   const applySidebarOpen = useCallback((open: boolean, motion: 'animated' | 'instant' = 'animated') => {
     sidebarOpenIntent.current = open;
+    if (narrowShellRef.current && motion === 'animated') {
+      // A phone drawer tap: the sheet's look flips through CSS on this very
+      // frame, and the shell's heavy render commits as a transition behind it.
+      paintDrawerIntent(open);
+      startTransition(() => {
+        setSidebarMotion(motion);
+        setSidebarOpen(open);
+      });
+      return;
+    }
     setSidebarMotion(motion);
     setSidebarOpen(open);
   }, []);
+  // Every commit checks whether the rendered drawer has reached the latest
+  // tap's intent; only then does the CSS stamp go.
+  useLayoutEffect(() => {
+    settleDrawerIntent(sidebarOpen, sidebarOpenIntent.current);
+  });
   // The bottom panel is the SAME kind of narrow-band surface as the side
   // sheets (user: 하단 탭도 좌우 탭과 같은 취급 — 겹치면 안 된다): while a
   // sheet would overlap it (dock ≤940px, drawer ≤760px), opening either

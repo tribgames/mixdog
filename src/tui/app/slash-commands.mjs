@@ -36,6 +36,12 @@ export const SLASH_COMMANDS = [
   { name: 'resume', usage: '/resume', params: '[id]', description: 'Resume a saved chat' },
   { name: 'context', usage: '/context', description: 'Show current context surface' },
   {
+    name: 'shells',
+    usage: '/shells',
+    params: '[release <task_id> [--confirm]]',
+    description: 'List shells; release one whose termination is unconfirmed',
+  },
+  {
     name: 'fork',
     usage: '/fork',
     aliases: ['inherit'],

@@ -44,6 +44,7 @@ test('transcript content rows retain their shared width and turn spacing', async
   const css = await readFile(new URL('./desktop/12-transcript.css', import.meta.url), 'utf8');
   const dom = new JSDOM(`<!doctype html><style>${css}</style><main></main>`);
   try {
+    const parts = ['AssistantPart', 'ToolActivity', 'Error'];
     for (const tag of ['UserMessage', 'AssistantPart', 'ToolActivity', 'Thinking', 'Error']) {
       for (const turnEnd of [false, true]) {
         const row = dom.window.document.createElement('div');
@@ -53,7 +54,10 @@ test('transcript content rows retain their shared width and turn spacing', async
         dom.window.document.querySelector('main').append(row);
         const style = dom.window.getComputedStyle(row);
         let padding = tag === 'UserMessage' ? '24px' : '8px';
-        if (turnEnd) padding = '0px';
+        // A part's step lives on the row after it (data-step-before; checked
+        // in a real browser by compact-chrome-layout), so appending that row
+        // never resizes the part.
+        if (turnEnd || parts.includes(tag)) padding = '0px';
         assert.equal(style.width, '100%', `${tag}: shared reading width`);
         assert.equal(style.paddingBottom, padding, `${tag}: turnEnd=${turnEnd}`);
       }

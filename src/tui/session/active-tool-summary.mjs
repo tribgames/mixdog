@@ -2,7 +2,7 @@
  * src/tui/session/active-tool-summary.mjs - surfaced-tool activity summary.
  *
  * Status surfaces must react at tool start, before a shell is backgrounded or
- * an agent worker heartbeat exists. Track the three surfaced categories
+ * an agent worker row exists. Track the three surfaced categories
  * directly; background shell records and worker rows later dedupe by max.
  */
 // Tool category -> the activeTools key it publishes under. Iteration order is

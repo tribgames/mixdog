@@ -22,6 +22,63 @@ test('inactive lane updates do not retain notification keys', () => {
   assert.equal(store.stats().notificationKeys, 0);
 });
 
+const approvalFrame = (sessionId, extra = {}) => ({
+  sessionId,
+  snapshot: { sessionId, items: [], toolApproval: { id: `ap-${sessionId}`, tool: 'shell' }, ...extra },
+  frameSource: 'live',
+});
+
+function watchApprovals(store) {
+  const seen = { count: 0 };
+  const stop = store.subscribeApprovals(() => {
+    seen.count += 1;
+  });
+  return { seen, stop };
+}
+
+test('evictInactive drops approval membership of evicted lanes only', () => {
+  const store = createSessionLaneStore({ decorator });
+  store.apply(approvalFrame('idle'));
+  store.apply(approvalFrame('mounted'));
+  const release = store.subscribe('mounted', () => {});
+  const { seen, stop } = watchApprovals(store);
+  store.evictInactive();
+  assert.deepEqual([...store.approvalSessionIds()], ['mounted']);
+  assert.equal(seen.count, 1);
+  store.evictInactive();
+  assert.equal(seen.count, 1, 'no change, no notification');
+  stop();
+  release();
+  store.clear();
+});
+
+test('pruning a cached lane drops its approval membership', () => {
+  const store = createSessionLaneStore({ maxEntries: 1, decorator });
+  store.apply(approvalFrame('first'));
+  const { seen, stop } = watchApprovals(store);
+  store.apply({ sessionId: 'second', snapshot: { sessionId: 'second', items: [] }, frameSource: 'live' });
+  assert.equal(store.get('first'), null);
+  assert.equal(store.approvalSessionIds().size, 0);
+  assert.equal(seen.count, 1);
+  stop();
+  store.clear();
+});
+
+test('releasing the last subscriber of an oversized lane drops its approval membership', () => {
+  const store = createSessionLaneStore({ maxBytes: 1_024, decorator });
+  const bulk = 'x'.repeat(20_000);
+  const release = store.subscribe('big', () => {});
+  store.apply(approvalFrame('big', { items: [{ id: 'row', kind: 'assistant', text: bulk }] }));
+  assert.deepEqual([...store.approvalSessionIds()], ['big']);
+  const { seen, stop } = watchApprovals(store);
+  release();
+  assert.equal(store.get('big'), null);
+  assert.equal(store.approvalSessionIds().size, 0);
+  assert.equal(seen.count, 1);
+  stop();
+  store.clear();
+});
+
 // Background shell jobs are injected by the desktop host, never by the session
 // runtime: a snapshot returned by a runtime call (slash command, model/Fast
 // switch, workflow change) omits the field entirely, and adopting it whole

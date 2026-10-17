@@ -9,7 +9,12 @@ import { startVisibleRefreshCadence } from '../visible-refresh-cadence';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { OAuthLoginDialog, pasteErrorText, useOAuthLoginFlow } from './oauth-login-flow';
 import { useOAuthUsageRefresh } from './use-oauth-usage-refresh';
-import { ProviderAccountsList, PROVIDER_ACCOUNTS_CHANGED, preloadProviderAccounts } from '../ProviderAccountsList';
+import {
+  ProviderAccountsList,
+  PROVIDER_ACCOUNTS_CHANGED,
+  preloadProviderAccounts,
+  useProviderPoolsReady,
+} from '../ProviderAccountsList';
 import { ActionButton, Group, ListEmpty, ResourceRow } from './capability-controls';
 import { ClientManagedProviders } from './client-managed-providers';
 import { QuotaAutoResumeToggle } from './quota-auto-resume-toggle';
@@ -149,6 +154,19 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
     };
   }, []);
   const keychainState = String(keychainIssue.state || '');
+  // Cold open: one same-size block until the setup and every account roster
+  // are in, then the whole page at once — nothing on screen has to move.
+  const poolsReady = useProviderPoolsReady(
+    api,
+    setup.managedByClient === true ? [] : oauthProviders.map((provider) => String(provider.id))
+  );
+  if (loading || !poolsReady) {
+    return (
+      <div className="settings-panel-placeholder" role="status" aria-busy="true">
+        <span>{t('Loading providers…')}</span>
+      </div>
+    );
+  }
   if (setup.managedByClient === true) {
     return (
       <>

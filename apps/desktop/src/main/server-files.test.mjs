@@ -257,6 +257,16 @@ test('server paths resolve to their project, or to a one-file grant', async () =
   await assert.rejects(grants.describe(['relative/path']), /absolute/);
 });
 
+test('describing a granted server file again keeps its token, so repeated link checks never evict it', async () => {
+  const invoke = async (_name, [path]) => ({ name: path.split('/').pop(), dir: false, size: 3 });
+  const grants = new ServerFileGrants(invoke, async () => []);
+  const [opened] = await grants.describe(['/tmp/open.txt']);
+  for (let index = 0; index < 1_200; index++) await grants.describe(['/tmp/mentioned.txt']);
+  assert.equal(grants.requireGrant(opened.accessToken, '/tmp', 'open.txt').absolute, '/tmp/open.txt');
+  const [again] = await grants.describe(['/tmp/open.txt']);
+  assert.equal(again.accessToken, opened.accessToken);
+});
+
 test('a server preview URL streams the requested byte range over the connection', async (t) => {
   const f = fixture(t);
   const payload = bytes(5 * 1024 * 1024 + 17);

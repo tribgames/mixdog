@@ -99,6 +99,29 @@ export function diffFileStatus(section: unknown): string;
 export function parseUnifiedDiff(patch: string): DiffData[];
 export function capPatchLines(patch: string, max: number): { text: string; cut: boolean };
 export function patchLineCounts(patch: string): { additions: number; deletions: number };
+export interface PatchFileAnalysis {
+  name: string;
+  additions: number;
+  deletions: number;
+  lineStats: boolean;
+  status: string;
+  binary: boolean;
+  part: DiffData;
+}
+export function analyzePatchFiles(patch: string): PatchFileAnalysis[];
+export interface PatchDigest {
+  counts: { additions: number; deletions: number };
+  statuses: string[];
+  targetPath: string;
+  files: Array<Omit<PatchFileAnalysis, 'part'>>;
+}
+export function patchDigest(patch: string): PatchDigest;
+export interface PatchSectionDigest extends PatchDigest {
+  names: string[];
+}
+export function diffSectionNames(section: string): string[];
+export function patchSectionDigests(patch: string): PatchSectionDigest[];
+export function mergePatchDigests(digests: readonly PatchDigest[]): PatchDigest;
 export function startupRestorePlan(input?: {
   storedSessionId?: string;
   storedSessionKnown?: boolean;

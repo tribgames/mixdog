@@ -20,6 +20,7 @@ const THINKING_DELAY_MS = 3000;
 // One-way shimmer. The tail runs past the final character before restarting.
 const GLIMMER_SPEED_MS = {
   requesting: 70,
+  'model-thinking': 70,
   reconnecting: 70,
   compacting: 120,
   'auto-clear': 120,
@@ -91,7 +92,9 @@ function tokenModeGlyph(mode) {
     case 'responding':
     case 'thinking':
       return DOWN_ARROW;
+    // The request is sent and nothing has come back yet.
     case 'requesting':
+    case 'model-thinking':
       return UP_ARROW;
     default:
       return '';
@@ -108,6 +111,8 @@ export function SpinnerByline({
   thinkingActiveSince,
   thinkingMs,
   effort,
+  quiet = null,
+  now = Date.now(),
   interruptible,
   columns,
   reducedMotion,
@@ -151,6 +156,8 @@ export function SpinnerByline({
     thinkingSince: thinkingActiveSince,
     thinkingMs,
     effort,
+    quiet,
+    now,
   });
   const tokenGlyph = tokenModeGlyph(mode);
   let tokenText = '';
@@ -176,8 +183,13 @@ export function SpinnerByline({
   const interruptW = interruptText.length;
   const showInterrupt = Boolean(interruptText) && avail > interruptW;
   const usedAfterInterrupt = showInterrupt ? interruptW + SEP_WIDTH : 0;
-  const showThinkingStatus = Boolean(thinkingStatusText) && avail > usedAfterInterrupt + thinkingStatusW;
-  const usedAfterThinking = usedAfterInterrupt + (showThinkingStatus ? thinkingStatusW + SEP_WIDTH : 0);
+  // A quiet turn says so before any other stat: it is the one that explains a
+  // long silence (the interrupt hint beside it is how to stop it).
+  const quietText = meta.quietText;
+  const showQuiet = Boolean(quietText) && avail > usedAfterInterrupt + quietText.length;
+  const usedAfterQuiet = usedAfterInterrupt + (showQuiet ? quietText.length + SEP_WIDTH : 0);
+  const showThinkingStatus = Boolean(thinkingStatusText) && avail > usedAfterQuiet + thinkingStatusW;
+  const usedAfterThinking = usedAfterQuiet + (showThinkingStatus ? thinkingStatusW + SEP_WIDTH : 0);
   const showTimer = Boolean(timerLabel) && avail > usedAfterThinking + timerW;
   const usedAfterTimer = usedAfterThinking + (showTimer ? timerW + SEP_WIDTH : 0);
   const showTokens = wantsTokens && tokenText && avail > usedAfterTimer + tokenW;
@@ -221,6 +233,13 @@ export function SpinnerByline({
           {thinkingStatusText}
         </Text>
       )
+    );
+  }
+  if (showQuiet) {
+    segments.push(
+      <Text key="quiet" color={meta.quietParts?.escalated ? theme.warning : theme.statusSubtle}>
+        {quietText}
+      </Text>
     );
   }
   if (showInterrupt) {

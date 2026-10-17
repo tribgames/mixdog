@@ -77,6 +77,27 @@ function sectionBody(
   );
 }
 
+/** The file header's and one diff line's height in the dock (27-search-review.css). */
+const SECTION_HEAD_PX = 34;
+const DIFF_LINE_PX = 19;
+
+/** An unfolded section's height before it first renders: its header plus one
+ *  line per patch line (wrapping only adds). */
+export function sessionDiffSectionEstimate(row: SessionDiffRow): number {
+  let lines = 0;
+  for (const part of row.parts) {
+    for (let at = part.patch.indexOf('\n'); at !== -1; at = part.patch.indexOf('\n', at + 1)) lines += 1;
+    if (part.patch) lines += 1;
+  }
+  return SECTION_HEAD_PX + Math.max(1, lines) * DIFF_LINE_PX;
+}
+
+/** An unfolded file whose body is still the one-line "Loading diff…" note: its
+ *  section is about to grow to the whole diff and push every file below it. */
+export function sessionDiffBodyPending(row: SessionDiffRow, collapsed: boolean): boolean {
+  return !collapsed && !row.reason && !sessionDiffRowTooLarge(row) && row.patchPending === true;
+}
+
 /** One changed file: a sticky header (icon, muted middle-truncated directory,
  *  name that opens the file, the collapse chevron right after it, counts, open
  *  and undo) over its diff. Memoized on its row: a stack of hundreds of files
@@ -103,6 +124,10 @@ const SessionDiffSection = memo(function SessionDiffSection({
 }) {
   const onToggle = () => toggle(row.path);
   const onRevert = () => revert(row.path);
+  // The off-screen placeholder height (content-visibility, see
+  // 27-search-review.css) until the section has rendered once and remembers
+  // its own: the header plus one diff line per patch line.
+  const estimate = useMemo(() => sessionDiffSectionEstimate(row), [row]);
   // Outside the project only the name shows; the full path stays in the tooltip.
   const directory = row.outside ? '' : middleTruncatedDirectory(row.path);
   const deleted = row.status === 'D';
@@ -116,6 +141,7 @@ const SessionDiffSection = memo(function SessionDiffSection({
       data-session-diff-path={row.path}
       data-status={row.status}
       data-collapsed={collapsed ? 'true' : undefined}
+      style={collapsed ? undefined : { containIntrinsicBlockSize: `auto ${estimate}px` }}
     >
       {/* A file's own tab names the file in its toolbar row instead. */}
       {!whole && (

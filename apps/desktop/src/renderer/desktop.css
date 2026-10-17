@@ -5,10 +5,8 @@
  * earlier ones, so this import order is behaviour, not style. Add a new rule to
  * the layer that owns its surface; never re-sort the list.
  */
-/* KaTeX layer for worker-rendered $$ display math. Imported from CSS (not
-   the markdown chunks) because the tsx test loader cannot evaluate css
-   module imports outside the DOM harness. */
-@import "../../node_modules/katex/dist/katex.min.css";
+/* KaTeX's layer is imported by font-faces.css (its font faces must stay out
+   of this conditional-rule sheet). */
 
 @import "./desktop/01-tokens.css";
 @import "./desktop/02-base.css";
@@ -44,6 +42,8 @@
 @import "./desktop/30-dialogs.css";
 @import "./desktop/date-range-picker.css";
 @import "./desktop/error-notice.css";
+/* The shared session/agent status set: after every surface layer it recolors. */
+@import "./desktop/session-status.css";
 /* Narrow-window layout, phone composer lane and reduced-motion safety net:
    eager, and last so they override every base layer above. */
 @import "./desktop/shell-overrides.css";

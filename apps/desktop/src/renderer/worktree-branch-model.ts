@@ -10,8 +10,10 @@ import type {
   DesktopSessionWorkspace,
   DesktopWorktreeCapability,
   DesktopWorktreeErrorCode,
+  DesktopWorktreeRefusalReason,
 } from '../shared/contract';
 import { DESKTOP_WORKTREE_ERROR_CODES } from '../shared/contract';
+import { anchoredPanelGeometry, anchoredPanelStyle, paneBounds, rectFrom } from './anchored-panel';
 import { t } from './i18n';
 
 export interface WorktreeFailure {
@@ -166,6 +168,26 @@ function carryRefusedText(): string {
   );
 }
 
+/** The shared meaning of a refusal reason: each English source string is the
+ *  runtime's own text for that reason (WORKTREE_REFUSAL_REASONS), so the
+ *  desktop, remote and TUI say the same. Null for any other reason. */
+export function worktreeRefusalText(reason: unknown): string | null {
+  switch (reason as DesktopWorktreeRefusalReason) {
+    case 'workspace-retained':
+      return t('Sessions still retain this folder. Close or remove those sessions before cleaning it up.');
+    case 'workspace-lease':
+      return t('A runtime still holds this folder. Stop its work and release the workspace first.');
+    case 'folder-in-use':
+      return t('Sessions or workers still use an affected folder. Finish or move them before continuing.');
+    case 'folder-shell-jobs':
+      return t('Background commands still use an affected folder. Wait for them or stop them first.');
+    case 'workspace-admission-unreadable':
+      return t('Workspace activity cannot be verified. Nothing was changed.');
+    default:
+      return null;
+  }
+}
+
 /** User-facing text for a typed failure; untyped failures keep their message.
  *  `checkout`: the failure answers a branch switch in the project folder, so
  *  WORKTREE_DIRTY means the project folder (it carries no details over IPC).
@@ -191,11 +213,10 @@ export function worktreeFailureText(
         'Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.'
       );
     case 'WORKTREE_BUSY_JOBS':
-      return failure.details.reason === 'folder-shell-jobs'
-        ? t(
-            'Background shells of other sessions are running in the project folder. Wait for them or stop them before bringing changes along.'
-          )
-        : t('Background tasks are still running. Wait for them or stop them, then try again.');
+      return (
+        worktreeRefusalText(failure.details.reason) ??
+        t('Background tasks are still running. Wait for them or stop them, then try again.')
+      );
     case 'WORKTREE_BRANCH_OCCUPIED': {
       const path = typeof failure.details.path === 'string' ? failure.details.path : '';
       return path
@@ -300,7 +321,6 @@ export function branchRows(menu: DesktopBranchMenu, ownSessionId: string, query:
     else if (held?.kind === 'external') {
       row.mark = 'external';
       row.path = held.path;
-      row.disabled = true;
     }
     rows.push(row);
   }
@@ -325,6 +345,7 @@ export function branchChipState(workspace: DesktopSessionWorkspace | null, inten
 // Lazy: the worktree is created at the first send, so a New Task only
 // remembers the choice. The send path reads it with takeWorktreeIntent.
 const intents = new Map<string, boolean>();
+const branchIntents = new Map<string, { branch: string; create: boolean }>();
 const listeners = new Set<() => void>();
 
 function emitIntent() {
@@ -332,10 +353,21 @@ function emitIntent() {
 }
 
 export function setWorktreeIntent(key: string, intent: boolean) {
+  if (!intent) branchIntents.delete(key);
   if ((intents.get(key) ?? false) === intent) return;
   if (intent) intents.set(key, true);
   else intents.delete(key);
   emitIntent();
+}
+
+export function setBranchIntent(key: string, branch: string, create: boolean) {
+  branchIntents.set(key, { branch, create });
+  setWorktreeIntent(key, true);
+  emitIntent();
+}
+
+export function getBranchIntent(key: string) {
+  return branchIntents.get(key);
 }
 
 export function getWorktreeIntent(key: string): boolean {
@@ -385,14 +417,22 @@ export async function sendDraftWithWorktreeIntent<T extends { accepted?: unknown
   send: (worktree: DesktopNewTaskWorktree | undefined) => Promise<T>,
   confirm?: (message: string) => boolean
 ): Promise<T | null> {
+  const selected = branchIntents.get(key);
   const worktree = takeWorktreeIntent(key);
   let started = false;
   try {
-    const result = await submitDraftWithWorktree(send, worktree, confirm);
+    const result = await submitDraftWithWorktree(
+      (options) => send(selected ? { ...options, ...selected } : options),
+      worktree,
+      confirm
+    );
     started = result?.accepted === true && Boolean(result.sessionId);
     return result;
   } finally {
-    if (worktree && !started) setWorktreeIntent(key, true);
+    if (worktree && !started) {
+      if (selected) setBranchIntent(key, selected.branch, selected.create);
+      else setWorktreeIntent(key, true);
+    }
   }
 }
 
@@ -410,43 +450,27 @@ export function useWorktreeIntent(key: string): boolean {
 // ── Placement ────────────────────────────────────────────────────────────
 const BRANCH_MENU_WIDTH = 280;
 const BRANCH_MENU_MAX_HEIGHT = 320;
-const MENU_GAP = 2;
-const EDGE = 8;
 
-/** Same rule as OpenSelect's composer context pills: left-aligned to the chip,
- *  opened ABOVE it with a 2px gap, falling below only when above cannot fit. */
-export function branchMenuPosition(
-  anchor: HTMLElement
-): { left: number; maxHeight: number } & ({ bottom: number; top?: undefined } | { top: number; bottom?: undefined }) {
-  const rect = anchor.getBoundingClientRect();
-  const viewport = window.visualViewport;
-  const visible = {
-    left: viewport?.offsetLeft ?? 0,
-    top: viewport?.offsetTop ?? 0,
-    right: (viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth),
-    bottom: (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight),
-  };
-  const sheet = anchor.closest<HTMLElement>('.pane-leaf, .workspace, .session-sidebar')?.getBoundingClientRect();
-  const bounds =
-    sheet && sheet.width > 0 && sheet.height > 0
-      ? {
-          left: Math.max(sheet.left, visible.left),
-          top: Math.max(sheet.top, visible.top),
-          right: Math.min(sheet.right, visible.right),
-          bottom: Math.min(sheet.bottom, visible.bottom),
-        }
-      : visible;
-  const width = Math.min(BRANCH_MENU_WIDTH, Math.max(0, bounds.right - bounds.left - EDGE * 2));
-  const left = Math.max(bounds.left + EDGE, Math.min(bounds.right - width - EDGE, rect.left));
-  const spaceAbove = rect.top - bounds.top - EDGE;
-  const spaceBelow = bounds.bottom - rect.bottom - EDGE;
-  const above = spaceAbove >= BRANCH_MENU_MAX_HEIGHT || spaceAbove > spaceBelow;
-  const maxHeight = Math.max(0, Math.min(BRANCH_MENU_MAX_HEIGHT, (above ? spaceAbove : spaceBelow) - MENU_GAP));
-  if (above) {
-    const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
-    return { left, maxHeight, bottom: Math.max(EDGE, layoutHeight - rect.top + MENU_GAP) };
-  }
-  return { left, maxHeight, top: Math.min(bounds.bottom - EDGE, rect.bottom + MENU_GAP) };
+/** The chip sits in the composer at the bottom of the screen, so its menu
+ *  opens ABOVE it (anchored-panel.ts, like the composer context pills):
+ *  left edges aligned, 6px off, falling below only when above cannot hold the
+ *  menu and below is roomier. */
+export function branchMenuPosition(anchor: HTMLElement): {
+  left?: number;
+  top?: number;
+  bottom?: number;
+  maxHeight: number;
+} {
+  const trigger = rectFrom(anchor);
+  const geometry = anchoredPanelGeometry({
+    trigger,
+    bounds: paneBounds(anchor),
+    preferredWidth: BRANCH_MENU_WIDTH,
+    naturalHeight: BRANCH_MENU_MAX_HEIGHT,
+    placement: 'above',
+  });
+  const { transformOrigin: _origin, ...style } = anchoredPanelStyle(geometry, trigger);
+  return { ...style, maxHeight: Math.min(BRANCH_MENU_MAX_HEIGHT, style.maxHeight) };
 }
 
 export type WorktreeInvoker = <T>(

@@ -1,3 +1,4 @@
+import { startTransition } from 'react';
 import type { NavigationSelection, WorkspaceTab } from './navigation';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
@@ -44,13 +45,19 @@ export function useAppSessionOpen({
     void laneReady.finally(() => {
       if (navigationEpoch.current === navigationToken) setRequestedSessionId('');
     });
-    activateSelection(
-      {
-        kind: 'session',
-        id: sessionId,
-        ...(pinnedTitle ? { title: pinnedTitle } : {}),
-      },
-      pinnedTitle || (session ? sessionSummaryTitle(session, t('Untitled session')) : t('Untitled session'))
+    // The requested id above is the urgent part of the click: the sidebar
+    // row selects in the next frame. Rendering the incoming pane (tab strip,
+    // transcript, dock) is a transition, so it yields to input and the
+    // outgoing pane stays on screen, whole, until the new one commits.
+    startTransition(() =>
+      activateSelection(
+        {
+          kind: 'session',
+          id: sessionId,
+          ...(pinnedTitle ? { title: pinnedTitle } : {}),
+        },
+        pinnedTitle || (session ? sessionSummaryTitle(session, t('Untitled session')) : t('Untitled session'))
+      )
     );
   };
 

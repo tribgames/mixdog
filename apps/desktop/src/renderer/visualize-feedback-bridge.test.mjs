@@ -55,8 +55,10 @@ const {
   captureVisualizeRegionCrop,
   requestVisualizeDescription,
   useVisualizeFeedbackBridge,
-  VisualizeCommentHints,
   VisualizeCommentLayer,
+  VISUALIZE_COMMENT_HINT_SEEN_KEY,
+  announceVisualizeCommentMode,
+  visualizeCommentHintText,
   visualizeCardPlace,
 } = await import('./VisualizeFeedback.tsx');
 const { VISUALIZE_COMMENT_KINDS } = await import('../shared/visualize-comment-kinds.ts');
@@ -422,7 +424,11 @@ test('a page that announces ready again (a same-URL reload) gets its state and s
   const replayed = toPage.slice(mark).filter((message) => message.type === 'tweaks');
   assert.ok(replayed.length >= 1);
   for (const message of replayed) {
-    assert.deepEqual(message.ops, [{ var: '--accent', value: '#2f6fed' }], 'the saved override is replayed (and idempotent)');
+    assert.deepEqual(
+      message.ops,
+      [{ var: '--accent', value: '#2f6fed' }],
+      'the saved override is replayed (and idempotent)'
+    );
   }
 });
 
@@ -1134,11 +1140,7 @@ test('the bridge resends to pages only when what it sends changes, not when the 
     return React.createElement(
       'div',
       { ref: setBody },
-      React.createElement(
-        'div',
-        { 'data-visualize-pane': '0' },
-        React.createElement('iframe', { title: 'page' })
-      )
+      React.createElement('div', { 'data-visualize-pane': '0' }, React.createElement('iframe', { title: 'page' }))
     );
   }
   const host = document.createElement('main');
@@ -1156,7 +1158,9 @@ test('the bridge resends to pages only when what it sends changes, not when the 
 
   // A new tab object with an unrelated field (another thumbnail, problems)
   // and new-but-equal pane objects: nothing is resent.
-  await act(async () => setShown({ ...tab, panes: tab.panes.map((pane) => ({ ...pane })), thumbnail: 'data:image/png;base64,AAAA' }));
+  await act(async () =>
+    setShown({ ...tab, panes: tab.panes.map((pane) => ({ ...pane })), thumbnail: 'data:image/png;base64,AAAA' })
+  );
   await act(async () =>
     setShown({ ...tab, problems: [{ kind: 'exception', message: 'x', source: 'a', line: 1, count: 1, pane: 0 }] })
   );
@@ -1187,7 +1191,7 @@ test('the bridge resends to pages only when what it sends changes, not when the 
   assert.equal(markers().length, 2, 'a reload resends');
 });
 
-test('the hint strip lists what the shown panes accept and the pin count, and ends Comment mode', async (t) => {
+test('Comment mode shows no hint strip; its hints are a one-time toast', async (t) => {
   resetVisualizeFeedback();
   addVisualizePin('s1', {
     tabId: 'v1',
@@ -1199,29 +1203,18 @@ test('the hint strip lists what the shown panes accept and the pin count, and en
     label: 'PDF · Region',
     target: { type: 'region', view: { x: 0, y: 0, width: 1, height: 1 } },
   });
-  const host = document.createElement('main');
-  document.body.append(host);
-  const root = createRoot(host);
-  const ends = [];
-  t.after(async () => {
-    await act(async () => root.unmount());
-    host.remove();
-    resetVisualizeFeedback();
-  });
-  await act(async () =>
-    root.render(
-      React.createElement(VisualizeCommentHints, {
-        sessionId: 's1',
-        kinds: ['html', 'video'],
-        onEnd: () => ends.push(true),
-      })
-    )
+  t.after(() => resetVisualizeFeedback());
+  // No strip under the toolbar: the same hints are one line, announced once.
+  assert.equal(
+    visualizeCommentHintText(['html', 'video']),
+    'Click element · Drag area · Alt↑ Parent element · Space Play/pause · ←→ Seek · Esc End comments'
   );
-  assert.deepEqual(
-    [...host.querySelectorAll('.visualize-comment-hint-actions > span')].map((node) => node.textContent),
-    ['Click element', 'Drag area', 'Alt↑ Parent element', 'Space Play/pause', '←→ Seek']
-  );
-  assert.equal(host.querySelector('.visualize-comment-hint-count').textContent, 'Pins 1/20');
-  await act(async () => host.querySelector('.visualize-comment-hint button').click());
-  assert.deepEqual(ends, [true]);
+  const toasts = [];
+  const onToast = (event) => toasts.push(event.detail.text);
+  window.addEventListener('mixdog:desktop-toast', onToast);
+  t.after(() => window.removeEventListener('mixdog:desktop-toast', onToast));
+  window.localStorage.removeItem(VISUALIZE_COMMENT_HINT_SEEN_KEY);
+  announceVisualizeCommentMode(['pdf']);
+  announceVisualizeCommentMode(['pdf']);
+  assert.deepEqual(toasts, ['Drag area · Esc End comments'], 'one toast, once');
 });

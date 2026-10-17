@@ -10,7 +10,14 @@ import { disposeTerminalPane } from './lazy-widgets';
 import { SessionTerminalTabs } from './SessionTerminalTabs';
 import { releaseSessionTerminalTabs, sessionTerminalId } from './session-terminal-tabs';
 import { useSlotRemeasure } from './surface-slot-remeasure';
-import { expandedSurfaceRect, placeFixedSurface, preferredSurfaceSlot } from './surface-slots';
+import {
+  expandedSurfaceRect,
+  placeFixedSurface,
+  preferredSurfaceSlot,
+  renderSurfaceRoot,
+  unmountSurfaceRoot,
+} from './surface-slots';
+import { cachedShellProfiles, loadShellProfiles } from './terminal-shell-profiles';
 
 type TerminalSurfaceSlot = {
   active: boolean;
@@ -91,7 +98,7 @@ export function useSessionTerminalSurfaces(
     surface.container.dataset.expanded = expanded ? 'true' : 'false';
     const visible = Boolean(selected && rect && rect.width >= 1 && rect.height >= 1);
     if (visible && rect) {
-      placeFixedSurface(surface.container, rect);
+      placeFixedSurface(surface.container, rect, selected?.[0]);
       surface.container.dataset.parked = 'false';
       surface.container.removeAttribute('aria-hidden');
       return selected;
@@ -113,7 +120,8 @@ export function useSessionTerminalSurfaces(
       if (selected) surface.cwd = selected[1].cwd;
       const active = Boolean(selected);
       const foreground = selected?.[1].foreground === true;
-      surface.root.render(
+      renderSurfaceRoot(
+        surface.root,
         renderTerminalSurface({
           sessionId: surface.sessionId,
           cwd: surface.cwd,
@@ -187,7 +195,7 @@ export function useSessionTerminalSurfaces(
       const surface = surfaces.current.get(sessionId);
       if (!surface) return;
       expandedSurfaceRect(undefined, false, surface);
-      surface.root.unmount();
+      unmountSurfaceRoot(surface.root);
       surface.container.remove();
       surfaces.current.delete(sessionId);
       for (const terminalId of releaseSessionTerminalTabs(sessionId)) disposeTerminalSurface(terminalId);
@@ -205,7 +213,7 @@ export function useSessionTerminalSurfaces(
 
   useEffect(
     () => () => {
-      for (const surface of surfaces.current.values()) surface.root.unmount();
+      for (const surface of surfaces.current.values()) unmountSurfaceRoot(surface.root);
       surfaces.current.clear();
     },
     []
@@ -223,7 +231,17 @@ export function useSessionTerminalSurfaces(
   );
 }
 
+/** After boot, once idle: the shell list (and with it the default shell's
+ *  name) is detected before the first terminal opens, so its tab is named
+ *  right in the frame it appears. */
+const SHELL_PREFETCH_DELAY_MS = 2_000;
+
 export function SessionTerminalParkingHost({ controller }: { controller: SessionTerminalSurfaceController }) {
+  useEffect(() => {
+    if (cachedShellProfiles() || !window.mixdogDesktop?.termProfiles) return undefined;
+    const timer = window.setTimeout(() => void loadShellProfiles(), SHELL_PREFETCH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
   return <div ref={controller.setParkingHost} className="session-terminal-parking-host" />;
 }
 

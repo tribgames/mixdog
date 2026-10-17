@@ -6,13 +6,13 @@ import {
   allowVisualizeReveal,
   allowVisualizeScripts,
   applyVisualizeEvent,
-  setVisualizeNetwork,
   visualizeScriptsAllowed,
   hydrateVisualizeStates,
   subscribe,
   markVisualizePanelHidden,
   markVisualizePanelShown,
   onVisualizeRevealRequested,
+  openVisualizePageLink,
   resetVisualizePanelMemory,
   reopenVisualizeTargets,
   restoreVisualizeVersion,
@@ -122,33 +122,35 @@ test('a renderer reload reopens panels that were open, never ones the user close
   }
 });
 
-test('a narrow panel folds secondary toggles into ⋯, keeping Comment and Tweaks', () => {
+test('the header keeps only Comment and Versions inline; every toggle leads ⋯ as a checkbox', () => {
   const actions = [
-    { id: 'history', inline: true, checked: false },
-    { id: 'source', inline: true, checked: true },
+    { id: 'history', checked: false, checkbox: true },
+    { id: 'source', checked: true, checkbox: true },
+    { id: 'versions', inline: true },
     { id: 'export-png' },
-    { id: 'tweaks', inline: true, checked: false },
-    { id: 'elements', inline: true, checked: false, badge: 3 },
-    { id: 'network', inline: true, attention: true },
+    { id: 'elements', checked: false, checkbox: true, badge: 3 },
+    { id: 'tweaks', checked: false, checkbox: true },
     { id: 'comment', inline: true, checked: false },
+    { id: 'zoom-bar', checked: true, checkbox: true },
   ];
-  assert.deepEqual(visualizeHeaderActions(actions, 520), actions, 'wide: as given');
-  assert.deepEqual(visualizeHeaderActions(actions, 0), actions, 'unmeasured: as wide');
-  const narrow = visualizeHeaderActions(actions, 290);
+  const ordered = visualizeHeaderActions(actions);
   assert.deepEqual(
-    narrow.filter((action) => action.inline).map((action) => action.id),
-    ['tweaks', 'comment']
+    ordered.filter((action) => action.inline).map((action) => action.id),
+    ['versions', 'comment']
   );
-  const menu = narrow.filter((action) => !action.inline);
+  const menu = ordered.filter((action) => !action.inline);
   assert.deepEqual(
     menu.map((action) => action.id),
-    ['history', 'source', 'elements', 'network', 'export-png']
+    ['history', 'source', 'elements', 'tweaks', 'zoom-bar', 'export-png']
   );
-  assert.equal(menu.find((action) => action.id === 'source').checkbox, true, 'toggles stay toggles');
-  assert.equal(menu.find((action) => action.id === 'network').checkbox, undefined, 'a plain action stays plain');
   assert.equal(menu.find((action) => action.id === 'elements').badge, 3, 'the findings count rides into ⋯');
-  assert.equal(menu.find((action) => action.id === 'network').attention, true);
   assert.equal(menu.find((action) => action.id === 'export-png').separatorBefore, true);
+  assert.equal(menu.find((action) => action.id === 'history').separatorBefore, undefined);
+  assert.deepEqual(
+    visualizeHeaderActions([{ id: 'export-png' }]).map((action) => action.separatorBefore),
+    [undefined],
+    'no separator without toggles'
+  );
 });
 
 test('panes stack below two 360px columns; tooltips carry label and targets', () => {
@@ -184,8 +186,16 @@ test('a remote reconnect replaces every session with the host snapshot and revea
 });
 
 test('the version stepper walks kept versions; the newest is live', () => {
-  const versions = [{ n: 3, at: 1 }, { n: 5, at: 2 }, { n: 6, at: 3 }];
-  assert.equal(visualizeVersionPosition({ versions: [{ n: 1, at: 1 }], version: null }), null, 'one version: no stepper');
+  const versions = [
+    { n: 3, at: 1 },
+    { n: 5, at: 2 },
+    { n: 6, at: 3 },
+  ];
+  assert.equal(
+    visualizeVersionPosition({ versions: [{ n: 1, at: 1 }], version: null }),
+    null,
+    'one version: no stepper'
+  );
   assert.equal(visualizeVersionPosition({}), null, 'hosts without history');
   assert.deepEqual(visualizeVersionPosition({ versions, version: null }), { shown: 6, newest: 6 });
   assert.deepEqual(visualizeVersionPosition({ versions, version: 3 }), { shown: 3, newest: 6 });
@@ -227,20 +237,9 @@ test('a remote page that runs scripts waits for a trusted Run tap, remembered pe
   assert.equal(visualizeScriptsAllowed('s2', 'v1'), false, 'another session stays gated');
 });
 
-test('the network toggle sends one validated command per click', () => {
-  const sent = [];
-  const previous = globalThis.window;
-  globalThis.window = { mixdogDesktop: { visualizeCommand: async (command) => sent.push(command) } };
-  try {
-    setVisualizeNetwork('s1', 'v1', true);
-    setVisualizeNetwork('s1', 'v1', false);
-    assert.deepEqual(sent, [
-      { sessionId: 's1', tabId: 'v1', action: 'network', allow: true },
-      { sessionId: 's1', tabId: 'v1', action: 'network', allow: false },
-    ]);
-  } finally {
-    globalThis.window = previous;
-  }
+test('there is no network toggle any more: the store exports no setter', async () => {
+  const store = await import('./visualize-store.ts');
+  assert.equal('setVisualizeNetwork' in store, false);
 });
 
 test('a web URL is handed to the browser panel as an agent request', () => {
@@ -252,6 +251,33 @@ test('a web URL is handed to the browser panel as an agent request', () => {
   } finally {
     stop();
   }
+});
+
+test('a link the user clicks in a pane opens like a chat web link; a script-posted one opens nothing', (t) => {
+  const requests = [];
+  const external = [];
+  const stop = onBrowserPageRevealRequested((request) => requests.push(request));
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const previousWindow = globalThis.window;
+  const activation = { isActive: false };
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { userActivation: activation } });
+  globalThis.window = { mixdogDesktop: { openExternal: async (url) => external.push(url) } };
+  t.after(() => {
+    stop();
+    if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+    globalThis.window = previousWindow;
+  });
+  openVisualizePageLink('s3', 'https://example.com/');
+  assert.deepEqual(requests, [], 'no user activation');
+  activation.isActive = true;
+  openVisualizePageLink('s3', 'https://example.com/');
+  assert.deepEqual(requests, [{ sessionId: 's3', url: 'https://example.com/' }]);
+  // Ctrl/Cmd-click, or no browser pane to reveal: the system browser takes it.
+  openVisualizePageLink('s3', 'https://example.net/', true);
+  stop();
+  openVisualizePageLink('s3', 'https://example.org/');
+  assert.deepEqual(requests.length, 1);
+  assert.deepEqual(external, ['https://example.net/', 'https://example.org/']);
 });
 
 test('a session with nothing open keeps its "All visuals" list; a bare empty state drops', () => {
@@ -291,7 +317,10 @@ test('export sends the pane and returns where the file went', async () => {
     },
   };
   try {
-    assert.deepEqual(await exportVisualizeTab('s', 'v1', 'project', 1), { path: 'design/mockups/a/a.svg', openable: true });
+    assert.deepEqual(await exportVisualizeTab('s', 'v1', 'project', 1), {
+      path: 'design/mockups/a/a.svg',
+      openable: true,
+    });
     assert.equal(await exportVisualizeTab('s', 'v1', 'png', 0), undefined);
     assert.deepEqual(sent, [
       { sessionId: 's', tabId: 'v1', action: 'export', format: 'project', pane: 1 },
@@ -339,7 +368,12 @@ test('an event that changes only another tab keeps every unchanged tab object', 
 });
 
 test('an identical event or snapshot notifies nobody; a real change notifies once', () => {
-  const state = { sessionId: 'quiet', tabs: [richTab('a')], active: 'a', history: [{ id: 'h', label: 'a', kind: 'html', versions: 1, at: 1, open: true }] };
+  const state = {
+    sessionId: 'quiet',
+    tabs: [richTab('a')],
+    active: 'a',
+    history: [{ id: 'h', label: 'a', kind: 'html', versions: 1, at: 1, open: true }],
+  };
   applyVisualizeEvent({ sessionId: 'quiet', state: fresh(state) });
   // A snapshot of the host replaces every session: leave only this one.
   resyncVisualizeStates([fresh(state)]);

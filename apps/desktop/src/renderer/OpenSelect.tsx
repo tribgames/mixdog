@@ -1,3 +1,4 @@
+import { anchoredPanelGeometry, anchoredPanelStyle, paneBounds } from './anchored-panel';
 import React, { type CSSProperties, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
@@ -100,80 +101,22 @@ export function OpenSelect({
           ?.getBoundingClientRect()
       : null;
     const anchorRect = contextPillAnchor || rect;
-    const menuGap = contextPillStyle ? 2 : 4;
-    const viewport = window.visualViewport;
-    const viewportWidth = viewport?.width ?? window.innerWidth;
-    const viewportHeight = viewport?.height ?? window.innerHeight;
-    const viewportLeft = viewport?.offsetLeft ?? 0;
-    const viewportTop = viewport?.offsetTop ?? 0;
-    const visible = {
-      left: viewportLeft,
-      top: viewportTop,
-      right: viewportLeft + viewportWidth,
-      bottom: viewportTop + viewportHeight,
-    };
-    // A split workspace makes the PANE the real box: measuring against the
-    // whole workspace flips the menu against room that belongs to a different
-    // pane, and lets it paint across the divider.
-    const sheet = trigger.current?.closest<HTMLElement>('.pane-leaf, .workspace, .session-sidebar');
-    const sheetBounds = sheet?.getBoundingClientRect();
-    // A phone keeps the workspace box at full height while the keyboard and
-    // the browser chrome cover its bottom, so the sheet alone reports room
-    // that does not exist. Clipping it to what is actually visible is what
-    // makes the flip decision below honest (user: 버튼 아래 떠서 불편).
-    const bounds =
-      sheetBounds && sheetBounds.width > 0 && sheetBounds.height > 0
-        ? {
-            left: Math.max(sheetBounds.left, visible.left),
-            top: Math.max(sheetBounds.top, visible.top),
-            right: Math.min(sheetBounds.right, visible.right),
-            bottom: Math.min(sheetBounds.bottom, visible.bottom),
-          }
-        : visible;
-    const edge = 8;
-    const width = Math.min(
-      Math.max(menuMinWidth, Math.min(368, anchorRect.width)),
-      Math.max(0, bounds.right - bounds.left - edge * 2)
-    );
+    // The shared placement (anchored-panel.ts): below, left edges aligned.
+    // A settings row's trailing select aligns right edges; the composer
+    // context pills sit at the bottom of the screen ON TOP of the input, so
+    // they open above (the whole pill is the anchor) and fall below only
+    // when above cannot hold the menu.
     const estimatedHeight = Math.min(240, options.length * 30 + 8);
-    const spaceBelow = bounds.bottom - anchorRect.bottom - edge;
-    const spaceAbove = anchorRect.top - bounds.top - edge;
-    // Flip as soon as the WHOLE menu misses below and above is roomier, rather
-    // than waiting for the old 160px floor: a composer control sits at the
-    // bottom of the screen, where "some space below" is still a cramped strip.
-    // Composer context pills sit directly ON TOP of the input card, so the
-    // room below them is the textarea, never free space — they open upward
-    // and only fall back down when the menu cannot fit above at all
-    // (user: 아래로 열리잖아).
-    const openAbove = contextPillStyle
-      ? spaceAbove >= estimatedHeight || spaceAbove > spaceBelow
-      : spaceBelow < estimatedHeight && spaceAbove > spaceBelow;
-    const availableHeight = Math.max(0, (openAbove ? spaceAbove : spaceBelow) - menuGap);
-    const viewportMaxHeight = Math.min(240, viewportHeight - edge * 2);
-    const maxHeight = Math.min(viewportMaxHeight, availableHeight);
-    const idealLeft = settingsStyle ? rect.right - width : anchorRect.left;
-    const left = Math.max(bounds.left + edge, Math.min(bounds.right - width - edge, idealLeft));
-    return {
-      left,
-      width,
-      ...(openAbove
-        ? {
-            // `bottom` on a fixed element resolves against the LAYOUT viewport,
-            // so an upward menu must measure from that height. The visual height
-            // shrinks with the keyboard and dropped the menu onto its trigger.
-            bottom: Math.max(
-              edge,
-              (document.documentElement.clientHeight || window.innerHeight) - anchorRect.top + menuGap
-            ),
-            maxHeight,
-            transformOrigin: 'bottom center',
-          }
-        : {
-            top: Math.min(bounds.bottom - edge, anchorRect.bottom + menuGap),
-            maxHeight,
-            transformOrigin: 'top center',
-          }),
-    };
+    const geometry = anchoredPanelGeometry({
+      trigger: anchorRect,
+      bounds: paneBounds(trigger.current),
+      preferredWidth: Math.max(menuMinWidth, Math.min(368, anchorRect.width)),
+      naturalHeight: estimatedHeight,
+      align: settingsStyle ? 'end' : 'start',
+      placement: contextPillStyle ? 'above' : 'below',
+    });
+    const style = anchoredPanelStyle(geometry, anchorRect);
+    return { ...style, width: geometry.width, maxHeight: Math.min(240, style.maxHeight) };
   }, [contextPillStyle, menuMinWidth, options.length, settingsStyle]);
   const rememberPosition = useCallback(() => {
     const next = readPosition();
@@ -415,6 +358,7 @@ export function OpenSelect({
           >
             {options.map((option, index) => (
               <React.Fragment key={option.value}>
+                {/* biome-ignore lint/a11y/useSemanticElements: <hr> default border/margin would change the styling. */}
                 {option.separatorBefore && <div className="usage-menu-separator" role="separator" />}
                 <button
                   type="button"

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 
 import { MAX_VISUALIZE_INLINE_BYTES, remoteVisualizeState } from '../../shared/visualize.ts';
@@ -40,7 +40,10 @@ function setup(delay = async () => {}) {
 
 /** The render id the desktop window was issued for a tab's pane. */
 const renderIdOf = (service, sessionId = 's1', tabId = 'v1', pane = 0) =>
-  service.snapshot().find((state) => state.sessionId === sessionId)?.tabs.find((tab) => tab.id === tabId)?.panes[pane]?.renderId;
+  service
+    .snapshot()
+    .find((state) => state.sessionId === sessionId)
+    ?.tabs.find((tab) => tab.id === tabId)?.panes[pane]?.renderId;
 
 /** What the desktop window sends once its pane rendered (or failed to). */
 const report = (service, error, overrides = {}) =>
@@ -94,7 +97,10 @@ test('inline open makes an inline pane tab without files, and re-opening a title
   assert.match(third.text, /2 versions kept/);
   tab = service.snapshot()[0].tabs[0];
   assert.equal(tab.id, 'v1');
-  assert.deepEqual(tab.versions.map((version) => version.n), [1, 2]);
+  assert.deepEqual(
+    tab.versions.map((version) => version.n),
+    [1, 2]
+  );
 
   // An older version is shown read-only, beside live when comparing.
   await service.command({ sessionId: 's1', tabId: 'v1', action: 'version', version: 1 });
@@ -104,12 +110,18 @@ test('inline open makes an inline pane tab without files, and re-opening a title
   assert.equal(tab.panes[0].version, 1);
   await service.command({ sessionId: 's1', tabId: 'v1', action: 'version', version: 1, compare: true });
   tab = service.snapshot()[0].tabs[0];
-  assert.deepEqual(tab.panes.map((pane) => pane.version), [1, undefined]);
+  assert.deepEqual(
+    tab.panes.map((pane) => pane.version),
+    [1, undefined]
+  );
   await service.command({ sessionId: 's1', tabId: 'v1', action: 'version', version: null });
   assert.equal(service.snapshot()[0].tabs[0].version, null);
 
   // open with input.version shows a kept version.
-  const older = await open(service, { content: { kind: 'chart', source: '{"series":[1]}', title: 'Sales' }, version: 1 });
+  const older = await open(service, {
+    content: { kind: 'chart', source: '{"series":[1]}', title: 'Sales' },
+    version: 1,
+  });
   assert.match(older.text, /Showing kept version v1/);
 
   // Restore has no file to write.
@@ -146,7 +158,10 @@ test('a render error reported by the panel is a page problem in the open and che
   const ok = setup(async (_ms, svc) => report(svc));
   const fine = await open(ok.service, { content: { kind: 'svg', source: '<svg/>' } });
   assert.doesNotMatch(fine.text, /Page problems/);
-  assert.equal((await ok.service.execute({ sessionId: 's1', cwd, action: 'check', input: { tab: 'v1' } })).text, 'No page problems on tab v1.');
+  assert.equal(
+    (await ok.service.execute({ sessionId: 's1', cwd, action: 'check', input: { tab: 'v1' } })).text,
+    'No page problems on tab v1.'
+  );
   service.dispose();
   ok.service.dispose();
 });
@@ -157,7 +172,10 @@ test('the panel render report is validated', () => {
   assert.equal(requiredVisualizeTabCommand({ ...base, pane: 0 }).error, undefined);
   assert.throws(() => requiredVisualizeTabCommand({ ...base, pane: -1 }), /pane index/);
   assert.throws(() => requiredVisualizeTabCommand({ ...base, pane: 0, error: 3 }), /text/);
-  assert.throws(() => requiredVisualizeTabCommand({ sessionId: 's1', tabId: 'v1', action: 'render', pane: 0 }), /render id/);
+  assert.throws(
+    () => requiredVisualizeTabCommand({ sessionId: 's1', tabId: 'v1', action: 'render', pane: 0 }),
+    /render id/
+  );
   assert.equal(requiredVisualizeTabCommand({ ...base, pane: 0, error: 'x'.repeat(9000) }).error.length, 4000);
 });
 
@@ -195,7 +213,12 @@ test('render reports need the id issued to the window: wrong, reused, stale and 
   assert.equal(service.snapshot()[0].tabs[0].problems[0].version, 1);
 
   // Another session's tab with the same tab id cannot be reported with this one's id.
-  await service.execute({ sessionId: 's2', cwd, action: 'open', input: { content: { kind: 'mermaid', source: 'graph TD;A-->', title: 'Flow' } } });
+  await service.execute({
+    sessionId: 's2',
+    cwd,
+    action: 'open',
+    input: { content: { kind: 'mermaid', source: 'graph TD;A-->', title: 'Flow' } },
+  });
   const s2 = () => service.snapshot().find((state) => state.sessionId === 's2').tabs[0];
   assert.equal(s2().id, 'v1');
   await report(service, 'cross', { sessionId: 's2', renderId: liveId, pane: 0 });
@@ -204,36 +227,113 @@ test('render reports need the id issued to the window: wrong, reused, stale and 
   service.dispose();
 });
 
-test('the remote command path refuses render reports and no remote state carries a render id', async () => {
+test('a remote client reports renders with its own id; the desktop id never reaches it', async () => {
   const { service, hostEvents } = setup();
   await open(service, { content: { kind: 'mermaid', source: 'graph TD;A-->B', title: 'Flow' } });
   assert.ok(renderIdOf(service), 'the desktop window is issued an id');
   const id = renderIdOf(service);
 
+  const remote = [
+    ...hostEvents.filter((event) => event.state).map((event) => remoteVisualizeState(event.state)),
+    ...service.hostSnapshot().map(remoteVisualizeState),
+  ];
+  assert.equal(JSON.stringify(remote).includes(id), false, 'the desktop id stays in the desktop window');
+  assert.equal(JSON.stringify(service.hostSnapshot()).includes(id), false);
+  const remoteId = remote.at(-1).tabs[0].panes[0].renderId;
+  assert.ok(remoteId, 'a remote client is issued its own id');
+  assert.notEqual(remoteId, id);
+
+  // The remote command path forwards the validated report to the host.
   const requests = [];
   const methods = createRemoteVisualizeMethods({
     mirror: createRemoteVisualizeMirror(),
     hostRequest: async (method, args) => {
       requests.push([method, args]);
-      return null;
+      return method === 'visualizeCommand' ? service.command(args[0]) : service.hostSnapshot();
     },
     invokeDesktopOperation: async () => null,
   });
   await assert.rejects(
-    methods.visualizeCommand([{ sessionId: 's1', tabId: 'v1', action: 'render', pane: 0, renderId: id, error: 'forged' }]),
-    /not accepted from remote clients/
+    methods.visualizeCommand([{ sessionId: 's1', tabId: 'v1', action: 'render', pane: 'x', renderId: remoteId }]),
+    /pane index/
   );
-  assert.deepEqual(requests, [], 'nothing reaches the host');
-  // Other commands still pass.
-  await methods.visualizeCommand([{ sessionId: 's1', tabId: 'v1', action: 'activate' }]);
-  assert.equal(requests.length, 1);
+  assert.deepEqual(requests, [], 'an invalid report never reaches the host');
+  // A forged id is forwarded but files nothing.
+  await methods.visualizeCommand([
+    { sessionId: 's1', tabId: 'v1', action: 'render', pane: 0, renderId: 'guess', error: 'forged' },
+  ]);
+  assert.equal(service.snapshot()[0].tabs[0].problems, undefined);
+  // The issued remote id files the failure once, like the desktop's.
+  await methods.visualizeCommand([
+    { sessionId: 's1', tabId: 'v1', action: 'render', pane: 0, renderId: remoteId, error: 'Parse error' },
+  ]);
+  assert.match(service.snapshot()[0].tabs[0].problems[0].message, /could not be rendered: Parse error/);
+  await methods.visualizeCommand([
+    { sessionId: 's1', tabId: 'v1', action: 'render', pane: 0, renderId: remoteId, error: 'again' },
+  ]);
+  // Either audience spends the render instance: the desktop's late report is ignored.
+  await report(service, 'desktop too');
+  assert.equal(service.snapshot()[0].tabs[0].problems.length, 1);
+  service.dispose();
+});
 
-  const remote = [
-    ...hostEvents.filter((event) => event.state).map((event) => remoteVisualizeState(event.state)),
-    ...service.hostSnapshot().map(remoteVisualizeState),
-  ];
-  assert.equal(JSON.stringify(remote).includes(id), false);
-  assert.equal(JSON.stringify(service.hostSnapshot()).includes(id), false);
+test('a paired device export renders into a fresh temp folder instead of the save dialog', async () => {
+  const written = [];
+  const deps = {
+    windowAvailable: () => true,
+    browserAvailable: () => true,
+    preparePane: async () => 'fake://pane',
+    publish: () => {},
+    publishHost: () => {},
+    watch: () => () => {},
+    annotate: async () => [],
+    capture: async () => Buffer.from('PNG'),
+    chooseExportPath: async () => {
+      throw new Error('no dialog for a device export');
+    },
+    exportBytes: async (_sessionId, _tab, format) => {
+      written.push(format);
+      return Buffer.from(format === 'png' ? 'PNGDATA' : '%PDF');
+    },
+    delay: async () => {},
+    reloadDebounceMs: 5,
+  };
+  const service = createVisualizeService(deps);
+  await service.execute({
+    sessionId: 's1',
+    cwd,
+    action: 'open',
+    input: { content: { kind: 'svg', source: '<svg/>', title: 'Flow' } },
+  });
+  const { path } = await service.exportForDevice({
+    sessionId: 's1',
+    tabId: 'v1',
+    action: 'export',
+    format: 'png',
+    pane: 0,
+  });
+  try {
+    assert.match(basename(dirname(path)), /^mixdog-visualize-export-/);
+    assert.equal(dirname(dirname(path)), tmpdir());
+    assert.match(basename(path), /\.png$/);
+    assert.equal(readFileSync(path, 'utf8'), 'PNGDATA');
+  } finally {
+    rmSync(dirname(path), { recursive: true, force: true });
+  }
+  await assert.rejects(
+    service.exportForDevice({ sessionId: 's1', tabId: 'v1', action: 'export', format: 'project', pane: 0 }),
+    /format is invalid/
+  );
+  await assert.rejects(
+    service.exportForDevice({ sessionId: 's1', tabId: 'v9', action: 'export', format: 'png' }),
+    /closed/
+  );
+  // PDF is for HTML pages, as in the desktop menu.
+  await assert.rejects(
+    service.exportForDevice({ sessionId: 's1', tabId: 'v1', action: 'export', format: 'pdf', pane: 0 }),
+    /Save as PDF is for HTML pages/
+  );
+  assert.deepEqual(written, ['png']);
   service.dispose();
 });
 test('remote clients get inline content in the state, with no host path', async () => {
@@ -243,11 +343,17 @@ test('remote clients get inline content in the state, with no host path', async 
   await service.command({ sessionId: 's1', tabId: 'v1', action: 'version', version: 1, compare: true });
 
   const host = service.hostSnapshot()[0].tabs[0];
-  assert.deepEqual(host.panes.map((pane) => [pane.kind, pane.path, pane.version]), [
-    ['inline', '', 1],
-    ['inline', '', undefined],
-  ]);
-  const states = [...hostEvents.filter((event) => event.state).map((event) => remoteVisualizeState(event.state)), ...service.hostSnapshot().map(remoteVisualizeState)];
+  assert.deepEqual(
+    host.panes.map((pane) => [pane.kind, pane.path, pane.version]),
+    [
+      ['inline', '', 1],
+      ['inline', '', undefined],
+    ]
+  );
+  const states = [
+    ...hostEvents.filter((event) => event.state).map((event) => remoteVisualizeState(event.state)),
+    ...service.hostSnapshot().map(remoteVisualizeState),
+  ];
   assert.equal(JSON.stringify(states).includes(cwd.replace(/\\/g, '\\\\')), false);
   const remote = states.at(-1).tabs[0];
   assert.equal(remote.label, 'Notes');
@@ -297,11 +403,14 @@ test('chart and html content are served as pages; mermaid, svg and markdown stay
   await open(service, { content: { kind: 'mermaid', source: 'graph TD;A-->B', title: 'Flow' } });
   const tabs = service.snapshot()[0].tabs;
   assert.deepEqual(prepared, ['chart', 'html']);
-  assert.deepEqual(tabs.map((tab) => [tab.panes[0].kind, tab.panes[0].url !== '']), [
-    ['html', true],
-    ['html', true],
-    ['inline', false],
-  ]);
+  assert.deepEqual(
+    tabs.map((tab) => [tab.panes[0].kind, tab.panes[0].url !== '']),
+    [
+      ['html', true],
+      ['html', true],
+      ['inline', false],
+    ]
+  );
   assert.equal(tabs[0].panes[0].inline.kind, 'chart');
 
   // Remote clients see the inline content (and a page kind), never a host path or page URL.
@@ -316,6 +425,9 @@ test('chart and html content are served as pages; mermaid, svg and markdown stay
 test('a scripted page gets the HTML-pane protections: network guard and page problems', async () => {
   const { service } = pageSetup();
   await open(service, { content: { kind: 'chart', source: '{"series":[', title: 'Bad' } });
+  // Tabs open with network allowed; the guard is exercised once it is switched off.
+  assert.equal(service.snapshot()[0].tabs[0].networkAllowed, true);
+  await service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: false });
   const url = service.snapshot()[0].tabs[0].panes[0].url;
   const origin = url.slice(0, url.lastIndexOf('/') + 1);
 
@@ -325,7 +437,13 @@ test('a scripted page gets the HTML-pane protections: network guard and page pro
   assert.equal(service.snapshot()[0].tabs[0].problems[0].kind, 'blocked-network');
 
   // The page's own error (bad chart JSON logged by the page) is a page problem.
-  service.reportConsole({ level: 'error', message: 'Invalid chart JSON: Unexpected end', sourceId: url, lineNumber: 1, frameUrl: url });
+  service.reportConsole({
+    level: 'error',
+    message: 'Invalid chart JSON: Unexpected end',
+    sourceId: url,
+    lineNumber: 1,
+    frameUrl: url,
+  });
   const checked = await service.execute({ sessionId: 's1', cwd, action: 'check', input: { tab: 'v1' } });
   assert.match(checked.text, /console-error: Invalid chart JSON/);
 
@@ -382,8 +500,14 @@ test('reopen content is validated', () => {
   const ok = requiredVisualizeTabCommand({ ...base, content: { kind: 'chart', source: '{}', title: 'T' }, label: 'L' });
   assert.deepEqual(ok.content, { kind: 'chart', source: '{}', title: 'T' });
   assert.deepEqual(ok.targets, []);
-  assert.throws(() => requiredVisualizeTabCommand({ ...base, content: { kind: 'gif', source: 'x' } }), /content is invalid/);
-  assert.throws(() => requiredVisualizeTabCommand({ ...base, content: { kind: 'svg', source: 3 } }), /content is invalid/);
+  assert.throws(
+    () => requiredVisualizeTabCommand({ ...base, content: { kind: 'gif', source: 'x' } }),
+    /content is invalid/
+  );
+  assert.throws(
+    () => requiredVisualizeTabCommand({ ...base, content: { kind: 'svg', source: 3 } }),
+    /content is invalid/
+  );
   assert.throws(() => requiredVisualizeTabCommand({ ...base, targets: [] }), /1-3 file paths/);
 });
 
@@ -392,9 +516,22 @@ const READING = {
   page: { width: 375, height: 1200 },
   scope: '',
   outline: [{ depth: 0, kind: 'heading', role: 'heading', level: 1, name: 'Sketch', selector: 'h1' }],
-  elements: [{ role: 'button', name: 'Save', selector: '#save', tag: 'button', x: 10, y: 20, w: 100, h: 20, flags: [] }],
+  elements: [
+    { role: 'button', name: 'Save', selector: '#save', tag: 'button', x: 10, y: 20, w: 100, h: 20, flags: [] },
+  ],
   elementCount: 1,
-  findings: [{ kind: 'small-target', severity: 'warning', message: 'tap target is 100x20px (WCAG minimum 24x24)', selector: '#save', x: 10, y: 20, w: 100, h: 20 }],
+  findings: [
+    {
+      kind: 'small-target',
+      severity: 'warning',
+      message: 'tap target is 100x20px (WCAG minimum 24x24)',
+      selector: '#save',
+      x: 10,
+      y: 20,
+      w: 100,
+      h: 20,
+    },
+  ],
   findingCount: 1,
   contrastUnknown: 0,
   partial: false,
@@ -403,11 +540,22 @@ const READING = {
 test('inspect requests are validated: tab, viewport bounds and selector', () => {
   const parseInspect = (input) => parseVisualizeRequest({ sessionId: 's1', cwd, action: 'inspect', input });
   assert.deepEqual(parseInspect({ tab: 'v1' }).viewport, undefined);
-  assert.deepEqual(parseInspect({ tab: 'v1', viewport: { width: 375, height: 812 }, selector: ' main ' }).viewport, { width: 375, height: 812 });
+  assert.deepEqual(parseInspect({ tab: 'v1', viewport: { width: 375, height: 812 }, selector: ' main ' }).viewport, {
+    width: 375,
+    height: 812,
+  });
   assert.equal(parseInspect({ tab: 'v1', selector: ' main ' }).selector, 'main');
   assert.deepEqual(parseInspect({ tab: 'v1', viewport: { width: 375 } }).viewport, { width: 375, height: 800 });
   assert.throws(() => parseInspect({}), /tab must be/);
-  for (const viewport of [{ height: 800 }, { width: 100 }, { width: 3001 }, { width: 375.5 }, { width: '375' }, { width: 375, height: 5000 }, 375]) {
+  for (const viewport of [
+    { height: 800 },
+    { width: 100 },
+    { width: 3001 },
+    { width: 375.5 },
+    { width: '375' },
+    { width: 375, height: 5000 },
+    375,
+  ]) {
     assert.throws(() => parseInspect({ tab: 'v1', viewport }), /viewport/, JSON.stringify(viewport));
   }
   assert.throws(() => parseInspect({ tab: 'v1', selector: 'x'.repeat(501) }), /selector must be at most/);
@@ -423,7 +571,8 @@ test('inspect returns the page reading for html pages and refuses static or miss
   });
   await open(service, { content: { kind: 'html', source: '<button id="save">Save</button>', title: 'Sketch' } });
   await open(service, { content: { kind: 'mermaid', source: 'graph TD;A-->B', title: 'Flow' } });
-  const run = (tab, input = {}) => service.execute({ sessionId: 's1', cwd, action: 'inspect', input: { tab, ...input } });
+  const run = (tab, input = {}) =>
+    service.execute({ sessionId: 's1', cwd, action: 'inspect', input: { tab, ...input } });
 
   const result = await run('v1', { viewport: { width: 375, height: 812 }, selector: 'main' });
   assert.deepEqual(calls, [{ viewport: { width: 375, height: 812 }, selector: 'main' }]);
@@ -448,8 +597,30 @@ test('inspect returns the page reading for html pages and refuses static or miss
 });
 
 test('inspect treats the page answer as untrusted data', async () => {
-  const answers = [{ nonsense: true }, { error: 'the selector matched nothing' }, { ...READING, elements: [{ role: 'button', name: 'x'.repeat(500), selector: 's', flags: ['secret'], value: 'hunter2', x: 1, y: 1, w: 1, h: 1 }], elementCount: 1 }];
-  const { service } = pageSetup({ inspect: async (_s, tab) => [{ pane: tab.panes[0].label, result: answers.shift() }] });
+  const answers = [
+    { nonsense: true },
+    { error: 'the selector matched nothing' },
+    {
+      ...READING,
+      elements: [
+        {
+          role: 'button',
+          name: 'x'.repeat(500),
+          selector: 's',
+          flags: ['secret'],
+          value: 'hunter2',
+          x: 1,
+          y: 1,
+          w: 1,
+          h: 1,
+        },
+      ],
+      elementCount: 1,
+    },
+  ];
+  const { service } = pageSetup({
+    inspect: async (_s, tab) => [{ pane: tab.panes[0].label, result: answers.shift() }],
+  });
   await open(service, { content: { kind: 'html', source: '<p>x</p>', title: 'Sketch' } });
   const run = () => service.execute({ sessionId: 's1', cwd, action: 'inspect', input: { tab: 'v1' } });
   assert.match((await run()).text, /Sketch: the page returned no reading/);
@@ -463,7 +634,14 @@ test('inspect treats the page answer as untrusted data', async () => {
 
 test('check adds a one-line layout findings summary, only when there are findings', async () => {
   let findingCount = 3;
-  const { service } = pageSetup({ inspect: async (_s, tab) => [{ pane: tab.panes[0].label, result: { ...READING, findings: findingCount ? READING.findings : [], findingCount } }] });
+  const { service } = pageSetup({
+    inspect: async (_s, tab) => [
+      {
+        pane: tab.panes[0].label,
+        result: { ...READING, findings: findingCount ? READING.findings : [], findingCount },
+      },
+    ],
+  });
   await open(service, { content: { kind: 'html', source: '<p>x</p>', title: 'Sketch' } });
   const check = () => service.execute({ sessionId: 's1', cwd, action: 'check', input: { tab: 'v1' } });
   assert.equal((await check()).text, 'No page problems on tab v1.\n3 layout findings — run inspect');
@@ -474,6 +652,9 @@ test('check adds a one-line layout findings summary, only when there are finding
   service.dispose();
   const failing = pageSetup({ inspect: async () => Promise.reject(new Error('gone')) });
   await open(failing.service, { content: { kind: 'html', source: '<p>x</p>', title: 'Sketch' } });
-  assert.equal((await failing.service.execute({ sessionId: 's1', cwd, action: 'check', input: { tab: 'v1' } })).text, 'No page problems on tab v1.');
+  assert.equal(
+    (await failing.service.execute({ sessionId: 's1', cwd, action: 'check', input: { tab: 'v1' } })).text,
+    'No page problems on tab v1.'
+  );
   failing.service.dispose();
 });

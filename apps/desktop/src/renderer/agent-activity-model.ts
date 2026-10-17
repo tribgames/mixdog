@@ -67,9 +67,9 @@ export function agentPoolStore(host?: DesktopApi): AgentPoolStore {
 }
 
 function publishAgentPool(store: AgentPoolStore, rows: unknown): void {
-  // Every snapshot passes the cancellation ledger: the pool's heartbeat
-  // sidecar re-declares a session `running` once the durable index drops its
-  // cancelled row, and that promotion is a stale lease, not new work.
+  // Every snapshot passes the cancellation ledger: the daemon still reports a
+  // cancelled session as running until its turn unwinds, and a snapshot that
+  // shows it running again after the cancel is a stale report, not new work.
   store.rows = store.cancellations.apply(Array.isArray(rows) ? (rows as DesktopAgentPoolRow[]) : []);
   for (const listener of store.listeners) listener();
 }
@@ -591,16 +591,17 @@ export function visibleAgentTreeRows(
 function poolRowSeedAt(agent: DesktopAgentPoolRow): number {
   const idle = timeMs(agent.idleSince);
   if (idle) return idle;
-  // A working row has NO idle stamp, and its updatedAt is the live heartbeat:
-  // ranking on it made every running session climb on each tick, so cards
+  // A working row has NO idle stamp, and its updatedAt keeps advancing while
+  // it runs: ranking on it made every running session climb on each tick, so cards
   // leapfrogged mid-turn. Creation is frozen for the whole lifetime, so a
   // live row holds its place until it stops.
   return timeMs(agent.createdAt) || timeMs(agent.startedAt) || timeMs(agent.turnStartedAt);
 }
 
 /** Sticky ordering stamp for one owner group. The pool decides `working` from
- *  a 2-minute heartbeat freshness window, so `idleSince` can vanish and come
- *  back mid-turn and a raw ranking swapped rows on every flip. A group's stamp
+ *  the daemon's in-memory running state, so `idleSince` can vanish and come
+ *  back as a session starts and settles turns and a raw ranking swapped rows
+ *  on every flip. A group's stamp
  *  therefore only ever ADVANCES, and only when a genuinely newer turn start or
  *  completion lands. */
 export function stickyGroupOrder(
@@ -611,7 +612,7 @@ export function stickyGroupOrder(
   const prior = previous.get(ownerId) || 0;
   // Two moments move a group, and both are FROZEN values: the turn it started
   // and the moment it went idle.
-  // The live heartbeat in updatedAt stays out of the ranking, so a running
+  // The advancing updatedAt stays out of the ranking, so a running
   // session climbs once and then holds its slot for the whole turn.
   const moment = Math.max(0, ...agents.map((agent) => Math.max(timeMs(agent.idleSince), timeMs(agent.turnStartedAt))));
   if (moment > prior) return moment;

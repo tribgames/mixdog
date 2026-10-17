@@ -5,7 +5,6 @@ import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
 import { markBootStage } from './boot-metrics';
 import type { Snapshot } from './desktop-types';
-import { isMobileRemoteSurface } from './mobile-surface';
 import type { NavigationSelection, WorkspaceSelection } from './navigation';
 import { startupRestorePlan } from './renderer-logic.mjs';
 import { resolvedStoredProjectPath } from './use-draft-pane-preferences';
@@ -80,14 +79,11 @@ export function useAppStartupRestore({
     };
     if (restoredStartupNavigation.current) return;
     if (restorePending) return;
-    // The phone always boots at NEW TASK (user: 무조건 NEW TASK로 가게, 뭘
-    // 누를지 모르니까): the session list is its home surface, and restoring
-    // the last session screen bought a cold relay round trip before the
-    // reader chose anything. The restored pane tree is untouched — the last
-    // session stays a background tab — only the boot selection is pinned to
-    // the draft, so no session lane is mirrored while the phone sits idle.
-    const mobileNewTaskBoot = isMobileRemoteSurface();
-    if (!mobileNewTaskBoot && restoredFromStorage && startupFocusedPaneSelection) {
+    // The phone opens straight into the session it showed last, like the
+    // desktop: the relay client names that session among its visible sessions
+    // when it connects, so its transcript arrives with the first view sync
+    // instead of after a drawer tap and a second round trip.
+    if (restoredFromStorage && startupFocusedPaneSelection) {
       restoredStartupNavigation.current = true;
       if (startupNavigationSelection) {
         selectionRef.current = startupNavigationSelection;
@@ -112,8 +108,8 @@ export function useAppStartupRestore({
     let storedProject = '';
     try {
       // An absent stored id is meaningful to startupRestorePlan: it lands on
-      // the New task draft, which is exactly the phone's pinned boot surface.
-      storedSessionId = mobileNewTaskBoot ? '' : window.localStorage.getItem(lastSessionStorageKey) || '';
+      // the New task draft.
+      storedSessionId = window.localStorage.getItem(lastSessionStorageKey) || '';
       storedProject = window.localStorage.getItem(lastProjectStorageKey) || '';
     } catch {
       // Continue with the safe draft fallback.

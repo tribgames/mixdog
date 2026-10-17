@@ -8,6 +8,9 @@ type ConversationOwner = {
   key: string;
   leafId: string;
   selectionKey: string;
+  /** This owner has painted `selectionKey` while retained. */
+  warm: boolean;
+  retained: boolean;
 };
 
 export type ConversationSurface = {
@@ -16,6 +19,13 @@ export type ConversationSurface = {
   active: Extract<NavigationSelection, { kind: 'session' | 'new' }>;
   handoff: boolean;
   parked: boolean;
+  /** A recently shown session kept mounted, unpainted, behind the active one. */
+  retained: boolean;
+  /** Its owner already painted this selection while retained: switching back
+   *  is a visibility flip, so no close handoff may present another session in it. */
+  warm: boolean;
+  /** Stable Conversation owner key (the portal's React key). */
+  owner: string;
 };
 
 export type PaneSurfaceSnapshot = {
@@ -108,20 +118,43 @@ export function usePaneSurfaceHandoffs(leaves: readonly PaneLeaf[]) {
   return { currentPaneSurfaces, paneSurfaceHandoffs };
 }
 
+/** A session tab shown on a phone, newest first in the recency list. */
+type RecentSelection = { leafId: string; selectionKey: string };
+
 /**
  * Resolves the stable Conversation owner key per visible pane so a moved
  * active tab keeps its owner and ordinary tab switches never remount it.
+ *
+ * `retainLimit` > 0 (the phone, which shows one pane) also keeps that many
+ * recently shown session tabs mounted as their own retained owners, one
+ * budget across every pane: switching back to one is a visibility flip
+ * instead of a full transcript render. A retained tab that is closed or
+ * pushed out of the budget gives its owner back to the next session opened
+ * in its pane.
  */
 export function usePaneConversationOwners(
   workspace: Pick<ReturnType<typeof usePaneWorkspace>, 'leaves' | 'restorePending'>,
-  paneSurfaceHandoffs: { current: Map<string, PaneSurfaceSnapshot> }
+  paneSurfaceHandoffs: { current: Map<string, PaneSurfaceSnapshot> },
+  retainLimit = 0
 ) {
   const conversationOwnerSequence = useRef(0);
   const conversationOwners = useRef<ConversationOwner[]>([]);
+  const recentSelections = useRef<RecentSelection[]>([]);
   const conversationSurfaceFor = (leaf: PaneLeaf, handoff: boolean): ConversationSurface[] => {
     const active = paneActiveSelection(leaf);
     return isConversationSelection(active)
-      ? [{ leaf, active, selectionKey: navigationKey(active), handoff, parked: false }]
+      ? [
+          {
+            leaf,
+            active,
+            selectionKey: navigationKey(active),
+            handoff,
+            parked: false,
+            retained: false,
+            warm: false,
+            owner: '',
+          },
+        ]
       : [];
   };
   const conversationLeaves: ConversationSurface[] = workspace.restorePending
@@ -150,32 +183,66 @@ export function usePaneConversationOwners(
       selectionKey: owner.selectionKey,
       handoff: false,
       parked: true,
+      retained: false,
+      warm: false,
+      owner: '',
     });
     representedConversationLeaves.add(leaf.id);
   }
-  const ownerByLeaf = new Map<string, string>();
+  if (retainLimit > 0 && !workspace.restorePending) {
+    const recent: RecentSelection[] = conversationLeaves
+      .filter((entry) => !entry.handoff)
+      .map((entry) => ({ leafId: entry.leaf.id, selectionKey: entry.selectionKey }));
+    const represented = new Set(conversationLeaves.map((entry) => entry.selectionKey));
+    let budget = retainLimit;
+    for (const { leafId, selectionKey } of recentSelections.current) {
+      if (budget <= 0) break;
+      if (represented.has(selectionKey)) continue;
+      const leaf = workspace.leaves.find((candidate) => candidate.id === leafId);
+      const selection = leaf?.tabs.find((tab) => navigationKey(tab) === selectionKey);
+      if (!leaf || selection?.kind !== 'session') continue;
+      budget -= 1;
+      represented.add(selectionKey);
+      recent.push({ leafId, selectionKey });
+      conversationLeaves.push({
+        leaf,
+        active: selection,
+        selectionKey,
+        handoff: false,
+        parked: false,
+        retained: true,
+        warm: true,
+        owner: '',
+      });
+    }
+    recentSelections.current = recent;
+  }
   const usedOwnerKeys = new Set<string>();
   for (const entry of conversationLeaves) {
     const movedOwner = previousConversationOwners.find(
       (owner) => owner.selectionKey === entry.selectionKey && !usedOwnerKeys.has(owner.key)
     );
     if (!movedOwner) continue;
-    ownerByLeaf.set(entry.leaf.id, movedOwner.key);
+    entry.owner = movedOwner.key;
+    // An owner that has painted this selection while retained stays warm
+    // for as long as it keeps the selection.
+    entry.warm = entry.retained || movedOwner.retained || movedOwner.warm;
     usedOwnerKeys.add(movedOwner.key);
   }
   for (const entry of conversationLeaves) {
-    if (ownerByLeaf.has(entry.leaf.id)) continue;
+    if (entry.owner) continue;
     const paneOwner = previousConversationOwners.find(
       (owner) => owner.leafId === entry.leaf.id && !usedOwnerKeys.has(owner.key)
     );
-    const ownerKey = paneOwner?.key ?? `pane-conversation-owner-${++conversationOwnerSequence.current}`;
-    ownerByLeaf.set(entry.leaf.id, ownerKey);
-    usedOwnerKeys.add(ownerKey);
+    entry.owner = paneOwner?.key ?? `pane-conversation-owner-${++conversationOwnerSequence.current}`;
+    usedOwnerKeys.add(entry.owner);
   }
   conversationOwners.current = conversationLeaves.map((entry) => ({
-    key: ownerByLeaf.get(entry.leaf.id)!,
+    key: entry.owner,
     leafId: entry.leaf.id,
     selectionKey: entry.selectionKey,
+    warm: entry.warm,
+    retained: entry.retained,
   }));
-  return { conversationLeaves, ownerByLeaf };
+  return { conversationLeaves };
 }

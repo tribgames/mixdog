@@ -1,6 +1,7 @@
 // The agent `visualize` tool's side-panel tabs, shared by main and renderer.
 // Main owns the tab state; the renderer only draws it and reports the user's
 // tab clicks and closes.
+import { type VisualizeAnnotation, visualizeAnnotations } from './visualize-annotations';
 
 /** How one pane renders: HTML through the local page server, Office
  *  documents through their PDF conversion, the rest as native previews. */
@@ -24,8 +25,9 @@ export interface VisualizePaneView {
   kind: VisualizePaneKind;
   /** Set on `inline` panes: the content drawn by the sandboxed renderer. */
   inline?: VisualizeInlineContent;
-  /** Static inline panes, desktop window only: the one-time id its render
-   *  report must carry (never sent to remote clients). */
+  /** Static inline panes: the one-time id its render report must carry. The
+   *  desktop window's and a remote client's are signed apart (a remote
+   *  state never carries the desktop's). */
   renderId?: string;
   /** Small caption over the pane (the file name). */
   label: string;
@@ -69,7 +71,16 @@ export function visualizeThumbnail(value: unknown): string {
 /** What went wrong in an HTML pane: an uncaught exception, an unhandled
  *  promise rejection, a CSP violation, a failed resource load (a 404 from the
  *  local page server), a failed page load, or a page's own console output. */
-export type VisualizeProblemKind = 'exception' | 'rejection' | 'csp' | 'asset-failed' | 'blocked-network' | 'blocked-navigation' | 'load' | 'console-error' | 'console-warn'
+export type VisualizeProblemKind =
+  | 'exception'
+  | 'rejection'
+  | 'csp'
+  | 'asset-failed'
+  | 'blocked-network'
+  | 'blocked-navigation'
+  | 'load'
+  | 'console-error'
+  | 'console-warn'
   /** An inline pane's content failed to render (Mermaid parse error, bad chart JSON…). */
   | 'render';
 
@@ -127,6 +138,9 @@ export interface VisualizeTabView {
   /** The chat card's picture of the tab (see `visualizeThumbnail`); absent
    *  until one could be taken. */
   thumbnail?: string;
+  /** The agent's annotation marks on the displayed panes (main draws them in
+   *  the desktop window; a paired device draws them from here). */
+  annotations?: VisualizeAnnotation[];
 }
 
 /** Most entries a session's "All visuals" list keeps; older ones fall out. */
@@ -174,13 +188,26 @@ export interface VisualizePaneText {
 /** Largest source a pane's source view reads, in bytes. */
 export const MAX_VISUALIZE_SOURCE_BYTES = 512 * 1024;
 
+/** A zoom gesture seen in a pane's own frame (a page, a PDF), which the panel's
+ *  document never receives: Ctrl+wheel, or Ctrl/Cmd + = / − / 0. */
+export type VisualizeZoomInput = 'in' | 'out' | 'reset';
+
 /** Main → renderer: a session's visualize tabs changed (`state`), optionally
- *  asking to reveal the panel, or a web URL to hand to the browser panel. */
+ *  asking to reveal the panel, or a web URL to hand to the browser panel. A
+ *  `zoom` event names no session: with a `point` (the wheel's place in the
+ *  window, CSS px) the panel there takes it, without one (a key) the panel
+ *  that holds focus. */
 export interface DesktopVisualizeEvent {
   sessionId: string;
   state?: VisualizeSessionState;
   reveal?: boolean;
   openUrl?: string;
+  zoom?: VisualizeZoomInput;
+  point?: { x: number; y: number };
+  /** Ctrl/Cmd went down (true) or up while a pane frame held focus, so the
+   *  panel's document saw no key event. Lets a document frame (the PDF
+   *  viewer) hand Ctrl+wheel to the panel (visualize.css). */
+  zoomModifier?: boolean;
 }
 
 /** Renderer → main: the user picked or closed a visualize tab, or stepped
@@ -201,8 +228,8 @@ export type DesktopVisualizeTabCommand =
    *  `design/mockups/<slug>/` in the working directory (never overwrites). */
   | { sessionId: string; tabId: string; action: 'export'; format: 'png' | 'pdf' | 'project'; pane?: number }
   /** An inline pane (displayed index `pane`) finished rendering; `error` when
-   *  it failed. Desktop window only, carrying the pane's issued `renderId`;
-   *  refused on the remote command path. */
+   *  it failed, carrying the pane's issued `renderId` (the desktop window's
+   *  or, on the remote command path, the remote one). */
   | { sessionId: string; tabId: string; action: 'render'; pane: number; renderId: string; error?: string }
   /** A chat card of a closed tab: open the same file targets again in the
    *  session's working directory (validated like an agent open). */
@@ -237,6 +264,9 @@ export interface VisualizeHostPane {
    *  the tab's cwd (a kept version's snapshot folder). */
   root?: string;
   version?: number;
+  /** Inline panes: the render id a remote client's report must carry (signed
+   *  apart from the desktop window's, see `renderId`). */
+  remoteRenderId?: string;
 }
 
 export interface VisualizeHostTab {
@@ -259,6 +289,8 @@ export interface VisualizeHostTab {
   restoreAssets?: string[];
   /** A data URL (path-free). */
   thumbnail?: string;
+  /** Selectors and labels only (path-free). */
+  annotations?: VisualizeAnnotation[];
 }
 
 export interface VisualizeHostState {
@@ -292,13 +324,29 @@ export interface VisualizeRemotePaneFile {
   size: number;
   mtimeMs: number;
   rel: string;
+  /** Image/audio/video panes: a lease the encrypted media lane streams
+   *  (absent from older hosts and other kinds). */
+  mediaAssetId?: string;
 }
 
-/** A remote pane ready to draw: a blob URL, or a self-contained page. */
+/** A remote pane ready to draw: a blob or media-lane URL, or a
+ *  self-contained page. */
 export interface VisualizePaneSource {
   kind: VisualizePaneKind;
   url?: string;
   srcdoc?: string;
+  /** A page's own path (relative to its root), what its requests resolve against. */
+  page?: string;
+  /** Serves the page's own `fetch`/XHR of a project file (`reference` as the
+   *  page wrote it, resolved against `page`); rejects anything else. */
+  fetch?(reference: string): Promise<{ bytes: Uint8Array; mime: string }>;
+}
+
+/** Remote PNG/PDF export (`visualizeExport`): the rendered file as a download
+ *  source the device's download path redeems, and its file name. */
+export interface VisualizeRemoteExport {
+  source: { kind: 'export'; sessionId: string; exportId: string };
+  name: string;
 }
 
 /** The client view of a host state: no host paths (only cwd-relative targets
@@ -330,6 +378,7 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
         pane: problem.pane,
         ...(typeof problem.version === 'number' ? { version: problem.version } : {}),
       }));
+      const annotations = visualizeAnnotations(tab.annotations);
       return {
         id: tab.id,
         label: tab.remoteLabel,
@@ -341,6 +390,7 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
           url: '',
           // Inline content has no host file: it travels with the state.
           ...(pane.inline ? { inline: pane.inline } : {}),
+          ...(pane.inline && typeof pane.remoteRenderId === 'string' ? { renderId: pane.remoteRenderId } : {}),
           ...(typeof pane.version === 'number' ? { version: pane.version } : {}),
         })),
         ...(problems.length ? { problems } : {}),
@@ -357,6 +407,7 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
             }
           : {}),
         ...(visualizeThumbnail(tab.thumbnail) ? { thumbnail: visualizeThumbnail(tab.thumbnail) } : {}),
+        ...(annotations.length ? { annotations } : {}),
       };
     }),
   };

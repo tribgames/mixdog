@@ -7,8 +7,13 @@ import { childEnvironment } from './child-environment';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import type { TerminalDataEvent } from './terminal-data-buffer';
 import type { TerminalSizeOwner, TerminalSizeOwnerChange } from '../shared/terminal-size-owner';
+import type { TerminalActivityEvent } from '../shared/terminal-activity';
+import { TerminalActivityTracker, TerminalMarkerScanner } from './terminal-activity';
+import { planShellIntegration } from './terminal-shell-integration';
 
 const REPLAY_BUFFER_LIMIT = 200_000;
+/** How long output that may start a shell-integration marker is held back. */
+const HELD_OUTPUT_FLUSH_MS = 50;
 /** A phone re-claims every 10s while it shows the terminal; a claim that
  *  stops renewing (lost connection) lapses so the PC fits its pane again. */
 const SIZE_OWNER_LEASE_MS = 30_000;
@@ -116,6 +121,9 @@ interface ManagedTerminal {
   outputPaused: boolean;
   shell: string;
   cwd: string | null;
+  activity: TerminalActivityTracker;
+  /** Present only when the shell runs Mixdog's integration. */
+  markers?: TerminalMarkerScanner;
 }
 
 /** One tab of a session's terminal, as the agent `terminal` bridge sees it. */
@@ -171,13 +179,40 @@ export class TerminalManager {
   private readonly sizeClaims = new Map<string, Map<string, SizeClaim>>();
   private readonly sizeOwnerListeners = new Set<(change: TerminalSizeOwnerChange) => void>();
   private readonly spawning = new Map<string, Promise<{ id: string; replay: string }>>();
+  private readonly activityListeners = new Set<(event: TerminalActivityEvent) => void>();
   private sequence = 0;
   private ptyModule: Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> | null = null;
   private disposed = false;
 
+  /** `shellIntegrationDir`: Mixdog's own directory for shell startup files;
+   *  without it only file-less integrations (PowerShell, cmd) apply. */
+  constructor(private readonly options: { shellIntegrationDir?: string | null } = {}) {}
+
   subscribe(listener: (event: TerminalDataEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Command activity changed (see terminal-activity.ts). */
+  subscribeActivity(listener: (event: TerminalActivityEvent) => void): () => void {
+    this.activityListeners.add(listener);
+    return () => this.activityListeners.delete(listener);
+  }
+
+  /** Every live terminal whose activity is known. */
+  activitySnapshot(): TerminalActivityEvent[] {
+    const events: TerminalActivityEvent[] = [];
+    for (const [id, entry] of this.terminals) {
+      const state = entry.activity.state;
+      if (state && !entry.disposed) events.push({ id, state });
+    }
+    return events;
+  }
+
+  /** A view focused (or left) a terminal tab; focusing clears `finished`. */
+  focus(id: string, client: string, focused: boolean): void {
+    const entry = this.terminals.get(id);
+    if (entry && !entry.disposed) entry.activity.setFocus(client || 'desktop', focused);
   }
 
   /** Ownership of a PTY's size changed (a phone claimed, released or lapsed). */
@@ -259,8 +294,12 @@ export class TerminalManager {
     // A resolved shell profile (user picked one in the terminal strip) wins;
     // otherwise the platform default stands as before.
     const shell = profile?.path || (process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || 'bash');
-    const env = childEnvironment(profile?.env ?? {});
-    const pty = spawn(shell, profile?.args ?? [], {
+    const plan = planShellIntegration(
+      { path: shell, args: profile?.args, env: profile?.env },
+      this.options.shellIntegrationDir ?? null
+    );
+    const env = childEnvironment(plan.env);
+    const pty = spawn(shell, plan.args, {
       name: 'xterm-256color',
       cols: 80,
       rows: 24,
@@ -278,17 +317,51 @@ export class TerminalManager {
       outputPaused: false,
       shell: shellLabel(shell),
       cwd: cwd || null,
+      activity: new TerminalActivityTracker(
+        (state) => {
+          for (const listener of this.activityListeners) listener({ id: nextId, state });
+        },
+        { inferStartFromSubmit: plan.integration === 'cmd' }
+      ),
+      ...(plan.integration ? { markers: new TerminalMarkerScanner() } : {}),
     };
-    pty.onData((data) => {
+    const emit = (data: string): void => {
+      if (!data) return;
       entry.buffer.append(data);
       for (const listener of this.listeners) listener({ id: nextId, data });
+    };
+    // Text held back as a possible marker start is released if no chunk
+    // follows shortly (a lone trailing ESC, say).
+    let heldFlush: ReturnType<typeof setTimeout> | null = null;
+    const flushHeld = (): void => {
+      if (heldFlush) clearTimeout(heldFlush);
+      heldFlush = null;
+      if (entry.markers) emit(entry.markers.flush());
+    };
+    pty.onData((data) => {
+      const { markers } = entry;
+      if (!markers) {
+        emit(data);
+        return;
+      }
+      if (heldFlush) clearTimeout(heldFlush);
+      heldFlush = null;
+      const scanned = markers.scan(data);
+      emit(scanned.text);
+      for (const marker of scanned.markers) entry.activity.marker(marker);
+      if (markers.pending) {
+        heldFlush = setTimeout(() => {
+          if (!entry.disposed) flushHeld();
+        }, HELD_OUTPUT_FLUSH_MS);
+        heldFlush.unref?.();
+      }
     });
     pty.onExit(({ exitCode }) => {
+      flushHeld();
       entry.disposed = true;
       entry.outputPaused = false;
-      const notice = `\r\n[process exited with code ${exitCode}]\r\n`;
-      entry.buffer.append(notice);
-      for (const listener of this.listeners) listener({ id: nextId, data: notice });
+      entry.activity.exit();
+      emit(`\r\n[process exited with code ${exitCode}]\r\n`);
     });
     this.terminals.set(nextId, entry);
     return { id: nextId, replay: '' };
@@ -323,7 +396,9 @@ export class TerminalManager {
 
   write(id: string, data: string): void {
     const entry = this.terminals.get(id);
-    if (entry && !entry.disposed) entry.pty.write(data);
+    if (!entry || entry.disposed) return;
+    entry.pty.write(data);
+    if (entry.markers) entry.activity.input(data);
   }
 
   /** `client` is the remote connection of a phone showing this terminal ('' =
@@ -440,6 +515,7 @@ export class TerminalManager {
       entry.outputPaused = false;
     }
     entry.disposed = true;
+    entry.activity.exit();
     try {
       entry.pty.kill();
     } catch {
@@ -478,6 +554,7 @@ export class TerminalManager {
         entry.outputPaused = false;
       }
       entry.disposed = true;
+      entry.activity.dispose();
       try {
         entry.pty.kill();
       } catch {
@@ -488,5 +565,6 @@ export class TerminalManager {
     for (const id of [...this.sizeClaims.keys()]) this.forgetSizeClaims(id);
     this.listeners.clear();
     this.sizeOwnerListeners.clear();
+    this.activityListeners.clear();
   }
 }

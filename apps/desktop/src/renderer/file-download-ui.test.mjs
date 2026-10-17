@@ -99,7 +99,26 @@ test('outside a reply row a project file downloads by its project path', async (
   await f.render(withContexts(React.createElement(MarkdownLink, { href: 'dist/app.zip' }, 'dist/app.zip')));
   await f.click(f.doc.querySelector('a'));
   await tick();
-  assert.deepEqual(host.requests, [{ source: { kind: 'project', sessionId: 's1', relPath: 'dist/app.zip' }, purpose: 'save' }]);
+  assert.deepEqual(host.requests, [
+    { source: { kind: 'project', sessionId: 's1', relPath: 'dist/app.zip' }, purpose: 'save' },
+  ]);
+  await dismissAll(f);
+});
+
+test('outside a reply row and the project a file downloads as a path the conversation references', async (t) => {
+  const host = refusingDownloads();
+  const f = setup(t, { fileDownloads: host.api });
+  await f.render(
+    withContexts(React.createElement(MarkdownLink, { href: 'C:/Temp/tool%20out/build.zip' }, 'build'), {
+      project: 'C:/work',
+    })
+  );
+  await f.click(f.doc.querySelector('a'));
+  await tick();
+  assert.deepEqual(host.requests, [
+    { source: { kind: 'session', sessionId: 's1', path: 'C:/Temp/tool out/build.zip' }, purpose: 'save' },
+  ]);
+  assert.deepEqual(f.toasts, [], 'no refusal before the host was asked');
   await dismissAll(f);
 });
 
@@ -110,7 +129,9 @@ test('the link menu offers Download / Share, disabled with the reason on an old 
   await act(async () => {
     f.doc
       .querySelector('a')
-      .dispatchEvent(new f.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 1, clientY: 1 }));
+      .dispatchEvent(
+        new f.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 1, clientY: 1 })
+      );
   });
   const item = f.doc.querySelector('[data-action-id="download"]');
   assert.equal(item.textContent, 'Download / Share');
@@ -162,7 +183,9 @@ test('generated media downloads its asset; an old host disables the action with 
   assert.equal(download.getAttribute('aria-disabled'), null);
   await f.click(download);
   await tick();
-  assert.deepEqual(host.requests, [{ source: { kind: 'media', sessionId: 's1', assetId: 'asset-1' }, purpose: 'save' }]);
+  assert.deepEqual(host.requests, [
+    { source: { kind: 'media', sessionId: 's1', assetId: 'asset-1' }, purpose: 'save' },
+  ]);
   await dismissAll(f);
 
   host.api.available = () => false;
@@ -179,7 +202,15 @@ test('generated media downloads its asset; an old host disables the action with 
 /** A scripted environment for the panel itself. */
 function scriptedEnv({ authorize, sink = { kind: 'browser' }, deliver = async () => 'saved', size = 4 }) {
   const calls = [];
-  const transfer = { transferId: 't1', name: 'report.pdf', size, mime: 'application/pdf', version: 'v', expiresAt: 0, rangeMaxBytes: 4 };
+  const transfer = {
+    transferId: 't1',
+    name: 'report.pdf',
+    size,
+    mime: 'application/pdf',
+    version: 'v',
+    expiresAt: 0,
+    rangeMaxBytes: 4,
+  };
   return {
     calls,
     env: {
@@ -224,7 +255,9 @@ test('a failed download stays with its reason until Retry succeeds; Dismiss clea
       return grant;
     },
   });
-  await act(async () => startFileDownload({ kind: 'project', sessionId: 's1', relPath: 'report.pdf' }, 'report.pdf', env));
+  await act(async () =>
+    startFileDownload({ kind: 'project', sessionId: 's1', relPath: 'report.pdf' }, 'report.pdf', env)
+  );
   await tick();
   assert.equal(f.rowStatus(), 'Too many downloads are running. Wait for one to finish.');
   await f.click(f.button('Retry download of report.pdf'));
@@ -232,6 +265,29 @@ test('a failed download stays with its reason until Retry succeeds; Dismiss clea
   assert.deepEqual(calls, ['authorize', 'authorize'], 'each try asks for a fresh grant');
   assert.equal(f.rowStatus(), 'Download started');
   assert.equal(f.panel().querySelector('[role="alert"]'), null);
+  await dismissAll(f);
+});
+
+test('a finished folder zip says in one line what it left out; nothing when it left out nothing', async (t) => {
+  const f = setup(t);
+  const note = () => f.panel().querySelector('.file-download-note')?.textContent ?? null;
+  const run = async (leftOut) => {
+    const { env } = scriptedEnv({ authorize: async () => ({ ...grant, name: 'src.zip', leftOut }) });
+    await act(async () => startFileDownload({ kind: 'folder', sessionId: 's1', path: 'src' }, 'src.zip', env));
+    await tick();
+  };
+  await run({ ignored: 14200, secret: 3 });
+  assert.equal(f.rowStatus(), 'Download started');
+  assert.equal(note(), `Left out ${(14200).toLocaleString()} ignored files and 3 secret files`);
+  await dismissAll(f);
+  await run({ ignored: 0, secret: 2 });
+  assert.equal(note(), 'Left out 2 secret files');
+  await dismissAll(f);
+  await run({ ignored: 0, secret: 0 });
+  assert.equal(note(), null);
+  await dismissAll(f);
+  await run({ ignored: 0, secret: 0, pages: { included: 8, total: 23 } });
+  assert.equal(note(), 'Included the first 8 of 23 pages');
   await dismissAll(f);
 });
 
@@ -244,7 +300,9 @@ test('Cancel removes the row and releases a grant that arrives afterwards', asyn
         resolveGrant = () => resolve(grant);
       }),
   });
-  await act(async () => startFileDownload({ kind: 'project', sessionId: 's1', relPath: 'report.pdf' }, 'report.pdf', env));
+  await act(async () =>
+    startFileDownload({ kind: 'project', sessionId: 's1', relPath: 'report.pdf' }, 'report.pdf', env)
+  );
   assert.equal(f.rowStatus(), 'Preparing download…');
   const progress = f.panel().querySelector('progress');
   const label = f.doc.getElementById(progress.getAttribute('aria-labelledby'));
@@ -265,7 +323,13 @@ function nativeShell({ persisted, shares = [{ ok: false, error: 'cancelled' }], 
     if (method === 'fileSaveWrite') return { ok: true, handle: 'h', written: args.offset + 4 };
     if (method === 'fileSaveFinish') {
       if (finish) await finish();
-      return { ok: true, handle: 'h', displayName: 'report.pdf', size: 4, ...(persisted === undefined ? {} : { persisted }) };
+      return {
+        ok: true,
+        handle: 'h',
+        displayName: 'report.pdf',
+        size: 4,
+        ...(persisted === undefined ? {} : { persisted }),
+      };
     }
     if (method === 'fileSaveShare') {
       shared.push(args.handle);
@@ -281,7 +345,9 @@ test('a dismissed share sheet is not a failure', async (t) => {
   for (const persisted of [undefined, true]) {
     const shell = nativeShell({ persisted });
     const native = scriptedEnv({ authorize: async () => grant, sink: { kind: 'native', call: shell.call } });
-    await act(async () => startFileDownload({ kind: 'media', sessionId: 's1', assetId: 'a' }, 'report.pdf', native.env));
+    await act(async () =>
+      startFileDownload({ kind: 'media', sessionId: 's1', assetId: 'a' }, 'report.pdf', native.env)
+    );
     await tick();
     assert.equal(f.rowStatus(), 'Saved to this device', 'the file is saved even though nothing was shared');
     assert.equal(f.panel().querySelector('[role="alert"]'), null);
@@ -299,7 +365,11 @@ test('a file kept only in staging is never called saved: it waits for Share agai
   const f = setup(t);
   const shell = nativeShell({
     persisted: false,
-    shares: [{ ok: true, shared: false }, { ok: false, error: 'cancelled' }, { ok: true, shared: true }],
+    shares: [
+      { ok: true, shared: false },
+      { ok: false, error: 'cancelled' },
+      { ok: true, shared: true },
+    ],
   });
   const native = scriptedEnv({ authorize: async () => grant, sink: { kind: 'native', call: shell.call } });
   await act(async () => startFileDownload({ kind: 'media', sessionId: 's1', assetId: 'a' }, 'report.pdf', native.env));
@@ -316,7 +386,13 @@ test('a file kept only in staging is never called saved: it waits for Share agai
   assert.equal(f.button('Share report.pdf again'), null);
   await dismissAll(f);
 
-  const expiring = nativeShell({ persisted: false, shares: [{ ok: true, shared: false }, { ok: false, error: 'unknown-handle' }] });
+  const expiring = nativeShell({
+    persisted: false,
+    shares: [
+      { ok: true, shared: false },
+      { ok: false, error: 'unknown-handle' },
+    ],
+  });
   const expired = scriptedEnv({ authorize: async () => grant, sink: { kind: 'native', call: expiring.call } });
   await act(async () => startFileDownload({ kind: 'media', sessionId: 's1', assetId: 'a' }, 'report.pdf', expired.env));
   await tick();

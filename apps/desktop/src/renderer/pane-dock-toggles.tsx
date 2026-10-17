@@ -3,9 +3,11 @@
 // the only place that names the pane's utility children now, so the dock header itself no longer
 // repeats them. A press opens the dock on that child; pressing the child that
 // is already showing folds the unit.
+import { startTransition, useEffect, useState } from 'react';
 import { FolderTree } from 'lucide-react';
 import { t } from './i18n';
 import { useDockVisibilityMenu } from './dock-icon-visibility';
+import { isMobileRemoteSurface } from './mobile-surface';
 import type {
   WorkbenchSideViewDescriptor,
   WorkbenchSideViewGroup,
@@ -45,6 +47,25 @@ export function PaneDockToggles({
     const descriptor = root === undefined ? undefined : descriptors.get(root);
     return root !== undefined && descriptor && !UNTOGGLED_VIEWS.has(root) ? [{ root, descriptor }] : [];
   });
+  // Phone tap feedback: the pressed state is this component's own, set on the
+  // tap, while the dock itself opens in a transition behind it — the heavy
+  // pane render never gates the toggle's first frame. The tap is dropped when
+  // the shell's own answer (activeRoot / files.active) arrives or after a beat.
+  const [tapped, setTapped] = useState<{ root: WorkbenchSideViewId | 'files'; pressed: boolean } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the shell's answer is the settle trigger; the body does not read it
+  useEffect(() => setTapped(null), [activeRoot, files?.active]);
+  useEffect(() => {
+    if (!tapped) return undefined;
+    const timer = window.setTimeout(() => setTapped(null), 1000);
+    return () => window.clearTimeout(timer);
+  }, [tapped]);
+  const pressedOf = (root: WorkbenchSideViewId | 'files', shellPressed: boolean) =>
+    tapped ? tapped.pressed && tapped.root === root : shellPressed;
+  const press = (root: WorkbenchSideViewId | 'files', pressed: boolean, apply: () => void) => {
+    if (!isMobileRemoteSurface()) return apply();
+    setTapped({ root, pressed });
+    startTransition(apply);
+  };
   const filesLabel = t('Files');
   const { isVisible, menuProps, menu } = useDockVisibilityMenu(
     [
@@ -67,14 +88,14 @@ export function PaneDockToggles({
         <button
           type="button"
           className="pane-dock-toggle"
-          aria-pressed={files.active}
+          aria-pressed={pressedOf('files', files.active)}
           aria-label={filesLabel}
           data-tooltip={
             files.active ? t('Close {{label}}', { label: filesLabel }) : t('Open {{label}}', { label: filesLabel })
           }
           onClick={() => {
-            if (files.active) onClose();
-            else files.onOpen();
+            if (files.active) press('files', false, onClose);
+            else press('files', true, files.onOpen);
           }}
         >
           <FolderTree size={15} aria-hidden="true" />
@@ -93,7 +114,7 @@ export function PaneDockToggles({
               key={root}
               type="button"
               className="pane-dock-toggle"
-              aria-pressed={active}
+              aria-pressed={pressedOf(root, active)}
               aria-disabled={unavailable || undefined}
               aria-label={label}
               data-tooltip={active ? t('Close {{label}}', { label }) : t('Open {{label}}', { label })}
@@ -101,8 +122,8 @@ export function PaneDockToggles({
               onFocus={descriptor.onPrefetch}
               onClick={() => {
                 if (unavailable) return;
-                if (active) onClose();
-                else onSelect(root);
+                if (active) press(root, false, onClose);
+                else press(root, true, () => onSelect(root));
               }}
             >
               {/* Claude Desktop tier: a 16px mark in a 28px slot, slots set 6px apart. */}

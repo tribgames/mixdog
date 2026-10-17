@@ -766,6 +766,11 @@
 .tool-activity-item-header > :not(.tool-activity-item-toggle) {
   position: relative;
 }
+/* The title box can be `display: contents` (it makes no stacking box then):
+   its file link positions itself so a click reaches it, not the toggle. */
+.tool-activity-item-title .tool-path-link {
+  position: relative;
+}
 .tool-activity-item-toggle {
   position: absolute;
   inset: 0;

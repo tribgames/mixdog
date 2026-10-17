@@ -1,0 +1,109 @@
+/* One status set for every session surface (tabs, sidebar rows, collapsed
+   project groups) and the agent rows: needs you > failed > running >
+   finished-unread. Each has its own hue, and the shape names the state too
+   (warning triangle, crossed circle, spinner, dot), so live work never reads
+   like something that waits on the user. */
+:root {
+  --mx-status-needs-you: var(--mx-warning);
+  --mx-status-failed: var(--mx-danger);
+  --mx-status-running: var(--mx-text-accent);
+  --mx-status-unread: var(--mx-success);
+}
+
+.session-attention-glyph {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+.session-attention-glyph[data-status="needs-you"] {
+  color: var(--mx-status-needs-you);
+}
+.session-attention-glyph[data-status="failed"] {
+  color: var(--mx-status-failed);
+}
+
+/* Tabs: the glyph slot carries the status. */
+.workspace-tab-main .workspace-tab-status {
+  color: var(--mx-status-running);
+}
+/* An icon-only tab hides its label spans; the status glyph and the progress
+   spinner stand in for the icon, so they stay. */
+@container (max-width: 48px) {
+  .workspace-tab-main .session-attention-glyph,
+  .workspace-tab-main .workspace-tab-status {
+    display: inline-flex;
+  }
+}
+.workspace-tab-unread-dot,
+.session-row-unread-dot,
+.sidebar-heading-dot {
+  background: var(--mx-status-unread);
+}
+
+/* Sidebar rows and collapsed project folders: the trailing status slot. */
+.session-row-status .session-row-spinner {
+  color: var(--mx-status-running);
+}
+.session-row:has(.session-row-attention) .session-row-copy,
+.project-folder-toggle:has(.session-row-status) .session-row-copy {
+  padding-right: 18px;
+}
+
+/* Agent rows (Agents pane, composer island): the same hues. */
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="running"] {
+  color: var(--mx-status-running);
+}
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="needs-user"] {
+  color: var(--mx-status-needs-you);
+}
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="done"] {
+  color: var(--mx-status-unread);
+}
+/* A failure is not a completion and not a rest. */
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="failed"] {
+  color: var(--mx-status-failed);
+}
+.composer-island-dot.composer-island-dot-failed {
+  background: var(--mx-status-failed);
+}
+.composer-island-failed {
+  color: var(--mx-status-failed);
+}
+
+/* Quiet-time cue: neutral while a long silence is still ordinary (silent
+   thinking), the warning hue once it reaches the stall watchdog's warn point. */
+.quiet-cue {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting);
+  white-space: nowrap;
+}
+.agent-quiet-cue {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quiet-cue[data-escalated="true"] {
+  color: var(--mx-status-needs-you);
+}
+.quiet-cue-stop {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text);
+  font: inherit;
+  font-weight: var(--mx-weight-semibold);
+  cursor: pointer;
+  background: var(--mx-hover);
+  border: 0;
+}
+.quiet-cue-stop:hover {
+  background: var(--mx-danger-bg);
+  color: var(--mx-danger);
+}
+.quiet-cue-stop:focus-visible {
+  outline: 1px solid var(--mx-focus);
+}

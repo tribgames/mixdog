@@ -24,6 +24,7 @@ import {
   requiredGitPatch,
   requiredGitPath,
   requiredGitPaths,
+  requiredGitRequestContextInput,
   requiredReviewDiffFiles,
   requiredString,
   optionalGithubLoginOptions,
@@ -271,6 +272,9 @@ function registerRepositoryHistoryIpc({ handle, operations }: SourceControlRegis
   handle(DESKTOP_IPC.gitShow, (_event, cwd, hash) => gitShow(requiredRepositoryCwd(cwd), requiredCommitHash(hash)));
   handle(DESKTOP_IPC.gitShowDiff, (_event, cwd, hash, path) =>
     gitShowDiff(requiredRepositoryCwd(cwd), requiredCommitHash(hash), requiredGitPath(path))
+  );
+  handle(DESKTOP_IPC.gitRequestContext, (_event, cwd, input) =>
+    operations.gitRequestContext(requiredRepositoryCwd(cwd), requiredGitRequestContextInput(input))
   );
   handle(DESKTOP_IPC.gitShowFile, (_event, cwd, rev, path) =>
     gitShowFile(requiredRepositoryCwd(cwd), requiredGitRevision(rev), requiredGitPath(path))

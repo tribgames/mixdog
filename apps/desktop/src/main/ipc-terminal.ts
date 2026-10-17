@@ -1,6 +1,7 @@
 import type { BrowserWindow, IpcMainEvent } from 'electron';
 import { DESKTOP_IPC } from '../shared/contract';
 import type { TerminalSizeOwnerEvent } from '../shared/terminal-size-owner';
+import type { TerminalActivityEvent } from '../shared/terminal-activity';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import { TerminalDataBufferer } from './terminal-data-buffer';
 import type { DesktopIpcMain, IpcHandle as Handle } from './ipc';
@@ -22,6 +23,10 @@ export interface DesktopTerminalHost {
   subscribe(listener: (event: { id: string; data: string }) => void): () => void;
   /** A phone claimed, released or lost the PTY size; the PC window follows or re-fits. */
   subscribeSizeOwner?(listener: (event: TerminalSizeOwnerEvent) => void): () => void;
+  /** Command activity (terminal-activity.ts): this window focused or left a tab. */
+  focus?(id: string, focused: boolean): void;
+  activity?(): Promise<TerminalActivityEvent[]>;
+  subscribeActivity?(listener: (event: TerminalActivityEvent) => void): () => void;
 }
 
 interface TerminalIpcOptions {
@@ -69,6 +74,7 @@ export function registerTerminalIpc({
       )
     );
     handle(DESKTOP_IPC.termProfiles, () => invokeDesktopOperation('termProfiles', []));
+    handle(DESKTOP_IPC.termActivity, () => terminals.activity?.() ?? []);
     handle(DESKTOP_IPC.termDispose, (_event, id) => {
       const terminalId = requiredString(id, 'terminal id', 128);
       dataBuffer.release(terminalId);
@@ -93,10 +99,15 @@ export function registerTerminalIpc({
     if (!validSender(event)) return;
     dataBuffer.acknowledge(String(id || ''), Number(charCount));
   };
+  const onFocus = (event: IpcMainEvent, id: unknown, focused: unknown): void => {
+    if (!validSender(event) || typeof id !== 'string' || !id) return;
+    terminals?.focus?.(id, focused === true);
+  };
 
   ipcMain.on(DESKTOP_IPC.termWrite, onWrite);
   ipcMain.on(DESKTOP_IPC.termResize, onResize);
   ipcMain.on(DESKTOP_IPC.termAcknowledge, onAcknowledge);
+  ipcMain.on(DESKTOP_IPC.termFocus, onFocus);
   const unsubscribe = terminals?.subscribe((event) => dataBuffer.push(event)) ?? (() => {});
   const unsubscribeSizeOwner =
     terminals?.subscribeSizeOwner?.((event) => {
@@ -104,13 +115,21 @@ export function registerTerminalIpc({
         window.webContents.send(DESKTOP_IPC.termSizeOwner, event);
       }
     }) ?? (() => {});
+  const unsubscribeActivity =
+    terminals?.subscribeActivity?.((event) => {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+        window.webContents.send(DESKTOP_IPC.termActivityChanged, event);
+      }
+    }) ?? (() => {});
 
   return () => {
     unsubscribe();
     unsubscribeSizeOwner();
+    unsubscribeActivity();
     dataBuffer.dispose();
     ipcMain.removeListener(DESKTOP_IPC.termWrite, onWrite);
     ipcMain.removeListener(DESKTOP_IPC.termResize, onResize);
     ipcMain.removeListener(DESKTOP_IPC.termAcknowledge, onAcknowledge);
+    ipcMain.removeListener(DESKTOP_IPC.termFocus, onFocus);
   };
 }

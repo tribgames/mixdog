@@ -3,7 +3,7 @@
 // header's ⋯ menu. Terminal and browser draw their header in their own React
 // roots, so the dock publishes the items through this module-level store and
 // each DockHeaderRow reads it.
-import { useMemo, useSyncExternalStore } from 'react';
+import { startTransition, useMemo, useSyncExternalStore } from 'react';
 
 import type { DockAction } from './pane-dock-chrome';
 
@@ -61,7 +61,10 @@ export function usePhoneDockSwitchActions(enabled: boolean): DockAction[] {
             icon: item.icon,
             disabled: item.disabled || item.active,
             separatorBefore: index === 0,
-            onSelect: () => select(item.id),
+            // The menu closes on the tap's own frame; the pane switch (a whole
+            // app render on a phone's CPU) commits right after, like the
+            // header toggles' press (pane-dock-toggles).
+            onSelect: () => startTransition(() => select(item.id)),
           }))
         : [],
     [current, enabled]

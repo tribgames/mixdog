@@ -189,6 +189,7 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
     stdin: {
       contents: `
         @import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+        @import "./font-faces.css";
         @import "./ui/tokens.css";
         @import "./desktop.css";
       `,

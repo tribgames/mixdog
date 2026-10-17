@@ -1,4 +1,9 @@
 import { TERMINAL_SIZE_OWNER_EVENT, type TerminalSizeOwnerEvent } from '../../shared/terminal-size-owner';
+import {
+  readTerminalActivityEvent,
+  TERMINAL_ACTIVITY_EVENT,
+  type TerminalActivityEvent,
+} from '../../shared/terminal-activity';
 import type { DesktopService } from '../desktop-service-contract';
 import type { DesktopTerminalHost } from '../ipc-terminal';
 import type { TerminalSpawnProfile } from '../terminal-contract';
@@ -49,6 +54,22 @@ export function createServiceTerminalHost(service: TerminalService): DesktopTerm
         if (name !== 'terminal-data' || !value || typeof value !== 'object') return;
         const event = value as Record<string, unknown>;
         listener({ id: String(event.id || ''), data: String(event.data || '') });
+      });
+    },
+    focus(id: string, focused: boolean): void {
+      service.notifyDesktopOperation('termFocus', [id, focused, 'desktop']);
+    },
+    async activity(): Promise<TerminalActivityEvent[]> {
+      const value = await service.invokeDesktopOperation('termActivity', []);
+      return Array.isArray(value)
+        ? value.map(readTerminalActivityEvent).filter((event): event is TerminalActivityEvent => event !== null)
+        : [];
+    },
+    subscribeActivity(listener: (event: TerminalActivityEvent) => void): () => void {
+      return subscribe(({ name, value }) => {
+        if (name !== TERMINAL_ACTIVITY_EVENT) return;
+        const event = readTerminalActivityEvent(value);
+        if (event) listener(event);
       });
     },
     subscribeSizeOwner(listener: (event: TerminalSizeOwnerEvent) => void): () => void {

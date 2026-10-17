@@ -230,8 +230,10 @@
 html[data-window-material="mica"] .transcript-shell {
   --mx-scroll-fade-surface: var(--mx-mica-layer);
 }
-.transcript-shell::before {
-  content: "";
+/* A real element (conversation-pane-transcript.tsx), never a pseudo-element:
+   the scroll timeline restyles it every scroll frame, and a restyled
+   ::before made the accessibility tree re-serialize the whole shell. */
+.transcript-scroll-fade {
   position: absolute;
   z-index: 8;
   left: 0;
@@ -243,8 +245,6 @@ html[data-window-material="mica"] .transcript-shell {
   animation-timeline: --mx-transcript-scroll;
   animation-fill-mode: both;
   animation-timing-function: linear;
-}
-.transcript-shell::before {
   top: 0;
   height: 32px;
   background: linear-gradient(
@@ -321,6 +321,10 @@ html[data-window-material="mica"] .transcript-shell {
      that has not settled yet is clipped instead of pushing its neighbours. */
   background: var(--mx-workspace-sheet);
   overflow: clip;
+  /* The row already clips to its box and its parent sizer already contains
+     layout, so this only tells the engine what the geometry above promises:
+     a streaming row's reflow and repaint stop at its own box. */
+  contain: layout paint;
 }
 .transcript-virtual-row:has([data-transcript-pending]) {
   min-height: var(--transcript-measured-height, 0px);
@@ -346,8 +350,17 @@ html[data-window-material="mica"] .transcript-shell {
 .transcript-virtual-row-content[data-tag="UserMessage"] {
   padding-bottom: 24px;
 }
+/* A reply part, tool card or error never pads its own bottom: the row after
+   it takes the 8px step (data-step-before), so appending that row leaves the
+   rows above it the size they were measured at. */
+.transcript-virtual-row-content[data-tag="AssistantPart"],
+.transcript-virtual-row-content[data-tag="ToolActivity"],
+.transcript-virtual-row-content[data-tag="Error"],
 .transcript-virtual-row-content[data-turn-end="true"] {
   padding-bottom: 0;
+}
+.transcript-virtual-row-content[data-step-before="true"] {
+  padding-top: 8px;
 }
 /* The live band under a reply part or tool card is the 40px status slot (see
    .response-footer:has(.turn-status)): the row above it takes no step, the

@@ -7,9 +7,10 @@
 // first-paint bundle: only the resolved language is fetched, and English
 // fetches nothing at all.
 import './process-shim';
+import { nativeAppInfo } from '../shared/native-app';
 import { installShellUpdateState, recoverShellBootstrap } from './shell-update-state';
 import { preloadMarkdownBody } from './markdown-body-loader';
-import { installTouchGestures } from './touch-gestures';
+import { installKeyboardFlick, installTouchGestures } from './touch-gestures';
 // Browser-served remote sessions install a WebSocket-backed DesktopApi before
 // any module reads window.mixdogDesktop; inside Electron the preload bridge
 // already exists and this is a no-op.
@@ -46,6 +47,10 @@ if (remoteBrowser) {
 
 if (launchApplication) {
   installTouchGestures();
+  installKeyboardFlick(window);
+  // Inside the phone apps a stray `<a download>` is dropped by the WebView:
+  // route it to the native save bridge instead.
+  if (nativeAppInfo()) void import('./native-download-hook').then((hook) => hook.installNativeDownloadHook(document));
   // Start the settled transcript renderer after its HTML hint has queued the
   // shell-critical chunks first. The separate streaming parser Worker and
   // secondary dialogs remain lazy, so an existing Markdown conversation is
@@ -54,7 +59,10 @@ if (launchApplication) {
   const languageReady = import('./i18n').then((module) => module.initUiLanguage());
   // Web-only early CSS fetch: bootstrap still imports this module and remains
   // the readiness owner. The Electron path keeps its existing load order.
-  if (remoteBrowser) void import('./bootstrap-styles').catch(() => undefined);
+  if (remoteBrowser) {
+    void import('./font-faces-styles').catch(() => undefined);
+    void import('./bootstrap-styles').catch(() => undefined);
+  }
   try {
     await Promise.all([remoteShimReady, languageReady]);
     await import('./bootstrap');

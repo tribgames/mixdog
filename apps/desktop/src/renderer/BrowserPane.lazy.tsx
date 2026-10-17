@@ -50,6 +50,7 @@ import {
 } from './browser-viewport-mode';
 import { readBrowserZoom, writeBrowserZoom } from './browser-zoom-level';
 import { BrowserZoomPill } from './BrowserZoomPill';
+import { useZoomBarVisible, zoomBarAction } from './zoom-bar-pref';
 import { BrowserTabStrip } from './BrowserTabStrip';
 import RemoteBrowserPane from './RemoteBrowserPane';
 import { IsolatedBrowserView } from './IsolatedBrowserView';
@@ -434,6 +435,7 @@ export function browserHeaderActions({
       onSelect: () => fillStoredCredential(credential.id),
     });
   }
+  actions.push(zoomBarAction(true));
   return actions;
 }
 
@@ -631,6 +633,7 @@ function DesktopBrowserPane({
 
   // Header ⋯ menu: everything that is not page navigation lives here.
   const navLayout = browserNavLayout(toolbarWidth, Boolean(desktopApi?.browserProfileImportSources));
+  const zoomBarVisible = useZoomBarVisible();
   const headerActions = browserHeaderActions({
     currentUrl,
     viewportPresetId,
@@ -806,7 +809,7 @@ function DesktopBrowserPane({
             </div>
           )}
         </div>
-        {currentUrl && <BrowserZoomPill level={zoomLevel} onChange={changeZoomLevel} />}
+        {currentUrl && zoomBarVisible && <BrowserZoomPill level={zoomLevel} onChange={changeZoomLevel} />}
         {remoteDriving && (
           <div className="browser-pane-remote-driving" role="status">
             <Smartphone size={13} aria-hidden="true" />

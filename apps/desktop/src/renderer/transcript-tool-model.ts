@@ -1,6 +1,13 @@
 import type { TranscriptItem } from './desktop-types';
 import { t, tExisting } from './i18n';
-import { normalizeApplyPatch, parseUnifiedDiff, patchLineCounts } from './renderer-logic.mjs';
+import {
+  diffSectionNames,
+  mergePatchDigests,
+  normalizeApplyPatch,
+  parseUnifiedDiff,
+  patchLineCounts,
+  type PatchDigest,
+} from './renderer-logic.mjs';
 import { asRecord, oneLine } from './text-format';
 import {
   toolFileEntries,
@@ -18,6 +25,7 @@ import {
   desktopToolDisplayIdentity,
   toolActivityItemTone,
   toolItemDone,
+  uiDiffDigest,
   type ToolCardModel,
 } from './transcript-tool-core';
 import {
@@ -101,6 +109,8 @@ interface DesktopToolActivityItemPresentation {
   fields: Array<{ key: string; label: string; value: string }>;
   diffPatch: string;
   diffCounts: { additions: number; deletions: number } | null;
+  /** The file a phone's digest-only diff names (the host keeps the text). */
+  diffDigestPath: string;
   outputText: string;
   /** One quiet line under the output ("종료 코드 2", the still-running note). */
   outputNote: string;
@@ -267,7 +277,7 @@ function isCompletePatch(text: string): boolean {
  *  in the same batch can each carry the whole batch's patch; the row names one
  *  file, so its body shows that file only. A patch with no section for the
  *  target is kept whole. */
-function patchForTarget(patch: string, targetPath: string, root = ''): string {
+function targetSectionMatcher(targetPath: string, root = ''): ((names: string[]) => boolean) | null {
   // Exact path identity: separators, `.`/`..` segments and absolute-vs-relative
   // (against the call's root) are normalized; a suffix never matches.
   // Windows-style paths (drive letter, UNC or backslash form) compare
@@ -297,19 +307,35 @@ function patchForTarget(patch: string, targetPath: string, root = ''): string {
     return { key: cleaned, win };
   };
   const target = identity(targetPath);
-  if (!targetPath || !target.key) return patch;
-  const sections = patch.split(/^(?=diff --git )/m);
-  if (sections.length < 2) return patch;
-  const names = (section: string) =>
-    (/^diff --git a\/(.+?) b\/(.+)$/m.exec(section)?.slice(1) ?? []).map((name) => name.trim());
+  if (!targetPath || !target.key) return null;
   const matches = (name: string) => {
     const candidate = identity(name);
     return target.win || candidate.win
       ? candidate.key.toLowerCase() === target.key.toLowerCase()
       : candidate.key === target.key;
   };
-  const own = sections.filter((section) => names(section).some(matches));
+  return (names) => names.some(matches);
+}
+
+function patchForTarget(patch: string, targetPath: string, root = ''): string {
+  const belongs = targetSectionMatcher(targetPath, root);
+  if (!belongs) return patch;
+  const sections = patch.split(/^(?=diff --git )/m);
+  if (sections.length < 2) return patch;
+  const own = sections.filter((section) => belongs(diffSectionNames(section)));
   return own.length ? own.join('').trim() : patch;
+}
+
+/** What `patchForTarget` would keep of a diff the host sent as per-section
+ *  digests: the sections of the edited file, else all of them, merged. */
+function digestForTarget(
+  sections: readonly (PatchDigest & { names: string[] })[],
+  targetPath: string,
+  root = ''
+): PatchDigest {
+  const belongs = targetSectionMatcher(targetPath, root);
+  const own = belongs && sections.length >= 2 ? sections.filter((section) => belongs(section.names)) : [];
+  return mergePatchDigests(own.length ? own : sections);
 }
 
 function isJsonText(text: string): boolean {
@@ -346,13 +372,12 @@ function fileChangeVerb(
   category: string,
   pending: boolean,
   tone: string,
-  diffPatch: string,
+  statuses: readonly string[] | null,
   originalName: string
 ): string {
   if (category !== 'Patch') return '';
   if (pending) return originalName === 'write' ? t('Writing file') : t('Editing');
-  if (tone !== 'neutral' || !diffPatch) return '';
-  const statuses = parseUnifiedDiff(diffPatch).map((file) => file.status);
+  if (tone !== 'neutral' || !statuses) return '';
   if (statuses.every((status) => status === 'A')) return t('Created file');
   if (statuses.every((status) => status === 'D')) return t('Deleted file');
   return t('Edited file');
@@ -788,12 +813,29 @@ function presentationFields(args: Record<string, unknown>, normalizedName: strin
 /** The call's diff: the runtime's `uiDiff`, else the raw apply_patch envelope
  *  (`*** Begin Patch`, which parseUnifiedDiff would read as one nameless
  *  "after" file with bogus hunks) normalized into a unified diff. */
+function presentationDiffDigest(
+  item: TranscriptItem,
+  args: Record<string, unknown>,
+  normalizedName: string,
+  targetPath: string
+): PatchDigest | null {
+  const summary = uiDiffDigest(item);
+  if (!summary) return null;
+  return digestForTarget(
+    summary.sections,
+    normalizedName === 'edit' ? targetPath : '',
+    toolActivityFirstText(args, 'cwd', 'root') || (typeof item.cwd === 'string' ? item.cwd : '')
+  );
+}
+
 function presentationDiffPatch(
   item: TranscriptItem,
   args: Record<string, unknown>,
   normalizedName: string,
   targetPath: string
 ): string {
+  // The text is not held: the digest stands for it (see `uiDiffDigest`).
+  if (uiDiffDigest(item)) return '';
   if (typeof item.uiDiff === 'string' && item.uiDiff.trim()) {
     return patchForTarget(
       item.uiDiff.trim(),
@@ -920,7 +962,11 @@ export function desktopToolActivityItemPresentation(
   const fields = presentationFields(args, normalizedName, category);
   const targetPath = toolActivityFirstText(args, 'file_path', 'filePath', 'path', 'file', 'target');
   const callDiffPatch = presentationDiffPatch(item, args, normalizedName, targetPath);
-  const editTexts = presentationEditTexts(originalName, normalizedName, args, callDiffPatch, targetPath);
+  // A phone's digest-only diff counts as a diff wherever the text's presence
+  // decides what else the row shows (no before/after preview, no routine output).
+  const callDigest = presentationDiffDigest(item, args, normalizedName, targetPath);
+  const callDiffPresence = callDiffPatch || (callDigest ? 'digest' : '');
+  const editTexts = presentationEditTexts(originalName, normalizedName, args, callDiffPresence, targetPath);
   const { previewText, beforeText, afterText } = editTexts;
   const { rawOutputText, backgroundTask, restoredNotice, taskWait } = presentationRawOutput(
     item,
@@ -941,7 +987,7 @@ export function desktopToolActivityItemPresentation(
     outputText: body.outputText,
     tone,
     structuredKind: structured.kind,
-    diffPatch: callDiffPatch,
+    diffPatch: callDiffPresence,
   });
   const outcome = presentationOutcome({
     model,
@@ -978,11 +1024,15 @@ export function desktopToolActivityItemPresentation(
   // A finished background task with nothing to read keeps no disclosure: its
   // command is already the subject, its status and id ride on the closed row.
   const commandIsDetail = Boolean(command) && !(backgroundTask && !outputText.trim() && !outputNote);
+  // A phone's copy of a long edit holds the diff's digest, not its text; the
+  // counts, verb and path read from the digest are what the text would give.
+  const digest = diffPatch ? null : callDigest;
   const hasDetails = Boolean(
     commandIsDetail ||
       targets.length ||
       fields.length ||
       diffPatch ||
+      digest ||
       outputText ||
       outputNote ||
       sections.length ||
@@ -996,8 +1046,13 @@ export function desktopToolActivityItemPresentation(
     title,
     ...(identity.via ? { via: identity.via } : {}),
     verb:
-      fileChangeVerb(category, model.pending, tone, diffPatch, originalName) ||
-      desktopToolActivityRowVerb(name, item.args, resultValue),
+      fileChangeVerb(
+        category,
+        model.pending,
+        tone,
+        diffPatch ? parseUnifiedDiff(diffPatch).map((file) => file.status) : (digest?.statuses ?? null),
+        originalName
+      ) || desktopToolActivityRowVerb(name, item.args, resultValue),
     subject,
     targets,
     resultLabel: describe ? describeResultLabel(describe) : outcome.resultLabel,
@@ -1007,7 +1062,9 @@ export function desktopToolActivityItemPresentation(
     fields,
     diffPatch,
     // The lines the call's diff adds and removes; a failed call claims none.
-    diffCounts: diffPatch && tone === 'neutral' && !model.pending ? patchLineCounts(diffPatch) : null,
+    diffCounts:
+      tone === 'neutral' && !model.pending ? (diffPatch ? patchLineCounts(diffPatch) : (digest?.counts ?? null)) : null,
+    diffDigestPath: digest?.targetPath ?? '',
     outputText,
     outputNote,
     outcomeReason: outcome.reason,

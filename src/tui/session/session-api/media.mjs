@@ -122,6 +122,8 @@ export function createSessionMediaApi(bag) {
     listMediaLanes: () => runtime.listMediaLanes?.(),
     getMediaDefault: (kind) => runtime.getMediaDefault?.(kind),
     setMediaDefault: (input) => runtime.setMediaDefault?.(input),
+    getMediaPins: () => runtime.getMediaPins?.(),
+    setMediaPin: (input) => runtime.setMediaPin?.(input),
     listMediaAssets: (options) => runtime.listMediaAssets?.(options),
     readMediaAsset: (id, options) => runtime.readMediaAsset?.(id, options),
     cacheMediaThumbnail: (id, input) => runtime.cacheMediaThumbnail?.(id, input),

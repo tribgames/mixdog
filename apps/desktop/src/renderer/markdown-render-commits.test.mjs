@@ -15,7 +15,11 @@ import { installTestDom } from './test-support/test-dom.mjs';
 
 import { parseMarkdownToHast } from './markdown-ast';
 import { markdownComponents } from './markdown-components';
-import { parseStreamingMarkdownAst } from './markdown-worker-client';
+import {
+  parseStreamingMarkdownAst,
+  preloadSyncMarkdownParser,
+  SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS,
+} from './markdown-worker-client';
 import MarkdownAstBody from './MarkdownAstBody';
 import StreamingMarkdownBody from './StreamingMarkdownBody';
 import { TranscriptRow } from './transcript-row';
@@ -48,6 +52,212 @@ test('preloaded history paints rich markdown without another lazy fallback', asy
       )
     );
     assert.deepEqual(firstCommit, { heading: 'Ready history', strong: 'formatted', pending: false });
+  });
+});
+
+const SETTLED_REPLY = [
+  '## Settled reply',
+  '',
+  'See https://example.com/docs/streaming and [the guide](https://example.org/a/b) for **details**.',
+  '',
+  '- first item',
+  '- second item',
+  '',
+  '| col 1 | col 2 |',
+  '| --- | --- |',
+  '| a | b |',
+  '',
+  '```ts',
+  'const answer: number = 42;',
+  '```',
+  '',
+  'Summary paragraph.',
+].join('\n');
+
+function firstCommitShape(host) {
+  return {
+    heading: host.querySelector('h2')?.textContent,
+    links: [...host.querySelectorAll('a[href]')].map((link) => link.getAttribute('href')),
+    table: Boolean(host.querySelector('.markdown-table table')),
+    code: Boolean(host.querySelector('.markdown-code:not(.markdown-code-fallback)')),
+    fallback: Boolean(host.querySelector('.markdown-code-fallback, .markdown-plain')),
+    pending: Boolean(host.querySelector('[data-transcript-pending]')),
+  };
+}
+
+test('a reply that arrives settled paints its final structure in the first commit once the parser is loaded', async () => {
+  await withDom(async ({ host, root }) => {
+    await preloadMarkdownBody();
+    await preloadSyncMarkdownParser();
+    // Never parsed before: the worker has no answer for it yet.
+    const text = `${SETTLED_REPLY}\n\nUnique ${Date.now()}.`;
+    let firstCommit = null;
+    await act(async () =>
+      root.render(
+        React.createElement(
+          React.Profiler,
+          { id: 'settled', onRender: () => (firstCommit ??= firstCommitShape(host)) },
+          React.createElement(TranscriptRow, { item: { id: 'settled-reply', kind: 'assistant', text } })
+        )
+      )
+    );
+    assert.deepEqual(firstCommit, {
+      heading: 'Settled reply',
+      links: ['https://example.com/docs/streaming', 'https://example.org/a/b'],
+      table: true,
+      code: true,
+      fallback: false,
+      pending: false,
+    });
+  });
+});
+
+/** A distinct settled reply of exactly `units` UTF-16 code units. */
+function settledReplyOf(units, tag) {
+  let text = `## ${tag}\n\n`;
+  while (text.length < units) text += `${SETTLED_REPLY.replace('Settled reply', `${tag} part`)}\n\n`;
+  return text.slice(0, units);
+}
+
+test('replies mounting in one commit share one frame of synchronous parsing; one reply still parses at once', async () => {
+  await preloadMarkdownBody();
+  await preloadSyncMarkdownParser();
+  // Let any frame reset queued by an earlier test fire before taking over.
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  const { CopyControl } = countingCopyControl();
+  const stamp = Date.now();
+  const mounted = [1, 2, 3, 4, 5].map((n) => settledReplyOf(3000, `Burst ${stamp} ${n}`));
+  const single = settledReplyOf(SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS, `Single ${stamp}`);
+  assert.equal(single.length, SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS);
+  // A reply still waiting for its parse shows the source projection (fenced
+  // code) and a pending marker; a parsed one has table and code-card structure.
+  const shape = (host) => ({
+    pending: host.querySelectorAll('[data-transcript-pending]').length,
+    // Source painted while waiting: fallback code cards, plain prose or raw table pipes.
+    source: Boolean(host.querySelector('.markdown-code-fallback, .markdown-plain')) || host.textContent.includes('| '),
+    table: Boolean(host.querySelector('.markdown-table-frame table')),
+  });
+  await withDom(async ({ host, root }) => {
+    // Frames fire only when the test says so.
+    const frames = [];
+    globalThis.requestAnimationFrame = (callback) => frames.push(callback);
+    const nextFrame = () => {
+      for (const callback of frames.splice(0)) callback(0);
+    };
+    const bodies = [];
+    for (const text of mounted) {
+      bodies.push(React.createElement(StreamingMarkdownBody, { key: text, text, copyControl: CopyControl }));
+    }
+    const commits = [];
+    await act(async () =>
+      root.render(
+        React.createElement(React.Profiler, { id: 'burst', onRender: () => commits.push(shape(host)) }, bodies)
+      )
+    );
+    assert.deepEqual(
+      commits[0],
+      { pending: 4, source: false, table: true },
+      'one reply fills the frame; the rest wait for the worker, painting no raw source'
+    );
+    assert.equal(frames.length, 1, 'the allowance renews through a single animation frame');
+    // The worker path still delivers every reply.
+    await act(async () => {
+      await Promise.all(mounted.map((text) => parseStreamingMarkdownAst(text)));
+    });
+    assert.deepEqual(shape(host), { pending: 0, source: false, table: true });
+
+    // More than the old 16ms wall-clock window later, still no frame: still spent.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    const early = settledReplyOf(1200, `Early ${stamp}`);
+    const unrenewed = [];
+    await act(async () =>
+      root.render(
+        React.createElement(
+          React.Profiler,
+          { id: 'early', onRender: () => unrenewed.push(shape(host)) },
+          React.createElement(StreamingMarkdownBody, { key: early, text: early, copyControl: CopyControl })
+        )
+      )
+    );
+    assert.equal(unrenewed[0].pending, 1, 'no frame, no new allowance');
+
+    // A frame boundary renews it: a single reply of the largest size paints parsed in its first commit.
+    nextFrame();
+    const first = [];
+    await act(async () =>
+      root.render(
+        React.createElement(
+          React.Profiler,
+          { id: 'single', onRender: () => first.push(shape(host)) },
+          React.createElement(StreamingMarkdownBody, { key: single, text: single, copyControl: CopyControl })
+        )
+      )
+    );
+    assert.deepEqual(first[0], { pending: 0, source: false, table: true }, 'a single reply parses on its first frame');
+
+    // Larger than the cap never parses synchronously, frame or not.
+    nextFrame();
+    const tooLarge = settledReplyOf(SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS + 1, `Large ${stamp}`);
+    const larger = [];
+    await act(async () =>
+      root.render(
+        React.createElement(
+          React.Profiler,
+          { id: 'large', onRender: () => larger.push(shape(host)) },
+          React.createElement(StreamingMarkdownBody, { key: tooLarge, text: tooLarge, copyControl: CopyControl })
+        )
+      )
+    );
+    assert.deepEqual(larger[0], { pending: 1, source: false, table: false });
+    nextFrame();
+  });
+});
+
+test('streaming more text never changes the blocks that were already complete', async () => {
+  await withDom(async ({ host, root }) => {
+    await preloadMarkdownBody();
+    await preloadSyncMarkdownParser();
+    const text = `${SETTLED_REPLY}\n\nTail ${Date.now()} keeps growing word by word.`;
+    // Cut points through every construct: mid-link, mid-list, mid-table,
+    // inside the open fence, and the settled end.
+    const cuts = [];
+    for (let at = 40; at < text.length; at += 17) cuts.push(at);
+    cuts.push(text.length);
+    const render = (end, streaming) =>
+      act(async () =>
+        root.render(
+          React.createElement(TranscriptRow, {
+            item: { id: 'growing-reply', kind: 'assistant', text: text.slice(0, end), streaming },
+          })
+        )
+      );
+    let complete = [];
+    for (const [index, end] of cuts.entries()) {
+      const streaming = index < cuts.length - 1;
+      await render(end, streaming);
+      const markdown = host.querySelector('.markdown');
+      assert.ok(markdown, `markdown at ${end}`);
+      assert.equal(host.querySelector('[data-transcript-pending]'), null, `no unparsed block at ${end}`);
+      // Every top-level block but the last is complete: the next delta must
+      // keep the same element with the same rendered markup.
+      for (const block of complete) {
+        assert.ok(block.node.isConnected, `complete block remounted at ${end}: ${block.html.slice(0, 60)}`);
+        assert.equal(block.node.outerHTML, block.html, `complete block changed at ${end}`);
+      }
+      const blocks = [...markdown.children].filter((node) => !node.hasAttribute('hidden'));
+      complete = blocks.slice(0, -1).map((node) => ({ node, html: node.outerHTML }));
+    }
+    assert.deepEqual(
+      { ...firstCommitShape(host), heading: host.querySelector('h2')?.textContent },
+      {
+        heading: 'Settled reply',
+        links: ['https://example.com/docs/streaming', 'https://example.org/a/b'],
+        table: true,
+        code: true,
+        fallback: false,
+        pending: false,
+      }
+    );
   });
 });
 

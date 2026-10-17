@@ -133,7 +133,12 @@ export function createBrowserHostAgent(options: {
     // now on a veto answers the agent, not a person's earlier click or key.
     drivePage: (guest) => {
       leave.agentActs(guest);
-      return base.display.power.drive(guest);
+      const releaseDomains = cdp.drive(guest);
+      const releasePower = base.display.power.drive(guest);
+      return () => {
+        releasePower();
+        releaseDomains();
+      };
     },
     services,
   });

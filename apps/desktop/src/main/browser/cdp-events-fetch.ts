@@ -5,6 +5,7 @@ import type { WebContents } from 'electron';
 
 import { CDP_REQUEST_TIMEOUT_MS } from './command';
 import type { BrowserCdpSend } from './cdp-session-init';
+import { parsePermissionStateRequest, permissionStateFulfillParams } from './chrome-likeness';
 import { dialogBridgeFulfillParams, parseDialogBridgeRequest } from './dialog-bridge';
 import type { BrowserGuestStateStore } from './guest-state';
 import { type BrowserInterceptRule, interceptFulfillParams } from './intercept';
@@ -18,6 +19,48 @@ export interface RequestPauseHost {
   state: BrowserGuestStateStore;
   sendCdp: BrowserCdpSend;
   matchInterceptRule(guest: WebContents, url: string, resourceType: string): BrowserInterceptRule | undefined;
+  /** Whether a person refused `origin` a permission (by engine name). */
+  permissionRefused?(origin: string, name: string): boolean;
+}
+
+const originOf = (url: string): string => {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '';
+  }
+};
+
+/** A page asked whether a permission is undecided for it. Only the page's own
+ *  origin is answered (the request must come from the origin it names), and
+ *  anything unverifiable reads as not undecided. */
+function answerPermissionState(
+  host: RequestPauseHost,
+  guest: WebContents,
+  cdp: Electron.Debugger,
+  params: CdpParams,
+  state: { origin: string; name: string },
+  sessionId?: string
+): void {
+  const requestId = String(params.requestId || '');
+  if (!requestId) return;
+  const headers = ((params.request as { headers?: Record<string, string> } | undefined)?.headers ?? {}) as Record<
+    string,
+    string
+  >;
+  const from = originOf(headers.Referer ?? headers.referer ?? headers.Origin ?? headers.origin ?? '');
+  const prompt = Boolean(from) && from === state.origin && !host.permissionRefused?.(state.origin, state.name);
+  void host
+    .sendCdp(
+      guest,
+      cdp,
+      'Fetch.fulfillRequest',
+      permissionStateFulfillParams(requestId, prompt),
+      CDP_REQUEST_TIMEOUT_MS,
+      undefined,
+      sessionId
+    )
+    .catch(() => undefined);
 }
 
 /** The page asked the host a question through the dialog bridge: the request
@@ -113,6 +156,11 @@ export function onRequestPaused(
   const diagnostics = host.state.for(guest);
   const request = (params.request && typeof params.request === 'object' ? params.request : {}) as { url?: string };
   const requestUrl = String(request.url || '');
+  const permissionState = parsePermissionStateRequest(requestUrl);
+  if (permissionState) {
+    answerPermissionState(host, guest, cdp, params, permissionState, sessionId);
+    return;
+  }
   const bridgeDialog = parseDialogBridgeRequest(requestUrl);
   if (bridgeDialog) {
     holdDialogBridgeRequest(host, guest, cdp, diagnostics, params, bridgeDialog, sessionId);

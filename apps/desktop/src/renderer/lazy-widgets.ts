@@ -1,21 +1,37 @@
-import { lazy } from 'react';
+import { lazy, type ComponentProps } from 'react';
 
+import { deferredModule } from './deferred-module';
+import { preloadMarkdownBody } from './markdown-body-loader';
 import type { WorkspaceSelection } from './nav-types';
 import { loadMonacoLocale } from './monaco-locale';
 import { isNativeDesktopWindow } from './remote-ui-projection';
+import { loadStudioViewModule } from './studio-loader';
 
 const importDiffView = () => import('./DiffView.lazy');
 const importTerminalPane = () => import('./TerminalPane');
-const importEditorPane = async () => {
-  await loadMonacoLocale();
-  return import('./EditorPane.lazy');
-};
 const importBrowserPane = () => import('./BrowserPane.lazy');
 
+/** The Monaco editor pane chunk. Once loaded (the idle lane, or a hover on a
+ *  file row/link), ReadyEditorPane renders it synchronously instead of
+ *  through a Suspense placeholder. */
+export const editorPaneModule = deferredModule(async () => {
+  await loadMonacoLocale();
+  return import('./EditorPane.lazy');
+});
+export type EditorPaneProps = ComponentProps<typeof import('./EditorPane.lazy')['default']>;
+const importEditorPane = () => editorPaneModule.load();
+
+/** The Terminal and Browser pane chunks as deferred modules: once loaded (the
+ *  phone's lane, a touch-down), their surfaces render them synchronously. A
+ *  React.lazy suspends its first render even when the chunk is already in,
+ *  and the Suspense reveal that follows is throttled ~300ms behind the
+ *  fallback, so a first open sat on a blank body. */
+export const terminalPaneModule = deferredModule(importTerminalPane);
+export const browserPaneModule = deferredModule(importBrowserPane);
+
 export const DiffView = lazy(importDiffView);
-export const TerminalPane = lazy(importTerminalPane);
-export const EditorPane = lazy(importEditorPane);
-export const BrowserPane = lazy(importBrowserPane);
+export const TerminalPane = lazy(() => terminalPaneModule.load());
+export const BrowserPane = lazy(() => browserPaneModule.load());
 /** Read-only Markdown preview of a side-dock "Open Preview to the Side" tab. */
 export const SideMarkdownPreview = lazy(async () => {
   await loadMonacoLocale();
@@ -23,7 +39,7 @@ export const SideMarkdownPreview = lazy(async () => {
 });
 
 export async function disposeTerminalPane(id: string): Promise<void> {
-  const module = await importTerminalPane();
+  const module = await terminalPaneModule.load();
   await module.disposeTerminalPane(id);
 }
 
@@ -49,14 +65,21 @@ function createChunkPrefetch(load: () => Promise<unknown>) {
   };
 }
 const diffPrefetch = createChunkPrefetch(importDiffView);
-const terminalPrefetch = createChunkPrefetch(importTerminalPane);
-const browserPrefetch = createChunkPrefetch(importBrowserPane);
-const editorPrefetch = createChunkPrefetch(importEditorPane);
+const terminalPrefetch = createChunkPrefetch(() => terminalPaneModule.load());
+const browserPrefetch = createChunkPrefetch(() => browserPaneModule.load());
+// A README opens as rendered Markdown, which waits on the Markdown renderer
+// and its parser chunk; a failed Markdown warm-up never fails the editor's.
+const warmMarkdownPreview = () =>
+  preloadMarkdownBody()
+    .then(() => import('./markdown-worker-client'))
+    .then((client) => client.preloadSyncMarkdownParser())
+    .catch(() => undefined);
+const editorPrefetch = createChunkPrefetch(() => Promise.all([importEditorPane(), warmMarkdownPreview()]));
 export const prefetchDiffView = (): Promise<unknown> => diffPrefetch.run();
 export const prefetchTerminalPane = (): Promise<unknown> => terminalPrefetch.run();
 export const prefetchBrowserPane = (): Promise<unknown> => browserPrefetch.run();
 export const prefetchEditorPane = (): Promise<unknown> => editorPrefetch.run();
-
+export const prefetchStudioView = (): Promise<unknown> => loadStudioViewModule();
 /**
  * Start the chunk a selection is about to need, without waiting for it.
  *
@@ -72,6 +95,7 @@ const SURFACE_PREFETCH: Partial<Record<WorkspaceSelection['kind'], () => Promise
   diff: prefetchDiffView,
   terminal: prefetchTerminalPane,
   browser: prefetchBrowserPane,
+  studio: prefetchStudioView,
 };
 
 export function prefetchSurfaceForSelection(selection: WorkspaceSelection): void {
@@ -88,9 +112,10 @@ const EDITOR_INTENT_QUIET_MS = 150;
 /**
  * Files-pane intent (hover/selection inside the explorer) starts the editor
  * chunk BEFORE the open click, which otherwise pays ~187ms of fetch + link +
- * eval on the first open. This stays CONTEXTUAL on purpose: the global idle
- * warmup still excludes Monaco because idle evaluation cost a 51ms long task
- * in apps that may never open a file. Startup can never carry it (both the
+ * eval on the first open. The boot idle lane (useAppModuleWarmup) loads the
+ * same chunks on desktop surfaces, so this is the early path for a link or row
+ * seen before that lane reaches it, and for a phone, whose lane never carries
+ * Monaco. Startup can never carry it (both the
  * first visible frame and the boot reveal must have happened), the import is
  * queued from an idle callback so pointer/key handling never blocks, and a
  * real open awaits the same shared promise — so an unfinished prefetch just

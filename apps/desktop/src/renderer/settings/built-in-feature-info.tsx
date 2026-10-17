@@ -128,6 +128,13 @@ export function BuiltInFeatureInfo({
   if (feature.id === 'computer')
     facts.push(...computerPlatformFacts(linux), ['Input', t('Mouse, keyboard, and accessibility controls')]);
   if (feature.id === 'office') facts.push(['Supported formats', 'Word · Excel · PowerPoint · PDF · CSV · TSV']);
+  if (feature.id === 'media') {
+    facts.push(
+      ['Supported formats', `${t('Image')} · ${t('Video')}`],
+      ['Generators', String(info.generators || '')],
+      ['Storage location', t('Session folder · media')]
+    );
+  }
   if (feature.id === 'visualize') {
     facts.push([
       'Supported formats',

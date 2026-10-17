@@ -218,3 +218,48 @@ test('the shim host reports the connected device id for action matching', () => 
   const host = createNativePushHost({ peerNativePush: true, call: async () => {}, deviceId: 'dev-1' });
   assert.equal(host.hostId(), 'dev-1');
 });
+
+test('a denied permission is published for Settings and re-read when the app returns', async () => {
+  const { nativePushPermission, subscribeNativePushPermission } = await import('./native-push-bridge.ts');
+  let state = { ...granted, permission: 'denied' };
+  const native = nativeWith({ getPushState: () => state });
+  const on = hostWith(true);
+  await syncNativePush({ native: nativeWith({ getPushState: () => granted }), host: on.host });
+  on.registered.length = 0;
+  let changes = 0;
+  const stop = subscribeNativePushPermission(() => {
+    changes += 1;
+  });
+  assert.equal(await syncNativePush({ native, host: on.host }), 'denied');
+  assert.equal(nativePushPermission(), 'denied');
+  // Even a host that cannot use native push does not hide what the OS says.
+  assert.equal(await syncNativePush({ native, host: hostWith(false).host }), 'no-host-support');
+  // The user allowed it in system settings and came back: registration resumes.
+  state = granted;
+  assert.equal(await syncNativePush({ native, host: on.host }), 'registered');
+  assert.equal(nativePushPermission(), 'granted');
+  assert.equal(on.registered.length, 1);
+  assert.equal(changes, 2);
+  stop();
+});
+
+test("the settings button asks the shell to open this app's notification settings", async () => {
+  const { openNativeNotificationSettings } = await import('./native-push-bridge.ts');
+  const calls = [];
+  const native = (answer) => ({
+    platform: 'android',
+    version: '1',
+    call: async (method) => {
+      calls.push(method);
+      if (answer instanceof Error) throw answer;
+      return answer;
+    },
+  });
+  assert.equal(await openNativeNotificationSettings({ native: native(true) }), true);
+  assert.deepEqual(calls, ['openNotificationSettings']);
+  // The system could not open it, an older shell answered null, or the bridge failed.
+  assert.equal(await openNativeNotificationSettings({ native: native(false) }), false);
+  assert.equal(await openNativeNotificationSettings({ native: native(null) }), false);
+  assert.equal(await openNativeNotificationSettings({ native: native(new Error('timeout')) }), false);
+  assert.equal(await openNativeNotificationSettings({ native: null }), false);
+});

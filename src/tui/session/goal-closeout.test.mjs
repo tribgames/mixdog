@@ -5,7 +5,7 @@ import { createSessionFlow } from './session-flow.mjs';
 
 const tick = () => new Promise(setImmediate);
 
-function fixture(t, { busy = true, status = 'active', remote = false } = {}) {
+function fixture(t, { busy = true, status = 'active' } = {}) {
   let current = {
     id: 'goal-closeout',
     revision: 1,
@@ -20,7 +20,6 @@ function fixture(t, { busy = true, status = 'active', remote = false } = {}) {
   const state = {
     busy,
     commandBusy: false,
-    sessionRemoteAttached: remote,
     sessionId: 'session-closeout',
     goal: current,
   };
@@ -137,14 +136,12 @@ for (const status of ['active', 'paused', 'complete']) {
   });
 }
 
-test('attaching to an already expired Goal or a remote view does not start a closeout turn', async (t) => {
-  for (const options of [{ status: 'duration_reached', busy: false }, { remote: true }]) {
-    const f = fixture(t, options);
-    f.expire();
-    await tick();
-    assert.deepEqual(f.pending, []);
-    assert.deepEqual(f.aborts, []);
-  }
+test('attaching to an already expired Goal does not start a closeout turn', async (t) => {
+  const f = fixture(t, { status: 'duration_reached', busy: false });
+  f.expire();
+  await tick();
+  assert.deepEqual(f.pending, []);
+  assert.deepEqual(f.aborts, []);
 });
 
 function queueFixture({ busy, valid }) {

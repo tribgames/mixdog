@@ -15,18 +15,6 @@ export interface DesktopSshHostSettings {
   allowedProviders?: string[] | null;
   /** Minutes the server keeps its work after the connection drops (1–10080, default 30). */
   graceMinutes?: number;
-  /** Minutes this PC's permission for the server's model calls lasts after the
-   *  last action in its window (10–1440, default 120). */
-  grantMinutes?: number;
-  /** Scheduled, webhook and background work may use this PC's models without
-   *  that permission, under its own budget (default off). */
-  allowBackgroundModelUse?: boolean;
-  /** Budget overrides: model calls and tokens per permission (defaults 2000 and
-   *  20M), background calls per hour and tokens per day (defaults 120 and 5M). */
-  grantCalls?: number;
-  grantTokens?: number;
-  backgroundCallsPerHour?: number;
-  backgroundTokensPerDay?: number;
 }
 
 /** A saved SSH server. `open` is true while its server window is open. */

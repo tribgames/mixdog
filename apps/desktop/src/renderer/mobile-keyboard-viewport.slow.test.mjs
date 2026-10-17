@@ -33,7 +33,7 @@ test('phone composer follows the keyboard-shrunk viewport without a double offse
         resolveDir,
         loader: 'css',
         contents:
-          '@import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css"; @import "./mobile-web-runtime.css";',
+          '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css"; @import "./mobile-web-runtime.css";',
       },
       outfile: 'mobile-keyboard.css',
       bundle: true,

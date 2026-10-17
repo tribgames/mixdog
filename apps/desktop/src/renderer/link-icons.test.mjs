@@ -17,7 +17,6 @@ const renderers = {
 // [case, markdown, expected icon]: a Seti glyph of the extension, or an inline SVG kind.
 const seti = (name) => ({ glyph: setiIconFor(name).glyph });
 const CASES = [
-  ['inline code path', '`src/app.ts`', seti('app.ts')],
   ['authored link with #L', '[app.ts#L20](src/app.ts#L20)', seti('app.ts')],
   ['authored link with spaces', '[my notes.ts](<my notes.ts>)', seti('my notes.ts')],
   ['authored link with encoded #', '[hash#1.ts](hash%231.ts)', seti('hash.ts')],
@@ -93,5 +92,19 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       const caption = markdown.match(/^\[([^\]]+)\]/)?.[1];
       if (caption) assert.equal(link.textContent.replace(icon.textContent, ''), caption, `${label}: label unchanged`);
     }
+  });
+
+  test(`${pipeline}: an automatic file mention carries no icon, only its text`, async (t) => {
+    const { dom, root } = installTestDom(t, { rootId: 'root' });
+    dom.window.mixdogDesktop = { statProjectFile: async () => ({}), searchProjectFiles: async () => [] };
+    await act(async () => {
+      root.render(
+        React.createElement(MarkdownProjectContext.Provider, { value: 'C:/Project/p' }, render('`src/app.ts`'))
+      );
+    });
+    const link = dom.window.document.querySelector('a.markdown-path-mention');
+    assert.ok(link, 'the verified mention is a link');
+    assert.equal(link.querySelector('.seti-icon'), null);
+    assert.equal(link.textContent, 'src/app.ts');
   });
 }

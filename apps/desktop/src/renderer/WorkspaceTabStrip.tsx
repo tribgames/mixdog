@@ -10,15 +10,19 @@ import React, {
   useReducer,
   useRef,
   useState,
+  startTransition,
 } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { clampOverlayIntoView } from './anchored-panel';
 import { explorerAbsolutePath } from './explorer-tree-model';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { FileText, FileDiff, Folder, Globe, MessageCircle, Plus, Sparkles, Terminal, X } from 'lucide-react';
 
 import type { DesktopSessionSummary } from '../shared/contract';
+import { sessionAttention, type SessionAttention } from '../shared/session-attention';
 import type { WorkspaceTab } from './nav-types';
+import { sessionAttentionOf, useSessionAttentionIndex } from './session-attention-index';
+import { SessionAttentionGlyph } from './session-status-mark';
 import { t } from './i18n';
 import { revealFileFromWindow } from './server-transfers';
 import { prefetchSurfaceForSelection } from './lazy-widgets';
@@ -163,16 +167,20 @@ function workspaceMobileTabPill({
   activeKey,
   activeBusy,
   workingSessionIds,
+  pendingNewTask,
   setTabMenu,
 }: {
   tabs: WorkspaceTab[];
   activeKey: string;
   activeBusy: boolean;
   workingSessionIds: ReadonlySet<string> | undefined;
+  /** The + was just tapped: name the new task now, before the navigation commits. */
+  pendingNewTask: boolean;
   setTabMenu: SetTabMenu;
 }) {
-  const activeTab = tabs.find((tab) => tab.key === activeKey) ?? tabs[0];
-  const working = tabIsWorking(activeTab, true, activeBusy, workingSessionIds);
+  const pendingTab: WorkspaceTab = { key: '', title: t('New task'), selection: { kind: 'new' } };
+  const activeTab = pendingNewTask ? pendingTab : (tabs.find((tab) => tab.key === activeKey) ?? tabs[0]);
+  const working = !pendingNewTask && tabIsWorking(activeTab, true, activeBusy, workingSessionIds);
   return (
     <button
       type="button"
@@ -221,13 +229,14 @@ function closingTabGhost(tab: WorkspaceTab, active: boolean) {
   );
 }
 
-/** One live tab cell: selection, its working/unread readout, the drag source,
- *  the middle-click and context gestures, and the close control. */
+/** One live tab cell: selection, its status readout (the strongest of needs
+ *  you, failed, working and unread), the drag source, the middle-click and
+ *  context gestures, and the close control. */
 function workspaceTabNode({
   tab,
   active,
   working,
-  unread,
+  attention,
   dragging,
   entering,
   dropLeft,
@@ -245,7 +254,7 @@ function workspaceTabNode({
   tab: WorkspaceTab;
   active: boolean;
   working: boolean;
-  unread: boolean;
+  attention: SessionAttention | '';
   rename: TabRename | null;
   dragging: boolean;
   entering: boolean;
@@ -274,6 +283,7 @@ function workspaceTabNode({
       data-tab-key={tab.key}
       data-active={active}
       data-working={working || undefined}
+      data-attention={attention || undefined}
       aria-grabbed={dragging}
       draggable={!editing}
       style={
@@ -351,9 +361,12 @@ function workspaceTabNode({
         aria-label={tab.title}
         data-tooltip={tab.title}
       >
-        {/* While the session works, the tab GLYPH becomes the
-              progress spinner (user decision) — no extra dot. */}
-        {working ? (
+        {/* The tab GLYPH carries the strongest status: the needs-you or
+              failure mark, else the progress spinner while the session works
+              (user decision) — no extra dot. */}
+        {attention === 'needs-you' || attention === 'failed' ? (
+          <SessionAttentionGlyph status={attention} name={tab.title} size={14} className="workspace-tab-attention" />
+        ) : working ? (
           <ProgressSpinner
             size={14}
             className="workspace-tab-status"
@@ -364,7 +377,7 @@ function workspaceTabNode({
           tabGlyph(tab)
         )}
         <span>{tab.title}</span>
-        {unread && !working && (
+        {attention === 'unread' && (
           <i
             className="workspace-tab-unread-dot"
             role="status"
@@ -574,6 +587,25 @@ export function WorkspaceTabStrip({
   // addition is the brand mark at the front, which opens the session drawer
   // the desktop reaches through its activity rail.
   const mobile = useMobileRemoteSurface();
+  // Phone tap feedback for +: the pill names the new task on the tap itself
+  // while the navigation (a pane-wide render) commits as a transition behind
+  // it. The mark holds the tab that was active at the tap and ends when the
+  // active tab changes, or after a beat if the tap changed nothing.
+  const [newTaskTappedFrom, setNewTaskTappedFrom] = useState<string | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the active tab changing is the settle trigger; the body does not read it
+  useEffect(() => setNewTaskTappedFrom(null), [activeKey]);
+  useEffect(() => {
+    if (newTaskTappedFrom === null) return undefined;
+    const timer = window.setTimeout(() => setNewTaskTappedFrom(null), 800);
+    return () => window.clearTimeout(timer);
+  }, [newTaskTappedFrom]);
+  const tapNewTask = () => {
+    if (!mobile) return onNewTask();
+    setNewTaskTappedFrom(activeKey);
+    startTransition(onNewTask);
+  };
+  // Needs-you and failure signals; working and unread come in as props.
+  const attentionIndex = useSessionAttentionIndex();
   // Layout INPUT: the width the tab run may spend — the shell minus the
   // home slot, the fixed + slot and the three-control trailing safe zone.
   const measureWidths = useCallback(() => {
@@ -588,6 +620,26 @@ export function WorkspaceTabStrip({
       width - (homeButton?.offsetWidth ?? 0) - (newButton?.offsetWidth ?? 0) - (trailingBox?.offsetWidth ?? 0);
     setStripAvailable((previous) => (previous === available ? previous : available));
   }, []);
+  // A geometry change (window resize, a sidebar or dock moving the pane edge)
+  // re-fits the run in the frame the shell resized, without the glide: the
+  // observer's update is rendered synchronously, before that frame paints, and
+  // the strip's width transitions stay off for the beat. Left to React's
+  // scheduler the labels re-collapsed a frame or more after the pane snapped.
+  const geometrySnapFrame = useRef(0);
+  const observeWidths = useCallback(() => {
+    const shell = shellNode.current;
+    if (!shell) return;
+    shell.dataset.geometrySnap = 'true';
+    window.cancelAnimationFrame(geometrySnapFrame.current);
+    geometrySnapFrame.current = window.requestAnimationFrame(() => {
+      geometrySnapFrame.current = window.requestAnimationFrame(() => {
+        geometrySnapFrame.current = 0;
+        delete shell.dataset.geometrySnap;
+      });
+    });
+    flushSync(measureWidths);
+  }, [measureWidths]);
+  useEffect(() => () => window.cancelAnimationFrame(geometrySnapFrame.current), []);
   // Tab context menu (Close / Close Others / Close to the
   // Right / Keep Open) with standard outside-click dismissal.
   useEffect(() => {
@@ -621,7 +673,7 @@ export function WorkspaceTabStrip({
     const shell = shellNode.current;
     if (!shell || typeof ResizeObserver === 'undefined') return undefined;
     measureWidths();
-    const observer = new ResizeObserver(measureWidths);
+    const observer = new ResizeObserver(observeWidths);
     observer.observe(shell);
     // The trailing controls resize WITHOUT resizing the shell (a dock toggle
     // appears, a status chip grows); observing the box itself replaces the
@@ -630,7 +682,7 @@ export function WorkspaceTabStrip({
     const trailingBox = shell.querySelector<HTMLElement>(':scope > .workspace-tabs-trailing');
     if (trailingBox) observer.observe(trailingBox);
     return () => observer.disconnect();
-  }, [measureWidths, hasTrailing]);
+  }, [measureWidths, observeWidths, hasTrailing]);
   // Tab-count changes move the available width without resizing the shell —
   // re-measure on those renders too.
   // biome-ignore lint/correctness/useExhaustiveDependencies: tab count and trailing presence move the available width without resizing the shell
@@ -823,6 +875,7 @@ export function WorkspaceTabStrip({
           activeKey,
           activeBusy,
           workingSessionIds,
+          pendingNewTask: newTaskTappedFrom !== null && newTaskTappedFrom === activeKey,
           setTabMenu,
         })}
       {!mobile && (
@@ -863,12 +916,16 @@ export function WorkspaceTabStrip({
             const dropRight = draggingKey && dropIndex !== null && tabs[dropIndex]?.key === tab.key;
             const working = tabIsWorking(tab, active, activeBusy, workingSessionIds);
             const unread = tab.selection.kind === 'session' && unreadSessionIds?.has(tab.selection.id) === true;
+            const attention =
+              tab.selection.kind === 'session'
+                ? sessionAttentionOf(attentionIndex, tab.selection.id, { running: working, unread })
+                : sessionAttention({ running: working });
             const pinnedTabWidth = chromeWidths?.[index];
             return workspaceTabNode({
               tab,
               active,
               working,
-              unread,
+              attention,
               dragging: draggingKey === tab.key,
               entering: enteringKeys.current.has(tab.key),
               dropLeft: Boolean(dropLeft),
@@ -894,7 +951,7 @@ export function WorkspaceTabStrip({
         className="workspace-tab-new"
         aria-label={t('New task')}
         data-tooltip={t('New task')}
-        onClick={onNewTask}
+        onClick={tapNewTask}
       >
         {/* Same lucide family and weight as the tab glyphs and dock toggles
               beside it; the codicon + read as a foreign mark (user: + 버튼이

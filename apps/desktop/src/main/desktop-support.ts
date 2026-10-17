@@ -67,9 +67,14 @@ export interface StatuslineShellJobsStatus {
       finished?: DesktopShellJobRow[];
     }
   >;
+  /** Held shells whose owner session closed: listed for every session that
+   *  sees their folder (shellJobVisibleFrom). */
+  orphaned?: DesktopShellJobRow[];
 }
 
 export interface StatuslineSegmentsModule {
+  /** Same folder or same repository (omitted by older runtimes). */
+  shellJobVisibleFrom?(job: DesktopShellJobRow, sessionCwd: string): boolean;
   /** Cache-only: answers from the previous scan and kicks the next one. */
   shellJobsStatus(options?: { clientHostPid?: number; sessionId?: string }): StatuslineShellJobsStatus;
   /** Awaited fresh scan (omitted by older runtimes, which fall back to the cache read). */
@@ -104,6 +109,11 @@ export const DESKTOP_TRANSCRIPT_ITEM_LIMIT = 512;
  *  8 items (enforced by the daemon) when single rows are huge, and a viewport
  *  those rows do not fill loads older history on its own. */
 export const DESKTOP_TRANSCRIPT_TAIL_ITEMS = 32;
+/** First-open tail for a session only remote (relay) views show: a phone's
+ *  ~700px transcript paints about 12 rows plus overscan, so 20 items cover its
+ *  first screen and older rows page in as it scrolls up. Fewer bytes cross the
+ *  relay and fewer rows mount before the first paint. */
+export const REMOTE_TRANSCRIPT_TAIL_ITEMS = 20;
 export const DESKTOP_TRANSCRIPT_TAIL_BYTES = 1_000_000;
 /** Serialized bytes of the older rows one history page reveals (the page adds
  *  up to 64 items, the renderer's TRANSCRIPT_TAIL_PAGE_ITEMS); the daemon

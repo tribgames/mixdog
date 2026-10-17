@@ -7,10 +7,11 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import type { VisualizeHistoryItem, VisualizePaneView, VisualizeSessionState } from '../shared/visualize';
 import { dismissDesktopToast, showDesktopToast } from './desktop-toasts';
-import { errorMessageText } from './ErrorNotice';
+import { fileDownloadFailureMessage } from './file-download-transfer';
 import { t } from './i18n';
 import type { DockAction } from './pane-dock-chrome';
 import { downloadBlob, visualizePaneHasSource, visualizeSourceFileName } from './visualize-source';
+import { downloadVisualizeExport, visualizeRemoteExportAvailable } from './visualize-remote-export';
 import {
   exportVisualizeTab,
   openVisualizeHistory,
@@ -36,7 +37,7 @@ const versionTag = (count: number): string => 'v'.concat(String(count));
 /** The reason of a failed command, without Electron's "Error invoking remote
  *  method '…': Error:" wrapper. */
 const messageOf = (reason: unknown): string => {
-  const message = errorMessageText(reason).replace(/^\w*Error:\s*/, '');
+  const message = fileDownloadFailureMessage(reason).replace(/^\w*Error:\s*/, '');
   // The main process words a deleted target for the model; say it in the UI language.
   const missing = /^target not found: (.+)$/.exec(message);
   return missing ? t('File not found (it may have been deleted or moved): {{file}}', { file: missing[1] }) : message;
@@ -48,19 +49,22 @@ const messageOf = (reason: unknown): string => {
 async function downloadPane(sessionId: string, tabId: string, index: number, pane: VisualizePaneView): Promise<void> {
   const api = window.mixdogDesktop;
   if (pane.inline) {
-    downloadBlob(new Blob([pane.inline.source], { type: 'text/plain' }), visualizeSourceFileName(pane));
+    await downloadBlob(new Blob([pane.inline.source], { type: 'text/plain' }), visualizeSourceFileName(pane));
     return;
   }
   const source = await api?.visualizePaneSource?.(sessionId, tabId, index);
   if (source?.srcdoc !== undefined) {
-    downloadBlob(new Blob([source.srcdoc], { type: 'text/html' }), visualizeSourceFileName({ label: pane.label }));
+    await downloadBlob(
+      new Blob([source.srcdoc], { type: 'text/html' }),
+      visualizeSourceFileName({ label: pane.label })
+    );
     return;
   }
   if (!source?.url) throw new Error(t('Source unavailable'));
   try {
     const blob = await (await fetch(source.url)).blob();
     // An Office document is served as its PDF conversion.
-    downloadBlob(blob, pane.kind === 'document' ? `${pane.label}.pdf` : pane.label);
+    await downloadBlob(blob, pane.kind === 'document' ? `${pane.label}.pdf` : pane.label);
   } finally {
     URL.revokeObjectURL(source.url);
   }
@@ -202,8 +206,8 @@ export function useVisualizePanelExtras(
       id: 'history',
       label: t('All visuals'),
       icon: LayoutList,
-      inline: true,
       checked: historyOpen,
+      checkbox: true,
       onSelect: () => setHistoryOpen(!historyOpen),
     });
   }
@@ -212,8 +216,8 @@ export function useVisualizePanelExtras(
       id: 'source',
       label: t('Source'),
       icon: Code,
-      inline: true,
       checked: sourceOn,
+      checkbox: true,
       onSelect: () =>
         setSourceTabs((current) => {
           const next = new Set(current);
@@ -255,6 +259,27 @@ export function useVisualizePanelExtras(
         icon: Download,
         onSelect: () => void run(downloadPane(sessionId, tabId, index, pane)),
       });
+      // PNG / PDF: rendered on the host, then this device's own download.
+      if (visualizeRemoteExportAvailable()) {
+        const exportRemote = (format: 'png' | 'pdf') => {
+          setNotice({ error: false, text: t('Exporting…') });
+          return run(downloadVisualizeExport(sessionId, tabId, format, index).then(() => setNotice(null)));
+        };
+        actions.push({
+          id: 'export-png',
+          label: t('Save as PNG'),
+          icon: Download,
+          onSelect: () => void exportRemote('png'),
+        });
+        if (pane.kind === 'html' || pane.kind === 'pdf') {
+          actions.push({
+            id: 'export-pdf',
+            label: t('Save as PDF'),
+            icon: Download,
+            onSelect: () => void exportRemote('pdf'),
+          });
+        }
+      }
     } else {
       actions.push({ id: 'export-png', label: t('Save as PNG'), icon: Download, onSelect: () => void exportTo('png') });
       if (pane.kind === 'html') {

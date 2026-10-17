@@ -113,7 +113,10 @@ function queueBarrierRegistration(id: string): void {
   queuedBarrierRegistrations.add(id);
   queueMicrotask(() => {
     queuedBarrierRegistrations.delete(id);
-    const painted = surfaceMetrics.get(id)?.stages.has('paint') === true;
+    const metric = surfaceMetrics.get(id);
+    // Released before the registration ran (a superseded key): nothing waits.
+    if (!metric) return;
+    const painted = metric.stages.has('paint');
     for (const barrier of activeSurfaceBarriers) {
       registerBarrierSurface(barrier, id, painted);
     }
@@ -258,6 +261,11 @@ export function reportBootSurfaceStage(surface: string, rawKey: string, stage: s
   }
   if (cleanStage === 'ready') {
     pruneSurfaceMetrics();
+    if (id.startsWith('conversation:') && !conversationPainted) {
+      conversationPainted = true;
+      for (const listener of [...conversationPaintListeners]) listener();
+      conversationPaintListeners.clear();
+    }
   }
   const total = totalMs();
   append({
@@ -272,6 +280,47 @@ export function reportBootSurfaceStage(surface: string, rawKey: string, stage: s
     ...(details ? { details } : {}),
   });
   return true;
+}
+
+const surfaceHolds = new Map<string, number>();
+
+/** Holds a surface whose key can change while it is mounted (the composer's
+ *  model controls key on the route, which a restored session only learns
+ *  after its first render). Returns the release: once no mounted holder is
+ *  left, a surface that never painted stops blocking the boot cover — no
+ *  component will ever report it ready. */
+export function holdBootSurface(surface: string, rawKey: string): () => void {
+  const id = beginBootSurface(surface, rawKey);
+  surfaceHolds.set(id, (surfaceHolds.get(id) ?? 0) + 1);
+  return () => {
+    const left = (surfaceHolds.get(id) ?? 1) - 1;
+    if (left > 0) {
+      surfaceHolds.set(id, left);
+      return;
+    }
+    surfaceHolds.delete(id);
+    const metric = surfaceMetrics.get(id);
+    if (!metric || metric.stages.has('paint')) return;
+    surfaceMetrics.delete(id);
+    for (const barrier of activeSurfaceBarriers) resolveBarrierSurface(barrier, id);
+  };
+}
+
+let conversationPainted = false;
+const conversationPaintListeners = new Set<() => void>();
+
+/** Runs `listener` once the first conversation surface (the restored
+ *  transcript, or the New Task draft when the boot has none) has painted —
+ *  at once when it already has. Returns a cancel. */
+export function onFirstConversationPaint(listener: () => void): () => void {
+  if (conversationPainted) {
+    listener();
+    return () => {};
+  }
+  conversationPaintListeners.add(listener);
+  return () => {
+    conversationPaintListeners.delete(listener);
+  };
 }
 
 export function reportBootSurfaceReady(surface: string, rawKey: string, details = ''): void {
@@ -293,6 +342,9 @@ export function reportBootSurfaceReady(surface: string, rawKey: string, details 
 
 export function _resetBootMetricsForTest() {
   surfaceMetrics.clear();
+  surfaceHolds.clear();
+  conversationPainted = false;
+  conversationPaintListeners.clear();
   queuedBarrierRegistrations.clear();
   if (typeof window !== 'undefined' && window.__mixdogBootMetrics) {
     window.__mixdogBootMetrics.length = 0;

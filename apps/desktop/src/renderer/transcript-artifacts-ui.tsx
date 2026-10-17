@@ -11,6 +11,7 @@ import { t } from './i18n';
 import { fileSnapshot, usePersistedThumbnail } from './persisted-thumbnail';
 import { verifyLocalLink } from './local-link-resolver';
 import { MarkdownLink, MarkdownProjectContext, MarkdownSessionContext } from './MarkdownLink';
+import { useGeneratedMediaFallback } from './generated-media-fallback';
 import { fileDownloadBlockedReason, startFileDownload, useFileDownloadSupport } from './file-download-panel';
 import { fileDownloadReasonMessage } from './file-download-transfer';
 import { isRemoteHostRenderer } from './remote-ui-projection';
@@ -73,8 +74,11 @@ function MediaFigure({
   square,
   target,
   openDefault,
+  loadClip,
 }: {
   artifact: TranscriptArtifact;
+  /** Video without a media lane: reads the clip when the dialog opens. */
+  loadClip?: () => Promise<string>;
   original: string;
   preview: string;
   actions: ReactNode;
@@ -111,7 +115,9 @@ function MediaFigure({
   let source = '';
   if (!failed) source = video ? preview : preview || original;
   const thumbnail = source || kept || '';
-  const openable = Boolean(original) && (video || !failed);
+  const [clip, setClip] = useState('');
+  const playable = original || clip;
+  const openable = (Boolean(original) || (video && Boolean(loadClip))) && (video || !failed);
   const frame = mediaFrame(artifact.kind, size, artifact.aspect, square);
   const label = video ? artifact.name : t('Open image');
   return (
@@ -129,6 +135,7 @@ function MediaFigure({
         disabled={!openable}
         onClick={(event) => {
           if (!video) setLightbox({ items: lightboxItemsFor(event.currentTarget), startId: id });
+          if (video && !original && !clip && loadClip) loadClip().then(setClip, () => setFailed(true));
           setExpanded(true);
         }}
       >
@@ -183,8 +190,9 @@ function MediaFigure({
           >
             <X size={16} aria-hidden="true" />
           </button>
+          {artifact.assetId && isRemoteHostRenderer() && <MediaDownloadButton artifact={artifact} />}
           {/* biome-ignore lint/a11y/useMediaCaption: generated media carries no caption track to offer. */}
-          <video src={original} poster={preview || undefined} controls preload="none" playsInline />
+          {playable && <video src={playable} poster={preview || undefined} controls preload="none" playsInline />}
         </dialog>
       )}
       {expanded && !video && lightbox && (
@@ -235,11 +243,21 @@ function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; sq
       showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
     }
   };
+  const laneOriginal = mediaUrl(api, id, 'original');
+  const lanePreview = mediaUrl(api, id, artifact.kind === 'video' ? 'thumb' : 'display');
+  // No media lane on a paired device: the asset is read over RPC instead.
+  const fallback = useGeneratedMediaFallback(
+    api,
+    id,
+    artifact.kind === 'video' ? 'video' : 'image',
+    remote && !laneOriginal
+  );
   return (
     <MediaFigure
       artifact={artifact}
-      original={mediaUrl(api, id, 'original')}
-      preview={mediaUrl(api, id, artifact.kind === 'video' ? 'thumb' : 'display')}
+      original={laneOriginal || (artifact.kind === 'video' ? '' : fallback.still)}
+      preview={lanePreview || fallback.still}
+      loadClip={laneOriginal ? undefined : fallback.loadClip}
       square={square}
       openDefault={remote ? undefined : () => void open()}
       actions={
@@ -293,7 +311,7 @@ function LocalImageArtifact({ artifact, square }: { artifact: TranscriptArtifact
       preview={url}
       square={square}
       target={target}
-      openDefault={target ? () => void openProjectFileInDefaultApp(target) : undefined}
+      openDefault={target && !isRemoteHostRenderer() ? () => void openProjectFileInDefaultApp(target) : undefined}
       actions={
         <MarkdownLink className="icon-button" title={t('Open file')} href={href}>
           <MxIcon name="open-file" size={14} />

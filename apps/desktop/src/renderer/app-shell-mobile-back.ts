@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type MutableRefObject } from 'react';
 import type { DesktopUpdaterState } from '../shared/contract';
+import { drawerIntentOpen } from './drawer-intent';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { registerMobileBack, useMobileBack } from './mobile-back';
 import type { WorkbenchQuickAccessMode } from './workbench-overlays-loader';
@@ -53,7 +54,7 @@ export function useAppMobileBack({
   const applySidebarOpenRef = useRef(applySidebarOpen);
   applySidebarOpenRef.current = applySidebarOpen;
   useEffect(() => {
-    const onHome = () => applySidebarOpenRef.current(!sidebarOpen);
+    const onHome = () => applySidebarOpenRef.current(!drawerIntentOpen(sidebarOpen));
     window.addEventListener('mixdog:mobile-home', onHome);
     return () => window.removeEventListener('mixdog:mobile-home', onHome);
   }, [sidebarOpen]);

@@ -196,10 +196,8 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
 
   // Same eligibility as a user submit, run before a completion wake turn so a
   // cold cache after a long idle is compacted first. Never throws: a skipped or
-  // failed auto-clear must still let the wake run. A viewer mirroring another
-  // surface's owner leaves compaction to that owner.
+  // failed auto-clear must still let the wake run.
   async function autoClearBeforeWake() {
-    if (bag.liveShareMirroring?.() === true) return false;
     try {
       return await autoClearBeforeSubmit({ ignorePending: true });
     } catch {

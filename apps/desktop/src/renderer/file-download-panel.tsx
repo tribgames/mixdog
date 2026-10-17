@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Download, RotateCcw, Share2, X } from 'lucide-react';
-import { fileDownloadErrorReason, type FileDownloadSource } from '../shared/file-downloads';
+import { fileDownloadErrorReason, type FileDownloadSource, type FolderLeftOut } from '../shared/file-downloads';
 import {
   defaultFileDownloadEnvironment,
   FileDownloadCancelledError,
@@ -41,6 +41,8 @@ interface DownloadRow {
   remaining: number | null;
   /** Failure reason or completion note. */
   message: string;
+  /** What a folder zip left out; '' when nothing (or not a folder). */
+  leftOut: string;
   retryable: boolean;
   cancel(): void;
   retry(): void;
@@ -134,6 +136,9 @@ function FileDownloads({ downloads }: { downloads: DownloadRow[] }) {
             <span className="file-download-status" role={row.status === 'failed' ? 'alert' : undefined}>
               {statusText(row)}
             </span>
+            {row.leftOut && row.status !== 'running' && row.status !== 'failed' && (
+              <span className="file-download-note">{row.leftOut}</span>
+            )}
             {running && (
               <progress
                 aria-labelledby={nameId}
@@ -163,6 +168,24 @@ function render(): void {
   mount.root.render(<FileDownloads downloads={[...rows]} />);
 }
 
+/** The one line saying what a download left out (a folder zip's files, a long
+ *  document's later pages); '' when it left out nothing. */
+function leftOutText(leftOut: FolderLeftOut | undefined): string {
+  if (leftOut?.pages) {
+    return t('Included the first {{included}} of {{total}} pages', {
+      included: leftOut.pages.included.toLocaleString(),
+      total: leftOut.pages.total.toLocaleString(),
+    });
+  }
+  const ignored = leftOut?.ignored ?? 0;
+  const secret = leftOut?.secret ?? 0;
+  const counts = { ignored: ignored.toLocaleString(), secret: secret.toLocaleString() };
+  if (ignored && secret) return t('Left out {{ignored}} ignored files and {{secret}} secret files', counts);
+  if (ignored) return t('Left out {{ignored}} ignored files', counts);
+  if (secret) return t('Left out {{secret}} secret files', counts);
+  return '';
+}
+
 function doneMessage(outcome: FileDownloadOutcome): string {
   if (outcome.result === 'shared') return t('Shared');
   if (outcome.result === 'share-failed') return t('Saved to this device; sharing failed.');
@@ -174,7 +197,8 @@ function doneMessage(outcome: FileDownloadOutcome): string {
 /** Whether trying again can succeed without an update or another file. */
 function retryable(error: unknown): boolean {
   const reason = fileDownloadErrorReason(error);
-  if (reason) return !['not-linked', 'outside-project', 'too-large', 'host-too-old', 'not-a-file'].includes(reason);
+  if (reason)
+    return !['not-linked', 'outside-project', 'sensitive', 'too-large', 'host-too-old', 'not-a-file'].includes(reason);
   if (error instanceof FileSaveError) return !['no-sink', 'browser-too-large'].includes(error.reason);
   return true;
 }
@@ -195,14 +219,19 @@ export function startFileDownload(
   const done = (message: string) => {
     Object.assign(row, { status: 'done', message, shareAgain: undefined });
     render();
-    timer = setTimeout(remove, DONE_ROW_MS);
+    // A note about left-out files stays long enough to read.
+    timer = setTimeout(remove, row.leftOut ? DONE_ROW_MS * 3 : DONE_ROW_MS);
   };
   // The file lives only in the shell's staging: it stays until shared or
   // dismissed, never reported as saved.
-  const unsaved = (share: () => Promise<NativeShareResult>) => {
+  const unsaved = (
+    share: () => Promise<NativeShareResult>,
+    status: 'unsaved' | 'done' = 'unsaved',
+    message = t('Not saved yet — share it to keep it')
+  ) => {
     Object.assign(row, {
-      status: 'unsaved',
-      message: t('Not saved yet — share it to keep it'),
+      status,
+      message,
       shareAgain: () => {
         Object.assign(row, { status: 'running', phase: 'sharing', shareAgain: undefined });
         render();
@@ -215,7 +244,7 @@ export function startFileDownload(
               retryable: true,
             });
             render();
-          } else unsaved(share);
+          } else unsaved(share, status, message);
         });
       },
     });
@@ -231,6 +260,7 @@ export function startFileDownload(
     rate: null,
     remaining: null,
     message: '',
+    leftOut: '',
     retryable: false,
     cancel: noop,
     retry: noop,
@@ -247,6 +277,7 @@ export function startFileDownload(
       rate: null,
       remaining: null,
       message: '',
+      leftOut: '',
       shareAgain: undefined,
       cancel: () => controller.abort(),
     });
@@ -276,9 +307,16 @@ export function startFileDownload(
           return;
         }
         row.name = outcome.name || row.name;
+        row.leftOut = leftOutText(outcome.leftOut);
         const kept = outcome.result === 'shared' || outcome.result === 'saved-before-cancel';
         if (outcome.persisted === false && !kept && outcome.shareAgain) {
           unsaved(outcome.shareAgain);
+          return;
+        }
+        // A browser download the page assembled: the row keeps Save / Share
+        // for a fresh tap (a long read loses the activation a sheet needs).
+        if (outcome.destination === 'blob' && !kept && outcome.shareAgain) {
+          unsaved(outcome.shareAgain, 'done', doneMessage(outcome));
           return;
         }
         done(doneMessage(outcome));
@@ -288,7 +326,11 @@ export function startFileDownload(
           remove();
           return;
         }
-        Object.assign(row, { status: 'failed', message: fileDownloadFailureMessage(error), retryable: retryable(error) });
+        Object.assign(row, {
+          status: 'failed',
+          message: fileDownloadFailureMessage(error),
+          retryable: retryable(error),
+        });
         render();
       }
     );

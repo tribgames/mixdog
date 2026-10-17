@@ -82,7 +82,40 @@ export function buildAnswers(questions: Question[], drafts: QuestionDraft[]): Qu
 /** The runtime's cap on a chat reply to a question. */
 export const ASK_USER_REPLY_MAX_CHARS = 4000;
 
-type Submit<R> =(content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<R>;
+type Submit<R> = (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<R>;
+
+/** Plain text (no attachments, not a slash command, within the cap) is an answer. */
+export function isPlainAnswer(text: string, attached: boolean): boolean {
+  return Boolean(text) && text.length <= ASK_USER_REPLY_MAX_CHARS && !text.startsWith('/') && !attached;
+}
+
+/** The answer a queued follow-up stands for while a question waits, or null
+ *  when it carries attachments or is a slash command. */
+export function queuedPlainAnswer(entry: unknown): string | null {
+  const record = (entry ?? {}) as Record<string, unknown>;
+  const filled = (value: unknown) =>
+    Array.isArray(value) ? value.some(Boolean) : Boolean(value && Object.values(value as object).some(Boolean));
+  if (filled(record.images) || filled(record.pastedImages) || filled(record.pastedTexts)) return null;
+  const text = String(record.text ?? '').trim();
+  return isPlainAnswer(text, false) ? text : null;
+}
+
+/** "Steer now" on a queued follow-up while a question waits: the follow-up
+ *  leaves the queue and answers the question instead of interrupting the turn
+ *  (an interrupt would close the question unanswered). `answered` is false when
+ *  the answer was refused; the caller then returns `text` to the composer. */
+export async function steerQueuedAsAnswer(
+  restore: () => Promise<string | undefined>,
+  answerQuestion: (reply: string) => Promise<unknown>
+): Promise<{ text: string; answered: boolean }> {
+  const text = (await restore())?.trim() ?? '';
+  if (!text) return { text: '', answered: false };
+  try {
+    return { text, answered: (await answerQuestion(text)) === true };
+  } catch {
+    return { text, answered: false };
+  }
+}
 
 /** A message sent while a question waits. Plain text (no attachments, not a
  *  slash command) is the answer itself and is not sent again as a prompt;
@@ -98,7 +131,7 @@ export function questionAwareSubmit<R>(
       Object.keys(options?.pastedImages ?? {}).length > 0 || Object.keys(options?.pastedTexts ?? {}).length > 0;
     // A reply over the decision's 4000-character cap goes out whole as a
     // message instead of being cut short as an answer.
-    if (text && text.length <= ASK_USER_REPLY_MAX_CHARS && !text.startsWith('/') && !attached) {
+    if (isPlainAnswer(text, attached)) {
       return (await answerQuestion(text)) === true;
     }
     await dismissQuestion();

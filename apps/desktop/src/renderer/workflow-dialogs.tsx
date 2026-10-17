@@ -1,9 +1,9 @@
 import { X } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 
-import type { DesktopCapability, DesktopModelOption, DesktopModelSelection } from '../shared/contract';
+import type { DesktopCapability, DesktopModelOption } from '../shared/contract';
 import { t } from './i18n';
-import { ModelRouteEditor } from './ModelRouteEditor';
+import { RouteChainEditor, routeChainComplete } from './RouteChainEditor';
 import { record } from './record-utils';
 import { EditorDialogFooter, SidebarDialogLayer } from './sidebar-dialog';
 import { CompactSwitch } from './settings/capability-controls';
@@ -51,16 +51,16 @@ function RouteControls({
   route: RecordValue;
   models: DesktopModelOption[];
   disabled: boolean;
-  onChange(selection: DesktopModelSelection): void;
+  onChange(selection: RecordValue): void;
 }) {
   return (
     <div className="workflows-route-controls">
-      <ModelRouteEditor
-        ariaLabel={label}
+      <RouteChainEditor
+        label={label}
         models={models}
         disabled={disabled}
         composerParity={composerParity}
-        value={route as unknown as DesktopModelSelection}
+        route={route}
         onChange={onChange}
       />
     </div>
@@ -205,7 +205,7 @@ export function AgentEditorDialog({
   const [formError, setFormError] = useState('');
   // An agent is either off or pinned to a model: switching it on waits for
   // one, and an on agent with an empty model cannot be saved.
-  const needsModel = enabled && !(route.provider && route.model);
+  const needsModel = enabled && !routeChainComplete(route);
   return (
     <SidebarDialogLayer onClose={onCancel}>
       <section
@@ -280,8 +280,6 @@ export function AgentEditorDialog({
             />
           </label>
           <div className="schedules-field">
-            <span>{t('Model')}</span>
-            <small>{t('Model used when this agent runs.')}</small>
             <div className="workflows-dialog-route">
               <RouteControls
                 label={t('Agent model')}
@@ -292,9 +290,6 @@ export function AgentEditorDialog({
                 onChange={(selection) => setRoute(selection as unknown as RecordValue)}
               />
             </div>
-            {needsModel && (
-              <small className="workflows-route-required">{t('Pick a model to turn this agent on.')}</small>
-            )}
           </div>
           <label className="schedules-field workflows-md-field">
             <span>AGENT.md</span>
@@ -342,10 +337,10 @@ export function RouteEditorDialog({
   const [route, setRoute] = useState<RecordValue>(() => target.route);
   const [enabled, setEnabled] = useState(() => target.disabled !== true);
   const usageEditable = target.modelKind === 'agent';
-  const routeSet = Boolean(route.provider && route.model);
+  const routeSet = routeChainComplete(route);
   // Same rule as the agent editor: on means a model, so an empty one blocks
   // both the switch-on write and Save.
-  const needsModel = usageEditable && enabled && !routeSet;
+  const needsModel = (!usageEditable || enabled) && !routeSet;
   return (
     <SidebarDialogLayer onClose={onCancel}>
       <section
@@ -385,12 +380,10 @@ export function RouteEditorDialog({
           {target.readOnlyDefinition && (
             <div className="schedules-field">
               <span>{t('When to use')}</span>
-              <p className="workflows-route-usage">{target.description}</p>
+              <small>{target.description}</small>
             </div>
           )}
           <div className="schedules-field">
-            <span>{t('Model')}</span>
-            <small>{t('Model used when this built-in agent runs.')}</small>
             <div className="workflows-dialog-route">
               <RouteControls
                 label={t('{{name}} model', { name: target.label })}
@@ -401,9 +394,6 @@ export function RouteEditorDialog({
                 onChange={(selection) => setRoute(selection as unknown as RecordValue)}
               />
             </div>
-            {needsModel && (
-              <small className="workflows-route-required">{t('Pick a model to turn this agent on.')}</small>
-            )}
           </div>
           <EditorDialogFooter error={error} busy={busy} onCancel={onCancel} saveDisabled={needsModel} />
         </form>

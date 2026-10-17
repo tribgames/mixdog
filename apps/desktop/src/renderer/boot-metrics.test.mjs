@@ -7,6 +7,7 @@ import {
   desktopBootCoverTimeoutAllowed,
   createBootSurfaceBarrier,
   desktopBootPrerequisitesReady,
+  holdBootSurface,
   reportBootSurfaceStage,
 } from './boot-metrics.ts';
 import { startupRestoreCatalogPending } from './use-app-startup-restore.ts';
@@ -112,6 +113,48 @@ test('already-painted surfaces never register as pending on the next microtask',
   reportBootSurfaceStage('conversation', 'session-b', 'paint');
   await Promise.resolve();
 
+  assert.equal(barrier.getSnapshot().pending, 0);
+  barrier.dispose();
+});
+
+test('a held surface whose key is superseded before it paints stops blocking the boot cover', async () => {
+  _resetBootMetricsForTest();
+  const barrier = createBootSurfaceBarrier();
+  // A restored session's controls first render without a route, then re-key.
+  const releaseBlank = holdBootSurface('model-controls', 'none:none');
+  reportBootSurfaceStage('model-controls', 'none:none', 'data');
+  await Promise.resolve();
+  assert.equal(barrier.getSnapshot().pending, 1);
+
+  const releaseRoute = holdBootSurface('model-controls', 'provider:model');
+  releaseBlank();
+  await Promise.resolve();
+  // Only the live route's controls are still awaited.
+  assert.equal(barrier.getSnapshot().pending, 1);
+  reportBootSurfaceStage('model-controls', 'provider:model', 'paint');
+  assert.equal(barrier.getSnapshot().pending, 0);
+  releaseRoute();
+  barrier.dispose();
+});
+
+test('a surface still held by another mount keeps blocking until it paints', async () => {
+  _resetBootMetricsForTest();
+  const barrier = createBootSurfaceBarrier();
+  const releaseFirst = holdBootSurface('model-controls', 'none:none');
+  const releaseSecond = holdBootSurface('model-controls', 'none:none');
+  await Promise.resolve();
+  releaseFirst();
+  assert.equal(barrier.getSnapshot().pending, 1);
+  releaseSecond();
+  assert.equal(barrier.getSnapshot().pending, 0);
+  barrier.dispose();
+});
+
+test('a surface released before its registration runs never registers', async () => {
+  _resetBootMetricsForTest();
+  const barrier = createBootSurfaceBarrier();
+  holdBootSurface('model-controls', 'none:none')();
+  await Promise.resolve();
   assert.equal(barrier.getSnapshot().pending, 0);
   barrier.dispose();
 });

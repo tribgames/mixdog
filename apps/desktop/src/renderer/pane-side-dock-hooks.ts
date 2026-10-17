@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { flushSync } from 'react-dom';
 import { PANE_DOCK_CLOSE_EVENT } from './pane-dock-chrome';
 import { expandedDockRect } from './surface-slots';
 import { useResizeGesture } from './resize-gesture';
@@ -191,7 +192,9 @@ export function useDiffColumnResize({
   };
 }
 
-/** The dock measures its own pane cell while open. */
+/** The dock measures its own pane cell while open. A resize commits inside
+ *  the observer, before paint: the dock's width, overlay and diff stacking
+ *  follow a window drag in the frame that moved the cell, never one later. */
 export function useDockCellWidth(hostRef: RefObject<HTMLDivElement | null>, openNow: boolean): number {
   const [cellWidth, setCellWidth] = useState(0);
   useEffect(() => {
@@ -201,7 +204,7 @@ export function useDockCellWidth(hostRef: RefObject<HTMLDivElement | null>, open
     const measure = () => setCellWidth((current) => (current === cell.clientWidth ? current : cell.clientWidth));
     measure();
     if (typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => flushSync(measure));
     observer.observe(cell);
     return () => observer.disconnect();
   }, [hostRef, openNow]);

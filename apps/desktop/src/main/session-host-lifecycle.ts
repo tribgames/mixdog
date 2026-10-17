@@ -219,6 +219,23 @@ export class SessionHostLifecycle {
     }
   }
 
+  /** Explicit force-release of a shell job whose termination is unconfirmed,
+   *  through the runtime that holds its workspace admission. */
+  async releaseShellJob(sessionId: string, taskId: string): Promise<{ released: boolean; error?: string }> {
+    const id = sessionIdOf(sessionId);
+    try {
+      const { value } = await this.owner.invokeSession(id, 'releaseShellJob', [taskId]);
+      const result = (value && typeof value === 'object' ? value : {}) as { released?: unknown; error?: unknown };
+      if (result.released === true) return { released: true };
+      return {
+        released: false,
+        error: typeof result.error === 'string' && result.error ? result.error : 'The job was not released.',
+      };
+    } catch (error) {
+      return { released: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   async getQuotaAutoResume(): Promise<boolean> {
     return (await this.owner.invokeControl('getQuotaAutoResume', [])) === true;
   }
@@ -508,6 +525,7 @@ export class SessionHostLifecycle {
         ...(typeof draft.route.contextPercent === 'number' ? { contextPercent: draft.route.contextPercent } : {}),
         ...(typeof draft.route.contextTokens === 'number' ? { contextTokens: draft.route.contextTokens } : {}),
         applyToCurrentSession: true,
+        keepMainModel: false,
       },
     ]);
     const resolvedRoute =
@@ -562,24 +580,39 @@ export class SessionHostLifecycle {
       // this submission and the draft stays unsent. Runs on every attempt; the
       // submission id makes a resend reuse the same worktree.
       if (draft.worktree) {
-        const provisioned = await this.owner.invokeSession(sessionId, 'requestWorktree', [
-          {
-            provision: true,
-            // A new task starts its worktree at the current commit and never
-            // takes the project folder's uncommitted changes with it.
-            carryChanges: 'leave',
-            confirmLarge: draft.worktree.confirmLarge === true,
-            prompt: promptTitle(prompt, options.displayText || ''),
-            txId: submissionId,
-          },
-        ]);
+        const provisioned = draft.worktree.branch
+          ? await this.owner.invokeSession(sessionId, 'selectBranch', [
+              {
+                branch: draft.worktree.branch,
+                create: draft.worktree.create === true,
+                confirmLarge: draft.worktree.confirmLarge === true,
+              },
+            ])
+          : await this.owner.invokeSession(sessionId, 'requestWorktree', [
+              {
+                provision: true,
+                // A new task starts its worktree at the current commit and never
+                // takes the project folder's uncommitted changes with it.
+                carryChanges: 'leave',
+                confirmLarge: draft.worktree.confirmLarge === true,
+                prompt: promptTitle(prompt, options.displayText || ''),
+                txId: submissionId,
+              },
+            ]);
         // Only a bound session may receive the prompt. A runtime that merely
         // armed the lazy intent (pending) would run the turn in the project
         // folder, and a turn that then fails before provisioning (no model,
         // no provider) would drop the choice: refuse instead, so the draft
         // keeps its text and its "Worktree" choice.
-        const value = provisioned.value as { pending?: unknown; workspace?: { worktreeId?: unknown } } | null;
-        if (value?.pending !== false || typeof value.workspace?.worktreeId !== 'string') {
+        const value = provisioned.value as {
+          pending?: unknown;
+          workspace?: { worktreeId?: unknown; branch?: unknown };
+        } | null;
+        if (
+          draft.worktree.branch
+            ? value?.workspace?.branch !== draft.worktree.branch
+            : value?.pending !== false || typeof value.workspace?.worktreeId !== 'string'
+        ) {
           throw Object.assign(
             new Error('WORKTREE_NOT_IMPLEMENTED: The session did not enter its worktree before the first prompt.'),
             { code: 'WORKTREE_NOT_IMPLEMENTED' }
@@ -788,15 +821,13 @@ export class SessionHostLifecycle {
 
   async setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot> {
     const target = sessionId || (await this.owner.ensureControlSession());
-    const { value, snapshot } = await this.owner.invokeSession(target, 'setRoute', [
+    const { snapshot } = await this.owner.invokeSession(target, 'setRoute', [
       {
         ...selection,
         applyToCurrentSession: true,
+        keepMainModel: Boolean(sessionId),
       },
     ]);
-    if (value === false) {
-      throw new Error('Model change was not applied because another session command is running.');
-    }
     return snapshot;
   }
 

@@ -3,7 +3,8 @@ import { isAbsolute, resolve, sep } from 'node:path';
 
 export const MAX_SELECTED_FILE_GRANTS = 100;
 
-const comparablePath = (path: string): string => (process.platform === 'win32' ? path.toLocaleLowerCase() : path);
+export const comparablePath = (path: string): string =>
+  process.platform === 'win32' ? path.toLocaleLowerCase() : path;
 
 /** The deepest registered project that contains the file, or null when it
  *  lies outside every project (such a file needs a one-off grant). */

@@ -58,6 +58,8 @@ const NOTIFICATION_CLICK_ENTRY = '/__mixdog-app__/notification-click';
 // biome-ignore lint/correctness/noUnusedVariables: read by sw-test-harness.mjs and push-notification-click.test.mjs as a worker global.
 const NOTIFICATION_CLICK_TTL_MS = 10 * 60 * 1000;
 const OPEN_SESSION_MESSAGE = 'mixdog:open-session';
+// Mirrors push-notification-bridge.ts PUSH_SUBSCRIPTION_CHANGED_MESSAGE.
+const PUSH_SUBSCRIPTION_CHANGED_MESSAGE = 'mixdog:push-subscription-changed';
 
 // The one sentence this worker composes itself. Everything else in a
 // notification is the session's own text. The DEVICE showing it owns the
@@ -461,14 +463,25 @@ self.addEventListener('push', (event) => {
 });
 
 // The browser may expire or rotate a subscription on its own. Renew it with
-// the same sender key; the app hands the current endpoint to the desktop on
-// its next launch (push-notification-bridge.ts syncPushSubscription).
+// the same sender key. A worker holds no pairing credential, so the new
+// endpoint is published by the open app windows, which are told to restate
+// their subscription at once (push-notification-bridge.ts
+// syncPushSubscription); a closed app does so on its next launch.
 self.addEventListener('pushsubscriptionchange', (event) => {
-  if (event.newSubscription) return;
-  const applicationServerKey = event.oldSubscription?.options?.applicationServerKey;
-  if (!applicationServerKey) return;
   event.waitUntil(
-    self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey }).catch(() => undefined)
+    (async () => {
+      if (!event.newSubscription) {
+        const applicationServerKey = event.oldSubscription?.options?.applicationServerKey;
+        if (!applicationServerKey) return;
+        try {
+          await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+        } catch {
+          return;
+        }
+      }
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of windows) client.postMessage({ type: PUSH_SUBSCRIPTION_CHANGED_MESSAGE });
+    })()
   );
 });
 

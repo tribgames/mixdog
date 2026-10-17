@@ -141,6 +141,7 @@ export function Conversation(props: ConversationProps) {
         viewerDevice={approvals.viewerDevice}
         renderRow={renderTranscriptRow}
         itemCount={itemCount}
+        cover={props.transcriptCover}
       />
       {/* The dock is the column's in-flow sibling below the viewport: its
           height changes resize the viewport, never the virtual geometry. */}

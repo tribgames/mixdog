@@ -28,8 +28,10 @@ interface ShellJobsPollerOptions {
    *  has to import an Electron ASAR path. Loaded lazily on the first poll. */
   loadModule: () => Promise<StatuslineSegmentsModule>;
   /** Called only when the status actually changed, carrying the sessions whose
-   *  OWN bucket moved so their panes can be republished individually. */
-  onChange(changedSessionIds: readonly string[]): void;
+   *  OWN bucket moved so their panes can be republished individually.
+   *  `everySession` is set when the orphaned held shells moved: any pane whose
+   *  folder sees one must repaint. */
+  onChange(changedSessionIds: readonly string[], everySession: boolean): void;
 }
 
 function normalizedJobs(value: unknown, finished = false): DesktopShellJobRow[] {
@@ -45,7 +47,7 @@ function normalizedJobs(value: unknown, finished = false): DesktopShellJobRow[] 
       cwd: String(row.cwd || '').trim(),
       startedAt: typeof row.startedAt === 'number' || typeof row.startedAt === 'string' ? row.startedAt : null,
     };
-    if (!finished) return [base];
+    if (!finished) return [row.terminationUnconfirmed === true ? { ...base, terminationUnconfirmed: true } : base];
     return [
       {
         ...base,
@@ -117,6 +119,9 @@ export function createShellJobsPoller({ getEngineState, loadModule, onChange }: 
   // Per-session buckets: one host process owns every pooled pane's jobs, so
   // the aggregate alone cannot say whose shell is running.
   let sessions: ReadonlyMap<string, ShellJobsStatus> = new Map();
+  // Held shells of closed sessions, shown to every session that sees them.
+  let orphaned: readonly DesktopShellJobRow[] = [];
+  let loadedModule: StatuslineSegmentsModule | null = null;
   let modulePromise: Promise<StatuslineSegmentsModule> | null = null;
   let running = false;
   let inFlight = false;
@@ -151,7 +156,7 @@ export function createShellJobsPoller({ getEngineState, loadModule, onChange }: 
 
   function currentOwnerPid(): number {
     const state = getEngineState();
-    return Number(state?.ownerClientHostPid || state?.clientHostPid) || 0;
+    return Number(state?.clientHostPid) || 0;
   }
 
   function loadOnce(): Promise<StatuslineSegmentsModule> {
@@ -167,8 +172,6 @@ export function createShellJobsPoller({ getEngineState, loadModule, onChange }: 
   }
 
   async function poll(): Promise<void> {
-    // Attached-viewer sessions mirror the OWNER's pid (live-share frames): the
-    // registry's jobs belong to that process, not this one.
     const ownerPid = currentOwnerPid();
     if (!ownerPid) {
       schedule();
@@ -194,13 +197,17 @@ export function createShellJobsPoller({ getEngineState, loadModule, onChange }: 
         rerun = true;
         return;
       }
+      loadedModule = module;
       const next = normalizedStatus(value);
       const nextSessions = normalizedSessions(value?.sessions);
+      const nextOrphaned = normalizedJobs(value?.orphaned);
       const moved = movedSessionIds(sessions, nextSessions);
-      if (!shellJobsStatusEqual(status, next) || moved.length > 0) {
+      const orphanedMoved = !shellJobsStatusEqual({ jobs: orphaned }, { jobs: nextOrphaned });
+      if (!shellJobsStatusEqual(status, next) || moved.length > 0 || orphanedMoved) {
         status = next;
         sessions = nextSessions;
-        onChange(moved);
+        orphaned = nextOrphaned;
+        onChange(moved, orphanedMoved);
       }
     } catch {
       // The strip is optional: engine activity stays publishable when the
@@ -222,10 +229,17 @@ export function createShellJobsPoller({ getEngineState, loadModule, onChange }: 
     get status(): ShellJobsStatus {
       return status;
     },
-    /** One session's own jobs. A blank id (New task pane) owns nothing. */
-    statusFor(sessionId: string): ShellJobsStatus {
+    /** One session's own jobs, plus the held shells of closed sessions that
+     *  its folder (`sessionCwd`) sees. A blank id (New task pane) owns nothing. */
+    statusFor(sessionId: string, sessionCwd = ''): ShellJobsStatus {
       const id = String(sessionId || '').trim();
-      return (id ? sessions.get(id) : undefined) ?? EMPTY_STATUS;
+      const own = (id ? sessions.get(id) : undefined) ?? EMPTY_STATUS;
+      const visibleFrom = loadedModule?.shellJobVisibleFrom;
+      if (!id || !sessionCwd || !visibleFrom || orphaned.length === 0) return own;
+      const extra = orphaned.filter(
+        (job) => !own.jobs.some((row) => row.taskId === job.taskId) && visibleFrom(job, sessionCwd)
+      );
+      return extra.length ? { ...own, jobs: [...own.jobs, ...extra] } : own;
     },
     start(): void {
       this.stop();

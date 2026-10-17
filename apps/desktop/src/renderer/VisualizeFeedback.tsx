@@ -53,9 +53,11 @@ import {
   visualizeFeedbackPageMessage,
 } from '../shared/visualize-feedback';
 import { tweakOps } from '../shared/visualize-tweaks';
+import { showDesktopToast } from './desktop-toasts';
 import { t } from './i18n';
 import { loadImage } from './load-image';
 import { takeVisualizeElementPin, useVisualizeElementPinPending } from './visualize-elements-store';
+import { openVisualizePageLink } from './visualize-store';
 import {
   beginVisualizeCapture,
   consumeVisualizeChoiceGesture,
@@ -494,6 +496,8 @@ export function useVisualizeFeedbackBridge({
         if (defs && 'error' in defs) postToPage(frame, { type: 'tweaks-problem', reason: defs.error });
       } else if (message.type === 'exit-comment') {
         if (live.current.comment) live.current.setComment(false);
+      } else if (message.type === 'link') {
+        if (!live.current.comment) openVisualizePageLink(session, message.url, message.external);
       } else if (message.type === 'choice') {
         // Comment mode covers the pane: no page click can be a choice then.
         if (live.current.comment) return;
@@ -596,40 +600,26 @@ export function useVisualizeFeedbackBridge({
   }, [body, comment]);
 }
 
-/** The strip under the toolbar while Comment mode is on: what the shown
- *  panes accept, the pin count, and the way out. */
-export function VisualizeCommentHints({
-  sessionId,
-  kinds,
-  onEnd,
-}: {
-  sessionId: string;
-  kinds: readonly string[];
-  onEnd(): void;
-}) {
-  const value = useVisualizeFeedback(sessionId);
-  return (
-    <div className="visualize-comment-hint" role="status" aria-label={t('Comment mode')}>
-      <span className="visualize-comment-hint-dot" aria-hidden="true" />
-      <span className="visualize-comment-hint-actions">
-        {visualizeCommentHints(kinds).map((hint) => (
-          <span key={hint.id}>
-            {hint.keys?.map((key) => (
-              <kbd key={key}>{key}</kbd>
-            ))}
-            {hint.keys ? ' ' : null}
-            {t(hint.text)}
-          </span>
-        ))}
-      </span>
-      <span className="visualize-comment-hint-count">
-        {t('Pins {{n}}/{{max}}', { n: value.pins.length, max: MAX_VISUALIZE_PINS })}
-      </span>
-      <button type="button" onClick={onEnd}>
-        <kbd>Esc</kbd> {t('End comments')}
-      </button>
-    </div>
+export const VISUALIZE_COMMENT_HINT_SEEN_KEY = 'mixdog:visualize-comment-hint-seen';
+
+/** What Comment mode accepts for these pane kinds, and the way out, as one line. */
+export function visualizeCommentHintText(kinds: readonly string[]): string {
+  const actions = visualizeCommentHints(kinds).map((hint) =>
+    [hint.keys?.join(''), t(hint.text)].filter(Boolean).join(' ')
   );
+  return [...actions, `Esc ${t('End comments')}`].join(' · ');
+}
+
+/** The mode explains itself once (a toast, never a bar under the toolbar);
+ *  after that the Comment button's pressed state is the only sign. */
+export function announceVisualizeCommentMode(kinds: readonly string[]): void {
+  try {
+    if (window.localStorage.getItem(VISUALIZE_COMMENT_HINT_SEEN_KEY)) return;
+    window.localStorage.setItem(VISUALIZE_COMMENT_HINT_SEEN_KEY, '1');
+  } catch {
+    // Storage unavailable: the hint shows each time.
+  }
+  showDesktopToast(visualizeCommentHintText(kinds), 'info', { scope: 'visualize-comment' });
 }
 
 const fractionStyle = (rect: VisualizeFeedbackRect) => ({

@@ -1,4 +1,17 @@
 import { useEffect, useLayoutEffect } from 'react';
+import { isRemoteHostRenderer } from './remote-ui-projection';
+
+/** Until startup settles, an EMPTY set is the boot's provisional New Task
+ *  frame, not a view: the relay client already named the restored session
+ *  when it connected, and clearing it first made the host drop that head
+ *  start and re-synchronize the whole view moments later. */
+function provisionalBootFrame(sessionIds: readonly string[]): boolean {
+  return (
+    sessionIds.length === 0 &&
+    isRemoteHostRenderer() &&
+    !(window as { __mixdogStartupSettled?: boolean }).__mixdogStartupSettled
+  );
+}
 
 /** Register the current pane without waiting for an older pane's transcript.
  * Desktop transport versions fence out-of-order requests; the remote shim
@@ -33,6 +46,16 @@ export function useVisibleSessions(sessionIds: string[]): void {
         void run();
       }, delay);
     };
+    if (provisionalBootFrame(sessionIds)) {
+      // Still empty once startup settles (a New Task boot): register it then.
+      const settled = () => void run();
+      window.addEventListener('mixdog:startup-settled', settled, { once: true });
+      return () => {
+        cancelled = true;
+        window.removeEventListener('mixdog:startup-settled', settled);
+        window.clearTimeout(timer);
+      };
+    }
     void run();
     return () => {
       cancelled = true;

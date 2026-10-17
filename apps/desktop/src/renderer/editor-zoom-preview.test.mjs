@@ -456,11 +456,6 @@ test('keyboard steps 25% and Ctrl+0 returns to fit; Ctrl+wheel zooms exponential
     assert.equal(percentOf(host), '50%');
     await key('0');
     assert.equal(percentOf(host), '56%');
-    assert.equal(
-      host.querySelector('.editor-zoom-frame').querySelector('.browser-zoom-pill').classList.contains('is-hidden'),
-      false,
-      'keyboard zoom reveals the pill'
-    );
 
     const scroller = host.querySelector('.editor-pane-document');
     const wheel = new window.WheelEvent('wheel', { deltaY: -40, ctrlKey: true, bubbles: true, cancelable: true });
@@ -478,44 +473,62 @@ test('keyboard steps 25% and Ctrl+0 returns to fit; Ctrl+wheel zooms exponential
   }
 });
 
-test('the pill is hidden until the pointer nears the bottom, then hides 0.4s after leaving', async (t) => {
+test('the pill is always shown, with no hover-only reveal', async () => {
   forgetZoomMemory();
   setViewport(524);
-  mock.timers.enable({ apis: ['setTimeout'] });
-  t.after(() => mock.timers.reset());
   const { host, root } = await render(documentWith());
   try {
-    const hidden = () => host.querySelector('.browser-zoom-pill').classList.contains('is-hidden');
     const frame = host.querySelector('.editor-zoom-frame');
-    assert.equal(hidden(), true, 'hidden by default');
-    // jsdom boxes are all zero: y = 0 is inside the bottom 72px, y = -200 is far above it.
-    await act(async () => frame.dispatchEvent(pointer('pointermove', { clientY: 0 })));
-    assert.equal(hidden(), false);
+    assert.ok(pillOf(host), 'shown before any pointer movement');
+    assert.equal(pillOf(host).classList.contains('is-hidden'), false);
     await act(async () => frame.dispatchEvent(pointer('pointermove', { clientY: -200 })));
-    await act(async () => mock.timers.tick(399));
-    assert.equal(hidden(), false, 'still shown inside the 0.4s grace');
-    await act(async () => mock.timers.tick(2));
-    assert.equal(hidden(), true);
-
-    const scroller = host.querySelector('.editor-pane-document');
-    await act(async () =>
-      scroller.dispatchEvent(
-        new window.WheelEvent('wheel', { deltaY: -10, ctrlKey: true, bubbles: true, cancelable: true })
-      )
-    );
-    assert.equal(hidden(), false, 'Ctrl+wheel reveals it');
-    await act(async () => mock.timers.tick(401));
-    assert.equal(hidden(), true);
-
-    // Hover keeps it up; leaving starts the countdown.
-    await act(async () => frame.dispatchEvent(pointer('pointermove', { clientY: 0 })));
-    const pill = host.querySelector('.browser-zoom-pill');
-    await act(async () => pill.dispatchEvent(pointer('pointerover')));
-    await act(async () => frame.dispatchEvent(pointer('pointermove', { clientY: -200 })));
-    await act(async () => mock.timers.tick(1000));
-    assert.equal(hidden(), false, 'a hovered pill stays visible');
+    await act(async () => frame.dispatchEvent(pointer('pointerleave')));
+    assert.ok(pillOf(host), 'still shown with the pointer away');
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+test('the shared zoom-bar toggle hides every preview pill; keyboard and wheel zoom still work', async () => {
+  forgetZoomMemory();
+  setViewport(524);
+  const { readZoomBarVisible, setZoomBarVisible, zoomBarAction, ZOOM_BAR_STORAGE_KEY } = await import(
+    './zoom-bar-pref.ts'
+  );
+  assert.equal(ZOOM_BAR_STORAGE_KEY, 'mixdog:zoom-bar-visible');
+  assert.equal(readZoomBarVisible(), true, 'on by default');
+  const documents = await render(documentWith());
+  const images = await render(surface('image', true));
+  try {
+    assert.ok(pillOf(documents.host) && pillOf(images.host));
+    // The ⋯ item flips the preference for every mounted panel at once.
+    const item = zoomBarAction();
+    assert.equal(item.label, 'Zoom bar');
+    assert.equal(item.checkbox, true);
+    assert.equal(item.checked, true);
+    await act(async () => item.onSelect());
+    assert.equal(readZoomBarVisible(), false);
+    assert.equal(window.localStorage.getItem(ZOOM_BAR_STORAGE_KEY), 'false');
+    assert.equal(pillOf(documents.host), null);
+    assert.equal(pillOf(images.host), null);
+    assert.equal(zoomBarAction().checked, false);
+
+    // Zoom keys keep working without the pill.
+    documents.host.querySelector('.editor-zoom-frame').focus();
+    await act(async () =>
+      document.dispatchEvent(
+        new window.KeyboardEvent('keydown', { key: '=', ctrlKey: true, bubbles: true, cancelable: true })
+      )
+    );
+    assert.equal(documents.host.querySelector('.editor-pane-document').dataset.zoomMode, 'fixed');
+
+    await act(async () => zoomBarAction().onSelect());
+    assert.equal(readZoomBarVisible(), true);
+    assert.ok(pillOf(documents.host) && pillOf(images.host));
+  } finally {
+    setZoomBarVisible(true);
+    await act(async () => documents.root.unmount());
+    await act(async () => images.root.unmount());
   }
 });
 

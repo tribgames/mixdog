@@ -1,5 +1,5 @@
 import { ChevronDown, FileDiff, MoreHorizontal } from 'lucide-react';
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { t, uiFormatLocale } from './i18n';
 import { isSshConnectionWindow } from './desktop-connection';
 import { downloadAndOpenServerFile, revealFileFromWindow } from './server-transfers';
@@ -11,6 +11,7 @@ import { DiffView } from './lazy-widgets';
 import { ProgressSpinner } from './ProgressSpinner';
 import { parseUnifiedDiff } from './renderer-logic.mjs';
 import { isRemoteHostRenderer } from './remote-ui-projection';
+import { DownloadSessionContext, startProjectFileDownload } from './project-file-download';
 import { copyTextToClipboard } from './text-format';
 import { createGitRefreshScheduler, type GitRefreshReason } from './git-refresh-scheduler';
 import { subscribeProjectFileChanges } from './project-file-changes';
@@ -123,6 +124,7 @@ export function GitFileDiff({
   );
 }
 export function ReviewPane({ cwd }: { cwd: string | null }) {
+  const sessionId = useContext(DownloadSessionContext);
   const [status, setStatus] = useState<GitPanelStatus | null>(null);
   const [review, setReview] = useState<GitReviewInfo | null>(null);
   const [readError, setReadError] = useState('');
@@ -483,7 +485,18 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
       </div>
       {menu && (
         <div className="review-context-menu" role="menu" style={{ left: menu.x, top: menu.y }}>
-          {!isRemoteHostRenderer() && (
+          {isRemoteHostRenderer() ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null);
+                void startProjectFileDownload(sessionId, menu.file.path);
+              }}
+            >
+              {t('Download / Share')}
+            </button>
+          ) : (
             <>
               <button
                 type="button"

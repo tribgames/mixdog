@@ -24,7 +24,10 @@ import { redactBrowserText } from './redaction';
 type CdpParams = Record<string, unknown>;
 type GuestRecord = ReturnType<BrowserGuestStateStore['for']>;
 
-interface BrowserCdpEventRouterHost extends RequestPauseHost, TargetAttachHost {}
+interface BrowserCdpEventRouterHost extends RequestPauseHost, TargetAttachHost {
+  /** The page's top-level document committed (see cdp-session-init). */
+  onTopDocument?(guest: WebContents, cdp: Electron.Debugger): void;
+}
 
 interface EventContext {
   guest: WebContents;
@@ -62,6 +65,17 @@ const NETWORK_LEDGER_ROUTES: Record<string, LedgerRoute> = {
     ),
 };
 
+/** False for a console or log entry a re-enabled domain replays although
+ *  it was recorded already; otherwise records it as the newest one seen. */
+function freshEntry(diagnostics: GuestRecord, key: string, timestamp: unknown): boolean {
+  if (typeof timestamp !== 'number') return true;
+  const { seen, floor } = diagnostics.consoleReplay;
+  const replayedUpTo = floor.get(key);
+  if (replayedUpTo !== undefined && timestamp <= replayedUpTo) return false;
+  if (timestamp > (seen.get(key) ?? Number.NEGATIVE_INFINITY)) seen.set(key, timestamp);
+  return true;
+}
+
 export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
   const { state } = host;
   const markCrashed: Route = ({ guest }) => state.markCrashed(guest, 'page target crashed');
@@ -93,6 +107,10 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     // Only the native dialog of the closing session: a bridged one is
     // answered through its held request, never by this event.
     'Page.javascriptDialogClosed': ({ guest, sessionId }) => state.nativeDialogClosed(guest, sessionId),
+    'Page.frameNavigated': ({ guest, cdp, params, sessionId }) => {
+      const frame = params.frame as { parentId?: string } | undefined;
+      if (!sessionId && frame && !frame.parentId) host.onTopDocument?.(guest, cdp);
+    },
     'Page.fileChooserOpened': ({ diagnostics, params, sessionId }) => {
       const backendNodeId = Number(params.backendNodeId);
       diagnostics.pendingFileChooser = {
@@ -108,10 +126,15 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     'Runtime.executionContextDestroyed': ({ guest, params, sessionId }) =>
       onExecutionContextDestroyed(state, guest, params, sessionId),
     'Runtime.executionContextsCleared': ({ guest, sessionId }) => onExecutionContextsCleared(state, guest, sessionId),
-    'Runtime.exceptionThrown': ({ guest, params, sessionId }) => onExceptionThrown(state, guest, params, sessionId),
+    'Runtime.exceptionThrown': ({ guest, params, sessionId, diagnostics }) => {
+      if (freshEntry(diagnostics, `${sessionId ?? ''}|runtime`, params.timestamp)) {
+        onExceptionThrown(state, guest, params, sessionId);
+      }
+    },
     // The bridge reports a dialog that never reached the host through the
     // console; that call is the host's notice, not something the page logged.
-    'Runtime.consoleAPICalled': ({ guest, params, sessionId }) => {
+    'Runtime.consoleAPICalled': ({ guest, params, sessionId, diagnostics }) => {
+      if (!freshEntry(diagnostics, `${sessionId ?? ''}|runtime`, params.timestamp)) return;
       const dismissed = parseDialogBridgeNotice(params);
       if (dismissed) {
         state.noteDismissedDialog(
@@ -121,7 +144,10 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
         );
       } else onConsoleApiCalled(state, guest, params, sessionId);
     },
-    'Log.entryAdded': ({ guest, params }) => onLogEntryAdded(state, guest, params),
+    'Log.entryAdded': ({ guest, params, sessionId, diagnostics }) => {
+      const entry = params.entry as { timestamp?: unknown } | undefined;
+      if (freshEntry(diagnostics, `${sessionId ?? ''}|log`, entry?.timestamp)) onLogEntryAdded(state, guest, params);
+    },
     'Network.loadingFailed': ({ guest, params, sessionId }) => onLoadingFailed(state, guest, params, sessionId),
     'Tracing.dataCollected': ({ diagnostics, params }) => {
       diagnostics.performanceTrace?.trace.add(params.value);

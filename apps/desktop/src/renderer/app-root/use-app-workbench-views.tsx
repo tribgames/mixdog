@@ -7,9 +7,13 @@ import type { usePaneWorkspace } from '../pane-workspace-state';
 import { DEFAULT_SIDEBAR_VIEW_ORDER } from '../sidebar-view-layout';
 import type { SidebarPanelKey } from '../app-shell-components';
 import { requestPaneDockClose } from '../pane-dock-chrome';
-import { SessionDiffPane } from '../SessionDiffPane';
-import { VisualizePane } from '../VisualizePane';
-import { ServerPortsPanel } from '../ServerPortsPanel';
+import { PhoneDeferredMount } from '../phone-deferred-mount';
+import type { SessionDiffPane as SessionDiffPaneComponent } from '../SessionDiffPane';
+import type { ServerPortsPanel as ServerPortsPanelComponent } from '../ServerPortsPanel';
+import { useDeferredModule } from '../deferred-module';
+import { serverPortsPanelModule, sessionDiffPaneModule, visualizePaneModule } from '../first-screen-deferred';
+import type { VisualizePane as VisualizePaneComponent } from '../VisualizePane';
+import { DesktopLoadingSurface } from '../RendererRecovery';
 import { prefetchDiffView } from '../lazy-widgets';
 import { SnapshotUtilityDock } from '../app-snapshot-views';
 import type { DesktopSnapshotStore } from '../desktop-snapshot-store';
@@ -40,6 +44,36 @@ import { resolveLocalLink } from '../local-link-resolver';
 import { isAbsolutePath } from '../session-diff-model';
 import { sideFileKey } from '../side-file-tabs';
 import { closingDrawerFirst } from './drawer-navigation';
+
+// The Visualize panel is never part of the first screen, and its source view
+// statically pulls the whole highlight.js core and language set: kept out of
+// the startup graph, a phone cold open neither downloads nor evaluates it.
+// Rendered synchronously once loaded (the phone's lane): a React.lazy suspends
+// its first render even with the chunk in, behind a throttled reveal.
+function VisualizePane(props: React.ComponentProps<typeof VisualizePaneComponent>) {
+  const module = useDeferredModule(visualizePaneModule);
+  return module ? <module.VisualizePane {...props} /> : null;
+}
+
+// The Changes and Ports views are side views no first screen shows: their
+// chunks load on first mount (or from the idle lane), behind the shared
+// delayed loading surface, which a warm or local load never shows.
+function SessionDiffPane(props: React.ComponentProps<typeof SessionDiffPaneComponent>) {
+  const module = useDeferredModule(sessionDiffPaneModule, { bootSurface: props.active ? 'session-diff' : undefined });
+  const loading = <DesktopLoadingSurface label={t('Loading view…')} />;
+  return module ? (
+    <PhoneDeferredMount placeholder={loading}>
+      <module.SessionDiffPane {...props} />
+    </PhoneDeferredMount>
+  ) : (
+    loading
+  );
+}
+
+function ServerPortsPanel(props: React.ComponentProps<typeof ServerPortsPanelComponent>) {
+  const module = useDeferredModule(serverPortsPanelModule, { bootSurface: props.active ? 'server-ports' : undefined });
+  return module ? <module.ServerPortsPanel {...props} /> : <DesktopLoadingSurface label={t('Loading view…')} />;
+}
 
 export interface UseAppWorkbenchViewsOptions {
   sessions: ReturnType<typeof useSessionCatalog>['sessions'];
@@ -287,7 +321,9 @@ export function useAppWorkbenchViews({
     if (id === 'visualize') {
       if (!pane) return null;
       return (
-        <VisualizePane sessionId={pane.sessionId} active={active} onClose={() => requestPaneDockClose('visualize')} />
+        <PhoneDeferredMount>
+          <VisualizePane sessionId={pane.sessionId} active={active} onClose={() => requestPaneDockClose('visualize')} />
+        </PhoneDeferredMount>
       );
     }
     // Session-owned surfaces render in the pane dock's persistent stack.

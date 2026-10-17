@@ -177,6 +177,8 @@ const requests = new Map<string, Promise<boolean>>();
 const entryListeners = new Set<() => void>();
 /** A cwd inside a repository resolves to its root once a read named it. */
 const cwdRoots = new Map<string, string>();
+/** Per session: the cwd its latest session-source read was started for. */
+const sessionReadCwds = new Map<string, string>();
 
 function changesKey({ cwd, source, sessionId }: ChangesTarget): string {
   if (source === 'last-turn') return `last-turn\0${sessionId}`;
@@ -317,7 +319,13 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
   if (source === 'session') {
     // The session's net change: its earliest baseline against the worktree,
     // scoped to the files it touched (getSessionReviewDiff).
-    const [dock, result] = await Promise.all([dockState, fetchSessionDiff(sessionId, { force: true })]);
+    // Every scheduler pass re-reads, but it is a re-check, not a change
+    // signal: a read already running (the Session Diff pane's) answers it.
+    // A read begun for another workspace of the session is never joined: it
+    // queues a follow-up instead, which starts after the switch.
+    const join = sessionReadCwds.get(sessionId) === cwd;
+    sessionReadCwds.set(sessionId, cwd);
+    const [dock, result] = await Promise.all([dockState, fetchSessionDiff(sessionId, { force: true, join })]);
     if (dock.error) throw new Error(dock.error);
     if (!dock.status?.repository) return NO_REPOSITORY;
     const rows = buildSessionDiffRows(result);

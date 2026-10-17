@@ -14,6 +14,7 @@ test('goal time mode matches the dialog fields and opens above the modal layer',
         import { createRoot } from 'react-dom/client';
         import { ComposerGoalDialog } from './ComposerGoalDialog';
         import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
+        import './font-faces.css';
         import './ui/tokens.css';
         import './desktop.css';
         const host = document.getElementById('root');

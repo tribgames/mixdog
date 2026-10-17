@@ -1,12 +1,22 @@
 import { WifiOff } from 'lucide-react';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 
 import { t } from './i18n';
 import {
+  currentRemoteConnectionLabel,
   currentRemoteConnectionState,
   REMOTE_WAKE_EVENT,
+  subscribeRemoteConnectionLabel,
   subscribeRemoteConnectionState,
+  type RemoteConnectionLabel,
 } from './remote-connection-state';
+
+function labelText(label: RemoteConnectionLabel): string {
+  if (label === 'no-internet') return t('No internet');
+  if (label === 'pc-offline') return t('PC offline or asleep');
+  if (label === 'updating') return t('Updating messages…');
+  return t('Reconnecting…');
+}
 
 // Every foreground return costs a short reconnect gap (socket recycle, relay
 // dial, E2EE handshake). That blip is NOT an outage and gets NO surface at all
@@ -21,6 +31,12 @@ const RECOVERED_AFTER_MS = 3_000;
 
 export function RemoteConnectionBanner({ boot = false }: { boot?: boolean } = {}) {
   const state = useSyncExternalStore(subscribeRemoteConnectionState, currentRemoteConnectionState, () => null);
+  const label = useSyncExternalStore(
+    subscribeRemoteConnectionLabel,
+    currentRemoteConnectionLabel,
+    (): RemoteConnectionLabel => 'reconnecting'
+  );
+  const labelId = useId();
   const waiting = state === 'reconnecting' || state === 'syncing' || (boot && state === 'connecting');
   let recovery: 'cleared' | 'connected' | 'lost' = 'lost';
   if (state === null) recovery = 'cleared';
@@ -74,15 +90,25 @@ export function RemoteConnectionBanner({ boot = false }: { boot?: boolean } = {}
   }, [overlay, recovery]);
   if (recovery === 'cleared' || !(overlay === 'shown' || (overlay === 'due' && recovery === 'lost'))) return null;
 
-  // A tap retries instead of waiting out the backoff.
+  // The card only informs: reconnection never waits for the user. A tap is a
+  // silent shortcut that retries now instead of waiting out the backoff.
   return (
     <button
       type="button"
       className="remote-connection-overlay"
       aria-label={t('Retry')}
+      aria-describedby={labelId}
+      data-reason={label}
       onClick={() => window.dispatchEvent(new Event(REMOTE_WAKE_EVENT))}
     >
-      <WifiOff aria-hidden="true" />
+      <span className="remote-connection-overlay-card">
+        <WifiOff aria-hidden="true" />
+        <span id={labelId} className="remote-connection-overlay-label">
+          {labelText(label)}
+        </span>
+        {/* The reconnecting label already says it; the hint would repeat it. */}
+        {label !== 'reconnecting' && <span className="remote-connection-overlay-hint">{t('Reconnecting…')}</span>}
+      </span>
     </button>
   );
 }

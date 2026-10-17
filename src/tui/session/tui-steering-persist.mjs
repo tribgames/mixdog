@@ -99,11 +99,9 @@ function normalizePendingStore(raw) {
       // FOREIGN bucket. This file is SHARED with the runtime/manager pending
       // -message spool, and every TUI write passes the whole store through
       // here. Flattening those rows to plain strings destroyed id,
-      // enqueuedAt, options, structured content, the notification markers —
-      // and the handoffAt/handoffPid parking stamp that is the only reason an
-      // accepted-but-undelivered user message survives an owner crash. Rows
-      // this process does not own are copied through UNCHANGED (array copy
-      // only, so nothing here can alias-mutate them either).
+      // enqueuedAt, options, structured content and the notification markers.
+      // Rows this process does not own are copied through UNCHANGED (array
+      // copy only, so nothing here can alias-mutate them either).
       out.sessions[sid] = value.slice();
       const foreignTouched = Number(touchedRaw[sid]);
       // Carry an existing stamp only: inventing one would reset the runtime's

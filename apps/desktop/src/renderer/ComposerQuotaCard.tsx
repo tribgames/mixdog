@@ -19,6 +19,7 @@ export type ComposerQuotaCardModel = {
   busy: boolean;
   /** Reserve or cancel the resume at the reset; given only with a known reset. */
   onToggleResume?(): void;
+  onResume?(): void;
 };
 
 /**
@@ -31,13 +32,14 @@ export type ComposerQuotaCardModel = {
 export function ComposerQuotaCard({ card }: { card: ComposerQuotaCardModel }) {
   const remaining = useQuotaRemaining(card.resetAt);
   const time = card.resetAt === null ? '' : quotaResetLabel(card.resetAt);
+  const resumeNow = Boolean(card.onResume && !card.reserved);
   const title =
     card.kind === 'entitlement'
       ? t('Not included in your plan')
       : card.kind === 'billing'
         ? t('Out of credits or at spend limit')
         : t('Usage limit reached');
-  const guidance =
+  let guidance =
     card.kind === 'entitlement'
       ? t('Upgrade your plan, or choose another model or provider.')
       : card.kind === 'billing'
@@ -45,9 +47,23 @@ export function ComposerQuotaCard({ card }: { card: ComposerQuotaCardModel }) {
         : card.otherAccount
           ? t("Switch accounts or to another provider's model to continue now")
           : t("Switch to another provider's model to continue now");
+  let buttonLabel = t('Resume at {{time}}', { time });
+  let buttonIcon: 'clock' | 'loading' | 'play' = 'clock';
+  let buttonAction = card.onToggleResume;
+  if (card.reserved) {
+    guidance = t('Resume reserved · click to cancel');
+    buttonLabel = t('Cancel resume');
+    buttonIcon = 'loading';
+  } else if (resumeNow) {
+    guidance = t('Continue from where you left off.');
+    buttonLabel = t('Resume with changed model');
+    buttonIcon = 'play';
+    buttonAction = card.onResume;
+  }
   const guidanceId = useId();
   const guideRef = useRef<HTMLSpanElement>(null);
   const [guidanceHidden, setGuidanceHidden] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: guidance, time and remaining change the guidance text, so the overflow must be re-measured.
   useEffect(() => {
     const guide = guideRef.current;
     if (!guide) return undefined;
@@ -78,23 +94,18 @@ export function ComposerQuotaCard({ card }: { card: ComposerQuotaCardModel }) {
           <span id={guidanceId}>{guidance}</span>
         </span>
       </div>
-      {card.onToggleResume && time ? (
+      {card.onResume || (card.onToggleResume && (card.reserved || time)) ? (
         <button
           type="button"
           className="composer-island-button composer-island-button-primary composer-quota-card-resume"
-          aria-pressed={card.reserved}
+          aria-pressed={resumeNow ? undefined : card.reserved}
           data-reserved={card.reserved ? 'true' : undefined}
           disabled={card.busy}
           title={card.reserved ? t('Resume reserved · click to cancel') : undefined}
-          onClick={card.onToggleResume}
+          onClick={buttonAction}
         >
-          <MxIcon
-            name={card.reserved ? 'loading' : 'clock'}
-            size={14}
-            className="composer-quota-card-resume-icon"
-            aria-hidden="true"
-          />
-          {t('Resume at {{time}}', { time })}
+          <MxIcon name={buttonIcon} size={14} className="composer-quota-card-resume-icon" aria-hidden="true" />
+          {buttonLabel}
         </button>
       ) : null}
     </section>

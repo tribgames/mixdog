@@ -9,11 +9,13 @@ import { join } from 'node:path';
 import type { VisualizeCommandResult, VisualizePaneView } from '../../shared/visualize';
 import { EXPORT_DEADLINE_MS, exportedText, runWithExportDeadline } from './agent-export';
 import type { VisualizeServiceContext } from './context';
+import type { VisualizeServiceDeps } from './service';
 import { MOCKUPS_DIRECTORY, mockupSlug, resolveExportOutput, saveInlineToProject, writeExportFile } from './export';
 import {
   displayedPanes,
   exportSummary,
   problemsOf,
+  shownLayout,
   type TabState,
   type VisualizeResult,
   view,
@@ -122,7 +124,13 @@ export function createExportActions(ctx: Pick<VisualizeServiceContext, 'deps' | 
       sessionId: string,
       tab: TabState,
       format: 'png' | 'pdf' | 'project',
-      paneIndex: number
+      paneIndex: number,
+      /** Where a PNG/PDF goes instead of the save dialog (a paired device's
+       *  download: a fresh temp file). */
+      choosePath: VisualizeServiceDeps['chooseExportPath'] = deps.chooseExportPath,
+      /** Set: draw without the desktop panel wherever a pane can be drawn so;
+       *  `onPagesCut` hears of a document stacked from only its first pages. */
+      offscreen?: { onPagesCut(included: number, total: number): void }
     ): Promise<VisualizeCommandResult> {
       const pane = displayedPanes(tab)[paneIndex];
       if (!pane) throw new Error(`tab ${tab.id} has no pane ${paneIndex}`);
@@ -132,10 +140,11 @@ export function createExportActions(ctx: Pick<VisualizeServiceContext, 'deps' | 
         const saved = await saveInlineToProject(tab.cwd, pane.inline, tab.label);
         return { path: saved.rel, openable: saved.openable };
       }
-      if (!deps.chooseExportPath || !deps.exportBytes) throw new Error('exporting to a file is unavailable');
-      if (format === 'pdf' && pane.kind !== 'html') throw new Error('Save as PDF is for HTML pages');
+      if (!choosePath || !deps.exportBytes) throw new Error('exporting to a file is unavailable');
+      if (format === 'pdf' && pane.kind !== 'html' && pane.kind !== 'pdf')
+        throw new Error('Save as PDF is for HTML pages');
       const name = `${mockupSlug(pane.inline?.title ?? tab.label, pane.inline?.kind ?? 'visual')}.${format}`;
-      const target = await deps.chooseExportPath({
+      const target = await choosePath({
         sessionId,
         directory: join(tab.cwd, ...MOCKUPS_DIRECTORY.split('/')),
         fallback: tab.cwd,
@@ -143,7 +152,13 @@ export function createExportActions(ctx: Pick<VisualizeServiceContext, 'deps' | 
         format,
       });
       if (!target) return { canceled: true };
-      await writeFile(target, await deps.exportBytes(sessionId, view(tab), format, paneIndex));
+      const files = offscreen
+        ? shownLayout(tab, tab.shown?.targets ?? [], tab.targets).map((file) => file.path)
+        : undefined;
+      await writeFile(
+        target,
+        await deps.exportBytes(sessionId, view(tab), format, paneIndex, files, offscreen?.onPagesCut)
+      );
       return { path: target };
     },
   };

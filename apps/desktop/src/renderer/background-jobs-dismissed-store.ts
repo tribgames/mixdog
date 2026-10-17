@@ -1,13 +1,16 @@
 import { useSyncExternalStore } from 'react';
 
-/** Finished shell rows the user dismissed, per session, persisted locally so
- *  a dismissed job never reappears (records age out on the runtime side). */
+/** Finished rows the user dismissed (shell jobs, settled agent outcomes), per
+ *  owner session, persisted locally so a dismissed row never reappears
+ *  (records age out on the runtime side). */
 const STORAGE_PREFIX = 'mixdog.dismissedShellJobs.';
 const MAX_REMEMBERED = 200;
 const EMPTY: ReadonlySet<string> = new Set();
 
 const cache = new Map<string, ReadonlySet<string>>();
 const listeners = new Set<() => void>();
+/** Advances on every dismissal, in any session. */
+let revision = 0;
 
 function readStored(sessionId: string): ReadonlySet<string> {
   try {
@@ -39,12 +42,23 @@ export function dismissShellJobs(sessionId: string, keys: readonly string[]): vo
   } catch {
     // Storage is best-effort; the in-memory set still hides the rows.
   }
+  revision += 1;
   for (const listener of listeners) listener();
 }
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+/** Re-renders on a dismissal in ANY session: for surfaces that read the
+ *  dismissed sets of many sessions at once. */
+export function useDismissedJobsRevision(): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => revision,
+    () => 0
+  );
 }
 
 export function useDismissedShellJobs(sessionId: string): ReadonlySet<string> {

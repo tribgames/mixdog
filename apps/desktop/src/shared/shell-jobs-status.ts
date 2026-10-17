@@ -7,6 +7,7 @@ interface ShellJobStatusRowLike {
   status?: unknown;
   exitCode?: unknown;
   finishedAt?: unknown;
+  terminationUnconfirmed?: unknown;
 }
 
 interface ShellJobsStatusLike {
@@ -25,6 +26,7 @@ function shellJobRowKey(row: ShellJobStatusRowLike): string {
     String(row.status ?? ''),
     String(row.exitCode ?? ''),
     String(row.finishedAt ?? ''),
+    row.terminationUnconfirmed === true ? 'unconfirmed' : '',
   ].join('\u001f');
 }
 

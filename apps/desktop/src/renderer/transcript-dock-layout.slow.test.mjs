@@ -227,6 +227,9 @@ async function geometry(page, key) {
  *  leaving first holds it for the grace (ISLAND_GRACE). */
 const ISLAND_MOTION = 'island-motion';
 const ISLAND_GRACE = 'island-grace';
+/** A panel floating over the transcript: the dock keeps its height on every
+ *  frame, so nothing under it moves. */
+const ISLAND_OVERLAY = 'island-overlay';
 const ISLAND_COLLAPSE_GRACE_MS = 500;
 function dockChanges(page) {
   const change = (patch) => () => page.evaluate((patch) => window.fixture.change(patch), patch);
@@ -245,7 +248,7 @@ function dockChanges(page) {
         await page.click('.session-goal-trigger');
         await page.waitForSelector('.session-goal-island[data-open="true"]');
       },
-      ISLAND_MOTION,
+      ISLAND_OVERLAY,
     ],
     [
       'Goal panel collapses',
@@ -253,7 +256,7 @@ function dockChanges(page) {
         await page.keyboard.press('Escape');
         await page.waitForFunction(() => !document.querySelector('.session-goal-island[data-open="true"]'));
       },
-      ISLAND_MOTION,
+      ISLAND_OVERLAY,
     ],
     ['approval card opens', change({ approval: true }), ISLAND_MOTION],
     ['approval card closes', change({ approval: false }), ISLAND_MOTION],
@@ -292,7 +295,7 @@ async function framesOf(page, change, key) {
  *  change paints heights in between, an instant one (reduced motion) none, and
  *  the grace keeps the old height for ISLAND_COLLAPSE_GRACE_MS first. */
 function assertDockMotion(label, kind, instant, { before, after, painted }) {
-  if (!kind) return;
+  if (!kind || kind === ISLAND_OVERLAY) return;
   const between = painted.filter(
     (frame) => Math.abs(frame.dockHeight - before.dockHeight) >= 1 && Math.abs(frame.dockHeight - after.dockHeight) >= 1
   );
@@ -306,13 +309,29 @@ function assertDockMotion(label, kind, instant, { before, after, painted }) {
   );
 }
 
+/** A dock change resizes the dock, except an overlay panel, which keeps the
+ *  dock and the transcript viewport at their height on every frame. */
+function assertDockHeight(label, kind, before, after, frames) {
+  if (kind !== ISLAND_OVERLAY) {
+    assert.ok(Math.abs(after.dockHeight - before.dockHeight) >= 1, `${label}: the dock changed height`);
+    return;
+  }
+  for (const frame of [after, ...frames]) {
+    assert.ok(Math.abs(frame.dockHeight - before.dockHeight) < 0.5, `${label}: the overlay keeps the dock height`);
+    assert.ok(
+      Math.abs(frame.viewportHeight - before.viewportHeight) < 0.5,
+      `${label}: the overlay keeps the transcript viewport height`
+    );
+  }
+}
+
 /** While following: the viewport ends at the dock, gives up exactly what the
  *  dock takes, and the tail sits TRANSCRIPT_BOTTOM_SPACER (24px) above it on
  *  every resized and painted frame, through the slot's whole easing. */
 async function assertFollowedChange(page, label, change, kind, instant = false) {
   const result = await framesOf(page, change);
   const { before, after, frames } = result;
-  assert.ok(Math.abs(after.dockHeight - before.dockHeight) >= 1, `${label}: the dock changed height`);
+  assertDockHeight(label, kind, before, after, frames);
   assertDockMotion(label, kind, instant, result);
   for (const frame of frames) {
     assert.equal(frame.following, true, `${label}: still following`);
@@ -337,7 +356,7 @@ async function assertFollowedChange(page, label, change, kind, instant = false) 
 async function assertReadChange(page, label, change, key, kind) {
   const result = await framesOf(page, change, key);
   const { before, after, frames } = result;
-  assert.ok(Math.abs(after.dockHeight - before.dockHeight) >= 1, `${label}: the dock changed height`);
+  assertDockHeight(label, kind, before, after, frames);
   assertDockMotion(label, kind, false, result);
   for (const frame of frames) {
     assert.equal(frame.following, false, `${label}: the reader stays detached`);
@@ -431,7 +450,8 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
       stdin: {
         resolveDir,
         loader: 'css',
-        contents: '@import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";',
+        contents:
+          '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";',
       },
       outfile: 'transcript-dock-layout.css',
       bundle: true,

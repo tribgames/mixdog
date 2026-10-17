@@ -44,6 +44,8 @@ export type TranscriptItem = RecordValue & {
   callErrorCount?: number;
   exitErrorCount?: number;
   images?: Array<{ id?: number | null; name?: string; mimeType?: string; bytes?: number; attachmentRef?: string }>;
+  /** User rows: the attachments the message carries, by the content hash the host stores them under. */
+  attachments?: Array<{ id: string; kind: 'image' | 'file' | 'text'; name: string; mimeType: string; size: number }>;
   /** Restored rows: each image's stored original, by the `[Image: …]` line that draws it. */
   imageRefs?: Array<{ line: string; ref?: string }>;
 };
@@ -171,6 +173,8 @@ export type Snapshot = RecordValue & {
       command?: string;
       cwd?: string;
       startedAt?: number | string | null;
+      /** Killed, but not every process is confirmed gone; the folder stays held. */
+      terminationUnconfirmed?: boolean;
     }>;
     /** Recently finished background jobs; never part of `count`. */
     finished?: Array<{
@@ -191,7 +195,8 @@ export type Snapshot = RecordValue & {
 export const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
 export const EMPTY_TRANSCRIPT_ITEMS: TranscriptItem[] = [];
 
-/** Session owners whose Lead or child-agent heartbeat is active. Unlike the
+/** Session owners whose Lead or child-agent turn the daemon reports running in
+ * its in-memory state (`leadWorking` / `agentWorking`). Unlike the
  * sidebar selection helper below, this list is process-wide and must never be
  * changed by whichever conversation currently has focus. */
 export function agentActivitySessionIds(sessions: readonly DesktopSessionSummary[]): string[] {

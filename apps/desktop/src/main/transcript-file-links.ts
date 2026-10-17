@@ -2,8 +2,10 @@
 // session's own transcript. This is the provenance behind every file OUTSIDE
 // the registered projects that a paired device may open or download: only
 // settled `assistant` rows the runtime produced count, plus the preview images
-// of the session's pending tool approval (the approval card shows them). User
-// prompts and tool output never count, whatever paths they print.
+// of the session's pending tool approval (the approval card shows them), and
+// — sessionReferencedPaths — the paths in the output of the session's
+// completed tool rows. User prompts and tool arguments never count, whatever
+// paths they print.
 //
 // The grammar is the renderer's link surface (renderer/markdown-plugins.ts)
 // widened, never narrowed: markdown link and reference targets, autolinks,
@@ -90,32 +92,38 @@ export function resolveLinkedPath(path: string, cwd: string): string | null {
   return resolve(cwd, path);
 }
 
-/** The session's settled assistant row with this id: never a prompt, a tool
- *  row or a reply still streaming. */
-export function settledAssistantItem(snapshot: SessionSnapshot, itemId: string): DesktopTranscriptItem | null {
-  const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
-  return (
-    items.find(
-      (item) =>
-        item?.kind === 'assistant' &&
-        item.streaming !== true &&
-        typeof item.text === 'string' &&
-        item.id != null &&
-        String(item.id) === itemId
-    ) ?? null
-  );
+/** The absolute host path a link's `href` names, decoded the way MarkdownLink
+ *  decodes it (`:line`/`#L` dropped); null for web links and unresolvable
+ *  targets. */
+export function requestedLinkPath(href: string, cwd: string): string | null {
+  const requestedPath = linkPath(href);
+  return requestedPath ? resolveLinkedPath(requestedPath, cwd) : null;
 }
 
-/** The absolute path `href` names when the row links it, else null. */
-export function assistantItemLink(item: DesktopTranscriptItem, href: string, cwd: string): string | null {
-  const requestedPath = linkPath(href);
-  const requested = requestedPath ? resolveLinkedPath(requestedPath, cwd) : null;
+/** Every absolute host path the session's settled assistant rows link. */
+function assistantLinkedPaths(snapshot: SessionSnapshot, cwd: string): string[] {
+  const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+  const paths = new Set<string>();
+  for (const item of items) {
+    if (item?.kind !== 'assistant' || item.streaming === true || typeof item.text !== 'string') continue;
+    for (const path of assistantLinkTargets(item.text)) {
+      const target = resolveLinkedPath(path, cwd);
+      if (target) paths.add(target);
+    }
+  }
+  return [...paths];
+}
+
+/** The absolute path `href` names when a settled assistant reply of the
+ *  session links it, else null. Prompts, tool rows and replies still
+ *  streaming never count. The reply is not named by its row id: each surface
+ *  numbers the rows it restored itself (a phone's window and the PC's
+ *  projection give one reply different ids), so a row id cannot be checked
+ *  against the host's copy. */
+export function assistantLinkedPath(snapshot: SessionSnapshot, href: string, cwd: string): string | null {
+  const requested = requestedLinkPath(href, cwd);
   if (!requested) return null;
-  const linked = assistantLinkTargets(String(item.text)).some((path) => {
-    const target = resolveLinkedPath(path, cwd);
-    return target !== null && sameGrantedPath(target, requested);
-  });
-  return linked ? requested : null;
+  return assistantLinkedPaths(snapshot, cwd).some((path) => sameGrantedPath(path, requested)) ? requested : null;
 }
 
 const recordOf = (value: unknown): Record<string, unknown> | null =>
@@ -139,16 +147,147 @@ function approvalPreviewPaths(snapshot: SessionSnapshot): string[] {
 /** Every absolute host path the session's settled assistant rows link, plus
  *  its pending approval's preview images. */
 export function sessionLinkedPaths(snapshot: SessionSnapshot, cwd: string): string[] {
-  const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
-  const paths = new Set<string>(approvalPreviewPaths(snapshot));
-  for (const item of items) {
-    if (item?.kind !== 'assistant' || item.streaming === true || typeof item.text !== 'string') continue;
-    for (const path of assistantLinkTargets(item.text)) {
+  return [...new Set([...approvalPreviewPaths(snapshot), ...assistantLinkedPaths(snapshot, cwd)])];
+}
+
+/** Most strings of one tool row scanned, and paths kept for one session. */
+const MAX_TOOL_STRINGS = 400;
+export const MAX_SESSION_PATHS = 4_000;
+const WHOLE_PATH_MAX = 1_024;
+
+/** Where a tool row keeps what the tool produced. Its arguments, input and
+ *  subject are not among them: the model writes those, and a prompt can make
+ *  it write any path there. */
+const TOOL_OUTPUT_FIELDS = ['result', 'rawResult', 'output'] as const;
+
+/** Every string a tool row's output shows: its result, raw result and output. */
+function toolRowStrings(item: DesktopTranscriptItem): string[] {
+  const found: string[] = [];
+  const visit = (value: unknown, depth: number): void => {
+    if (found.length >= MAX_TOOL_STRINGS || depth > 6 || value == null) return;
+    if (typeof value === 'string') {
+      found.push(value);
+      // A JSON result keeps its structured fields (`output`, `path`, `file`).
+      const trimmed = value.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          visit(JSON.parse(trimmed), depth + 1);
+        } catch {
+          /* prose */
+        }
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const entry of value) visit(entry, depth + 1);
+      return;
+    }
+    if (typeof value === 'object') for (const entry of Object.values(value)) visit(entry, depth + 1);
+  };
+  for (const key of TOOL_OUTPUT_FIELDS) visit(item[key], 0);
+  return found;
+}
+
+/** A tool row whose output is final: finished, not streaming or running. */
+function completedToolRow(item: DesktopTranscriptItem): boolean {
+  return item.streaming !== true && item.status !== 'running' && toolItemDone(item);
+}
+
+/** Host paths a tool row produced: link-shaped tokens in its output, and a
+ *  string that is itself an absolute path (names with spaces included) as a
+ *  structured output field such as `output`, `path` or `file`. */
+function toolItemPaths(item: DesktopTranscriptItem, cwd: string): string[] {
+  const paths = new Set<string>();
+  for (const text of toolRowStrings(item)) {
+    const whole = text.trim();
+    if (whole && whole.length <= WHOLE_PATH_MAX && !/[\r\n\0]/.test(whole) && isAbsolute(whole)) {
+      const target = resolveLinkedPath(whole, cwd);
+      if (target) paths.add(target);
+    }
+    for (const path of assistantLinkTargets(text)) {
       const target = resolveLinkedPath(path, cwd);
       if (target) paths.add(target);
     }
   }
   return [...paths];
+}
+
+/** Everything the conversation shows or produced, as absolute host paths:
+ *  what its settled replies link (sessionLinkedPaths) plus the paths in the
+ *  output of its completed tool rows — results, raw results, shell/agent
+ *  outputs, screenshots and temp outputs. Prompts, tool arguments and rows
+ *  still streaming or running count for nothing. The host authorizes a
+ *  remote request only against this set, per session. */
+export function sessionReferencedPaths(snapshot: SessionSnapshot, cwd: string): string[] {
+  const paths = new Set<string>(sessionLinkedPaths(snapshot, cwd));
+  const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+  const rows = items.flatMap((item) =>
+    item?.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as DesktopTranscriptItem[]) : [item]
+  );
+  for (const row of rows) {
+    if (!row || row.kind === 'user' || row.kind === 'assistant' || !completedToolRow(row)) continue;
+    for (const path of toolItemPaths(row, cwd)) {
+      if (paths.size >= MAX_SESSION_PATHS) return [...paths];
+      paths.add(path);
+    }
+  }
+  return [...paths];
+}
+
+/** The referenced path `requested` names (absolute, or relative to `cwd`),
+ *  else null: an exact match of the resolved path, never a prefix, so a
+ *  traversal or sibling of a referenced path is refused. */
+export function referencedPathFor(snapshot: SessionSnapshot, cwd: string, requested: string): string | null {
+  const target = resolveLinkedPath(requested, cwd);
+  if (!target || requested.includes('\0')) return null;
+  return sessionReferencedPaths(snapshot, cwd).find((path) => sameGrantedPath(path, target)) ?? null;
+}
+
+export interface SessionAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  kind: 'image' | 'file' | 'text';
+  size: number;
+}
+
+const ATTACHMENT_ID = /^[a-f0-9]{64}$/;
+
+/** The attachments the session's USER rows carry, by content hash: the
+ *  message metadata's `attachments` and, for rows sent before that was
+ *  recorded, the images' own `attachmentRef` / `imageRefs`. Nothing else in a
+ *  transcript names an attachment the host will serve. */
+export function sessionAttachments(snapshot: SessionSnapshot): Map<string, SessionAttachment> {
+  const found = new Map<string, SessionAttachment>();
+  const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+  const add = (id: unknown, info: Partial<SessionAttachment>): void => {
+    if (typeof id !== 'string' || !ATTACHMENT_ID.test(id) || found.has(id)) return;
+    found.set(id, {
+      id,
+      name: String(info.name || 'attachment').slice(0, 200),
+      mimeType: String(info.mimeType || 'application/octet-stream').slice(0, 100),
+      kind: info.kind ?? 'file',
+      size: Number(info.size) || 0,
+    });
+  };
+  for (const item of items) {
+    if (item?.kind !== 'user') continue;
+    for (const entry of Array.isArray(item.attachments) ? (item.attachments as Array<Record<string, unknown>>) : []) {
+      add(entry?.id, entry as Partial<SessionAttachment>);
+    }
+    for (const image of Array.isArray(item.images) ? (item.images as Array<Record<string, unknown>>) : []) {
+      add(image?.attachmentRef, {
+        name: String(image?.name || 'image'),
+        mimeType: String(image?.mimeType || 'image/png'),
+        kind: 'image',
+        size: Number(image?.bytes) || 0,
+      });
+    }
+    for (const slot of Array.isArray(item.imageRefs) ? (item.imageRefs as Array<Record<string, unknown>>) : []) {
+      add(slot?.ref, { name: 'image', mimeType: 'image/png', kind: 'image' });
+    }
+  }
+  return found;
 }
 
 /** Mixdog's built-in media tool; an MCP server's `mcp__…__media` is not it. */
@@ -232,7 +371,7 @@ export function createLinkProvenance(
       sessionIds.map(async (sessionId) => ({
         sessionId,
         // A conversation deleted meanwhile links nothing.
-        paths: sessionLinkedPaths(
+        paths: sessionReferencedPaths(
           await read(sessionId).catch(() => null),
           catalog.find((row) => row.id === sessionId)?.cwd ?? ''
         ),

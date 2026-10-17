@@ -58,7 +58,12 @@ test('a caught-up reply holds the band slot only until its held last word shows,
   const view = await mountRow({ item: streaming, paceKey: 's:a3', pace: true });
   await act(async () => sleep(1_500));
   const completion = { id: 'd3', kind: 'turndone', status: 'done', elapsedMs: 10 };
-  await view.render({ item: { id: 'a3', kind: 'assistant', text: streaming.text }, completion, paceKey: 's:a3', pace: true });
+  await view.render({
+    item: { id: 'a3', kind: 'assistant', text: streaming.text },
+    completion,
+    paceKey: 's:a3',
+    pace: true,
+  });
   const both = () =>
     Boolean(view.host.querySelector('.response-footer')) && Boolean(view.host.querySelector('.response-footer-band'));
   assert.ok(view.host.querySelector('.response-footer') || view.host.querySelector('.response-footer-band'));
@@ -105,6 +110,35 @@ const live = (session, id, text) => ({
   item: { id, kind: 'assistant', text, streaming: true },
   paceKey: `${session}:${id}`,
   pace: true,
+});
+
+// The reply's opening commit gives its row a line and the band its step, so
+// the followed transcript moves: that commit must paint the first word.
+test('a watched reply row paints its first word in the commit that mounts it', async () => {
+  const view = await mountPane('open', [prompt('u1')]);
+  await act(async () => sleep(300));
+  await view.render([prompt('u1'), live('open', 'r1', 'After long reply')]);
+  assert.match(view.host.textContent, /After/);
+  await view.cleanup();
+});
+
+test('a streaming reply opens no row until a word can paint; the band stays under the prompt', () => {
+  const settled = projectSettledTranscriptRows({
+    sessionKey: 's',
+    items: [{ id: 'u', kind: 'user', text: 'q' }],
+    turnKeys: ['t1'],
+    failedTurns: new Set(),
+  });
+  const rows = (text) =>
+    appendLiveTranscriptRows({
+      sessionKey: 's',
+      settled,
+      liveItem: { id: 'l', kind: 'assistant', text, streaming: true },
+      thinking: true,
+    }).map((row) => row._tag);
+  assert.deepEqual(rows(''), ['UserMessage', 'Thinking']);
+  assert.deepEqual(rows('Aft'), ['UserMessage', 'Thinking'], 'an unfinished first word opens nothing');
+  assert.deepEqual(rows('After long'), ['UserMessage', 'AssistantPart', 'Thinking']);
 });
 
 test('a long live row mounting with its pane (session entered mid-stream) shows whole', async () => {
@@ -215,7 +249,7 @@ test('only the newest content row paces; a tool row after it flushes the text', 
   const live = appendLiveTranscriptRows({
     sessionKey: 's',
     settled: settled([user]),
-    liveItem: { id: 'l', kind: 'assistant', text: 'x', streaming: true },
+    liveItem: { id: 'l', kind: 'assistant', text: 'x y', streaming: true },
     thinking: true,
   });
   assert.equal(live.find((row) => row._tag === 'AssistantPart')?.newest, true);

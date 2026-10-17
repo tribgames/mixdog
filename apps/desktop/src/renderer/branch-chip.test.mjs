@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -106,7 +106,6 @@ async function mount(t, props = {}, { keepCache = false, gate = null } = {}) {
         sessionId: 's1',
         draftId: '',
         projectPath: '/p',
-        onOpenSession: (id) => opened.push(id),
         ...props,
       })
     )
@@ -179,17 +178,18 @@ for (const draft of [false, true]) {
     else await pressBranchKey(input, 'Enter');
     assert.deepEqual(
       calls.filter((call) => call.capability === capability),
-      [
-        draft
-          ? { capability, args: [{ projectPath: '/p', branch: 'feat/dialog', create: true }] }
-          : { capability, args: [{ branch: 'feat/dialog', create: true, expectedRevision: 3 }], sessionId: 's1' },
-      ]
+      draft
+        ? []
+        : [{ capability, args: [{ branch: 'feat/dialog', create: true, expectedRevision: 3 }], sessionId: 's1' }]
     );
     assert.equal(document.querySelector('.branch-menu'), null);
     assert.equal(document.querySelector('.branch-name-dialog'), null);
     assert.equal(trigger.querySelector('.branch-chip-label').textContent, 'feat/dialog');
     assert.equal(document.activeElement, trigger);
-    if (draft) assert.equal(model.getWorktreeIntent(draftId), false);
+    if (draft) {
+      assert.equal(model.getWorktreeIntent(draftId), true);
+      assert.deepEqual(model.getBranchIntent(draftId), { branch: 'feat/dialog', create: true });
+    }
   });
 }
 
@@ -282,15 +282,10 @@ test('menu structure: search, worktree, branch section, separator, new branch', 
   assert.equal(trigger.querySelector('.branch-chip-label').textContent, 'main');
   assert.equal(trigger.querySelector('.branch-chip-fork'), null);
   const menu = await openMenu(trigger);
-  assert.deepEqual(
-    [...menu.children].map((child) => child.className.split(' ')[0] || child.tagName.toLowerCase()),
-    ['branch-menu-search', 'branch-menu-list', 'branch-menu-rule', 'branch-menu-item']
-  );
+  assert.equal(menu.querySelector('input[type="search"]').placeholder, 'Search branches');
+  assert.ok(menu.querySelector('input[type="search"]').closest('.schedules-search'));
   const list = menu.querySelector('.branch-menu-list');
-  assert.deepEqual(
-    [...list.children].map((child) => child.tagName.toLowerCase()),
-    ['button', 'h3', 'button', 'button', 'button', 'button']
-  );
+  assert.equal(list.querySelectorAll('.branch-row-more').length, 4, 'every branch exposes its own actions');
   const [worktree, ...rest] = items(list);
   assert.equal(worktree.querySelector('span').textContent, 'Worktree');
   assert.equal(worktree.querySelector('small').textContent, 'New branch · separate folder');
@@ -299,23 +294,37 @@ test('menu structure: search, worktree, branch section, separator, new branch', 
     rest.map((row) => [row.querySelector('span').textContent, row.querySelector('small')?.textContent ?? '']),
     [
       ['main', ''],
-      ['feat/ssh-remote', 'Other session'],
+      ['feat/ssh-remote', 'Worktree'],
       ['next-patch', ''],
-      ['ext-branch', 'External'],
+      ['ext-branch', 'Worktree'],
     ]
   );
-  assert.equal(rest[0].querySelector('.branch-menu-check').getAttribute('aria-label'), 'Current');
+  assert.deepEqual(
+    [...list.querySelectorAll('.branch-menu-check')].map((check) => check.closest('[data-branch]')?.dataset.branch),
+    ['main'],
+    'the check marks the current branch while the worktree is not selected'
+  );
+  // Hover and focus move the check beside the "…"; it never hides or steps aside.
+  const css = readFileSync(new URL('./desktop/15-worktree-branch.css', import.meta.url), 'utf8');
+  assert.match(
+    css,
+    /:is\(:hover, :focus-within\) > \.branch-menu-item > :is\(small, \.branch-menu-check\) \{\s*margin-right: 28px;/
+  );
+  assert.doesNotMatch(css, /branch-menu-check[^{]*\{[^}]*(visibility: hidden|display: none)/);
+  for (const shell of list.querySelectorAll('.branch-row-shell')) {
+    assert.ok(shell.querySelector(':scope > .branch-row-more'), 'the … trigger sits inside the row');
+  }
   assert.equal(menu.lastElementChild.querySelector('span').textContent, 'New branch');
   // No merge / return entries live in this menu.
   assert.equal(menu.textContent.includes('Merge'), false);
 });
 
-test('menu opens above the chip, left-aligned with a 2px gap', async (t) => {
+test('menu opens above the chip, left-aligned with the shared 6px gap', async (t) => {
   menuReply = menuFor();
   const { trigger } = await mount(t);
   const menu = await openMenu(trigger);
   assert.equal(menu.style.top, '');
-  assert.equal(parseFloat(menu.style.bottom), 900 - rect().top + 2);
+  assert.equal(parseFloat(menu.style.bottom), 900 - rect().top + 6);
   assert.equal(parseFloat(menu.style.left), rect().left);
   assert.ok(parseFloat(menu.style.maxHeight) <= 320);
 });
@@ -399,8 +408,13 @@ test('chip states: current branch, worktree intent in a draft, worktree-bound se
   assert.equal(model.getWorktreeIntent('d1'), true);
   menu = await openMenu(draft.trigger);
   const selected = items(menu)[0];
-  assert.equal(selected.querySelector('small').textContent, 'New branch from main');
+  assert.equal(selected.querySelector('small').textContent, 'New branch · separate folder');
   assert.equal(selected.hasAttribute('data-selected'), true);
+  assert.ok(selected.querySelector('.branch-menu-check'), 'only the selected worktree row shows the check');
+  assert.equal(menu.querySelectorAll('.branch-menu-check').length, 1);
+  assert.equal(menu.querySelector('[data-branch="main"] small').textContent, 'Current');
+  assert.equal(menu.querySelector('[data-branch="main"] .branch-menu-check'), null, 'the check moved to the worktree');
+  assert.equal(menu.querySelector('[data-branch="main"]').hasAttribute('data-selected'), false);
   assert.equal(model.takeWorktreeIntent('d1'), true);
   assert.equal(model.getWorktreeIntent('d1'), false);
   await act(async () => draft.trigger.click());
@@ -425,20 +439,25 @@ test('chip states: current branch, worktree intent in a draft, worktree-bound se
   );
 });
 
-test('occupancy: another session routes, an external worktree is disabled with its path', async (t) => {
+test('occupancy: shared and external worktrees move this session instead of opening another session', async (t) => {
   menuReply = menuFor();
   const { trigger, opened } = await mount(t);
+  handlers.selectBranch = (request) => ({
+    revision: 4,
+    workspace: workspace({ branch: request.args[0].branch, revision: 4 }),
+  });
   let menu = await openMenu(trigger);
   const [, , used, free, external] = items(menu);
-  assert.equal(used.getAttribute('data-tooltip'), 'Open the session that uses this branch');
-  assert.equal(external.getAttribute('aria-disabled'), 'true');
-  assert.equal(external.getAttribute('data-tooltip'), 'Checked out in an external worktree: /elsewhere/ext');
+  assert.equal(used.getAttribute('data-tooltip'), null);
+  assert.notEqual(external.getAttribute('aria-disabled'), 'true');
+  assert.equal(external.getAttribute('data-tooltip'), null);
   calls.length = 0;
   await act(async () => external.click());
-  assert.deepEqual(calls, []);
-  await act(async () => used.click());
-  assert.deepEqual(opened, ['other-session']);
-  assert.deepEqual(calls, []);
+  assert.equal(calls.filter((call) => call.capability === 'selectBranch').length, 1);
+  menu = await openMenu(trigger);
+  await act(async () => items(menu)[2].click());
+  assert.deepEqual(opened, []);
+  assert.equal(calls.filter((call) => call.capability === 'selectBranch').length, 2);
   assert.equal(document.querySelector('.branch-menu'), null);
   menu = await openMenu(trigger);
   calls.length = 0;
@@ -512,7 +531,6 @@ test('mid-session the chip follows the backend menu, never a stale client-side c
           draftId: '',
           projectPath: '/p',
           refreshKey,
-          onOpenSession() {},
         })
       )
     );
@@ -659,6 +677,8 @@ test('a missing worktree shows the recovery chip and notice', async (t) => {
 test('a superseded missing-worktree fallback whose project menu fails leaves the newer menu alone', async (t) => {
   setUiLanguagePreference('en');
   await initUiLanguage();
+  // A mount adopts a menu another host read moments ago: start from no cache.
+  clearBranchMenuCache();
   calls.length = 0;
   let branchMenuCalls = 0;
   let failProjectMenu;
@@ -689,7 +709,6 @@ test('a superseded missing-worktree fallback whose project menu fails leaves the
           draftId: '',
           projectPath: '/p',
           refreshKey,
-          onOpenSession() {},
         })
       )
     );
@@ -714,6 +733,8 @@ test('a superseded missing-worktree fallback whose project menu fails leaves the
 test('a missing worktree whose project menu also fails keeps the last good menu and retries', async (t) => {
   setUiLanguagePreference('en');
   await initUiLanguage();
+  // A mount adopts a menu another host read moments ago: start from no cache.
+  clearBranchMenuCache();
   calls.length = 0;
   let branchMenuCalls = 0;
   handlers = {
@@ -742,7 +763,6 @@ test('a missing worktree whose project menu also fails keeps the last good menu 
           draftId: '',
           projectPath: '/p',
           refreshKey,
-          onOpenSession() {},
         })
       )
     );
@@ -777,7 +797,7 @@ test('Korean copy', async (t) => {
     items(list)
       .slice(1)
       .map((row) => row.querySelector('small')?.textContent ?? ''),
-    ['', '다른 세션', '', '외부']
+    ['', '워크트리', '', '워크트리']
   );
   assert.equal(menu.querySelector('input').placeholder, '브랜치 검색');
   assert.equal(menu.lastElementChild.textContent, '새 브랜치');
@@ -906,16 +926,16 @@ test('the runtime getBranchMenu response feeds the renderer model: rows, marks a
   );
 });
 
-test('a draft picks branches through the guarded project checkout and shows its refusals', async (t) => {
+test('a draft defers its branch selection until first send without changing the shared checkout', async (t) => {
   setUiLanguagePreference('en');
   await initUiLanguage();
   projectMenuReply = draftMenu();
   const { trigger, opened } = await mount(t, { sessionId: '', draftId: 'd-guard' });
-  let menu = await openMenu(trigger);
+  const menu = await openMenu(trigger);
   const rows = items(menu.querySelector('.branch-menu-list'));
   assert.deepEqual(
     rows.slice(1).map((row) => row.querySelector('small')?.textContent ?? ''),
-    ['', '', 'Other session'],
+    ['', '', 'Worktree'],
     'the real occupancy, not a guess from the branch list'
   );
   handlers.selectProjectBranch = () => {
@@ -924,21 +944,20 @@ test('a draft picks branches through the guarded project checkout and shows its 
   await act(async () => rows[2].click());
   assert.deepEqual(
     calls.filter((call) => call.capability === 'selectProjectBranch'),
-    [{ capability: 'selectProjectBranch', args: [{ projectPath: '/p', branch: 'dev' }] }]
+    []
   );
-  menu = document.querySelector('.branch-menu');
-  assert.equal(
-    menu.querySelector('[role="alert"]').textContent,
-    'The project folder has uncommitted changes. Commit or stash them before switching branches.'
-  );
-  handlers.selectProjectBranch = () => ({ branch: 'dev', changed: true });
-  await act(async () => items(menu.querySelector('.branch-menu-list'))[2].click());
-  await settle();
+  assert.deepEqual(model.getBranchIntent('d-guard'), { branch: 'dev', create: false });
   assert.equal(document.querySelector('.branch-menu'), null);
-  menu = await openMenu(trigger);
-  await act(async () => items(menu.querySelector('.branch-menu-list'))[3].click());
-  assert.deepEqual(opened, ['holder']);
-  assert.equal(calls.filter((call) => call.capability === 'selectProjectBranch').length, 2);
+  let submitted;
+  await act(async () => {
+    await model.sendDraftWithWorktreeIntent('d-guard', async (worktree) => {
+      submitted = worktree;
+      return { accepted: true, sessionId: 'new-session' };
+    });
+  });
+  assert.deepEqual(submitted, { branch: 'dev', create: false });
+  assert.deepEqual(opened, []);
+  assert.equal(model.getWorktreeIntent('d-guard'), false);
 });
 
 test('the New Task context bar orders project → workflow → branch', async (t) => {
@@ -965,7 +984,6 @@ test('the New Task context bar orders project → workflow → branch', async (t
           sessionId: '',
           draftId: 'd-order',
           projectPath: '/p',
-          onOpenSession() {},
         }),
       })
     )
@@ -1282,7 +1300,7 @@ test('a refused carry names its own reason and never reads as the worktree-remov
     model.worktreeFailureText(
       model.worktreeFailure(new Error('WORKTREE_BUSY_JOBS: busy\n[worktree-details] {"reason":"folder-shell-jobs"}'))
     ),
-    /^Background shells of other sessions are running in the project folder\./
+    /^Background commands still use an affected folder\./
   );
 });
 

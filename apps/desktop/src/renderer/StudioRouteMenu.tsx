@@ -3,20 +3,20 @@ import { type CSSProperties, useCallback, useEffect, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 
 import { t } from './i18n';
+import { useMenuDismiss } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { ProviderIcon } from './provider-display';
+import { routePaneLayout, settledTop, useRouteFlyoutFit } from './route-editor-layout';
 import {
   ROUTE_PANEL_PADDING,
   ROUTE_PANEL_WIDTH,
   ROUTE_SHEET_ROW_HEIGHT,
-  routeDrillBox,
-  routeDrillHeight,
-  routeFlyoutBox,
-  routeFlyoutFitsBeside,
+  routePanelStyle,
   routeSheetBox,
   type RoutePanelBox,
 } from './route-editor-logic';
+import { currentViewport, preferredFlyoutWidth, ROUTE_MODEL_FLYOUT_MAX_HEIGHT } from './route-editor-panes';
 
 export interface StudioModelEntry {
   lane: string;
@@ -25,6 +25,8 @@ export interface StudioModelEntry {
   model: string;
   label: string;
   description?: string;
+  /** Muted note replacing the check: the row is listed but cannot be chosen. */
+  unavailable?: string;
 }
 
 /** One lane option (aspect, resolution, …) surfaced as a sheet row. */
@@ -55,27 +57,23 @@ function authTypeLabel(authType: unknown): string {
   return authType === 'api-key' ? t('API key') : '';
 }
 
-function viewportBox() {
-  const visual = window.visualViewport;
+/** The Studio composer's pill sits at the bottom of its pane, so its sheet
+ *  opens above with the left edges aligned (the pill grows rightwards into
+ *  it); the settings `field` sits at the trailing edge of its row, so its
+ *  sheet opens below with the right edges aligned. */
+function measuredSheet(
+  trigger: HTMLElement,
+  rect: { left: number; right: number; top: number; bottom: number },
+  sheetHeight: number,
+  field: boolean
+) {
+  const viewport = currentViewport(trigger);
   return {
-    left: visual?.offsetLeft ?? 0,
-    top: visual?.offsetTop ?? 0,
-    width: visual?.width ?? window.innerWidth,
-    height: visual?.height ?? window.innerHeight,
+    viewport,
+    sheet: field
+      ? routeSheetBox(rect, sheetHeight, viewport, ROUTE_PANEL_WIDTH, 'below', 'end')
+      : routeSheetBox(rect, sheetHeight, viewport, ROUTE_PANEL_WIDTH, 'above', 'start'),
   };
-}
-
-/** Left-anchored Studio sheet: the main menu grows rightwards from the model
- *  control while its detail flyouts prefer the sheet's right side. */
-function sheetAnchor(rect: { left: number; top: number; bottom: number }, viewport: { width: number }) {
-  // 16 = panel edge * 2 (routeSheetBox clamps the width the same way).
-  const width = Math.min(ROUTE_PANEL_WIDTH, Math.max(1, viewport.width - 16));
-  return { left: rect.left, right: rect.left + width, top: rect.top, bottom: rect.bottom };
-}
-
-function measuredSheet(rect: { left: number; top: number; bottom: number }, sheetHeight: number) {
-  const viewport = viewportBox();
-  return { viewport, sheet: routeSheetBox(sheetAnchor(rect, viewport), sheetHeight, viewport) };
 }
 
 /**
@@ -90,6 +88,11 @@ export function StudioRouteMenu({
   disabled = false,
   rows = [],
   slider = null,
+  variant = 'studio',
+  triggerLabel,
+  suffix = '',
+  ariaLabel,
+  auto,
   onSelect,
 }: {
   entries: StudioModelEntry[];
@@ -98,8 +101,19 @@ export function StudioRouteMenu({
   disabled?: boolean;
   rows?: StudioOptionRow[];
   slider?: StudioSliderRow | null;
+  /** `field` wears the agent editor's route trigger (`.model-trigger`) and
+   *  keeps its natural width while the sheet is open. */
+  variant?: 'studio' | 'field';
+  /** Replaces the selected model's label on the trigger and the Model row. */
+  triggerLabel?: string;
+  /** Muted text after the label on the field trigger. */
+  suffix?: string;
+  ariaLabel?: string;
+  /** A first, model-less choice at the top of the model list. */
+  auto?: { label: string; selected: boolean; onSelect(): void };
   onSelect(entry: StudioModelEntry): void;
 }) {
+  const field = variant === 'field';
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
   const [pane, setPane] = useState<string | null>(null);
@@ -124,14 +138,16 @@ export function StudioRouteMenu({
   const clickGuard = useImmediateOverlayClickGuard();
 
   const current = entries.find((entry) => entry.lane === lane && entry.model === model);
+  const modelLabel = triggerLabel ?? (current?.label || model || t('Select model'));
   const rowCount = 1 + rows.length + (slider ? 1 : 0);
   const sheetHeight = rowCount * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
 
-  const flyoutSize = useCallback((id: string): { height: number; width?: number } => {
-    if (id === 'model') return { height: 380, width: 280 };
-    if (id === 'slider') return { height: 76 };
+  // Height caps; a side flyout sizes to its content below them.
+  const flyoutSize = useCallback((id: string): { maxHeight: number; width?: number } => {
+    if (id === 'model') return { maxHeight: ROUTE_MODEL_FLYOUT_MAX_HEIGHT, width: preferredFlyoutWidth('model') };
+    if (id === 'slider') return { maxHeight: 76 };
     const count = rowsRef.current.find((row) => row.id === id)?.options.length || 0;
-    return { height: Math.min(300, Math.max(44, count * ROUTE_SHEET_ROW_HEIGHT + 34)) };
+    return { maxHeight: Math.min(300, Math.max(44, count * ROUTE_SHEET_ROW_HEIGHT + 34)) };
   }, []);
 
   const finishClose = useCallback(() => {
@@ -149,48 +165,32 @@ export function StudioRouteMenu({
     setClosing(true);
     // The pill shrinks back to its captured natural width during the close
     // animation; finishClose releases it to auto.
-    setTriggerWidth(morphFrom.current?.width ?? null);
+    setTriggerWidth(field ? null : (morphFrom.current?.width ?? null));
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null;
       finishClose();
     }, CLOSE_DURATION);
-  }, [finishClose]);
+  }, [field, finishClose]);
 
-  // One geometry for every opening: a second column beside the sheet where it
-  // fits, and a drilled pane inside the sheet's own footprint where it does
-  // not (phones), so the menu never breaks into two detached panels.
+  // The route editor's pane geometry (route-editor-layout.ts).
   const paneLayout = useCallback(
     (
       nextSheet: RoutePanelBox,
       id: string,
       viewport: { left: number; top: number; width: number; height: number }
     ): { box: RoutePanelBox; drilled: boolean } => {
-      const size = flyoutSize(id);
-      if (routeFlyoutFitsBeside(nextSheet, viewport, size.width)) {
-        return {
-          box: routeFlyoutBox(
-            nextSheet,
-            size.height,
-            viewport,
-            rowButtons.current[id]?.getBoundingClientRect().top,
-            size.width,
-            'right'
-          ),
-          drilled: false,
-        };
-      }
-      return {
-        box: routeDrillBox(nextSheet, routeDrillHeight(size.height, viewport), viewport),
-        drilled: true,
-      };
+      const row = rowButtons.current[id];
+      return routePaneLayout(nextSheet, viewport, flyoutSize(id), row ? settledTop(row) : undefined);
     },
     [flyoutSize]
   );
+  useRouteFlyoutFit(flyout, flyoutBox, setFlyoutBox, () => (pane ? rowButtons.current[pane] : null));
 
   const layout = useCallback(() => {
-    const rect = trigger.current?.getBoundingClientRect();
-    if (!rect) return;
-    const { viewport, sheet: nextSheet } = measuredSheet(rect, sheetHeight);
+    const node = trigger.current;
+    const rect = node?.getBoundingClientRect();
+    if (!node || !rect) return;
+    const { viewport, sheet: nextSheet } = measuredSheet(node, rect, sheetHeight, field);
     setSheetBox(nextSheet);
     if (!pane) {
       setFlyoutBox(null);
@@ -200,22 +200,25 @@ export function StudioRouteMenu({
     const nextBox = paneLayout(nextSheet, pane, viewport);
     setFlyoutBox(nextBox.box);
     setDrill(nextBox.drilled);
-  }, [pane, paneLayout, sheetHeight]);
+  }, [field, pane, paneLayout, sheetHeight]);
 
   const show = () => {
-    const rect = trigger.current?.getBoundingClientRect();
+    const node = trigger.current;
+    const rect = node?.getBoundingClientRect();
     if (closeTimer.current !== null) {
       window.clearTimeout(closeTimer.current);
       closeTimer.current = null;
     }
     setClosing(false);
     morphFrom.current = rect ? { width: rect.width, height: rect.height } : null;
-    if (rect) {
-      const { sheet: nextSheet } = measuredSheet(rect, sheetHeight);
+    if (node && rect) {
+      const { sheet: nextSheet } = measuredSheet(node, rect, sheetHeight, field);
       setSheetBox(nextSheet);
       // Two-step width: pin the numeric width first, widen on the next frame.
-      setTriggerWidth(rect.width);
-      window.requestAnimationFrame(() => setTriggerWidth(nextSheet.width));
+      if (!field) {
+        setTriggerWidth(rect.width);
+        window.requestAnimationFrame(() => setTriggerWidth(nextSheet.width));
+      }
     }
     setPane(null);
     setModelQuery('');
@@ -223,9 +226,10 @@ export function StudioRouteMenu({
   };
 
   const openPane = (id: string) => {
-    const rect = trigger.current?.getBoundingClientRect();
-    if (rect) {
-      const { viewport, sheet: nextSheet } = measuredSheet(rect, sheetHeight);
+    const node = trigger.current;
+    const rect = node?.getBoundingClientRect();
+    if (node && rect) {
+      const { viewport, sheet: nextSheet } = measuredSheet(node, rect, sheetHeight, field);
       setSheetBox(nextSheet);
       const nextBox = paneLayout(nextSheet, id, viewport);
       setFlyoutBox(nextBox.box);
@@ -253,42 +257,41 @@ export function StudioRouteMenu({
   useMobileBack(open, () => closeAll());
   useMobileBack(Boolean(pane), closePane);
 
+  // Outside click, Escape and Tab: the shared popup contract (menu-dismiss.ts).
+  // Escape steps out of an open pane first, then closes the sheet.
+  useMenuDismiss({
+    open: mounted,
+    close: closeAll,
+    trigger,
+    panels: () => [sheet.current, flyout.current],
+    onEscape: (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!pane) return false;
+      closePane();
+      return true;
+    },
+  });
+
   useEffect(() => {
     if (!mounted) return undefined;
     layout();
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (trigger.current?.contains(target) || sheet.current?.contains(target) || flyout.current?.contains(target))
-        return;
-      closeAll();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (pane) closePane();
-      else closeAll();
-    };
     const onViewport = () => layout();
     // A phone keyboard resizes and offsets the VISUAL viewport, which fires
     // no window resize on iOS: without these the panel kept its old box while
     // the composer moved and the two drifted apart.
     const visual = window.visualViewport;
-    window.addEventListener('pointerdown', onPointerDown, true);
-    window.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('resize', onViewport);
     window.addEventListener('scroll', onViewport, true);
     visual?.addEventListener('resize', onViewport);
     visual?.addEventListener('scroll', onViewport);
     return () => {
-      window.removeEventListener('pointerdown', onPointerDown, true);
-      window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('resize', onViewport);
       window.removeEventListener('scroll', onViewport, true);
       visual?.removeEventListener('resize', onViewport);
       visual?.removeEventListener('scroll', onViewport);
     };
-  }, [closeAll, closePane, layout, mounted, pane]);
+  }, [layout, mounted]);
 
   useEffect(
     () => () => {
@@ -374,6 +377,9 @@ export function StudioRouteMenu({
     else lanes.push({ id: entry.lane, label: entry.laneLabel, authType: entry.authType, items: [entry] });
   }
   const normalizedModelQuery = modelQuery.trim().toLocaleLowerCase();
+  const autoVisible = Boolean(
+    auto && (!normalizedModelQuery || auto.label.toLocaleLowerCase().includes(normalizedModelQuery))
+  );
   const visibleLanes = lanes
     .map((group) => ({
       ...group,
@@ -443,6 +449,29 @@ export function StudioRouteMenu({
             </div>
           </div>
           <div className="model-list">
+            {auto && autoVisible && (
+              <button
+                type="button"
+                className="model-option-row"
+                role="menuitemradio"
+                aria-checked={auto.selected}
+                onClick={() => {
+                  auto.onSelect();
+                  closeAll();
+                }}
+              >
+                <span className="model-row-copy">
+                  <span className="model-row-title">
+                    <strong>{auto.label}</strong>
+                  </span>
+                </span>
+                {auto.selected && (
+                  <span className="route-selection-check">
+                    <Check size={14} aria-hidden="true" />
+                  </span>
+                )}
+              </button>
+            )}
             {visibleLanes.map((group) => (
               <section className="model-group model-group--provider" key={group.id}>
                 <h3>
@@ -454,7 +483,7 @@ export function StudioRouteMenu({
                 </h3>
                 <div className="model-items">
                   {group.items.map((entry) => {
-                    const active = entry.lane === lane && entry.model === model;
+                    const active = !entry.unavailable && entry.lane === lane && entry.model === model;
                     return (
                       <button
                         type="button"
@@ -462,7 +491,9 @@ export function StudioRouteMenu({
                         className="model-option-row"
                         role="menuitemradio"
                         aria-checked={active}
-                        data-tooltip={t('Select model')}
+                        disabled={Boolean(entry.unavailable)}
+                        data-unavailable={entry.unavailable ? '' : undefined}
+                        data-tooltip={entry.unavailable ? undefined : t('Select model')}
                         onClick={() => {
                           onSelect(entry);
                           closeAll();
@@ -472,9 +503,10 @@ export function StudioRouteMenu({
                           <span className="model-row-title">
                             <strong>{entry.label}</strong>
                           </span>
-                          <small className="studio-model-id">{entry.model}</small>
+                          {entry.model && <small className="studio-model-id">{entry.model}</small>}
                           {entry.description && <small className="studio-model-description">{entry.description}</small>}
                         </span>
+                        {entry.unavailable && <small className="model-row-unavailable">{entry.unavailable}</small>}
                         {active && (
                           <span className="route-selection-check">
                             <Check size={14} aria-hidden="true" />
@@ -486,7 +518,7 @@ export function StudioRouteMenu({
                 </div>
               </section>
             ))}
-            {visibleLanes.length === 0 && <p className="model-empty">{t('No matching models.')}</p>}
+            {visibleLanes.length === 0 && !autoVisible && <p className="model-empty">{t('No matching models.')}</p>}
           </div>
         </div>
       )}
@@ -541,18 +573,18 @@ export function StudioRouteMenu({
   const drilled = drill && Boolean(pane);
   const panelBox = drilled && flyoutBox ? flyoutBox : sheetBox;
 
-  return (
-    <div className="studio-model-menu">
+  const menu = (
+    <div className={field ? 'route-editor studio-model-menu' : 'studio-model-menu'}>
       <button
         ref={trigger}
         type="button"
-        className="studio-model-trigger"
+        className={field ? 'model-trigger' : 'studio-model-trigger'}
         disabled={disabled}
         style={triggerWidth !== null ? { width: triggerWidth } : undefined}
         data-morph={triggerWidth !== null ? '' : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={t('Generation model')}
+        aria-label={ariaLabel || t('Generation model')}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           clickGuard.markPointerActivation();
@@ -565,7 +597,14 @@ export function StudioRouteMenu({
         }}
         onPointerCancel={clickGuard.clearPointerActivation}
       >
-        <span>{current?.label || model || t('Select model')}</span>
+        {field ? (
+          <span className="route-trigger-copy">
+            <span className="model-route-label">{modelLabel}</span>
+            {suffix && <span className="model-route-label model-route-label-effort">{suffix}</span>}
+          </span>
+        ) : (
+          <span>{modelLabel}</span>
+        )}
         <ChevronDown size={14} aria-hidden="true" />
       </button>
       {mounted &&
@@ -598,7 +637,7 @@ export function StudioRouteMenu({
               </div>
             ) : (
               <div className="route-sheet-rows" key="rows">
-                {row('model', t('Model'), current?.label || model || t('Select model'))}
+                {row('model', t('Model'), modelLabel)}
                 {rows.map((entry) => row(entry.id, entry.label, entry.valueLabel, entry.disabled))}
                 {slider && row('slider', slider.label, `${slider.value}s`, slider.disabled)}
               </div>
@@ -616,7 +655,7 @@ export function StudioRouteMenu({
             className={`route-sheet-flyout${pane === 'model' ? ' route-sheet-flyout--model model-catalog-panel' : ''}`}
             role="menu"
             aria-label={paneTitle}
-            style={flyoutBox}
+            style={routePanelStyle(flyoutBox)}
             data-placement={flyoutBox.placement}
             data-state={closing ? 'closing' : 'open'}
           >
@@ -627,4 +666,5 @@ export function StudioRouteMenu({
         )}
     </div>
   );
+  return field ? <div className="workflows-dialog-route">{menu}</div> : menu;
 }

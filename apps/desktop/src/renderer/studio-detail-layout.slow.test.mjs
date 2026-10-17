@@ -177,7 +177,11 @@ test('Studio detail keeps media, rail and actions in frame on every surface size
       define: { 'process.env.NODE_ENV': '"production"' },
     }),
     build({
-      stdin: { resolveDir, loader: 'css', contents: '@import "./ui/tokens.css"; @import "./desktop.css";' },
+      stdin: {
+        resolveDir,
+        loader: 'css',
+        contents: '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./desktop.css";',
+      },
       outfile: 'studio-detail-layout.css',
       bundle: true,
       write: false,

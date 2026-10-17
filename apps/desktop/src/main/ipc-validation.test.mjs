@@ -12,6 +12,18 @@ import {
   requiredVisualizeTabCommand,
 } from './ipc-validation.ts';
 
+test('immediate resume validates its addressed session and turn at the desktop boundary', () => {
+  const request = { capability: 'retryFailedTurn', sessionId: 'sess_retry', args: ['sess_retry', 'turn:u1'] };
+  assert.deepEqual(requiredDesktopCapabilityRequest(request), request);
+  assert.throws(() => requiredDesktopCapabilityRequest({ ...request, args: [] }), TypeError);
+  assert.throws(() => requiredDesktopCapabilityRequest({ ...request, args: ['sess_retry', ''] }), TypeError);
+  assert.throws(() => requiredDesktopCapabilityRequest({ ...request, sessionId: 'sess_other' }), TypeError);
+  assert.throws(
+    () => requiredDesktopCapabilityRequest({ capability: 'retryFailedTurn', args: request.args }),
+    TypeError
+  );
+});
+
 test('an editor save without an encoding change passes the IPC and remote boundaries', () => {
   // IPC keeps `undefined`; the remote lane is JSON and sends `null`.
   assert.equal(requiredTextFileEncoding(undefined), undefined);
@@ -164,7 +176,21 @@ test('desktop IPC still rejects unknown built-in lifecycle names', () => {
         capability: 'setBuiltinToolEnabled',
         args: ['thirdPartyRuntime', true],
       }),
-    /git, office, localProvider, tidy, autoEffort, or visualize/
+    /git, office, localProvider, tidy, autoEffort, visualize, or media/
+  );
+});
+
+test('Media generation toggles but never installs, and its generator pin is a one-argument write', () => {
+  assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'setBuiltinToolEnabled', args: ['media', false] }), {
+    capability: 'setBuiltinToolEnabled',
+    args: ['media', false],
+  });
+  assert.throws(
+    () => requiredDesktopCapabilityRequest({ capability: 'installBuiltinFeature', args: ['media'] }),
+    /installBuiltinFeature requires/
+  );
+  assert.doesNotThrow(() =>
+    requiredDesktopCapabilityRequest({ capability: 'setMediaPin', args: [{ kind: 'image', lane: '' }] })
   );
 });
 

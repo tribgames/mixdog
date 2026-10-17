@@ -33,6 +33,17 @@ const { dom } = installTestDom(null, {
   jsdom: { url: 'https://mixdog.test/' },
   expose: ['sessionStorage', 'navigator'],
 });
+// The persistence tests below describe the desktop window; a phone browser
+// (https page) keeps feedback in memory only, asserted in the last test.
+const browserWindow = globalThis.window;
+const desktopWindow = new Proxy(browserWindow, {
+  get(target, key) {
+    if (key === 'location') return { pathname: '/', protocol: 'file:', origin: 'null' };
+    const value = Reflect.get(target, key);
+    return typeof value === 'function' ? value.bind(target) : value;
+  },
+});
+globalThis.window = desktopWindow;
 window.mixdogDesktop = { rendererDiagnostic() {} };
 dom.window.HTMLElement.prototype.attachEvent ??= () => {};
 dom.window.HTMLElement.prototype.detachEvent ??= () => {};
@@ -739,6 +750,19 @@ test('queued feedback alone is sendable, rides with the message and clears only 
   } finally {
     await act(async () => root.unmount());
     host.remove();
+    resetVisualizeFeedback();
+  }
+});
+
+test('a phone browser keeps visualize feedback in memory, never in storage', async () => {
+  globalThis.window = browserWindow;
+  try {
+    resetVisualizeFeedback();
+    addVisualizePin('s1', elementPin());
+    assert.equal(sessionStorage.getItem('mixdog:visualize-feedback:v1'), null);
+    assert.equal(visualizeFeedbackFor('s1').pins.length, 1);
+  } finally {
+    globalThis.window = desktopWindow;
     resetVisualizeFeedback();
   }
 });

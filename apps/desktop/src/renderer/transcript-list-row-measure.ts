@@ -37,20 +37,30 @@ export function useMountedRowMeasurement({
   restoreReadingAnchor: ReadingAnchorState['restoreReadingAnchor'];
 }) {
   const landingMeasure = useRef(false);
+  const previousRows = useRef(rows);
+  // Rows whose live band left in this row set: the band's row is gone from
+  // the virtual total in this commit, while the reply above it took the
+  // band's slot (its completion footer) in the same commit. Left to its
+  // ResizeObserver, that growth landed a frame after the shrink, and the
+  // followed tail painted one frame 40px low at every turn end.
+  const bandHandoff = useRef(new Set<string>());
   const measureMountedRows = useCallback(
     (landing: boolean) => {
       const root = spacer.current;
       const apply = landing ? baseResizeItem.current : virtualizerRef.current.resizeItem;
       if (!root || !apply) return false;
       const instance = virtualizerRef.current;
+      const handoff = bandHandoff.current;
       const mounted = [...root.children].filter(
         (row): row is HTMLElement =>
           row instanceof HTMLElement &&
           row.dataset.timelineKey !== undefined &&
           (landing ||
+            handoff.has(row.dataset.timelineKey) ||
             (!instance.itemSizeCache.has(row.dataset.timelineKey) &&
               !pendingResizes.current.has(row.dataset.timelineKey)))
       );
+      handoff.clear();
       if (mounted.length === 0) return false;
       // One batched read: the first lays out what this commit needs anyway,
       // every later one is free. New rows and rows whose content the page
@@ -75,6 +85,15 @@ export function useMountedRowMeasurement({
   // biome-ignore lint/correctness/useExhaustiveDependencies: must run only when the row set changes; every other input is read through refs or stable callbacks
   useLayoutEffect(() => {
     laidOutRows.current = rows;
+    const before = previousRows.current;
+    previousRows.current = rows;
+    const kept = new Set(rows.map((row) => String(row.key)));
+    before.forEach((row, index) => {
+      const lead = before[index - 1];
+      if (row._tag === 'Thinking' && lead && !kept.has(String(row.key)) && kept.has(String(lead.key))) {
+        bandHandoff.current.add(String(lead.key));
+      }
+    });
     const pending = pendingAnchor.current;
     pendingAnchor.current = null;
     if (!pending?.anchor || virtualizerRef.current.options.anchorTo === 'end') return;

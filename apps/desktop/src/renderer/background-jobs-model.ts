@@ -21,25 +21,60 @@ export type JobRow = {
   taskId?: string;
   /** Shell working directory; '' when unknown. */
   cwd?: string;
+  /** Killed, but its processes are not confirmed gone: the folder stays held
+   *  until they are, or until the user releases it. */
+  terminationUnconfirmed?: boolean;
 };
 
-/** Where a Stop request stands; absent before the user pressed Stop. */
+/** Where a Stop (or Release) request stands; absent before the user acted. */
 export type ShellStopState = 'stopping' | 'failed' | undefined;
-export type ShellRowAction = 'stop' | 'stopping' | 'retry' | 'dismiss';
+export type ShellRowAction = 'stop' | 'stopping' | 'retry' | 'dismiss' | 'release';
 
 /** The one button a shell row offers: a finished row can only be dismissed;
- *  a running one is stopped, shows it is stopping, or offers a retry. */
-export function shellRowAction(row: Pick<JobRow, 'finished'>, stop: ShellStopState): ShellRowAction {
+ *  a row whose termination is unconfirmed offers "Release anyway"; a running
+ *  one is stopped. Either request shows it is in flight, or offers a retry. */
+export function shellRowAction(
+  row: Pick<JobRow, 'finished' | 'terminationUnconfirmed'>,
+  stop: ShellStopState
+): ShellRowAction {
   if (row.finished) return 'dismiss';
   if (stop === 'stopping') return 'stopping';
-  return stop === 'failed' ? 'retry' : 'stop';
+  if (stop === 'failed') return 'retry';
+  return row.terminationUnconfirmed ? 'release' : 'stop';
 }
 
-/** A finished shell's status in words: cancelled reads as stopped. */
+/** A finished shell that exited cleanly: exit code 0, neither failed nor stopped. */
+export function shellFinishedOk(row: Pick<JobRow, 'status' | 'exitCode'>): boolean {
+  return row.exitCode === 0 && row.status !== 'failed' && row.status !== 'cancelled';
+}
+
+/** A finished shell's status in words: stopped, ended (exit 0) or failed. */
 export function shellFinishedLabel(row: Pick<JobRow, 'status' | 'exitCode'>): string {
   if (row.status === 'cancelled') return t('Island: Stopped');
-  if (row.exitCode != null) return t('Island: Exited {{code}}', { code: row.exitCode });
-  return t('Island: Finished');
+  return shellFinishedOk(row) ? t('Island: Exited') : t('Failed');
+}
+
+/** How long a cleanly exited shell stays listed after it finished. */
+export const SHELL_AUTO_DISMISS_MS = 60_000;
+
+/** The cleanly exited rows whose listing time is over (`seenAt` stands in for
+ *  an unknown finish time), and when the next one lapses (0 when none waits).
+ *  Failed and stopped rows stay until the user dismisses them. */
+export function expiredShellRows(
+  rows: readonly JobRow[],
+  now: number,
+  seenAt: (row: JobRow) => number,
+  holdMs: number = SHELL_AUTO_DISMISS_MS
+): { keys: string[]; nextAt: number } {
+  const keys: string[] = [];
+  let nextAt = 0;
+  for (const row of rows) {
+    if (!row.finished || !shellFinishedOk(row)) continue;
+    const due = (row.finishedAt || seenAt(row)) + holdMs;
+    if (due <= now) keys.push(row.key);
+    else if (!nextAt || due < nextAt) nextAt = due;
+  }
+  return { keys, nextAt };
 }
 
 /** Last path segment of a working directory ('' for none). */
@@ -77,6 +112,7 @@ export function backgroundJobRows(snapshot: Snapshot, dismissed: ReadonlySet<str
       startedAt: timeMs(job.startedAt),
       taskId: String(job.taskId || job.task_id || ''),
       cwd: String(job.cwd || ''),
+      ...(job.terminationUnconfirmed === true ? { terminationUnconfirmed: true } : {}),
     }))
     .sort((a, b) => b.startedAt - a.startedAt);
   return [...shell, ...finishedShell];

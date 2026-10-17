@@ -65,19 +65,20 @@ export async function readWorkspaceFile(workspaceFile: string): Promise<DesktopW
   return parseWorkspaceFile(await readFile(file, 'utf8'), file);
 }
 
-export async function writeWorkspaceFile(
-  workspaceFile: string,
-  folders: readonly DesktopWorkspaceFolder[]
-): Promise<DesktopWorkspace> {
-  let file = resolve(workspaceFile);
-  if (!file.toLocaleLowerCase().endsWith('.code-workspace')) file += '.code-workspace';
+/** The `.code-workspace` path a save names (the extension added when absent). */
+export function workspaceFilePath(workspaceFile: string): string {
+  const file = resolve(workspaceFile);
+  return file.toLocaleLowerCase().endsWith('.code-workspace') ? file : `${file}.code-workspace`;
+}
+
+/** The saved text of workspace `file` listing `folders`, keeping the other
+ *  keys of its `existing` configuration, and the workspace it describes. */
+export function workspaceFileText(
+  file: string,
+  folders: readonly DesktopWorkspaceFolder[],
+  existing: Record<string, unknown>
+): { text: string; workspace: DesktopWorkspace } {
   const normalized = uniqueFolders(folders);
-  let existing: Record<string, unknown> = {};
-  try {
-    existing = (await readJsoncFile(file)) ?? {};
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error;
-  }
   const base = dirname(file);
   const serializedFolders = normalized.map((folder) => {
     const rel = relative(base, folder.path);
@@ -87,25 +88,32 @@ export async function writeWorkspaceFile(
       ...(folder.name ? { name: folder.name } : {}),
     };
   });
-  await mkdir(base, { recursive: true });
-  await writeFile(
-    file,
-    `${JSON.stringify(
-      {
-        ...existing,
-        folders: serializedFolders,
-      },
-      null,
-      2
-    )}\n`,
-    'utf8'
-  );
   return {
-    kind: 'workspace',
-    name: workspaceName(file),
-    workspaceFile: file,
-    folders: normalized,
+    text: `${JSON.stringify({ ...existing, folders: serializedFolders }, null, 2)}\n`,
+    workspace: { kind: 'workspace', name: workspaceName(file), workspaceFile: file, folders: normalized },
   };
+}
+
+/** A workspace file's existing configuration (`{}` for none) from its text. */
+export function workspaceConfiguration(text: string | null): Record<string, unknown> {
+  return text === null ? {} : (objectRecord(parseJsonc(text)) ?? {});
+}
+
+export async function writeWorkspaceFile(
+  workspaceFile: string,
+  folders: readonly DesktopWorkspaceFolder[]
+): Promise<DesktopWorkspace> {
+  const file = workspaceFilePath(workspaceFile);
+  let existing: Record<string, unknown> = {};
+  try {
+    existing = (await readJsoncFile(file)) ?? {};
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error;
+  }
+  const { text, workspace } = workspaceFileText(file, folders, existing);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, text, 'utf8');
+  return workspace;
 }
 
 function languageSettings(source: Record<string, unknown>, languageId: string): Record<string, unknown> {
@@ -321,4 +329,21 @@ export async function readScopedEditorSettings(
   const workspace = workspaceFile ? (objectRecord((await optionalJsonc(resolve(workspaceFile))).settings) ?? {}) : {};
   const folder = await optionalJsonc(join(resolve(folderPath), '.vscode', 'settings.json'));
   return editorSettingsFromScopes([user, workspace, folder], editorLanguageIdForPath(relPath));
+}
+
+/** readScopedEditorSettings for a caller that read the workspace and folder
+ *  settings files itself (a paired device's request, through authorized
+ *  handles): their text, or null when there is none. */
+export async function scopedEditorSettingsFromText(
+  userDataPath: string,
+  relPath: string,
+  workspaceText: string | null,
+  folderText: string | null
+): Promise<DesktopEditorSettings> {
+  const user = userDataPath ? await optionalJsonc(join(userDataPath, 'User', 'settings.json')) : {};
+  const workspace = objectRecord(workspaceConfiguration(workspaceText).settings) ?? {};
+  return editorSettingsFromScopes(
+    [user, workspace, workspaceConfiguration(folderText)],
+    editorLanguageIdForPath(relPath)
+  );
 }

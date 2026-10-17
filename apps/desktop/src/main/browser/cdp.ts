@@ -24,9 +24,13 @@ interface BrowserGuestCdpHost {
   /** Extra Fetch patterns interception wants paused on this guest. */
   interceptFetchPatterns(guest: WebContents): BrowserFetchPattern[];
   matchInterceptRule(guest: WebContents, url: string, resourceType: string): BrowserInterceptRule | undefined;
+  /** Whether a person refused `origin` a permission (by engine name). */
+  permissionRefused?(origin: string, name: string): boolean;
   /** Policy-driven guards installed into every document and child frame,
    *  alongside the dialog bridge. Empty unless an operator restricts the page. */
   pageGuardScripts?(): string[];
+  /** How long driving domains outlive the last agent command (tests). */
+  lingerMs?: number;
 }
 
 /** The narrow CDP surface a page service depends on; tests fake this shape. */
@@ -80,6 +84,9 @@ export interface BrowserGuestCdp {
   waitForInitialDocument(guest: WebContents): Promise<void>;
   /** Push the current Fetch patterns to the root and every child session. */
   applyFetchPatterns(guest: WebContents, signal?: AbortSignal): Promise<void>;
+  /** An agent command works on the page until the returned release: the
+   *  domains only that work needs are up meanwhile (see cdp-session-init). */
+  drive(guest: WebContents): () => void;
   /** Drop the debugger for a guest whose bridge is going away. */
   detach(guest: WebContents): Promise<void>;
 }
@@ -91,7 +98,10 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     diagnostic: (guest, message) => state.for(guest).console.recordInternal(message),
     awaitingDialog: (guest) => Boolean(state.peek(guest)?.pendingDialog),
   });
-  const sessions = createBrowserCdpSessionInit(host, sendCdp);
+  const sessions = createBrowserCdpSessionInit(
+    { ...host, guestDebugger: (guest) => attachment.guestDebugger(guest) },
+    sendCdp
+  );
   // The attachment routes messages through the router, and the router reads
   // the attachment's lifetimes; messages only arrive once both exist.
   const attachment = createGuestDebuggerAttachment({
@@ -103,8 +113,10 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     state,
     sendCdp,
     matchInterceptRule: host.matchInterceptRule,
+    permissionRefused: host.permissionRefused,
     initializeTargetSession: sessions.initializeTargetSession,
     lifetimeSignal: attachment.lifetimeSignal,
+    onTopDocument: sessions.onTopDocument,
   });
   const calls = createBrowserCdpCalls({ state, sendCdp, guestDebugger: attachment.guestDebugger });
 
@@ -122,6 +134,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     guestDebugger: attachment.guestDebugger,
     waitForInitialDocument: attachment.waitForInitialDocument,
     applyFetchPatterns,
+    drive: sessions.drive,
     detach: attachment.detach,
   };
 }

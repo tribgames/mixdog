@@ -183,6 +183,22 @@ export function primeEditorFileLoad(
   return promise;
 }
 
+/** The read already in flight for this file (a tab open primes it), else a
+ *  fresh primed one. Unlike `takeEditorFileLoad` it leaves the entry for the
+ *  editor session that takes it, so the plain-text cover and the editor share
+ *  ONE read. Call it before the editor mounts: a mounted session consumes the
+ *  entry, and a late peek would start a second read. */
+export function peekEditorFileLoad(
+  api: DesktopApi | undefined,
+  projectPath: string,
+  relPath: string,
+  accessToken?: string
+): Promise<EditorFileHydration> | null {
+  const primed = primedEditorFiles.get(editorLoadKey(projectPath, relPath, accessToken));
+  if (primed && Date.now() - primed.createdAt <= PRIMED_FILE_MAX_AGE_MS) return primed.promise;
+  return primeEditorFileLoad(api, projectPath, relPath, accessToken);
+}
+
 export function takeEditorFileLoad(
   api: DesktopApi,
   projectPath: string,

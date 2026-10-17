@@ -47,12 +47,22 @@
      with sheet-surface: use that same opaque colour. */
   background: linear-gradient(to bottom, transparent, var(--mx-sheet-surface, var(--mx-workspace-sheet)));
 }
+/* The island slot's resting height is its pill plus the stage's floor gap.
+   Pill, stage and the draft's context bar all read these properties, so the
+   bar cannot drift from the slot it stands in for (phones set the pill below). */
+.composer-region {
+  --island-pill-height: 34px;
+  --island-stage-gap: 12px;
+  --island-rest-height: calc(var(--island-pill-height) + var(--island-stage-gap));
+}
+/* A draft's context bar takes the session island slot's resting height with
+   its controls centred in it: the first submit swaps bar for island without
+   moving the transcript. */
 .composer-context-bar {
-  min-height: 28px;
+  min-height: var(--island-rest-height);
   max-height: 56px;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 6px;
 }
 
 /* ── Composer island ──────────────────────────────────────────────────────
@@ -60,18 +70,15 @@
    changed files, model mismatch), expands upward in place, grows into the
    tool approval card and flashes short notices. Its slot is in the dock's
    flow: the island's real height plus the 12px gap above the input while it
-   carries something, and no box at all once it carries nothing. Expanded
-   panels and the approval card take that same real room (bounded below), so
-   the transcript viewport above simply gets shorter.
+   carries something, and no box at all once it carries nothing. The approval
+   card takes real room (bounded below), so the transcript viewport above
+   gets shorter; expanded panels float over the transcript instead and leave
+   the slot at its collapsed height.
    ComposerIsland owns the slot's height (--island-slot-height, px) and its
    data-presence: "open" while something is carried, "grace" for a short
    hold after the last content left (content returning within it moves
-   nothing), "closing" while the height eases to 0, then "closed". */
-@property --island-slot-height {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
-}
+   nothing), "closing" while the height eases to 0, then "closed".
+   --island-slot-height is registered in font-faces.css. */
 .composer-island-slot {
   position: relative;
   z-index: 9;
@@ -111,6 +118,31 @@
 .composer-island-slot:is([data-motion], [data-measuring]) > .composer-island-stage {
   flex-shrink: 0;
 }
+/* An expanded panel overlays the transcript instead of taking dock room. The
+   stage keeps its collapsed height (pill + gap) out of flow, so the slot
+   measures the same as collapsed and the transcript viewport never resizes.
+   The panel hangs down from the pill's top edge and is lifted by its own
+   height less one pill: its layout origin stays put (nothing is reported as
+   shifting) while it paints above the pill's place on the slot's floor. The
+   slot must not clip it. */
+.composer-island-slot[data-mode="panel"] {
+  overflow: visible;
+}
+.composer-island-slot[data-mode="panel"] > .composer-island-stage {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  box-sizing: border-box;
+  height: var(--island-rest-height);
+}
+.composer-island-slot[data-mode="panel"] > .composer-island-stage > .composer-island {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  margin-inline: auto;
+  width: fit-content;
+  transform: translateY(calc(-100% + var(--island-pill-height)));
+}
 .composer-island-stage {
   flex: 0 1 auto;
   min-height: 0;
@@ -119,7 +151,7 @@
   align-items: center;
   /* 12px above the input: close enough to read as the composer's own chrome
      while leaving it room to breathe (the mobile dock uses the same gap). */
-  padding-bottom: 12px;
+  padding-bottom: var(--island-stage-gap);
   pointer-events: none;
   container: composer-island / inline-size;
 }
@@ -178,16 +210,23 @@
 :where(.composer-island-slot[data-entry]) .composer-island[data-mode="approval"] {
   animation-name: composer-island-pop-approval;
 }
-/* Expanded, the island takes real room in the dock. It never takes the pane:
-   past this bound it scrolls inside, leaving the transcript its share, and in
-   a pane too short for even that it shrinks to what the composer and the
-   other dock members leave (the slot's flex bound above). */
+/* Expanded, the approval card takes real room in the dock and a panel floats
+   over the transcript. Neither takes the pane: past this bound it scrolls
+   inside, and in a pane too short for even that the approval card shrinks to
+   what the composer and the other dock members leave (the slot's flex bound
+   above). */
 .composer-island:is([data-mode="panel"], [data-mode="approval"]) {
   flex: 0 1 auto;
   min-height: 0;
   max-height: max(160px, 100cqh - 240px);
   overflow: hidden auto;
   overscroll-behavior: contain;
+}
+/* A panel floats up from the composer's floor, so it is capped to the real
+   room above that floor (measured by ComposerIsland; no minimum that could
+   exceed it) and scrolls inside past that. */
+.composer-island[data-mode="panel"] {
+  max-height: var(--island-panel-room, max(96px, 100cqh - 240px));
 }
 /* Collapsed, the island is one capsule like its pill row. */
 .composer-island:is([data-mode="pill"], [data-mode="flash"]) {
@@ -196,11 +235,24 @@
 :where(.composer-island-slot[data-entry]) .composer-island[data-mode="flash"] {
   animation-name: composer-island-pop-flash;
 }
+:where(.composer-island-slot[data-entry]) .composer-island[data-mode="panel"] {
+  animation-name: composer-island-pop-panel;
+}
 /* The island fades in place; it never scales or slides, so nothing reads as
-   moving while its slot eases open. */
+   moving while its slot eases open. The fade also animates transform (to its
+   own resting value) so the browser leaves the island's lift between collapsed
+   and expanded (a panel is positioned by transform) out of layout-shift
+   reporting; the panel's rise below is that lift's last 12px. */
 @keyframes composer-island-fade {
   from {
     opacity: 0;
+    transform: translateY(0);
+  }
+}
+@keyframes composer-island-pop-panel {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-100% + var(--island-pill-height) + 12px));
   }
 }
 @keyframes composer-island-pop-approval {
@@ -226,7 +278,7 @@
 }
 .composer-island-pill {
   min-width: 0;
-  height: 34px;
+  height: var(--island-pill-height);
   display: flex;
   align-items: center;
   padding: 0 4px;
@@ -284,6 +336,178 @@
   height: 14px;
   background: var(--composer-island-rule);
   transform: translateY(-50%);
+}
+/* The divider between the work group (Goal, agents, shells) and the git group
+   (branch, files, git action): drawn only while both groups have something. */
+.composer-island-divider {
+  display: none;
+  width: var(--mx-hairline);
+  height: 18px;
+  flex: none;
+  margin: 0 4px;
+  background: var(--mx-border);
+}
+.composer-island-pill
+  > :is(.composer-island-seg, .session-goal-island)
+  ~ .composer-island-divider:has(~ .composer-island-seg) {
+  display: block;
+}
+.composer-island-pill > .composer-island-divider + :is(.composer-island-seg, .session-goal-island) {
+  margin-inline-start: 0;
+}
+.composer-island-pill > .composer-island-divider + :is(.composer-island-seg, .session-goal-island)::before {
+  content: none;
+}
+/* The git action ends the pill as a plain segment (same box, tone, hairline
+   and wash as branch and files): the action's icon and label, then a 13px
+   chevron. The two buttons fill the segment, so the chevron's area alone
+   toggles the tab and the rest runs; together they draw the segment's
+   0 8px 0 10px padding and 6px gaps. */
+.composer-island-pill > .composer-island-seg.composer-island-git {
+  gap: 0;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: default;
+}
+.composer-island-git[data-open] {
+  color: var(--mx-text);
+  background: var(--composer-island-wash);
+}
+.composer-island-git > button {
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.composer-island-git > button:focus-visible {
+  outline: 1px solid var(--mx-accent);
+  outline-offset: -1px;
+}
+.composer-island-git > button > svg {
+  flex: none;
+}
+.composer-island-git-main {
+  gap: 6px;
+  padding: 0 3px 0 10px;
+}
+.composer-island-git-caret {
+  padding: 0 8px 0 3px;
+}
+.composer-island[data-compact] .composer-island-git-main > span {
+  display: none;
+}
+.composer-island[data-compact] .composer-island-git-main {
+  padding-inline-start: 8px;
+}
+/* The branch and git tabs expand the island upward in place, like the files
+   menu (their panels are rendered beside their segments in the pill). */
+.composer-island:is([data-expanded="branch"], [data-expanded="git"]) .composer-island-pill:not([hidden]) {
+  height: auto;
+  display: block;
+  padding: 0;
+}
+.composer-island[data-expanded="branch"] .composer-island-pill > :not(.composer-island-branch-panel),
+.composer-island[data-expanded="git"] .composer-island-pill > :not(.composer-island-git-panel) {
+  display: none;
+}
+:is(.composer-island-branch-panel, .composer-island-git-panel) {
+  white-space: normal;
+}
+.composer-island-branch-tab-name {
+  min-width: 0;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-island-git-rows {
+  display: flex;
+  flex-direction: column;
+}
+/* A row: the selecting body (icon, label, ✓) and its own Run at the right. */
+.composer-island-git-row {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 0;
+  border-radius: var(--mx-radius-md);
+}
+.composer-island-git-row + .composer-island-git-row {
+  border-top: var(--mx-hairline) solid var(--composer-island-rule);
+}
+.composer-island-git-row:hover,
+.composer-island-git-row[data-selected] {
+  background: var(--composer-island-wash);
+}
+.composer-island-git-pick {
+  min-width: 0;
+  min-height: 32px;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font: inherit;
+  font-weight: 500;
+  text-align: start;
+  cursor: pointer;
+}
+.composer-island-git-pick:focus-visible {
+  outline: 1px solid var(--mx-accent);
+  outline-offset: -1px;
+}
+.composer-island-git-pick > svg {
+  flex: none;
+  color: var(--mx-icon-muted);
+}
+.composer-island-git-pick > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-island-git-pick > .composer-island-git-check {
+  color: var(--mx-accent);
+}
+.composer-island-git-row > .composer-island-git-run {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+}
+.composer-island-git-run > svg {
+  flex: none;
+}
+.composer-island-git-foot {
+  justify-content: flex-start;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: var(--mx-hairline) solid var(--composer-island-rule);
+}
+.composer-island-git-foot > .composer-island-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* A header action beside the close button (the shells tab's Close all). */
+.composer-island-phead-action {
+  flex: none;
+  margin-inline-start: auto;
+}
+.composer-island-phead-action + .composer-island-close {
+  margin-inline-start: 4px;
 }
 /* Only text that can ellipsize gives way on a narrow island: the Goal while
    it still shows its title. Counts never shrink. */
@@ -359,7 +583,8 @@
   align-items: center;
   gap: 5px;
 }
-.composer-island-seg-state[data-kind="waiting"] > .composer-island-dot {
+/* A state's dot (waiting, failed) only stands in for its words. */
+.composer-island-seg-state > .composer-island-dot {
   display: none;
 }
 .composer-island-seg-state + .composer-island-seg-state::before {
@@ -404,7 +629,7 @@
 .composer-island[data-compact] .composer-island-seg-num {
   display: inline-block;
 }
-.composer-island[data-compact] .composer-island-seg-state[data-kind="waiting"] > .composer-island-dot {
+.composer-island[data-compact] .composer-island-seg-state > .composer-island-dot {
   display: inline-block;
 }
 .composer-island[data-compact] .composer-island-seg-state + .composer-island-seg-state::before {
@@ -413,6 +638,11 @@
 .composer-island[data-compact] :is(.composer-island-seg, .session-goal-trigger) {
   gap: 5px;
   padding-inline: 8px;
+}
+/* The git segment's spacing lives on its buttons, never its container. */
+.composer-island[data-compact] .composer-island-seg.composer-island-git {
+  gap: 0;
+  padding-inline: 0;
 }
 /* The branch segment (BranchIslandSegment) is the one whose text gives way
    on a narrow island. Compact shows the short name at once (no branch
@@ -623,9 +853,17 @@
   flex: none;
   text-align: right;
 }
-/* A finished background shell: muted until the user dismisses it. */
+/* A finished background shell: muted until the user dismisses it (or, after
+   a clean exit, until it is dismissed on its own). Ended reads muted, failed
+   in the danger hue. */
 .composer-island-row[data-finished="true"] .agent-pool-name {
   color: var(--mx-text-muted);
+}
+.composer-island-jobs .composer-island-row .agent-activity-elapsed[data-state="done"] {
+  color: var(--mx-text-muted);
+}
+.composer-island-jobs .composer-island-row .agent-activity-elapsed[data-state="failed"] {
+  color: var(--mx-danger);
 }
 .composer-island-row-dismiss {
   flex: none;
@@ -934,7 +1172,7 @@
    never hide the edge. */
 .question-card::after,
 .ask-user-record::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   z-index: 1;
@@ -965,7 +1203,7 @@
   color: var(--mx-accent);
   font-weight: var(--mx-weight-bold, 700);
 }
-.question-icon[data-tone='done'] {
+.question-icon[data-tone="done"] {
   color: var(--mx-success);
 }
 .question-title {
@@ -1056,7 +1294,7 @@
   font-weight: 700;
   line-height: 1;
 }
-.question-box[data-kind='radio'] {
+.question-box[data-kind="radio"] {
   border-radius: 50%;
 }
 /* Picked check and radio carry the same weight: an accent ring with an
@@ -1065,7 +1303,7 @@
   box-shadow: inset 0 0 0 1.5px var(--mx-accent);
   color: var(--mx-accent);
 }
-.question-option[data-selected] .question-box[data-kind='radio'] {
+.question-option[data-selected] .question-box[data-kind="radio"] {
   background: radial-gradient(circle, var(--mx-accent) 0 3.5px, transparent 4px);
 }
 .question-key {
@@ -1141,18 +1379,16 @@
   flex: 1;
   min-width: 0;
 }
-/* Answered record: one row per question, picks as tags. */
+/* Answered record: one row per question, the question above its picks. */
 .ask-user-record-question {
   min-height: 36px;
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-direction: column;
+  gap: 4px;
   padding: 8px 12px;
   border-top: var(--mx-hairline) solid var(--mx-border-muted);
 }
 .ask-user-record-q {
-  flex: none;
-  width: 140px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta, 13px);
   overflow-wrap: anywhere;
@@ -1191,7 +1427,7 @@
   cursor: default;
 }
 .composer-island-flash {
-  height: 34px;
+  height: var(--island-pill-height);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1217,12 +1453,17 @@ html[data-mixdog-mobile-tabs] .composer-island {
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-minor);
 }
-html[data-mixdog-mobile-tabs] .composer-island-pill {
-  height: 36px;
+/* The phone pill is 36px: slot and draft bar follow through the properties. */
+html[data-mixdog-mobile-tabs] .composer-region {
+  --island-pill-height: 36px;
 }
 html[data-mixdog-mobile-tabs] :is(.composer-island-seg, .composer-island .session-goal-trigger) {
   height: 28px;
   padding-inline: 11px;
+}
+html[data-mixdog-mobile-tabs] .composer-island .composer-island-seg.composer-island-git {
+  gap: 0;
+  padding-inline: 0;
 }
 html[data-mixdog-mobile-tabs] :is(.composer-island-dot, .composer-island-pulse) {
   width: 6px;
@@ -1271,7 +1512,6 @@ html[data-mixdog-mobile-tabs] .composer-island-ptitle {
   line-height: var(--mx-line-ui);
 }
 html[data-mixdog-mobile-tabs] .composer-island-flash {
-  height: 36px;
   gap: 8px;
   padding-inline: 16px;
 }

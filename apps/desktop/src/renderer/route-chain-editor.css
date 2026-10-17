@@ -1,0 +1,108 @@
+.route-chain-editor {
+  width: 100%;
+  min-width: 0;
+}
+.route-chain-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+}
+.route-chain-hint,
+.route-chain-unavailable {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.route-chain-heading > .route-chain-add {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-action-bg);
+  box-shadow: var(--mx-action-ring);
+}
+.route-chain-add:hover:not(:disabled) {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-action-bg);
+}
+.route-chain-add:disabled,
+.route-chain-handle:disabled,
+.route-chain-remove:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.route-chain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: var(--mx-hairline) solid var(--mx-border);
+}
+.route-chain-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  min-width: 0;
+  padding: 10px 0 10px 4px;
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
+}
+.route-chain-row > .route-editor {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.route-chain-handle,
+.route-chain-remove {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  color: var(--mx-text-muted);
+}
+.route-chain-handle {
+  cursor: grab;
+  touch-action: none;
+}
+.route-chain-handle:active {
+  cursor: grabbing;
+}
+.route-chain-remove {
+  width: 28px;
+  margin-left: auto;
+}
+.route-chain-handle:hover:not(:disabled),
+.route-chain-remove:hover:not(:disabled) {
+  background: var(--mx-hover);
+}
+.route-chain-hint,
+.route-chain-unavailable {
+  display: block;
+  margin-top: 12px;
+}
+.route-chain-unavailable {
+  margin-top: 6px;
+}
+.route-chain-hint {
+  color: var(--mx-warning);
+}
+@media (pointer: coarse) {
+  .route-chain-heading > .route-chain-add,
+  .route-chain-handle,
+  .route-chain-remove {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .route-chain-row {
+    gap: 6px;
+  }
+}

@@ -616,10 +616,10 @@ html[data-window-material="mica"] .session-sidebar {
 :is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="running"] {
   color: var(--mx-text-accent);
 }
-/* Waiting on child work has its own hue so it never reads like live work
-. */
+/* Waiting on child work reads in full ink: never the accent of live work,
+   and never the needs-you hue, since nothing waits on the user. */
 :is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="waiting"] {
-  color: var(--mx-warning);
+  color: var(--mx-text);
 }
 /* Completion notice: an idle row whose session is still unseen reads in the
    success hue — the hue alone marks it. It fades back to
@@ -634,7 +634,8 @@ html[data-window-material="mica"] .session-sidebar {
 }
 /* Delivered but unproven (Windows git-bash survivors): the warning tone says
    the process could not be confirmed gone, never that the cancel succeeded. */
-:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="cancel-unconfirmed"] {
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="cancel-unconfirmed"],
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="unconfirmed"] {
   color: var(--mx-warning);
 }
 /* Agents dock reuses the Workflows rail grammar. */
@@ -1111,16 +1112,7 @@ html[data-window-material="mica"] .session-sidebar {
   animation: session-sidebar-scroll-fade linear both;
   animation-timeline: scroll(self block);
 }
-@property --sidebar-fade-top {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
-}
-@property --sidebar-fade-bottom {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
-}
+/* --sidebar-fade-top/-bottom are registered in font-faces.css. */
 @keyframes session-sidebar-scroll-fade {
   0% {
     --sidebar-fade-top: 0px;

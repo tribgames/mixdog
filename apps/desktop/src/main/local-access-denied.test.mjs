@@ -22,6 +22,15 @@ test('only explicit authority codes survive serialization as a definite denial',
   }
 });
 
+test('a denial naming its reason by code is still a denial, and a plain error with that wording is not', () => {
+  for (const code of ['SELECTED_FILE_GRANT_UNAVAILABLE', 'PROJECT_UNAVAILABLE']) {
+    const denial = new LocalAccessDeniedError('reason', code);
+    assert.equal(denial.code, code);
+    assert.equal(isLocalAccessDenied(denial), true);
+  }
+  assert.equal(isLocalAccessDenied(new Error('Project is not available.')), false);
+});
+
 test('selected-file authority marks missing grants and mismatched paths, not its storage failure', async (t) => {
   const root = await fixture(t);
   const access = new SelectedFileAccess({ storePath: '', listProjects: async () => [] });

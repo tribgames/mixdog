@@ -13,7 +13,21 @@ export interface SnapshotDeltaEncoder {
   /** What a receiver that applied every emitted frame holds; null without a
    *  baseline. Mirrors the decoder's resumePoint() field for field. */
   resumePoint(): ViewResumePoint | null;
+  /** What a receiver that applied frames up to `revision` holds, while that
+   *  revision is still in the encoder's bounded history (the current one
+   *  always is); null otherwise. */
+  resumePointAt(revision: number): ViewResumePoint | null;
+  /** Continue the stream from `revision` as if the frames after it were
+   *  never emitted: the next frame is the delta from what a receiver at
+   *  `revision` holds. False (and nothing changed) when it is not retained. */
+  rewind(revision: number): boolean;
 }
+
+/** Emitted revisions an encoder can still continue from. A receiver misses
+ *  only what was in flight when its leg dropped (or what a congested leg
+ *  dropped), so a short window answers a gap with a delta instead of a whole
+ *  baseline. Entries share every unchanged row with each other. */
+export const DELTA_HISTORY_REVISIONS = 32;
 
 interface SnapshotDeltaDecodeResult {
   ok: boolean;
@@ -24,6 +38,10 @@ interface SnapshotDeltaDecoder {
   decode(wire: unknown): SnapshotDeltaDecodeResult;
   reset(): void;
   resumePoint(): ViewResumePoint | null;
+  /** resumePoint(), remembered: frames already in flight may still advance
+   *  this decoder, but a patch built on the claimed revision (the sender
+   *  rewound to it) applies to the claimed state. */
+  claim(): ViewResumePoint | null;
 }
 
 interface SessionStateRetentionStore {
@@ -421,6 +439,33 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
   let sentWireEpoch: number | null = null;
   let revision = 0;
   let emitted = false;
+  type Baseline = {
+    items: readonly unknown[];
+    tail: Record<string, unknown> | null;
+    tailEpoch: number | null;
+    fields: Record<string, unknown> | null;
+    tailIdentity: string | null;
+    wireEpoch: number | null;
+  };
+  const history = new Map<number, Baseline>();
+  /** Frames after the current revision were emitted and then abandoned by a
+   *  rewind. A receiver may still apply them (they were in flight), so the
+   *  next frame must travel even when it carries nothing: its base is what
+   *  returns that receiver to the claimed state. */
+  let rewound = false;
+  /** The baseline a receiver holds once it applied `revision`. */
+  const remember = (): void => {
+    if (!sentItems) return;
+    history.set(revision, {
+      items: sentItems,
+      tail: sentStreamingTail,
+      tailEpoch: sentStreamingTailEpoch,
+      fields: sentStateFields,
+      tailIdentity: sentTailIdentity,
+      wireEpoch: sentWireEpoch,
+    });
+    while (history.size > DELTA_HISTORY_REVISIONS) history.delete(history.keys().next().value as number);
+  };
 
   const reset = (): void => {
     sentItems = null;
@@ -429,6 +474,8 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
     sentStateFields = null;
     sentTailIdentity = null;
     sentWireEpoch = null;
+    history.clear();
+    rewound = false;
   };
 
   return {
@@ -442,6 +489,31 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
         revision,
         held: { items: sentItems, fields: sentStateFields, tail: sentStreamingTail, epoch: sentWireEpoch },
       };
+    },
+    resumePointAt(at) {
+      const entry = history.get(at);
+      if (!entry) return null;
+      return {
+        revision: at,
+        held: { items: entry.items, fields: entry.fields, tail: entry.tail, epoch: entry.wireEpoch },
+      };
+    },
+    rewind(at) {
+      const entry = history.get(at);
+      if (!entry) return false;
+      sentItems = entry.items;
+      sentStreamingTail = entry.tail;
+      sentStreamingTailEpoch = entry.tailEpoch;
+      sentStateFields = entry.fields;
+      sentTailIdentity = entry.tailIdentity;
+      sentWireEpoch = entry.wireEpoch;
+      for (const kept of [...history.keys()]) {
+        if (kept <= at) continue;
+        history.delete(kept);
+        rewound = true;
+      }
+      revision = at;
+      return true;
     },
     encode(snapshot: unknown): unknown {
       const record = snapshot as Record<string, unknown> | null;
@@ -594,12 +666,16 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
         sentStreamingTail = streamingTail;
         sentStreamingTailEpoch = streamingTailEpoch;
         sentStateFields = nextFields;
-        if (!carriesNews) {
+        const forced = rewound;
+        rewound = false;
+        if (!carriesNews && !forced) {
           // Hold the revision: the receiver's baseline never moved, so the next
           // real patch has to chain onto the one it already holds.
           revision -= 1;
+          remember();
           return REMOTE_NO_DELTA;
         }
+        remember();
         return wire;
       }
       sentItems = items;
@@ -610,6 +686,8 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
       // tail identity and epoch because the receiver's baseline was replaced.
       sentTailIdentity = null;
       sentWireEpoch = streamingTailEpoch;
+      rewound = false;
+      remember();
       const wire: Record<string, unknown> = { ...record, __itemsRevision: revision };
       carryStreamingTailEpoch(record, wire);
       return wire;
@@ -671,18 +749,32 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
   let revision: number | null = null;
   // Compact frames carry the tail epoch only when it rolls over.
   let retainedEpoch: number | null = null;
+  type Held = {
+    items: unknown[];
+    streamingTail: Record<string, unknown> | null;
+    stateFields: Record<string, unknown>;
+    revision: number;
+    retainedEpoch: number | null;
+  };
+  let claimed: Held | null = null;
   const reset = (): void => {
     items = [];
     streamingTail = null;
     stateFields = {};
     revision = null;
     retainedEpoch = null;
+    claimed = null;
+  };
+  const resumePoint = (): ViewResumePoint | null => {
+    if (revision === null) return null;
+    return { revision, held: { items, fields: stateFields, tail: streamingTail, epoch: retainedEpoch } };
   };
   return {
     reset,
-    resumePoint() {
-      if (revision === null) return null;
-      return { revision, held: { items, fields: stateFields, tail: streamingTail, epoch: retainedEpoch } };
+    resumePoint,
+    claim() {
+      claimed = revision === null ? null : { items, streamingTail, stateFields, revision, retainedEpoch };
+      return resumePoint();
     },
     decode(wire: unknown): SnapshotDeltaDecodeResult {
       if (!wire || typeof wire !== 'object') {
@@ -690,18 +782,28 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
         return { ok: true, snapshot: wire };
       }
       const raw = wire as Record<string, unknown>;
+      const compactRaw = raw.__v === COMPACT_WIRE_VERSION;
+      const rawPatch = raw.__itemsPatch as ItemsPatch | undefined;
+      const rawBase = compactRaw ? (Number.isSafeInteger(raw.r) ? (raw.r as number) - 1 : undefined) : rawPatch?.base;
+      // The sender rewound to the revision this decoder claimed, while frames
+      // it had already sent kept arriving: the patch builds on the claim.
+      const restored = claimed !== null && rawBase !== revision && rawBase === claimed.revision ? claimed : null;
+      // Committed only with the frame: a rejected patch leaves this decoder
+      // exactly at the revision (and content) it can still claim.
+      let wireEpoch = restored ? restored.retainedEpoch : retainedEpoch;
       let record = raw;
-      if (raw.__v === COMPACT_WIRE_VERSION) {
+      if (compactRaw) {
         record = expandCompactWire(raw);
         if (Object.hasOwn(record, STREAMING_TAIL_WIRE_EPOCH)) {
           const value = record[STREAMING_TAIL_WIRE_EPOCH];
-          retainedEpoch = Number.isSafeInteger(value) ? (value as number) : null;
-        } else if (retainedEpoch !== null) {
-          record[STREAMING_TAIL_WIRE_EPOCH] = retainedEpoch;
+          wireEpoch = Number.isSafeInteger(value) ? (value as number) : null;
+        } else if (wireEpoch !== null) {
+          record[STREAMING_TAIL_WIRE_EPOCH] = wireEpoch;
         }
       }
       const patch = record.__itemsPatch as ItemsPatch | undefined;
       if (!patch) {
+        claimed = null;
         const snapshot = { ...record };
         delete snapshot.__itemsRevision;
         delete snapshot.__itemsPatch;
@@ -724,132 +826,150 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
         restoreStreamingTailEpoch(record, snapshot);
         return { ok: true, snapshot };
       }
-      const statePatch = record.__statePatch as StateFieldsPatch | undefined;
-      // In a compact frame an absent section means "unchanged"; in a v1 frame
-      // it means an older peer inlined whole fields, so the two readings must
-      // stay apart.
-      const compactFrame = record.__v === COMPACT_WIRE_VERSION;
-      const defaultPrefix = compactFrame ? items.length : undefined;
-      const defaultAppend = compactFrame ? [] : undefined;
-      const patchPrefix = Object.hasOwn(patch, 'prefix') ? patch.prefix : defaultPrefix;
-      const patchAppend = Object.hasOwn(patch, 'append') ? patch.append : defaultAppend;
-      const patchPrepend = Object.hasOwn(patch, 'prepend') ? patch.prepend : [];
+      const prior = restored ? { items, streamingTail, stateFields, revision } : null;
+      if (restored) {
+        items = restored.items;
+        streamingTail = restored.streamingTail;
+        stateFields = restored.stateFields;
+        revision = restored.revision;
+      }
+      const applied = applyPatch(record, patch);
+      if (applied.ok) {
+        retainedEpoch = wireEpoch;
+        if (restored) claimed = null;
+      } else if (prior) {
+        ({ items, streamingTail, stateFields, revision } = prior);
+      }
+      return applied;
+    },
+  };
+
+  function applyPatch(record: Record<string, unknown>, patch: ItemsPatch): SnapshotDeltaDecodeResult {
+    const statePatch = record.__statePatch as StateFieldsPatch | undefined;
+    // In a compact frame an absent section means "unchanged"; in a v1 frame
+    // it means an older peer inlined whole fields, so the two readings must
+    // stay apart.
+    const compactFrame = record.__v === COMPACT_WIRE_VERSION;
+    const defaultPrefix = compactFrame ? items.length : undefined;
+    const defaultAppend = compactFrame ? [] : undefined;
+    const patchPrefix = Object.hasOwn(patch, 'prefix') ? patch.prefix : defaultPrefix;
+    const patchAppend = Object.hasOwn(patch, 'append') ? patch.append : defaultAppend;
+    const patchPrepend = Object.hasOwn(patch, 'prepend') ? patch.prepend : [];
+    if (
+      revision === null ||
+      patch.base !== revision ||
+      !Number.isSafeInteger(patch.revision) ||
+      !Number.isSafeInteger(patchPrefix) ||
+      (patchPrefix as number) < 0 ||
+      (patchPrefix as number) > items.length ||
+      !Array.isArray(patchAppend) ||
+      !Array.isArray(patchPrepend) ||
+      (statePatch != null &&
+        ((!compactFrame &&
+          (statePatch.base !== revision ||
+            statePatch.revision !== patch.revision ||
+            !statePatch.changed ||
+            !Array.isArray(statePatch.removed))) ||
+          (statePatch.changed !== undefined &&
+            (typeof statePatch.changed !== 'object' ||
+              statePatch.changed === null ||
+              Array.isArray(statePatch.changed))) ||
+          (statePatch.removed !== undefined && !Array.isArray(statePatch.removed)) ||
+          (statePatch.lists !== undefined &&
+            (typeof statePatch.lists !== 'object' || statePatch.lists === null || Array.isArray(statePatch.lists)))))
+    ) {
+      return { ok: false };
+    }
+    // Held rows keep their identity; revealed older rows go in front.
+    const nextItems =
+      patchPrepend.length > 0 || (patchPrefix as number) !== items.length || patchAppend.length > 0
+        ? patchPrepend.concat(items.slice(0, patchPrefix as number), patchAppend)
+        : items;
+    let nextStateFields: Record<string, unknown>;
+    if (statePatch) {
+      nextStateFields = { ...stateFields };
+      for (const key of (statePatch.removed as string[] | undefined) ?? []) {
+        if (typeof key === 'string') delete nextStateFields[key];
+      }
+      if (statePatch.changed) Object.assign(nextStateFields, statePatch.changed);
+      for (const [field, listPatch] of Object.entries(
+        (statePatch.lists as Record<string, unknown> | undefined) ?? {}
+      )) {
+        const list =
+          listPatch && typeof listPatch === 'object' && Object.hasOwn(listPatch, 'r')
+            ? applyRunsListPatch(stateFields[field], listPatch)
+            : applyHeadListPatch(stateFields[field], listPatch);
+        if (!list) return { ok: false };
+        nextStateFields[field] = list;
+      }
+    } else if (compactFrame) {
+      nextStateFields = stateFields;
+    } else {
+      // Backward compatibility for peers that send the old items-only delta.
+      nextStateFields = snapshotFieldsFrom(record);
+    }
+    if (Object.hasOwn(record, STREAMING_PARTIAL_APPEND)) {
+      // The unfinished line grew: append to the one held (a missing one is
+      // a broken chain the caller answers with a resync).
+      const appended = record[STREAMING_PARTIAL_APPEND];
+      const held = nextStateFields.streamingPartial as Record<string, unknown> | null | undefined;
+      if (typeof appended !== 'string' || !held || typeof held !== 'object' || typeof held.text !== 'string') {
+        return { ok: false };
+      }
+      if (nextStateFields === stateFields) nextStateFields = { ...stateFields };
+      nextStateFields.streamingPartial = { ...held, text: held.text + appended };
+    }
+
+    const tailPatch = record.__streamingTailPatch as StreamingTailPatch | undefined;
+    let nextStreamingTail = streamingTail;
+    if (tailPatch) {
+      const previousText = typeof streamingTail?.text === 'string' ? streamingTail.text : '';
+      // A compact frame omits the identity block while it is unchanged, so
+      // the retained tail supplies it.
+      let tail = tailPatch.tail;
+      if (tail === undefined && compactFrame && streamingTail) {
+        const retained = { ...streamingTail };
+        delete retained.text;
+        tail = retained;
+      }
+      // An append-only compact patch leaves the splice point out: it is
+      // exactly the length of the text this decoder already holds.
+      const defaultTailPrefix = compactFrame ? previousText.length : undefined;
+      const tailPrefix = Object.hasOwn(tailPatch, 'prefix') ? tailPatch.prefix : defaultTailPrefix;
       if (
-        revision === null ||
-        patch.base !== revision ||
-        !Number.isSafeInteger(patch.revision) ||
-        !Number.isSafeInteger(patchPrefix) ||
-        (patchPrefix as number) < 0 ||
-        (patchPrefix as number) > items.length ||
-        !Array.isArray(patchAppend) ||
-        !Array.isArray(patchPrepend) ||
-        (statePatch != null &&
-          ((!compactFrame &&
-            (statePatch.base !== revision ||
-              statePatch.revision !== patch.revision ||
-              !statePatch.changed ||
-              !Array.isArray(statePatch.removed))) ||
-            (statePatch.changed !== undefined &&
-              (typeof statePatch.changed !== 'object' ||
-                statePatch.changed === null ||
-                Array.isArray(statePatch.changed))) ||
-            (statePatch.removed !== undefined && !Array.isArray(statePatch.removed)) ||
-            (statePatch.lists !== undefined &&
-              (typeof statePatch.lists !== 'object' || statePatch.lists === null || Array.isArray(statePatch.lists)))))
+        !streamingTail ||
+        !tail ||
+        typeof tail !== 'object' ||
+        Array.isArray(tail) ||
+        streamingTail.id == null ||
+        streamingTail.id !== (tail as Record<string, unknown>).id ||
+        !Number.isSafeInteger(tailPrefix) ||
+        (tailPrefix as number) < 0 ||
+        (tailPrefix as number) > previousText.length ||
+        typeof tailPatch.append !== 'string'
       ) {
         return { ok: false };
       }
-      // Held rows keep their identity; revealed older rows go in front.
-      const nextItems =
-        patchPrepend.length > 0 || (patchPrefix as number) !== items.length || patchAppend.length > 0
-          ? patchPrepend.concat(items.slice(0, patchPrefix as number), patchAppend)
-          : items;
-      let nextStateFields: Record<string, unknown>;
-      if (statePatch) {
-        nextStateFields = { ...stateFields };
-        for (const key of (statePatch.removed as string[] | undefined) ?? []) {
-          if (typeof key === 'string') delete nextStateFields[key];
-        }
-        if (statePatch.changed) Object.assign(nextStateFields, statePatch.changed);
-        for (const [field, listPatch] of Object.entries(
-          (statePatch.lists as Record<string, unknown> | undefined) ?? {}
-        )) {
-          const list =
-            listPatch && typeof listPatch === 'object' && Object.hasOwn(listPatch, 'r')
-              ? applyRunsListPatch(stateFields[field], listPatch)
-              : applyHeadListPatch(stateFields[field], listPatch);
-          if (!list) return { ok: false };
-          nextStateFields[field] = list;
-        }
-      } else if (compactFrame) {
-        nextStateFields = stateFields;
-      } else {
-        // Backward compatibility for peers that send the old items-only delta.
-        nextStateFields = snapshotFieldsFrom(record);
-      }
-      if (Object.hasOwn(record, STREAMING_PARTIAL_APPEND)) {
-        // The unfinished line grew: append to the one held (a missing one is
-        // a broken chain the caller answers with a resync).
-        const appended = record[STREAMING_PARTIAL_APPEND];
-        const held = nextStateFields.streamingPartial as Record<string, unknown> | null | undefined;
-        if (typeof appended !== 'string' || !held || typeof held !== 'object' || typeof held.text !== 'string') {
-          return { ok: false };
-        }
-        if (nextStateFields === stateFields) nextStateFields = { ...stateFields };
-        nextStateFields.streamingPartial = { ...held, text: held.text + appended };
-      }
-
-      const tailPatch = record.__streamingTailPatch as StreamingTailPatch | undefined;
-      let nextStreamingTail = streamingTail;
-      if (tailPatch) {
-        const previousText = typeof streamingTail?.text === 'string' ? streamingTail.text : '';
-        // A compact frame omits the identity block while it is unchanged, so
-        // the retained tail supplies it.
-        let tail = tailPatch.tail;
-        if (tail === undefined && compactFrame && streamingTail) {
-          const retained = { ...streamingTail };
-          delete retained.text;
-          tail = retained;
-        }
-        // An append-only compact patch leaves the splice point out: it is
-        // exactly the length of the text this decoder already holds.
-        const defaultTailPrefix = compactFrame ? previousText.length : undefined;
-        const tailPrefix = Object.hasOwn(tailPatch, 'prefix') ? tailPatch.prefix : defaultTailPrefix;
-        if (
-          !streamingTail ||
-          !tail ||
-          typeof tail !== 'object' ||
-          Array.isArray(tail) ||
-          streamingTail.id == null ||
-          streamingTail.id !== (tail as Record<string, unknown>).id ||
-          !Number.isSafeInteger(tailPrefix) ||
-          (tailPrefix as number) < 0 ||
-          (tailPrefix as number) > previousText.length ||
-          typeof tailPatch.append !== 'string'
-        ) {
-          return { ok: false };
-        }
-        nextStreamingTail = {
-          ...(tail as Record<string, unknown>),
-          text: previousText.slice(0, tailPrefix as number) + tailPatch.append,
-        };
-      } else if (Object.hasOwn(record, 'streamingTail')) {
-        nextStreamingTail = streamingTailFrom(record);
-      }
-
-      items = nextItems;
-      stateFields = nextStateFields;
-      streamingTail = nextStreamingTail;
-      revision = patch.revision as number;
-      const snapshot: Record<string, unknown> = {
-        ...stateFields,
-        items,
-        streamingTail,
+      nextStreamingTail = {
+        ...(tail as Record<string, unknown>),
+        text: previousText.slice(0, tailPrefix as number) + tailPatch.append,
       };
-      restoreStreamingTailEpoch(record, snapshot);
-      return { ok: true, snapshot };
-    },
-  };
+    } else if (Object.hasOwn(record, 'streamingTail')) {
+      nextStreamingTail = streamingTailFrom(record);
+    }
+
+    items = nextItems;
+    stateFields = nextStateFields;
+    streamingTail = nextStreamingTail;
+    revision = patch.revision as number;
+    const snapshot: Record<string, unknown> = {
+      ...stateFields,
+      items,
+      streamingTail,
+    };
+    restoreStreamingTailEpoch(record, snapshot);
+    return { ok: true, snapshot };
+  }
 }
 
 // Transport-level resync frame (mirrors the IPC stateResync channel): a

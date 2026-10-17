@@ -6,8 +6,8 @@
 // and refits whenever the viewport resizes; "fixed" is a scale the user
 // picked (25%–400%) and keeps both that scale and the content point at the
 // viewport centre across a resize. Wheel zoom anchors at the cursor, buttons
-// and keys at the centre. The pill is hidden until the pointer nears the
-// bottom edge, a zoom gesture runs, or the pill is hovered / focused / open.
+// and keys at the centre. The pill is always shown unless the shared zoom-bar
+// preference hides it (wheel and keys zoom either way).
 // A mouse can drag-pan overflow, and (clickToggle) a click toggles fit ↔ 100%.
 //
 // The choice is remembered per `memoryKey` (a file in one surface) for as
@@ -29,12 +29,13 @@ import { ZoomPill } from './ZoomPill';
 import {
   SAME_SCALE,
   contentOrigin,
-  useZoomPillVisibility,
+  useZoomFrameHover,
   useZoomPointerGesture,
   useZoomViewport,
   useZoomWheelAndKeys,
   type ZoomLive,
 } from './zoom-frame-hooks';
+import { useZoomBarVisible } from './zoom-bar-pref';
 import {
   PREVIEW_ZOOM_PRESETS,
   PREVIEW_ZOOM_RANGE,
@@ -128,7 +129,8 @@ export function ZoomFrame({
   const [choice, setChoice] = useState<ZoomChoice>(
     () => (memoryKey && memory.get(memoryKey)) || { mode: 'fit', scale: 1 }
   );
-  const { visible, hover, frameHandlers, flash, onPillActive } = useZoomPillVisibility();
+  const { hover, frameHandlers } = useZoomFrameHover();
+  const barVisible = useZoomBarVisible();
   // Read by the input hooks without re-subscribing; refreshed below once this
   // render's scale is known.
   const live = useRef<ZoomLive>({ scale: 1, fit: 1, mode: choice.mode, ready });
@@ -195,7 +197,7 @@ export function ZoomFrame({
     };
   }, [scale, scroller]);
 
-  useZoomWheelAndKeys({ scroller, frameRef, live, hover, range, setFixed, setFit, flash });
+  useZoomWheelAndKeys({ scroller, frameRef, live, hover, range, setFixed, setFit });
   const pointerGesture = useZoomPointerGesture({ clickToggle, live, setFixed, setFit });
 
   const fitLike = choice.mode === 'fit' || Math.abs(scale - fit) < SAME_SCALE;
@@ -216,23 +218,18 @@ export function ZoomFrame({
       >
         {children({ scale, mode: choice.mode, viewport })}
       </div>
-      {ready && (
+      {ready && barVisible && (
         <ZoomPill
           level={scale}
           range={range}
           presets={PREVIEW_ZOOM_PRESETS}
           step={(current, direction) => stepSnapped(current, direction, range)}
-          onChange={(next) => {
-            setFixed(next);
-            flash();
-          }}
+          onChange={(next) => setFixed(next)}
           lead={{
             label: t('Fit width'),
             checked: choice.mode === 'fit',
             onSelect: () => setFit(),
           }}
-          visible={visible}
-          onActiveChange={onPillActive}
         />
       )}
     </div>

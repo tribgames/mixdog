@@ -1,11 +1,20 @@
 // Right-click menu model shared by the sent-message chips and the composer's
 // pending chips. Item selection is pure (`attachmentMenuItems`): an item is
 // present only when the chip's data and the matching action both exist.
+import { editorFileOpener } from '../shared/file-preview';
 import type { ScmContextMenuItem } from './ScmContextMenu';
 import type { ComposerAttachment } from './composer-support';
 import { t } from './i18n';
 
-export type AttachmentMenuSource =
+/** An attachment kept on the PC by the content hash a message records. */
+export interface StoredAttachment {
+  sessionId: string;
+  id: string;
+}
+
+export type AttachmentMenuSource = AttachmentMenuBase & { stored?: StoredAttachment };
+
+type AttachmentMenuBase =
   /** Image with bytes. */
   | { kind: 'image'; name: string; dataUrl?: string }
   /** Image known by name only. */
@@ -16,10 +25,21 @@ export type AttachmentMenuSource =
 
 /** The side effects a menu item can trigger; a missing one omits its item. */
 export interface AttachmentMenuActions {
+  /** A stored attachment, previewable: opens the host's file in the side panel. */
+  openStored?(stored: StoredAttachment, name: string): Promise<void>;
+  /** A stored attachment the app cannot preview: the OS app (desktop only). */
+  openStoredDefault?(stored: StoredAttachment, name: string): Promise<void>;
+  /** A stored attachment saved from the host's file (save dialog / device save). */
+  saveStored?(stored: StoredAttachment, name: string): Promise<unknown>;
   /** In-app: stage the bytes and open them in Mixdog's editor pane. */
   openInApp?(dataUrl: string, name: string): Promise<void>;
-  openImage?(dataUrl: string, name: string): Promise<void>;
+  /** In-app image viewer, for an image when there is no editor pane to open into. */
+  openLightbox?(dataUrl: string, name: string): Promise<void>;
+  /** The OS app: only for a type the app cannot preview (desktop only). */
   openFile?(dataUrl: string, name: string): Promise<void>;
+  /** Save puts the bytes on this device (native save / share sheet) and is
+   *  labelled Download / Share. */
+  deviceSave?: boolean;
   saveAs?(source: string, suggestedName: string): Promise<unknown>;
   copyImage?(dataUrl: string): Promise<void>;
   copyText?(text: string): Promise<void>;
@@ -58,18 +78,53 @@ export function attachmentMenuItems(
     run: (() => Promise<unknown>) | null | undefined,
     report: (e: unknown) => void
   ) => {
-    if (run) items.push({ id, label, onSelect: () => void run().catch(report) });
+    if (run && !items.some((item) => item.id === id)) {
+      items.push({ id, label, onSelect: () => void run().catch(report) });
+    }
   };
   const fail = (error: unknown) => actions.reportError?.(error);
   const { name } = source;
+  // Everything the app previews opens inside it; only a type it cannot show
+  // goes to the OS (desktop) or is downloaded (paired device, whose save item
+  // is the Download / Share one).
+  const openIn = (url: string, previewable: boolean, fileName = name) => {
+    if (previewable) {
+      add('open', t('Open'), actions.openInApp && (() => actions.openInApp!(url, fileName)), fail);
+    } else {
+      add(
+        'open-default',
+        t('Open with default app'),
+        actions.openFile && (() => actions.openFile!(url, fileName)),
+        fail
+      );
+    }
+  };
+  const saveLabel = (label: string) => (actions.deviceSave ? t('Download / Share') : label);
+  // The attachment lives on the PC by id: every device opens and saves that
+  // same file, ahead of any bytes this window happens to hold.
+  const { stored } = source;
+  if (stored) {
+    const previewable = source.kind !== 'pdf' && source.kind !== 'office' ? true : editorFileOpener(name) === 'editor';
+    if (previewable) add('open', t('Open'), actions.openStored && (() => actions.openStored!(stored, name)), fail);
+    else {
+      add(
+        'open-default',
+        t('Open with default app'),
+        actions.openStoredDefault && (() => actions.openStoredDefault!(stored, name)),
+        fail
+      );
+    }
+    const label = source.kind === 'image' || source.kind === 'image-marker' ? t('Save image as…') : t('Save file as…');
+    add('save', saveLabel(label), actions.saveStored && (() => actions.saveStored!(stored, name)), fail);
+  }
   switch (source.kind) {
     case 'image': {
       const url = source.dataUrl;
       if (!url) break;
-      add('open', t('Open'), actions.openInApp && (() => actions.openInApp!(url, name)), fail);
-      add('open-default', t('Open with default app'), actions.openImage && (() => actions.openImage!(url, name)), fail);
+      const show = actions.openInApp ?? actions.openLightbox;
+      add('open', t('Open'), show && (() => show(url, name)), fail);
       add('copy-image', t('Copy image'), actions.copyImage && (() => actions.copyImage!(url)), fail);
-      add('save', t('Save image as…'), actions.saveAs && (() => actions.saveAs!(url, name)), fail);
+      add('save', saveLabel(t('Save image as…')), actions.saveAs && (() => actions.saveAs!(url, name)), fail);
       break;
     }
     case 'image-marker':
@@ -78,16 +133,11 @@ export function attachmentMenuItems(
     case 'pasted-text': {
       const text = source.text;
       if (text === undefined) break;
-      add(
-        'open',
-        t('Open'),
-        actions.openInApp && (() => actions.openInApp!(textDataUrl(text), 'pasted-text.txt')),
-        fail
-      );
+      openIn(textDataUrl(text), true, 'pasted-text.txt');
       add('copy-text', t('Copy text'), actions.copyText && (() => actions.copyText!(text)), fail);
       add(
         'save',
-        t('Save text as…'),
+        saveLabel(t('Save text as…')),
         actions.saveAs && (() => actions.saveAs!(textDataUrl(text), 'pasted-text.txt')),
         fail
       );
@@ -96,24 +146,22 @@ export function attachmentMenuItems(
     case 'text-file': {
       const text = source.text;
       if (text === undefined) break;
-      add('open', t('Open'), actions.openInApp && (() => actions.openInApp!(textDataUrl(text), name)), fail);
+      openIn(textDataUrl(text), true);
+      add('copy-contents', t('Copy contents'), actions.copyText && (() => actions.copyText!(text)), fail);
       add(
-        'open-default',
-        t('Open with default app'),
-        actions.openFile && (() => actions.openFile!(textDataUrl(text), name)),
+        'save',
+        saveLabel(t('Save file as…')),
+        actions.saveAs && (() => actions.saveAs!(textDataUrl(text), name)),
         fail
       );
-      add('copy-contents', t('Copy contents'), actions.copyText && (() => actions.copyText!(text)), fail);
-      add('save', t('Save file as…'), actions.saveAs && (() => actions.saveAs!(textDataUrl(text), name)), fail);
       break;
     }
     case 'pdf':
     case 'office': {
       const url = source.dataUrl;
       if (!url) break;
-      add('open', t('Open'), actions.openInApp && (() => actions.openInApp!(url, name)), fail);
-      add('open-default', t('Open with default app'), actions.openFile && (() => actions.openFile!(url, name)), fail);
-      add('save', t('Save file as…'), actions.saveAs && (() => actions.saveAs!(url, name)), fail);
+      openIn(url, editorFileOpener(name) === 'editor');
+      add('save', saveLabel(t('Save file as…')), actions.saveAs && (() => actions.saveAs!(url, name)), fail);
       break;
     }
   }

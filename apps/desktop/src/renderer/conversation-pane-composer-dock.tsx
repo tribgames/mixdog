@@ -25,7 +25,6 @@ export type ConversationComposerDockProps = Pick<
   | 'activeProjectLabel'
   | 'onClearProject'
   | 'onSelectProject'
-  | 'onResumeSession'
   | 'draftWorkflow'
   | 'onDraftWorkflow'
   | 'draftOrchestrationMode'
@@ -75,7 +74,6 @@ function conversationContextBar({
   activeProjectLabel,
   onClearProject,
   onSelectProject,
-  onResumeSession,
   draftWorkflow,
   onDraftWorkflow,
   draftOrchestrationMode,
@@ -96,7 +94,6 @@ function conversationContextBar({
         routeSnapshot.workspace?.revision ?? '',
         routeSnapshot.workspace?.cwd ?? '',
       ].join(':')}
-      onOpenSession={onResumeSession}
     />
   );
   return (
@@ -186,7 +183,6 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
       onOpenAgentSession={onOpenAgentSession}
       workspace={draftMode ? null : (routeSnapshot.workspace ?? null)}
       queuedInput={!draftMode && submission.composerQueued.length > 0}
-      onOpenSession={props.onResumeSession}
       showProjectSelector={showProjectSelector}
       contextBar={conversationContextBar(props)}
       reviewItems={submission.reviewItems}
@@ -230,6 +226,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
         promptRestore={draftMode ? null : (routeSnapshot.promptRestore ?? null)}
         userMessages={userMessages}
         submit={submit}
+        answerQuestion={answerQuestion}
         placeholderOverride={dismissQuestion ? t('Sending answers the question') : undefined}
         abort={actions.composerAbort}
         invokeResult={actions.composerInvokeResult}

@@ -49,5 +49,7 @@ export function makeQueueEntry(text, options = {}, nextId) {
     // Retry of a failed turn: the transcript and the session rewind the
     // failed turn's unanswered prompt before this entry runs.
     retryFailedTurn: options.retryFailedTurn === true,
+    retryTurnId: options.retryTurnId || null,
+    retryAttemptId: options.retryAttemptId || null,
   };
 }

@@ -25,6 +25,7 @@ import {
 } from './desktop-snapshot-store';
 import { EMPTY_SNAPSHOT, type Snapshot, type TranscriptItem } from './desktop-types';
 import { PaneSurfaceCover } from './PaneSurfaceGate';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { useSessionLaneRead } from './use-session-lane-read';
 import { requestSessionRead } from './session-read-request';
@@ -161,6 +162,7 @@ export const PaneConversation = memo(function PaneConversation({
   ...props
 }: PaneConversationProps) {
   const lane = useSessionLane(sessionId, defaultSessionLaneStore, desktopConversationShellSnapshotsEqual, !hidden);
+  const mobileSurface = useMobileRemoteSurface();
   const { readUnavailable, retryRead } = useSessionLaneRead({
     sessionId,
     hasLane: lane !== null,
@@ -316,6 +318,19 @@ export const PaneConversation = memo(function PaneConversation({
     ),
     [hidden, presentedSessionId, props.onOpenCommandSurface]
   );
+  // A phone keeps its pane-sized cover (its skeleton draws its own composer
+  // bar); a wide pane covers the transcript viewport only, so the composer
+  // dock never disappears under a session switch.
+  const surfaceCover = (
+    <PaneSurfaceCover
+      ready={surfaceReady}
+      label={t('Loading conversation…')}
+      transitionKey={coverKey}
+      hold={transcriptHidden && !hidden}
+      skeleton={mobileSurface && Boolean(sessionId)}
+    />
+  );
+  const unavailable = readUnavailable && lane === null && !hidden;
   return (
     <>
       <Conversation
@@ -334,8 +349,9 @@ export const PaneConversation = memo(function PaneConversation({
         submit={submit}
         goalIsland={<PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />}
         contextIndicator={contextIndicator}
+        transcriptCover={unavailable || mobileSurface ? undefined : surfaceCover}
       />
-      {readUnavailable && lane === null && !hidden ? (
+      {unavailable ? (
         <div className="pane-surface-cover session-unavailable" role="alert">
           <div className="session-unavailable-card">
             <strong>{t('Session unavailable')}</strong>
@@ -346,12 +362,7 @@ export const PaneConversation = memo(function PaneConversation({
           </div>
         </div>
       ) : (
-        <PaneSurfaceCover
-          ready={surfaceReady}
-          label={t('Loading conversation…')}
-          transitionKey={coverKey}
-          hold={transcriptHidden && !hidden}
-        />
+        mobileSurface && surfaceCover
       )}
     </>
   );

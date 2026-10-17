@@ -6,7 +6,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 // React DOM detects input-event support at import time; initialize the DOM first.
 const { dom } = installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
-  jsdom: { url: 'https://mixdog.test/' },
+  jsdom: { url: 'https://mixdog.test/', pretendToBeVisual: true },
   expose: ['HTMLElement'],
 });
 const { createRoot } = await import('react-dom/client');
@@ -21,6 +21,63 @@ const models = [
     effortOptions: [],
   },
 ];
+
+test('fallback rows add empty, block saving, reorder with tuning, and remove', async (t) => {
+  const render = harness(t);
+  const secondary = { provider: 'anthropic', model: 'second', effort: 'low' };
+  const saved = [];
+  await render(
+    React.createElement(RouteEditorDialog, {
+      target: {
+        id: 'worker',
+        label: 'Worker',
+        modelKind: 'agent',
+        readOnlyDefinition: true,
+        route: { ...route, effort: 'high', fallbacks: [secondary] },
+      },
+      models: [
+        ...models,
+        { ...secondary, display: 'Second', effortOptions: ['low'] },
+        { provider: 'gemini', model: 'third', display: 'Third', effortOptions: [] },
+      ],
+      busy: false,
+      onCancel() {},
+      onSave: (value) => saved.push(value),
+    })
+  );
+  const dialog = document.querySelector('[role="dialog"]');
+  assert.equal(dialog.querySelectorAll('.route-chain-row').length, 2);
+  assert.equal(dialog.querySelector('.route-chain-number'), null);
+  assert.ok(dialog.querySelector('.route-chain-heading [aria-label="Add fallback model"]'));
+  assert.doesNotMatch(dialog.textContent, /Try models from top to bottom/);
+  assert.equal(dialog.querySelector('.route-chain-hint'), null);
+  assert.equal(dialog.querySelector('.route-chain-unavailable'), null);
+  const handles = dialog.querySelectorAll('.route-chain-handle');
+  await act(async () =>
+    handles[1].dispatchEvent(
+      new dom.window.KeyboardEvent('keydown', {
+        key: 'ArrowUp',
+        altKey: true,
+        bubbles: true,
+      })
+    )
+  );
+  await act(async () =>
+    dialog.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  );
+  assert.equal(saved[0].provider, 'anthropic');
+  assert.equal(saved[0].effort, 'low');
+  assert.equal(saved[0].fallbacks[0].effort, 'high');
+  await act(async () => dialog.querySelector('[aria-label="Add fallback model"]').click());
+  assert.equal(dialog.querySelectorAll('.route-chain-row').length, 3);
+  assert.match(dialog.querySelector('.route-chain-hint').textContent, /Fallback models must use different providers/);
+  assert.equal(dialog.querySelector('button[type="submit"]').disabled, true);
+  assert.equal(dialog.querySelector('[aria-label="Add fallback model"]').disabled, true);
+  await act(async () => dialog.querySelector('[aria-label="Remove model 3"]').click());
+  assert.equal(dialog.querySelectorAll('.route-chain-row').length, 2);
+  assert.equal(dialog.querySelector('.route-chain-hint'), null);
+  assert.equal(dialog.querySelector('button[type="submit"]').disabled, false);
+});
 
 function harness(t) {
   const host = document.createElement('main');
@@ -80,6 +137,48 @@ test('workflow editor contains only instructions and metadata, not delegation co
   assert.match(dialog.querySelector('textarea').value, /reviewed and verified/);
 });
 
+test('registration explains why no further provider can be added', async (t) => {
+  const render = harness(t);
+  await render(
+    React.createElement(RouteEditorDialog, {
+      target: { id: 'worker', label: 'Worker', modelKind: 'agent', readOnlyDefinition: true, route },
+      models,
+      busy: false,
+      onCancel() {},
+      onSave() {},
+    })
+  );
+  const dialog = document.querySelector('[role="dialog"]');
+  assert.equal(dialog.querySelector('[aria-label="Add fallback model"]').disabled, true);
+  assert.equal(dialog.querySelector('.route-chain-hint'), null);
+  assert.match(dialog.querySelector('[role="status"]').textContent, /No other providers are available to add/);
+});
+
+test('Web Search adds from its own catalog and excludes the occupied provider', async (t) => {
+  const render = harness(t);
+  await render(
+    React.createElement(RouteEditorDialog, {
+      target: { id: 'web-search', label: 'Web Search', modelKind: 'webSearch', readOnlyDefinition: true, route },
+      models: [...models, { provider: 'gemini', model: 'search-second', display: 'Search second', effortOptions: [] }],
+      busy: false,
+      onCancel() {},
+      onSave() {},
+    })
+  );
+  const dialog = document.querySelector('[role="dialog"]');
+  await act(async () => dialog.querySelector('[aria-label="Add fallback model"]').click());
+  assert.match(dialog.querySelector('.route-chain-hint').textContent, /Fallback models must use different providers/);
+  await act(async () => dialog.querySelectorAll('.model-trigger')[1].click());
+  await act(async () => new Promise((resolve) => dom.window.requestAnimationFrame(resolve)));
+  const sheet = document.querySelector('.route-sheet');
+  assert.ok(sheet, 'uses the existing model picker');
+  await act(async () => sheet.querySelector('.route-sheet-row').click());
+  const catalog = document.querySelector('.route-sheet-flyout');
+  assert.ok(catalog);
+  assert.match(catalog.textContent, /Search second/);
+  assert.doesNotMatch(catalog.textContent, /Test model/);
+});
+
 for (const editor of editors) {
   test(`${editor.name} with no model waits for one before switching on or saving`, async (t) => {
     const render = harness(t);
@@ -106,7 +205,8 @@ for (const editor of editors) {
     // On with an empty model: no "on" write yet, and Save stays blocked.
     assert.deepEqual(toggles, []);
     assert.equal(save.disabled, true);
-    assert.match(dialog.querySelector('.workflows-route-required').textContent, /Pick a model/);
+    assert.equal(dialog.querySelector('.workflows-route-required'), null);
+    assert.doesNotMatch(dialog.textContent, /Pick a model to turn this agent on/);
     // Switching back off is written right away.
     await act(async () => dialog.querySelector('input[type="checkbox"]').click());
     assert.deepEqual(toggles, [false]);

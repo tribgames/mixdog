@@ -12,7 +12,6 @@ import {
 } from './quota-resume.mjs';
 import { createGoalContinuation } from './goal-continuation.mjs';
 import { createSubmissionIntake } from './session-api/intake/submission.mjs';
-import { createSessionLifecycleApi } from './session-api/lifecycle.mjs';
 import { createContextState } from './context-state.mjs';
 import { createSessionRouteApi } from './session-api/routes.mjs';
 import { createSessionResetActions } from './session-api/lifecycle/session-reset.mjs';
@@ -21,6 +20,7 @@ import {
   publicQuotaResume,
   quotaResumeEntry,
   quotaSuspendedGoal,
+  noteQuotaSuspendedGoal,
   reloadQuotaResumeStore,
   scheduleQuotaResumeEntry,
   setQuotaAutoResumeEnabled,
@@ -115,6 +115,32 @@ test('transcript helpers mirror the desktop retry semantics', () => {
   );
 });
 
+test('restoration rekeys a provable legacy user retry and its Goal atomically', (t) => {
+  const h = harness(t, {
+    items: [
+      { kind: 'user', id: 'hist_session_0_1', text: 'original' },
+      { kind: 'turndone', id: 'hist_session_0_2', checkpointId: 'it_1', status: 'failed', quota: quota() },
+    ],
+  });
+  const old = scheduleQuotaResumeEntry({ sessionId: SESSION, turnKey: 'turn:it_1', ...quota() });
+  noteQuotaSuspendedGoal(SESSION, old.turnKey, 'goal-1');
+  assert.equal(h.bag.reconcileQuotaResume(), true);
+  reloadQuotaResumeStore();
+  assert.equal(quotaResumeEntry(SESSION).turnKey, 'checkpoint:it_1');
+  assert.ok(quotaResumeEntry(SESSION).generation > old.generation);
+  assert.equal(quotaSuspendedGoal(SESSION, 'checkpoint:it_1'), 'goal-1');
+  assert.equal(h.bag.fireQuotaResume({ generation: old.generation }), 'stale');
+});
+
+test('restoration never guesses which failure an old notification reservation belongs to', (t) => {
+  const h = harness(t, {
+    items: [{ kind: 'turndone', id: 'hist_session_0_2', checkpointId: 'it_1', status: 'failed', quota: quota() }],
+  });
+  const old = scheduleQuotaResumeEntry({ sessionId: SESSION, turnKey: 'segment:it_2', ...quota() });
+  assert.equal(h.bag.reconcileQuotaResume(), false);
+  assert.equal(quotaResumeEntry(SESSION).generation, old.generation);
+});
+
 test('a quota failure with a known reset schedules a resume while the setting is on', (t) => {
   const h = harness(t);
   const entry = h.bag.onQuotaTurnSettled({ suspendedGoalId: 'goal-1' });
@@ -207,10 +233,10 @@ test('a busy session is never fired and keeps its wait', (t) => {
   assert.equal(h.bag.fireQuotaResume({ generation }), 'fired');
 });
 
-test('a media-only prompt cannot be replayed: the wait clears and nothing fires', (t) => {
+test('a media-only prompt is not promised an automatic replay', (t) => {
   const h = harness(t, { items: failedTurn({ text: '', images: [{ token: 'img-1' }] }) });
-  const { generation } = h.bag.onQuotaTurnSettled();
-  assert.equal(h.bag.fireQuotaResume({ generation }), 'unreplayable');
+  assert.equal(h.bag.onQuotaTurnSettled(), null);
+  assert.throws(() => h.bag.scheduleQuotaResume(SESSION), /cannot be resumed automatically/);
   assert.equal(h.enqueued.length, 0);
   assert.equal(quotaResumeEntry(SESSION), null);
   assert.equal(h.state.quotaResume, null);
@@ -228,18 +254,6 @@ test('a later turn supersedes the wait', (t) => {
 test('every cancel path wins over a fire the scheduler already started', async (t) => {
   const cancels = {
     'user input': (h) => createSubmissionIntake(h.bag).submit('do something else'),
-    continueSessionInModel: (h) =>
-      createSessionLifecycleApi(
-        {
-          ...h.bag,
-          routeState: () => ({}),
-          pushNotice() {},
-          removeNotice() {},
-          setProgressHint() {},
-          finishToolApproval() {},
-        },
-        { restoreTranscriptItems: () => {}, oauthFlows: { cancelAll() {} } }
-      ).continueSessionInModel(SESSION, { provider: 'anthropic-oauth', model: 'claude-x' }),
     cancelQuotaResume: (h) => h.bag.cancelQuotaResume(SESSION),
     'setting off': () => setQuotaAutoResumeEnabled(false),
   };
@@ -285,7 +299,11 @@ test("retryFailedTurn re-checks the session's own state when the deferred reques
   assert.equal(running.enqueued.length, 0, 'the old prompt is not resubmitted');
 
   const completed = harness(t, {
-    items: [...newerTurn, { id: 'a2', kind: 'assistant', text: 'done' }, { id: 'd2', kind: 'turndone', status: 'done' }],
+    items: [
+      ...newerTurn,
+      { id: 'a2', kind: 'assistant', text: 'done' },
+      { id: 'd2', kind: 'turndone', status: 'done' },
+    ],
   });
   assert.equal(await completed.bag.retryFailedTurn(SESSION, 'turn:u1'), false);
   assert.equal(completed.enqueued.length, 0);
@@ -325,8 +343,9 @@ test('a fire revives only the Goal its failure suspended, before the retry, and 
         goalListeners.add(listener);
         return () => goalListeners.delete(listener);
       },
-      reactivateUsageLimitedGoal: async (goalId) => {
+      reactivateUsageLimitedGoal: async (goalId, options = {}) => {
         h.calls.push(['reactivate', goalId]);
+        if (options.isCurrent?.() === false || options.accept?.() === false) return null;
         if (goal.id === goalId && goal.status === 'usage_limited') goal = { ...goal, status: 'active' };
         for (const listener of goalListeners) listener({ sessionId: SESSION, goal });
         return goal;
@@ -357,7 +376,7 @@ test('a fire revives only the Goal its failure suspended, before the retry, and 
   const { generation } = h.bag.onQuotaTurnSettled({ suspendedGoalId: 'goal-1' });
   // Waiting never revives the Goal.
   assert.equal(goal.status, 'usage_limited');
-  assert.equal(h.bag.fireQuotaResume({ generation }), 'fired');
+  assert.equal(await h.bag.fireQuotaResume({ generation }), 'fired');
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.equal(goal.status, 'active');
   assert.deepEqual(h.calls.slice(0, 2), [
@@ -368,23 +387,8 @@ test('a fire revives only the Goal its failure suspended, before the retry, and 
   assert.equal(quotaSuspendedGoal(SESSION, 'turn:u1'), '');
 });
 
-const lifecycleApi = (h) =>
-  createSessionLifecycleApi(
-    {
-      ...h.bag,
-      routeState: () => ({}),
-      pushNotice() {},
-      removeNotice() {},
-      setProgressHint() {},
-      finishToolApproval() {},
-    },
-    { restoreTranscriptItems: () => {}, oauthFlows: { cancelAll() {} } }
-  );
-
 test('a cancel that lands while the failed turn settles wins over the Goal note and every fire', async (t) => {
   const cancels = {
-    continueSessionInModel: (h) =>
-      lifecycleApi(h).continueSessionInModel(SESSION, { provider: 'anthropic-oauth', model: 'claude-x' }),
     'user input': (h) => createSubmissionIntake(h.bag).submit('do something else'),
   };
   for (const [name, cancel] of Object.entries(cancels)) {
@@ -420,8 +424,9 @@ function goalHarness(t, { items, goalStatus = 'usage_limited' } = {}) {
         goalListeners.add(listener);
         return () => goalListeners.delete(listener);
       },
-      reactivateUsageLimitedGoal: async (goalId) => {
+      reactivateUsageLimitedGoal: async (goalId, options = {}) => {
         h.calls.push(['reactivate', goalId]);
+        if (options.isCurrent?.() === false || options.accept?.() === false) return null;
         if (goal.id === goalId && goal.status === 'usage_limited') goal = { ...goal, status: 'active' };
         for (const listener of goalListeners) listener({ sessionId: SESSION, goal });
         return goal;
@@ -447,6 +452,7 @@ function goalHarness(t, { items, goalStatus = 'usage_limited' } = {}) {
     getPending: () => h.pending,
     enqueue: (...args) => h.bag.enqueue(...args),
   });
+  Object.assign(h.bag, goalLane);
   t.after(() => goalLane.disposeGoalContinuation());
   return {
     h,
@@ -464,12 +470,119 @@ const failedGoalTurn = () => [
   { id: 'd1', kind: 'turndone', status: 'failed', quota: quota() },
 ];
 
+for (const first of ['manual', 'scheduled']) {
+  test(`a reserved user turn resumes once when ${first} wins the race`, async (t) => {
+    const h = harness(t);
+    const { generation, turnKey } = h.bag.onQuotaTurnSettled();
+    if (first === 'manual') {
+      const retry = h.bag.retryFailedTurn(SESSION, turnKey);
+      assert.equal(h.bag.fireQuotaResume({ generation }), 'stale');
+      assert.equal(await retry, true);
+    } else {
+      assert.equal(h.bag.fireQuotaResume({ generation }), 'fired');
+      assert.equal(await h.bag.retryFailedTurn(SESSION, turnKey), false);
+    }
+    assert.equal(h.enqueued.length, 1);
+    assert.equal(quotaResumeEntry(SESSION), null);
+  });
+}
+
+test('Goal activation failure preserves the reservation and suspension for another attempt', async (t) => {
+  const h = harness(t, {
+    runtime: {
+      reactivateUsageLimitedGoal: async () => {
+        throw new Error('storage unavailable');
+      },
+    },
+  });
+  const entry = h.bag.onQuotaTurnSettled({ suspendedGoalId: 'goal-1' });
+  await assert.rejects(h.bag.fireQuotaResume({ generation: entry.generation }), /storage unavailable/);
+  assert.equal(quotaResumeEntry(SESSION).generation, entry.generation);
+  assert.equal(quotaSuspendedGoal(SESSION, entry.turnKey), 'goal-1');
+  assert.equal(h.enqueued.length, 0);
+  assert.equal(h.bag.flags.quotaResumePending, null);
+});
+
+test('a failed Goal rollback keeps execution fenced and reports the error', async (t) => {
+  const h = harness(t, {
+    runtime: {
+      reactivateUsageLimitedGoal: async () => {
+        throw Object.assign(new Error('Goal rollback failed'), { quotaResumeRollbackFailed: true });
+      },
+    },
+  });
+  const notices = [];
+  h.bag.pushNotice = (...args) => notices.push(args);
+  const entry = h.bag.onQuotaTurnSettled({ suspendedGoalId: 'goal-1' });
+  await assert.rejects(h.bag.fireQuotaResume({ generation: entry.generation }), /Goal rollback failed/);
+  assert.ok(h.bag.flags.quotaResumePending);
+  assert.equal(h.bag.fireQuotaResume({ generation: entry.generation }), 'busy');
+  assert.equal(h.enqueued.length, 0);
+  assert.match(notices[0][0], /Goal rollback failed/);
+  assert.equal(quotaResumeEntry(SESSION).generation, entry.generation);
+});
+
+test('a user message arriving during Goal reactivation supersedes the resume before admission', async (t) => {
+  const ready = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const h = harness(t, {
+    runtime: {
+      reactivateUsageLimitedGoal: async (_id, options) => {
+        ready.resolve();
+        await release.promise;
+        if (!options.isCurrent() || !options.accept()) return null;
+        return { status: 'active' };
+      },
+    },
+  });
+  const entry = h.bag.onQuotaTurnSettled({ suspendedGoalId: 'goal-1' });
+  const resume = h.bag.fireQuotaResume({ generation: entry.generation });
+  await ready.promise;
+  assert.ok(h.bag.flags.quotaResumePending);
+  await createSubmissionIntake(h.bag).submitAsync('new instruction');
+  release.resolve();
+  assert.equal(await resume, 'rejected');
+  assert.equal(quotaResumeEntry(SESSION), null);
+  assert.equal(quotaSuspendedGoal(SESSION, entry.turnKey), '');
+  assert.deepEqual(
+    h.enqueued.map((row) => row.text),
+    ['new instruction']
+  );
+});
+
+test('a rejected Goal replay keeps its recovery data', async (t) => {
+  const h = harness(t, {
+    runtime: {
+      reactivateUsageLimitedGoal: async (_id, options) =>
+        options.isCurrent() && options.accept() ? { status: 'active' } : null,
+    },
+  });
+  h.bag.enqueue = () => false;
+  const entry = h.bag.onQuotaTurnSettled({ suspendedGoalId: 'goal-1' });
+  assert.equal(await h.bag.fireQuotaResume({ generation: entry.generation }), 'rejected');
+  assert.equal(quotaResumeEntry(SESSION).generation, entry.generation);
+  assert.equal(quotaSuspendedGoal(SESSION, entry.turnKey), 'goal-1');
+});
+
+test('immediate resume revives a failed Goal turn once without a user prompt', async (t) => {
+  const g = goalHarness(t, { items: failedGoalTurn() });
+  const { generation, turnKey } = g.h.bag.onQuotaTurnSettled({ suspendedGoalId: 'goal-1' });
+  assert.equal(await g.h.bag.retryFailedTurn(SESSION, turnKey), true);
+  assert.equal(g.h.bag.fireQuotaResume({ generation }), 'stale');
+  assert.equal(await g.h.bag.retryFailedTurn(SESSION, turnKey), false);
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(g.goal.status, 'active');
+  assert.equal(g.h.enqueued.length, 1);
+  assert.equal(g.h.enqueued[0].options.mode, 'goal-continuation');
+  assert.equal(quotaResumeEntry(SESSION), null);
+});
+
 test('a failed Goal turn resumes as exactly one continuation of the revived Goal', async (t) => {
   const g = goalHarness(t, { items: failedGoalTurn() });
   const { generation, turnKey } = g.h.bag.onQuotaTurnSettled({ suspendedGoalId: 'goal-1' });
   assert.equal(turnKey, 'segment:n1');
   assert.equal(g.goal.status, 'usage_limited');
-  assert.equal(g.h.bag.fireQuotaResume({ generation }), 'fired');
+  assert.equal(await g.h.bag.fireQuotaResume({ generation }), 'fired');
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.equal(g.goal.status, 'active');
   assert.equal(g.h.enqueued.length, 1, 'one Goal turn');
@@ -491,17 +604,17 @@ test('a failed Goal turn whose Goal was not suspended by it clears without a tur
   }
 });
 
-test('the resume belongs to the route it was queued on', async (t) => {
+test('model changes preserve the reservation and resume on the current route', async (t) => {
   const route = { sessionProvider: 'openai-oauth', sessionModel: 'gpt-x' };
   const moved = harness(t, { runtime: { ...route } });
   const entry = moved.bag.onQuotaTurnSettled();
   assert.deepEqual([entry.routeProvider, entry.routeModel], ['openai-oauth', 'gpt-x']);
   moved.bag.runtime.sessionModel = 'gpt-y';
-  assert.equal(moved.bag.fireQuotaResume({ generation: entry.generation }), 'route-changed');
-  assert.equal(moved.enqueued.length, 0);
+  assert.equal(moved.bag.fireQuotaResume({ generation: entry.generation }), 'fired');
+  assert.equal(moved.enqueued.length, 1);
   assert.equal(quotaResumeEntry(SESSION), null);
 
-  // setRoute, not just the quota escape hatch, supersedes the wait.
+  // The model picker keeps the same reservation and generation.
   const routed = harness(t, { runtime: { ...route, setRoute: async () => ({}) } });
   const routedEntry = routed.bag.onQuotaTurnSettled();
   const routesApi = createSessionRouteApi({
@@ -513,9 +626,9 @@ test('the resume belongs to the route it was queued on', async (t) => {
     resetStatsAndSyncContext() {},
   });
   assert.deepEqual(await routesApi.setRoute({ model: 'gpt-y' }), {});
-  assert.equal(quotaResumeEntry(SESSION), null);
-  assert.equal(routed.state.quotaResume, null);
-  assert.equal(routed.bag.fireQuotaResume({ generation: routedEntry.generation }), 'stale');
+  assert.equal(quotaResumeEntry(SESSION).generation, routedEntry.generation);
+  assert.equal(routed.state.quotaResume.state, 'waiting');
+  assert.equal(routed.bag.fireQuotaResume({ generation: routedEntry.generation }), 'fired');
 });
 
 test('clearing the session cancels its resume and clears the snapshot field', async (t) => {
@@ -543,25 +656,21 @@ test('clearing the session cancels its resume and clears the snapshot field', as
   assert.equal(h.state.quotaResume, null);
 });
 
-test('an agent-only session never owns a quota resume; a Lead session still does', (t) => {
-  const agent = harness(t, { runtime: { session: { visibility: 'agent-only', owner: 'agent', agent: 'worker' } } });
-  assert.equal(agent.bag.onQuotaTurnSettled({ suspendedGoalId: 'goal-1' }), null);
-  assert.equal(quotaResumeEntry(SESSION), null);
-  assert.equal(agent.state.quotaResume, null);
-  assert.throws(() => agent.bag.scheduleQuotaResume(SESSION), /agent sessions do not auto-resume/);
-
-  // An entry already persisted for the agent session (an older daemon wrote it) never fires.
-  const { generation } = scheduleQuotaResumeEntry({ sessionId: SESSION, turnKey: 'turn:u1', ...quota() });
-  assert.equal(agent.bag.fireQuotaResume({ generation }), 'agent-session');
-  assert.equal(agent.enqueued.length, 0);
-  assert.equal(quotaResumeEntry(SESSION), null);
-
-  const legacy = harness(t, { runtime: { session: { owner: 'agent', agent: 'worker', parentSessionId: 'lead-1' } } });
-  assert.equal(legacy.bag.onQuotaTurnSettled(), null);
-
-  const lead = harness(t, { runtime: { session: { owner: 'user', visibility: null } } });
-  assert.equal(lead.bag.onQuotaTurnSettled().turnKey, 'turn:u1');
-  assert.equal(quotaResumeEntry(SESSION).turnKey, 'turn:u1');
+test('Lead and agent sessions follow the same automatic resume option', async (t) => {
+  for (const session of [
+    { visibility: 'agent-only', owner: 'agent', agent: 'worker' },
+    { owner: 'agent', agent: 'worker', parentSessionId: 'lead-1' },
+    { owner: 'user', visibility: null },
+  ]) {
+    const h = harness(t, { runtime: { session } });
+    const entry = h.bag.onQuotaTurnSettled();
+    assert.equal(entry.turnKey, 'turn:u1');
+    assert.equal(h.bag.fireQuotaResume({ generation: entry.generation }), 'fired');
+    assert.equal(h.enqueued.length, 1);
+    setQuotaAutoResumeEnabled(false);
+    assert.equal(h.bag.onQuotaTurnSettled(), null);
+    assert.equal(quotaResumeEntry(SESSION), null);
+  }
 });
 
 test('a fire without a suspended Goal revives none', (t) => {

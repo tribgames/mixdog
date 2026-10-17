@@ -2,6 +2,7 @@ import type { Range } from 'monaco-editor';
 
 import type { DesktopEditorBackup } from '../shared/contract';
 import type { DesktopFilePreviewKind } from '../shared/file-preview';
+import type { BreadcrumbPickerAnchor } from './editor-breadcrumb-anchor';
 import type { EditorOutlineItem } from './editor-language-store';
 import { CALL_HIERARCHY_LAYOUT_KEY } from './editor-monaco-providers';
 import { recordOf } from './editor-lsp-conversion';
@@ -81,13 +82,7 @@ export interface EditorFileHandle {
   discard(): Promise<void>;
 }
 
-export interface BreadcrumbPickerAnchor {
-  x: number;
-  y: number;
-  width: number;
-  maxHeight: number;
-  sourceIndex: number;
-}
+export { breadcrumbPickerAnchor, type BreadcrumbPickerAnchor } from './editor-breadcrumb-anchor';
 
 export interface BreadcrumbFileItem {
   name: string;
@@ -112,21 +107,6 @@ export type BreadcrumbPickerState =
       rows: EditorOutlineItem[];
       activeIndex: number;
     };
-
-export function breadcrumbPickerAnchor(node: HTMLElement, sourceIndex: number): BreadcrumbPickerAnchor {
-  const rect = node.getBoundingClientRect();
-  const maxInnerWidth = Math.max(240, window.innerWidth - 8);
-  const width = Math.min(maxInnerWidth, Math.max(240, window.innerWidth / 4.17));
-  const x = Math.max(4, Math.min(rect.left, window.innerWidth - width - 4));
-  const y = rect.bottom + 8;
-  return {
-    x,
-    y,
-    width,
-    maxHeight: Math.max(80, Math.min(window.innerHeight * 0.7, 300, window.innerHeight - y - 30)),
-    sourceIndex,
-  };
-}
 
 export function editorLanguageLabel(languageId: string): string {
   switch (languageId) {

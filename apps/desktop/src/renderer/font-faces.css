@@ -1,0 +1,63 @@
+/*
+ * Font faces and registered custom properties, in a stylesheet of their own.
+ * Chromium rebuilds a sheet's rule set whenever one of its @media/@container
+ * conditions flips, and a rebuilt set holding @font-face or @property rules
+ * invalidates fonts (a relayout of every text node) and registrations (a
+ * restyle of the whole document). In the shared app sheet every breakpoint a
+ * window drag crossed did both. This sheet is built as its own file
+ * (electron.vite.config.ts manualChunks 'font-faces') and must never hold a
+ * conditional rule.
+ */
+
+/* KaTeX layer for worker-rendered $$ display math (font faces + its classes,
+   no conditional rules). Imported from CSS (not the markdown chunks) because
+   the tsx test loader cannot evaluate css module imports outside the DOM
+   harness. */
+@import "../../node_modules/katex/dist/katex.min.css";
+
+/* Seti icon font — bundled file icon theme; attribution and license in
+   LICENSES/editor-assets-NOTICE.txt and THIRD-PARTY-NOTICES.txt. */
+@font-face {
+  font-family: "seti";
+  src: url("./seti.woff") format("woff");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+/* Session sidebar scroll fades (desktop/10-rail-pages.css). */
+@property --sidebar-fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --sidebar-fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* The composer island slot's eased height (desktop/15-composer.css). */
+@property --island-slot-height {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* A transcript row's last measured height (transcript-list-geometry.ts), read
+   by the row itself only (desktop/12-transcript.css). The live row rewrites it
+   on every growth; inherited, each write restyled the whole reply subtree
+   inside the frame (~10 ms per frame on a 4x-throttled phone). */
+@property --transcript-measured-height {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* The slash palette's end fade (desktop/23-route-editor.css). The ::after
+   that paints the fade reads it from the palette. */
+@property --mx-palette-fade {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}

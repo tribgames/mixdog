@@ -17,8 +17,10 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { anchoredPanelGeometry, anchoredPanelStyle, paneBounds } from './anchored-panel';
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
+import { useRowMenuClamp } from './row-menu-geometry';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { commitImmediateOverlay } from './immediate-overlay';
 import { usePhoneDockSwitchActions } from './phone-dock-switch';
@@ -85,31 +87,39 @@ export function requestPaneDockClose(surface: PaneDockCloseSurface): void {
   window.dispatchEvent(new CustomEvent(PANE_DOCK_CLOSE_EVENT, { detail: { surface } }));
 }
 
-const MENU_EDGE = 8;
-const MENU_GAP = 4;
 const MENU_ITEM_HEIGHT = 28;
 const MENU_ITEM_SEPARATOR = 5;
 const MENU_PADDING = 10;
 
-/** Fixed placement of the portalled ⋯ menu: right-aligned under the button,
- *  flipped above when it does not fit below and above is roomier, capped to
- *  the room on the chosen side. */
+/** Fixed placement of the portalled ⋯ menu: the shared anchored-popup rule
+ *  for a trailing trigger (anchored-panel.ts) — below the button, right edges
+ *  aligned, 6px off, flipping above only when below cannot hold it and above
+ *  is roomier. The menu sizes to its labels; the owner clamps it into the
+ *  window once measured. */
 export function dockMenuPlacement(
-  anchor: { top: number; bottom: number; right: number },
+  anchor: { top: number; bottom: number; left: number; right: number },
   viewport: { width: number; height: number },
-  items: readonly DockAction[]
+  items: readonly DockAction[],
+  bounds = { left: 0, top: 0, right: viewport.width, bottom: viewport.height, ...viewport }
 ): CSSProperties {
   const estimated =
     items.length * MENU_ITEM_HEIGHT +
     items.filter((item) => item.separatorBefore).length * MENU_ITEM_SEPARATOR +
     MENU_PADDING;
-  const below = Math.max(0, viewport.height - anchor.bottom - MENU_GAP - MENU_EDGE);
-  const above = Math.max(0, anchor.top - MENU_GAP - MENU_EDGE);
-  const flip = below < estimated && above > below;
-  const right = Math.max(MENU_EDGE, viewport.width - anchor.right);
-  return flip
-    ? { right, bottom: viewport.height - anchor.top + MENU_GAP, maxHeight: above }
-    : { right, top: anchor.bottom + MENU_GAP, maxHeight: below };
+  // Copied field by field: a DOMRect's edges are prototype getters.
+  const { top, bottom, left, right } = anchor;
+  const trigger = { top, bottom, left, right, width: right - left, height: bottom - top };
+  const geometry = anchoredPanelGeometry({
+    trigger,
+    bounds,
+    preferredWidth: 0,
+    naturalHeight: estimated,
+    align: 'end',
+  });
+  const { transformOrigin: _origin, ...style } = anchoredPanelStyle(geometry, trigger);
+  // Right-pinned, the menu grows leftward: never past the pane's left inset
+  // (useRowMenuClamp lets the CSS min-width yield to this room).
+  return { ...style, maxWidth: Math.max(0, geometry.left + geometry.width - bounds.left - 8) };
 }
 
 /** False once the menu's owner is detached, `hidden`/`inert`, or inside a
@@ -144,6 +154,7 @@ export function DockOverflowMenu({
   const root = useRef<HTMLDivElement | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const menu = useRef<HTMLDivElement | null>(null);
+  useRowMenuClamp(open, menu);
   const place = useCallback(() => {
     const button = trigger.current;
     if (!button) return;
@@ -154,7 +165,8 @@ export function DockOverflowMenu({
           width: document.documentElement.clientWidth || window.innerWidth,
           height: document.documentElement.clientHeight || window.innerHeight,
         },
-        items
+        items,
+        paneBounds(button)
       )
     );
   }, [items]);

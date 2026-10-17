@@ -68,7 +68,8 @@ export interface AppWorkspaceMainProps {
     paneSelection: NavigationSelection,
     focused: boolean,
     focusPane: () => void,
-    leafId: string
+    leafId: string,
+    warm: boolean
   ) => React.ReactElement;
   paneFileEditors: ReturnType<typeof useAppPersistentPaneSurfaces>['paneFileEditors'];
   paneUtilityTabs: ReturnType<typeof useAppPersistentPaneSurfaces>['paneUtilityTabs'];

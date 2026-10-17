@@ -10,6 +10,7 @@ import {
   PACER_MAX_RATE,
   TranscriptTextPacer,
   cleanRevealCut,
+  streamingTextPaints,
 } from './use-paced-transcript-text.ts';
 
 const FRAME = 1000 / 60;
@@ -71,6 +72,40 @@ test('a burst is revealed over several frames, starting within the first few fra
   pacer.settle(1000);
   play(pacer, FRAME * 2, 1300);
   assert.equal(pacer.text, text);
+});
+
+// The commit that opens a reply row moves the followed transcript by its
+// first line: that line must not stay empty while the slow start near the
+// received end crawls toward the first word (measured: 100-500 ms).
+test("a reply's first whole word paints with its first arrival; the rest is still paced", () => {
+  const pacer = new TranscriptTextPacer('After long reply received', false, 0);
+  assert.equal(pacer.text, 'After');
+  pacer.tick(FRAME);
+  assert.ok(pacer.text.length < 'After long reply'.length, JSON.stringify(pacer.text));
+  const held = new TranscriptTextPacer();
+  held.push('Aft', 0);
+  assert.equal(held.text, '', 'an unfinished first word still waits');
+  held.push('After long', 30);
+  assert.equal(held.text, 'After', 'the arrival that completes it paints it');
+});
+
+test('streamingTextPaints matches the words a streaming pacer paints at once', () => {
+  for (const text of [
+    '',
+    'Aft',
+    '**',
+    '  ',
+    '**Hello',
+    'x',
+    '가나다',
+    'a'.repeat(24),
+    'After long',
+    'Done.',
+    'a'.repeat(25),
+    '**Hi** ',
+  ]) {
+    assert.equal(streamingTextPaints(text), new TranscriptTextPacer(text, false, 0).text !== '', JSON.stringify(text));
+  }
 });
 
 test('a steady stream reveals at its own rate with a small lag', () => {

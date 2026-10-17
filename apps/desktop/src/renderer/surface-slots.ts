@@ -1,3 +1,43 @@
+import { startTransition, type ReactNode } from 'react';
+import type { Root } from 'react-dom/client';
+
+const pendingSurfaceRenders = new WeakMap<Root, number>();
+
+/** Renders a persistent surface's own root. The slot registers in the dock's
+ *  layout effect, so a plain render flushed the whole terminal/browser tree
+ *  synchronously inside the tap's commit, and a browser opened from the header
+ *  rendered its root ahead of the app's own transition: the phone sheet's
+ *  first frame waited for either. The phone renders it from the next frame as
+ *  a transition instead (the newest element of a frame wins), so the sheet and
+ *  the surface's placed container paint first, the tree right after. */
+export function renderSurfaceRoot(root: Root, element: ReactNode): void {
+  if (!document.documentElement.hasAttribute('data-mixdog-mobile-tabs')) {
+    root.render(element);
+    return;
+  }
+  dropPendingSurfaceRender(root);
+  pendingSurfaceRenders.set(
+    root,
+    window.requestAnimationFrame(() => {
+      pendingSurfaceRenders.delete(root);
+      startTransition(() => root.render(element));
+    })
+  );
+}
+
+/** Unmounts a persistent surface's root, dropping a render still queued for it. */
+export function unmountSurfaceRoot(root: Root): void {
+  dropPendingSurfaceRender(root);
+  root.unmount();
+}
+
+function dropPendingSurfaceRender(root: Root): void {
+  const frame = pendingSurfaceRenders.get(root);
+  if (frame === undefined) return;
+  window.cancelAnimationFrame(frame);
+  pendingSurfaceRenders.delete(root);
+}
+
 /** The visible slot a persistent surface (terminal, browser) should follow: the
  *  foreground active slot, else the first active one. */
 export function preferredSurfaceSlot<Slot extends { active: boolean; foreground: boolean }>(
@@ -15,15 +55,50 @@ type SurfaceRect = { left: number; top: number; width: number; height: number };
  *  fixed descendant: viewport coordinates written as-is applied the body's
  *  offset a second time once the visual viewport panned (keyboard, pinch),
  *  shifting the terminal/browser body off the sheet header. */
-export function placeFixedSurface(container: HTMLElement, rect: SurfaceRect): void {
+export function placeFixedSurface(container: HTMLElement, rect: SurfaceRect, slot?: HTMLElement): void {
   const doc = container.ownerDocument;
-  const origin = doc.documentElement.hasAttribute('data-mixdog-mobile-tabs')
-    ? doc.body.getBoundingClientRect()
-    : { left: 0, top: 0 };
-  container.style.left = `${rect.left - origin.left}px`;
+  const phone = doc.documentElement.hasAttribute('data-mixdog-mobile-tabs');
+  const origin = phone ? doc.body.getBoundingClientRect() : { left: 0, top: 0 };
+  const slideOffset = phone && slot ? followSheetSlide(container, slot) : 0;
+  // Mid-slide, the offset taken out leaves float noise that would re-lay the
+  // surface out every frame; the settled slot sits on a whole pixel.
+  const left = slideOffset ? Math.round(rect.left - slideOffset) : rect.left;
+  container.style.left = `${left - origin.left}px`;
   container.style.top = `${rect.top - origin.top}px`;
   container.style.width = `${rect.width}px`;
   container.style.height = `${rect.height}px`;
+}
+
+const SHEET_SLIDE_FOLLOW_ID = 'mx-sheet-slide-follow';
+
+/** The phone sheet slides in through a compositor `transform` transition, and
+ *  a fixed surface over its slot used to chase the slot's rect frame by frame
+ *  from the main thread: every step was a layout shift, the surface lagged the
+ *  sheet behind each long task, and a terminal focused while still half
+ *  off-screen panned the visual viewport. The surface now sits at the slot's
+ *  settled rect (the slide's current offset taken out) and runs the sheet's
+ *  own transition as a copy started at the same time, so both move as one
+ *  layer. Returns the sheet's current horizontal offset. */
+function followSheetSlide(container: HTMLElement, slot: HTMLElement): number {
+  const sheet = slot.closest<HTMLElement>('.pane-side-dock[data-open="true"]');
+  const view = container.ownerDocument.defaultView;
+  if (!sheet || !view || typeof sheet.getAnimations !== 'function') return 0;
+  const slide = sheet
+    .getAnimations()
+    .find(
+      (animation) =>
+        (animation as CSSTransition).transitionProperty === 'transform' && animation.playState === 'running'
+    );
+  const follow = container.getAnimations().find((animation) => animation.id === SHEET_SLIDE_FOLLOW_ID);
+  if (slide?.effect instanceof view.KeyframeEffect && follow?.startTime !== slide.startTime) {
+    follow?.cancel();
+    const copy = container.animate(slide.effect.getKeyframes(), slide.effect.getTiming() as KeyframeAnimationOptions);
+    copy.id = SHEET_SLIDE_FOLLOW_ID;
+    // A slide still pending its start time starts with the copy, in the same frame.
+    if (slide.startTime !== null) copy.startTime = slide.startTime;
+  }
+  const transform = view.getComputedStyle(sheet).transform;
+  return transform && transform !== 'none' ? new view.DOMMatrixReadOnly(transform).m41 : 0;
 }
 
 function restoreDockHeader(header: HTMLElement): void {

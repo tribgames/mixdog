@@ -201,11 +201,7 @@ export function desktopConversationShellSnapshotsEqual(left: Snapshot, right: Sn
     left.fast === right.fast &&
     left.fastCapable === right.fastCapable &&
     left.autoEffort === right.autoEffort &&
-    left.workflow === right.workflow &&
-    // The latest completion line reads background work to show its waiting state.
-    shellJobsEqual(left, right) &&
-    left.agentWorkers === right.agentWorkers &&
-    left.agentJobs === right.agentJobs
+    left.workflow === right.workflow
   );
 }
 

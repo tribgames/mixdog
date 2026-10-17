@@ -68,7 +68,7 @@ test('a reload aborts the in-flight thumbnail job; its stale picture is never pu
     const [stale] = held.jobs;
     assert.equal(stale.signal.aborted, false);
     // A reload while the first picture is still being taken.
-    await service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: true });
+    await service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: false });
     await until(() => held.jobs.length === 2);
     assert.equal(stale.signal.aborted, true, 'the old job is told to stop while it runs');
     assert.equal(held.jobs[1].signal.aborted, false);
@@ -77,9 +77,12 @@ test('a reload aborts the in-flight thumbnail job; its stale picture is never pu
     held.jobs[1].resolve(Buffer.from('PNG-NEW'));
     await service.settled();
     assert.equal(events.at(-1).state.tabs[0].thumbnail, dataUrl('PNG-NEW'));
-    assert.equal(events.some((event) => event.state?.tabs[0]?.thumbnail === dataUrl('PNG-OLD')), false);
+    assert.equal(
+      events.some((event) => event.state?.tabs[0]?.thumbnail === dataUrl('PNG-OLD')),
+      false
+    );
     // Closing the tab aborts its running job too.
-    await service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: false });
+    await service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: true });
     await until(() => held.jobs.length === 3);
     await service.command({ sessionId: 's1', tabId: 'v1', action: 'close' });
     assert.equal(held.jobs[2].signal.aborted, true);
@@ -107,7 +110,10 @@ test('repeated activation never starts a second thumbnail job or a no-op publish
     await activate('v2');
     await activate('v1');
     await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(held.jobs.map((job) => job.tab), ['v1', 'v2']);
+    assert.deepEqual(
+      held.jobs.map((job) => job.tab),
+      ['v1', 'v2']
+    );
     // Activating the tab already shown publishes nothing.
     const published = events.length;
     await activate('v1');
@@ -119,10 +125,13 @@ test('repeated activation never starts a second thumbnail job or a no-op publish
     held.jobs[1].resolve(Buffer.from('PNG-v2'));
     await service.settled();
     const tabs = events.at(-1).state.tabs;
-    assert.deepEqual(tabs.map((tab) => tab.thumbnail), [dataUrl('PNG-v1'), dataUrl('PNG-v2')]);
+    assert.deepEqual(
+      tabs.map((tab) => tab.thumbnail),
+      [dataUrl('PNG-v1'), dataUrl('PNG-v2')]
+    );
 
     // A new picture identical to the current one is not published again.
-    await service.command({ sessionId: 's1', tabId: 'v2', action: 'network', allow: true });
+    await service.command({ sessionId: 's1', tabId: 'v2', action: 'network', allow: false });
     await until(() => held.jobs.length === 3);
     const afterReload = events.length;
     held.jobs[2].resolve(Buffer.from('PNG-v2'));
@@ -153,9 +162,14 @@ test('publishing never resolves paths synchronously; remote targets use the cwd 
   syncBuiltinESMExports();
   try {
     await service.execute({ sessionId: 's1', cwd: linked, action: 'open', input: { targets: ['site/index.html'] } });
-    await service.execute({ sessionId: 's1', cwd: linked, action: 'open', input: { content: { kind: 'svg', source: '<svg/>' } } });
+    await service.execute({
+      sessionId: 's1',
+      cwd: linked,
+      action: 'open',
+      input: { content: { kind: 'svg', source: '<svg/>' } },
+    });
     await service.command({ sessionId: 's1', tabId: 'v1', action: 'activate' });
-    await service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: true });
+    await service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: false });
     service.hostSnapshot();
     const hostTab = hostEvents.at(-1).state.tabs.find((tab) => tab.id === 'v1');
     assert.equal(hostTab.panes[0].remoteTarget, 'site/index.html');
@@ -180,7 +194,9 @@ test('a reload resolved against an older cwd never overwrites the cwd a reopen c
   // Hold the reload's own cwd resolution until the reopen has committed.
   fsp.realpath = function (path, ...rest) {
     if (holding && String(path) === cwd && /realCwdOf/.test(new Error().stack ?? '')) {
-      return new Promise((resolve, reject) => held.push(() => original.call(this, path, ...rest).then(resolve, reject)));
+      return new Promise((resolve, reject) =>
+        held.push(() => original.call(this, path, ...rest).then(resolve, reject))
+      );
     }
     return original.call(this, path, ...rest);
   };
@@ -188,11 +204,16 @@ test('a reload resolved against an older cwd never overwrites the cwd a reopen c
   try {
     await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
     holding = true;
-    const reloading = service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: true });
+    const reloading = service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: false });
     await until(() => held.length === 1);
     holding = false;
     // The same file reopened from the parent folder: same tab, new cwd.
-    await service.execute({ sessionId: 's1', cwd: root, action: 'open', input: { targets: ['project/site/index.html'] } });
+    await service.execute({
+      sessionId: 's1',
+      cwd: root,
+      action: 'open',
+      input: { targets: ['project/site/index.html'] },
+    });
     held.shift()();
     await reloading;
     await service.settled();
@@ -221,7 +242,9 @@ test('a delayed open never commits over a later reload, and never lets an older 
     },
     // Each load's pane names the load it came from; held ones wait for release.
     preparePane: (target) =>
-      holding ? new Promise((resolve) => held.push((name) => resolve(`fake://${name}`))) : Promise.resolve('fake://load-1'),
+      holding
+        ? new Promise((resolve) => held.push((name) => resolve(`fake://${name}`)))
+        : Promise.resolve('fake://load-1'),
   });
   const service = createVisualizeService(deps);
   const shownUrl = () => events.at(-1).state.tabs.find((tab) => tab.id === 'v1').panes[0].url;
@@ -262,7 +285,12 @@ test('a dropped open leaves the session cwd of the newer open, so a closed tab r
     await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
     holding = true;
     // From the parent folder, delayed: it finishes after the child-cwd open below.
-    const parentOpen = service.execute({ sessionId: 's1', cwd: root, action: 'open', input: { targets: ['project/site/index.html'] } });
+    const parentOpen = service.execute({
+      sessionId: 's1',
+      cwd: root,
+      action: 'open',
+      input: { targets: ['project/site/index.html'] },
+    });
     await until(() => held.length === 1);
     holding = false;
     await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
@@ -283,7 +311,10 @@ test('a dropped open leaves the session cwd of the newer open, so a closed tab r
 test('a reload stops the old picture when it invalidates the revision, before its snapshot I/O', async () => {
   const { root, cwd, cleanup } = workspace();
   const held = heldThumbnails();
-  const { deps, events } = fakeDeps({ thumbnail: held.thumbnail, versions: { directory: join(root, 'app-data', 'versions') } });
+  const { deps, events } = fakeDeps({
+    thumbnail: held.thumbnail,
+    versions: { directory: join(root, 'app-data', 'versions') },
+  });
   const service = createVisualizeService(deps);
   const original = fsp.readFile;
   let armed = false;
@@ -305,7 +336,7 @@ test('a reload stops the old picture when it invalidates the revision, before it
     const [stale] = held.jobs;
     const published = events.length;
     armed = true;
-    const reloading = service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: true });
+    const reloading = service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: false });
     await until(() => release !== null);
     assert.equal(stale.signal.aborted, true, 'the old capture stops before the snapshot is written');
     assert.equal(events.length, published, 'the reload has not published yet');
@@ -378,7 +409,10 @@ test('an animated page costs a few downscaled comparisons and still yields a rea
 test('an aborted thumbnail job stops between capture rounds', async () => {
   const controller = new AbortController();
   // The job is superseded while its second capture is taken.
-  const { window, log } = captureWindow((n) => n, (n) => n === 2 && controller.abort());
+  const { window, log } = captureWindow(
+    (n) => n,
+    (n) => n === 2 && controller.abort()
+  );
   const waits = [];
   const image = await settledBodyImage(window, 's1', imageTab, controller.signal, async (ms, signal) => {
     waits.push(signal.aborted);

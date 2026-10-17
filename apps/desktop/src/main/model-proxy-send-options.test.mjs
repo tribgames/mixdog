@@ -34,6 +34,10 @@ const NOT_SEND_OPTIONS = new Map([
   ['oauth-usage.mjs::allowStale', 'usage-snapshot read options'],
   ['oauth-usage.mjs::expectedOfferRevision', 'usage-offer helper argument'],
   ['oauth-usage.mjs::force', 'usage refresh helper argument'],
+  [
+    'openai-compat-retry-profile.mjs::backoffMs',
+    "`options` is the provider's own retry profile (compatRetryOptions), resolved on the host that runs the adapter",
+  ],
   ['openai-compat-wire.mjs::includeSystem', 'message-conversion helper argument'],
   ['openai-compat-wire.mjs::model', 'message-conversion helper argument'],
   ['openai-compat-wire.mjs::provider', 'message-conversion helper argument'],
@@ -352,7 +356,10 @@ test('the classification lists stay disjoint, reasoned and current', () => {
     const [file, key] = entry.split('::');
     assert.equal(MODEL_PROXY_SESSION_KEYS.has(key), false, `${entry} is projected; the exemption is not needed`);
     assert.ok(reason, `${entry} needs a reason`);
-    assert.ok(readSessionKeys.get(key)?.has(file), `${entry} is no longer read; remove it from NOT_PROJECTED_SESSION_READS`);
+    assert.ok(
+      readSessionKeys.get(key)?.has(file),
+      `${entry} is no longer read; remove it from NOT_PROJECTED_SESSION_READS`
+    );
   }
   for (const [entry, reason] of DYNAMIC_READS) {
     assert.ok(reason, `${entry} needs a reason`);

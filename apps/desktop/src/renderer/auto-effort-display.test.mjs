@@ -122,5 +122,14 @@ test('Workflows sidebar rows (agents and default agents) show Auto for capable m
   assert.equal(on.Heavy, 'plain High');
   assert.equal(on.Maxed, 'capable Max');
   assert.equal(on.Maintainer, 'capable Auto');
-  assert.equal(on['Web Search'], 'capable Auto');
+  // Web Search never runs per-call Auto reasoning: it shows its stored effort,
+  // even on an auto-capable model with the feature on and a stale autoEffort.
+  assert.equal(on['Web Search'], 'capable Low');
+  await act(async () =>
+    updateSidebarReference('webSearchRoute', { ...route('alpha', 'capable', 'low'), autoEffort: true })
+  );
+  assert.equal(summaries()['Web Search'], 'capable Low');
+  // The default route inherits Main's effort: it says so instead of showing Auto.
+  await act(async () => updateSidebarReference('webSearchRoute', { provider: 'default', model: 'default' }));
+  assert.equal(summaries()['Web Search'], 'Follows Main');
 });

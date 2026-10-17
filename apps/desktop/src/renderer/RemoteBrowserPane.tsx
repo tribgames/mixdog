@@ -35,6 +35,7 @@ import { useMobileRemoteSurface } from './mobile-surface';
 import { browserInputNotice } from '../shared/browser-input-policy';
 import { normalizeAddressInput } from './browser-address';
 import { onBrowserPageAddressTaken } from './browser-page-request';
+import { isLoopbackWebUrl } from './remote-external-link';
 import { createRemoteBrowserInputQueue } from './remote-browser-input';
 import { createRemoteBrowserInputClient, type RemoteInputFrame } from './remote-browser-input-client';
 import { createRemoteTouchController } from './remote-browser-touch';
@@ -53,6 +54,7 @@ import {
   writeBrowserZoom,
 } from './browser-zoom-level';
 import { BrowserZoomPill } from './BrowserZoomPill';
+import { useZoomBarVisible, zoomBarAction } from './zoom-bar-pref';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import type { BrowserPaneProps } from './BrowserPane.lazy';
@@ -393,6 +395,7 @@ function useRemoteMoreActions({
   useEffect(() => {
     if (active && frame && !frame.loading) refreshCredentialSuggestions();
   }, [active, frame?.url, frame?.loading, refreshCredentialSuggestions]);
+  useZoomBarVisible();
   return remoteBrowserMoreActions({
     ...options,
     credentials: { credentialBusy, credentialStatus, credentialSuggestions, fillStoredCredential },
@@ -499,6 +502,7 @@ function remoteBrowserMoreActions({
       },
     });
   }
+  moreActions.push(zoomBarAction(moreActions.length > 0));
   return moreActions;
 }
 
@@ -741,6 +745,7 @@ function RemoteBrowserContent({
   zoomPill: boolean;
   changeZoomLevel(level: number): void;
 }) {
+  const zoomBarVisible = useZoomBarVisible();
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'touch') return input.onPointerDown(event);
     event.preventDefault();
@@ -818,7 +823,7 @@ function RemoteBrowserContent({
           aria-hidden="true"
         />
       )}
-      {zoomPill && imageUrl && <BrowserZoomPill level={zoomLevel} onChange={changeZoomLevel} />}
+      {zoomPill && zoomBarVisible && imageUrl && <BrowserZoomPill level={zoomLevel} onChange={changeZoomLevel} />}
     </div>
   );
 }
@@ -982,7 +987,9 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
   }, [active, sessionId]);
 
   const { historySuggestions, setHistorySuggestions } = useHistorySuggestions(api, address, addressHasFocus);
-  const externalUrl = frame?.url && frame.url !== 'about:blank' ? frame.url : '';
+  // A loopback page is the PC's own and already shown here; this device's
+  // browser would reach itself, so it has no "system browser" to go to.
+  const externalUrl = frame?.url && frame.url !== 'about:blank' && !isLoopbackWebUrl(frame.url) ? frame.url : '';
   const moreActions = useRemoteMoreActions({
     api,
     ownerSessionId,

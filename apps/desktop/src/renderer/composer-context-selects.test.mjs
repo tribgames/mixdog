@@ -287,7 +287,7 @@ for (const { value: language } of SUPPORTED_UI_LANGUAGES.filter(({ value }) => v
   }
 }
 
-test('ordinary selects keep downward placement and do not acquire composer-only content', async (t) => {
+test('ordinary selects open below, left edges aligned, and do not acquire composer-only content', async (t) => {
   const trigger = await mount(
     React.createElement(OpenSelect, {
       ariaLabel: 'Ordinary select',
@@ -297,8 +297,43 @@ test('ordinary selects keep downward placement and do not acquire composer-only 
   );
   await act(async () => trigger.click());
   const menu = document.querySelector('[role="listbox"]');
+  // Below the trigger even with room above: top edge 6px under it, left edges aligned.
   assert.equal(menu.style.bottom, '');
-  assert.ok(parseFloat(menu.style.top) >= rect().bottom);
+  assert.equal(menu.style.top, `${rect().bottom + 6}px`);
+  assert.equal(menu.style.left, `${rect().left}px`);
+  assert.equal(menu.style.right, '');
   assert.equal(menu.querySelector('.mx-menu-title'), null);
   assert.equal(trigger.hasAttribute('data-tooltip'), false);
+});
+
+test('a settings row select opens below with its right edge on the trigger right edge', async (t) => {
+  const trigger = await mount(
+    React.createElement(OpenSelect, {
+      ariaLabel: 'Settings select',
+      className: 'settings-select',
+      options: [{ value: 'one', label: 'One' }],
+    }),
+    t
+  );
+  await act(async () => trigger.click());
+  const menu = document.querySelector('[role="listbox"]');
+  assert.equal(menu.style.top, `${rect().bottom + 6}px`);
+  assert.equal(menu.style.left, '');
+  assert.equal(menu.style.right, `${window.innerWidth - rect().right}px`);
+});
+
+test('a select near the bottom flips above only because below cannot hold it', async (t) => {
+  const trigger = await mount(
+    React.createElement(OpenSelect, {
+      ariaLabel: 'Low select',
+      options: [{ value: 'one', label: 'One' }],
+    }),
+    t
+  );
+  trigger.getBoundingClientRect = () => rect(860);
+  await act(async () => trigger.click());
+  const menu = document.querySelector('[role="listbox"]');
+  const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
+  assert.equal(menu.style.top, '');
+  assert.equal(menu.style.bottom, `${layoutHeight - 860 + 6}px`);
 });

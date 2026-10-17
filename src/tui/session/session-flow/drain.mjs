@@ -89,6 +89,8 @@ export function turnOptionsForBatch(batch, steering) {
   return {
     promptSource: batchPromptSource(batch),
     retryFailedTurn: batch[0]?.retryFailedTurn === true,
+    retryTurnId: batch[0]?.retryTurnId || null,
+    retryAttemptId: batch[0]?.retryAttemptId || null,
     displayText: batch
       .map((entry) => entry.text)
       .filter((text) => String(text || '').trim())
@@ -148,7 +150,7 @@ export function createDrainLoop(
   // matching message under its own lock).
   function rewindFailedTurnRows(batch) {
     const entry = batch[0];
-    if (entry?.retryFailedTurn !== true) return;
+    if (entry?.retryFailedTurn !== true || entry.retryTurnId) return;
     const rewound = rewoundFailedTurnItems(getState().items, entry.text);
     if (!rewound) return;
     set({
@@ -217,7 +219,7 @@ export function createDrainLoop(
     // but so do setModel/newSession/resume/etc). Running a turn concurrently
     // with a command that swaps or reroutes the live session is a race; the
     // commandBusy-release hook re-kicks drain once the command finishes.
-    if (flags.autoClearRunning || getState().commandBusy) {
+    if (flags.autoClearRunning || flags.quotaResumePending || getState().commandBusy) {
       scheduleBlockedDrainRetry();
       return;
     }
@@ -253,7 +255,7 @@ export function createDrainLoop(
         // its pre-compaction, a reset) runs before the next turn starts. The
         // finally below re-enters drain(), which waits on the same gate, and
         // the commandBusy release re-kicks the queue.
-        if (flags.autoClearRunning || getState().commandBusy) return;
+        if (flags.autoClearRunning || flags.quotaResumePending || getState().commandBusy) return;
         // Drain one priority/mode bucket at a time (unified command queue):
         // prompt steering stays editable and task notifications stay
         // non-editable but model-visible.
@@ -331,7 +333,7 @@ export function createDrainLoop(
     submissions.remember(submissionId);
     pending.push(entry);
     const needsDurableSteering =
-      (getState().busy || getState().commandBusy || flags.autoClearRunning) &&
+      (getState().busy || getState().commandBusy || flags.autoClearRunning || flags.quotaResumePending) &&
       steering.shouldMirrorSteeringEntry(entry);
     const persistence = needsDurableSteering ? appendTuiSteeringPersist(steering.leadSessionId(), entry) : null;
     if (isQueuedEntryVisible(entry)) {

@@ -14,7 +14,7 @@ import { createTakeEntriesOps } from './queue/take-entries.mjs';
 
 // Submission-id memory for idempotent re-delivery. A prompt can legitimately
 // reach this queue TWICE when its transport retries across a failed response
-// (daemon view retry, live-share spool fallback after a missing ack). The id
+// (daemon view retry after a missing ack). The id
 // the surface minted is the identity of the message, so a repeat of an id we
 // already queued is dropped instead of posting the prompt twice.
 const SUBMISSION_ID_MEMORY = 256;

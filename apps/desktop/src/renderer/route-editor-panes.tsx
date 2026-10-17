@@ -6,7 +6,8 @@ import { t, tExisting } from './i18n';
 import { wrappedNavigationIndex } from './list-navigation';
 import type { RouteSpeed } from './model-route-utils';
 import { formatContextWindow } from './provider-display';
-import { ROUTE_SHEET_ROW_HEIGHT, routeSheetWidth, type RouteSheetPane } from './route-editor-logic';
+import { paneBounds } from './anchored-panel';
+import { ROUTE_SHEET_ROW_HEIGHT, type RouteSheetPane } from './route-editor-logic';
 
 // Leave one paint of headroom beyond the 110ms CSS exit so the surface and
 // trigger reach their final frame before their fixed widths are released.
@@ -43,41 +44,25 @@ export function modelParameterLabel(parameter: { id: string; label: string }): s
     : parameter.label;
 }
 
+/** The area a route sheet may use: the trigger's pane clipped to the visible
+ *  viewport (anchored-panel.ts paneBounds), the visible viewport in dialogs. */
 export function currentViewport(anchor?: HTMLElement | null) {
-  const visualViewport = window.visualViewport;
-  const viewport = {
-    left: visualViewport?.offsetLeft ?? 0,
-    top: visualViewport?.offsetTop ?? 0,
-    width: visualViewport?.width ?? window.innerWidth,
-    height: visualViewport?.height ?? window.innerHeight,
-  };
-  const pane = anchor?.closest<HTMLElement>('.pane-leaf')?.getBoundingClientRect();
-  if (!pane) return viewport;
-  const left = Math.max(viewport.left, pane.left);
-  const top = Math.max(viewport.top, pane.top);
-  const right = Math.min(viewport.left + viewport.width, pane.right);
-  const bottom = Math.min(viewport.top + viewport.height, pane.bottom);
+  const bounds = paneBounds(anchor);
   return {
-    left,
-    top,
-    width: Math.max(1, right - left),
-    height: Math.max(1, bottom - top),
+    left: bounds.left,
+    top: bounds.top,
+    width: Math.max(1, bounds.width),
+    height: Math.max(1, bounds.height),
   };
 }
 
-/** Left-anchored sheet: a synthetic rect whose right edge sits one sheet
- *  width from the pill's left edge, so routeSheetBox aligns left edges. */
-export function sheetAnchor(
-  rect: { left: number; top: number; bottom: number },
-  viewport: { width: number },
-  preferredWidth: number
-) {
-  const width = routeSheetWidth(viewport, preferredWidth);
-  return { left: rect.left, right: rect.left + width, top: rect.top, bottom: rect.bottom };
-}
+/** The model catalog's cap: a long list scrolls inside it, a short one makes
+ *  a short flyout. */
+export const ROUTE_MODEL_FLYOUT_MAX_HEIGHT = 360;
 
+/** Height cap of a pane's flyout; the flyout itself sizes to its content. */
 export function preferredFlyoutHeight(pane: RouteSheetPane, effortCount: number): number {
-  if (pane === 'model') return 380;
+  if (pane === 'model') return ROUTE_MODEL_FLYOUT_MAX_HEIGHT;
   if (pane === 'effort') return Math.min(300, Math.max(44, effortCount * ROUTE_SHEET_ROW_HEIGHT + 34));
   if (pane === 'context') return 100;
   return 132;
@@ -283,6 +268,7 @@ function RouteContextPane({
     onEditEnd();
   };
   commitEditRef.current = editing ? () => endEdit(true) : null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: shownContextTokens is read only to prefill once per edit session; re-running would overwrite typing.
   useEffect(() => {
     if (!editing) return;
     finished.current = false;

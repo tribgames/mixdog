@@ -73,6 +73,7 @@ export interface DesktopService {
   scheduleQuotaResume(sessionId: string): Promise<boolean>;
   cancelQuotaResume(sessionId: string): Promise<boolean>;
   stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }>;
+  releaseShellJob(sessionId: string, taskId: string): Promise<{ released: boolean; error?: string }>;
   getQuotaAutoResume(): Promise<boolean>;
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived(sessionId: string, archived: boolean): unknown;
@@ -162,6 +163,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'listSessions',
   'readSessionFinalAnswer',
   'readAttachmentImage',
+  'readSessionTranscript',
   'markSessionRead',
   'listAgentPool',
   'searchSessionContent',
@@ -170,6 +172,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'scheduleQuotaResume',
   'cancelQuotaResume',
   'stopShellJob',
+  'releaseShellJob',
   'getQuotaAutoResume',
   'setQuotaAutoResume',
   'setSessionArchived',

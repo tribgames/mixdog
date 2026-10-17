@@ -11,6 +11,9 @@ import { errorMessage } from './editor-pane-session-errors';
 import { monaco } from './monaco-setup';
 import type { SideFileChrome } from './side-surface-strip';
 import { revealFileFromWindow } from './server-transfers';
+import { isRemoteHostRenderer } from './remote-ui-projection';
+import { explorerAbsolutePath } from './explorer-tree-model';
+import { copyTextToClipboard } from './text-format';
 
 export default function EditorSideMarkdownPreview({
   projectPath,
@@ -120,7 +123,10 @@ export default function EditorSideMarkdownPreview({
       saving: false,
       save() {},
       toc: { open: tocOpen, onToggle: () => setTocOpen((open) => !open) },
-      reveal: () => void revealFileFromWindow(projectPath, relPath, accessToken),
+      // A paired device has no file manager of the PC's: it copies the path.
+      ...(isRemoteHostRenderer()
+        ? { copyPath: () => void copyTextToClipboard(explorerAbsolutePath(projectPath, relPath)) }
+        : { reveal: () => void revealFileFromWindow(projectPath, relPath, accessToken) }),
     });
   }, [onSideChrome, tocOpen, projectPath, relPath, accessToken]);
   useEffect(() => () => onSideChrome(null), [onSideChrome]);

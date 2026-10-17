@@ -136,6 +136,7 @@ function ChoicePanel({
   active,
   pending,
   emptyText,
+  loadingRows = 0,
   onChoose,
 }: {
   title: string;
@@ -143,6 +144,8 @@ function ChoicePanel({
   active: string;
   pending: string;
   emptyText: string;
+  /** Placeholder rows to hold the list's height while it loads. */
+  loadingRows?: number;
   onChoose(id: string): void;
 }) {
   return (
@@ -167,6 +170,22 @@ function ChoicePanel({
             />
           );
         })
+      ) : loadingRows ? (
+        <div role="status" aria-busy="true" aria-label={emptyText}>
+          {Array.from({ length: loadingRows }, (_, index) => (
+            <ResourceRow
+              // biome-ignore lint/suspicious/noArrayIndexKey: identical static placeholders.
+              key={index}
+              className="is-skeleton"
+              title={'\u00a0'}
+              actions={
+                <ActionButton disabled onClick={() => undefined}>
+                  {t('Choose')}
+                </ActionButton>
+              }
+            />
+          ))}
+        </div>
       ) : (
         <ListEmpty text={emptyText} />
       )}
@@ -174,9 +193,16 @@ function ChoicePanel({
   );
 }
 
+// Rows the output-style list showed the last time it loaded: the placeholder
+// reserves that many so the loaded list replaces it in place.
+let lastOutputStyleRows = 4;
+
 function OutputStylePanel({ data, pending, run }: PanelContext) {
   const output = record(data.outputStyles);
   const failure = sectionError(data, 'outputStyles');
+  const styleRows = rows(output, 'styles');
+  const loaded = sectionLoaded(data, 'outputStyles');
+  if (loaded && styleRows.length) lastOutputStyleRows = styleRows.length;
   return (
     <>
       {failure ? (
@@ -184,12 +210,11 @@ function OutputStylePanel({ data, pending, run }: PanelContext) {
       ) : (
         <ChoicePanel
           title=""
-          values={rows(output, 'styles')}
+          values={styleRows}
           active={String(record(output.current).id || output.configured || 'default')}
           pending={pending}
-          emptyText={
-            sectionLoaded(data, 'outputStyles') ? t('No output styles available.') : t('Loading output styles…')
-          }
+          emptyText={loaded ? t('No output styles available.') : t('Loading output styles…')}
+          loadingRows={loaded ? 0 : lastOutputStyleRows}
           onChoose={(id) => void run('setOutputStyle', [id])}
         />
       )}

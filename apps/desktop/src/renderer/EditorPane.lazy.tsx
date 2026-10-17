@@ -1,7 +1,8 @@
 // Monaco file editor with per-path models, persistent dirty buffers, Ctrl+S,
 // and guarded changed-on-disk handling.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { DownloadSessionContext } from './project-file-download';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { showDesktopToast } from './desktop-toasts';
@@ -9,6 +10,8 @@ import { hasLspProviderFeature } from './editor-lsp-providers';
 import { documentFormatterAvailable, runFormatDocument } from './editor-format-document';
 import { monaco } from './monaco-setup';
 import { EditorBreadcrumbs } from './editor-breadcrumbs';
+import type { DockAction } from './pane-dock-chrome';
+import { useZoomBarVisible, zoomBarAction } from './zoom-bar-pref';
 import type { SideFileChrome } from './side-surface-strip';
 import { SideFileStatusRow, sideFileHasFooter } from './side-file-status-row';
 import { editorSurfaceOptions } from './editor-side-options';
@@ -164,6 +167,7 @@ export default function EditorPane({
   // would be reverted immediately. null follows the settings value.
   const [wordWrapOverride, setWordWrapOverride] = useState<DesktopEditorSettings['wordWrap'] | null>(null);
   const phoneLayout = useMobileRemoteSurface();
+  const downloadSessionId = useContext(DownloadSessionContext);
   const mediaForeground = useForegroundMedia(active);
   // SVG opens as an image, Markdown and CSV/TSV as text; the toggle shows the
   // other view while the hidden editor (and its unsaved edits) stays mounted.
@@ -475,7 +479,10 @@ export default function EditorPane({
   const gotoLine = useCallback(() => {
     void editorRef.current?.getAction('editor.action.gotoLine')?.run();
   }, []);
+  useZoomBarVisible();
+  const zoomable = preview?.kind === 'image' || Boolean(documentPreview);
   const fileChrome = useEditorSideChrome({
+    zoomable,
     api,
     projectPath,
     relPath,
@@ -504,10 +511,12 @@ export default function EditorPane({
     onSideChrome,
   });
   const breadcrumbPreview = viewKind === 'svg' ? null : preview;
-  const breadcrumbMenuActions =
+  const breadcrumbMenuActions: DockAction[] =
     formattingAvailable && load && !load.binary && !load.tooLarge && !preview && !documentPreview && !load.readOnly
       ? [{ id: 'format', label: t('Format Document'), onSelect: formatDocument }]
       : [];
+  // Zoomable previews (image, SVG, PDF/Office pages) carry the shared zoom-bar toggle.
+  if (zoomable) breadcrumbMenuActions.push(zoomBarAction(true));
   const editorBreadcrumbs = onSideChrome ? null : (
     <EditorBreadcrumbs
       projectPath={projectPath}
@@ -556,7 +565,7 @@ export default function EditorPane({
         mediaRef={mediaRef}
         onComplete={completePreview}
         onFail={failPreview}
-        onOpen={() => void openEditorFileExternally(projectPath, relPath, accessToken)}
+        onOpen={() => void openEditorFileExternally(projectPath, relPath, accessToken, downloadSessionId)}
       />
     );
   }
@@ -582,7 +591,7 @@ export default function EditorPane({
         load={load}
         note={documentError}
         onRetry={documentError ? reload : undefined}
-        onOpen={() => void openEditorFileExternally(projectPath, relPath, accessToken)}
+        onOpen={() => void openEditorFileExternally(projectPath, relPath, accessToken, downloadSessionId)}
       />
     );
   }

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import React from 'react';
+import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { CompletionStatus, backgroundWorkCounts } from './transcript-status';
 import { EMPTY_SNAPSHOT } from './desktop-types';
-import { desktopConversationShellSnapshotsEqual } from './desktop-snapshot-store';
+import { desktopConversationShellSnapshotsEqual, desktopHeaderSnapshotsEqual } from './desktop-snapshot-store';
+import { createSessionLaneStore, useSessionLane } from './session-lane-store';
 import { installTestDom } from './test-support/test-dom.mjs';
 
 const item = { kind: 'turndone', status: 'complete', toolCount: 2, elapsedMs: 12_000 };
@@ -39,10 +40,45 @@ test('backgroundWorkCounts reads shell jobs and running agents', () => {
   assert.deepEqual(backgroundWorkCounts({ shellJobs: { count: 2, jobs: [] } }), { shell: 2, agent: 0 });
 });
 
-test('conversation shell snapshots differ when only background jobs change', () => {
-  const base = { ...EMPTY_SNAPSHOT, sessionId: 's', items: [], shellJobs: { count: 1, jobs: [] } };
-  assert.equal(desktopConversationShellSnapshotsEqual(base, { ...base, shellJobs: { count: 1, jobs: [] } }), true);
-  assert.equal(desktopConversationShellSnapshotsEqual(base, { ...base, shellJobs: { count: 0, jobs: [] } }), false);
-  assert.equal(desktopConversationShellSnapshotsEqual(base, { ...base, agentJobs: [{ id: 'a' }] }), false);
-  assert.equal(desktopConversationShellSnapshotsEqual(base, { ...base, agentWorkers: [{ id: 'w' }] }), false);
+test('background subscribers update independently and a later completion still reaches the mounted row', async (t) => {
+  const { root, document } = installTestDom(t, { rootId: 'root', globals: { React } });
+  const store = createSessionLaneStore();
+  t.after(() => store.clear());
+  let snapshot = { ...EMPTY_SNAPSHOT, sessionId: 's', items: [item], shellJobs: { count: 0, jobs: [] } };
+  const publish = async (change) => {
+    snapshot = { ...snapshot, ...change };
+    await act(async () => {
+      store.apply({ sessionId: 's', snapshot });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+  };
+  function Completion() {
+    const lane = useSessionLane('s', store, desktopConversationShellSnapshotsEqual);
+    return React.createElement(CompletionStatus, { item: lane.items.at(-1) });
+  }
+  function BackgroundStatus() {
+    const lane = useSessionLane('s', store, desktopHeaderSnapshotsEqual);
+    return React.createElement(
+      'output',
+      null,
+      `${lane.shellJobs.count}/${lane.agentJobs?.length || 0}/${lane.agentWorkers?.length || 0}`
+    );
+  }
+  await publish({});
+  await act(async () =>
+    root.render(
+      React.createElement(React.Fragment, null, React.createElement(Completion), React.createElement(BackgroundStatus))
+    )
+  );
+  assert.equal(document.querySelector('.turn-status').textContent, 'Work complete in 12s');
+  assert.equal(document.querySelector('output').textContent, '0/0/0');
+  await publish({ shellJobs: { count: 2, jobs: [] }, agentJobs: [{ id: 'a' }], agentWorkers: [{ id: 'w' }] });
+  assert.equal(document.querySelector('output').textContent, '2/1/1');
+  assert.equal(document.querySelector('.turn-status').textContent, 'Work complete in 12s');
+  await publish({ items: [{ ...item, elapsedMs: 24_000 }] });
+  assert.equal(document.querySelector('.turn-status').textContent, 'Work complete in 24s');
+  assert.equal(document.querySelector('output').textContent, '2/1/1');
+  await publish({ shellJobs: { count: 0, jobs: [] }, agentJobs: [], agentWorkers: [] });
+  assert.equal(document.querySelector('output').textContent, '0/0/0');
+  assert.equal(document.querySelector('.turn-status').textContent, 'Work complete in 24s');
 });

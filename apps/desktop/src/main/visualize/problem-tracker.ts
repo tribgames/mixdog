@@ -64,12 +64,14 @@ export function createProblemTracker(ctx: Pick<VisualizeServiceContext, 'session
   const reportInlineRender = (sessionId: string, tab: TabState, index: number, renderId: string, error?: string) => {
     const pane = displayedPanes(tab)[index];
     if (pane?.kind !== 'inline' || !pane.inline) return;
-    // One report per render instance of exactly this tab / version / session;
+    // One report per render instance of exactly this tab / version / session,
+    // from the desktop window or a remote client (whichever reports first);
     // anything else (a stale, repeated or foreign id) is ignored.
     const expected = renderIdOf(sessionId, tab, index, pane);
+    const remote = renderIdOf(sessionId, tab, index, pane, 'remote');
     tab.rendersSpent ??= new Map();
     const spent = tab.rendersSpent;
-    if (renderId !== expected || spent.has(expected)) return;
+    if ((renderId !== expected && renderId !== remote) || spent.has(expected)) return;
     for (const [id, revision] of spent) if (revision !== tab.revision) spent.delete(id);
     spent.set(expected, tab.revision);
     tab.rendered?.add(index);

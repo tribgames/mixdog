@@ -80,3 +80,49 @@ test('the host routes the stop to the session runtime and reports only a real st
     error: 'Session is not available.',
   });
 });
+
+test('releaseShellJob is validated on IPC and remote, and routed to the session runtime', async () => {
+  const handlers = new Map();
+  const calls = [];
+  const host = {
+    releaseShellJob: async (...args) => {
+      calls.push(args);
+      return { released: true };
+    },
+  };
+  registerSessionIpc({
+    handle: (channel, fn) => handlers.set(channel, fn),
+    host,
+    invokeDesktopOperation: async () => {},
+  });
+  const call = (...args) => handlers.get(DESKTOP_IPC.releaseShellJob)({}, ...args);
+  assert.deepEqual(await call(` ${SESSION} `, ' job_1 '), { released: true });
+  await assert.rejects(async () => call('../bad id', 'job_1'), /session id is invalid/);
+  await assert.rejects(async () => call(SESSION, undefined), /taskId must be a string/);
+  const methods = createRemoteMethods({ host });
+  assert.deepEqual(await methods.releaseShellJob([SESSION, 'job_2']), { released: true });
+  assert.throws(() => methods.releaseShellJob([SESSION, 5]), /taskId must be a string/);
+  assert.deepEqual(calls, [
+    [SESSION, 'job_1'],
+    [SESSION, 'job_2'],
+  ]);
+
+  const sent = [];
+  let answer = { released: true };
+  const lifecycle = new SessionHostLifecycle({
+    invokeSession: async (...args) => {
+      sent.push(args);
+      if (answer instanceof Error) throw answer;
+      return { value: answer };
+    },
+  });
+  assert.deepEqual(await lifecycle.releaseShellJob(SESSION, 'job_1'), { released: true });
+  assert.deepEqual(sent, [[SESSION, 'releaseShellJob', ['job_1']]]);
+  answer = { released: false, error: 'no unconfirmed termination hold: job_1' };
+  assert.deepEqual(await lifecycle.releaseShellJob(SESSION, 'job_1'), {
+    released: false,
+    error: 'no unconfirmed termination hold: job_1',
+  });
+  answer = new Error('Session is not available.');
+  assert.equal((await lifecycle.releaseShellJob(SESSION, 'job_1')).released, false);
+});

@@ -1,10 +1,9 @@
 // Cross-source transcript identity adoption.
 //
-// One conversation reaches the renderer under THREE id namespaces: the local
-// engine's runtime ids, the deterministic disk-restore ids (hist_<session>_N),
-// and — for attached viewers — the OWNER process's runtime ids mirrored over
-// the live-share pipe. Entering a working session crosses namespaces (cached
-// previous visit → disk restore → owner full frame), and every crossing used
+// One conversation reaches the renderer under two id namespaces: the engine's
+// runtime ids and the deterministic disk-restore ids (hist_<session>_N).
+// Entering a working session crosses namespaces (cached previous visit → disk
+// restore → live runtime frame), and every crossing used
 // to reissue the React/virtualizer key of the SAME visible row: measured
 // heights were dropped, the bottom of the transcript remounted at estimate
 // heights, and the pinned view corrected itself frame over frame (user:

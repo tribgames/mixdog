@@ -19,7 +19,7 @@ import { contextMenuRowProps, ScmContextMenu, type ScmContextMenuState } from '.
 import { SidebarLoadingDialog } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { SidebarResourceTitle } from './sidebar-resource-row';
-import { useSidebarReferences, type SidebarReferenceKey } from './sidebar-reference-cache';
+import { useSidebarReferences, WORKFLOW_REFERENCE_KEYS } from './sidebar-reference-cache';
 import { usePersistedListOrder } from './use-persisted-list-order';
 import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
 import { AgentEditorDialog, RouteEditorDialog, WorkflowEditorDialog, type RouteEditorTarget } from './workflow-dialogs';
@@ -38,7 +38,14 @@ type AgentRouteSummary = {
   autoEffort: boolean;
 };
 
-function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): AgentRouteSummary {
+/** Web Search never runs per-call Auto reasoning: an explicit route sends its
+ *  stored effort, and the default route inherits Main's effective effort. So
+ *  its row never claims Auto, and the default marker says it follows Main. */
+function agentRouteSummary(
+  route: RecordValue,
+  models: DesktopModelOption[],
+  { webSearch = false }: { webSearch?: boolean } = {}
+): AgentRouteSummary {
   const provider = String(route.provider || '');
   const model = String(route.model || '');
   const selected = models.find((entry) => entry.provider === provider && entry.model === model);
@@ -46,7 +53,11 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
   // with no model — Web Search's default marker or an empty route — says
   // "Default", and a set model shows its name.
   const pinned = model !== '' && !(provider === 'default' && model === 'default');
-  const modelLabel = pinned ? modelDisplayName(model, provider, selected?.display || '') : 'Default';
+  const modelLabel = pinned
+    ? modelDisplayName(model, provider, selected?.display || '')
+    : webSearch
+      ? t('Follows Main')
+      : 'Default';
   const effortValue = String(route.effort || preferredModelEffort(selected) || '');
   const effortOption = selected?.effortOptions.find((entry) => entry.value === effortValue);
   const rawEffortLabel = effortOption?.label || effortValue;
@@ -57,10 +68,12 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
     effort: effortValue,
     fast: fastCapable && fast,
     ultra: fastCapable && fast && record(route.modelParameters).serviceTier === 'ultrafast',
-    blue: pinned && routeDaybreakBlue(record(route.modelParameters) as Record<string, string>, selected?.modelParameterOptions),
+    blue:
+      pinned &&
+      routeDaybreakBlue(record(route.modelParameters) as Record<string, string>, selected?.modelParameterOptions),
     effortLabel: rawEffortLabel,
-    autoEffortCapable: selected?.autoEffortCapable === true,
-    autoEffort: route.autoEffort !== false,
+    autoEffortCapable: !webSearch && selected?.autoEffortCapable === true,
+    autoEffort: !webSearch && route.autoEffort !== false,
   };
 }
 
@@ -114,15 +127,6 @@ interface AgentSummary {
 
 // listWorkflows/listAgents/quickProviderModels are the same shared snapshots
 // Schedules and Webhooks read, so entering this panel costs nothing extra.
-const WORKFLOW_REFERENCE_KEYS = [
-  'workflows',
-  'agents',
-  'webSearchRoute',
-  'webSearchModels',
-  'providerSetup',
-  'quickProviderModels',
-] as const satisfies readonly SidebarReferenceKey[];
-
 // Workflow and agent configuration has its own rail destination. The sidebar
 // surface owns the panel wrapper; this body renders its lists and popup editors.
 export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { api?: WorkflowsApi; active?: boolean }) {
@@ -457,7 +461,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
         />
       )}
       <ScmContextMenu state={menu} onClose={() => setMenu(null)} />
-      {loading && <InitialSurface />}
+      {loading && <InitialSurface variant="rows" />}
       {!loading && (
         <>
           {/* The panel is titled Workflows already; the list under it is named
@@ -563,7 +567,9 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                 <span className="schedules-row-copy utilities-row-copy">
                   {/* Agent names stay as named, like every other row (user: 워커명이 왜 저거만 한글이야). */}
                   <b>Web Search</b>
-                  <AgentRouteSummaryView summary={agentRouteSummary(webSearchRoute, webSearchModels)} />
+                  <AgentRouteSummaryView
+                    summary={agentRouteSummary(webSearchRoute, webSearchModels, { webSearch: true })}
+                  />
                 </span>
                 <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
               </button>

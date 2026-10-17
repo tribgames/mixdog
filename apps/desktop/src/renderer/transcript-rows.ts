@@ -2,6 +2,7 @@ import type { TranscriptItem } from './desktop-types';
 import type { TurnChangesRef } from './turn-changes-model';
 import { completionTone } from './transcript-primitives';
 import { isVisibleTranscriptItem } from './transcript-row';
+import { streamingTextPaints } from './use-paced-transcript-text';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isTranscriptCancelledStatusText } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
 
@@ -520,7 +521,13 @@ export function appendLiveTranscriptRows({
   // A delayed lane can briefly publish a tail whose id has already settled.
   // Never create a second stable-key row for that stale publication.
   const liveItemAlreadySettled = liveItem?.id != null && settled.hasSettledItem(liveItem.id);
-  if (liveItem && !liveItemAlreadySettled) {
+  // A streaming reply with no word to paint yet (only an unfinished first
+  // word) opens no row: its row takes a line and moves the band below it, so
+  // the followed transcript moved up before any reply text painted. It opens
+  // with the arrival that completes a word, which it paints in that commit.
+  const liveItemPaintsNothing =
+    liveItem?.kind === 'assistant' && Boolean(liveItem.streaming) && !streamingTextPaints(String(liveItem.text || ''));
+  if (liveItem && !liveItemAlreadySettled && !liveItemPaintsNothing) {
     beginBuilderTurn(builder, sessionKey, activeTurnKey);
     builder.rows.push({
       _tag: 'AssistantPart',

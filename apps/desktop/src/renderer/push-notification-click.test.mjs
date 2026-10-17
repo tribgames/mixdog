@@ -11,15 +11,17 @@ import {
   installPushSubscriptionSync,
   publishUiLanguage,
   routeNotificationTap,
+  PUSH_RESTATE_INTERVAL_MS,
+  PUSH_SUBSCRIPTION_CHANGED_MESSAGE,
+  PushEnableError,
+  PushServerCleanupError,
+  removePushSubscription,
   statePushSubscription,
   syncPushSubscription,
+  unregisterRelayPushSubscription,
 } from './push-notification-bridge';
 import { remotePairingKeys } from './remote-pairing-recovery';
-import {
-  generateRelayE2EEServerIdentity,
-  openRelayWebPushKeys,
-  relayE2EEPairingMaterial,
-} from '../shared/remote-e2ee';
+import { generateRelayE2EEServerIdentity, openRelayWebPushKeys, relayE2EEPairingMaterial } from '../shared/remote-e2ee';
 import { WORKER_ORIGIN, loadWorker, memoryCacheStorage } from './sw-test-harness.mjs';
 import { SUPPORTED_UI_LANGUAGES } from '../shared/ui-language';
 
@@ -196,6 +198,21 @@ test('push fallback uses each supported preference and ignores invalid preferenc
   assert.equal(worker.shown[0].options.body, '作業が完了しました。');
 });
 
+let clock = 1_000_000;
+
+/** The page's service worker channel: `send` delivers a worker message. */
+function workerMessages() {
+  const handlers = new Set();
+  return {
+    addEventListener: (_name, handler) => handlers.add(handler),
+    removeEventListener: (_name, handler) => handlers.delete(handler),
+    send: (data) => {
+      for (const handler of [...handlers]) handler({ data });
+    },
+    handlers,
+  };
+}
+
 test('the push subscription is restated on each connection until the desktop accepted it once', async () => {
   const saved = ['Notification', 'navigator'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
   const define = (key, value) => Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
@@ -226,17 +243,23 @@ test('the push subscription is restated on each connection until the desktop acc
       },
     };
     // A relay that predates relay-owned push: the legacy per-PC registration.
-    installPushSubscriptionSync(api, 'ready', target, { fetch: async () => new Response('', { status: 404 }) });
+    installPushSubscriptionSync(
+      api,
+      'ready',
+      target,
+      { fetch: async () => new Response('', { status: 404 }), now: () => clock },
+      workerMessages()
+    );
     const fire = async () => {
       for (const listener of [...listeners]) listener();
       await new Promise((resolve) => setTimeout(resolve, 10));
     };
     await fire(); // dropped under the call
     assert.equal(calls, 1);
-    assert.equal(listeners.size, 1, 'still waiting for a connection that can carry it');
     await fire(); // the next connection delivers it
     assert.equal(calls, 2);
-    assert.equal(listeners.size, 0, 'accepted once: no further statements this launch');
+    await fire(); // a flapping connection right after: nothing new to say
+    assert.equal(calls, 2, 'accepted: connections this close are left alone');
   } finally {
     for (const [key, descriptor] of saved) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
@@ -258,7 +281,13 @@ test('the worker keeps the sending PC through the notification, its tap and its 
     caches,
     windows: [{ url: `${WORKER_ORIGIN}/d/${PC_A}/`, focus: async () => undefined, postMessage: (m) => posted.push(m) }],
   });
-  await push(running, { hostId: PC_B, sessionId: 's-1', title: 'B', body: 'done', data: { sessionId: 's-1', hostId: PC_B } });
+  await push(running, {
+    hostId: PC_B,
+    sessionId: 's-1',
+    title: 'B',
+    body: 'done',
+    data: { sessionId: 's-1', hostId: PC_B },
+  });
   const shown = running.shown[0].options;
   assert.equal(shown.data.hostId, PC_B);
   // Two PCs can both have an `s-1`: the PC is part of the notification's identity.
@@ -311,7 +340,10 @@ test('only the PC this page drives opens a tap here; another paired PC is switch
       { deviceId: PC_B, token: 'b'.repeat(64), pairing: relayE2EEPairingMaterial(identity) },
     ]),
   };
-  assert.deepEqual(routeNotificationTap({ sessionId: 's', hostId: PC_A }, environment), { action: 'open', sessionId: 's' });
+  assert.deepEqual(routeNotificationTap({ sessionId: 's', hostId: PC_A }, environment), {
+    action: 'open',
+    sessionId: 's',
+  });
   assert.deepEqual(routeNotificationTap({ sessionId: 's', hostId: PC_B }, environment), {
     action: 'switch',
     url: `/d/${PC_B}/?session=s&host=${PC_B}`,
@@ -323,7 +355,10 @@ test('only the PC this page drives opens a tap here; another paired PC is switch
     { action: 'ignore' }
   );
   // A PC that predates host ids only ever reached this page through its own PC.
-  assert.deepEqual(routeNotificationTap({ sessionId: 's', hostId: '' }, environment), { action: 'open', sessionId: 's' });
+  assert.deepEqual(routeNotificationTap({ sessionId: 's', hostId: '' }, environment), {
+    action: 'open',
+    sessionId: 's',
+  });
 });
 
 async function withPushGlobals(pushManager, run) {
@@ -432,8 +467,16 @@ async function mixedPcs(supported) {
   const pcKey = Buffer.concat([Buffer.of(4), Buffer.alloc(64, 2)]).toString('base64url');
   const origin = 'https://relay.mixdog.test';
   const storage = pairedStorage(origin, [
-    { deviceId: PC_A, token: 'a'.repeat(64), pairing: relayE2EEPairingMaterial(await generateRelayE2EEServerIdentity()) },
-    { deviceId: PC_B, token: 'b'.repeat(64), pairing: relayE2EEPairingMaterial(await generateRelayE2EEServerIdentity()) },
+    {
+      deviceId: PC_A,
+      token: 'a'.repeat(64),
+      pairing: relayE2EEPairingMaterial(await generateRelayE2EEServerIdentity()),
+    },
+    {
+      deviceId: PC_B,
+      token: 'b'.repeat(64),
+      pairing: relayE2EEPairingMaterial(await generateRelayE2EEServerIdentity()),
+    },
   ]);
   const legacy = fakeSubscription('https://push.example.com/legacy', pcKey);
   const fresh = fakeSubscription('https://push.example.com/relay', relayKey);
@@ -470,6 +513,9 @@ async function mixedPcs(supported) {
   const useRelayKeyed = () => {
     current = fresh;
   };
+  const clear = () => {
+    current = null;
+  };
   return {
     pushManager,
     environment,
@@ -481,6 +527,7 @@ async function mixedPcs(supported) {
     subscribedWith,
     pcKey,
     useRelayKeyed,
+    clear,
     current: () => current,
   };
 }
@@ -499,7 +546,10 @@ test('a relay-keyed subscription with only legacy PCs left is resubscribed with 
   assert.deepEqual(world.registered, []);
   // Idempotent: restating keeps the PC-keyed subscription as it is.
   const resubscribed = world.current();
-  assert.equal(await withPushGlobals(world.pushManager, () => syncPushSubscription(world.api, world.environment)), true);
+  assert.equal(
+    await withPushGlobals(world.pushManager, () => syncPushSubscription(world.api, world.environment)),
+    true
+  );
   assert.equal(resubscribed.unsubscribed, false);
   assert.deepEqual(world.subscribedWith, [world.pcKey]);
 });
@@ -525,7 +575,10 @@ test('the subscription is registered only with PCs that deliver through the rela
 
 test('while no paired PC delivers through the relay, the PC-keyed subscription stays on its legacy path', async () => {
   const world = await mixedPcs([]);
-  assert.equal(await withPushGlobals(world.pushManager, () => syncPushSubscription(world.api, world.environment)), true);
+  assert.equal(
+    await withPushGlobals(world.pushManager, () => syncPushSubscription(world.api, world.environment)),
+    true
+  );
   assert.equal(world.legacy.unsubscribed, false, 'not migrated: no PC could deliver to the new one');
   assert.deepEqual(world.subscribedWith, []);
   assert.deepEqual(world.registered, []);
@@ -541,4 +594,356 @@ test('a relay that cannot be asked leaves the subscription alone and retries lat
   );
   assert.equal(ok, false);
   assert.equal(legacy.unsubscribed, false);
+});
+
+test('turning notifications on while a paired PC cannot be asked subscribes on the connected PC key', async () => {
+  const world = await mixedPcs([]);
+  world.clear(); // first enable: no subscription yet
+  const answer = world.environment.fetch;
+  // PC B's status cannot be had (relay 5xx for it): whether ANY PC delivers
+  // through the relay is undecided. Turning on must still give a subscription.
+  world.environment.fetch = async (url, init = {}) =>
+    url === '/webpush/status' && init.headers.Authorization.endsWith('b'.repeat(64))
+      ? new Response('', { status: 503 })
+      : answer(url, init);
+  const state = await withPushGlobals(world.pushManager, () =>
+    statePushSubscription(world.api, world.pushManager, true, world.environment)
+  );
+  assert.ok(state.subscription, 'turning on yields a subscription');
+  assert.equal(state.mode, 'legacy');
+  assert.equal(state.complete, false, 'stated again once PC B can be asked');
+  assert.deepEqual(world.subscribedWith, [world.pcKey]);
+  assert.deepEqual(world.legacyRegistrations, [state.subscription.endpoint]);
+
+  // A subscription that already exists is still left alone while undecided.
+  world.useRelayKeyed();
+  const kept = await withPushGlobals(world.pushManager, () =>
+    statePushSubscription(world.api, world.pushManager, true, world.environment)
+  );
+  assert.equal(kept.subscription, world.fresh);
+  assert.equal(world.fresh.unsubscribed, false);
+});
+
+async function enableFailure(api, pushManager, fetch) {
+  const error = await withPushGlobals(pushManager, () =>
+    statePushSubscription(api, pushManager, true, { fetch, origin: 'https://relay.mixdog.test' }).then(
+      () => assert.fail('expected a failure'),
+      (failure) => failure
+    )
+  );
+  assert.ok(error instanceof PushEnableError, String(error));
+  return error.reason;
+}
+
+test('a failed enable names its cause: push service, PC version, PC connection, relay', async () => {
+  const pcKey = Buffer.concat([Buffer.of(4), Buffer.alloc(64, 2)]).toString('base64url');
+  const legacyRelay = async () => new Response('', { status: 404 });
+  const empty = {
+    getSubscription: async () => null,
+    subscribe: async () => fakeSubscription('https://push.example.com/x', pcKey),
+  };
+  const api = { pushPublicKey: async () => pcKey, registerPushSubscription: async () => true };
+
+  // A browser with no push service (an Electron window, a browser with push
+  // turned off): subscribe() rejects with AbortError.
+  const noService = {
+    getSubscription: async () => null,
+    subscribe: async () => {
+      throw new DOMException('Registration failed - push service not available', 'AbortError');
+    },
+  };
+  assert.equal(await enableFailure(api, noService, legacyRelay), 'push-service');
+  const refused = {
+    getSubscription: async () => null,
+    subscribe: async () => {
+      throw new DOMException('Permission denied', 'NotAllowedError');
+    },
+  };
+  assert.equal(await enableFailure(api, refused, legacyRelay), 'blocked');
+
+  // A PC that predates push answers `unknown method`.
+  const outdated = { ...api, pushPublicKey: async () => Promise.reject(new Error('unknown method: pushPublicKey')) };
+  assert.equal(await enableFailure(outdated, empty, legacyRelay), 'outdated');
+  // A PC that cannot be reached.
+  const offline = { ...api, pushPublicKey: async () => Promise.reject(new Error('Relay is not connected.')) };
+  assert.equal(await enableFailure(offline, empty, legacyRelay), 'unreachable');
+  const unregistered = { ...api, registerPushSubscription: async () => Promise.reject(new Error('timed out')) };
+  assert.equal(await enableFailure(unregistered, empty, legacyRelay), 'unreachable');
+  // The relay itself cannot be asked.
+  assert.equal(await enableFailure(api, empty, async () => new Response('', { status: 503 })), 'unreachable');
+});
+
+// ---- review fixes: off, on, renewal, error mapping --------------------------
+
+async function oneRelayPc(status) {
+  const relayKey = Buffer.concat([Buffer.of(4), Buffer.alloc(64, 1)]).toString('base64url');
+  const origin = 'https://relay.mixdog.test';
+  const storage = pairedStorage(origin, [
+    {
+      deviceId: PC_A,
+      token: 'a'.repeat(64),
+      pairing: relayE2EEPairingMaterial(await generateRelayE2EEServerIdentity()),
+    },
+  ]);
+  return {
+    relayKey,
+    environment: {
+      origin,
+      storage,
+      currentHostId: PC_A,
+      hostIds: [],
+      fetch: async (url) => {
+        if (url === '/webpush/key') return Response.json({ publicKey: relayKey });
+        if (url === '/webpush/status') return Response.json({ registered: false, supported: true });
+        return status instanceof Error ? Promise.reject(status) : new Response('', { status });
+      },
+    },
+  };
+}
+
+test('turning off reports a PC that could not be asked, and a browser that kept the subscription', async () => {
+  const { environment, relayKey } = await oneRelayPc(503);
+  await assert.rejects(unregisterRelayPushSubscription('https://push.example.com/x', environment), /relay 503/u);
+  const offline = await oneRelayPc(new Error('offline'));
+  await assert.rejects(unregisterRelayPushSubscription('https://push.example.com/x', offline.environment), /offline/u);
+  // A PC whose credential the relay refused holds nothing under it.
+  const gone = await oneRelayPc(401);
+  await unregisterRelayPushSubscription('https://push.example.com/x', gone.environment);
+
+  const ok = await oneRelayPc(200);
+  const stuck = fakeSubscription('https://push.example.com/x', relayKey);
+  stuck.unsubscribe = async () => false;
+  await assert.rejects(removePushSubscription(undefined, { getSubscription: async () => stuck }, ok.environment));
+  const lingering = fakeSubscription('https://push.example.com/x', relayKey);
+  await assert.rejects(removePushSubscription(undefined, { getSubscription: async () => lingering }, ok.environment));
+  const off = fakeSubscription('https://push.example.com/x', relayKey);
+  let current = off;
+  const pushManager = { getSubscription: async () => current };
+  off.unsubscribe = async () => {
+    current = null;
+    return true;
+  };
+  await removePushSubscription(undefined, pushManager, ok.environment);
+  assert.equal(current, null);
+  // The PC refusing keeps the browser subscribed, so the toggle can stay ON.
+  const refused = await oneRelayPc(503);
+  const kept = fakeSubscription('https://push.example.com/x', relayKey);
+  // The browser is still unsubscribed locally; the server failure is reported on its own.
+  await assert.rejects(
+    removePushSubscription(
+      undefined,
+      { getSubscription: async () => (kept.unsubscribed ? null : kept) },
+      refused.environment
+    ),
+    PushServerCleanupError
+  );
+  assert.equal(kept.unsubscribed, true);
+});
+
+test('turning off during a relay outage still unsubscribes the browser and reports the server failure', async () => {
+  const { environment, relayKey } = await oneRelayPc(new Error('offline'));
+  const sub = fakeSubscription('https://push.example.com/x', relayKey);
+  let current = sub;
+  sub.unsubscribe = async () => {
+    current = null;
+    return true;
+  };
+  await assert.rejects(
+    removePushSubscription(undefined, { getSubscription: async () => current }, environment),
+    (error) => error instanceof PushServerCleanupError && /offline/u.test(error.cause.message)
+  );
+  assert.equal(current, null);
+});
+
+test('turning off when /webpush/key fails still unsubscribes the browser', async () => {
+  const { environment, relayKey } = await oneRelayPc(200);
+  for (const failure of [new Error('offline'), new Response('', { status: 500 }), new Response('', { status: 429 })]) {
+    const sub = fakeSubscription('https://push.example.com/x', relayKey);
+    let current = sub;
+    sub.unsubscribe = async () => {
+      current = null;
+      return true;
+    };
+    const keyFails = {
+      ...environment,
+      fetch: async (url, init) => {
+        if (url !== '/webpush/key') return environment.fetch(url, init);
+        if (failure instanceof Error) throw failure;
+        return failure.clone();
+      },
+    };
+    try {
+      await removePushSubscription(undefined, { getSubscription: async () => current }, keyFails);
+    } catch (error) {
+      assert.ok(error instanceof PushServerCleanupError);
+    }
+    assert.equal(current, null);
+  }
+});
+
+test('an existing subscription is not "on" until a PC confirmed it; a partial registration says so', async () => {
+  const world = await mixedPcs([PC_A, PC_B]);
+  world.useRelayKeyed();
+  const answer = world.environment.fetch;
+  const failing =
+    (pcs) =>
+    async (url, init = {}) => {
+      const pc = init.headers?.Authorization?.endsWith('a'.repeat(64)) ? PC_A : PC_B;
+      return url === '/webpush/register' && pcs.includes(pc) ? new Response('', { status: 503 }) : answer(url, init);
+    };
+  const state = (create = true) =>
+    withPushGlobals(world.pushManager, () =>
+      statePushSubscription(world.api, world.pushManager, create, world.environment)
+    );
+
+  world.environment.fetch = failing([PC_A, PC_B]);
+  const none = await state();
+  assert.ok(none.subscription);
+  assert.equal(none.confirmed, false);
+  assert.equal(none.complete, false);
+
+  world.environment.fetch = failing([PC_B]);
+  const partial = await state();
+  assert.equal(partial.confirmed, true);
+  assert.equal(partial.complete, false, 'PC B still has to be retried');
+  assert.deepEqual(
+    partial.hosts.map(({ deviceId, registered }) => [deviceId, registered]),
+    [
+      [PC_A, true],
+      [PC_B, false],
+    ]
+  );
+
+  world.environment.fetch = failing([]);
+  const retried = await state(false);
+  assert.equal(retried.complete, true);
+  assert.deepEqual(
+    retried.hosts.map(({ registered }) => registered),
+    [true, true]
+  );
+});
+
+test('a renewed subscription reaches the open app, which restates it at once', async () => {
+  const windows = [];
+  const subscribed = [];
+  const worker = loadWorker({
+    caches: memoryCacheStorage(),
+    windows: [{ url: `${WORKER_ORIGIN}/`, postMessage: (m) => windows.push(m) }],
+    pushManager: { subscribe: async (options) => subscribed.push(options) },
+  });
+  assert.equal(worker.PUSH_SUBSCRIPTION_CHANGED_MESSAGE, PUSH_SUBSCRIPTION_CHANGED_MESSAGE);
+  const change = async (event) => {
+    let settled;
+    worker.listeners.get('pushsubscriptionchange')({ ...event, waitUntil: (p) => (settled = p) });
+    await settled;
+  };
+  const key = new Uint8Array([4, 1, 2]).buffer;
+  await change({ oldSubscription: { options: { applicationServerKey: key } } });
+  assert.equal(subscribed.length, 1, 'renewed with the same sender key');
+  await change({ newSubscription: { endpoint: 'https://push.example.com/new' } });
+  assert.equal(subscribed.length, 1, 'the browser already renewed it');
+  assert.deepEqual(
+    windows.map((message) => message.type),
+    [PUSH_SUBSCRIPTION_CHANGED_MESSAGE, PUSH_SUBSCRIPTION_CHANGED_MESSAGE]
+  );
+
+  let calls = 0;
+  const api = { registerPushSubscription: async () => (calls += 1) };
+  const messages = workerMessages();
+  const target = { addEventListener() {}, removeEventListener() {} };
+  const stop = installPushSubscriptionSync(
+    api,
+    'ready',
+    target,
+    { fetch: async () => new Response('', { status: 404 }), now: () => clock },
+    messages
+  );
+  await withPushGlobals(
+    { getSubscription: async () => fakeSubscription('https://push.example.com/new', null) },
+    async () => {
+      messages.send({ type: 'mixdog:other' });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(calls, 0);
+      messages.send({ type: PUSH_SUBSCRIPTION_CHANGED_MESSAGE });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(calls, 1);
+      // Already stated this launch, yet a second renewal is still published.
+      messages.send({ type: PUSH_SUBSCRIPTION_CHANGED_MESSAGE });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(calls, 2);
+    }
+  );
+  stop();
+  assert.equal(messages.handlers.size, 0);
+});
+
+test('a stated subscription is restated for a re-paired PC and after the PC had time to restart', async () => {
+  const origin = 'https://relay.mixdog.test';
+  const pairing = relayE2EEPairingMaterial(await generateRelayE2EEServerIdentity());
+  const storage = pairedStorage(origin, [{ deviceId: PC_A, token: 'a'.repeat(64), pairing }]);
+  let calls = 0;
+  const api = { registerPushSubscription: async () => (calls += 1) };
+  let ready;
+  const target = {
+    addEventListener: (_name, listener) => (ready = listener),
+    removeEventListener() {},
+  };
+  installPushSubscriptionSync(
+    api,
+    'ready',
+    target,
+    {
+      origin,
+      storage,
+      currentHostId: PC_A,
+      hostIds: [],
+      fetch: async () => new Response('', { status: 404 }),
+      now: () => clock,
+    },
+    workerMessages()
+  );
+  await withPushGlobals(
+    { getSubscription: async () => fakeSubscription('https://push.example.com/1', null) },
+    async () => {
+      const connect = async () => {
+        ready();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      };
+      await connect();
+      await connect();
+      assert.equal(calls, 1);
+      // Re-paired: a new credential the relay has never seen.
+      const keys = remotePairingKeys(origin, PC_A);
+      storage.setItem(keys.token, 'c'.repeat(64));
+      await connect();
+      assert.equal(calls, 2);
+      // The PC restarted (perhaps updated) some time later.
+      clock += PUSH_RESTATE_INTERVAL_MS + 1;
+      await connect();
+      assert.equal(calls, 3);
+    }
+  );
+});
+
+test('only a browser with no push service is told so; transient and unknown failures are retryable', async () => {
+  const pcKey = Buffer.concat([Buffer.of(4), Buffer.alloc(64, 2)]).toString('base64url');
+  const legacyRelay = async () => new Response('', { status: 404 });
+  const api = { pushPublicKey: async () => pcKey, registerPushSubscription: async () => true };
+  const failing = (error) => ({
+    getSubscription: async () => null,
+    subscribe: async () => {
+      throw error;
+    },
+  });
+  assert.equal(
+    await enableFailure(api, failing(new DOMException('unsupported', 'NotSupportedError')), legacyRelay),
+    'push-service'
+  );
+  for (const error of [
+    new DOMException('offline', 'NetworkError'),
+    new DOMException('state', 'InvalidStateError'),
+    new Error('who knows'),
+  ]) {
+    assert.equal(await enableFailure(api, failing(error), legacyRelay), 'failed', String(error));
+  }
 });

@@ -94,6 +94,18 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   autoEffort?: boolean | null;
   status: string;
   stage: string;
+  /** Why a `failed` row failed: `process-restart` (the process running the
+   *  turn went away) or `stalled` (the progress watchdog stopped it); absent
+   *  for any other failure and for every row that did not fail. */
+  failureReason?: string | null;
+  /** While the turn runs: the last moment it made progress the stall
+   *  watchdog counts (epoch ms), the runtime stage it is in, the tool it runs
+   *  (`tool_running`), and that agent's watchdog warn point (ms without
+   *  progress). Absent on a row that is not running. */
+  progressAt?: number | null;
+  progressStage?: string | null;
+  progressTool?: string | null;
+  stallWarnMs?: number | null;
   startedAt: number | string | null;
   turnStartedAt: number | string | null;
   createdAt: number | string | null;
@@ -134,6 +146,10 @@ export interface DesktopShellJobRow extends Readonly<Record<string, unknown>> {
   command: string;
   cwd: string;
   startedAt: number | string | null;
+  /** The command's result is reported, but its processes are not confirmed
+   *  gone: the workspace stays held until they are, or until the user
+   *  releases it explicitly (releaseShellJob). */
+  terminationUnconfirmed?: boolean;
 }
 
 export interface DesktopWorkflowState extends Readonly<Record<string, unknown>> {

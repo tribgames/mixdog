@@ -4,12 +4,19 @@
  * positioned over their dock slot; parked surfaces move offscreen without
  * reparenting the Electron webview or destroying the agent's live page.
  */
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 
-import { BrowserPane } from './lazy-widgets';
+import { useDeferredModule } from './deferred-module';
+import { browserPaneModule } from './lazy-widgets';
 import { useSlotRemeasure } from './surface-slot-remeasure';
-import { expandedSurfaceRect, placeFixedSurface, preferredSurfaceSlot } from './surface-slots';
+import {
+  expandedSurfaceRect,
+  placeFixedSurface,
+  preferredSurfaceSlot,
+  renderSurfaceRoot,
+  unmountSurfaceRoot,
+} from './surface-slots';
 import './session-browser-surfaces.css';
 
 type BrowserSurfaceSlot = {
@@ -56,11 +63,13 @@ interface SessionBrowserSurfaceController {
  *  the way the agent sees them. */
 const REMOTE_VIEWED_PARK = { width: 1280, height: 900 };
 
-const renderDefaultBrowserSurface: SessionBrowserSurfaceRenderer = (props) => (
-  <Suspense fallback={null}>
-    <BrowserPane {...props} focusAddressOnActivate={false} />
-  </Suspense>
-);
+/** Rendered synchronously once its chunk is in (lazy-widgets: browserPaneModule). */
+function DefaultBrowserSurface(props: SessionBrowserSurfaceRenderProps) {
+  const browserModule = useDeferredModule(browserPaneModule);
+  return browserModule ? <browserModule.default {...props} focusAddressOnActivate={false} /> : null;
+}
+
+const renderDefaultBrowserSurface: SessionBrowserSurfaceRenderer = (props) => <DefaultBrowserSurface {...props} />;
 
 export function useSessionBrowserSurfaces(
   renderBrowserSurface: SessionBrowserSurfaceRenderer = renderDefaultBrowserSurface
@@ -80,7 +89,7 @@ export function useSessionBrowserSurfaces(
     surface.container.dataset.expanded = expanded ? 'true' : 'false';
     const visible = Boolean(selected && rect && rect.width >= 1 && rect.height >= 1);
     if (visible && rect) {
-      placeFixedSurface(surface.container, rect);
+      placeFixedSurface(surface.container, rect, selected?.[0]);
       surface.container.dataset.parked = 'false';
       surface.container.removeAttribute('aria-hidden');
       return selected;
@@ -106,7 +115,8 @@ export function useSessionBrowserSurfaces(
       const selected = position(surface);
       const active = Boolean(selected);
       const foreground = selected?.[1].foreground === true;
-      surface.root.render(
+      renderSurfaceRoot(
+        surface.root,
         renderBrowserSurface({
           sessionId: surface.sessionId,
           active,
@@ -179,7 +189,7 @@ export function useSessionBrowserSurfaces(
     const surface = surfaces.current.get(sessionId);
     if (!surface) return;
     expandedSurfaceRect(undefined, false, surface);
-    queueMicrotask(() => surface.root.unmount());
+    queueMicrotask(() => unmountSurfaceRoot(surface.root));
     surface.container.remove();
     surfaces.current.delete(sessionId);
   }, []);
@@ -207,7 +217,7 @@ export function useSessionBrowserSurfaces(
     () => () => {
       for (const surface of surfaces.current.values()) {
         surface.container.remove();
-        queueMicrotask(() => surface.root.unmount());
+        queueMicrotask(() => unmountSurfaceRoot(surface.root));
       }
       surfaces.current.clear();
     },

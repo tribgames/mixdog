@@ -1549,6 +1549,33 @@
   overflow-wrap: anywhere;
   user-select: text;
 }
+/* Cold-open placeholders: they occupy the space the loaded page will, so the
+   data landing never pushes anything that is already on screen. */
+.settings-panel-placeholder {
+  box-sizing: border-box;
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mx-text-faint, var(--mx-text-muted));
+  font-size: var(--mx-font-supporting, 12px);
+}
+.settings-resource.is-skeleton {
+  position: relative;
+}
+.settings-resource.is-skeleton > * {
+  visibility: hidden;
+}
+.settings-resource.is-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 0;
+  width: 132px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: var(--mx-radius-pill, 999px);
+  background: var(--mx-hover);
+}
 .ssh-log {
   margin: 0;
   max-height: 320px;
@@ -1556,7 +1583,7 @@
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--mx-surface-sunken, rgba(127, 127, 127, 0.12));
-  font: 12px/1.5 var(--mx-font-mono, ui-monospace, monospace);
+  font: 12px / 1.5 var(--mx-font-mono, ui-monospace, monospace);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;

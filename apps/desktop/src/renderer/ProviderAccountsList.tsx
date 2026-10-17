@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -14,7 +15,7 @@ import { ErrorNotice } from './ErrorNotice';
 import { t, uiFormatLocale } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { record } from './record-utils';
-import { captureRowMenuAnchor, positionRowMenu } from './row-menu-geometry';
+import { captureRowMenuAnchor, positionRowMenu, useRowMenuClamp } from './row-menu-geometry';
 import { displayUsagePercent, usageToneClass } from './usage-percent';
 import { usageResetPresentation } from './usage-reset-time';
 import { usageResetShortText, usageResetText, usageTimestamp, usageWindowLabel } from './usage-window-text';
@@ -66,16 +67,63 @@ function checkedAge(at: number | null): string {
   return format.format(-Math.floor(seconds / 86_400), 'day');
 }
 
+// Quota windows last seen per account, and how many rows each account showed.
+// The usage read lands after the roster, so a cold list used to show one line
+// and then grow by up to two meters. Remembering both (the row count survives
+// restarts) paints the last known meters at once and reserves their height.
+const USAGE_ROWS_KEY = 'mixdog.providerAccountUsageRows';
+const USAGE_ROWS_FALLBACK = 2;
+const USAGE_ROWS_LIMIT = 64;
+const rememberedUsage = new Map<string, { windows: UsageWindow[]; checkedAt?: number }>();
+let rememberedRows: Record<string, number> | null = null;
+
+function usageRowCounts(): Record<string, number> {
+  if (rememberedRows) return rememberedRows;
+  try {
+    rememberedRows = record(JSON.parse(window.localStorage.getItem(USAGE_ROWS_KEY) || '{}')) as Record<string, number>;
+  } catch {
+    rememberedRows = {};
+  }
+  return rememberedRows;
+}
+
+function resolveAccountUsage(account: ProviderAccount): {
+  windows: UsageWindow[];
+  checkedAt?: number;
+  rows: number;
+} {
+  const counts = usageRowCounts();
+  const own = account.usage?.windows ?? [];
+  if (own.length > 0) {
+    rememberedUsage.set(account.id, { windows: own, checkedAt: account.usage?.checkedAt });
+    if (counts[account.id] !== own.length) {
+      // Most recent last; only the newest accounts are kept.
+      delete counts[account.id];
+      counts[account.id] = own.length;
+      for (const stale of Object.keys(counts).slice(0, -USAGE_ROWS_LIMIT)) delete counts[stale];
+      try {
+        window.localStorage.setItem(USAGE_ROWS_KEY, JSON.stringify(counts));
+      } catch {
+        /* the reservation is a layout hint only */
+      }
+    }
+    return { windows: own, checkedAt: account.usage?.checkedAt, rows: own.length };
+  }
+  const known = account.reauthRequired ? undefined : rememberedUsage.get(account.id);
+  if (known) return { ...known, rows: known.windows.length };
+  return { windows: [], rows: account.reauthRequired ? 1 : Math.max(1, counts[account.id] || USAGE_ROWS_FALLBACK) };
+}
+
 /** One row per quota window the account carries, in the sidebar usage flyout's
  *  grammar: label | meter | percent | short reset time. */
 function AccountUsage({ account }: { account: ProviderAccount }) {
-  const windows = account.usage?.windows ?? [];
-  const refreshedAt = Number(account.usage?.checkedAt) || 0;
+  const { windows, checkedAt, rows } = resolveAccountUsage(account);
+  const refreshedAt = Number(checkedAt) || 0;
   let emptyNote = '';
   if (account.reauthRequired) emptyNote = t('Shown after signing in again');
   else if (windows.length === 0) emptyNote = t('Usage not checked yet');
   return (
-    <div className="provider-account-usage">
+    <div className="provider-account-usage" style={{ '--usage-rows': rows } as CSSProperties}>
       {emptyNote ? (
         <small className="empty">{emptyNote}</small>
       ) : (
@@ -132,6 +180,7 @@ function AccountPolicyMenu({
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const anchor = useRef<ReturnType<typeof captureRowMenuAnchor> | null>(null);
+  useRowMenuClamp(open, panel);
   useMobileBack(open, () => setOpen(false));
   useEffect(() => {
     if (!open) return undefined;
@@ -272,6 +321,8 @@ const bumpPoolGeneration = (provider: string): number => {
   return next;
 };
 
+const poolPreloads = new Map<string, Promise<void>>();
+
 /** Settings open: seed the rosters so the Providers page paints complete cards
  *  on its first visit instead of growing under the rows below. */
 export function preloadProviderAccounts(api: UsageApi | undefined, providers: string[]): Promise<unknown> {
@@ -279,16 +330,51 @@ export function preloadProviderAccounts(api: UsageApi | undefined, providers: st
   if (!invokeCapability) return Promise.resolve();
   return Promise.all(
     providers.map((provider) => {
+      // Callers share one read per provider: a second read would bump the
+      // generation and discard the first's roster while the first caller
+      // already counts it as landed.
+      const running = poolPreloads.get(provider);
+      if (running) return running;
       const generation = bumpPoolGeneration(provider);
-      return invokeCapability({ capability: 'getProviderAccounts', args: [provider] })
+      const read = invokeCapability({ capability: 'getProviderAccounts', args: [provider] })
         .then((response) => {
           const result = record(response.value);
-          if (poolGenerations.get(provider) !== generation || !Array.isArray(result.accounts)) return;
+          if (!Array.isArray(result.accounts)) return;
+          // A roster adopted since this read began is newer; with none cached
+          // yet, this read is still the best there is.
+          if (poolGenerations.get(provider) !== generation && lastPools.has(provider)) return;
           lastPools.set(provider, result as unknown as Pool);
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => poolPreloads.delete(provider));
+      poolPreloads.set(provider, read);
+      return read;
     })
   );
+}
+
+/** True once every provider's roster is cached; reads the missing ones first.
+ *  A page that draws its rosters only after this paints no list that grows. */
+export function useProviderPoolsReady(api: UsageApi | undefined, providers: string[]): boolean {
+  const key = providers.join('|');
+  // The key the reads settled for: the provider set changes once the setup lands.
+  const [settledKey, setSettledKey] = useState<string | null>(null);
+  const cached = providers.every((provider) => lastPools.has(provider));
+  // biome-ignore lint/correctness/useExhaustiveDependencies: key is providers' identity.
+  useEffect(() => {
+    if (cached) return undefined;
+    let live = true;
+    void preloadProviderAccounts(
+      api,
+      providers.filter((provider) => !lastPools.has(provider))
+    ).then(() => {
+      if (live) setSettledKey(key);
+    });
+    return () => {
+      live = false;
+    };
+  }, [api, key, cached]);
+  return cached || settledKey === key;
 }
 
 /** Pointer-driven reorder: the grabbed row lifts and follows the pointer; the

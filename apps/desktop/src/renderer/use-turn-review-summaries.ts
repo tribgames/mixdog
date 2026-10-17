@@ -1,13 +1,16 @@
 import { useMemo } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { findPatch } from './transcript-diff';
+import { toolRowRevision, uiDiffDigest, type UiDiffSummary } from './transcript-tool-core';
 import type { TurnReviewFile } from './turn-review-cache';
 import {
   summarizeTurnReviewPatch,
+  summarizeTurnReviewSegments,
   summarizeAuthoritativeTurnReview,
   mergeTurnReviewSummaries,
   toolPublishesPatch,
   summarizeTurnReviewOperations,
+  type TurnReviewRowRef,
 } from './turn-review-model';
 import { t } from './i18n';
 import { sessionChangesEmptyText, sessionChangesSourceLabel, useSessionChanges } from './session-changes-store';
@@ -17,7 +20,7 @@ type Reads = ReturnType<typeof useTurnReviewReads>;
 
 /** The lead's own turn diff: the authoritative snapshot, the post-revert
  *  tracker diff, or the transcript's latest uiDiff / published patches. */
-function summarizeTurnTranscript({
+export function summarizeTurnTranscript({
   items,
   startIndex,
   authoritativeLeadFiles,
@@ -37,10 +40,16 @@ function summarizeTurnTranscript({
   turnBoundaryKey: string;
 }) {
   const patches: string[] = [];
-  let latestUiDiff: string | null = null;
+  // The newest call diff: its text, or the digest a phone's copy carries.
+  let latestUiDiff: string | { row: TurnReviewRowRef; summary: UiDiffSummary } | null = null;
   for (let index = startIndex + 1; index < items.length; index++) {
     const item = items[index];
     if (item?.kind !== 'tool') continue;
+    const digest = uiDiffDigest(item);
+    if (digest) {
+      latestUiDiff = { row: { id: String(item.id ?? ''), revision: toolRowRevision(item) }, summary: digest };
+      continue;
+    }
     if (Object.hasOwn(item, 'uiDiff')) {
       latestUiDiff = typeof item.uiDiff === 'string' ? item.uiDiff : '';
       continue;
@@ -76,8 +85,12 @@ function summarizeTurnTranscript({
   if (trackerCountsOnly && (afterRevert || latestUiDiff === null)) {
     return summarizeAuthoritativeTurnReview(authoritativeLeadFiles, '');
   }
+  if (!afterRevert && latestUiDiff !== null && typeof latestUiDiff !== 'string') {
+    return summarizeTurnReviewSegments([latestUiDiff]);
+  }
+  const latestText = typeof latestUiDiff === 'string' ? latestUiDiff : null;
   return summarizeTurnReviewPatch(
-    afterRevert ? authoritativeLeadPatch : (latestUiDiff ?? authoritativeLeadPatch ?? patches.join('\n'))
+    afterRevert ? authoritativeLeadPatch : (latestText ?? authoritativeLeadPatch ?? patches.join('\n'))
   );
 }
 

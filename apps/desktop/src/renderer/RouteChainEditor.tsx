@@ -1,0 +1,155 @@
+import { GripVertical, Plus, X } from 'lucide-react';
+import { useRef } from 'react';
+import type { DesktopModelOption, DesktopModelSelection } from '../shared/contract';
+import type { RecordValue } from './desktop-types';
+import { ModelRouteEditor } from './ModelRouteEditor';
+import { t } from './i18n';
+import { canonicalRouteProvider, routeChain } from '../../../../src/runtime/shared/model-route-chain.mjs';
+import './route-chain-editor.css';
+
+export function routeChainComplete(route: RecordValue) {
+  return routeChain(route).every((entry) => Boolean(entry.provider && entry.model));
+}
+
+export function RouteChainEditor({
+  route,
+  models,
+  disabled,
+  composerParity,
+  label,
+  onChange,
+}: {
+  route: RecordValue;
+  models: DesktopModelOption[];
+  disabled: boolean;
+  composerParity: boolean;
+  label: string;
+  onChange(route: RecordValue): void;
+}) {
+  const rows = routeChain(route);
+  const list = useRef<HTMLDivElement>(null);
+  const grabbed = useRef<number | null>(null);
+  const save = (next: RecordValue[]) => {
+    const [primary, ...fallbacks] = next;
+    onChange({ ...primary, fallbacks });
+  };
+  const move = (from: number, to: number) => {
+    if (disabled || to < 0 || to >= rows.length || from === to) return;
+    const next = [...rows];
+    const [entry] = next.splice(from, 1);
+    next.splice(to, 0, entry);
+    // Follow-Main is a primary-only choice.
+    if (next.slice(1).some((row) => row.provider === 'default')) return;
+    save(next);
+    grabbed.current = to;
+  };
+  const occupied = new Set(rows.map((entry) => canonicalRouteProvider(entry.provider)).filter(Boolean));
+  const hasAvailableProvider = models.some(
+    (model) => model.provider !== 'default' && !occupied.has(canonicalRouteProvider(model.provider))
+  );
+  const canAdd = routeChainComplete(route) && hasAvailableProvider;
+  return (
+    <div className="route-chain-editor" ref={list}>
+      <header className="route-chain-heading">
+        <div className="schedules-field">
+          <span>{t('Model')}</span>
+          <small>{t('The first model is used first. If it fails, the next model is used.')}</small>
+        </div>
+        <button
+          type="button"
+          className="route-chain-add"
+          disabled={disabled || !canAdd}
+          aria-label={t('Add fallback model')}
+          title={t('Add fallback model')}
+          onClick={() => save([...rows, {}])}
+        >
+          <Plus size={14} aria-hidden="true" />
+        </button>
+      </header>
+      <ol className="route-chain-list">
+        {rows.map((entry, index) => (
+          <li
+            className="route-chain-row"
+            // biome-ignore lint/suspicious/noArrayIndexKey: fallback entries have no id; rows are positional (reordered by index) and edits save the whole list.
+            key={index}
+            data-route-index={index}
+          >
+            <button
+              type="button"
+              className="route-chain-handle"
+              disabled={disabled || rows.length < 2}
+              aria-label={t('Reorder model {{number}}', { number: index + 1 })}
+              title={t('Drag or use Alt + arrow keys to reorder')}
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                grabbed.current = index;
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={(event) => {
+                if (grabbed.current === null) return;
+                const elements = list.current?.querySelectorAll<HTMLElement>('.route-chain-row');
+                elements?.forEach((element, target) => {
+                  const rect = element.getBoundingClientRect();
+                  if (event.clientY >= rect.top && event.clientY < rect.bottom && grabbed.current !== null)
+                    move(grabbed.current, target);
+                });
+              }}
+              onPointerUp={() => {
+                grabbed.current = null;
+              }}
+              onPointerCancel={() => {
+                grabbed.current = null;
+              }}
+              onLostPointerCapture={() => {
+                grabbed.current = null;
+              }}
+              onKeyDown={(event) => {
+                if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+                event.preventDefault();
+                move(index, index + (event.key === 'ArrowUp' ? -1 : 1));
+                grabbed.current = null;
+              }}
+            >
+              <GripVertical size={14} aria-hidden="true" />
+            </button>
+            <ModelRouteEditor
+              ariaLabel={`${label} ${index + 1}`}
+              disabled={disabled}
+              composerParity={composerParity}
+              value={entry as unknown as DesktopModelSelection}
+              models={models.filter((model) => {
+                const provider = canonicalRouteProvider(model.provider);
+                return (
+                  (index === 0 || provider !== 'default') &&
+                  (!occupied.has(provider) || provider === canonicalRouteProvider(entry.provider))
+                );
+              })}
+              onChange={(selection) =>
+                save(rows.map((row, at) => (at === index ? (selection as unknown as RecordValue) : row)))
+              }
+            />
+            {rows.length > 1 && (
+              <button
+                type="button"
+                className="route-chain-remove"
+                disabled={disabled}
+                aria-label={t('Remove model {{number}}', { number: index + 1 })}
+                onClick={() => save(rows.filter((_, at) => at !== index))}
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            )}
+          </li>
+        ))}
+      </ol>
+      {rows.length > 1 && !routeChainComplete(route) && (
+        <small className="route-chain-hint">{t('Fallback models must use different providers.')}</small>
+      )}
+      {!hasAvailableProvider && (
+        <small className="route-chain-unavailable" role="status">
+          {t('No other providers are available to add.')}
+        </small>
+      )}
+    </div>
+  );
+}

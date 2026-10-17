@@ -70,36 +70,6 @@ export interface RosterStorage {
   clear(): Promise<void>;
 }
 
-/** One record in one IndexedDB store: bounded by construction. */
-export function createIndexedDbRosterStorage(name = 'mixdog-remote-roster'): RosterStorage {
-  const STORE = 'roster';
-  const KEY = 'sessions';
-  let opened: Promise<IDBDatabase> | null = null;
-  const database = (): Promise<IDBDatabase> =>
-    (opened ??= new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(name, 1);
-      request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    }).catch((error: unknown) => {
-      opened = null;
-      throw error;
-    }));
-  const run = async <R>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => IDBRequest): Promise<R> => {
-    const db = await database();
-    return new Promise<R>((resolve, reject) => {
-      const request = act(db.transaction(STORE, mode).objectStore(STORE));
-      request.onsuccess = () => resolve(request.result as R);
-      request.onerror = () => reject(request.error);
-    });
-  };
-  return {
-    load: () => run<unknown>('readonly', (store) => store.get(KEY)),
-    save: (record) => run<void>('readwrite', (store) => store.put(record, KEY)),
-    clear: () => run<void>('readwrite', (store) => store.delete(KEY)),
-  };
-}
-
 interface RosterDecoder<T> {
   resumePoint(): ViewResumePoint | null;
   seed(held: ReadonlyArray<readonly [string, T]>): void;

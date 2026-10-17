@@ -52,6 +52,8 @@ export interface MediaLane {
   catalogError?: string;
   catalogErrorCode?: string;
   catalogWarning?: string;
+  /** What the lane generates once signed in (`kinds` is its live catalog). */
+  supportedKinds?: MediaKind[];
   kinds: MediaKind[];
   image: MediaKindSpec | null;
   video: MediaKindSpec | null;

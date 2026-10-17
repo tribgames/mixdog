@@ -26,6 +26,12 @@ function surfaceViewportWidth(): number {
   return Number(window.innerWidth) || Number(document.documentElement.clientWidth) || 0;
 }
 
+/** True when the pre-paint phone marker is on the root. Desktop keyboard hints
+ *  (also hidden by one CSS rule for static markup) key on this. */
+export function isPhoneSurfaceMarked(): boolean {
+  return document.documentElement.hasAttribute('data-mixdog-mobile-tabs');
+}
+
 /** Phone layout predicate (layout only; see `isRemoteHostRenderer` for the host role). */
 export function isMobileRemoteSurface(): boolean {
   if (!isRemoteBrowserRenderer()) return false;

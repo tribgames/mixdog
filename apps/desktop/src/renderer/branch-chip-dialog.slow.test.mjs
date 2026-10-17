@@ -48,7 +48,7 @@ test('branch name popup keeps keyboard focus and never submits the chat composer
           createRoot(document.getElementById('root')).render(
             <div className="pane-cell">
               <form onSubmit={event => { event.preventDefault(); window.composerSubmits++; }}>
-                <BranchChip sessionId="s1" projectPath="/p" onOpenSession={() => {}} />
+                <BranchChip sessionId="s1" projectPath="/p" />
               </form>
             </div>
           );
@@ -68,14 +68,14 @@ test('branch name popup keeps keyboard focus and never submits the chat composer
   t.after(() => browser.close());
   const page = await browser.newPage();
   const pageErrors = [];
-  page.on('pageerror', error => pageErrors.push(error.message));
+  page.on('pageerror', (error) => pageErrors.push(error.message));
   await page.setViewport({ width: 1000, height: 720 });
   await page.setContent('<!doctype html><html><body><div id="root"></div></body></html>');
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
   const input = '.branch-name-dialog input';
   const submit = '.branch-name-dialog button[type="submit"]';
   const openDialog = async () => {
-    await page.waitForSelector('.branch-chip-trigger', { timeout: 5000 }).catch(error => {
+    await page.waitForSelector('.branch-chip-trigger', { timeout: 5000 }).catch((error) => {
       assert.deepEqual(pageErrors, [], 'the fixture must render without errors');
       throw error;
     });
@@ -83,38 +83,51 @@ test('branch name popup keeps keyboard focus and never submits the chat composer
     await page.waitForSelector('.branch-menu [data-kind="create"]');
     await page.click('.branch-menu [data-kind="create"]');
     await page.waitForSelector(input);
-    assert.equal(await page.$eval(input, node => document.activeElement === node), true);
+    assert.equal(await page.$eval(input, (node) => document.activeElement === node), true);
   };
   await openDialog();
   assert.equal(await page.$('.branch-menu'), null);
-  assert.equal(await page.$eval('.branch-name-dialog', node => node.parentElement.className), 'pane-dialog-layer');
+  assert.equal(await page.$eval('.branch-name-dialog', (node) => node.parentElement.className), 'pane-dialog-layer');
   await page.keyboard.type('feat/popup');
   await page.keyboard.down('Shift');
   await page.keyboard.press('Tab');
   await page.keyboard.up('Shift');
-  assert.equal(await page.$eval(submit, node => document.activeElement === node), true);
+  assert.equal(await page.$eval(submit, (node) => document.activeElement === node), true);
   await page.keyboard.press('Tab');
-  assert.equal(await page.$eval(input, node => document.activeElement === node), true);
+  assert.equal(await page.$eval(input, (node) => document.activeElement === node), true);
   await page.keyboard.press('Escape');
   await page.waitForSelector('.branch-name-dialog', { hidden: true });
-  assert.equal(await page.$eval('.branch-chip-trigger', node => document.activeElement === node), true);
+  assert.equal(await page.$eval('.branch-chip-trigger', (node) => document.activeElement === node), true);
   assert.deepEqual(await page.evaluate(() => window.branchCalls), []);
 
   await openDialog();
   await page.keyboard.type('feat/popup');
-  await page.evaluate(() => { window.failNextBranch = true; });
+  await page.evaluate(() => {
+    window.failNextBranch = true;
+  });
   await page.click(submit);
   await page.waitForSelector('.branch-name-dialog [role="alert"]');
-  assert.match(await page.$eval('.branch-name-dialog [role="alert"]', node => node.textContent), /Branch creation failed/);
-  assert.equal(await page.$eval(input, node => document.activeElement === node), true);
-  assert.equal(await page.$eval(input, node => node.value), 'feat/popup');
+  assert.match(
+    await page.$eval('.branch-name-dialog [role="alert"]', (node) => node.textContent),
+    /Branch creation failed/
+  );
+  assert.equal(await page.$eval(input, (node) => document.activeElement === node), true);
+  assert.equal(await page.$eval(input, (node) => node.value), 'feat/popup');
   await page.keyboard.press('Enter');
   await page.waitForSelector('.branch-name-dialog', { hidden: true });
   assert.deepEqual(await page.evaluate(() => window.branchCalls), [
-    { capability: 'selectBranch', args: [{ branch: 'feat/popup', create: true, expectedRevision: 3 }], sessionId: 's1' },
-    { capability: 'selectBranch', args: [{ branch: 'feat/popup', create: true, expectedRevision: 3 }], sessionId: 's1' },
+    {
+      capability: 'selectBranch',
+      args: [{ branch: 'feat/popup', create: true, expectedRevision: 3 }],
+      sessionId: 's1',
+    },
+    {
+      capability: 'selectBranch',
+      args: [{ branch: 'feat/popup', create: true, expectedRevision: 3 }],
+      sessionId: 's1',
+    },
   ]);
   assert.equal(await page.evaluate(() => window.composerSubmits), 0);
   assert.deepEqual(pageErrors, []);
-  assert.equal(await page.$eval('.branch-chip-trigger', node => document.activeElement === node), true);
+  assert.equal(await page.$eval('.branch-chip-trigger', (node) => document.activeElement === node), true);
 });

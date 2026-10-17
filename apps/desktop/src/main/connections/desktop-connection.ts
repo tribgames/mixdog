@@ -4,10 +4,9 @@
 // credentials.
 import type { DesktopConnectionNotice, SessionSnapshot } from '../../shared/contract';
 import type { DesktopServerPort } from '../../shared/contract-server-ports';
-import { DEFAULT_STARTUP_TIMEOUT_MS, type DesktopServiceClient } from '../desktop-service-client';
+import { DEFAULT_STARTUP_TIMEOUT_MS, DesktopServiceClient } from '../desktop-service-client';
 import type { SerializableDesktopServiceOptions } from '../desktop-service-contract';
 import type { DesktopTerminalHost } from '../ipc-terminal';
-import { modelProxyGrantPolicy, type ModelProxyGrantPolicy } from '../model-proxy-grants';
 import {
   createModelProxyHost,
   type ModelProxyCallSettled,
@@ -21,7 +20,6 @@ import { REMOTE_INSTALL_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS } from '../ssh/remot
 import { RemoteSession, type RemoteDaemonConnector, type RemoteSessionConfig } from '../ssh/remote-session';
 import { parseSshTarget } from '../ssh/ssh-command';
 import { currentSshContext } from '../ssh/ssh-context';
-import { savedHostSettings } from '../ssh/ssh-host-store';
 import {
   ConnectionLink,
   LINK_STABLE_RESET_MS,
@@ -34,7 +32,6 @@ import type { ConnectionIdentity, ConnectionProgress } from './contract';
 import { createReattachReport } from './reattach-report';
 import type { ServerPortForwards } from './server-port-forwards';
 import { createServiceTerminalHost } from './terminal-host';
-import { TrustedActionClient } from './trusted-action-client';
 
 /** How long a server's tunnel may take to accept its first connection. */
 export const REMOTE_TUNNEL_READY_TIMEOUT_MS = 90_000;
@@ -90,9 +87,6 @@ export interface DesktopConnectionDependencies {
   /** The host's provider consent: may this server's turns use `provider`
    *  with this PC's sign-in? Absent, or a host without a list: all may. */
   isProviderAllowed?(connection: ConnectionIdentity, provider: string): boolean;
-  /** The host's model-use grant policy (model-proxy-grants), read at every
-   *  send; its saved settings by default. */
-  modelUsePolicy?(connection: ConnectionIdentity): ModelProxyGrantPolicy;
   /** A server connection's port forwards; `scan` asks its daemon what listens. */
   createPortForwards?(
     connection: ConnectionIdentity,
@@ -273,7 +267,6 @@ function createServiceClient({
   binding,
   graceMs,
   live,
-  onTrusted,
 }: {
   spec: DesktopConnectionSpec;
   deps: DesktopConnectionDependencies;
@@ -281,48 +274,44 @@ function createServiceClient({
   binding: RemoteBinding | null;
   graceMs: number;
   live: ClientLive;
-  onTrusted(): void;
-}): TrustedActionClient {
-  const client = new TrustedActionClient(
-    {
-      connect: () => {
-        live.transport = new SessionTransport(
-          deps.moduleUrl(),
-          process.cwd(),
-          null,
-          deps.environmentReady(),
-          binding?.connector ?? null
-        );
-        return live.transport;
-      },
-      // First remote boot uploads the service bundle and may start the daemon;
-      // its restarts follow the link's ladder, inside the server's grace.
-      ...(binding
-        ? {
-            startupTimeoutMs: REMOTE_STARTUP_TIMEOUT_MS,
-            restartBaseDelayMs: RECONNECT_BASE_DELAY_MS,
-            restartMaxDelayMs: reconnectDelayCapMs(graceMs),
-            restartStableMs: LINK_STABLE_RESET_MS,
-          }
-        : {}),
-      sessionOptions: () => deps.sessionOptions(),
-      ...(deps.initialSnapshot ? { initialSnapshot: deps.initialSnapshot() } : {}),
-      onDiagnostic: (event, data) => {
-        if (live.panels) feedLink(live.panels.link, event, client, spec.target ?? '');
-        deps.onDiagnostic?.(identity, event, data);
-      },
-      onServiceReady: (context) => {
-        if (live.panels && binding) {
-          live.panels.link.setTerminalsAvailable(binding.session.terminalsAvailable);
-          live.panels.link.serviceRestored();
-        }
-        // Attached (first time or again): the saved forwards run again.
-        void live.panels?.ports?.restore().catch(() => undefined);
-        deps.onServiceReady?.(identity, context);
-      },
+}): DesktopServiceClient {
+  const client = new DesktopServiceClient({
+    connect: () => {
+      live.transport = new SessionTransport(
+        deps.moduleUrl(),
+        process.cwd(),
+        null,
+        deps.environmentReady(),
+        binding?.connector ?? null
+      );
+      return live.transport;
     },
-    onTrusted
-  );
+    // First remote boot uploads the service bundle and may start the daemon;
+    // its restarts follow the link's ladder, inside the server's grace.
+    ...(binding
+      ? {
+          startupTimeoutMs: REMOTE_STARTUP_TIMEOUT_MS,
+          restartBaseDelayMs: RECONNECT_BASE_DELAY_MS,
+          restartMaxDelayMs: reconnectDelayCapMs(graceMs),
+          restartStableMs: LINK_STABLE_RESET_MS,
+        }
+      : {}),
+    sessionOptions: () => deps.sessionOptions(),
+    ...(deps.initialSnapshot ? { initialSnapshot: deps.initialSnapshot() } : {}),
+    onDiagnostic: (event, data) => {
+      if (live.panels) feedLink(live.panels.link, event, client, spec.target ?? '');
+      deps.onDiagnostic?.(identity, event, data);
+    },
+    onServiceReady: (context) => {
+      if (live.panels && binding) {
+        live.panels.link.setTerminalsAvailable(binding.session.terminalsAvailable);
+        live.panels.link.serviceRestored();
+      }
+      // Attached (first time or again): the saved forwards run again.
+      void live.panels?.ports?.restore().catch(() => undefined);
+      deps.onServiceReady?.(identity, context);
+    },
+  });
   return client;
 }
 
@@ -353,12 +342,6 @@ function createConnectionModelProxy({
     if (deps.isProviderAllowed) {
       proxyOptions.isProviderAllowed = (provider) => Boolean(deps.isProviderAllowed?.(identity, provider));
     }
-    // Sends only under this PC's grant (opened by the window's trusted
-    // actions), each limit told in the server's window.
-    proxyOptions.grantPolicy = () =>
-      deps.modelUsePolicy?.(identity) ?? modelProxyGrantPolicy(savedHostSettings(identity.id));
-    proxyOptions.onLimited = (limit, reason) =>
-      emitNotice({ kind: 'model-proxy-limited', limit, ...(reason ? { reason } : {}) });
   }
   if (reattach) {
     proxyOptions.onCallSettled = (event: ModelProxyCallSettled) => {
@@ -381,17 +364,7 @@ export function createDesktopConnection(
   const binding = spec.kind === 'ssh' ? bindRemote(spec, deps, options) : null;
   const graceMs = spec.graceMs ?? remoteClientGraceMs(deps.remoteGraceMs);
   const live: ClientLive = { transport: null, panels: null };
-  // The window's trusted actions open or extend this PC's model-use grant
-  // (a server connection's; this PC's own daemon has none).
-  const client = createServiceClient({
-    spec,
-    deps,
-    identity,
-    binding,
-    graceMs,
-    live,
-    onTrusted: () => modelProxy.trust(),
-  });
+  const client = createServiceClient({ spec, deps, identity, binding, graceMs, live });
   const notices = new Set<(notice: DesktopConnectionNotice) => void>();
   const emitNotice = (notice: DesktopConnectionNotice): void => {
     for (const listener of notices) listener(notice);

@@ -8,8 +8,38 @@ import type { useAppShellPanels } from './use-app-shell-panels';
 import { useStableEvent } from './use-stable-event';
 import type { SidebarViewGroup } from './sidebar-view-layout';
 import { InitialSurface } from './InitialSurface';
-import { ProjectAddDialogHost, type ProjectAddDialogHandle } from './ProjectAddDialogHost';
-import { ProjectEditorDialog, type ProjectEditorDialogHandle } from './ProjectEditorDialog';
+import type { ProjectAddDialogHandle, ProjectAddDialogHost } from './ProjectAddDialogHost';
+import type { ProjectEditorDialog, ProjectEditorDialogHandle } from './ProjectEditorDialog';
+import { useDeferredModule } from './deferred-module';
+import { showDesktopToast } from './desktop-toasts';
+import { errorMessageText } from './ErrorNotice';
+import { projectAddDialogModule, projectEditorDialogModule } from './first-screen-deferred';
+
+/** A deferred dialog host's pending open: replayed once its module has
+ *  mounted, so the first open needs no extra click. A failed load drops the
+ *  open with a toast (these hosts render inside the app shell itself, so a
+ *  thrown error would take the whole window down); the next open retries. */
+function useDeferredOpen<Handle>(load: () => Promise<unknown>) {
+  const ref = useRef<Handle>(null);
+  const [requested, setRequested] = useState<{ open(handle: Handle): void } | null>(null);
+  useEffect(() => {
+    if (!requested || !ref.current) return;
+    requested.open(ref.current);
+    setRequested(null);
+  });
+  const request = (open: (handle: Handle) => void) => {
+    if (ref.current) {
+      open(ref.current);
+      return;
+    }
+    setRequested({ open });
+    load().catch((error: unknown) => {
+      setRequested(null);
+      showDesktopToast(errorMessageText(error), 'error');
+    });
+  };
+  return { ref, request };
+}
 
 type ShellPanels = ReturnType<typeof useAppShellPanels>;
 
@@ -202,35 +232,43 @@ function useSidebarProjectActions({
   );
   // One editor host outside the sidebar panels: opened by "Project settings"
   // over the current screen, and never closed by panel activation changes.
-  const projectEditorRef = useRef<ProjectEditorDialogHandle>(null);
-  const openProjectSettings = useStableEvent((path: string) => projectEditorRef.current?.open(path));
-  const projectEditorHost = (
-    <ProjectEditorDialog
-      ref={projectEditorRef}
+  // Both dialogs' chunks stay off the first screen: they mount once loaded
+  // (first open or the idle lane), and an open before that is replayed.
+  const projectEditor = useDeferredOpen<ProjectEditorDialogHandle>(projectEditorDialogModule.load);
+  const ProjectEditor: typeof ProjectEditorDialog | undefined = useDeferredModule(projectEditorDialogModule, {
+    load: false,
+  })?.ProjectEditorDialog;
+  const openProjectSettings = useStableEvent((path: string) => projectEditor.request((handle) => handle.open(path)));
+  const projectEditorHost = ProjectEditor ? (
+    <ProjectEditor
+      ref={projectEditor.ref}
       projects={projects}
       onRename={projectsRename}
       onRemove={projectsRemove}
       onMemoryControl={projectsMemoryControl}
     />
-  );
+  ) : null;
   // One add-project dialog host outside the panels: the Projects panel action
   // and the Sessions header menu both open it, and the phone drawer closing
   // never unmounts it.
-  const projectAddRef = useRef<ProjectAddDialogHandle>(null);
+  const projectAdd = useDeferredOpen<ProjectAddDialogHandle>(projectAddDialogModule.load);
+  const ProjectAdd: typeof ProjectAddDialogHost | undefined = useDeferredModule(projectAddDialogModule, {
+    load: false,
+  })?.ProjectAddDialogHost;
   // `onAdded` runs once if this open ends in an added project; every other
   // open replaces it, so an abandoned dialog never moves a later add.
   const openProjectAdd = useStableEvent((onAdded?: (path: string) => void) => {
     onProjectAddedRef.current = onAdded ?? null;
-    projectAddRef.current?.open();
+    projectAdd.request((handle) => handle.open());
   });
-  const projectAddHost = (
-    <ProjectAddDialogHost
-      ref={projectAddRef}
+  const projectAddHost = ProjectAdd ? (
+    <ProjectAdd
+      ref={projectAdd.ref}
       projects={projects}
       onChooseFolder={projectsChooseFolder}
       onCreateProject={projectsCreate}
     />
-  );
+  ) : null;
   return {
     revealedProject,
     projectsRename,

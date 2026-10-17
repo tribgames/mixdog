@@ -295,6 +295,25 @@ button {
 .message-body p {
   white-space: pre-wrap;
 }
+/* The island's git request: the user's own bubble, one line (icon, action,
+   muted scope). */
+.message.user .message-body.island-git-request {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.island-git-request svg {
+  flex: none;
+  color: var(--mx-accent, var(--mx-text-muted));
+}
+.island-git-request b {
+  font-weight: 600;
+}
+.island-git-request-meta {
+  color: var(--mx-text-muted);
+  font-size: 13px;
+}
 .message-body .message-tweaks-line svg {
   display: inline-block;
   vertical-align: -1px;

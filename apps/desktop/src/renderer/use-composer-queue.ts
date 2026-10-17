@@ -8,6 +8,7 @@ import { reportComposerAction } from './composer-diagnostics';
 import type { RecordValue } from './desktop-types';
 import { asRecord } from './text-format';
 import type { ComposerAttachment } from './composer-support';
+import { queuedPlainAnswer, steerQueuedAsAnswer } from './question-card-logic';
 import {
   mergeQueuedRestoreDraft,
   queuedRestorePrefix,
@@ -32,8 +33,11 @@ export function useComposerQueue({
   mergeRestoredAttachments,
   showNotice,
   onQueuedRestored,
+  answerQuestion,
   scope,
 }: {
+  /** Set while an ask_user question waits: queued plain text answers it. */
+  answerQuestion?: ((reply: string) => Promise<unknown>) | null;
   queued?: unknown[];
   hiddenQueueIds?: Array<string | number>;
   pendingSubmissionIds?: Array<string | number>;
@@ -236,6 +240,31 @@ export function useComposerQueue({
       queueRestoreInFlightRef.current = true;
       setRestoring(true);
       try {
+        // A question waits: a plain follow-up answers it rather than
+        // interrupting the turn, which would close the question unanswered.
+        const entry = Array.isArray(queued)
+          ? queued.find((item) => String(asRecord(item)?.id) === queuedId)
+          : undefined;
+        if (answerQuestion && queuedPlainAnswer(entry) !== null) {
+          let restored: RecordValue | undefined;
+          const result = await steerQueuedAsAnswer(async () => {
+            restored = await invokeCapability<RecordValue>('restoreQueued', ['', queuedId]);
+            return restored && Number(restored.count) > 0 ? String(restored.text || '') : undefined;
+          }, answerQuestion);
+          if (!result.text) {
+            setLocallyHiddenQueueIds((current) => current.filter((id) => id !== queuedId));
+            return;
+          }
+          const ids = Array.isArray(restored?.ids) ? restored.ids.map(String).filter(Boolean) : [queuedId];
+          onQueuedRestored?.(ids.length ? ids : [queuedId]);
+          if (!result.answered) {
+            const next = [result.text, draftRef.current].filter(Boolean).join('\n');
+            draftRef.current = next;
+            setDraft(next);
+            showNotice('The answer was not sent. Your message is back in the editor.');
+          }
+          return;
+        }
         const value = await invokeCapability<RecordValue>('prioritizeQueued', [queuedId]);
         if (!value || Number(value.count) < 1) {
           setLocallyHiddenQueueIds((current) => current.filter((id) => id !== queuedId));
@@ -249,7 +278,18 @@ export function useComposerQueue({
         setRestoring(false);
       }
     },
-    [abort, invokeCapability, onQueuedRestored, restoring, turnBusy]
+    [
+      abort,
+      answerQuestion,
+      draftRef,
+      invokeCapability,
+      onQueuedRestored,
+      queued,
+      restoring,
+      setDraft,
+      showNotice,
+      turnBusy,
+    ]
   );
 
   const resetQueueState = useCallback(() => {

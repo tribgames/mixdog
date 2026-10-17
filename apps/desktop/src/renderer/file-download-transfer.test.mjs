@@ -5,9 +5,16 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
 
-import { FILE_DOWNLOAD_ERROR_REASONS, FileDownloadError, fileDownloadErrorCode } from '../shared/file-downloads.ts';
+import {
+  FILE_DOWNLOAD_ERROR_REASONS,
+  FileDownloadError,
+  fileDownloadErrorCode,
+  folderTooLargeMessage,
+} from '../shared/file-downloads.ts';
 import {
   BLOB_FALLBACK_MAX_BYTES,
+  LANE_BLOB_MAX_BYTES,
+  LANE_WINDOW_BYTES,
   FileDownloadCancelledError,
   FileSaveError,
   fileDownloadFailureMessage,
@@ -107,10 +114,18 @@ function fakeNative({
 function environment(host, sink, lane = () => null, probe = 'ok') {
   const delivered = [];
   const probed = [];
+  const laneReads = [];
   return {
     delivered,
     probed,
+    laneReads,
     env: {
+      readLane: async (url, offset, length) => {
+        laneReads.push([url, offset, length]);
+        const bytes = new Uint8Array(length);
+        for (let i = 0; i < length; i += 1) bytes[i] = byteAt(offset + i);
+        return bytes.buffer;
+      },
       api: host.api,
       sink: async () => sink,
       laneUrl: lane,
@@ -150,7 +165,10 @@ test('the native sink gets every range in order, one acked write at a time, then
       ['range', 8, 2, 'v1'],
     ]
   );
-  assert.deepEqual(native.written.bytes(), Array.from({ length: 10 }, (_, i) => byteAt(i)));
+  assert.deepEqual(
+    native.written.bytes(),
+    Array.from({ length: 10 }, (_, i) => byteAt(i))
+  );
   assert.equal(native.maxInflight(), 1);
   assert.deepEqual(methods(native.calls), [
     'fileSaveBegin',
@@ -290,7 +308,13 @@ test('a file only in staging reports persisted false and can be shared again unt
     { ok: false, error: 'unknown-handle' },
   ];
   const native = fakeNative({
-    finish: async (args) => ({ ok: true, handle: args.handle, displayName: 'build.zip', size: args.size, persisted: false }),
+    finish: async (args) => ({
+      ok: true,
+      handle: args.handle,
+      displayName: 'build.zip',
+      size: args.size,
+      persisted: false,
+    }),
     share: () => shares.shift(),
   });
   const { env } = environment(fakeHost(), { kind: 'native', call: native.call });
@@ -347,6 +371,62 @@ test('a browser with a confirmed media lane hands the lease URL to a download, r
   assert.deepEqual(methods(host.calls), ['authorize', 'begin']);
 });
 
+test('a browser reads a confirmed lane itself in Range windows into one Blob, with progress and a later share', async () => {
+  const size = LANE_WINDOW_BYTES * 2 + 5;
+  const host = fakeHost({ size, media: MEDIA });
+  const { env, delivered, laneReads } = environment(host, { kind: 'browser' }, () => LANE_URL);
+  const shared = [];
+  env.shareLater = (blob, transfer) => () => {
+    shared.push([blob.size, transfer.name]);
+    return Promise.resolve('shared');
+  };
+  const progress = [];
+  const outcome = await run(env, { onProgress: (step) => progress.push([step.phase, step.received]) });
+  assert.equal(outcome.destination, 'blob');
+  assert.equal(outcome.result, 'saved');
+  assert.deepEqual(laneReads, [
+    [LANE_URL, 0, LANE_WINDOW_BYTES],
+    [LANE_URL, LANE_WINDOW_BYTES, LANE_WINDOW_BYTES],
+    [LANE_URL, LANE_WINDOW_BYTES * 2, 5],
+  ]);
+  assert.deepEqual(methods(host.calls), ['authorize', 'begin'], 'no RPC range read and no abort of the lane lease');
+  assert.deepEqual(
+    progress.filter(([phase]) => phase === 'downloading').map(([, received]) => received),
+    [LANE_WINDOW_BYTES, LANE_WINDOW_BYTES * 2, size]
+  );
+  const blob = delivered[0].target.blob;
+  assert.equal(blob.size, size);
+  assert.equal(blob.type, 'application/zip');
+  const tail = new Uint8Array(await blob.slice(size - 5).arrayBuffer());
+  assert.deepEqual(
+    [...tail],
+    Array.from({ length: 5 }, (_, i) => byteAt(size - 5 + i))
+  );
+  assert.equal(await outcome.shareAgain(), 'shared');
+  assert.deepEqual(shared, [[size, 'build.zip']]);
+});
+
+test('a lane read the worker refuses as changed fails the download without delivering', async () => {
+  const host = fakeHost({ size: 10, media: MEDIA });
+  const { env, delivered } = environment(host, { kind: 'browser' }, () => LANE_URL);
+  env.readLane = async () => {
+    throw new FileDownloadError('changed', 'The file changed on the host.');
+  };
+  const failure = await run(env).catch((reason) => reason);
+  assert.equal(failure.reason, 'changed');
+  assert.equal(delivered.length, 0);
+  // The lease belongs to the lane once the worker answered; nothing to abort over RPC.
+  assert.deepEqual(methods(host.calls), ['authorize', 'begin']);
+});
+
+test('a lane over the page read limit is still handed to the browser as its URL', async () => {
+  const host = fakeHost({ size: LANE_BLOB_MAX_BYTES + 1, media: MEDIA });
+  const { env, delivered, laneReads } = environment(host, { kind: 'browser' }, () => LANE_URL);
+  assert.equal((await run(env)).result, 'started');
+  assert.deepEqual(delivered[0].target, { url: LANE_URL });
+  assert.deepEqual(laneReads, []);
+});
+
 test('a lane the worker cannot serve falls back to RPC ranges for a small file', async () => {
   const host = fakeHost({ size: 10, rangeMaxBytes: 4, media: MEDIA });
   const { env, delivered, probed } = environment(host, { kind: 'browser' }, () => LANE_URL, 'unavailable');
@@ -390,7 +470,10 @@ test('without the lane a small file arrives as one Blob after the host confirms 
   assert.deepEqual(methods(host.calls), ['authorize', 'begin', 'range', 'range', 'range', 'finish']);
   const blob = delivered[0].target.blob;
   assert.equal(blob.type, 'application/zip');
-  assert.deepEqual([...new Uint8Array(await blob.arrayBuffer())], Array.from({ length: 10 }, (_, i) => byteAt(i)));
+  assert.deepEqual(
+    [...new Uint8Array(await blob.arrayBuffer())],
+    Array.from({ length: 10 }, (_, i) => byteAt(i))
+  );
 });
 
 test('without the lane a file over the Blob limit is refused before any byte moves', async () => {
@@ -458,6 +541,17 @@ test('every refusal reason maps to its own catalogued message', () => {
   }
   assert.equal(new Set(messages).size, messages.length);
   assert.equal(fileDownloadFailureMessage(new Error('socket closed')), 'socket closed');
+});
+
+test('a folder refusal states the host counts against the caps and asks for a subfolder', () => {
+  const host = new FileDownloadError('folder-too-large', folderTooLargeMessage(14200, 90 * 1024 * 1024));
+  const message = fileDownloadFailureMessage(host);
+  assert.match(message, /14,200 files and 90\.0 MB/);
+  assert.match(message, /2,000 files and 64 MB/);
+  assert.match(message, /subfolder/);
+  // The remote shim restores only `code` on a plain Error; the text survives.
+  const restored = Object.assign(new Error(host.message), { code: fileDownloadErrorCode('folder-too-large') });
+  assert.equal(fileDownloadFailureMessage(restored), message);
 });
 
 test('rate and time left come from the recent samples', () => {

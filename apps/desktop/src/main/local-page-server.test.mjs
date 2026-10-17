@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { syncBuiltinESMExports } from 'node:module';
 import { localPageUrl, localVirtualPageUrl, revokeLocalPagesFor } from './local-page-server';
+import { openedFileAuthorizationTestHooks } from './opened-file-authorization.ts';
+import { sensitivePolicy } from './remote-sensitive-paths.ts';
 import { sandboxStorageShimScript } from '../shared/sandbox-storage-shim';
 
 const projectPageUrl = (root, rel) => localPageUrl(root, rel, { scope: 'project', authorize: async () => {} });
@@ -178,6 +180,68 @@ test('a project-scope page is served unchanged, without the storage shim', async
   assert.equal(page.body, '<p>한글 페이지</p>');
   assert.equal(page.csp, undefined);
   assert.equal(Number(page.length), Buffer.byteLength(page.body));
+});
+
+test("a paired device's page cannot load a secret-bearing sub-asset, by name or through a link", async (t) => {
+  const project = await realpath(await mkdtemp(join(tmpdir(), 'mixdog-remote-page-')));
+  const elsewhere = await realpath(await mkdtemp(join(tmpdir(), 'mixdog-remote-page-out-')));
+  t.after(async () => {
+    openedFileAuthorizationTestHooks.beforeOpen = undefined;
+    await rm(project, { recursive: true, force: true });
+    await rm(elsewhere, { recursive: true, force: true });
+  });
+  for (const dir of ['site', 'site/media', '.ssh', 'private']) await mkdir(join(project, dir), { recursive: true });
+  await writeFile(join(project, 'site', 'index.html'), '<link href="app.css"><img src="../private/logo.png">');
+  await writeFile(join(project, 'site', 'app.css'), 'p{}');
+  await writeFile(join(project, 'site', 'media', 'clip.mp4'), 'clip');
+  await writeFile(join(project, '.env'), 'TOKEN=1');
+  await writeFile(join(project, '.ssh', 'id_rsa'), 'key');
+  await writeFile(join(project, 'private', 'data.json'), '{"token":1}');
+  await writeFile(join(project, 'private', 'logo.png'), 'png');
+  await writeFile(join(elsewhere, 'clip.mp4'), 'outside');
+  let links = true;
+  try {
+    await symlink(join(project, 'private'), join(project, 'site', 'brand'), 'junction');
+  } catch {
+    links = false;
+  }
+  // The authorizing process's deny list names `private` (a registered
+  // private root) — the page server's own process never registered it.
+  const remote = { ...sensitivePolicy(), registered: [[join(project, 'private'), []]] };
+  const asset = (url, rel) => get(url, `${new URL(url).pathname.replace(/[^/]+\/index\.html$/, '')}${rel}`);
+  const desktopUrl = await projectPageUrl(project, 'site/index.html');
+  const remoteUrl = await localPageUrl(project, 'site/index.html', {
+    scope: 'project',
+    authorize: async () => {},
+    remote,
+  });
+  // The desktop's own lease is unchanged: it serves what the page references.
+  assert.equal((await asset(desktopUrl, 'private/logo.png')).status, 200);
+  assert.equal((await asset(remoteUrl, 'site/index.html')).status, 200);
+  assert.equal((await asset(remoteUrl, 'site/app.css')).body, 'p{}');
+  // Before the fix the remote lease served these exactly like the desktop's.
+  for (const rel of ['.env', '.ssh/id_rsa', 'private/data.json', 'private/logo.png', 'site/../private/logo.png']) {
+    assert.equal((await asset(remoteUrl, rel)).status, 404, rel);
+  }
+  if (links) {
+    assert.equal((await asset(desktopUrl, 'site/brand/logo.png')).status, 200);
+    assert.equal((await asset(remoteUrl, 'site/brand/logo.png')).status, 404, 'a link onto a secret folder');
+  }
+  // A folder swapped for a link after the path checks: the opened file decides.
+  assert.equal((await asset(remoteUrl, 'site/media/clip.mp4')).body, 'clip');
+  openedFileAuthorizationTestHooks.beforeOpen = async () => {
+    openedFileAuthorizationTestHooks.beforeOpen = undefined;
+    await rm(join(project, 'site', 'media'), { recursive: true, force: true });
+    await symlink(elsewhere, join(project, 'site', 'media'), 'junction');
+  };
+  const swapped = await asset(remoteUrl, 'site/media/clip.mp4');
+  assert.equal(swapped.status, 404);
+  assert.doesNotMatch(swapped.body, /outside/);
+  // A remote lease without a valid policy is never minted.
+  await assert.rejects(
+    localPageUrl(project, 'site/index.html', { scope: 'project', authorize: async () => {}, remote: {} }),
+    /policy is invalid/
+  );
 });
 
 test('a virtual page gets the shim on its html document only, not on other files', async () => {

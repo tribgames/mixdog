@@ -4,8 +4,9 @@ import { createPortal } from 'react-dom';
 
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { t } from './i18n';
+import { useMenuDismiss } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
-import { captureRowMenuAnchor, positionRowMenu } from './row-menu-geometry';
+import { captureRowMenuAnchor, positionRowMenu, useRowMenuClamp } from './row-menu-geometry';
 import type { UsageRailBars } from './SidebarUsage';
 
 const ENABLED_ITEM = "[role='menuitemcheckbox']:not(:disabled), [role='menuitemradio']:not(:disabled)";
@@ -31,29 +32,17 @@ export function SidebarUsageMenu({
   const clickGuard = useImmediateOverlayClickGuard();
   useMobileBack(open, () => setOpen(false));
 
+  useMenuDismiss({ open, close: () => setOpen(false), trigger, panels: () => [panel.current] });
   useEffect(() => {
     if (!open) {
       anchorBounds.current = null;
       return undefined;
     }
     queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(ENABLED_ITEM)?.focus());
-    const dismiss = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!panel.current?.contains(target) && !trigger.current?.contains(target)) setOpen(false);
-    };
-    const keydown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      setOpen(false);
-      trigger.current?.focus();
-    };
     const close = () => setOpen(false);
-    document.addEventListener('pointerdown', dismiss, true);
-    document.addEventListener('keydown', keydown, true);
     window.addEventListener('resize', close);
     window.addEventListener('scroll', close, true);
     return () => {
-      document.removeEventListener('pointerdown', dismiss, true);
-      document.removeEventListener('keydown', keydown, true);
       window.removeEventListener('resize', close);
       window.removeEventListener('scroll', close, true);
     };
@@ -68,10 +57,6 @@ export function SidebarUsageMenu({
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(ENABLED_ITEM) ?? [])];
-    if (event.key === 'Tab') {
-      setOpen(false);
-      return;
-    }
     if (!entries.length) return;
     const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
     let next: number;
@@ -102,6 +87,7 @@ export function SidebarUsageMenu({
   );
 
   const placement = positionRowMenu(open ? anchorBounds.current : null, 8, 1, window.innerWidth, window.innerHeight);
+  useRowMenuClamp(open, panel);
   return (
     <>
       <button
@@ -140,9 +126,12 @@ export function SidebarUsageMenu({
             style={placement}
           >
             <button type="button" role="menuitemcheckbox" aria-checked={pinned} onClick={onTogglePin}>
-              <span className="row-overflow-check" aria-hidden="true">{pinned && <Check size={14} />}</span>
+              <span className="row-overflow-check" aria-hidden="true">
+                {pinned && <Check size={14} />}
+              </span>
               <span className="row-overflow-label">{t('Pin to rail')}</span>
             </button>
+            {/* biome-ignore lint/a11y/useSemanticElements: <hr> default border/margin would change the styling. */}
             <div className="usage-menu-separator" role="separator" />
             <div className="usage-menu-group" role="presentation">
               {t('Rail bars')}

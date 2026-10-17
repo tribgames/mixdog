@@ -3,19 +3,8 @@ function stableItemKey(item, index) {
   return `${item?.kind || 'item'}:${item?.text || item?.label || item?.status || ''}:${index}`;
 }
 
-export function transcriptTurnKeys(items) {
-  const transcript = Array.isArray(items) ? items : [];
-  const keys = [];
-  let activeTurn = null;
-  for (let index = 0; index < transcript.length; index += 1) {
-    const item = transcript[index];
-    if (item?.kind === 'user') activeTurn = `turn:${stableItemKey(item, index)}`;
-    if (!activeTurn) activeTurn = `segment:${stableItemKey(item, index)}`;
-    keys.push(activeTurn);
-    if (item?.kind === 'turndone') activeTurn = null;
-  }
-  return keys;
-}
+import { transcriptTurnKeys } from '../../../../src/runtime/shared/transcript-turn-keys.mjs';
+export { transcriptTurnKeys };
 
 export function turnReviewScope(items) {
   const transcript = Array.isArray(items) ? items : [];
@@ -335,6 +324,72 @@ export function patchLineCounts(patch) {
     }
   }
   return { additions, deletions };
+}
+
+// The files a patch changes as the turn review counts them: lines added and
+// removed inside each hunk (header lines excluded), its status, and the parsed
+// part itself. A part without a name, or a bare `diff --git` header with no
+// change and no status, is not a file change.
+export function analyzePatchFiles(patch) {
+  return parseUnifiedDiff(patch).flatMap((part) => {
+    const name = String(part.newFile?.fileName || '');
+    if (!name) return [];
+    let additions = 0;
+    let deletions = 0;
+    for (const line of part.hunks.join('\n').split('\n')) {
+      if (line.startsWith('+') && !line.startsWith('+++')) additions += 1;
+      else if (line.startsWith('-') && !line.startsWith('---')) deletions += 1;
+    }
+    const status = String(part.status || '');
+    if (additions === 0 && deletions === 0 && !status) return [];
+    return [
+      { name, additions, deletions, lineStats: additions + deletions > 0, status, binary: status === 'binary', part },
+    ];
+  });
+}
+
+// Everything the transcript row and the turn review read from one call's diff,
+// without the diff text. The host sends this in place of a long diff in the
+// phone's copy; the renderer reads the same answers from it that it reads from
+// the text, so both surfaces show the same counts, verb, path and files.
+export function patchDigest(patch) {
+  const parts = parseUnifiedDiff(patch);
+  const first = parts[0];
+  return {
+    counts: patchLineCounts(patch),
+    statuses: parts.map((part) => part.status),
+    targetPath: first ? (first.status === 'D' ? first.oldFile.fileName : first.newFile.fileName) : '',
+    files: analyzePatchFiles(patch).map(({ part: _part, ...file }) => file),
+  };
+}
+
+/** The two file names a `diff --git a/<old> b/<new>` section header carries. */
+export function diffSectionNames(section) {
+  return (/^diff --git a\/(.+?) b\/(.+)$/m.exec(section)?.slice(1) ?? []).map((name) => name.trim());
+}
+
+// A git-form patch (it starts at a `diff --git` header) as one digest per file
+// section, each with the names its header gives. A call that landed in a batch
+// carries the whole batch's patch and its row shows only its own file's
+// sections, so a reader picks sections by name and merges their digests.
+export function patchSectionDigests(patch) {
+  return patch
+    .split(/^(?=diff --git )/m)
+    .map((section) => ({ names: diffSectionNames(section), ...patchDigest(section) }));
+}
+
+// The digest of several sections read as one patch: what patchDigest answers
+// for their text joined.
+export function mergePatchDigests(digests) {
+  return {
+    counts: {
+      additions: digests.reduce((total, digest) => total + digest.counts.additions, 0),
+      deletions: digests.reduce((total, digest) => total + digest.counts.deletions, 0),
+    },
+    statuses: digests.flatMap((digest) => digest.statuses),
+    targetPath: digests[0]?.targetPath ?? '',
+    files: digests.flatMap((digest) => digest.files),
+  };
 }
 
 // First `max` lines of a patch that still parses: a cut inside a hunk leaves

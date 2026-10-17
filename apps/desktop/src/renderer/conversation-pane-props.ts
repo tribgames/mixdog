@@ -89,4 +89,7 @@ export type ConversationProps = {
   /** The transcript is hidden awaiting its reveal. The pane keeps its loading
    *  cover up for as long as this holds. */
   onTranscriptHiddenChange?: (hidden: boolean) => void;
+  /** The pane's loading cover, laid over the transcript viewport only: the
+   *  composer dock below it stays painted and usable while rows load. */
+  transcriptCover?: ReactNode;
 };

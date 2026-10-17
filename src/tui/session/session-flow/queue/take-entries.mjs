@@ -39,10 +39,11 @@ export function createTakeEntriesOps({ pending, pendingNotificationKeys, removeQ
         (entry.mode || 'prompt') === targetMode &&
         queuePriorityValue(entry.priority) === bestPriority
       ) {
+        if (batch.length > 0 && entry.retryTurnId) break;
         batch.push(entry);
         pending.splice(i, 1);
         if (entry.mode === 'task-notification' && entry.key) pendingNotificationKeys.delete(entry.key);
-        if (batch.length >= limit) break;
+        if (entry.retryTurnId || batch.length >= limit) break;
       } else {
         i += 1;
       }

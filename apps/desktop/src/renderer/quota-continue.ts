@@ -56,9 +56,7 @@ export function quotaPanelVisible(state: {
 }): boolean {
   const { failure, sessionId, busy, dismissedKey } = state;
   if (!failure || !sessionId || busy || dismissedKey === quotaDismissKey(sessionId, failure.turnKey)) return false;
-  // An exhausted quota with no known reset has nothing to wait for or resume
-  // at: the plain usage-limit notice speaks for it, not the banner.
-  return failure.kind !== 'quota_exhausted' || failure.quota.resetAt !== null;
+  return true;
 }
 
 /** Local HH:mm, prefixed with month/day when the reset is not today. */

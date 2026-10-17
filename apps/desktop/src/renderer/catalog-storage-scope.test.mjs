@@ -39,11 +39,6 @@ const catalogs = [
     read: () => readCachedProjectCatalog(),
   },
   {
-    name: 'sessions',
-    write: () => writeCachedSessionCatalog([{ id: 'session_a', title: 'Private A', preview: 'Private A' }]),
-    read: () => readCachedSessionCatalog(),
-  },
-  {
     name: 'models',
     write: () => writeCachedModelCatalog([{ provider: 'private', model: 'A' }]),
     read: () => readCachedModelCatalog().models,

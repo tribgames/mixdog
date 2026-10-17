@@ -21,6 +21,15 @@ export async function exerciseBrowserTabHandover(options: {
   const { host, guest, shell, origin, command, log } = options;
   const readFrame = (sessionId: string) => readyBrowserFrame(host, sessionId);
   const { eventually } = createPolling({ timeoutMs: 8000, intervalMs: 25 });
+  // A page no pane displays is throttled and neither paints nor finishes
+  // loading (page-power). Page facts that need no pixels come from metadata,
+  // and, as the mounted pane does for its current page, the page is reported
+  // displayed so it can load.
+  const readPage = async (sessionId: string) => {
+    const page = await host.browserPageMetadata(sessionId);
+    host.setGuestActive(sessionId, page.webContentsId, true);
+    return page;
+  };
 
   await guest.executeJavaScript(`document.cookie = 'isolation_login=retained; path=/'`);
   const original = await readFrame('visible-session');
@@ -127,17 +136,17 @@ export async function exerciseBrowserTabHandover(options: {
     documentId: blankFrame.documentId,
   });
   log('about:blank popup content is visible without losing its document');
-  const other = await readFrame('parked-session');
+  const other = await host.browserPageMetadata('parked-session');
   assert.notEqual(other.webContentsId, guest.id);
   await host.browserPageControl('visible-session', { type: 'new-tab', documentId: blankFrame.documentId });
-  const resumeTab = await readFrame('visible-session');
+  const resumeTab = await readPage('visible-session');
   await host.browserPageControl('visible-session', {
     type: 'navigate',
     url: `${origin}/restore-after-unload`,
     documentId: resumeTab.documentId,
   });
   const readyToUnload = await eventually(
-    () => readFrame('visible-session'),
+    () => readPage('visible-session'),
     (value) => !value.loading && value.url.endsWith('/restore-after-unload')
   );
   const oldPageIds = readyToUnload.tabs!.map((tab) => tab.id);
@@ -147,7 +156,7 @@ export async function exerciseBrowserTabHandover(options: {
   await eventually(async () => guest.isDestroyed() && oldActive.isDestroyed(), Boolean);
   assert.equal(unrelated.isDestroyed(), false);
   const resumed = await eventually(
-    () => readFrame('visible-session'),
+    () => readPage('visible-session'),
     (value) => !value.loading && value.url.endsWith('/restore-after-unload')
   );
   assert.equal(resumed.tabs!.length, readyToUnload.tabs!.length);
@@ -158,7 +167,7 @@ export async function exerciseBrowserTabHandover(options: {
   );
   log('runtime unload destroys only the owning session pages; next demand restores tab URLs and shared login');
   host.releaseSession('visible-session');
-  const reopened = await readFrame('visible-session');
+  const reopened = await readPage('visible-session');
   assert.notEqual(reopened.webContentsId, guest.id);
   assert.equal(reopened.url, 'about:blank', 'deletion forgets saved browser navigation');
   await host.browserPageControl('visible-session', {
@@ -167,7 +176,7 @@ export async function exerciseBrowserTabHandover(options: {
     documentId: reopened.documentId,
   });
   await eventually(
-    () => readFrame('visible-session'),
+    () => readPage('visible-session'),
     (value) => !value.loading && value.url.endsWith('/reopened')
   );
   await new Promise((resolve) => setTimeout(resolve, 1100));

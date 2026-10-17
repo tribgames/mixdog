@@ -24,10 +24,11 @@ import { OPEN_MODEL_PICKER_EVENT } from './model-picker-event';
 import { RouteAutoEffortToggle, RouteDaybreakToggle } from './route-editor-auto-effort';
 import { contextTokensChange, useContextDraft } from './route-editor-context';
 import { useRouteDismissal, useRouteFontWarmup } from './route-editor-effects';
-import { useRouteLayout } from './route-editor-layout';
+import { useRouteFlyoutFit, useRouteLayout } from './route-editor-layout';
 import {
   ROUTE_PANEL_PADDING,
   ROUTE_SHEET_ROW_HEIGHT,
+  routePanelStyle,
   routeSheetRows,
   type RoutePanelBox,
   type RouteSheetPane,
@@ -87,7 +88,11 @@ export function RouteEditor({
   onChangeAutoEffort = () => {},
   onOpenSheet,
   answersModelPickerRequests = false,
+  placement = 'above',
 }: {
+  /** Side the sheet opens toward: `above` for the composer's pill at the
+   *  bottom of the screen, `below` for a dialog or settings field. */
+  placement?: 'above' | 'below';
   /** Only the focused conversation's composer sets this; it is the single
    *  responder to the open-model-picker event. */
   answersModelPickerRequests?: boolean;
@@ -302,11 +307,15 @@ export function RouteEditor({
     labelWidth,
     effortCount: effortOptions.length,
     sheetHeight,
+    placement,
     pane,
     setSheetBox,
     setFlyoutBox,
     setDrill,
   });
+  const paneRow = () => (pane ? rowButtons.current[pane] : null);
+  useRouteFlyoutFit(modelFlyout, pane === 'model' ? flyoutBox : null, setFlyoutBox, paneRow);
+  useRouteFlyoutFit(optionFlyout, pane && pane !== 'model' ? flyoutBox : null, setFlyoutBox, paneRow);
 
   const show = (focusRow: 'first' | 'last' | null = null) => {
     onOpenSheet?.();
@@ -761,7 +770,7 @@ export function RouteEditor({
             hidden={pane !== 'model'}
             data-placement={flyoutBox?.placement}
             data-state={closing ? 'closing' : 'open'}
-            style={pane === 'model' && flyoutBox ? flyoutBox : { display: 'none' }}
+            style={pane === 'model' && flyoutBox ? routePanelStyle(flyoutBox) : { display: 'none' }}
           >
             {renderModelCatalog(pane === 'model')}
           </div>,
@@ -778,7 +787,7 @@ export function RouteEditor({
             className="route-sheet-flyout"
             role="menu"
             aria-label={paneLabel(pane)}
-            style={flyoutBox}
+            style={routePanelStyle(flyoutBox)}
             data-placement={flyoutBox.placement}
             data-state={closing ? 'closing' : 'open'}
           >

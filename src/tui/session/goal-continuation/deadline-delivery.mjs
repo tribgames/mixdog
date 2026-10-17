@@ -1,7 +1,10 @@
 // Deadline notices for the running Goal: the advance warning and the closeout
 // once the duration is reached.
 import { clean } from '../../../runtime/shared/clean.mjs';
-import { goalDeadlineReached, goalDeadlineWarning } from '../../../runtime/agent/orchestrator/runtime-core/goal-text.mjs';
+import {
+  goalDeadlineReached,
+  goalDeadlineWarning,
+} from '../../../runtime/agent/orchestrator/runtime-core/goal-text.mjs';
 import { isGoalQueuedEntry } from '../queue-helpers.mjs';
 
 export function createDeadlineDelivery({ runtime, getState, getPending, enqueue, halted }) {
@@ -54,7 +57,6 @@ export function createDeadlineDelivery({ runtime, getState, getPending, enqueue,
   const deliverGoalCloseout = (goal) => {
     if (halted()) return;
     const state = getState();
-    if (state.sessionRemoteAttached) return;
     if (!state.busy && getPending().some((entry) => !isGoalQueuedEntry(entry))) {
       runtime.markGoalReminder?.('deadline-reached');
       return;

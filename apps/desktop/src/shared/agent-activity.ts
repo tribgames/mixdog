@@ -24,6 +24,21 @@ export const DESKTOP_CANCELLED_AGENT_STATUS = /cancel|killed|aborted|interrupted
  *  either — the honest answer is that the outcome is unconfirmed. */
 export const DESKTOP_CANCEL_UNCONFIRMED_STATUS = /cancel[-_\s]?(?:unconfirmed|pending)|cancell?ing/i;
 
+/** A FOURTH outcome beside completion, rest and cancellation: the turn ended
+ *  in an error or a timeout, was stopped by the stall watchdog, or its
+ *  runtime died under it. All of these land in the generic terminal bucket
+ *  too, which is what made such a row read "Completed"/"Idle", so failure is
+ *  classified before it — right after cancellation. Only the lifecycle
+ *  decides (`status`; `stage` for a row without one): mid-work the copied
+ *  runtime stage may briefly say `error` beside a worker that still runs. */
+export const DESKTOP_FAILED_AGENT_STATUS = /^(?:error|errored|fail|failed|failure|timeout|timed[-_\s]?out)$/i;
+
+/** Why a failed row failed. The runtime stamps `failureReason` on rows it
+ *  settles itself (`process-restart`: the process running the turn is gone;
+ *  `stalled`: the progress watchdog stopped it); any other failure is the
+ *  turn's own `error`. */
+export type DesktopAgentFailureReason = 'process-restart' | 'stalled' | 'error';
+
 function record(value: unknown): AgentRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as AgentRecord) : {};
 }
@@ -62,6 +77,25 @@ export function isCancelledDesktopAgentEntry(value: unknown): boolean {
   return statusValues(value).some((status) => DESKTOP_CANCELLED_AGENT_STATUS.test(status));
 }
 
+export function isFailedDesktopAgentEntry(value: unknown): boolean {
+  const entry = record(value);
+  const lifecycle = String(entry.status || '').trim() || String(entry.stage || '').trim();
+  return DESKTOP_FAILED_AGENT_STATUS.test(lifecycle);
+}
+
+export function isCompletedDesktopAgentEntry(value: unknown): boolean {
+  const entry = record(value);
+  const lifecycle = String(entry.status || '').trim() || String(entry.stage || '').trim();
+  return /^completed$/i.test(lifecycle);
+}
+
+/** The reason of a failed row; '' for a row that did not fail. */
+export function desktopAgentFailureReason(value: unknown): DesktopAgentFailureReason | '' {
+  if (!isFailedDesktopAgentEntry(value)) return '';
+  const reason = String(record(value).failureReason || '').trim();
+  return reason === 'process-restart' || reason === 'stalled' ? reason : 'error';
+}
+
 export function isCancelUnconfirmedDesktopAgentEntry(value: unknown): boolean {
   return statusValues(value).some((status) => DESKTOP_CANCEL_UNCONFIRMED_STATUS.test(status));
 }
@@ -93,6 +127,8 @@ export type DesktopAgentActivityState =
   | 'waiting'
   | 'cancel-unconfirmed'
   | 'cancelled'
+  /** The turn did not finish: error, timeout, watchdog stop, dead runtime. */
+  | 'failed'
   | 'done'
   | 'unknown'
   | 'idle';
@@ -101,7 +137,8 @@ export type DesktopAgentActivityState =
  *  queued/running/done/idle buckets: an entry cancelled WHILE QUEUED still
  *  carries stage `queued`, and one cancelled WHILE RUNNING still carries stage
  *  `running`, so asking the queued/active predicates first would settle both of
- *  them as work in progress or as a completion. A live turn blocked on the
+ *  them as work in progress or as a completion. Failure comes next, for the
+ *  same reason: it is never a completion or a rest. A live turn blocked on the
  *  user's approval needs the user rather than running. An inactive parent with
  *  unsettled descendant agents is waiting, even if its last response is
  *  unread. */
@@ -112,12 +149,15 @@ export function desktopAgentActivityState(
   if (isCancelledDesktopAgentEntry(value)) {
     return isCancelUnconfirmedDesktopAgentEntry(value) ? 'cancel-unconfirmed' : 'cancelled';
   }
+  if (isFailedDesktopAgentEntry(value)) return 'failed';
   if (statusValues(value).includes('unknown')) return 'unknown';
   if (isActiveDesktopAgentEntry(value) && isAwaitingApprovalDesktopAgentEntry(value)) return 'needs-user';
   if (isQueuedDesktopAgentEntry(value)) return 'queued';
   if (isActiveDesktopAgentEntry(value)) return 'running';
   if (options.waitingForTasks === true || hasPendingDesktopAgentWork(value)) return 'waiting';
-  return options.unread === true ? 'done' : 'idle';
+  // A worker row the pool reports `completed` finished its turn normally; it
+  // reads "Completed" for its pane window, unseen or not.
+  return options.unread === true || isCompletedDesktopAgentEntry(value) ? 'done' : 'idle';
 }
 
 export function desktopAgentIdentity(value: unknown): string {
@@ -134,17 +174,17 @@ function stampMs(value: unknown): number {
   return Date.parse(text) || 0;
 }
 
-/** FROZEN work stamps only. `updatedAt` is a live heartbeat the pool rewrites
- *  every tick, so it can never prove that new work started. */
+/** FROZEN work stamps only. `updatedAt` keeps advancing while a row runs, so
+ *  it can never prove that new work started. */
 export function desktopAgentWorkStamp(value: unknown): number {
   const entry = record(value);
   return Math.max(stampMs(entry.turnStartedAt), stampMs(entry.startedAt), stampMs(entry.createdAt));
 }
 
-/** The frozen TURN start alone. The pool's heartbeat promotion re-declares a
- *  session running with a SYNTHESIZED startedAt (session createdAt, or the
- *  heartbeat mtime) and leaves turnStartedAt null, so a turn stamp is the only
- *  stamp on that path that can prove work actually started again. */
+/** The frozen TURN start alone. A snapshot that re-reports a cancelled session
+ *  as running may carry a SYNTHESIZED startedAt (the session createdAt) and a
+ *  null turnStartedAt, so a turn stamp is the only stamp on that path that can
+ *  prove work actually started again. */
 function turnStampMs(value: unknown): number {
   return stampMs(record(value).turnStartedAt);
 }
@@ -164,11 +204,12 @@ export interface DesktopAgentCancellationLedger {
 const DESKTOP_CANCELLATION_LEDGER_CAP = 256;
 
 /** A cancel is the last word about that identity's current work. The pool
- *  publishes rows from a durable index PLUS a 2-minute heartbeat sidecar, and
- *  the sidecar promotion re-declares a session `running` whenever the index no
- *  longer carries it — which is exactly what happens right after a cancel. The
- *  ledger keeps such a row cancelled instead of letting a later snapshot
- *  resurrect it as working; only a genuinely NEWER frozen turn/start stamp
+ *  publishes rows from a durable index plus the daemon's in-memory running
+ *  set, and a session the daemon still runs reads `running` even after the
+ *  index dropped its cancelled row — which is exactly what happens right after
+ *  a cancel, until the turn unwinds. The ledger keeps such a row cancelled
+ *  instead of letting a later snapshot resurrect it as working; only a
+ *  genuinely NEWER frozen turn/start stamp
  *  (real new work under the same identity) releases it. */
 export function createDesktopCancellationLedger(cap = DESKTOP_CANCELLATION_LEDGER_CAP): DesktopAgentCancellationLedger {
   const ledger = new Map<string, { status: string; at: number; stamped: boolean }>();
@@ -186,8 +227,8 @@ export function createDesktopCancellationLedger(cap = DESKTOP_CANCELLATION_LEDGE
             at: Math.max(stamp, remembered?.at || 0),
             // An agent cancelled while QUEUED carries no frozen stamp at all.
             // Such a cancellation has a baseline of 0, which ANY later stamp
-            // outranks — including the startedAt the heartbeat promotion
-            // invents — so it must not be released by a stamp comparison.
+            // outranks — including a startedAt synthesized from the session
+            // record — so it must not be released by a stamp comparison.
             stamped: stamp > 0 || remembered?.stamped === true,
           });
           while (ledger.size > cap) {

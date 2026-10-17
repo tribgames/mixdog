@@ -16,7 +16,7 @@ import {
 } from './session-changes-store';
 import { gitRowOpenPath } from './session-diff-model';
 import { SessionDiffScope } from './session-diff-scope';
-import { SessionDiffStack } from './session-diff-section';
+import { SessionDiffStack, sessionDiffBodyPending } from './session-diff-section';
 import { SessionDiffTabStrip } from './session-diff-tab-strip';
 import { useSessionDiffCollapse } from './use-session-diff-collapse';
 import { useSessionDiffRequests } from './use-session-diff-requests';
@@ -191,6 +191,9 @@ export function SessionDiffPane({
   // A capped set draws one file: the one picked by its header (default: first).
   const [selectedPath, setSelectedPath] = useState('');
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  // The (session, source, folder) whose list was already drawn: later reads of
+  // it never hold the list back again.
+  const listDrawnFor = useRef('');
   const { collapsed, toggleCollapsed, expandPath, resetCollapsed, collapseActions } = useSessionDiffCollapse(rows);
   const tabs = useSessionDiffTabs({
     sessionId,
@@ -320,19 +323,32 @@ export function SessionDiffPane({
       </p>
     );
   } else {
-    body = (
-      <SessionDiffStack
-        stackRef={bodyRef}
-        rows={visibleRows.map(withPatch)}
-        focusRow={focusRow && withPatch(focusRow)}
-        mode={viewMode}
-        collapsed={shownCollapsed}
-        onToggle={onToggleFile}
-        canRevertPath={canRevertPath}
-        onRevert={revertFile}
-        onOpenFile={onOpenFile}
-      />
-    );
+    const drawnRows = visibleRows.map(withPatch);
+    const drawnFocus = focusRow && withPatch(focusRow);
+    // The list is first drawn once the unfolded files have their diffs: a
+    // section that grows from "Loading diff…" to the whole diff pushes every
+    // header below it out of view (a layout shift of the entire list).
+    const listKey = `${sessionId}\0${source}\0${cwd ?? ''}`;
+    const awaitingPatches =
+      listDrawnFor.current !== listKey &&
+      drawnRows.some((row) => sessionDiffBodyPending(row, row !== drawnFocus && shownCollapsed.has(row.path)));
+    if (awaitingPatches) body = <InitialSurface />;
+    else {
+      listDrawnFor.current = listKey;
+      body = (
+        <SessionDiffStack
+          stackRef={bodyRef}
+          rows={drawnRows}
+          focusRow={drawnFocus}
+          mode={viewMode}
+          collapsed={shownCollapsed}
+          onToggle={onToggleFile}
+          canRevertPath={canRevertPath}
+          onRevert={revertFile}
+          onOpenFile={onOpenFile}
+        />
+      );
+    }
   }
   return (
     <SessionDiffFrame>

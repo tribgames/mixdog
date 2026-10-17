@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, type RefObject } from 'react';
+import { useCallback, useLayoutEffect, useRef, type RefObject } from 'react';
 
 interface TabStripRevealOptions {
   stripRef: RefObject<HTMLElement | null>;
@@ -19,14 +19,19 @@ export function useTabStripReveal({
   availableWidth,
   targetWidth,
 }: TabStripRevealOptions): void {
+  // The strip may have been panned (an overflowing run, revealed or scrolled
+  // by the user). A run that has fitted ever since has nothing to reset.
+  const panned = useRef(false);
   const reveal = useCallback(() => {
     const strip = stripRef.current;
     if (!strip || targetWidth === null || availableWidth <= 0) return;
     if (targetWidth <= availableWidth) {
       if (strip.scrollLeft !== 0) strip.scrollLeft = 0;
+      panned.current = false;
       return;
     }
 
+    panned.current = true;
     const node = tabNodes.current.get(activeKey);
     if (!node || strip.clientWidth <= 0) return;
     const viewport = strip.getBoundingClientRect();
@@ -40,10 +45,18 @@ export function useTabStripReveal({
     }
   }, [activeKey, availableWidth, stripRef, tabNodes, targetWidth]);
 
+  // The geometry reads run in the frame callback, not the commit: a layout
+  // effect forced a synchronous layout of the incoming pane inside the
+  // session-switch commit. The frame callback still precedes that frame's
+  // paint, so the revealed scroll position lands in the same frame, and its
+  // read reuses the layout the frame performs anyway.
   // biome-ignore lint/correctness/useExhaustiveDependencies: signature is the trigger that re-reveals when the tab set changes
   useLayoutEffect(() => {
-    reveal();
-  }, [reveal, signature]);
+    if (targetWidth === null || availableWidth <= 0) return undefined;
+    if (targetWidth <= availableWidth && !panned.current) return undefined;
+    const frame = window.requestAnimationFrame(reveal);
+    return () => window.cancelAnimationFrame(frame);
+  }, [availableWidth, reveal, signature, targetWidth]);
 
   useLayoutEffect(() => {
     const strip = stripRef.current;

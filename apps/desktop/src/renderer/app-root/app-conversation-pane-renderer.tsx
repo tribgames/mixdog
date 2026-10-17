@@ -102,9 +102,12 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
     paneSelection: NavigationSelection,
     focused: boolean,
     focusPane: () => void,
-    leafId: string
+    leafId: string,
+    warm = false
   ): React.ReactElement {
-    const activeHandoff = options.conversationHandoff?.leafId === leafId ? options.conversationHandoff : null;
+    // A warm (retained) surface already shows its own session; a close
+    // handoff presents the closed one only in the pane's cold surface.
+    const activeHandoff = !warm && options.conversationHandoff?.leafId === leafId ? options.conversationHandoff : null;
     const presentedSelection = activeHandoff?.selection ?? paneSelection;
     const paneSessionId = presentedSelection.kind === 'session' ? presentedSelection.id : '';
     const draftKey = presentedSelection.kind === 'new' ? presentedSelection.draftId || 'default' : '';

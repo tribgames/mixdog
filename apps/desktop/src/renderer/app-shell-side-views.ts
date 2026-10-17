@@ -3,6 +3,7 @@ import { DEFAULT_SIDEBAR_VIEW_ORDER } from './sidebar-view-layout';
 import { loadSidebarPanelModule, type SidebarPanelKey } from './app-shell-components';
 import { prefetchBrowserPane, prefetchDiffView, prefetchTerminalPane } from './lazy-widgets';
 import { preloadUtilityDock } from './app-snapshot-views';
+import { loadSidebarReferences, WORKFLOW_REFERENCE_KEYS } from './sidebar-reference-cache';
 import { paneActiveSelection, type PaneLeaf } from './pane-layout';
 import { isSessionSidePanelView } from './session-side-surface-policy';
 import { allowVisualizeReveal } from './visualize-store';
@@ -37,6 +38,7 @@ export function useSideViewPrefetch(
       if (DEFAULT_SIDEBAR_VIEW_ORDER.includes(id as SidebarPanelKey)) {
         const panel = id as SidebarPanelKey;
         trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
+        if (panel === 'workflows') void loadSidebarReferences(window.mixdogDesktop, WORKFLOW_REFERENCE_KEYS);
         return;
       }
       if (id === 'browser') {

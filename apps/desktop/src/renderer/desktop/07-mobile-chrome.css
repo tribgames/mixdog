@@ -12,10 +12,12 @@ html[data-mixdog-mobile-tabs] .topbar {
   display: none;
 }
 /* A surface that has not reached its desktop for the disconnect threshold is
-   frozen, not broken: ONE dim layer with the wifi glyph blocks input until the
-   leg returns. Temporary connection diagnostics may appear below the glyph.
-   Shorter gaps — every background return costs one — show nothing. Unscoped on
-   purpose: any relay surface must be blocked, not only the phone layout. */
+   frozen, not broken: ONE light dim layer blocks input until the leg returns,
+   and a compact card names why (no internet, PC offline, reconnecting,
+   updating) and that it reconnects on its own. The frozen content stays readable
+   behind it. Shorter gaps — every background return costs one — show nothing.
+   Unscoped on purpose: any relay surface must be blocked, not only the phone
+   layout. */
 .remote-connection-overlay {
   box-sizing: border-box;
   position: fixed;
@@ -32,14 +34,38 @@ html[data-mixdog-mobile-tabs] .topbar {
   padding: 0;
   border: 0;
   color: var(--mx-text-soft);
-  background: rgb(0 0 0 / 62%);
-  -webkit-backdrop-filter: blur(2px);
-  backdrop-filter: blur(2px);
+  background: rgb(0 0 0 / 32%);
+  font: inherit;
+  cursor: pointer;
 }
-.remote-connection-overlay > svg {
-  width: 64px;
-  height: 64px;
+.remote-connection-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: min(320px, calc(100% - 48px));
+  padding: 16px 20px;
+  border-radius: 14px;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 35%);
+  text-align: center;
+}
+.remote-connection-overlay-label {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.remote-connection-overlay-hint {
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--mx-text-soft);
+}
+.remote-connection-overlay-card > svg {
+  width: 40px;
+  height: 40px;
   flex: 0 0 auto;
+  color: var(--mx-text-soft);
   animation: remote-connection-pulse 1.8s ease-in-out infinite;
 }
 @keyframes remote-connection-pulse {
@@ -52,13 +78,13 @@ html[data-mixdog-mobile-tabs] .topbar {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .remote-connection-overlay > svg {
+  .remote-connection-overlay-card > svg {
     animation: none;
   }
 }
-html[data-mixdog-mobile-tabs] .remote-connection-overlay > svg {
-  width: 40px;
-  height: 40px;
+html[data-mixdog-mobile-tabs] .remote-connection-overlay-card > svg {
+  width: 32px;
+  height: 32px;
 }
 /* ── Tab strip ── [brand mark][title pill][+][dock toggles]: the Chrome-dp toolbar keeps its 44dp row, the pill names the active
    tab, and the + and the dock toggles are the desktop's own marks scaled to
@@ -671,6 +697,45 @@ html[data-mixdog-mobile-tabs] .sidebar-backdrop[data-state="open"] {
   visibility: visible;
   pointer-events: auto;
 }
+/* Tap intent (drawer-intent.ts): a drawer tap stamps html[data-drawer-intent]
+   before its React state commits, so the sheet and scrim move on the tap's own
+   frame instead of waiting for the shell render. The stamp is dropped once the
+   committed data-state agrees, which restores the rules above. */
+html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-drawer-frame {
+  transform: none;
+  visibility: visible;
+}
+html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-drawer-frame > .workbench-side-panel[hidden] {
+  display: flex;
+}
+html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-backdrop {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+html[data-mixdog-mobile-tabs][data-drawer-intent="closed"] .sidebar-drawer-frame {
+  transform: translateX(-110%);
+  visibility: hidden;
+}
+html[data-mixdog-mobile-tabs][data-drawer-intent="closed"] .sidebar-backdrop {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+/* Edge swipes (touch-gestures.ts) read horizontal drags straight off the
+   content, so no overlay sits on the screen edge and every tap lands on the
+   control under it. A horizontal pan would make the browser cancel the touch,
+   so the shell allows vertical panning only. Elements that scroll sideways
+   (code blocks, tables, the tab strip) are their own scrollers: the rule
+   stops there and they keep their horizontal pan. */
+html[data-mixdog-mobile-tabs] .app-shell,
+html[data-mixdog-mobile-tabs] .sidebar-backdrop,
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-state="open"],
+html[data-mixdog-mobile-tabs]
+  .pane-side-dock[data-open="true"]
+  :is(header, .workbench-side-section-body, .workbench-side-panel-body) {
+  touch-action: pan-y;
+}
 html[data-mixdog-mobile-tabs] .session-sidebar-resize {
   display: none;
 }
@@ -837,6 +902,17 @@ html[data-mixdog-mobile-tabs]
 ) {
   scrollbar-width: none;
   scrollbar-gutter: auto;
+}
+/* The composer island's expanded tabs (shells, agents, files, branches) scroll
+   their lists inside the panel: a painted bar there appeared only once a list
+   overflowed and narrowed every row by its width, shifting the open panel. */
+html[data-mixdog-mobile-tabs] .composer-island,
+html[data-mixdog-mobile-tabs] .composer-island * {
+  scrollbar-width: none;
+  scrollbar-gutter: auto;
+}
+html[data-mixdog-mobile-tabs] .composer-island ::-webkit-scrollbar {
+  display: none;
 }
 /* The desktop rail deliberately expands its scroller into the reserved
    scrollbar column. Mobile hides that column entirely, so keeping the
@@ -1522,4 +1598,28 @@ html[data-mixdog-mobile-tabs] :is(.studio-detail-stage-close, .studio-detail-nav
   font-size: 16px;
   line-height: 20px;
   cursor: pointer;
+}
+
+/* Download / save controls share ONE phone spec with the header icon buttons:
+   the --mx-touch-row-main target, the header radius, glyph and hover/pressed fill,
+   visible without hover. */
+html[data-mixdog-mobile-tabs] .editor-breadcrumb-actions button.editor-breadcrumb-download,
+html[data-mixdog-mobile-tabs] .file-download-button,
+html[data-mixdog-mobile-tabs] .editor-pane-notice button,
+html[data-mixdog-mobile-tabs] .editor-pane-preview-error button {
+  min-width: var(--mx-touch-row-main);
+  min-height: var(--mx-touch-row-main);
+  border-radius: var(--mx-radius-md);
+}
+html[data-mixdog-mobile-tabs] .file-download-button svg {
+  width: var(--mx-icon-lg);
+  height: var(--mx-icon-lg);
+}
+html[data-mixdog-mobile-tabs] .editor-breadcrumb-actions button.editor-breadcrumb-download:active,
+html[data-mixdog-mobile-tabs] .file-download-button:active,
+html[data-mixdog-mobile-tabs] .dock-file-menu button:active:not(:disabled) {
+  background: var(--mx-hover);
+}
+html[data-mixdog-mobile-tabs] .dock-file-menu button {
+  min-height: var(--mx-touch-row-main);
 }

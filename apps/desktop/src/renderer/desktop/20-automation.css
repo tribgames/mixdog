@@ -542,7 +542,7 @@
   font-size: var(--mx-font-minor);
 }
 .workflows-route-controls {
-  width: max-content;
+  width: 100%;
   min-width: 0;
 }
 .workflows-route-controls .route-editor {
@@ -1288,14 +1288,4 @@
 .schedules-field > small.workflows-route-required {
   margin-top: 6px;
   color: var(--mx-warning);
-}
-
-/* Built-in agent editor: the fixed "when to use" reads as a sentence under its
-   label, on the field's text ink, instead of a greyed-out input. */
-.workflows-route-dialog .workflows-route-usage {
-  margin: 0;
-  color: var(--mx-text-soft);
-  font-size: var(--mx-font-ui);
-  line-height: var(--mx-line-minor);
-  overflow-wrap: anywhere;
 }

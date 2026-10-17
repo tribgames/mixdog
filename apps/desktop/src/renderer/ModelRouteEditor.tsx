@@ -162,6 +162,8 @@ export function ModelRouteEditor({
       autoEffort={autoEffortRoute.autoEffort}
       onChangeAutoEffort={autoEffortRoute.onChangeAutoEffort}
       onOpenSheet={autoEffortRoute.onOpenSheet}
+      // A dialog/settings field: the sheet opens below it like every popup.
+      placement="below"
     />
   );
 }

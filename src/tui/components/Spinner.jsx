@@ -66,6 +66,8 @@ export function Spinner({
   thinkingActiveSince = 0,
   thinkingMs = 0,
   effort = '',
+  // The turn's quiet state (`spinner.quiet`), shown as the quiet-time cue.
+  quiet = null,
   hasActiveTools = false,
   paused = false,
   interruptible = false,
@@ -126,6 +128,8 @@ export function Spinner({
         thinkingActiveSince={thinkingActiveSince}
         thinkingMs={thinkingMs}
         effort={effort}
+        quiet={quiet}
+        now={now}
         interruptible={interruptible}
         columns={columns}
         reducedMotion={reducedMotion}

@@ -75,10 +75,27 @@ export function createSessionViews(
 
   /** One render instance's id: bound to this service's secret, the session,
    *  the tab, its revision (every remount bumps it), the displayed pane and
-   *  the version it shows. Issued with the tab state, never guessable. */
-  const renderIdOf = (sessionId: string, tab: TabState, index: number, pane: VisualizePaneView): string =>
+   *  the version it shows. Issued with the tab state, never guessable. A
+   *  remote client's id is signed apart, so neither audience learns the
+   *  other's. */
+  const renderIdOf = (
+    sessionId: string,
+    tab: TabState,
+    index: number,
+    pane: Pick<VisualizePaneView, 'version'>,
+    audience: 'desktop' | 'remote' = 'desktop'
+  ): string =>
     createHmac('sha256', renderSecret)
-      .update([sessionId, tab.id, tab.revision, index, pane.version ?? 'live'].join('\0'))
+      .update(
+        [
+          sessionId,
+          tab.id,
+          tab.revision,
+          index,
+          pane.version ?? 'live',
+          ...(audience === 'remote' ? ['remote'] : []),
+        ].join('\0')
+      )
       .digest('base64url');
 
   const withRenderIds = (sessionId: string, tab: TabState, tabView: VisualizeTabView): VisualizeTabView => ({
@@ -149,7 +166,12 @@ export function createSessionViews(
           ...view,
           remoteLabel: remoteLabelOf(tab, live),
           cwd: tab.cwd,
-          panes: shownLayout(tab, keptHostPanes(tab), live),
+          // Inline panes carry the remote render id their report needs.
+          panes: shownLayout(tab, keptHostPanes(tab), live).map((pane, paneIndex) =>
+            pane.kind === 'inline'
+              ? { ...pane, remoteRenderId: renderIdOf(sessionId, tab, paneIndex, pane, 'remote') }
+              : pane
+          ),
         };
       }),
     };

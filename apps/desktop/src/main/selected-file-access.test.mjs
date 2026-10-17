@@ -4,6 +4,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
+import { withApiFileGrantRefresh } from '../renderer/remote-file-grant-refresh.ts';
 import { SelectedFileAccess } from './selected-file-access.ts';
 import { parseSelectedFileGrants, selectedFileGrantKey, serializeSelectedFileGrants } from './selected-file-grants.ts';
 import { readSecretFile, writeSecretFile } from './secret-file.ts';
@@ -108,6 +109,72 @@ test('failed grant publication does not leak unpublished grants into a later suc
   const persisted = parseSelectedFileGrants(await readSecretFile(storePath));
   assert.equal(persisted.grants.size, 1);
   assert.equal((await requireFile(access, selected.accessToken, files[1])).absolute, files[1]);
+});
+
+test('describing a file again keeps its token, so repeated link checks never evict an open file', async (t) => {
+  const { access, files } = await fixture(t);
+  const [opened] = await access.describe([files[0]]);
+  // Every verification or hover of another link describes its file again.
+  for (let index = 0; index < 101; index++) await access.describe([files[1]]);
+  assert.equal((await requireFile(access, opened.accessToken, files[0])).absolute, files[0]);
+  const [again] = await access.describe([files[0]]);
+  assert.equal(again.accessToken, opened.accessToken);
+});
+
+test('the window API re-grants once on the permission refusal and passes other refusals through', async () => {
+  const refusal = () =>
+    Object.assign(new Error('The selected-file permission is unavailable.'), {
+      code: 'SELECTED_FILE_GRANT_UNAVAILABLE',
+    });
+  const run = async (failure) => {
+    const calls = [];
+    const api = withApiFileGrantRefresh({
+      resolveLocalPaths: async (paths) => {
+        calls.push('resolve');
+        return [{ absolutePath: paths[0], accessToken: 'fresh', projectPath: 'C:\\outside', relPath: 'a.txt' }];
+      },
+      readProjectFile: async () => {
+        calls.push('read');
+        throw failure();
+      },
+    });
+    await api.resolveLocalPaths(['C:\\outside\\a.txt']);
+    calls.length = 0;
+    const error = await api.readProjectFile('C:\\outside', 'a.txt', 'held').catch((e) => e);
+    return { calls, error };
+  };
+  // Granted again once and retried once; the second refusal is the answer.
+  const once = await run(refusal);
+  assert.deepEqual(once.calls, ['read', 'resolve', 'read']);
+  assert.match(once.error.message, /permission is unavailable/);
+  // Any other refusal passes through untouched, with no re-grant.
+  const other = await run(() => Object.assign(new Error('ENOENT: missing'), { code: 'ENOENT' }));
+  assert.deepEqual(other.calls, ['read']);
+  assert.equal(other.error.code, 'ENOENT');
+});
+
+test('a held link whose grant was dropped past the cap is granted again and opens', async (t) => {
+  const { access, root, files } = await fixture(t);
+  // The window's file API over this grant store, as the preload exposes it.
+  const windowApi = {
+    resolveLocalPaths: (paths) => access.describe(paths),
+    readProjectFile: async (projectPath, relPath, accessToken) => {
+      const { absolute } = await access.requireGrant(accessToken, projectPath, relPath);
+      return { content: await fs.readFile(absolute, 'utf8') };
+    },
+  };
+  const api = withApiFileGrantRefresh(windowApi);
+  const [held] = await api.resolveLocalPaths([files[0]]);
+  const others = Array.from({ length: 100 }, (_, index) => join(root, `other-${index}.txt`));
+  await Promise.all(others.map((file) => fs.writeFile(file, 'other')));
+  for (const file of others) await api.resolveLocalPaths([file]);
+  await assert.rejects(requireFile(access, held.accessToken, files[0]), /selected-file permission is unavailable/);
+
+  // Before the fix: "The selected-file permission is unavailable."
+  assert.equal((await api.readProjectFile(held.projectPath, held.relPath, held.accessToken)).content, 'fixture');
+  assert.equal((await api.readProjectFile(held.projectPath, held.relPath, held.accessToken)).content, 'fixture');
+  // A token that never named a grant for this path is still refused.
+  await assert.rejects(api.readProjectFile(root, 'missing.txt', 'never-granted'), { code: 'ENOENT' });
 });
 
 test('concurrent successful selections remain authorized after reloading their persisted grants', async (t) => {

@@ -30,6 +30,8 @@ export interface PushHostEnvironment {
   /** The saved PC list (remote-saved-pcs.ts) plus the PC this page drives. */
   hostIds?: readonly string[];
   currentHostId?: string;
+  /** The clock restatement pacing reads (tests). */
+  now?: () => number;
 }
 
 /** One paired PC this browser holds its own credential for. */
@@ -37,6 +39,24 @@ export interface PairedPushHost {
   deviceId: string;
   token: string;
   pairing: RelayE2EEPairingMaterial;
+}
+
+/** Why turning notifications on failed, for the note Settings shows:
+ *  'push-service' — this browser has no working push service (an Electron
+ *  window, a browser with push turned off); 'blocked' — the browser refused the
+ *  subscription; 'outdated' — the PC predates push; 'unreachable' — the PC or
+ *  the relay could not be asked; 'failed' — a retryable browser failure
+ *  (network, state) that says nothing about push being unsupported. */
+export type PushEnableFailure = 'push-service' | 'blocked' | 'outdated' | 'unreachable' | 'failed';
+
+export class PushEnableError extends Error {
+  constructor(
+    readonly reason: PushEnableFailure,
+    cause?: unknown
+  ) {
+    super(`push enable failed: ${reason}`, cause === undefined ? undefined : { cause });
+    this.name = 'PushEnableError';
+  }
 }
 
 /** The relay key this browser last subscribed with, for a browser that does
@@ -64,7 +84,10 @@ function hostOrigin(environment: PushHostEnvironment): string {
 function base64Url(value: ArrayBuffer | ArrayBufferView | string | null | undefined): string {
   if (typeof value === 'string') return value.replace(/\+/gu, '-').replace(/\//gu, '_').replace(/=+$/u, '');
   if (!value) return '';
-  const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  const bytes =
+    value instanceof ArrayBuffer
+      ? new Uint8Array(value)
+      : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return base64Url(btoa(binary));
@@ -145,10 +168,21 @@ async function ensureKeyedSubscription(
   } else if (!create) {
     return null;
   }
-  const subscription = await pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: bufferFromBase64Url(key),
-  });
+  const subscription = await pushManager
+    .subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: bufferFromBase64Url(key),
+    })
+    .catch((error: unknown) => {
+      // AbortError ("push service not available") and NotSupportedError are a
+      // browser that cannot subscribe at all: an Electron window has no push
+      // service. NetworkError, InvalidStateError and anything unknown may pass.
+      const name = (error as { name?: unknown } | null)?.name;
+      let reason: PushEnableFailure = 'failed';
+      if (name === 'NotAllowedError') reason = 'blocked';
+      else if (name === 'AbortError' || name === 'NotSupportedError') reason = 'push-service';
+      throw new PushEnableError(reason, error);
+    });
   try {
     storage?.setItem(PUSH_SERVER_KEY_STORAGE, key);
   } catch {
@@ -310,6 +344,9 @@ export interface PushSubscriptionState {
   hosts: PushHostState[];
   /** False when something could not be asked: state it again later. */
   complete: boolean;
+  /** True once at least one PC is known to hold this subscription. An existing
+   *  subscription nobody registered is not a working one. */
+  confirmed: boolean;
 }
 
 /**
@@ -326,53 +363,129 @@ export async function statePushSubscription(
   create: boolean,
   environment: PushHostEnvironment = {}
 ): Promise<PushSubscriptionState> {
-  const relayKey = await relayWebPushKey(environment);
+  const relayKey = await relayWebPushKey(environment).catch((error: unknown) => {
+    throw new PushEnableError('unreachable', error);
+  });
   const states = relayKey ? await relayPushHostStates(null, environment) : [];
   const capable = states.filter((state) => state.supported === true).map((state) => state.deviceId);
   const undecided = states.some((state) => state.supported === null);
   if (relayKey && capable.length > 0) {
     const subscription = await ensureRelaySubscription(pushManager, relayKey, create, environment);
-    if (!subscription) return { subscription: null, mode: 'relay', hosts: states, complete: !undecided };
+    if (!subscription) {
+      return { subscription: null, mode: 'relay', hosts: states, complete: !undecided, confirmed: false };
+    }
     const result = await registerRelayPushSubscription(subscription, environment, capable);
     return {
       subscription,
       mode: 'relay',
       hosts: states.map((state) => ({ ...state, registered: result.registered.includes(state.deviceId) })),
-      complete: result.complete && !undecided,
+      // A capable PC that did not accept the registration leaves it partial.
+      complete: result.complete && !undecided && capable.every((id) => result.registered.includes(id)),
+      confirmed: result.registered.length > 0,
     };
   }
   const existing = await pushManager.getSubscription();
   // Whether any PC can take relay delivery is not known yet: change nothing.
-  if (relayKey && undecided) return { subscription: existing, mode: 'legacy', hosts: states, complete: false };
+  // Turning it on with nothing to change still subscribes — on the connected
+  // PC's own key, which the next statement migrates once a PC is known to
+  // deliver through the relay.
+  if (relayKey && undecided && (existing || !create)) {
+    return { subscription: existing, mode: 'legacy', hosts: states, complete: false, confirmed: false };
+  }
   // Legacy: only the PC this page drives delivers, and only to a subscription
   // made with its own key. One bound to another key (the relay's, after the
   // last upgraded PC was removed) is replaced — the mirror of the migration.
-  const publicKey = await api?.pushPublicKey?.().catch(() => null);
+  let keyError: unknown = null;
+  const publicKey = await api?.pushPublicKey?.().catch((error: unknown) => {
+    keyError = error;
+    return null;
+  });
   if (!publicKey) {
-    if (create) throw new Error('missing key');
+    if (create) throw new PushEnableError(pcPredatesPush(keyError) ? 'outdated' : 'unreachable', keyError);
     // The PC's key is unknown: a subscription known to be on the relay key
     // would be dead weight here, so leave it and state it again later.
     if (existing && relayKey && knownServerKey(existing, environment) === relayKey) {
-      return { subscription: existing, mode: 'legacy', hosts: states, complete: false };
+      return { subscription: existing, mode: 'legacy', hosts: states, complete: false, confirmed: false };
     }
     if (existing && api) await registerBrowserPushSubscription(api, existing);
-    return { subscription: existing, mode: 'legacy', hosts: states, complete: true };
+    return {
+      subscription: existing,
+      mode: 'legacy',
+      hosts: states,
+      complete: true,
+      confirmed: Boolean(existing && api),
+    };
   }
   const subscription = await ensureKeyedSubscription(pushManager, publicKey, create, environment, false);
-  if (subscription && api) await registerBrowserPushSubscription(api, subscription);
-  return { subscription, mode: 'legacy', hosts: states, complete: true };
+  if (subscription && api) {
+    await registerBrowserPushSubscription(api, subscription).catch((error: unknown) => {
+      throw new PushEnableError('unreachable', error);
+    });
+  }
+  return { subscription, mode: 'legacy', hosts: states, complete: !undecided, confirmed: Boolean(subscription && api) };
 }
 
-/** Remove this browser's subscription from every paired PC. */
+/** The PC answered without a key: no push support (no key, `unknown method`)
+ *  or push switched off on its connection. Anything else is the connection. */
+function pcPredatesPush(error: unknown): boolean {
+  if (error === null) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /^unknown method\b/u.test(message) || message === 'Push notifications are unavailable on this connection.';
+}
+
+/** Remove this browser's subscription from every paired PC. Every PC is
+ *  asked; rejects when any could not be (a PC whose credential the relay
+ *  refused holds nothing under it, so that is done). */
 export async function unregisterRelayPushSubscription(
   endpoint: string,
   environment: PushHostEnvironment = {}
 ): Promise<void> {
-  await Promise.all(
-    pairedPushHosts(environment).map((host) =>
-      postHost(environment, '/webpush/unregister', host, { endpoint }).catch(() => undefined)
-    )
+  const results = await Promise.allSettled(
+    pairedPushHosts(environment).map(async (host) => {
+      const response = await postHost(environment, '/webpush/unregister', host, { endpoint });
+      if (!response.ok && response.status !== 401 && response.status !== 403) {
+        throw new Error(`relay ${response.status}`);
+      }
+    })
   );
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  if (failed) throw failed.reason;
+}
+
+/** The browser let go of its subscription but a PC or the relay could not be
+ *  asked to forget the endpoint (it may push at it until the push service
+ *  answers 404/410). `cause` is the server-side failure. */
+export class PushServerCleanupError extends Error {
+  constructor(cause: unknown) {
+    super('push server cleanup failed', { cause });
+    this.name = 'PushServerCleanupError';
+  }
+}
+
+/** Turn this browser's notifications off: ask the PCs to forget the endpoint,
+ *  then always unsubscribe the browser, which must really let go. Rejects with
+ *  a browser failure if there is one, else with PushServerCleanupError when
+ *  only the server side failed (the browser is unsubscribed either way). */
+export async function removePushSubscription(
+  api: Pick<Partial<DesktopApi>, 'removePushSubscription'> | undefined,
+  pushManager: PushManager,
+  environment: PushHostEnvironment = {}
+): Promise<void> {
+  const subscription = await pushManager.getSubscription();
+  if (!subscription) return;
+  let serverFailure: { reason: unknown } | null = null;
+  try {
+    // Null on a relay that predates relay-owned push: the legacy path.
+    const relayKey = await relayWebPushKey(environment);
+    if (relayKey) await unregisterRelayPushSubscription(subscription.endpoint, environment);
+    else await api?.removePushSubscription?.(subscription.endpoint);
+  } catch (error) {
+    serverFailure = { reason: error };
+  }
+  if (!(await subscription.unsubscribe()) || (await pushManager.getSubscription())) {
+    throw new Error('browser kept the subscription', serverFailure ? { cause: serverFailure.reason } : undefined);
+  }
+  if (serverFailure) throw new PushServerCleanupError(serverFailure.reason);
 }
 
 /** Mirrors public/sw.js. A worker is a standalone script that cannot import
@@ -448,31 +561,73 @@ export async function syncPushSubscription(
   }
 }
 
+/** Sent by the worker (public/sw.js) when the browser renewed the subscription. */
+export const PUSH_SUBSCRIPTION_CHANGED_MESSAGE = 'mixdog:push-subscription-changed';
+
+/** A statement already accepted is not repeated by connections this close. */
+export const PUSH_RESTATE_INTERVAL_MS = 60_000;
+
+type WorkerMessages = Pick<ServiceWorkerContainer, 'addEventListener' | 'removeEventListener'>;
+
 /** State the subscription on every connection until the desktop has accepted
- *  it once this launch. A single attempt on the first connection lost the
- *  statement whenever that connection dropped under the call, leaving the
- *  desktop pushing to a retired endpoint until the next launch. */
+ *  it. A single attempt on the first connection lost the statement whenever
+ *  that connection dropped under the call, leaving the desktop pushing to a
+ *  retired endpoint until the next launch. Once accepted, connections within
+ *  PUSH_RESTATE_INTERVAL_MS are left alone unless the paired PCs changed; a
+ *  renewal the worker reports starts the statement over regardless. */
 export function installPushSubscriptionSync(
   api: PushRegistrationApi | undefined,
   readyEvent: string,
   target: Pick<Window, 'addEventListener' | 'removeEventListener'> = window,
-  environment: PushHostEnvironment = {}
+  environment: PushHostEnvironment = {},
+  messages: WorkerMessages | undefined = typeof navigator === 'undefined' ? undefined : navigator.serviceWorker
 ): () => void {
-  let stated = false;
+  const now = (): number => environment.now?.() ?? Date.now();
+  const pairing = (): string =>
+    pairedPushHosts(environment)
+      .map((host) => `${host.deviceId}:${host.token}`)
+      .join(',');
+  let statedAt: number | null = null;
+  let statedPairing = '';
   let inFlight = false;
-  const onReady = (): void => {
-    if (stated || inFlight) return;
+  let renewed = false;
+  const run = (): void => {
     inFlight = true;
+    renewed = false;
+    const paired = pairing();
     void syncPushSubscription(api, environment).then((ok) => {
       inFlight = false;
+      // The endpoint changed under the call: that statement may be the old one.
+      if (renewed) {
+        run();
+        return;
+      }
       if (ok) {
-        stated = true;
-        target.removeEventListener(readyEvent, onReady);
+        statedAt = now();
+        statedPairing = paired;
       }
     });
   };
+  // A later connection restates when something it could not have known has
+  // changed: a PC paired or re-paired (new credential), or a PC that came back
+  // from a restart (possibly updated, so now able to deliver through the relay).
+  const onReady = (): void => {
+    if (inFlight) return;
+    if (statedAt !== null && now() - statedAt < PUSH_RESTATE_INTERVAL_MS && pairing() === statedPairing) return;
+    run();
+  };
+  const onMessage = (event: Event): void => {
+    if ((event as MessageEvent).data?.type !== PUSH_SUBSCRIPTION_CHANGED_MESSAGE) return;
+    statedAt = null;
+    if (inFlight) renewed = true;
+    else run();
+  };
   target.addEventListener(readyEvent, onReady);
-  return () => target.removeEventListener(readyEvent, onReady);
+  messages?.addEventListener('message', onMessage);
+  return () => {
+    target.removeEventListener(readyEvent, onReady);
+    messages?.removeEventListener('message', onMessage);
+  };
 }
 
 /** A tapped notification: the session, and the PC (relay device id) that sent

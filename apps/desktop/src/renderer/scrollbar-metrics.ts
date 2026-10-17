@@ -12,7 +12,7 @@
 // 아래 닷이 가로로 틀어짐).
 //
 // So the reserve is measured instead of assumed, once before the first paint
-// and again whenever zoom/rotation could change it.
+// and again whenever zoom/rotation could change it (not on every resize).
 const SCROLLBAR_GUTTER_VAR = '--mx-scrollbar-gutter';
 
 /** What the engine actually takes from a scroll container's content box.
@@ -71,15 +71,24 @@ export function installScrollbarMetrics(): () => void {
     });
   };
   apply();
-  // Browser zoom, phone rotation, and OS scrollbar-preference changes all
-  // surface as a resize; a restored PWA page fires pageshow instead.
-  window.addEventListener('resize', sync);
+  // Browser zoom and phone rotation change the reserve; a restored PWA page
+  // fires pageshow instead. A plain window resize keeps it: probing on every
+  // step of a window drag appended a node to <body> and forced a layout per
+  // frame, so a resize re-probes only when the device pixel ratio (zoom)
+  // moved.
+  let probedRatio = window.devicePixelRatio;
+  const onResize = (): void => {
+    if (window.devicePixelRatio === probedRatio) return;
+    probedRatio = window.devicePixelRatio;
+    sync();
+  };
+  window.addEventListener('resize', onResize);
   window.addEventListener('orientationchange', sync);
   window.addEventListener('pageshow', sync);
   return () => {
     if (frame !== 0) window.cancelAnimationFrame?.(frame);
     frame = 0;
-    window.removeEventListener('resize', sync);
+    window.removeEventListener('resize', onResize);
     window.removeEventListener('orientationchange', sync);
     window.removeEventListener('pageshow', sync);
   };

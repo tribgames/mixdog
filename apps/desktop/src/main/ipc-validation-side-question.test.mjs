@@ -5,7 +5,6 @@ import { DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES } from '../shared/contr
 import { SESSION_CONFIGURE_ACTIONS } from '../../../../src/standalone/session-protocol.mjs';
 import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-validation.ts';
 import { longRunningRequestTimeout } from './local-provider-install-timeout.ts';
-import { MODEL_USE_TRUSTED_CAPABILITIES } from './model-proxy-grants.ts';
 import { createRemoteCallQueue } from './remote-call-queue.ts';
 
 test('/btw capabilities: askSide takes one question, cancelSide nothing', () => {
@@ -30,9 +29,7 @@ test('/btw capabilities: askSide takes one question, cancelSide nothing', () => 
   );
 });
 
-test('a side question is a trusted model use with a model-response deadline', () => {
-  assert.equal(MODEL_USE_TRUSTED_CAPABILITIES.has('askSide'), true);
-  assert.equal(MODEL_USE_TRUSTED_CAPABILITIES.has('cancelSide'), false);
+test('a side question has a model-response deadline', () => {
   assert.ok(longRunningRequestTimeout('askSide', ['Why?']) >= 10 * 60_000);
   assert.equal(longRunningRequestTimeout('cancelSide', []), undefined);
 });

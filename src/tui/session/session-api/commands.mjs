@@ -93,16 +93,14 @@ export function createSessionCommandsApi(bag) {
     };
   };
 
-  // The compaction pass itself, under a lock its caller holds. `quiet` (the
-  // model switch's pre-compaction) asks the compactor to skip a pass that
-  // would not reduce anything and then adds no row for it.
-  async function runCompaction(startedAt, { quiet = false } = {}) {
+  // The explicit compaction pass, under a lock its caller holds.
+  async function runCompaction(startedAt) {
     // Give Ink one event-loop turn to paint the compacting spinner before
     // runtime.compact() starts synchronous session/transcript work (same
     // yield as the auto-clear path; without it /compact looks frozen with
     // no spinner until the compact already finished).
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const result = await runtime.compact({ recoverAgent: true, ...(quiet ? { requireReduction: true } : {}) });
+    const result = await runtime.compact({ recoverAgent: true });
     const compactChanged = Boolean(result && !result.error && result.changed !== false);
     syncContextStats({
       allowEstimated: true,
@@ -115,15 +113,11 @@ export function createSessionCommandsApi(bag) {
         archived: compactionArchivedRows(result),
       });
       set({ items: replaceItems(items, { preserveSpill: true }) });
-    } else if (!quiet || result?.error) {
+    } else {
       pushItem(compactDoneItem(result, startedAt));
     }
     return result;
   }
-
-  // An in-place model switch compacts first on the current model (routes.mjs
-  // holds the command lock and shows the compacting status meanwhile).
-  bag.compactBeforeModelSwitch = () => runCompaction(Date.now(), { quiet: true });
 
   async function compactCommand() {
     if (getState().commandBusy) return null;

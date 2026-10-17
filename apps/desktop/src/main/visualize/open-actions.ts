@@ -126,6 +126,7 @@ async function openInline(
       reloadTimer: null,
       problems: [],
       problemSeq: 0,
+      allowNetwork: true,
     };
     ctx.tabs.addTab(sessionId, tab);
   }
@@ -263,6 +264,7 @@ export function createOpenActions(ctx: OpenContext) {
         reloadTimer: null,
         problems: [],
         problemSeq: 0,
+        allowNetwork: true,
       };
       ctx.tabs.addTab(sessionId, tab);
     }

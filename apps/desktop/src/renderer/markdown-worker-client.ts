@@ -54,14 +54,66 @@ function parseMarkdownOnRenderer(text: string): Promise<MarkdownAstRoot> {
 
 /** Live markdown parses its small tail on the main thread once the parser is
  *  loaded; a worker round trip per frame would gate what the reader sees. */
-export function preloadSyncMarkdownParser(): void {
-  void loadRendererParser().catch(() => {
-    rendererParserPromise = null;
-  });
+export function preloadSyncMarkdownParser(): Promise<void> {
+  return loadRendererParser().then(
+    () => undefined,
+    () => {
+      rendererParserPromise = null;
+    }
+  );
 }
 
 export function syncMarkdownParser(): ((text: string) => MarkdownAstRoot) | null {
   return rendererParser;
+}
+
+/** Largest text, counted in UTF-16 code units (`String.length`, not bytes and
+ *  not code points), that parses on the main thread in the commit that shows
+ *  it. Longer text stays on the worker.
+ *
+ *  Chosen from `scripts/markdown-sync-parse-bench.mjs` (lists, a table and a
+ *  highlighted code block per ~1.1k units, dense on purpose): parsing costs
+ *  about 1.25 ms per 1024 units, so 4096 units take a median ~5 ms (p95 ~7 ms)
+ *  while 8192 take ~10 ms (p95 15-20 ms), already most of a 16.7 ms frame. */
+export const SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS = 4096;
+
+/** Settled blocks share ONE frame's worth of main-thread parsing: this many
+ *  UTF-16 code units, i.e. one maximum-size reply. Several replies mounting in
+ *  one commit would otherwise each parse synchronously and stall the frame for
+ *  the sum; the ones past the allowance go to the worker. */
+const SETTLED_PARSE_FRAME_UTF16_UNITS = SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS;
+let settledParseSpent = 0;
+let settledParseResetQueued = false;
+
+/** The allowance renews only at a real frame boundary (the next animation
+ *  frame), never on a wall-clock window: commits that land before a frame
+ *  paints keep drawing on the same allowance. */
+function renewSettledParseAllowanceNextFrame(): void {
+  if (settledParseResetQueued) return;
+  settledParseResetQueued = true;
+  requestAnimationFrame(() => {
+    settledParseResetQueued = false;
+    settledParseSpent = 0;
+  });
+}
+
+/** A settled block's AST in the render that mounts it: the cached tree, or a
+ *  main-thread parse once the parser is loaded and this frame's allowance
+ *  covers it. Waiting for the worker painted the block as raw source (or
+ *  nothing) first, then swapped in tables, links and code cards at another
+ *  height, moving the transcript. The result is cached so a remount or another
+ *  pane reuses it. A null return means "ask the worker". */
+export function parseSettledMarkdownAstNow(text: string, maxUtf16Units: number): MarkdownAstRoot | null {
+  const value = String(text ?? '');
+  const cached = readCachedStreamingMarkdownAst(value);
+  if (cached) return cached;
+  if (!rendererParser || !value || value.length > maxUtf16Units) return null;
+  if (settledParseSpent + value.length > SETTLED_PARSE_FRAME_UTF16_UNITS) return null;
+  settledParseSpent += value.length;
+  renewSettledParseAllowanceNextFrame();
+  const root = rendererParser(value);
+  rememberStreamingMarkdownAst(value, root);
+  return root;
 }
 
 export function parseStreamingMarkdownAst(text: string): Promise<MarkdownAstRoot> {

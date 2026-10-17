@@ -31,8 +31,13 @@ const NAVIGATION_KEYS = new Set([
 ]);
 
 function applyModality(next: FocusModality): void {
+  const root = document.documentElement;
+  // Every root attribute write re-matches the 02-base.css focus rules across
+  // the document, even with an unchanged value: each space typed into the
+  // composer restyled every button and table of the transcript.
+  if (next === modality && root.getAttribute(ROOT_ATTRIBUTE) === next) return;
   modality = next;
-  document.documentElement.setAttribute(ROOT_ATTRIBUTE, next);
+  root.setAttribute(ROOT_ATTRIBUTE, next);
 }
 
 export function focusModality(): FocusModality {

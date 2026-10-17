@@ -63,7 +63,12 @@
   opacity: 0.75;
 }
 
-.file-download[data-status='failed'] .file-download-status {
+.file-download-note {
+  grid-column: 2 / -1;
+  opacity: 0.75;
+}
+
+.file-download[data-status="failed"] .file-download-status {
   color: var(--danger, #e5484d);
   opacity: 1;
 }
@@ -72,4 +77,15 @@
   grid-column: 1 / -1;
   width: 100%;
   height: 4px;
+}
+
+/* Phone: the stack sits below the deepest header stack so a failed row (which
+   stays until dismissed) never covers a header control. That stack is a main
+   tab's: the tab strip (max(8px, safe top) + --mx-touch-main + 8px padding,
+   desktop/07-mobile-chrome.css) over the editor breadcrumbs (30px,
+   desktop/26-editor.css), whose 40px ⋯ hangs 5px below that row; then a 6px
+   gap. A side pane's header (44px dock header + 34px toolbar) is shallower.
+   Button sizing is the shared phone spec in desktop/07-mobile-chrome.css. */
+html[data-mixdog-mobile-tabs] .file-downloads {
+  top: calc(max(8px, env(safe-area-inset-top, 0px)) + var(--mx-touch-main) + 8px + 30px + 5px + 6px);
 }

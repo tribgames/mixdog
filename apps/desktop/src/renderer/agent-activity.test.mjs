@@ -27,7 +27,6 @@ import { agentActivitySessionIds } from './desktop-types.ts';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store.ts';
 import { shellJobsStatusEqual } from '../shared/shell-jobs-status.ts';
-import { DESKTOP_TOAST_EVENT } from './desktop-toasts.tsx';
 import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu } from './agent-group-visibility.tsx';
 import i18n from './i18n.ts';
 
@@ -50,12 +49,25 @@ test('a working agent keeps its lifecycle while the runtime phase reads idle, do
   }
   // The status still ends the work: a settled agent is idle whatever stale phase it carries.
   assert.equal(desktopAgentActivityState({ status: 'idle', stage: 'streaming' }), 'idle');
-  assert.equal(desktopAgentActivityState({ status: 'error', stage: 'running' }), 'idle');
+  // A turn that ended in an error failed: never a rest, whatever stage it carries.
+  assert.equal(desktopAgentActivityState({ status: 'error', stage: 'running' }), 'failed');
   // A cancel in either field is never work.
   assert.equal(desktopAgentActivityState({ status: 'running', stage: 'cancelled' }), 'cancelled');
   // A row with only a stage is judged by it.
   assert.equal(desktopAgentActivityState({ stage: 'streaming' }), 'running');
   assert.equal(desktopAgentActivityState({ stage: 'idle' }), 'idle');
+});
+
+test('a completed pool row reads done, a cancel or failure outranks it, and new work reads working', () => {
+  assert.equal(desktopAgentActivityState({ status: 'completed', stage: 'completed' }), 'done');
+  assert.equal(
+    desktopAgentActivityState({ status: 'completed', stage: 'completed' }, { waitingForTasks: true }),
+    'waiting'
+  );
+  assert.equal(desktopAgentActivityState({ status: 'cancelled', stage: 'completed' }), 'cancelled');
+  assert.equal(desktopAgentActivityState({ status: 'failed', stage: 'failed' }), 'failed');
+  assert.equal(desktopAgentActivityState({ status: 'running', stage: 'running' }), 'running');
+  assert.equal(desktopAgentActivityState({ status: 'idle', stage: 'idle' }), 'idle');
 });
 
 test('background shell jobs never change an agent state or count as waiting', () => {
@@ -1203,15 +1215,15 @@ test('Agents order by creation, then move on turn start and completion only', as
     model: 'gpt-5.6',
     provider: 'openai',
   });
-  // A working row has NO idle stamp and a live heartbeat in updatedAt — the
+  // A working row has NO idle stamp and an advancing updatedAt — the
   // exact shape that used to shove a session to the top on every tick.
-  const workingRow = (owner, createdAt, turnStartedAt, heartbeatAt) => ({
+  const workingRow = (owner, createdAt, turnStartedAt, updatedAt) => ({
     ...idleRow(owner, createdAt, createdAt),
     status: 'streaming',
     stage: 'streaming',
     idleSince: null,
     turnStartedAt: new Date(turnStartedAt).toISOString(),
-    updatedAt: new Date(heartbeatAt).toISOString(),
+    updatedAt: new Date(updatedAt).toISOString(),
   });
   let push = () => {};
   window.mixdogDesktop = {
@@ -1254,7 +1266,7 @@ test('Agents order by creation, then move on turn start and completion only', as
     await act(async () => push([idleRow('first', 2_000, 50_000), workingRow('second', 1_000, 9_000, 30_000)]));
     assert.deepEqual(owners(), ['first', 'second']);
 
-    // The heartbeat runs far past the leader's stamp and still moves nothing.
+    // updatedAt runs far past the leader's stamp and still moves nothing.
     await act(async () => push([idleRow('first', 2_000, 50_000), workingRow('second', 1_000, 9_000, 90_000)]));
     assert.deepEqual(owners(), ['first', 'second']);
 
@@ -1378,8 +1390,8 @@ test('the cancellation ledger holds a stopped row against a later running snapsh
     turnStartedAt,
   });
   assert.equal(ledger.apply([row('cancelled', 1_000)])[0].status, 'cancelled');
-  // The pool's heartbeat sidecar re-declares the session running once the
-  // durable index drops the cancelled row: a stale lease, not new work.
+  // The daemon still reports the session running once the durable index
+  // drops the cancelled row: a stale report, not new work.
   const resurrected = ledger.apply([{ ...row('running', 1_000), updatedAt: 9_000_000 }])[0];
   assert.equal(resurrected.status, 'cancelled');
   assert.equal(resurrected.stage, 'cancelled');
@@ -1389,7 +1401,7 @@ test('the cancellation ledger holds a stopped row against a later running snapsh
   assert.equal(ledger.size(), 0);
 });
 
-test('an unstamped cancellation survives a heartbeat that invents a start stamp', () => {
+test('an unstamped cancellation survives a running report that invents a start stamp', () => {
   const ledger = createDesktopCancellationLedger();
   // An agent cancelled WHILE QUEUED never ran, so it carries no frozen stamp:
   // its ledger baseline is 0 and any later stamp would outrank it.
@@ -1404,8 +1416,8 @@ test('an unstamped cancellation survives a heartbeat that invents a start stamp'
     ])[0].status,
     'cancelled'
   );
-  // The pool promotion publishes `running` with a SYNTHESIZED startedAt
-  // (session createdAt / heartbeat mtime) and never a turn start.
+  // A running report publishes `running` with a SYNTHESIZED startedAt
+  // (the session createdAt) and never a turn start.
   const promoted = ledger.apply([
     {
       tag: 'plan',
@@ -1420,7 +1432,7 @@ test('an unstamped cancellation survives a heartbeat that invents a start stamp'
   assert.equal(promoted.status, 'cancelled');
   assert.equal(promoted.stage, 'cancelled');
   assert.equal(desktopAgentActivityState(promoted), 'cancelled');
-  // ISO heartbeat stamps take the same path.
+  // ISO stamps take the same path.
   assert.equal(
     ledger.apply([
       {
@@ -1599,10 +1611,10 @@ test('the Agents pane paints a cancelled agent as cancelled, never completed or 
     assert.match(document.body.textContent, /Cancel unconfirmed/);
     assert.doesNotMatch(document.body.textContent, /Completed|Idle|Queued/);
 
-    // A later snapshot promoting the same sessions back to running (the pool's
-    // 2-minute heartbeat lease) must not resurrect either of them — including
-    // the queued cancellation, which has NO frozen stamp of its own while the
-    // promotion invents startedAt from the session record / heartbeat mtime.
+    // A later snapshot reporting the same sessions as running again (the
+    // daemon has not unwound their turns yet) must not resurrect either of
+    // them — including the queued cancellation, which has NO frozen stamp of
+    // its own while the report invents startedAt from the session record.
     await act(async () =>
       push([
         {
@@ -1632,7 +1644,7 @@ test('the Agents pane paints a cancelled agent as cancelled, never completed or 
     assert.equal(stateOf('worker-running'), 'cancelled');
 
     // Real new work under the same identity carries a newer turn stamp — the
-    // one signal the heartbeat promotion never publishes.
+    // one signal a stale running report never publishes.
     await act(async () =>
       push([
         {

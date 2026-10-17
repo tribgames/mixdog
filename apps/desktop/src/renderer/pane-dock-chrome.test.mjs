@@ -133,7 +133,7 @@ async function openMenu(actions, rect) {
   return { dom, root, restore };
 }
 
-test('the ⋯ menu is portalled to body, right-aligned under the button, outside every clipping ancestor', async () => {
+test('the ⋯ menu is portalled to body, below and right-aligned to the button, outside every clipping ancestor', async () => {
   const actions = [action('a'), action('b'), action('c')];
   const { dom, root, restore } = await openMenu(actions, {
     top: 10,
@@ -147,8 +147,11 @@ test('the ⋯ menu is portalled to body, right-aligned under the button, outside
     const menu = document.querySelector('.dock-header-menu');
     assert.equal(menu.parentElement, document.body);
     assert.equal(menu.closest('#clip'), null);
-    assert.equal(menu.style.top, '42px');
-    assert.equal(menu.style.right, `${(document.documentElement.clientWidth || dom.window.innerWidth) - 728}px`);
+    // Below the button, 6px off, its right edge on the button's right edge.
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    assert.equal(menu.style.top, '44px');
+    assert.equal(menu.style.right, `${viewportWidth - 728}px`);
+    assert.equal(menu.style.left, '');
     assert.equal(menu.style.bottom, '');
     assert.ok(Number.parseFloat(menu.style.maxHeight) > 0);
     // No ancestor of the portal clips overflow.
@@ -162,15 +165,15 @@ test('the ⋯ menu is portalled to body, right-aligned under the button, outside
   }
 });
 
-test('the ⋯ menu flips above when there is no room below and caps max-height to the room', async () => {
+test('the ⋯ menu flips above only when below cannot hold it, capped to the room above', async () => {
   const height = 768;
   const probe = await openMenu([action('a')], { top: 740, bottom: 760, left: 0, right: 0, width: 0, height: 20 });
   try {
     const menu = document.querySelector('.dock-header-menu');
     const viewportHeight = document.documentElement.clientHeight || window.innerHeight || height;
     assert.equal(menu.style.top, '');
-    assert.equal(menu.style.bottom, `${viewportHeight - 740 + 4}px`);
-    assert.equal(menu.style.maxHeight, `${740 - 4 - 8}px`);
+    assert.equal(menu.style.bottom, `${viewportHeight - 740 + 6}px`);
+    assert.equal(menu.style.maxHeight, `${740 - 6 - 8}px`);
   } finally {
     await act(async () => probe.root.unmount());
     probe.restore();

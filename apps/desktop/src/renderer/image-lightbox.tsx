@@ -1,6 +1,7 @@
 import {
   ChevronLeft,
   ChevronRight,
+  Download,
   ExternalLink,
   Maximize2,
   Minimize2,
@@ -11,9 +12,14 @@ import {
 } from 'lucide-react';
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { showDesktopToast } from './desktop-toasts';
+import { setImageLightboxOpener } from './image-lightbox-host';
+import { fileDownloadFailureMessage, saveUrlOnDevice } from './file-download-transfer';
 import { t } from './i18n';
+import { DownloadSessionContext, startProjectFileDownload } from './project-file-download';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import type { ResolvedLocalLink } from './local-link-resolver';
-import { MarkdownOpenFileContext } from './MarkdownLink';
+import { MarkdownOpenFileContext, MarkdownSessionContext } from './MarkdownLink';
 import { useMobileBack } from './mobile-back';
 
 export interface LightboxItem {
@@ -68,6 +74,42 @@ export function lightboxItemsFor(element: HTMLElement): LightboxItem[] {
     .flatMap((entry) => entry.read() ?? []);
 }
 
+/** How the viewer saves `item`: `device` on a paired device (the host's file,
+ *  or the bytes shown, go to this device and its share sheet), `dialog` on the
+ *  desktop where the OS save dialog can take the URL, else not at all. */
+export function lightboxSaveMode(item: Pick<LightboxItem, 'src' | 'target'>): 'device' | 'dialog' | null {
+  if (isRemoteHostRenderer()) return 'device';
+  return window.mixdogDesktop?.saveFileAs && /^(?:data|https?):/i.test(item.src) ? 'dialog' : null;
+}
+
+/** Runs the save of `lightboxSaveMode`, reporting a failure as a toast. */
+export function saveLightboxItem(sessionId: string, item: Pick<LightboxItem, 'src' | 'name' | 'target'>): void {
+  const run = async () => {
+    if (lightboxSaveMode(item) === 'dialog') {
+      await window.mixdogDesktop!.saveFileAs!(item.src, item.name);
+    } else if (item.target) {
+      const { project, path, accessToken } = item.target;
+      await startProjectFileDownload(sessionId, path, item.name, accessToken ? project : undefined);
+    } else {
+      await saveUrlOnDevice(item.src, item.name);
+    }
+  };
+  void run().catch((error: unknown) => showDesktopToast(fileDownloadFailureMessage(error), 'error'));
+}
+
+// One viewer mounted on demand for callers outside a React tree.
+setImageLightboxOpener(async (item) => {
+  const { createRoot } = await import('react-dom/client');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const close = () => {
+    root.unmount();
+    host.remove();
+  };
+  root.render(<ImageLightbox items={[{ ...item, id: 'attachment' }]} startId="attachment" onClose={close} />);
+});
+
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 16;
 const ZOOM_STEP = 1.25;
@@ -85,6 +127,9 @@ export function ImageLightbox({
   onClose: () => void;
 }) {
   const openFile = useContext(MarkdownOpenFileContext);
+  const transcriptSession = useContext(MarkdownSessionContext);
+  const paneSession = useContext(DownloadSessionContext);
+  const sessionId = transcriptSession || paneSession;
   const dialog = useRef<HTMLDialogElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const image = useRef<HTMLImageElement>(null);
@@ -180,6 +225,12 @@ export function ImageLightbox({
           })}
         {item.openDefault &&
           button(t('Open in default app'), <ExternalLink size={16} aria-hidden="true" />, item.openDefault)}
+        {lightboxSaveMode(item) &&
+          button(
+            lightboxSaveMode(item) === 'device' ? t('Download / Share') : t('Save as'),
+            <Download size={16} aria-hidden="true" />,
+            () => saveLightboxItem(sessionId, item)
+          )}
         {button(t('Close preview'), <X size={16} aria-hidden="true" />, close)}
       </div>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: pointer pan/zoom surface; keyboard zoom and navigation are handled by the dialog's onKeyDown. */}

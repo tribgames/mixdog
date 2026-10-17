@@ -2,13 +2,14 @@
 // (FilesRootPane) under the shared DockHeaderRow — project/folder chip at the
 // left; refresh, ⋯, expand and close at the right. A transcript folder link
 // opens it with the folder revealed.
-import { memo, useCallback, useState } from 'react';
+import { memo, startTransition, useCallback, useState } from 'react';
 import { FilePlus, Folder, FolderPlus, ListCollapse, RefreshCw } from 'lucide-react';
 import { DockHeaderRow, type DockAction } from './pane-dock-chrome';
 import { FilesRootPane, type ExplorerControls } from './ExplorerTree';
 import type { PaneSideDockFolder } from './pane-side-dock';
 import { t } from './i18n';
 import { useMobileRemoteSurface } from './mobile-surface';
+import { PhoneDeferredMount } from './phone-deferred-mount';
 
 const NO_CHANGED_FILES = new Set<string>();
 const ignoreReadyChange = () => {};
@@ -44,9 +45,11 @@ export const PaneDockFilesSurface = memo(function PaneDockFilesSurface({
   // Only the phone honours the tree's pinned opens (a touch tap pins); the PC
   // dock keeps opening every tree file under the Link preview rule.
   const phone = useMobileRemoteSurface();
+  // The phone's open is a transition: the row's tap paints at once, and the
+  // editor surface (its text cover first) commits right after.
   const openTreeFile = useCallback(
     (project: string, rel: string, mode?: 'preview' | 'pinned') =>
-      phone ? onOpenFile(project, rel, mode) : onOpenFile(project, rel),
+      phone ? startTransition(() => onOpenFile(project, rel, mode)) : onOpenFile(project, rel),
     [phone, onOpenFile]
   );
   const label = folder.rel ? lastSegment(folder.rel) : lastSegment(folder.project);
@@ -99,20 +102,22 @@ export const PaneDockFilesSurface = memo(function PaneDockFilesSurface({
         onClose={onClose}
       />
       <div className="workbench-explorer pane-dock-files-body">
-        <FilesRootPane
-          projectPath={folder.project}
-          gitStatus={null}
-          changed={NO_CHANGED_FILES}
-          activeFileKey={paneDockFolderRevealKey(folder)}
-          active={active}
-          readinessKey={`dock-files:${folder.project}`}
-          onReadyChange={ignoreReadyChange}
-          onOpenFile={openTreeFile}
-          onRenameEntry={onRenameEntry}
-          revealDir
-          revealNonce={folder.nonce}
-          onControls={setControls}
-        />
+        <PhoneDeferredMount>
+          <FilesRootPane
+            projectPath={folder.project}
+            gitStatus={null}
+            changed={NO_CHANGED_FILES}
+            activeFileKey={paneDockFolderRevealKey(folder)}
+            active={active}
+            readinessKey={`dock-files:${folder.project}`}
+            onReadyChange={ignoreReadyChange}
+            onOpenFile={openTreeFile}
+            onRenameEntry={onRenameEntry}
+            revealDir
+            revealNonce={folder.nonce}
+            onControls={setControls}
+          />
+        </PhoneDeferredMount>
       </div>
     </div>
   );

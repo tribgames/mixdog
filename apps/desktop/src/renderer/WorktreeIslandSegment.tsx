@@ -1,42 +1,34 @@
-// The composer island's branch segment, last in the pill: shown for every
-// session whose workspace is a git checkout. In the project folder it names
-// the branch (or the short commit of a detached HEAD); in a managed worktree
-// the worktree branch with its prefix and base muted. Pressing it opens the
-// same branch menu as the New Task chip (branch-menu); in a worktree the menu
-// leads with View changes · Merge into <base> · Remove worktree, whose runs
-// and refusals go through the shared confirm popup. While work runs the menu
-// still opens, but nothing in it can switch.
+// The composer island's branch segment, first of the pill's git group: shown
+// for every session whose workspace is a git checkout. In the project folder
+// it names the branch (or the short commit of a detached HEAD); in a managed
+// worktree the worktree branch with its prefix and base muted. Pressing it
+// expands the island into its branch tab, the same menu as the New Task chip
+// (branch-menu) in the island's panel grammar; in a worktree the tab's footer
+// holds View changes · Merge into <base> · Remove worktree, whose runs and
+// refusals go through the shared confirm popup. While work runs the tab still
+// opens, but nothing in it can switch.
 import { FileDiff, GitBranch, GitFork, GitMerge, Trash2, TriangleAlert } from 'lucide-react';
-import { type CSSProperties, useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import type { DesktopMergeWorkspaceResult, DesktopSessionWorkspace } from '../shared/contract';
 import {
-  BranchMenuLayer,
+  BranchIslandPanel,
+  BranchNameDialog,
   clearBranchMenuCache,
+  startNewBranch,
   useBranchMenuActions,
   useBranchMenuData,
-  useBranchMenuOverlay,
+  WorktreeCarryDialog,
 } from './branch-menu';
 import type { ComposerIslandFlash } from './ComposerIsland';
+import { useComposerIslandTab } from './composer-island-state';
 import { t } from './i18n';
+import { useIslandGitStatus } from './IslandGitSegment';
+import { useMobileBack } from './mobile-back';
 import { ProgressSpinner } from './ProgressSpinner';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import type { SettingsConfirmation } from './settings/capability-data';
-import {
-  branchMenuPosition,
-  branchRows,
-  invokeWorktree,
-  worktreeFailure,
-  worktreeFailureText,
-} from './worktree-branch-model';
-
-/** The chip's vertical rule, but right-aligned to the segment: the island's
- *  branch segment ends the pill, so the menu grows leftward from its edge. */
-function islandMenuPosition(anchor: HTMLElement): CSSProperties {
-  const { left: _left, ...vertical } = branchMenuPosition(anchor);
-  const width = document.documentElement.clientWidth || window.innerWidth;
-  return { ...vertical, right: Math.max(8, width - anchor.getBoundingClientRect().right) };
-}
+import { branchRows, invokeWorktree, worktreeFailure, worktreeFailureText } from './worktree-branch-model';
 
 /** A git checkout the segment can name. A project-folder workspace may carry
  *  its branch without repoCommonDir; a detached HEAD is told from "not a
@@ -119,7 +111,6 @@ export function BranchIslandSegment({
   locked = false,
   onViewChanges,
   onFlash,
-  onOpenSession,
 }: {
   sessionId: string;
   /** The session's live workspace; no segment outside a git repository. */
@@ -133,8 +124,6 @@ export function BranchIslandSegment({
   /** A short island notice after a merge, for the session that merged (the
    *  segment's session when the merge started, whatever is shown by then). */
   onFlash?: (flash: ComposerIslandFlash, sessionId: string) => void;
-  /** Navigates to the session that holds a branch. */
-  onOpenSession?: (sessionId: string) => void;
 }) {
   const [dialog, setDialog] = useState<SettingsConfirmation | null>(null);
   const [running, setRunning] = useState(false);
@@ -151,9 +140,10 @@ export function BranchIslandSegment({
     sessionId,
     intentKey: sessionId,
     refreshKey: String(locked),
-    // The snapshot's workspace names the branch from the first frame; the
-    // list is read when the menu opens. Only a snapshot without one reads it.
-    eager: Boolean(sessionId) && !(live && showsBranch(live)),
+    // The list is read ahead (on mount and whenever the session's work
+    // settles, and again on hover or focus of the segment), so the tab opens
+    // with its rows instead of growing when they arrive.
+    eager: Boolean(sessionId),
   });
   // While a move is pending or refused, the snapshot's workspace and the menu
   // re-read can both be momentarily absent (and so can they right after a
@@ -169,11 +159,21 @@ export function BranchIslandSegment({
   const shown = Boolean(sessionId && workspace && showsBranch(workspace));
   const detached = shown && !worktree && !recovery && !workspace?.branch;
   const commit = useDetachedCommit(workspace, detached);
-  const { open, setOpen, visible, close, reopen, position, setPosition, measure, root, panel } = useBranchMenuOverlay(
-    !shown,
-    namingBranch,
-    islandMenuPosition
-  );
+  // The island owns the open tab (one at a time).
+  const [open, setOpen] = useComposerIslandTab('branch');
+  const panel = useRef<HTMLElement>(null);
+  // The checkout's status beside the open tab's chip (the Git segment's own read).
+  const gitStatus = useIslandGitStatus(open ? (workspace?.cwd ?? '') : '');
+  // Set when a close should hand focus back to the segment; the segment is
+  // hidden while its tab is open, so focus moves once the tab has closed.
+  const refocus = useRef(false);
+  const close = () => {
+    refocus.current = true;
+    setOpen(false);
+    setNamingBranch(false);
+  };
+  const reopen = () => setOpen(true);
+  useMobileBack(open, close);
   const actions = useBranchMenuActions({
     draft: false,
     intent: Boolean(menu?.pendingWorktree),
@@ -188,13 +188,26 @@ export function BranchIslandSegment({
     close,
     reopen,
     trigger,
-    onOpenSession: (id) => onOpenSession?.(id),
   });
 
   // A chosen switch (or a merge/removal) is under way: the pending mark shows
   // at once; a move into a worktree also says so until the workspace switches.
   const moving = Boolean(actions.pending?.move);
   const pendingMark = Boolean(actions.pending) || running;
+
+  // A segment that leaves (no git checkout any more) takes its open tab with it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setOpen is rebuilt each render; shown is the trigger
+  useEffect(() => {
+    if (!shown) setOpen(false);
+  }, [shown]);
+  // A closed tab hands focus back to the segment, unless a dialog took it.
+  const dialogShown = Boolean(dialog || actions.carry || namingBranch);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: open is the trigger; the rest is read at close time
+  useEffect(() => {
+    if (open) return;
+    if (refocus.current && !dialogShown) trigger.current?.focus();
+    refocus.current = false;
+  }, [open]);
 
   if (!shown || !workspace) return null;
   const branch = workspace.branch || (worktree ? t('Worktree') : commit || 'HEAD');
@@ -206,7 +219,7 @@ export function BranchIslandSegment({
       close();
       return;
     }
-    setPosition(measure());
+    refocus.current = false;
     setNamingBranch(false);
     setQuery('');
     setNotice('');
@@ -324,7 +337,7 @@ export function BranchIslandSegment({
           <button
             key={id}
             type="button"
-            className="branch-menu-item"
+            className="composer-island-button"
             data-kind="action"
             data-action-id={id}
             data-danger={danger || undefined}
@@ -345,20 +358,35 @@ export function BranchIslandSegment({
   const tooltip = branchTooltip({ moving, recovery, worktree, target, detached, branch });
   const SegmentIcon = segmentIcon(recovery, worktree);
 
+  const label = recovery ? t('Worktree missing') : branch;
+  const menuWorkspace = menu?.workspace ?? workspace;
+  const base = menuWorkspace.mergeTarget || menuWorkspace.branch || '';
+  const intent = Boolean(menu?.pendingWorktree);
+  // Modified files and commits ahead; a zero count is left out, none at all shows nothing.
+  const modified = gitStatus?.repository ? gitStatus.files.length : 0;
+  const ahead = gitStatus?.repository ? gitStatus.ahead : 0;
+  const meta = intent
+    ? ''
+    : [modified > 0 ? t('Modified {{count}}', { count: modified }) : '', ahead > 0 ? `↑${ahead}` : '']
+        .filter(Boolean)
+        .join(' · ');
+
   return (
     <>
       <button
-        ref={(node) => {
-          trigger.current = node;
-          root.current = node;
-        }}
+        ref={trigger}
         type="button"
         className={`composer-island-seg composer-island-seg-branch${worktree ? ' composer-island-seg-worktree' : ''}${recovery ? ' composer-island-seg-warning' : ''}`}
         aria-haspopup="dialog"
-        aria-expanded={visible}
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
         aria-busy={pendingMark || undefined}
         aria-label={moving ? `${branch} — ${tooltip}` : undefined}
         title={tooltip}
+        onPointerEnter={() => void load()}
+        onFocus={() => {
+          if (!open) void load();
+        }}
         onClick={toggle}
       >
         {pendingMark ? (
@@ -380,29 +408,70 @@ export function BranchIslandSegment({
         </span>
         {!recovery && worktree && target && <span className="composer-island-seg-sub">{target}</span>}
       </button>
-      {(menu || loading) && (
-        <BranchMenuLayer
-          visible={visible}
-          loading={!menu}
-          namingBranch={namingBranch}
-          setNamingBranch={setNamingBranch}
-          panelId={panelId}
-          trigger={trigger}
+      {open && (menu || loading) && (
+        <BranchIslandPanel
+          management={actions.management}
           panel={panel}
-          position={position}
+          panelId={panelId}
+          heightKey={sessionId}
+          title={
+            intent ? (
+              <>
+                <GitFork size={14} className="composer-island-seg-icon" aria-hidden="true" />
+                <span className="composer-island-branch-tab-name">{t('{{base}} → New worktree', { base })}</span>
+              </>
+            ) : (
+              <>
+                <SegmentIcon size={14} className="composer-island-seg-icon" aria-hidden="true" />
+                <span className="composer-island-branch-tab-name">{label}</span>
+              </>
+            )
+          }
+          meta={meta}
           query={query}
-          setQuery={setQuery}
+          onQuery={setQuery}
           notice={notice}
-          setNotice={setNotice}
-          intent={Boolean(menu?.pendingWorktree)}
+          intent={intent}
+          busy={actions.busy}
+          pending={actions.pending}
+          loading={!menu}
           locked={locked}
-          base={(menu?.workspace ?? workspace).mergeTarget || (menu?.workspace ?? workspace).branch || ''}
+          base={base}
           rows={menu ? branchRows(menu, sessionId, query) : []}
-          worktreeBound={Boolean((menu?.workspace ?? workspace).worktreeId)}
+          worktreeBound={Boolean(menuWorkspace.worktreeId)}
           worktreeActions={worktreeActions}
-          actions={actions}
-          close={close}
+          onPickWorktree={() => void actions.pickWorktree()}
+          onPickRow={actions.pickRow}
+          onCreateBranch={() =>
+            startNewBranch({
+              actions,
+              query,
+              locked,
+              setNotice,
+              // The name dialog takes the tab's place: the island collapses under it.
+              setNamingBranch: (naming) => {
+                setNamingBranch(naming);
+                if (naming) setOpen(false);
+              },
+            })
+          }
+          onClose={close}
         />
+      )}
+      {namingBranch && (
+        <BranchNameDialog
+          panelId={panelId}
+          anchor={trigger}
+          name={query}
+          onName={setQuery}
+          busy={actions.busy}
+          notice={notice}
+          onCreate={actions.createBranch}
+          onClose={close}
+        />
+      )}
+      {actions.carry && (
+        <WorktreeCarryDialog count={actions.carry.count} paths={actions.carry.paths} onChoose={actions.carry.choose} />
       )}
       {dialog && <SettingsConfirmDialog options={dialog} portal onClose={() => setDialog(null)} />}
     </>

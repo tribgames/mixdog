@@ -752,6 +752,14 @@
 .session-diff-section {
   min-width: 0;
 }
+/* An open file off screen keeps its DOM (selection, find, scroll position)
+   but skips layout and paint: every window-drag step re-laid out every
+   file's wrapped lines. Until it first renders it holds its estimated
+   height (inline contain-intrinsic-block-size, session-diff-section.tsx);
+   after that, "auto" keeps its last rendered height. */
+.session-diff-section:not([data-collapsed="true"]) {
+  content-visibility: auto;
+}
 .session-diff-section-head {
   position: sticky;
   top: 0;
@@ -1321,7 +1329,7 @@ div.diff-tailwindcss-wrapper .diff-line {
    itself sits under them, so the header's and last row's hover fills hid
    the top and bottom edges. */
 .turn-changes-card::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   z-index: 1;

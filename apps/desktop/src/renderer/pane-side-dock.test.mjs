@@ -660,7 +660,8 @@ test('a cold pane dock paints its open shell before mounting the heavy body', as
     assert.ok(panel);
     assert.equal(panel.hidden, false);
     assert.equal(document.querySelector('[data-testid="heavy-dock-body"]'), null);
-    assert.equal(pendingFrames.size, 1);
+    // One frame attaches the body, one activates it (useDockBodyShown).
+    assert.equal(pendingFrames.size, 2);
 
     await act(async () => {
       const callbacks = [...pendingFrames.values()];
@@ -671,6 +672,85 @@ test('a cold pane dock paints its open shell before mounting the heavy body', as
     });
     assert.ok(document.querySelector('[data-testid="heavy-dock-body"]'));
   } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('a warm pane dock reopens at its width first and activates its body a frame later', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node'],
+  });
+  let nextFrame = 1;
+  const pendingFrames = new Map();
+  dom.window.requestAnimationFrame = (callback) => {
+    const frame = nextFrame++;
+    pendingFrames.set(frame, callback);
+    return frame;
+  };
+  dom.window.cancelAnimationFrame = (frame) => pendingFrames.delete(frame);
+  const runFrames = () =>
+    act(async () => {
+      while (pendingFrames.size) {
+        const callbacks = [...pendingFrames.values()];
+        pendingFrames.clear();
+        for (const callback of callbacks) callback(16);
+      }
+    });
+
+  const { registerTranscriptWidthSync } = await import('./transcript-list-resize-patch.ts');
+  let widthSyncs = 0;
+  const unregister = registerTranscriptWidthSync(() => widthSyncs++);
+  const noop = () => {};
+  const Icon = () => React.createElement('span');
+  const descriptors = new Map([['source-control', { id: 'source-control', label: 'Source Control', icon: Icon }]]);
+  const activity = [];
+  const baseProps = {
+    leafId: 'pane-1',
+    groups: [['source-control']],
+    descriptors,
+    focused: true,
+    onSelect: noop,
+    onClose: noop,
+    onCloseDiff: noop,
+    onMoveGroup: noop,
+    onMoveView: noop,
+    onFocusPane: noop,
+    openFileTab: noop,
+    renderView: (_id, active) => {
+      activity.push(active);
+      return React.createElement('div', { 'data-testid': 'dock-body' }, 'ready');
+    },
+  };
+  const render = (open) =>
+    act(async () => root.render(React.createElement(PaneSideDock, { ...baseProps, entry: { ...closed(), open } })));
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await render(true);
+    await runFrames();
+    await render(false);
+    await runFrames();
+    assert.equal(activity.at(-1), false);
+    const syncsBeforeOpen = widthSyncs;
+    activity.length = 0;
+
+    await render(true);
+    const dock = document.querySelector('.pane-side-dock');
+    assert.equal(dock.dataset.open, 'true', 'the sheet takes its width in the click commit');
+    assert.equal(dock.dataset.bodyPending, 'true');
+    assert.ok(activity.length > 0 && activity.every((active) => active === false), 'the body stays inactive');
+    assert.ok(widthSyncs > syncsBeforeOpen, "the commit that moved the pane's edge re-measured the transcripts");
+
+    await runFrames();
+    assert.equal(dock.dataset.bodyPending, undefined);
+    assert.equal(activity.at(-1), true);
+
+    // A close hides the body in its own commit.
+    await render(false);
+    assert.equal(activity.at(-1), false);
+  } finally {
+    unregister();
     await act(async () => root.unmount());
     restore();
   }
@@ -689,7 +769,11 @@ test('stacked side surfaces are opaque (Mica-proof) and hide the panel body bene
     /\.workbench-side-panel,[^{]*\{[^}]*--mx-workspace-sheet: transparent/
   );
   const layout = await read('./workbench-side-view-layout.tsx');
-  assert.match(layout, /style=\{selected && surfacesActive \? \{ visibility: 'hidden' \} : undefined\}/);
+  // Hidden and skipped: the covered view is neither painted nor laid out.
+  assert.match(
+    layout,
+    /style=\{selected && surfacesActive \? \{ visibility: 'hidden', contentVisibility: 'hidden' \} : undefined\}/
+  );
   assert.match(layout, /inert=\{!selected \|\| surfacesActive \? true : undefined\}/);
 });
 
@@ -990,7 +1074,10 @@ test('the browser ⋯ menu carries device view, copy link, system browser and cr
   assert.equal(labels.includes('Copy link'), false, 'copy link was removed from ⋯');
   assert.ok(labels.includes('Open in system browser'));
   assert.ok(labels.includes('Fill with stored credentials'));
-  assert.equal(actions.filter((item) => item.checked).length, 1);
+  assert.equal(actions.filter((item) => item.checked && item.id !== 'zoom-bar').length, 1);
+  const zoomBar = actions.find((item) => item.id === 'zoom-bar');
+  assert.equal(zoomBar.label, 'Zoom bar');
+  assert.equal(zoomBar.checkbox, true);
   actions.find((item) => item.id === 'credential-c1').onSelect();
   assert.deepEqual(fills, ['c1']);
   const { readFile } = await import('node:fs/promises');
@@ -1274,7 +1361,7 @@ test('a pane bottom panel sits inside the workspace sheet and the dock spans the
   );
   assert.match(
     tail,
-    /\.pane-cell:has\(> \.bottom-panel:not\(\[data-state="closed"\]\)\) > \.pane-surface-stack \{\s*--no-bottom: 0;/
+    /\.pane-cell:has\(> \.bottom-panel:not\(\[data-state="closed"\]\)\)\s*>\s*\.pane-surface-stack \{\s*--no-bottom: 0;/
   );
   assert.match(panel, /background: var\(--mx-sheet-surface\);/);
   assert.match(tail, /:root:not\(\[data-mixdog-mobile-tabs\]\)/);

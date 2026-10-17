@@ -1,31 +1,31 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useLayoutEffect, useRef } from 'react';
+import { syncTranscriptWidths } from './transcript-list-resize-patch';
 
 type SidePanelFlipKind = 'sidebar' | 'dock';
 
-// A side-panel toggle still commits its FINAL geometry synchronously — the
-// old View Transition composited old/new text snapshots (ghosting, removed
-// by user decision), and a width transition re-laid the workspace out on
-// every frame (user: vscode 같은 매끄러움이 아니다). Smoothness now comes
-// from COMPOSITOR motion only: layout snaps once, then the opening panel
-// slides into its already-reserved space via transform. The per-kind html
-// class arms that slide for one settle window on OPEN; closes commit
-// instantly, and drag-resize never sees any class.
+// A side-panel toggle commits its FINAL geometry in one frame — the old View
+// Transition composited old/new text snapshots (ghosting, removed by user
+// decision), and a width transition re-laid the workspace out on every frame
+// (user: vscode 같은 매끄러움이 아니다). The layout snaps once, and the
+// transcripts whose width it changed re-measure in the layout effect of that
+// same commit: their rewrapped rows, positions and scroll anchor land before
+// the frame paints, never a frame later through the rows' observers. The
+// sidebar opens and closes from many places (rail, shortcuts, navigation), so
+// the commit that flips the shell's collapsed class is detected here, after
+// every commit of the host, by a class read (no layout).
 export function useSidePanelOpenFlip() {
   const mainPanel = useRef<HTMLElement | null>(null);
-  const settleTimers = useRef<Record<string, number>>({});
-  const beginOpen = useCallback((kind: SidePanelFlipKind, commit: () => void) => {
-    const root = document.documentElement;
-    const cls = `mx-open-${kind}`;
-    root.classList.add(cls);
-    if (settleTimers.current[cls]) window.clearTimeout(settleTimers.current[cls]);
-    settleTimers.current[cls] = window.setTimeout(() => {
-      root.classList.remove(cls);
-      settleTimers.current[cls] = 0;
-    }, 240);
+  const collapsed = useRef<boolean | null>(null);
+  useLayoutEffect(() => {
+    const shell = mainPanel.current?.closest('.app-shell');
+    if (!shell) return;
+    const next = shell.classList.contains('sidebar-collapsed');
+    const previous = collapsed.current;
+    collapsed.current = next;
+    if (previous !== null && previous !== next) syncTranscriptWidths();
+  });
+  const begin = useCallback((_kind: SidePanelFlipKind, commit: () => void) => {
     commit();
   }, []);
-  const beginClose = useCallback((_kind: SidePanelFlipKind, commit: () => void) => {
-    commit();
-  }, []);
-  return { mainPanel, beginOpen, beginClose };
+  return { mainPanel, beginOpen: begin, beginClose: begin };
 }

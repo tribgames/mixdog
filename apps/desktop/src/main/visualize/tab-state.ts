@@ -15,6 +15,7 @@ import type {
   VisualizeTabView,
   VisualizeVersionView,
 } from '../../shared/visualize';
+import type { VisualizeAnnotation } from '../../shared/visualize-annotations';
 import type { HistoryEntry } from './history';
 import { formatProblemsSection, localizeProblemText } from './page-problems';
 import type { VisualizeTarget } from './targets';
@@ -73,8 +74,8 @@ export interface TabState {
   problems: VisualizeProblem[];
   /** Bumps on every report, repeats included: a page still erroring is not settled. */
   problemSeq: number;
-  /** The user lifted the outside-network block for this tab's pages (for the
-   *  tab's lifetime; off by default). */
+  /** Outside network for this tab's pages; on for every opened tab (like the
+   *  browser panel). The guard still reports refused requests if it is cleared. */
   allowNetwork?: boolean;
   /** Kept versions (file tabs, with history on). */
   versions?: VisualizeVersionView[];
@@ -96,7 +97,14 @@ export interface TabState {
   rendered?: Set<number>;
   /** Render ids already spent, with the tab revision they were issued for. */
   rendersSpent?: Map<string, number>;
+  /** The agent's annotation marks and the revision they were made on: any
+   *  remount (reload, version, network switch) leaves them behind. */
+  annotations?: { revision: number; marks: VisualizeAnnotation[] };
 }
+
+/** The tab's marks for what it shows now (none once its revision moved on). */
+export const currentAnnotations = (tab: TabState): VisualizeAnnotation[] =>
+  tab.annotations && tab.annotations.revision === tab.revision ? tab.annotations.marks : [];
 
 export interface SessionState {
   tabs: TabState[];
@@ -245,6 +253,7 @@ export function view(tab: TabState): VisualizeTabView {
     ...(tab.allowNetwork ? { networkAllowed: true as const } : {}),
     ...versionFields(tab),
     ...(tab.thumbnail ? { thumbnail: tab.thumbnail } : {}),
+    ...(currentAnnotations(tab).length ? { annotations: currentAnnotations(tab) } : {}),
   };
 }
 

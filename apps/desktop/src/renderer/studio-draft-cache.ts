@@ -1,4 +1,5 @@
 import { recordOrNull as record } from './record-utils';
+import { contentLocalStorage, isRemoteContentSurface } from './remote-conversation-privacy';
 import { DEFAULT_STUDIO_OPTIONS, type MediaKind, type StudioOptions } from './studio-support';
 
 const DRAFT_METADATA_KEY = 'mixdog.studio-draft.v1';
@@ -55,7 +56,7 @@ function normalizeStudioDraftMetadata(value: unknown): StudioDraftMetadata | nul
 }
 
 export function readStudioDraftMetadata(
-  storage: Pick<Storage, 'getItem'> = window.localStorage
+  storage: Pick<Storage, 'getItem'> = contentLocalStorage()
 ): StudioDraftMetadata | null {
   try {
     const raw = storage.getItem(DRAFT_METADATA_KEY);
@@ -67,7 +68,7 @@ export function readStudioDraftMetadata(
 
 export function writeStudioDraftMetadata(
   value: StudioDraftMetadata,
-  storage: Pick<Storage, 'setItem'> = window.localStorage
+  storage: Pick<Storage, 'setItem'> = contentLocalStorage()
 ): void {
   try {
     const draft = normalizeStudioDraftMetadata(value);
@@ -146,8 +147,11 @@ async function mutateReferenceStore(mutate: (store: IDBObjectStore) => void): Pr
   });
 }
 
+const memoryReferences = new Map<string, unknown>();
+
 const indexedDbReferenceStore: StudioReferenceStore = {
   async read(key) {
+    if (isRemoteContentSurface()) return memoryReferences.get(key);
     const db = await database();
     return await new Promise((resolve, reject) => {
       const request = db.transaction(REFERENCE_STORE, 'readonly').objectStore(REFERENCE_STORE).get(key);
@@ -155,8 +159,14 @@ const indexedDbReferenceStore: StudioReferenceStore = {
       request.onerror = () => reject(request.error);
     });
   },
-  write: (key, value) => mutateReferenceStore((store) => store.put(value, key)),
-  remove: (key) => mutateReferenceStore((store) => store.delete(key)),
+  async write(key, value) {
+    if (isRemoteContentSurface()) memoryReferences.set(key, value);
+    else await mutateReferenceStore((store) => store.put(value, key));
+  },
+  async remove(key) {
+    if (isRemoteContentSurface()) memoryReferences.delete(key);
+    else await mutateReferenceStore((store) => store.delete(key));
+  },
 };
 
 function assetReferencesKey(assetId: string): string {

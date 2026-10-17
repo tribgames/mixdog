@@ -98,8 +98,8 @@ test('on a phone each changed file has a visible ⋯ that opens its menu without
   const items = [...document.querySelectorAll('.review-context-menu [role="menuitem"]')].map(
     (item) => item.textContent
   );
-  // OS-only items stay hidden on a remote surface.
-  assert.deepEqual(items, ['Copy path', 'Revert changes']);
+  // OS-only items stay hidden on a remote surface; the file downloads instead.
+  assert.deepEqual(items, ['Download / Share', 'Copy path', 'Revert changes']);
   assert.equal(more.getAttribute('aria-expanded'), 'true');
 });
 

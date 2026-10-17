@@ -15,7 +15,7 @@ import { JSDOM } from 'jsdom';
 import { installTestDom } from './test-support/test-dom.mjs';
 
 import { parseMarkdownToHast } from './markdown-ast';
-import { parseStreamingMarkdownAst } from './markdown-worker-client';
+import { parseStreamingMarkdownAst, preloadSyncMarkdownParser } from './markdown-worker-client';
 import MarkdownBody from './MarkdownBody';
 import MarkdownAstBody from './MarkdownAstBody';
 import { MarkdownSourceFallback } from './MarkdownSourceFallback';
@@ -58,9 +58,10 @@ for (const [name, render] of Object.entries(strongRenderers)) {
     const cases = [
       {
         source: '네, 재영님. **`src/workflows/default/`가 코워크(Cowork)**입니다.',
-        text: '네, 재영님. default/가 코워크(Cowork)입니다.',
-        strong: ['default/가 코워크(Cowork)'],
-        code: [],
+        // The folder mention keeps its inline code as written.
+        text: '네, 재영님. src/workflows/default/가 코워크(Cowork)입니다.',
+        strong: ['src/workflows/default/가 코워크(Cowork)'],
+        code: ['src/workflows/default/'],
       },
       {
         source: '**앞 `코드` 뒤(설명)**입니다.',
@@ -236,7 +237,13 @@ test('a streaming table appears only once its delimiter row is complete', () => 
     return { table: document.querySelector('table') !== null, text: document.body.textContent };
   };
   const lead = '정리하면 다음과 같습니다.\n\n';
-  for (const partial of ['| 항목 | 값 | 비', '| 항목 | 값 | 비고 |', '| 항목 | 값 | 비고 |\n', '| 항목 | 값 | 비고 |\n|---|--', '| 항목 | 값 | 비고 |\n|---|---|']) {
+  for (const partial of [
+    '| 항목 | 값 | 비',
+    '| 항목 | 값 | 비고 |',
+    '| 항목 | 값 | 비고 |\n',
+    '| 항목 | 값 | 비고 |\n|---|--',
+    '| 항목 | 값 | 비고 |\n|---|---|',
+  ]) {
     const shown = render(lead + partial);
     assert.equal(shown.table, false, partial);
     assert.equal(shown.text.includes('|'), false, `raw pipes stay hidden: ${partial}`);
@@ -291,6 +298,7 @@ test('streaming fenced scripts keep final card geometry while their first AST is
         React.createElement(StreamingMarkdownBody, {
           text: '```ts',
           parse: false,
+          sync: true,
           copyControl: CopyControl,
         })
       );
@@ -306,6 +314,7 @@ test('streaming fenced scripts keep final card geometry while their first AST is
         React.createElement(StreamingMarkdownBody, {
           text: '```ts\nconst answer = 42;',
           parse: false,
+          sync: true,
           copyControl: CopyControl,
         })
       );
@@ -317,21 +326,17 @@ test('streaming fenced scripts keep final card geometry while their first AST is
   }
 });
 
-test('a fenced source projection holds the transcript entry until its AST lands', async () => {
+test('a settled fence commits its code card in the first render once the parser is loaded', async () => {
   const { dom, restore } = installTestDom(null, { jsdom: { url: 'http://localhost/' } });
   const host = dom.window.document.getElementById('root');
   const root = createRoot(host);
   const text = 'Run this:\n\n```ts\nconst held = true;\n```';
   try {
+    await preloadSyncMarkdownParser();
     act(() => {
       root.render(React.createElement(StreamingMarkdownBody, { text, copyControl: () => null }));
     });
-    assert.ok(host.querySelector('.markdown-code-fallback'));
-    assert.ok(host.querySelector('[data-transcript-pending]'), 'the projection is not settled content');
-    await act(async () => {
-      await parseStreamingMarkdownAst(text);
-    });
-    await act(async () => {});
+    // No source projection first: it painted at another height than the card.
     assert.equal(host.querySelector('.markdown-code-fallback'), null);
     assert.equal(host.querySelector('[data-transcript-pending]'), null);
     assert.match(host.textContent, /const held = true;/);

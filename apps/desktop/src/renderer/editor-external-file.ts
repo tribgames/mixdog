@@ -5,14 +5,18 @@ import { openConfirmedFile } from './file-launch-confirmation';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { isSshConnectionWindow } from './desktop-connection';
 import { downloadAndOpenServerFile } from './server-transfers';
+import { startProjectFileDownload } from './project-file-download';
 
 export async function openEditorFileExternally(
   projectPath: string,
   relPath: string,
-  accessToken?: string
+  accessToken?: string,
+  /** The conversation owning the surface; a paired device downloads as it. */
+  sessionId = ''
 ): Promise<void> {
+  // The host's OS cannot open anything for a paired device: it downloads instead.
   if (isRemoteHostRenderer()) {
-    showDesktopToast(t('Opening files in the default app is only available on the host computer.'), 'info');
+    await startProjectFileDownload(sessionId, relPath, undefined, accessToken ? projectPath : undefined);
     return;
   }
   // A server file reaches this PC's app only as an explicit download.

@@ -1,5 +1,6 @@
 import type React from 'react';
 import { ActivityRail } from '../ActivityRail';
+import { useEdgeSwipeDrawers } from '../use-edge-swipe-drawers';
 import { isMobileDeviceSurface, useMobileRemoteSurface } from '../mobile-surface';
 import { RemotePcCard } from '../RemotePcSwitcher';
 import {
@@ -9,7 +10,9 @@ import {
   type WorkbenchSideViewId,
 } from '../workbench-side-view-layout';
 import { SidebarDiffColumn } from '../sidebar-diff-column';
-import { StarterGuide } from '../StarterGuide';
+import type { StarterGuide as StarterGuideComponent } from '../StarterGuide';
+import { starterGuideModule } from '../first-screen-deferred';
+import { useDeferredModule } from '../deferred-module';
 import { warmSettingsView } from '../app-shell-components';
 import type { useAppShellPanels } from '../use-app-shell-panels';
 import type { useAppSideDocks } from '../use-app-side-docks';
@@ -20,6 +23,8 @@ import type { useAppSettingsRouter } from './use-app-settings-router';
 export interface AppSidebarDrawerProps {
   sidebarOpen: boolean;
   sidebarMotion: ReturnType<typeof useAppShellPanels>['sidebarMotion'];
+  openSidebar: () => void;
+  applySidebarOpen: (open: boolean) => void;
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
   /** Onboarding is open or still deciding whether to open. */
@@ -46,9 +51,18 @@ export interface AppSidebarDrawerProps {
   openFileTab: (project: string, rel: string, line?: number) => void;
 }
 
+/** The desktop sidebar's footer guide. Phones never render it, so its chunk
+ *  stays off their first screen; a desktop boot holds the cover until it is in. */
+function StarterGuide(props: React.ComponentProps<typeof StarterGuideComponent>) {
+  const module = useDeferredModule(starterGuideModule, { bootSurface: 'starter-guide' });
+  return module ? <module.StarterGuide {...props} /> : null;
+}
+
 export function AppSidebarDrawer({
   sidebarOpen,
   sidebarMotion,
+  openSidebar,
+  applySidebarOpen,
   settingsOpen,
   setSettingsOpen,
   onboardingActive,
@@ -67,6 +81,7 @@ export function AppSidebarDrawer({
   openFileTab,
 }: AppSidebarDrawerProps) {
   const phone = useMobileRemoteSurface();
+  useEdgeSwipeDrawers({ sidebarOpen, openSidebar, applySidebarOpen });
   return (
     <div className="sidebar-drawer-frame" data-state={sidebarOpen ? 'open' : 'closed'} data-motion={sidebarMotion}>
       {/* Phone drawer: the PC being driven sits above the rail and whichever
@@ -104,16 +119,16 @@ export function AppSidebarDrawer({
         footer={
           // Phones and tablets get no starter guide (welcome, tour, checklist).
           isMobileDeviceSurface() ? undefined : (
-          <StarterGuide
-            descriptors={sideViewDescriptors}
-            onboardingActive={onboardingActive}
-            onOpenView={selectWorkbenchSideView}
-            onOpenSettings={(section) => {
-              closeSidebarForNavigation('instant');
-              openSettings(section);
-            }}
-            onCloseSettings={() => setSettingsOpen(false)}
-          />
+            <StarterGuide
+              descriptors={sideViewDescriptors}
+              onboardingActive={onboardingActive}
+              onOpenView={selectWorkbenchSideView}
+              onOpenSettings={(section) => {
+                closeSidebarForNavigation('instant');
+                openSettings(section);
+              }}
+              onCloseSettings={() => setSettingsOpen(false)}
+            />
           )
         }
       />

@@ -80,6 +80,8 @@ export function loadWorker({
   windows = [],
   /** What this device's browser reports when the app has published nothing. */
   systemLanguage = 'en',
+  /** The registration's push manager, for a renewed subscription. */
+  pushManager = { subscribe: async () => ({}) },
   fetchAsset = async () => {
     const response = new Response('asset');
     Object.defineProperty(response, 'type', { value: 'basic' });
@@ -134,6 +136,7 @@ export function loadWorker({
       location: { origin },
       navigator: { language: systemLanguage },
       registration: {
+        pushManager,
         showNotification: async (title, options) => {
           shown.push({ title, options });
         },
@@ -152,6 +155,7 @@ export function loadWorker({
       ' appScopePath, notificationLanguage, uiLanguageForLocale,' +
       ' APP_STATE_CACHE, APP_SCOPE_ENTRY, NOTIFICATION_CLICK_ENTRY,' +
       ' NOTIFICATION_CLICK_TTL_MS, OPEN_SESSION_MESSAGE, UI_LANGUAGE_ENTRY,' +
+      ' PUSH_SUBSCRIPTION_CHANGED_MESSAGE,' +
       ' SHARE_CACHE, SHARE_ENTRY_PREFIX, SHARE_ENTRY_TTL_MS, SHARE_INDEX_NAME,' +
       ' SHARE_TARGET_PATH };',
     context

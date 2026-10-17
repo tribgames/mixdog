@@ -25,7 +25,7 @@ test('AppWorkspaceMain renders PaneWorkspace with conversation header and contro
     leaves: [{ id: 'leaf-1', tabs: [{ kind: 'session', id: 's1' }], activeTabKey: 'session:s1' }],
     focusedLeafId: 'leaf-1',
     focusedLeaf: { id: 'leaf-1', tabs: [{ kind: 'session', id: 's1' }], activeTabKey: 'session:s1' },
-    layout: { type: 'leaf', id: 'leaf-1' },
+    layout: { type: 'leaf', id: 'leaf-1', tabs: [{ kind: 'session', id: 's1' }], activeKey: 'session:s1' },
     focusLeaf: () => {},
     activateTab: () => {},
     setPaneWorkspace: () => {},

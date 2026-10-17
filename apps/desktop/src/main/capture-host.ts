@@ -279,6 +279,9 @@ export class CaptureService implements DesktopService {
   async stopShellJob(): Promise<{ stopped: boolean; error?: string }> {
     return { stopped: false, error: 'unavailable' };
   }
+  async releaseShellJob(): Promise<{ released: boolean; error?: string }> {
+    return { released: false, error: 'unavailable' };
+  }
   async getQuotaAutoResume(): Promise<boolean> {
     return true;
   }
@@ -471,7 +474,7 @@ export class CaptureService implements DesktopService {
       throw new Error('Jitter probe remote resume snapshots are not prepared.');
     }
     // Model the service's real held-publication boundary: the persisted restore
-    // exists first, but resume resolves only after live-share supplies FULL.
+    // exists first, but resume resolves only after the live runtime frame.
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 180));
     this.publish(this.jitterLiveSnapshot);
   }

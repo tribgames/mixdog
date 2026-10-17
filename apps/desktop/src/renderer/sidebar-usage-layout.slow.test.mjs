@@ -61,6 +61,7 @@ test('quota tracks align across providers, start after the longest label and res
       loader: 'css',
       contents: `
         @import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+        @import "./font-faces.css";
         @import "./ui/tokens.css";
         @import "./desktop.css";
       `,

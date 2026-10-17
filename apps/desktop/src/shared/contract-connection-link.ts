@@ -29,15 +29,7 @@ export type DesktopConnectionNotice =
   /** Tool calls whose result never arrived; they are not run again. */
   | { kind: 'outcome-unknown'; sessionId: string; toolIds: string[] }
   /** This PC's model sign-in was refused during the server's turn. */
-  | { kind: 'model-sign-in'; provider: string }
-  /** This PC refused or stopped the server's model call: it had no permission
-   *  (`reason`: none yet, expired, its calls or tokens used up, or the
-   *  background budget spent), it called too fast, or a call ran too long. */
-  | {
-      kind: 'model-proxy-limited';
-      limit: 'not-authorized' | 'rate-limited' | 'call-too-long';
-      reason?: 'none' | 'expired' | 'calls' | 'tokens' | 'background-calls' | 'background-tokens';
-    };
+  | { kind: 'model-sign-in'; provider: string };
 
 /** Startup reopening of the server windows open at the last quit, shown in
  *  this PC's window. */

@@ -6,6 +6,7 @@
 // fetched again. Total size is capped and least-recently-used entries go first.
 
 import { loadImage } from './load-image';
+import { isRemoteContentSurface } from './remote-conversation-privacy';
 
 export const PREVIEW_MAX_SIDE = 320;
 export const PREVIEW_MAX_BYTES = 40 * 1024;
@@ -200,7 +201,7 @@ export function createImagePreviewStore(backend: PreviewBackend, maxBytes = PREV
 export type ImagePreviewStore = ReturnType<typeof createImagePreviewStore>;
 
 export const persistentImagePreviews: ImagePreviewStore = createImagePreviewStore(
-  typeof indexedDB === 'undefined' ? memoryPreviewBackend() : indexedDbPreviewBackend()
+  typeof indexedDB === 'undefined' || isRemoteContentSurface() ? memoryPreviewBackend() : indexedDbPreviewBackend()
 );
 
 /** Downscales a data URL to at most 320 px on its longest side, re-encoded
@@ -290,4 +291,4 @@ export function purgeEmptySessionPreviews(
   );
 }
 
-if (typeof indexedDB !== 'undefined') void purgeEmptySessionPreviews();
+if (typeof indexedDB !== 'undefined' && !isRemoteContentSurface()) void purgeEmptySessionPreviews();

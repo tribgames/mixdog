@@ -63,22 +63,29 @@ export async function retry<T>(find: () => Promise<T | null> | T | null): Promis
   throw new Error(NOT_ON_SCREEN);
 }
 
-/** The frames showing the tab's HTML panes, with their pane labels. */
-export function htmlFrames(window: BrowserWindow, tab: VisualizeTabView): Array<{ pane: string; frame: WebFrameMain }> {
+/** The frames showing the tab's HTML panes, with their pane labels and
+ *  displayed pane indices. */
+export function htmlFrames(
+  window: BrowserWindow,
+  tab: VisualizeTabView
+): Array<{ pane: string; index: number; frame: WebFrameMain }> {
   const frames = window.webContents.mainFrame.framesInSubtree;
-  const found: Array<{ pane: string; frame: WebFrameMain }> = [];
-  for (const pane of tab.panes) {
-    if (pane.kind !== 'html') continue;
+  const found: Array<{ pane: string; index: number; frame: WebFrameMain }> = [];
+  tab.panes.forEach((pane, index) => {
+    if (pane.kind !== 'html') return;
     const prefix = leasePrefix(pane.url);
     for (const frame of frames) {
-      if (!frame.isDestroyed() && frame.url.startsWith(prefix)) found.push({ pane: pane.label, frame });
+      if (!frame.isDestroyed() && frame.url.startsWith(prefix)) found.push({ pane: pane.label, index, frame });
     }
-  }
+  });
   return found;
 }
 
 /** The panel's own pane frames: not frames nested inside a page. */
-export function paneFrames(window: BrowserWindow, tab: VisualizeTabView): Array<{ pane: string; frame: WebFrameMain }> {
+export function paneFrames(
+  window: BrowserWindow,
+  tab: VisualizeTabView
+): Array<{ pane: string; index: number; frame: WebFrameMain }> {
   return htmlFrames(window, tab).filter(({ frame }) => frame.parent !== null && frame.parent.parent === null);
 }
 

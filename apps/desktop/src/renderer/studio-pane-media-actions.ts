@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { t } from './i18n';
 import { isSshConnectionWindow } from './desktop-connection';
 import { showDesktopToast } from './desktop-toasts';
+import { fileDownloadFailureMessage, saveBlobOnDevice } from './file-download-transfer';
 import { downloadAndOpenServerFile, revealFileFromWindow } from './server-transfers';
 import { base64Bytes, type MediaBytes, mediaFile } from './studio-pane-support';
 import { callCapability, errorText, type MediaAsset, type MediaAssetRead, type StudioApi } from './studio-support';
@@ -94,30 +95,14 @@ export function createStudioMediaActions({
     return { bytes: base64Bytes(result.base64), mime: result.mime || asset.mime };
   };
 
-  // Web app Save: the device share sheet reaches Photos and Files on a phone.
-  // Where it is missing or refuses — a slow read can outlive the tap's user
-  // activation — a download link delivers the same file.
+  // Web app Save: the phone app's native save, else the device share sheet
+  // (Photos and Files on a phone) or a download link.
   const saveAsset = async (asset: MediaAsset) => {
     try {
       const file = mediaFile(asset, await readOriginalMedia(asset));
-      if (navigator.canShare?.({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file] });
-          return;
-        } catch (reason) {
-          if (reason instanceof DOMException && reason.name === 'AbortError') return;
-        }
-      }
-      const href = URL.createObjectURL(file);
-      const link = document.createElement('a');
-      link.href = href;
-      link.download = file.name;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(href), 60_000);
+      await saveBlobOnDevice(file, file.name);
     } catch (reason) {
-      setError(errorText(reason));
+      setError(fileDownloadFailureMessage(reason));
     }
   };
 

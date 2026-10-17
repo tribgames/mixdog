@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { t as translate } from './i18n.ts';
-import { backgroundJobRows, cwdFolderName, shellFinishedLabel, shellRowAction } from './background-jobs-model.ts';
+import {
+  backgroundJobRows,
+  cwdFolderName,
+  expiredShellRows,
+  SHELL_AUTO_DISMISS_MS,
+  shellFinishedLabel,
+  shellRowAction,
+} from './background-jobs-model.ts';
 import {
   dismissedShellJobs,
   dismissShellJobs,
@@ -52,13 +59,37 @@ test('shell row action follows the stop state; finished rows only dismiss', () =
   assert.equal(shellRowAction({ finished: true }, 'stopping'), 'dismiss');
 });
 
-test('finished shell labels: cancelled reads Stopped, then exit code, then Finished', () => {
+test('finished shell labels: exit 0 reads Exited, a stop Stopped, anything else Failed', () => {
+  assert.equal(shellFinishedLabel({ status: 'completed', exitCode: 0 }), translate('Island: Exited'));
   assert.equal(shellFinishedLabel({ status: 'cancelled', exitCode: 1 }), translate('Island: Stopped'));
-  assert.equal(
-    shellFinishedLabel({ status: 'failed', exitCode: 2 }),
-    translate('Island: Exited {{code}}', { code: 2 })
-  );
-  assert.equal(shellFinishedLabel({ status: 'completed', exitCode: null }), translate('Island: Finished'));
+  assert.equal(shellFinishedLabel({ status: 'failed', exitCode: 2 }), translate('Failed'));
+  assert.equal(shellFinishedLabel({ status: 'completed', exitCode: null }), translate('Failed'));
+  assert.equal(shellFinishedLabel({ status: 'failed', exitCode: 0 }), translate('Failed'));
+});
+
+test('only clean exits expire, SHELL_AUTO_DISMISS_MS after they finished (or were first seen)', () => {
+  const row = (key, exitCode, finishedAt, status = 'completed') => ({
+    key,
+    kind: 'shell',
+    label: key,
+    startedAt: 0,
+    finished: true,
+    exitCode,
+    status,
+    finishedAt,
+  });
+  const rows = [
+    { key: 'run', kind: 'shell', label: 'run', startedAt: 0 },
+    row('ok-old', 0, 1_000),
+    row('ok-new', 0, 50_000),
+    row('ok-unknown', 0, 0),
+    row('failed', 2, 1_000, 'failed'),
+    row('stopped', null, 1_000, 'cancelled'),
+  ];
+  const seen = () => 30_000;
+  assert.equal(SHELL_AUTO_DISMISS_MS, 60_000);
+  assert.deepEqual(expiredShellRows(rows, 61_000, seen), { keys: ['ok-old'], nextAt: 90_000 });
+  assert.deepEqual(expiredShellRows(rows, 110_000, seen), { keys: ['ok-old', 'ok-new', 'ok-unknown'], nextAt: 0 });
 });
 
 test('cwd folder name takes the last segment of either separator', () => {

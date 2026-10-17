@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { shellJobsPollDelay } from './desktop-support.ts';
 import { createShellJobsPoller } from './shell-jobs-poller.ts';
 import { createSnapshotDeltaEncoder, isNoDelta } from './state-delta.ts';
 
@@ -46,6 +47,40 @@ function fixture(listed = (jobs) => jobs) {
     },
   };
 }
+
+test('a held shell of a closed session is listed for every session whose folder sees it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const held = { ...JOB, taskId: 'shell_held', cwd: 'C:/project/app', terminationUnconfirmed: true };
+  let orphaned = [];
+  const changes = [];
+  const poller = createShellJobsPoller({
+    getEngineState: () => ({ clientHostPid: 4242, busy: false }),
+    loadModule: async () => ({
+      shellJobsStatus: () => ({ count: 0, elapsedLabel: '', jobs: [], sessions: {}, orphaned }),
+      // Stands in for the runtime's folder/repository check.
+      shellJobVisibleFrom: (job, cwd) => job.cwd.startsWith(cwd),
+    }),
+    onChange: (sessionIds, everySession) => changes.push([[...sessionIds], everySession]),
+  });
+  try {
+    poller.start();
+    t.mock.timers.tick(0);
+    await flush();
+    assert.deepEqual(poller.statusFor('sess_viewer', 'C:/project').jobs, []);
+    orphaned = [held];
+    t.mock.timers.tick(shellJobsPollDelay({ busy: false }, 0));
+    await flush();
+    assert.deepEqual(changes.at(-1), [[], true], 'every pane repaints when an orphan appears');
+    const row = poller.statusFor('sess_viewer', 'C:/project').jobs[0];
+    assert.equal(row.taskId, 'shell_held');
+    assert.equal(row.terminationUnconfirmed, true, 'rendered as termination unconfirmed with its release action');
+    assert.equal(poller.statusFor('sess_viewer', 'C:/project').count, 0, 'not counted as running');
+    assert.deepEqual(poller.statusFor('sess_other', 'D:/elsewhere').jobs, []);
+    assert.deepEqual(poller.statusFor('sess_viewer').jobs, [], 'no folder, nothing visible');
+  } finally {
+    poller.stop();
+  }
+});
 
 async function pollTimes(t, count, afterEach = () => {}) {
   for (let index = 0; index < count; index += 1) {
@@ -94,6 +129,24 @@ test('an idle background shell republishes nothing across repeated polls', async
     publish();
     assert.equal(frames.length, 2);
     assert.deepEqual(Object.keys(frames[1].sc).sort(), ['hostShellJobs', 'shellJobs']);
+  } finally {
+    f.poller.stop();
+  }
+});
+
+test('a job turning "termination unconfirmed" is carried and republished', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  try {
+    f.poller.start();
+    t.mock.timers.tick(0);
+    await flush();
+    assert.equal(f.poller.statusFor('sess_owner').jobs[0].terminationUnconfirmed, undefined);
+    f.setJobs([{ ...JOB, terminationUnconfirmed: true }]);
+    await pollTimes(t, 1);
+    assert.equal(f.changes.length, 2, 'the flag alone is a change');
+    assert.equal(f.poller.statusFor('sess_owner').jobs[0].terminationUnconfirmed, true);
+    assert.equal(f.poller.status.jobs[0].terminationUnconfirmed, true);
   } finally {
     f.poller.stop();
   }

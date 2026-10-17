@@ -6,6 +6,7 @@ import {
   desktopSidebarDestinationEnabled,
   desktopUtilityDockTabEnabled,
 } from './desktop-feature-config';
+import { OPEN_DOCK_TAB_EVENT, SET_DOCK_OPEN_EVENT, type OpenDockTabDetail } from './open-dock-tab-event';
 import { paneActiveSelection } from './pane-layout';
 import type { UtilityDockTab } from './UtilityDock';
 import { DEFAULT_SIDEBAR_VIEW_ORDER, type SidebarViewGroup } from './sidebar-view-layout';
@@ -182,6 +183,19 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     }
     paneSideDocks.open(paneWorkspace.focusedLeafId, tab);
   });
+  useEffect(() => {
+    const onOpen = (event: Event) => openDockTab((event as CustomEvent<OpenDockTabDetail>).detail.tab);
+    window.addEventListener(OPEN_DOCK_TAB_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_DOCK_TAB_EVENT, onOpen);
+  }, [openDockTab]);
+  const setFocusedDockOpen = useStableEvent((open: boolean) => {
+    if (open !== focusedPaneDockOpen) toggleDock();
+  });
+  useEffect(() => {
+    const onSet = (event: Event) => setFocusedDockOpen((event as CustomEvent<{ open: boolean }>).detail.open);
+    window.addEventListener(SET_DOCK_OPEN_EVENT, onSet);
+    return () => window.removeEventListener(SET_DOCK_OPEN_EVENT, onSet);
+  }, [setFocusedDockOpen]);
 
   return {
     workbenchSideLayout,

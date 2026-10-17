@@ -28,7 +28,8 @@
  * - State lives in a registry keyed by the row key, so a row that remounts
  *   (virtualization) continues where it was instead of replaying.
  */
-import { type RefObject, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { setStreamPacerBacklogProbe } from './transcript-stream-metrics';
 
 export const PACER_FRAME_CAP_MS = 100;
@@ -223,6 +224,16 @@ export class TranscriptTextPacer {
     }
     this.compact();
     this.capBacklog();
+    // Nothing painted yet: the first whole word paints with its arrival. The
+    // row opening a reply takes its first line (and the live band its step
+    // below it) in the commit that mounts it; left to the frame loop's slow
+    // start near the received end, that first word painted 100-500 ms after
+    // the followed transcript had already moved up by the empty line.
+    if (this.shown === 0 && this.head < this.bounds.length) {
+      this.shown = this.bounds[this.head];
+      this.shownCost = this.costs[this.head];
+      this.head += 1;
+    }
   }
 
   private capBacklog(): void {
@@ -334,6 +345,19 @@ function wholeWordPrefix(text: string, limit: number): { end: number; cost: numb
   return { end, cost: endCost };
 }
 
+/** Whether still-streaming `text` holds a word the pacer paints now (the
+ *  bounds segmentFrom queues while streaming): a painting segment that is not
+ *  the final, possibly unfinished one, or the first graphemes of a long final
+ *  word. Stops at the first such word. */
+export function streamingTextPaints(text: string): boolean {
+  let painting: string | null = null;
+  for (const { segment } of wordSegmenter().segment(text)) {
+    if (painting !== null) return true;
+    if (!SILENT_SEGMENT.test(segment)) painting = segment;
+  }
+  return painting !== null && painting.length > LONG_WORD_CHARS && graphemeCount(painting) > 1;
+}
+
 /** The revealed prefix must end where the streamed-markdown healer can close
  *  it: never right after a marker (`**`, `` ` ``, `[`, `|` …). The cut snaps
  *  back over at most a few such characters; the pacer position itself keeps
@@ -354,20 +378,30 @@ export function cleanRevealCut(text: string, cut: number, live = false): number 
 interface PacerEntry {
   pacer: TranscriptTextPacer;
   listeners: Set<() => void>;
+  /** Bumped on every revealed change: the store version rows subscribe to. */
+  version: number;
 }
 
 const registry = new Map<string, PacerEntry>();
 /** Pane-local pacers of mounted rows (a pane that mounted mid-stream). */
 const ownEntries = new Set<PacerEntry>();
 const active = new Set<PacerEntry>();
-let frame = 0;
+/** The pacer's job on the shared layout frame (interaction-frame-scheduler).
+ *  Lane publications land on that same frame, and both reach rows as
+ *  external-store updates, so a frame's received text and its paced reveal
+ *  render as ONE commit. On its own rAF with a reducer, the reveal rendered
+ *  in a separate task after the lane's commit: two renders, two layouts and
+ *  two row measurements per frame, the reveal painting a frame late. */
+const PACER_FRAME = {};
+let scheduled = false;
 
 function notify(entry: PacerEntry): void {
+  entry.version += 1;
   for (const listener of [...entry.listeners]) listener();
 }
 
 function run(): void {
-  frame = 0;
+  scheduled = false;
   // The clock arrivals and the drain deadline are stamped with.
   const now = performance.now();
   for (const entry of [...active]) {
@@ -378,8 +412,9 @@ function run(): void {
 }
 
 function schedule(): void {
-  if (frame || active.size === 0 || typeof requestAnimationFrame !== 'function') return;
-  frame = requestAnimationFrame(run);
+  if (scheduled || active.size === 0 || typeof requestAnimationFrame !== 'function') return;
+  scheduled = true;
+  scheduleLayoutFrame(PACER_FRAME, run);
 }
 
 function flushAll(): void {
@@ -389,8 +424,8 @@ function flushAll(): void {
     active.delete(entry);
     notify(entry);
   }
-  if (frame) cancelAnimationFrame(frame);
-  frame = 0;
+  cancelLayoutFrame(PACER_FRAME);
+  scheduled = false;
 }
 
 if (typeof document !== 'undefined') {
@@ -473,13 +508,7 @@ export interface PacedTranscriptText {
   draining: boolean;
 }
 
-function resolve(
-  key: string,
-  text: string,
-  streaming: boolean,
-  pace: boolean,
-  now: number
-): PacedTranscriptText {
+function resolve(key: string, text: string, streaming: boolean, pace: boolean, now: number): PacedTranscriptText {
   let entry = registry.get(key);
   if (!pace || pacingDisabled()) {
     if (entry?.pacer.unrevealed) {
@@ -496,6 +525,7 @@ function resolve(
     entry = {
       pacer: new TranscriptTextPacer(text, false, now),
       listeners: new Set(),
+      version: 0,
     };
     remember(key, entry);
   }
@@ -548,7 +578,6 @@ export function usePacedTranscriptText({
   streaming: boolean;
   pace: boolean;
 }): PacedTranscriptText {
-  const [, rerender] = useReducer((value: number) => value + 1, 0);
   /** This pane's own pacer for a row it did not watch arrive: seeded with
    *  the text received so far, revealed; the shared entry is untouched. */
   const [own, setOwn] = useState<PacerEntry | null>(null);
@@ -582,6 +611,7 @@ export function usePacedTranscriptText({
     return pane && scope ? watchPane(pane, scope, performance.now()) : undefined;
   }, [element, scope]);
   const born = birth.current !== null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: born flips when the birth ref is set during render, and key identifies the row; both must re-run this before-paint decision though only refs are read.
   useLayoutEffect(() => {
     const seen = birth.current;
     if (!seen || decided.current) return;
@@ -591,7 +621,11 @@ export function usePacedTranscriptText({
     if (pane && scope && paneWatched(pane, scope, seen.at)) return;
     // Before paint: this pane mounted with the row mid-stream. Other panes
     // keep the shared pacing state as it is.
-    const entry = { pacer: new TranscriptTextPacer(seen.text, true, seen.at), listeners: new Set<() => void>() };
+    const entry = {
+      pacer: new TranscriptTextPacer(seen.text, true, seen.at),
+      listeners: new Set<() => void>(),
+      version: 0,
+    };
     ownRef.current = entry;
     setOwn(entry);
   }, [born, element, key, scope]);
@@ -602,23 +636,34 @@ export function usePacedTranscriptText({
       ownEntries.delete(own);
     };
   }, [own]);
-  useEffect(() => {
-    if (!enabled) return undefined;
-    const entry = own ?? registry.get(key);
-    if (!entry) return undefined;
-    entry.listeners.add(rerender);
-    return () => {
-      entry.listeners.delete(rerender);
-      // Nobody paints it any more: no frames are spent on it off screen. A
-      // shared entry this instance left for its own keeps its pacing for
-      // the panes that watched the row arrive.
-      const leftForOwn = ownRef.current !== null && entry !== ownRef.current;
-      if (!leftForOwn && entry.listeners.size === 0 && entry.pacer.unrevealed) {
-        entry.pacer.flush();
-        active.delete(entry);
-      }
-    };
-  }, [enabled, key, own]);
+  // An external store, like the lane: a reveal notified from the shared
+  // frame batches into the same synchronous commit as that frame's lane
+  // publication (see PACER_FRAME).
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      if (!enabled) return () => {};
+      const entry = own ?? registry.get(key);
+      if (!entry) return () => {};
+      entry.listeners.add(listener);
+      return () => {
+        entry.listeners.delete(listener);
+        // Nobody paints it any more: no frames are spent on it off screen. A
+        // shared entry this instance left for its own keeps its pacing for
+        // the panes that watched the row arrive.
+        const leftForOwn = ownRef.current !== null && entry !== ownRef.current;
+        if (!leftForOwn && entry.listeners.size === 0 && entry.pacer.unrevealed) {
+          entry.pacer.flush();
+          active.delete(entry);
+        }
+      };
+    },
+    [enabled, key, own]
+  );
+  const readVersion = useCallback(
+    () => (enabled ? ((own ?? registry.get(key))?.version ?? 0) : 0),
+    [enabled, key, own]
+  );
+  useSyncExternalStore(subscribe, readVersion, readVersion);
   // A settled, fully revealed row needs no registry entry (a pane with its
   // own pacer leaves the shared one to the panes using it).
   useEffect(() => {

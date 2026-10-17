@@ -19,16 +19,6 @@ export function useUtilityDockGit({
   tab: UtilityDockTab;
 }) {
   const gitRequestEpoch = useRef(0);
-  const sourceControlEntryKey = open && contentReady && tab === 'source-control' ? dockProjectPath : '';
-  const [sourceControlEntry, setSourceControlEntry] = useState(() => ({ key: sourceControlEntryKey }));
-  // Reset during render so even the first commit cannot expose cached rows.
-  // The identity also distinguishes repeated visits to the same project.
-  if (sourceControlEntry.key !== sourceControlEntryKey) {
-    setSourceControlEntry({ key: sourceControlEntryKey });
-  }
-  const [validatedSourceControlEntry, setValidatedSourceControlEntry] = useState<typeof sourceControlEntry | null>(
-    null
-  );
   const [dockGitState, setDockGitState] = useState<DockGitState>(() => readCachedDockGitState(dockProjectPath));
   const refreshDockGitStatus = useCallback(
     async (showLoading = false) => {
@@ -50,9 +40,8 @@ export function useUtilityDockGit({
       const next = await requestDockGitState(currentProject);
       if (epoch !== gitRequestEpoch.current) return;
       setDockGitState(next);
-      setValidatedSourceControlEntry(sourceControlEntry);
     },
-    [dockProjectPath, sourceControlEntry]
+    [dockProjectPath]
   );
   // Git I/O follows intent and evidence. A recursive project watcher plus
   // explicit Git actions drive refreshes; the slow safety lane only protects
@@ -63,7 +52,9 @@ export function useUtilityDockGit({
     let first = true;
     const scheduler = createGitRefreshScheduler(
       async () => {
-        const showLoading = first;
+        // A cached snapshot paints at once and revalidates in place; only a
+        // cold project shows the loading state.
+        const showLoading = first && !readCachedDockGitState(dockProjectPath).ready;
         first = false;
         await refreshDockGitStatus(showLoading);
       },
@@ -131,9 +122,7 @@ export function useUtilityDockGit({
   const effectiveDockGitState =
     dockGitState.projectPath === dockProjectPath ? dockGitState : readCachedDockGitState(dockProjectPath);
   const dockGitStatus = effectiveDockGitState.status;
-  const dockGitStatusReady =
-    !dockProjectPath ||
-    (effectiveDockGitState.ready && (!sourceControlEntryKey || validatedSourceControlEntry === sourceControlEntry));
+  const dockGitStatusReady = !dockProjectPath || effectiveDockGitState.ready;
   const dockGitLoading = effectiveDockGitState.loading;
   const dockGitError = effectiveDockGitState.error;
   return {

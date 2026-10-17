@@ -15,7 +15,7 @@
 // delete/paste/drop live in explorer-mutations; the tree shape and its path
 // grammar in explorer-tree-model; the inline input row in explorer-edit-row.
 import { ChevronDown, FilePlus, FolderPlus, ListCollapse, RefreshCw } from 'lucide-react';
-import React, { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import React, { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { DesktopGitStatus } from '../shared/contract';
 import { explorerTypeAheadIndex, validateExplorerName, wellFormedExplorerName } from './explorer-logic';
@@ -40,9 +40,11 @@ import { COMPOSER_PROJECT_PATHS_MIME } from './composer-support';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { openEditorFileExternally } from './editor-external-file';
+import { DownloadSessionContext, startFolderDownload, startProjectFileDownload } from './project-file-download';
 import { isSshConnectionWindow } from './desktop-connection';
 import { confirmServerDelete } from './server-transfers';
 import { useMobileBack } from './mobile-back';
+import { isPhoneSurfaceMarked } from './mobile-surface';
 import { scheduleEditorPanePrefetch } from './lazy-widgets';
 import { SetiFileIcon } from './SetiFileIcon';
 import { useSurfaceActive } from './surface-activity';
@@ -76,6 +78,7 @@ function explorerOpenMode(pointerType: string | undefined): 'preview' | 'pinned'
  *  portal over a single command set, so the whole surface lives beside the
  *  pane instead of inside it; the pane only owns where it is anchored. */
 function explorerContextMenu({
+  sessionId,
   menu,
   api,
   projectPath,
@@ -91,6 +94,8 @@ function explorerContextMenu({
   pasteClipboard,
   stashClipboard,
 }: {
+  /** The conversation that owns the pane: a paired device downloads as it. */
+  sessionId: string;
   menu: ExplorerMenu;
   api: typeof window.mixdogDesktop;
   projectPath: string;
@@ -123,6 +128,8 @@ function explorerContextMenu({
   // same keys the confirm dialog above uses.
   const deleteLabel = multi ? 'Delete {{name}}' : 'Delete';
   const deleteValues = multi ? { name: t('{{count}} items', { count: selected.size }) } : undefined;
+  // Keyboard hints mean nothing on a touch-only phone surface.
+  const phoneSurface = isPhoneSurfaceMarked();
   const item = (
     label: string,
     onClick: () => void,
@@ -137,7 +144,7 @@ function explorerContextMenu({
       onClick={menuAction(onClick)}
     >
       <span>{t(label, options?.values)}</span>
-      {options?.hint && <span className="dock-file-menu-key">{options.hint}</span>}
+      {options?.hint && !phoneSurface && <span className="dock-file-menu-key">{options.hint}</span>}
     </button>
   );
   // biome-ignore lint/a11y/noAriaHiddenOnFocusable: a decorative <hr> inside the menu is not focusable; hiding it leaves the menu items as the only announced content.
@@ -196,6 +203,17 @@ function explorerContextMenu({
             item(
               serverWindow ? 'Download to this PC and open' : 'Open in default app',
               () => void openEditorFileExternally(projectPath, menu.rel)
+            )}
+          {remote &&
+            !multi &&
+            !menu.isDir &&
+            item('Download / Share', () => void startProjectFileDownload(sessionId, menu.rel))}
+          {remote &&
+            !multi &&
+            menu.isDir &&
+            item(
+              'Download / Share (zip)',
+              () => void startFolderDownload(sessionId, absOf(menu.rel), `${menu.name}.zip`)
             )}
           {!multi && menu.isDir && item('New file…', () => beginCreate(false, menu.rel))}
           {!multi && menu.isDir && item('New folder…', () => beginCreate(true, menu.rel))}
@@ -389,6 +407,7 @@ export const FilesRootPane = memo(function FilesRootPane({
   onControls?(controls: ExplorerControls): void;
 }) {
   const api = window.mixdogDesktop;
+  const sessionId = useContext(DownloadSessionContext);
   // Files and Source Control consume the same project-scoped Git snapshot so
   // their decorations cannot drift after an SCM action.
   const { gitFiles, gitDirs } = useMemo(() => explorerGitDecorations(gitStatus), [gitStatus]);
@@ -1048,6 +1067,7 @@ export const FilesRootPane = memo(function FilesRootPane({
         </div>
         {visibleMenu &&
           explorerContextMenu({
+            sessionId,
             menu: visibleMenu,
             api,
             projectPath,

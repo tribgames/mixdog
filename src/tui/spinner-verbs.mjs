@@ -247,6 +247,9 @@ export const SPINNER_MODE_OVERRIDE_VERBS = {
   'auto-clear': 'Auto-clearing conversation',
   resuming: 'Resuming conversation',
   'task-wait': '작업 대기 중',
+  // The request is sent and its response headers are pending: the model is
+  // queued or thinking server-side.
+  'model-thinking': 'Model thinking',
 };
 
 /**

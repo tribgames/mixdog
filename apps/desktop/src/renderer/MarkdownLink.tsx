@@ -6,7 +6,7 @@ import { t } from './i18n';
 import { localPathMentionHref, PATH_LINK_CLASS } from './markdown-plugins';
 import { isLocalMarkdownLink, localMarkdownPath, projectRelativeFilePath } from './markdown-url';
 import { prefetchEditorPane, scheduleEditorPanePrefetch } from './lazy-widgets';
-import { resolveLocalLink, verifyLocalLink, type ResolvedLocalLink } from './local-link-resolver';
+import { resolveLocalLinkForOpen, verifyLocalLink, type ResolvedLocalLink } from './local-link-resolver';
 import { isLocalWebPage, localLinkKind, parseLocalFileLocation } from '../shared/local-files';
 import { documentPreviewFormatForPath, editorFileOpener } from '../shared/file-preview';
 import {
@@ -29,6 +29,7 @@ import { openSandboxedPagePreview } from './sandboxed-page-preview';
 import type { FileDownloadSource } from '../shared/file-downloads';
 import { fileDownloadReasonMessage } from './file-download-transfer';
 import { fileDownloadBlockedReason, startFileDownload, useFileDownloadSupport } from './file-download-panel';
+import { startFolderDownload } from './project-file-download';
 
 /** Plain text of rendered children: highlighted code and link captions are
  *  hast-derived spans, so a String() cast would not yield their source. */
@@ -192,18 +193,24 @@ export function webLinkMenu(
         separatorBefore: true,
         onSelect: () => run(copyTextToClipboard(url)),
       },
-      {
-        id: 'save-link-as',
-        label: t('Save link as…'),
-        onSelect: () =>
-          run(
-            (async () => {
-              const save = window.mixdogDesktop?.saveFileAs;
-              if (!save) throw new Error(t('Desktop file access is unavailable.'));
-              await save(url, linkSaveName(url));
-            })()
-          ),
-      },
+      // A paired browser can only fetch same-origin/CORS URLs, which a chat
+      // link almost never is: no dead entry there.
+      ...(isRemoteHostRenderer()
+        ? []
+        : [
+            {
+              id: 'save-link-as',
+              label: t('Save link as…'),
+              onSelect: () =>
+                run(
+                  (async () => {
+                    const save = window.mixdogDesktop?.saveFileAs;
+                    if (!save) throw new Error(t('Desktop file access is unavailable.'));
+                    await save(url, linkSaveName(url));
+                  })()
+                ),
+            },
+          ]),
     ],
   };
 }
@@ -248,6 +255,8 @@ interface LocalLinkTarget {
   copyPath: () => Promise<void>;
   /** Files only, offered on remote surfaces: download the host file to this device. */
   download?: () => void;
+  /** Folders only, remote surfaces: the host zips the folder for download. */
+  downloadFolder?: () => void;
   /** Why `download` cannot run here (old host, no save sink). */
   downloadBlocked?: string;
 }
@@ -282,6 +291,9 @@ const TAP_SLOP_PX = 10;
 /** Backoff of a failed mention lookup; the first step outlasts the resolver's
  *  3s cache of a miss, so each retry asks the file service again. */
 const LINK_VERIFY_RETRY_MS = [3_500, 10_000, 30_000];
+/** Automatic mention in every state (pending, missing, verified): one box
+ *  rule, so verification never changes how the text wraps. */
+const MENTION_CLASS = 'markdown-path-mention';
 
 /** Which press is an open intent. A mouse press is one. A touch or pen press
  *  usually starts a scroll, and evaluating the editor's 4 MB chunk under it
@@ -360,19 +372,33 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       .at(-1) || location.path) + (kind === 'folder' ? '/' : '');
   const title = resolvedTitle || (rel && !bare && projectPath ? displayPath(projectPath, rel, suffix) : undefined);
   const downloadable = local && kind !== 'folder';
-  const downloadSupport = useFileDownloadSupport(downloadable && isRemoteHostRenderer());
+  const downloadSupport = useFileDownloadSupport(local && isRemoteHostRenderer());
   const downloadBlocked = fileDownloadBlockedReason(downloadSupport);
   // A paired device downloads the host file (GitHub #40): a reply's link by
-  // its row, anything else as a file of the conversation's project.
+  // its row, a file of the conversation's project by its project path, and
+  // anything else (a tool output outside the project) as a path the
+  // conversation references.
   const download = () => {
     let source: FileDownloadSource | null = null;
     if (sessionId && itemId) source = { kind: 'link', sessionId, itemId, href: target };
     else if (sessionId && rel && rel !== '.') source = { kind: 'project', sessionId, relPath: rel };
+    else if (sessionId && local && localMarkdownPath(location.path)) {
+      source = { kind: 'session', sessionId, path: localMarkdownPath(location.path) };
+    }
     if (downloadBlocked || !source) {
       showDesktopToast(downloadBlocked || fileDownloadReasonMessage('not-linked'), 'error');
       return;
     }
     startFileDownload(source, name);
+  };
+  // A folder the conversation links downloads as a zip the host builds
+  // (size-capped; the host says so when it is too large).
+  const downloadFolder = () => {
+    if (downloadBlocked) {
+      showDesktopToast(downloadBlocked, 'error');
+      return;
+    }
+    void startFolderDownload(sessionId, location.path, `${name.replace(/\/$/, '')}.zip`);
   };
 
   // A filename-shaped mention is not an authored link. Keep it noninteractive
@@ -424,8 +450,8 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   // round trip to the file service — for a bare name that trip is a whole
   // project-index search — before anything can start opening.
   const resolveTarget = async (): Promise<ResolvedLocalLink> => {
-    if (resolvedTarget) return resolvedTarget;
-    const match = await resolveLocalLink(projectPath, location.path, sessionId || undefined);
+    const match = await resolveLocalLinkForOpen(resolvedTarget, projectPath, location.path, sessionId || undefined);
+    if (match === resolvedTarget) return match;
     setResolved({ key: resolutionKey, title: displayPath(match.project, match.path, suffix), target: match });
     return match;
   };
@@ -457,7 +483,12 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   // loopback page server: they open as source in the editor.
   const serverWindow = isSshConnectionWindow();
   const webPage =
-    local && pageLink && !serverWindow && typeof window !== 'undefined' && Boolean(window.mixdogDesktop?.localPageUrl);
+    local &&
+    pageLink &&
+    !serverWindow &&
+    typeof window !== 'undefined' &&
+    !isRemoteHostRenderer() &&
+    Boolean(window.mixdogDesktop?.localPageUrl);
   const open = async (external?: boolean) => {
     warmEditor();
     const remote = isRemoteHostRenderer();
@@ -472,11 +503,19 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       // A web page opens in the session's browser pane from a loopback address
       // main serves; with no pane to reveal (a draft) the system browser takes
       // the same address. Without the server (a paired phone) it stays source.
+      // A paired device asks the host for the same address and has the PC's
+      // browser pane load it (its own system browser cannot reach a loopback).
       const pageUrl = serverWindow ? undefined : window.mixdogDesktop?.localPageUrl;
-      if (!directory && pageLink && pageUrl) {
-        const url = await pageUrl(project, file, accessToken);
-        await openWebLink(sessionId, url, external);
-        return;
+      const pane = !remote || (Boolean(sessionId) && browserPageRequestsAvailable());
+      if (!directory && pageLink && pageUrl && pane) {
+        try {
+          const url = await pageUrl(project, file, accessToken);
+          await openWebLink(sessionId, url, remote ? false : external);
+          return;
+        } catch (error) {
+          // A host that predates the method keeps the sandboxed overlay below.
+          if (!remote || !/unknown method/i.test(errorMessageText(error))) throw error;
+        }
       }
       // A paired browser cannot reach the host's loopback server: the page
       // arrives as a self-contained document for a sandboxed frame instead.
@@ -515,7 +554,10 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         const api = window.mixdogDesktop;
         if (!api?.openLocalFileLink) {
           if (!remote) throw new Error(t('Local file links can only be opened in the desktop app.'));
-          if (directory) throw new Error(t('Folders on the PC cannot be downloaded to this device.'));
+          if (directory) {
+            downloadFolder();
+            return;
+          }
           download();
           return;
         }
@@ -556,7 +598,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const openDefault = async () => {
     try {
       const { project, path: file, accessToken } = await resolveTarget();
-      await openEditorFileExternally(project, file, accessToken);
+      await openEditorFileExternally(project, file, accessToken, sessionId);
     } catch (error) {
       showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
     }
@@ -590,6 +632,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
     reveal,
     copyPath,
     download: downloadable ? download : undefined,
+    downloadFolder: local && kind === 'folder' ? downloadFolder : undefined,
     downloadBlocked,
     webPage,
     local,
@@ -710,6 +753,17 @@ export function MarkdownLink({
               },
             ]
           : []),
+        ...(link.downloadFolder && !external
+          ? [
+              {
+                id: 'download-zip',
+                label: t('Download / Share (zip)'),
+                onSelect: link.downloadFolder,
+                disabled: Boolean(link.downloadBlocked),
+                title: link.downloadBlocked,
+              },
+            ]
+          : []),
         { id: 'copy-path', label: t('Copy path'), onSelect: () => void link.copyPath(), separatorBefore: true },
       ],
     });
@@ -724,8 +778,14 @@ export function MarkdownLink({
   const linkClass = pathLike
     ? [...new Set([...String(className || '').split(/\s+/), PATH_LINK_CLASS])].filter(Boolean).join(' ')
     : className;
+  // An automatic mention keeps the reply's own text in every state: no icon,
+  // no file-name caption. Verification only adds link ink and the click, so
+  // resolving one can never change the line's text, width or height.
+  const mention = automatic && local;
   let label: ReactNode = children;
-  if (pathLike) {
+  if (mention) {
+    label = children;
+  } else if (pathLike) {
     label = (
       <>
         <LocalLinkIcon target={link} />
@@ -748,19 +808,32 @@ export function MarkdownLink({
       </>
     );
   }
-  // An automatic mention whose lookup failed names no file the app can open:
-  // it falls back to its original text, with no icon, link ink or click.
-  if (verify && local && link.missing)
-    return (
-      <span className="markdown-path-missing" title={link.missingReason || undefined}>
+  const mentionClass = [linkClass, MENTION_CLASS].filter(Boolean).join(' ');
+  // A mention still being verified, or whose lookup failed, is plain text:
+  // the same children as the verified link, with no ink, underline or click.
+  if (verify && mention && !link.verified) {
+    // A paired phone has no hover for the reason (a secret, a missing file):
+    // a tap says it instead.
+    const explain =
+      link.missingReason && isRemoteHostRenderer() ? () => showDesktopToast(link.missingReason, 'error') : undefined;
+    return link.missing ? (
+      // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: the tap only repeats the tooltip for touch surfaces; the text itself is no control.
+      <span
+        className={`${mentionClass} markdown-path-missing`}
+        title={link.missingReason || undefined}
+        onClick={explain}
+      >
+        {children}
+      </span>
+    ) : (
+      <span className={`${mentionClass} markdown-path-pending`} title={title || link.title} aria-disabled="true">
         {children}
       </span>
     );
-  // Paint the final icon and caption on the FIRST render. File verification
-  // only enables clicking; a mention still being verified keeps the same inert
-  // geometry. A healed explicit link may preview a path caption, never open its
+  }
+  // A healed explicit link may preview a path caption, never open its
   // partial destination. Empty/sanitized hrefs remain noninteractive as well.
-  if (!raw || (verify && local && !link.verified)) {
+  if (!raw) {
     return (
       <span
         className={[linkClass, 'markdown-link-pending'].filter(Boolean).join(' ')}
@@ -768,10 +841,6 @@ export function MarkdownLink({
         aria-disabled="true"
       >
         {label}
-        {/* Session entry waits for the lookup: a mention that turns out
-            missing would otherwise swap its look in front of the reader
-            (user: 세션 재진입 시 링크 폰트가 바뀌면서 튄다). */}
-        {verify && local && <span hidden data-transcript-pending />}
       </span>
     );
   }
@@ -788,7 +857,7 @@ export function MarkdownLink({
       {menu && <ScmContextMenu state={menu} onClose={() => setMenu(null)} />}
       <a
         href={target}
-        className={linkClass}
+        className={mention ? mentionClass : linkClass}
         title={local ? title || link.title : title}
         onMouseEnter={link.revealTitle}
         onPointerEnter={

@@ -56,17 +56,29 @@ test('/goal and the add menu open the same goal editor without creating or faili
       loader: { '.css': 'empty' },
       plugins: [
         {
-          // The side-question card renders markdown, whose links reach the editor,
-          // diff, browser and terminal panes (Monaco, xterm: not linkable in Node).
-          // The goal editor never renders a reply, so the renderer is stubbed.
-          name: 'stub-markdown-body',
+          // The side-question card renders markdown, and the attachment menu loads
+          // the image viewer (whose MarkdownLink reaches lazy-widgets); both lead to
+          // the editor, diff, browser and terminal panes (Monaco, xterm: not linkable
+          // in Node). The goal editor renders none of them, so they are stubbed.
+          name: 'stub-markdown-body-and-panes',
           setup(pluginBuild) {
-            pluginBuild.onResolve({ filter: /\/MarkdownBody$/ }, (args) => ({
+            pluginBuild.onResolve({ filter: /\/(MarkdownBody|lazy-widgets)$/ }, (args) => ({
               path: args.path,
-              namespace: 'stub',
+              namespace: args.path.endsWith('lazy-widgets') ? 'stub-panes' : 'stub',
             }));
             pluginBuild.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
               contents: 'export default function MarkdownBody() { return null; }',
+              loader: 'js',
+            }));
+            pluginBuild.onLoad({ filter: /.*/, namespace: 'stub-panes' }, () => ({
+              contents: [
+                'const pane = () => null;',
+                'const prefetch = async () => {};',
+                'export const DiffView = pane, TerminalPane = pane, EditorPane = pane, BrowserPane = pane, SideMarkdownPreview = pane;',
+                'export const disposeTerminalPane = prefetch, prefetchDiffView = prefetch, prefetchTerminalPane = prefetch;',
+                'export const prefetchBrowserPane = prefetch, prefetchEditorPane = prefetch;',
+                'export const prefetchSurfaceForSelection = () => {}, scheduleEditorPanePrefetch = () => {};',
+              ].join('\n'),
               loader: 'js',
             }));
           },

@@ -1,7 +1,9 @@
-import { ExternalLink, FolderOpen, Save, Undo2 } from 'lucide-react';
+import { Download, ExternalLink, FolderOpen, Save, Undo2 } from 'lucide-react';
+import { DownloadSessionContext, startProjectFileDownload } from './project-file-download';
 import type React from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useMobileBack } from './mobile-back';
+import { useMobileRemoteSurface } from './mobile-surface';
 import type { EditorFileLoad } from './editor-file-loader';
 import type { EditorOutlineItem } from './editor-language-store';
 import { normalizedFilePath } from './editor-lsp-conversion';
@@ -26,6 +28,7 @@ import { copyTextToClipboard } from './text-format';
 /** Same grammar as the side header: Save is the only inline button (while
  *  dirty); everything else is a ⋯ item. */
 function breadcrumbMoreActions({
+  sessionId,
   projectPath,
   relPath,
   accessToken,
@@ -35,6 +38,7 @@ function breadcrumbMoreActions({
   menuActions,
   onRevert,
 }: {
+  sessionId: string;
   projectPath: string;
   relPath: string;
   accessToken?: string;
@@ -51,7 +55,16 @@ function breadcrumbMoreActions({
       id: 'open-default',
       label: t('Open in default app'),
       icon: ExternalLink,
-      onSelect: () => void openEditorFileExternally(projectPath, relPath, accessToken),
+      onSelect: () => void openEditorFileExternally(projectPath, relPath, accessToken, sessionId),
+    });
+  }
+  if (remote) {
+    moreActions.push({
+      id: 'download',
+      label: t('Download / Share'),
+      icon: Download,
+      onSelect: () =>
+        void startProjectFileDownload(sessionId, relPath, undefined, accessToken ? projectPath : undefined),
     });
   }
   moreActions.push(
@@ -137,7 +150,10 @@ export function EditorBreadcrumbs({
   const symbols = [...byLevel.values()];
   const symbol = symbols[symbols.length - 1];
   const editable = Boolean(load && !preview && !load.binary && !load.tooLarge && !load.readOnly);
+  const phoneDownload = useMobileRemoteSurface() && Boolean(preview || load?.binary || load?.tooLarge);
+  const sessionId = useContext(DownloadSessionContext);
   const moreActions = breadcrumbMoreActions({
+    sessionId,
     projectPath,
     relPath,
     accessToken,
@@ -394,6 +410,18 @@ export function EditorBreadcrumbs({
         {viewControls?.viewToggle && <EditorViewSwitch toggle={viewControls.viewToggle} />}
         <span className="editor-breadcrumb-actions">
           {viewControls && <EditorViewTools controls={viewControls} />}
+          {phoneDownload && (
+            <button
+              type="button"
+              className="editor-breadcrumb-download"
+              aria-label={t('Download / Share')}
+              onClick={() =>
+                void startProjectFileDownload(sessionId, relPath, undefined, accessToken ? projectPath : undefined)
+              }
+            >
+              <Download size={16} aria-hidden="true" />
+            </button>
+          )}
           {editable && dirty && (
             <button
               type="button"

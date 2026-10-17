@@ -13,6 +13,26 @@ import {
 import { resolveUnreadViewedSessionId } from './app-unread-sessions.ts';
 
 const bootSource = readFileSync(new URL('./public/boot.js', import.meta.url), 'utf8');
+
+// Boot observers fire on the teardown mutations once the document is gone, so
+// every window disconnects the ones its boot script registered before closing.
+const bootObservers = new WeakMap();
+function evalBoot(dom) {
+  const observers = [];
+  const NativeObserver = dom.window.MutationObserver;
+  dom.window.MutationObserver = class extends NativeObserver {
+    constructor(callback) {
+      super(callback);
+      observers.push(this);
+    }
+  };
+  bootObservers.set(dom, observers);
+  dom.window.eval(bootSource);
+}
+function closeWindow(dom) {
+  for (const observer of bootObservers.get(dom) ?? []) observer.disconnect();
+  dom.window.close();
+}
 const mobileChromeSource = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
 const sidebarUsageSource = readFileSync(new URL('./desktop/11-sidebar-usage.css', import.meta.url), 'utf8');
 const railPagesSource = readFileSync(new URL('./desktop/10-rail-pages.css', import.meta.url), 'utf8');
@@ -32,7 +52,14 @@ test('phone draft context keeps Project and its height while Workflow loads', ()
   try {
     const bar = dom.window.document.querySelector('.composer-context-bar');
     const before = dom.window.getComputedStyle(bar);
-    assert.equal(before.minHeight, '28px');
+    // jsdom keeps var() unresolved; the real-browser 48px (36px pill + 12px
+    // gap) is asserted in composer-island.test.mjs at the phone size.
+    assert.equal(before.minHeight, 'var(--island-rest-height)', 'the bar takes the island slot’s resting height');
+    assert.match(
+      composer,
+      /html\[data-mixdog-mobile-tabs\] \.composer-region \{\s*--island-pill-height: 36px;\s*\}/,
+      'the phone sets the pill height the slot and bar derive from'
+    );
     assert.notEqual(before.opacity, '0');
     assert.notEqual(before.pointerEvents, 'none');
     const workflow = dom.window.document.createElement('div');
@@ -40,7 +67,7 @@ test('phone draft context keeps Project and its height while Workflow loads', ()
     bar.append(workflow);
     assert.equal(dom.window.getComputedStyle(bar).minHeight, before.minHeight);
   } finally {
-    dom.window.close();
+    closeWindow(dom);
   }
 });
 
@@ -73,15 +100,15 @@ test('first-paint theme uses the same dark default and explicit System preferenc
         });
       }
       try {
-        dom.window.eval(bootSource);
+        evalBoot(dom);
         const root = dom.window.document.documentElement;
         const scenario = JSON.stringify({ preference, osLight, storageBlocked });
         assert.equal(root.dataset.mixdogTheme === 'light', light, scenario);
         assert.equal(root.style.colorScheme, light ? 'light' : 'dark', scenario);
       } finally {
         // Let boot observers finish before destroying their document.
-        await new Promise((resolve) => setImmediate(resolve));
-        dom.window.close();
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        closeWindow(dom);
       }
     }
   }
@@ -142,7 +169,7 @@ test('the Goal tab shows its task drawer only while open and keeps task overflow
   assert.equal(style('.session-goal-body').overflow, 'hidden');
   assert.equal(style('.session-goal-tasks ul').overflowY, 'auto');
   assert.notEqual(style('.session-goal-tasks ul').scrollbarGutter, 'stable');
-  dom.window.close();
+  closeWindow(dom);
 });
 
 test('the panel-nested dock view stays in normal flow', () => {
@@ -168,10 +195,10 @@ test('iOS boot preserves device-width and marks the phone before CSS paint', () 
     value: 5,
   });
   try {
-    dom.window.eval(bootSource);
+    evalBoot(dom);
     assertPhoneBoot(dom, { ios: true });
   } finally {
-    dom.window.close();
+    closeWindow(dom);
   }
 });
 
@@ -200,10 +227,10 @@ for (const [device, model] of [
       value: `Mozilla/5.0 (Linux; Android 15; ${model}) AppleWebKit/537.36 Chrome/131 Mobile`,
     });
     try {
-      dom.window.eval(bootSource);
+      evalBoot(dom);
       assertPhoneBoot(dom);
     } finally {
-      dom.window.close();
+      closeWindow(dom);
     }
   });
 }
@@ -241,7 +268,7 @@ test('installed phone boot promotes only its locale and preserves asset priority
     removeEventListener() {},
   });
   try {
-    dom.window.eval(bootSource);
+    evalBoot(dom);
     const promoted = [...dom.window.document.head.children].filter((node) => node.tagName === 'LINK');
     assert.deepEqual(
       promoted.map((link) => new URL(link.href).pathname),
@@ -250,7 +277,7 @@ test('installed phone boot promotes only its locale and preserves asset priority
     assert.equal(promoted[0].getAttribute('fetchpriority'), 'high');
   } finally {
     dom.window.mixdogRevealApp?.();
-    dom.window.close();
+    closeWindow(dom);
   }
 });
 
@@ -266,11 +293,11 @@ test('a directly connected browser tab gets the installed-app boot gate; a plain
     });
     if (marked) dom.window.localStorage.setItem('mixdog.directBrowser', '1');
     try {
-      dom.window.eval(bootSource);
+      evalBoot(dom);
       return dom.window.document.documentElement.hasAttribute('data-mixdog-booting');
     } finally {
       dom.window.mixdogRevealApp?.();
-      dom.window.close();
+      closeWindow(dom);
     }
   };
   assert.equal(gated(true), true);
@@ -295,7 +322,7 @@ test('only the Electron desktop promotes desktop-surface hints', () => {
       removeEventListener() {},
     });
     try {
-      dom.window.eval(bootSource);
+      evalBoot(dom);
       return [...dom.window.document.head.children]
         .filter((node) => node.tagName === 'LINK')
         .map((link) => ({
@@ -307,7 +334,7 @@ test('only the Electron desktop promotes desktop-surface hints', () => {
         }));
     } finally {
       dom.window.mixdogRevealApp?.();
-      dom.window.close();
+      closeWindow(dom);
     }
   };
   assert.deepEqual(headLinks('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/144 Electron/41.0.0'), [
@@ -455,7 +482,7 @@ function bootDesktopLayout({ userAgent, platform, maxTouchPoints = 0, innerWidth
     removeEventListener() {},
   });
   try {
-    dom.window.eval(bootSource);
+    evalBoot(dom);
     const root = dom.window.document.documentElement;
     return {
       viewport: dom.window.document.querySelector('meta[name="viewport"]').getAttribute('content'),
@@ -466,7 +493,7 @@ function bootDesktopLayout({ userAgent, platform, maxTouchPoints = 0, innerWidth
     };
   } finally {
     dom.window.mixdogRevealApp?.();
-    dom.window.close();
+    closeWindow(dom);
   }
 }
 

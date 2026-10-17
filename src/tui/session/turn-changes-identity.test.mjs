@@ -7,7 +7,28 @@ import { persistedUserTranscriptMetadata } from '../../runtime/shared/transcript
 import { attachAssistantTranscriptCompletion } from '../../runtime/agent/orchestrator/session/manager/ask-turn-settle.mjs';
 import { createAskCallbacks } from '../../session-runtime/turn/turn-run/ask-callbacks.mjs';
 import { restoreTranscriptItems } from './session-api-ext.mjs';
-import { turnDoneItem } from './turn.mjs';
+import { applyTurnRouteMetadata, turnDoneItem } from './turn.mjs';
+
+test('admitted route updates shared stream metadata and submitted rows without replacing identity', () => {
+  const transcriptMeta = { at: 10, messageId: 'message-1', provider: 'old', modelId: 'old', agent: 'Lead' };
+  const routeMeta = { provider: 'old', modelId: 'old', agent: 'Lead' };
+  const patches = [];
+  applyTurnRouteMetadata(
+    {
+      turn: { transcriptMeta, routeMeta, submittedIds: ['prompt-1'] },
+      patchItem: (id, patch) => patches.push({ id, patch }),
+    },
+    { provider: 'openrouter', model: 'deepseek/deepseek-v4.1-flash' }
+  );
+  assert.equal(transcriptMeta.modelId, 'deepseek/deepseek-v4.1-flash');
+  assert.equal(routeMeta.modelId, transcriptMeta.modelId);
+  assert.equal(routeMeta.provider, 'openrouter');
+  assert.equal(transcriptMeta.messageId, 'message-1');
+  assert.equal(transcriptMeta.at, 10);
+  assert.equal(transcriptMeta.agent, 'Lead');
+  assert.equal(patches[0].id, 'prompt-1');
+  assert.equal(patches[0].patch.modelId, transcriptMeta.modelId);
+});
 
 test('the runtime stamps the outer prompt id onto the caller transcript metadata in place', () => {
   const { askCallbacks } = createAskCallbacks({

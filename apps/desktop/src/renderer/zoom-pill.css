@@ -26,11 +26,6 @@
     color var(--mx-motion-chrome),
     opacity var(--mx-motion-chrome);
 }
-/* Editor previews reveal the pill on demand; the browser pane never hides it. */
-.browser-zoom-pill.is-hidden {
-  opacity: 0;
-  pointer-events: none;
-}
 .browser-zoom-percent-wrap {
   position: relative;
   display: inline-flex;
@@ -64,11 +59,11 @@
   flex-direction: column;
   min-width: 128px;
   padding: 4px;
-  border: 1px solid var(--mx-border-strong);
-  border-radius: var(--mx-radius-md);
-  background: color-mix(in srgb, var(--mx-text) 6%, var(--mx-bg-base));
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
+  background: var(--mx-popup-bg);
   color: var(--mx-text);
-  box-shadow: var(--mx-floating);
+  box-shadow: var(--mx-popup-shadow);
 }
 .browser-zoom-menu-item {
   display: flex;
@@ -133,10 +128,6 @@ html[data-mixdog-mobile-tabs] .browser-zoom-step {
 html[data-mixdog-mobile-tabs] .browser-zoom-step > svg {
   width: 14px;
   height: 14px;
-}
-/* No pointer hover on a phone: the pill stays shown there. */
-html[data-mixdog-mobile-tabs] .browser-zoom-pill.is-hidden {
-  pointer-events: auto;
 }
 html[data-mixdog-mobile-tabs] .browser-zoom-percent {
   height: 32px;

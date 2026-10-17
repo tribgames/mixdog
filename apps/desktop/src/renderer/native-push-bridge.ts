@@ -18,6 +18,7 @@ import {
   nativeAppInfo,
   type MixdogNativeInfo,
   type NativeNotificationAction,
+  type NativePushState,
 } from '../shared/native-app';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import type { RemoteShimContext } from './remote-shim-state';
@@ -61,6 +62,44 @@ export function createNativePushHost(
   };
 }
 
+type NativePushPermission = NativePushState['permission'];
+let nativePermission: NativePushPermission | null = null;
+const nativePermissionListeners = new Set<() => void>();
+
+function publishNativePermission(permission: NativePushPermission): void {
+  if (permission === nativePermission) return;
+  nativePermission = permission;
+  for (const listener of [...nativePermissionListeners]) listener();
+}
+
+/** What the OS last said about this app's notification permission; null until
+ *  the shell has been asked (and always null outside the phone app). */
+export function nativePushPermission(): NativePushPermission | null {
+  return nativePermission;
+}
+
+export function subscribeNativePushPermission(listener: () => void): () => void {
+  nativePermissionListeners.add(listener);
+  return () => {
+    nativePermissionListeners.delete(listener);
+  };
+}
+
+/** Open this app's notification settings in the system. The permission is
+ *  re-read when the app returns (the shell fires NATIVE_PUSH_EVENT, and the
+ *  page becoming visible syncs, see installNativePushBridge). */
+export async function openNativeNotificationSettings(
+  deps: { native?: MixdogNativeInfo | null } = {}
+): Promise<boolean> {
+  const native = deps.native === undefined ? nativeAppInfo() : deps.native;
+  if (!native?.call) return false;
+  try {
+    return (await native.call('openNotificationSettings')) === true;
+  } catch {
+    return false;
+  }
+}
+
 type RegistrationResult = 'registered' | 'no-native' | 'no-host-support' | 'no-token' | 'denied' | 'failed';
 
 /** Register this install's token with the connected host. Safe to call any
@@ -72,12 +111,17 @@ export async function syncNativePush(
   if (!native?.call) return 'no-native';
   const host =
     deps.host ?? (window as unknown as Record<string, NativePushHost | undefined>)[REMOTE_NATIVE_PUSH_GLOBAL];
-  if (!host?.available()) return 'no-host-support';
   try {
     let state = await native.call('getPushState');
+    // What the OS currently allows is shown whether or not a PC can use it.
+    publishNativePermission(state.permission);
+    if (!host?.available()) return 'no-host-support';
     // First run on this install: ask the OS once. The answer (and the token
     // that follows it) arrives later as NATIVE_PUSH_EVENT.
-    if (state.permission === 'prompt') state = await native.call('requestPush');
+    if (state.permission === 'prompt') {
+      state = await native.call('requestPush');
+      publishNativePermission(state.permission);
+    }
     if (state.permission === 'denied') return 'denied';
     if (state.permission !== 'granted' || !state.token || !state.publicKey) return 'no-token';
     await host.register({
@@ -246,7 +290,10 @@ export function installNativePushBridge(
     drain();
   };
   const onVisible = (): void => {
-    if (document.visibilityState === 'visible') drain();
+    if (document.visibilityState !== 'visible') return;
+    drain();
+    // Back from system settings: the permission may now be granted.
+    sync();
   };
   window.addEventListener(REMOTE_CONNECTION_READY_EVENT, syncAndDrain);
   window.addEventListener(NATIVE_PUSH_EVENT, syncAndDrain);

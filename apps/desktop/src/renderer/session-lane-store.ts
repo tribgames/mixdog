@@ -33,6 +33,10 @@ interface SessionLaneStore {
   };
   /** Session ids at least one mounted pane is currently subscribed to. */
   subscribedSessionIds(): string[];
+  /** Sessions whose cached lane carries a pending tool approval; a new set
+   *  identity only when membership changes. */
+  approvalSessionIds(): ReadonlySet<string>;
+  subscribeApprovals(listener: () => void): () => void;
   /** Drop cached lanes with no subscribers (remote sync-gap recovery: an
    *  emptied lane re-reads through session.read on its next open). */
   evictInactive(): void;
@@ -462,6 +466,23 @@ export function createSessionLaneStore({
   });
   const notificationKeys = new Map<string, object>();
   let stop: (() => void) | null = null;
+  let approvals: ReadonlySet<string> = new Set();
+  const approvalListeners = new Set<() => void>();
+  // Membership follows the lane's own toolApproval, so it costs one check per
+  // frame and notifies only when a session starts or stops waiting.
+  // A lane that left the cache (eviction, pruning, release) no longer carries
+  // its approval, so every path that can drop one reconciles here too.
+  const syncApprovals = (sessionId?: string): void => {
+    const next = new Set(approvals);
+    for (const id of approvals) if (!snapshots.get(id)) next.delete(id);
+    if (sessionId !== undefined) {
+      if (snapshots.get(sessionId)?.snapshot.toolApproval) next.add(sessionId);
+      else next.delete(sessionId);
+    }
+    if (next.size === approvals.size && [...next].every((id) => approvals.has(id))) return;
+    approvals = next;
+    for (const listener of [...approvalListeners]) listener();
+  };
   const notificationKey = (sessionId: string): object => {
     let key = notificationKeys.get(sessionId);
     if (!key) {
@@ -544,6 +565,7 @@ export function createSessionLaneStore({
     }
     snapshots.prune();
     const nextSnapshot = snapshots.get(sessionId)?.snapshot ?? null;
+    syncApprovals(sessionId);
     reportSessionReadFrame({ ...update, snapshot: nextSnapshot }, 'applied', performance.now() - readFrameStartedAt);
     noteStreamLaneFrame(sessionId, nextSnapshot?.streamingTail);
     if ((listeners.get(sessionId)?.size || 0) === 0) {
@@ -588,6 +610,7 @@ export function createSessionLaneStore({
           if (key) cancelLayoutFrame(key);
           notificationKeys.delete(sessionId);
           snapshots.release(sessionId);
+          syncApprovals();
           // An unmounted lane that is no longer cached has nothing displayed
           // to keep stable; a cached one keeps its baseline for re-entry.
           if (!snapshots.get(sessionId)) decorator.forget?.(sessionId);
@@ -595,8 +618,16 @@ export function createSessionLaneStore({
       };
     },
     subscribedSessionIds: () => [...listeners.keys()],
+    approvalSessionIds: () => approvals,
+    subscribeApprovals(listener) {
+      approvalListeners.add(listener);
+      return () => {
+        approvalListeners.delete(listener);
+      };
+    },
     evictInactive() {
       snapshots.evictInactive();
+      syncApprovals();
     },
     start(source = window.mixdogDesktop?.subscribeSessionState?.bind(window.mixdogDesktop)) {
       if (stop) return stop;
@@ -626,6 +657,10 @@ export function createSessionLaneStore({
       notificationKeys.clear();
       snapshots.clear();
       decorator.clear();
+      if (approvals.size > 0) {
+        approvals = new Set();
+        for (const listener of [...approvalListeners]) listener();
+      }
     },
   };
 }

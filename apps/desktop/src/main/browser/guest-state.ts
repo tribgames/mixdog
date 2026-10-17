@@ -56,6 +56,11 @@ interface BrowserDiagnostics {
   /** Execution contexts (`session:id`) running Chromium's own bundled
    *  components, such as the PDF viewer. Whatever they log is not page content. */
   browserComponentContexts: Set<string>;
+  /** Console and log entries come up again whenever the driving domains are
+   *  switched back on (see cdp-session-init). Per session and domain: the
+   *  newest entry recorded, and while a switch is replaying, the newest one
+   *  the replay may skip. */
+  consoleReplay: { seen: Map<string, number>; floor: Map<string, number> };
   fault: string;
 }
 
@@ -134,6 +139,7 @@ export class BrowserGuestStateStore {
       network: new BrowserNetworkLedger(),
       cdpSessions: new Map(),
       browserComponentContexts: new Set(),
+      consoleReplay: { seen: new Map(), floor: new Map() },
       fault: '',
     };
     this.states.set(guest, created);

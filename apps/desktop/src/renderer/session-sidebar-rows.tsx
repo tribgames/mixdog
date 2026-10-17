@@ -11,8 +11,9 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
+import type { SessionAttention } from '../shared/session-attention';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
-import { ProgressSpinner } from './ProgressSpinner';
+import { SessionRowStatusIcon, SessionRowUnreadDot } from './session-status-mark';
 import { t } from './i18n';
 import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
 import { elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
@@ -37,7 +38,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   reorder,
   active,
   working,
-  unread,
+  attention,
   rowKey,
   editingRowKey,
   sessionTitleDraft,
@@ -66,7 +67,8 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   reorder?: Partial<SessionRowReorder>;
   active: boolean;
   working?: boolean;
-  unread?: boolean;
+  /** The strongest status (needs you > failed > running > unread). */
+  attention: SessionAttention | '';
   /** Fork grouping: the original (`root`, with its expansion) or a numbered fork. */
   forkKind?: 'root' | 'child';
   forkExpanded?: boolean;
@@ -100,7 +102,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
       reorder={reorder}
       active={active}
       working={working}
-      unread={unread}
+      attention={attention}
       editing={editingRowKey === rowKey}
       titleDraft={sessionTitleDraft}
       titleInvalid={sessionTitleInvalid}
@@ -140,7 +142,7 @@ const SessionRow = React.memo(function SessionRow({
   reorder,
   active,
   working,
-  unread,
+  attention,
   editing,
   titleDraft,
   titleInvalid,
@@ -167,7 +169,7 @@ const SessionRow = React.memo(function SessionRow({
   reorder?: Partial<SessionRowReorder>;
   active: boolean;
   working?: boolean;
-  unread?: boolean;
+  attention: SessionAttention | '';
   forkKind?: 'root' | 'child';
   forkExpanded?: boolean;
   forkNumber?: number;
@@ -200,6 +202,7 @@ const SessionRow = React.memo(function SessionRow({
   const titleRef = useRef<HTMLElement>(null);
   const [overflowing, setOverflowing] = useState(false);
   // Only a title that does not fit fades at the row edge.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: label is not read, but a new title changes the text width and must re-measure.
   useLayoutEffect(() => {
     const title = titleRef.current;
     if (!title) return undefined;
@@ -382,6 +385,7 @@ const SessionRow = React.memo(function SessionRow({
         {forkKind === 'root' && (
           // A span, not a button: it sits inside the row's button and the
           // click must not open the session.
+          // biome-ignore lint/a11y/useSemanticElements: a nested <button> inside the row's button is invalid HTML.
           <span
             role="button"
             tabIndex={0}
@@ -408,22 +412,9 @@ const SessionRow = React.memo(function SessionRow({
           </span>
         )}
         <span className="session-row-status" data-working={working || undefined}>
-          {working && (
-            <ProgressSpinner
-              size={12}
-              className="session-row-spinner"
-              role="status"
-              aria-label={t('{{name}} is working', { name: label })}
-            />
-          )}
+          <SessionRowStatusIcon status={attention} name={label} />
         </span>
-        {unread && !working && (
-          <span
-            className="session-row-unread-dot"
-            role="status"
-            aria-label={t('{{name}} has new activity', { name: label })}
-          />
-        )}
+        {attention === 'unread' && <SessionRowUnreadDot name={label} />}
       </button>
       <div className="session-row-actions" inert={editing ? true : undefined} aria-hidden={editing ? true : undefined}>
         {/* Archived rows always carry restore/delete; any other row shows the

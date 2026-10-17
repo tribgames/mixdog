@@ -10,7 +10,9 @@ import type { VisualizeServiceContext } from './context';
 import { readPaneSource } from './pane-source';
 import { PROBLEM_SETTLE_ROUNDS } from './problem-tracker';
 import { annotationLines, inspectionSections } from './result-text';
+import { applyVisualizeAnnotationOp } from '../../shared/visualize-annotations';
 import {
+  currentAnnotations,
   displayedPanes,
   problemsOf,
   shownLayout,
@@ -22,7 +24,7 @@ import {
 } from './tab-state';
 import { resolveCaptureOutput, type VisualizeRequest } from './targets';
 
-export function createReadActions(ctx: Pick<VisualizeServiceContext, 'deps' | 'tabs' | 'problems'>) {
+export function createReadActions(ctx: Pick<VisualizeServiceContext, 'deps' | 'tabs' | 'problems' | 'publish'>) {
   const { deps } = ctx;
 
   /** Layout findings on the displayed pages (0 when they cannot be read:
@@ -47,7 +49,25 @@ export function createReadActions(ctx: Pick<VisualizeServiceContext, 'deps' | 't
         throw new Error(`annotate works on HTML tabs only; tab ${tab.id} shows no HTML page`);
       }
       await ctx.tabs.display(request.sessionId, tab);
-      const lines = annotationLines(await deps.annotate(request.sessionId, view(tab), request.op));
+      // The marks live in the tab state: the desktop window draws them from
+      // there (below), every paired device from the published state.
+      const htmlPanes = displayedPanes(tab).flatMap((pane, index) => (pane.kind === 'html' ? [index] : []));
+      let marks = applyVisualizeAnnotationOp(currentAnnotations(tab), request.op, htmlPanes);
+      const results = await deps.annotate(request.sessionId, view(tab), marks);
+      // A selector the page's own parser refused is no mark anywhere.
+      const invalid = new Set((results ?? []).flatMap(({ result }) => result.invalid));
+      if (invalid.size) marks = marks.filter((mark) => !invalid.has(mark.selector));
+      tab.annotations = { revision: tab.revision, marks };
+      ctx.publish(request.sessionId);
+      // Only a paired device shows the tab: it draws the marks; no counts here.
+      const named = [
+        ...new Set(marks.map((mark) => (mark.label ? `${mark.selector} "${mark.label}"` : mark.selector))),
+      ];
+      const lines = results
+        ? annotationLines(results)
+        : [
+            `${named.join('; ') || 'no marks'} (drawn on the paired device showing the tab; not checked against the page here)`,
+          ];
       return {
         text: withProblems(tab, [`Annotations on tab ${tab.id} (cleared when the page reloads):`, ...lines].join('\n')),
         tabs: [summary(tab)],

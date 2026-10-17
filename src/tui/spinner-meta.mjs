@@ -9,6 +9,8 @@
  * for 30s. One builder, one answer.
  */
 
+import { quietProgressLabel, quietProgressParts } from '../runtime/shared/quiet-progress.mjs';
+
 const compactNumberFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
@@ -67,9 +69,13 @@ export function buildSpinnerMeta({
   thinkingSince = 0,
   thinkingMs = 0,
   effort = '',
+  // The turn's published quiet state (`spinner.quiet`) and the clock it is read at.
+  quiet = null,
+  now = Date.now(),
   verbose: _verbose = false,
 } = {}) {
   const tokens = Math.max(0, Number(outputTokens) || 0);
+  const quietParts = quietProgressParts(quiet, now, quiet?.warnMs);
   const thinkingParts = spinnerThinkingParts({ thinking, thinkingSince, thinkingMs, effort });
   const thinkingText = spinnerThinkingLabel({ thinking, thinkingSince, thinkingMs, effort });
   return {
@@ -83,6 +89,10 @@ export function buildSpinnerMeta({
     showTokens: tokens > 0,
     thinkingText,
     thinkingActive: Boolean(thinking || Number(thinkingSince) > 0),
+    // Quiet-time cue: structured for the desktop's i18n, English for the TUI;
+    // `escalated` once the silence reaches the stall watchdog's warn point.
+    quietParts,
+    quietText: quietProgressLabel(quietParts),
   };
 }
 

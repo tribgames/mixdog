@@ -176,7 +176,6 @@ async function prepareSessions(send: StreamSend, baseSnapshot: Record<string, un
     busy: false,
     items: items.slice(0, 61),
     streamingTail: null,
-    sessionRemoteAttached: true,
   });
   await sleep(500);
   send(sessionA);
@@ -206,7 +205,6 @@ function createLiveSession(
     spinner: null,
     items: items.slice(0, 61),
     streamingTail: null,
-    sessionRemoteAttached: true,
   };
   const advance = (ticks: number) => {
     if (ticks % 8 === 0) {
@@ -411,15 +409,12 @@ export async function runStreamingProbe({
 
   await window.webContents.executeJavaScript(STREAM_SAMPLER_INSTALL);
 
-  // Phase 1: remoteAttached ENTER session B. The stored restore ends at the
-  // user's last message; the owner FULL frame already contains the progressed
-  // turn and streaming tail. CaptureService holds the former and resolves
-  // resume with the latter, matching the real live-share entry barrier.
+  // Phase 1: ENTER working session B. The stored restore ends at the user's
+  // last message; the live runtime frame already contains the progressed turn
+  // and streaming tail. CaptureService holds the former and resolves resume
+  // with the latter, matching the real resume publication boundary.
   const live = createLiveSession(baseSnapshot, items, ownerItems);
-  prepareRemoteResume(live.storedSessionB, {
-    ...live.sessionB(),
-    sessionRemoteAttached: true,
-  });
+  prepareRemoteResume(live.storedSessionB, live.sessionB());
   await window.webContents.executeJavaScript(`(async () => {
     const row = ${waitForProbeSessionRow('probe_session_b', 'Missing remote probe session row')};
     row.click();
