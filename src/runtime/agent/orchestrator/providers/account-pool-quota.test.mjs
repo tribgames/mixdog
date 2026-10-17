@@ -484,6 +484,149 @@ test('rotateOnRateLimit rotates an advised rate limit and the wait retries the a
   assert.ok(ids.length > 0);
 });
 
+const shortRateLimit = () =>
+  Object.assign(new Error('short cooldown'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 100 });
+
+function expiringCooldown(t, policy, send, elapsedMs = 100) {
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  return createAccountPoolProvider(provider, () => ({
+    get accountCooldownPolicy() {
+      // The refusal captures its deadline before reading the policy. Advance
+      // to that deadline before block persistence finishes, without sleeping.
+      now += elapsedMs;
+      return { rotateOnRateLimit: true, ...policy };
+    },
+    send,
+  }));
+}
+
+for (const [auto, elapsedMs] of [[false, 100], [false, 101], [true, 100]]) {
+  test(`an expired short cooldown retries the eligible account with auto=${auto}, elapsed=${elapsedMs}`, async (t) => {
+    const ids = await setup({ auto });
+    // Manual mode must ignore available alternatives. Automatic mode needs
+    // an exhausted eligible set to exercise recovery rather than fallback.
+    if (auto) for (const id of ids.slice(1)) await removeProviderAccount(provider, id);
+    const used = [];
+    const stages = [];
+    const gateway = expiringCooldown(t, { waitForCooldownMs: 10_000 }, async () => {
+      used.push(currentProviderAccountId(provider));
+      if (used.length === 1) throw shortRateLimit();
+      return { content: 'ok' };
+    }, elapsedMs);
+    const result = await gateway.send([], 'm', [], {
+      onStageChange: (stage, detail) => stages.push([stage, detail]),
+    });
+    assert.equal(result.content, 'ok');
+    assert.deepEqual(used, [ids[0], ids[0]]);
+    assert.ok(stages.some(([stage, detail]) => stage === 'reconnecting' && detail?.waitMs === 0));
+    assert.equal(readProviderAccountPool(provider).selectedId, ids[0]);
+  });
+}
+
+for (const [name, policy, errorFactory, emit] of [
+  ['absent wait policy', {}, shortRateLimit, false],
+  ['disabled wait policy', { waitForCooldownMs: 0 }, shortRateLimit, false],
+  ['quota refusal', { waitForCooldownMs: 10_000 }, () => quotaError(100), false],
+  ['authentication refusal', { waitForCooldownMs: 10_000 }, () => Object.assign(new Error('auth'), { status: 401 }), false],
+  ['already emitted output', { waitForCooldownMs: 10_000 }, shortRateLimit, true],
+  ['unsafe retry', { waitForCooldownMs: 10_000 }, () => Object.assign(shortRateLimit(), { unsafeToRetry: true }), false],
+]) {
+  test(`an expired cooldown does not bypass ${name}`, async (t) => {
+    await setup({ auto: false });
+    let calls = 0;
+    const waits = [];
+    const error = errorFactory();
+    const gateway = expiringCooldown(t, policy, async (_messages, _model, _tools, options) => {
+      calls += 1;
+      if (emit) options.onTextDelta('partial');
+      throw error;
+    });
+    await assert.rejects(gateway.send([], 'm', [], {
+      onTextDelta() {},
+      onStageChange: (_stage, detail) => {
+        if (detail?.waitMs != null) waits.push(detail.waitMs);
+      },
+    }), (thrown) => thrown === error);
+    assert.equal(calls, 1);
+    assert.deepEqual(waits, []);
+  });
+}
+
+test('repeated immediately expired cooldowns still stop at the send-attempt limit', async (t) => {
+  await setup({ auto: false });
+  let calls = 0;
+  const gateway = expiringCooldown(t, { waitForCooldownMs: 10_000 }, async () => {
+    calls += 1;
+    throw shortRateLimit();
+  });
+  await assert.rejects(gateway.send([], 'm', [], {}), { code: 'rate_limit_exceeded' });
+  assert.equal(calls, 20);
+});
+
+test('automatic rotation reopens an expired account only after trying the eligible roster', async (t) => {
+  const ids = await setup();
+  const used = [];
+  const gateway = expiringCooldown(t, { waitForCooldownMs: 10_000 }, async () => {
+    used.push(currentProviderAccountId(provider));
+    if (used.length <= ids.length) throw shortRateLimit();
+    return { content: 'ok' };
+  });
+  assert.equal((await gateway.send([], 'm', [], {})).content, 'ok');
+  assert.equal(used.length, ids.length + 1);
+  assert.equal(used[0], ids[0]);
+  assert.deepEqual(new Set(used.slice(0, ids.length)), new Set(ids));
+  assert.ok(ids.includes(used.at(-1)));
+});
+
+test('repeated positive cooldown waits cannot exceed the cumulative wait budget', async (t) => {
+  await setup({ auto: false });
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  let calls = 0;
+  const waits = [];
+  const gateway = cooling({ rotateOnRateLimit: true, waitForCooldownMs: 15 }, async () => {
+    calls += 1;
+    throw Object.assign(shortRateLimit(), { retryAfterMs: 10 });
+  });
+  await assert.rejects(
+    gateway.send([], 'm', [], {
+      onStageChange: (_stage, detail) => {
+        if (detail?.waitMs != null) {
+          waits.push(detail.waitMs);
+          now += detail.waitMs;
+        }
+      },
+    }),
+    { code: 'rate_limit_exceeded' }
+  );
+  assert.equal(calls, 2);
+  assert.deepEqual(waits, [10]);
+});
+
+for (const cancelAt of [1, 20]) {
+  test(`cancellation during zero-wait recovery on send ${cancelAt} retains the abort reason`, async (t) => {
+    await setup({ auto: false });
+    const controller = new AbortController();
+    const cancelled = new Error('cancel zero-wait recovery');
+    let calls = 0;
+    const gateway = expiringCooldown(t, { waitForCooldownMs: 10_000 }, async () => {
+      calls += 1;
+      throw shortRateLimit();
+    });
+    await assert.rejects(
+      gateway.send([], 'm', [], {
+        signal: controller.signal,
+        onStageChange: (stage, detail) => {
+          if (stage === 'reconnecting' && detail?.waitMs === 0 && calls === cancelAt) controller.abort(cancelled);
+        },
+      }),
+      (error) => error === cancelled
+    );
+    assert.equal(calls, cancelAt);
+  });
+}
+
 const serving = (used, refuse = () => false) =>
   createAccountPoolProvider(provider, () => {
     const id = currentProviderAccountId(provider);

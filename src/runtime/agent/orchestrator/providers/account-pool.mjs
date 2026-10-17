@@ -378,14 +378,21 @@ function poolSend(providerName, account) {
     // remaining wait budget is waited out; otherwise the send fails as before.
     const waitOrThrow = async (error, ids) => {
       const { rows, now, all } = exhaustion(ids);
-      const wait = all ? null : earliestCooldownMs(rows, now);
-      if (wait == null || waitedMs + wait > waitBoundMs(ids)) throw markExhausted(error, ids);
+      const bound = waitBoundMs(ids);
+      // Persisting a short cooldown can outlast its deadline. Release only
+      // attempts cooled by this send, and only under an enabled wait policy.
+      const expired = bound > 0 && rows.some((row) => cooled.has(row.id) && !(Number(row.blockedUntil) > now));
+      const wait = all ? null : expired ? 0 : earliestCooldownMs(rows, now);
+      if (wait == null || waitedMs + wait > bound) throw markExhausted(error, ids);
       options.onStageChange?.('reconnecting', {
         message: `Rate limited — every account is cooling down; retrying in ${Math.ceil(wait / 1000)}s`,
         reason: 'rate_limited',
         waitMs: wait,
         retryAt: now + wait,
       });
+      // A zero-duration sleep does not check cancellation, including on the
+      // final allowed send when no next loop iteration will check it either.
+      options.signal?.throwIfAborted();
       await sleepWithAbort(wait, options.signal);
       waitedMs += wait;
       const lifted = Date.now();
