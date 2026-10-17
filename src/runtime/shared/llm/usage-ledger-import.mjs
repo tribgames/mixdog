@@ -10,6 +10,18 @@ import { createHash } from 'node:crypto';
 import { makeUsageRecord, usageRouteKind } from './usage-ledger.mjs';
 import { priceUsage } from './cost.mjs';
 
+function legacyRollupDays(parsed) {
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new SyntaxError('legacy rollup root is not an object');
+  }
+  if (!Object.hasOwn(parsed, 'days')) throw new SyntaxError('legacy rollup days is missing');
+  const { days } = parsed;
+  // A day map is an object. An array is the other accepted collection; null,
+  // strings, and other scalars are not.
+  if (days === null || typeof days !== 'object') throw new SyntaxError('legacy rollup days is not an object or array');
+  return days;
+}
+
 async function optionalFile(path) {
   try {
     return await readFile(path, 'utf8');
@@ -165,9 +177,26 @@ export async function importUsageHistory(ledger, dataDir, { now = Date.now(), re
         session_id: event.sessionId,
       }))
     );
-  const legacy = await optionalFile(join(dataDir, 'usage-rollup.local.json'));
-  if (legacy) ledger.preserveLegacyDays(repriceRestoredDays(JSON.parse(legacy).days));
-  ledger.set('importedThrough', until);
+  // A missing file is absence. Empty, unparsable, or wrong-shaped JSON is not:
+  // skip only this legacy import and leave importedThrough unset so a repair
+  // is retried instead of short-circuiting forever.
+  const legacyPath = join(dataDir, 'usage-rollup.local.json');
+  const legacy = await optionalFile(legacyPath);
+  let legacyReady = true;
+  if (legacy !== null) {
+    let days;
+    try {
+      days = legacyRollupDays(JSON.parse(legacy));
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      legacyReady = false;
+      process.stderr.write(
+        `[usage-ledger] warning: legacy rollup ${legacyPath} is empty, corrupt, or the wrong shape (${error.message}); skipping its import\n`
+      );
+    }
+    if (legacyReady) ledger.preserveLegacyDays(repriceRestoredDays(days));
+  }
+  if (legacyReady) ledger.set('importedThrough', until);
   ledger.set('importReceipt', JSON.stringify({ ...result, until }));
   return result;
 }
