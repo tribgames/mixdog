@@ -69,9 +69,29 @@ test('preview frame is public, sandboxed, cookie-free and frame-able only by sel
   const { status, headers, body } = recorded[0];
   assert.equal(status, 200);
   const csp = headers['Content-Security-Policy'];
-  assert.match(csp, /(^|; )sandbox allow-scripts(;|$)/);
-  assert.doesNotMatch(csp, /allow-same-origin/);
-  assert.match(csp, /script-src 'unsafe-inline'/);
+  assert.match(csp, /(^|; )sandbox allow-scripts allow-forms allow-modals(;|$)/);
+  // Opaque origin, no escape: never same-origin, top navigation or popups.
+  assert.doesNotMatch(csp, /allow-same-origin|allow-top-navigation|allow-popups/);
+  const directives = Object.fromEntries(
+    csp.split('; ').map((entry) => {
+      const [name, ...values] = entry.split(' ');
+      return [name, values];
+    })
+  );
+  // Outside network over https only (no http:, ws:, '*' or 'self').
+  assert.deepEqual(directives['default-src'], ["'none'"]);
+  assert.deepEqual(directives['script-src'], ["'unsafe-inline'", "'unsafe-eval'", 'blob:', 'data:', 'https:']);
+  assert.deepEqual(directives['style-src'], ["'unsafe-inline'", 'data:', 'https:']);
+  assert.deepEqual(directives['img-src'], ['data:', 'blob:', 'https:']);
+  assert.deepEqual(directives['font-src'], ['data:', 'https:']);
+  assert.deepEqual(directives['media-src'], ['data:', 'blob:', 'https:']);
+  assert.deepEqual(directives['connect-src'], ['https:']);
+  assert.deepEqual(directives['frame-src'], ['https:']);
+  for (const locked of ['object-src', 'base-uri', 'form-action'])
+    assert.deepEqual(directives[locked], ["'none'"], locked);
+  assert.equal(/(^|\s)(http:|ws:|wss:|\*|'self')(\s|;|$)/.test(csp.replace("frame-ancestors 'self'", '')), false);
+  assert.match(csp, /frame-ancestors 'self'/);
+  assert.equal(headers['Referrer-Policy'], 'no-referrer');
   assert.match(csp, /frame-ancestors 'self'/);
   assert.equal(headers['Set-Cookie'], undefined);
   assert.equal(headers['X-Frame-Options'], undefined);

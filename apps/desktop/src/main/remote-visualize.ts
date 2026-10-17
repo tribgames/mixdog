@@ -3,7 +3,7 @@
 // clients only ever see the path-free state. Pane bytes ride the encrypted RPC
 // lane in the same bounded ranges as remote file previews, addressed by tab
 // and working-directory-relative path, and every read re-checks containment.
-import { realpath, stat } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';
 
 import { filePreviewTypeForPath } from '../shared/file-preview';
@@ -14,6 +14,7 @@ import {
   type VisualizeHostPane,
   type VisualizeHostState,
   type VisualizeHostTab,
+  type VisualizeRemoteExport,
   type VisualizeRemotePaneFile,
   type VisualizeSessionState,
 } from '../shared/visualize';
@@ -21,10 +22,33 @@ import { requiredSessionId } from './desktop-state';
 import { requiredString, requiredVisualizeTabCommand } from './ipc-validation';
 import { pageAssetType } from './local-page-server';
 import { projectEntryPathIn } from './project-files';
-import { readPreviewRange } from './remote-file-preview';
+import { authorizedMediaFile, readPreviewRange, withAuthorizedFile } from './remote-file-preview';
+import { assertNotSensitive } from './remote-sensitive-paths';
 
 type RemoteMethod = (params: unknown[]) => unknown;
-type HostRequest = (method: 'visualizeState' | 'visualizeCommand', args: unknown[]) => Promise<unknown>;
+type HostRequest = (
+  method: 'visualizeState' | 'visualizeCommand' | 'visualizeExport',
+  args: unknown[]
+) => Promise<unknown>;
+/** Hands a rendered export file to the asking device as its download. */
+type ExportDownload = (file: {
+  sessionId: string;
+  path: string;
+  mime: string;
+  /** A long document's PNG stacks only its first pages. */
+  pages?: { included: number; total: number };
+}) => Promise<VisualizeRemoteExport>;
+
+/** The page counts of a cut document export, when the host reported valid ones. */
+function cutPages(value: unknown): { included: number; total: number } | null {
+  const { included, total } = record(value);
+  return Number.isInteger(included) &&
+    Number.isInteger(total) &&
+    (included as number) >= 1 &&
+    (total as number) > (included as number)
+    ? { included: included as number, total: total as number }
+    : null;
+}
 type InvokeDesktopOperation = (name: string, args: unknown[]) => Promise<unknown>;
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -92,21 +116,26 @@ async function servedFile(
   rawRel: unknown,
   invokeDesktopOperation: InvokeDesktopOperation,
   scope?: VisualizeHostPane
-): Promise<{ absolute: string; mime: string }> {
+): Promise<{ absolute: string; within: string; mime: string }> {
   const rootDir = rootOf(tab, scope);
   const root = await realpath(rootDir);
   const rel = requiredString(rawRel, 'relPath', 4_096).replace(/\\/g, '/');
   const absolute = projectEntryPathIn(root, rel);
+  await assertNotSensitive(absolute);
   // Inline panes have no file (their content rides the state): never a page
   // whose folder could serve project assets.
   const group = tab.panes.filter((candidate) => rootOf(tab, candidate) === rootDir && !candidate.inline);
   const pane = group.find((candidate) => comparable(resolve(candidate.path)) === comparable(absolute));
   if (pane?.kind === 'document') {
     // The converted PDF lives in the app's conversion cache, outside cwd; its
-    // source was just checked inside it.
-    const converted = record(await invokeDesktopOperation('documentPreviewIn', [root, rel]));
+    // source is converted from the opened, authorized file inside it.
+    const converted = record(
+      await withAuthorizedFile(absolute, root, (file) =>
+        invokeDesktopOperation('documentPreviewIn', [file.root, file.rel])
+      )
+    );
     if (typeof converted.path !== 'string' || !converted.path) throw new Error('The document preview is unavailable.');
-    return { absolute: converted.path, mime: 'application/pdf' };
+    return { absolute: converted.path, within: dirname(converted.path), mime: 'application/pdf' };
   }
   let mime = '';
   if (pane?.kind === 'html') mime = pageAssetType(root, absolute, dirname(absolute));
@@ -123,7 +152,7 @@ async function servedFile(
     }
   }
   if (!mime) throw new Error('This file type does not support an in-app preview.');
-  return { absolute, mime };
+  return { absolute, within: root, mime };
 }
 
 /** 3 panes, doubled while a kept version is compared with live. */
@@ -140,9 +169,13 @@ export function createRemoteVisualizeMethods(deps: {
   mirror?: RemoteVisualizeMirror;
   hostRequest?: HostRequest;
   invokeDesktopOperation: InvokeDesktopOperation;
+  /** Absent when this connection has no download lane: PNG/PDF exports are
+   *  then refused. */
+  exportDownload?: ExportDownload;
 }): Record<string, RemoteMethod> {
   const available = (): { mirror: RemoteVisualizeMirror; hostRequest: HostRequest } => {
-    if (!deps.mirror || !deps.hostRequest) throw new TypeError('The visualize panel is unavailable on this connection.');
+    if (!deps.mirror || !deps.hostRequest)
+      throw new TypeError('The visualize panel is unavailable on this connection.');
     return { mirror: deps.mirror, hostRequest: deps.hostRequest };
   };
   const refresh = async (): Promise<VisualizeSessionState[]> => {
@@ -169,12 +202,11 @@ export function createRemoteVisualizeMethods(deps: {
       const valid = requiredVisualizeTabCommand(command);
       // Outside network for a page is the desktop user's decision alone.
       if (valid.action === 'network') throw new TypeError('Outside network can only be allowed on the desktop.');
-      // Render reports come from the desktop window alone: a remote client
-      // shows its own render errors locally and cannot file problems.
-      if (valid.action === 'render') throw new TypeError('Render reports are not accepted from remote clients.');
-      // PNG / PDF exports use the desktop's save dialog; a remote device
-      // downloads the bytes itself. Saving into the project stays on the
-      // host, through the same validated command.
+      // Render reports pass validated: the host files one only with the
+      // remote render id it issued for exactly that render instance.
+      // PNG / PDF exports use the desktop's save dialog; a remote device asks
+      // `visualizeExport` for a download instead. Saving into the project
+      // stays on the host, through the same validated command.
       if (valid.action === 'export' && valid.format !== 'project') {
         throw new TypeError('This export is only available in the desktop window.');
       }
@@ -191,9 +223,60 @@ export function createRemoteVisualizeMethods(deps: {
       const root = await realpath(rootOf(tab, pane));
       const rel = relative(root, pane.path).split(sep).join('/');
       const served = await servedFile(tab, rel, deps.invokeDesktopOperation, pane);
-      const info = await stat(served.absolute);
-      if (!info.isFile()) throw new Error('The preview target is not a file.');
-      return { kind: pane.kind, mime: served.mime, size: info.size, mtimeMs: info.mtimeMs, rel };
+      // Media also gets a lease the encrypted media lane streams (seekable,
+      // no whole-file read); a client without the lane reads ranges.
+      const streamable = pane.kind === 'image' || pane.kind === 'audio' || pane.kind === 'video';
+      const file = await authorizedMediaFile(served.absolute, served.within, streamable ? served.mime : null);
+      return {
+        kind: pane.kind,
+        mime: served.mime,
+        size: file.size,
+        mtimeMs: file.mtimeMs,
+        rel,
+        ...(file.mediaAssetId ? { mediaAssetId: file.mediaAssetId } : {}),
+      };
+    },
+    // A PDF or Office pane as page images (phones cannot show a PDF in a
+    // frame): the same rasterizer as the editor's remote document preview,
+    // on the pane's own file inside its root.
+    visualizePanePages: async ([sessionId, tabId, rawIndex, options]) => {
+      const tab = await tabOf(sessionId, tabId);
+      const pane = tab.panes[paneIndex(rawIndex)];
+      if (!pane) throw new Error('This visualize pane is closed.');
+      if (pane.kind !== 'pdf' && pane.kind !== 'document') throw new Error('Only PDF and Office panes have pages.');
+      const root = await realpath(rootOf(tab, pane));
+      const rel = relative(root, pane.path).split(sep).join('/');
+      const request = record(options);
+      return withAuthorizedFile(projectEntryPathIn(root, rel), root, (file) =>
+        deps.invokeDesktopOperation('documentPreviewPagesIn', [
+          file.root,
+          file.rel,
+          { pages: request.pages, maxWidth: request.maxWidth },
+        ])
+      );
+    },
+    // PNG / PDF of displayed pane `pane`, rendered on the host into a temp
+    // file and offered to this device as a one-device download.
+    visualizeExport: async ([rawSessionId, rawTabId, format, pane]) => {
+      const valid = requiredVisualizeTabCommand({
+        sessionId: rawSessionId,
+        tabId: rawTabId,
+        action: 'export',
+        format,
+        ...(pane === undefined || pane === null ? {} : { pane }),
+      });
+      if (valid.action !== 'export' || valid.format === 'project') throw new TypeError('export format is invalid.');
+      if (!deps.exportDownload) throw new TypeError('Downloads are unavailable on this connection.');
+      await tabOf(valid.sessionId, valid.tabId);
+      const result = record(await available().hostRequest('visualizeExport', [valid]));
+      if (typeof result.path !== 'string' || !result.path) throw new Error('The export did not produce a file.');
+      const pages = cutPages(result.pages);
+      return deps.exportDownload({
+        sessionId: valid.sessionId,
+        path: result.path,
+        mime: valid.format === 'png' ? 'image/png' : 'application/pdf',
+        ...(pages ? { pages } : {}),
+      });
     },
     // `rawIndex` (newer clients) names the pane whose root `rel` is under: a
     // kept version's snapshot folder or the live cwd.
@@ -205,7 +288,7 @@ export function createRemoteVisualizeMethods(deps: {
         if (!scope) throw new Error('This visualize pane is closed.');
       }
       const served = await servedFile(tab, rel, deps.invokeDesktopOperation, scope);
-      return readPreviewRange(served.absolute, served.mime, offset, length);
+      return readPreviewRange(served.absolute, served.within, served.mime, offset, length);
     },
   };
 }

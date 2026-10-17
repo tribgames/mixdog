@@ -9,8 +9,8 @@ import {
   REMOTE_PREVIEW_CHUNK_BYTES,
   resolvePageReference,
 } from './remote-file-preview.ts';
-import { openSandboxedPagePreview } from './sandboxed-page-preview.ts';
-import { withSandboxStorageShim } from '../shared/sandbox-storage-shim.ts';
+import { openSandboxedPagePreview, PREVIEW_LINK, sandboxedPageDocument } from './sandboxed-page-preview.ts';
+import { sandboxStorageShimScript } from '../shared/sandbox-storage-shim.ts';
 
 const dom = new JSDOM('<!doctype html><body></body>');
 globalThis.DOMParser = dom.window.DOMParser;
@@ -182,6 +182,207 @@ test('a page is inlined with its relative assets and unresolved ones are kept', 
   assert.match(html, /src="https:\/\/cdn\.test\/x\.js"/);
 });
 
+const b64 = (text) => Buffer.from(text).toString('base64');
+
+test('stylesheets inline their @imports, url() images and fonts against their own folder', async () => {
+  const host = fakeHost({
+    'site/index.html': file(
+      '<link rel="stylesheet" href="css/main.css" media="screen"><style>.hero{background:url(img/bg.png)}</style><div style="background-image:url(\'img/bg.png\')"></div>',
+      'text/html'
+    ),
+    'site/css/main.css': file(
+      '@import "base.css";@import url(print.css) print;body{background:url(../img/bg.png)}',
+      'text/css'
+    ),
+    'site/css/base.css': file('@font-face{font-family:F;src:url("../fonts/f.woff2") format("woff2")}', 'text/css'),
+    'site/css/print.css': file('p{color:black}', 'text/css'),
+    'site/fonts/f.woff2': file('WOFF', 'font/woff2'),
+    'site/img/bg.png': file('PNG', 'image/png'),
+  });
+  const html = await buildPageSrcdoc(host.call, 'p', 'site/index.html', null);
+  assert.match(html, /<style media="screen">/);
+  // The imported sheet is inlined, and its font resolves against css/.
+  assert.match(html, new RegExp(`src:url\\("data:font/woff2;base64,${b64('WOFF')}"\\) format\\("woff2"\\)`));
+  assert.match(html, /@media print\{p\{color:black\}\}/);
+  assert.doesNotMatch(html, /@import/);
+  // url() in sheets, <style> blocks and style attributes alike.
+  assert.equal(
+    html.match(
+      new RegExp(
+        `url\\(&quot;data:image/png;base64,${b64('PNG')}&quot;\\)|url\\("data:image/png;base64,${b64('PNG')}"\\)`,
+        'g'
+      )
+    ).length,
+    3
+  );
+  // Each file is read once, however often it is referenced.
+  assert.equal(host.calls.filter((call) => call[2] === 'site/img/bg.png').length, 1);
+});
+
+test('srcset candidates, posters and nested frame pages are inlined; outside ones are kept', async () => {
+  const host = fakeHost({
+    'index.html': file(
+      '<img srcset="a.png 1x, https://cdn.test/b.png 2x, missing.png 3x"><picture><source srcset="w.webp"></picture>' +
+        '<video poster="poster.jpg" src="clip.mp4"></video><iframe src="inner/frame.html"></iframe><iframe src="https://x.test/"></iframe>',
+      'text/html'
+    ),
+    'a.png': file('A', 'image/png'),
+    'w.webp': file('W', 'image/webp'),
+    'poster.jpg': file('J', 'image/jpeg'),
+    'clip.mp4': file('M', 'video/mp4'),
+    'inner/frame.html': file('<img src="pic.png"><p>inner</p>', 'text/html'),
+    'inner/pic.png': file('P', 'image/png'),
+  });
+  const html = await buildPageSrcdoc(host.call, 'p', 'index.html', null);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  assert.equal(
+    doc.querySelector('img').getAttribute('srcset'),
+    `data:image/png;base64,${b64('A')} 1x, https://cdn.test/b.png 2x, missing.png 3x`
+  );
+  assert.equal(doc.querySelector('source').getAttribute('srcset'), `data:image/webp;base64,${b64('W')}`);
+  assert.equal(doc.querySelector('video').getAttribute('poster'), `data:image/jpeg;base64,${b64('J')}`);
+  const [inner, outside] = doc.querySelectorAll('iframe');
+  assert.equal(inner.hasAttribute('src'), false);
+  // The nested page's own assets resolve against its folder.
+  assert.match(inner.getAttribute('srcdoc'), new RegExp(`<img src="data:image/png;base64,${b64('P')}"><p>inner</p>`));
+  assert.equal(outside.getAttribute('src'), 'https://x.test/');
+});
+
+test('module scripts get their relative imports as data: modules; bare, outside and cyclic ones stay', async () => {
+  const host = fakeHost({
+    'app/index.html': file(
+      '<script type="module">import { a } from "./lib/a.js"; import "https://cdn.test/x.js"; import("./lib/b.js");</script><script type="module" src="lib/main.js"></script><script>import("./lib/a.js")</script>',
+      'text/html'
+    ),
+    'app/lib/a.js': file('export { b } from "./b.js"; export const a = 1;', 'text/javascript'),
+    'app/lib/b.js': file('import "./a.js"; export const b = 2;', 'text/javascript'),
+    'app/lib/main.js': file('import lodash from "lodash"; import { a } from "./a.js";', 'text/javascript'),
+  });
+  const html = await buildPageSrcdoc(host.call, 'p', 'app/index.html', null);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const [inline, main, classic] = doc.querySelectorAll('script');
+  const decode = (url) => Buffer.from(url.replace(/^data:text\/javascript;base64,/, ''), 'base64').toString();
+  const specifiers = (text) => [...text.matchAll(/(["'])(data:[^"']+|[^"']+)\1/g)].map((match) => match[2]);
+  const [aUrl, external, bUrl] = specifiers(inline.textContent);
+  assert.match(aUrl, /^data:text\/javascript;base64,/);
+  assert.equal(external, 'https://cdn.test/x.js');
+  assert.match(bUrl, /^data:text\/javascript;base64,/);
+  // a.js re-exports b.js (inlined); b.js imports a.js back: the cycle stays a specifier.
+  const aText = decode(aUrl);
+  assert.match(aText, /export \{ b \} from "data:text\/javascript;base64,/);
+  assert.match(decode(specifiers(aText)[0]), /import "\.\/a\.js"; export const b = 2;/);
+  // An external module file is inlined too, resolving against its own folder.
+  assert.equal(main.hasAttribute('src'), false);
+  assert.match(main.textContent, /import lodash from "lodash"; import \{ a \} from "data:text\/javascript;base64,/);
+  // A classic script is left as written.
+  assert.equal(classic.textContent, 'import("./lib/a.js")');
+});
+
+test('import-looking text in strings, comments, templates and regexes is not rewritten', async () => {
+  const source = [
+    'const s = "import x from \'./lib/a.js\'";',
+    'const t = \'export { a } from "./lib/a.js"\';',
+    '// import "./lib/a.js"',
+    '/* import("./lib/a.js") */',
+    'const u = `import "./lib/a.js" ${1 + 1} import("./lib/a.js")`;',
+    'const r = /import "\\.\\/lib\\/a.js"/; const d = 4 / 2; obj.import("./lib/a.js");',
+    'import { a } from "./lib/a.js";',
+  ].join('\n');
+  const host = fakeHost({
+    'app/index.html': file(`<script type="module">${source}</script>`, 'text/html'),
+    'app/lib/a.js': file('export const a = 1;', 'text/javascript'),
+  });
+  const html = await buildPageSrcdoc(host.call, 'p', 'app/index.html', null);
+  const text = new DOMParser().parseFromString(html, 'text/html').querySelector('script').textContent;
+  const lines = text.split('\n');
+  assert.equal(lines.slice(0, 6).join('\n'), source.split('\n').slice(0, 6).join('\n'));
+  assert.match(lines[6], /^import \{ a \} from "data:text\/javascript;base64,/);
+});
+
+test('the inlining budget caps how many assets a page may pull', async () => {
+  const files = {
+    'index.html': file(Array.from({ length: 70 }, (_, n) => `<img src="i${n}.png">`).join(''), 'text/html'),
+  };
+  for (let n = 0; n < 70; n += 1) files[`i${n}.png`] = file('x', 'image/png');
+  const host = fakeHost(files);
+  const html = await buildPageSrcdoc(host.call, 'p', 'index.html', null);
+  assert.equal((html.match(/src="data:/g) ?? []).length, 64);
+  assert.match(html, /src="i69\.png"/);
+});
+
+test('a remote visualize page carries a fetch for its own files only, read through the pane range', async () => {
+  const { readRemoteVisualizePane, PAGE_FETCH_MAX_BYTES } = await import('./remote-file-preview.ts');
+  const calls = [];
+  const files = { 'site/index.html': 'page', 'site/data/x.json': '{"n":1}' };
+  const call = async (method, params) => {
+    calls.push([method, ...params]);
+    if (method === 'visualizePaneFile')
+      return { kind: 'html', mime: 'text/html', size: 4, mtimeMs: 1, rel: 'site/index.html' };
+    const [, , rel, offset, length] = params;
+    if (!(rel in files)) throw new Error('This file is not part of the visualize tab.');
+    const bytes = Buffer.from(files[rel]).subarray(offset, offset + length);
+    return { data: bytes.toString('base64'), mime: 'application/json', offset, size: files[rel].length, mtimeMs: 1 };
+  };
+  const source = await readRemoteVisualizePane(call, 's1', 'v1', 1);
+  assert.equal(source.page, 'site/index.html');
+  const reply = await source.fetch('/site/data/x.json');
+  assert.equal(Buffer.from(reply.bytes).toString(), '{"n":1}');
+  assert.equal(reply.mime, 'application/json');
+  // The range call names the tab, the resolved path and this pane's index.
+  assert.deepEqual(calls.at(-1).slice(0, 4), ['visualizePaneRange', 's1', 'v1', 'site/data/x.json']);
+  assert.equal(calls.at(-1)[6], 1);
+  // Outside URLs and climbs out of the root never reach the host.
+  const before = calls.length;
+  await assert.rejects(source.fetch('https://x.test/a.json'), /own project files/);
+  await assert.rejects(source.fetch('/../secret.txt'), /own project files/);
+  assert.equal(calls.length, before);
+  // The host's own refusal (an unlisted file) surfaces as a failure.
+  await assert.rejects(source.fetch('/site/other.bin'), /not part of the visualize tab/);
+  assert.equal(PAGE_FETCH_MAX_BYTES, 16 * 1024 * 1024);
+});
+
+test('remote visualize media streams on the media lane, and falls back to the RPC blob without it', async () => {
+  const { readRemoteVisualizePane } = await import('./remote-file-preview.ts');
+  globalThis.URL.createObjectURL = () => 'blob:test/pane';
+  const bytes = Buffer.from('png');
+  const call = (meta) => async (method, params) => {
+    if (method === 'visualizePaneFile')
+      return { kind: 'image', mime: 'image/png', size: 3, mtimeMs: 1, rel: 'chart.png', ...meta };
+    const [, , , offset, length] = params;
+    return {
+      data: bytes.subarray(offset, offset + length).toString('base64'),
+      mime: 'image/png',
+      offset,
+      size: 3,
+      mtimeMs: 1,
+    };
+  };
+  const laneUrl = (id, variant) => `https://relay.test/media/${id}?variant=${variant}`;
+  await withFetch(
+    async () => new Response(null, { status: 206 }),
+    async () => {
+      const streamed = await readRemoteVisualizePane(call({ mediaAssetId: 'lease-1' }), 's1', 'v2', 0, laneUrl);
+      assert.deepEqual(streamed, { kind: 'image', url: 'https://relay.test/media/lease-1?variant=original' });
+      // Older host (no lease) or no lane on this browser: the blob path.
+      assert.equal((await readRemoteVisualizePane(call({}), 's1', 'v2', 0, laneUrl)).url, 'blob:test/pane');
+      assert.equal(
+        (await readRemoteVisualizePane(call({ mediaAssetId: 'lease-1' }), 's1', 'v2', 0, () => '')).url,
+        'blob:test/pane'
+      );
+    }
+  );
+  await withFetch(
+    async () => new Response(null, { status: 404 }),
+    async () => {
+      // The lane is advertised but does not answer: the blob path.
+      assert.equal(
+        (await readRemoteVisualizePane(call({ mediaAssetId: 'lease-1' }), 's1', 'v2', 0, laneUrl)).url,
+        'blob:test/pane'
+      );
+    }
+  );
+});
+
 test('the viewer frame is sandboxed to scripts only, hands the document over on ready, and closes', () => {
   globalThis.window = dom.window;
   const close = openSandboxedPagePreview('<p>x</p>', 'index.html');
@@ -199,8 +400,9 @@ test('the viewer frame is sandboxed to scripts only, hands the document over on 
   // Only one document is ever delivered.
   dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: ready, source: frameWindow }));
   // The document arrives with the storage shim ahead of the page's own markup.
-  assert.deepEqual(posted, [[{ type: 'mixdog-preview-document', html: withSandboxStorageShim('<p>x</p>') }, '*']]);
-  assert.ok(posted[0][0].html.startsWith('<script>') && posted[0][0].html.endsWith('<p>x</p>'));
+  assert.deepEqual(posted, [[{ type: 'mixdog-preview-document', html: sandboxedPageDocument('<p>x</p>') }, '*']]);
+  assert.ok(posted[0][0].html.startsWith(`<script>${sandboxStorageShimScript()}</script>`));
+  assert.ok(posted[0][0].html.endsWith('<p>x</p>'));
   close();
   assert.equal(document.querySelector('iframe'), null);
 });
@@ -211,8 +413,74 @@ test('the viewer falls back to srcdoc when the frame route never answers', async
   const frame = document.querySelector('iframe');
   await new Promise((resolve) => setTimeout(resolve, 3100));
   assert.equal(frame.getAttribute('src'), null);
-  assert.equal(frame.srcdoc, withSandboxStorageShim('<p>y</p>'));
+  assert.equal(frame.srcdoc, sandboxedPageDocument('<p>y</p>'));
   assert.ok(frame.srcdoc.endsWith('<p>y</p>'));
+  close();
+});
+
+/** Runs `sandboxedPageDocument(body)` as the framed page would, with its
+ *  parent standing in as a recorder of what the page posts. */
+function framedPage(body) {
+  const sent = [];
+  const page = new JSDOM(sandboxedPageDocument(body), {
+    url: 'https://relay.test/preview-frame',
+    runScripts: 'dangerously',
+    beforeParse(window) {
+      Object.defineProperty(window, 'parent', {
+        value: { postMessage: (message, target) => sent.push([message, target]) },
+      });
+    },
+  });
+  const click = (selector) => {
+    const event = new page.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    page.window.document.querySelector(selector).dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  return { sent, click };
+}
+
+test('a link in a previewed page is handed to the app instead of blanking the frame', () => {
+  const page = framedPage(
+    '<a id="out" href="https://example.com/">out</a><a id="rel" href="other.html"><b id="inner">rel</b></a>' +
+      '<a id="hash" href="#part">hash</a><a id="js" href="javascript:void 0">js</a>' +
+      '<a id="own" href="https://example.com/own">own</a>' +
+      '<script>document.getElementById("own").addEventListener("click", (e) => e.preventDefault())</script>'
+  );
+  // Before the fix every one of these navigated the frame itself.
+  assert.equal(page.click('#out'), true);
+  assert.equal(page.click('#inner'), true);
+  // The page's objects come from its own realm: compare their data.
+  assert.deepEqual(JSON.parse(JSON.stringify(page.sent)), [
+    [{ type: PREVIEW_LINK, href: 'https://example.com/' }, '*'],
+    [{ type: PREVIEW_LINK, href: 'https://relay.test/other.html' }, '*'],
+  ]);
+  // In-page anchors, script links and clicks the page handles stay its own.
+  assert.equal(page.click('#hash'), false);
+  assert.equal(page.click('#js'), false);
+  page.click('#own');
+  assert.equal(page.sent.length, 2);
+});
+
+test('the app opens only outside web links the framed page hands over, every time', () => {
+  globalThis.window = dom.window;
+  const opened = [];
+  dom.window.open = (...args) => opened.push(args);
+  const close = openSandboxedPagePreview('<p>z</p>', 'index.html');
+  const frameWindow = document.querySelector('iframe').contentWindow;
+  const link = (href, source = frameWindow) =>
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { type: PREVIEW_LINK, href }, source }));
+  for (let cycle = 0; cycle < 3; cycle += 1) link('https://example.com/');
+  // The app's own origin (where a relative link lands), other schemes and
+  // anything not from the frame are ignored.
+  link(`${dom.window.location.origin}/secret`);
+  link('javascript:alert(1)');
+  link('file:///C:/Users/me/.ssh/id_rsa');
+  link('https://evil.example/', dom.window);
+  assert.deepEqual(opened, [
+    ['https://example.com/', '_blank', 'noopener,noreferrer'],
+    ['https://example.com/', '_blank', 'noopener,noreferrer'],
+    ['https://example.com/', '_blank', 'noopener,noreferrer'],
+  ]);
   close();
 });
 

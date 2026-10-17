@@ -17,6 +17,7 @@ const {
   beginRemoteConnectionTimeline,
   clearRemoteConnectionState,
   currentRemoteConnectionState,
+  REMOTE_DESKTOP_OFFLINE_CLOSE,
   takeRemoteConnectionTimeline,
   remoteConnectionInterruptedError,
   reportRemoteConnectionIssue,
@@ -26,6 +27,7 @@ const {
   subscribeRemoteConnectionState,
 } = await import('./remote-connection-state.ts');
 const { RemoteConnectionBanner } = await import('./RemoteConnectionBanner.tsx');
+const { isInvalidRemotePairingClose } = await import('./remote-pairing-recovery.ts');
 
 test('the mobile heartbeat runs only while the page is foregrounded', () => {
   assert.equal(shouldRunRemoteHeartbeat('visible'), true);
@@ -144,7 +146,11 @@ test('a persistent disconnect shows diagnostics without resetting its countdown 
     await fire('pendingDisconnect');
     const overlay = overlayElement();
     assert.ok(overlay);
-    assert.equal(overlay.textContent, '', 'connection diagnostics never reach the screen');
+    // The state is named in words; the raw diagnostics stay off screen.
+    // Informational only: it never asks the user to act.
+    assert.equal(overlay.textContent, 'Reconnecting…', 'the reconnecting label carries no repeated hint');
+    assert.doesNotMatch(overlay.textContent, /\btap\b/iu);
+    assert.doesNotMatch(overlay.textContent, /encryption|timeout/u);
     assert.equal(overlay.getAttribute('aria-label'), 'Retry');
     let retries = 0;
     const onRetry = () => retries++;
@@ -280,6 +286,74 @@ test('a gap that recovers inside ten seconds shows nothing', async () => {
     assert.notEqual(timers.pendingDisconnect, countdown, 'the next gap starts a fresh countdown');
     assert.equal(overlayElement(), null);
   });
+});
+
+test('the overlay names the real connection state and follows it while shown', async () => {
+  const labelText = () => document.querySelector('.remote-connection-overlay-label')?.textContent;
+  const setOnline = async (online) => {
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => online });
+    await act(async () => window.dispatchEvent(new window.Event(online ? 'online' : 'offline')));
+  };
+  try {
+    await withBanner(async ({ fire, setState }) => {
+      await act(async () => {
+        setRemoteConnectionState('reconnecting');
+        setRemoteConnectionPhase('websocket');
+      });
+      await fire('pendingDisconnect');
+      assert.equal(labelText(), 'Reconnecting…');
+      assert.equal(overlayElement().dataset.reason, 'reconnecting');
+      const hintText = () => document.querySelector('.remote-connection-overlay-hint')?.textContent ?? null;
+      assert.equal(hintText(), null, 'no hint under the reconnecting label');
+
+      // Only the relay's own PC-offline close names the PC.
+      await act(async () => reportRemoteConnectionIssue('websocket-closed', undefined, 1006));
+      assert.equal(labelText(), 'Reconnecting…');
+      await act(async () => reportRemoteConnectionIssue('websocket-closed', undefined, REMOTE_DESKTOP_OFFLINE_CLOSE));
+      assert.equal(labelText(), 'PC offline or asleep');
+      assert.equal(hintText(), 'Reconnecting…');
+      // A redial that opens the socket does not yet prove the PC is back.
+      await act(async () => setRemoteConnectionPhase('encryption'));
+      assert.equal(labelText(), 'PC offline or asleep');
+
+      // This device's own network outranks every other cause.
+      await setOnline(false);
+      assert.equal(labelText(), 'No internet');
+      assert.equal(hintText(), 'Reconnecting…');
+      await setOnline(true);
+      assert.equal(labelText(), 'PC offline or asleep');
+
+      // A different failure after it means the cause is no longer known.
+      await act(async () => reportRemoteConnectionIssue('encryption-timeout'));
+      assert.equal(labelText(), 'Reconnecting…');
+      await act(async () => reportRemoteConnectionIssue('websocket-closed', undefined, REMOTE_DESKTOP_OFFLINE_CLOSE));
+
+      // The PC answered and the view is being synchronized.
+      await act(async () => setRemoteConnectionPhase('sync'));
+      await setState('syncing');
+      assert.equal(labelText(), 'Updating messages…');
+      assert.equal(hintText(), 'Reconnecting…');
+      assert.equal(overlayElement().dataset.reason, 'updating');
+      await setState('connected');
+      await fire('pendingRecovery');
+      assert.equal(overlayElement(), null);
+    });
+  } finally {
+    delete window.navigator.onLine;
+  }
+});
+
+test('the PC-offline close is transient and keeps the stored pairing', () => {
+  assert.equal(isInvalidRemotePairingClose({ code: REMOTE_DESKTOP_OFFLINE_CLOSE, reason: 'desktop offline' }), false);
+  assert.equal(isInvalidRemotePairingClose({ code: 4005, reason: '' }), true);
+});
+
+test('only real authentication failures drop the pairing; a redial race never does', () => {
+  const close = (reason) => isInvalidRemotePairingClose({ code: 4004, reason });
+  assert.equal(close('relay encryption authentication failed'), true);
+  assert.equal(close('invalid encrypted relay frame'), true);
+  assert.equal(close('relay encryption handshake required'), false);
+  assert.equal(close('relay encryption handshake timed out'), false);
 });
 
 test('a connection timeline reports each wait once, in order, with fixed tokens only', () => {

@@ -47,18 +47,6 @@ const MAX_PROVIDER_ID_LENGTH = 64;
 const MAX_ALLOWED_PROVIDERS = 64;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what is refused.
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;
-/** Whole-number model-use settings (model-proxy-grants) and their allowed ranges. */
-const MODEL_USE_LIMITS = {
-  grantMinutes: [10, 1_440, 'The model permission time must be a whole number of minutes from 10 to 1440.'],
-  grantCalls: [1, 1_000_000, 'The model calls per permission must be a whole number from 1 to 1000000.'],
-  grantTokens: [1_000, 10_000_000_000, 'The tokens per permission must be a whole number from 1000 to 10000000000.'],
-  backgroundCallsPerHour: [1, 1_000, 'The background model calls per hour must be a whole number from 1 to 1000.'],
-  backgroundTokensPerDay: [
-    1_000,
-    10_000_000_000,
-    'The background tokens per day must be a whole number from 1000 to 10000000000.',
-  ],
-} as const;
 
 /** The per-server settings as saved: trimmed, empty fields dropped. Throws when a value cannot be used. */
 export function parseHostSettings(raw: unknown): SshHostSettings {
@@ -101,17 +89,6 @@ export function parseHostSettings(raw: unknown): SshHostSettings {
     if (ids.size > MAX_ALLOWED_PROVIDERS) throw new Error('Too many providers.');
     settings.allowedProviders = [...ids];
   }
-  for (const [key, [min, max, message]] of Object.entries(MODEL_USE_LIMITS) as Array<
-    [keyof typeof MODEL_USE_LIMITS, (typeof MODEL_USE_LIMITS)[keyof typeof MODEL_USE_LIMITS]]
-  >) {
-    const raw = input[key];
-    if (raw === undefined || raw === null || raw === '') continue;
-    const value = Number(raw);
-    if (!Number.isInteger(value) || value < min || value > max) throw new Error(message);
-    settings[key] = value;
-  }
-  if (typeof input.allowBackgroundModelUse === 'boolean')
-    settings.allowBackgroundModelUse = input.allowBackgroundModelUse;
   return settings;
 }
 
@@ -163,12 +140,6 @@ export function allowedProvidersForHost(hostId: string): string[] | null {
   const host = savedHostSync(hostId);
   if (!host) return [];
   return host.settings?.allowedProviders ? [...host.settings.allowedProviders] : null;
-}
-
-/** A saved server's settings, read like allowedProvidersForHost; undefined
- *  for a server that is not saved (or a list that cannot be read). */
-export function savedHostSettings(hostId: string): SshHostSettings | undefined {
-  return savedHostSync(hostId)?.settings;
 }
 
 /** The saved entry, from the loaded store or else from disk. */

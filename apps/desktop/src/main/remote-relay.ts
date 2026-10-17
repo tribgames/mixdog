@@ -17,14 +17,24 @@ import { createBrowserRemoteTabSubscribers } from './remote-browser-tabs';
 import { loadOrCreatePairingToken } from './remote-pairing-token';
 import { relayE2EEPairingMaterial, type RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
 import { createRemoteByteMeter } from '../shared/remote-performance';
-import { createRemoteCallStats, reportRemoteByteWindow } from './remote-performance-diagnostics';
+import {
+  createRemoteCallStats,
+  createRemoteSocketDiagnostics,
+  reportRemoteByteWindow,
+} from './remote-performance-diagnostics';
 import {
   RELAY_FRAME_TOO_LARGE,
   readRelayPayloadRejection,
   relayPayloadRejectedFrame,
 } from '../shared/remote-payload-limit';
-import { createRemoteMethods, type RemoteMethodDependencies } from './remote-methods';
+import {
+  createRemoteMethods,
+  createSelectedFileGrants,
+  type RemoteMethodDependencies,
+  type SelectedFileGrants,
+} from './remote-methods';
 import { createFileDownloadService } from './file-downloads';
+import { registerSensitiveRoot } from './remote-sensitive-paths';
 export { remoteTranscriptSnapshot } from './remote-transcript';
 import { createNativePushStore, type NativePushSubscription } from './native-push-store';
 import type { NativePushMessage } from './push-notifier';
@@ -55,6 +65,7 @@ import { viewIsStale } from './remote-view-staleness';
 import { createRelaySessionWiring } from './remote-relay-session-wiring';
 // @ts-expect-error Relay framing is shared with the plain-ESM VPS server.
 import { decodeRelayBinaryFrame } from '../../../relay/lib/relay-binary-frame.mjs';
+import { DESKTOP_HANDSHAKE_STALLED_CLOSE } from '../../../relay/lib/relay-close-codes.mjs';
 
 export { resolveRelayUrl, rotateRemoteDevice } from './remote-relay-device';
 export type { RemoteClaimDecision, RemoteClientClaim } from './remote-relay-claim';
@@ -92,6 +103,7 @@ interface RemoteRelayOptions extends RemoteMethodDependencies {
   /** Ask the user to approve one credential-less container. Resolving false
    *  (or throwing) denies it; the relay never decides this. */
   onClientClaim?: (claim: RemoteClientClaim) => Promise<RemoteClaimDecision>;
+  onClaimConflict?: (claimId: string) => void;
   /** This PC's name for handshakes, pair codes and the relay report; read each
    *  time so a rename applies without a restart. Defaults to the OS hostname. */
   hostName?: () => string;
@@ -135,6 +147,14 @@ export interface RemoteRelayHandle {
 const RELAY_HEARTBEAT_MS = 10_000;
 /** A dial younger than this is not replaced by a resume or network change. */
 const RELAY_DIAL_GRACE_MS = 5_000;
+/** Reconnect backoff: the first delay after a drop, doubling up to the cap. */
+const RELAY_RETRY_MIN_MS = 1_000;
+const RELAY_RETRY_MAX_MS = 30_000;
+/** How many DESKTOP_HANDSHAKE_STALLED_CLOSE closes in a row redial at once before the backoff applies. */
+const RELAY_STALLED_IMMEDIATE_REDIALS = 2;
+/** A leg that stays up this long is a recovery: the stall record and the
+ *  backoff start over. */
+const RELAY_STABLE_LEG_MS = 30_000;
 
 export function startRelayHeartbeat(
   ws: WebSocket,
@@ -201,6 +221,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // that was one heavy answer or eighty cheap ones. Name those calls without
   // sending routine performance telemetry through the error channel.
   const remoteCallStats = createRemoteCallStats();
+  // The app profile holds the device, pairing and encryption keys: no remote
+  // file lane serves it, except the task workspaces that live inside it.
+  registerSensitiveRoot(options.userDataPath, ['workspace']);
   const relayUrl = validatedRelayUrl(options.relayUrl);
   const token = await loadOrCreatePairingToken(options.userDataPath);
   const { deviceId, deviceSecret } = await loadOrCreateDevice(options.userDataPath);
@@ -241,13 +264,27 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // connection; unpair, session deletion and close end what it holds.
   // Leases also stream on the encrypted media lane (remote-relay-media.ts).
   const fileDownloads = createFileDownloadService({ host: options.host, mediaLane: true });
+  // One-file link grants are bound to the paired device the same way: a
+  // reconnect keeps the tokens the client already holds for linked files.
+  const deviceFileGrants = new Map<string, SelectedFileGrants>();
+  const fileGrantsFor = (credentialId: string): SelectedFileGrants | undefined => {
+    if (!credentialId) return undefined;
+    let grants = deviceFileGrants.get(credentialId);
+    if (!grants) {
+      grants = createSelectedFileGrants((sessionId) => fileDownloads.sessionRemoved(sessionId));
+      deviceFileGrants.set(credentialId, grants);
+    }
+    return grants;
+  };
   const methodsFor = (clientId: string, state: RelayClientState): ReturnType<typeof createRemoteMethods> => {
     let table = clientMethods.get(state);
     if (!table) {
+      const selectedFileGrants = fileGrantsFor(state.credentialId);
       table = createRemoteMethods(
         {
           ...options,
           fileDownloads,
+          ...(selectedFileGrants ? { selectedFileGrants } : {}),
           push: pushStore,
           nativePush: {
             platforms: () => caps.relayNativePlatforms(),
@@ -280,6 +317,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
             return stale;
           },
           viewedSessionIds: () => [...state.visibleSessionIds],
+          heldTranscript: (sessionId) => state.sessionStateEncoders.get(sessionId)?.resumePoint()?.held ?? null,
         }
       );
       clientMethods.set(state, table);
@@ -288,7 +326,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   };
   let socket: WebSocket | null = null;
   let closed = false;
-  let retryMs = 1_000;
+  let retryMs = RELAY_RETRY_MIN_MS;
+  // Consecutive legs the relay closed as unresponsive, and the timer that
+  // clears that record once a leg holds.
+  let stalledStreak = 0;
+  let stableTimer: NodeJS.Timeout | undefined;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let connectStartedAt = 0;
   const revocationSockets = new Set<WebSocket>();
@@ -362,12 +404,22 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // so the desktop goes quiet instead of streaming state upstream 24/7 — the
   // relay lane then costs keepalive bytes only. Each join restarts the delta
   // lane with a full snapshot, so nothing is lost.
+  const socketDiagnostics = createRemoteSocketDiagnostics({
+    sample: () => ({
+      clients: clients.size,
+      sockets: [{ name: 'relay', bufferedAmount: socket?.bufferedAmount ?? 0 }],
+    }),
+  });
   const clients = createRelayClientRegistry({
     host: options.host,
     sendEnvelope,
     frameBudgetBytes: MAX_WS_PAYLOAD_BYTES,
-    onClientCountChanged: () => options.onClientCountChanged?.(),
+    onClientCountChanged: () => {
+      socketDiagnostics.sync();
+      options.onClientCountChanged?.();
+    },
     onEmpty: () => {
+      socketDiagnostics.sync();
       // The last phone left: log the partial window rather than dropping it.
       const meterReport = relayByteMeter.clear();
       if (meterReport) reportRemoteByteWindow(meterReport);
@@ -423,7 +475,12 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       return options.browserRemote('tabsWatch', [on]);
     },
   });
-  const sessionStates = createRelaySessionStateFanout({ clients: clients.clients, sendEncryptedFrame });
+  const sessionFolders = new Map<string, string>();
+  const sessionStates = createRelaySessionStateFanout({
+    clients: clients.clients,
+    sendEncryptedFrame,
+    sessionFolder: (sessionId) => sessionFolders.get(sessionId) ?? '',
+  });
   const resetTransportDeltas = (): void => {
     sessionStates.clear();
     clients.resetDeltas();
@@ -443,7 +500,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     sendEncryptedFrame,
     broadcastEncrypted,
     subscribeTerminalData: options.subscribeTerminalData,
-    onSessions: (sessions) => fileDownloads.retainSessions(sessions.map((session) => session.id)),
+    onSessions: (sessions) => {
+      sessionFolders.clear();
+      for (const session of sessions) if (session.cwd) sessionFolders.set(session.id, session.cwd);
+      fileDownloads.retainSessions(sessions.map((session) => session.id));
+    },
   });
   const drainQueuedRevocations = createRevocationDrain({
     relayUrl,
@@ -503,6 +564,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     dispatchClientCall,
     resyncClient: sessionWiring.resyncClient,
     onClientClaim: options.onClientClaim,
+    onClaimConflict: options.onClaimConflict,
     hostName: pcName,
   });
   const routeRelayEnvelope = createRelayEnvelopeDispatcher({
@@ -615,7 +677,15 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     socket = ws;
     const heartbeat = startRelayHeartbeat(ws);
     ws.on('open', () => {
-      retryMs = 1_000;
+      // An open after ordinary drops restarts the backoff, as it always has.
+      // After stalled-handshake closes it does not: the leg must HOLD first.
+      if (stalledStreak === 0) retryMs = RELAY_RETRY_MIN_MS;
+      clearTimeout(stableTimer);
+      stableTimer = setTimeout(() => {
+        stalledStreak = 0;
+        retryMs = RELAY_RETRY_MIN_MS;
+      }, RELAY_STABLE_LEG_MS);
+      stableTimer.unref?.();
       // Nothing the previous leg declared survives into this one.
       caps.resetRelayConnectionCaps();
       relayWebPush.reset();
@@ -685,7 +755,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     ws.on('error', () => {
       /* connection errors surface as close */
     });
-    ws.on('close', () => {
+    ws.on('close', (code) => {
       heartbeat.stop();
       // A superseded socket owns none of the shared state and schedules nothing.
       if (socket !== ws) return;
@@ -695,12 +765,24 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       mediaLane.destroyAll();
       if (closed) return;
       control.rejectAll('Relay disconnected.');
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        connect();
-      }, retryMs);
+      clearTimeout(stableTimer);
+      // The relay judged this leg dead while a joining phone waited on it.
+      // That phone is still inside its own handshake budget, so the first
+      // few replacements dial at once. A leg that keeps getting closed this
+      // way is not recovering, though: past the limit it waits out the
+      // ordinary backoff, which only a leg that holds resets.
+      const stalled = code === DESKTOP_HANDSHAKE_STALLED_CLOSE;
+      if (stalled) stalledStreak += 1;
+      const immediate = stalled && stalledStreak <= RELAY_STALLED_IMMEDIATE_REDIALS;
+      reconnectTimer = setTimeout(
+        () => {
+          reconnectTimer = null;
+          connect();
+        },
+        immediate ? 0 : retryMs
+      );
       reconnectTimer.unref?.();
-      retryMs = Math.min(30_000, retryMs * 2);
+      if (!immediate) retryMs = Math.min(RELAY_RETRY_MAX_MS, retryMs * 2);
     });
   };
   connect();
@@ -742,8 +824,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       browserTabs.dropClient(clientId);
       deviceNames.delete(clientId);
       if (!/^[0-9a-f-]{8,64}$/u.test(clientId)) throw new TypeError('Invalid remote client id.');
-      // Unpaired: its download grants and transfers end now.
+      // Unpaired: its download and link grants and transfers end now.
       fileDownloads.revokeDevice(clientId);
+      deviceFileGrants.delete(clientId);
       // Per-browser credentials are isolated: revoking one deletes only that
       // browser's token on the relay. The QR bootstrap token never rotates
       // here, so every other paired browser keeps working untouched.
@@ -756,7 +839,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     },
     resume: (): void => {
       if (closed) return;
-      retryMs = 1_000;
+      retryMs = RELAY_RETRY_MIN_MS;
       if (reconnectTimer) {
         connect();
         return;
@@ -777,16 +860,20 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     revoke: (): Promise<void> => {
       clients.dropParkedViews();
       fileDownloads.revokeAll();
+      deviceFileGrants.clear();
       return revokeDeviceOverSocket({ currentSocket: () => socket, closed: () => closed });
     },
     close: async (): Promise<void> => {
       if (closed) return;
       closed = true;
+      socketDiagnostics.stop();
       fileDownloads.revokeAll();
+      deviceFileGrants.clear();
       resetTransportDeltas();
       // The socket close handler skips cleanup once `socket` is cleared below.
       mediaLane.destroyAll();
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      clearTimeout(stableTimer);
       browserStreams.dispose();
       browserTabs.dispose();
       sessionSubscriptions.dispose();

@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { clientProfile } from './device-store.mjs';
 import { isRoutingId } from './ids.mjs';
 import { browserSocketOriginAllowed, clientIp, decodedRequestPath, desktopLegOpen, requestUrl } from './relay-http.mjs';
-import { pairingCookieHeaders, parseCookieToken } from './static-http.mjs';
+import { pairingCookieHeaders, requestCookieToken } from './static-http.mjs';
 
 export const MAX_PENDING_CLAIMS = 64;
 // The global pool is shared by every desktop on the box, so it also needs a
@@ -21,7 +21,7 @@ export const CLAIM_TTL_MS = 300_000;
 function requestToken(request, url) {
   const authorization = String(request.headers.authorization || '');
   const bearer = authorization.match(/^Bearer\s+([0-9a-f]{32,128})$/i)?.[1] || '';
-  return bearer || url.searchParams.get('token') || parseCookieToken(request.headers.cookie);
+  return bearer || url.searchParams.get('token') || requestCookieToken(request);
 }
 
 function readBoundedJson(request, maxBytes = 8 * 1024) {

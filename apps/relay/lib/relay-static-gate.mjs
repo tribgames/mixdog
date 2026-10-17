@@ -8,7 +8,7 @@ import {
   mergeCookieHeaders,
   pairingCookieHeaders,
   parseCookieDevice,
-  parseCookieToken,
+  requestCookieToken,
   resolveStaticTarget,
   sendDeviceManifest,
   sendStaticFile,
@@ -65,7 +65,7 @@ export function shareTargetShell(requestUrl) {
 function resolveStaticAccess(store, request, url, pathname) {
   const route = parseDeviceRoute(pathname);
   const queryToken = url.searchParams.get('token') || '';
-  const token = queryToken || parseCookieToken(request.headers.cookie);
+  const token = queryToken || requestCookieToken(request);
   const tokenDevice = token ? store.deviceIdForClientToken(token) : null;
   // Only a credential this relay actually knows is persisted as the pairing
   // cookie. A public asset carrying `?token=<attacker value>` would otherwise

@@ -1,66 +1,17 @@
 import type { DesktopSessionStateUpdate } from '../shared/contract';
-import { streamingTailWithPartial } from '../shared/streaming-partial';
+import { isStreamingTextAppend } from '../shared/streaming-text-append';
 import { createLatestStateMailbox, type LatestStateMailbox } from './desktop-service-protocol';
 
-export const REMOTE_STREAM_BATCH_MS = 16;
+/** A phone repaints a whole markdown tail per frame it receives. At 16ms
+ *  nearly every desktop update became its own socket frame (168 frames for
+ *  173 updates) and a throttled phone missed half its vsyncs; ~90ms keeps
+ *  text visibly flowing at ~11 paints a second. */
+export const REMOTE_STREAM_BATCH_MS = 90;
 
 type Timers = {
   setTimeout(callback: () => void, ms: number): ReturnType<typeof setTimeout>;
   clearTimeout(handle: ReturnType<typeof setTimeout>): void;
 };
-
-function sameFields(
-  before: Record<string, unknown>,
-  after: Record<string, unknown>,
-  omitted: readonly string[]
-): boolean {
-  const left = Object.keys(before).filter((key) => !omitted.includes(key));
-  const right = Object.keys(after).filter((key) => !omitted.includes(key));
-  return (
-    left.length === right.length &&
-    left.every(
-      (key) =>
-        Object.hasOwn(after, key) &&
-        (Object.is(before[key], after[key]) || JSON.stringify(before[key]) === JSON.stringify(after[key]))
-    )
-  );
-}
-
-/** Batch only a proved text append. Every other state transition — including
- *  unknown future approval fields — bypasses the timer without an allowlist.
- *  The appended text is the live row as painted: the line-gated tail joined
- *  with its unfinished line, so partial-line growth batches like any append. */
-function isTextAppend(before: DesktopSessionStateUpdate | null, after: DesktopSessionStateUpdate): boolean {
-  const old = before?.snapshot;
-  const next = after.snapshot;
-  if (
-    before?.frameSource !== 'live' ||
-    after.frameSource !== 'live' ||
-    before.sessionId !== after.sessionId ||
-    after.laneEnd ||
-    !old ||
-    !next ||
-    old.busy !== true ||
-    next.busy !== true ||
-    old.items !== next.items
-  )
-    return false;
-  const left = streamingTailWithPartial(old);
-  const right = streamingTailWithPartial(next);
-  if (
-    !left ||
-    !right ||
-    left.id == null ||
-    left.id !== right.id ||
-    right.kind !== 'assistant' ||
-    typeof left.text !== 'string' ||
-    typeof right.text !== 'string' ||
-    right.text.length <= left.text.length ||
-    !right.text.startsWith(left.text)
-  )
-    return false;
-  return sameFields(left, right, ['text']) && sameFields(old, next, ['streamingTail', 'streamingPartial']);
-}
 
 /** One latest snapshot and one timer per session, before delta encoding.
  *  Non-text transitions remain non-droppable even if a later text append
@@ -85,7 +36,8 @@ export function createRemoteStreamingMailbox(
   };
   return {
     publish(update): void {
-      const append = isTextAppend(previous, update);
+      // Batch only a proved text append; every other transition bypasses the timer.
+      const append = isStreamingTextAppend(previous, update);
       previous = update;
       if (!append) {
         cancelDelay();

@@ -21,7 +21,8 @@
 // revocation that ran meanwhile leaves no grant or lease behind.
 import { createHash, randomUUID } from 'node:crypto';
 import { type BigIntStats, constants } from 'node:fs';
-import { type FileHandle, lstat, open, readFile, realpath, stat } from 'node:fs/promises';
+import { type FileHandle, lstat, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
 import type { DesktopSessionSummary } from '../shared/contract';
@@ -34,7 +35,11 @@ import {
   FILE_DOWNLOAD_PURPOSES,
   FILE_DOWNLOAD_RANGE_MAX_BYTES,
   FILE_DOWNLOAD_REMOTE_METHODS,
+  FOLDER_ZIP_MAX_BYTES,
+  FOLDER_ZIP_MAX_FILES,
   FileDownloadError,
+  folderTooLargeMessage,
+  type FolderLeftOut,
   type FileDownloadChunk,
   type FileDownloadFinished,
   type FileDownloadGrant,
@@ -50,7 +55,16 @@ import { requiredSessionId } from './desktop-state';
 import { requiredString, sanitizedFileName } from './ipc-validation';
 import { openedFilePath } from './opened-file-path';
 import { projectEntryPathIn } from './project-files';
-import { assistantItemLink, sessionGeneratedAssetIds, settledAssistantItem } from './transcript-file-links';
+import { sensitivePathMatcher } from './remote-sensitive-paths';
+import {
+  assistantLinkedPath,
+  referencedPathFor,
+  requestedLinkPath,
+  resolveLinkedPath,
+  sessionGeneratedAssetIds,
+} from './transcript-file-links';
+import { FolderMovedError, FolderTooLargeError, zipFolder } from './zip-folder';
+import { attachmentViewName, readSessionAttachment, requiredAttachmentId } from './session-attachments';
 
 /** Unredeemed grants one device may hold; the oldest is dropped first. */
 const MAX_GRANTS_PER_DEVICE = 8;
@@ -79,7 +93,7 @@ export interface FileDownloadRequester {
 
 export type FileDownloadHost = Pick<
   DesktopService,
-  'listSessions' | 'projectDirectory' | 'invokeCapability' | 'readSessionTranscript'
+  'listSessions' | 'projectDirectory' | 'invokeCapability' | 'readSessionTranscript' | 'readAttachmentImage'
 >;
 
 /** Streaming hook for the encrypted media lane (remote-relay-media.ts, later
@@ -115,6 +129,14 @@ export interface FileDownloadService extends FileDownloadMediaSource {
   finish(requester: FileDownloadRequester, transferId: string): Promise<FileDownloadFinished>;
   /** Releases a lease or an unredeemed grant of this device. */
   abort(requester: FileDownloadRequester, id: string): Promise<boolean>;
+  /** A visualize export rendered for `requester` (a file in its own
+   *  `mixdog-visualize-export-*` temp folder): the download source only that
+   *  device may authorize, for a while. The folder is removed once the export
+   *  expires and nothing holds it, or when the device or everything is revoked. */
+  registerExport(
+    requester: FileDownloadRequester,
+    file: { sessionId: string; path: string; mime: string; pages?: { included: number; total: number } }
+  ): Promise<{ source: { kind: 'export'; sessionId: string; exportId: string }; name: string }>;
   /** The host's current session catalog: every grant and lease of a session
    *  that left it (deleted) ends. */
   retainSessions(sessionIds: Iterable<string>): void;
@@ -159,6 +181,8 @@ interface Authorized {
   mime: string;
   size: number;
   version: string;
+  /** A folder zip only: what it left out. */
+  leftOut?: FolderLeftOut;
 }
 
 interface Grant extends Authorized {
@@ -180,8 +204,7 @@ const identityOf = (info: BigIntStats): FileIdentity => ({
   mtimeNs: info.mtimeNs,
 });
 
-const sameFile = (left: FileIdentity, right: FileIdentity): boolean =>
-  left.dev === right.dev && left.ino === right.ino;
+const sameFile = (left: FileIdentity, right: FileIdentity): boolean => left.dev === right.dev && left.ino === right.ino;
 
 const sameVersion = (left: FileIdentity, right: FileIdentity): boolean =>
   sameFile(left, right) && left.size === right.size && left.mtimeNs === right.mtimeNs;
@@ -203,6 +226,18 @@ function inside(root: string, path: string): boolean {
 
 const changed = (): FileDownloadError => new FileDownloadError('changed', 'The file changed on the host.');
 const expired = (): FileDownloadError => new FileDownloadError('expired', 'This download is no longer available.');
+const sensitive = (): FileDownloadError =>
+  new FileDownloadError('sensitive', 'This file can hold credentials or secrets and cannot be downloaded.');
+const tooLarge = (): FileDownloadError =>
+  new FileDownloadError('too-large', 'Files larger than 256 MB cannot be downloaded.');
+
+/** Refuses a download whose requested name or canonical location is
+ *  secret-bearing: whatever vouched for the path, secrets never leave the host. */
+async function refuseSensitive(requested: string, canonical: string): Promise<(path: string) => boolean> {
+  const denied = await sensitivePathMatcher();
+  if (denied(requested) || denied(canonical)) throw sensitive();
+  return denied;
+}
 
 function missing(error: unknown): never {
   const code = (error as { code?: unknown } | null)?.code;
@@ -231,10 +266,12 @@ async function verifyLocation(file: OpenedFile): Promise<void> {
  *  that it is the file at that path: every check the caller makes on
  *  `canonical` then holds for the bytes the handle reads. */
 async function openRegularFile(path: string): Promise<{ canonical: string; file: OpenedFile }> {
-  const notAFile = (): FileDownloadError => new FileDownloadError('not-a-file', 'Only files on this PC can be downloaded.');
+  const notAFile = (): FileDownloadError =>
+    new FileDownloadError('not-a-file', 'Only files on this PC can be downloaded.');
   if (NETWORK_PATH.test(path)) throw notAFile();
   const canonical = await realpath(path).catch(missing);
   if (NETWORK_PATH.test(canonical)) throw notAFile();
+  await refuseSensitive(path, canonical);
   if (!(await stat(canonical).catch(missing)).isFile()) throw notAFile();
   await fileDownloadTestHooks.afterResolve?.(canonical);
   const handle = await open(canonical, OPEN_FLAGS).catch(missing);
@@ -242,11 +279,16 @@ async function openRegularFile(path: string): Promise<{ canonical: string; file:
   try {
     const info = await handle.stat({ bigint: true });
     if (!info.isFile()) throw notAFile();
-    const file = { handle, location: canonical, identity: identityOf(info), inflight: 0, released: false, closed: false };
+    const file = {
+      handle,
+      location: canonical,
+      identity: identityOf(info),
+      inflight: 0,
+      released: false,
+      closed: false,
+    };
     await verifyLocation(file);
-    if (info.size > BigInt(FILE_DOWNLOAD_MAX_BYTES)) {
-      throw new FileDownloadError('too-large', 'Files larger than 256 MB cannot be downloaded.');
-    }
+    if (info.size > BigInt(FILE_DOWNLOAD_MAX_BYTES)) throw tooLarge();
     return { canonical, file };
   } catch (error) {
     await handle.close().catch(() => undefined);
@@ -320,19 +362,57 @@ async function authorizeProjectFile(
   });
 }
 
+/** Refuses a request whose own name is secret-bearing before any provenance
+ *  lookup: a secret is refused as one, whether or not (or however) the
+ *  conversation linked it. */
+async function refuseSensitiveName(requested: string | null): Promise<void> {
+  if (requested) await refuseSensitive(requested, requested);
+}
+
+/** A file a settled reply of the session links. The row the device names
+ *  (`itemId`) is not checked: row ids are per surface (see
+ *  assistantLinkedPath), and any settled reply of THIS session vouches. */
 async function authorizeLinkedFile(
   host: FileDownloadHost,
   row: DesktopSessionSummary,
-  itemId: string,
   href: string
 ): Promise<{ file: OpenedFile; name: string; mime: string }> {
+  await refuseSensitiveName(requestedLinkPath(href, row.cwd));
   const snapshot = host.readSessionTranscript ? await host.readSessionTranscript(row.id) : null;
-  const item = settledAssistantItem(snapshot, itemId);
-  const linked = item ? assistantItemLink(item, href, row.cwd) : null;
+  const linked = snapshot ? assistantLinkedPath(snapshot, href, row.cwd) : null;
   if (!linked) throw new FileDownloadError('not-linked', 'No reply in this conversation links that file.');
+  return openLinkedPath(host, row, linked);
+}
+
+/** A file the session's transcript references or its tools produced, named
+ *  by the path the device saw; refused unless it is in THIS session's set. */
+async function authorizeSessionFile(
+  host: FileDownloadHost,
+  row: DesktopSessionSummary,
+  path: string
+): Promise<{ file: OpenedFile; name: string; mime: string }> {
+  await refuseSensitiveName(resolveLinkedPath(path, row.cwd));
+  const referenced = await referencedFor(host, row, path);
+  return openLinkedPath(host, row, referenced);
+}
+
+async function referencedFor(host: FileDownloadHost, row: DesktopSessionSummary, path: string): Promise<string> {
+  const snapshot = host.readSessionTranscript ? await host.readSessionTranscript(row.id) : null;
+  const referenced = snapshot ? referencedPathFor(snapshot, row.cwd, path) : null;
+  if (!referenced) throw new FileDownloadError('not-linked', 'This conversation does not reference that file.');
+  return referenced;
+}
+
+/** Opens `linked` (a path the session's records vouch for) as a download:
+ *  inside a project it may not leave it through a link, outside every project
+ *  the vouched name itself must be the file. */
+async function openLinkedPath(
+  host: FileDownloadHost,
+  row: DesktopSessionSummary,
+  linked: string
+): Promise<{ file: OpenedFile; name: string; mime: string }> {
   const root = await projectRoot(host, row);
-  const lexicalInProject =
-    root !== null && (inside(root, linked) || inside(resolve(String(row.projectPath)), linked));
+  const lexicalInProject = root !== null && (inside(root, linked) || inside(resolve(String(row.projectPath)), linked));
   const { canonical, file } = await openRegularFile(linked);
   return guarded(file, async () => {
     const canonicalInProject = root !== null && inside(root, canonical);
@@ -355,15 +435,15 @@ async function authorizeLinkedFile(
   });
 }
 
-/** Git's own store is never a download: a `.git` directory (or pointer file)
- *  anywhere on the path, or a git dir a `.git` file in one of the session's
+/** Git's own store is never a download. A `.git` directory (or pointer file)
+ *  on the path is a secret folder of the shared deny list; this refuses a git
+ *  dir that has another name: one a `.git` file in one of the session's
  *  folders — or any folder above the file or above those folders — points to:
  *  a separate git dir, a (nested) worktree's gitdir and the common dir it
  *  shares. */
 async function refuseGitInternals(canonical: string, folders: readonly string[]): Promise<void> {
   const refused = (): FileDownloadError =>
     new FileDownloadError('outside-project', "Git's internal files cannot be downloaded.");
-  if (canonical.split(/[\\/]/).some((segment) => segment.toLowerCase() === '.git')) throw refused();
   const candidates = new Set([dirname(canonical), ...folders].flatMap(selfAndAncestors));
   const gitDirs = (await Promise.all([...candidates].map(pointedGitDirs))).flat();
   if (gitDirs.some((gitDir) => inside(gitDir, canonical))) throw refused();
@@ -413,14 +493,26 @@ async function authorizeMediaAsset(
   return { file, name, mime };
 }
 
-function authorizeSource(
-  host: FileDownloadHost,
-  row: DesktopSessionSummary,
-  source: FileDownloadSource
-): Promise<{ file: OpenedFile; name: string; mime: string }> {
-  if (source.kind === 'project') return authorizeProjectFile(host, row, source.relPath);
-  if (source.kind === 'link') return authorizeLinkedFile(host, row, source.itemId, source.href);
-  return authorizeMediaAsset(host, row, source.assetId);
+/** A visualize export's temp folder (main's `exportForDevice`): the only
+ *  folder `registerExport` accepts, and removes once the export ends. */
+const EXPORT_FOLDER = /^mixdog-visualize-export-[A-Za-z0-9]+$/;
+/** How long a device may (re)start the download of one export. */
+const EXPORT_TTL_MS = 10 * 60_000;
+const MAX_EXPORTS_PER_DEVICE = 8;
+
+interface ExportRecord {
+  exportId: string;
+  deviceId: string;
+  sessionId: string;
+  /** Canonical file; its folder is the export's own temp folder. */
+  path: string;
+  name: string;
+  mime: string;
+  expiresAt: number;
+  /** A long document's PNG stacks only its first pages: the download says so. */
+  pages?: { included: number; total: number };
+  /** Set while the service is still writing and opening the record's file. */
+  staging?: boolean;
 }
 
 export function createFileDownloadService({
@@ -430,6 +522,7 @@ export function createFileDownloadService({
 }: FileDownloadServiceOptions): FileDownloadService {
   const grants = new Map<string, Grant>();
   const leases = new Map<string, Lease>();
+  const exportRecords = new Map<string, ExportRecord>();
   const mediaLeases = new Map<string, string>();
   const seenSessions = new Set<string>();
   let catalog: Set<string> | null = null;
@@ -454,8 +547,34 @@ export function createFileDownloadService({
     if (lease.media) mediaLeases.delete(lease.media.assetId);
     release(lease.file);
   };
+  /** Forgets an export and removes its temp folder (best effort: a handle
+   *  still closing on Windows is retried by `rm`). */
+  const dropExport = (record: ExportRecord): void => {
+    if (exportRecords.get(record.exportId) === record) exportRecords.delete(record.exportId);
+    void rm(dirname(record.path), { recursive: true, force: true, maxRetries: 5 }).catch(() => undefined);
+  };
+  const readsRecord = (entry: Authorized, record: ExportRecord): boolean =>
+    !entry.file.released && comparable(entry.file.location) === comparable(record.path);
+  /** An export some grant or lease still reads (or one still being staged). */
+  const exportHeld = (record: ExportRecord): boolean =>
+    record.staging === true || [...grants.values(), ...leases.values()].some((entry) => readsRecord(entry, record));
+  /** Keeps a device within MAX_EXPORTS_PER_DEVICE records once one more is
+   *  added: the oldest go first, with the unredeemed grants reading them. A
+   *  record being staged or read by a live transfer is never dropped, so no
+   *  download in flight breaks. */
+  const makeRoomForRecord = (deviceId: string): void => {
+    const held = [...exportRecords.values()].filter((entry) => entry.deviceId === deviceId);
+    let excess = held.length - MAX_EXPORTS_PER_DEVICE + 1;
+    for (const stale of held) {
+      if (excess <= 0) break;
+      if (stale.staging || [...leases.values()].some((lease) => readsRecord(lease, stale))) continue;
+      for (const grant of [...grants.values()]) if (readsRecord(grant, stale)) dropGrant(grant);
+      dropExport(stale);
+      excess -= 1;
+    }
+  };
   const stopSweeperWhenIdle = (): void => {
-    if (sweeper && !grants.size && !leases.size) {
+    if (sweeper && !grants.size && !leases.size && !exportRecords.size) {
       clearInterval(sweeper);
       sweeper = null;
     }
@@ -464,6 +583,8 @@ export function createFileDownloadService({
     const at = now();
     for (const grant of [...grants.values()]) if (grant.expiresAt <= at) dropGrant(grant);
     for (const lease of [...leases.values()]) if (lease.expiresAt <= at || lease.idleUntil <= at) dropLease(lease);
+    for (const record of [...exportRecords.values()])
+      if (record.expiresAt <= at && !exportHeld(record)) dropExport(record);
     stopSweeperWhenIdle();
   };
   // Expired handles close even when no device calls again.
@@ -512,13 +633,175 @@ export function createFileDownloadService({
     }
   };
 
+  /** A referenced folder, zipped into the service's own temp record (removed
+   *  like an export once nothing holds it) and opened as the download. */
+  const authorizeFolderZip = async (
+    requester: FileDownloadRequester,
+    row: DesktopSessionSummary,
+    path: string
+  ): Promise<{ file: OpenedFile; name: string; mime: string; leftOut: FolderLeftOut }> => {
+    // A folder of the conversation's own project (Explorer) needs no reply
+    // that mentions it; every other folder must be one the records reference.
+    const projectFolder = async (): Promise<string | null> => {
+      const projectRootPath = await projectRoot(host, row);
+      const candidate = resolve(row.cwd, path);
+      return projectRootPath !== null && inside(projectRootPath, candidate) ? candidate : null;
+    };
+    const referenced = await referencedFor(host, row, path).catch(async (error: unknown) => {
+      const own = error instanceof FileDownloadError && error.reason === 'not-linked' ? await projectFolder() : null;
+      if (own === null) throw error;
+      return own;
+    });
+    const leaf = await lstat(referenced).catch(missing);
+    if (leaf.isSymbolicLink() || !leaf.isDirectory()) {
+      throw new FileDownloadError('not-a-file', 'Only a folder can be downloaded as a zip.');
+    }
+    const canonical = await realpath(referenced).catch(missing);
+    if (NETWORK_PATH.test(canonical)) {
+      throw new FileDownloadError('not-a-file', 'Only folders on this PC can be downloaded.');
+    }
+    // Same rule as openLinkedPath: inside the project the canonical path may
+    // not leave it; outside, the referenced name itself must be the folder.
+    const root = await projectRoot(host, row);
+    const lexicalInProject =
+      root !== null && (inside(root, referenced) || inside(resolve(String(row.projectPath)), referenced));
+    if (lexicalInProject) {
+      if (!root || !inside(root, canonical)) {
+        throw new FileDownloadError('outside-project', "The link resolves outside the conversation's project.");
+      }
+    } else if (comparable(canonical) !== comparable(resolve(referenced))) {
+      throw new FileDownloadError(
+        'not-linked',
+        'The linked folder is reached through a link to a folder nothing linked.'
+      );
+    }
+    await refuseGitInternals(canonical, root ? [root, row.cwd] : [row.cwd]);
+    // A denied folder is refused; denied entries inside an ordinary folder
+    // are left out of the zip.
+    const denied = await refuseSensitive(referenced, canonical);
+    let zipped: Awaited<ReturnType<typeof zipFolder>>;
+    try {
+      zipped = await zipFolder(canonical, { maxBytes: FOLDER_ZIP_MAX_BYTES, maxFiles: FOLDER_ZIP_MAX_FILES }, denied);
+    } catch (error) {
+      if (error instanceof FolderMovedError) throw changed();
+      if (error instanceof FolderTooLargeError) {
+        throw new FileDownloadError('folder-too-large', folderTooLargeMessage(error.files, error.bytes));
+      }
+      throw error;
+    }
+    const staged = await stageTemporaryDownload(
+      requester,
+      row,
+      `${basename(canonical) || 'folder'}.zip`,
+      'application/zip',
+      zipped.archive
+    );
+    return { ...staged, leftOut: { ignored: zipped.ignored, secret: zipped.secret } };
+  };
+
+  /** Bytes the host built (a folder's zip, an attachment from the store) as a
+   *  file in the service's own temp record: opened as the download, removed
+   *  like an export once nothing holds it. */
+  const stageTemporaryDownload = async (
+    requester: FileDownloadRequester,
+    row: DesktopSessionSummary,
+    name: string,
+    mime: string,
+    bytes: Buffer
+  ): Promise<{ file: OpenedFile; name: string; mime: string }> => {
+    const folder = await realpath(await mkdtemp(join(tmpdir(), 'mixdog-download-')));
+    const path = join(folder, 'payload');
+    const record: ExportRecord = {
+      exportId: randomUUID(),
+      deviceId: requester.deviceId,
+      sessionId: row.id,
+      path,
+      name,
+      mime,
+      expiresAt: now() + EXPORT_TTL_MS,
+      staging: true,
+    };
+    makeRoomForRecord(requester.deviceId);
+    exportRecords.set(record.exportId, record);
+    ensureSweeper();
+    try {
+      await writeFile(path, bytes, { mode: 0o600 });
+      const opened = await openRegularFile(path);
+      return { file: opened.file, name, mime };
+    } catch (error) {
+      dropExport(record);
+      throw error;
+    } finally {
+      record.staging = false;
+    }
+  };
+
+  /** An attachment of the session's messages, read from the content-addressed
+   *  store by an id this session's transcript names. */
+  const authorizeAttachment = async (
+    requester: FileDownloadRequester,
+    row: DesktopSessionSummary,
+    attachmentId: string
+  ): Promise<{ file: OpenedFile; name: string; mime: string }> => {
+    const { meta, bytes } = await readSessionAttachment(host, row.id, attachmentId);
+    if (bytes.length > FILE_DOWNLOAD_MAX_BYTES) throw tooLarge();
+    return stageTemporaryDownload(requester, row, attachmentViewName(meta), meta.mimeType, bytes);
+  };
+
+  /** A visualize export this device registered (`registerExport`), still the
+   *  file at its recorded path. */
+  const authorizeExport = async (
+    requester: FileDownloadRequester,
+    row: DesktopSessionSummary,
+    exportId: string
+  ): Promise<{ file: OpenedFile; name: string; mime: string; leftOut?: FolderLeftOut }> => {
+    const record = exportRecords.get(exportId);
+    if (!record || record.deviceId !== requester.deviceId || record.sessionId !== row.id) throw expired();
+    // A record kept alive only by a grant or lease must not be renewed past its deadline.
+    if (record.expiresAt <= now()) throw expired();
+    const { canonical, file } = await openRegularFile(record.path);
+    if (comparable(canonical) !== comparable(record.path)) {
+      release(file);
+      throw changed();
+    }
+    return {
+      file,
+      name: record.name,
+      mime: record.mime,
+      ...(record.pages ? { leftOut: { ignored: 0, secret: 0, pages: record.pages } } : {}),
+    };
+  };
+
+  const authorizeSource = (
+    requester: FileDownloadRequester,
+    row: DesktopSessionSummary,
+    source: FileDownloadSource
+  ): Promise<{ file: OpenedFile; name: string; mime: string; leftOut?: FolderLeftOut }> => {
+    switch (source.kind) {
+      case 'project':
+        return authorizeProjectFile(host, row, source.relPath);
+      case 'link':
+        return authorizeLinkedFile(host, row, source.href);
+      case 'session':
+        return authorizeSessionFile(host, row, source.path);
+      case 'media':
+        return authorizeMediaAsset(host, row, source.assetId);
+      case 'folder':
+        return authorizeFolderZip(requester, row, source.path);
+      case 'attachment':
+        return authorizeAttachment(requester, row, source.attachmentId);
+      case 'export':
+        return authorizeExport(requester, row, source.exportId);
+    }
+  };
+
   return {
     async authorize(requester, request) {
       sweep();
       const { sessionId } = request.source;
       const mark = generation(requester.deviceId, sessionId);
       const row = await sessionRow(host, sessionId);
-      const authorized = await authorizeSource(host, row, request.source);
+      const authorized = await authorizeSource(requester, row, request.source);
       stillAuthorized(requester.deviceId, sessionId, mark, authorized.file);
       const size = Number(authorized.file.identity.size);
       const grant: Grant = {
@@ -536,8 +819,8 @@ export function createFileDownloadService({
       for (const stale of held.slice(0, Math.max(0, held.length - MAX_GRANTS_PER_DEVICE + 1))) dropGrant(stale);
       grants.set(grant.grantId, grant);
       ensureSweeper();
-      const { grantId, name, mime, version, expiresAt } = grant;
-      return { grantId, name, size, mime, version, expiresAt };
+      const { grantId, name, mime, version, expiresAt, leftOut } = grant;
+      return { grantId, name, size, mime, version, expiresAt, ...(leftOut ? { leftOut } : {}) };
     },
 
     async begin(requester, grantId) {
@@ -550,7 +833,9 @@ export function createFileDownloadService({
       const mark = generation(grant.deviceId, grant.sessionId);
       await guarded(grant.file, () => verifyUnchanged(grant.file));
       stillAuthorized(grant.deviceId, grant.sessionId, mark, grant.file);
-      if ([...leases.values()].filter((lease) => lease.deviceId === requester.deviceId).length >= MAX_LEASES_PER_DEVICE) {
+      if (
+        [...leases.values()].filter((lease) => lease.deviceId === requester.deviceId).length >= MAX_LEASES_PER_DEVICE
+      ) {
         release(grant.file);
         throw new FileDownloadError('busy', 'Too many downloads are in progress on this device.');
       }
@@ -639,6 +924,7 @@ export function createFileDownloadService({
       for (const id of catalog) seenSessions.add(id);
       for (const grant of [...grants.values()]) if (sessionRemoved(grant.sessionId)) dropGrant(grant);
       for (const lease of [...leases.values()]) if (sessionRemoved(lease.sessionId)) dropLease(lease);
+      for (const record of [...exportRecords.values()]) if (sessionRemoved(record.sessionId)) dropExport(record);
       stopSweeperWhenIdle();
     },
 
@@ -648,6 +934,7 @@ export function createFileDownloadService({
       bump(deviceGenerations, deviceId);
       for (const grant of [...grants.values()]) if (grant.deviceId === deviceId) dropGrant(grant);
       for (const lease of [...leases.values()]) if (lease.deviceId === deviceId) dropLease(lease);
+      for (const record of [...exportRecords.values()]) if (record.deviceId === deviceId) dropExport(record);
       stopSweeperWhenIdle();
     },
 
@@ -655,7 +942,30 @@ export function createFileDownloadService({
       globalGeneration += 1;
       for (const grant of [...grants.values()]) dropGrant(grant);
       for (const lease of [...leases.values()]) dropLease(lease);
+      for (const record of [...exportRecords.values()]) dropExport(record);
       stopSweeperWhenIdle();
+    },
+
+    async registerExport(requester, { sessionId, path, mime, pages }) {
+      sweep();
+      const canonical = await realpath(path).catch(missing);
+      if (!EXPORT_FOLDER.test(basename(dirname(canonical)))) {
+        throw new FileDownloadError('not-a-file', 'Only a visualize export can be offered this way.');
+      }
+      const record: ExportRecord = {
+        exportId: randomUUID(),
+        deviceId: requester.deviceId,
+        sessionId: requiredSessionId(sessionId),
+        path: canonical,
+        name: sanitizedFileName(basename(canonical)),
+        mime,
+        expiresAt: now() + EXPORT_TTL_MS,
+        ...(pages ? { pages } : {}),
+      };
+      makeRoomForRecord(requester.deviceId);
+      exportRecords.set(record.exportId, record);
+      ensureSweeper();
+      return { source: { kind: 'export', sessionId: record.sessionId, exportId: record.exportId }, name: record.name };
     },
 
     resolveMedia(assetId, variant, deviceId) {
@@ -715,10 +1025,26 @@ export function requiredFileDownloadRequest(value: unknown): FileDownloadRequest
       purpose,
     };
   }
+  if (source.kind === 'attachment') {
+    return {
+      source: { kind: 'attachment', sessionId, attachmentId: requiredAttachmentId(source.attachmentId) },
+      purpose,
+    };
+  }
+  if (source.kind === 'session' || source.kind === 'folder') {
+    const path = requiredText(source.path, 'path', 4_096);
+    return { source: { kind: source.kind, sessionId, path }, purpose };
+  }
   if (source.kind === 'media') {
     const assetId = requiredText(source.assetId, 'asset id', 128);
     if (!MEDIA_ASSET_ID.test(assetId)) throw new TypeError('asset id is invalid.');
     return { source: { kind: 'media', sessionId, assetId }, purpose };
+  }
+  if (source.kind === 'export') {
+    return {
+      source: { kind: 'export', sessionId, exportId: requiredFileDownloadId(source.exportId, 'export id') },
+      purpose,
+    };
   }
   throw new TypeError('download source is invalid.');
 }

@@ -143,6 +143,34 @@ export function parseCookieToken(header) {
   return parseCookieValue(header, PAIRING_COOKIE_NAME);
 }
 
+/** Whether a request's cookie may count as a credential. The app's own
+ *  requests are same-origin (or browser-initiated, `Sec-Fetch-Site: none`),
+ *  and an outside link opening the relay is a top-level document navigation.
+ *  Anything else that is cross-site — notably a page in the opaque-origin
+ *  preview frame, whose requests are cross-site and carry `Origin: null` —
+ *  never authenticates by cookie, even in a browser that ignored SameSite.
+ *  Browsers without Fetch Metadata send no `Sec-Fetch-*` and are judged by
+ *  SameSite=Lax alone. */
+export function cookieCredentialAllowed(headers = {}) {
+  if (
+    String(headers.origin ?? '')
+      .trim()
+      .toLowerCase() === 'null'
+  )
+    return false;
+  const site = String(headers['sec-fetch-site'] ?? '').toLowerCase();
+  if (site !== 'cross-site' && site !== 'same-site') return true;
+  return (
+    String(headers['sec-fetch-mode'] ?? '').toLowerCase() === 'navigate' &&
+    String(headers['sec-fetch-dest'] ?? '').toLowerCase() === 'document'
+  );
+}
+
+/** The pairing cookie of `request`, when it may authenticate (see above). */
+export function requestCookieToken(request) {
+  return cookieCredentialAllowed(request?.headers) ? parseCookieToken(request?.headers?.cookie) : '';
+}
+
 /** Which desktop this container was launched for: set by the /d/<id>/ entry
  *  navigation, read by every root asset request that follows. */
 export function parseCookieDevice(header) {

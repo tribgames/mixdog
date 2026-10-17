@@ -37,11 +37,12 @@ export interface RelayClientLifecycleDeps {
   ): Promise<RelayClientCallOutcome>;
   resyncClient(clientId: string, state: RelayClientState): void;
   onClientClaim?: (claim: RemoteClientClaim) => Promise<RemoteClaimDecision>;
+  /** A redelivery of a pending claim carried another key: the original is
+   *  settled as denied, because the transcript conflicts. */
+  onClaimConflict?: (claimId: string) => void;
   /** This PC's name as phones see it; the OS hostname when omitted. */
   hostName?(): string;
 }
-
-const HANDSHAKE_REQUIRED = 'relay encryption handshake required';
 
 export interface RelayClientLifecycle {
   /** `credentialId` is the paired client the relay authenticated for this
@@ -53,7 +54,8 @@ export interface RelayClientLifecycle {
 
 export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): RelayClientLifecycle {
   const open = (clientId: string, credentialId = ''): void => openRelayClient(deps, clientId, credentialId);
-  const answerClaim = (envelope: Record<string, unknown>): void => answerRelayClaim(deps, envelope);
+  const bindings = new Map<string, ClaimBinding>();
+  const answerClaim = (envelope: Record<string, unknown>): void => answerRelayClaim(deps, bindings, envelope);
 
   const receive = (clientId: string, client: RelayClientState, frame: string | ArrayBufferView): void => {
     const frameBytes = typeof frame === 'string' ? Buffer.byteLength(frame) : frame.byteLength;
@@ -120,13 +122,40 @@ function openRelayClient(deps: RelayClientLifecycleDeps, clientId: string, crede
   });
 }
 
-function answerRelayClaim(deps: RelayClientLifecycleDeps, envelope: Record<string, unknown>): void {
+/** What a claim was first delivered with. Approval material is sealed to that
+ *  key only, once: a redelivery with the same key shares the decision and
+ *  sends nothing more; one with another key means the transcript conflicts and
+ *  the claim is denied. */
+interface ClaimBinding {
+  publicKey: string;
+  clientId: string;
+  expiresAt: number;
+  conflicted: boolean;
+}
+
+function answerRelayClaim(
+  deps: RelayClientLifecycleDeps,
+  bindings: Map<string, ClaimBinding>,
+  envelope: Record<string, unknown>
+): void {
   const claimId = String(envelope.claimId || '');
   const publicKey = envelope.publicKey;
   if (!claimId || !isRelayClaimPublicKey(publicKey)) return;
   const clientId = String(envelope.clientId || claimId).slice(0, 80);
+  for (const [id, binding] of bindings) if (binding.expiresAt <= Date.now()) bindings.delete(id);
+  const bound = bindings.get(claimId);
+  if (bound) {
+    if (bound.publicKey !== publicKey || bound.clientId !== clientId) {
+      bound.conflicted = true;
+      deps.onClaimConflict?.(claimId);
+      deps.sendEnvelope({ type: 'claim-deny', claimId });
+    }
+    return;
+  }
   const rawExpiresAt = Number(envelope.expiresAt);
   const expiresAt = Number.isFinite(rawExpiresAt) && rawExpiresAt > Date.now() ? rawExpiresAt : Date.now() + 300_000;
+  const binding: ClaimBinding = { publicKey, clientId, expiresAt, conflicted: false };
+  bindings.set(claimId, binding);
   void (async () => {
     let sealed: unknown = null;
     try {
@@ -142,12 +171,13 @@ function answerRelayClaim(deps: RelayClientLifecycleDeps, envelope: Record<strin
         requestedAt: Date.now(),
         expiresAt,
       });
-      if (decision?.approved) {
+      if (decision?.approved && !binding.conflicted) {
         sealed = await sealRelayE2EEPairingMaterial(deps.pairing, publicKey);
       }
     } catch {
       sealed = null;
     }
+    if (binding.conflicted) sealed = null;
     deps.sendEnvelope(sealed ? { type: 'claim-approve', claimId, sealed } : { type: 'claim-deny', claimId });
   })();
 }
@@ -158,21 +188,24 @@ async function completeHandshake(
   client: RelayClientState,
   frame: string | ArrayBufferView
 ): Promise<void> {
-  if (typeof frame !== 'string') {
-    deps.clients.close(clientId, HANDSHAKE_REQUIRED);
-    return;
-  }
+  // Before this leg's handshake, anything but a hello is traffic the phone
+  // sent on the PREVIOUS leg's channel (text or binary ciphertext still in
+  // flight when this PC redialed). It is never opened or acted on, and it is
+  // not a pairing failure either: it is dropped, the phone's hello for this
+  // leg's challenge follows it, and the handshake timer bounds the wait.
+  if (typeof frame !== 'string') return;
   let hello: unknown;
   try {
     hello = JSON.parse(frame);
   } catch {
-    deps.clients.close(clientId, HANDSHAKE_REQUIRED);
     return;
   }
-  if (!isRelayE2EEHello(hello)) {
-    deps.clients.close(clientId, HANDSHAKE_REQUIRED);
-    return;
-  }
+  if (!isRelayE2EEHello(hello)) return;
+  // A hello for a challenge this leg never sent answers the PREVIOUS leg's
+  // challenge: the phone joined while the PC redialed, and its hello for the
+  // new challenge is on its way. That is a race, not a failed authentication,
+  // and closing on it would read to the phone as a revoked pairing.
+  if (hello.challenge !== client.challenge.challenge) return;
   try {
     client.channel = await acceptRelayE2EEClientHello(deps.e2eeIdentity, client.challenge, hello);
     client.binaryFrames = hello.binaryFrames === 1;
@@ -185,6 +218,12 @@ async function completeHandshake(
     // 1 decodes head patches but not runs, so it keeps the whole field.
     client.promptHistoryPatch = (hello as typeof hello & { promptHistoryPatch?: unknown }).promptHistoryPatch === 2;
     client.viewSync = hello.viewSync === 1 && deps.viewSyncSupported();
+    // A view-sync phone receives no live lane before its first view sync.
+    // Anything published in between (a streaming state tick, a roster flip)
+    // went out as a FULL baseline from a fresh encoder — the whole roster and
+    // prompt history — and, having emitted, kept that lane from resuming in
+    // the sync that followed: a busy desktop paid a full open per reconnect.
+    client.syncing = client.viewSync;
     logAnnouncedFeatures(clientId, client);
     client.stateLane = createRemoteStateLane(
       client.compactWire,

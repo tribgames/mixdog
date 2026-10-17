@@ -68,6 +68,8 @@ public class MainActivity extends BridgeActivity {
     super.load();
     // Top-level navigation: bundled screen + saved relay origins only.
     getBridge().setWebViewClient(new MixdogWebViewClient(getBridge()));
+    // Downloads the page did not route through the fileSave bridge (UNBUILT).
+    getBridge().getWebView().setDownloadListener(new MixdogDownloads(this));
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) fitWebViewToInsets(getBridge().getWebView());
   }
 

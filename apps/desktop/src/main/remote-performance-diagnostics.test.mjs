@@ -3,9 +3,43 @@ import test from 'node:test';
 
 import {
   createRemoteCallStats,
+  createRemoteSocketDiagnostics,
   reportRemoteByteWindow,
   reportRemoteFirstTranscript,
 } from './remote-performance-diagnostics.ts';
+
+function socketDiagnosticsFixture(initial) {
+  const state = { clients: initial.clients, buffered: initial.buffered ?? 0 };
+  const lines = [];
+  const timers = [];
+  const probe = {
+    calls: [],
+    start() {
+      this.calls.push('start');
+    },
+    stop() {
+      this.calls.push('stop');
+    },
+    take() {
+      this.calls.push('take');
+      return { p50: 1, p99: 3.5, max: 20 };
+    },
+  };
+  const diagnostics = createRemoteSocketDiagnostics({
+    sample: () => ({ clients: state.clients, sockets: [{ name: 'relay', bufferedAmount: state.buffered }] }),
+    write: (line) => lines.push(line),
+    loopDelay: probe,
+    setTimer: (tick, ms) => {
+      const timer = { tick, ms, cleared: false, unref() {} };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimer: (timer) => {
+      timer.cleared = true;
+    },
+  });
+  return { state, lines, timers, probe, diagnostics };
+}
 
 test('routine remote performance reports use the info channel, never the error channel', () => {
   const info = [];
@@ -92,4 +126,53 @@ test('a visit shorter than the window is still summarized when the last phone le
   assert.match(lines[0], /^\[mixdog-remote-calls\] 20s calls=1 \| statProjectFile=1x/);
   stats.clear();
   assert.equal(lines.length, 1, 'a window is reported once');
+});
+
+test('socket diagnostics tick every 30s with the relay socket buffer and the loop delay', () => {
+  const { state, lines, timers, probe, diagnostics } = socketDiagnosticsFixture({ clients: 1, buffered: 1536 });
+  diagnostics.sync();
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].ms, 30_000);
+  assert.deepEqual(probe.calls, ['start']);
+  assert.equal(lines.length, 0, 'nothing is written before the first interval');
+  timers[0].tick();
+  state.buffered = 0;
+  timers[0].tick();
+  assert.equal(lines.length, 2);
+  assert.equal(
+    lines[0],
+    '[mixdog-remote-sockets] 30s clients=1 buffered=relay:1.5KB loop-p50=1.0ms loop-p99=3.5ms loop-max=20.0ms'
+  );
+  assert.match(lines[1], /buffered=relay:0B /u);
+});
+
+test('socket diagnostics run only while a client is connected', () => {
+  const { state, lines, timers, probe, diagnostics } = socketDiagnosticsFixture({ clients: 0 });
+  diagnostics.sync();
+  assert.equal(timers.length, 0, 'no client, no timer');
+  assert.deepEqual(probe.calls, []);
+  state.clients = 2;
+  diagnostics.sync();
+  diagnostics.sync();
+  assert.equal(timers.length, 1, 'a second client does not start a second timer');
+  timers[0].tick();
+  assert.equal(lines.length, 1);
+  state.clients = 0;
+  diagnostics.sync();
+  assert.equal(timers[0].cleared, true);
+  assert.equal(probe.calls.at(-1), 'stop');
+  assert.equal(lines.length, 1);
+  state.clients = 1;
+  diagnostics.sync();
+  assert.equal(timers.length, 2, 'the next client starts a fresh window');
+});
+
+test('a tick that finds no client stops itself instead of logging', () => {
+  const { state, lines, timers, diagnostics } = socketDiagnosticsFixture({ clients: 1 });
+  diagnostics.sync();
+  state.clients = 0;
+  timers[0].tick();
+  assert.equal(lines.length, 0);
+  assert.equal(timers[0].cleared, true);
+  diagnostics.stop();
 });

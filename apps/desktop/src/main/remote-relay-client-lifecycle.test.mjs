@@ -15,12 +15,15 @@ import { createRelayClientRegistry } from './remote-relay-clients.ts';
 
 const CREDENTIAL = '0123456789abcdef0123456789abcdef';
 
-async function harness({ decision, hostName } = {}) {
+async function harness({ decision, hostName, hold = false } = {}) {
   const identity = await generateRelayE2EEServerIdentity();
   const pairing = relayE2EEPairingMaterial(identity);
   const envelopes = [];
   const frames = [];
   const claims = [];
+  // `hold` keeps each claim pending like an open approval dialog; the user's
+  // answer is `settle`, and a conflict settles it as denied like the arbiter.
+  const settlers = new Map();
   const clients = createRelayClientRegistry({
     host: { setVisibleSessionsForSource: async () => true },
     sendEnvelope: (payload) => envelopes.push(payload),
@@ -42,12 +45,15 @@ async function harness({ decision, hostName } = {}) {
     dispatchClientCall: async () => ({}),
     resyncClient: () => {},
     hostName,
-    onClientClaim: async (claim) => {
+    onClientClaim: (claim) => {
       claims.push(claim);
-      return decision ?? { approved: true };
+      if (!hold) return Promise.resolve(decision ?? { approved: true });
+      return new Promise((resolve) => settlers.set(claim.claimId, resolve));
     },
+    onClaimConflict: (claimId) => settlers.get(claimId)?.({ approved: false }),
   });
-  return { identity, pairing, envelopes, frames, claims, clients, lifecycle };
+  const settle = (claimId, approved) => settlers.get(claimId)?.({ approved });
+  return { identity, pairing, envelopes, frames, claims, clients, lifecycle, settle };
 }
 
 async function claimEnvelope(overrides = {}) {
@@ -67,6 +73,71 @@ test('an approval returns the sealed credential box', async () => {
   h.lifecycle.answerClaim(await claimEnvelope());
   const approve = await answered(h.envelopes, 'claim-approve');
   assert.ok(approve?.sealed, 'a sealed credential box is returned');
+});
+
+const settled = () => new Promise((resolve) => setTimeout(resolve, 40));
+const sentFor = (h, claimId) =>
+  h.envelopes.filter(
+    (entry) => (entry.type === 'claim-approve' || entry.type === 'claim-deny') && entry.claimId === claimId
+  );
+
+test('a redelivery with the same key shares the decision and seals once', async () => {
+  const h = await harness({ hold: true });
+  const envelope = await claimEnvelope();
+  h.lifecycle.answerClaim(envelope);
+  h.lifecycle.answerClaim({ ...envelope });
+  await settled();
+  h.settle('claim-1', true);
+  await answered(h.envelopes, 'claim-approve');
+  h.lifecycle.answerClaim({ ...envelope });
+  await settled();
+  const sent = sentFor(h, 'claim-1');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].type, 'claim-approve');
+  assert.equal(h.claims.length, 1);
+});
+
+test('a redelivery with a different key is denied and denies the original claim too', async () => {
+  const h = await harness({ hold: true });
+  const envelope = await claimEnvelope();
+  h.lifecycle.answerClaim(envelope);
+  h.lifecycle.answerClaim(await claimEnvelope());
+  await settled();
+  // The user's Allow arrives after the conflict: neither key is sealed.
+  h.settle('claim-1', true);
+  await settled();
+  assert.equal(
+    h.envelopes.some((entry) => entry.type === 'claim-approve'),
+    false
+  );
+  assert.ok(sentFor(h, 'claim-1').length >= 1);
+  assert.ok(sentFor(h, 'claim-1').every((entry) => entry.type === 'claim-deny'));
+});
+
+test('a redelivery with another client id is a conflict as well', async () => {
+  const h = await harness({ hold: true });
+  const envelope = await claimEnvelope();
+  h.lifecycle.answerClaim(envelope);
+  h.lifecycle.answerClaim({ ...envelope, clientId: 'c'.repeat(32) });
+  await settled();
+  h.settle('claim-1', true);
+  await settled();
+  assert.equal(
+    h.envelopes.some((entry) => entry.type === 'claim-approve'),
+    false
+  );
+});
+
+test('a different key arriving after the approval was sent changes nothing already sent', async () => {
+  const h = await harness({ hold: true });
+  const envelope = await claimEnvelope();
+  h.lifecycle.answerClaim(envelope);
+  await settled();
+  h.settle('claim-1', true);
+  await answered(h.envelopes, 'claim-approve');
+  h.lifecycle.answerClaim(await claimEnvelope());
+  await settled();
+  assert.equal(h.envelopes.filter((entry) => entry.type === 'claim-approve').length, 1);
 });
 
 test('a denial grants nothing', async () => {
@@ -98,6 +169,29 @@ async function handshake(h, credentialId) {
   }
   return h.frames[0].payload;
 }
+
+test('a hello for a previous PC leg challenge is ignored, never treated as a failed pairing', async () => {
+  const h = await harness();
+  h.lifecycle.open('route-1', CREDENTIAL);
+  // The phone answered the challenge of the leg this one replaced.
+  const { createRelayE2EEChallenge } = await import('../shared/remote-e2ee.ts');
+  const { hello: stale } = await createRelayE2EEClientHandshake(h.pairing, createRelayE2EEChallenge());
+  h.lifecycle.receive('route-1', h.clients.get('route-1'), JSON.stringify(stale));
+  await settled();
+  assert.equal(
+    h.envelopes.some((entry) => entry.type === 'close-client'),
+    false,
+    'no close the phone would read as a revoked pairing'
+  );
+  // Its hello for THIS leg's challenge then completes the handshake.
+  const challenge = JSON.parse(h.envelopes.find((entry) => entry.type === 'frame').data);
+  const { hello } = await createRelayE2EEClientHandshake(h.pairing, challenge);
+  h.lifecycle.receive('route-1', h.clients.get('route-1'), JSON.stringify(hello));
+  for (let attempt = 0; attempt < 200 && !h.frames.length; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(h.frames[0]?.payload.type, 'e2ee-ready');
+});
 
 test('the handshake carries the saved PC name', async () => {
   const h = await harness({ hostName: () => 'Studio PC' });

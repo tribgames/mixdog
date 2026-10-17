@@ -53,6 +53,26 @@ const loadContext = async ({ pathname, storage }) => {
   }
 };
 
+test('the remote roster cache never touches IndexedDB', async () => {
+  const opened = [];
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
+  Object.defineProperty(globalThis, 'indexedDB', {
+    value: { open: (name) => opened.push(name) },
+    configurable: true,
+    writable: true,
+  });
+  try {
+    const ctx = await loadContext({ pathname: `/d/${A}/`, storage: memoryStorage(legacySeed(A)) });
+    assert.deepEqual(await ctx.rosterCache.claim(), { v: 1 });
+    ctx.rosterCache.clear();
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'indexedDB', descriptor);
+    else delete globalThis.indexedDB;
+  }
+  assert.deepEqual(opened, []);
+});
+
 test('pairing keys differ per device and per relay origin', () => {
   const a = remotePairingKeys(ORIGIN, A);
   const b = remotePairingKeys(ORIGIN, B);

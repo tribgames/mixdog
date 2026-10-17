@@ -10,6 +10,9 @@ import {
 } from './remote-connection-state';
 import { REMOTE_CONNECTION_READY_EVENT, type RemoteShimContext } from './remote-shim-state';
 
+/** Longest wait between two reconnect attempts. */
+const RECONNECT_MAX_MS = 10_000;
+
 export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
   // NAT/carrier middleboxes silently drop idle WebSockets; the browser
   // cannot send protocol pings, so an app-level ping/pong detects the
@@ -201,8 +204,13 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     // Registration failures and socket closes can both ask for a retry in the
     // same tick; one timer serves them all.
     if (ctx.reconnectTimer !== null) return;
-    const delay = ctx.retryMs;
-    ctx.retryMs = Math.min(10_000, ctx.retryMs * 2);
+    // Every phone of a relay that restarts sees the close in the same instant
+    // and starts from the same step, so each delay is drawn from [step,
+    // next step]: the redials spread out instead of landing together. The
+    // floor stays at the first step and the ceiling at the backoff cap.
+    const step = ctx.retryMs;
+    const delay = Math.round(step + Math.random() * (Math.min(RECONNECT_MAX_MS, step * 2) - step));
+    ctx.retryMs = Math.min(RECONNECT_MAX_MS, step * 2);
     ctx.reconnectTimer = window.setTimeout(() => {
       ctx.reconnectTimer = null;
       void ctx.connect().catch(() => {});

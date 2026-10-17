@@ -17,6 +17,9 @@ export const REMOTE_PAIRING_STORAGE_KEYS = {
   // When an approval last succeeded here. A credential rejected right after one
   // is a real failure, not something to paper over by asking again in a loop.
   approvedAt: 'mixdog.remote-approved-at',
+  // Which linked file (path and conversation) each held file-grant token
+  // names, so a token restored after a reload can be granted again.
+  fileGrants: 'mixdog.remote-file-grants',
 } as const;
 
 /** Per-PC pairing state. Everything here belongs to ONE desktop on ONE relay
@@ -30,6 +33,7 @@ const SCOPED_PAIRING_NAMES = [
   'e2eeSecret',
   'claim',
   'approvedAt',
+  'fileGrants',
 ] as const;
 
 export type RemotePairingKeys = Record<keyof typeof REMOTE_PAIRING_STORAGE_KEYS, string>;
@@ -139,14 +143,15 @@ export function normalizeRemoteExternalUrl(value: string): string {
 
 export function isInvalidRemotePairingClose(event: Pick<CloseEvent, 'code' | 'reason'>): boolean {
   // 4003: pairing/device revoked. 4005: relay v2 refused a stale or legacy
-  // shared token — only a fresh QR scan recovers either.
+  // shared token — only pairing again recovers either, by a fresh QR scan or
+  // a new six-digit code.
   if (event.code === 4003 || event.code === 4005) return true;
   if (event.code !== 4004) return false;
-  // 4004 is a generic desktop rejection; only permanent E2EE failures drop the
-  // pairing. A handshake TIMEOUT is transient (busy desktop) and reconnects.
-  return /relay encryption (?:handshake required|authentication failed)|invalid encrypted relay frame/iu.test(
-    event.reason
-  );
+  // 4004 is a generic desktop rejection; only real authentication failures
+  // drop the pairing. A handshake TIMEOUT is transient (busy desktop), and so
+  // is "handshake required": an older PC sends it for ciphertext a phone had
+  // in flight while that PC redialed.
+  return /relay encryption authentication failed|invalid encrypted relay frame/iu.test(event.reason);
 }
 
 export function clearStoredRemotePairing(

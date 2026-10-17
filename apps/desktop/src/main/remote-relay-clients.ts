@@ -2,27 +2,29 @@
 // with the per-client wire state and the inbound frame budget that protects
 // this leg from a client that sends faster than its calls complete.
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
-import { createKeyedListDeltaEncoder } from '../shared/list-delta';
+import type { createKeyedListDeltaEncoder } from '../shared/list-delta';
 import type { RelayE2EEChannel, RelayE2EEChallenge } from '../shared/remote-e2ee';
 import type { DesktopService } from './desktop-service-contract';
 import { createRemoteCallQueue } from './remote-call-queue';
 import type { createRemoteStateLane } from './remote-state-lane';
-import type { ParkedRelayViews } from './remote-view-sync';
+import {
+  createAgentPoolEncoder,
+  createSessionsEncoder,
+  detachRelayViews,
+  type ParkedRelayViews,
+} from './remote-view-sync';
 import type { createSnapshotDeltaEncoder } from './state-delta';
 
 const MAX_ACTIVE_REMOTE_CLIENTS = 32;
 const MAX_PENDING_REMOTE_FRAMES = 256;
 const MAX_PENDING_REMOTE_TOTAL_FRAMES = 512;
 const E2EE_HANDSHAKE_TIMEOUT_MS = 10_000;
-/** How long a dropped phone's delta lanes wait for it to come back. */
-export const VIEW_RESUME_TTL_MS = 120_000;
-
-const createSessionsEncoder = () =>
-  createKeyedListDeltaEncoder<DesktopSessionSummary>((session, index) => String(session.id || `session:${index}`));
-const createAgentPoolEncoder = () =>
-  createKeyedListDeltaEncoder<DesktopAgentPoolRow>((agent, index) =>
-    String(agent.sessionId || agent.tag || `agent:${index}`)
-  );
+/** How long a dropped phone's delta lanes wait for it to come back. Every
+ *  lane resumes only when the phone's revision AND content digest match what
+ *  the parked encoder emitted (or still retains), so time adds no risk; the
+ *  bound is memory, which the parked-set cap already holds. A phone that
+ *  slept through a meeting still resumes with deltas. */
+export const VIEW_RESUME_TTL_MS = 30 * 60_000;
 
 export interface RelayClientState {
   syncing?: boolean;
@@ -149,7 +151,9 @@ export interface RelayClientRegistry {
   remove(clientId: string, park?: boolean): boolean;
   /** Drops every client (and every parked set) and notifies once. */
   clear(): void;
-  /** The parked lanes for a token, at most once and only before expiry. */
+  /** The parked lanes for a token, at most once and only before expiry. A
+   *  still-attached leg holding the token is retired and parked first, so the
+   *  caller must not be that leg (its own token continues its live lanes). */
   takeParkedViews(token: string): ParkedRelayViews | null;
   /** Unpair or credential change: no parked lanes may outlive it. */
   dropParkedViews(): void;
@@ -189,21 +193,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
     const token = state.viewResumeToken;
     // Mid-recovery encoders describe no settled stream.
     if (!state.channel || !token || state.syncing) return;
-    const views: ParkedRelayViews = {
-      compactWire: state.compactWire,
-      transcriptPrepend: state.transcriptPrepend,
-      promptHistoryPatch: state.promptHistoryPatch,
-      listDelta: state.listDelta,
-      stateEncoder: state.stateLane?.park() ?? null,
-      sessionsEncoder: state.sessionsEncoder,
-      agentPoolEncoder: state.agentPoolEncoder,
-      sessionStateEncoders: new Map(state.sessionStateEncoders),
-    };
-    // Detached: a late write still holding the departed state can no longer
-    // move what was parked.
-    state.sessionsEncoder = createSessionsEncoder();
-    state.agentPoolEncoder = createAgentPoolEncoder();
-    state.sessionStateEncoders = new Map();
+    const views = detachRelayViews(state);
     dropParked(token);
     while (parked.size >= MAX_ACTIVE_REMOTE_CLIENTS) {
       const oldest = parked.keys().next();
@@ -286,6 +276,17 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
       deps.onClientCountChanged();
     },
     takeParkedViews: (token) => {
+      // The phone presents this token from a NEW leg while its old one still
+      // looks attached: that leg died without the relay noticing yet (a
+      // half-open socket after a network switch). Only that phone's channel
+      // ever carried the token, so the old leg is retired and its lanes are
+      // handed over instead of waiting for its client-close.
+      for (const [clientId, client] of clients) {
+        if (client.viewResumeToken !== token) continue;
+        if (remove(clientId, true)) deps.onClientCountChanged();
+        deps.sendEnvelope({ type: 'close-client', clientId, reason: 'superseded by a resumed connection' });
+        break;
+      }
       const entry = parked.get(token);
       if (!entry) return null;
       dropParked(token);

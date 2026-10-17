@@ -20,19 +20,22 @@ export function encodeRelayClientSessionState(
   snapshot: unknown,
   compact = false,
   prepend = false,
-  historyPatch = false
+  historyPatch = false,
+  sessionFolder = ''
 ): unknown {
   let encoder = encoders.get(sessionId);
   if (!encoder) {
     encoder = createSnapshotDeltaEncoder({ compact, prepend, historyPatch });
     encoders.set(sessionId, encoder);
   }
-  return encoder.encode(remoteTranscriptSnapshot(snapshot));
+  return encoder.encode(remoteTranscriptSnapshot(snapshot, sessionFolder));
 }
 
 export interface RelaySessionStateFanoutDeps {
   clients: ReadonlyMap<string, RelayClientState>;
   sendEncryptedFrame(clientId: string, payload: unknown, droppable: boolean): Promise<void>;
+  /** The folder a session's relative paths are under; '' when unknown. */
+  sessionFolder?(sessionId: string): string;
 }
 
 export interface RelaySessionStateFanout {
@@ -70,7 +73,8 @@ export function createRelaySessionStateFanout(deps: RelaySessionStateFanoutDeps)
             update.snapshot,
             state.compactWire,
             state.transcriptPrepend,
-            state.promptHistoryPatch
+            state.promptHistoryPatch,
+            deps.sessionFolder?.(sessionId) ?? ''
           );
           // This client's baseline already matches the snapshot: the frame would
           // carry a revision number and nothing else.

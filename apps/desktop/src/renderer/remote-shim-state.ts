@@ -21,7 +21,7 @@ import type { SettingsChange } from '../shared/settings-changed';
 import type { DesktopVisualizeEvent } from '../shared/visualize';
 import { createKeyedListDeltaDecoder } from '../shared/list-delta';
 import { createRemoteCatalog } from '../shared/remote-catalog';
-import { createRemoteRosterCache, createIndexedDbRosterStorage } from '../shared/remote-roster-cache';
+import { createRemoteRosterCache } from '../shared/remote-roster-cache';
 import { createRemoteViewBaselineCache } from '../shared/remote-view-baseline';
 import { createSnapshotDeltaDecoder } from '../main/state-delta';
 import { newBrowserId } from './remote-browser-identity';
@@ -42,6 +42,7 @@ import { createRelayPayloadLimits, showRemoteToast, type PendingCall } from './r
 import type { createRemotePairingScreen } from './remote-pairing-screen';
 import type { createRemoteViewSync } from './remote-view-sync';
 import type { TerminalSizeOwnerEvent } from '../shared/terminal-size-owner';
+import type { TerminalActivityEvent } from '../shared/terminal-activity';
 
 export const DEVICE_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.device;
 export const REMOTE_CREDENTIAL_READY_EVENT = 'mixdog:remote-credential-ready';
@@ -137,10 +138,14 @@ export interface RemoteShimState {
   legacyVisibleSessionsQueue: Promise<unknown>;
   pendingReconnectNotification: boolean;
   // Delta-lane resumption (shared/remote-view-resume.ts). The desktop issues a
-  // token with each completed view sync; it stays valid only while every
-  // decoder holds exactly what that desktop's encoders sent. A close carries
-  // it (and the decoders) over to the next connection's first sync; any gap,
-  // resync or reset clears it, and the epoch voids a sync already in flight.
+  // token with each completed view sync; it stays valid while every decoder
+  // holds a revision that desktop's encoders emitted and still retain — their
+  // latest one, or an older one kept in their bounded revision history (a
+  // frame lost in flight, updates missed while away). The desktop rewinds to
+  // that revision and sends deltas; an unknown or evicted revision gets a full
+  // snapshot instead. A close carries the token (and the decoders) over to the
+  // next connection's first sync; a local decoder gap, resync or reset clears
+  // it, and the epoch voids a sync already in flight.
   viewResumeToken: string | null;
   carriedResumeToken: string | null;
   deltaEpoch: number;
@@ -178,6 +183,7 @@ export interface RemoteShimCollaborators {
   sessionInbox: ReturnType<typeof createRemoteSessionInbox>;
   termListeners: Set<(event: { id: string; data: string }) => void>;
   termSizeOwnerListeners: Set<(event: TerminalSizeOwnerEvent) => void>;
+  termActivityListeners: Set<(event: TerminalActivityEvent) => void>;
   folderChangeListeners: Set<(dir: string) => void>;
   activityRailPinsListeners: Set<(state: ActivityRailPinsState) => void>;
   providerModelsListeners: Set<(change: ProviderModelsChange) => void>;
@@ -413,6 +419,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     sessionInbox: createRemoteSessionInbox({ onGap: () => ctx.requestResync() }),
     termListeners: new Set(),
     termSizeOwnerListeners: new Set(),
+    termActivityListeners: new Set(),
     folderChangeListeners: new Set(),
     activityRailPinsListeners: new Set(),
     providerModelsListeners: new Set(),
@@ -430,8 +437,10 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     sessionsDecoder,
     agentPoolDecoder: createKeyedListDeltaDecoder<DesktopAgentPoolRow>(),
     // Keyed to this pairing: another desktop or a re-pair never reads it.
+    // Memory-only: the rows carry conversation titles, which the phone/browser
+    // never keeps on the device (remote-conversation-privacy.ts).
     rosterCache: createRemoteRosterCache<DesktopSessionSummary>({
-      storage: createIndexedDbRosterStorage(),
+      storage: null,
       scope: () =>
         ctx.e2eePairing
           ? [ctx.serverBase, ctx.deviceId, ctx.e2eePairing.serverPublicKey, ctx.e2eePairing.pairingSecret].join('\n')

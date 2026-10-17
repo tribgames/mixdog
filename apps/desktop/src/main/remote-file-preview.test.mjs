@@ -1,10 +1,26 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 
-import { createRemoteFilePreviewMethods, REMOTE_PREVIEW_MAX_READ_BYTES } from './remote-file-preview.ts';
+import {
+  createRemoteFilePreviewMethods,
+  REMOTE_PREVIEW_MAX_READ_BYTES,
+  remoteFilePreviewTestHooks,
+  withAuthorizedFile,
+} from './remote-file-preview.ts';
+import { createRemoteLocalPageMethods } from './remote-local-page.ts';
+import { sensitivePolicy } from './remote-sensitive-paths.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'remote-preview-'));
 mkdirSync(join(root, '.hidden'));
@@ -58,9 +74,137 @@ test('paths outside the project, hidden files and non-web files are refused', as
   assert.equal(page.mime, 'text/html; charset=utf-8');
 });
 
+test('a folder swapped for a link between the checks and the open is judged by where the open file really is', async (t) => {
+  const project = realpathSync(mkdtempSync(join(tmpdir(), 'remote-preview-race-')));
+  const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'remote-preview-race-out-')));
+  t.after(() => {
+    remoteFilePreviewTestHooks.beforeOpen = undefined;
+    rmSync(project, { recursive: true, force: true });
+    rmSync(elsewhere, { recursive: true, force: true });
+  });
+  mkdirSync(join(project, 'media'));
+  writeFileSync(join(project, 'media', 'clip.mp4'), 'project clip');
+  mkdirSync(join(project, '.ssh'));
+  writeFileSync(join(project, '.ssh', 'clip.mp4'), 'private key');
+  writeFileSync(join(elsewhere, 'clip.mp4'), 'outside bytes');
+  const snapshots = [];
+  const raced = createRemoteFilePreviewMethods({
+    host: { projectDirectory: async () => project },
+    grants,
+    hostRequest: async (method, args) => snapshots.push([method, args]),
+  });
+  /** Swaps `media` for a junction to `target` once the path passed its checks. */
+  const swapTo = (target) => {
+    remoteFilePreviewTestHooks.beforeOpen = () => {
+      remoteFilePreviewTestHooks.beforeOpen = undefined;
+      rmSync(join(project, 'media'), { recursive: true, force: true });
+      symlinkSync(target, join(project, 'media'), 'junction');
+    };
+  };
+  const restore = () => {
+    rmSync(join(project, 'media'), { recursive: true, force: true });
+    mkdirSync(join(project, 'media'));
+    writeFileSync(join(project, 'media', 'clip.mp4'), 'project clip');
+  };
+  const ok = await raced.previewProjectFileRange([project, 'media/clip.mp4', null, 0, 64]);
+  assert.equal(Buffer.from(ok.data, 'base64').toString(), 'project clip');
+  // Before the fix these read the bytes the swapped-in link led to.
+  swapTo(elsewhere);
+  await assert.rejects(raced.previewProjectFileRange([project, 'media/clip.mp4', null, 0, 64]), /outside the project/);
+  restore();
+  swapTo(join(project, '.ssh'));
+  await assert.rejects(
+    raced.previewProjectFileRange([project, 'media/clip.mp4', null, 0, 64]),
+    /credentials or secrets/
+  );
+  restore();
+  swapTo(elsewhere);
+  await assert.rejects(raced.previewProjectFile([project, 'media/clip.mp4', null]), /outside the project/);
+  // A delegated read is never asked for a swapped file.
+  restore();
+  swapTo(join(project, '.ssh'));
+  await assert.rejects(raced.captureFileSnapshot([project, 'media/clip.mp4', null]), /credentials or secrets/);
+  assert.deepEqual(snapshots, []);
+});
+
+test('a local page is handed to the page server only at the real location of the opened file', async (t) => {
+  const project = realpathSync(mkdtempSync(join(tmpdir(), 'remote-page-race-')));
+  const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'remote-page-race-out-')));
+  t.after(() => {
+    remoteFilePreviewTestHooks.beforeOpen = undefined;
+    rmSync(project, { recursive: true, force: true });
+    rmSync(elsewhere, { recursive: true, force: true });
+  });
+  mkdirSync(join(project, 'site'));
+  writeFileSync(join(project, 'site', 'index.html'), '<p>site</p>');
+  writeFileSync(join(elsewhere, 'index.html'), '<p>outside</p>');
+  const requests = [];
+  const pages = createRemoteLocalPageMethods({
+    host: { projectDirectory: async () => project },
+    grants,
+    hostRequest: async (method, args) => {
+      requests.push([method, args]);
+      return 'http://127.0.0.1:9/page';
+    },
+  });
+  assert.equal(await pages.localPageUrl([project, 'site/index.html', null]), 'http://127.0.0.1:9/page');
+  assert.deepEqual(requests, [['localPageUrl', [project, join('site', 'index.html'), 'project', sensitivePolicy()]]]);
+  // Before the fix the page server got the swapped path and served whatever
+  // the link led to.
+  remoteFilePreviewTestHooks.beforeOpen = () => {
+    remoteFilePreviewTestHooks.beforeOpen = undefined;
+    rmSync(join(project, 'site'), { recursive: true, force: true });
+    symlinkSync(elsewhere, join(project, 'site'), 'junction');
+  };
+  await assert.rejects(pages.localPageUrl([project, 'site/index.html', null]), /outside the project/);
+  assert.equal(requests.length, 1);
+});
+
 test('a selected-file grant reads exactly its file and nothing else', async () => {
   const ok = await methods.previewProjectFileRange([resolve(outside), 'pic.png', 'ok', 0, 10]);
   assert.equal(Buffer.from(ok.data, 'base64').toString(), 'png');
   await assert.rejects(methods.previewProjectFileRange([outside, 'other.png', 'ok', 0, 10]), /permission/);
   await assert.rejects(methods.previewProjectFileRange([outside, 'pic.png', 'bad', 0, 10]), /permission/);
+});
+
+test('private copies live in one mkdtemp root, never a predictable pid-named folder', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'remote-preview-root-'));
+  writeFileSync(join(dir, 'a.txt'), 'one');
+  writeFileSync(join(dir, 'b.txt'), 'two');
+  try {
+    const locate = (name) => withAuthorizedFile(join(dir, name), dir, ({ location }) => location);
+    const [first, second] = [await locate('a.txt'), await locate('b.txt')];
+    const privateRoot = dirname(dirname(first));
+    assert.equal(dirname(dirname(second)), privateRoot);
+    assert.equal(dirname(privateRoot), tmpdir());
+    assert.match(basename(privateRoot), /^mixdog-authorized-copies-[A-Za-z0-9]{6}$/);
+    assert.notEqual(basename(privateRoot), `mixdog-authorized-copies-${process.pid}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('concurrent previews of equal content under different names keep their own inputs', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'remote-preview-twin-'));
+  const when = new Date(1_700_000_000_000);
+  for (const name of ['a.txt', 'b.txt']) {
+    writeFileSync(join(dir, name), 'same bytes');
+    utimesSync(join(dir, name), when, when);
+  }
+  try {
+    let bStarted;
+    const started = new Promise((resolveStarted) => (bStarted = resolveStarted));
+    const first = withAuthorizedFile(join(dir, 'a.txt'), dir, async () => {
+      await started;
+    });
+    // b is still using its input after a, which shared a's content and mtime, is done.
+    const second = withAuthorizedFile(join(dir, 'b.txt'), dir, async ({ location }) => {
+      bStarted();
+      await first;
+      return existsSync(location);
+    });
+    assert.equal(await second, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

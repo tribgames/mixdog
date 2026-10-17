@@ -17,6 +17,7 @@ import { readSettingsChange, SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from 
 import { isRemotePaintProbe } from '../shared/remote-performance';
 import { RELAY_ROUTING_CAPS_EVENT, readRelayPayloadRejection } from '../shared/remote-payload-limit';
 import { createSnapshotDeltaDecoder } from '../main/state-delta';
+import { localizeRemoteOutputNotes } from './remote-output-notes';
 import { markCompactPayload } from './remote-compact-frames';
 import { VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
 import { takeRemoteConnectionTimeline, reportRemoteConnectionIssue } from './remote-connection-state';
@@ -29,6 +30,7 @@ import {
   REMOTE_BROWSER_TABS_EVENT,
 } from '../shared/remote-browser';
 import { PROVIDER_MODELS_EVENT, readProviderModelsChange } from '../shared/provider-models';
+import { readTerminalActivityEvent } from '../shared/terminal-activity';
 import { type DesktopVisualizeEvent, REMOTE_VISUALIZE_CHANGED_EVENT } from '../shared/visualize';
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
@@ -178,7 +180,7 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
     }
     if (message.event === 'state') {
       const snapshot = ctx.applyStatePayload(message.payload ?? null);
-      if (snapshot !== null) dispatchState(snapshot);
+      if (snapshot !== null) dispatchState(localizeRemoteOutputNotes(snapshot));
     } else if (message.event === 'sessions') {
       const decoded = Array.isArray(message.payload)
         ? { ok: true, items: message.payload as DesktopSessionSummary[] }
@@ -222,7 +224,7 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
         }
         update = {
           sessionId: payload.sessionId,
-          snapshot: decoded.snapshot as SessionSnapshot,
+          snapshot: localizeRemoteOutputNotes(decoded.snapshot as SessionSnapshot),
           frameSource: payload.frameSource,
           ...(payload.laneEnd ? { laneEnd: payload.laneEnd } : {}),
           ...(typeof payload.contentRevision === 'number' ? { contentRevision: payload.contentRevision } : {}),
@@ -312,6 +314,9 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
         rows: Number(payload.rows) || 0,
         own: payload.own === true,
       });
+    } else if (message.event === 'termActivity') {
+      const event = readTerminalActivityEvent(message.payload);
+      if (event) fanOut(ctx.termActivityListeners, event);
     } else if (message.event === 'folderChanged') {
       const dir = String(message.payload || '');
       if (!dir) return;

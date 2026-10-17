@@ -110,6 +110,18 @@ final class MixdogNavigationDelegate: NSObject, WKNavigationDelegate {
                 ?? decisionHandler(.allow)
             return
         }
+        // `<a download>` and blob:/data: links used to be cancelled here (so the
+        // download vanished); WebKit downloads them and MixdogDownloadHandler
+        // presents the share sheet. blob:/data: have no origin of their own, so
+        // the page that started them must be an allowed one.
+        if #available(iOS 14.5, *), navigationAction.shouldPerformDownload {
+            let source = MixdogOriginPolicy.origin(of: navigationAction.sourceFrame.securityOrigin)
+            let local = url.scheme == "blob" || url.scheme == "data"
+            if local ? MixdogOriginPolicy.isAllowed(source) : MixdogOriginPolicy.isAllowed(url: url) {
+                decisionHandler(.download)
+                return
+            }
+        }
         if url.scheme == "about" || MixdogOriginPolicy.isAllowed(url: url) {
             decisionHandler(.allow)
             return
@@ -118,6 +130,97 @@ final class MixdogNavigationDelegate: NSObject, WKNavigationDelegate {
             DispatchQueue.main.async { UIApplication.shared.open(url, options: [:], completionHandler: nil) }
         }
         decisionHandler(.cancel)
+    }
+
+    /// A response the WebView cannot show, or an attachment, from an allowed
+    /// origin is downloaded instead of dropped.
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        if #available(iOS 14.5, *), navigationResponse.isForMainFrame,
+           let url = navigationResponse.response.url, MixdogOriginPolicy.isAllowed(url: url) {
+            let disposition = (navigationResponse.response as? HTTPURLResponse)?
+                .value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
+            if !navigationResponse.canShowMIMEType || disposition.hasPrefix("attachment") {
+                decisionHandler(.download)
+                return
+            }
+        }
+        inner.webView?(webView, decidePolicyFor: navigationResponse, decisionHandler: decisionHandler)
+            ?? decisionHandler(.allow)
+    }
+
+    @available(iOS 14.5, *)
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        MixdogDownloadHandler.shared.attach(download)
+    }
+
+    @available(iOS 14.5, *)
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        MixdogDownloadHandler.shared.attach(download)
+    }
+}
+
+/// Saves a WebKit download to a private temp folder and presents the share
+/// sheet (which offers "Save to Files"). The page's own blob downloads go
+/// through the `fileSave*` bridge instead; this catches what skips it.
+/// UNBUILT / UNVERIFIED: written on a PC that cannot build the iOS app.
+@available(iOS 14.5, *)
+final class MixdogDownloadHandler: NSObject, WKDownloadDelegate {
+    static let shared = MixdogDownloadHandler()
+    private var files: [ObjectIdentifier: URL] = [:]
+
+    func attach(_ download: WKDownload) {
+        download.delegate = self
+    }
+
+    func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String,
+        completionHandler: @escaping (URL?) -> Void
+    ) {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mixdog-download-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        } catch {
+            completionHandler(nil)
+            return
+        }
+        let file = folder.appendingPathComponent(MixdogFileSave.sanitize(suggestedFilename))
+        files[ObjectIdentifier(download)] = file
+        completionHandler(file)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let file = files.removeValue(forKey: ObjectIdentifier(download)) else { return }
+        DispatchQueue.main.async { Self.present(file) }
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        guard let file = files.removeValue(forKey: ObjectIdentifier(download)) else { return }
+        try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+    }
+
+    private static func present(_ file: URL) {
+        let folder = file.deletingLastPathComponent()
+        guard let controller = MixdogNativeBridge.shared.viewController else {
+            try? FileManager.default.removeItem(at: folder)
+            return
+        }
+        let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+        sheet.completionWithItemsHandler = { _, _, _, _ in try? FileManager.default.removeItem(at: folder) }
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = controller.view
+            popover.sourceRect = CGRect(x: controller.view.bounds.midX, y: controller.view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        var top: UIViewController = controller
+        while let next = top.presentedViewController { top = next }
+        top.present(sheet, animated: true)
     }
 }
 
@@ -198,10 +301,35 @@ final class MixdogNativeBridge: NSObject, WKScriptMessageHandlerWithReply, UNUse
                 identifier: Self.approvalCategory, actions: [allow, deny], intentIdentifiers: [], options: [])
         ])
         // Keep the token fresh on every launch once the user has allowed alerts.
-        center.getNotificationSettings { settings in
+        refreshRegistration()
+        // Coming back from Settings: the permission may have changed there.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.refreshRegistration()
+            self?.notifyWeb()
+        }
+    }
+
+    private func refreshRegistration() {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
             if settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional {
                 DispatchQueue.main.async { UIApplication.shared.registerForRemoteNotifications() }
             }
+        }
+    }
+
+    /// This app's notification settings (iOS 16+), else the app's settings page.
+    private func openNotificationSettings(_ done: @escaping (Bool) -> Void) {
+        DispatchQueue.main.async {
+            let target: String
+            if #available(iOS 16.0, *) {
+                target = UIApplication.openNotificationSettingsURLString
+            } else {
+                target = UIApplication.openSettingsURLString
+            }
+            guard let url = URL(string: target) else { return done(false) }
+            UIApplication.shared.open(url, options: [:]) { done($0) }
         }
     }
 
@@ -252,6 +380,8 @@ final class MixdogNativeBridge: NSObject, WKScriptMessageHandlerWithReply, UNUse
             pushState { replyHandler($0, nil) }
         case "requestPush":
             requestPush { replyHandler($0, nil) }
+        case "openNotificationSettings":
+            openNotificationSettings { replyHandler($0, nil) }
         case "peekPendingActions":
             let args = body?["args"] as? [String: Any]
             replyHandler(peekPendingActions(hostId: args?["hostId"] as? String ?? ""), nil)

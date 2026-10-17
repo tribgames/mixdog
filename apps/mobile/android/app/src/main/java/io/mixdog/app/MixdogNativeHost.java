@@ -1,9 +1,11 @@
 package io.mixdog.app;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.net.Uri;
+import android.provider.Settings;
 import android.webkit.WebView;
 import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebMessageCompat;
@@ -53,6 +55,26 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
   void onResume() {
     updater.onResume();
     fileSave.onResume();
+    // The notification permission may have changed in system settings.
+    fireEvent();
+  }
+
+  /** This app's notification settings; the app's details page when the device has none. */
+  private boolean openNotificationSettings() {
+    Intent settings =
+        new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, activity.getPackageName());
+    Intent details =
+        new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + activity.getPackageName()));
+    for (Intent intent : new Intent[] {settings, details}) {
+      try {
+        activity.startActivity(intent);
+        return true;
+      } catch (Exception ignored) {
+        // Not available here: try the next one.
+      }
+    }
+    return false;
   }
 
   void onDestroy() {
@@ -202,6 +224,8 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
             }
           }
           return state().toString();
+        case "openNotificationSettings":
+          return openNotificationSettings() ? "true" : "false";
         case "peekPendingActions":
           return MixdogPushStore.peekActions(activity, args.optString("hostId", "")).toString();
         case "ackPendingAction":

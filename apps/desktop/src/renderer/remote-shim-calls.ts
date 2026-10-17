@@ -6,6 +6,64 @@ import { armRemoteCallDeadline } from './remote-call-deadline';
 import { remoteConnectionInterruptedError } from './remote-connection-state';
 import type { RemoteShimContext } from './remote-shim-state';
 
+/** Desktop reads with no side effect; only these may share a queued request. */
+const COALESCED_READS = new Set([
+  'getSnapshot',
+  'getUpdaterState',
+  'listProjects',
+  'readActivityRailPins',
+  'readCapabilities',
+  'readHostDisplayPreferences',
+  'readSettings',
+  'viewerDevice',
+]);
+const COALESCED_CAPABILITY_READS = new Set([
+  'getOrchestrationMode',
+  'getProviderSetup',
+  'getVoiceStatus',
+  'getWorktreeSettings',
+  'listWorkflows',
+  'skillsStatus',
+]);
+
+function coalescedReadKey(method: string, params: unknown[]): string {
+  if (method === 'invokeCapability') {
+    const capability = (params[0] as { capability?: unknown } | undefined)?.capability;
+    if (typeof capability !== 'string' || !COALESCED_CAPABILITY_READS.has(capability)) return '';
+  } else if (!COALESCED_READS.has(method)) return '';
+  return `${method}\0${JSON.stringify(params)}`;
+}
+
+/** Reads the app makes as it mounts, started by the shim as soon as the relay
+ *  answers: on a phone they used to leave only after the app's chunks had
+ *  downloaded and evaluated, so the first screen waited a full relay round
+ *  trip after mount for its snapshot, updater state and projects. Each answer
+ *  goes to the app's first identical read, once; whatever the app has not
+ *  asked for when the boot window closes is dropped, so no later read is
+ *  ever served from boot. */
+const bootReads = new Map<string, Promise<unknown>>();
+const BOOT_READ_WINDOW_MS = 10_000;
+
+function takeBootRead(key: string): Promise<unknown> | undefined {
+  const read = bootReads.get(key);
+  if (read) bootReads.delete(key);
+  return read;
+}
+
+export function prefetchBootReads(ctx: RemoteShimContext, reads: ReadonlyArray<readonly [string, unknown[]]>): void {
+  for (const [method, params] of reads) {
+    const key = coalescedReadKey(method, params);
+    if (!key || bootReads.has(key)) continue;
+    const read = ctx.call(method, params);
+    // A failed boot read is not handed out: the app's own read asks again.
+    read.catch(() => {
+      if (bootReads.get(key) === read) bootReads.delete(key);
+    });
+    bootReads.set(key, read);
+  }
+  setTimeout(() => bootReads.clear(), BOOT_READ_WINDOW_MS);
+}
+
 export const installRemoteCalls = (ctx: RemoteShimContext): void => {
   // Push lanes this browser actually reads. Terminal output, diagnostics and
   // folder events are produced by DESKTOP activity — a build, a save — and
@@ -104,12 +162,42 @@ export const installRemoteCalls = (ctx: RemoteShimContext): void => {
     });
   };
 
-  const call = async <T = unknown>(method: string, params: unknown[] = []): Promise<T> => {
+  const send = async <T = unknown>(method: string, params: unknown[]): Promise<T> => {
     await ctx.connect();
     if (ctx.peerViewSync && method !== 'abortSession' && method !== 'resolveToolApprovalForSession') {
       await ctx.viewSync.ready();
     }
     return invoke<T>(method, params);
+  };
+
+  /** Identical state reads still waiting for the connection or the view sync.
+   *  A cold start asks most of them twice — once as the app mounts, again
+   *  from the connection-ready refreshes — and both copies would leave
+   *  together once the sync lands. A read already sent is never joined, so a
+   *  re-read after a change always gets an answer of its own. */
+  const queuedReads = new Map<string, Promise<unknown>>();
+  const call = <T = unknown>(method: string, params: unknown[] = []): Promise<T> => {
+    const key = coalescedReadKey(method, params);
+    if (!key) return send<T>(method, params);
+    const booted = takeBootRead(key);
+    if (booted) return booted as Promise<T>;
+    const queued = queuedReads.get(key);
+    if (queued) return queued as Promise<T>;
+    const read: Promise<T> = (async () => {
+      await ctx.connect();
+      if (ctx.peerViewSync) await ctx.viewSync.ready();
+    })().then(
+      () => {
+        if (queuedReads.get(key) === read) queuedReads.delete(key);
+        return invoke<T>(method, params);
+      },
+      (error: unknown) => {
+        if (queuedReads.get(key) === read) queuedReads.delete(key);
+        throw error;
+      }
+    );
+    queuedReads.set(key, read);
+    return read;
   };
 
   /** The roster a view-synchronizing desktop already delivered. Every sync

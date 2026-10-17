@@ -13,7 +13,7 @@ import { REMOTE_NATIVE_PUSH_GLOBAL, createNativePushHost, installNativePushBridg
 import { installPushSubscriptionSync } from './push-notification-bridge';
 import { setRemoteConnectionState, shouldRunRemoteHeartbeat } from './remote-connection-state';
 import { createRemoteApi } from './remote-shim-api';
-import { installRemoteCalls } from './remote-shim-calls';
+import { installRemoteCalls, prefetchBootReads } from './remote-shim-calls';
 import { installRemoteDispatch } from './remote-shim-dispatch';
 import { installRemoteLiveness } from './remote-shim-liveness';
 import { installRemotePairing } from './remote-shim-pairing';
@@ -55,8 +55,24 @@ import { installRemoteSync } from './remote-shim-sync';
   }
   setRemoteConnectionState('connecting');
   if (!ctx.backgroundSuspended && shouldRunRemoteHeartbeat(document.visibilityState)) {
-    void ctx.connect().catch(() => {
-      /* the retry loop keeps running */
-    });
+    void ctx
+      .connect()
+      .then(() =>
+        // The app's first screen waits on these; they now ride the view sync
+        // the connection is already running instead of following the app's
+        // chunk download and evaluation.
+        prefetchBootReads(ctx, [
+          ['getSnapshot', []],
+          ...(ctx.peerRemoteParity === true ? [['getUpdaterState', []] satisfies [string, unknown[]]] : []),
+          ['listProjects', []],
+          ['readSettings', []],
+          ['readHostDisplayPreferences', []],
+          ['readActivityRailPins', []],
+          ['viewerDevice', []],
+        ])
+      )
+      .catch(() => {
+        /* the retry loop keeps running */
+      });
   }
 })();

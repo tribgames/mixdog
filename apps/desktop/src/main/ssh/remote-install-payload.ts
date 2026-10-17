@@ -53,8 +53,14 @@ export function localPayloadLayout(
     };
   }
   for (let dir = moduleDir; ; dir = dirname(dir)) {
-    if (exists(join(dir, 'src', 'standalone', 'daemon.mjs')) && exists(join(dir, 'apps', 'desktop', 'package.json'))) {
-      return { runtimePackageDir: dir, serverDepsDir: join(dir, 'apps', 'desktop', 'out', 'server', 'deps') };
+    if (exists(join(dir, 'src', 'standalone', 'daemon.mjs'))) {
+      // The checkout's apps/desktop, or an isolated dev instance's app/desktop
+      // (scripts/dev-isolated.mjs), whose out/ holds its own server deps.
+      for (const app of [join('apps', 'desktop'), join('app', 'desktop')]) {
+        if (exists(join(dir, app, 'package.json'))) {
+          return { runtimePackageDir: dir, serverDepsDir: join(dir, app, 'out', 'server', 'deps') };
+        }
+      }
     }
     if (dirname(dir) === dir) {
       throw new RemoteBootstrapError(

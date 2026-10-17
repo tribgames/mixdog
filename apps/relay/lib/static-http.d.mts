@@ -8,6 +8,8 @@ export declare const PAIRING_COOKIE_NAME: string;
 export declare const DEVICE_COOKIE_NAME: string;
 export declare const BROWSER_SECURITY_HEADERS: Readonly<Record<string, string>>;
 export declare function parseCookieToken(header: string | undefined): string;
+export declare function cookieCredentialAllowed(headers?: IncomingMessage['headers']): boolean;
+export declare function requestCookieToken(request: Pick<IncomingMessage, 'headers'> | undefined): string;
 export declare function parseCookieDevice(header: string | undefined): string;
 export declare function pairingCookieHeaders(queryToken: string, request?: IncomingMessage): Record<string, string>;
 export declare function deviceCookieHeaders(deviceId: string, request?: IncomingMessage): Record<string, string>;

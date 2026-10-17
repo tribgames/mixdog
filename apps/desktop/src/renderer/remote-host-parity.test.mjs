@@ -7,6 +7,7 @@ const OLD_TRASH = 'Moving items to the trash is available in the desktop app onl
 const GATED = [
   'previewProjectFile',
   'localPageSource',
+  'localPageUrl',
   'ghPrList',
   'ghPrDefaultBranch',
   'ghPrCreate',

@@ -14,7 +14,8 @@
 // the asset id is the lease's random media id, the lease must belong to the
 // paired device of the requesting session, and every byte is read through the
 // lease's own opened handle, which refuses a file whose version changed.
-import { open, type FileHandle } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 import { parseRange } from '../../../relay/lib/media-http.mjs';
 import { FILE_DOWNLOAD_MEDIA_VARIANT, fileDownloadErrorReason } from '../shared/file-downloads';
@@ -28,6 +29,7 @@ import {
 import type { DesktopService } from './desktop-service-contract';
 import type { FileDownloadMediaSource } from './file-downloads';
 import { leasedMediaFile } from './media-leases';
+import { openAuthorizedFile } from './opened-file-authorization';
 import { resolveMediaFileTarget } from './media-source';
 
 // Socket backlog that pauses the read; a phone that stalls stops the pump
@@ -103,17 +105,33 @@ export interface RelayMediaLane {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** A leased project file, opened again the way it was authorized: its real
+ *  location inside the lease's folder and not secret-bearing
+ *  (openAuthorizedFile), and the very file the lease was minted for. */
+async function openLeasedFile(lease: NonNullable<ReturnType<typeof leasedMediaFile>>): Promise<FileHandle> {
+  const file = await openAuthorizedFile(lease.path, lease.within);
+  if (file.identity.dev !== lease.identity.dev || file.identity.ino !== lease.identity.ino) {
+    await file.handle.close();
+    throw new Error('The leased file was replaced.');
+  }
+  return file.handle;
+}
+
 export function createRelayMediaLane(deps: RelayMediaLaneDeps): RelayMediaLane {
   const pumps = new Map<string, MediaPump>();
   const sendChunk = (id: string, frame: Uint8Array): void =>
     deps.sendEnvelope({ type: 'media-chunk', id, data: Buffer.from(frame).toString('base64') });
   const gallerySource = async (media: RelayMediaRequest): Promise<MediaByteSource | null> => {
-    const target =
-      leasedMediaFile(media.assetId) ?? (await resolveMediaFileTarget(deps.host, media.assetId, media.variant));
+    const leased = leasedMediaFile(media.assetId);
+    const target = leased ?? (await resolveMediaFileTarget(deps.host, media.assetId, media.variant));
     if (!target) return null;
     let handle: FileHandle;
     try {
-      handle = await open(target.path, 'r');
+      // A gallery file gets the same name and opened-file check, within its
+      // own folder: the media store never serves a secret through a link.
+      handle = leased
+        ? await openLeasedFile(leased)
+        : (await openAuthorizedFile(target.path, dirname(target.path))).handle;
     } catch {
       return null;
     }

@@ -49,6 +49,10 @@ const SLOW_READS = new Set([
   'previewDocumentPages',
   // A visualize Office pane converts the document before answering.
   'visualizePaneFile',
+  // Visualize page images (rasterized) and PNG/PDF exports (rendered in a
+  // hidden window into a temp file; nothing in the project changes).
+  'visualizePanePages',
+  'visualizeExport',
   // GitHub CLI reads (gh process + GitHub API round trip). Observed at 20s as
   // an unknown-method barrier, holding Settings reads ~10s behind it.
   'githubCliStatus',

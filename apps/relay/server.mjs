@@ -60,13 +60,20 @@ import {
   requestUrl,
 } from './lib/relay-http.mjs';
 import { MAX_HOOK_PENDING_PER_DEVICE, failHookPending, handleHookRequest, runHookLeg } from './lib/relay-hook.mjs';
+import { startSocketDiagnostics } from './lib/relay-diagnostics.mjs';
 import { failMediaPending, handleMediaRequest } from './lib/relay-media-proxy.mjs';
 import { handleClaimRequest, handleClientRegistration } from './lib/relay-pairing.mjs';
 import { sendAppPage } from './lib/app-page.mjs';
 import { sendConnectPage } from './lib/connect-page.mjs';
 import { PairCodes, createPresenceLimiter, handlePairCodeRequest } from './lib/pair-codes.mjs';
 import { serveStatic } from './lib/relay-static-gate.mjs';
-import { runClientLeg, runDesktopLeg } from './lib/relay-legs.mjs';
+import {
+  DESKTOP_HANDSHAKE_STALL_MS,
+  DESKTOP_LIVENESS_PROBE_MS,
+  runClientLeg,
+  runDesktopLeg,
+} from './lib/relay-legs.mjs';
+import { DESKTOP_OFFLINE_CLOSE } from './lib/relay-close-codes.mjs';
 
 export { MAX_RATE_KEYS, RateLimiter } from './lib/rate-limit.mjs';
 export {
@@ -179,6 +186,8 @@ function createRelayState({
     registerLimiter: new RateLimiter(REGISTER_RATE_LIMIT, REGISTER_RATE_WINDOW_MS),
     unauthorizedLimiter: new RateLimiter(UNAUTHORIZED_RATE_LIMIT, UNAUTHORIZED_RATE_WINDOW_MS),
     phoneConnectLimiter: new RateLimiter(MAX_PHONE_CONNECTIONS_PER_MINUTE, PHONE_CONNECT_RATE_WINDOW_MS),
+    // deviceId -> "PC offline" sockets still waiting for their close to finish.
+    offlineClosing: new Map(),
     // Native push is sent per device; tokens are bound to the device and
     // paired client that registered them (lib/native-push-legs.mjs).
     nativeLimiter: new RateLimiter(NATIVE_PUSH_RATE_LIMIT, NATIVE_PUSH_RATE_WINDOW_MS),
@@ -250,6 +259,10 @@ export async function startRelay({
   // An upper CLAMP on what a desktop leg is taken to accept — never a value
   // that can raise a leg above what it declared about itself.
   uplinkCapacityBytes = MAX_UPLINK_CAPACITY_BYTES,
+  // How long a desktop leg may owe a joining phone its handshake turn before
+  // the relay closes the leg so the PC redials (lib/relay-legs.mjs).
+  handshakeStallMs = DESKTOP_HANDSHAKE_STALL_MS,
+  livenessProbeMs = DESKTOP_LIVENESS_PROBE_MS,
   // Feedback mail. The environment is explicit (never process.env by default)
   // so only the CLI entry below turns real SMTP on. `feedbackSender` and
   // `feedbackOptions` (now/setTimer/clearTimer/limits) are test injection.
@@ -283,6 +296,8 @@ export async function startRelay({
     maxPayloadBytes,
   });
   relay.feedback = feedback;
+  relay.handshakeStallMs = handshakeStallMs;
+  relay.livenessProbeMs = livenessProbeMs;
   relay.nativePush = nativePush ?? createNativePush({ env: nativePushEnv });
   relay.webPush = createRelayWebPush(relay, dataDir, webPushFetch);
   const server = createListener(guardedHttpHandler(relay), tlsCert, tlsKey);
@@ -549,6 +564,8 @@ function upgradeDesktopLeg(relay, request, rawSocket, head) {
         webPush: relay.webPush,
         maxFrameBytes: relay.maxFrameBytes,
         ingress: relay.legIngress,
+        handshakeStallMs: relay.handshakeStallMs,
+        livenessProbeMs: relay.livenessProbeMs,
         rawSocket,
       },
       deviceId,
@@ -577,14 +594,19 @@ function upgradePhoneLeg(relay, request, url, rawSocket, head) {
     console.log(`[relay] phone upgrade refused status=${status} cause=${cause} device=${String(deviceId).slice(0, 8)}`);
     rejectUpgrade(rawSocket, status, reason);
   };
-  if (!desktopLegOpen(entry)) {
-    // Desktop offline is transient: plain reject keeps the phone's
-    // reconnect loop alive without touching its stored pairing.
-    refuse(401, 'Unauthorized', 'desktop-offline');
-    return;
-  }
+  // Every upgrade this relay completes is charged, the "PC offline" answer
+  // included: it costs a handshake and a socket like any other.
   if (!phoneConnectLimiter.allow(deviceId)) {
     refuse(429, 'Too Many Requests', 'rate-limit');
+    return;
+  }
+  if (!desktopLegOpen(entry)) {
+    // Desktop offline is transient, and the phone has to be able to SAY so: a
+    // refused upgrade reaches a browser as a bare 1006 that names nobody. The
+    // handshake completes and closes with the relay's own "PC offline" code,
+    // which is not a pairing failure: the reconnect loop keeps running and the
+    // stored pairing is untouched.
+    closeOfflinePhone(relay, deviceId, request, rawSocket, head, refuse);
     return;
   }
   if (!phoneClientCapacityAvailable(entry.clients.size)) {
@@ -602,6 +624,57 @@ function upgradePhoneLeg(relay, request, url, rawSocket, head) {
   );
 }
 
+// An upgrade answered only with a close code is a socket until the peer
+// acknowledges the close; one that never does is cut after this grace instead
+// of holding its slot.
+const ANSWERED_CLOSE_GRACE_MS = 5_000;
+
+// "PC offline" answers are bounded per device like live phone legs. The slot
+// is held until the raw socket closes, which every outcome ends in: an
+// acknowledged close, a cut after the grace, or a failed upgrade.
+function closeOfflinePhone(relay, deviceId, request, rawSocket, head, refuse) {
+  const closing = relay.offlineClosing;
+  const outstanding = closing.get(deviceId) || 0;
+  if (!phoneClientCapacityAvailable(outstanding)) {
+    refuse(429, 'Too Many Requests', 'offline-capacity');
+    return;
+  }
+  console.log(`[relay] phone upgrade refused cause=desktop-offline device=${String(deviceId).slice(0, 8)}`);
+  closing.set(deviceId, outstanding + 1);
+  rawSocket.once('close', () => {
+    const left = closing.get(deviceId) - 1;
+    if (left > 0) closing.set(deviceId, left);
+    else closing.delete(deviceId);
+  });
+  relay.wss.handleUpgrade(request, rawSocket, head, (socket) =>
+    closeAnswered(socket, DESKTOP_OFFLINE_CLOSE, 'desktop offline')
+  );
+}
+
+/** Close a socket the relay upgraded only to answer it with a close code.
+ *  The peer can still send anything while the close waits for its reply: an
+ *  emitted 'error' with no listener is an uncaught exception for the whole
+ *  relay, so a socket that misbehaves is cut there and then, and one that
+ *  never replies is cut after the grace. */
+function closeAnswered(socket, code, reason) {
+  const terminate = () => {
+    try {
+      socket.terminate();
+    } catch {
+      /* already gone */
+    }
+  };
+  socket.on('error', terminate);
+  const grace = setTimeout(terminate, ANSWERED_CLOSE_GRACE_MS);
+  grace.unref?.();
+  socket.once('close', () => clearTimeout(grace));
+  try {
+    socket.close(code, reason);
+  } catch {
+    terminate();
+  }
+}
+
 // Clean break (v2): /ws accepts ONLY the per-browser credential minted
 // by /client/register. A missing, stale, or legacy shared token is not
 // retryable — finish the handshake and close 4005 so the phone drops
@@ -611,13 +684,7 @@ function closeUnpairedPhone(relay, request, rawSocket, head) {
     rejectUpgrade(rawSocket, 429, 'Too Many Requests');
     return;
   }
-  relay.wss.handleUpgrade(request, rawSocket, head, (socket) => {
-    try {
-      socket.close(4005, 'pairing rescan required');
-    } catch {
-      /* already gone */
-    }
-  });
+  relay.wss.handleUpgrade(request, rawSocket, head, (socket) => closeAnswered(socket, 4005, 'pairing rescan required'));
 }
 
 // Channel-worker webhook tunnel: same trust-on-first-use device model as the
@@ -721,8 +788,9 @@ export function sweepLegs(wss) {
   }
 }
 
-async function closeRelay({ heartbeat, wss, server, store, liveDesktops, liveHooks, feedback }) {
+async function closeRelay({ heartbeat, socketDiagnostics, wss, server, store, liveDesktops, liveHooks, feedback }) {
   clearInterval(heartbeat);
+  socketDiagnostics.stop();
   // Stop timers and let any in-flight send settle before the process exits.
   await feedback.close();
   for (const entry of liveDesktops.values()) {
@@ -771,13 +839,14 @@ async function finishRelayStart({ server, wss, store, liveDesktops, liveHooks, f
   }
   const heartbeat = setInterval(() => sweepLegs(wss), 10_000);
   heartbeat.unref?.();
+  const socketDiagnostics = startSocketDiagnostics({ liveDesktops });
   const address = server.address();
   const boundPort = typeof address === 'object' && address ? address.port : port;
   let closed = false;
   const close = async () => {
     if (closed) return;
     closed = true;
-    await closeRelay({ heartbeat, wss, server, store, liveDesktops, liveHooks, feedback });
+    await closeRelay({ heartbeat, socketDiagnostics, wss, server, store, liveDesktops, liveHooks, feedback });
   };
   return { port: boundPort, store, close };
 }

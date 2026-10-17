@@ -1,14 +1,20 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { DesktopService } from './desktop-service-contract';
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
-import { isNoListDelta, type KeyedListDeltaEncoder } from '../shared/list-delta';
+import { createKeyedListDeltaEncoder, isNoListDelta, type KeyedListDeltaEncoder } from '../shared/list-delta';
 import type { SnapshotDeltaEncoder } from './state-delta';
 import { createSnapshotDeltaEncoder, isNoDelta, markCompactWire } from './state-delta';
 import { synchronizeViewSnapshot } from './view-synchronizer';
 import { isSessionId } from './desktop-state';
 import { remoteTranscriptSnapshot } from './remote-transcript';
 import { MAX_VIEW_BASELINE_BYTES, readViewBaselineOffer, VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
-import { readViewResumeRequest, viewResumeLaneMatches, type ViewResumeRequest } from '../shared/remote-view-resume';
+import {
+  readViewResumeRequest,
+  viewResumeLaneMatches,
+  type ViewResumeLane,
+  type ViewResumePoint,
+  type ViewResumeRequest,
+} from '../shared/remote-view-resume';
 import { readRosterClaim, type RosterClaim } from '../shared/remote-roster-cache';
 import { rosterDigest, sessionRosterLog, stampRoster } from './remote-roster-log';
 
@@ -36,6 +42,7 @@ interface RelayViewSyncState {
       parked: SnapshotDeltaEncoder,
       deliver: (payload: unknown) => Promise<void>
     ): Promise<void>;
+    park(): SnapshotDeltaEncoder;
   } | null;
   /** Issued once this phone announced resumption (see remote-view-resume.ts);
    *  its lanes are parked under it when the leg drops. */
@@ -57,9 +64,49 @@ export interface ParkedRelayViews {
   sessionStateEncoders: Map<string, SnapshotDeltaEncoder>;
 }
 
+export const createSessionsEncoder = () =>
+  createKeyedListDeltaEncoder<DesktopSessionSummary>((session, index) => String(session.id || `session:${index}`));
+export const createAgentPoolEncoder = () =>
+  createKeyedListDeltaEncoder<DesktopAgentPoolRow>((agent, index) =>
+    String(agent.sessionId || agent.tag || `agent:${index}`)
+  );
+
+/** Hands a client's delta lanes over (to park them, or to continue them on
+ *  the same leg) and leaves it fresh ones: a late write still holding the
+ *  state can no longer move what was handed over. */
+export function detachRelayViews(state: RelayViewSyncState): ParkedRelayViews {
+  const views: ParkedRelayViews = {
+    compactWire: state.compactWire,
+    transcriptPrepend: state.transcriptPrepend === true,
+    promptHistoryPatch: state.promptHistoryPatch === true,
+    listDelta: state.listDelta,
+    stateEncoder: state.stateLane?.park() ?? null,
+    sessionsEncoder: state.sessionsEncoder,
+    agentPoolEncoder: state.agentPoolEncoder,
+    sessionStateEncoders: new Map(state.sessionStateEncoders),
+  };
+  state.sessionsEncoder = createSessionsEncoder();
+  state.agentPoolEncoder = createAgentPoolEncoder();
+  state.sessionStateEncoders = new Map();
+  return views;
+}
+
 interface RelayViewResume {
   claim: ViewResumeRequest;
   parked: ParkedRelayViews;
+}
+
+/** The encoder can continue from exactly what the phone says it holds: its
+ *  latest emission, or (a frame lost in flight) an earlier one it retained.
+ *  A match rewinds it there; anything else — an unknown revision, other
+ *  content under the same revision — leaves the lane to a full baseline. */
+async function continueFrom(
+  encoder: { resumePointAt(revision: number): ViewResumePoint | null; rewind(revision: number): boolean },
+  lane: ViewResumeLane | null | undefined
+): Promise<boolean> {
+  if (!lane) return false;
+  if (!(await viewResumeLaneMatches(encoder.resumePointAt(lane.revision), lane))) return false;
+  return encoder.rewind(lane.revision);
 }
 
 interface AdoptedRelayViews {
@@ -91,11 +138,17 @@ export async function registerAndSynchronizeRelayViews(
   if (!current()) throw new Error(VIEW_REPLACED);
   const ids = [...new Set(params[0] as string[])];
   const claim = readViewResumeRequest(params[2]);
-  // Taken exactly once: a failed recovery leaves nothing a retry could adopt.
-  const parked = claim?.token && takeParkedViews ? takeParkedViews(claim.token) : null;
   const roster = readRosterClaim(params[3]);
   state.rosterStamp = roster !== null;
+  // Live publication stops before any lane is handed over.
   state.syncing = true;
+  // This leg's own token: a resync on a live connection (a wake, a gap) asks
+  // only for what the phone missed, against the encoders still feeding it.
+  // Any other token names a departed leg's lanes, taken exactly once: a
+  // failed recovery leaves nothing a retry could adopt.
+  let parked: ParkedRelayViews | null = null;
+  if (claim?.token && claim.token === state.viewResumeToken) parked = detachRelayViews(state);
+  else if (claim?.token && takeParkedViews) parked = takeParkedViews(claim.token);
   state.visibleSessionIds = new Set(ids);
   try {
     await (host.setVisibleSessionsForSource
@@ -132,30 +185,20 @@ async function adoptParkedViews(state: RelayViewSyncState, resume: RelayViewResu
   ) {
     return adopted;
   }
-  if (
-    parked.stateEncoder &&
-    state.stateLane?.pristine() &&
-    (await viewResumeLaneMatches(parked.stateEncoder.resumePoint(), claim.state))
-  ) {
+  if (parked.stateEncoder && state.stateLane?.pristine() && (await continueFrom(parked.stateEncoder, claim.state))) {
     adopted.state = parked.stateEncoder;
   }
   if (state.listDelta) {
-    if (
-      !state.sessionsEncoder.emitted &&
-      (await viewResumeLaneMatches(parked.sessionsEncoder.resumePoint(), claim.sessions))
-    ) {
+    if (!state.sessionsEncoder.emitted && (await continueFrom(parked.sessionsEncoder, claim.sessions))) {
       adopted.sessions = parked.sessionsEncoder;
     }
-    if (
-      !state.agentPoolEncoder.emitted &&
-      (await viewResumeLaneMatches(parked.agentPoolEncoder.resumePoint(), claim.agentPool))
-    ) {
+    if (!state.agentPoolEncoder.emitted && (await continueFrom(parked.agentPoolEncoder, claim.agentPool))) {
       adopted.agentPool = parked.agentPoolEncoder;
     }
   }
   for (const [sessionId, encoder] of parked.sessionStateEncoders) {
     if (!state.visibleSessionIds.has(sessionId) || state.sessionStateEncoders.get(sessionId)?.emitted) continue;
-    if (await viewResumeLaneMatches(encoder.resumePoint(), claim.sessionStates.get(sessionId))) {
+    if (await continueFrom(encoder, claim.sessionStates.get(sessionId))) {
       adopted.sessionStates.set(sessionId, encoder);
     }
   }
@@ -221,7 +264,12 @@ export async function synchronizeRelayViews(
             historyPatch: state.promptHistoryPatch === true,
           });
         state.sessionStateEncoders.set(update.sessionId, encoder);
-        const wire = encoder.encode(remoteTranscriptSnapshot(update.snapshot));
+        const wire = encoder.encode(
+          remoteTranscriptSnapshot(
+            update.snapshot,
+            snapshot.sessions.find((row) => row.id === update.sessionId)?.cwd ?? ''
+          )
+        );
         if (!resumed) {
           writes.push(sendBaseline({ event: 'sessionState', payload: { ...update, wire, snapshot: undefined } }));
           continue;

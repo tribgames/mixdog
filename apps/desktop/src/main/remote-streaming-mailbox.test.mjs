@@ -15,7 +15,10 @@ test('the desktop and daemon partial-append suffix checks agree on every input',
     [line, { ...line, from: 4, text: 'abcde' }],
     [line, { ...line, id: 'b', text: 'abcde' }],
     [line, { ...line, tail: { id: 'a' }, text: 'abcde' }],
-    [{ ...line, text: '' }, { ...line, text: 'x' }],
+    [
+      { ...line, text: '' },
+      { ...line, text: 'x' },
+    ],
     [line, { id: 'a', from: 3, text: 7 }],
     [null, line],
     [line, undefined],
@@ -60,7 +63,7 @@ const update = (text, fields = {}) => ({
   snapshot: { busy: true, items, streamingTail: { id: 'tail', kind: 'assistant', text }, ...fields },
 });
 
-test('a text burst sends one latest snapshot within 16ms, with every character preserved', () => {
+test('a text burst sends one latest snapshot per batch window, with every character preserved', () => {
   const time = clock();
   const frames = [];
   let mailbox;
@@ -205,8 +208,10 @@ test('batching reduces real compact packet bytes while preserving decoder state'
     mailbox.publish(update(text));
     time.advance(4);
   }
-  time.advance(16);
+  time.advance(REMOTE_STREAM_BATCH_MS);
   assert.equal(received.streamingTail.text, text);
-  assert.equal(packets, 26); // initial state + 25 text groups
+  // 100 updates over 400ms: the initial state plus one packet per 90ms window.
+  assert.equal(REMOTE_STREAM_BATCH_MS, 90);
+  assert.equal(packets, 6);
   assert.ok(bytes < 5000, `unexpected burst cost: ${bytes}`);
 });

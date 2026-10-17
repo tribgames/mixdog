@@ -1,3 +1,5 @@
+import { DESKTOP_OFFLINE_CLOSE } from '../../../relay/lib/relay-close-codes.mjs';
+
 type RemoteConnectionState = 'connecting' | 'syncing' | 'connected' | 'reconnecting';
 
 /** Dispatched on window once the remote shim (re)connects and has synced. */
@@ -8,6 +10,11 @@ const REMOTE_CONNECTION_INTERRUPTED_CODE = 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED
 /** Manual retry from the connection chip. The shim reconnects on it exactly as
  *  it does on a foreground wake, so a user never has to wait out the backoff. */
 export const REMOTE_WAKE_EVENT = 'mixdog:remote-wake';
+
+/** The relay's close for a paired browser whose PC has no live leg — at
+ *  connect, or after a parked browser outlived the PC's absence. Transient:
+ *  it never touches the stored pairing (remote-pairing-recovery.ts). */
+export const REMOTE_DESKTOP_OFFLINE_CLOSE = DESKTOP_OFFLINE_CLOSE;
 
 type RemoteConnectionPhase =
   | 'approval'
@@ -97,6 +104,8 @@ export function setRemoteConnectionPhase(phase: RemoteConnectionPhase): void {
   if (data.mixdogRemotePhase === phase) return;
   markRemoteConnectionTimeline(`phase=${phase}`);
   data.mixdogRemotePhase = phase;
+  // Synchronizing with the PC is proof it answered.
+  if (phase === 'sync' || phase === 'connected') delete data.mixdogRemoteDesktop;
   window.dispatchEvent(new window.Event(REMOTE_CONNECTION_STATE_EVENT));
 }
 
@@ -115,6 +124,11 @@ export function reportRemoteConnectionIssue(issue: RemoteConnectionIssue, error?
   const detail = diagnosticDetail(error);
   markRemoteConnectionTimeline(`issue=${issue}${Number.isInteger(code) ? `:${code}` : ''}`);
   const data = document.documentElement.dataset;
+  // The latest failure is the one that names the cause: only the relay's own
+  // "PC offline" close says the PC is unreachable, and any other failure after
+  // it means that is no longer known.
+  if (issue === 'websocket-closed' && code === REMOTE_DESKTOP_OFFLINE_CLOSE) data.mixdogRemoteDesktop = 'offline';
+  else delete data.mixdogRemoteDesktop;
   data.mixdogRemoteError = [
     data.mixdogRemotePhase || 'approval',
     issue,
@@ -154,6 +168,7 @@ export function setRemoteConnectionState(state: RemoteConnectionState): void {
   if (currentRemoteConnectionState() === state) return;
   markRemoteConnectionTimeline(`state=${state}`);
   document.documentElement.dataset.mixdogRemoteConnection = state;
+  if (state === 'connected') delete document.documentElement.dataset.mixdogRemoteDesktop;
   if (state === 'connected' && document.documentElement.dataset.mixdogRemotePhase) {
     document.documentElement.dataset.mixdogRemotePhase = 'connected';
     delete document.documentElement.dataset.mixdogRemoteError;
@@ -167,6 +182,7 @@ export function clearRemoteConnectionState(): void {
   delete document.documentElement.dataset.mixdogRemoteConnection;
   delete document.documentElement.dataset.mixdogRemotePhase;
   delete document.documentElement.dataset.mixdogRemoteError;
+  delete document.documentElement.dataset.mixdogRemoteDesktop;
   window.dispatchEvent(new window.Event(REMOTE_CONNECTION_STATE_EVENT));
 }
 
@@ -176,4 +192,31 @@ export function subscribeRemoteConnectionState(listener: () => void): () => void
   const target = window;
   target.addEventListener(REMOTE_CONNECTION_STATE_EVENT, listener);
   return () => target.removeEventListener(REMOTE_CONNECTION_STATE_EVENT, listener);
+}
+
+/** What the disconnect overlay says, in priority order: this device has no
+ *  network, the relay said the PC is not connected, the link is up and the
+ *  view is being synchronized, or the link itself is being restored. */
+export type RemoteConnectionLabel = 'no-internet' | 'pc-offline' | 'updating' | 'reconnecting';
+
+export function currentRemoteConnectionLabel(): RemoteConnectionLabel {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'no-internet';
+  if (typeof document !== 'undefined' && document.documentElement.dataset.mixdogRemoteDesktop === 'offline') {
+    return 'pc-offline';
+  }
+  return currentRemoteConnectionState() === 'syncing' ? 'updating' : 'reconnecting';
+}
+
+/** Connection state changes plus this device's own network changes. */
+export function subscribeRemoteConnectionLabel(listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const target = window;
+  const unsubscribe = subscribeRemoteConnectionState(listener);
+  target.addEventListener('online', listener);
+  target.addEventListener('offline', listener);
+  return () => {
+    unsubscribe();
+    target.removeEventListener('online', listener);
+    target.removeEventListener('offline', listener);
+  };
 }

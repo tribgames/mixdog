@@ -8,6 +8,7 @@ import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
 import { TERMINAL_SIZE_OWNER_EVENT, type TerminalSizeOwnerChange } from '../shared/terminal-size-owner';
+import { TERMINAL_ACTIVITY_EVENT } from '../shared/terminal-activity';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT, REMOTE_BROWSER_OPEN_EVENT } from '../shared/remote-browser';
 import {
   type DesktopVisualizeEvent,
@@ -94,6 +95,9 @@ export function createRelayPushLanes(deps: RelayPushLaneDeps): { dispose(): void
           false,
           (state) => state !== ownerState && readsTerminal(state)
         );
+      } else if (name === TERMINAL_ACTIVITY_EVENT) {
+        // Tab dots: a lost frame would leave a stale dot, so never droppable.
+        deps.broadcastEncrypted({ event: 'termActivity', payload: value }, false, readsTerminal);
       } else if (name === VISUALIZE_REMOTE_DESKTOP_EVENT) {
         // The agent's visualize tabs (already path-free). Never droppable: a
         // lost frame leaves a stale tab list or a missed reveal behind.

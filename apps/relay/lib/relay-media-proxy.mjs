@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 
 import { parseMediaRequest } from './media-http.mjs';
 import { desktopLegOpen, endText, rejectUnauthorizedText, requestUrl, upstreamStatus } from './relay-http.mjs';
-import { parseCookieToken } from './static-http.mjs';
+import { requestCookieToken } from './static-http.mjs';
 
 // A desktop that goes quiet mid-clip must not pin an open response forever:
 // the phone retries the range instead of watching a socket that never ends.
@@ -59,7 +59,7 @@ export function handleMediaRequest(store, liveDesktops, unauthorizedLimiter, req
     endText(response, 400, 'Bad request.');
     return;
   }
-  const token = url.searchParams.get('token') || parseCookieToken(request.headers.cookie);
+  const token = url.searchParams.get('token') || requestCookieToken(request);
   const deviceId = token ? store.deviceIdForClientToken(token) : null;
   if (!deviceId) {
     rejectUnauthorizedText(unauthorizedLimiter, request, response);

@@ -20,10 +20,15 @@ export const installRemoteSync = (ctx: RemoteShimContext): void => {
   const sessionSetKey = (sessionIds: readonly string[]): string => [...new Set(sessionIds)].sort().join('\0');
 
   // Delta-lane resumption (shared/remote-view-resume.ts). The desktop issues a
-  // token with each completed view sync; it stays valid only while every
-  // decoder holds exactly what that desktop's encoders sent. A close carries
-  // it (and the decoders) over to the next connection's first sync; any gap,
-  // resync or reset clears it, and the epoch voids a sync already in flight.
+  // token with each completed view sync, naming the encoders that feed this
+  // browser's decoders. Every sync claims, per lane, the revision and content
+  // digest the decoder holds — a decoder that rejected a patch still holds
+  // exactly its last good revision — so the desktop sends only what was
+  // missed: nothing, a delta from a revision it retains, or (unknown or
+  // different content) a full baseline. A close carries the token over to
+  // the next connection's first sync; on a live connection the same token
+  // continues that leg's own lanes. Only a reset clears it, and the epoch
+  // voids a sync already in flight.
   const invalidateViewResume = (): void => {
     ctx.viewResumeToken = null;
     ctx.carriedResumeToken = null;
@@ -34,20 +39,21 @@ export const installRemoteSync = (ctx: RemoteShimContext): void => {
       setRemoteConnectionPhase('sync');
       const sessionIds = viewSyncSessionIds();
       ctx.requestedViewSyncKey = sessionSetKey(sessionIds);
-      const resumeToken = ctx.carriedResumeToken;
-      ctx.carriedResumeToken = null;
-      ctx.viewResumeToken = null;
+      // Kept until a grant replaces it: a connection that drops before its
+      // sync completes still carries it to the next one.
+      const resumeToken = ctx.carriedResumeToken ?? ctx.viewResumeToken;
       const epoch = ctx.deltaEpoch;
-      // Captured synchronously: a frame landing while the digests are computed
-      // replaces decoder state instead of mutating what was captured.
+      // Captured synchronously and remembered by each decoder: frames already
+      // in flight may advance it, and the desktop's answer then builds on
+      // exactly the claimed state.
       const points = resumeToken
         ? {
-            state: ctx.stateDecoder.resumePoint(),
-            sessions: ctx.sessionsDecoder.resumePoint(),
-            agentPool: ctx.agentPoolDecoder.resumePoint(),
+            state: ctx.stateDecoder.claim(),
+            sessions: ctx.sessionsDecoder.claim(),
+            agentPool: ctx.agentPoolDecoder.claim(),
             sessionStates: sessionIds.map((sessionId): [string, ViewResumePoint | null] => [
               sessionId,
-              ctx.sessionStateDecoders.get(sessionId)?.resumePoint() ?? null,
+              ctx.sessionStateDecoders.get(sessionId)?.claim() ?? null,
             ]),
           }
         : null;
@@ -59,7 +65,10 @@ export const installRemoteSync = (ctx: RemoteShimContext): void => {
       try {
         const result = await ctx.invoke('synchronizeViews', [sessionIds, retained.offer, resume, roster]);
         ctx.restoredVisibleSessionIds = [];
-        if (epoch === ctx.deltaEpoch) ctx.viewResumeToken = readViewResumeGrant(result);
+        if (epoch === ctx.deltaEpoch) {
+          ctx.carriedResumeToken = null;
+          ctx.viewResumeToken = readViewResumeGrant(result);
+        }
         // A resumed sync may resend no transcript: the phone already shows
         // it, so the wait ends at the receipt instead of going unreported.
         if (resumeToken) {
@@ -119,9 +128,10 @@ export const installRemoteSync = (ctx: RemoteShimContext): void => {
   // short debounce: a tab that flips visibility repeatedly must not pull a
   // full transcript per flip, while a real gap still recovers immediately.
   const requestResync = (): void => {
-    // A gap, a dropped frame or a wake that doubts the stream: this browser's
-    // decoders no longer vouch for what the desktop last sent.
-    invalidateViewResume();
+    // A gap, a dropped frame or a wake that doubts the stream. The decoders
+    // still vouch for what THEY hold (a rejected patch changes nothing), and
+    // the sync claims exactly that, so the token survives: the desktop
+    // answers with what was missed, or a baseline where it cannot.
     if (ctx.peerViewSync && ctx.connectionReady) {
       void viewSync.request().catch(() => undefined);
       return;

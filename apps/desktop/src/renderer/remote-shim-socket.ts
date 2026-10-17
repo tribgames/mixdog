@@ -19,6 +19,10 @@ import type { RemoteShimContext } from './remote-shim-state';
 import { publishMediaKey, revokeMediaKey } from './remote-media-lane';
 import { notifyMediaSessionChanged } from './remote-file-preview';
 
+/** Challenges a joining socket may answer again after its first one, before
+ *  it is ready: each is one PC leg replaced mid-handshake. */
+const MAX_HANDSHAKE_RESTARTS = 2;
+
 export function dropMediaSession(ctx: RemoteShimContext): void {
   if (ctx.mediaSid) {
     revokeMediaKey(ctx.mediaSid);
@@ -139,6 +143,11 @@ const openSocketAttempt = (
   let closed = false;
   let failureReported = false;
   let handshakeTimer: number | null = null;
+  // The first handshake on this socket, and how often a replaced PC leg made
+  // it start over before the socket ever became ready.
+  let handshakeStarted = false;
+  let handshakeRestarts = 0;
+  let handshakeGeneration = 0;
   const reportFailure = (issue: RemoteConnectionIssue, error?: unknown, code?: number): void => {
     failureReported = true;
     reportRemoteConnectionIssue(issue, error, code);
@@ -313,9 +322,17 @@ const openSocketAttempt = (
           const failure = remoteConnectionInterruptedError();
           for (const entry of [...ctx.pending.values()]) entry.reject(failure);
           ctx.pending.clear();
-        } else if (ctx.secureChannel) {
-          throw new Error('Duplicate relay encryption challenge.');
+        } else if (handshakeStarted) {
+          // The PC leg was replaced while this socket's first handshake was
+          // still running: the relay kept the socket and the new leg sent
+          // its own challenge. Answer it on the same socket — a bounded
+          // number of times, so a relay that loops challenges cannot keep a
+          // socket that never becomes ready.
+          handshakeRestarts += 1;
+          if (handshakeRestarts > MAX_HANDSHAKE_RESTARTS) throw new Error('Duplicate relay encryption challenge.');
         }
+        handshakeStarted = true;
+        const generation = ++handshakeGeneration;
         ctx.secureChannel = null;
         ctx.relayBinaryFrames = clear.binaryFrames === 1;
         // Restated by every challenge: a reconnect may reach another host.
@@ -341,7 +358,8 @@ const openSocketAttempt = (
         setRemoteConnectionPhase('encryption');
         handshakeTimer = window.setTimeout(expireHandshake, 10_000);
         const handshake = await createRelayE2EEClientHandshake(ctx.e2eePairing, clear);
-        if (closed) return;
+        // A newer challenge arrived while this one was being answered.
+        if (closed || generation !== handshakeGeneration) return;
         ctx.secureChannel = handshake.channel;
         // The worker decrypts media with this session's key; it never leaves
         // this browser. Only a host that advertised the lane derived one.

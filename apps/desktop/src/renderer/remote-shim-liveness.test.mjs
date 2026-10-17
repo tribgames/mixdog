@@ -38,6 +38,61 @@ test('a wake while the page is still frozen waits for resume before dialing', ()
   assert.equal(ctx.backgroundSuspended, false);
 });
 
+test('reconnect delays are jittered inside [step, next step] and keep the 500ms floor and 10s cap', () => {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+  const realSetTimeout = window.setTimeout;
+  const realRandom = Math.random;
+  const delays = [];
+  const ctx = {
+    socket: null,
+    openingSocket: null,
+    openingStartedAt: 0,
+    retryMs: 500,
+    reconnectTimer: null,
+    everConnected: true,
+    backgroundSuspended: false,
+    resyncOnWake: false,
+    connect: async () => null,
+    fire: () => {},
+  };
+  installRemoteLiveness(ctx);
+  window.setTimeout = (_fn, ms) => {
+    delays.push(ms);
+    return 1;
+  };
+  const draw = (random) => {
+    Math.random = () => random;
+    ctx.reconnectTimer = null;
+    ctx.scheduleReconnect();
+    return delays.at(-1);
+  };
+  try {
+    // First step: anywhere in [500, 1000], never the bare 500 every phone shares.
+    assert.equal(draw(0), 500);
+    ctx.retryMs = 500;
+    assert.equal(draw(1), 1000);
+    ctx.retryMs = 500;
+    assert.equal(draw(0.5), 750);
+    assert.equal(ctx.retryMs, 1000, 'the step still doubles');
+    // Near the cap the range is clamped to it, and at the cap it stays there.
+    ctx.retryMs = 8_000;
+    assert.equal(draw(1), 10_000);
+    assert.equal(ctx.retryMs, 10_000);
+    assert.equal(draw(1), 10_000);
+    assert.equal(draw(0), 10_000);
+    for (let index = 0; index < 50; index++) {
+      // Every step the backoff can reach: 500, 1000, … 8000, then the cap.
+      ctx.retryMs = Math.min(10_000, 500 * 2 ** (index % 6));
+      const delay = draw(realRandom());
+      assert.ok(delay >= 500 && delay <= 10_000, `delay ${delay} within bounds`);
+    }
+  } finally {
+    window.setTimeout = realSetTimeout;
+    Math.random = realRandom;
+    delete document.visibilityState;
+  }
+});
+
 test('a wake without a freeze dials immediately', () => {
   let connects = 0;
   const ctx = {

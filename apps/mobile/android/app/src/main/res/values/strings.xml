@@ -4,4 +4,7 @@
     <string name="title_activity_main">Mixdog</string>
     <string name="package_name">io.mixdog.app</string>
     <string name="custom_url_scheme">io.mixdog.app</string>
+    <string name="download_cannot_save">This download cannot be saved from here.</string>
+    <string name="download_started">Downloading %1$s</string>
+    <string name="download_failed">The download could not be started.</string>
 </resources>

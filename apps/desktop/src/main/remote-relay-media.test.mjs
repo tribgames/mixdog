@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -26,7 +35,10 @@ const file = (name, size) => {
   for (let index = 0; index < size; index += 1) bytes[index] = (index * 31 + (index >> 8)) & 0xff;
   const path = join(dir, name);
   writeFileSync(path, bytes);
-  return { bytes, assetId: leaseMediaFile(path, 'video/mp4') };
+  return {
+    bytes,
+    assetId: leaseMediaFile(path, 'video/mp4', { within: dir, identity: statSync(path, { bigint: true }) }),
+  };
 };
 
 async function makeLane(options = {}) {
@@ -120,6 +132,69 @@ test('the last window stops at EOF and open-ended ranges are capped to one windo
   assert.equal(bigWindow.meta.start, 0);
   assert.equal(bigWindow.meta.end, MEDIA_WINDOW_MAX_BYTES - 1);
   assert.deepEqual(bigWindow.plaintext, big.bytes.subarray(0, MEDIA_WINDOW_MAX_BYTES));
+});
+
+test('a leased project file is re-authorized by where the opened file really is', async (t) => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'relay-media-lease-')));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const project = join(base, 'project');
+  const elsewhere = join(base, 'elsewhere');
+  mkdirSync(join(project, 'media'), { recursive: true });
+  mkdirSync(join(project, '.ssh'));
+  mkdirSync(elsewhere);
+  writeFileSync(join(project, 'media', 'clip.mp4'), 'project clip');
+  writeFileSync(join(project, '.ssh', 'clip.mp4'), 'private key');
+  writeFileSync(join(elsewhere, 'clip.mp4'), 'outside bytes');
+  const path = join(project, 'media', 'clip.mp4');
+  const lease = () =>
+    leaseMediaFile(path, 'video/mp4', { within: project, identity: statSync(path, { bigint: true }) });
+  const serve = async (assetId) => {
+    const { lane, sent } = await makeLane();
+    await lane.serve({ id: 'l', assetId, variant: 'original', method: 'GET', range: '', sid: SID, enc: ENC });
+    return sent[0].status;
+  };
+  assert.equal(await serve(lease()), 200);
+  // Before the fix the lane opened the leased path as it stood at serve
+  // time: a folder swapped for a link out of the project, or onto a secret
+  // folder, served whatever the link led to.
+  for (const target of [elsewhere, join(project, '.ssh')]) {
+    const assetId = lease();
+    rmSync(join(project, 'media'), { recursive: true, force: true });
+    symlinkSync(target, join(project, 'media'), 'junction');
+    assert.equal(await serve(assetId), 404, target);
+    rmSync(join(project, 'media'), { recursive: true, force: true });
+    mkdirSync(join(project, 'media'));
+    writeFileSync(path, 'project clip');
+  }
+  // Another file now at the leased path is not the authorized one.
+  const assetId = lease();
+  rmSync(path);
+  writeFileSync(path, 'replaced');
+  assert.equal(await serve(assetId), 404);
+});
+
+test('a gallery asset resolving to a secret file, by name or through a link, is never served', async (t) => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'relay-media-gallery-')));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  mkdirSync(join(base, 'gallery'));
+  mkdirSync(join(base, '.ssh'));
+  writeFileSync(join(base, 'gallery', 'shot.png'), 'gallery bytes');
+  writeFileSync(join(base, '.ssh', 'id_rsa'), 'private key');
+  writeFileSync(join(base, '.env'), 'TOKEN=1');
+  symlinkSync(join(base, '.ssh'), join(base, 'linked'), 'junction');
+  const serve = async (assetId, path) => {
+    const host = {
+      invokeCapability: async (name, [id]) =>
+        name === 'resolveMediaFile' && id === assetId ? { value: { path, mime: 'image/png' } } : null,
+    };
+    const { lane, sent } = await makeLane({ host });
+    await lane.serve({ id: 'g', assetId, variant: 'original', method: 'GET', range: '', sid: SID, enc: ENC });
+    return sent[0].status;
+  };
+  assert.equal(await serve('a0000000-0000-0000-0000-000000000001', join(base, 'gallery', 'shot.png')), 200);
+  assert.equal(await serve('a0000000-0000-0000-0000-000000000002', join(base, '.env')), 404);
+  assert.equal(await serve('a0000000-0000-0000-0000-000000000003', join(base, '.ssh', 'id_rsa')), 404);
+  assert.equal(await serve('a0000000-0000-0000-0000-000000000004', join(base, 'linked', 'id_rsa')), 404);
 });
 
 test('requests without a known session, or for unknown or unsupported things, are refused', async () => {

@@ -149,7 +149,10 @@ function fixture(t, { mediaLane = false } = {}) {
   const service = createFileDownloadService({ host, mediaLane, now: () => clock.value });
   t.after(() => service.revokeAll());
   const project = (relPath, sessionId = 's1') => ({ source: { kind: 'project', sessionId, relPath }, purpose: 'save' });
-  const link = (itemId, href, sessionId = 's1') => ({ source: { kind: 'link', sessionId, itemId, href }, purpose: 'share' });
+  const link = (itemId, href, sessionId = 's1') => ({
+    source: { kind: 'link', sessionId, itemId, href },
+    purpose: 'share',
+  });
   return { base, projectA, projectB, outside, transcripts, clock, host, service, project, link };
 }
 
@@ -231,6 +234,27 @@ test('assistant-linked files outside the project are downloadable by the link th
   assert.equal(await readAll(f.service, PHONE, transfer), 'linked bytes');
 });
 
+test('a reply link downloads whatever row id the device numbered the reply with', async (t) => {
+  const f = fixture(t);
+  // A phone's restored window and the PC's projection number one reply
+  // differently (`hist_<session>_5_1` vs `_6_1`): the reply still vouches.
+  const grant = await f.service.authorize(PHONE, f.link('hist_s1_5_1', slash(join(f.outside, 'linked.bin'))));
+  assert.equal(grant.name, 'linked.bin');
+  assert.equal((await f.service.authorize(PHONE, f.link('', 'sub/deep.txt:3'))).name, 'deep.txt');
+});
+
+test('a secret linked from a reply is refused as a secret, linked or not', async (t) => {
+  const f = fixture(t);
+  writeFileSync(join(f.projectA, '.env'), 'API_KEY=1');
+  f.transcripts.get('s1').items.push({ id: 'a9', kind: 'assistant', text: 'Keys live in `.env`.' });
+  await refusedAs(f.service.authorize(PHONE, f.link('a9', './.env')), 'sensitive');
+  await refusedAs(f.service.authorize(PHONE, f.link('a9', '.env')), 'sensitive');
+  // A secret nothing links, or one that is not there, is still refused by name.
+  await refusedAs(f.service.authorize(PHONE, f.link('a1', 'sub/.env.local')), 'sensitive');
+  const session = (path) => ({ source: { kind: 'session', sessionId: 's1', path }, purpose: 'save' });
+  await refusedAs(f.service.authorize(PHONE, session('.env')), 'sensitive');
+});
+
 test('forged provenance is refused: unlinked paths, prompts, tool output, code blocks, streaming rows, other sessions', async (t) => {
   const f = fixture(t);
   const secret = slash(join(f.outside, 'secret.txt'));
@@ -285,15 +309,16 @@ test("git's internal files are refused for project and linked downloads", async 
   writeFileSync(join(gitDir, 'index'), 'index');
   writeFileSync(join(commonDir, 'config'), 'config');
 
-  await refusedAs(f.service.authorize(PHONE, f.project('.git/config')), 'outside-project');
-  await refusedAs(f.service.authorize(PHONE, f.project('nested/.GIT/HEAD')), 'outside-project');
-  await refusedAs(f.service.authorize(PHONE, f.project('.git', 's2')), 'outside-project');
+  // A `.git` folder or pointer file is a secret folder of the shared deny list.
+  await refusedAs(f.service.authorize(PHONE, f.project('.git/config')), 'sensitive');
+  await refusedAs(f.service.authorize(PHONE, f.project('nested/.GIT/HEAD')), 'sensitive');
+  await refusedAs(f.service.authorize(PHONE, f.project('.git', 's2')), 'sensitive');
   f.transcripts.get('s1').items.push({
     id: 'g1',
     kind: 'assistant',
     text: `See ${slash(join(f.projectA, '.git', 'config'))}.`,
   });
-  await refusedAs(f.service.authorize(PHONE, f.link('g1', slash(join(f.projectA, '.git', 'config')))), 'outside-project');
+  await refusedAs(f.service.authorize(PHONE, f.link('g1', slash(join(f.projectA, '.git', 'config')))), 'sensitive');
   f.transcripts.get('s2').items.push({
     id: 'g2',
     kind: 'assistant',
@@ -329,7 +354,9 @@ test('a git dir pointed to from a nested worktree, or from above a session folde
   f.host.listSessions = async () => [...listed, { id: 's3', cwd, projectPath: null, classification: 'task' }];
   f.transcripts.set('s3', { items: [{ id: 'c1', kind: 'assistant', text: `See ${slash(join(gitDir, 'config'))}.` }] });
   await refusedAs(f.service.authorize(PHONE, f.link('c1', slash(join(gitDir, 'config')), 's3')), 'outside-project');
-  f.transcripts.get('s3').items.push({ id: 'c2', kind: 'assistant', text: `See ${slash(join(f.outside, 'linked.bin'))}.` });
+  f.transcripts
+    .get('s3')
+    .items.push({ id: 'c2', kind: 'assistant', text: `See ${slash(join(f.outside, 'linked.bin'))}.` });
   assert.ok(await f.service.authorize(PHONE, f.link('c2', slash(join(f.outside, 'linked.bin')), 's3')));
 });
 
@@ -496,10 +523,7 @@ test('a file that changes on disk fails the transfer as changed', async (t) => {
   await refusedAs(f.service.begin(PHONE, before.grantId), 'changed');
 
   const during = await f.service.begin(PHONE, (await f.service.authorize(PHONE, f.project('out.bin'))).grantId);
-  await refusedAs(
-    f.service.readRange(PHONE, during.transferId, 0, 4, 'A'.repeat(43)),
-    'changed'
-  );
+  await refusedAs(f.service.readRange(PHONE, during.transferId, 0, 4, 'A'.repeat(43)), 'changed');
   appendFileSync(file, '+');
   await refusedAs(f.service.readRange(PHONE, during.transferId, 0, 4, during.version), 'changed');
   await refusedAs(f.service.readRange(PHONE, during.transferId, 0, 4, during.version), 'expired');

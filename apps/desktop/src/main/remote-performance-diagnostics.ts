@@ -1,6 +1,70 @@
+import {
+  bytesLabel,
+  createLoopDelayProbe,
+  type LoopDelayProbe,
+  SOCKET_REPORT_INTERVAL_MS,
+} from '../../../relay/lib/relay-diagnostics.mjs';
 import { formatRemoteByteReport, type RemoteByteReport } from '../shared/remote-performance';
 
 type RemotePerformanceInfoWriter = (message: string) => void;
+
+/**
+ * A periodic line with each relay socket's `bufferedAmount` (bytes the socket
+ * accepted but the network has not taken yet) next to the event-loop delay.
+ * The byte meter says how much was sent; this says whether the wire or the
+ * process kept up. It runs only while a phone is attached: `sync()` is called
+ * wherever the client count can change, and the timer exists only between a
+ * first client and the last one leaving.
+ */
+export function createRemoteSocketDiagnostics({
+  sample,
+  intervalMs = SOCKET_REPORT_INTERVAL_MS,
+  loopDelay = createLoopDelayProbe(),
+  write = writeRemotePerformanceInfo,
+  setTimer = setInterval,
+  clearTimer = clearInterval,
+}: {
+  sample(): { clients: number; sockets: ReadonlyArray<{ name: string; bufferedAmount: number }> };
+  intervalMs?: number;
+  loopDelay?: LoopDelayProbe;
+  write?: RemotePerformanceInfoWriter;
+  setTimer?: (tick: () => void, ms: number) => ReturnType<typeof setInterval>;
+  clearTimer?: (timer: ReturnType<typeof setInterval>) => void;
+}): { sync(): void; stop(): void } {
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const stop = (): void => {
+    if (!timer) return;
+    clearTimer(timer);
+    timer = null;
+    loopDelay.stop();
+  };
+  const tick = (): void => {
+    const { clients, sockets } = sample();
+    if (clients === 0) {
+      stop();
+      return;
+    }
+    const delay = loopDelay.take();
+    write(
+      `[mixdog-remote-sockets] ${Math.round(intervalMs / 1000)}s clients=${clients}` +
+        ` buffered=${sockets.map((socket) => `${socket.name}:${bytesLabel(socket.bufferedAmount)}`).join(',')}` +
+        ` loop-p50=${delay.p50.toFixed(1)}ms loop-p99=${delay.p99.toFixed(1)}ms loop-max=${delay.max.toFixed(1)}ms`
+    );
+  };
+  return {
+    sync(): void {
+      if (sample().clients === 0) {
+        stop();
+        return;
+      }
+      if (timer) return;
+      loopDelay.start();
+      timer = setTimer(tick, intervalMs);
+      timer.unref?.();
+    },
+    stop,
+  };
+}
 
 function writeRemotePerformanceInfo(message: string): void {
   console.info(message);

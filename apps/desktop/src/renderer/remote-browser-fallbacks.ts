@@ -3,7 +3,19 @@
 // exists. Every remaining DesktopApi member forwards over the relay socket and
 // therefore stays with the shim's connection.
 import type { DesktopApi, DesktopUpdaterState } from '../shared/contract';
+import { saveUrlOnDevice } from './file-download-transfer';
+import { openImageLightbox } from './image-lightbox-host';
 import { normalizeRemoteExternalUrl } from './remote-pairing-recovery';
+
+/** The last path segment of a URL, the name a saved link gets. */
+function linkFileName(url: string): string {
+  try {
+    const segment = new URL(url).pathname.split('/').filter(Boolean).at(-1) || '';
+    return decodeURIComponent(segment) || 'download';
+  } catch {
+    return 'download';
+  }
+}
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
 // Recoverable trash is an Electron API a host without remoteParity cannot
@@ -30,8 +42,6 @@ type RemoteBrowserFallbacks = Pick<
   | 'chooseWorkspace'
   | 'folderPathForFile'
   | 'rendererReady'
-  | 'revealFile'
-  | 'openFilePath'
   | 'openAttachmentImage'
   | 'saveFileAs'
   | 'getZoomFactor'
@@ -64,50 +74,24 @@ export const REMOTE_BROWSER_FALLBACKS: RemoteBrowserFallbacks = {
   // No perfLog: the Composer's keystroke paint sampler keys on its presence,
   // and a phone should not pay a double-rAF per keystroke to feed a no-op.
   rendererReady: () => {},
-  revealFile: () => Promise.resolve(),
-  openFilePath: () => Promise.resolve(),
-  // A browser tab owns no OS handler, so a blob tab is the closest
-  // equivalent. The data URL cannot be opened directly: Chrome blocks a
-  // top-level navigation to `data:`.
-  openAttachmentImage: (dataUrl) => {
-    try {
-      const value = String(dataUrl);
-      const separator = value.indexOf(',');
-      const type = /^data:([^;,]+)/.exec(value.slice(0, separator))?.[1] || 'image/png';
-      const binary = atob(value.slice(separator + 1));
-      const bytes = new Uint8Array(binary.length);
-      for (let index = 0; index < binary.length; index += 1) {
-        bytes[index] = binary.charCodeAt(index);
-      }
-      const url = URL.createObjectURL(new Blob([bytes], { type }));
-      window.open(url, '_blank', 'noopener');
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch {
-      /* popup blocked or a malformed preview */
-    }
-    return Promise.resolve();
+  // No `revealFile` / `openFilePath`: a device has no file manager or default
+  // app of the PC's. Their absence is what hides "Show in Explorer" and sends
+  // "Open with default program" to the download path (openEditorFileExternally).
+  // A browser owns no OS image handler and a popup tab is blocked on phones:
+  // the app's own lightbox shows the picture in place.
+  openAttachmentImage: (dataUrl, name) => {
+    return openImageLightbox({ src: String(dataUrl), name: name || 'image' });
   },
   // No dialog of ours to show, and the host's would appear on another
-  // machine. A data URL downloads through an anchor; a cross-origin http(s)
-  // URL ignores `download` and would navigate the app, so it opens in a new
-  // tab and reports no confirmed save.
-  saveFileAs: (source, suggestedName) => {
-    if (/^data:/i.test(source)) {
-      const link = document.createElement('a');
-      link.href = source;
-      link.download = suggestedName || '';
-      link.rel = 'noopener';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      return Promise.resolve(true);
-    }
-    try {
-      window.open(source, '_blank', 'noopener');
-    } catch {
-      /* popup blocked */
-    }
-    return Promise.resolve(false);
+  // machine: the bytes are fetched and saved on this device (native save,
+  // share sheet or download link).
+  saveFileAs: async (source, suggestedName) => {
+    if (!/^(?:data|https?):/i.test(source)) throw new TypeError('url protocol is unsupported.');
+    // Fetched, then saved through this device's sink; the answer is the real
+    // outcome (a dismissed share sheet is not a save). A cross-origin URL
+    // that refuses CORS fails here instead of navigating the app away.
+    const result = await saveUrlOnDevice(source, suggestedName || linkFileName(source));
+    return result !== 'dismissed';
   },
   getZoomFactor: () => Promise.resolve(1),
   setZoomFactor: () => {

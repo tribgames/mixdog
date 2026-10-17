@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { request as httpRequest } from 'node:http';
+import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -56,6 +57,12 @@ import {
   sendStaticFile,
 } from './lib/static-http.mjs';
 import { decodeRelayBinaryFrame, encodeRelayBinaryFrame } from './lib/relay-binary-frame.mjs';
+import {
+  DESKTOP_HANDSHAKE_STALLED_CLOSE,
+  DESKTOP_HANDSHAKE_STALL_MS,
+  DESKTOP_LIVENESS_PROBE_MS,
+  DESKTOP_OFFLINE_CLOSE,
+} from './lib/relay-legs.mjs';
 import { isRoutingId } from './lib/ids.mjs';
 
 // Desktops and hook workers mint UUID device ids; fixtures use real random
@@ -947,10 +954,11 @@ test('phone /ws accepts only per-browser credentials; others close 4005', async 
     // the phone must drop its pairing and rescan.
     assert.equal(await closeOf('fedcba9876543210'), 4005);
     assert.equal(await closeOf('0123456789abcdef0123456789abcdef'), 4005);
-    // A real per-browser credential with the desktop offline is retryable —
-    // plain HTTP rejection, never the 4005 rescan close.
+    // A real per-browser credential with the desktop offline is retryable: the
+    // relay's own "PC offline" close, never the 4005 rescan close and never
+    // a bare refused upgrade the phone cannot tell from a network failure.
     const registered = relay.store.registerClient(DEVICE_ID, 'bbbbbbbb', {});
-    await assert.rejects(closeOf(registered.token), /401/);
+    assert.equal(await closeOf(registered.token), DESKTOP_OFFLINE_CLOSE);
   } finally {
     await relay.close();
   }
@@ -1015,6 +1023,215 @@ test('phone websocket survives a desktop leg redial and is re-announced', async 
     assert.equal(phoneClosed, false);
   } finally {
     terminateAll(sockets);
+    await relay.close();
+  }
+});
+
+test('a desktop leg that misses a joining phone handshake turn is closed so the PC redials', async () => {
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-handshake-stall-'));
+  const renderer = join(dir, 'renderer');
+  mkdirSync(renderer);
+  writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
+  const STALL_MS = 150;
+  const PROBE_MS = 100;
+  const relay = await startRelay({
+    port: 0,
+    dataDir: join(dir, 'data'),
+    rendererDir: renderer,
+    handshakeStallMs: STALL_MS,
+    livenessProbeMs: PROBE_MS,
+  });
+  const sockets = [];
+  const open = async (url, options) => {
+    const ws = await openWebSocket(url, options);
+    sockets.push(ws);
+    return ws;
+  };
+  const closeCode = (ws) => new Promise((resolveClose) => ws.once('close', (code) => resolveClose(code)));
+  const clientOpen = (ws) =>
+    new Promise((resolveOpen) => {
+      const onMessage = (raw) => {
+        const value = jsonOf(raw);
+        if (value?.type !== 'client-open') return;
+        ws.off('message', onMessage);
+        resolveOpen(value.clientId);
+      };
+      ws.on('message', onMessage);
+    });
+  try {
+    relay.store.authenticate(DEVICE_ID, '0123456789abcdef');
+    const registered = relay.store.registerClient(DEVICE_ID, 'bbbbbbbb', {});
+    const desktopUrl = `ws://127.0.0.1:${relay.port}/desktop`;
+    const desktopOptions = { headers: { Authorization: DESKTOP_AUTH } };
+    const phoneUrl = `ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`;
+    const phoneOptions = { headers: { Origin: `http://127.0.0.1:${relay.port}` } };
+
+    // A desktop that answers both of its turns keeps its leg.
+    const healthy = await open(desktopUrl, desktopOptions);
+    let healthyClosed = false;
+    healthy.once('close', () => {
+      healthyClosed = true;
+    });
+    const firstOpen = clientOpen(healthy);
+    const phone = await open(phoneUrl, phoneOptions);
+    const clientId = await firstOpen;
+    const phoneHeard = new Promise((resolveHeard) => phone.once('message', resolveHeard));
+    healthy.send(JSON.stringify({ type: 'frame', clientId, data: '{"challenge":"c"}' }));
+    await phoneHeard;
+    const helloArrived = new Promise((resolveHello) =>
+      healthy.on('message', (raw) => {
+        if (jsonOf(raw)?.type === 'frame') resolveHello();
+      })
+    );
+    phone.send('{"hello":1}');
+    await helloArrived;
+    healthy.send(JSON.stringify({ type: 'frame', clientId, data: '{"ready":1}' }));
+    await delay(STALL_MS * 3);
+    assert.equal(healthyClosed, false, 'an answered handshake leaves the leg alone');
+
+    let phoneClosed = false;
+    phone.once('close', () => {
+      phoneClosed = true;
+    });
+    // A replacement leg that is slow with this phone's challenge but still
+    // answers pings is a live PC: one late handshake never costs its leg.
+    const slow = await open(desktopUrl, desktopOptions);
+    let slowCode = null;
+    slow.once('close', (code) => {
+      slowCode = code;
+    });
+    await delay(STALL_MS + PROBE_MS + 150);
+    assert.equal(slowCode, null, 'a slow-but-live PC keeps its shared leg');
+
+    // A leg that neither takes its turn nor answers the probe is dead: the
+    // relay closes the leg, never the phone. (autoPong off: a peer that has
+    // stopped reading.)
+    const deadOptions = { ...desktopOptions, autoPong: false };
+    const silent = await open(desktopUrl, deadOptions);
+    assert.equal(await closeCode(silent), DESKTOP_HANDSHAKE_STALLED_CLOSE);
+
+    // A leg that sends the challenge but never answers the hello is cut too.
+    const halfway = await open(desktopUrl, deadOptions);
+    const halfwayClosed = closeCode(halfway);
+    await delay(20);
+    halfway.send(JSON.stringify({ type: 'frame', clientId, data: '{"challenge":"d"}' }));
+    await delay(STALL_MS / 3);
+    phone.send('{"hello":2}');
+    const started = Date.now();
+    assert.equal(await halfwayClosed, DESKTOP_HANDSHAKE_STALLED_CLOSE);
+    assert.ok(Date.now() - started >= STALL_MS / 2, 'the clock for the answer starts at the hello');
+    assert.equal(phoneClosed, false, 'the waiting phone keeps its socket through the redial');
+  } finally {
+    terminateAll(sockets);
+    await relay.close();
+  }
+});
+
+test('the PC-offline close is its own code and never a pairing-revoking one', () => {
+  assert.equal(DESKTOP_OFFLINE_CLOSE, 4002);
+  assert.ok(![4003, 4004, 4005].includes(DESKTOP_OFFLINE_CLOSE));
+  assert.ok(![4000, 4002, 4003, 4004, 4005, 4008, 4009].includes(DESKTOP_HANDSHAKE_STALLED_CLOSE));
+  // Both ends give the handshake 10s; a missed turn plus the probe uses 6s of
+  // it and leaves 4s for the redial and a fresh challenge.
+  assert.equal(DESKTOP_HANDSHAKE_STALL_MS + DESKTOP_LIVENESS_PROBE_MS, 6_000);
+});
+
+test('PC-offline answers are rate-limited and their closing sockets are bounded', async () => {
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-offline-limits-'));
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data') });
+  try {
+    relay.store.authenticate(DEVICE_ID, '0123456789abcdef');
+    const registered = relay.store.registerClient(DEVICE_ID, 'bbbbbbbb', {});
+    const origin = `http://127.0.0.1:${relay.port}`;
+    const outcome = () =>
+      new Promise((resolveOutcome) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
+          headers: { Origin: origin },
+        });
+        ws.once('close', (code) => resolveOutcome(code));
+        ws.once('unexpected-response', (_request, response) => {
+          resolveOutcome(response.statusCode);
+          ws.terminate();
+        });
+        ws.once('error', () => {});
+      });
+    const results = [];
+    for (let index = 0; index < MAX_PHONE_CONNECTIONS_PER_MINUTE + 1; index++) results.push(await outcome());
+    assert.equal(results.filter((code) => code === DESKTOP_OFFLINE_CLOSE).length, MAX_PHONE_CONNECTIONS_PER_MINUTE);
+    assert.equal(results.at(-1), 429, 'the offline answer is charged to the per-device connect limit');
+  } finally {
+    await relay.close();
+  }
+
+  // Peers that never acknowledge the close hold a slot each, up to the
+  // per-device phone capacity; past it the relay refuses the upgrade.
+  const second = await startRelay({ port: 0, dataDir: join(dir, 'data-2') });
+  const raw = [];
+  try {
+    second.store.authenticate(DEVICE_ID, '0123456789abcdef');
+    const registered = second.store.registerClient(DEVICE_ID, 'bbbbbbbb', {});
+    const host = `127.0.0.1:${second.port}`;
+    const statusOf = () =>
+      new Promise((resolveStatus, rejectStatus) => {
+        const socket = createConnection(second.port, '127.0.0.1');
+        raw.push(socket);
+        socket.once('error', rejectStatus);
+        socket.once('data', (chunk) => resolveStatus(Number(String(chunk).split(' ')[1])));
+        socket.write(
+          `GET /ws?token=${registered.token} HTTP/1.1\r\nHost: ${host}\r\nOrigin: http://${host}\r\n` +
+            'Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n' +
+            `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}\r\n\r\n`
+        );
+      });
+    const statuses = [];
+    for (let index = 0; index < MAX_PHONE_CLIENTS_PER_DEVICE + 1; index++) statuses.push(await statusOf());
+    assert.equal(statuses.filter((status) => status === 101).length, MAX_PHONE_CLIENTS_PER_DEVICE);
+    assert.equal(statuses.at(-1), 429, 'outstanding closing sockets are bounded');
+  } finally {
+    for (const socket of raw) socket.destroy();
+    await second.close();
+  }
+});
+
+test('a malformed frame on an answered-and-closing socket cannot crash the relay, and frees its slot', async () => {
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-closing-error-'));
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data') });
+  const raw = [];
+  try {
+    relay.store.authenticate(DEVICE_ID, '0123456789abcdef');
+    const registered = relay.store.registerClient(DEVICE_ID, 'bbbbbbbb', {});
+    const host = `127.0.0.1:${relay.port}`;
+    // Upgrade, never acknowledge the close, and answer with what the relay
+    // must reject: a client frame without a mask (WS_ERR_EXPECTED_MASK).
+    const misbehave = (token) =>
+      new Promise((resolveStatus, rejectStatus) => {
+        const socket = createConnection(relay.port, '127.0.0.1');
+        raw.push(socket);
+        socket.on('error', () => {});
+        socket.once('data', (chunk) => {
+          const status = Number(String(chunk).split(' ')[1]);
+          if (status === 101) socket.write(Buffer.from([0x81, 0x01, 0x41]));
+          resolveStatus(status);
+        });
+        socket.once('close', () => rejectStatus(new Error('closed before answering')));
+        socket.write(
+          `GET /ws?token=${token} HTTP/1.1\r\nHost: ${host}\r\nOrigin: http://${host}\r\n` +
+            'Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n' +
+            `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}\r\n\r\n`
+        );
+      });
+    // Fill every PC-offline slot with a peer that then sends garbage.
+    for (let index = 0; index < MAX_PHONE_CLIENTS_PER_DEVICE; index++) {
+      assert.equal(await misbehave(registered.token), 101);
+    }
+    // The unpaired (4005) answer is the same kind of socket.
+    assert.equal(await misbehave('f'.repeat(32)), 101);
+    await delay(200);
+    // Still serving, and the misbehaving sockets gave their slots back.
+    assert.equal((await fetch(`http://${host}/readyz`)).status > 0, true);
+    assert.equal(await misbehave(registered.token), 101, 'a cut socket no longer holds a PC-offline slot');
+  } finally {
+    for (const socket of raw) socket.destroy();
     await relay.close();
   }
 });

@@ -11,6 +11,7 @@ import { createSnapshotDeltaDecoder, markCompactWire } from './state-delta.ts';
 
 test('real encrypted clients recover independently and reads bypass a slow read without reordering writes', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mixdog-relay-recovery-'));
+  const projectDir = await mkdtemp(join(tmpdir(), 'mixdog-relay-recovery-project-'));
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   const connected = once(server, 'connection');
@@ -55,15 +56,18 @@ test('real encrypted clients recover independently and reads bypass a slow read 
       return true;
     },
     subscribeDesktopEvents: () => () => {},
-    readProjectTextFile: async () => {
-      readStarted.resolve();
-      return slow.promise;
-    },
+    // Remote file reads resolve the project root first to refuse secret files.
+    projectDirectory: async () => projectDir,
     addProject: async (path) => {
       writes.push(path);
       return path;
     },
-    invokeDesktopOperation: async () => null,
+    // Remote reads go through the handle-authorized operation.
+    invokeDesktopOperation: async (name) => {
+      if (name !== 'readProjectTextFileAuthorized') return null;
+      readStarted.resolve();
+      return slow.promise;
+    },
   };
   const peers = new Map();
   const waitFor = (peer, match) =>
@@ -215,5 +219,6 @@ test('real encrypted clients recover independently and reads bypass a slow read 
     socket?.terminate();
     await new Promise((resolve) => server.close(resolve));
     await rm(dir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true });
   }
 });

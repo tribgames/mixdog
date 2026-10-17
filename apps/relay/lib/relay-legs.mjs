@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { decodeRelayBinaryFrame, encodeRelayBinaryFrame } from './relay-binary-frame.mjs';
+import { DESKTOP_HANDSHAKE_STALLED_CLOSE, DESKTOP_OFFLINE_CLOSE } from './relay-close-codes.mjs';
 import { failMediaPending, forwardMediaFrame } from './relay-media-proxy.mjs';
 import { cleanName } from './pair-codes.mjs';
 import {
@@ -38,6 +39,112 @@ function closeQuietly(socket, code, reason) {
   } catch {
     /* already gone */
   }
+}
+
+export { DESKTOP_HANDSHAKE_STALLED_CLOSE, DESKTOP_OFFLINE_CLOSE };
+
+/** A desktop leg can look open here while it no longer reads (a half-dead
+ *  path, a wedged process), and a phone joining is when that shows. Both ends
+ *  give the encrypted handshake 10s (the phone's encryption timer and the
+ *  desktop's E2EE_HANDSHAKE_TIMEOUT_MS). A missed turn — the challenge after
+ *  client-open, the ready after the hello — costs the desktop at most
+ *  DESKTOP_HANDSHAKE_STALL_MS + DESKTOP_LIVENESS_PROBE_MS = 6s of that budget
+ *  before its leg is closed. The remaining 4s are the redial: a new leg
+ *  replays client-open, and the fresh challenge re-arms the phone's timer on
+ *  the socket it already has, so the phone never sees the outage. */
+export const DESKTOP_HANDSHAKE_STALL_MS = 4_000;
+/** How long a desktop leg that went silent during a missed turn gets to answer
+ *  a ping before it is judged dead. */
+export const DESKTOP_LIVENESS_PROBE_MS = 2_000;
+/** The handshake timing of a desktop entry no desktop leg configured. */
+const DEFAULT_HANDSHAKE_TIMING = Object.freeze({
+  stallMs: DESKTOP_HANDSHAKE_STALL_MS,
+  probeMs: DESKTOP_LIVENESS_PROBE_MS,
+});
+
+/** A phone the relay still routes a handshake for: open, attached, and not
+ *  being rejected or closed. */
+function phoneLive(phone) {
+  return phone.attached !== false && !phone.closing && phone.readyState === phone.OPEN;
+}
+
+/** Anything the desktop leg says — a frame for any phone, a control frame or
+ *  a pong — proves the shared leg is read and answered. */
+function markDesktopHeard(socket) {
+  socket.heardAt = performance.now();
+}
+
+// Handshake turns, tracked per phone leg on the frames this relay routes (it
+// never reads them): 'challenge' and 'ready' are owed by the desktop, 'hello'
+// by the phone. Only a turn the DESKTOP owes runs the clock, so a slow phone
+// is never blamed on its PC — and a missed turn alone never closes the shared
+// leg: one phone's handshake can be slow on a PC that is serving everyone
+// else. Only a leg that also stayed silent through the turn AND a ping is
+// closed; the phone's own handshake timer handles a slow-but-live PC. The
+// timing is the desktop leg's (runDesktopLeg sets `entry.handshake`).
+function awaitDesktopTurn(entry, phone, turn) {
+  clearTimeout(phone.handshakeTimer);
+  phone.handshakeTimer = null;
+  if (!phoneLive(phone)) {
+    phone.handshakeTurn = null;
+    return;
+  }
+  phone.handshakeTurn = turn;
+  const { stallMs, probeMs } = entry.handshake ?? DEFAULT_HANDSHAKE_TIMING;
+  const desktop = entry.socket;
+  const stillOwed = () => phone.handshakeTurn === turn && entry.socket === desktop && phoneLive(phone);
+  // After `ms`, a turn still owed is let go when the leg spoke since `since`;
+  // otherwise `silent` runs.
+  const check = (ms, since, heard, silent) => {
+    phone.handshakeTimer = setTimeout(() => {
+      phone.handshakeTimer = null;
+      if (!stillOwed()) return;
+      if ((desktop.heardAt ?? 0) > since) {
+        console.log(`[relay] slow phone handshake turn=${turn}; ${heard}, leaving the leg up`);
+        endHandshakeWatch(phone);
+        return;
+      }
+      silent();
+    }, ms);
+    phone.handshakeTimer.unref?.();
+  };
+  check(stallMs, performance.now(), 'desktop leg is live', () => {
+    const probedAt = performance.now();
+    try {
+      desktop.ping();
+    } catch {
+      /* surfaced as close */
+    }
+    check(probeMs, probedAt, 'desktop leg answered its probe', () => {
+      console.log(`[relay] desktop leg missed a phone handshake turn=${turn} and its probe; closing it`);
+      closeQuietly(desktop, DESKTOP_HANDSHAKE_STALLED_CLOSE, 'desktop leg unresponsive');
+    });
+  });
+}
+
+function endHandshakeWatch(phone) {
+  clearTimeout(phone.handshakeTimer);
+  phone.handshakeTimer = null;
+  phone.handshakeTurn = null;
+}
+
+/** The desktop routed a frame to this phone: its turn is taken. */
+function noteDesktopTurn(phone) {
+  if (phone.handshakeTurn === 'challenge') {
+    clearTimeout(phone.handshakeTimer);
+    phone.handshakeTimer = null;
+    phone.handshakeTurn = 'hello';
+  } else if (phone.handshakeTurn === 'ready') {
+    endHandshakeWatch(phone);
+  }
+}
+
+/** Announce a phone to the current desktop leg and start owing it a challenge.
+ *  A phone being rejected or closed is never announced again. */
+function announcePhone(entry, sendJson, clientId, phone) {
+  if (!phoneLive(phone)) return;
+  sendJson(entry.socket, clientOpenEnvelope(clientId, phone.browserClientId));
+  awaitDesktopTurn(entry, phone, 'challenge');
 }
 
 function revokeDevice(leg) {
@@ -178,12 +285,19 @@ function clearPairCode({ pairCodes, deviceId }) {
 function forwardFrame({ entry }, message) {
   if (typeof message.data !== 'string') return;
   const phone = entry.clients.get(String(message.clientId || ''));
-  if (phone) sendToPhone(phone, message.data, message.droppable === true);
+  if (!phone) return;
+  noteDesktopTurn(phone);
+  sendToPhone(phone, message.data, message.droppable === true);
 }
 
 function closeClient({ entry }, message) {
   const phone = entry.clients.get(String(message.clientId || ''));
   if (!phone) return;
+  // The PC answered this phone — with a rejection. Its handshake is over the
+  // moment the rejection starts, whether or not the phone ever acknowledges
+  // the close: nothing here may hold the PC to a turn for it.
+  phone.closing = true;
+  endHandshakeWatch(phone);
   closeQuietly(phone, 4004, String(message.reason || 'desktop rejected client').slice(0, 120));
 }
 
@@ -244,7 +358,7 @@ function releaseDesktopLeg(liveDesktops, deviceId, entry, socket) {
   entry.offlineTimer = setTimeout(() => {
     entry.offlineTimer = null;
     if (liveDesktops.get(deviceId)?.socket !== socket) return;
-    for (const phone of entry.clients.values()) closeQuietly(phone, 4002, 'desktop offline');
+    for (const phone of entry.clients.values()) closeQuietly(phone, DESKTOP_OFFLINE_CLOSE, 'desktop offline');
     liveDesktops.delete(deviceId);
   }, 45_000);
   entry.offlineTimer.unref?.();
@@ -265,11 +379,16 @@ export function runDesktopLeg(context, deviceId, socket) {
     nativeBindings = null,
     nativeLimiter = null,
     webPush = null,
+    handshakeStallMs = DESKTOP_HANDSHAKE_STALL_MS,
+    livenessProbeMs = DESKTOP_LIVENESS_PROBE_MS,
   } = context;
   const entry = attachDesktop(deviceId, socket);
+  entry.handshake = { stallMs: handshakeStallMs, probeMs: livenessProbeMs };
   socket.isAlive = true;
+  socket.heardAt = 0;
   socket.on('pong', () => {
     socket.isAlive = true;
+    markDesktopHeard(socket);
   });
   socket.on('error', () => {
     /* surfaced as close */
@@ -314,7 +433,7 @@ export function runDesktopLeg(context, deviceId, socket) {
   // client-open makes the replacement desktop build fresh E2EE channels for
   // those same sockets without waiting for backgrounded tabs to reconnect.
   for (const [clientId, phone] of entry.clients) {
-    sendJson(socket, clientOpenEnvelope(clientId, phone.browserClientId));
+    announcePhone(entry, sendJson, clientId, phone);
   }
   socket.on(
     'message',
@@ -333,6 +452,7 @@ export function runDesktopLeg(context, deviceId, socket) {
 function handleDesktopFrame(leg, liveDesktops, maxFrameBytes, raw, isBinary) {
   const { socket, entry, deviceId } = leg;
   const announced = noteIngressDelivery(socket);
+  markDesktopHeard(socket);
   if (leg.revoked) return;
   // A superseded leg goes on draining whatever was already on the wire. It
   // may answer for itself, but nothing it says belongs to the connection that
@@ -349,7 +469,9 @@ function handleDesktopFrame(leg, liveDesktops, maxFrameBytes, raw, isBinary) {
     const phone = entry.clients.get(frame.clientId);
     // Admission is per phone leg, so a congested phone slows nothing but
     // itself — this desktop socket is never paused for one consumer.
-    if (phone) sendToPhone(phone, frame.data, frame.droppable);
+    if (!phone) return;
+    noteDesktopTurn(phone);
+    sendToPhone(phone, frame.data, frame.droppable);
     return;
   }
   let message;
@@ -406,7 +528,7 @@ function createLegPathReader(entry, clientId, maxFrameBytes) {
 
 // One frame from a phone: a liveness probe is answered here, everything else
 // rides up the desktop leg inside the routing envelope.
-function handlePhoneFrame(socket, clientId, legPath, raw, isBinary) {
+function handlePhoneFrame(socket, clientId, legPath, raw, isBinary, onPhoneTurn) {
   const announced = noteIngressDelivery(socket);
   socket.isAlive = true;
   const path = legPath();
@@ -419,6 +541,7 @@ function handlePhoneFrame(socket, clientId, legPath, raw, isBinary) {
   const limit = isBinary ? path.binary : path.text;
   if (rejectOversizeFrame(socket, raw, limit, announced)) return;
   if (isBinary) {
+    onPhoneTurn();
     sendUplink(socket, path.desktop, encodeRelayBinaryFrame({ clientId, data: raw }));
     return;
   }
@@ -433,6 +556,7 @@ function handlePhoneFrame(socket, clientId, legPath, raw, isBinary) {
     }
     return;
   }
+  onPhoneTurn();
   // Backpressure is charged to this leg only: it stops being read while its
   // own frames are outstanding, and resumes on its own flush.
   //
@@ -468,8 +592,14 @@ export function runClientLeg(entry, sendJson, socket, browserClientId = null, op
   socket.oversizeSignal = (bytes, limit) => signalPhoneOversize(socket, bytes, limit);
   trackLegIngress(socket, rawSocket, { ...ingress, limit: maxFrameBytes });
   entry.clients.set(clientId, socket);
+  socket.attached = true;
   const legOpenedAt = Date.now();
-  sendJson(entry.socket, clientOpenEnvelope(clientId, browserClientId));
+  announcePhone(entry, sendJson, clientId, socket);
+  // The phone's first frame after a challenge is its hello; the desktop owes
+  // the answer from then on.
+  const onPhoneTurn = () => {
+    if (socket.handshakeTurn === 'hello') awaitDesktopTurn(entry, socket, 'ready');
+  };
   socket.isAlive = true;
   socket.on('pong', () => {
     socket.isAlive = true;
@@ -479,9 +609,11 @@ export function runClientLeg(entry, sendJson, socket, browserClientId = null, op
   });
   socket.on(
     'message',
-    guarded('phone frame', (raw, isBinary) => handlePhoneFrame(socket, clientId, legPath, raw, isBinary))
+    guarded('phone frame', (raw, isBinary) => handlePhoneFrame(socket, clientId, legPath, raw, isBinary, onPhoneTurn))
   );
   socket.on('close', (code, reason) => {
+    socket.attached = false;
+    endHandshakeWatch(socket);
     releaseLeg(socket);
     releaseIngressLeg(socket);
     entry.clients.delete(clientId);
