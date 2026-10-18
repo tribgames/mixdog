@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.2.5 - 2026-10-18
+
 Les téléphones se connectent désormais plus rapidement et sans fenêtres contextuelles, l'application de bureau ne ralentit plus après l'exécution de nombreux agents, et les réponses en streaming s'affichent de manière plus fluide.
 
 ### Modifications

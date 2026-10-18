@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.2.5 - 2026-10-18
+
 Smartphones verbinden sich jetzt schneller und ohne Popups, der Desktop wird auch bei vielen ausgeführten Agents nicht mehr langsamer, und Streaming-Antworten werden flüssiger angezeigt.
 
 ### Änderungen

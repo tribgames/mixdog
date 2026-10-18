@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.2.5 - 2026-10-18
+
 Os telefones agora se conectam mais rápido e sem pop-ups, o desktop não fica mais lento quando muitos agentes são executados e as respostas em streaming aparecem com mais suavidade.
 
 ### Alterações

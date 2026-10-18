@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.2.5 - 2026-10-18
+
 Los teléfonos ahora se conectan más rápido y sin ventanas emergentes, el escritorio ya no se ralentiza cuando se han ejecutado muchos agentes y las respuestas en streaming aparecen con mayor fluidez.
 
 ### Cambios

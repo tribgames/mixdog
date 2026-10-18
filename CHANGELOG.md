@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.2.5 - 2026-10-18
+
 Phones now connect faster and without popups, the desktop no longer slows down once many agents have run, and streaming replies appear more smoothly.
 
 ### Changes

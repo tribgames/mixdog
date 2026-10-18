@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.2.5 - 2026-10-18
+
 I telefoni ora si connettono più velocemente e senza popup, il desktop non rallenta più quando sono stati eseguiti molti agent e le risposte in streaming appaiono in modo più fluido.
 
 ### Modifiche

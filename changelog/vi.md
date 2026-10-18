@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.2.5 - 2026-10-18
+
 Điện thoại giờ đây kết nối nhanh hơn và không có cửa sổ bật lên, ứng dụng trên máy tính không còn bị chậm khi chạy nhiều tác nhân, và câu trả lời phát trực tuyến hiển thị mượt mà hơn.
 
 ### Thay đổi
