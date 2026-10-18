@@ -86,6 +86,8 @@ export function surfaceOwnsKeyboard(target: EventTarget | null): boolean {
 export function shouldFocusComposerFromWindowKey(event: KeyboardEvent): boolean {
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
   if (event.key.length !== 1 && event.key !== 'Process' && event.key !== 'Dead') return false;
-  if (modalDialogPresented()) return false;
-  return !surfaceOwnsKeyboard(event.target);
+  // The cheap target test first: typing into the composer itself (every
+  // keystroke) must not scan the whole document for modal dialogs.
+  if (surfaceOwnsKeyboard(event.target)) return false;
+  return !modalDialogPresented();
 }

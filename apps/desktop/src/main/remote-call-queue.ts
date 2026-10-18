@@ -9,9 +9,6 @@ const PARALLEL_READS = new Set([
   'listProjects',
   'listSessions',
   'listAgentPool',
-  // The catalog read is 140 KB and takes seconds while a turn runs; as a
-  // barrier it held the transcript's getSnapshot behind it.
-  'listProviderModels',
   'listProjectDir',
   'listHostDirectories',
   'readProjectFile',
@@ -38,7 +35,23 @@ const PARALLEL_READS = new Set([
   'viewerDevice',
   'gitCliStatus',
   'libreOfficeStatus',
+  // A control-session read (session-host-transport READ_CAPABILITIES). As an
+  // unknown-method barrier it waited for a 3.7s catalog read and held the
+  // thirteen resume reads queued after it.
+  'getQuotaAutoResume',
 ]);
+
+// The model catalog (140 KB, seconds while a provider is slow or offline).
+// As a general-lane read it fenced every mutation queued after it, and every
+// read behind that mutation: one boot-time load held 14 calls for 3.7s. It
+// observes mutations queued before it; later ones need not wait for it.
+const CATALOG_READS = new Set(['listProviderModels']);
+
+// Keystroke-driven file-name searches: their own lane, so a review or usage
+// sweep in the slow lane never holds the newest query. A call queued with a
+// `latest` key is withdrawn when a newer call under the same key arrives
+// before it started (newest query wins).
+const SEARCH_READS = new Set(['searchProjectFiles']);
 
 /** Read-only capabilities that sweep providers' quota APIs or the usage
  *  ledger (seconds per call): they ride the slow-read lane. */
@@ -62,7 +75,6 @@ export const REVIEW_FILE_PATCH_CALLS: ReadonlySet<string> = new Set([
 // observe every mutation queued before them; later mutations need not wait
 // for them, because a search or preview has nothing a write could overtake.
 const SLOW_READS = new Set([
-  'searchProjectFiles',
   'searchWorkspaceText',
   // Full-text scan of every stored conversation (session_search schema).
   'searchSessionContent',
@@ -119,25 +131,47 @@ export const SIDE_QUESTION_CANCEL_CALL = 'invokeCapability:cancelSide';
  *  started is answered (it never runs). */
 export type SideQuestionCall = { sessionId: string; superseded?: () => Promise<void> };
 
+/** A search call's identity for newest-wins: a queued call under the same key
+ *  that has not started yet is answered by `superseded` and never runs. */
+export type LatestCall = { latest: string; superseded?: () => Promise<void> };
+
 const TERMINAL_METHODS = new Set(['termEnsure', 'termProfiles', 'termWrite', 'termResize', 'termDispose']);
 
-export function createRemoteCallQueue(concurrency = 4, slowConcurrency = 2, voiceConcurrency = 2) {
+type CallLane = ReturnType<typeof createCallLane>;
+
+export function createRemoteCallQueue(
+  concurrency = 4,
+  slowConcurrency = 2,
+  voiceConcurrency = 2,
+  searchConcurrency = 2
+) {
   const general = createCallLane(concurrency);
   const slow = createCallLane(slowConcurrency);
   const voice = createCallLane(voiceConcurrency);
   const side = createCallLane(2);
+  const catalog = createCallLane(2);
+  const search = createCallLane(searchConcurrency);
   const terminal = createCallLane(1);
-  // sessionId -> supersede hooks of that session's side questions not yet started.
+  // key -> supersede hooks of the calls under that key not yet started: a
+  // session's side questions, or one search scope's queries.
   const waitingSide = new Map<string, Set<() => void>>();
-  const supersedeSide = (sessionId: string): void => {
-    const waiting = waitingSide.get(sessionId);
-    waitingSide.delete(sessionId);
+  const waitingSearch = new Map<string, Set<() => void>>();
+  const supersedeWaiting = (waitingByKey: Map<string, Set<() => void>>, key: string): void => {
+    const waiting = waitingByKey.get(key);
+    waitingByKey.delete(key);
     for (const supersede of waiting || []) supersede();
   };
-  // A side question of a known session: withdrawn while it waits, either for
-  // a side slot or for the mutations queued before it.
-  const runSideQuestion = (method: string, task: () => Promise<void>, call: SideQuestionCall): Promise<void> => {
-    supersedeSide(call.sessionId);
+  // Withdrawn while it waits, either for a lane slot or for the mutations
+  // queued before it; a newer call under its key (or a cancel) supersedes it.
+  const runLatest = (
+    lane: CallLane,
+    waitingByKey: Map<string, Set<() => void>>,
+    key: string,
+    method: string,
+    task: () => Promise<void>,
+    superseded: (() => Promise<void>) | undefined
+  ): Promise<void> => {
+    supersedeWaiting(waitingByKey, key);
     const writes = general.writesSettled();
     return new Promise<void>((resolve, reject) => {
       let state: 'waiting' | 'started' | 'superseded' = 'waiting';
@@ -145,19 +179,19 @@ export function createRemoteCallQueue(concurrency = 4, slowConcurrency = 2, voic
         if (state !== 'waiting') return;
         state = 'superseded';
         Promise.resolve()
-          .then(call.superseded)
+          .then(superseded)
           .then(() => resolve(), reject);
       };
-      const waiting = waitingSide.get(call.sessionId) || new Set<() => void>();
+      const waiting = waitingByKey.get(key) || new Set<() => void>();
       waiting.add(supersede);
-      waitingSide.set(call.sessionId, waiting);
-      side
+      waitingByKey.set(key, waiting);
+      lane
         .run(method, async () => {
           await writes;
           if (state !== 'waiting') return;
           state = 'started';
           waiting.delete(supersede);
-          if (!waiting.size && waitingSide.get(call.sessionId) === waiting) waitingSide.delete(call.sessionId);
+          if (!waiting.size && waitingByKey.get(key) === waiting) waitingByKey.delete(key);
           await task();
         })
         .then(
@@ -173,16 +207,22 @@ export function createRemoteCallQueue(concurrency = 4, slowConcurrency = 2, voic
     });
   };
   return {
-    run(method: string, task: () => Promise<void>, sideCall?: SideQuestionCall): Promise<void> {
+    run(method: string, task: () => Promise<void>, call?: SideQuestionCall | LatestCall): Promise<void> {
       if (TERMINAL_METHODS.has(method)) return terminal.run(method, task);
-      if (sideCall?.sessionId) {
-        if (method === SIDE_QUESTION_CANCEL_CALL) supersedeSide(sideCall.sessionId);
-        else if (SIDE_QUESTION_CALLS.has(method)) return runSideQuestion(method, task, sideCall);
+      if (call && 'sessionId' in call && call.sessionId) {
+        if (method === SIDE_QUESTION_CANCEL_CALL) supersedeWaiting(waitingSide, call.sessionId);
+        else if (SIDE_QUESTION_CALLS.has(method))
+          return runLatest(side, waitingSide, call.sessionId, method, task, call.superseded);
       }
-      let lane: typeof general | null = null;
+      if (call && 'latest' in call && SEARCH_READS.has(method)) {
+        return runLatest(search, waitingSearch, call.latest, method, task, call.superseded);
+      }
+      let lane: CallLane | null = null;
       if (SLOW_READS.has(method)) lane = slow;
       else if (VOICE_CALLS.has(method)) lane = voice;
       else if (SIDE_QUESTION_CALLS.has(method)) lane = side;
+      else if (CATALOG_READS.has(method)) lane = catalog;
+      else if (SEARCH_READS.has(method)) lane = search;
       if (!lane) return general.run(method, task);
       const writes = general.writesSettled();
       return lane.run(method, async () => {
@@ -190,11 +230,25 @@ export function createRemoteCallQueue(concurrency = 4, slowConcurrency = 2, voic
         await task();
       });
     },
+    /** Test/diagnostic seam: calls queued and running in every lane, and the
+     *  newest-wins keys still holding waiting calls. */
+    stats(): { queued: number; active: number; waitingKeys: number } {
+      let queued = 0;
+      let active = 0;
+      for (const lane of [general, slow, voice, side, catalog, search, terminal]) {
+        const counts = lane.stats();
+        queued += counts.queued;
+        active += counts.active;
+      }
+      return { queued, active, waitingKeys: waitingSide.size + waitingSearch.size };
+    },
     close(): void {
       general.close();
       slow.close();
       voice.close();
       side.close();
+      catalog.close();
+      search.close();
       terminal.close();
     },
   };
@@ -238,6 +292,8 @@ function createCallLane(concurrency: number) {
       const read =
         PARALLEL_READS.has(method) ||
         SLOW_READS.has(method) ||
+        CATALOG_READS.has(method) ||
+        SEARCH_READS.has(method) ||
         VOICE_CALLS.has(method) ||
         SIDE_QUESTION_CALLS.has(method);
       const result = new Promise<void>((resolve, reject) => {
@@ -254,6 +310,9 @@ function createCallLane(concurrency: number) {
     },
     writesSettled(): Promise<void> {
       return lastWrite;
+    },
+    stats(): { queued: number; active: number } {
+      return { queued: queued.length, active };
     },
     close(): void {
       closed = true;

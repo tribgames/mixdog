@@ -9,7 +9,7 @@ import { ArrowUp, Check, ChevronDown, GitCommitHorizontal, GitPullRequest, List,
 import { useEffect, useId, useRef, useState } from 'react';
 
 import type { DesktopGitStatus } from '../shared/contract';
-import { useComposerIslandTab } from './composer-island-state';
+import { IslandSegmentPending, useComposerIslandTab } from './composer-island-state';
 import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { t } from './i18n';
 import { type IslandGitAction, useIslandGitRequest } from './island-git-request';
@@ -114,7 +114,12 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
     if (refocus.current) caret.current?.focus();
     refocus.current = false;
   }, [open]);
-  if (!shown) return null;
+  if (!shown) {
+    // Undecided while the changes read (or, with nothing to commit, the
+    // ahead count) is out: the segment keeps its room in the pill.
+    const decided = !sessionId || !cwd || (changes.ready && (!changes.repository || status !== null));
+    return decided ? null : <IslandSegmentPending kind="git" />;
+  }
 
   // A row only picks what the button does; the button alone sends.
   const choose = (next: IslandGitAction) => {

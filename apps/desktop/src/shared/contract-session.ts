@@ -396,9 +396,21 @@ export interface DesktopModelOption {
   defaultModelParameters?: Record<string, string>;
   savedModelParameters?: Record<string, string>;
   savedContextPercent?: number;
+  /** Model management: the user's explicit /model visibility choice; absent
+   *  means the picker's default listing (family limit). */
+  savedHidden?: boolean;
+  /** Model management favorite: listed first in /model. */
+  favorite?: boolean;
   /** Set only on a quick answer the daemon served from its loaded catalog:
    *  that answer is already the full catalog, so no full read has to follow. */
   catalogComplete?: true;
+  /** Set on every row of an answer some provider was missing from (failed or
+   *  timed out); absent on complete answers. */
+  catalogPartial?: true;
+  /** Providers missing from a partial answer. */
+  catalogMissing?: string[];
+  /** Daemon epoch ms after which a partial answer should be fetched again. */
+  catalogRetryAt?: number;
 }
 
 export interface DesktopModelCatalogOptions {

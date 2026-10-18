@@ -35,6 +35,7 @@ import {
 } from './capability-data';
 import { McpPanel, PluginExtensionsPanel, SkillExtensionsPanel } from './extension-panels';
 import { ProvidersPanel } from './provider-panel';
+import { ModelManagementPanel } from './model-management-panel';
 
 export { OAuthControl } from './provider-panel';
 
@@ -42,6 +43,7 @@ export function CategoryPanel({ category, context }: { category: CapabilityCateg
   if (category === 'builtins') return <BuiltInFeaturesPanel {...context} />;
   if (category === 'output-style') return <OutputStylePanel {...context} />;
   if (category === 'providers') return <ProvidersPanel {...context} />;
+  if (category === 'models') return <ModelManagementPanel {...context} />;
   if (category === 'git') return <BuiltInFeaturesPanel {...context} initialFeature="git" />;
   if (category === 'mcp') return <McpPanel {...context} />;
   if (category === 'plugins') return <PluginExtensionsPanel {...context} />;

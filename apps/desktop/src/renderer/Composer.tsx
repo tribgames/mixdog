@@ -368,6 +368,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   const {
     attachments,
     attachmentsRef,
+    pendingLoads,
     attachmentError,
     setAttachmentError,
     draggingFiles,
@@ -562,6 +563,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     textarea,
     draftRef,
     attachmentsRef,
+    pendingLoads,
     transitioningRef,
     composingRef,
     submittingRef,

@@ -1444,6 +1444,7 @@ function renderPaneDockMain(
         renderView={(id, active, titleDragProps) =>
           dockBodyMounted ? renderView(id, active && bodyShown, titleDragProps) : null
         }
+        hiddenKey={dockBodyMounted ? 'body' : ''}
       />
     </div>
   );

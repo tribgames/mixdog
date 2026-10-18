@@ -40,10 +40,12 @@ import {
 } from './ScmContextMenu';
 import { ToolComputerReadinessCard } from './transcript-computer-card';
 import { usePersistedThumbnail } from './persisted-thumbnail';
+import { ToolVisualizeCards } from './transcript-visualize-card';
 import { rememberVisualizeTabTitles, visualizeCallTabTitle } from './visualize-card-model';
 import { useToolOutcomeUnknown } from './connection-link-store';
 import { MxIcon } from './MxIcon';
 import { formatElapsed } from './text-format';
+import { useClock } from './use-clock';
 import { CodeDiff } from './transcript-diff';
 import { TurnChangesContext } from './TurnChangesCard';
 import { requestSessionDiffFile } from './session-diff-focus';
@@ -194,22 +196,6 @@ function sameToolActivityGroupProps(previous: ToolActivityGroupProps, next: Tool
   );
 }
 
-/** The tool-group sparkle (4-point star) path, centred on (cx, cy). */
-function sparklePath(cx: number, cy: number, r: number): string {
-  const k = (value: number) => Math.round(value * 100) / 100;
-  return `M${cx} ${cy - r}Q${k(cx + r * 0.16)} ${k(cy - r * 0.16)} ${cx + r} ${cy} ${k(cx + r * 0.16)} ${k(cy + r * 0.16)} ${cx} ${cy + r} ${k(cx - r * 0.16)} ${k(cy + r * 0.16)} ${cx - r} ${cy} ${k(cx - r * 0.16)} ${k(cy - r * 0.16)} ${cx} ${cy - r}Z`;
-}
-
-/** Running mark of a call row (which has no leading icon): the group icon's
- *  sparkle, twinkling until the result lands. */
-function ToolWorkingSpark() {
-  return (
-    <svg className="tool-working-spark" width={12} height={12} viewBox="0 0 12 12" aria-hidden="true">
-      <path className="tool-group-icon-star" d={sparklePath(6, 6, 5)} fill="currentColor" />
-    </svg>
-  );
-}
-
 /** When a tool call started (epoch ms). Transcript items carry their start as
  *  `at`; `startedAt` wins where a projection provides one. */
 function toolItemStartedAt(item: { startedAt?: unknown; at?: unknown }): number {
@@ -218,22 +204,14 @@ function toolItemStartedAt(item: { startedAt?: unknown; at?: unknown }): number 
 }
 
 /** Elapsed (from 5s) while the work is pending, so the one-second tick stops
- *  with it. A group header animates its leading icon instead; a call row,
- *  which has none, carries the twinkling sparkle here (`spark`). */
-function ToolWorkingStatus({ startedAt, spark = false }: { startedAt: number; spark?: boolean }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!startedAt) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [startedAt]);
+ *  with it. */
+function ToolWorkingStatus({ startedAt }: { startedAt: number }) {
+  const now = useClock(startedAt > 0);
   const elapsedMs = startedAt ? now - startedAt : 0;
-  const showElapsed = elapsedMs >= 5_000;
-  if (!showElapsed && !spark) return null;
+  if (elapsedMs < 5_000) return null;
   return (
     <span className="tool-working">
-      {showElapsed && <span className="tool-working-elapsed">{formatElapsed(elapsedMs)}</span>}
-      {spark && <ToolWorkingSpark />}
+      <span className="tool-working-elapsed">{formatElapsed(elapsedMs)}</span>
     </span>
   );
 }
@@ -249,14 +227,7 @@ const Elapsed = React.memo(function Elapsed({
   prefix?: string;
   minMs?: number;
 }) {
-  const [now, setNow] = useState(() => Date.now());
-  // biome-ignore lint/correctness/useExhaustiveDependencies: startedAt restarts the ticker and resets the clock.
-  useEffect(() => {
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [startedAt]);
-  const elapsedMs = Math.max(0, now - startedAt);
+  const elapsedMs = Math.max(0, useClock(true) - startedAt);
   return elapsedMs >= minMs ? (
     <>
       {prefix}
@@ -364,6 +335,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
         </div>
       )}
       {browserPage && <ToolBrowserPageCard page={browserPage} sessionId={disclosureScope} />}
+      <ToolVisualizeCards items={items} sessionId={disclosureScope} />
       <ToolComputerReadinessCard items={items} taskKey={`${disclosureScope}|${turnKey}`} />
       <TranscriptArtifacts items={items} />
     </article>
@@ -693,7 +665,7 @@ function renderToolActivityHeader({
       <ToolDiffCounts counts={presentation.diffCounts} />
       {metaLine && <span className="tool-activity-item-meta">{metaLine}</span>}
       <ToolRowOutcome presentation={presentation} />
-      {presentation.pending && <ToolWorkingStatus startedAt={startedAt} spark />}
+      {presentation.pending && <ToolWorkingStatus startedAt={startedAt} />}
       {presentation.pending && (
         <span className="sr-only" role="status">
           {t('Running')}

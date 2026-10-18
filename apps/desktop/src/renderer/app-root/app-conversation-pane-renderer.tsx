@@ -17,7 +17,7 @@ import type { useAppShellPanels } from '../use-app-shell-panels';
 import type { useAppSettingsRouter } from './use-app-settings-router';
 import type { applySessionLaneResult } from './use-app-task-lifecycle';
 
-export interface PaneConversationRendererOptions {
+interface PaneConversationRendererOptions {
   conversationHandoff: ConversationHandoff | null;
   resolvedDraftPrefsFor: (draftKey: string) => DraftPanePrefs;
   sessions: ReturnType<typeof useSessionCatalog>['sessions'];
@@ -97,6 +97,97 @@ export function paneSideDockLinkRoutes<T extends object>(rightGroups: readonly u
   return rightGroups.length > 0 ? routes : {};
 }
 
+/** What a pane's conversation routes read when they fire: the render that
+ *  last drew the pane. */
+interface PaneRouteTarget {
+  options: PaneConversationRendererOptions;
+  leafId: string;
+  paneSessionId: string;
+  focusPane: () => void;
+}
+
+/** One set of conversation routes per pane and session. The
+ *  renderer runs on every App commit (a session switch is several) and its
+ *  closures were fresh each time, so the memoised PaneConversation re-rendered
+ *  the outgoing pane on the switch's first commit with nothing to change.
+ *  Each route calls the target the latest render recorded. */
+interface PaneRoutes {
+  target: PaneRouteTarget;
+  applySessionLane: (next: Parameters<PaneConversationRendererOptions['applySnapshot']>[0]) => void;
+  openSessions: () => void;
+  openCommandSurface: (
+    surface: Parameters<PaneConversationRendererOptions['openConversationCommandSurface']>[0]
+  ) => void;
+  openFile: (project: string, rel: string, line?: number, accessToken?: string, column?: number) => void;
+  openFolder: (project: string, rel: string) => void;
+  openSessionDiff: () => void;
+  openAgentSession: (sessionId: string, title: string, ownerSessionId: string) => void;
+}
+
+const paneRoutes = new Map<string, PaneRoutes>();
+const PANE_ROUTES_MAX = 64;
+
+function paneRoutesFor(target: PaneRouteTarget): PaneRoutes {
+  // Per pane AND session: a pane may draw retained sessions beside its shown
+  // one, each with its own routes.
+  const key = `${target.leafId}\u0000${target.paneSessionId}`;
+  const known = paneRoutes.get(key);
+  if (known) {
+    known.target = target;
+    // Most recently drawn last: eviction takes panes and sessions long gone.
+    paneRoutes.delete(key);
+    paneRoutes.set(key, known);
+    return known;
+  }
+  const routes: PaneRoutes = {
+    target,
+    applySessionLane: (next) => {
+      const { options, paneSessionId } = routes.target;
+      options.applySessionLaneResult(paneSessionId, next);
+    },
+    openSessions: () => routes.target.options.openSidebar(),
+    openCommandSurface: (surface) => {
+      const { options, paneSessionId } = routes.target;
+      options.openConversationCommandSurface(surface, paneSessionId);
+    },
+    // A chat link carries its line and, for files outside the Project,
+    // its file-scoped access token. Dropping either opened the file at
+    // line 1, or failed to open it at all.
+    openFile: (project, rel, line, accessToken, column) => {
+      const { options, leafId, focusPane } = routes.target;
+      focusPane();
+      if (options.openFileInSideDock) {
+        if (column) options.openFileInSideDock(leafId, project, rel, line, accessToken, column);
+        else options.openFileInSideDock(leafId, project, rel, line, accessToken);
+      } else {
+        // No right side layout: a main tab, the preview one under Link preview.
+        options.openFileTab(project, rel, line, accessToken, true, chatLinkMainTabMode(getLinkPreview()));
+      }
+    },
+    openFolder: (project, rel) => {
+      const { options, leafId, focusPane } = routes.target;
+      focusPane();
+      options.openFolderInSideDock?.(leafId, project, rel);
+    },
+    openSessionDiff: () => {
+      const { options, leafId, focusPane } = routes.target;
+      focusPane();
+      options.openSessionDiffInSideDock?.(leafId);
+    },
+    openAgentSession: (sessionId, title, ownerSessionId) => {
+      const { options, focusPane } = routes.target;
+      focusPane();
+      options.openAgentSession(sessionId, title, ownerSessionId);
+    },
+  };
+  paneRoutes.set(key, routes);
+  for (const oldest of paneRoutes.keys()) {
+    if (paneRoutes.size <= PANE_ROUTES_MAX) break;
+    paneRoutes.delete(oldest);
+  }
+  return routes;
+}
+
 export function createPaneConversationRenderer(options: PaneConversationRendererOptions) {
   return function renderPaneConversation(
     paneSelection: NavigationSelection,
@@ -131,6 +222,7 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
     const focusedDraft = focused && Boolean(draftKey);
     const focusedSession = focused && Boolean(paneSessionId);
 
+    const routes = paneRoutesFor({ options, leafId, paneSessionId, focusPane });
     let submit = options.submit;
     if (paneSessionId) {
       submit = options.paneSubmitFor(paneSessionId);
@@ -170,16 +262,14 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
           invokeResult: options.invokeResult,
           errors: options.errors,
           submit,
-          applySnapshot: paneSessionId
-            ? (next) => options.applySessionLaneResult(paneSessionId, next)
-            : options.applySnapshot,
+          applySnapshot: paneSessionId ? routes.applySessionLane : options.applySnapshot,
           transitioning: false,
           composerFocusRequest: focused ? options.composerFocusRequest : 0,
           onNewTask: options.conversationNewTask,
           onClearToNewTask: options.conversationClearToNewTask,
           onClearProject: options.conversationClearProject,
           onResumeSession: options.conversationResumeSession,
-          onOpenSessions: options.openSidebar,
+          onOpenSessions: routes.openSessions,
           onOpenProjects: options.conversationOpenProjects,
           onOpenSettings: options.openSettings,
           projects: options.projects,
@@ -196,36 +286,11 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
           activeProjectPath: paneProjectPath,
           activeProjectLabel: paneProjectLabel,
           onSelectProject: options.conversationSelectProject,
-          onOpenCommandSurface: (surface) => options.openConversationCommandSurface(surface, paneSessionId),
-          // A chat link carries its line and, for files outside the Project,
-          // its file-scoped access token. Dropping either opened the file at
-          // line 1, or failed to open it at all.
-          onOpenFile: (project, rel, line, accessToken, column) => {
-            focusPane();
-            if (options.openFileInSideDock) {
-              if (column) options.openFileInSideDock(leafId, project, rel, line, accessToken, column);
-              else options.openFileInSideDock(leafId, project, rel, line, accessToken);
-            } else {
-              // No right side layout: a main tab, the preview one under Link preview.
-              options.openFileTab(project, rel, line, accessToken, true, chatLinkMainTabMode(getLinkPreview()));
-            }
-          },
-          onOpenFolder: options.openFolderInSideDock
-            ? (project, rel) => {
-                focusPane();
-                options.openFolderInSideDock?.(leafId, project, rel);
-              }
-            : undefined,
-          onOpenSessionDiff: options.openSessionDiffInSideDock
-            ? () => {
-                focusPane();
-                options.openSessionDiffInSideDock?.(leafId);
-              }
-            : undefined,
-          onOpenAgentSession: (sessionId, title, ownerSessionId) => {
-            focusPane();
-            options.openAgentSession(sessionId, title, ownerSessionId);
-          },
+          onOpenCommandSurface: routes.openCommandSurface,
+          onOpenFile: routes.openFile,
+          onOpenFolder: options.openFolderInSideDock ? routes.openFolder : undefined,
+          onOpenSessionDiff: options.openSessionDiffInSideDock ? routes.openSessionDiff : undefined,
+          onOpenAgentSession: routes.openAgentSession,
           onInheritSession: options.replaceWithInheritedSession,
         }}
       />

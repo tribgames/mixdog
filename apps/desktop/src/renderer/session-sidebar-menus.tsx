@@ -8,6 +8,7 @@ import { sessionLabel } from './session-sidebar-rows';
 import type { ProjectSessionGroup } from './session-sidebar-sections';
 import { isOpen, type OpenMap } from './sidebar-open-state';
 import { copyTextToClipboard } from './text-format';
+import { useStableEvent } from './use-stable-event';
 
 type MenuPoint = { x: number; y: number };
 type ProjectRename = { key: string; draft: string; original: string };
@@ -22,7 +23,7 @@ interface SessionMenuActions {
   onAddProject?(onAdded?: (projectPath: string) => void): void;
   openSessionEditor(session: DesktopSessionSummary, rowKey: string): void;
   closeSessionEditor(): void;
-  setConfirmingSessionId(sessionId: string): void;
+  requestDelete(sessionId: string): void;
   sessionGroupKeys: ReadonlyMap<string, string>;
   projectGroups: readonly ProjectSessionGroup[];
   moveSession(sessionId: string, projectPath: string): void;
@@ -124,7 +125,8 @@ function sessionMenuItems(
     }
   }
   // Delete never runs from the menu itself: it arms the row's inline
-  // cancel/confirm pair, the same confirmation archived rows use.
+  // cancel/confirm pair, the same confirmation archived rows use (a busy
+  // session asks in a dialog instead).
   items.push({
     id: 'delete',
     label: t('Delete'),
@@ -132,7 +134,7 @@ function sessionMenuItems(
     separatorBefore: true,
     onSelect: afterMenu(() => {
       actions.closeSessionEditor();
-      actions.setConfirmingSessionId(session.id);
+      actions.requestDelete(session.id);
     }),
   });
   return items;
@@ -195,9 +197,10 @@ function projectMenuItems(
 export function useSidebarMenus(actions: SessionMenuActions & ProjectMenuActions) {
   const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
-  const openSessionMenu = (session: DesktopSessionSummary, point: MenuPoint, rowKey: string) => {
+  // One identity for the memoised rows; the menu reads the current actions.
+  const openSessionMenu = useStableEvent((session: DesktopSessionSummary, point: MenuPoint, rowKey: string) => {
     setContextMenu({ label: sessionLabel(session), ...point, items: sessionMenuItems(session, rowKey, actions) });
-  };
+  });
   const [projectRename, setProjectRename] = useState<ProjectRename | null>(null);
   const projectRenameRef = useRef(projectRename);
   projectRenameRef.current = projectRename;

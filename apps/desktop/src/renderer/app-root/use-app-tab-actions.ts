@@ -23,7 +23,7 @@ import type { useAppSideDocks } from '../use-app-side-docks';
 import type { useSessionPaneSurfaces } from '../use-session-pane-surfaces';
 import { cleanDiffTarget, paneSize } from './workspace-targets';
 
-export interface UseAppTabActionsOptions {
+interface UseAppTabActionsOptions {
   paneWorkspace: ReturnType<typeof usePaneWorkspace>;
   setTabs: React.Dispatch<React.SetStateAction<WorkspaceTab[]>>;
   closeSidebarPanels: () => void;
@@ -145,10 +145,11 @@ export function useAppTabActions({
   // session has none) through the same path as the Run button.
   useEffect(() => window.mixdogDesktop?.onTerminalRunRequested?.(handleTerminalRunRequest), []);
 
-  // The agent's `visualize` open: the session's visualize view becomes its
-  // side panel. A pane showing the session reveals it now; otherwise it waits
-  // on the session and appears when the user returns to it — no other pane
-  // or session is touched. A panel the user closed never gets here (store).
+  // The agent's `visualize` open or update: the session's visualize view
+  // becomes its side panel. A pane showing the session reveals it now;
+  // otherwise it waits on the session and appears when the user returns to
+  // it — no other pane or session is touched. The store's open policy
+  // decides which opens get here (visualize-store).
   const revealSessionVisualize = useStableEvent((sessionId: string) => {
     sessionPaneSurfaces.setSessionSideSurface(sessionId, null);
     sessionPaneSurfaces.setSessionPanelView(sessionId, 'visualize');

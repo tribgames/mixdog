@@ -5,6 +5,7 @@ import { t } from './i18n';
 import { deleteSessionImagePreviews } from './image-preview-store';
 import type { NavigationSelection, WorkspaceSelection, WorkspaceTab } from './navigation';
 import { navigationKey } from './text-format';
+import { useStableEvent } from './use-stable-event';
 
 export function useAppSessionActions({
   sessions,
@@ -245,5 +246,14 @@ export function useAppSessionActions({
     ]
   );
 
-  return { renameSession, archiveSession, favoriteSession, moveSessionToProject, deleteSession };
+  // Handed to the memoised session sidebars and tab strips: each action reads
+  // the latest sessions/tabs/selection when called, so their identities need
+  // not change with them (every session switch rebuilt them).
+  return {
+    renameSession: useStableEvent(renameSession),
+    archiveSession: useStableEvent(archiveSession),
+    favoriteSession: useStableEvent(favoriteSession),
+    moveSessionToProject: useStableEvent(moveSessionToProject),
+    deleteSession: useStableEvent(deleteSession),
+  };
 }

@@ -66,11 +66,65 @@ export function agentPoolStore(host?: DesktopApi): AgentPoolStore {
   return created;
 }
 
+/** Structural equality of two pool rows (plain JSON from the host). */
+function samePoolValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) return false;
+  return leftKeys.every(
+    (key) =>
+      Object.hasOwn(right, key) &&
+      samePoolValue((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key])
+  );
+}
+
+/** The next snapshot with every unchanged row kept as the object already
+ *  published, and the previous array itself when nothing changed. Every
+ *  reconcile (each 2 s per poller) and push delivers fresh objects; without
+ *  this each one re-rendered every pool subscriber — six session sidebars,
+ *  the tab strip, the island and every agent row — with identical content. */
+function sharePoolRows(previous: DesktopAgentPoolRow[] | null, next: DesktopAgentPoolRow[]): DesktopAgentPoolRow[] {
+  if (!previous) return next;
+  const identity = (row: DesktopAgentPoolRow) => `${row.sessionId}\0${desktopAgentIdentity(row)}`;
+  const byIdentity = new Map(previous.map((row) => [identity(row), row]));
+  let changed = previous.length !== next.length;
+  const shared = next.map((row, index) => {
+    const prior = byIdentity.get(identity(row));
+    const kept = prior && samePoolValue(prior, row) ? prior : row;
+    if (kept !== previous[index]) changed = true;
+    return kept;
+  });
+  return changed ? shared : previous;
+}
+
+/** A row that stays running keeps its run's origin: a snapshot (stale, or the
+ *  first after a reconnect) that carries an older turn start or none must not
+ *  move the elapsed backwards. A newer stamp is a new turn and wins. */
+function keepRunOrigin(previous: DesktopAgentPoolRow[] | null, next: DesktopAgentPoolRow[]): DesktopAgentPoolRow[] {
+  if (!previous) return next;
+  const identity = (row: DesktopAgentPoolRow) => `${row.sessionId}\0${desktopAgentIdentity(row)}`;
+  const byIdentity = new Map(previous.map((row) => [identity(row), row]));
+  return next.map((row) => {
+    const prior = byIdentity.get(identity(row));
+    if (!prior || !isActiveDesktopAgentEntry(prior) || !isActiveDesktopAgentEntry(row)) return row;
+    const origin = timeMs(prior.turnStartedAt);
+    if (!origin || timeMs(row.turnStartedAt) >= origin) return row;
+    return { ...row, turnStartedAt: prior.turnStartedAt };
+  });
+}
+
 function publishAgentPool(store: AgentPoolStore, rows: unknown): void {
   // Every snapshot passes the cancellation ledger: the daemon still reports a
   // cancelled session as running until its turn unwinds, and a snapshot that
   // shows it running again after the cancel is a stale report, not new work.
-  store.rows = store.cancellations.apply(Array.isArray(rows) ? (rows as DesktopAgentPoolRow[]) : []);
+  const next = sharePoolRows(
+    store.rows,
+    keepRunOrigin(store.rows, store.cancellations.apply(Array.isArray(rows) ? (rows as DesktopAgentPoolRow[]) : []))
+  );
+  if (next === store.rows) return;
+  store.rows = next;
   for (const listener of store.listeners) listener();
 }
 
@@ -146,7 +200,7 @@ function countOrNull(value: unknown): number | null {
 }
 
 /** The runtime's cumulative token totals of one row, or null when absent or malformed. */
-export function agentUsageTotals(value: unknown): DesktopAgentPoolUsage | null {
+function agentUsageTotals(value: unknown): DesktopAgentPoolUsage | null {
   const usage = record(value);
   const inputTokens = countOrNull(usage.inputTokens);
   const outputTokens = countOrNull(usage.outputTokens);
@@ -268,9 +322,12 @@ function mergeLiveAgentSummary(current: LiveAgentSummary, next: LiveAgentSummary
         ? next.status
         : current.status,
     // A twin that reports a pending user approval wins over plain work: the
-    // agent is blocked on the user whichever row saw it first.
+    // agent is blocked on the user whichever row saw it first. A twin that
+    // sees it parked on its background task likewise wins over running.
     state:
-      next.state === 'cancel-unconfirmed' || (next.state === 'needs-user' && current.state !== 'cancel-unconfirmed')
+      next.state === 'cancel-unconfirmed' ||
+      (next.state === 'needs-user' && current.state !== 'cancel-unconfirmed') ||
+      (next.state === 'waiting' && current.state === 'running')
         ? next.state
         : current.state,
     queued: current.queued && next.queued,

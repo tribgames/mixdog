@@ -47,6 +47,7 @@
     "OAuth": "protocol name",
     "{{value0}} OAuth": "protocol name",
     "OpenCode Go": "product name",
+    "OpenCode Go OAuth": "product name",
     "OpenAI Chat Completions": "API protocol name",
     "OpenAI Responses": "API protocol name",
     "PDF": "file format",

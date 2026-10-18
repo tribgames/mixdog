@@ -104,8 +104,8 @@ test('a failed or watchdog-stopped agent is failed with its reason, never a comp
   assert.equal(desktopAgentFailureReason({ status: 'error' }), 'error');
   assert.equal(desktopAgentFailureReason({ status: 'idle', failureReason: 'stalled' }), '');
   const restarted = { status: 'failed', stage: 'failed', failureReason: 'process-restart' };
-  assert.equal(agentElapsedText('failed', restarted, NOW), 'Failed · Process restart');
-  assert.equal(agentElapsedText('failed', { status: 'failed', failureReason: 'stalled' }, NOW), 'Failed · Stalled');
+  assert.equal(agentElapsedText('failed', restarted, NOW), 'Failed');
+  assert.equal(agentElapsedText('failed', { status: 'failed', failureReason: 'stalled' }, NOW), 'Failed');
 });
 
 test('the Agents pane shows the failure with its reason, and Clear finished removes settled rows only', async (t) => {
@@ -122,7 +122,7 @@ test('the Agents pane shows the failure with its reason, and Clear finished remo
   await act(async () => window.dispatchEvent(new window.CustomEvent(AGENT_GROUP_EXPANSION_EVENT, { detail: true })));
   const elapsed = (tag) => document.querySelector(`.agent-pool-row[data-agent-tag="${tag}"] .agent-activity-elapsed`);
   assert.equal(elapsed('crashed').dataset.state, 'failed');
-  assert.equal(elapsed('crashed').textContent, 'Failed · Process restart');
+  assert.equal(elapsed('crashed').textContent, 'Failed');
   await act(async () => document.querySelector('[data-agent-owner-session-id="lead-a"] .row-overflow-trigger').click());
   await act(async () => document.querySelector('[data-action-id="clear-finished-agents"]').click());
   const tags = () => [...document.querySelectorAll('.agent-pool-row')].map((row) => row.dataset.agentTag);
@@ -159,11 +159,11 @@ test('the composer island counts failures, and Clear finished leaves only work t
     worker('busy', { status: 'running', stage: 'running', idleSince: null }),
   ]);
   const segment = () => document.querySelector('.composer-island-seg-agents');
-  assert.ok(segment().querySelector('.composer-island-seg-state[data-kind="failed"]'));
-  assert.match(segment().title, /1 failed/);
+  assert.equal(segment().querySelector('.composer-island-seg-state[data-kind="failed"]'), null);
+  assert.doesNotMatch(segment().title, /failed/);
   await act(async () => segment().click());
   const row = (tag) => document.querySelector(`.agent-pool-row[data-agent-tag="${tag}"] .agent-activity-elapsed`);
-  assert.equal(row('stalled').textContent, 'Failed · Stalled');
+  assert.equal(row('stalled').textContent, 'Failed');
   assert.match(document.querySelector('.composer-island-phead').textContent, /1 failed/);
   const clear = [...document.querySelectorAll('.composer-island-phead-action')].find(
     (button) => button.textContent === 'Clear finished'
@@ -175,24 +175,10 @@ test('the composer island counts failures, and Clear finished leaves only work t
   );
 });
 
-test('a quiet running agent says how long and on what, and offers Stop at the warn point', async (t) => {
-  const aborted = [];
-  const { root, document, window, publishPool } = mount(t, {
-    abortSession: async (sessionId) => {
-      aborted.push(sessionId);
-    },
-  });
-  const opened = [];
+test('agent rows show no quiet or wait-reason line, however long a running agent is quiet', async (t) => {
+  const { root, document, window, publishPool } = mount(t);
   const sessions = [{ id: 'lead-a', title: 'Lead A', preview: '', updatedAt: 1, messageCount: 1 }];
-  await act(async () =>
-    root.render(
-      React.createElement(AgentActivityPane, {
-        active: false,
-        sessions,
-        onOpenSession: (sessionId) => opened.push(sessionId),
-      })
-    )
-  );
+  await act(async () => root.render(React.createElement(AgentActivityPane, { active: false, sessions })));
   const running = (tag, quietMs) =>
     worker(tag, {
       status: 'running',
@@ -204,15 +190,8 @@ test('a quiet running agent says how long and on what, and offers Stop at the wa
     });
   await publishPool([lead, running('fresh', 30_000), running('quiet', 150_000), running('stuck', 400_000)]);
   await act(async () => window.dispatchEvent(new window.CustomEvent(AGENT_GROUP_EXPANSION_EVENT, { detail: true })));
-  const cue = (tag) => document.querySelector(`.agent-pool-row[data-agent-tag="${tag}"] .agent-quiet-cue`);
-  assert.equal(cue('fresh'), null);
-  assert.match(cue('quiet').textContent, /^Quiet for .*2.* · waiting on model$/);
-  assert.equal(cue('quiet').dataset.escalated, undefined);
-  assert.equal(cue('quiet').querySelector('.quiet-cue-stop'), null);
-  assert.equal(cue('stuck').dataset.escalated, 'true');
-  await act(async () => cue('stuck').querySelector('.quiet-cue-stop').click());
-  assert.deepEqual(aborted, ['s-stuck']);
-  assert.deepEqual(opened, [], 'Stop never opens the row');
+  assert.equal(document.querySelectorAll('.agent-pool-row').length, 4);
+  assert.equal(document.querySelector('.agent-pool-row .quiet-cue'), null);
   assert.equal(
     quietCueText({ quietMs: 200_000, minutes: 3, wait: 'tool', tool: 'shell', escalated: false }).endsWith(
       'running shell'

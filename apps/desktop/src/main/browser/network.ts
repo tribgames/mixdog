@@ -34,7 +34,7 @@ const POLICY_BLOCK_NOTE = `${POLICY_BLOCK} (Browser Use network policy`;
 /** The failure text with the refusal named, and the rule's reason when the
  *  partition recorded one for this URL. */
 export function explainNetworkFailure(text: string, reason = ''): string {
-  return text.replaceAll(POLICY_BLOCK, `${POLICY_BLOCK_NOTE}${reason ? `: ${reason}` : ''})`);
+  return text.replaceAll(POLICY_BLOCK, () => `${POLICY_BLOCK_NOTE}${reason ? `: ${reason}` : ''})`);
 }
 
 /** At most `limit` of these report lines, in their original order, choosing

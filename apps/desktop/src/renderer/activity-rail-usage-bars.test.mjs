@@ -20,7 +20,7 @@ const dashboard = {
         { label: 'W', usedPct: 41 },
       ],
     },
-    { id: 'opencode-go', authenticated: true, windows: [{ label: 'M', usedPct: 10 }] },
+    { id: 'opencode-go-oauth', authenticated: true, windows: [{ label: 'M', usedPct: 10 }] },
   ],
 };
 
@@ -119,7 +119,7 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
   assert.equal(brand('claude').className.includes('tone-danger'), true);
   assert.equal(brand('claude').querySelector('small').textContent, '99%');
   // A single-window provider never gets a placeholder bar.
-  assert.equal(meters('opencode-go').length, 1);
+  assert.equal(meters('opencode-go-oauth').length, 1);
   assert.match(brand('claude').getAttribute('data-tooltip'), /^Claude · 5-hour 99% · weekly 41%$/);
 
   // A fresh mount restores the stored mode.

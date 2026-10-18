@@ -50,6 +50,10 @@
 /* The island slot's resting height is its pill plus the stage's floor gap.
    Pill, stage and the draft's context bar all read these properties, so the
    bar cannot drift from the slot it stands in for (phones set the pill below). */
+.conversation {
+  /* The transcript's jump-to-latest chip reads the same stage gap. */
+  --island-stage-gap: 12px;
+}
 .composer-region {
   --island-pill-height: 34px;
   --island-stage-gap: 12px;
@@ -336,6 +340,17 @@
   height: 14px;
   background: var(--composer-island-rule);
   transform: translateY(-50%);
+}
+/* An undecided files segment's room (IslandFilesPending): its last advance,
+   separator margin included, so the arriving segment moves nothing. */
+.composer-island-pill > .composer-island-reserve {
+  flex: none;
+  height: 26px;
+}
+/* A segment after a reserve keeps the separator margin it has beside the
+   segment the reserve stands in for. */
+.composer-island-pill > .composer-island-reserve ~ .composer-island-seg {
+  margin-inline-start: 5px;
 }
 /* The divider between the work group (Goal, agents, shells) and the git group
    (branch, files, git action): drawn only while both groups have something. */
@@ -2812,7 +2827,7 @@ button.attachment-card-file {
   font-family: var(--mx-font-mono);
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-ui);
-  white-space: pre;
+  white-space: pre-wrap;
 }
 .task-drop-overlay {
   position: absolute;

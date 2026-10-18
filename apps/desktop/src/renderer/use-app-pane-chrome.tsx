@@ -114,22 +114,24 @@ export function useAppPaneChrome({
   };
 
   const paneStripFor = (leaf: PaneLeaf) => {
-    if (leaf.tabs.length === 0) return null;
-    const leafTabs = leaf.tabs.map((selection) => {
+    // An open announced in this commit shows its tab before the pane renders.
+    const shown = paneWorkspace.stripLeaf(leaf);
+    if (shown.tabs.length === 0) return null;
+    const leafTabs = shown.tabs.map((selection) => {
       const key = navigationKey(selection);
       return {
         key,
         title: stripTitleFor(key, selection),
         selection,
-        preview: leaf.previewKey === key,
-        pinned: leaf.previewKey !== key,
+        preview: shown.previewKey === key,
+        pinned: shown.previewKey !== key,
         dirty: dirtyFileKeys.has(key),
       };
     });
     return (
       <WorkspaceTabStrip
         tabs={leafTabs}
-        activeKey={leaf.activeKey}
+        activeKey={shown.activeKey}
         sessions={sessions}
         workingSessionIds={workingSessionIds}
         unreadSessionIds={unreadSessionIds}

@@ -17,7 +17,7 @@ import {
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 
-export type AttachmentCardKind = 'image' | 'pasted' | 'text' | 'pdf' | 'office';
+type AttachmentCardKind = 'image' | 'pasted' | 'text' | 'pdf' | 'office';
 
 /** Tone, type word and prose/code reading of a non-image card. */
 function attachmentCardType(
@@ -137,6 +137,8 @@ export function AttachmentCard({
   removeDisabled?: boolean;
 }) {
   const imageFallback = kind === 'image' && !imageUrl;
+  const pasted = kind === 'pasted' && !!meta;
+  const label = pasted ? `${t('Paste')} · ${meta}` : name;
   let body: ReactNode;
   let hover = tooltip || name;
   if (imageUrl) {
@@ -172,8 +174,7 @@ export function AttachmentCard({
         </span>
       );
     else if (kind === 'pdf' && content) thumbnail = <PdfFirstPage data={content} tone={type.tone} />;
-    const label = kind === 'pasted' && meta ? `${t('Paste')} · ${meta}` : name;
-    if (!tooltip && meta) hover = `${name} · ${meta}`;
+    if (!tooltip && meta) hover = pasted ? label : `${name} · ${meta}`;
     const parts = (
       <>
         <span className="attachment-card-shot">{thumbnail}</span>
@@ -210,7 +211,7 @@ export function AttachmentCard({
         <button
           type="button"
           className="attachment-card-remove"
-          aria-label={t('Remove {{name}}', { name })}
+          aria-label={t('Remove {{name}}', { name: label })}
           data-tooltip={t('Remove')}
           disabled={removeDisabled}
           onClick={onRemove}

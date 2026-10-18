@@ -151,7 +151,7 @@ async function openInline(
     request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
   state.active = tab.id;
   ctx.views.rememberTab(sessionId, tab, true);
-  ctx.publish(sessionId, true);
+  ctx.publish(sessionId, tab.id);
   if (versionError) throw new Error(`${versionError.message}; tab ${tab.id} shows the live content`);
   const placed = await placement(
     ctx.deps,
@@ -288,7 +288,7 @@ export function createOpenActions(ctx: OpenContext) {
       request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
     state.active = tab.id;
     ctx.views.rememberTab(sessionId, tab, true);
-    ctx.publish(sessionId, true);
+    ctx.publish(sessionId, tab.id);
     if (versionError) throw new Error(`${versionError.message}; tab ${tab.id} shows the live files`);
     const shown = files
       .map((target) => `${relative(cwd, target.path).replace(/\\/g, '/') || target.label} (${target.kind})`)

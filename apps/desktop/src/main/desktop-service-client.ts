@@ -72,7 +72,13 @@ export const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
 const DEFAULT_RESTART_BASE_DELAY_MS = 250;
 const DEFAULT_RESTART_MAX_DELAY_MS = 5_000;
 const DEFAULT_RESTART_STABLE_MS = 30_000;
-const DEFAULT_FAILURE_NOTICE_DELAY_MS = 10_000;
+/** Reconnects retry silently (backoff 250 ms -> 5 s, each attempt bounded by the
+ *  15 s startup timeout, backoff reset after 30 s of stable service). Stalls of
+ *  15-30 s recover on their own, so the notice waits twice the longest observed
+ *  stall: by then at least a dozen attempts have failed and the outage is lasting. */
+const DEFAULT_FAILURE_NOTICE_DELAY_MS = 60_000;
+const PROCESS_FAILURE_NOTICE_TEXT =
+  'The service connection has been lost for a while. Still retrying automatically.';
 const PROCESS_FAILURE_TOAST_ID = 'service-connection-stopped';
 
 /** The daemon lane carries arguments as JSON, which turns an omitted trailing
@@ -627,10 +633,7 @@ export class DesktopServiceClient implements DesktopService {
     return { ...previous, toasts } as SessionSnapshot;
   }
 
-  private processFailureSnapshot(
-    snapshot: SessionSnapshot,
-    text = 'The service connection stopped. Retrying automatically.'
-  ): SessionSnapshot {
+  private processFailureSnapshot(snapshot: SessionSnapshot, text = PROCESS_FAILURE_NOTICE_TEXT): SessionSnapshot {
     const previous = snapshot && typeof snapshot === 'object' ? (snapshot as Record<string, unknown>) : {};
     const existingToasts = Array.isArray(previous.toasts) ? previous.toasts : [];
     return {

@@ -18,7 +18,6 @@ test('secret, OAuth, MCP and developer capabilities are allowed for every paired
   for (const capability of [
     'saveProviderApiKey',
     'saveOpenAIUsageSessionKey',
-    'saveOpenCodeGoUsageAuth',
     'authenticateProvider',
     'loginOAuthProvider',
     'beginOAuthProviderLogin',

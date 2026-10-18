@@ -187,9 +187,10 @@ export type SessionViews = ReturnType<typeof createSessionViews>;
  *  running to its end), then the desktop window and the remote mirror get
  *  the session's state. */
 export function createPublish(ctx: Pick<VisualizeServiceContext, 'deps' | 'views' | 'thumbnails'>) {
-  return (sessionId: string, reveal = false): void => {
+  return (sessionId: string, revealTab?: string): void => {
     ctx.thumbnails.cancelStale(sessionId);
-    ctx.deps.publish({ sessionId, state: ctx.views.stateOf(sessionId), ...(reveal ? { reveal: true } : {}) });
-    ctx.deps.publishHost?.({ sessionId, state: ctx.views.hostStateOf(sessionId), ...(reveal ? { reveal: true } : {}) });
+    const reveal = revealTab ? { reveal: true, tab: revealTab } : {};
+    ctx.deps.publish({ sessionId, state: ctx.views.stateOf(sessionId), ...reveal });
+    ctx.deps.publishHost?.({ sessionId, state: ctx.views.hostStateOf(sessionId), ...reveal });
   };
 }

@@ -118,8 +118,8 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     if (entry.diff?.source === 'session' && sessionId) {
       setSessionDiff(sessionId, null);
     }
-    // Closing the visualize panel is the user's call: agent opens keep
-    // updating its tabs but no longer reveal it for this session.
+    // Closing the visualize panel is the user's call: a reload or a remote
+    // resume leaves it closed (the next agent open or update reveals it).
     if (sessionId && entry.open && entry.surface === '' && entry.view === 'visualize') {
       suppressVisualizeReveal(sessionId);
     }

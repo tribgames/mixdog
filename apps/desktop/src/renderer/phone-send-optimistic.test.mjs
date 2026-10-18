@@ -117,6 +117,7 @@ test('phone send: a refused or failed submit removes the row and keeps the text 
           textarea: { current: { value: 'keep this text' } },
           draftRef: { current: 'keep this text' },
           attachmentsRef: { current: [] },
+          pendingLoads: { current: 0 },
           transitioningRef: { current: false },
           composingRef: { current: false },
           submittingRef: { current: false },

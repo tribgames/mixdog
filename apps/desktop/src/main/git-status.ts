@@ -207,7 +207,8 @@ async function cachedGitDir(cwd: string): Promise<string> {
     if (match) gitDir = resolve(cwd, match[1]);
   } catch {
     try {
-      await access(dotGit);
+      // An empty or stray `.git` folder has no HEAD; let git find the real repository above it.
+      await access(join(dotGit, 'HEAD'));
       gitDir = dotGit;
     } catch {
       gitDir = resolve(cwd, (await run(cwd, ['--no-optional-locks', 'rev-parse', '--absolute-git-dir'])).trim());

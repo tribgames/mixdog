@@ -39,7 +39,58 @@ export function publicGitRemoteUrl(value: unknown): string {
   }
 }
 
+/** Runs one child to completion off this thread: the daemon's shared
+ *  process-runner worker (src/runtime/shared/process-runner.mjs). */
+export type GitProcessRunner = (
+  command: string,
+  args: string[],
+  options: { cwd?: string; input?: string; env?: NodeJS.ProcessEnv | null; timeoutMs?: number; maxBytes?: number }
+) => Promise<{ code: number; stdout: string; stderr: string }>;
+
+// Set by the daemon's desktop service: process creation is a synchronous
+// native call (seconds long under load), and every git status, review and
+// history read spawned git on the daemon's event loop. Unset (the Electron
+// main process, tests), children are spawned on this thread as before.
+let offThreadRunner: GitProcessRunner | null = null;
+
+export function setGitProcessRunner(runner: GitProcessRunner | null): void {
+  offThreadRunner = runner;
+}
+
+// execFile's maxBuffer bounded each stream at 16 MB; the off-thread runner
+// bounds both together. A NUL-record listing streamed unbounded before; it
+// is buffered off-thread now, so it gets a generous bound instead.
+const RUN_MAX_BYTES = 32_000_000;
+const STREAM_MAX_BYTES = 512 * 1024 * 1024;
+const TAIL_CHARS = 64_000;
+
+function runOffThread(
+  runner: GitProcessRunner,
+  cwd: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  { input = '', maxBytes = RUN_MAX_BYTES }: { input?: string; maxBytes?: number } = {}
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  // No deadline, like the in-thread runner: git's own work bounds it.
+  return runner('git', args, { cwd, env, input, timeoutMs: 0, maxBytes });
+}
+
+function gitFailure(args: string[], stderr: string): Error {
+  return new Error(scrubGitCredentials(stderr || `Command failed: git ${args.join(' ')}`).trim());
+}
+
 export function run(cwd: string, args: string[], indexFile?: string, protectHook = false): Promise<string> {
+  if (offThreadRunner) {
+    return runOffThread(offThreadRunner, cwd, args, gitEnvironment(indexFile, protectHook)).then(
+      ({ code, stdout, stderr }) => {
+        if (code !== 0) throw gitFailure(args, stderr);
+        return stdout;
+      },
+      (error: Error) => {
+        throw new Error(scrubGitCredentials(error?.message || error).trim());
+      }
+    );
+  }
   return new Promise((resolve, reject) => {
     execFile(
       'git',
@@ -71,6 +122,12 @@ interface GitOutcome {
 }
 
 export function runWithStatus(cwd: string, args: string[]): Promise<GitOutcome> {
+  if (offThreadRunner) {
+    return runOffThread(offThreadRunner, cwd, args, gitEnvironment()).then(
+      ({ code, stdout, stderr }) => ({ code, stdout, stderr: scrubGitCredentials(stderr).trim() }),
+      (error: Error) => ({ code: -1, stdout: '', stderr: scrubGitCredentials(error?.message || error).trim() })
+    );
+  }
   return new Promise((settle) => {
     execFile(
       'git',
@@ -96,6 +153,17 @@ export function runWithStatus(cwd: string, args: string[]): Promise<GitOutcome> 
 }
 
 export function runWithInput(cwd: string, args: string[], input: string, indexFile?: string): Promise<string> {
+  if (offThreadRunner) {
+    return runOffThread(offThreadRunner, cwd, args, gitEnvironment(indexFile), {
+      input,
+      maxBytes: STREAM_MAX_BYTES,
+    }).then(({ code, stdout, stderr }) => {
+      if (code !== 0) {
+        throw new Error(scrubGitCredentials(stderr.slice(-TAIL_CHARS)).trim() || `git exited with code ${code}.`);
+      }
+      return stdout.slice(-TAIL_CHARS);
+    });
+  }
   return new Promise((resolvePromise, reject) => {
     const child = spawn('git', args, {
       cwd,
@@ -137,6 +205,21 @@ export function runWithInput(cwd: string, args: string[], input: string, indexFi
 }
 
 export function streamNulRecords(cwd: string, args: string[], onRecord: (record: string) => void): Promise<void> {
+  if (offThreadRunner) {
+    // Delivered once the child has finished (the worker returns its whole
+    // output), in the same order and with the same trailing-record rule.
+    return runOffThread(offThreadRunner, cwd, args, gitEnvironment(), { maxBytes: STREAM_MAX_BYTES }).then(
+      ({ code, stdout, stderr }) => {
+        if (code !== 0) {
+          throw new Error(scrubGitCredentials(stderr.slice(-TAIL_CHARS)).trim() || `git exited with code ${code}.`);
+        }
+        const records = stdout.split('\0');
+        const last = records.pop();
+        for (const record of records) onRecord(record);
+        if (last) onRecord(last);
+      }
+    );
+  }
   return new Promise((resolvePromise, reject) => {
     const child = spawn('git', args, {
       cwd,

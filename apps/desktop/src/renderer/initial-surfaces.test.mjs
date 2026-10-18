@@ -554,8 +554,9 @@ test('usage pin reserves neutral rows from the connected accounts before any quo
           { id: 'openai-oauth', authenticated: true },
           { id: 'anthropic-oauth', authenticated: true },
           { id: 'grok-oauth', authenticated: false },
+          { id: 'opencode-go-oauth', authenticated: true },
         ],
-        api: [{ id: 'opencode-go', authenticated: true }],
+        api: [],
       },
     },
   ];
@@ -582,7 +583,7 @@ test('usage pin reserves neutral rows from the connected accounts before any quo
   const snapshot = { status: 'loading', loading: true, refreshedAt: 0, dashboard: {} };
   await view.render(React.createElement(Probe, { snapshot }));
   await view.settle(() => {});
-  assert.equal(view.host.querySelector('output').textContent, 'ready codex~:1,claude~:1,opencode-go~:1');
+  assert.equal(view.host.querySelector('output').textContent, 'ready codex~:1,claude~:1,opencode-go-oauth~:1');
   await view.render(
     React.createElement(Probe, {
       snapshot: {

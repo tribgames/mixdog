@@ -131,33 +131,19 @@
 .workspace-tab.active {
   min-width: var(--workspace-tab-current-width, 56px);
 }
-/* Add and close share the run's own clock. A tab the strip has just gained
-   starts at nothing and grows to its cell while its neighbours shrink, so the
-   run's total never exceeds the strip and the leading tab is never clipped
-   and scrolled back (the old add landed at full width, overflowed, and slid).
-   A closing tab keeps its node for one beat and collapses to nothing while
+/* A tab the strip has just gained lands whole in the commit that opens it:
+   for that beat the run takes its new cells at once, the gained tab included,
+   so the total never exceeds the strip and nothing slides afterwards. Growing
+   the tab in from nothing showed an opened session's tab only once the
+   incoming pane's first long tasks let the width motion run. */
+.workspace-tabs:has(> .workspace-tab.entering) > .workspace-tab:not(.closing) {
+  transition: none;
+}
+/* A closing tab keeps its node for one beat and collapses to nothing while
    its neighbours grow into the space, instead of vanishing and leaving the
-   right-hand tabs to jump left before they glide. The contents fade with the
-   width, so nothing spills out of a cell narrower than its glyph. */
-.workspace-tab.entering {
-  /* A half-grown cell cannot contain its fixed-size glyph and close button.
-     Clip that temporary overflow so it neither paints over neighbours nor
-     enlarges the scrollable area while the run grows. */
-  overflow: clip;
-}
-@starting-style {
-  .workspace-tab.entering {
-    min-width: 0;
-    max-width: 0;
-    flex-basis: 0;
-    padding-left: 0;
-    padding-right: 0;
-    opacity: 0;
-  }
-}
-/* Closing mirrors opening: the collapsing cell clips its glyph, title and X
-   the way a growing one does, instead of spilling them over its neighbours
-. */
+   right-hand tabs to jump left before they glide. The collapsing cell clips
+   its glyph, title and X and fades them with the width, so nothing spills
+   over its neighbours. */
 .workspace-tab.closing,
 .workspace-tab.closing.active {
   overflow: clip;

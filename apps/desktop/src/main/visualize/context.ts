@@ -42,8 +42,10 @@ export interface VisualizeServiceContext {
   pendingReloads: Set<Promise<void>>;
   /** The next start order of an open or file reload (`TabState.loadedStamp`). */
   nextLoadStamp(): number;
-  /** Push the session's state to the renderer and the remote mirror. */
-  publish(sessionId: string, reveal?: boolean): void;
+  /** Push the session's state to the renderer and the remote mirror;
+   *  `revealTab`: an agent open or a content update of that tab, which the
+   *  renderer brings up by the panel's open policy (visualize-store). */
+  publish(sessionId: string, revealTab?: string): void;
   views: SessionViews;
   thumbnails: Thumbnails;
   problems: ProblemTracker;

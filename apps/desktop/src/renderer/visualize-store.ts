@@ -4,7 +4,12 @@
 // the app shell (which owns the pane docks).
 import { useSyncExternalStore } from 'react';
 
-import type { DesktopVisualizeEvent, VisualizeCommandResult, VisualizeSessionState } from '../shared/visualize';
+import type {
+  DesktopVisualizeEvent,
+  VisualizeCommandResult,
+  VisualizeInlineContent,
+  VisualizeSessionState,
+} from '../shared/visualize';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
 import { linkOpenTarget } from './link-open-target';
 import { emitVisualizeZoomInput, emitVisualizeZoomModifier } from './visualize-zoom';
@@ -22,13 +27,32 @@ const revealListeners = new Set<RevealListener>();
 const pendingReveals = new Set<string>();
 let connected = false;
 
-/** Per-session panel memory, kept in sessionStorage so it survives a renderer
- *  reload (main keeps the tabs; the renderer forgets which panels it showed).
+/** Per-session panel memory, kept in localStorage so it survives a renderer
+ *  reload and a phone whose page was discarded in the background (a WebView
+ *  restarted by the OS keeps no sessionStorage); main keeps the tabs, the
+ *  renderer forgets which panels it showed.
  *  `open`: the panel was on screen and not closed by the user since.
- *  `closed`: the user closed it — file-change reloads and updates keep
- *  updating the tabs without revealing the panel, and a renderer reload does
- *  not bring it back; a new agent `open` (or the user) lifts the mark. */
+ *  `closed`: the user closed it — a renderer reload or a remote resume does
+ *  not bring it back. An agent open or update still does (the open policy
+ *  below) and lifts the mark. */
 const PANEL_MEMORY_KEY = 'mixdog.visualize.panels.v1';
+
+/*
+ * The open policy. Every agent `open` and every content update of a tab
+ * (its file changed, or the agent opened it again) brings the session's
+ * visualize panel up on that tab, on the desktop and on a paired phone alike
+ * — unless the panel is on screen showing another tab the user picked
+ * themselves; then the tab only gets an "updated" mark until it is viewed.
+ * A pick lasts while the panel stays on screen; once it leaves (closed,
+ * another dock view, another session) the next open or update takes over.
+ */
+/** Sessions whose visualize panel is on screen right now (VisualizePane). */
+const onScreen = new Set<string>();
+/** The tab the user picked in a session's panel (strip, chat card). */
+const userPicks = new Map<string, string>();
+/** Tabs opened or updated behind the user's pick, per session. */
+let updatedTabs = new Map<string, ReadonlySet<string>>();
+const NO_UPDATES: ReadonlySet<string> = new Set();
 interface PanelMemory {
   open: Set<string>;
   closed: Set<string>;
@@ -40,7 +64,7 @@ function panelMemory(): PanelMemory {
   let open: string[] = [];
   let closed: string[] = [];
   try {
-    const parsed = JSON.parse(globalThis.sessionStorage?.getItem(PANEL_MEMORY_KEY) ?? '{}');
+    const parsed = JSON.parse(globalThis.localStorage?.getItem(PANEL_MEMORY_KEY) ?? '{}');
     if (Array.isArray(parsed?.open)) open = parsed.open.map(String);
     if (Array.isArray(parsed?.closed)) closed = parsed.closed.map(String);
   } catch {
@@ -53,7 +77,7 @@ function panelMemory(): PanelMemory {
 function savePanelMemory(): void {
   const memory = panelMemory();
   try {
-    globalThis.sessionStorage?.setItem(
+    globalThis.localStorage?.setItem(
       PANEL_MEMORY_KEY,
       JSON.stringify({ open: [...memory.open], closed: [...memory.closed] })
     );
@@ -65,6 +89,9 @@ function savePanelMemory(): void {
 /** Test seam: forget the in-memory panel memory so storage is re-read. */
 export function resetVisualizePanelMemory(): void {
   panelMemoryCache = null;
+  onScreen.clear();
+  userPicks.clear();
+  updatedTabs = new Map();
 }
 
 function emit(): void {
@@ -163,13 +190,101 @@ export function applyVisualizeEvent(event: DesktopVisualizeEvent): void {
   const sessionId = String(event?.sessionId || '');
   if (!sessionId) return;
   if (event.openUrl) requestBrowserPage(sessionId, event.openUrl, { newTab: true, agent: true });
-  if (event.state) setState({ ...event.state, sessionId });
-  // Only an agent open carries `reveal`: it is a fresh request to show the
-  // panel, so it lifts a user close. Reloads and updates never reveal.
-  if (event.reveal) {
-    allowVisualizeReveal(sessionId);
-    requestReveal(sessionId);
+  const state = event.state ? { ...event.state, sessionId } : undefined;
+  // An agent open or a content update carries `reveal` (and, from current
+  // hosts, the tab it was for): the open policy decides what shows.
+  if (event.reveal) showUpdatedTab(sessionId, event.tab || state?.active || '', state);
+  else if (state) setState(state);
+}
+
+/** Whether an open or update of `tabId` brings the panel up on it (the open
+ *  policy): no, only while the panel is on screen on another tab the user
+ *  picked that still exists. */
+export function visualizeUpdateShows(
+  state: Pick<VisualizeSessionState, 'tabs'>,
+  tabId: string,
+  panelOnScreen: boolean,
+  pick: string | undefined
+): boolean {
+  return !(panelOnScreen && pick && pick !== tabId && state.tabs.some((tab) => tab.id === pick));
+}
+
+function sendActivate(sessionId: string, tabId: string): void {
+  void globalThis.window?.mixdogDesktop?.visualizeCommand?.({ sessionId, tabId, action: 'activate' })?.catch(() => {});
+}
+
+function setUpdated(sessionId: string, tabId: string, updated: boolean): void {
+  const current = updatedTabs.get(sessionId) ?? NO_UPDATES;
+  if (current.has(tabId) === updated) return;
+  const next = new Set(current);
+  if (updated) next.add(tabId);
+  else next.delete(tabId);
+  updatedTabs = new Map(updatedTabs);
+  if (next.size) updatedTabs.set(sessionId, next);
+  else updatedTabs.delete(sessionId);
+  emit();
+}
+
+/** Apply the open policy to an open or update of `tabId` (`incoming`: the
+ *  state that came with it). Shown: the tab becomes active (main told when it
+ *  did not pick it itself, as for a file-change update) and the panel is
+ *  revealed, lifting a user close. Kept: the user's tab stays (main told
+ *  again when the open moved it) and `tabId` is marked updated. */
+function showUpdatedTab(sessionId: string, tabId: string, incoming?: VisualizeSessionState): void {
+  const base = incoming ?? states.get(sessionId);
+  if (!base) return;
+  const pick = userPicks.get(sessionId);
+  if (pick && !visualizeUpdateShows(base, tabId, onScreen.has(sessionId), pick)) {
+    setState(base.active === pick ? base : { ...base, active: pick });
+    if (base.active !== pick) sendActivate(sessionId, pick);
+    if (tabId) setUpdated(sessionId, tabId, true);
+    return;
   }
+  userPicks.delete(sessionId);
+  const shown = base.tabs.some((tab) => tab.id === tabId) ? tabId : base.active;
+  setState(shown && base.active !== shown ? { ...base, active: shown } : base);
+  if (shown) {
+    if (base.active !== shown) sendActivate(sessionId, shown);
+    setUpdated(sessionId, shown, false);
+  }
+  allowVisualizeReveal(sessionId);
+  requestReveal(sessionId);
+}
+
+/** Tabs opened or updated behind the user's pick (the strip marks them). */
+export function visualizeUpdatedTabs(sessionId: string): ReadonlySet<string> {
+  return updatedTabs.get(sessionId) ?? NO_UPDATES;
+}
+
+export function useVisualizeUpdatedTabs(sessionId: string): ReadonlySet<string> {
+  return useSyncExternalStore(
+    subscribe,
+    () => visualizeUpdatedTabs(sessionId),
+    () => NO_UPDATES
+  );
+}
+
+/** The session's panel came on screen (true) or left it: while it is off,
+ *  the user's tab pick no longer holds back opens and updates. */
+export function setVisualizePanelOnScreen(sessionId: string, shown: boolean): void {
+  if (!sessionId) return;
+  if (shown) onScreen.add(sessionId);
+  else {
+    onScreen.delete(sessionId);
+    userPicks.delete(sessionId);
+  }
+}
+
+/** The newest version number of each tab (0 without versions). */
+function tabVersions(state: VisualizeSessionState | undefined): Map<string, number> {
+  return new Map((state?.tabs ?? []).map((tab) => [tab.id, tab.versions?.at(-1)?.n ?? 0]));
+}
+
+/** Panels a reload or resume should bring back: open before, not closed by
+ *  the user since, and still with tabs. */
+function rememberedOpen(state: VisualizeSessionState): boolean {
+  const memory = panelMemory();
+  return state.tabs.length > 0 && memory.open.has(state.sessionId) && !memory.closed.has(state.sessionId);
 }
 
 /** Apply main's tab snapshot after a renderer (re)load (exported for tests):
@@ -183,10 +298,7 @@ export function hydrateVisualizeStates(snapshot: readonly VisualizeSessionState[
   for (const state of snapshot ?? []) {
     if (!state?.sessionId || states.has(state.sessionId)) continue;
     changed = putState(next, state) || changed;
-    const memory = panelMemory();
-    if (state.tabs.length && memory.open.has(state.sessionId) && !memory.closed.has(state.sessionId)) {
-      reopen.push(state.sessionId);
-    }
+    if (rememberedOpen(state)) reopen.push(state.sessionId);
   }
   if (changed) {
     states = next;
@@ -195,10 +307,15 @@ export function hydrateVisualizeStates(snapshot: readonly VisualizeSessionState[
   if (reopen.length) setTimeout(() => reopen.forEach(requestReveal), 0);
 }
 
-/** A paired remote client back from a gap (exported for tests): pushes may
- *  have been missed while the link was down, so the host's snapshot replaces
- *  every session's tabs. Nothing is revealed. */
+/** A paired remote client back from a gap — a phone resumed from the
+ *  background, a dropped link (exported for tests): pushes may have been
+ *  missed meanwhile, so the host's snapshot replaces every session's tabs.
+ *  Then, a turn later (the shell renders the visualize view first): a tab
+ *  opened or updated during the gap goes through the open policy as its
+ *  missed push would have, and a panel that was open before the gap (not
+ *  closed by the user) is brought back. */
 export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[] | null | undefined): void {
+  const before = states;
   const next = new Map<string, VisualizeSessionState>();
   for (const state of snapshot ?? []) {
     if (state?.sessionId && (state.tabs.length || state.history?.length)) {
@@ -206,9 +323,24 @@ export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[]
     }
   }
   const same = next.size === states.size && [...next].every(([id, state]) => states.get(id) === state);
-  if (same) return;
-  states = next;
-  emit();
+  if (!same) {
+    states = next;
+    emit();
+  }
+  const missed: Array<[string, string]> = [];
+  const reopen: string[] = [];
+  for (const [sessionId, state] of next) {
+    const known = tabVersions(before.get(sessionId));
+    const changed = state.tabs.filter((tab) => known.get(tab.id) !== (tab.versions?.at(-1)?.n ?? 0));
+    const tab = changed.find((candidate) => candidate.id === state.active) ?? changed.at(-1);
+    if (tab) missed.push([sessionId, tab.id]);
+    else if (rememberedOpen(state)) reopen.push(sessionId);
+  }
+  if (!missed.length && !reopen.length) return;
+  setTimeout(() => {
+    for (const [sessionId, tabId] of missed) showUpdatedTab(sessionId, tabId);
+    reopen.forEach(requestReveal);
+  }, 0);
 }
 
 /** Subscribe to main once; a reloaded renderer first reads the current tabs. */
@@ -276,8 +408,8 @@ export function onVisualizeRevealRequested(listener: RevealListener): () => void
   };
 }
 
-/** The user closed the panel: later agent opens stay quiet for this session,
- *  and a renderer reload does not bring it back. */
+/** The user closed the panel: a renderer reload or a remote resume does not
+ *  bring it back (the next agent open or update still does). */
 export function suppressVisualizeReveal(sessionId: string): void {
   if (!sessionId) return;
   const memory = panelMemory();
@@ -311,7 +443,7 @@ export function markVisualizePanelHidden(sessionId: string): void {
 }
 
 /** Below this body width, 2-3 panes stack instead of sharing the width. */
-export const VISUALIZE_SIDE_BY_SIDE_MIN_WIDTH = 2 * 360;
+const VISUALIZE_SIDE_BY_SIDE_MIN_WIDTH = 2 * 360;
 
 export function visualizePanesStacked(bodyWidth: number, paneCount: number): boolean {
   return paneCount > 1 && bodyWidth > 0 && bodyWidth < VISUALIZE_SIDE_BY_SIDE_MIN_WIDTH;
@@ -343,10 +475,14 @@ export function visualizeTabTooltip(tab: Pick<VisualizeSessionState['tabs'][numb
   return [tab.label, ...tab.panes.map((pane) => pane.target)].join('\n');
 }
 
+/** The user picked `tabId` (the tab strip, a chat card): it holds the panel
+ *  against opens and updates of other tabs while the panel stays on screen. */
 export function activateVisualizeTab(sessionId: string, tabId: string): void {
+  userPicks.set(sessionId, tabId);
+  setUpdated(sessionId, tabId, false);
   const state = states.get(sessionId);
   if (state && state.active !== tabId) setState({ ...state, active: tabId });
-  void window.mixdogDesktop?.visualizeCommand?.({ sessionId, tabId, action: 'activate' })?.catch(() => {});
+  sendActivate(sessionId, tabId);
 }
 
 /** A chat card click on a live tab: the user's own request, so it lifts the
@@ -370,6 +506,21 @@ export function reopenVisualizeTargets(sessionId: string, tabId: string, targets
         targets,
         ...(label ? { label } : {}),
       })
+      ?.then(() => undefined) ?? Promise.resolve()
+  );
+}
+
+/** The same for a closed inline tab: open its stored content again. */
+export function reopenVisualizeContent(
+  sessionId: string,
+  tabId: string,
+  content: VisualizeInlineContent,
+  label = ''
+): Promise<void> {
+  allowVisualizeReveal(sessionId);
+  return (
+    window.mixdogDesktop
+      ?.visualizeCommand?.({ sessionId, tabId, action: 'reopen', targets: [], content, ...(label ? { label } : {}) })
       ?.then(() => undefined) ?? Promise.resolve()
   );
 }

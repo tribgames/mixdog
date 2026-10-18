@@ -602,7 +602,7 @@ function refineList(source: string, a: Tokens.List, target: string, b: Tokens.Li
   const first = a.items[0]?.raw ?? '';
   const marker = (a.ordered ? ORDINAL : BULLET).exec(first)?.[2];
   if (!marker) return null;
-  const adapt = (raw: string) => raw.replace(a.ordered ? ORDINAL : BULLET, `$1${marker}`);
+  const adapt = (raw: string) => raw.replace(a.ordered ? ORDINAL : BULLET, (__m, __1) => `${__1}${marker}`);
   const items = tiledUnits(
     source,
     a.items.map((item) => ({ raw: item.raw, key: itemKey(item.raw) }))

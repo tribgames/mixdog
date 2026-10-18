@@ -69,7 +69,11 @@ export async function loadRemoteClientCache(userDataPath: string): Promise<Remot
       ),
     pending: () => [...state.pendingRevokes],
     async remember(clients) {
-      state.clients = clients.flatMap((row) => entry(row) ?? []);
+      const next = clients.flatMap((row) => entry(row) ?? []);
+      // Each remote-access read reports the list; rewriting an unchanged one
+      // cost an owner-only ACL process and two fsyncs per poll.
+      if (JSON.stringify(next) === JSON.stringify(state.clients)) return;
+      state.clients = next;
       await persist();
     },
     async queueRevoke(clientId) {

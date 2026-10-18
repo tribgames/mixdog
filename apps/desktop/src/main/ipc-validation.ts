@@ -460,10 +460,10 @@ const CAPABILITY_ARITY = {
   saveCustomProvider: [1, 1],
   removeCustomProvider: [1, 1],
   updateCustomProviderModel: [3, 3],
+  setModelPreferences: [2, 2],
   testCustomProvider: [1, 1],
   checkCustomProviderKeyEnv: [1, 1],
   discoverCustomProviderModels: [1, 1],
-  saveOpenCodeGoUsageAuth: [1, 1],
   saveOpenAIUsageSessionKey: [1, 1],
   authenticateProvider: [2, 2],
   forgetProviderAuth: [1, 2],
@@ -786,6 +786,27 @@ export function requiredCustomModelPatch(id: unknown, modelId: unknown, patch: u
   requiredString(id, 'custom provider id', 128);
   requireSafeModelId(requiredString(modelId, 'custom provider model id', CUSTOM_MAX_MODEL_ID));
   if (patch !== null) validateCustomModelOverride(patch, true);
+}
+
+const MODEL_PREFERENCE_KEYS: ReadonlySet<string> = new Set(['model', 'hidden', 'favorite']);
+export const MODEL_PREFERENCE_CHANGES_MAX = 5_000;
+
+/** Shape check for setModelPreferences(provider, [{ model, hidden?, favorite? }]). */
+function requiredModelPreferences(provider: unknown, changes: unknown): void {
+  requiredString(provider, 'provider id', 128);
+  if (!Array.isArray(changes) || changes.length > MODEL_PREFERENCE_CHANGES_MAX) {
+    throw new TypeError('model preference changes are invalid.');
+  }
+  for (const raw of changes) {
+    const change = plainRecord(raw, 'model preference change');
+    requireAllowedKeys(change, MODEL_PREFERENCE_KEYS, 'model preference change');
+    requireSafeModelId(requiredString(change.model, 'model id', CUSTOM_MAX_MODEL_ID));
+    for (const key of ['hidden', 'favorite']) {
+      if (change[key] !== undefined && typeof change[key] !== 'boolean') {
+        throw new TypeError(`model preference ${key} is invalid.`);
+      }
+    }
+  }
 }
 
 export function requiredGitGlobalConfigKey(value: unknown): DesktopGitGlobalConfigKey {
@@ -1156,8 +1177,11 @@ const MAX_SESSION_USAGE_IDS = 64;
 function validateSessionUsageArgs(options: unknown): void {
   const request = optionalPlainRecord(options);
   if (!request) throw new TypeError('session usage options must be an object.');
-  requireAllowedKeys(request, new Set(['sessionIds']), 'session usage options');
+  requireAllowedKeys(request, new Set(['sessionIds', 'agents']), 'session usage options');
   if (request.sessionIds !== undefined) requiredSessionIds(request.sessionIds, MAX_SESSION_USAGE_IDS);
+  if (request.agents !== undefined && typeof request.agents !== 'boolean') {
+    throw new TypeError('session usage agents must be a boolean.');
+  }
 }
 
 function validateSettingCapabilityArgs(capability: DesktopCapability, args: readonly unknown[]): void {
@@ -1235,14 +1259,10 @@ function validateCredentialCapabilityArgs(capability: DesktopCapability, args: r
   if (capability === 'checkCustomProviderKeyEnv') requiredString(args[0], 'environment variable name', 128);
   if (capability === 'saveStarterGuideState') requiredStarterGuideState(args[0]);
   if (capability === 'updateCustomProviderModel') requiredCustomModelPatch(args[0], args[1], args[2]);
+  if (capability === 'setModelPreferences') requiredModelPreferences(args[0], args[1]);
   if (capability === 'removeCustomProvider') requiredString(args[0], 'custom provider id', 128);
   if (capability === 'saveOpenAIUsageSessionKey') {
     validateSecret(args[0], 'secret');
-  }
-  if (capability === 'saveOpenCodeGoUsageAuth') {
-    const options = optionalPlainRecord(args[0]);
-    if (!options) throw new TypeError('OpenCode Go usage auth is invalid.');
-    validateSecret(options.apiKey, 'OpenCode console API key');
   }
 }
 
@@ -1608,7 +1628,7 @@ const OPENABLE_ATTACHMENT_EXTENSIONS = new Set([
 ]);
 
 /** Decodes a base64 or percent-encoded `data:` URL. */
-export function decodeDataUrl(value: unknown): { mime: string; bytes: Buffer } {
+function decodeDataUrl(value: unknown): { mime: string; bytes: Buffer } {
   if (typeof value !== 'string') throw new TypeError('data URL must be a string.');
   const match = /^data:([^,]*),([\s\S]*)$/i.exec(value.trim());
   if (!match) throw new TypeError('data URL is invalid.');

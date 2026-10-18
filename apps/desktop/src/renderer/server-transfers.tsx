@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Download, Upload, X } from 'lucide-react';
 import type { DesktopApi, DesktopLocalPathEntry } from '../shared/contract';
+import { confirmText } from './confirm-text';
 import { showDesktopToast } from './desktop-toasts';
 import { errorMessageText } from './ErrorNotice';
 import { openConfirmedFile } from './file-launch-confirmation';
@@ -189,7 +190,7 @@ export const SERVER_FILE_REVEAL_EVENT = 'mixdog:reveal-in-files';
 
 /** Reveal in the window's own file tree: a server window has no file manager
  *  on this PC to show a server path in. */
-export function requestServerFileReveal(projectPath: string, relPath: string): void {
+function requestServerFileReveal(projectPath: string, relPath: string): void {
   window.dispatchEvent(
     new CustomEvent(SERVER_FILE_REVEAL_EVENT, { detail: { project: projectPath, rel: relPath.replace(/\\/g, '/') } })
   );
@@ -226,7 +227,9 @@ export async function confirmServerDelete(
 ): Promise<{ permanent: boolean } | null> {
   const trash = await Promise.resolve(api?.serverTrashInfo?.(projectPath)).catch(() => null);
   if (trash?.available) {
-    return window.confirm(t('Move {{name}} to the server trash ({{path}})?', { name: label, path: trash.path }))
+    return window.confirm(
+      t('Move {{name}} to the server trash ({{path}})?', { name: confirmText(label), path: confirmText(trash.path) })
+    )
       ? { permanent: false }
       : null;
   }

@@ -5,7 +5,7 @@
 // Pages arrive one small batch at a time, driven by what is actually on
 // screen. A document is therefore as cheap to open as its first page, and
 // scrolling pays for exactly the pages it reaches.
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 
 import {
   documentPageAspect,
@@ -22,7 +22,7 @@ import { scaledSize } from './zoom-range';
 // Horizontal padding of `.editor-pane-document` (12px each side).
 const SCROLLER_PADDING = 24;
 // A page's width at 100%; fit shrinks it to the panel, never beyond.
-export const DOCUMENT_PAGE_WIDTH = 900;
+const DOCUMENT_PAGE_WIDTH = 900;
 // What the main process renders when a request names no width.
 const DEFAULT_RENDER_WIDTH = 1200;
 // Pages are re-rendered only when zoom outgrows what was requested by this much.
@@ -32,13 +32,31 @@ const RESOLUTION_DEBOUNCE_MS = 250;
 // small enough that one reply stays a reply and not a download.
 const PAGE_BATCH = 2;
 // Pages start loading before they are on screen, so a normal scroll meets
-// them already painted.
-const PAGE_LOOKAHEAD = '600px 0px';
+// them already painted: this far above and below the scroller's box.
+const PAGE_LOOKAHEAD_PX = 600;
 
 const NO_PAGE_ERRORS: Record<number, DocumentPageError> = {};
 
 function samePages(left: number[], right: number[]): boolean {
   return left.length === right.length && left.every((page, index) => page === right[index]);
+}
+
+/** The page slots within the lookahead of `root`'s box, in page order; null
+ *  while the scroller has no box yet (nothing to compare against). */
+function pagesInView(root: HTMLElement): number[] | null {
+  const box = root.getBoundingClientRect();
+  if (box.height <= 0) return null;
+  const top = box.top - PAGE_LOOKAHEAD_PX;
+  const bottom = box.bottom + PAGE_LOOKAHEAD_PX;
+  const pages: number[] = [];
+  for (const slot of root.querySelectorAll<HTMLElement>('[data-page]')) {
+    const rect = slot.getBoundingClientRect();
+    const page = Number(slot.dataset.page || 0);
+    if (page && rect.bottom >= top && rect.top <= bottom && rect.right >= box.left && rect.left <= box.right) {
+      pages.push(page);
+    }
+  }
+  return pages.sort((left, right) => left - right);
 }
 
 // biome-ignore lint/suspicious/noConfusingVoidType: handlers that return nothing must stay assignable; `undefined` would reject them.
@@ -140,28 +158,32 @@ function DocumentPages({
     [preview.pageCount]
   );
 
-  const observe = useCallback((entries: IntersectionObserverEntry[]) => {
-    setVisiblePages((current) => {
-      const next = new Set(current);
-      for (const entry of entries) {
-        const page = Number(entry.target.getAttribute('data-page') || 0);
-        if (!page) continue;
-        if (entry.isIntersecting) next.add(page);
-        else next.delete(page);
-      }
-      const sorted = [...next].sort((left, right) => left - right);
-      return samePages(sorted, current) ? current : sorted;
-    });
-  }, []);
-
+  // The pages in view follow the scroller's scroll and the boxes' sizes (zoom,
+  // a page's own aspect arriving, the pane resizing); both deliver at most
+  // once per frame, in the frame's own event and observer steps.
+  // No IntersectionObserver: while one exists, Chromium runs a main-thread
+  // frame on every vsync for as long as any animation runs in the window —
+  // here the loading pages' own spinners.
   // biome-ignore lint/correctness/useExhaustiveDependencies: pageCount is the deliberate trigger - the page slots to observe are rendered from it - and scrollRef.current is a ref read at run time.
   useEffect(() => {
     const root = scrollRef.current;
-    if (!root || typeof IntersectionObserver !== 'function') return undefined;
-    const observer = new IntersectionObserver(observe, { root, rootMargin: PAGE_LOOKAHEAD });
-    for (const slot of root.querySelectorAll('[data-page]')) observer.observe(slot);
-    return () => observer.disconnect();
-  }, [observe, preview.pageCount]);
+    if (!root) return undefined;
+    const update = () => {
+      const next = pagesInView(root);
+      if (next) setVisiblePages((current) => (samePages(next, current) ? current : next));
+    };
+    update();
+    root.addEventListener('scroll', update, { passive: true });
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null;
+    if (observer) {
+      observer.observe(root);
+      for (const slot of root.querySelectorAll('[data-page]')) observer.observe(slot);
+    }
+    return () => {
+      root.removeEventListener('scroll', update);
+      observer?.disconnect();
+    };
+  }, [preview.pageCount]);
 
   // One batch in flight at a time; finishing it re-runs this and takes the
   // next. A failed request stops the loop instead of retrying forever.

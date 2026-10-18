@@ -194,6 +194,7 @@ test('submission hook commits accepted text and restores interrupted text', asyn
         textarea,
         draftRef,
         attachmentsRef,
+        pendingLoads: { current: 0 },
         transitioningRef,
         composingRef,
         submittingRef,
@@ -234,6 +235,76 @@ test('submission hook commits accepted text and restores interrupted text', asyn
       await current.stop();
     });
     assert.equal(current.draft, 'interrupted');
+  } finally {
+    await mounted.cleanup();
+  }
+});
+
+test('submission hook refuses to send while an attachment is still loading and keeps the draft', async () => {
+  let current;
+  let submitted = 0;
+  const errors = [];
+  const pendingLoads = { current: 1 };
+  function Harness() {
+    const [draft, setDraft] = useState('look at this');
+    const [, setSubmitting] = useState(false);
+    const [, setSubmissionRecoveryVersion] = useState(0);
+    const draftRef = useRef(draft);
+    draftRef.current = draft;
+    const textarea = useRef(null);
+    current = {
+      draft,
+      ...useComposerSubmission({
+        turnBusy: false,
+        commandBusy: false,
+        draftMode: false,
+        queued: [],
+        recoveryScope: 'session-pending',
+        textarea,
+        draftRef,
+        attachmentsRef: useRef([]),
+        pendingLoads,
+        transitioningRef: useRef(false),
+        composingRef: useRef(false),
+        submittingRef: useRef(false),
+        submissionRetryRef: useRef(null),
+        mountedRef: useRef(true),
+        historyNavigation: useRef({ index: -1, seed: '' }),
+        setDraft,
+        setSubmitting,
+        setSubmissionRecoveryVersion,
+        clearNotice() {},
+        setAttachmentError: (message) => errors.push(message),
+        removeAttachments() {},
+        mergeRestoredAttachments: (_attachments, text) => text,
+        restoredAttachments: (_value, text) => ({ attachments: [], text }),
+        executeSlash: async () => true,
+        rememberPrompt() {},
+        submit: async () => {
+          submitted += 1;
+          return true;
+        },
+        abort: async () => ({}),
+      }),
+    };
+    return React.createElement('textarea', { ref: textarea, value: draft, readOnly: true });
+  }
+  const mounted = mountHarness(Harness, {});
+  try {
+    await mounted.render({});
+    await act(async () => {
+      await current.send();
+    });
+    assert.equal(submitted, 0);
+    assert.equal(current.draft, 'look at this');
+    assert.match(errors.join('\n'), /Attachments are still loading/);
+
+    pendingLoads.current = 0;
+    await act(async () => {
+      await current.send();
+    });
+    assert.equal(submitted, 1);
+    assert.equal(current.draft, '');
   } finally {
     await mounted.cleanup();
   }

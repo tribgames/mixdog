@@ -1,6 +1,21 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ComposerQueueTrayContext } from './composer-island-state';
-import { ComposerIsland, type ComposerIslandFlash, type ComposerIslandQuotaResume } from './ComposerIsland';
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { ComposerQueueTrayContext, IslandSegmentPending } from './composer-island-state';
+import {
+  ComposerIsland,
+  type ComposerIslandFlash,
+  type ComposerIslandQuotaResume,
+  rememberedSegmentAdvances,
+  rememberedSlotHeight,
+} from './ComposerIsland';
 import { ComposerQuotaCard, type ComposerQuotaCardModel } from './ComposerQuotaCard';
 import type { DesktopSessionWorkspace } from '../shared/contract';
 import type { TranscriptItem } from './desktop-types';
@@ -8,6 +23,7 @@ import { BranchIslandSegment } from './WorktreeIslandSegment';
 import { IslandGitSegment } from './IslandGitSegment';
 import { SessionGoalHost } from './session-goal-submission';
 import { requestSessionDiffFile, requestSessionDiffList } from './session-diff-focus';
+import { useStableEvent } from './use-stable-event';
 
 // The changed-files segment only paints for a file-touching turn, so its diff
 // analysis stays out of the first-screen bundle.
@@ -17,6 +33,39 @@ let reviewModulePromise: Promise<TurnReviewModule> | null = null;
 
 /** Just over the island's own 2.5 s flash, so one showing completes. */
 const WORKTREE_FLASH_MS = 2_600;
+
+interface ComposerDockProps {
+  /** The pane's visible session ('' while hidden or a draft): the island's
+   *  background jobs read its lane. */
+  sessionId: string;
+  goalIsland?: ReactNode;
+  /** Closes previous-turn Goal chrome with the optimistic row (see
+   *  session-goal-submission). */
+  goalSubmissionId: string;
+  /** The live tool approval card; the island grows into it. */
+  approval?: ReactNode;
+  islandFlash?: ComposerIslandFlash | null;
+  /** The quota card, between the island and the composer. */
+  quotaCard?: ComposerQuotaCardModel | null;
+  quotaResume?: ComposerIslandQuotaResume | null;
+  showProjectSelector: boolean;
+  contextBar?: ReactNode;
+  reviewItems: TranscriptItem[];
+  reviewActive: boolean;
+  reviewBusy: boolean;
+  reviewSessionId: string;
+  reviewCwd: string;
+  /** The files segment opens the pane's side dock on the session diff; when
+   *  absent (no dock) it expands the island to the turn's file list. */
+  onOpenSessionDiff?: () => void;
+  /** The jobs panel opens an agent's session. */
+  onOpenAgentSession?: (sessionId: string, title: string, ownerSessionId: string) => void;
+  /** The session's live workspace: a git checkout adds the island's branch segment. */
+  workspace?: DesktopSessionWorkspace | null;
+  /** Composer input waits in the queue: the branch segment cannot switch. */
+  queuedInput?: boolean;
+  children: ReactNode;
+}
 
 /**
  * The chrome stacked ABOVE the prompt input, with the composer itself as the
@@ -50,38 +99,7 @@ export function ComposerDock({
   workspace,
   queuedInput = false,
   children,
-}: {
-  /** The pane's visible session ('' while hidden or a draft): the island's
-   *  background jobs read its lane. */
-  sessionId: string;
-  goalIsland?: ReactNode;
-  /** Closes previous-turn Goal chrome with the optimistic row (see
-   *  session-goal-submission). */
-  goalSubmissionId: string;
-  /** The live tool approval card; the island grows into it. */
-  approval?: ReactNode;
-  islandFlash?: ComposerIslandFlash | null;
-  /** The quota card, between the island and the composer. */
-  quotaCard?: ComposerQuotaCardModel | null;
-  quotaResume?: ComposerIslandQuotaResume | null;
-  showProjectSelector: boolean;
-  contextBar?: ReactNode;
-  reviewItems: TranscriptItem[];
-  reviewActive: boolean;
-  reviewBusy: boolean;
-  reviewSessionId: string;
-  reviewCwd: string;
-  /** The files segment opens the pane's side dock on the session diff; when
-   *  absent (no dock) it expands the island to the turn's file list. */
-  onOpenSessionDiff?: () => void;
-  /** The jobs panel opens an agent's session. */
-  onOpenAgentSession?: (sessionId: string, title: string, ownerSessionId: string) => void;
-  /** The session's live workspace: a git checkout adds the island's branch segment. */
-  workspace?: DesktopSessionWorkspace | null;
-  /** Composer input waits in the queue: the branch segment cannot switch. */
-  queuedInput?: boolean;
-  children: ReactNode;
-}) {
+}: ComposerDockProps) {
   const [reviewModule, setReviewModule] = useState(() => loadedReviewModule);
   // The merge notice belongs to the session that merged (the segment names it
   // when the merge settles, so a route change mid-merge cannot strand it) and
@@ -134,42 +152,103 @@ export function ComposerDock({
       active = false;
     };
   }, [reviewModule]);
-  if (moduleFailure) throw moduleFailure.error;
   const TurnReviewBar = reviewModule?.TurnReviewBar;
-  const openChanges = onOpenSessionDiff
-    ? () => {
-        requestSessionDiffList(reviewSessionId);
-        onOpenSessionDiff();
-      }
-    : undefined;
-  const openChangeFile = onOpenSessionDiff
-    ? (path: string) => {
-        requestSessionDiffFile(reviewSessionId, path);
-        onOpenSessionDiff();
-      }
-    : undefined;
+  // The island is memoised: everything handed to it keeps its identity until
+  // what it shows changes. The pane's open routes are fresh closures on every
+  // App commit, so they are called through stable events; whether a route
+  // exists still decides what the segments offer.
+  const openSessionDiff = useStableEvent(() => onOpenSessionDiff?.());
+  const hasSessionDiff = Boolean(onOpenSessionDiff);
+  const openChanges = useMemo(
+    () =>
+      hasSessionDiff
+        ? () => {
+            requestSessionDiffList(reviewSessionId);
+            openSessionDiff();
+          }
+        : undefined,
+    [hasSessionDiff, openSessionDiff, reviewSessionId]
+  );
+  const openChangeFile = useMemo(
+    () =>
+      hasSessionDiff
+        ? (path: string) => {
+            requestSessionDiffFile(reviewSessionId, path);
+            openSessionDiff();
+          }
+        : undefined,
+    [hasSessionDiff, openSessionDiff, reviewSessionId]
+  );
+  const openAgentSessionEvent = useStableEvent((agentSessionId: string, title: string, ownerSessionId: string) =>
+    onOpenAgentSession?.(agentSessionId, title, ownerSessionId)
+  );
+  const openAgentSession = onOpenAgentSession ? openAgentSessionEvent : undefined;
   // Keep the entry gate until the module and its authoritative read
   // are ready, but do not let Suspense's reveal throttle hold an
   // already loaded segment (and the entire transcript) for 300ms.
-  const files = TurnReviewBar ? (
-    <TurnReviewBar
-      variant="segment"
-      items={reviewItems}
-      active={reviewActive}
-      busy={reviewBusy}
-      sessionId={reviewSessionId}
-      cwd={reviewCwd}
-      onOpenChanges={openChanges}
-      onOpenChangeFile={openChangeFile}
-    />
-  ) : (
-    <span hidden data-entry-pending />
+  const files = useMemo(
+    () =>
+      TurnReviewBar ? (
+        <TurnReviewBar
+          variant="segment"
+          items={reviewItems}
+          active={reviewActive}
+          busy={reviewBusy}
+          sessionId={reviewSessionId}
+          cwd={reviewCwd}
+          onOpenChanges={openChanges}
+          onOpenChangeFile={openChangeFile}
+        />
+      ) : (
+        <IslandSegmentPending kind="files" holdEntry />
+      ),
+    [TurnReviewBar, reviewItems, reviewActive, reviewBusy, reviewSessionId, reviewCwd, openChanges, openChangeFile]
   );
+  const goal = useMemo(
+    () => <SessionGoalHost submissionId={goalSubmissionId}>{goalIsland}</SessionGoalHost>,
+    [goalSubmissionId, goalIsland]
+  );
+  const onBranchFlash = useCallback(
+    (flash: ComposerIslandFlash, owner: string) => setWorktreeFlash({ sessionId: owner, flash }),
+    []
+  );
+  const branch = useCallback(
+    (locked: boolean) => (
+      <BranchIslandSegment
+        sessionId={sessionId}
+        workspace={workspace}
+        projectPath={reviewCwd}
+        locked={locked}
+        onViewChanges={openChanges}
+        onFlash={onBranchFlash}
+      />
+    ),
+    [sessionId, workspace, reviewCwd, openChanges, onBranchFlash]
+  );
+  const gitCwd = workspace?.cwd || reviewCwd;
+  const git = useMemo(() => <IslandGitSegment sessionId={sessionId} cwd={gitCwd} />, [sessionId, gitCwd]);
+  if (moduleFailure) throw moduleFailure.error;
 
   // The route names a session whose first lane snapshot has not arrived
   // (a reload, a session opening): no island yet, so it mounts once, whole
   // (branch segment included), instead of empty and then growing.
   const awaitingLane = Boolean(reviewSessionId) && !sessionId;
+  // The session whose island this dock carried last: across a switch, the
+  // incoming island reserves that island's resting height when its own
+  // session has none remembered (see ComposerIsland carriedHeight).
+  const islandSession = useRef('');
+  const islandShown = !showProjectSelector && !awaitingLane && Boolean(reviewSessionId);
+  useLayoutEffect(() => {
+    if (islandShown) islandSession.current = reviewSessionId;
+  });
+  const carrying = Boolean(islandSession.current) && islandSession.current !== reviewSessionId;
+  const carriedHeight = carrying ? (rememberedSlotHeight(islandSession.current) ?? 0) : 0;
+  const carriedAdvances = carrying ? rememberedSegmentAdvances(islandSession.current) : undefined;
+  // While the lane is awaited, the slot keeps the height that island will
+  // reserve at mount: dropping the slot for the wait lifted the composer by
+  // the pill's height and set it back down once the lane landed.
+  const awaitingSlotHeight =
+    awaitingLane && !showProjectSelector ? (rememberedSlotHeight(reviewSessionId) ?? carriedHeight) : 0;
 
   return (
     <div className="composer-region">
@@ -188,25 +267,26 @@ export function ComposerDock({
           key={reviewSessionId}
           routeSessionId={reviewSessionId}
           sessionId={sessionId}
-          onOpenAgentSession={onOpenAgentSession}
-          goal={<SessionGoalHost submissionId={goalSubmissionId}>{goalIsland}</SessionGoalHost>}
+          onOpenAgentSession={openAgentSession}
+          goal={goal}
           files={files}
           workBusy={reviewBusy || queuedInput}
-          branch={(locked) => (
-            <BranchIslandSegment
-              sessionId={sessionId}
-              workspace={workspace}
-              projectPath={reviewCwd}
-              locked={locked}
-              onViewChanges={openChanges}
-              onFlash={(flash, owner) => setWorktreeFlash({ sessionId: owner, flash })}
-            />
-          )}
-          git={<IslandGitSegment sessionId={sessionId} cwd={workspace?.cwd || reviewCwd} />}
+          branch={branch}
+          git={git}
           approval={approval}
           flash={islandFlash ?? (sessionId && worktreeFlash?.sessionId === sessionId ? worktreeFlash.flash : null)}
           quotaResume={quotaResume}
           heldHeight={contextBarHeight.current}
+          carriedHeight={carriedHeight}
+          carriedAdvances={carriedAdvances}
+        />
+      )}
+      {awaitingSlotHeight > 0 && (
+        <div
+          className="composer-island-slot"
+          data-presence="grace"
+          aria-hidden="true"
+          style={{ '--island-slot-height': `${awaitingSlotHeight}px` } as CSSProperties}
         />
       )}
       {!showProjectSelector && quotaCard ? <ComposerQuotaCard card={quotaCard} /> : null}

@@ -471,5 +471,125 @@ test('cancelled ingestion does not insert fallback paths into a transitioning dr
   await harness.attach([new File(['png'], 'cancelled.png', { type: 'image/png' })]);
   assert.equal(harness.current.draft, 'unchanged');
   assert.equal(harness.current.attachments.length, 0);
-  assert.equal(harness.current.attachmentError, '');
+  // The user is told the file was not attached instead of it vanishing.
+  assert.match(harness.current.attachmentError, /cancelled\.png: not attached/);
+});
+
+/** A file whose read stalls until `release()`, standing in for a slow disk,
+ *  a large image downscale or a busy main process. */
+function delayedFile(content, name, type) {
+  const file = new File([content], name, { type });
+  const read = file.arrayBuffer.bind(file);
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  file.arrayBuffer = async () => {
+    await gate;
+    return read();
+  };
+  return { file, release };
+}
+
+test('a slow first paste and a fast second paste both land with distinct ids', async (t) => {
+  const harness = await mountComposer(t);
+  const slow = delayedFile('slow', 'slow.png', 'image/png');
+  let first;
+  await act(async () => {
+    first = harness.current.attachFiles([slow.file]);
+    await setImmediate();
+  });
+  assert.equal(harness.current.pendingLoads.current, 1);
+  await harness.attach([new File(['fast'], 'fast.txt', { type: 'text/plain' })]);
+  assert.equal(harness.current.pendingLoads.current, 1);
+  await act(async () => {
+    slow.release();
+    await first;
+  });
+  assert.equal(harness.current.pendingLoads.current, 0);
+  assert.deepEqual(
+    harness.current.attachments.map(({ name }) => name),
+    ['fast.txt', 'slow.png']
+  );
+  assert.equal(new Set(harness.current.attachments.map(({ id }) => id)).size, 2);
+});
+
+test('a load finishing after the composer switched conversations is reported, not inserted', async (t) => {
+  const harness = await mountComposer(t);
+  const slow = delayedFile('slow', 'slow.png', 'image/png');
+  let load;
+  await act(async () => {
+    load = harness.current.attachFiles([slow.file]);
+    await setImmediate();
+  });
+  await act(async () => harness.current.resetAttachments());
+  assert.equal(harness.current.pendingLoads.current, 0);
+  // A load that belongs to the new conversation is not disturbed by the stale one.
+  const next = delayedFile('next', 'next.png', 'image/png');
+  let nextLoad;
+  await act(async () => {
+    nextLoad = harness.current.attachFiles([next.file]);
+    await setImmediate();
+  });
+  await act(async () => {
+    slow.release();
+    await load;
+  });
+  assert.equal(harness.current.pendingLoads.current, 1);
+  assert.equal(harness.current.attachments.length, 0);
+  assert.match(harness.current.attachmentError, /slow\.png: not attached/);
+  await act(async () => {
+    next.release();
+    await nextLoad;
+  });
+  assert.equal(harness.current.pendingLoads.current, 0);
+  assert.deepEqual(
+    harness.current.attachments.map(({ name }) => name),
+    ['next.png']
+  );
+});
+
+test('a slow IPC read of dropped paths is reported when the conversation switched meanwhile', async (t) => {
+  const paths = ['C:/slow/photo.png'];
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const harness = await mountComposer(t, {
+    api: localApi(paths, async () => {
+      await gate;
+      return { name: 'photo.png', mimeType: 'image/png', data: Buffer.from('png').toString('base64') };
+    }),
+  });
+  let drop;
+  await act(async () => {
+    drop = harness.current.attachLocalPaths(paths);
+    await setImmediate();
+  });
+  assert.equal(harness.current.pendingLoads.current, 1);
+  await act(async () => harness.current.resetAttachments());
+  await act(async () => {
+    release();
+    await drop;
+  });
+  assert.equal(harness.current.attachments.length, 0);
+  assert.match(harness.current.attachmentError, /photo\.png: not attached/);
+  assert.equal(harness.current.pendingLoads.current, 0);
+});
+
+test('a transition during a slow read reports the dropped file', async (t) => {
+  const harness = await mountComposer(t);
+  const slow = delayedFile('slow', 'slow.png', 'image/png');
+  let load;
+  await act(async () => {
+    load = harness.current.attachFiles([slow.file]);
+    await setImmediate();
+  });
+  harness.current.transitioningRef.current = true;
+  await act(async () => {
+    slow.release();
+    await load;
+  });
+  assert.equal(harness.current.attachments.length, 0);
+  assert.match(harness.current.attachmentError, /slow\.png: not attached/);
 });

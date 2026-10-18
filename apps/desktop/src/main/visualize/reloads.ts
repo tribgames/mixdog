@@ -80,7 +80,8 @@ export function createReloads(
         watchTab(sessionId, tab);
       }
       await ctx.tabVersions.recordVersion(sessionId, tab, versionLabel);
-      ctx.publish(sessionId);
+      // A content update is shown like an open (the renderer's open policy).
+      ctx.publish(sessionId, tab.id);
       ctx.thumbnails.refresh(sessionId, tab);
     } catch (error) {
       // A newer open or reload already decided what the tab shows.

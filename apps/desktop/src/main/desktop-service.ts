@@ -11,6 +11,8 @@ import type {
   DesktopRemoteBrowserTab,
 } from '../shared/contract';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT } from '../shared/remote-browser';
+import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
+import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
 import { REMOTE_VISUALIZE_LANE, VISUALIZE_REMOTE_DESKTOP_EVENT } from '../shared/visualize';
 import { createRemoteVisualizeMirror } from './remote-visualize';
 import { randomUUID } from 'node:crypto';
@@ -23,6 +25,7 @@ import type {
   StatuslineSegmentsModule,
 } from './desktop-support';
 import { SessionHost, type SessionClient } from './session-host';
+import { setGitProcessRunner, type GitProcessRunner } from './git-runner';
 import {
   DESKTOP_SERVICE_METHODS,
   type DesktopService,
@@ -88,6 +91,9 @@ interface DesktopServiceRuntime {
   /** Office document conversion and page rasterization. Optional: an older
    *  daemon simply has no document preview, and the editor says so. */
   loadDocumentPreview?(): Promise<import('./document-preview').DocumentPreviewModule>;
+  /** The daemon's off-thread child runner. Optional: with an older daemon
+   *  git children are spawned on the service's own thread. */
+  loadProcessRunner?(): Promise<{ runProcessOffThread: GitProcessRunner }>;
   executeCodeGraphTool(name: string, args: Record<string, unknown>, cwd: string): Promise<unknown>;
 }
 
@@ -255,9 +261,16 @@ export async function createDesktopService({
   if (!runtime || typeof runtime.attachSessionClient !== 'function') {
     throw new TypeError('Mixdog service session bridge is unavailable.');
   }
+  // Git children start on the daemon's process-runner worker, never on its
+  // event loop. An older daemon (no runner) keeps the in-thread spawns.
+  const processRunner = await runtime.loadProcessRunner?.().catch(() => null);
+  setGitProcessRunner(processRunner?.runProcessOffThread ?? null);
   const host = await SessionHost.create(options, runtime);
   const desktopEventListeners = new Set<(event: { name: string; value: unknown }) => void>();
   const publishDesktopEvent = (name: string, value: unknown): void => {
+    // A provider or setting changed: the host's reused catalog and branch
+    // menu answers describe the state before it.
+    if (name === PROVIDER_MODELS_EVENT || name === SETTINGS_CHANGED_EVENT) host.invalidateReadCaches();
     emit({ kind: 'desktop-event', name, value });
     for (const listener of desktopEventListeners) listener({ name, value });
   };

@@ -142,7 +142,6 @@ void i18next.init({
 i18next.addResourceBundle('en', 'translation', {
   'Goal state: In progress': 'In progress',
   'Island: {{waiting}} waiting': '{{waiting}} waiting',
-  'Island: Running · {{elapsed}}': 'Running · {{elapsed}}',
   'Island: {{count}} agents': '{{count}} agents',
   'Island: {{count}} agents_other': '{{count}} agents',
   'Island: {{count}} shells': '{{count}} shells',

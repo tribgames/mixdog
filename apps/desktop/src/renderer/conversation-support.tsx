@@ -79,7 +79,7 @@ export function JumpToLatestButton({ visible, onJump }: { visible: boolean; onJu
       }}
       aria-label={t('Jump to latest message')}
     >
-      <ArrowDown size={14} />
+      <ArrowDown size={16} />
     </button>
   );
 }

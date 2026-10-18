@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import type { NavigationSelection } from '../navigation';
+import { navigationKey } from '../text-format';
 import type { ConversationHandoff } from '../use-pane-tab-close';
 
 /** The navigation identity every session switch reads and writes: the
@@ -28,11 +29,17 @@ export function useAppFrameNavigationState(startupNavigationSelection: Navigatio
   // a different id, which left the clicked row's dot unconsumed (user report).
   const unreadViewedSessionRef = useRef('');
   // Stable identity: SessionSidebar is memoised and must not re-render from a
-  // fresh selection object literal on every App commit.
-  const sidebarSelection: NavigationSelection = useMemo(
-    () => (requestedSessionId ? { kind: 'session', id: requestedSessionId } : selection),
-    [requestedSessionId, selection]
-  );
+  // fresh selection object literal on every App commit. A switch hands it the
+  // requested target first and the committed selection of the same session
+  // later: the sidebar reads only the navigation identity, so an equal one
+  // keeps the object it already has.
+  const sidebarSelectionRef = useRef<NavigationSelection | null>(null);
+  const sidebarSelection: NavigationSelection = useMemo(() => {
+    const next: NavigationSelection = requestedSessionId ? { kind: 'session', id: requestedSessionId } : selection;
+    const previous = sidebarSelectionRef.current;
+    return previous && navigationKey(previous) === navigationKey(next) ? previous : next;
+  }, [requestedSessionId, selection]);
+  sidebarSelectionRef.current = sidebarSelection;
   return {
     selection,
     setSelection,

@@ -133,6 +133,19 @@ test('an archived session stays silent', () => {
   assert.deepEqual(tracker.observe([session('a', { working: false, archived: true })], 2_000), []);
 });
 
+test('a sub-agent session stays silent while its Lead is still announced', () => {
+  const tracker = createTurnCompletionTracker();
+  tracker.observe([session('lead', { working: true }), session('sub', { working: true, agentSession: true })], 1_000);
+  const done = tracker.observe(
+    [session('lead', { working: false }), session('sub', { working: false, agentSession: true })],
+    2_000
+  );
+  assert.deepEqual(
+    done.map((completion) => completion.sessionId),
+    ['lead']
+  );
+});
+
 test('idleness is reported for the quiet-period recheck', () => {
   const tracker = createTurnCompletionTracker();
   tracker.observe([session('a', { working: true })], 1_000);

@@ -4,22 +4,49 @@ import { toJsxRuntime } from 'hast-util-to-jsx-runtime';
 
 import type { MarkdownAstRoot } from './markdown-ast';
 import { markdownComponents, type MarkdownCopyControl } from './markdown-components';
-import { applyStreamFade, type StreamFadeTimeline } from './markdown-stream-fade';
+import { applyStreamFade, STREAM_FADE_BOX_TAGS, type StreamFadeTimeline } from './markdown-stream-fade';
 
-/** One fading word. Its delay is set when its element is created, from the
- *  word's start on the reply timeline: an element re-created mid-fade (a
- *  re-parse moved the word) resumes where the animation already is. The
- *  delay is never touched again, which would re-time a running animation. */
-function StreamFadeWord({ 'data-fade-at': at, children }: { 'data-fade-at'?: number; children?: ReactNode }) {
+interface FadeProps {
+  'data-fade-at'?: number;
+  'data-fade-ms'?: number;
+  children?: ReactNode;
+}
+
+/** Times an element's fade: its delay is set when the element is created,
+ *  from the reveal's start on the reply timeline, so an element re-created
+ *  mid-fade (a re-parse moved it) resumes where the animation already is. It
+ *  is never touched again, which would re-time a running animation. */
+function useFadePlacement(at: number | undefined, ms: number | undefined) {
   const start = Number(at);
-  const place = useCallback(
+  const duration = Number(ms);
+  return useCallback(
     (node: HTMLElement | null) => {
-      if (node) node.style.animationDelay = `${Math.round(start - performance.now())}ms`;
+      if (!node || !Number.isFinite(start)) return;
+      node.style.setProperty('--mx-fade-delay', `${Math.round(start - performance.now())}ms`);
+      node.style.setProperty('--mx-fade-ms', `${duration}ms`);
     },
-    [start]
+    [start, duration]
   );
+}
+
+/** One fading word. */
+function StreamFadeWord({ 'data-fade-at': at, 'data-fade-ms': ms, children }: FadeProps) {
+  const place = useFadePlacement(at, ms);
   return createElement('mx-fade', { ref: place, 'data-stream-fade': '' }, children);
 }
+
+/** List items, table rows, quotes, rules and inline code of a streamed reply:
+ *  while one fades (`data-stream-fade-box`), its chrome fades with its first
+ *  word. The component stays in place after the fade, so nothing remounts. */
+const fadeBoxes = Object.fromEntries(
+  STREAM_FADE_BOX_TAGS.map((tag) => [
+    tag,
+    function StreamFadeBox({ 'data-fade-at': at, 'data-fade-ms': ms, children, ...rest }: FadeProps) {
+      const place = useFadePlacement(at, ms);
+      return createElement(tag, { ...rest, ref: place }, children);
+    },
+  ])
+);
 
 // A streamed token re-renders the owner while the same parse stays on screen;
 // only a newly landed AST rebuilds the element tree.
@@ -42,8 +69,8 @@ export default memo(function MarkdownAstBody({
   );
   const base = markdownComponents(copyControl);
   let components = base;
-  if (shown && shown.tags.length > 0) {
-    components = { ...base };
+  if (shown) {
+    components = { ...base, ...fadeBoxes };
     for (const tag of shown.tags) (components as Record<string, unknown>)[tag] = StreamFadeWord;
   }
   return toJsxRuntime((shown?.root ?? root) as never, {

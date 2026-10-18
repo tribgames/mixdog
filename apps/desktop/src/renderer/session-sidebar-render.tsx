@@ -58,12 +58,72 @@ export interface SessionRowContext {
   requestPrefetch(sessionId: string): void;
   onResumeSession(sessionId: string): void;
   onDeleteSession(sessionId: string): Promise<void>;
+  /** Delete entry of a row: the inline confirm, or the busy dialog first. */
+  requestDelete(sessionId: string): void;
   onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
   onFavoriteSession(sessionId: string, favorite: boolean): Promise<void>;
   openSessionMenu(session: DesktopSessionSummary, point: { x: number; y: number }, rowKey: string): void;
   onToggleFork(sessionId: string): void;
   setDraggedSessionId(sessionId: string): void;
   setSessionDropKey(key: string): void;
+  /** Owned by the sidebar for its lifetime (createRowReorderCache). */
+  rowReorders: RowReorderCache;
+}
+
+/** Each row's reorder props as last built, and the object the row was given. */
+interface RowReorderCache {
+  latest: Map<string, Partial<SessionRowReorder> | undefined>;
+  shown: Map<string, Partial<SessionRowReorder>>;
+}
+
+export function createRowReorderCache(): RowReorderCache {
+  return { latest: new Map(), shown: new Map() };
+}
+
+const REORDER_HANDLERS = ['onDragStart', 'onDragOver', 'onDrop', 'onDragEnd'] as const;
+type ReorderHandler = (event: React.DragEvent<HTMLElement>) => void;
+
+/** Same drag marks and the same handlers present: only closures differ. */
+function sameReorderShape(left: Partial<SessionRowReorder>, right: Partial<SessionRowReorder>): boolean {
+  const fields = left as Record<string, unknown>;
+  const others = right as Record<string, unknown>;
+  for (const key of new Set([...Object.keys(fields), ...Object.keys(others)])) {
+    const a = fields[key];
+    const b = others[key];
+    if (typeof a === 'function' || typeof b === 'function') {
+      if (typeof a !== typeof b) return false;
+    } else if (a !== b) return false;
+  }
+  return true;
+}
+
+/** The row's reorder props with one identity while its drag marks hold. Every
+ *  sidebar render builds them with fresh handler closures, so each memoised
+ *  row re-rendered on every session switch (all of Recent, twice). The kept
+ *  object's handlers call the row's latest props, recorded on every render,
+ *  so a drag still reads the current order. */
+function stableRowReorder(
+  cache: RowReorderCache,
+  rowKey: string,
+  next: Partial<SessionRowReorder> | undefined
+): Partial<SessionRowReorder> | undefined {
+  cache.latest.set(rowKey, next);
+  if (!next) {
+    cache.shown.delete(rowKey);
+    return undefined;
+  }
+  const shown = cache.shown.get(rowKey);
+  if (shown && sameReorderShape(shown, next)) return shown;
+  const kept: Record<string, unknown> = { ...next };
+  for (const name of REORDER_HANDLERS) {
+    if (typeof next[name] !== 'function') continue;
+    const forward: ReorderHandler = (event) =>
+      (cache.latest.get(rowKey)?.[name] as ReorderHandler | undefined)?.(event);
+    kept[name] = forward;
+  }
+  const result = kept as Partial<SessionRowReorder>;
+  cache.shown.set(rowKey, result);
+  return result;
 }
 
 /** Recent, Automations, Archived, Favorites and the project folders all render
@@ -105,15 +165,16 @@ export function renderSessionRow(
       ? { ...base, 'data-drop-position': undefined }
       : base;
   };
+  const rowKey = `${rowScope}:${session.id}`;
   return (
     <SessionSidebarRow
       key={session.id}
       session={session}
-      reorder={reorderFor()}
+      reorder={stableRowReorder(ctx.rowReorders, rowKey, reorderFor())}
       active={selection.kind === 'session' && selection.id === session.id}
       working={ctx.workingSessionIds?.has(session.id) === true}
       attention={ctx.attentionOf(session.id)}
-      rowKey={`${rowScope}:${session.id}`}
+      rowKey={rowKey}
       editingRowKey={editor.editingRowKey}
       sessionTitleDraft={editor.sessionTitleDraft}
       sessionTitleInvalid={editor.sessionTitleInvalid}
@@ -128,6 +189,7 @@ export function renderSessionRow(
       onCloseEditor={editor.closeSessionEditor}
       onSetConfirming={editor.setConfirmingSessionId}
       onSetDeleting={editor.setDeletingSessionId}
+      onRequestDelete={ctx.requestDelete}
       onDeleteSession={ctx.onDeleteSession}
       onArchiveSession={ctx.onArchiveSession}
       onFavoriteSession={ctx.onFavoriteSession}
@@ -142,7 +204,7 @@ export function renderSessionRow(
 
 /** `rows` as fork groups: each original with its forks beneath it while the
  *  group is expanded. Rows stay keyed by session, so toggling keeps them mounted. */
-export function renderForkRows(
+function renderForkRows(
   ctx: SidebarSectionContext,
   rows: readonly DesktopSessionSummary[],
   limit: number | undefined,
@@ -356,7 +418,7 @@ export interface SidebarSectionContext {
 
 /** One session category through its section builder; the heading row is its
  *  drag handle for the persisted category order. */
-export function renderSidebarSection(section: string, ctx: SidebarSectionContext): React.ReactNode {
+function renderSidebarSection(section: string, ctx: SidebarSectionContext): React.ReactNode {
   const { openState, folders, rows, automationRows, archivedRows, bulkAction, renderOrderedRow } = ctx;
   const { onAddProject, onNewProjectTask, onNewTask, unreadSessionIds } = ctx;
   const headerProps = ctx.sectionOrder.getReorderProps(section);

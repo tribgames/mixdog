@@ -524,3 +524,46 @@ test('an omitted trailing argument never reaches the JSON daemon lane as null', 
     await client.dispose();
   }
 });
+
+test('a short outage reconnects silently; only a lasting one shows the localizable notice', async (t) => {
+  let live = 0;
+  const transports = [];
+  const client = new DesktopServiceClient({
+    connect() {
+      live += 1;
+      const transport = new TestTransport(
+        live === 1 ? (current) => current.emit('message', { kind: 'ready' }) : () => {}
+      );
+      transports.push(transport);
+      return transport;
+    },
+    sessionOptions: () => ({ userDataPath: 'C:/tmp/mixdog', packaged: true, resourcesPath: 'C:/tmp/resources' }),
+    restartBaseDelayMs: 1,
+    restartMaxDelayMs: 1,
+    startupTimeoutMs: 120_000,
+  });
+  const working = { sessionId: 's', items: [], busy: true, queued: [{ id: 'q1' }], toasts: [] };
+  try {
+    await client.start();
+    client.cachedSnapshot = working;
+    const seen = [];
+    client.subscribe((snapshot) => seen.push(snapshot));
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    transports[0].emit('exit', 1);
+    t.mock.timers.tick(59_000);
+    assert.equal(seen.length, 0, 'a stall shorter than a minute publishes nothing');
+    assert.equal(client.getSnapshot().busy, true, 'busy survives the silent outage');
+    assert.equal(client.getSnapshot().queued.length, 1, 'queued survives the silent outage');
+    t.mock.timers.tick(1_000);
+    const lasting = seen.at(-1);
+    assert.equal(lasting.busy, false);
+    assert.deepEqual(lasting.queued, []);
+    assert.equal(
+      lasting.toasts.at(-1).text,
+      'The service connection has been lost for a while. Still retrying automatically.'
+    );
+  } finally {
+    t.mock.timers.reset();
+    await client.dispose();
+  }
+});

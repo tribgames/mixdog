@@ -341,12 +341,20 @@
 }
 /* Several chips in one strip (changes + opened files), and the changes pane's
    own tabs: each keeps its whole label and the strip scrolls sideways, instead
-   of the tabs shrinking until names are cut. */
-.browser-tab-list > .dock-header-chip:not(:only-child),
-.session-diff-tabs > .browser-tab {
+   of the tabs shrinking until names are cut. Off the phone only: the phone
+   sheet is too narrow for that, so its tabs keep the pane strip's grammar
+   (`.browser-tab`: share the width from 160px, ellipsize, floors 30px / 56px
+   active, scroll only past the floors). */
+:root:not([data-mixdog-mobile-tabs]) .browser-tab-list > .dock-header-chip:not(:only-child),
+:root:not([data-mixdog-mobile-tabs]) .session-diff-tabs > .browser-tab {
   flex: 0 0 auto;
   min-width: 0;
   max-width: none;
+}
+/* `.dock-header-chip` released the floor for a lone chip; with several the
+   inactive ones get the pane strip's 30px floor back (active keeps 56px). */
+html[data-mixdog-mobile-tabs] .browser-tab-list > .dock-header-chip:not(:only-child):not(.is-active) {
+  min-width: 30px;
 }
 /* Side-dock file tabs: a preview tab (the next link replaces it) is italic,
    like a preview tab in the pane workspace strip. */

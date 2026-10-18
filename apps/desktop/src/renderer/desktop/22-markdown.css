@@ -10,7 +10,7 @@
   /* CARD rhythm (20px), same as tables, quotes and display math: at 10px the
      code card sat at half a table's gap and the two never lined up in one
      answer. Flow blocks (p/lists) keep 12, the section rule keeps 32. */
-  margin: 20px 0;
+  margin: 18px 0;
   /* Painted, not clipped: a rounded clip around the code scroller keeps
      Chromium from hit-testing wheel scrolls on the compositor. The header
      band and the scroller round or stay clear on their own. */
@@ -50,8 +50,8 @@
 }
 .markdown-code-copy,
 .markdown-code-run {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -60,11 +60,19 @@
   color: var(--mx-icon-muted);
   background: transparent;
   cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
 }
 .markdown-code-copy:hover,
 .markdown-code-run:hover {
   color: var(--mx-icon);
-  background: transparent;
+  background: var(--mx-hover);
+}
+.markdown-code-copy:active,
+.markdown-code-run:active {
+  color: var(--mx-icon);
+  background: var(--mx-pressed);
 }
 .markdown-code-copy:focus-visible,
 .markdown-code-run:focus-visible {
@@ -114,11 +122,13 @@
   z-index: 9;
   left: 50%;
   /* Inside the transcript shell, which ends at the dock's top edge. */
-  bottom: var(--pane-chrome-inset);
+  /* One island-stage rhythm above the dock edge (the island pill's top, or the
+     composer's when no pill is shown). */
+  bottom: var(--island-stage-gap);
   /* Ink-inverse circular chip: ink fill, surface-coloured arrow. Stays
      mounted; showJump toggles aria-hidden, which drives the fade. */
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -449,18 +459,34 @@ html[data-window-material="mica"] .jump-to-latest {
 }
 /* Words of a streamed reply (markdown-stream-fade.ts). The wrappers are plain
    inline elements and only opacity animates, so the fade costs no layout.
-   The duration is STREAM_FADE_DURATION_MS; each word's staggered delay is set
-   inline when its wrapper is created, and `both` holds it hidden until then. */
-[data-stream-fade] {
-  animation: markdown-stream-fade 700ms cubic-bezier(0.37, 0.55, 0.86, 0.88) both;
+   Each fade's duration and its delay on the reply timeline (negative when an
+   element is re-created mid-fade) are set inline when its element is created.
+   A list item fades only its marker (its words fade themselves); table rows,
+   quotes, rules and inline code fade whole with their first word. Ease-out:
+   a word is mostly inked early, so the few still fading never read as gaps. */
+[data-stream-fade],
+[data-stream-fade-box="box"] {
+  animation: markdown-stream-fade var(--mx-fade-ms, 500ms) cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation-delay: var(--mx-fade-delay, 0ms);
+}
+[data-stream-fade-box="marker"]::marker {
+  animation: markdown-stream-fade-marker var(--mx-fade-ms, 500ms) cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation-delay: var(--mx-fade-delay, 0ms);
 }
 @keyframes markdown-stream-fade {
   from {
     opacity: 0;
   }
 }
+@keyframes markdown-stream-fade-marker {
+  from {
+    color: transparent;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  [data-stream-fade] {
+  [data-stream-fade],
+  [data-stream-fade-box="box"],
+  [data-stream-fade-box="marker"]::marker {
     animation: none;
   }
 }
@@ -478,23 +504,26 @@ html[data-window-material="mica"] .jump-to-latest {
    literal too — the 22px chrome step gave a 20px heading a 1.1 ratio and a
    two-line title closed up on itself. */
 .markdown h1 {
-  margin: 24px 0 8px;
+  margin: 32px 0 8px;
   font-size: calc(18px * var(--mx-content-scale, 1));
   line-height: calc(26px * var(--mx-content-scale, 1));
 }
 .markdown h2 {
-  margin: 20px 0 8px;
-  font-size: calc(16px * var(--mx-content-scale, 1));
-  line-height: var(--mx-line-body);
+  margin: 28px 0 8px;
+  font-size: calc(18px * var(--mx-content-scale, 1));
+  font-weight: 700;
+  line-height: calc(26px * var(--mx-content-scale, 1));
 }
 .markdown h3 {
-  margin: 16px 0 6px;
-  font-size: var(--mx-font-body);
+  margin: 22px 0 8px;
+  font-size: calc(16px * var(--mx-content-scale, 1));
+  font-weight: var(--mx-weight-strong);
   line-height: var(--mx-line-body);
 }
 /* Body size, so INK is what separates it from an inline bold lead-in. */
 .markdown h4 {
-  margin: 14px 0 6px;
+  margin: 18px 0 6px;
+  color: var(--mx-text-muted);
   font-size: var(--mx-font-body);
   line-height: var(--mx-line-body);
 }
@@ -532,7 +561,7 @@ html[data-window-material="mica"] .jump-to-latest {
    block gap after it. */
 .markdown ul,
 .markdown ol {
-  margin: 8px 0 12px;
+  margin: 8px 0 14px;
   padding-left: var(--mx-md-indent);
 }
 /* A NESTED list lives inside its parent item, so the flow-block margin belongs
@@ -549,10 +578,10 @@ html[data-window-material="mica"] .jump-to-latest {
 /* Tight items read as one list: 6px under a 26px line spread a two-bullet
    list to a 32px pitch, half again Codex's. */
 .markdown li {
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 .markdown li:has(> p) {
-  margin-bottom: 12px;
+  margin-bottom: 7px;
 }
 /* The last item's gap separates nothing: it collapsed through its list and
    the reply's body, so a reply ending in a list held 2px (12px loose) past
@@ -583,7 +612,7 @@ html[data-window-material="mica"] .jump-to-latest {
   margin-bottom: 0;
 }
 .markdown blockquote {
-  margin: 16px 0;
+  margin: 18px 0;
   /* A quote is a muted run behind a soft rule: no plate, no second accent. */
   padding: 0 0 0 14px;
   border-left: 3px solid var(--mx-border);
@@ -610,10 +639,10 @@ html[data-window-material="mica"] .jump-to-latest {
 .markdown th,
 .markdown td {
   padding: 8px 12px;
-  /* Enough to keep a two-word header off two lines, not enough to inflate a
-     yes/no or count column: at 96px a four-column table forced a horizontal
-     scrollbar it never needed. */
-  min-width: 64px;
+  /* No width floor: a table must always fit the column and wrap, never scroll
+     sideways. A per-cell floor times many columns was the only thing that
+     could push it wider than the pane. */
+  min-width: 0;
   border-bottom: var(--mx-hairline) solid var(--mx-border);
   text-align: left;
   vertical-align: top;
@@ -624,6 +653,20 @@ html[data-window-material="mica"] .jump-to-latest {
   /* Fixed-width digits: a table is where numbers stack, and proportional
      figures made the columns of counts and sizes wobble row to row. */
   font-variant-numeric: tabular-nums;
+}
+/* Per-cell padding is the one width a cell cannot shed (text breaks anywhere),
+   so a many-column table spends less of a narrow column on it. */
+@container (max-width: 639px) {
+  .markdown th,
+  .markdown td {
+    padding: 8px 6px;
+  }
+}
+@container (max-width: 419px) {
+  .markdown th,
+  .markdown td {
+    padding: 6px 3px;
+  }
 }
 .markdown th {
   color: var(--mx-text);
@@ -782,6 +825,10 @@ html[data-window-material="mica"] .jump-to-latest {
   height: 1em;
   justify-content: center;
 }
+/* A plain web link carries no globe: the underline already marks it. */
+.markdown a > .seti-icon[data-icon-kind="external"] {
+  display: none;
+}
 /* Inline SVG glyphs (folder, globe, slides, archive) fill the same box. */
 .seti-icon.link-glyph > svg {
   width: 1em;
@@ -827,7 +874,7 @@ html[data-window-material="mica"] .jump-to-latest {
    waited on the main thread. */
 .markdown-table-frame {
   max-width: 100%;
-  margin: 20px 0;
+  margin: 18px 0;
   /* Grok-web table container: rounded card with a hairline ring and a tinted
      header band instead of a naked full-bleed grid. */
   border-radius: var(--mx-radius-lg);
@@ -841,13 +888,6 @@ html[data-window-material="mica"] .jump-to-latest {
   width: 100%;
   max-width: 100%;
   background: transparent;
-}
-/* Scrolls only while the table is wider than the pane (MarkdownTable sets
-   the flag): a scroll container that never scrolled still sent every wheel
-   over the table through a main-thread hit test. */
-.markdown-table[data-overflowing] {
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
 }
 .markdown-table:focus-visible {
   outline: none;
@@ -863,10 +903,9 @@ html[data-window-material="mica"] .jump-to-latest {
   /* Fill the pane and WRAP. `max-content` sized every column to its longest
      unbroken line, so a single prose cell pushed the whole table into
      horizontal scroll while the pane still had room — the columns never got
-     the chance to divide the width they had. Auto layout now splits the pane
-     by content, the per-cell 64px floor keeps a column from collapsing, and
-     the wrapper's overflow-x engages only when that floor truly exceeds the
-     pane (many-column tables). */
+     the chance to divide the width they had. Auto layout splits the pane by
+     content and cells wrap (long tokens break), so the table fits the column
+     at any width. */
   width: 100%;
   margin: 0;
   display: table;

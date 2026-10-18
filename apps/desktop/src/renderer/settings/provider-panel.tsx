@@ -18,7 +18,7 @@ import {
 import { ActionButton, Group, ListEmpty, ResourceRow } from './capability-controls';
 import { ClientManagedProviders } from './client-managed-providers';
 import { QuotaAutoResumeToggle } from './quota-auto-resume-toggle';
-import { CustomProvidersSection, isCustomProvider } from './custom-provider-section';
+import { CustomProvidersSection, providerPageGroups } from './custom-provider-section';
 import {
   preloadCapabilitySettings,
   providerLabel,
@@ -43,12 +43,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
   const openKeyConsole = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
   const setup = record(data.providerSetup);
-  const allApiProviders = rows(setup.api);
-  const customProviders = allApiProviders.filter(isCustomProvider);
-  const apiProviders = allApiProviders.filter((provider) => !isCustomProvider(provider));
-  const openCodeGoProvider = apiProviders.find((provider) => String(provider.id) === 'opencode-go');
-  const otherApiProviders = apiProviders.filter((provider) => provider !== openCodeGoProvider);
-  const oauthProviders = rows(setup.oauth);
+  const { custom: customProviders, otherApi: otherApiProviders, oauth: oauthProviders } = providerPageGroups(setup);
   const busy = Boolean(pending);
   const loading = !sectionLoaded(data, 'providerSetup');
   const secretsPending = setup.pendingSecrets === true;
@@ -67,9 +62,9 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
       status={providerStatus(provider)}
       actions={
         <>
-          {!provider.authenticated && typeof provider.url === 'string' && /^https:\/\//.test(provider.url) && (
+          {typeof provider.url === 'string' && /^https:\/\//.test(provider.url) && (
             <ActionButton disabled={busy} onClick={() => openKeyConsole(String(provider.url))}>
-              {t('Get API key ↗')}
+              {provider.authenticated ? `${t('API keys')} ↗` : t('Get API key ↗')}
             </ActionButton>
           )}
           {!provider.authenticated && (
@@ -242,7 +237,6 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
           </div>
         )}
       </section>
-      {openCodeGoProvider && <Group>{renderApiProvider(openCodeGoProvider)}</Group>}
       <Group title={t('API-key providers')}>
         {otherApiProviders.length > 0 && otherApiProviders.map(renderApiProvider)}
         {otherApiProviders.length === 0 && (

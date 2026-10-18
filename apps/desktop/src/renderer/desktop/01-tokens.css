@@ -179,9 +179,9 @@
      edge, so the identical ratio reads packed.
      1.73 is the CJK reading band, and it also gives Thai/Devanagari/Arabic
      marks the vertical room the tighter box clipped. Chrome rows keep 24.
-     Back to 24 beside Codex's tighter prose, chosen side by side with the
-     looser rhythm. */
-  --mx-line-prose: calc(24px * var(--mx-content-scale, 1));
+     Korean replies read cleaner at 26 (15/26) once paragraphs, lists and
+     headings sit on the 14px block rhythm in 12-transcript/22-markdown. */
+  --mx-line-prose: calc(26px * var(--mx-content-scale, 1));
 }
 /* The chat scope reads the root's per-device scale; outside it the scale
    stays undefined and every scoped calc() falls back to 1. Literal content

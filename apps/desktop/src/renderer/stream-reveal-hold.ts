@@ -1,0 +1,231 @@
+/**
+ * Where a streamed reply may stop painting.
+ *
+ * The live row paints a prefix of the received text. A prefix that ends
+ * inside an unfinished markdown construct paints its raw syntax (a lone list
+ * marker, a backtick, `[`, `**`, a half table row), so the cut is held back to
+ * the start of that construct and the construct appears whole once the cut
+ * passes its end:
+ *
+ * - Lines that appear whole: a heading, a table row (a line starting with a
+ *   pipe, a header whose delimiter row follows, any line under a delimiter
+ *   row), a fence line, and every line inside a fenced code block, so code
+ *   reveals line by line and a possible closing fence never shows half typed.
+ *   A table header waits for its delimiter row and both appear together.
+ * - A line that is only a list marker (task box included) or a quote marker
+ *   shows with the first glyph after it.
+ * - Inline: an image until its `](…)` closes (it paints as one picture).
+ *   Code spans, links and emphasis are not held: the streaming healer
+ *   (streaming-markdown-heal) closes them in the painted tail and hides a
+ *   marker with nothing after it and a link's unfinished destination, so
+ *   their words stream like any other and take their style as they show.
+ * - While the text still streams, a trailing `!`, `<` or `\` waits for the
+ *   character after it.
+ *
+ * `text` is everything received; only `text.slice(0, cut)` paints, so the
+ * characters after the cut serve as lookahead. Settled text (`live` false) is
+ * never held at its end.
+ */
+
+/** A line longer than this is prose, not a row or heading worth holding. */
+const LINE_HOLD_MAX = 400;
+const HEADING = /^ {0,3}(?:>[ \t]*)*#{1,6}(?:[ \t]|$)/;
+const LIST_MARKER_ONLY = /^[ \t]*(?:>[ \t]*)*(?:[-*+]|\d{1,9}[.)]?)(?:[ \t]+(?:\[(?:[ xX](?:\][ \t]*)?)?)?)?$/;
+const QUOTE_MARKER_ONLY = /^[ \t]*(?:>[ \t]*)+$/;
+const FENCE_LINE = /^[ \t>]*(?:`{3,}|~{3,})/;
+const FENCE_OPEN = /^[ \t>]*(?:(`{3,})[^`]*|(~{3,}).*)$/;
+const DELIMITER_BODY = /^[|:\- \t]+$/;
+const CONTAINER_PREFIX = /^[ \t>]*/;
+const TRAILING_WAIT = new Set(['!', '<', '\\']);
+/** A cell separator (not escaped): the line can head a table. */
+const HEADER_PIPE = /(?<!\\)\|/;
+const CODE_SPAN = /`+[^`\n]*`+/g;
+/** What a delimiter row may look like while it streams in. */
+const PARTIAL_DELIMITER = /^[ \t>]*\|?[ \t:|-]*$/;
+const TABLE_LOOKBACK_LINES = 64;
+
+let fenceCache: { text: string; ranges: number[] } | null = null;
+
+/** Content ranges of fenced code blocks, flat [start, end) pairs: from the
+ *  line after an opening fence to the start of its closing fence line
+ *  (Infinity while unclosed). */
+function fencedRanges(text: string): number[] {
+  if (fenceCache?.text === text) return fenceCache.ranges;
+  const ranges: number[] = [];
+  if (text.includes('```') || text.includes('~~~')) {
+    let fence = '';
+    let at = 0;
+    while (at < text.length) {
+      let end = text.indexOf('\n', at);
+      if (end < 0) end = text.length;
+      const line = text.slice(at, end).replace(CONTAINER_PREFIX, '');
+      if (!fence) {
+        const open = FENCE_OPEN.exec(text.slice(at, end));
+        if (open) {
+          fence = open[1] ?? open[2];
+          ranges.push(end + 1);
+        }
+      } else if (line.startsWith(fence[0].repeat(fence.length)) && /^[`~]+[ \t]*$/.test(line) && line[0] === fence[0]) {
+        ranges.push(at);
+        fence = '';
+      }
+      at = end + 1;
+    }
+    if (fence) ranges.push(Number.POSITIVE_INFINITY);
+  }
+  fenceCache = { text, ranges };
+  return ranges;
+}
+
+function insideCode(ranges: number[], at: number): boolean {
+  for (let index = 0; index < ranges.length; index += 2) {
+    if (at >= ranges[index] && at < ranges[index + 1]) return true;
+  }
+  return false;
+}
+
+function lineEndOf(text: string, from: number): number {
+  const end = text.indexOf('\n', from);
+  return end < 0 ? text.length : end;
+}
+
+function isDelimiterRow(line: string): boolean {
+  const body = line.replace(CONTAINER_PREFIX, '').trimEnd();
+  return body.includes('|') && body.includes('-') && DELIMITER_BODY.test(body);
+}
+
+/** A delimiter row sits among the non-blank lines right above `lineStart`. */
+function tableAbove(text: string, lineStart: number): boolean {
+  let end = lineStart - 1;
+  for (let count = 0; end > 0 && count < TABLE_LOOKBACK_LINES; count += 1) {
+    const start = text.lastIndexOf('\n', end - 1) + 1;
+    const line = text.slice(start, end);
+    if (!line.trim()) return false;
+    if (isDelimiterRow(line)) return true;
+    end = start - 1;
+  }
+  return false;
+}
+
+/** The line at `lineStart` is a table row. */
+function tableRow(text: string, lineStart: number, line: string): boolean {
+  const body = line.replace(CONTAINER_PREFIX, '');
+  if (body.startsWith('|')) return true;
+  if (!body.trim()) return false;
+  if (tableAbove(text, lineStart)) return true;
+  if (!body.includes('|')) return false;
+  const next = lineEndOf(text, lineStart) + 1;
+  return next < text.length && isDelimiterRow(text.slice(next, lineEndOf(text, next)));
+}
+
+/** Closing parenthesis of a link destination opened at `from` (after `(`),
+ *  on the same line; -1 when not received yet. */
+function linkClose(text: string, from: number, lineEnd: number): number {
+  let depth = 0;
+  for (let at = from; at < lineEnd; at += 1) {
+    const char = text[at];
+    if (char === '\\') at += 1;
+    else if (char === '(') depth += 1;
+    else if (char === ')') {
+      if (depth === 0) return at;
+      depth -= 1;
+    }
+  }
+  return -1;
+}
+
+/** Start of an image opened in [lineStart, cut) and not closed by `cut`
+ *  (outside code spans), or cut. */
+function imageHold(text: string, lineStart: number, cut: number, live: boolean): number {
+  const lineEnd = lineEndOf(text, lineStart);
+  let codeRun = 0;
+  let image = -1;
+  let depth = 0;
+  let at = lineStart;
+  while (at < cut) {
+    const char = text[at];
+    if (char === '`') {
+      let run = 1;
+      while (at + run < cut && text[at + run] === '`') run += 1;
+      if (!codeRun) codeRun = run;
+      else if (run === codeRun) codeRun = 0;
+      at += run;
+      continue;
+    }
+    if (codeRun) {
+      at += 1;
+      continue;
+    }
+    if (char === '\\') {
+      at += 2;
+      continue;
+    }
+    if (image < 0) {
+      if (char === '!' && text[at + 1] === '[') {
+        image = at;
+        depth = 1;
+        at += 2;
+        continue;
+      }
+    } else if (char === '[') {
+      depth += 1;
+    } else if (char === ']') {
+      depth -= 1;
+      if (depth === 0) {
+        const next = text[at + 1];
+        if (next === undefined && live) break;
+        if (next === '(') {
+          const close = linkClose(text, at + 2, lineEnd);
+          if (close < 0 || close >= cut) break;
+          at = close;
+        }
+        image = -1;
+      }
+    }
+    at += 1;
+  }
+  return image >= 0 ? image : cut;
+}
+
+/** A table header row (a line with a cell pipe, not inside a formed table)
+ *  ends right before `at` and the line at `at` may still be its delimiter
+ *  row: the cut goes back to the header, which paints with its delimiter
+ *  (alone it parses as a paragraph of raw pipes). */
+function tableHeadHold(text: string, at: number, live: boolean): number {
+  if (at <= 0 || (!live && at >= text.length)) return at;
+  // The line after the possible header: `at` starts it, or `at` is inside it
+  // while it reads as a delimiter row so far.
+  const below = text.lastIndexOf('\n', at - 1) + 1;
+  if (below === 0) return at;
+  const next = text.slice(below, lineEndOf(text, below));
+  if (below < at && !(next.includes('-') && PARTIAL_DELIMITER.test(next))) return at;
+  const start = text.lastIndexOf('\n', below - 2) + 1;
+  const line = text.slice(start, below - 1);
+  if (!HEADER_PIPE.test(line.replace(CODE_SPAN, '')) || isDelimiterRow(line)) return at;
+  if (insideCode(fencedRanges(text), start) || tableAbove(text, start)) return at;
+  if (below >= text.length) return live ? start : at;
+  return next.trim() && PARTIAL_DELIMITER.test(next) ? start : at;
+}
+
+/** The furthest cut at or before `cut` that paints no unfinished construct of
+ *  `text`. */
+export function revealHold(text: string, cut: number, live: boolean): number {
+  return tableHeadHold(text, lineHold(text, cut, live), live);
+}
+
+function lineHold(text: string, cut: number, live: boolean): number {
+  if (cut <= 0) return 0;
+  if (cut >= text.length && !live) return text.length;
+  const lineStart = text.lastIndexOf('\n', cut - 1) + 1;
+  if (lineStart === cut) return cut;
+  if (insideCode(fencedRanges(text), lineStart)) return lineStart;
+  const lineEnd = lineEndOf(text, lineStart);
+  const line = text.slice(lineStart, lineEnd);
+  const prefix = text.slice(lineStart, cut);
+  if (FENCE_LINE.test(prefix)) return lineStart;
+  if (LIST_MARKER_ONLY.test(prefix) || QUOTE_MARKER_ONLY.test(prefix)) return lineStart;
+  if (line.length <= LINE_HOLD_MAX && (HEADING.test(prefix) || tableRow(text, lineStart, line))) return lineStart;
+  let hold = imageHold(text, lineStart, cut, live);
+  if (live && cut === text.length && hold === cut && TRAILING_WAIT.has(text[cut - 1])) hold = cut - 1;
+  return hold;
+}

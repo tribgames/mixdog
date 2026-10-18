@@ -683,7 +683,7 @@ export class SessionHost implements DesktopService {
     if (!pending) {
       pending = (async () => {
         const store = await this.runtime.loadSessionStore();
-        const rows = store.listStoredAgentWorkers?.();
+        const rows = await store.listStoredAgentWorkers?.();
         return Array.isArray(rows) ? rows : [];
       })();
       this.agentPoolRowsPromise = pending;
@@ -816,6 +816,11 @@ export class SessionHost implements DesktopService {
 
   async listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
     return this.lifecycle.listProviderModels(options);
+  }
+
+  /** See SessionHostLifecycle.invalidateReadCaches. */
+  invalidateReadCaches(): void {
+    this.lifecycle.invalidateReadCaches();
   }
 
   async setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot> {

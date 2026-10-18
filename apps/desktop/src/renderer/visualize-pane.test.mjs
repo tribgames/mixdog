@@ -386,6 +386,37 @@ test('a PDF cannot zoom on its own: main reports Ctrl and the document frame yie
   }
 });
 
+test('every split cell has an enlarge button that shows it alone; it is a phone-only, 44px silver target', async () => {
+  putTab({
+    id: 't9',
+    label: 'split',
+    revision: 0,
+    panes: [
+      { kind: 'html', label: 'a.html', target: 'a.html', url: 'http://127.0.0.1:1/a.html' },
+      { kind: 'video', label: 'b.mp4', target: 'b.mp4', url: 'http://127.0.0.1:1/b.mp4' },
+      image('c.png'),
+    ],
+  });
+  const root = await mount();
+  try {
+    const buttons = document.querySelectorAll('.visualize-pane-cell > .visualize-pane-enlarge');
+    assert.equal(buttons.length, 3);
+    await act(async () => buttons[1].click());
+    assert.ok(document.querySelector('.visualize-body.is-solo'));
+    assert.ok(document.querySelector('.visualize-pane-cell.is-solo[data-visualize-pane="1"]'));
+    assert.equal(document.querySelectorAll('.visualize-pane-enlarge').length, 0, 'alone, no enlarge button');
+    assert.ok(document.querySelector('.browser-zoom-pill'), 'the pill steps between cells and goes back');
+    const css = readFileSync(new URL('./visualize.css', import.meta.url), 'utf8');
+    assert.match(css, /\.visualize-pane-enlarge\s*\{\s*display:\s*none/);
+    assert.match(
+      css,
+      /html\[data-mixdog-mobile-tabs\] \.visualize-pane-enlarge\s*\{[^}]*top:\s*4px[^}]*width:\s*44px;\s*height:\s*44px/
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test('the shared toggle reaches the browser pill and every panel at once', async () => {
   setZoomBarVisible(true);
   const { browserHeaderActions } = await import('./BrowserPane.lazy.tsx');

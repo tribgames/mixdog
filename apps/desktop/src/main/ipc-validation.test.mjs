@@ -90,13 +90,22 @@ test('the turn review bar reaches its diff with only a boolean refresh option', 
   }
 });
 
-test('session usage takes only a bounded list of session ids', () => {
+test('session usage takes only a bounded list of session ids and the agents flag', () => {
   const read = (args) => requiredDesktopCapabilityRequest({ capability: 'getSessionUsage', args, sessionId: 'lead-1' });
-  for (const args of [[], [{}], [{ sessionIds: [] }], [{ sessionIds: ['sess_a', 'agent-b'] }]]) {
+  for (const args of [
+    [],
+    [{}],
+    [{ sessionIds: [] }],
+    [{ sessionIds: ['sess_a', 'agent-b'] }],
+    [{ agents: true }],
+    [{ sessionIds: ['sess_a'], agents: false }],
+  ]) {
     assert.doesNotThrow(() => read(args), JSON.stringify(args));
   }
   for (const args of [
     [null],
+    [{ agents: 'yes' }],
+    [{ agents: 1 }],
     [{ sessionIds: 'sess_a' }],
     [{ sessionIds: ['bad id'] }],
     [{ sessionIds: Array.from({ length: 65 }, (_, i) => `s${i}`) }],
@@ -192,6 +201,17 @@ test('Media generation toggles but never installs, and its generator pin is a on
   assert.doesNotThrow(() =>
     requiredDesktopCapabilityRequest({ capability: 'setMediaPin', args: [{ kind: 'image', lane: '' }] })
   );
+});
+
+test('Model management saves one provider’s visibility and favorites as a checked list', () => {
+  const request = (args) => requiredDesktopCapabilityRequest({ capability: 'setModelPreferences', args });
+  assert.doesNotThrow(() => request(['openai', [{ model: 'gpt-5.5', hidden: true, favorite: false }]]));
+  assert.doesNotThrow(() => request(['openai', []]));
+  assert.throws(() => request(['openai']), /invalid number of arguments/);
+  assert.throws(() => request(['', []]), /provider id/);
+  assert.throws(() => request(['openai', [{ model: 'm', extra: 1 }]]), /unsupported field/);
+  assert.throws(() => request(['openai', [{ model: 'm', hidden: 'yes' }]]), /hidden is invalid/);
+  assert.throws(() => request(['openai', [{ model: '__proto__' }]]), /invalid/);
 });
 
 test('Visualize is a toggle-only built-in: it toggles but never installs', () => {

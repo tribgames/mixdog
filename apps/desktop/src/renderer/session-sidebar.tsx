@@ -14,6 +14,7 @@ import {
 } from './session-sidebar-state';
 import { useSidebarMenus } from './session-sidebar-menus';
 import {
+  createRowReorderCache,
   renderSessionRow,
   sessionOrderMenuItems,
   sessionPanelHeader,
@@ -49,6 +50,49 @@ import {
 } from './session-order';
 import { ScmContextMenu } from './ScmContextMenu';
 import type { ProjectSessionGroup } from './session-sidebar-sections';
+import { SettingsConfirmDialog } from './settings/capability-controls';
+import { useStableEvent } from './use-stable-event';
+
+/** The "work in progress" confirmation: archiving or deleting a busy session
+ *  waits for it; `run` is the action the confirm button performs. */
+interface BusyPrompt {
+  kind: 'archive' | 'delete';
+  count: number;
+  name: string;
+  run(): void;
+}
+type BusyGuard = (kind: BusyPrompt['kind'], ids: readonly string[], run: () => void, confirmedRun?: () => void) => void;
+
+function busyPromptOptions(prompt: BusyPrompt) {
+  const archive = prompt.kind === 'archive';
+  const many = prompt.count > 1;
+  const name = prompt.name;
+  const total = prompt.count;
+  let description: string;
+  if (archive) {
+    description = many
+      ? t(
+          '{{total}} of these sessions have work in progress. Archiving hides them, but does not stop the running work.',
+          {
+            total,
+          }
+        )
+      : t('"{{name}}" has work in progress. Archiving hides it, but does not stop the running work.', { name });
+  } else {
+    description = many
+      ? t('{{total}} of these sessions have work in progress. Deleting stops the running work and removes them.', {
+          total,
+        })
+      : t('"{{name}}" has work in progress. Deleting stops the running work and removes the session.', { name });
+  }
+  return {
+    title: t('This session has work in progress'),
+    description,
+    confirmLabel: archive ? t('Archive') : t('Delete'),
+    danger: !archive,
+    onConfirm: prompt.run,
+  };
+}
 
 const NO_PROJECTS: readonly DesktopProjectSummary[] = [];
 /** Default top-to-bottom order of the session categories; the user can drag
@@ -256,7 +300,8 @@ function useSessionOrdering(
 function useBulkArchiveActions(
   archivedRows: readonly DesktopSessionSummary[],
   onArchiveSession: (sessionId: string, archived: boolean) => Promise<void>,
-  onDeleteSession: (sessionId: string) => Promise<void>
+  onDeleteSession: (sessionId: string) => Promise<void>,
+  guardBusy: BusyGuard
 ) {
   const [bulkAction, setBulkAction] = useState<'' | 'archive-automations' | 'archive-recent' | 'restore' | 'delete'>(
     ''
@@ -268,42 +313,58 @@ function useBulkArchiveActions(
       archived: boolean
     ) => {
       if (bulkAction || targets.length === 0) return;
-      setBulkAction(action);
-      try {
-        /* Start every row mutation before awaiting any of them. Each row action
+      const run = async () => {
+        setBulkAction(action);
+        try {
+          /* Start every row mutation before awaiting any of them. Each row action
          applies its optimistic state synchronously, so React paints one bulk
          transition instead of visibly walking the list item by item. A failed
          row still owns its existing rollback while the rest continue. */
-        await Promise.all(
-          targets.map(async (session) => {
-            try {
-              await onArchiveSession(session.id, archived);
-            } catch {
-              // The row-level action restores failures; continue with the rest.
-            }
-          })
+          await Promise.all(
+            targets.map(async (session) => {
+              try {
+                await onArchiveSession(session.id, archived);
+              } catch {
+                // The row-level action restores failures; continue with the rest.
+              }
+            })
+          );
+        } finally {
+          setBulkAction('');
+        }
+      };
+      if (archived)
+        guardBusy(
+          'archive',
+          targets.map((session) => session.id),
+          () => void run()
         );
-      } finally {
-        setBulkAction('');
-      }
+      else await run();
     },
-    [bulkAction, onArchiveSession]
+    [bulkAction, guardBusy, onArchiveSession]
   );
   const deleteAllArchived = useCallback(async () => {
     if (bulkAction || archivedRows.length === 0) return;
-    setBulkAction('delete');
-    try {
-      for (const session of archivedRows) {
-        try {
-          await onDeleteSession(session.id);
-        } catch {
-          // Failed rows stay archived; continue deleting the remaining rows.
+    const run = async () => {
+      setBulkAction('delete');
+      try {
+        for (const session of archivedRows) {
+          try {
+            await onDeleteSession(session.id);
+          } catch {
+            // Failed rows stay archived; continue deleting the remaining rows.
+          }
         }
+      } finally {
+        setBulkAction('');
       }
-    } finally {
-      setBulkAction('');
-    }
-  }, [bulkAction, archivedRows, onDeleteSession]);
+    };
+    guardBusy(
+      'delete',
+      archivedRows.map((session) => session.id),
+      () => void run()
+    );
+  }, [bulkAction, archivedRows, guardBusy, onDeleteSession]);
   return { bulkAction, updateSessionArchives, deleteAllArchived };
 }
 
@@ -536,6 +597,37 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   if (!panelActive) sessionsMounted.current = true;
   const hasSessionSurface = sessionsMounted.current;
   const editor = useSessionEditor(sessions, onRenameSession);
+  const attentionIndex = useSessionAttentionIndex();
+  // Busy = the same signals the row status shows: a running turn, a turn
+  // waiting on the user, or a session waiting on background work.
+  const isBusy = (sessionId: string) =>
+    workingSessionIds?.has(sessionId) === true ||
+    attentionIndex.needsUser.has(sessionId) ||
+    attentionIndex.waiting.has(sessionId);
+  const [busyPrompt, setBusyPrompt] = useState<BusyPrompt | null>(null);
+  const guardBusy = useStableEvent<Parameters<BusyGuard>, void>((kind, ids, run, confirmedRun = run) => {
+    const busyIds = ids.filter(isBusy);
+    if (busyIds.length === 0) {
+      run();
+      return;
+    }
+    const first = sessions.find((session) => session.id === busyIds[0]);
+    setBusyPrompt({ kind, count: busyIds.length, name: first ? sessionLabel(first) : '', run: confirmedRun });
+  });
+  const archiveSession = useStableEvent((sessionId: string, archived: boolean) => {
+    if (!archived || !isBusy(sessionId)) return onArchiveSession(sessionId, archived);
+    guardBusy('archive', [sessionId], () => void onArchiveSession(sessionId, true).catch(() => {}));
+    return Promise.resolve();
+  });
+  // Idle: arm the row's inline confirm. Busy: the dialog is the confirmation.
+  const requestDelete = useStableEvent((sessionId: string) =>
+    guardBusy(
+      'delete',
+      [sessionId],
+      () => editor.setConfirmingSessionId(sessionId),
+      () => void onDeleteSession(sessionId).catch(() => {})
+    )
+  );
   const [panelActionSlot, setPanelActionSlot] = useState<HTMLDivElement | null>(null);
   const { sidebarWidth, resizeStart, updateSidebarWidth, finishSidebarResize } = useSidebarWidth();
   const { showAgents, updateShowAgents } = useSidebarSessionFilter();
@@ -584,7 +676,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     updateCustomOrders,
   });
   const [archivedRowLimit, setArchivedRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
-  const bulk = useBulkArchiveActions(archivedRows, onArchiveSession, onDeleteSession);
+  const bulk = useBulkArchiveActions(archivedRows, onArchiveSession, onDeleteSession, guardBusy);
   useEffect(() => {
     if (selection.kind !== 'session') return;
     const selectedIndex = rows.findIndex((session) => session.id === selection.id);
@@ -641,13 +733,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     onResumeSession,
     onOpenSessionInSplit,
     onInheritSession,
-    onArchiveSession,
+    onArchiveSession: archiveSession,
     onFavoriteSession,
     onMoveSessionToProject,
     onAddProject,
     openSessionEditor: editor.openSessionEditor,
     closeSessionEditor: editor.closeSessionEditor,
-    setConfirmingSessionId: editor.setConfirmingSessionId,
+    requestDelete,
     sessionGroupKeys,
     projectGroups,
     moveSession,
@@ -659,13 +751,14 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     onRenameProject,
     onOpenProjectSettings,
   });
-  const attentionIndex = useSessionAttentionIndex();
   const attentionOf = (sessionId: string) =>
     sessionAttentionOf(attentionIndex, sessionId, {
       running: workingSessionIds?.has(sessionId) === true,
       unread: unreadSessionIds?.has(sessionId) === true,
     });
+  const [rowReorders] = useState(createRowReorderCache);
   const rowContext: SessionRowContext = {
+    rowReorders,
     selection,
     workingSessionIds,
     unreadSessionIds,
@@ -675,7 +768,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     requestPrefetch,
     onResumeSession,
     onDeleteSession,
-    onArchiveSession,
+    requestDelete,
+    onArchiveSession: archiveSession,
     onFavoriteSession,
     openSessionMenu,
     onToggleFork: openState.toggleFork,
@@ -763,6 +857,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         <SidebarPanelHeaderSlot.Provider value={panelActionSlot}>{children}</SidebarPanelHeaderSlot.Provider>
       </div>
       <ScmContextMenu state={contextMenu} onClose={closeContextMenu} />
+      {busyPrompt && (
+        <SettingsConfirmDialog portal options={busyPromptOptions(busyPrompt)} onClose={() => setBusyPrompt(null)} />
+      )}
       {sidebarResizeHandle({
         width: displayedSidebarWidth,
         sidebarWidth,

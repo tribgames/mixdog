@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { confirmText } from './confirm-text.ts';
 import { t as translate } from './i18n.ts';
+
+test('confirmText collapses newlines and truncates long commands to one ~100-char line', () => {
+  assert.equal(confirmText('echo a\n  echo b\r\n'), 'echo a echo b');
+  const shown = confirmText(`node -e "${'x'.repeat(500)}"\nrm -rf /`);
+  assert.equal(Array.from(shown).length, 100);
+  assert.equal(shown.endsWith('…'), true);
+  assert.equal(shown.includes('\n'), false);
+  assert.equal(confirmText('short'), 'short');
+});
 import {
   backgroundJobRows,
   cwdFolderName,

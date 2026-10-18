@@ -10,6 +10,7 @@ export type SettingsSection =
   | 'model'
   | 'websearch'
   | 'providers'
+  | 'model-management'
   | 'mcp'
   | 'plugins'
   | 'skills'

@@ -1,9 +1,10 @@
-import { AlertTriangle, CircleX } from 'lucide-react';
+import { AlertTriangle, CircleX, Hourglass } from 'lucide-react';
 import type { SessionAttention } from '../shared/session-attention';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 
-/** The glyph of a session that needs the user or failed, shared by tabs,
+/** The glyph of a session that needs the user, failed, or waits on its
+ *  background work, shared by tabs,
  *  sidebar rows and collapsed project groups; running keeps each surface's
  *  spinner and unread its dot. The shape, not only the tint, names the state. */
 export function SessionAttentionGlyph({
@@ -17,9 +18,16 @@ export function SessionAttentionGlyph({
   size: number;
   className: string;
 }) {
-  if (status !== 'needs-you' && status !== 'failed') return null;
-  const label = status === 'needs-you' ? t('{{name}} needs you', { name }) : t('{{name}} has a failure', { name });
-  const Glyph = status === 'needs-you' ? AlertTriangle : CircleX;
+  if (status !== 'needs-you' && status !== 'failed' && status !== 'waiting') return null;
+  let label = t('{{name}} has a failure', { name });
+  let Glyph = CircleX;
+  if (status === 'needs-you') {
+    label = t('{{name}} needs you', { name });
+    Glyph = AlertTriangle;
+  } else if (status === 'waiting') {
+    label = `${name}: ${t('Waiting for tasks')}`;
+    Glyph = Hourglass;
+  }
   return (
     <span className={`session-attention-glyph ${className}`} data-status={status} role="status" aria-label={label}>
       <Glyph size={size} aria-hidden="true" />

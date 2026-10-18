@@ -18,7 +18,7 @@ import {
   invalidateSharedModelCatalogRequest,
   subscribeModelCatalogInvalidation,
 } from './model-catalog-cache';
-import { customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
+import { customProviderDisplayNames, filterConfiguredModels, providerCatalogFailures } from './model-catalog';
 import {
   EFFORT_FALLBACK_ORDER,
   modelOffersUltrafast,
@@ -43,8 +43,16 @@ import {
   type WorkflowOption,
 } from './workflow-options-cache';
 
-// @ts-expect-error -- shared TUI source has no declaration file.
-import { normalizeModelOptions as normalizeTuiModelOptions } from '../../../../src/tui/app/model-options.mjs';
+import {
+  applyModelPreferenceToModels,
+  applyModelPreferenceToSetup,
+  listedModels,
+  orderModelsByRecency,
+  requestModelManagementProvider,
+  type ModelPreferenceChange,
+} from './model-visibility';
+import { invalidateCapabilitySettings } from './settings/capability-data';
+import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 
 // Model-style trigger for changing the active session workflow.
 export const WorkflowSelect = memo(function WorkflowSelect({
@@ -405,24 +413,15 @@ export const ModelSelector = memo(function ModelSelector({
   const modelUnavailable = modelDisabled;
   const tuningUnavailable = tuningDisabled;
   const displayedFast = fast;
-  const catalogModels = useMemo(() => {
-    const unique = new Map<string, DesktopModelOption>();
-    for (const option of models) {
-      if (option?.provider && option?.model) unique.set(`${option.provider}:${option.model}`, option);
-    }
-    const normalized = normalizeTuiModelOptions(
-      [...unique.values()].map((option) => ({ ...option, id: option.model }))
-    ) as Array<DesktopModelOption & { id?: string }>;
-    return normalized.map((entry) => {
-      const { id: _id, ...option } = entry;
-      return option as DesktopModelOption;
-    });
-  }, [models]);
+  // The whole catalog, newest first per provider. Which rows /model lists is
+  // Model management's call (selectableModels); a hidden model in use still
+  // names the trigger from here.
+  const catalogModels = useMemo(() => orderModelsByRecency(models), [models]);
   const selected = catalogModels.find((option) => option.provider === provider && option.model === model);
-  // The picker list is trimmed (family limits) and starts empty on a cold
-  // catalog, so a perfectly valid route — a schedule/webhook session opened
-  // right after it ran — could not be named from it (user: 세션 생성 시 쓴
-  // 모델이 그대로 표기되게). The RAW catalog answers those cases.
+  // The catalog starts empty on a cold start, so a perfectly valid route — a
+  // schedule/webhook session opened right after it ran — could not be named
+  // from it (user: 세션 생성 시 쓴 모델이 그대로 표기되게). The RAW catalog
+  // answers those cases.
   const known = selected || models.find((option) => option.provider === provider && option.model === model);
   const awaitingRoute = !known && !startupCatalogSettled;
   const autoEffortRoute = useAutoEffortRoute(known?.autoEffortCapable === true, autoEffort, (enabled) =>
@@ -456,10 +455,16 @@ export const ModelSelector = memo(function ModelSelector({
   const fastControlVisible = shouldShowFastControl(fastCapable, known?.fastCapable);
   const fastAvailable = fastControlVisible && modelFastAvailable(known, effort, selectedModelParameters);
   const selectableModels = useMemo(
-    () => filterConfiguredModels(catalogModels, providerSetup, providerSetupError),
+    () =>
+      listedModels(
+        filterConfiguredModels(catalogModels, providerSetup, providerSetupError),
+        catalogModels,
+        providerSetup
+      ),
     [catalogModels, providerSetup, providerSetupError]
   );
   const providerNames = useMemo(() => customProviderDisplayNames(providerSetup), [providerSetup]);
+  const providerCatalogErrors = useMemo(() => providerCatalogFailures(providerSetup), [providerSetup]);
   // A route the loaded catalog does not know at all stays "Select model": an
   // unknown/retired persisted id must never read as a selectable model.
   const triggerModel = known ? modelDisplayName(known.model, known.provider, known.display || '') : t('Select model');
@@ -647,6 +652,22 @@ export const ModelSelector = memo(function ModelSelector({
       ...(optionMaxWindow > 0 && sameModel ? exactContextField : {}),
     };
     return route(selection, !sameModel);
+  };
+  // The /model row menu saves through Model management's own capability; the
+  // list updates at once and the re-read that follows confirms it.
+  const setModelPreference = async (option: DesktopModelOption, change: Omit<ModelPreferenceChange, 'model'>) => {
+    const api = window.mixdogDesktop;
+    const saved: ModelPreferenceChange = { model: option.model, ...change };
+    setModels((current) => applyModelPreferenceToModels(current, option.provider, saved));
+    setProviderSetup((current: unknown) => applyModelPreferenceToSetup(current, option.provider, saved));
+    try {
+      await api.invokeCapability({ capability: 'setModelPreferences', args: [option.provider, [saved]] });
+      invalidateSidebarReferenceForMutation('setModelPreferences');
+      invalidateCapabilitySettings(api, 'setModelPreferences');
+    } catch (reason) {
+      console.warn('[model-catalog] saving model preference failed', reason);
+      invalidateSharedModelCatalogRequest();
+    }
   };
   const changeFast = async (enabled: boolean) => {
     if (tuningUnavailable) return;
@@ -852,6 +873,7 @@ export const ModelSelector = memo(function ModelSelector({
         catalogLoaded={catalogLoaded}
         catalogRefreshing={catalogRefreshing}
         catalogError={catalogError}
+        providerCatalogErrors={providerCatalogErrors}
         providerSetupError={providerSetupError}
         modelDisabled={modelUnavailable}
         tuningDisabled={tuningUnavailable}
@@ -864,6 +886,11 @@ export const ModelSelector = memo(function ModelSelector({
         onChangeContext={(value, tokens) => void changeContext(value, tokens)}
         onChangeModelParameter={(id, value) => void changeModelParameter(id, value)}
         onOpenProviders={() => onOpenSettings('providers')}
+        onOpenModelManagement={(target) => {
+          if (target) requestModelManagementProvider(target);
+          onOpenSettings('model-management');
+        }}
+        onSetModelPreference={setModelPreference}
         onOpenModelPane={() => void loadCatalog()}
         autoEffort={autoEffortRoute.autoEffort}
         onChangeAutoEffort={autoEffortRoute.onChangeAutoEffort}

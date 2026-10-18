@@ -14,6 +14,7 @@ import { useSelectionPin } from './transcript-list-selection-pin';
 import { useTouchScrollDeviation } from './transcript-list-touch-deviation';
 import { useActiveRowIndexes, useTranscriptVirtualizer } from './transcript-list-virtualizer';
 import type { TranscriptRowModel } from './transcript-rows';
+import { TranscriptRowOffscreenContext } from './use-paced-transcript-text';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
 
 export { shouldDeferTranscriptScrollAdjustment } from './transcript-list-geometry';
@@ -187,7 +188,7 @@ export function TranscriptList({
     indexForPendingKey,
     restoreReadingAnchor,
   });
-  const { measureRow, bindSpacer } = useTranscriptRowRegistration({ viewport, spacer, content, virtualizerRef });
+  const { measureRow, bindSpacer } = useTranscriptRowRegistration({ spacer, content, virtualizerRef });
 
   useTranscriptScrollGeometry({ viewport, spacer, virtualizerRef, domTop, scrollInset, contentHeight, deviation });
   useRememberVirtualMeasurements({ sessionKey, viewport, virtualizerRef, flushDeferredResizes, settleHeldShrinks });
@@ -212,12 +213,22 @@ export function TranscriptList({
   );
 
   const virtualRows = virtualizer.getVirtualItems();
+  // The core's visible range (overscan excluded), current after the read above.
+  const visible = virtualizer.range;
   return (
     // directDomUpdates owns this height synchronously through containerRef.
     // A React height prop can commit an older render after a native wheel
     // reaches the bottom and temporarily clip one pane at stale geometry.
     <div className="transcript-virtual-space" ref={bindSpacer}>
-      {virtualRows.map((virtualRow) => renderVirtualRow(virtualRow, rows, measureRow, renderRow))}
+      {virtualRows.map((virtualRow) =>
+        renderVirtualRow(
+          virtualRow,
+          rows,
+          measureRow,
+          renderRow,
+          visible !== null && (virtualRow.index < visible.startIndex || virtualRow.index > visible.endIndex)
+        )
+      )}
     </div>
   );
 }
@@ -228,7 +239,8 @@ function renderVirtualRow(
   virtualRow: VirtualItem,
   rows: readonly TranscriptRowModel[],
   measureRow: ReturnType<typeof useTranscriptRowRegistration>['measureRow'],
-  renderRow: (row: TranscriptRowModel) => ReactNode
+  renderRow: (row: TranscriptRowModel) => ReactNode,
+  offscreen: boolean
 ) {
   const row = rows[virtualRow.index];
   if (!row) return null;
@@ -259,6 +271,13 @@ function renderVirtualRow(
       key={virtualRow.key}
       data-index={virtualRow.index}
       data-timeline-key={String(virtualRow.key)}
+      // Overscan and pinned rows outside the viewport hold their infinite
+      // loaders still (12-transcript.css). The core re-renders this list on
+      // every visible-range change, so the mark follows the reader's scroll
+      // without an IntersectionObserver: any observer in the document made
+      // Chromium run a main-thread frame on every vsync for as long as a
+      // compositor animation (spinner, shimmer) ran anywhere in the window.
+      data-offscreen={offscreen ? 'true' : undefined}
       ref={measureRow}
     >
       <div
@@ -270,7 +289,10 @@ function renderVirtualRow(
         data-band-lead={bandLead ? 'true' : undefined}
         data-step-before={stepBefore ? 'true' : undefined}
       >
-        {renderRow(row)}
+        {/* The live reply's pacer reads the same mark (use-paced-transcript-text). */}
+        <TranscriptRowOffscreenContext.Provider value={offscreen}>
+          {renderRow(row)}
+        </TranscriptRowOffscreenContext.Provider>
       </div>
     </div>
   );

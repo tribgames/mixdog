@@ -97,7 +97,8 @@ export interface MixdogSessionStoreModule {
    *  catalog; returns the unsubscribe function. Optional: older runtimes. */
   subscribeStoredSessionCatalogChanges?(changed: () => void): () => void;
   storedAgentWorkerIndexPath?(): string;
-  listStoredAgentWorkers?(): DesktopAgentPoolRow[];
+  /** The daemon answers asynchronously (its store reads are awaited). */
+  listStoredAgentWorkers?(): DesktopAgentPoolRow[] | Promise<DesktopAgentPoolRow[]>;
 }
 
 /** Items a runtime restores on resume, and the page an old (non-paging)
@@ -196,9 +197,20 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
         ...(Number.isFinite(savedContextPercent) && savedContextPercent >= 10 && savedContextPercent <= 100
           ? { savedContextPercent }
           : {}),
+        ...(typeof row.savedHidden === 'boolean' ? { savedHidden: row.savedHidden } : {}),
+        ...(row.favorite === true ? { favorite: true } : {}),
         // Marks a quick answer that already holds the full catalog (see
         // fetchProviderModels); absent everywhere else.
         ...(row.catalogComplete === true ? { catalogComplete: true as const } : {}),
+        // Rows of a partial answer (a provider failed or timed out): which
+        // providers are missing and when to ask again.
+        ...(row.catalogPartial === true
+          ? {
+              catalogPartial: true as const,
+              catalogMissing: Array.isArray(row.catalogMissing) ? row.catalogMissing.map(String) : [],
+              ...(Number.isFinite(Number(row.catalogRetryAt)) ? { catalogRetryAt: Number(row.catalogRetryAt) } : {}),
+            }
+          : {}),
         ...(typeof row.defaultEffort === 'string' && row.defaultEffort ? { defaultEffort: row.defaultEffort } : {}),
         ...(row.defaultFast === true ? { defaultFast: true } : {}),
         ...(row.autoEffortCapable === true ? { autoEffortCapable: true } : {}),

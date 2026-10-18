@@ -564,18 +564,22 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame::after {
   pointer-events: none;
 }
 /* Remote phone drawer: the PC card spans the full width above the rail and the
-   active side panel; its menu overlays the content below. */
-html[data-mixdog-mobile-tabs] .sidebar-drawer-frame:has(> .remote-pc-card) {
+   active side panel; its menu overlays the content below. The frame carries
+   data-remote-pc (AppSidebarDrawer) instead of a :has(> .remote-pc-card)
+   test: Chromium evaluates :has() before the html ancestor check even on the
+   desktop, so every React update anywhere in the left panel restyled the
+   whole panel (hundreds of elements per transcript message). */
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-remote-pc="true"] {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
 }
 /* The frame-tall divider would cross the header: draw it on the rail instead,
    which starts below the header's own hairline. */
-html[data-mixdog-mobile-tabs] .sidebar-drawer-frame:has(> .remote-pc-card)::before {
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-remote-pc="true"]::before {
   display: none;
 }
-html[data-mixdog-mobile-tabs] .sidebar-drawer-frame:has(> .remote-pc-card) > .activity-rail {
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-remote-pc="true"] > .activity-rail {
   box-sizing: border-box;
   border-right: 1px solid var(--mx-border-muted);
 }
@@ -586,13 +590,13 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .remote-pc-card {
   grid-row: 1;
   border-bottom: 1px solid var(--mx-border-muted);
 }
-html[data-mixdog-mobile-tabs] .sidebar-drawer-frame:has(> .remote-pc-card) > :not(.remote-pc-card) {
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-remote-pc="true"] > :not(.remote-pc-card) {
   grid-row: 2;
 }
 /* The panel's own "100% - 48px" width assumed a flex row; inside the grid cell
    that left it narrower than the drawer. The cell (1fr) sets the width. */
 html[data-mixdog-mobile-tabs]
-  .sidebar-drawer-frame.sidebar-drawer-frame:has(> .remote-pc-card)
+  .sidebar-drawer-frame.sidebar-drawer-frame[data-remote-pc="true"]
   > :is(.workbench-side-panel, .sidebar.session-sidebar) {
   width: auto;
 }
@@ -1084,6 +1088,7 @@ html[data-mixdog-mobile-tabs] .pane-cell {
 /* The jump chip grows to a 36px disc on touch (28px read as too small to hit);
    its hit frame still reaches the 44dp tier. */
 html[data-mixdog-mobile-tabs] .jump-to-latest {
+  bottom: var(--island-stage-gap);
   width: 36px;
   height: 36px;
 }
@@ -1244,7 +1249,6 @@ html[data-mixdog-mobile-tabs] .turn-review-revert {
 }
 html[data-mixdog-mobile-tabs] .message .response-footer,
 html[data-mixdog-mobile-tabs] .message.assistant .response-footer:has(.turn-status),
-html[data-mixdog-mobile-tabs] .response-footer-band,
 html[data-mixdog-mobile-tabs] .live-activity-slot[data-busy="true"],
 html[data-mixdog-mobile-tabs] .markdown-code > header {
   min-height: var(--mx-touch-fixed-main);

@@ -15,6 +15,7 @@ installTestDom(null, {
 });
 const { TranscriptRow } = await import('./transcript-row.tsx');
 const { MarkdownSessionContext } = await import('./MarkdownLink.tsx');
+const { TranscriptRowOffscreenContext } = await import('./use-paced-transcript-text.ts');
 const { appendLiveTranscriptRows, projectSettledTranscriptRows } = await import('./transcript-rows.ts');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,9 +30,15 @@ async function mountRow(props) {
   return { host, render, cleanup: () => act(async () => root.unmount()) };
 }
 
-test('completion waits for the paced reveal, then shows footer and copy with the full text', async () => {
+/** Fade durations (ms) of the words fading in `host`. */
+const fadeDurations = (host, selector = '[data-stream-fade]') =>
+  [...host.querySelectorAll(selector)].map((node) => Number.parseFloat(node.style.getPropertyValue('--mx-fade-ms')));
+
+test('completion drains the rest of a paced reply quickly, then turns the fade off', async () => {
   const streaming = { id: 'a1', kind: 'assistant', text: 'Hi', streaming: true };
   const view = await mountRow({ item: streaming, paceKey: 's:a1', pace: true });
+  // The markdown parser loads on first use.
+  await act(async () => sleep(300));
   await view.render({ item: { ...streaming, text: LONG }, paceKey: 's:a1', pace: true });
   const completion = { id: 'd1', kind: 'turndone', status: 'done', elapsedMs: 10 };
   await view.render({
@@ -40,38 +47,130 @@ test('completion waits for the paced reveal, then shows footer and copy with the
     paceKey: 's:a1',
     pace: true,
   });
-  const article = view.host.querySelector('article');
-  assert.ok(article.className.includes('streaming'), 'still draining right after completion');
-  // The live band's slot stands where the footer lands while the text
-  // drains: the band row left in this commit, nothing may shrink.
-  assert.ok(view.host.querySelector('.response-footer-band'), 'band slot while draining');
-  assert.equal(view.host.querySelector('.response-footer'), null);
-  await act(async () => sleep(400));
   assert.ok(view.host.querySelector('article').className.includes('settled'));
   assert.ok(view.host.querySelector('.response-footer'));
-  assert.equal(view.host.querySelector('.response-footer-band'), null, 'the footer replaced the slot');
+  assert.ok(!view.host.textContent.includes(LONG.trim()), 'the backlog drains instead of snapping');
+  await act(async () => sleep(400));
+  assert.ok(view.host.textContent.includes(LONG.trim()), 'drained within the drain time');
+  assert.equal(view.host.querySelector('[data-stream-fade], [data-stream-fade-box]'), null, 'the fade is off');
   await view.cleanup();
 });
 
-test('a caught-up reply holds the band slot only until its held last word shows, then the footer replaces it', async () => {
-  const streaming = { id: 'a3', kind: 'assistant', text: 'Short answer here', streaming: true };
-  const view = await mountRow({ item: streaming, paceKey: 's:a3', pace: true });
-  await act(async () => sleep(1_500));
-  const completion = { id: 'd3', kind: 'turndone', status: 'done', elapsedMs: 10 };
-  await view.render({
-    item: { id: 'a3', kind: 'assistant', text: streaming.text },
-    completion,
-    paceKey: 's:a3',
-    pace: true,
-  });
-  const both = () =>
-    Boolean(view.host.querySelector('.response-footer')) && Boolean(view.host.querySelector('.response-footer-band'));
-  assert.ok(view.host.querySelector('.response-footer') || view.host.querySelector('.response-footer-band'));
-  assert.equal(both(), false);
+test('commentary shows as it arrives, its fade 150 ms; a final answer is paced, fading 120-500 ms', async () => {
+  const commentary = { id: 'c1', kind: 'assistant', text: 'Checking', streaming: true, phase: 'commentary' };
+  const view = await mountRow({ item: commentary, paceKey: 's:c1', pace: true });
+  // The markdown parser loads on first use.
   await act(async () => sleep(300));
-  assert.ok(view.host.querySelector('.response-footer'));
-  assert.equal(both(), false);
-  assert.ok(view.host.textContent.includes('Short answer here'));
+  await view.render({ item: { ...commentary, text: 'Checking the folder' }, paceKey: 's:c1', pace: true });
+  assert.ok(view.host.textContent.includes('Checking the folder'), 'commentary is not paced');
+  const slow = fadeDurations(view.host);
+  assert.ok(slow.length > 0 && slow.every((ms) => ms === 150), `${slow}`);
+  await view.render({ item: { ...commentary, text: `Checking the folder ${LONG}` }, paceKey: 's:c1', pace: true });
+  assert.ok(view.host.textContent.includes(LONG.trim()), 'a fast burst shows at once');
+  assert.ok(
+    fadeDurations(view.host).every((ms) => ms === 150),
+    'and fades too'
+  );
+  await view.cleanup();
+  const answer = { id: 'f1', kind: 'assistant', text: 'Answer', streaming: true, phase: 'final_answer' };
+  const paced = await mountRow({ item: answer, paceKey: 's:f1', pace: true });
+  await paced.render({ item: { ...answer, text: `Answer ${LONG}` }, paceKey: 's:f1', pace: true });
+  assert.ok(!paced.host.textContent.includes(LONG.trim()), 'a final answer is paced');
+  await act(async () => sleep(250));
+  const fades = fadeDurations(paced.host);
+  assert.ok(fades.length > 0 && fades.every((ms) => ms >= 120 && ms <= 500), `${fades}`);
+  await paced.cleanup();
+});
+
+test('a live row off screen shows what it received, unfaded; back on screen its growth is paced again', async () => {
+  // The list marks rows outside its visible range (overscan) off screen.
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (props, offscreen) =>
+    act(async () =>
+      root.render(
+        React.createElement(
+          TranscriptRowOffscreenContext.Provider,
+          { value: offscreen },
+          React.createElement(TranscriptRow, props)
+        )
+      )
+    );
+  const live = { id: 'o1', kind: 'assistant', text: 'Answer', streaming: true, phase: 'final_answer' };
+  await render({ item: live, paceKey: 's:o1', pace: true }, false);
+  // Past the first word's own fade.
+  await act(async () => sleep(600));
+  // The range change renders first; the next burst lands off screen.
+  await render({ item: live, paceKey: 's:o1', pace: true }, true);
+  await render({ item: { ...live, text: `Answer ${LONG}` }, paceKey: 's:o1', pace: true }, true);
+  assert.ok(host.textContent.includes(LONG.trim()), 'shown whole off screen');
+  assert.equal(host.querySelector('[data-stream-fade]'), null, 'unfaded');
+  await render({ item: { ...live, text: `Answer ${LONG}` }, paceKey: 's:o1', pace: true }, false);
+  await render({ item: { ...live, text: `Answer ${LONG}${LONG}` }, paceKey: 's:o1', pace: true }, false);
+  assert.ok(!host.textContent.includes(`${LONG}${LONG}`.trim()), 'paced on screen');
+  await act(async () => root.unmount());
+});
+
+test('a live row under a hidden pane shows what it received; shown again its growth is paced', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  // jsdom computes no rendering: the pane's hidden state is its checkVisibility().
+  let paneShown = true;
+  const Element = document.defaultView.Element;
+  Element.prototype.checkVisibility = () => paneShown;
+  try {
+    const render = (props) => act(async () => root.render(React.createElement(TranscriptRow, props)));
+    const live = { id: 'h2', kind: 'assistant', text: 'Answer', streaming: true, phase: 'final_answer' };
+    await render({ item: live, paceKey: 's:h2', pace: true });
+    await act(async () => sleep(600));
+    paneShown = false;
+    // The burst that lands while hidden re-reads the pane after its commit.
+    await render({ item: { ...live, text: 'Answer more' }, paceKey: 's:h2', pace: true });
+    await render({ item: { ...live, text: `Answer more ${LONG}` }, paceKey: 's:h2', pace: true });
+    assert.ok(host.textContent.includes(LONG.trim()), 'shown whole while hidden');
+    paneShown = true;
+    await render({ item: { ...live, text: `Answer more ${LONG}.` }, paceKey: 's:h2', pace: true });
+    await render({ item: { ...live, text: `Answer more ${LONG}.${LONG}` }, paceKey: 's:h2', pace: true });
+    assert.ok(!host.textContent.includes(`${LONG}.${LONG}`.trim()), 'paced once shown');
+    await act(async () => root.unmount());
+  } finally {
+    delete Element.prototype.checkVisibility;
+  }
+});
+
+test('a very long reply shows as it arrives, unfaded', async () => {
+  const live = { id: 'v1', kind: 'assistant', text: 'Answer', streaming: true, phase: 'final_answer' };
+  const view = await mountRow({ item: live, paceKey: 's:v1', pace: true });
+  // Past the first word's own fade.
+  await act(async () => sleep(600));
+  const huge = `Answer ${'긴 문장입니다. '.repeat(2000)}`;
+  await view.render({ item: { ...live, text: huge }, paceKey: 's:v1', pace: true });
+  assert.ok(view.host.textContent.includes(huge.trim().slice(-200)), 'not paced');
+  assert.equal(view.host.querySelector('[data-stream-fade]'), null, 'unfaded');
+  await view.cleanup();
+});
+
+test('a part of unknown phase shows as commentary until a list starts; the list is paced', async () => {
+  const part = { id: 'p1', kind: 'assistant', text: 'Let me check', streaming: true };
+  const view = await mountRow({ item: part, paceKey: 's:p1', pace: true });
+  await act(async () => sleep(300));
+  await view.render({ item: { ...part, text: 'Let me check the folder' }, paceKey: 's:p1', pace: true });
+  assert.ok(view.host.textContent.includes('Let me check the folder'), 'a preamble is not paced');
+  assert.ok(fadeDurations(view.host).every((ms) => ms > 0 && ms <= 150));
+  const head = 'Let me check the folder.\n\nFound:\n\n';
+  const list = `- ${LONG}`;
+  await view.render({ item: { ...part, text: `${head}${list}` }, paceKey: 's:p1', pace: true });
+  assert.ok(view.host.textContent.includes('Found:'), 'text before the list shows at once');
+  assert.ok(!view.host.textContent.includes(LONG.trim()), 'the list is paced');
+  await act(async () => sleep(400));
+  const fades = fadeDurations(view.host, 'li [data-stream-fade]');
+  assert.ok(fades.length > 0, 'list words reveal');
+  assert.ok(
+    fades.every((ms) => ms >= 120 && ms <= 500),
+    `words after the promotion fade by the reveal rate: ${fades}`
+  );
   await view.cleanup();
 });
 
@@ -106,8 +205,9 @@ async function mountPane(session, rows) {
 }
 
 const prompt = (id) => ({ item: { id, kind: 'user', text: '질문' } });
+// Pacing mechanics: a part marked as a final answer is paced throughout.
 const live = (session, id, text) => ({
-  item: { id, kind: 'assistant', text, streaming: true },
+  item: { id, kind: 'assistant', text, streaming: true, phase: 'final_answer' },
   paceKey: `${session}:${id}`,
   pace: true,
 });
@@ -122,7 +222,7 @@ test('a watched reply row paints its first word in the commit that mounts it', a
   await view.cleanup();
 });
 
-test('a streaming reply opens no row until a word can paint; the band stays under the prompt', () => {
+test('a streaming reply opens no row until text shows; the band stays under the prompt', () => {
   const settled = projectSettledTranscriptRows({
     sessionKey: 's',
     items: [{ id: 'u', kind: 'user', text: 'q' }],
@@ -137,8 +237,8 @@ test('a streaming reply opens no row until a word can paint; the band stays unde
       thinking: true,
     }).map((row) => row._tag);
   assert.deepEqual(rows(''), ['UserMessage', 'Thinking']);
-  assert.deepEqual(rows('Aft'), ['UserMessage', 'Thinking'], 'an unfinished first word opens nothing');
-  assert.deepEqual(rows('After long'), ['UserMessage', 'AssistantPart', 'Thinking']);
+  assert.deepEqual(rows('**'), ['UserMessage', 'Thinking'], 'markers alone open nothing');
+  assert.deepEqual(rows('Aft'), ['UserMessage', 'AssistantPart', 'Thinking']);
 });
 
 test('a long live row mounting with its pane (session entered mid-stream) shows whole', async () => {
@@ -147,13 +247,17 @@ test('a long live row mounting with its pane (session entered mid-stream) shows 
   await view.cleanup();
 });
 
-test("a fresh session's first reply over 600 characters is paced in the pane that sent the prompt", async () => {
+const MORE = '새로 도착한 긴 내용입니다. '.repeat(30);
+
+test("a reply's first text paints whole in the pane that sent the prompt; its growth is paced", async () => {
   const view = await mountPane('fresh', [prompt('u1')]);
   await act(async () => sleep(300));
   await view.render([prompt('u1'), live('fresh', 'p1', BIG)]);
+  assert.ok(view.host.textContent.includes(BIG.trim()), 'the first text paints with the row');
+  await view.render([prompt('u1'), live('fresh', 'p1', `${BIG}${MORE}`)]);
   const painted = view.host.textContent.length;
-  assert.ok(painted < BIG.length / 2, `painted ${painted} of ${BIG.length}`);
-  await act(async () => sleep(150));
+  assert.ok(!view.host.textContent.includes(MORE.trim()), 'the growth is paced');
+  await act(async () => sleep(200));
   assert.ok(view.host.textContent.length > painted, 'the reveal advances');
   await view.cleanup();
 });
@@ -161,23 +265,24 @@ test("a fresh session's first reply over 600 characters is paced in the pane tha
 test('only the pane that watched a row arrive paces it: a pane opened mid-stream shows it whole', async () => {
   const watching = await mountPane('shared', [prompt('u1')]);
   await act(async () => sleep(300));
-  await watching.render([prompt('u1'), live('shared', 'x1', BIG)]);
-  const opened = await mountPane('shared', [prompt('u1'), live('shared', 'x1', BIG)]);
+  await watching.render([prompt('u1'), live('shared', 'x1', 'Hi')]);
+  await watching.render([prompt('u1'), live('shared', 'x1', `Hi ${BIG}`)]);
+  const opened = await mountPane('shared', [prompt('u1'), live('shared', 'x1', `Hi ${BIG}`)]);
   assert.ok(opened.host.textContent.includes(BIG.trim()), 'the new pane shows the row whole');
   assert.ok(watching.host.textContent.length < BIG.length / 2, 'the watching pane keeps pacing');
   await opened.cleanup();
   await watching.cleanup();
 });
 
-test('render order does not matter: a pane opened mid-stream rendering first leaves the watching pane pacing', async () => {
+test('render order does not matter: the row a pane opened mid-stream created still paces its growth', async () => {
   const watching = await mountPane('order', [prompt('u1')]);
   await act(async () => sleep(300));
   const opened = await mountPane('order', [prompt('u1'), live('order', 'x1', BIG)]);
   await watching.render([prompt('u1'), live('order', 'x1', BIG)]);
   assert.ok(opened.host.textContent.includes(BIG.trim()), 'the new pane shows the row whole');
-  assert.ok(watching.host.textContent.length < BIG.length / 2, 'the watching pane paces the first arrival');
-  await act(async () => sleep(150));
-  assert.ok(watching.host.textContent.length < BIG.length, 'still pacing');
+  assert.ok(watching.host.textContent.includes(BIG.trim()), 'so does the watching pane: it is the first text');
+  await watching.render([prompt('u1'), live('order', 'x1', `${BIG}${MORE}`)]);
+  assert.ok(!watching.host.textContent.includes(MORE.trim()), 'the growth is paced');
   await opened.cleanup();
   await watching.cleanup();
 });
@@ -185,12 +290,13 @@ test('render order does not matter: a pane opened mid-stream rendering first lea
 test("a pane's own pacer turning off pacing never flushes the shared entry a watching pane paces", async () => {
   const watching = await mountPane('off', [prompt('u1')]);
   await act(async () => sleep(300));
-  await watching.render([prompt('u1'), live('off', 'x1', BIG)]);
-  const opened = await mountPane('off', [prompt('u1'), live('off', 'x1', BIG)]);
+  await watching.render([prompt('u1'), live('off', 'x1', 'Hi')]);
+  await watching.render([prompt('u1'), live('off', 'x1', `Hi ${BIG}`)]);
+  const opened = await mountPane('off', [prompt('u1'), live('off', 'x1', `Hi ${BIG}`)]);
   assert.ok(opened.host.textContent.includes(BIG.trim()));
-  await opened.render([prompt('u1'), { ...live('off', 'x1', BIG), pace: false }]);
+  await opened.render([prompt('u1'), { ...live('off', 'x1', `Hi ${BIG}`), pace: false }]);
   assert.ok(opened.host.textContent.includes(BIG.trim()));
-  await watching.render([prompt('u1'), live('off', 'x1', `${BIG}더 `)]);
+  await watching.render([prompt('u1'), live('off', 'x1', `Hi ${BIG}더 `)]);
   assert.ok(watching.host.textContent.length < BIG.length / 2, 'the watching pane still paces');
   await opened.cleanup();
   await watching.cleanup();
@@ -202,7 +308,6 @@ test('hiding the window reveals pane-local pacers too', async () => {
   const Event = document.defaultView.Event;
   try {
     const opened = await mountPane('hide', [prompt('u1'), live('hide', 'x1', BIG)]);
-    const MORE = '새로 도착한 긴 내용입니다. '.repeat(30);
     await opened.render([prompt('u1'), live('hide', 'x1', `${BIG}${MORE}`)]);
     assert.ok(!opened.host.textContent.includes(MORE.trim()), 'the growth is paced');
     hidden = true;
@@ -216,23 +321,27 @@ test('hiding the window reveals pane-local pacers too', async () => {
   }
 });
 
-test('the whole-reveal threshold counts graphemes: 120 emoji graphemes in 720 UTF-16 units are paced', async () => {
-  const emoji = '👨‍👩‍👧‍👦 '.repeat(60);
+test('the whole-reveal threshold counts graphemes: 240 emoji graphemes in 1440 UTF-16 units stay paced', async () => {
+  const emoji = '👨‍👩‍👧‍👦 '.repeat(120);
   assert.ok(emoji.length > 600);
-  const view = await mountPane('emoji', [prompt('u1'), live('emoji', 'e1', emoji)]);
-  assert.ok(!view.host.textContent.includes(emoji.trim()), 'not shown whole');
-  await view.cleanup();
+  const watching = await mountPane('emoji', [prompt('u1')]);
+  await act(async () => sleep(300));
+  await watching.render([prompt('u1'), live('emoji', 'e1', 'Hi')]);
+  await watching.render([prompt('u1'), live('emoji', 'e1', `Hi ${emoji}`)]);
+  // Under the threshold, a pane opened mid-stream shares the paced reveal.
+  const opened = await mountPane('emoji', [prompt('u1'), live('emoji', 'e1', `Hi ${emoji}`)]);
+  assert.ok(!opened.host.textContent.includes(emoji.trim()), 'not shown whole');
+  await opened.cleanup();
+  await watching.cleanup();
 });
 
-test('unmounting reveals a held unfinished word; a remount with the same text shows it', async () => {
-  const row = live('held', 'h1', 'alpha beta');
-  const first = await mountPane('held', [row]);
-  await act(async () => sleep(800));
-  assert.ok(first.host.textContent.includes('alpha'), first.host.textContent);
-  assert.ok(!first.host.textContent.includes('beta'), 'the unfinished final word waits');
+test('unmounting reveals the rest; a remount with the same text shows it whole', async () => {
+  const first = await mountPane('held', [live('held', 'h1', 'Hi')]);
+  await first.render([live('held', 'h1', `Hi ${LONG}`)]);
+  assert.ok(!first.host.textContent.includes(LONG.trim()), 'paced while mounted');
   await first.cleanup();
-  const again = await mountPane('held', [row]);
-  assert.ok(again.host.textContent.includes('alpha beta'), again.host.textContent);
+  const again = await mountPane('held', [live('held', 'h1', `Hi ${LONG}`)]);
+  assert.ok(again.host.textContent.includes(LONG.trim()), again.host.textContent);
   await again.cleanup();
 });
 

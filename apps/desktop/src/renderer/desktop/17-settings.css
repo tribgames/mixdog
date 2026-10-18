@@ -685,3 +685,303 @@
   overflow: hidden;
   background: var(--mx-workspace-sheet);
 }
+
+/* Settings → Model management: connected providers (page) and the provider
+   card opened over it. */
+.model-mgmt-provider {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--mx-border-muted);
+  border-radius: 0;
+  background: none;
+  color: var(--mx-text);
+  text-align: left;
+  cursor: pointer;
+}
+.model-mgmt-provider:last-child {
+  border-bottom: 0;
+}
+.model-mgmt-provider:hover b {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.model-mgmt-provider:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.model-mgmt-provider-copy {
+  min-width: 0;
+  display: grid;
+}
+.model-mgmt-provider-copy b {
+  overflow: hidden;
+  font-weight: var(--mx-weight-medium, 500);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-mgmt-provider-copy small {
+  color: var(--mx-text-muted);
+  font-size: 13px;
+  line-height: 16px;
+}
+.model-mgmt-provider-copy .model-mgmt-provider-error {
+  color: var(--mx-danger);
+}
+.model-mgmt-provider-count {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.model-mgmt-provider > svg {
+  color: var(--mx-text-muted);
+}
+.settings-oauth-dialog.model-mgmt-dialog {
+  width: min(560px, calc(100vw - 32px));
+  --mx-dialog-max-height: 860px;
+}
+.model-mgmt-dialog-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 20px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.model-mgmt-head {
+  display: grid;
+  gap: 6px;
+}
+.model-mgmt-head h4 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: var(--mx-weight-semibold, 600);
+}
+.model-mgmt-head p {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: 13px;
+  line-height: 16px;
+}
+.model-mgmt-tools {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.model-mgmt-tools-top,
+.model-mgmt-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.model-mgmt-tools .settings-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.model-mgmt-search {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 200px;
+  display: block;
+}
+.model-mgmt-search > svg {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  color: var(--mx-text-muted);
+  pointer-events: none;
+}
+.settings-oauth-dialog .model-mgmt-search > input {
+  box-sizing: border-box;
+  width: 100%;
+  padding-left: 30px;
+}
+.model-mgmt-chips {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.model-mgmt-chips > button {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-pill, 999px);
+  background: var(--mx-hover);
+  color: var(--mx-text-soft, var(--mx-text));
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.model-mgmt-chips > button:hover {
+  background: var(--mx-pressed);
+}
+.model-mgmt-chips > button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--mx-accent) 18%, transparent);
+  color: var(--mx-accent);
+}
+.model-mgmt-bulk > span {
+  flex: 1 1 120px;
+  color: var(--mx-text-muted);
+  font-size: 13px;
+}
+.model-mgmt-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.model-mgmt-row {
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto 28px;
+  align-items: center;
+  column-gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.model-mgmt-row:last-child {
+  border-bottom: 0;
+}
+.model-mgmt-row > input[type="checkbox"] {
+  justify-self: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--mx-accent-bg);
+}
+.model-mgmt-star {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  color: var(--mx-text-muted);
+  cursor: pointer;
+}
+.model-mgmt-star:hover:not(:disabled) {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+.model-mgmt-star[aria-pressed="true"] {
+  color: var(--mx-yellow-500);
+}
+.model-mgmt-star[aria-pressed="true"] svg {
+  fill: currentColor;
+}
+.model-mgmt-main {
+  min-width: 0;
+  display: grid;
+}
+.model-mgmt-name,
+.model-mgmt-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-mgmt-row[data-shown="false"] .model-mgmt-name {
+  color: var(--mx-text-muted);
+}
+.model-mgmt-id {
+  color: var(--mx-text-muted);
+  font: 12px / 16px var(--mx-font-mono);
+}
+.model-mgmt-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+.model-mgmt-badge {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  border-radius: var(--mx-radius-pill, 999px);
+  background: var(--mx-hover);
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.model-mgmt-badge > i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--mx-success);
+}
+.model-mgmt-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 40px 16px;
+  text-align: center;
+}
+.model-mgmt-empty b {
+  font-size: 15px;
+  font-weight: var(--mx-weight-semibold, 600);
+}
+.model-mgmt-more {
+  padding: 14px 0;
+  border-top: 1px solid var(--mx-border-muted);
+  text-align: center;
+}
+.model-mgmt-changed {
+  margin-right: auto;
+  color: var(--mx-text-muted);
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  .model-mgmt-provider {
+    grid-template-columns: minmax(0, 1fr) 16px;
+    row-gap: 4px;
+    min-height: 64px;
+  }
+  .model-mgmt-provider-count {
+    grid-column: 1;
+    grid-row: 2;
+    color: var(--mx-text-muted);
+    font-size: 13px;
+  }
+  .model-mgmt-provider > svg {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+  .model-mgmt-row {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    min-height: 64px;
+  }
+  .model-mgmt-badges {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+  .model-mgmt-star {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .model-mgmt-star {
+    width: 44px;
+    height: 44px;
+  }
+  .model-mgmt-chips > button {
+    height: 44px;
+    padding: 0 14px;
+  }
+}

@@ -36,6 +36,23 @@ test('one status per session, strongest first: needs you > failed > running > un
   assert.equal(strongestSessionAttention(['', '']), '');
 });
 
+test('a session whose own agent waits on background work reads waiting over running', () => {
+  assert.equal(sessionAttention({ waiting: true, running: true, unread: true }), 'waiting');
+  assert.equal(sessionAttention({ failed: true, waiting: true }), 'failed');
+  const index = sessionAttentionIndex(
+    [
+      { sessionId: 'lead', status: 'running', stage: 'tool_running', awaitingTask: 'wait' },
+      { sessionId: 'child', ownerSessionId: 'lead2', status: 'idle', awaitingTask: 'background' },
+      { sessionId: 'busy', status: 'running', stage: 'requesting' },
+    ],
+    new Set()
+  );
+  assert.deepEqual([...index.waiting].sort(), ['child', 'lead']);
+  assert.equal(sessionAttentionOf(index, 'lead', { running: true }), 'waiting');
+  assert.equal(sessionAttentionOf(index, 'lead2', { running: true }), 'running', 'only the agent’s own session');
+  assert.equal(sessionAttentionOf(index, 'busy', { running: true }), 'running');
+});
+
 test('an agent waiting on approval or failed marks its own session and the sessions above it', () => {
   const index = sessionAttentionIndex(
     [
@@ -46,9 +63,34 @@ test('an agent waiting on approval or failed marks its own session and the sessi
     new Set(['solo'])
   );
   assert.deepEqual([...index.needsUser].sort(), ['lead', 'solo', 'w1']);
-  assert.deepEqual([...index.failed].sort(), ['lead-b', 'w2', 'w9']);
+  assert.deepEqual([...index.failed], ['w2'], 'a sub-agent failure marks only its own session');
   assert.equal(sessionAttentionOf(index, 'lead', { running: true, unread: true }), 'needs-you');
   assert.equal(sessionAttentionOf(index, 'lead-c', { unread: true }), 'unread');
+});
+
+test('a failed sub-agent leaves the Lead idle, done or running; a failed Lead turn still reads failed', () => {
+  const failedWorker = {
+    sessionId: 'w',
+    parentSessionId: 'lead',
+    ownerSessionId: 'lead',
+    agent: 'worker',
+    status: 'failed',
+  };
+  const idleLead = { sessionId: 'lead', ownerSessionId: 'lead', agent: 'lead', status: 'idle' };
+  const runningLead = {
+    sessionId: 'lead',
+    ownerSessionId: 'lead',
+    agent: 'lead',
+    status: 'running',
+    stage: 'requesting',
+  };
+  const failedLead = { sessionId: 'lead', ownerSessionId: 'lead', agent: 'lead', status: 'failed' };
+  const read = (pool, opts) => sessionAttentionOf(sessionAttentionIndex(pool, new Set()), 'lead', opts);
+  assert.equal(read([idleLead, failedWorker], {}), '');
+  assert.equal(read([idleLead, failedWorker], { unread: true }), 'unread');
+  assert.equal(read([runningLead, failedWorker], { running: true }), 'running');
+  assert.equal(read([failedLead, failedWorker], {}), 'failed');
+  assert.equal(read([failedLead], { running: false }), 'failed');
 });
 
 test('the lane store tracks which sessions wait on a tool approval, changing identity only on membership', () => {
@@ -125,7 +167,18 @@ test('session tabs show the strongest status, each with its own mark', async () 
         frameSource: 'live',
         snapshot: { sessionId: 'asks', busy: true, toolApproval: { id: 'ap', tool: 'shell' } },
       });
-      push([{ tag: 'w', sessionId: 'w', ownerSessionId: 'broke', status: 'failed', failureReason: 'stalled' }]);
+      push([
+        {
+          tag: 'broke',
+          sessionId: 'broke',
+          ownerSessionId: 'broke',
+          agent: 'lead',
+          status: 'failed',
+          failureReason: 'stalled',
+        },
+        // A sub-agent failure never marks the session above it.
+        { tag: 'w', sessionId: 'w', ownerSessionId: 'seen', parentSessionId: 'seen', status: 'failed' },
+      ]);
     });
     const cell = (id) => view.host.querySelector(`.workspace-tab[data-tab-key="session:${id}"]`);
     assert.equal(cell('asks').dataset.attention, 'needs-you');

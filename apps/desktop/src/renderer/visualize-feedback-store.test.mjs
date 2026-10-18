@@ -653,6 +653,7 @@ test('queued feedback alone is sendable, rides with the message and clears only 
   let accept = false;
   const submissions = [];
   const errors = [];
+  const commands = [];
   /** Overrides the session's answer (a transport failure). */
   let submit;
   function Harness() {
@@ -671,6 +672,7 @@ test('queued feedback alone is sendable, rides with the message and clears only 
         textarea,
         draftRef,
         attachmentsRef: useRef([]),
+        pendingLoads: { current: 0 },
         transitioningRef: useRef(false),
         composingRef: useRef(false),
         submittingRef: useRef(false),
@@ -687,7 +689,10 @@ test('queued feedback alone is sendable, rides with the message and clears only 
         removeAttachments() {},
         mergeRestoredAttachments: (_attachments, text) => text,
         restoredAttachments: (_value, text) => ({ attachments: [], text }),
-        executeSlash: async () => true,
+        executeSlash: async (raw) => {
+          commands.push(raw);
+          return true;
+        },
         rememberPrompt() {},
         submit: async (content, options) => {
           if (submit) return submit();
@@ -741,12 +746,21 @@ test('queued feedback alone is sendable, rides with the message and clears only 
     assert.equal(second.options.displayText.split('\n')[0], 'Looks close');
     assert.deepEqual(visualizeFeedbackFor('s1'), { pins: [], choices: [], tweaks: [] }, 'sent feedback clears');
 
-    // Slash commands never carry feedback.
+    // Registered slash commands never carry feedback.
     addVisualizePin('s1', elementPin());
-    await act(async () => current.setDraft('/help'));
+    await act(async () => current.setDraft('/model'));
     await act(async () => current.send());
     assert.equal(submissions.length, 2);
+    assert.deepEqual(commands, ['/model']);
     assert.equal(visualizeFeedbackFor('s1').pins.length, 1);
+
+    // An unregistered slash is literal text and carries pending feedback.
+    await act(async () => current.setDraft('/help'));
+    await act(async () => current.send());
+    assert.equal(submissions.length, 3);
+    assert.match(submissions[2].content, /^\/help\n\n<visualize_feedback>\n/);
+    assert.deepEqual(commands, ['/model']);
+    assert.deepEqual(visualizeFeedbackFor('s1'), { pins: [], choices: [], tweaks: [] });
   } finally {
     await act(async () => root.unmount());
     host.remove();

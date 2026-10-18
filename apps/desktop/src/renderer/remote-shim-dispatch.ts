@@ -316,6 +316,7 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
           sessionId: event.sessionId,
           state: { ...state, sessionId: event.sessionId },
           ...(event.reveal === true ? { reveal: true } : {}),
+          ...(event.reveal === true && typeof event.tab === 'string' && event.tab ? { tab: event.tab } : {}),
         });
       }
     } else if (message.event === 'termData') {

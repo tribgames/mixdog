@@ -42,10 +42,15 @@ function switcherPcDetail(pc: SwitcherPc): string {
  *  the PC being driven, the others, whether the link is alive, and the
  *  switch / connect actions every PC menu shares. `reloadOn` re-reads the list
  *  (a menu opening). */
+/** Whether this surface drives another PC (and so shows the PC card). */
+export function remotePcSurface(): boolean {
+  return Boolean(remoteWindowInfo()) || isRemoteBrowserRenderer();
+}
+
 function useRemotePcs(reloadOn: unknown = false) {
   const windowInfo = remoteWindowInfo();
   const bridge = remoteWindowSwitcher();
-  const remote = Boolean(windowInfo) || isRemoteBrowserRenderer();
+  const remote = remotePcSurface();
   const [pcs, setPcs] = useState<SwitcherPc[]>([]);
   const connectionState = useSyncExternalStore(
     subscribeRemoteConnectionState,

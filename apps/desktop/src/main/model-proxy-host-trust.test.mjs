@@ -276,6 +276,7 @@ test('callbacks reach the server only allowlisted and projected; account ids sta
   assert.deepEqual([...MODEL_PROXY_CALLBACKS.keys()].sort(), [
     'onStageChange',
     'onStreamDelta',
+    'onStreamItemStart',
     'onTextDelta',
     'onTextReset',
     'onToolCall',

@@ -167,7 +167,7 @@ export function createRemoteHostWindows(
       // -3 is a navigation that was superseded, not a failure.
       if (!isMainFrame || code === -3 || window.isDestroyed()) return;
       const escapeHtml = (text: string): string => text.replace(/[&<>"']/gu, (char) => `&#${char.charCodeAt(0)};`);
-      const body = `<meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="margin:0;display:grid;place-items:center;height:100vh;background:${DESKTOP_BACKGROUND_COLOR};color:#e9e9e9;font:15px system-ui;-webkit-app-region:drag"><p>${escapeHtml(nativeT('Could not reach {{name}}. Close this window and connect again.').replace('{{name}}', host.name))}</p>`;
+      const body = `<meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="margin:0;display:grid;place-items:center;height:100vh;background:${DESKTOP_BACKGROUND_COLOR};color:#e9e9e9;font:15px system-ui;-webkit-app-region:drag"><p>${escapeHtml(nativeT('Could not reach {{name}}. Close this window and connect again.').replace('{{name}}', () => host.name))}</p>`;
       void window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(body)}`);
     });
     // The one-time ticket rides the fragment, which is never sent to the relay

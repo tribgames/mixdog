@@ -26,7 +26,7 @@ export function sessionLabel(session: DesktopSessionSummary) {
 }
 
 /** Display-only title of the n-th fork; the stored title is unchanged. */
-export function forkDisplayTitle(title: string, n: number) {
+function forkDisplayTitle(title: string, n: number) {
   return t('{{title}} (fork {{n}})', { title, n });
 }
 
@@ -54,6 +54,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onCloseEditor,
   onSetConfirming,
   onSetDeleting,
+  onRequestDelete,
   onArchiveSession,
   onFavoriteSession,
   onDeleteSession,
@@ -92,6 +93,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onCloseEditor(): void;
   onSetConfirming: React.Dispatch<React.SetStateAction<string>>;
   onSetDeleting: React.Dispatch<React.SetStateAction<string>>;
+  onRequestDelete(sessionId: string): void;
   onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
   onFavoriteSession(sessionId: string, favorite: boolean): Promise<void>;
   onDeleteSession(sessionId: string): Promise<void>;
@@ -123,7 +125,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
       deleting={deletingSessionId === session.id}
       onStartDelete={(target) => {
         onCloseEditor();
-        onSetConfirming(target.id);
+        onRequestDelete(target.id);
       }}
       onCancelDelete={() => onSetConfirming('')}
       onConfirmDelete={(target) => {

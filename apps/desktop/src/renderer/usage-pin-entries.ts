@@ -20,7 +20,7 @@ export function usageNumber(value: unknown): number | null {
 
 /** Subscriptions matched by row id or label whatever the row's group. */
 const ROW_MATCHERS: Record<string, (id: string, label: string) => boolean> = {
-  'opencode-go': (id, label) => id === 'opencode-go' || label.includes('opencode go'),
+  'opencode-go-oauth': (id) => id === 'opencode-go-oauth',
   cursor: (id, label) => id === 'cursor-oauth' || label.includes('cursor oauth'),
   antigravity: (id, label) => id === 'antigravity-oauth' || label.includes('antigravity'),
 };
@@ -64,7 +64,7 @@ interface UsagePinWindow {
   resetAt: number | null;
 }
 
-export interface UsagePinEntry {
+interface UsagePinEntry {
   key: string;
   label: string;
   provider: string;

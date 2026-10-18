@@ -69,15 +69,15 @@ export interface ModelProxyRuntime {
 
 /** Largest call payload (wire JSON characters) this PC accepts from a server:
  *  room for the 64 MiB of inlined attachments as base64 plus the transcript. */
-export const MODEL_PROXY_MAX_REQUEST_BYTES = 128 * 1024 * 1024;
+const MODEL_PROXY_MAX_REQUEST_BYTES = 128 * 1024 * 1024;
 /** Payload characters all of one server's running calls may hold at once. */
-export const MODEL_PROXY_MAX_INFLIGHT_BYTES = 256 * 1024 * 1024;
+const MODEL_PROXY_MAX_INFLIGHT_BYTES = 256 * 1024 * 1024;
 /** Advertised requests (and cancellations) one snapshot event may make this PC look at. */
-export const MODEL_PROXY_MAX_SNAPSHOT_ENTRIES = 64;
+const MODEL_PROXY_MAX_SNAPSHOT_ENTRIES = 64;
 /** A claim the daemon has not answered by then is given up. */
-export const MODEL_PROXY_CLAIM_TIMEOUT_MS = 15_000;
+const MODEL_PROXY_CLAIM_TIMEOUT_MS = 15_000;
 /** Largest event-reply results text decoded (callback return values are tiny). */
-export const MODEL_PROXY_MAX_EVENT_REPLY_CHARS = 1024 * 1024;
+const MODEL_PROXY_MAX_EVENT_REPLY_CHARS = 1024 * 1024;
 
 export interface ModelProxyHostOptions {
   invoke(operation: string, args: unknown[]): Promise<unknown>;
@@ -409,7 +409,7 @@ function redactedText(value: string, limit: number): string {
 
 /** The wire record of a PC-side failure: name, message and the allowlisted
  *  recovery fields, credential-shaped text redacted. */
-export function proxyErrorRecord(error: unknown): { name: string; message: string; props: Record<string, unknown> } {
+function proxyErrorRecord(error: unknown): { name: string; message: string; props: Record<string, unknown> } {
   const wire = modelProxyErrorToWire(error);
   const props: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record(stripModelProxySecrets(wire.props)))) {
@@ -448,7 +448,7 @@ function hiddenCustomModels(entry: Record<string, unknown>): string[] {
  *  use is left out entirely. No base URL, account, org, label, model list or
  *  any other stored field; a custom provider adds only the ids of models
  *  hidden on this PC, so remote pickers hide them too. */
-export function publicProviderConfig(
+function publicProviderConfig(
   providers: unknown,
   isProviderAllowed: (provider: string) => boolean
 ): Record<string, unknown> {
@@ -520,6 +520,8 @@ export const MODEL_PROXY_CALLBACKS: ReadonlyMap<string, (args: unknown[]) => unk
   ['onTextDelta', ([text]) => [typeof text === 'string' ? text.slice(0, MAX_CALLBACK_TEXT) : '']],
   // ({ chars, reasoning, reason }): counters and a reason label.
   ['onTextReset', ([info]) => [scalarDetail(info) ?? {}]],
+  // ({ kind, phase }): which stream item opened — labels only.
+  ['onStreamItemStart', ([detail]) => [scalarDetail(detail) ?? {}]],
   // (call): a tool call the model made — model output, wire-copied.
   ['onToolCall', ([call]) => [call]],
   // ({ name, index, pointer, reason, message }): a server tool left out for

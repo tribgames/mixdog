@@ -27,6 +27,11 @@ export async function isRemoteActivated(userDataPath: string): Promise<boolean> 
   return false;
 }
 
+/** Only presence is ever read: an activated install is not rewritten. Every
+ *  remote-access read (the Connection card polls it) used to replace the file —
+ *  an owner-only ACL process, a file and a directory fsync per call. */
 export async function activateRemote(userDataPath: string): Promise<void> {
-  await writeSecretFile(join(userDataPath, ACTIVATION_FILE), JSON.stringify({ activatedAt: Date.now() }));
+  const path = join(userDataPath, ACTIVATION_FILE);
+  if (await exists(path)) return;
+  await writeSecretFile(path, JSON.stringify({ activatedAt: Date.now() }));
 }

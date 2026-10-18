@@ -46,19 +46,23 @@ export function dismissShellJobs(sessionId: string, keys: readonly string[]): vo
   for (const listener of listeners) listener();
 }
 
-function subscribe(listener: () => void): () => void {
+/** Notified on every dismissal, in any session. */
+export function subscribeDismissedJobs(listener: () => void): () => void {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+const subscribe = subscribeDismissedJobs;
+
+export function dismissedJobsRevision(): number {
+  return revision;
 }
 
 /** Re-renders on a dismissal in ANY session: for surfaces that read the
  *  dismissed sets of many sessions at once. */
 export function useDismissedJobsRevision(): number {
-  return useSyncExternalStore(
-    subscribe,
-    () => revision,
-    () => 0
-  );
+  return useSyncExternalStore(subscribe, dismissedJobsRevision, () => 0);
 }
 
 export function useDismissedShellJobs(sessionId: string): ReadonlySet<string> {

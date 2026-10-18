@@ -258,11 +258,28 @@ const TOOL_ACTIVITY_PROTOCOL_HINT =
 // durations vary. Ordinary wording that merely resembles one is never touched.
 const GUIDANCE_ID = /[^)\]\s]*/y;
 const GUIDANCE_NUMBER = /\d+/y;
-const GUIDANCE_PROMOTED = /(?:auto-backgrounded after|moved to background at timeout after) \d+s/y;
+const GUIDANCE_PROMOTED =
+  /(?:auto-backgrounded after \d+s|moved to background (?:at timeout|on new user input|on interrupt) after \d+s|moved to background after the \d+s hold|started in the background)/y;
 const TOOL_ACTIVITY_MODEL_INSTRUCTION: Array<Array<string | RegExp>> = [
-  // task-notification-envelope.mjs renderShellCompletionNotice
+  // task-notification-envelope.mjs renderShellCompletionNotice (stored rows)
   ['Retrieve output with task read (task_id: ', GUIDANCE_ID, ') only if it has not already been received.'],
   // promotion-results.mjs resolveBackgrounded: backgroundMessage with BACKGROUND_GUIDANCE
+  [
+    GUIDANCE_PROMOTED,
+    '; still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.',
+  ],
+  // ... the same, when a task notification ended the hold
+  [
+    'moved to background after ',
+    GUIDANCE_NUMBER,
+    's because a task notification arrived (delivered to you now); still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.',
+  ],
+  [
+    'moved to background after ',
+    GUIDANCE_NUMBER,
+    's because a notification arrived (delivered to you now); still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.',
+  ],
+  // ... and its earlier wording, on stored rows
   [
     GUIDANCE_PROMOTED,
     '; still running. Completion arrives automatically; call task wait (not task read polling) when the result is due.',
@@ -272,7 +289,8 @@ const TOOL_ACTIVITY_MODEL_INSTRUCTION: Array<Array<string | RegExp>> = [
     GUIDANCE_PROMOTED,
     '; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.',
   ],
-  // backgrounded-result.mjs DEFAULT_BACKGROUND_MESSAGE
+  // backgrounded-result.mjs DEFAULT_BACKGROUND_MESSAGE (current, then stored)
+  ['moved to background; still running. Its result is delivered automatically when it finishes.'],
   [
     'auto-backgrounded; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.',
   ],
@@ -287,7 +305,45 @@ const TOOL_ACTIVITY_MODEL_INSTRUCTION: Array<Array<string | RegExp>> = [
   // task-tool.mjs read of a live job
   ['Job still running; ', GUIDANCE_NUMBER, ' new lines.'],
   ['Job still running; ', GUIDANCE_NUMBER, ' new line.'],
-  // task-tool.mjs wait cues
+  // task-tool.mjs wait cues (current, then stored)
+  ['Wait ended by new user input; task still running in the background. Handle the new message first.'],
+  [
+    'Wait ended because a notification arrived (task_id: ',
+    GUIDANCE_ID,
+    '); it is delivered to you now. This task (',
+    GUIDANCE_ID,
+    ') is still running in the background.',
+  ],
+  [
+    'Wait ended because a notification arrived; it is delivered to you now. This task (',
+    GUIDANCE_ID,
+    ') is still running in the background.',
+  ],
+  [
+    'Wait ended because a task notification arrived (task_id: ',
+    GUIDANCE_ID,
+    '); it is delivered to you now. This task (',
+    GUIDANCE_ID,
+    ') is still running in the background.',
+  ],
+  [
+    'Wait ended because a task notification arrived; it is delivered to you now. This task (',
+    GUIDANCE_ID,
+    ') is still running in the background.',
+  ],
+  [
+    'Wait ended because another background task finished (task_id: ',
+    GUIDANCE_ID,
+    '); its result is delivered to you now. This task is still running.',
+  ],
+  [
+    'Wait ceiling reached; task still running and its result is delivered automatically. If periodic reports were requested, write the user-facing report now; otherwise continue independent work or end the turn.',
+  ],
+  [
+    'Wait ceiling reached again (',
+    GUIDANCE_NUMBER,
+    ' times); task still running. Check whether it is progressing (task read output:tail, or the log file) and cancel it if it is stuck; otherwise continue other work — its result is delivered automatically.',
+  ],
   [
     'Wait interrupted by new user input; task still running. Handle the new message now and reply to it before waiting on this task again.',
   ],
@@ -453,11 +509,11 @@ function toolActivityPowerShellText(text: string): string {
 /** One failure outcome from its normalized parts: fixed chips (status, exit,
  *  signal) and a reason that may be ellipsized ("실패 · SIGKILL · boom"). The
  *  exit only shows when there is no reason; the short id joins at the row. */
-export interface ToolOutcome {
+interface ToolOutcome {
   label: string;
   reason: string;
 }
-export function toolActivityOutcome(status: string, exit: string, signal: string, reason: string): ToolOutcome {
+function toolActivityOutcome(status: string, exit: string, signal: string, reason: string): ToolOutcome {
   return { label: toolActivityCompact([status, reason ? '' : exit, signal, reason]), reason };
 }
 

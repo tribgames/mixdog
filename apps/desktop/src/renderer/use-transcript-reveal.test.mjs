@@ -89,6 +89,38 @@ test('returning to a session after an interrupted entry waits for its own reveal
   assert.equal(entry.revealed(), true);
 });
 
+test('a visit whose committed geometry is already final reveals in its first frame', async (t) => {
+  const entry = mount(t);
+  entry.ready();
+  entry.tick(16);
+  entry.tick(32);
+  assert.equal(entry.revealed(), true);
+  entry.visit('other');
+  assert.equal(entry.revealed(), false);
+  // The commit's own sample is taken once its microtasks (the end pin) ran.
+  await Promise.resolve();
+  entry.tick(48);
+  assert.equal(entry.revealed(), true, 'no blank frame is painted before the restored rows');
+});
+
+test('a dock still easing to its height holds the entry reveal', async (t) => {
+  const entry = mount(t);
+  entry.ready();
+  const slot = document.createElement('div');
+  slot.className = 'composer-island-slot';
+  slot.setAttribute('data-motion', '');
+  document.getElementById('scope').append(slot);
+  await Promise.resolve();
+  entry.tick(16);
+  entry.tick(32);
+  assert.equal(entry.revealed(), false, 'the viewport the tail is pinned to is still moving');
+  slot.removeAttribute('data-motion');
+  entry.tick(48);
+  assert.equal(entry.revealed(), false, 'the settled dock needs a stable frame');
+  entry.tick(64);
+  assert.equal(entry.revealed(), true);
+});
+
 test('entry waits past one second for dock chrome, then reveals only after stable frames', (t) => {
   const entry = mount(t);
   entry.tick(16);

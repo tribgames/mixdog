@@ -769,6 +769,21 @@ html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="
   width: 3px;
   background: var(--mx-focus);
 }
+/* Touch: the 12px grab edge is far under a fingertip. An invisible extension
+   toward the conversation brings it to a 44px target without moving the line
+   (the ::before belongs to the handle, so its pointer events are the handle's).
+   The phone sheet hides the handle outright: it is the full screen. */
+@media (pointer: coarse) {
+  .pane-side-dock .workbench-side-panel[data-side="right"] > .workbench-side-panel-resize::before,
+  .pane-dock-diff-resize::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -32px;
+    right: 0;
+  }
+}
 /* ── Dock surface stack (browser / diff under the side-tab header) ──
    The header's children render STANDALONE below it. Surfaces stay mounted in a layer
    stacked over the panel body — display:none would wedge a browser guest —

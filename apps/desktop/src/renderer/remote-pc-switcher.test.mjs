@@ -102,7 +102,11 @@ test('the PC card lives once at the top of the phone drawer frame, not in the se
   assert.match(drawer, /const phone = useMobileRemoteSurface\(\)/);
   assert.equal(sidebar.includes('RemotePcCard'), false);
   const css = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
-  assert.match(css, /\.sidebar-drawer-frame:has\(> \.remote-pc-card\) \{\s*display: grid;/);
+  // The frame's grid keys off an attribute: a :has() here restyled the whole
+  // left panel on every update inside it, desktop included.
+  assert.match(drawer, /data-remote-pc=\{phone && remotePcSurface\(\) \? 'true' : undefined\}/);
+  assert.match(css, /\.sidebar-drawer-frame\[data-remote-pc="true"\] \{\s*display: grid;/);
+  assert.doesNotMatch(css, /\.sidebar-drawer-frame[^{]*:has\(/);
   assert.match(css, /\.remote-pc-card > \.remote-pc-card-menu \{\s*position: absolute;/);
 });
 
@@ -112,7 +116,7 @@ test('phone drawer header: slim panel-title row with a hairline; the grid keeps 
   assert.match(css, /> \.remote-pc-card \{[^}]*border-bottom: 1px solid var\(--mx-border-muted\)/);
   assert.match(
     css,
-    /:has\(> \.remote-pc-card\)\s*>\s*:is\(\.workbench-side-panel, \.sidebar\.session-sidebar\) \{\s*width: auto;/
+    /\[data-remote-pc="true"\]\s*>\s*:is\(\.workbench-side-panel, \.sidebar\.session-sidebar\) \{\s*width: auto;/
   );
   const head = /\n\.remote-pc-card-head \{[^}]*\}/.exec(base)[0];
   assert.match(head, /height: 48px/);
@@ -122,8 +126,8 @@ test('phone drawer header: slim panel-title row with a hairline; the grid keeps 
 
 test('the rail divider moves onto the rail so it never crosses the PC card', () => {
   const css = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
-  assert.match(css, /:has\(> \.remote-pc-card\)::before \{\s*display: none;/);
-  assert.match(css, /:has\(> \.remote-pc-card\) > \.activity-rail \{[^}]*border-right: 1px solid/);
+  assert.match(css, /\[data-remote-pc="true"\]::before \{\s*display: none;/);
+  assert.match(css, /\[data-remote-pc="true"\] > \.activity-rail \{[^}]*border-right: 1px solid/);
 });
 
 test('without a saved-PC entry the name announced by the connected PC is used everywhere, "PC" last', async (t) => {

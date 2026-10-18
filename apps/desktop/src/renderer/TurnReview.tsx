@@ -1,6 +1,6 @@
 import { memo, useEffect, useState } from 'react';
 import { t } from './i18n';
-import { useComposerIslandTab } from './composer-island-state';
+import { IslandSegmentPending, useComposerIslandTab } from './composer-island-state';
 import { ErrorNotice } from './ErrorNotice';
 import { readDiffStyle, TURN_REVIEW_DIFF_STYLE_KEY, type TranscriptItem, writeDiffStyle } from './desktop-types';
 import { useTurnReviewDisclosure } from './use-turn-review-disclosure';
@@ -97,7 +97,12 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   // carrying an empty review row through every busy turn creates a fixed black
   // gap above the composer while new output streams above it.
   // An undecided entry holds the conversation's reveal (use-transcript-reveal).
-  if (!reviewVisible) return entryPending ? <span hidden data-entry-pending /> : null;
+  if (!reviewVisible) {
+    if (entryPending) return <IslandSegmentPending kind="files" holdEntry />;
+    // The island's count waits on the session's changes read: until it
+    // answers the segment keeps its room without holding the entry reveal.
+    return sessionScoped && !ready ? <IslandSegmentPending kind="files" /> : null;
+  }
   if (variant === 'segment' && !expanded) {
     return turnReviewSegment({
       label: segmentLabel,

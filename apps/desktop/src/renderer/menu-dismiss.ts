@@ -1,5 +1,7 @@
 import { type RefObject, useEffect, useRef } from 'react';
 
+const ROW_CONTEXT_MENU_SELECTOR = '.dock-scm-context-menu';
+
 /** ONE dismiss/focus contract for trigger-anchored popups that portal their
  *  panel to document.body (⋯ menus, the usage menu, the model picker sheet):
  *
@@ -32,15 +34,22 @@ export function useMenuDismiss({
   latest.current = { close, panels, onEscape };
   useEffect(() => {
     if (!open) return undefined;
+    // A row context menu opened from the popup (portaled to <body>) is part of
+    // it: its pointer events do not dismiss the popup, and it owns Escape and
+    // Tab while it is up.
+    const rowMenu = (target: Node | null) => (target as Element | null)?.closest?.(ROW_CONTEXT_MENU_SELECTOR) != null;
     const inside = (target: Node | null) =>
       Boolean(
         target &&
-          (trigger.current?.contains(target) || latest.current.panels().some((panel) => panel?.contains(target)))
+          (rowMenu(target) ||
+            trigger.current?.contains(target) ||
+            latest.current.panels().some((panel) => panel?.contains(target)))
       );
     const onPointerDown = (event: PointerEvent) => {
       if (!inside(event.target as Node)) latest.current.close();
     };
     const onKeyDown = (event: KeyboardEvent) => {
+      if (document.querySelector(ROW_CONTEXT_MENU_SELECTOR)) return;
       if (event.key === 'Escape') {
         if (latest.current.onEscape?.(event)) return;
         latest.current.close();

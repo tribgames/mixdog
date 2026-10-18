@@ -2,60 +2,100 @@
  * Paced reveal of the live assistant part.
  *
  * Streamed text reaches the renderer unevenly: steady deltas every few tens
- * of milliseconds, then multi-second stalls that end in a burst (some
- * providers deliver a whole reply after a tool call at once). Revealing each
- * arrival the frame it lands makes the reply jump; this playout buffer
- * instead releases the received text word by word.
+ * of milliseconds, then stalls that end in a burst. Painting each arrival the
+ * frame it lands makes the reply jump; this buffer instead reveals a growing
+ * prefix of the received text.
  *
- * - Unit: whole words (Intl word segments; a word longer than
- *   LONG_WORD_CHARS falls back to graphemes). Whitespace and markdown markers
- *   join the word after them. While streaming, a final word is held: it may
- *   still be unfinished. Final punctuation is complete and paints.
- * - Cost: rates, lag and the reveal budget count graphemes; a whitespace or
- *   marker run counts as one, since it paints nothing on its own.
- * - Opening: the first PACER_INSTANT_CHARS graphemes of a part paint with
- *   their arrival, so a preamble or a short reply is never paced.
- * - Steady rate: the row's sustained inbound rate (cost since its first
- *   arrival over at least 1 s), so a stall counts as silence instead of
- *   compressing the burst it ends with.
- * - Catch-up: a backlog drains toward PACER_TARGET_LAG_MS of lag, capped at
- *   PACER_MAX_RATE; past PACER_MAX_LAG_CHARS behind, the excess drains fast.
- *   Completion shows a short remainder at once and drains a longer one
- *   within PACER_DRAIN_MS.
+ * - Unit: graphemes. The revealed prefix always ends on a grapheme boundary,
+ *   so a word grows letter by letter (its fade keeps one identity while it
+ *   grows: markdown-stream-fade).
+ * - Rate: every PACER_STEP_MS the reveal rate moves halfway toward the rate
+ *   that drains the current backlog in PACER_TARGET_LAG_MS. A steady stream
+ *   plays about that far behind its arrival; a burst eases in and out.
+ * - Bounded lag: the backlog past PACER_MAX_LAG_MS of reveal at the current
+ *   rate (never less than PACER_LAG_FLOOR_RATE) is caught up within
+ *   PACER_CATCHUP_MS on top of the paced rate, its words fading for
+ *   FADE_FLOOR_MS: a burst sweeps in fast instead of appearing at once.
+ * - Hold-back: the reveal never passes an unfinished line construct of the
+ *   received text, and what paints is cut back to its start
+ *   (stream-reveal-hold), so table rows, headings, fence and code lines
+ *   appear whole and a list item with its marker. Emphasis, links and code
+ *   spans stream word by word (the healer hides their open markers).
+ * - Steps run on their own PACER_STEP_MS clock; the revealed text publishes
+ *   on the shared animation frame.
+ * - A part's first received text paints with it (its row mounts with that
+ *   text); only growth after it is paced.
+ * - Commentary is not paced at all. A part the provider marks as commentary
+ *   is commentary throughout; a part of unknown phase starts as commentary
+ *   and becomes a final answer, paced from that point on, once it grows past
+ *   COMMENTARY_MAX_GRAPHEMES or starts a block a preamble never has
+ *   (answerStart). A part marked as a final answer is paced throughout.
+ * - Fade: words of a final answer fade for adaptiveFadeMs of the reveal
+ *   rate, so about FADE_WORDS_IN_FLIGHT words are partly transparent at once
+ *   (between FINAL_FADE_MIN_MS and STREAM_FADE_DURATION_MS); commentary words
+ *   fade for STREAM_FADE_COMMENTARY_MS. While a part streams nothing paints
+ *   unfaded.
+ * - A part settles when it ends. When the turn completes, the backlog drains
+ *   within PACER_DRAIN_MS, fading for FADE_FLOOR_MS, and the row turns its
+ *   fade off once those fades end; a tool call starting after the part (it
+ *   is no longer the newest row) shows the rest at once.
+ * - A rewrite that does not extend the received text shows it whole.
  * - Received text is never delayed upstream: canonical text, persistence,
  *   copy and tools all read the full text. Only what the live row paints is
  *   paced.
- * - Reduced motion and hidden documents reveal everything at once; a frame
- *   gap is capped at 100 ms; all rows share one animation frame loop.
+ * - No animation for reduced motion, hidden documents, a live row scrolled
+ *   off screen or in a hidden pane (it shows what it received, unfaded), and
+ *   replies longer than LONG_REPLY_CHARS; all rows share one animation frame
+ *   loop.
  * - State lives in a registry keyed by the row key, so a row that remounts
  *   (virtualization) continues where it was instead of replaying.
  */
-import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  type RefObject,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
+import { STREAM_FADE_COMMENTARY_MS, STREAM_FADE_DURATION_MS } from './markdown-stream-fade';
+import { revealHold } from './stream-reveal-hold';
 import { setStreamPacerBacklogProbe } from './transcript-stream-metrics';
 
-export const PACER_FRAME_CAP_MS = 100;
-// Under the 250 ms completion budget, leaving a frame for the settled commit.
-export const PACER_DRAIN_MS = 230;
-/** Ceiling of the steady and catch-up reveal, graphemes per second. */
-export const PACER_MAX_RATE = 500;
-/** A backlog drains toward this much display lag: about two arrivals of the
- *  unfinished-line channel, enough to even out its cadence. */
-export const PACER_TARGET_LAG_MS = 160;
-/** The reveal never stays further behind the received text than this. */
-export const PACER_MAX_LAG_CHARS = 400;
-/** A part's opening graphemes paint with their arrival (a preamble before a
- *  tool call, a short reply); pacing starts past them. A remainder this
- *  short at completion shows at once. */
-export const PACER_INSTANT_CHARS = 48;
-/** Time constant that drains a backlog beyond PACER_MAX_LAG_CHARS. */
-const OVER_LAG_DRAIN_MS = 300;
-const SUSTAINED_MIN_SPAN_MS = 1_000;
-const MIN_RATE = 60;
-/** A single arrival far beyond any lag is not replayed: it jumps. */
-const MAX_BACKLOG_CHARS = 4_000;
-/** A longer "word" (URL, unspaced script) reveals grapheme by grapheme. */
-const LONG_WORD_CHARS = 24;
+/** One step of the reveal clock. */
+export const PACER_STEP_MS = 50;
+/** The reveal rate is pulled toward the backlog drained over this long. */
+export const PACER_TARGET_LAG_MS = 750;
+/** A backlog longer than this much reveal at the current rate is caught up
+ *  down to it. */
+export const PACER_MAX_LAG_MS = 2000;
+/** Graphemes per second the lag bound assumes at least, so the first burst
+ *  after a pause (the rate still low) is paced rather than caught up. */
+export const PACER_LAG_FLOOR_RATE = 120;
+/** The backlog past the lag bound is revealed within this long. */
+export const PACER_CATCHUP_MS = 350;
+/** When the turn completes, the backlog drains within this long. */
+export const PACER_DRAIN_MS = 200;
+/** Shortest fade of anything revealed while streaming or draining: caught
+ *  up and drained text fades this long. */
+export const FADE_FLOOR_MS = 120;
+/** Shortest fade of a paced final-answer word. */
+export const FINAL_FADE_MIN_MS = 200;
+/** A reply longer than this (UTF-16 units) shows as it arrives, unfaded. */
+const LONG_REPLY_CHARS = 16_000;
+/** Share of the gap to that drain rate the reveal rate closes per step. */
+const RATE_PULL = 0.5;
+/** Graphemes per second the reveal never drops below while text waits. */
+const MIN_RATE = 1;
+/** Average graphemes per word, its trailing space included. */
+const FADE_WORD_GRAPHEMES = 6;
+/** Words partly transparent at once: a fade lasts this many word intervals
+ *  at the reveal rate. */
+export const FADE_WORDS_IN_FLIGHT = 3;
 /** An unseen live row longer than this, in a pane that was not watching the
  *  stream (it mounted mid-stream): show it whole. */
 const FRESH_ROW_MAX_CHARS = 600;
@@ -64,343 +104,316 @@ const FRESH_ROW_MAX_CHARS = 600;
  *  commits, live row included, land within it). */
 const WATCH_SETTLE_MS = 200;
 const REGISTRY_LIMIT = 64;
-/** Markdown that is not healable at a cut right after it. */
-const UNCLEAN_BEFORE_CUT = /[`*_~[\]()<>#|\\!]/;
-const CUT_SNAP_LIMIT = 8;
-const SENTENCE_END = /[.!?。！？…]/;
-/** A segment made only of these paints nothing at the end of a reveal. */
-const SILENT_SEGMENT = /^[`*_~[\]()<>#|\\!\s]+$/;
+/** A character that paints something (not whitespace or a markdown marker). */
+const PAINTING_CHAR = /[^`*_~[\]()<>#|\\!\s]/;
+/** A part of unknown phase longer than this many graphemes is a final answer
+ *  from there on: preambles before a tool call are a sentence or two. */
+export const COMMENTARY_MAX_GRAPHEMES = 300;
+/** Line starts of blocks a preamble never has: a list item, a heading, a
+ *  fence, a blockquote, a table row with a leading pipe, a rule. */
+const ANSWER_BLOCK =
+  /^ {0,3}(?:(?:[-*+]|\d{1,9}[.)])[ \t]|#{1,6}(?:[ \t]|$)|```|~~~|>|\||([-*_])(?:[ \t]*\1){2,}[ \t]*$)/m;
+/** A table delimiter row: the table starts at the line before it (a header
+ *  without a leading pipe). */
+const TABLE_DELIMITER = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*\|/m;
 
 let graphemes: Intl.Segmenter | null = null;
-let words: Intl.Segmenter | null = null;
 function graphemeSegmenter(): Intl.Segmenter {
   graphemes ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' });
   return graphemes;
 }
-function wordSegmenter(): Intl.Segmenter {
-  words ??= new Intl.Segmenter(undefined, { granularity: 'word' });
-  return words;
+
+/** Where a part of unknown phase stops reading as commentary: the start of
+ *  its first answer-only block, or the end of its COMMENTARY_MAX_GRAPHEMES-th
+ *  grapheme when more follow. -1 while it still reads as commentary. */
+export function answerStart(text: string): number {
+  let at = -1;
+  const block = ANSWER_BLOCK.exec(text);
+  if (block) at = block.index;
+  const delimiter = TABLE_DELIMITER.exec(text);
+  if (delimiter) {
+    const header = delimiter.index > 0 ? text.lastIndexOf('\n', delimiter.index - 2) + 1 : 0;
+    if (at < 0 || header < at) at = header;
+  }
+  if (text.length > COMMENTARY_MAX_GRAPHEMES) {
+    let count = 0;
+    for (const { index, segment } of graphemeSegmenter().segment(text)) {
+      if (count === COMMENTARY_MAX_GRAPHEMES) {
+        if (at < 0 || index < at) at = index;
+        break;
+      }
+      if (at >= 0 && index + segment.length > at) break;
+      count += 1;
+    }
+  }
+  return at;
+}
+
+/** How long a final-answer word revealed at `rate` (graphemes per second)
+ *  fades: FADE_WORDS_IN_FLIGHT word intervals, within FINAL_FADE_MIN_MS and
+ *  STREAM_FADE_DURATION_MS. An unknown rate fades for the longest. */
+export function adaptiveFadeMs(rate: number): number {
+  if (!(rate > 0)) return STREAM_FADE_DURATION_MS;
+  const ms = Math.round((FADE_WORDS_IN_FLIGHT * FADE_WORD_GRAPHEMES * 1000) / rate);
+  return Math.min(STREAM_FADE_DURATION_MS, Math.max(FINAL_FADE_MIN_MS, ms));
 }
 
 export class TranscriptTextPacer {
   target = '';
+  /** Reveal position: the end of the last revealed grapheme. */
   shown = 0;
-  /** Pending reveal ends (word ends, or grapheme ends inside a long word). */
-  private bounds: number[] = [];
-  /** Reveal cost (see segmentCost) from the text start to each bound. */
-  private costs: number[] = [];
-  private head = 0;
-  private shownCost = 0;
-  private targetCost = 0;
-  /** Start of the final segment, and the cost before it: appends
-   *  resegment from here. */
-  private tailStart = 0;
-  private tailStartCost = 0;
-  /** The segment before the final one is silent (whitespace or markers). */
-  private tailAfterSilent = false;
-  private credit = 0;
-  private lastTick = -1;
-  private firstArrivalAt = Number.NaN;
-  /** Reveal cost received since the first arrival. */
-  private received = 0;
+  /** A part that reads as commentary: received text shows at once. A part of
+   *  unknown phase is promoted to a final answer by answerStart. */
+  commentary = false;
+  /** How long the words revealed by the latest change fade. */
+  fadeMs: number;
   /** Streaming ended (settle was called). */
   settled = false;
-  private drainDeadline = Number.POSITIVE_INFINITY;
+  /** The provider named the part commentary: never promoted. */
+  private readonly fixedPhase: boolean;
+  /** End of each received grapheme not revealed yet, in order. */
+  private ends: number[] = [];
+  private head = 0;
+  /** The reveal never passes this: the hold-back of the received text. */
+  private limit = 0;
+  /** End of what paints; never moves back while the text only grows. */
+  private painted = 0;
+  /** Reveal rate, graphemes per second. */
+  private rate = MIN_RATE;
+  /** Fraction of a grapheme carried to the next step. */
+  private carry = 0;
+  /** Clock of the last step; NaN while nothing waits. */
+  private stepAt = Number.NaN;
+  /** Graphemes past the lag bound still to catch up, and how many per step. */
+  private catchUp = 0;
+  private catchUpStep = 0;
+  /** Completion drain: first queued grapheme, how many, and its start. */
+  private drainFrom = 0;
+  private drainCount = 0;
+  private drainAt = Number.NaN;
+  /** After the drain: the fade stays on until its last fades end. */
+  private fadeOffAt = Number.NaN;
 
-  constructor(text = '', revealed = false, now = Number.NaN) {
+  constructor(text = '', revealed = false, commentary = false, fixedPhase = false) {
+    this.commentary = commentary;
+    this.fixedPhase = fixedPhase;
+    this.fadeMs = commentary ? STREAM_FADE_COMMENTARY_MS : STREAM_FADE_DURATION_MS;
     if (revealed) {
       this.target = text;
       this.shown = text.length;
-      this.segmentFrom(0, 0, false);
-      this.shownCost = this.targetCost;
+      if (commentary && !fixedPhase && answerStart(text) >= 0) {
+        this.commentary = false;
+        this.fadeMs = STREAM_FADE_DURATION_MS;
+      }
+      this.repaint();
     } else if (text) {
-      this.push(text, now);
+      this.push(text);
     }
   }
 
   get pending(): number {
-    return this.bounds.length - this.head;
+    return this.ends.length - this.head;
   }
 
-  /** Some received text is not painted (queued, or a held final word). */
+  /** Queued graphemes the hold-back lets the reveal reach. */
+  get ready(): number {
+    let low = this.head;
+    let high = this.ends.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (this.ends[middle] <= this.limit) low = middle + 1;
+      else high = middle;
+    }
+    return low - this.head;
+  }
+
+  /** The completion drain is running, or its last fades are. */
+  get draining(): boolean {
+    return this.drainCount > 0 || !Number.isNaN(this.fadeOffAt);
+  }
+
+  /** The frame loop has work: a reveal step or the drain. */
+  get waiting(): boolean {
+    return this.draining || this.ready > 0;
+  }
+
+  /** Some received text is not painted (queued, or held back). */
   get unrevealed(): boolean {
-    return this.shown < this.target.length;
+    return this.painted < this.target.length;
   }
 
   get text(): string {
-    return this.shown >= this.target.length ? this.target : this.target.slice(0, this.shown);
+    return this.painted >= this.target.length ? this.target : this.target.slice(0, this.painted);
   }
 
-  private pushBound(end: number, cost: number): void {
-    this.bounds.push(end);
-    this.costs.push(cost);
-  }
-
-  /** Queue the reveal ends of `target` from `from` (a segment start whose
-   *  preceding cost is `fromCost`; `afterSilent`: the segment before it is
-   *  silent). */
-  private segmentFrom(from: number, fromCost: number, afterSilent: boolean): void {
-    const segments = [...wordSegmenter().segment(this.target.slice(from))];
-    let cost = fromCost;
-    let previousSilent = afterSilent;
-    for (let index = 0; index < segments.length; index += 1) {
-      const segment = segments[index].segment;
-      const start = from + segments[index].index;
-      const end = start + segment.length;
-      const last = index === segments.length - 1;
-      if (last) {
-        this.tailStart = start;
-        this.tailStartCost = cost;
-        this.tailAfterSilent = previousSilent;
-      }
-      if (SILENT_SEGMENT.test(segment)) {
-        // A run of silent segments (the segmenter splits `***` or `\n\n`)
-        // is one step.
-        if (!previousSilent) cost += 1;
-        previousSilent = true;
-        continue;
-      }
-      previousSilent = false;
-      if (segment.length > LONG_WORD_CHARS) {
-        const clusters = [...graphemeSegmenter().segment(segment)];
-        // A streaming final word may continue: its last cluster waits.
-        const count = last && !this.settled ? clusters.length - 1 : clusters.length;
-        for (let at = 0; at < clusters.length; at += 1) {
-          cost += 1;
-          const clusterEnd = start + clusters[at].index + clusters[at].segment.length;
-          if (at < count && clusterEnd > this.shown) this.pushBound(clusterEnd, cost);
-        }
-      } else {
-        cost += graphemeCount(segment);
-        const complete = !last || this.settled || !segments[index].isWordLike;
-        if (complete && end > this.shown) this.pushBound(end, cost);
-      }
-    }
-    this.targetCost = cost;
-  }
-
-  /** Drop queued ends inside the final segment and queue it again. */
-  private resegmentTail(): void {
-    const from = Math.min(this.tailStart, this.target.length);
-    while (this.pending > 0 && this.bounds[this.bounds.length - 1] > from) {
-      this.bounds.pop();
-      this.costs.pop();
-    }
-    this.segmentFrom(from, this.tailStartCost, this.tailAfterSilent);
+  /** What paints: the reveal held back to the start of any unfinished
+   *  construct, never shorter than before while the text only grows. */
+  private repaint(): void {
+    const cut = revealHold(this.target, this.shown, !this.settled);
+    this.painted = Math.min(this.target.length, Math.max(cut, this.painted));
   }
 
   private compact(): void {
     if (this.head > 512) {
-      this.bounds = this.bounds.slice(this.head);
-      this.costs = this.costs.slice(this.head);
+      this.ends = this.ends.slice(this.head);
       this.head = 0;
     }
   }
 
-  /** The latest received text. Append-only growth queues the new words;
-   *  anything else restarts from the last whole word of the still-valid
-   *  revealed prefix. */
-  push(text: string, now: number): void {
+  /** The latest received text. Growth queues its graphemes; a rewrite that
+   *  does not extend the received text shows it whole. */
+  push(text: string): void {
     if (text === this.target) return;
-    // An idle pacer gets no frames, so its state is stale: the first frame
-    // after new text would otherwise count the whole idle gap (capped at
-    // PACER_FRAME_CAP_MS) and reveal a burst in one jump.
-    if (this.pending === 0 && Number.isFinite(now)) this.lastTick = now;
-    if (Number.isFinite(now) && Number.isNaN(this.firstArrivalAt)) this.firstArrivalAt = now;
-    const before = this.targetCost;
-    if (text.startsWith(this.target)) {
+    if (this.settled) {
+      // Text after the end (a final rewrite) shows at once.
+      if (!text.startsWith(this.target)) this.painted = 0;
       this.target = text;
-      this.resegmentTail();
-      this.received += Math.max(0, this.targetCost - before);
-    } else {
-      let common = 0;
-      const limit = Math.min(this.shown, text.length);
-      while (common < limit && text.charCodeAt(common) === this.target.charCodeAt(common)) common += 1;
-      this.target = text;
-      this.bounds = [];
-      this.costs = [];
-      this.head = 0;
-      this.credit = 0;
-      const kept = wholeWordPrefix(text, common);
-      this.shown = kept.end;
-      this.shownCost = kept.cost;
-      // `kept.end` follows a painting word (or is the text start).
-      this.segmentFrom(kept.end, kept.cost, false);
-      this.received += Math.max(0, this.targetCost - kept.cost);
-    }
-    this.compact();
-    this.capBacklog();
-    // The opening paints with its arrival: the first whole word always, and
-    // every word within PACER_INSTANT_CHARS of the part start. The row
-    // opening a reply takes its first line (and the live band its step below
-    // it) in the commit that mounts it, and a preamble or a short reply is
-    // read whole, never typed out behind its own arrival.
-    while (this.head < this.bounds.length && (this.shown === 0 || this.costs[this.head] <= PACER_INSTANT_CHARS)) {
-      this.shown = this.bounds[this.head];
-      this.shownCost = this.costs[this.head];
-      this.head += 1;
-    }
-    this.releaseOpeningSentence();
-  }
-
-  /** The opening sentence, cut inside by PACER_INSTANT_CHARS, paints whole
-   *  once its ending punctuation has arrived. */
-  private releaseOpeningSentence(): void {
-    if (this.shown === 0 || this.shownCost > PACER_INSTANT_CHARS || this.head >= this.bounds.length) return;
-    if (SENTENCE_END.test(this.target[this.shown - 1])) return;
-    for (let at = this.head; at < this.bounds.length; at += 1) {
-      const end = this.bounds[at];
-      if (!SENTENCE_END.test(this.target[end - 1]) || (end < this.target.length && /\S/.test(this.target[end])))
-        continue;
-      this.shown = end;
-      this.shownCost = this.costs[at];
-      this.head = at + 1;
+      this.flush();
       return;
     }
-  }
-
-  private capBacklog(): void {
-    if (this.targetCost - this.shownCost <= MAX_BACKLOG_CHARS) return;
-    const floor = this.targetCost - MAX_BACKLOG_CHARS;
-    while (this.head < this.bounds.length && this.costs[this.head] < floor) this.head += 1;
-    if (this.head < this.bounds.length) this.head += 1;
-    if (this.head > 0 && this.bounds[this.head - 1] > this.shown) {
-      this.shown = this.bounds[this.head - 1];
-      this.shownCost = this.costs[this.head - 1];
+    if (this.commentary) {
+      this.fadeMs = STREAM_FADE_COMMENTARY_MS;
+      const at = this.fixedPhase ? -1 : answerStart(text);
+      if (at < 0) {
+        if (!text.startsWith(this.target)) this.painted = 0;
+        this.target = text;
+        this.flush();
+        return;
+      }
+      // Promoted: what precedes the answer start shows at once (still with
+      // the commentary fade), the rest is paced.
+      this.commentary = false;
+      if (at > this.shown && text.startsWith(this.target)) {
+        this.target = text.slice(0, at);
+        this.flush();
+      }
     }
-  }
-
-  /** Streaming ended: the held final word joins. A short remainder shows at
-   *  once; a longer one drains within PACER_DRAIN_MS. */
-  settle(now: number): void {
-    if (!this.settled) {
-      this.settled = true;
-      this.resegmentTail();
-      if (this.targetCost - this.shownCost <= PACER_INSTANT_CHARS) this.flush();
+    if (!text.startsWith(this.target)) {
+      this.painted = 0;
+      this.target = text;
+      this.flush();
+      return;
     }
-    if (!Number.isFinite(this.drainDeadline)) this.drainDeadline = now + PACER_DRAIN_MS;
+    // The last queued grapheme may continue in the new text (a combining
+    // mark, the rest of a ZWJ sequence): it is segmented again.
+    if (this.pending > 0) this.ends.pop();
+    const from = this.pending > 0 ? this.ends[this.ends.length - 1] : this.shown;
+    this.target = text;
+    for (const { index, segment } of graphemeSegmenter().segment(text.slice(from))) {
+      this.ends.push(from + index + segment.length);
+    }
+    this.limit = revealHold(text, text.length, true);
+    // Lookahead may finish a construct the reveal is inside.
+    this.repaint();
   }
 
+  /** Streaming ended. The backlog drains within PACER_DRAIN_MS, fading for
+   *  FADE_FLOOR_MS. */
+  settle(now = performance.now()): void {
+    if (this.settled) return;
+    this.settled = true;
+    this.limit = this.target.length;
+    this.fadeMs = FADE_FLOOR_MS;
+    if (this.pending > 0) {
+      this.drainFrom = this.head;
+      this.drainCount = this.pending;
+      this.drainAt = now;
+    }
+    this.repaint();
+  }
+
+  /** Everything received shows at once (still held back while it streams). */
   flush(): void {
     this.shown = this.target.length;
-    this.shownCost = this.targetCost;
-    this.bounds = [];
-    this.costs = [];
+    this.ends = [];
     this.head = 0;
-    this.credit = 0;
+    this.carry = 0;
+    this.stepAt = Number.NaN;
+    this.catchUp = 0;
+    this.drainCount = 0;
+    this.fadeOffAt = Number.NaN;
+    this.repaint();
   }
 
-  /** Reveal cost per second since the row's first arrival, over at least
-   *  SUSTAINED_MIN_SPAN_MS: a stall lowers it instead of being forgotten. */
-  private sustainedRate(now: number): number {
-    if (Number.isNaN(this.firstArrivalAt)) return 0;
-    return (this.received * 1000) / Math.max(SUSTAINED_MIN_SPAN_MS, now - this.firstArrivalAt);
-  }
-
-  /** Advance one frame; true when the revealed text changed. */
+  /** Run the reveal steps due by `now`; true when the revealed text changed.
+   *  The step clock starts on the first frame text waits, so an idle gap is
+   *  never counted. */
   tick(now: number): boolean {
-    const dt = this.lastTick < 0 ? 1000 / 60 : Math.min(PACER_FRAME_CAP_MS, Math.max(0, now - this.lastTick));
-    this.lastTick = now;
-    if (this.pending === 0) {
-      this.credit = 0;
+    if (this.draining) return this.drainStep(now);
+    let available = this.ready;
+    if (available === 0) {
+      this.carry = 0;
+      this.catchUp = 0;
+      this.stepAt = Number.NaN;
       return false;
     }
-    if (now >= this.drainDeadline) {
-      this.flush();
+    if (Number.isNaN(this.stepAt)) {
+      this.stepAt = now;
+      return false;
+    }
+    const steps = Math.floor((now - this.stepAt) / PACER_STEP_MS);
+    if (steps <= 0) return false;
+    this.stepAt += steps * PACER_STEP_MS;
+    const before = this.head;
+    let caughtUp = false;
+    for (let step = 0; step < steps && available > 0; step += 1) {
+      const bound = Math.ceil((Math.max(this.rate, PACER_LAG_FLOOR_RATE) * PACER_MAX_LAG_MS) / 1000);
+      // More past the bound than the running catch-up covers: catch all of
+      // it up within PACER_CATCHUP_MS from now.
+      if (available - bound > this.catchUp) {
+        this.catchUp = available - bound;
+        this.catchUpStep = Math.ceil((this.catchUp * PACER_STEP_MS) / PACER_CATCHUP_MS);
+      }
+      const drain = ((available - this.catchUp) * 1000) / PACER_TARGET_LAG_MS;
+      this.rate = Math.max(MIN_RATE, this.rate + (drain - this.rate) * RATE_PULL);
+      this.carry += (this.rate * PACER_STEP_MS) / 1000;
+      const paced = Math.min(available, Math.floor(this.carry));
+      this.carry -= paced;
+      const extra = Math.min(available - paced, this.catchUp, this.catchUpStep);
+      if (extra > 0) caughtUp = true;
+      this.catchUp -= extra;
+      this.head += paced + extra;
+      available -= paced + extra;
+    }
+    if (this.head === before) return false;
+    this.shown = this.ends[this.head - 1];
+    this.fadeMs = caughtUp ? FADE_FLOOR_MS : adaptiveFadeMs(this.rate);
+    if (available === 0) {
+      this.carry = 0;
+      this.catchUp = 0;
+      this.stepAt = Number.NaN;
+    }
+    this.compact();
+    this.repaint();
+    return true;
+  }
+
+  private drainStep(now: number): boolean {
+    if (this.drainCount === 0) {
+      // Drained: the fade turns off once the last drained words are inked.
+      if (now < this.fadeOffAt) return false;
+      this.fadeOffAt = Number.NaN;
       return true;
     }
-    const backlog = this.targetCost - this.shownCost;
-    let speed = Math.min(
-      PACER_MAX_RATE,
-      Math.max(MIN_RATE, this.sustainedRate(now), (backlog * 1000) / PACER_TARGET_LAG_MS)
-    );
-    if (backlog > PACER_MAX_LAG_CHARS) {
-      speed += ((backlog - PACER_MAX_LAG_CHARS) * 1000) / OVER_LAG_DRAIN_MS;
+    const share = Math.min(1, Math.max(0, now - this.drainAt) / PACER_DRAIN_MS);
+    const head = Math.min(this.ends.length, this.drainFrom + Math.ceil(this.drainCount * share));
+    if (head <= this.head) return false;
+    this.head = head;
+    this.shown = this.ends[head - 1];
+    if (head >= this.ends.length) {
+      this.flush();
+      this.fadeOffAt = now + FADE_FLOOR_MS;
+    } else {
+      this.repaint();
     }
-    if (Number.isFinite(this.drainDeadline)) {
-      speed = Math.max(speed, (backlog * 1000) / Math.max(dt, this.drainDeadline - now));
-    }
-    this.credit += (speed * dt) / 1000;
-    let changed = false;
-    while (this.head < this.bounds.length && this.costs[this.head] - this.shownCost <= this.credit) {
-      this.credit -= this.costs[this.head] - this.shownCost;
-      this.shown = this.bounds[this.head];
-      this.shownCost = this.costs[this.head];
-      this.head += 1;
-      changed = true;
-    }
-    if (this.pending === 0) this.credit = 0;
-    this.compact();
-    return changed;
+    return true;
   }
 }
 
-/** Graphemes of a short segment (printable ASCII needs no segmenter). */
-function graphemeCount(segment: string): number {
-  if (/^[\x20-\x7e]*$/.test(segment)) return segment.length;
-  let count = 0;
-  for (const _ of graphemeSegmenter().segment(segment)) count += 1;
-  return count;
-}
-
-/** The end of the last whole painting word at or before `limit` in `text`,
- *  and the reveal cost up to it. A run of whitespace and marker segments
- *  costs 1: it paints nothing and has no reveal end of its own. */
-function wholeWordPrefix(text: string, limit: number): { end: number; cost: number } {
-  let end = 0;
-  let endCost = 0;
-  let cost = 0;
-  let previousSilent = false;
-  for (const { index, segment } of wordSegmenter().segment(text)) {
-    const segmentEnd = index + segment.length;
-    if (segmentEnd > limit) break;
-    if (SILENT_SEGMENT.test(segment)) {
-      if (!previousSilent) cost += 1;
-      previousSilent = true;
-      continue;
-    }
-    previousSilent = false;
-    cost += graphemeCount(segment);
-    end = segmentEnd;
-    endCost = cost;
-  }
-  return { end, cost: endCost };
-}
-
-/** Whether still-streaming `text` holds a word the pacer paints now (the
- *  bounds segmentFrom queues while streaming): a painting segment that is not
- *  the final, possibly unfinished one, final punctuation, or the first
- *  graphemes of a long final word. Stops at the first such word. */
+/** Whether still-streaming `text` paints anything: a row opens only with
+ *  text that shows (not only whitespace or markdown markers). */
 export function streamingTextPaints(text: string): boolean {
-  let painting: string | null = null;
-  let wordLike = false;
-  for (const { segment, isWordLike } of wordSegmenter().segment(text)) {
-    if (painting !== null) return true;
-    if (!SILENT_SEGMENT.test(segment)) {
-      painting = segment;
-      wordLike = Boolean(isWordLike);
-    }
-  }
-  if (painting === null) return false;
-  if (painting.length > LONG_WORD_CHARS) return graphemeCount(painting) > 1;
-  return !wordLike;
-}
-
-/** The revealed prefix must end where the streamed-markdown healer can close
- *  it: never right after a marker (`**`, `` ` ``, `[`, `|` …). The cut snaps
- *  back over at most a few such characters; the pacer position itself keeps
- *  advancing, so the markers appear together with the glyph after them.
- *  `live`: the text is still streaming, so its end is a cut too — a received
- *  unfinished line may stop right after a marker. */
-export function cleanRevealCut(text: string, cut: number, live = false): number {
-  if (cut <= 0 || cut > text.length || (cut === text.length && !live)) return Math.max(0, Math.min(cut, text.length));
-  let at = cut;
-  while (at > 0 && cut - at < CUT_SNAP_LIMIT && UNCLEAN_BEFORE_CUT.test(text[at - 1])) at -= 1;
-  if (cut - at >= CUT_SNAP_LIMIT) return cut;
-  // Never split a surrogate pair.
-  const code = text.charCodeAt(at - 1);
-  if (at > 0 && code >= 0xd800 && code <= 0xdbff) at -= 1;
-  return at;
+  return PAINTING_CHAR.test(text);
 }
 
 interface PacerEntry {
@@ -430,11 +443,11 @@ function notify(entry: PacerEntry): void {
 
 function run(): void {
   scheduled = false;
-  // The clock arrivals and the drain deadline are stamped with.
+  // The reveal step clock.
   const now = performance.now();
   for (const entry of [...active]) {
     if (entry.pacer.tick(now)) notify(entry);
-    if (entry.pacer.pending === 0) active.delete(entry);
+    if (!entry.pacer.waiting) active.delete(entry);
   }
   schedule();
 }
@@ -529,52 +542,131 @@ function exceedsFreshRow(text: string): boolean {
   return false;
 }
 
-export interface PacedTranscriptText {
+interface PacedTranscriptText {
   /** What the row paints. */
   text: string;
-  /** Streaming ended but the reveal is still draining. */
+  /** The part reads as commentary: shown as it arrives, its words fading
+   *  quickly. */
+  commentary: boolean;
+  /** How long newly painted words fade (0: unfaded). */
+  fadeMs: number;
+  /** The completion drain is running: the row still paints a prefix, with
+   *  its fade on. */
   draining: boolean;
 }
 
-function resolve(key: string, text: string, streaming: boolean, pace: boolean, now: number): PacedTranscriptText {
+/** The provider's phase of a part: 'commentary', 'final_answer', or unknown. */
+type PartPhase = string | undefined;
+
+/** Commentary by phase alone, without a pacer: a part of unknown phase until
+ *  its answer start. */
+function unpacedCommentary(phase: PartPhase, text: string): boolean {
+  if (phase === 'commentary') return true;
+  return phase !== 'final_answer' && answerStart(text) < 0;
+}
+
+/** `text` shown as received, unfaded; while it streams, still held back
+ *  before an unfinished construct. */
+function unpaced(text: string, streaming: boolean, phase: PartPhase): PacedTranscriptText {
+  const cut = streaming ? revealHold(text, text.length, true) : text.length;
+  return {
+    text: cut >= text.length ? text : text.slice(0, cut),
+    commentary: unpacedCommentary(phase, text),
+    fadeMs: 0,
+    draining: false,
+  };
+}
+
+/** No animation: reduced motion, a hidden document, or a very long reply. */
+function stillMotion(text: string): boolean {
+  return pacingDisabled() || text.length > LONG_REPLY_CHARS;
+}
+
+function resolve(
+  key: string,
+  text: string,
+  streaming: boolean,
+  pace: boolean,
+  phase: PartPhase,
+  onScreen: boolean
+): PacedTranscriptText {
   let entry = registry.get(key);
-  if (!pace || pacingDisabled()) {
+  if (!pace || stillMotion(text)) {
     if (entry?.pacer.unrevealed) {
-      entry.pacer.push(text, now);
+      entry.pacer.push(text);
       entry.pacer.flush();
       active.delete(entry);
     }
-    return { text, draining: false };
+    return unpaced(text, streaming, phase);
   }
   if (!entry) {
-    if (!streaming) return { text, draining: false };
-    // A part's first burst is paced like any backlog; a pane that did not
-    // watch it arrive shows it whole instead (usePacedTranscriptText).
+    if (!streaming) return unpaced(text, false, phase);
+    // The row mounts with its first received text, which paints with it.
     entry = {
-      pacer: new TranscriptTextPacer(text, false, now),
+      pacer: new TranscriptTextPacer(text, true, phase !== 'final_answer', phase === 'commentary'),
       listeners: new Set(),
       version: 0,
     };
     remember(key, entry);
   }
-  return paint(entry, text, streaming, now);
+  return paint(entry, text, streaming, phase, onScreen);
 }
 
-/** Feed `entry` the received text and return what it paints. */
-function paint(entry: PacerEntry, text: string, streaming: boolean, now: number): PacedTranscriptText {
-  entry.pacer.push(text, now);
-  if (!streaming) entry.pacer.settle(now);
-  if (entry.pacer.pending > 0) {
+/** Feed `entry` the received text and return what it paints. Off screen,
+ *  with no other pane painting it, it shows what it received, unfaded. */
+function paint(
+  entry: PacerEntry,
+  text: string,
+  streaming: boolean,
+  phase: PartPhase,
+  onScreen: boolean
+): PacedTranscriptText {
+  const pacer = entry.pacer;
+  // A phase named after the part started overrides the guess.
+  if (phase === 'final_answer') pacer.commentary = false;
+  pacer.push(text);
+  if (!streaming) pacer.settle();
+  if (!onScreen && entry.listeners.size === 0) {
+    if (pacer.unrevealed) pacer.flush();
+    active.delete(entry);
+  } else if (pacer.waiting) {
     active.add(entry);
     schedule();
   }
-  const pacer = entry.pacer;
-  const shown =
-    pacer.pending > 0 || streaming ? cleanRevealCut(pacer.target, pacer.shown, streaming) : pacer.target.length;
   return {
-    text: shown >= text.length ? text : text.slice(0, shown),
-    draining: !streaming && pacer.pending > 0,
+    text: pacer.text,
+    commentary: pacer.commentary,
+    fadeMs: onScreen ? pacer.fadeMs : 0,
+    draining: pacer.draining,
   };
+}
+
+/** True for a transcript row the list keeps mounted outside its visible range
+ *  (overscan, pinned rows): TranscriptList provides it per row from the
+ *  virtualizer's range, which it re-renders on every range change. */
+export const TranscriptRowOffscreenContext = createContext(false);
+
+/** Whether `element` is on screen: its row is inside the transcript's visible
+ *  range and nothing above it is hidden (`display: none`, a retained pane's
+ *  `content-visibility: hidden`). Re-read after each commit while `watch`; a
+ *  streaming row commits on every arrival, so a pane hidden or shown mid-reply
+ *  is noticed by its next burst. No IntersectionObserver: while one exists,
+ *  Chromium runs a main-thread frame on every vsync for as long as any
+ *  compositor animation (the live spinner) runs in the window. */
+function useOnScreen(element: RefObject<Element | null> | undefined, watch: boolean): boolean {
+  const offscreen = useContext(TranscriptRowOffscreenContext);
+  const [shown, setShown] = useState(true);
+  // The last value handed to setShown: an unchanged reading schedules nothing
+  // (a same-value setState still cost the streaming row an extra commit).
+  const shownRef = useRef(true);
+  useEffect(() => {
+    const node = element?.current;
+    const next = !watch || !node || typeof node.checkVisibility !== 'function' || node.checkVisibility();
+    if (next === shownRef.current) return;
+    shownRef.current = next;
+    setShown(next);
+  });
+  return !(watch && offscreen) && shown;
 }
 
 interface RowBirth {
@@ -598,6 +690,7 @@ export function usePacedTranscriptText({
   text,
   streaming,
   pace,
+  phase,
 }: {
   key: string;
   scope?: string;
@@ -605,6 +698,8 @@ export function usePacedTranscriptText({
   text: string;
   streaming: boolean;
   pace: boolean;
+  /** The provider's phase of the part; commentary is never paced. */
+  phase?: PartPhase;
 }): PacedTranscriptText {
   /** This pane's own pacer for a row it did not watch arrive: seeded with
    *  the text received so far, revealed; the shared entry is untouched. */
@@ -615,24 +710,25 @@ export function usePacedTranscriptText({
   // Pushing received text is idempotent, so it happens while rendering: the
   // commit that receives a burst already paints its first paced frame.
   const enabled = Boolean(key) && pace;
+  const onScreen = useOnScreen(element, enabled && streaming);
   const now = performance.now();
   if (!birth.current && enabled && streaming) {
     birth.current = { at: now, text, long: exceedsFreshRow(text) };
   }
   let result: PacedTranscriptText;
   if (!own) {
-    result = resolve(key, text, streaming, enabled, now);
-  } else if (enabled && !pacingDisabled()) {
-    result = paint(own, text, streaming, now);
+    result = resolve(key, text, streaming, enabled, phase, onScreen);
+  } else if (enabled && !stillMotion(text)) {
+    result = paint(own, text, streaming, phase, onScreen);
   } else {
     // Pacing ended for this pane's own pacer: show it whole. The shared
     // entry belongs to the panes that watched the row arrive; never touch it.
     if (own.pacer.unrevealed) {
-      own.pacer.push(text, now);
+      own.pacer.push(text);
       own.pacer.flush();
       active.delete(own);
     }
-    result = { text, draining: false };
+    result = unpaced(text, streaming, phase);
   }
   useLayoutEffect(() => {
     const pane = element?.current ? paneRoot(element.current) : null;
@@ -650,7 +746,7 @@ export function usePacedTranscriptText({
     // Before paint: this pane mounted with the row mid-stream. Other panes
     // keep the shared pacing state as it is.
     const entry = {
-      pacer: new TranscriptTextPacer(seen.text, true, seen.at),
+      pacer: new TranscriptTextPacer(seen.text, true, phase !== 'final_answer', phase === 'commentary'),
       listeners: new Set<() => void>(),
       version: 0,
     };
@@ -669,7 +765,9 @@ export function usePacedTranscriptText({
   // publication (see PACER_FRAME).
   const subscribe = useCallback(
     (listener: () => void) => {
-      if (!enabled) return () => {};
+      // Off screen this row paints nothing worth pacing: with no other pane
+      // subscribed, the entry shows what it received (paint).
+      if (!enabled || !onScreen) return () => {};
       const entry = own ?? registry.get(key);
       if (!entry) return () => {};
       entry.listeners.add(listener);
@@ -685,7 +783,7 @@ export function usePacedTranscriptText({
         }
       };
     },
-    [enabled, key, own]
+    [enabled, key, own, onScreen]
   );
   const readVersion = useCallback(
     () => (enabled ? ((own ?? registry.get(key))?.version ?? 0) : 0),
@@ -694,11 +792,12 @@ export function usePacedTranscriptText({
   useSyncExternalStore(subscribe, readVersion, readVersion);
   // A settled, fully revealed row needs no registry entry (a pane with its
   // own pacer leaves the shared one to the panes using it).
+  const draining = result.draining;
   useEffect(() => {
-    if (!own && !streaming && !result.draining) {
+    if (!own && !streaming && !draining) {
       const entry = registry.get(key);
-      if (entry && entry.pacer.settled && entry.pacer.pending === 0) registry.delete(key);
+      if (entry?.pacer.settled && !entry.pacer.draining) registry.delete(key);
     }
-  }, [key, own, streaming, result.draining]);
+  }, [key, own, streaming, draining]);
   return result;
 }

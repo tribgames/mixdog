@@ -8,7 +8,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // Synthetic, memory-only records exercise the real calendar and accounting
 // pipeline without opening or importing the user's ledger.
 const ledger = new UsageLedger(':memory:');
-const providers = ['cursor-oauth', 'openai-oauth', 'anthropic-oauth', 'grok-oauth', 'opencode-go', 'mixdog-local'];
+const providers = ['cursor-oauth', 'openai-oauth', 'anthropic-oauth', 'grok-oauth', 'opencode-go-oauth', 'mixdog-local'];
 const rows = [];
 const clock = new Date();
 for (let day = 0; day < 400; day++)

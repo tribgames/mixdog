@@ -943,8 +943,7 @@
   background: color-mix(in srgb, var(--mx-danger) 20%, transparent);
 }
 /* A running call (or group) shows its elapsed time (from 5s) before the
-   chevron; it leaves with the result. A group's leading icon stays still (its
-   title shimmers); a call row shows a small twinkling sparkle here. */
+   chevron; it leaves with the result. */
 .tool-working {
   display: inline-flex;
   flex: 0 0 auto;
@@ -955,37 +954,6 @@
   color: var(--mx-text-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-.tool-working-spark {
-  flex: none;
-  color: var(--mx-accent);
-}
-/* Sparkle: twinkles (scale + quarter turn). */
-.tool-working-spark .tool-group-icon-star {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: tool-spark-twinkle 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-}
-@keyframes tool-spark-twinkle {
-  0%,
-  100% {
-    opacity: 0.55;
-    transform: scale(0.72) rotate(0deg);
-  }
-  45% {
-    opacity: 1;
-    transform: scale(1.08) rotate(90deg);
-  }
-  70% {
-    opacity: 0.9;
-    transform: scale(0.95) rotate(90deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .tool-working-spark .tool-group-icon-star {
-    animation: none;
-    opacity: 1;
-  }
 }
 /* The disclosure arrow sits right after the text, so it stays visible: a
    small 14px caret in the line's own quiet ink. */

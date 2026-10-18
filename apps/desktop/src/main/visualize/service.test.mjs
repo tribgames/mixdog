@@ -256,14 +256,15 @@ test('open reuses tabs, splits panes, reloads on change, and closes', async () =
     assert.equal(again.tabs[0].id, 'v1');
     assert.equal(service.snapshot()[0].tabs.length, 2);
 
-    // A watched file change reloads that tab (debounced) without revealing.
+    // A watched file change reloads that tab (debounced) and asks to show
+    // that tab, like an open (the renderer's open policy decides).
     const before = service.snapshot()[0].tabs.find((tab) => tab.id === 'v1').revision;
     const change = [...watched.entries()].find(([path]) => path.endsWith('index.html'))[1];
     change();
     change();
     await service.settled();
-    const reloaded = events.at(-1);
-    assert.equal(reloaded.reveal, undefined);
+    const reloaded = events.findLast((event) => event.reveal);
+    assert.equal(reloaded.tab, 'v1');
     assert.equal(reloaded.state.tabs.find((tab) => tab.id === 'v1').revision, before + 1);
 
     // Other sessions never see this session's tabs.

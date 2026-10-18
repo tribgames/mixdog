@@ -16,7 +16,7 @@ import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { BOOT_WARMUP, scheduleBootWarmup } from './boot-warmup';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
-import { ModelCatalog } from './model-catalog';
+import { ModelCatalog, type ProviderCatalogFailure } from './model-catalog';
 import { type RouteSpeed, routeSpeed } from './model-route-utils';
 import { DAYBREAK_PARAMETER_ID, formatContextWindow, ModelRouteLabel, routeDaybreakBlue } from './provider-display';
 import { useSurfaceActive } from './surface-activity';
@@ -50,46 +50,7 @@ import {
 
 export { routeSheetRows } from './route-editor-logic';
 
-export function RouteEditor({
-  models,
-  provider,
-  model,
-  triggerModel,
-  effort,
-  effortOptions,
-  fast,
-  fastVisible,
-  fastAvailable,
-  contextVisible,
-  contextPercent,
-  contextDefaultPercent,
-  contextTokens,
-  contextExactTokens = 0,
-  contextMaxTokens = 0,
-  contextDefaultTokens = 0,
-  modelParameterOptions = [],
-  modelParameters = {},
-  providerNames,
-  catalogLoaded,
-  catalogRefreshing,
-  catalogError,
-  providerSetupError,
-  modelDisabled,
-  tuningDisabled,
-  tooltip = '',
-  onSelectModel,
-  onChangeEffort,
-  onChangeSpeed,
-  onChangeContext,
-  onChangeModelParameter,
-  onOpenProviders,
-  onOpenModelPane,
-  autoEffort = null,
-  onChangeAutoEffort = () => {},
-  onOpenSheet,
-  answersModelPickerRequests = false,
-  placement = 'above',
-}: {
+interface RouteEditorProps {
   /** Side the sheet opens toward: `above` for the composer's pill at the
    *  bottom of the screen, `below` for a dialog or settings field. */
   placement?: 'above' | 'below';
@@ -120,6 +81,7 @@ export function RouteEditor({
   catalogLoaded: boolean;
   catalogRefreshing: boolean;
   catalogError: string;
+  providerCatalogErrors?: ProviderCatalogFailure[];
   providerSetupError: string;
   modelDisabled: boolean;
   tuningDisabled: boolean;
@@ -131,6 +93,10 @@ export function RouteEditor({
   onChangeContext(percent: number, tokens?: number): void;
   onChangeModelParameter?(id: string, value: string): void;
   onOpenProviders?: () => void;
+  /** The /model picker's "i": opens Settings → Model management. */
+  onOpenModelManagement?: (provider?: string) => void;
+  /** A /model row's menu saves a favourite / hidden change. */
+  onSetModelPreference?: (option: DesktopModelOption, change: { hidden?: boolean; favorite?: boolean }) => unknown;
   /** Opening the catalog is also the user's retry gesture: the owner may
    *  re-request a catalog whose previous fetch failed. */
   onOpenModelPane?: () => void;
@@ -138,7 +104,121 @@ export function RouteEditor({
   onChangeAutoEffort?(enabled: boolean): void;
   /** Opening the sheet lets the owner re-read the Auto effort switch. */
   onOpenSheet?: () => void;
+}
+
+/** What the sheet shows for the current route: its labels, its rows and the
+ *  height they take. */
+function routeSheetContent({
+  provider,
+  model,
+  effort,
+  effortOptions,
+  fast,
+  fastVisible,
+  contextVisible,
+  modelParameterOptions,
+  modelParameters,
+  autoEffort,
+}: Pick<
+  RouteEditorProps,
+  'provider' | 'model' | 'effort' | 'effortOptions' | 'fast' | 'fastVisible' | 'contextVisible' | 'autoEffort'
+> & {
+  modelParameterOptions: NonNullable<RouteEditorProps['modelParameterOptions']>;
+  modelParameters: Record<string, string>;
 }) {
+  const selectedEffort = effortOptions.find((option) => option.value === effort);
+  // `autoEffort` is only passed for a capable model; a saved max/ultra stays shown.
+  const autoEffortOn = displayEffortLabel(effort, { autoOn: autoEffort?.enabled === true, capable: true }) !== null;
+  // "Auto" is the effort's name (like "Fast"), shown untranslated on the model
+  // chip and the Reasoning effort row.
+  const effortLabel = autoEffortOn ? 'Auto' : selectedEffort?.label || '';
+  const ultrafastAvailable = modelParameterOptions.some(
+    (parameter) => parameter.id === 'serviceTier' && parameter.options.some((option) => option.value === 'ultrafast')
+  );
+  const speed = routeSpeed(fast, modelParameters);
+  const speedLabels = { standard: t('Standard'), fast: t('Fast'), ultrafast: t('Ultrafast') };
+  const speedLabel = speedLabels[speed];
+  // The slider row IS the context control (TUI parity): a provider's own
+  // context-window parameter (Cursor 272K/1M) must never duplicate it.
+  // `serviceTier` is the Speed row's Ultrafast tier, never a generic row.
+  // Daybreak Blue is the switch under Auto reasoning, never a generic row.
+  const parameterRows = modelParameterOptions.filter(
+    (parameter) =>
+      parameter.id !== 'serviceTier' &&
+      parameter.id !== DAYBREAK_PARAMETER_ID &&
+      !(contextVisible && parameter.id === 'context')
+  );
+  const daybreakRow =
+    Boolean(provider && model) && modelParameterOptions.some((parameter) => parameter.id === DAYBREAK_PARAMETER_ID);
+  const daybreakOn = routeDaybreakBlue(modelParameters, modelParameterOptions);
+  const rows = routeSheetRows({
+    hasModel: Boolean(provider && model),
+    effortCount: effortOptions.length,
+    contextVisible,
+    fastVisible,
+    parameterIds: parameterRows.map((parameter) => parameter.id),
+  });
+  const autoEffortRow = Boolean(autoEffort) && rows.includes('effort');
+  const sheetHeight =
+    (rows.length + (autoEffortRow ? 1 : 0) + (daybreakRow ? 1 : 0)) * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
+  return {
+    autoEffortOn,
+    effortLabel,
+    ultrafastAvailable,
+    speed,
+    speedLabel,
+    parameterRows,
+    daybreakRow,
+    daybreakOn,
+    rows,
+    autoEffortRow,
+    sheetHeight,
+  };
+}
+
+export function RouteEditor({
+  models,
+  provider,
+  model,
+  triggerModel,
+  effort,
+  effortOptions,
+  fast,
+  fastVisible,
+  fastAvailable,
+  contextVisible,
+  contextPercent,
+  contextDefaultPercent,
+  contextTokens,
+  contextExactTokens = 0,
+  contextMaxTokens = 0,
+  contextDefaultTokens = 0,
+  modelParameterOptions = [],
+  modelParameters = {},
+  providerNames,
+  catalogLoaded,
+  catalogRefreshing,
+  catalogError,
+  providerCatalogErrors,
+  providerSetupError,
+  modelDisabled,
+  tuningDisabled,
+  tooltip = '',
+  onSelectModel,
+  onChangeEffort,
+  onChangeSpeed,
+  onChangeContext,
+  onChangeModelParameter,
+  onOpenProviders,
+  onOpenModelManagement,
+  onSetModelPreference,
+  onOpenModelPane,
+  autoEffort = null,
+  onChangeAutoEffort = () => {},
+  onOpenSheet,
+  answersModelPickerRequests = false,
+  placement = 'above',
+}: RouteEditorProps) {
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
   const [pane, setPane] = useState<RouteSheetPane | null>(null);
@@ -185,41 +265,30 @@ export function RouteEditor({
       run: () => setModelCatalogReady(true),
     });
   }, [modelCatalogReady, models.length, sheetId]);
-  const selectedEffort = effortOptions.find((option) => option.value === effort);
-  // `autoEffort` is only passed for a capable model; a saved max/ultra stays shown.
-  const autoEffortOn = displayEffortLabel(effort, { autoOn: autoEffort?.enabled === true, capable: true }) !== null;
-  // "Auto" is the effort's name (like "Fast"), shown untranslated on the model
-  // chip and the Reasoning effort row.
-  const effortLabel = autoEffortOn ? 'Auto' : selectedEffort?.label || '';
-  const ultrafastAvailable = modelParameterOptions.some(
-    (parameter) => parameter.id === 'serviceTier' && parameter.options.some((option) => option.value === 'ultrafast')
-  );
-  const speed = routeSpeed(fast, modelParameters);
-  const speedLabels = { standard: t('Standard'), fast: t('Fast'), ultrafast: t('Ultrafast') };
-  const speedLabel = speedLabels[speed];
-  // The slider row IS the context control (TUI parity): a provider's own
-  // context-window parameter (Cursor 272K/1M) must never duplicate it.
-  // `serviceTier` is the Speed row's Ultrafast tier, never a generic row.
-  // Daybreak Blue is the switch under Auto reasoning, never a generic row.
-  const parameterRows = modelParameterOptions.filter(
-    (parameter) =>
-      parameter.id !== 'serviceTier' &&
-      parameter.id !== DAYBREAK_PARAMETER_ID &&
-      !(contextVisible && parameter.id === 'context')
-  );
-  const daybreakRow =
-    Boolean(provider && model) && modelParameterOptions.some((parameter) => parameter.id === DAYBREAK_PARAMETER_ID);
-  const daybreakOn = routeDaybreakBlue(modelParameters, modelParameterOptions);
-  const rows = routeSheetRows({
-    hasModel: Boolean(provider && model),
-    effortCount: effortOptions.length,
-    contextVisible,
+  const {
+    autoEffortOn,
+    effortLabel,
+    ultrafastAvailable,
+    speed,
+    speedLabel,
+    parameterRows,
+    daybreakRow,
+    daybreakOn,
+    rows,
+    autoEffortRow,
+    sheetHeight,
+  } = routeSheetContent({
+    provider,
+    model,
+    effort,
+    effortOptions,
+    fast,
     fastVisible,
-    parameterIds: parameterRows.map((parameter) => parameter.id),
+    contextVisible,
+    modelParameterOptions,
+    modelParameters,
+    autoEffort,
   });
-  const autoEffortRow = Boolean(autoEffort) && rows.includes('effort');
-  const sheetHeight =
-    (rows.length + (autoEffortRow ? 1 : 0) + (daybreakRow ? 1 : 0)) * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
   const visible = open && surfaceActive;
   const mounted = (open || closing) && surfaceActive;
   const {
@@ -627,6 +696,7 @@ export function RouteEditor({
       catalogLoaded={catalogLoaded}
       catalogRefreshing={catalogRefreshing}
       catalogError={catalogError}
+      providerCatalogErrors={providerCatalogErrors}
       providerSetupError={providerSetupError}
       onSelect={onSelectModel}
       onClose={() => closePane('model', true)}
@@ -634,6 +704,14 @@ export function RouteEditor({
         closeAll();
         onOpenProviders?.();
       }}
+      onOpenModelManagement={
+        onOpenModelManagement &&
+        ((target?: string) => {
+          closeAll();
+          onOpenModelManagement(target);
+        })
+      }
+      onSetModelPreference={onSetModelPreference}
     />
   );
 

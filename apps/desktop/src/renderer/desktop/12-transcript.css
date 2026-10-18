@@ -494,10 +494,10 @@ html[data-window-material="mica"] .transcript-shell {
   line-height: var(--mx-line-prose);
   letter-spacing: 0;
 }
-/* Half a prose line, so the paragraph break stays proportional to the 24px
-   rhythm. */
+/* ONE block-gap unit (14px) separates paragraphs, lists, quotes (+4 for cards).
+   Headings open wider and a lead-in sits closer to its list (22-markdown). */
 .message-body p {
-  margin: 0 0 12px;
+  margin: 0 0 14px;
 }
 /* Turn rhythm: the LAST paragraph's bottom margin stacked on the thread's
    16px row gap and read as a two-line hole between turns — collapse
@@ -527,12 +527,19 @@ html[data-window-material="mica"] .transcript-shell {
    virtualized, and the 88px intrinsic placeholder made off-screen rows paint
    late (ghost flash) then re-measure on entry (scroll jump). */
 /* Rows outside the viewport (overscan, the pinned live row once the reader
-   scrolls away) hold their infinite loaders still. The running logo's arcs
-   animate stroke dashes and its <svg> boxes rotate; neither can run on the
-   compositor, so each kept re-painting on the main thread every frame of the
-   reader's scroll. TranscriptList marks the rows (IntersectionObserver). */
+   scrolls away) hold their infinite loaders still: a compositor loop nobody
+   sees still costs a composited frame per vsync. TranscriptList marks the
+   rows from its virtualizer's visible range. */
 .transcript-virtual-row[data-offscreen="true"]
-:is(.spin, .live-activity-arcs, .live-activity-star, .live-activity-logo .arc) {
+:is(
+  .spin,
+  .live-activity-arcs,
+  .live-activity-arc-strip,
+  .live-activity-star,
+  .live-activity-star-turn,
+  [data-slot="text-shimmer-glint"]
+),
+.transcript-virtual-row[data-offscreen="true"] [data-slot="text-shimmer-glint"]::before {
   animation-play-state: paused;
 }
 .message-actions {
@@ -613,12 +620,10 @@ html[data-window-material="mica"] .transcript-shell {
   white-space: nowrap;
 }
 /* One status slot, 16px lead-in + a 24px row = 40px below the content above
-   it: the completion footer here, the live band row (TranscriptList: the row
-   above a band takes no step, the band row leads in 16px), and the band's
-   slot a completed reply holds while its paced text drains. Swapping any of
-   them for another cannot move the transcript. */
-.message.assistant .response-footer:has(.turn-status),
-.response-footer-band {
+   it: the completion footer here and the live band row (TranscriptList: the
+   row above a band takes no step, the band row leads in 16px). Swapping one
+   for the other cannot move the transcript. */
+.message.assistant .response-footer:has(.turn-status) {
   min-height: 24px;
   margin-top: 16px;
 }

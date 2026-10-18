@@ -612,14 +612,10 @@ html[data-window-material="mica"] .session-sidebar {
   text-align: right;
   white-space: nowrap;
 }
-/* Match the live app's accent for work in progress. */
-:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="running"] {
+/* Match the live app's accent for work in progress. Waiting on its own
+   background work is the same run: same clock, same ink. */
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed:is([data-state="running"], [data-state="waiting"]) {
   color: var(--mx-text-accent);
-}
-/* Waiting on child work reads in full ink: never the accent of live work,
-   and never the needs-you hue, since nothing waits on the user. */
-:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="waiting"] {
-  color: var(--mx-text);
 }
 /* Completion notice: an idle row whose session is still unseen reads in the
    success hue — the hue alone marks it. It fades back to

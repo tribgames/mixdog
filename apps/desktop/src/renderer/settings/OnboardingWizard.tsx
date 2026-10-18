@@ -570,10 +570,7 @@ function ProviderStep({
   onReload(): void;
 }) {
   if (setup.managedByClient === true) return <ClientManagedProviders setup={setup} />;
-  // OpenCode Go leads the API list (user decision).
-  const apiProviders = [...rows(setup.api)].sort(
-    (left, right) => Number(String(right.id) === 'opencode-go') - Number(String(left.id) === 'opencode-go')
-  );
+  const apiProviders = rows(setup.api);
   const oauthProviders = rows(setup.oauth);
   return (
     <>

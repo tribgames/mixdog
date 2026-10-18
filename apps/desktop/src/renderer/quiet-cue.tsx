@@ -1,16 +1,10 @@
-// The quiet-time cue on the desktop: the live status line and the agent rows
-// say how long a running turn has gone without counted progress and what it
-// waits on, and offer Stop once the silence reaches the stall watchdog's warn
-// point. Display only: Stop is the ordinary session abort the user asks for.
+// The quiet-time cue on the desktop: the live status line says how long a
+// running turn has gone without counted progress and what it waits on, and
+// offers Stop once the silence reaches the stall watchdog's warn point.
+// Display only: Stop is the ordinary session abort the user asks for.
 import type React from 'react';
 import { useCallback, useRef, useSyncExternalStore } from 'react';
-import type { DesktopAgentPoolRow } from '../shared/contract';
-import {
-  MODEL_THINKING_STAGE,
-  quietProgress,
-  quietProgressParts,
-  type QuietProgressParts,
-} from '../../../../src/runtime/shared/quiet-progress.mjs';
+import type { QuietProgressParts } from '../../../../src/runtime/shared/quiet-progress.mjs';
 import { t } from './i18n';
 import { showDesktopToast } from './notifications';
 import { defaultSessionLaneStore } from './session-lane-store';
@@ -58,23 +52,6 @@ export function quietCueText(parts: QuietProgressParts): string {
   const quiet = t('Quiet for {{duration}}', { duration: uiTimeUnit(parts.minutes, 'minute') });
   const wait = quietWaitText(parts);
   return wait ? `${quiet} · ${wait}` : quiet;
-}
-
-/** The quiet parts of a running pool row at `now` (null: not quiet). */
-export function agentQuietParts(agent: DesktopAgentPoolRow, now: number): QuietProgressParts | null {
-  const quiet = quietProgress({
-    progressAt: agent.progressAt,
-    stage: agent.progressStage,
-    tool: agent.progressTool,
-    now,
-  });
-  return quietProgressParts(quiet, now, agent.stallWarnMs);
-}
-
-/** A running pool row's stage cue before it is quiet: "Model thinking" while
- *  its sent request waits for the response headers ('' otherwise). */
-export function agentStageCueText(agent: DesktopAgentPoolRow): string {
-  return agent.progressStage === MODEL_THINKING_STAGE ? t('Model thinking') : '';
 }
 
 function stopSession(sessionId: string): void {

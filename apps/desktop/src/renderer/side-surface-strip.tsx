@@ -16,6 +16,7 @@ import { t } from './i18n';
 import { sideFileKey, type PaneSideDockFile } from './side-file-tabs';
 import { EditorViewSwitch, type EditorViewControls } from './editor-view-switch';
 import { DockHeaderRow, type DockAction } from './pane-dock-chrome';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { useZoomBarVisible, zoomBarAction } from './zoom-bar-pref';
 import './tab-strip.css';
 
@@ -227,6 +228,10 @@ export function SideFileStrip({
   const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null);
   const dismissMenu = useCallback(() => setMenu(null), []);
   useZoomBarVisible();
+  // The phone sheet's header names the open file alone: its ⋯ menu already
+  // switches back to Changes, and a Changes chip ahead of the file takes the
+  // header's start (and a share of its narrow width) from the file name.
+  const phone = useMobileRemoteSurface();
   const activePreview = files.find((file) => file.preview && sideFileKey(file) === activeKey);
   const menuFile = menu ? files.find((file) => sideFileKey(file) === menu.key) : undefined;
   return (
@@ -235,7 +240,7 @@ export function SideFileStrip({
         className="side-file-header"
         left={
           <div className="browser-tab-list" role="tablist" aria-label={t('Files')}>
-            {leadingTab && (
+            {leadingTab && !phone && (
               <div className="browser-tab dock-header-chip" data-side-leading-tab="">
                 <button
                   type="button"

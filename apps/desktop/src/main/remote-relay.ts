@@ -690,9 +690,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       caps.resetRelayConnectionCaps();
       relayWebPush.reset();
       resetTransportDeltas();
-      // A fresh desktop leg supersedes the old one and the relay closed its
-      // phone legs; phones re-open and re-announce themselves.
-      clients.clear();
+      // Phone legs survive a desktop redial: the relay replays client-open for
+      // each, and a phone resuming with its token adopts the lanes the close
+      // handler parked, so it receives deltas instead of a full baseline.
       // Announce the lanes this build serves BEFORE the pairing token, so the
       // relay can answer a phone's media request the moment a client leg
       // binds. An older relay ignores the frame; a newer one stops proxying
@@ -760,7 +760,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       // A superseded socket owns none of the shared state and schedules nothing.
       if (socket !== ws) return;
       socket = null;
-      clients.clear();
+      // Every phone leg ended with this one; resumable lanes are parked for
+      // the replayed client-open on the next leg (see the open handler).
+      clients.parkAll();
       resetTransportDeltas();
       mediaLane.destroyAll();
       if (closed) return;

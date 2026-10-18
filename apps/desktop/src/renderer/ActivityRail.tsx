@@ -3,7 +3,7 @@
 // swap the adjacent panel; creation actions live in the Sessions panel header.
 // Usage and Settings live at the rail foot.
 import type React from 'react';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { DESKTOP_SIDEBAR_DEFAULT_WIDTH } from '../shared/window-layout';
 import { desktopFeatureEnabled } from './desktop-feature-config';
@@ -71,7 +71,9 @@ function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'],
   return <span className="codicon codicon-pie-chart" aria-hidden="true" />;
 }
 
-export function ActivityRail({
+// Memoised: the rail sits beside every App commit (a session switch is four)
+// and changes only with its destinations, the shown one and Settings.
+export const ActivityRail = memo(function ActivityRail({
   settingsOpen,
   onOpenSettings,
   onOpenProviders,
@@ -295,4 +297,4 @@ export function ActivityRail({
       )}
     </aside>
   );
-}
+});

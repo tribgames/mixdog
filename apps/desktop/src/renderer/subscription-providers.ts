@@ -9,7 +9,7 @@ export const SUBSCRIPTIONS = [
   { key: 'mimo', label: 'MiMo', provider: 'mimo-oauth' },
   { key: 'cursor', label: 'Cursor', provider: 'cursor-oauth' },
   { key: 'antigravity', label: 'Antigravity', provider: 'antigravity-oauth' },
-  { key: 'opencode-go', label: 'OpenCode Go', provider: 'opencode-go' },
+  { key: 'opencode-go-oauth', label: 'OpenCode Go OAuth', provider: 'opencode-go-oauth' },
 ] as const;
 
 export type Subscription = (typeof SUBSCRIPTIONS)[number];

@@ -4,6 +4,7 @@
 import { DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import {
+  type LatestCall,
   REVIEW_FILE_PATCH_CALLS,
   SIDE_QUESTION_CALLS,
   SIDE_QUESTION_CANCEL_CALL,
@@ -67,6 +68,24 @@ export function remoteCallQueueKey(method: string, statName: string): string {
     }
   }
   return method;
+}
+
+const SEARCH_SUPERSEDED = 'Search superseded by a newer query.';
+
+/** A file-name search's newest-wins scope: the same root and the same result
+ *  shape (limit, ignored files, folders), so one surface's keystrokes replace
+ *  each other while another surface's (or another root's) search stands. */
+function searchLatestCall(
+  call: { method?: unknown; params?: unknown } | null,
+  superseded: () => Promise<void>
+): LatestCall | undefined {
+  if (call?.method !== 'searchProjectFiles' || !Array.isArray(call.params)) return undefined;
+  const [root, , limit, includeIgnored, includeDirectories] = call.params;
+  if (typeof root !== 'string') return undefined;
+  return {
+    latest: JSON.stringify([root, limit ?? null, includeIgnored === true, includeDirectories === true]),
+    superseded,
+  };
 }
 
 /** The per-minute call summary key: the method, plus its capability names. */
@@ -292,7 +311,10 @@ export function createRelayClientCallDispatch(
               await deps.sendEncryptedFrame(clientId, { id: call.id, ok: false, error: 'Side question canceled.' });
             },
           }
-        : undefined;
+        : searchLatestCall(call, async () => {
+            if (typeof call?.id !== 'number' || !deps.attached(clientId, client)) return;
+            await deps.sendEncryptedFrame(clientId, { id: call.id, ok: false, error: SEARCH_SUPERSEDED });
+          });
     const execution = client.callQueue.run(
       queueKey,
       async () => {

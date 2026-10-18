@@ -25,6 +25,14 @@ const PROVIDERS = fileURLToPath(new URL('../../../../src/runtime/agent/orchestra
  *  options in that file (helper arguments that share a name), with the reason. */
 const NOT_SEND_OPTIONS = new Map([
   ['auto-effort.mjs::map', '`options` is the array of supported effort levels'],
+  ['openai-ws-connect.mjs::all', '`options` is the dns.lookup options object of the cached lookup'],
+  ['openai-ws-connect.mjs::family', '`options` is the dns.lookup options object of the cached lookup'],
+  ['openai-ws-connect.mjs::hints', '`options` is the dns.lookup options object of the cached lookup'],
+  ['openai-ws-connect.mjs::host', "`options` is the ws library's socket connect options (createConnection)"],
+  ['openai-ws-connect.mjs::port', "`options` is the ws library's socket connect options (createConnection)"],
+  ['openai-ws-connect.mjs::protocol', "`options` is the ws library's socket connect options (createConnection)"],
+  ['openai-ws-connect.mjs::servername', "`options` is the ws library's socket connect options (createConnection)"],
+  ['openai-ws-connect.mjs::socketPath', "`options` is the ws library's socket connect options (createConnection)"],
   [
     'effort-configuration.mjs::protocol',
     "the custom route's wire protocol, set by the adapter itself from its own provider config",
@@ -129,7 +137,7 @@ const FALLBACK_OPERATORS = new Set([ts.SyntaxKind.BarBarToken, ts.SyntaxKind.Que
  *  nested `session` patterns), through aliases (`const o = opts`,
  *  `opts || {}`, `{ ...opts }`, `...rest`, reassignment). An element read with
  *  a computed key is reported as dynamic. */
-export function scanSendOptionReads(text, fileName = 'fixture.mjs') {
+function scanSendOptionReads(text, fileName = 'fixture.mjs') {
   const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const aliases = new Set(SEEDS);
   const sessionAliases = new Set();

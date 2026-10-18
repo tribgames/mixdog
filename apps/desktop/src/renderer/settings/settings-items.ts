@@ -43,6 +43,12 @@ export const SETTINGS_ITEMS = [
     kind: 'toggle',
   },
   { value: 'providers', label: 'Providers', description: 'Auth, API keys, OAuth, local.', kind: 'open' },
+  {
+    value: 'model-management',
+    label: 'Model management',
+    description: 'Models shown in /model and favorites.',
+    kind: 'open',
+  },
   { value: 'mcp', label: 'MCP servers', description: '0/0 connected', kind: 'open' },
   { value: 'plugins', label: 'Plugins', description: '0 detected', kind: 'open' },
   { value: 'skills', label: 'Skills', description: '0 available', kind: 'open' },
@@ -75,6 +81,7 @@ export type SettingsCategory =
   | 'context'
   | 'output-style'
   | 'providers'
+  | 'models'
   | 'git'
   | 'connection'
   | 'mcp'
@@ -113,6 +120,13 @@ export const SETTINGS_CATEGORIES = [
     label: 'Providers',
     group: 'Integrations',
     items: ['providers'],
+  },
+  // Directly below Providers: which connected models /model lists, and favorites.
+  {
+    value: 'models',
+    label: 'Model management',
+    group: 'Integrations',
+    items: ['model-management'],
   },
   {
     value: 'skills',
@@ -186,7 +200,7 @@ export const DEVICE_SETTINGS_CATEGORY = {
 
 // Pages whose calls an older host still refuses to remote clients. A host that
 // announces open access (every paired client is trusted) shows them all.
-const LEGACY_REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>(['providers', 'developer']);
+const LEGACY_REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>(['providers', 'models', 'developer']);
 const MOVED_EXTENSION_CATEGORIES = new Set<SettingsCategory>(['git', 'skills', 'mcp', 'plugins']);
 const LOCAL_SETTINGS_CATEGORIES = SETTINGS_CATEGORIES.filter(
   (category) => !MOVED_EXTENSION_CATEGORIES.has(category.value)

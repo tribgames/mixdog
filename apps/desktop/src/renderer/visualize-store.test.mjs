@@ -3,6 +3,10 @@ import test from 'node:test';
 
 import { onBrowserPageRevealRequested } from './browser-page-request.ts';
 import {
+  activateVisualizeTab,
+  setVisualizePanelOnScreen,
+  visualizeUpdatedTabs,
+  visualizeUpdateShows,
   applyVisualizeEvent,
   hydrateVisualizeStates,
   subscribe,
@@ -57,7 +61,7 @@ test('a chat card press is the user asking: it lifts the closed rule, selects an
   }
 });
 
-test('a closed panel stays closed on reloads and reopens on an agent open', () => {
+test('a closed panel stays closed on plain state pushes and reopens on an agent open', () => {
   const reveals = [];
   const stop = onVisualizeRevealRequested((sessionId) => reveals.push(sessionId));
   try {
@@ -67,7 +71,7 @@ test('a closed panel stays closed on reloads and reopens on an agent open', () =
 
     suppressVisualizeReveal('s1');
     applyVisualizeEvent({ sessionId: 's1', state: { sessionId: 's1', tabs: [{ ...tab, revision: 1 }], active: 'v1' } });
-    assert.deepEqual(reveals, ['s1'], 'a reload of an open tab never reopens a closed panel');
+    assert.deepEqual(reveals, ['s1'], 'a push without reveal (thumbnail, problems) never reopens a closed panel');
     assert.equal(visualizeRevealSuppressed('s1'), true);
 
     applyVisualizeEvent({ sessionId: 's1', state: { sessionId: 's1', tabs: [tab], active: 'v1' }, reveal: true });
@@ -83,8 +87,8 @@ test('a closed panel stays closed on reloads and reopens on an agent open', () =
 
 test('a renderer reload reopens panels that were open, never ones the user closed', async () => {
   const stored = new Map();
-  const previous = globalThis.sessionStorage;
-  globalThis.sessionStorage = {
+  const previous = globalThis.localStorage;
+  globalThis.localStorage = {
     getItem: (key) => stored.get(key) ?? null,
     setItem: (key, value) => stored.set(key, String(value)),
   };
@@ -96,7 +100,7 @@ test('a renderer reload reopens panels that were open, never ones the user close
     markVisualizePanelShown('r-moved');
     markVisualizePanelHidden('r-moved');
 
-    // The reload: in-memory state is gone, sessionStorage remains, and the
+    // The reload: in-memory state is gone, localStorage remains, and the
     // snapshot lands before the app shell subscribes.
     resetVisualizePanelMemory();
     assert.equal(visualizeRevealSuppressed('r-closed'), true);
@@ -114,7 +118,7 @@ test('a renderer reload reopens panels that were open, never ones the user close
     resetVisualizePanelMemory();
     assert.equal(visualizeRevealSuppressed('r-closed'), false);
   } finally {
-    globalThis.sessionStorage = previous;
+    globalThis.localStorage = previous;
     resetVisualizePanelMemory();
   }
 });
@@ -176,9 +180,153 @@ test('a remote reconnect replaces every session with the host snapshot and revea
     assert.deepEqual(visualizeStateFor('g1').tabs, [], 'a session closed during the gap is dropped');
     assert.equal(visualizeStateFor('g2').tabs[0].revision, 4, 'a reload missed during the gap remounts');
     assert.deepEqual(visualizeStateFor('g3').tabs, []);
-    assert.deepEqual(reveals, []);
+    assert.deepEqual(reveals, [], 'no version moved and no panel was remembered open: nothing is revealed');
   } finally {
     stop();
+  }
+});
+
+/** A tab with kept versions 1..n. */
+const versioned = (id, n) => ({
+  id,
+  label: id,
+  revision: n,
+  panes: [],
+  versions: Array.from({ length: n }, (_, index) => ({ n: index + 1, at: index })),
+});
+
+function withLocalStorage() {
+  const stored = new Map();
+  const previous = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (key) => stored.get(key) ?? null,
+    setItem: (key, value) => stored.set(key, String(value)),
+  };
+  resetVisualizePanelMemory();
+  return () => {
+    globalThis.localStorage = previous;
+    resetVisualizePanelMemory();
+  };
+}
+
+test('open policy: every open and update reveals its tab, even after the user closed the panel', () => {
+  const restore = withLocalStorage();
+  const sent = [];
+  const previous = globalThis.window;
+  globalThis.window = { mixdogDesktop: { visualizeCommand: async (command) => sent.push(command) } };
+  const reveals = [];
+  const stop = onVisualizeRevealRequested((sessionId) => reveals.push(sessionId));
+  try {
+    const state = (tabs, active) => ({ sessionId: 'p1', tabs, active });
+    applyVisualizeEvent({ sessionId: 'p1', state: state([versioned('v1', 1)], 'v1'), reveal: true, tab: 'v1' });
+    assert.deepEqual(reveals, ['p1']);
+    suppressVisualizeReveal('p1');
+    // A file-change update of v1 while v2 is the active tab: main leaves the
+    // active tab alone, the renderer brings v1 up and tells main.
+    applyVisualizeEvent({
+      sessionId: 'p1',
+      state: state([versioned('v1', 2), versioned('v2', 1)], 'v2'),
+      reveal: true,
+      tab: 'v1',
+    });
+    assert.deepEqual(reveals, ['p1', 'p1'], 'an update reopens a panel the user closed');
+    assert.equal(visualizeRevealSuppressed('p1'), false);
+    assert.equal(visualizeStateFor('p1').active, 'v1');
+    assert.deepEqual(sent, [{ sessionId: 'p1', tabId: 'v1', action: 'activate' }]);
+    // A plain state push (no open, no update) reveals nothing.
+    applyVisualizeEvent({ sessionId: 'p1', state: state([versioned('v1', 2), versioned('v2', 1)], 'v1') });
+    assert.deepEqual(reveals, ['p1', 'p1']);
+  } finally {
+    stop();
+    globalThis.window = previous;
+    restore();
+  }
+});
+
+test('open policy: a tab the user picked on a shown panel holds; the other tab is marked updated', () => {
+  const restore = withLocalStorage();
+  const sent = [];
+  const previous = globalThis.window;
+  globalThis.window = { mixdogDesktop: { visualizeCommand: async (command) => sent.push(command) } };
+  const reveals = [];
+  const stop = onVisualizeRevealRequested((sessionId) => reveals.push(sessionId));
+  try {
+    const tabs = (n) => [versioned('v1', 1), versioned('v2', n)];
+    applyVisualizeEvent({ sessionId: 'k1', state: { sessionId: 'k1', tabs: tabs(1), active: 'v2' } });
+    setVisualizePanelOnScreen('k1', true);
+    activateVisualizeTab('k1', 'v1');
+    sent.length = 0;
+    // The agent opens v2 again: main made it active; the user's v1 stays.
+    applyVisualizeEvent({
+      sessionId: 'k1',
+      state: { sessionId: 'k1', tabs: tabs(2), active: 'v2' },
+      reveal: true,
+      tab: 'v2',
+    });
+    assert.deepEqual(reveals, []);
+    assert.equal(visualizeStateFor('k1').active, 'v1');
+    assert.deepEqual(sent, [{ sessionId: 'k1', tabId: 'v1', action: 'activate' }]);
+    assert.deepEqual([...visualizeUpdatedTabs('k1')], ['v2']);
+    // An update of the picked tab itself shows as usual.
+    applyVisualizeEvent({
+      sessionId: 'k1',
+      state: { sessionId: 'k1', tabs: tabs(2), active: 'v1' },
+      reveal: true,
+      tab: 'v1',
+    });
+    assert.deepEqual(reveals, ['k1']);
+    // Once the panel leaves the screen the pick no longer holds.
+    activateVisualizeTab('k1', 'v1');
+    setVisualizePanelOnScreen('k1', false);
+    applyVisualizeEvent({
+      sessionId: 'k1',
+      state: { sessionId: 'k1', tabs: tabs(3), active: 'v2' },
+      reveal: true,
+      tab: 'v2',
+    });
+    assert.deepEqual(reveals, ['k1', 'k1']);
+    assert.equal(visualizeStateFor('k1').active, 'v2');
+    assert.equal(visualizeUpdatedTabs('k1').has('v2'), false, 'viewing a tab clears its mark');
+    assert.equal(visualizeUpdateShows({ tabs: tabs(1) }, 'v2', true, 'gone'), true, 'a closed pick holds nothing');
+  } finally {
+    stop();
+    globalThis.window = previous;
+    restore();
+  }
+});
+
+test('resume: a remote client back from a gap restores an open panel and shows what changed meanwhile', async () => {
+  const restore = withLocalStorage();
+  const reveals = [];
+  const previous = globalThis.window;
+  globalThis.window = { mixdogDesktop: { visualizeCommand: async () => undefined } };
+  try {
+    applyVisualizeEvent({ sessionId: 'm1', state: { sessionId: 'm1', tabs: [versioned('v1', 1)], active: 'v1' } });
+    applyVisualizeEvent({ sessionId: 'm2', state: { sessionId: 'm2', tabs: [versioned('v1', 1)], active: 'v1' } });
+    applyVisualizeEvent({ sessionId: 'm3', state: { sessionId: 'm3', tabs: [versioned('v1', 1)], active: 'v1' } });
+    markVisualizePanelShown('m1');
+    markVisualizePanelShown('m3');
+    suppressVisualizeReveal('m3');
+    // The page was discarded in the background: memory comes back from
+    // localStorage, not from the (lost) in-memory sets.
+    resetVisualizePanelMemory();
+    const stop = onVisualizeRevealRequested((sessionId) => reveals.push(sessionId));
+    try {
+      resyncVisualizeStates([
+        { sessionId: 'm1', tabs: [versioned('v1', 1)], active: 'v1' },
+        { sessionId: 'm2', tabs: [versioned('v1', 1), versioned('v2', 1)], active: 'v2' },
+        { sessionId: 'm3', tabs: [versioned('v1', 1)], active: 'v1' },
+      ]);
+      assert.deepEqual(reveals, [], 'the reveal waits a turn for the shell');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.deepEqual(reveals.sort(), ['m1', 'm2'], 'm1 was open; m2 got a tab during the gap; m3 was closed');
+      assert.equal(visualizeStateFor('m2').active, 'v2');
+    } finally {
+      stop();
+    }
+  } finally {
+    globalThis.window = previous;
+    restore();
   }
 });
 

@@ -63,7 +63,13 @@ export function DesktopToastRegion({
   const expiryTimers = useRef(new Map<string, { record: (typeof records)[number]; timer: number }>());
   const [placement, setPlacement] = useState({ right: 16, top: 54, width: 320, maxHeight: 400 });
   const hostToasts = [
-    ...toasts,
+    // The main process owns the lasting-outage toast and sends its English key.
+    ...toasts.map((toast) =>
+      toast.id === 'service-connection-stopped' &&
+      toast.text === 'The service connection has been lost for a while. Still retrying automatically.'
+        ? { ...toast, text: t('The service connection has been lost for a while. Still retrying automatically.') }
+        : toast
+    ),
     ...(bridgeError ? [{ id: 'desktop-bridge', text: bridgeError, tone: 'error', lifetime: 'state' }] : []),
   ];
   const hostToken = JSON.stringify(hostToasts);

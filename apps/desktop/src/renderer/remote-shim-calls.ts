@@ -173,6 +173,13 @@ export const installRemoteCalls = (ctx: RemoteShimContext): void => {
     }
     if (retired > 0) freeCredits(retired);
   };
+  /** Test/diagnostic seam: credits taken, calls the PC still owes, and calls
+   *  waiting for a credit. */
+  const callCreditStats = () => ({
+    inUse: creditsInUse,
+    owed: credits.size,
+    waiting: ordinaryWaiters.length + priorityWaiters.length,
+  });
 
   const invoke = async <T = unknown>(method: string, params: unknown[] = []): Promise<T> => {
     await takeCredit(PRIORITY_CALLS.has(method));
@@ -309,5 +316,6 @@ export const installRemoteCalls = (ctx: RemoteShimContext): void => {
     fire,
     settleCallCredit,
     retireCallCredits,
+    callCreditStats,
   });
 };

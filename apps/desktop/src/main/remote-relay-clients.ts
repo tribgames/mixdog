@@ -152,6 +152,9 @@ export interface RelayClientRegistry {
   remove(clientId: string, park?: boolean): boolean;
   /** Drops every client (and every parked set) and notifies once. */
   clear(): void;
+  /** The desktop's own relay leg dropped: every client leaves as if the relay
+   *  had reported its leg gone, parking resumable lanes, and notifies once. */
+  parkAll(): void;
   /** The parked lanes for a token, at most once and only before expiry. A
    *  still-attached leg holding the token is retired and parked first, so the
    *  caller must not be that leg (its own token continues its live lanes). */
@@ -164,8 +167,13 @@ export interface RelayClientRegistry {
    *  the client closed) when either would overflow. */
   admitFrame(clientId: string, state: RelayClientState, bytes: number): boolean;
   releaseFrame(state: RelayClientState, bytes: number): void;
-  /** Every client's delta baselines restart: the relay leg was replaced. */
+  /** Every live client's delta baselines restart: the relay leg was replaced.
+   *  Parked sets stay: they describe what each phone holds, which a desktop
+   *  redial does not change, and a resume verifies them lane by lane. */
   resetDeltas(): void;
+  /** Test/diagnostic seam: attached clients, parked lane sets and the leg's
+   *  inbound frame budget in use. */
+  stats(): { clients: number; parked: number; pendingFrames: number; pendingBytes: number };
 }
 
 export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayClientRegistry {
@@ -276,6 +284,11 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
       for (const clientId of [...clients.keys()]) remove(clientId);
       deps.onClientCountChanged();
     },
+    parkAll: () => {
+      if (clients.size === 0) return;
+      for (const clientId of [...clients.keys()]) remove(clientId, true);
+      deps.onClientCountChanged();
+    },
     takeParkedViews: (token) => {
       // The phone presents this token from a NEW leg while its old one still
       // looks attached: that leg died without the relay noticing yet (a
@@ -313,7 +326,6 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
       totalPendingBytes = Math.max(0, totalPendingBytes - bytes);
     },
     resetDeltas: () => {
-      dropParkedViews();
       for (const state of clients.values()) {
         state.stateLane?.clear();
         state.sessionStateEncoders.clear();
@@ -321,5 +333,11 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
         state.agentPoolEncoder.reset();
       }
     },
+    stats: () => ({
+      clients: clients.size,
+      parked: parked.size,
+      pendingFrames: totalPendingFrames,
+      pendingBytes: totalPendingBytes,
+    }),
   };
 }

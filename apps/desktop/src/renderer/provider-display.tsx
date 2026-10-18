@@ -26,7 +26,7 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   openai: 'OpenAI API',
   'openai-api': 'OpenAI API',
   'openai-oauth': 'OpenAI OAuth',
-  'opencode-go': 'OpenCode Go API',
+  'opencode-go-oauth': 'OpenCode Go OAuth',
   openrouter: 'OpenRouter',
   xai: 'xAI API',
   'xai-api': 'xAI API',
@@ -42,7 +42,7 @@ const PROVIDER_RANKS: Readonly<Record<string, number>> = {
   'mimo-oauth': 34,
   'antigravity-oauth': 31,
   'cursor-oauth': 32,
-  'opencode-go': 35,
+  'opencode-go-oauth': 34.5,
   openai: 40,
   'openai-api': 40,
   anthropic: 50,
@@ -405,7 +405,7 @@ function providerIconKind(provider: string): ProviderIconKind {
   if (normalized.startsWith('mimo')) return 'xiaomi';
   if (normalized === 'command-code-oauth') return 'commandcode';
   if (normalized === 'antigravity-oauth') return 'antigravity';
-  if (normalized === 'opencode-go') return 'opencode';
+  if (normalized === 'opencode-go-oauth') return 'opencode';
   if (normalized === 'openrouter') return 'openrouter';
   if (normalized === 'mixdog-local') return 'local';
   if (normalized.includes('deepseek')) return 'deepseek';

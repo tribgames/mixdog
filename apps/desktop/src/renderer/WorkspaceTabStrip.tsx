@@ -4,14 +4,17 @@
 // contract for the strip-contract dom tests and the shared CSS.
 import React, {
   type KeyboardEvent,
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
   startTransition,
 } from 'react';
+import { useStableEvent } from './use-stable-event';
 import { createPortal, flushSync } from 'react-dom';
 import { clampOverlayIntoView } from './anchored-panel';
 import { explorerAbsolutePath } from './explorer-tree-model';
@@ -229,6 +232,48 @@ function closingTabGhost(tab: WorkspaceTab, active: boolean) {
   );
 }
 
+type WorkspaceTabCellProps = Parameters<typeof workspaceTabNode>[0];
+
+/** Equal when the cell would draw the same: the strip rebuilds every tab
+ *  object per commit, so a tab compares by its fields; its handlers are the
+ *  strip's stable events, and a rename by its draft (renameActions). */
+function sameTabCell(previous: WorkspaceTabCellProps, next: WorkspaceTabCellProps): boolean {
+  const a = previous.tab;
+  const b = next.tab;
+  return (
+    a.key === b.key &&
+    a.title === b.title &&
+    a.selection === b.selection &&
+    Boolean(a.preview) === Boolean(b.preview) &&
+    Boolean(a.pinned) === Boolean(b.pinned) &&
+    Boolean(a.dirty) === Boolean(b.dirty) &&
+    previous.active === next.active &&
+    previous.working === next.working &&
+    previous.attention === next.attention &&
+    previous.dragging === next.dragging &&
+    previous.entering === next.entering &&
+    previous.dropLeft === next.dropLeft &&
+    previous.dropRight === next.dropRight &&
+    previous.pinnedTabWidth === next.pinnedTabWidth &&
+    previous.suppressTabClick === next.suppressTabClick &&
+    previous.setTabNode === next.setTabNode &&
+    previous.selectTab === next.selectTab &&
+    previous.startNativeDrag === next.startNativeDrag &&
+    previous.setTabMenu === next.setTabMenu &&
+    previous.onCloseTab === next.onCloseTab &&
+    previous.onPinTab === next.onPinTab &&
+    Boolean(previous.rename) === Boolean(next.rename) &&
+    previous.rename?.draft === next.rename?.draft &&
+    previous.rename?.commit === next.rename?.commit
+  );
+}
+
+/** One tab of the strip, rendered only when that tab changed: the strip
+ *  itself renders on every App commit (a session switch is several). */
+const WorkspaceTabCell = memo(function WorkspaceTabCell(props: WorkspaceTabCellProps) {
+  return workspaceTabNode(props);
+}, sameTabCell);
+
 /** One live tab cell: selection, its status readout (the strongest of needs
  *  you, failed, working and unread), the drag source, the middle-click and
  *  context gestures, and the close control. */
@@ -364,7 +409,7 @@ function workspaceTabNode({
         {/* The tab GLYPH carries the strongest status: the needs-you or
               failure mark, else the progress spinner while the session works
               (user decision) — no extra dot. */}
-        {attention === 'needs-you' || attention === 'failed' ? (
+        {attention === 'needs-you' || attention === 'failed' || attention === 'waiting' ? (
           <SessionAttentionGlyph status={attention} name={tab.title} size={14} className="workspace-tab-attention" />
         ) : working ? (
           <ProgressSpinner
@@ -538,23 +583,33 @@ export function WorkspaceTabStrip({
     },
     [onRenameSession]
   );
-  const tabRename = (tab: WorkspaceTab): TabRename | null => {
-    if (!onRenameSession || tab.selection.kind !== 'session') return null;
-    return {
-      draft: renaming?.key === tab.key ? renaming.draft : null,
-      start: (target) => setRenaming({ key: target.key, draft: target.title }),
-      change: (value) => setRenaming((current) => (current ? { ...current, draft: value } : current)),
+  // One identity for the rename actions: the memoised tab cells compare the
+  // draft alone (sameTabCell).
+  const renameActions = useMemo(
+    () => ({
+      start: (target: WorkspaceTab) => setRenaming({ key: target.key, draft: target.title }),
+      change: (value: string) => setRenaming((current) => (current ? { ...current, draft: value } : current)),
       commit: commitRename,
       cancel: cancelRename,
-    };
+    }),
+    [commitRename, cancelRename]
+  );
+  const tabRename = (tab: WorkspaceTab): TabRename | null => {
+    if (!onRenameSession || tab.selection.kind !== 'session') return null;
+    return { draft: renaming?.key === tab.key ? renaming.draft : null, ...renameActions };
   };
+  // The strip's owner hands fresh handlers on every App commit; the cells
+  // call them through these, so an unchanged tab skips the commit.
+  const selectTabEvent = useStableEvent(onSelectTab);
+  const closeTabEvent = useStableEvent(onCloseTab);
+  const pinTabEvent = useStableEvent((tab: WorkspaceTab) => onPinTab?.(tab));
   // The mobile root marker + device-scale factor install in main.tsx BEFORE
   // the first render (user: 첫 진입 레이아웃 시프트) — nothing to do here.
   const selectTab = useCallback(
     (tab: WorkspaceTab) => {
       prefetchTabSurface(tab);
       const startedAt = performance.now();
-      onSelectTab(tab);
+      selectTabEvent(tab);
       if (!window.mixdogDesktop?.perfLog) return;
       window.requestAnimationFrame(() =>
         window.requestAnimationFrame(() => {
@@ -564,7 +619,7 @@ export function WorkspaceTabStrip({
         })
       );
     },
-    [onSelectTab]
+    [selectTabEvent]
   );
   const tabNodes = useRef(new Map<string, HTMLDivElement>());
   const tabStrip = useRef<HTMLElement>(null);
@@ -699,10 +754,10 @@ export function WorkspaceTabStrip({
   // transition glides them instead of holding then jumping.
   // A tab the strip has just lost stays mounted as a ghost for one motion beat,
   // collapsing to nothing so its neighbours slide into the released space
-  // instead of jumping across it; a tab the strip has just gained grows in
-  // from nothing over the same beat (CSS @starting-style), so the run never
-  // overflows the strip and the leading tab is never clipped and scrolled
-  // back. Both are derived during render from the previous tab list: the
+  // instead of jumping across it; a tab the strip has just gained lands whole
+  // in its own commit, the run taking its new cells at once for that beat
+  // (04-workspace-tabs.css), so it never overflows the strip and nothing
+  // slides afterwards. Both are derived during render from the previous tab list: the
   // closing element is the very node that was open (its width transition
   // starts from where it stands), and the entering mark is on the node when
   // it is inserted. A same-length change (a draft promoted to its session)
@@ -921,25 +976,28 @@ export function WorkspaceTabStrip({
                 ? sessionAttentionOf(attentionIndex, tab.selection.id, { running: working, unread })
                 : sessionAttention({ running: working });
             const pinnedTabWidth = chromeWidths?.[index];
-            return workspaceTabNode({
-              tab,
-              active,
-              working,
-              attention,
-              dragging: draggingKey === tab.key,
-              entering: enteringKeys.current.has(tab.key),
-              dropLeft: Boolean(dropLeft),
-              dropRight: Boolean(dropRight),
-              pinnedTabWidth,
-              suppressTabClick,
-              setTabNode,
-              selectTab,
-              startNativeDrag,
-              setTabMenu,
-              onCloseTab,
-              onPinTab,
-              rename: tabRename(tab),
-            });
+            return (
+              <WorkspaceTabCell
+                key={tab.key}
+                tab={tab}
+                active={active}
+                working={working}
+                attention={attention}
+                dragging={draggingKey === tab.key}
+                entering={enteringKeys.current.has(tab.key)}
+                dropLeft={Boolean(dropLeft)}
+                dropRight={Boolean(dropRight)}
+                pinnedTabWidth={pinnedTabWidth}
+                suppressTabClick={suppressTabClick}
+                setTabNode={setTabNode}
+                selectTab={selectTab}
+                startNativeDrag={startNativeDrag}
+                setTabMenu={setTabMenu}
+                onCloseTab={closeTabEvent}
+                onPinTab={onPinTab ? pinTabEvent : undefined}
+                rename={tabRename(tab)}
+              />
+            );
           })}
         </nav>
       )}

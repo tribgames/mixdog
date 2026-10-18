@@ -74,6 +74,17 @@ export function useMountedRowMeasurement({
         const key = row.dataset.timelineKey as string;
         const at = indexForPendingKey(key, Number(row.dataset.index));
         if (size <= 0 || at < 0 || instance.itemSizeCache.get(key) === size) return;
+        // A row whose height its estimate already had (the learned shape is
+        // often exact) changes no geometry, and virtual-core's resize records
+        // no size for a zero delta: the row stayed unmeasured, so every later
+        // commit read every such row again (a forced layout per commit) and
+        // the snapshot a revisit restores left them out. Recorded here, the
+        // row counts as measured with nothing moved.
+        if (!instance.itemSizeCache.has(key) && instance.measurementsCache[at]?.size === size) {
+          pendingResizes.current.delete(key);
+          instance.itemSizeCache.set(key, size);
+          return;
+        }
         pendingResizes.current.delete(key);
         apply(at, size);
         measured = true;

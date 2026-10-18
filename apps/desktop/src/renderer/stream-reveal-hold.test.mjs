@@ -1,0 +1,89 @@
+/**
+ * stream-reveal-hold.test.mjs — where a streamed reply may stop painting.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { revealHold } from './stream-reveal-hold.ts';
+
+/** What paints of `text` cut at `cut` (the reveal) while it streams. */
+const painted = (text, cut = text.length, live = true) => text.slice(0, revealHold(text, cut, live));
+
+test('code spans, links and emphasis are not held: their words stream (the healer hides the markers)', () => {
+  assert.equal(painted('Run `npm ins'), 'Run `npm ins');
+  assert.equal(painted('See [the docs](https://exa'), 'See [the docs](https://exa');
+  for (const opener of ['*', '_', '**', '__', '~~']) {
+    assert.equal(painted(`a ${opener}bold wor`), `a ${opener}bold wor`, opener);
+  }
+  const text = 'Use `npm install` and [docs](x) then **go**.';
+  for (let cut = 1; cut <= text.length; cut += 1) {
+    const shown = painted(text, cut);
+    assert.ok(shown === text.slice(0, cut) || shown === text.slice(0, cut - 1), `cut ${cut}: ${JSON.stringify(shown)}`);
+  }
+});
+
+test('an image is held from its opener until its destination closes', () => {
+  assert.equal(painted('An ![ima'), 'An ');
+  assert.equal(painted('An ![image]'), 'An ', 'a `]` at the received end may still open the destination');
+  assert.equal(painted('An ![image](a.pn'), 'An ');
+  assert.equal(painted('An ![image](a.png) here'), 'An ![image](a.png) here');
+  const text = 'An ![image](a.png) here';
+  assert.equal(painted(text, text.indexOf('a.png')), 'An ', 'held to its start inside a finished image');
+  assert.equal(painted('An ![x] here'), 'An ![x] here', 'brackets that are no image');
+  assert.equal(painted('Run `![x` now'), 'Run `![x` now', 'not inside a code span');
+  assert.equal(painted('escaped \\![x'), 'escaped \\![x');
+});
+
+test('block markers show with the first glyph after them; headings and table rows as whole lines', () => {
+  assert.equal(painted('Intro\n- '), 'Intro\n');
+  assert.equal(painted('Intro\n1. '), 'Intro\n');
+  assert.equal(painted('Intro\n- [x] '), 'Intro\n');
+  assert.equal(painted('Intro\n- f'), 'Intro\n- f');
+  assert.equal(painted('Intro\n> '), 'Intro\n');
+  assert.equal(painted('Intro\n> q'), 'Intro\n> q');
+  assert.equal(painted('Intro\n## Setup ste'), 'Intro\n');
+  assert.equal(painted('Intro\n## Setup steps\nNext'), 'Intro\n## Setup steps\nNext');
+  assert.equal(painted('Intro\n#hashtag'), 'Intro\n#hashtag', 'not a heading');
+  const table = 'Summary:\n| a | b |\n| --- | --- |\n| 1 | 2';
+  assert.equal(painted(table), 'Summary:\n| a | b |\n| --- | --- |\n', 'a row waits for its line end');
+  assert.equal(painted('Summary:\n| a | b'), 'Summary:\n', 'the first row too');
+  const bare = 'Summary:\nname | size\n--- | ---\nx | 1';
+  assert.equal(painted(bare, bare.indexOf('size')), 'Summary:\n', 'a header without a leading pipe');
+  assert.equal(painted(bare), 'Summary:\nname | size\n--- | ---\n', 'a row under the delimiter');
+});
+
+test('a table header appears only together with its delimiter row', () => {
+  const table = 'Summary:\n| a | b |\n| --- | --- |\n| 1 | 2 |\n';
+  const header = table.indexOf('| --- |');
+  assert.equal(painted(table, header), 'Summary:\n', 'the header waits at its line end');
+  assert.equal(painted(table, header + 4), 'Summary:\n', 'and while the delimiter row is revealed');
+  assert.equal(painted('Summary:\n| a | b |\n'), 'Summary:\n', 'nothing after the header yet');
+  assert.equal(painted('Summary:\n| a | b |\n| --'), 'Summary:\n', 'a partial delimiter row');
+  assert.equal(painted('Summary:\na | b\n--- | -'), 'Summary:\n', 'a header without a leading pipe');
+  assert.equal(painted(table, table.indexOf('| 1 |')), 'Summary:\n| a | b |\n| --- | --- |\n');
+  assert.equal(painted('use a | b here\nNext line'), 'use a | b here\nNext line', 'prose with a pipe');
+  assert.equal(painted('use a | b here\n\nNext'), 'use a | b here\n\nNext');
+  assert.equal(painted('done a | b\n', 11, false), 'done a | b\n', 'settled text is never held');
+});
+
+test('code reveals line by line, a possible closing fence included', () => {
+  const code = 'Run:\n```js\nconst a = 1;\nconst b';
+  assert.equal(painted(code), 'Run:\n```js\nconst a = 1;\n');
+  assert.equal(painted('Run:\n```j'), 'Run:\n', 'the fence line waits for its end');
+  assert.equal(painted('Run:\n```js\nx\n``'), 'Run:\n```js\nx\n', 'a half closing fence');
+  assert.equal(painted('Run:\n```js\nx\n```'), 'Run:\n```js\nx\n', 'a closing fence waits for its line end');
+  assert.equal(painted('Run:\n```js\nx\n```\nDone'), 'Run:\n```js\nx\n```\nDone');
+  assert.equal(
+    painted('Run:\n```js\nlet s = `a [b *c\n'),
+    'Run:\n```js\nlet s = `a [b *c\n',
+    'no inline holds in code'
+  );
+});
+
+test('a trailing marker waits for the character after it while the text streams; settled text is never held', () => {
+  assert.equal(painted('Done!'), 'Done');
+  assert.equal(painted('Done! Next'), 'Done! Next');
+  assert.equal(painted('a <'), 'a ');
+  assert.equal(painted('Run `npm ins', 12, false), 'Run `npm ins', 'the settled end shows whole');
+  assert.equal(painted('Done!', 5, false), 'Done!');
+});

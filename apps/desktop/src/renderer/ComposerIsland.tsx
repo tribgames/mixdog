@@ -1,4 +1,5 @@
 import {
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -34,7 +35,12 @@ import { type IslandUsageSummary, islandUsageSummary, useIslandSessionUsage } fr
 import { statsCount, statsPercent, statsTokens } from './usage-stats-model';
 import { usageMoney } from './usage-format';
 import { ShellJobContent, ShellRowButton, useShellStops } from './shell-job-controls';
-import { ComposerIslandContext, type ComposerIslandTab } from './composer-island-state';
+import {
+  ComposerIslandContext,
+  type ComposerIslandTab,
+  type IslandReservedSegment,
+  type IslandSegmentReserves,
+} from './composer-island-state';
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store';
 import { EMPTY_SNAPSHOT } from './desktop-types';
 import { t } from './i18n';
@@ -97,9 +103,23 @@ function useIslandFlash(flash: ComposerIslandFlash | null): ComposerIslandFlash 
 /** Below this the worktree name reads as noise: the narrow island keeps its glyph alone. */
 const WORKTREE_NAME_MIN_PX = 72;
 
+/** Full-label pill widths by what decides them (labelFitKey): a pill drawn
+ *  again with the same content — a revisited session's island remounting, a
+ *  segment re-rendering unchanged — reuses its width instead of reading it. */
+const fullLabelWidths = new Map<string, number>();
+const FULL_LABEL_WIDTHS_MAX = 200;
+
+/** The pill's markup plus the root's attributes (theme, text size): equal
+ *  keys lay out to equal widths. */
+function labelFitKey(pill: Element): string {
+  const root = document.documentElement;
+  return `${root.className}|${root.getAttribute('style') ?? ''}|${JSON.stringify(root.dataset)}|${pill.innerHTML}`;
+}
+
 /** Swaps segment words for bare counts only when the full labels overflow the
- *  island's room: the pill is measured at its full-label width before paint,
- *  whenever the room or the pill's content changes. */
+ *  island's room. The room comes from the stage's ResizeObserver, whose first
+ *  delivery lands after layout and before the first paint; the pill's
+ *  full-label width is read only for content it has not laid out before. */
 function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefObject<HTMLDivElement | null>) {
   useLayoutEffect(() => {
     const island = islandRef.current;
@@ -109,15 +129,29 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
     // The pill's full-label width depends on its content only, so it is read
     // (data-measuring, two style passes) when the content changes; a resize
     // of the room — every step of a window drag — only compares against it.
+    // Read inside the mount commit, both forced a layout of the whole page.
     let needed = -1;
+    let room = -1;
     const fitLabels = (contentChanged: boolean) => {
+      if (room < 0) return;
       if (contentChanged || needed < 0) {
-        island.removeAttribute('data-compact');
-        island.setAttribute('data-measuring', '');
-        needed = pill.offsetWidth;
-        island.removeAttribute('data-measuring');
+        const key = labelFitKey(pill);
+        const known = fullLabelWidths.get(key);
+        if (known !== undefined) {
+          needed = known;
+        } else {
+          island.removeAttribute('data-compact');
+          island.setAttribute('data-measuring', '');
+          needed = pill.offsetWidth;
+          island.removeAttribute('data-measuring');
+          fullLabelWidths.set(key, needed);
+          for (const oldest of fullLabelWidths.keys()) {
+            if (fullLabelWidths.size <= FULL_LABEL_WIDTHS_MAX) break;
+            fullLabelWidths.delete(oldest);
+          }
+        }
       }
-      const compact = needed > stage.clientWidth;
+      const compact = needed > room;
       if (compact !== island.hasAttribute('data-compact')) island.toggleAttribute('data-compact', compact);
     };
     // The worktree name is the one label that gives way after compact (which
@@ -135,11 +169,16 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
       if (cut() && name.clientWidth < WORKTREE_NAME_MIN_PX) island.setAttribute('data-fit-glyph', '');
     };
     const fit = (contentChanged: boolean) => {
+      if (room < 0) return;
       fitLabels(contentChanged);
       fitWorktree();
     };
-    fit(true);
-    const resize = new ResizeObserver(() => fit(false));
+    // Delivered after the frame's layout: the room's read costs no layout.
+    const resize = new ResizeObserver(() => {
+      const first = room < 0;
+      room = stage.clientWidth;
+      fit(first);
+    });
     resize.observe(stage);
     const mutation = new MutationObserver(() => fit(true));
     mutation.observe(pill, {
@@ -161,7 +200,7 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
 export const ISLAND_COLLAPSE_GRACE_MS = 500;
 /** How long a mount reserving its session's remembered height waits for the
  *  first segment before it takes the ordinary collapse. */
-export const ISLAND_RESERVE_HOLD_MS = 2_000;
+const ISLAND_RESERVE_HOLD_MS = 2_000;
 /** What the island carries; the stylesheet's empty-island rule tests the same. */
 const ISLAND_CONTENT =
   '.composer-island-seg, .session-goal-island, .composer-island-approval, .composer-island-flash, .composer-island-quota, .turn-review-bar';
@@ -172,7 +211,9 @@ type SlotPresence = 'open' | 'grace' | 'closing' | 'closed';
  *  A session switch remounts the island before its segments have read their
  *  state; the slot reserves this height for the mount instead of opening late
  *  and lifting the composer. Kept across reloads (most recent sessions only);
- *  a session never shown has no entry and mounts at its true state. */
+ *  a session never shown has no entry: it reserves the resting height of the
+ *  island it replaces in the same dock (carriedHeight), or mounts at its true
+ *  state. */
 const RESTING_SLOT_HEIGHTS_KEY = 'mixdog:composer-island-resting-heights';
 const RESTING_SLOT_HEIGHTS_MAX = 200;
 let restingSlotHeights: Map<string, number> | null = null;
@@ -195,8 +236,55 @@ function slotHeights(): Map<string, number> {
   return restingSlotHeights;
 }
 
-function reservedSlotHeight(sessionId: string): number {
-  return (sessionId && slotHeights().get(sessionId)) || 0;
+/** Each session's last decided advance (width plus separator margin; 0 once
+ *  it showed none) of the segments that read late. A remount reserves them
+ *  while the segments re-read (IslandSegmentPending). */
+const segmentAdvances = new Map<string, Partial<IslandSegmentReserves>>();
+/** The pill markup each session's advances were last read from. */
+const recordedPillMarkup = new Map<string, string>();
+const RESERVED_SEGMENTS: Record<IslandReservedSegment, string> = {
+  branch: '.composer-island-seg-branch',
+  files: '.turn-review-segment',
+  git: '.composer-island-git',
+};
+
+export function rememberedSegmentAdvances(sessionId: string): Partial<IslandSegmentReserves> | undefined {
+  return sessionId ? segmentAdvances.get(sessionId) : undefined;
+}
+
+/** Records every reserved segment of a pill that has decided. Called where
+ *  the slot has just laid the stage out (useIslandSlotPresence sync). */
+function rememberSegmentAdvances(sessionId: string, pill: Element): void {
+  if (!sessionId) return;
+  // The same pill markup lays out to the same advances: a remount or a slot
+  // re-sync of unchanged segments skips the style and layout reads.
+  const markup = labelFitKey(pill);
+  if (recordedPillMarkup.get(sessionId) === markup && segmentAdvances.has(sessionId)) return;
+  recordedPillMarkup.delete(sessionId);
+  recordedPillMarkup.set(sessionId, markup);
+  for (const oldest of recordedPillMarkup.keys()) {
+    if (recordedPillMarkup.size <= RESTING_SLOT_HEIGHTS_MAX) break;
+    recordedPillMarkup.delete(oldest);
+  }
+  const next = { ...segmentAdvances.get(sessionId) };
+  for (const kind of Object.keys(RESERVED_SEGMENTS) as IslandReservedSegment[]) {
+    if (pill.querySelector(`[data-island-pending="${kind}"]`)) continue;
+    const segment = pill.querySelector<HTMLElement>(RESERVED_SEGMENTS[kind]);
+    const margin = segment ? Number.parseFloat(window.getComputedStyle(segment).marginInlineStart) || 0 : 0;
+    next[kind] = segment ? segment.offsetWidth + margin : 0;
+  }
+  segmentAdvances.delete(sessionId);
+  segmentAdvances.set(sessionId, next);
+  for (const oldest of segmentAdvances.keys()) {
+    if (segmentAdvances.size <= RESTING_SLOT_HEIGHTS_MAX) break;
+    segmentAdvances.delete(oldest);
+  }
+}
+
+/** A session's remembered resting slot height; undefined for a session never
+ *  shown (unlike a remembered 0: its island emptied). */
+export function rememberedSlotHeight(sessionId: string): number | undefined {
+  return sessionId ? slotHeights().get(sessionId) : undefined;
 }
 
 function rememberSlotHeight(sessionId: string, height: number): void {
@@ -239,14 +327,16 @@ const PANEL_ROOM = '--island-panel-room';
  * empty, it stays there for the mount frame and then takes the ordinary
  * grace and collapse, as if its last content had just left. Otherwise an
  * island remounted for a session it showed before starts at that session's
- * resting height and holds it up to ISLAND_RESERVE_HOLD_MS for the first
- * segment, so a revisit opens without moving the composer.
+ * resting height (a session never shown: the carried height of the island it
+ * replaces) and holds it up to ISLAND_RESERVE_HOLD_MS for the first segment,
+ * so an entry opens without moving the composer.
  */
 function useIslandSlotPresence(
   slotRef: RefObject<HTMLDivElement | null>,
   islandRef: RefObject<HTMLDivElement | null>,
   heldHeightRef: RefObject<number>,
-  sessionIdRef: RefObject<string>
+  sessionIdRef: RefObject<string>,
+  carriedHeightRef: RefObject<number>
 ) {
   useLayoutEffect(() => {
     const slot = slotRef.current;
@@ -256,7 +346,10 @@ function useIslandSlotPresence(
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     // Dock chrome this island replaces wins; otherwise the session's resting
     // height is reserved for the mount (see restingSlotHeights).
-    const held = heldHeightRef.current > 0 ? heldHeightRef.current : reservedSlotHeight(sessionIdRef.current);
+    const held =
+      heldHeightRef.current > 0
+        ? heldHeightRef.current
+        : (rememberedSlotHeight(sessionIdRef.current) ?? carriedHeightRef.current);
     // A reserved mount waits for its segments' first read (a cold session's
     // lane and git state), which outlasts the ordinary grace; the hold ends
     // with the first content.
@@ -326,7 +419,12 @@ function useIslandSlotPresence(
         presence('open');
         const target = natural();
         resize(target, animate);
-        if (mode === 'pill') rememberSlotHeight(sessionIdRef.current, target);
+        if (mode === 'pill') {
+          rememberSlotHeight(sessionIdRef.current, target);
+          // Laid out by natural() above.
+          const pill = island.querySelector('.composer-island-pill');
+          if (pill) rememberSegmentAdvances(sessionIdRef.current, pill);
+        }
         return;
       }
       if (!armed) {
@@ -405,7 +503,7 @@ function useIslandSlotPresence(
       slot.removeEventListener('transitionend', onTransitionEnd);
       reducedMotion.removeEventListener('change', onMotionPreference);
     };
-  }, [slotRef, islandRef, heldHeightRef, sessionIdRef]);
+  }, [slotRef, islandRef, heldHeightRef, sessionIdRef, carriedHeightRef]);
 }
 
 /** An agent blocked on the user is marked for attention and never pulses;
@@ -780,13 +878,11 @@ function AgentsSegment({
 }) {
   const total = agents.length;
   const active = agents.filter((row) => !row.finished).length;
-  const { needsUser, failed, running: working, waiting } = islandAgentCounts(agents);
+  const { running: working, waiting } = islandAgentCounts(agents);
   const title = [
     t('Agent {{agent}}', { agent: total }),
     active === 0 ? t('Done') : '',
-    needsUser > 0 ? t('Needs you {{needs}}', { needs: needsUser }) : '',
-    failed > 0 ? t('{{failed}} failed', { failed }) : '',
-    waiting > 0 ? t('Island: {{waiting}} waiting', { waiting }) : '',
+    working > 0 ? `${t('Island: Running')} ${working}` : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -800,33 +896,15 @@ function AgentsSegment({
       onClick={onClick}
     >
       <IslandSegLabel text={t('Island: {{count}} agents', { count: total })} count={total} icon="agent" />
-      {needsUser === 0 ? <AgentMark working={working + waiting > 0} /> : null}
-      {(needsUser > 0 || failed > 0 || waiting > 0) && (
+      <AgentMark working={working + waiting > 0} />
+      {working > 0 && (
         <span className="composer-island-seg-states">
-          {needsUser > 0 ? (
-            <IslandSegState
-              kind="needs-user"
-              mark={<MxIcon name="warning" size={14} className="composer-island-attention" aria-hidden="true" />}
-              word={t('Needs you {{needs}}', { needs: needsUser })}
-              count={needsUser}
-            />
-          ) : null}
-          {failed > 0 ? (
-            <IslandSegState
-              kind="failed"
-              mark={<span className="composer-island-dot composer-island-dot-failed" aria-hidden="true" />}
-              word={t('{{failed}} failed', { failed })}
-              count={failed}
-            />
-          ) : null}
-          {waiting > 0 ? (
-            <IslandSegState
-              kind="waiting"
-              mark={<span className="composer-island-dot composer-island-dot-idle" aria-hidden="true" />}
-              word={t('Island: {{waiting}} waiting', { waiting })}
-              count={waiting}
-            />
-          ) : null}
+          <IslandSegState
+            kind="running"
+            mark={<span className="composer-island-dot" aria-hidden="true" />}
+            word={`${t('Island: Running')} ${working}`}
+            count={working}
+          />
         </span>
       )}
     </button>
@@ -936,26 +1014,7 @@ function ResumePanel({ resume }: { resume: ComposerIslandQuotaResume }) {
   );
 }
 
-/**
- * The single island above a session's composer. Its slot takes the island's
- * real height in the dock while it carries something and eases between
- * heights (see useIslandSlotPresence); the transcript viewport above resizes
- * with it and the end pin keeps a following tail in place on every frame.
- */
-export function ComposerIsland({
-  sessionId,
-  routeSessionId = sessionId,
-  goal,
-  files,
-  branch,
-  git,
-  workBusy = false,
-  approval,
-  flash,
-  quotaResume,
-  heldHeight = 0,
-  onOpenAgentSession,
-}: {
+interface ComposerIslandProps {
   /** The pane's session ('' while hidden): background jobs read its lane. */
   sessionId: string;
   /** The route address the island is mounted (keyed) for; its resting slot
@@ -984,7 +1043,43 @@ export function ComposerIsland({
    *  context bar on its first submit): an empty island holds it instead of
    *  closing in that frame. Read once, at mount. */
   heldHeight?: number;
-}) {
+  /** The resting slot height of the island this one replaces in the same
+   *  dock (a session switch). A session with no remembered height reserves
+   *  it like a revisit: a first entry otherwise dropped the outgoing pill in
+   *  the switch commit and reopened it once its segments had read their
+   *  state, moving the composer and the end-pinned transcript down and back
+   *  up. Read once, at mount. */
+  carriedHeight?: number;
+  /** The late segments' advances of the island this one replaces in the same
+   *  dock; reserved like carriedHeight for a session with none remembered.
+   *  Read once, at mount. */
+  carriedAdvances?: Partial<IslandSegmentReserves>;
+}
+
+/**
+ * The single island above a session's composer. Its slot takes the island's
+ * real height in the dock while it carries something and eases between
+ * heights (see useIslandSlotPresence); the transcript viewport above resizes
+ * with it and the end pin keeps a following tail in place on every frame.
+ * Memoised (sameIslandProps): its dock re-renders with every conversation
+ * commit, a session switch several times.
+ */
+export const ComposerIsland = memo(function ComposerIsland({
+  sessionId,
+  routeSessionId = sessionId,
+  goal,
+  files,
+  branch,
+  git,
+  workBusy = false,
+  approval,
+  flash,
+  quotaResume,
+  heldHeight = 0,
+  carriedHeight = 0,
+  carriedAdvances,
+  onOpenAgentSession,
+}: ComposerIslandProps) {
   const lane = useSessionLane(sessionId, defaultSessionLaneStore, desktopHeaderSnapshotsEqual, Boolean(sessionId));
   const snapshot = lane ?? EMPTY_SNAPSHOT;
   const dismissedShells = useDismissedShellJobs(sessionId);
@@ -1014,9 +1109,10 @@ export function ComposerIsland({
   const slotRef = useRef<HTMLDivElement | null>(null);
   useIslandFit(islandRef, pillRef);
   const heldHeightRef = useRef(heldHeight);
+  const carriedHeightRef = useRef(carriedHeight);
   const routeSessionIdRef = useRef(routeSessionId);
   routeSessionIdRef.current = routeSessionId;
-  useIslandSlotPresence(slotRef, islandRef, heldHeightRef, routeSessionIdRef);
+  useIslandSlotPresence(slotRef, islandRef, heldHeightRef, routeSessionIdRef, carriedHeightRef);
   // Finished background work announces nothing: a flash per job would make
   // the island pop in and out.
   const visibleFlash = useIslandFlash(flash ?? null);
@@ -1060,7 +1156,11 @@ export function ComposerIsland({
   const agentsPanel = mode === 'panel' && expanded === 'agents' && agentRows.length > 0;
   const shellsPanel = mode === 'panel' && expanded === 'shells' && shellTotal > 0;
   const ownPanel = resumePanel || agentsPanel || shellsPanel;
-  const context = useMemo(() => ({ expanded, setExpanded }), [expanded]);
+  const [reserves] = useState<IslandSegmentReserves>(() => {
+    const known = rememberedSegmentAdvances(routeSessionId) ?? carriedAdvances;
+    return { branch: known?.branch ?? 0, files: known?.files ?? 0, git: known?.git ?? 0 };
+  });
+  const context = useMemo(() => ({ expanded, setExpanded, reserves }), [expanded, reserves]);
 
   return (
     <ComposerIslandContext.Provider value={context}>
@@ -1151,4 +1251,16 @@ export function ComposerIsland({
       </div>
     </ComposerIslandContext.Provider>
   );
+}, sameIslandProps);
+
+/** The island's props are equal when everything it renders from is: the
+ *  mount-only reserves (heldHeight, carriedHeight, carriedAdvances) are read
+ *  once, at mount, so a later change of them renders nothing. */
+function sameIslandProps(previous: ComposerIslandProps, next: ComposerIslandProps): boolean {
+  const keys = new Set([...Object.keys(previous), ...Object.keys(next)]) as Set<keyof ComposerIslandProps>;
+  for (const key of keys) {
+    if (key === 'heldHeight' || key === 'carriedHeight' || key === 'carriedAdvances') continue;
+    if (!Object.is(previous[key], next[key])) return false;
+  }
+  return true;
 }

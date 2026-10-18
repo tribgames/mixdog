@@ -384,6 +384,14 @@ test('phone finishing rules keep reading, touch and safe-area geometry aligned',
     mobileChromeSource,
     /html\[data-mixdog-mobile-tabs\] \.jump-to-latest\s*\{[^}]*width:\s*36px;[^}]*height:\s*36px;/su
   );
+  assert.match(
+    mobileChromeSource,
+    /html\[data-mixdog-mobile-tabs\] \.jump-to-latest\s*\{[^}]*bottom:\s*var\(--island-stage-gap\);/su
+  );
+  assert.match(
+    markdownSource,
+    /\n\.jump-to-latest\s*\{[^}]*bottom:\s*var\(--island-stage-gap\);[^}]*width:\s*32px;[^}]*height:\s*32px;/su
+  );
   assert.match(mobileChromeSource, /settings-confirm-dialog > footer button,[\s\S]*?min-height:\s*var\(--mx-touch\);/u);
   assert.match(
     mobileChromeSource,

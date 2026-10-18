@@ -45,11 +45,13 @@ test('a running row whose start stamp is ahead of the clock reads 0s and never w
     const future = clock + ahead;
     for (const stamp of [future, new Date(future).toISOString(), String(future)]) {
       assert.equal(agentElapsedText('running', { turnStartedAt: stamp, startedAt: 0 }, clock), '0s');
-      assert.equal(agentElapsedText('running', { turnStartedAt: 0, startedAt: stamp }, clock), '0s');
     }
   }
   assert.equal(agentElapsedText('running', { turnStartedAt: clock - 1_500, startedAt: 0 }, clock), '1s');
-  assert.equal(agentElapsedText('running', { turnStartedAt: 0, startedAt: 0 }, clock), '0s');
+  // A missing turn start shows nothing: startedAt is the session's creation
+  // time (a Lead row would read days), never a run origin.
+  assert.equal(agentElapsedText('running', { turnStartedAt: 0, startedAt: 0 }, clock), '');
+  assert.equal(agentElapsedText('running', { turnStartedAt: null, startedAt: clock - 154_000_000 }, clock), '');
   // Idle rows still carry no duration.
   assert.equal(agentElapsedText('idle', { turnStartedAt: clock + 500, startedAt: 0 }, clock), 'Idle');
 });
@@ -99,6 +101,124 @@ test('background shell jobs never change an agent state or count as waiting', ()
   }
   assert.equal(desktopAgentActivityState({ status: 'idle', shellJobCount: 1 }, { unread: true }), 'done');
   assert.equal(desktopAgentActivityState({ status: 'idle', shellJobCount: 1 }), 'idle');
+});
+
+test('an agent parked on its own background work reads waiting, and running again once it resumes', () => {
+  // In `task wait`: the turn is in flight but the agent waits.
+  assert.equal(
+    desktopAgentActivityState({ status: 'running', stage: 'tool_running', awaitingTask: 'wait' }),
+    'waiting'
+  );
+  // Idle with a handed-off background task still running.
+  assert.equal(desktopAgentActivityState({ status: 'idle', stage: 'idle', awaitingTask: 'background' }), 'waiting');
+  assert.equal(
+    desktopAgentActivityState({ status: 'idle', stage: 'idle', awaitingTask: 'background' }, { unread: true }),
+    'waiting'
+  );
+  // Resumed: the mark is gone and the row works again.
+  assert.equal(desktopAgentActivityState({ status: 'running', stage: 'requesting' }), 'running');
+  // Approval, cancellation and failure still outrank it.
+  assert.equal(
+    desktopAgentActivityState({ status: 'running', stage: 'running', awaitingTask: 'wait', awaitingUser: 'approval' }),
+    'needs-user'
+  );
+  assert.equal(desktopAgentActivityState({ status: 'cancelled', awaitingTask: 'background' }), 'cancelled');
+  assert.equal(desktopAgentActivityState({ status: 'failed', awaitingTask: 'background' }), 'failed');
+});
+
+test('the Agents row switches to data-state=waiting on a pool push and back to running', async () => {
+  const dom = installDom();
+  let push;
+  const row = (extra = {}) => ({
+    agent: 'lead',
+    sessionId: 'lead-w',
+    ownerSessionId: 'lead-w',
+    status: 'running',
+    stage: 'tool_running',
+    ...extra,
+  });
+  window.mixdogDesktop = {
+    async listAgentPool() {
+      return [row()];
+    },
+    subscribeAgentPool(listener) {
+      push = listener;
+      return () => {};
+    },
+  };
+  const sessions = [{ id: 'lead-w', title: 'lead-w', preview: '', updatedAt: 1, messageCount: 1 }];
+  const state = () =>
+    document.querySelector('[data-agent-session-id="lead-w"] .agent-activity-elapsed')?.getAttribute('data-state');
+  try {
+    await act(async () => dom.root.render(React.createElement(AgentActivityPane, { active: false, sessions })));
+    await expandAllAgentGroups();
+    assert.equal(state(), 'running');
+    await act(async () => push([row({ awaitingTask: 'wait' })]));
+    assert.equal(state(), 'waiting');
+    assert.equal(
+      document.querySelector('[data-agent-session-id="lead-w"] .agent-activity-elapsed').textContent,
+      'Waiting for tasks'
+    );
+    await act(async () => push([row()]));
+    assert.equal(state(), 'running');
+    await act(async () => push([row({ status: 'idle', stage: 'idle', awaitingTask: 'background' })]));
+    assert.equal(state(), 'waiting');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('a Lead row never shows an old origin through running → waiting → woken running and a reconnect resync', async () => {
+  const dom = installDom();
+  let push;
+  const created = Date.now() - 154_000_000;
+  const turn1 = Date.now() - 600_000;
+  const turn2 = Date.now() - 4_000;
+  const row = (extra = {}) => ({
+    agent: 'lead',
+    sessionId: 'lead-o',
+    ownerSessionId: 'lead-o',
+    status: 'running',
+    stage: 'tool_running',
+    startedAt: created,
+    createdAt: created,
+    ...extra,
+  });
+  window.mixdogDesktop = {
+    async listAgentPool() {
+      return [row({ turnStartedAt: turn1 })];
+    },
+    subscribeAgentPool(listener) {
+      push = listener;
+      return () => {};
+    },
+  };
+  const sessions = [{ id: 'lead-o', title: 'lead-o', preview: '', updatedAt: 1, messageCount: 1 }];
+  const text = () => document.querySelector('[data-agent-session-id="lead-o"] .agent-activity-elapsed')?.textContent;
+  try {
+    await act(async () => dom.root.render(React.createElement(AgentActivityPane, { active: false, sessions })));
+    await expandAllAgentGroups();
+    assert.match(text(), /^10m/);
+    // Waiting on its own task keeps the same turn clock running.
+    await act(async () => push([row({ turnStartedAt: turn1, awaitingTask: 'wait' })]));
+    assert.match(text(), /^10m/);
+    await act(async () => push([row({ status: 'idle', stage: 'idle', turnStartedAt: null })]));
+    assert.equal(text(), 'Idle');
+    // Woken by the completion: the first running snapshot has no turn stamp.
+    await act(async () => push([row({ turnStartedAt: null })]));
+    assert.equal(text(), '');
+    await act(async () => push([row({ turnStartedAt: turn2 })]));
+    assert.match(text(), /^[0-9]s$/);
+    // Reconnect resync: a snapshot without the stamp, then a stale one.
+    await act(async () => push([row({ turnStartedAt: null })]));
+    assert.match(text(), /^[0-9]s$/);
+    await act(async () => push([row({ turnStartedAt: turn1 })]));
+    assert.match(text(), /^[0-9]s$/);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
 });
 
 async function expandAllAgentGroups() {
@@ -725,6 +845,7 @@ test("Agents groups every active session and renders each session's live agents"
           stage: 'running',
           sessionId: 'lead-a',
           ownerSessionId: 'lead-a',
+          turnStartedAt: Date.now() - 5_000,
           model: 'grok-4.6',
           provider: 'xai',
         },

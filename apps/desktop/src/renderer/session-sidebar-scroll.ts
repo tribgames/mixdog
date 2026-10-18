@@ -9,8 +9,7 @@ import type { OpenMap } from './sidebar-open-state';
 export const RECENT_SESSION_INITIAL_ROWS = 24;
 export const RECENT_SESSION_PAGE_ROWS = 32;
 /** How close a session list's end sentinel has to come to the scroller viewport
- *  before the next page is revealed — shared by the IntersectionObserver
- *  rootMargin and the onScroll fallback so both page at the same moment. */
+ *  before the next page is revealed. */
 const RECENT_SENTINEL_REVEAL_MARGIN_PX = 240;
 
 function useSessionListPaging(
@@ -32,29 +31,21 @@ function useSessionListPaging(
       return;
     revealMore();
   }, [enabled, scrollerRef, sentinelRef, revealMore]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: visibleCount re-arms the observer after a page is revealed
+  // Scrolling pages through the scroller's own scroll handler. No
+  // IntersectionObserver: while one exists, Chromium runs a main-thread frame
+  // on every vsync for as long as any compositor animation (a running
+  // session's spinner, a shimmer) plays anywhere in the window. A
+  // ResizeObserver reports once per observe and on every resize, so each
+  // revealed page (visibleCount) and a taller sidebar re-check whether the
+  // viewport still shows the sentinel, after layout.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: visibleCount re-checks after each revealed page
   useEffect(() => {
-    if (!enabled) return;
     const scroller = scrollerRef.current;
-    const sentinel = sentinelRef.current;
-    const ObserverCtor = typeof window === 'undefined' ? undefined : window.IntersectionObserver;
-    if (!scroller || !sentinel || typeof ObserverCtor !== 'function') return;
-    // Ignore deliveries queued before collapse, panel switch, or unmount.
-    let active = true;
-    const observer = new ObserverCtor(
-      (entries) => {
-        if (active && entries.some((entry) => entry.isIntersecting)) revealMore();
-      },
-      { root: scroller, rootMargin: `${RECENT_SENTINEL_REVEAL_MARGIN_PX}px 0px` }
-    );
-    observer.observe(sentinel);
-    return () => {
-      active = false;
-      observer.takeRecords?.();
-      observer.disconnect();
-    };
-    // Re-arm after each page to fill a viewport that still contains the sentinel.
-  }, [enabled, scrollerRef, sentinelRef, revealMore, visibleCount]);
+    if (!enabled || !scroller || typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(revealWhenNear);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [enabled, scrollerRef, revealWhenNear, visibleCount]);
   return revealWhenNear;
 }
 

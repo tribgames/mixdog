@@ -22,6 +22,11 @@
 .session-attention-glyph[data-status="failed"] {
   color: var(--mx-status-failed);
 }
+/* Waiting on its own background work (hourglass, amber): not working, not
+   blocked on the user either. */
+.session-attention-glyph[data-status="waiting"] {
+  color: var(--mx-warning);
+}
 
 /* Tabs: the glyph slot carries the status. */
 .workspace-tab-main .workspace-tab-status {
@@ -39,6 +44,12 @@
 .session-row-unread-dot,
 .sidebar-heading-dot {
   background: var(--mx-status-unread);
+}
+
+/* The small running spinners beside a session (sidebar row, tab) turn
+   slower than the shared 900ms spin: at that size it read as hurried. */
+.progress-spinner-turn:has(> .session-row-spinner, > .workspace-tab-status) {
+  animation-duration: 1400ms;
 }
 
 /* Sidebar rows and collapsed project folders: the trailing status slot. */
@@ -64,9 +75,6 @@
 :is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="failed"] {
   color: var(--mx-status-failed);
 }
-.composer-island-dot.composer-island-dot-failed {
-  background: var(--mx-status-failed);
-}
 .composer-island-failed {
   color: var(--mx-status-failed);
 }
@@ -77,14 +85,6 @@
   color: var(--mx-text-muted);
   font-size: var(--mx-font-supporting);
   white-space: nowrap;
-}
-.agent-quiet-cue {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .quiet-cue[data-escalated="true"] {
   color: var(--mx-status-needs-you);

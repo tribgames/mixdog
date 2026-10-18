@@ -21,7 +21,7 @@ import {
   WorktreeCarryDialog,
 } from './branch-menu';
 import type { ComposerIslandFlash } from './ComposerIsland';
-import { useComposerIslandTab } from './composer-island-state';
+import { IslandSegmentPending, useComposerIslandTab } from './composer-island-state';
 import { t } from './i18n';
 import { useIslandGitStatus } from './IslandGitSegment';
 import { useMobileBack } from './mobile-back';
@@ -209,7 +209,8 @@ export function BranchIslandSegment({
     refocus.current = false;
   }, [open]);
 
-  if (!shown || !workspace) return null;
+  // Nothing read or cached for the session yet: the segment keeps its room.
+  if (!shown || !workspace) return sessionId && loading ? <IslandSegmentPending kind="branch" /> : null;
   const branch = workspace.branch || (worktree ? t('Worktree') : commit || 'HEAD');
   const slash = worktree ? branch.lastIndexOf('/') : -1;
   const target = workspace.mergeTarget || '';

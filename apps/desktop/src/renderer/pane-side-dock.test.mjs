@@ -1787,7 +1787,7 @@ test('a cancelled panel resize restores the preference snapshotted at gesture st
 
 // Mounts a dock in jsdom with pointer capture stubbed, so the panel's resize
 // handle runs its real preview/cancel/commit gesture.
-function mountResizableDock({ stored = {}, cellWidth = 0 } = {}) {
+function mountResizableDock({ stored = {}, cellWidth = 0, pointerType = 'mouse' } = {}) {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',
     expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'MouseEvent'],
@@ -1811,6 +1811,7 @@ function mountResizableDock({ stored = {}, cellWidth = 0 } = {}) {
   const pointer = (type, clientX) => {
     const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, clientX, button: 0 });
     Object.defineProperty(event, 'pointerId', { value: 1 });
+    Object.defineProperty(event, 'pointerType', { value: pointerType });
     return event;
   };
   const handle = () => document.querySelector('.workbench-side-panel-resize');
@@ -2159,4 +2160,122 @@ test('phone Changes panel: shared header with ⋯ switching and a × that closes
     await act(async () => root.unmount());
     restore();
   }
+});
+
+// A PNG tapped in the transcript, an attachment chip or the Changes list opens
+// as a side-dock file tab while the pane's view is still Changes.
+const pngFile = { project: 'C:/p', rel: 'shots/Screenshot 2025-10-18.png' };
+function pngDockProps() {
+  const Icon = () => React.createElement('span');
+  return phoneDockProps('A', {
+    focused: true,
+    sessionBound: true,
+    groups: [['session-diff'], ['terminal']],
+    descriptors: new Map([
+      ['session-diff', { id: 'session-diff', label: 'Changes', icon: Icon }],
+      ['terminal', { id: 'terminal', label: 'Terminal', icon: Icon }],
+    ]),
+    entry: withPaneDockFileOpened(closed('session-diff'), pngFile, 1, { now: 1 }),
+    renderFileSurface: (file, _active, side) => React.createElement(SideFileStub, { rel: file.rel, side }),
+  });
+}
+
+test('phone sheet: a PNG opened beside Changes is headed by its file name, Changes stays in ⋯', async () => {
+  const { root, restore } = mountPhoneDock();
+  try {
+    await act(async () => root.render(React.createElement(PaneSideDock, pngDockProps())));
+    const header = document.querySelector('[data-pane-id="A"] .side-file-header');
+    assert.equal(header.querySelector('[data-side-leading-tab]'), null, 'no Changes chip ahead of the file');
+    assert.deepEqual(
+      [...header.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent),
+      ['Screenshot 2025-10-18.png']
+    );
+    assert.equal(header.querySelector('.dock-header-left').textContent, 'Screenshot 2025-10-18.png');
+    // The way back to Changes is the shared pane switch.
+    const items = await openMore('A');
+    assert.equal(menuItem(items, 'Changes').disabled, false);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('desktop dock: the Changes tab still leads the file tabs', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'MutationObserver'],
+  });
+  dom.window.requestAnimationFrame = (callback) => {
+    callback(16);
+    return 1;
+  };
+  dom.window.cancelAnimationFrame = () => {};
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await act(async () => root.render(React.createElement(PaneSideDock, pngDockProps())));
+    const header = document.querySelector('[data-pane-id="A"] .side-file-header');
+    assert.deepEqual(
+      [...header.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent),
+      ['Changes', 'Screenshot 2025-10-18.png']
+    );
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('panel resize (rendered): a touch drag on the handle previews and commits like the mouse', async () => {
+  const dock = mountResizableDock({ stored: { [PANEL_WIDTH_KEY]: 400 }, pointerType: 'touch' });
+  try {
+    const panel = { ...closed(), open: true };
+    await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(panel))));
+    await dock.down(1000);
+    await dock.move(920);
+    assert.equal(dock.renderedWidth(), '480px', 'the finger drags the edge live');
+    assert.equal(dock.stored(PANEL_WIDTH_KEY), '400', 'preview never persists');
+    await dock.up(920);
+    assert.equal(dock.stored(PANEL_WIDTH_KEY), '480', 'lifting the finger commits');
+  } finally {
+    await act(async () => dock.root.unmount());
+    dock.restore();
+  }
+});
+
+test('phone tab strips share the width by the pane tab rule; the fixed-width chips are desktop-only', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const css = flattenCss(await readFile(new URL('./tab-strip.css', import.meta.url), 'utf8'));
+  // The no-shrink override (each chip keeps its whole label and the strip scrolls) is scoped off the phone.
+  assert.match(
+    css,
+    /:root:not\(\[data-mixdog-mobile-tabs\]\) \.browser-tab-list > \.dock-header-chip:not\(:only-child\), :root:not\(\[data-mixdog-mobile-tabs\]\) \.session-diff-tabs > \.browser-tab \{[^}]*flex: 0 0 auto;/
+  );
+  assert.doesNotMatch(css, /(^|\} )\.browser-tab-list > \.dock-header-chip:not\(:only-child\)/);
+  // On the phone the base `.browser-tab` rule applies: shrink from 160px, 30px inactive / 56px active floors, ellipsis.
+  assert.match(css, /\.browser-tab \{[^}]*flex: 0 1 160px;[^}]*min-width: 30px;/);
+  assert.match(css, /\.browser-tab\.is-active \{\s*min-width: 56px;/);
+  assert.match(css, /\.browser-tab-select > span:not\(\.progress-spinner-turn\) \{[^}]*text-overflow: ellipsis;/);
+  assert.match(css, /\.browser-tab-list \{[^}]*overflow-x: scroll;/);
+  // The chip's released floor is restored for inactive tabs beside others, on the phone.
+  assert.match(
+    css,
+    /html\[data-mixdog-mobile-tabs\] \.browser-tab-list > \.dock-header-chip:not\(:only-child\):not\(\.is-active\) \{\s*min-width: 30px;/
+  );
+});
+
+test('touch resize edge: a 44px target on the dock and its diff pair; the phone sheet is fixed full-width', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const css = flattenCss(await readFile(new URL('./pane-layout.css', import.meta.url), 'utf8'));
+  const coarse = css.match(
+    /@media \(pointer: coarse\) \{ \.pane-side-dock \.workbench-side-panel\[data-side="right"\] > \.workbench-side-panel-resize::before, \.pane-dock-diff-resize::before \{([^}]*)\}/
+  )?.[1];
+  assert.ok(coarse, 'both dock handles grow a touch extension');
+  // The 12px desktop edge plus the 32px extension toward the conversation = 44px.
+  assert.match(coarse, /content: "";\s*position: absolute;\s*top: 0;\s*bottom: 0;\s*left: -32px;\s*right: 0;/);
+  assert.match(css, /left: -8px;\s*width: 12px;/);
+  // The line itself never moves: the extension is a ::before, the accent stays on ::after.
+  assert.doesNotMatch(coarse, /width:|background/);
+  // Phone layout: the sheet fills the screen, so the handle is not drawn at all.
+  const mobile = flattenCss(await readFile(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8'));
+  assert.match(mobile, /html\[data-mixdog-mobile-tabs\] \.workbench-side-panel-resize \{ display: none;/);
+  assert.match(mobile, /\.pane-side-dock \{[^}]*left: 0;[^}]*width: 100% !important;/);
 });

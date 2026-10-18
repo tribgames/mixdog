@@ -80,6 +80,7 @@ export function createRemoteVisualizeMirror() {
         sessionId,
         ...(state ? { state: remoteVisualizeState({ ...state, sessionId }) } : {}),
         ...(event.reveal === true ? { reveal: true } : {}),
+        ...(event.reveal === true && typeof event.tab === 'string' && event.tab ? { tab: event.tab } : {}),
         ...(openUrl ? { openUrl } : {}),
       };
     },

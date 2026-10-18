@@ -186,17 +186,17 @@ test('agents and shells are counted in separate icon segments that both survive 
   });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   await publishPool([agent('a'), agent('b')]);
-  assert.equal(segments().agents.textContent, '2 agents');
+  assert.equal(segments().agents.textContent, '2 agentsRunning 2');
   assert.equal(segments().shell, null);
   await publishPool([agent('a')]);
-  assert.equal(segments().agents.textContent, '1 agent');
+  assert.equal(segments().agents.textContent, '1 agentRunning 1');
   await publishPool([]);
   await publish({ shellJobs: shells(2) });
   assert.equal(segments().shell.textContent, '2 shells');
   assert.equal(segments().agents, null);
   await publishPool([agent('a'), agent('b')]);
   const { agents, shell } = segments();
-  assert.equal(agents.textContent, '2 agents');
+  assert.equal(agents.textContent, '2 agentsRunning 2');
   assert.equal(shell.textContent, '2 shells');
   // Narrow keeps both: each carries its glyph and the bare count; the container
   // query only drops the words.
@@ -245,7 +245,7 @@ test('an agent blocked on a user approval reads as needing the user, not working
   const { root, document, publishPool } = mount(t);
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   await publishPool([
-    poolAgent('run-a'),
+    poolAgent('run-a', { turnStartedAt: new Date(Date.now() - 5_000).toISOString() }),
     poolAgent('ask-b', {
       agent: 'reviewer',
       stage: 'tool_running',
@@ -254,13 +254,9 @@ test('an agent blocked on a user approval reads as needing the user, not working
     }),
   ]);
   const segment = document.querySelector('.composer-island-seg-agents');
-  // Counted apart from the running total, so it is never hidden in it.
-  assert.match(segment.textContent, new RegExp(`^2 agents.*${translate('Needs you {{needs}}', { needs: 1 })}`));
-  // Glyph + count survive a narrow island (only the words hide there).
-  const needs = segment.querySelector('.composer-island-seg-state .composer-island-attention')?.parentElement;
-  assert.ok(needs);
-  assert.equal(needs.querySelector('.composer-island-seg-num').dataset.count, '1');
-  assert.ok(needs.querySelector('.composer-island-seg-word'));
+  // The pill counts only running agents; the blocked one is not running.
+  assert.equal(segment.textContent, '2 agentsRunning 1');
+  assert.equal(segment.querySelector('.composer-island-seg-state[data-kind="needs-user"]'), null);
   await act(async () => segment.click());
   // Same order as the Agents window (spawn order), not re-ranked by state.
   const rows = [...document.querySelectorAll('.agent-pool-row')];
@@ -331,7 +327,7 @@ test('a working agent stays listed through a transient idle/done phase and an un
     poolAgent('lease-d', { sessionId: 's-d', status: 'unknown', stage: 'unknown' }),
     poolAgent('settled-e', { sessionId: 's-e', status: 'idle', stage: 'idle' }),
   ]);
-  assert.equal(document.querySelector('.composer-island-seg-agents').textContent, '5 agents');
+  assert.equal(document.querySelector('.composer-island-seg-agents').textContent, '5 agentsRunning 3');
   await act(async () => document.querySelector('.composer-island-seg-agents').click());
   assert.deepEqual(
     [...document.querySelectorAll('.agent-pool-row')].map((row) => row.dataset.agentTag),
@@ -450,7 +446,7 @@ test('with no shells there is no shell segment, tab or row anywhere in the islan
   assert.equal(document.querySelector('.composer-island-row'), null);
   assert.equal(
     document.querySelector('.composer-island-seg-agents').getAttribute('title'),
-    translate('Agent {{agent}}', { agent: 1 })
+    `${translate('Agent {{agent}}', { agent: 1 })} · ${translate('Island: Running')} 1`
   );
 });
 
@@ -823,6 +819,8 @@ test('the agents summary shows the session totals with the Lead split out, cache
   const answer = {
     sessionId: 'island-session',
     ...ledgerUsage(1_000_000, { cacheRead: 800_000, costUsd: 1.5 }),
+    // Every agent the Lead ran, the closed ones beyond the listed rows included.
+    agents: ledgerUsage(800_000, { cacheRead: 200_000, costUsd: 1 }),
     sessions: {
       's-a': ledgerUsage(300_000, { cacheRead: 100_000, costUsd: 0.5 }),
       's-b': ledgerUsage(200_000, { cacheRead: 100_000, costUsd: 0.25 }),
@@ -835,23 +833,25 @@ test('the agents summary shows the session totals with the Lead split out, cache
   assert.equal(reads[0].capability, 'getSessionUsage');
   assert.equal(reads[0].sessionId, 'island-session');
   assert.deepEqual([...reads[0].args[0].sessionIds].sort(), ['s-a', 's-b', 's-c']);
+  assert.equal(reads[0].args[0].agents, true);
   assert.deepEqual(meta, usagePanelMeta());
   // The totals are the footer, below the rows.
   assert.equal(summary.previousElementSibling.classList.contains('composer-island-agents'), true);
   const parts = [...summary.children].map((part) => part.textContent);
   assert.equal(
     parts[0],
-    `${translate('Island: Total tokens')} 1.5M (${translate('Lead {{lead}} · Agents {{agents}}', { lead: '1M', agents: '500K' })})`
+    `${translate('Island: Total tokens')} 1.8M (${translate('Lead {{lead}} · Agents {{agents}}', { lead: '1M', agents: '800K' })})`
   );
-  // (800k + 100k + 100k) / 1.5M
-  assert.equal(parts[1], `${translate('Island: Cache hit rate')} 66.7%`);
-  assert.equal(parts[2], `${translate('Island: Approx. cost')} $2.25`);
+  // (800k + 200k) / 1.8M
+  assert.equal(parts[1], `${translate('Island: Cache hit rate')} 55.6%`);
+  assert.equal(parts[2], `${translate('Island: Approx. cost')} $2.50`);
   assert.deepEqual(rowTokens, { 'run-a': '300K', 'ask-c': '0', 'done-b': '200K' });
 });
 
 test('an unpriced turn drops only the cost from the agents summary', async (t) => {
   const { summary } = await usagePanel(t, {
     ...ledgerUsage(1_000, { cacheRead: 500, costUsd: 1 }),
+    agents: ledgerUsage(300, { unpriced: 1 }),
     sessions: { 's-a': ledgerUsage(100, { unpriced: 1 }), 's-b': ledgerUsage(100), 's-c': ledgerUsage(100) },
   });
   assert.deepEqual(
@@ -860,14 +860,15 @@ test('an unpriced turn drops only the cost from the agents summary', async (t) =
   );
 });
 
-test('an unmeasured or missing agent session drops every combined figure and its own row total', async (t) => {
+test('an unmeasured agent turn drops every combined figure; an unmeasured or missing row drops its own', async (t) => {
   const { summary, meta, rowTokens } = await usagePanel(t, {
     ...ledgerUsage(1_000, { costUsd: 1 }),
+    agents: ledgerUsage(200, { unmeasured: 1 }),
     sessions: { 's-a': ledgerUsage(100, { unmeasured: 1 }), 's-b': ledgerUsage(100) },
   });
-  // The agents' share is unknown (s-a unmeasured, s-c missing): no total,
-  // cache rate or cost: the footer keeps its line empty (so the rows never
-  // move when figures arrive); the header counts stay.
+  // The agents' share is unknown: no total, cache rate or cost: the footer
+  // keeps its line empty (so the rows never move when figures arrive); the
+  // header counts stay.
   assert.equal(summary.querySelector('b'), null);
   assert.deepEqual(meta, usagePanelMeta());
   assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': '100' });
@@ -884,24 +885,31 @@ test('the usage summary model sums exact sessions only', async () => {
   const { islandUsageSummary, islandUsageSessionIds } = await import('./island-session-usage.ts');
   assert.deepEqual(islandUsageSessionIds(['a', 'bad id', 'a', 'b:c', 'd']), ['a', 'd']);
   const lead = ledgerUsage(100, { cacheRead: 50, costUsd: 0.1 });
-  const exact = islandUsageSummary({ ...lead, sessions: { x: ledgerUsage(50, { costUsd: 0.2 }) } }, ['x']);
-  assert.equal(exact.totalTokens, 150);
+  // The agents' figure is the ledger's total of every agent, closed ones
+  // included; a listed row shows its own.
+  const exact = islandUsageSummary(
+    { ...lead, agents: ledgerUsage(80, { costUsd: 0.4 }), sessions: { x: ledgerUsage(50, { costUsd: 0.2 }) } },
+    ['x']
+  );
+  assert.equal(exact.totalTokens, 180);
   assert.equal(exact.leadTokens, 100);
-  assert.equal(exact.agentTokens, 50);
-  assert.equal(exact.cacheHitRate, 50 / 150);
-  assert.ok(Math.abs(exact.costUsd - 0.3) < 1e-9);
+  assert.equal(exact.agentTokens, 80);
+  assert.equal(exact.cacheHitRate, 50 / 180);
+  assert.ok(Math.abs(exact.costUsd - 0.5) < 1e-9);
+  assert.deepEqual([...exact.agentRowTokens], [['x', 50]]);
   // No agents: the Lead alone is the session.
-  assert.equal(islandUsageSummary(lead, []).totalTokens, 100);
+  assert.equal(islandUsageSummary({ ...lead, agents: { ...ledgerUsage(0), turns: 0 } }, []).totalTokens, 100);
+  // Without an agents total nothing is combined.
+  assert.equal(islandUsageSummary(lead, []).totalTokens, null);
   // An unmeasured Lead keeps the agents' exact share, nothing combined.
-  const noLead = islandUsageSummary({ ...ledgerUsage(100, { unmeasured: 1 }), sessions: { x: ledgerUsage(50) } }, [
-    'x',
-  ]);
+  const noLead = islandUsageSummary({ ...ledgerUsage(100, { unmeasured: 1 }), agents: ledgerUsage(50) }, []);
   assert.deepEqual(
     [noLead.totalTokens, noLead.leadTokens, noLead.agentTokens, noLead.cacheHitRate, noLead.costUsd],
     [null, null, 50, null, null]
   );
   // A session with no turns at all has no cost to show.
-  assert.equal(islandUsageSummary({ ...ledgerUsage(0), turns: 0, costKnownTurns: 0 }, []).costUsd, null);
+  const idle = { ...ledgerUsage(0), turns: 0, costKnownTurns: 0 };
+  assert.equal(islandUsageSummary({ ...idle, agents: idle }, []).costUsd, null);
   assert.equal(islandUsageSummary(null, []).totalTokens, null);
 });
 
@@ -1120,6 +1128,85 @@ test('a revisited session reserves its resting island height until its segments 
   assert.equal(presence(), 'open');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
   assert.equal(moving(), false, 'the arriving segments move nothing');
+});
+
+test('a first entry reserves the resting height of the island it replaces in the dock', async (t) => {
+  const { root, document, window } = mount(t);
+  const { slot, presence, moving } = slotFixture(t, window, document);
+  const { ComposerIsland } = await import('./ComposerIsland.tsx');
+  const segment = React.createElement('button', { type: 'button', className: 'composer-island-seg' }, 'files');
+  const render = (sessionId, files, carriedHeight) =>
+    act(async () =>
+      root.render(React.createElement(ComposerIsland, { key: sessionId, sessionId, files, carriedHeight }))
+    );
+  await render('carry-a', segment);
+  await firstFrame();
+  // Never shown: its segments have not read their state yet.
+  await render('carry-b', null, 46);
+  assert.equal(presence(), 'grace', 'the outgoing pill’s height is held, not dropped');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
+  await firstFrame();
+  await render('carry-b', segment, 46);
+  assert.equal(presence(), 'open');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
+  assert.equal(moving(), false, 'the arriving segments move nothing');
+});
+
+test('an undecided files segment keeps the room its last width needs in the pill', async (t) => {
+  const { root, document, window } = mount(t);
+  slotFixture(t, window, document);
+  const proto = window.HTMLElement.prototype;
+  const offsetWidth = Object.getOwnPropertyDescriptor(proto, 'offsetWidth');
+  Object.defineProperty(proto, 'offsetWidth', {
+    configurable: true,
+    get() {
+      return this.classList.contains('turn-review-segment') ? 180 : 0;
+    },
+  });
+  t.after(() => Object.defineProperty(proto, 'offsetWidth', offsetWidth));
+  const { ComposerIsland } = await import('./ComposerIsland.tsx');
+  // The specifier ComposerIsland itself uses: one module, one island context.
+  const { IslandSegmentPending } = await import('./composer-island-state');
+  const branch = () => React.createElement('button', { type: 'button', className: 'composer-island-seg' }, 'main');
+  const files = React.createElement('button', { type: 'button', className: 'composer-island-seg turn-review-segment' });
+  const pending = React.createElement(IslandSegmentPending, { kind: 'files', holdEntry: true });
+  const render = (sessionId, segment, carriedAdvances) =>
+    act(async () =>
+      root.render(
+        React.createElement(ComposerIsland, { key: sessionId, sessionId, branch, files: segment, carriedAdvances })
+      )
+    );
+  const reserve = () => document.querySelector('.composer-island-pill > .composer-island-reserve');
+  await render('files-a', files);
+  await firstFrame();
+  // Nothing known: a hidden marker that takes no room.
+  await render('files-b', pending);
+  assert.equal(reserve(), null);
+  assert.equal(document.querySelector('[data-entry-pending]')?.hidden, true);
+  // Back before the segment's read answered: its decided advance (180px plus
+  // the 5px separator margin) is held.
+  await render('files-a', pending);
+  assert.equal(reserve()?.style.width, '185px');
+  assert.ok(reserve().hasAttribute('data-entry-pending'), 'the entry reveal still waits on it');
+  // Never shown: the advance of the files segment it replaces in the dock.
+  await render('files-c', pending, { files: 185 });
+  assert.equal(reserve()?.style.width, '185px');
+});
+
+test('a dock awaiting its session’s lane keeps the island slot at the reserved height', async (t) => {
+  const { root, document, window } = mount(t);
+  const { slot, presence } = slotFixture(t, window, document);
+  const { ComposerIsland } = await import('./ComposerIsland.tsx');
+  const segment = React.createElement('button', { type: 'button', className: 'composer-island-seg' }, 'files');
+  await act(async () =>
+    root.render(React.createElement(ComposerIsland, { key: 'await-a', sessionId: 'await-a', files: segment }))
+  );
+  await firstFrame();
+  await act(async () =>
+    root.render(React.createElement(ComposerDock, dockProps({ sessionId: '', reviewSessionId: 'await-a' })))
+  );
+  assert.equal(presence(), 'grace', 'the composer does not drop while the lane is read');
+  assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
 });
 
 test('reduced motion turning on mid-motion lands the slot at once; unmount drops the listener', async (t) => {
@@ -2178,7 +2265,6 @@ test('the branch segment paints at once from the last known workspace when a ses
 
 test('the branch menu opens with its cached list and a fresh list updates in place, keeping the focused row', async (t) => {
   const { root, document, window } = mount(t);
-  let reads = 0;
   let gate = null;
   const fresh = () => ({
     ...projectMenu(),
@@ -2187,7 +2273,6 @@ test('the branch menu opens with its cached list and a fresh list updates in pla
   });
   window.mixdogDesktop.invokeCapability = async (request) => {
     if (request.capability !== 'getBranchMenu') return { value: null };
-    reads += 1;
     if (gate) await gate.promise;
     return { value: gate ? fresh() : projectMenu() };
   };
@@ -2574,7 +2659,7 @@ async function gitDock(t, { cwd, files = [], ahead = 0, repository = true, pool 
     base: 'HEAD',
     files: files.map((path) => ({ path, status: 'M', additions: 1, deletions: 0, untracked: false })),
   });
-  window.mixdogDesktop.submitToSession = async (sessionId, content, options) => {
+  window.mixdogDesktop.submitToSession = async (sessionId, _content, options) => {
     sent.push({ sessionId, action: parseIslandGitRequestText(options.displayText)?.action });
     return true;
   };

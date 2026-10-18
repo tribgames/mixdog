@@ -493,6 +493,7 @@
   padding: 8px;
 }
 .model-catalog-panel .model-search {
+  min-width: 0;
   min-height: 32px;
   padding: 6px 8px;
 }
@@ -1239,24 +1240,6 @@
   min-width: 0;
   max-width: min(52ch, 100%);
   flex: 0 1 auto;
-}
-/* Dock toggle rides the session header, in the sidebar-toggle voice: same
-   thin stroke, same label ink. */
-.session-dock-toggle {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: transparent;
-  cursor: pointer;
-}
-.session-dock-toggle:hover,
-.session-dock-toggle:focus-visible {
-  background: var(--mx-hover);
 }
 /* The context gauge dims when a session has no usage to report yet. */
 .session-context-indicator[data-active="false"] > button {

@@ -108,6 +108,7 @@ export function useAppSessionCommands(
     tabs,
     finishPendingConversationHandoff,
     activateSelection,
+    announceOpen: paneWorkspace.announceOpenInFocused,
   });
   openSessionRef.current = openSession;
   const prefetchSession = useCallback((sessionId: string) => requestSessionRead(sessionId), []);

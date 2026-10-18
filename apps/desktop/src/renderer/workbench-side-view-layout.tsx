@@ -1,5 +1,6 @@
 import {
   Fragment,
+  memo,
   useEffect,
   useMemo,
   useRef,
@@ -307,15 +308,7 @@ export function WorkbenchSideIconBar({
   );
 }
 
-function WorkbenchSideSection({
-  id,
-  active,
-  movable,
-  sectioned,
-  order,
-  basis,
-  children,
-}: {
+interface WorkbenchSideSectionProps {
   id: WorkbenchSideViewId;
   active: boolean;
   /** Left-side panels hand their title bar a live drag handle; the pane-scoped
@@ -324,8 +317,38 @@ function WorkbenchSideSection({
   sectioned: boolean;
   order: number;
   basis: number;
+  /** See WorkbenchSidePanel's `hiddenKey`. */
+  hiddenKey: string;
   children(active: boolean, titleDragProps: WorkbenchSideTitleDragProps): ReactNode;
-}) {
+}
+
+/** A view that stays hidden keeps its last render. Every App commit hands each
+ *  section a fresh render callback, so without this a session switch
+ *  re-rendered every retained destination behind the shown one (five hidden
+ *  session sidebars, the hidden dock's Changes pane) with props they cannot
+ *  show. It renders again with the current props the moment it is shown. */
+function sameHiddenSection(previous: WorkbenchSideSectionProps, next: WorkbenchSideSectionProps): boolean {
+  return (
+    !previous.active &&
+    !next.active &&
+    previous.id === next.id &&
+    previous.movable === next.movable &&
+    previous.sectioned === next.sectioned &&
+    previous.order === next.order &&
+    previous.basis === next.basis &&
+    previous.hiddenKey === next.hiddenKey
+  );
+}
+
+const WorkbenchSideSection = memo(function WorkbenchSideSection({
+  id,
+  active,
+  movable,
+  sectioned,
+  order,
+  basis,
+  children,
+}: WorkbenchSideSectionProps) {
   const titleDragProps = useMemo<WorkbenchSideTitleDragProps>(
     () => ({
       draggable: movable,
@@ -357,7 +380,7 @@ function WorkbenchSideSection({
       <div className="workbench-side-section-body">{children(active, titleDragProps)}</div>
     </section>
   );
-}
+}, sameHiddenSection);
 
 const SIDE_PANEL_WIDTH_KEY: Record<WorkbenchSide, string> = {
   left: 'mixdog:session-sidebar-width',
@@ -440,27 +463,7 @@ export function nextRetainedWorkbenchSideRoots(
     .filter((root): root is WorkbenchSideViewId => Boolean(root) && retained.has(root));
 }
 
-export function WorkbenchSidePanel({
-  side,
-  open,
-  motion = 'animated',
-  embedded = false,
-  widthStorageKey,
-  widthRange,
-  widthOverride,
-  onWidthDrag,
-  hideTabs = false,
-  groups,
-  activeRoot,
-  surfaces,
-  surfacesActive = false,
-  descriptors,
-  onSelect,
-  onMoveGroup,
-  onMoveView,
-  renderView,
-  footer,
-}: {
+interface WorkbenchSidePanelProps {
   side: WorkbenchSide;
   open: boolean;
   /** Narrow-band sheets slide; a responsive fold applies its state instantly. */
@@ -498,9 +501,36 @@ export function WorkbenchSidePanel({
   onMoveGroup: Parameters<typeof WorkbenchSideIconBar>[0]['onMoveGroup'];
   onMoveView: Parameters<typeof WorkbenchSideIconBar>[0]['onMoveView'];
   renderView(id: WorkbenchSideViewId, active: boolean, titleDragProps: WorkbenchSideTitleDragProps): ReactNode;
+  /** Hidden views keep their last render until shown; a change of this key
+   *  renders them once more while hidden (a pane dock whose body mounts for
+   *  prewarm). */
+  hiddenKey?: string;
   /** Pinned under the shown destination, the same for every view. */
   footer?: ReactNode;
-}) {
+}
+
+export function WorkbenchSidePanel({
+  side,
+  open,
+  motion = 'animated',
+  embedded = false,
+  widthStorageKey,
+  widthRange,
+  widthOverride,
+  onWidthDrag,
+  hideTabs = false,
+  groups,
+  activeRoot,
+  surfaces,
+  surfacesActive = false,
+  descriptors,
+  onSelect,
+  onMoveGroup,
+  onMoveView,
+  renderView,
+  hiddenKey = '',
+  footer,
+}: WorkbenchSidePanelProps) {
   const selectedGroup = groups.find((group) => activeRoot !== null && group.includes(activeRoot)) ?? groups[0] ?? [];
   const root = selectedGroup[0] ?? null;
   const movable = side === 'left';
@@ -780,6 +810,7 @@ export function WorkbenchSidePanel({
                       sectioned={group.length > 1}
                       order={index * 2}
                       basis={sizes[index] ?? 100 / group.length}
+                      hiddenKey={hiddenKey}
                     >
                       {(active, titleDragProps) => renderView(id, active, titleDragProps)}
                     </WorkbenchSideSection>

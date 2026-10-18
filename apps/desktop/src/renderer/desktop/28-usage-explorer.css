@@ -814,7 +814,7 @@
 .stats-surface :is([data-usage-provider="xai"], [data-usage-provider="grok-oauth"]) {
   --stats-provider-color: var(--mx-chart-gold);
 }
-.stats-surface [data-usage-provider="opencode-go"] {
+.stats-surface :is([data-usage-provider="opencode-go"], [data-usage-provider="opencode-go-oauth"]) {
   --stats-provider-color: var(--mx-chart-green);
 }
 .stats-surface [data-usage-provider="mixdog-local"] {
@@ -1487,10 +1487,14 @@ button.quota-chart-slot[aria-expanded="true"] {
   vertical-align: -2px;
   accent-color: var(--mx-accent-bg);
 }
+/* KaTeX's own 1.21em ran visibly larger than the 15px prose around it. */
+.markdown .katex {
+  font-size: 1.05em;
+}
 .markdown .katex-display {
-  /* Display math is a CARD block like tables and code (20px), not a flow
-     block: at 16px it sat between the two rhythms and matched neither. */
-  margin: 20px 0;
+  /* Display math is a CARD block like tables and code (18px), not a flow
+     block: at 14px it sat between the two rhythms and matched neither. */
+  margin: 18px 0;
   padding: 2px 0;
   overflow-x: auto;
   overflow-y: hidden;
@@ -1542,8 +1546,7 @@ button.quota-chart-slot[aria-expanded="true"] {
   color: var(--mx-syntax-control);
 }
 .markdown-code .hljs-string,
-.markdown-code .hljs-regexp,
-.markdown-code .hljs-addition {
+.markdown-code .hljs-regexp {
   color: var(--mx-syntax-string);
 }
 .markdown-code .hljs-number,
@@ -1569,9 +1572,24 @@ button.quota-chart-slot[aria-expanded="true"] {
 .markdown-code .hljs-params {
   color: var(--mx-syntax-variable);
 }
-.markdown-code .hljs-meta,
-.markdown-code .hljs-deletion {
+.markdown-code .hljs-meta {
   color: var(--mx-syntax-meta);
+}
+/* Diff lines read as review colours: green added, red removed, each a tinted
+   full-width line (orange and pink looked alike). */
+.markdown-code .hljs-addition,
+.markdown-code .hljs-deletion {
+  display: block;
+  margin: 0 -12px;
+  padding: 0 12px;
+}
+.markdown-code .hljs-addition {
+  color: var(--mx-success);
+  background: color-mix(in srgb, var(--mx-success) 13%, transparent);
+}
+.markdown-code .hljs-deletion {
+  color: var(--mx-danger);
+  background: color-mix(in srgb, var(--mx-danger) 13%, transparent);
 }
 .markdown-code .hljs-emphasis {
   font-style: italic;

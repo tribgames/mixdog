@@ -8,14 +8,14 @@
 // (zoom-bar-pref.ts) hides it. The stylesheet ships with the component so
 // every surface renders it alike.
 import { Check, ChevronDown, Minus, Plus } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 
 import { BROWSER_ZOOM_PRESETS, BROWSER_ZOOM_RANGE, stepZoom, type ZoomRange } from './zoom-range';
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 import './zoom-pill.css';
 
-export interface ZoomPillLead {
+interface ZoomPillLead {
   label: string;
   checked: boolean;
   onSelect(): void;
@@ -30,7 +30,11 @@ export function ZoomPill({
   presets = BROWSER_ZOOM_PRESETS,
   step = (current, direction) => stepZoom(current, direction, range),
   lead,
+  before,
 }: {
+  /** Controls ahead of the zoom steps (Visualize's pane switcher); a
+   *  separator follows them. */
+  before?: ReactNode;
   /** The resolved scale (1 = 100%). */
   level: number;
   onChange(level: number): void;
@@ -109,6 +113,12 @@ export function ZoomPill({
       onWheel={(event) => event.stopPropagation()}
       onKeyDown={onKeyDown}
     >
+      {before ? (
+        <>
+          {before}
+          <span className="browser-zoom-separator" aria-hidden="true" />
+        </>
+      ) : null}
       <button
         type="button"
         className="browser-zoom-step"

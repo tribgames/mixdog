@@ -200,7 +200,10 @@ export type VisualizeZoomInput = 'in' | 'out' | 'reset';
 export interface DesktopVisualizeEvent {
   sessionId: string;
   state?: VisualizeSessionState;
+  /** An agent open or a content update: bring the panel up on `tab` (by the
+   *  open policy in visualize-store); hosts before `tab` mean the active tab. */
   reveal?: boolean;
+  tab?: string;
   openUrl?: string;
   zoom?: VisualizeZoomInput;
   point?: { x: number; y: number };
@@ -311,6 +314,8 @@ export interface VisualizeHostEvent {
   sessionId: string;
   state?: VisualizeHostState;
   reveal?: boolean;
+  /** With `reveal`: the tab the open or update was for. */
+  tab?: string;
   openUrl?: string;
 }
 

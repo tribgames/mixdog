@@ -27,8 +27,29 @@ interface CustomModel {
   manual?: boolean;
 }
 
-export function isCustomProvider(provider: RecordValue): boolean {
+function isCustomProvider(provider: RecordValue): boolean {
   return provider.custom === true;
+}
+
+/** The Providers page's order: OAuth providers, the
+ *  API-key providers, then custom providers (local providers last). Every
+ *  list that names providers takes its order from here. */
+export function providerPageGroups(setup: RecordValue) {
+  const allApi = rows(setup.api);
+  return {
+    oauth: rows(setup.oauth),
+    otherApi: allApi.filter((provider) => !isCustomProvider(provider)),
+    custom: allApi.filter(isCustomProvider),
+    local: rows(setup.local),
+  };
+}
+
+/** Provider ids in the Providers page's order. */
+export function providerPageOrder(setup: RecordValue): string[] {
+  const groups = providerPageGroups(setup);
+  return [...groups.oauth, ...groups.otherApi, ...groups.custom, ...groups.local].map((provider) =>
+    String(provider.id || provider.provider || '')
+  );
 }
 
 // Effective model rows: the provider row's `models` and the discovery result's.
@@ -60,7 +81,7 @@ function protocolLabel(value: unknown): string {
 }
 
 // The runtime's custom provider name limit (custom-provider-config.mjs MAX_NAME).
-export const CUSTOM_NAME_MAX = 200;
+const CUSTOM_NAME_MAX = 200;
 
 const stripProviderTag = (raw: string): string => raw.replace(/^\[custom-provider\]\s*/, '').trim();
 

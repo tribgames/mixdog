@@ -1,14 +1,7 @@
 // One markdown element grammar for both pipelines: the lazy react-markdown
 // chunk (MarkdownBody) and the worker AST renderer (MarkdownAstBody) build
 // their overrides here so links, tables, and code cards never diverge.
-import React, {
-  useContext,
-  useLayoutEffect,
-  useRef,
-  useSyncExternalStore,
-  type ComponentType,
-  type ReactNode,
-} from 'react';
+import React, { useContext, useSyncExternalStore, type ComponentType, type ReactNode } from 'react';
 import { Play } from 'lucide-react';
 import { t } from './i18n';
 import { childrenText, MarkdownLink, MarkdownSessionContext } from './MarkdownLink';
@@ -45,40 +38,11 @@ function RunInTerminal({ code }: { code: string }) {
   );
 }
 
-/** The wrapper becomes a scroll container only while the table is wider than
- *  it (data-overflowing). An `overflow: auto` box that never scrolled still
- *  made Chromium hit-test every wheel over the table on the main thread, so a
- *  table that fits stays a plain box. The flag is written straight to the DOM:
- *  no React render per resize. */
+/** Tables wrap inside the transcript column and never scroll sideways. */
 function MarkdownTable({ children }: { children?: ReactNode }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const box = scroller.current;
-    const table = box?.firstElementChild;
-    if (!box || !table || typeof ResizeObserver === 'undefined') return undefined;
-    const sync = () => {
-      box.toggleAttribute('data-overflowing', table.getBoundingClientRect().width > box.clientWidth + 0.5);
-    };
-    // No read in the commit: the observer's initial delivery runs after the
-    // frame's own layout and before its paint, so the first frame still
-    // carries the flag without forcing a layout per table on a session switch.
-    const observer = new ResizeObserver(sync);
-    observer.observe(box);
-    observer.observe(table);
-    return () => observer.disconnect();
-  }, []);
   return (
     <div className="markdown-table-frame">
-      {/* biome-ignore lint/a11y/useSemanticElements: tag must stay a div; <section> would change the table scroller's structure. */}
-      <div
-        ref={scroller}
-        className="markdown-table"
-        role="region"
-        aria-label={t('Scrollable table')}
-        data-scrollable
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users need to focus this scroll region to scroll it.
-        tabIndex={0}
-      >
+      <div className="markdown-table">
         <table>{children}</table>
       </div>
     </div>

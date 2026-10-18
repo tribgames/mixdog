@@ -6,6 +6,7 @@ import { RecoveringStoreWatcher } from './recovering-store-watcher';
 // transcript on a 2s clock, so a 1s reader keeps a visible agent pane current
 // without adding a faster poll than there is new content to read.
 export const COLD_VIEW_REFRESH_MS = 1_000;
+const COLD_VIEW_REFRESH_CONCURRENCY = 2;
 export const STORE_REFRESH_DEBOUNCE_MS = 400;
 export const STORE_REFRESH_MIN_GAP_MS = 2_000;
 // Direct children of the data directory whose change can alter the session
@@ -35,8 +36,13 @@ export function catalogRelevantStoreEntry(filename: string | Buffer | null | und
 /** Subscribes `changed`; resolves to its unsubscribe function (or nothing when
  *  the store offers no such notification). */
 type StoreChangeSubscription = (
-  changed: () => void
+  changed: (kind?: string) => void
 ) => Promise<(() => void) | undefined | void> | (() => void) | undefined | void;
+
+/** Coalescing window of an agent-activity refresh: a turn settling, a task
+ *  wait starting or a background hand-off reaches the Agents pool promptly,
+ *  while a burst of transitions still costs one pool read. */
+export const AGENT_ACTIVITY_REFRESH_MS = 50;
 
 interface SessionHostCatalogOwner {
   isDisposed(): boolean;
@@ -52,6 +58,10 @@ interface SessionHostCatalogOwner {
  *  watcher and timers; SessionHost supplies listings and publication. */
 export class SessionHostCatalog {
   private storeRefreshTimer: NodeJS.Timeout | null = null;
+  private agentPoolRefreshTimer: NodeJS.Timeout | null = null;
+  private agentPoolRefreshing = false;
+  private agentPoolRefreshQueued = false;
+  private agentPoolListMs = 0;
   private storeRefreshedAt = 0;
   private coldViewTimer: NodeJS.Timeout | null = null;
   private readonly refreshingColdSessionIds = new Set<string>();
@@ -109,17 +119,25 @@ export class SessionHostCatalog {
       this.coldViewTimer = null;
       return;
     }
-    await Promise.allSettled(
-      cold.map(async (sessionId) => {
-        if (this.refreshingColdSessionIds.has(sessionId)) return;
+    // A few reads at a time: every visible cold pane re-read at once (a
+    // restore with many panes) projected its transcripts back to back on the
+    // daemon's one thread.
+    let next = 0;
+    const refreshNext = async (): Promise<void> => {
+      while (next < cold.length) {
+        const sessionId = cold[next++];
+        if (this.refreshingColdSessionIds.has(sessionId)) continue;
         this.refreshingColdSessionIds.add(sessionId);
         try {
           await this.owner.readSession(sessionId);
+        } catch {
+          // One unreadable view must not stop the others' refresh.
         } finally {
           this.refreshingColdSessionIds.delete(sessionId);
         }
-      })
-    );
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(COLD_VIEW_REFRESH_CONCURRENCY, cold.length) }, refreshNext));
   }
 
   ensureStoreWatcher(): void {
@@ -128,7 +146,11 @@ export class SessionHostCatalog {
     if (this.storeSubscribed || !this.subscribeStoreChanges) return;
     this.storeSubscribed = true;
     void Promise.resolve()
-      .then(() => this.subscribeStoreChanges?.(() => this.scheduleCatalogRefresh()))
+      .then(() =>
+        this.subscribeStoreChanges?.((kind) =>
+          kind === 'agent-activity' ? this.scheduleAgentPoolRefresh() : this.scheduleCatalogRefresh()
+        )
+      )
       .then(
         (unsubscribe) => {
           if (typeof unsubscribe !== 'function') return;
@@ -155,6 +177,41 @@ export class SessionHostCatalog {
     this.storeRefreshTimer.unref?.();
   }
 
+  /** Runtime activity changed (no store file did): re-read only the Agents
+   *  pool, which projects that activity, after a short coalescing window.
+   *  One read at a time: changes during a read queue one trailing read, which
+   *  waits at least as long as the last read took. Every turn and background
+   *  task transition signals here, and the pool read runs on the daemon's
+   *  thread; under load a read outlasting the window let reads pile up. */
+  scheduleAgentPoolRefresh(): void {
+    if (this.agentPoolRefreshTimer || this.owner.isDisposed()) return;
+    if (this.agentPoolRefreshing) {
+      this.agentPoolRefreshQueued = true;
+      return;
+    }
+    this.agentPoolRefreshTimer = setTimeout(
+      () => {
+        this.agentPoolRefreshTimer = null;
+        if (this.owner.isDisposed()) return;
+        this.agentPoolRefreshing = true;
+        const startedAt = Date.now();
+        void this.owner
+          .listAgentPool()
+          .then((agents) => this.owner.publishAgents(agents))
+          .catch(() => {})
+          .finally(() => {
+            this.agentPoolRefreshing = false;
+            this.agentPoolListMs = Date.now() - startedAt;
+            if (!this.agentPoolRefreshQueued) return;
+            this.agentPoolRefreshQueued = false;
+            this.scheduleAgentPoolRefresh();
+          });
+      },
+      Math.max(AGENT_ACTIVITY_REFRESH_MS, this.agentPoolListMs)
+    );
+    this.agentPoolRefreshTimer.unref?.();
+  }
+
   async publishCatalogs(): Promise<void> {
     if (this.owner.isDisposed()) return;
     // A failed listing is NOT an empty store: publishing `[]` for a transient
@@ -175,6 +232,8 @@ export class SessionHostCatalog {
     this.unsubscribeStore = null;
     if (this.storeRefreshTimer) clearTimeout(this.storeRefreshTimer);
     this.storeRefreshTimer = null;
+    if (this.agentPoolRefreshTimer) clearTimeout(this.agentPoolRefreshTimer);
+    this.agentPoolRefreshTimer = null;
     if (this.coldViewTimer) clearInterval(this.coldViewTimer);
     this.coldViewTimer = null;
     this.watcher.close();

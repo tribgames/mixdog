@@ -438,12 +438,29 @@ test('expired, foreign, revoked and unauthenticated lanes never resume', async (
   const replacedToken = readViewResumeGrant((await replaced.sync(await phone.resumeRequest(null))).value);
   h.registry.remove(replaced.clientId); // Desktop-initiated close: nothing parks.
   assert.equal(h.registry.takeParkedViews(replacedToken), null);
+});
 
-  const redialed = await h.connect(phone);
-  const redialedToken = readViewResumeGrant((await redialed.sync(await phone.resumeRequest(null))).value);
-  redialed.drop();
-  h.registry.resetDeltas(); // The desktop's own relay leg was replaced.
-  assert.equal(h.registry.takeParkedViews(redialedToken), null);
+test("the desktop's own relay redial parks every phone leg and the replayed open resumes with deltas", async () => {
+  const h = await harness();
+  const phone = createPhone();
+  const first = await h.connect(phone);
+  const joined = await first.sync(await phone.resumeRequest(null));
+  const token = readViewResumeGrant(joined.value);
+  h.advance(1);
+  first.publish('lead');
+  first.publishSessions();
+  first.state.stateLane.publish(h.host.state);
+  await stateDelivered(phone, h.host);
+  // What remote-relay.ts does when its own leg closes, then reopens.
+  h.registry.parkAll();
+  assert.equal(h.registry.size, 0, 'every phone leg ended with the desktop leg');
+  h.registry.resetDeltas();
+  h.advance(2);
+  const second = await h.connect(phone);
+  const resumed = await second.sync(await phone.resumeRequest(token));
+  h.assertSynchronized(phone);
+  assert.equal(baselineCount(resumed), 0, 'no lane falls back to a full baseline');
+  assert.ok(resumed.bytes * 20 < joined.bytes, `resumed ${resumed.bytes} bytes vs ${joined.bytes} full`);
 });
 
 test('a phone without a resume request keeps the full-baseline recovery and answer exactly', async () => {

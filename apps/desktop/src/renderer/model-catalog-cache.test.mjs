@@ -184,6 +184,45 @@ test('a failing provider setup does not pin a healthy catalog', async () => {
   assert.equal(await second.setup, null);
 });
 
+test('a partial full catalog expires at its retry time, wakes consumers, and refetches', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 10_000_000 });
+  let partial = true;
+  const api = stubApi();
+  api.listProviderModels = async (options) => {
+    api.calls.models += 1;
+    api.calls.modelOptions.push(options);
+    if (!partial) return CATALOG;
+    return CATALOG.map((row) => ({
+      ...row,
+      catalogPartial: true,
+      catalogMissing: ['offline-provider'],
+      catalogRetryAt: Date.now() + 30_000,
+    }));
+  };
+  let woken = 0;
+  const unsubscribe = subscribeModelCatalogInvalidation(() => {
+    woken += 1;
+  });
+  t.after(unsubscribe);
+  const first = requestModelCatalog(api);
+  await Promise.all([first.full, first.setup]);
+  assert.equal(requestModelCatalog(api), first, 'shared until the retry time');
+  t.mock.timers.tick(29_999);
+  assert.equal(requestModelCatalog(api), first);
+  partial = false;
+  t.mock.timers.tick(1);
+  await Promise.resolve();
+  assert.equal(woken, 1, 'mounted pickers are woken to read again');
+  const next = requestModelCatalog(api);
+  assert.notEqual(next, first);
+  assert.deepEqual(
+    (await next.full).map((entry) => entry.model),
+    [CATALOG[0].model]
+  );
+  assert.equal(api.calls.models, 4, 'the refetch goes to the daemon instead of the 30s answer cache');
+  assert.equal(requestModelCatalog(api), next, 'a complete answer is shared again');
+});
+
 test('a completed catalog fetch survives in browser storage', async () => {
   const api = stubApi();
   await requestModelCatalog(api).full;
@@ -275,13 +314,14 @@ test('one API object cannot share a catalog across device routes', async () => {
   }
 });
 
-
 test('an unavailable desktop snapshot is retryable even with a warm model catalog', async () => {
   const api = stubApi();
   let offline = true;
-  api.invokeCapability = async () => ({ value: offline
-    ? { managedByClient: true, unavailable: true, api: [], oauth: [], local: [] }
-    : { managedByClient: true, api: [{ id: 'openai', authenticated: true }] } });
+  api.invokeCapability = async () => ({
+    value: offline
+      ? { managedByClient: true, unavailable: true, api: [], oauth: [], local: [] }
+      : { managedByClient: true, api: [{ id: 'openai', authenticated: true }] },
+  });
   const first = requestModelCatalog(api);
   await assert.rejects(first.setup, /Desktop model providers are unavailable/);
   await first.full;
@@ -291,7 +331,6 @@ test('an unavailable desktop snapshot is retryable even with a warm model catalo
   assert.equal((await next.setup).api[0].authenticated, true);
   await next.full;
 });
-
 
 test('provider invalidation bypasses the server setup TTL before sharing the refreshed catalog', async (t) => {
   asServerWindow(t);
@@ -318,13 +357,12 @@ test('provider invalidation bypasses the server setup TTL before sharing the ref
   assert.deepEqual(requests.at(-1).args, [{ force: true }]);
 });
 
-
 test('an invalidation before the first API read forces both model and setup snapshots', async (t) => {
   asServerWindow(t);
   invalidateSharedModelCatalogRequest();
   const requests = [];
   const api = stubApi();
-  api.listProviderModels = async (options) => options.force ? CATALOG : [];
+  api.listProviderModels = async (options) => (options.force ? CATALOG : []);
   api.invokeCapability = async (request) => {
     requests.push(request);
     return { value: { managedByClient: true, api: [{ id: 'openai', usable: request.args[0]?.force === true }] } };

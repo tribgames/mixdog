@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { confirmText } from './confirm-text';
 import { t } from './i18n';
 import type { useSessionDiffRefresh } from './use-session-diff-refresh';
 
@@ -43,7 +44,11 @@ export function useSessionDiffRevert({
   const canRevertPath = (path: string) => Boolean(!busy && turnReview?.paths.has(path));
   const revertFile = (path: string) => {
     if (!turnReview || !canRevertPath(path)) return;
-    if (!window.confirm(t('Revert {{file}} to the start of the turn? This discards its changes.', { file: path })))
+    if (
+      !window.confirm(
+        t('Revert {{file}} to the start of the turn? This discards its changes.', { file: confirmText(path) })
+      )
+    )
       return;
     setRevertError('');
     void window.mixdogDesktop

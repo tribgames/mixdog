@@ -70,8 +70,8 @@ export function restoreAttachmentsFromRecord(
     const match = source === 'file' ? fileMatch : pastedMatch;
     if (!match) continue;
     const id = uniqueId(rawId);
-    const token = id === rawId ? match[0] : match[0].replace(`#${rawId}`, `#${id}`);
-    if (token !== match[0]) textValue = textValue.replace(match[0], token);
+    const token = id === rawId ? match[0] : match[0].replace(`#${rawId}`, () => `#${id}`);
+    if (token !== match[0]) textValue = textValue.replace(match[0], () => token);
     restored.push({
       id,
       name: String(text.filename || (source === 'file' ? `File ${id}` : `Pasted text ${id}`)),
@@ -141,7 +141,7 @@ function restoreFileAttachments(
     const id = uniqueId(rawId);
     const isPdf = mimeType === PDF_MIME_TYPE;
     const token = `[${isPdf ? 'PDF' : 'File'} #${id}: ${file.name}]`;
-    if (token !== match[0]) textValue = textValue.replace(match[0], token);
+    if (token !== match[0]) textValue = textValue.replace(match[0], () => token);
     keptTokens.add(token);
     restored.push({
       id,

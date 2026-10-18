@@ -96,6 +96,9 @@ export function createTurnCompletionTracker(): TurnCompletionTracker {
         // Archived sessions are hidden from the app; a notification would point
         // at something the user cannot see without restoring it first.
         if (session.archived) continue;
+        // Sub-agent sessions report back to their Lead; only the Lead's own
+        // final answer is worth a notification.
+        if (session.agentSession) continue;
         completions.push({
           sessionId: id,
           sourceType: session.sourceType,

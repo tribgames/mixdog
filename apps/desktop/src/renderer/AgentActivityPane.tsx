@@ -15,8 +15,8 @@ import {
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
 import { agentElapsedText } from './agent-row-meta';
+import { useClock } from './use-clock';
 import { clearableAgentTreeRows, dismissFinishedAgentRows, useVisibleAgentPool } from './agent-dismiss';
-import { agentQuietParts, agentStageCueText, QuietCue } from './quiet-cue';
 import { AgentProviderMark, AgentRouteSummary } from './agent-row-parts';
 import { TextShimmer } from './transcript-primitives';
 import {
@@ -45,35 +45,8 @@ export {
  *  one-second tick owned by the leaf that reads it, so only that leaf
  *  re-renders each second, not its row or pane. */
 function useRowClock(state: DesktopAgentActivityState, clock: number | undefined): number {
-  const ticking = state === 'running' && clock === undefined;
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!ticking) return undefined;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [ticking]);
+  const now = useClock(state === 'running' && clock === undefined);
   return clock ?? now;
-}
-
-/** A running row's quiet-time cue (nothing while it makes progress); before
- *  it is quiet, a request waiting for its headers reads "Model thinking". */
-function AgentRowQuiet({
-  state,
-  agent,
-  clock,
-}: {
-  state: DesktopAgentActivityState;
-  agent: DesktopAgentPoolRow;
-  clock?: number;
-}): React.ReactElement | null {
-  const now = useRowClock(state, clock);
-  const parts = state === 'running' ? agentQuietParts(agent, now) : null;
-  if (!parts) {
-    const stage = state === 'running' ? agentStageCueText(agent) : '';
-    return stage ? <span className="quiet-cue agent-quiet-cue">{stage}</span> : null;
-  }
-  return <QuietCue parts={parts} sessionId={String(agent.sessionId || '').trim()} className="agent-quiet-cue" />;
 }
 
 /** The row's right-column text. */
@@ -91,7 +64,7 @@ function AgentRowElapsed({
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on <time> gives the elapsed duration an explicit accessible name
     <time
       className="agent-activity-elapsed"
-      aria-label={elapsed}
+      aria-label={elapsed || undefined}
       title={state === 'cancel-unconfirmed' ? t('Cancel unconfirmed') : undefined}
       data-state={state}
     >
@@ -243,7 +216,6 @@ export const AgentPoolRow = memo(function AgentPoolRow({
           {lead && descendantCount > 0 && <span className="dock-review-count">{descendantCount}</span>}
         </span>
         <AgentRouteSummary agent={agent} />
-        <AgentRowQuiet state={state} agent={agent} clock={clock} />
       </span>
       <span className="agent-activity-status">
         <AgentRowElapsed state={state} agent={agent} clock={clock} />

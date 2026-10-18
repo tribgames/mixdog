@@ -1,5 +1,5 @@
 import { ArrowLeftRight, FoldVertical, GitFork, ListTree, X } from 'lucide-react';
-import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { resolveContextDisplayUsage } from './context-usage';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { useHoverPopover } from './hover-popover';
@@ -7,6 +7,7 @@ import { cachedAutoEffortCapable, useAutoEffortShown } from './auto-effort-store
 import { subscribeUiLanguage, t, uiFormatLocale } from './i18n';
 import { modelDisplayName, modelRouteDisplayParts } from './provider-display';
 import { uiCurrency } from './ui-format';
+import { useClock } from './use-clock';
 import { liveAgentRows } from './agent-activity-model';
 import { onSessionPreviewsDeleted } from './image-preview-store';
 import { goalHasBackgroundWork } from './session-goal-presentation';
@@ -23,11 +24,101 @@ import { buildSpinnerMeta } from '../../../../src/tui/spinner-meta.mjs';
 
 const CONTEXT_USAGE_MEMORY_LIMIT = 64;
 // Clockwise r=8.5 rings around (12,12) starting at -120deg, 0deg and 120deg.
+// Each arc is the same ring drawn as an un-rotated path, so all three share
+// one bounding box (and so one gradient box) in every frame.
 const LIVE_ACTIVITY_ARC_PATHS = [
   'M7.75 4.639A8.5 8.5 0 0 1 16.25 19.361A8.5 8.5 0 0 1 7.75 4.639',
   'M20.5 12A8.5 8.5 0 0 1 3.5 12A8.5 8.5 0 0 1 20.5 12',
   'M7.75 19.361A8.5 8.5 0 0 1 16.25 4.639A8.5 8.5 0 0 1 7.75 19.361',
 ];
+// The arcs' 2000ms loop as [dash length, dash offset] on a 360-long ring, one
+// keyframe per 1/48 of the loop and the closing one, precomputed from the
+// design's buildFlow {dur 2000, headEnd .56, tailStart .26, pow 2.1, drift
+// .26, pop .07}.
+const LIVE_ACTIVITY_ARC_FLOW: ReadonlyArray<readonly [number, number]> = [
+  [0, 0.64],
+  [0.19, -0.01],
+  [0.81, -0.66],
+  [1.9, -1.31],
+  [3.48, -1.96],
+  [5.57, -2.61],
+  [8.16, -3.26],
+  [11.28, -3.91],
+  [14.94, -4.56],
+  [19.13, -5.21],
+  [23.86, -5.86],
+  [29.15, -6.51],
+  [35, -7.16],
+  [41.38, -7.83],
+  [47.94, -8.71],
+  [53.8, -9.84],
+  [58.83, -11.24],
+  [63.03, -12.91],
+  [66.39, -14.87],
+  [68.92, -17.12],
+  [70.61, -19.66],
+  [71.48, -22.5],
+  [71.52, -25.64],
+  [70.75, -29.09],
+  [69.16, -32.85],
+  [66.78, -36.91],
+  [63.62, -41.29],
+  [59.71, -45.99],
+  [55.35, -51.01],
+  [50.66, -56.34],
+  [45.65, -62],
+  [40.5, -67.8],
+  [35.66, -73.29],
+  [31.14, -78.46],
+  [26.94, -83.31],
+  [23.06, -87.85],
+  [19.49, -92.06],
+  [16.24, -95.97],
+  [13.29, -99.56],
+  [10.65, -102.85],
+  [8.32, -105.84],
+  [6.28, -108.52],
+  [4.55, -110.91],
+  [3.1, -113.01],
+  [1.94, -114.82],
+  [1.06, -116.34],
+  [0.45, -117.6],
+  [0.11, -118.6],
+  [0, -119.36],
+];
+// Frame 0 is the static logo pose (reduced or paused motion); frames 1..96
+// play the loop at 48 fps: every keyframe and the midpoint to the next one.
+// 14-live-activity.css steps through exactly these 97 frames.
+const LIVE_ACTIVITY_ARC_FRAMES: ReadonlyArray<readonly [number, number]> = [
+  [80, -20],
+  ...LIVE_ACTIVITY_ARC_FLOW.slice(0, -1).flatMap(([dash, offset], index) => {
+    const [nextDash, nextOffset] = LIVE_ACTIVITY_ARC_FLOW[index + 1];
+    return [
+      [dash, offset],
+      [(dash + nextDash) / 2, (offset + nextOffset) / 2],
+    ] as const;
+  }),
+];
+/** Every arc frame side by side, 24 viewBox units apart, as one mask image.
+ *  Stroke dashes cannot animate on the compositor: animated in place they
+ *  repainted the mark on the main thread at the display's refresh rate for
+ *  as long as a turn ran. The strip is rasterized once and a stepped
+ *  transform slides it behind the mark's 14px window instead. */
+const LIVE_ACTIVITY_ARC_STRIP = (() => {
+  const frames = LIVE_ACTIVITY_ARC_FRAMES.map(([dash, offset], index) => {
+    const paths = LIVE_ACTIVITY_ARC_PATHS.map(
+      (d) =>
+        `<path d="${d}" pathLength="360" stroke-dasharray="${+dash.toFixed(3)} ${+(360 - dash).toFixed(3)}" stroke-dashoffset="${+offset.toFixed(3)}"/>`
+    ).join('');
+    return `<g transform="translate(${index * 24} 0)">${paths}</g>`;
+  }).join('');
+  const width = LIVE_ACTIVITY_ARC_FRAMES.length * 24;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} 24" width="${width}" height="24" ` +
+    `fill="none" stroke="#000" stroke-width="1.9" stroke-linecap="round">${frames}</svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+})();
+const LIVE_ACTIVITY_ARC_STRIP_STYLE = { maskImage: LIVE_ACTIVITY_ARC_STRIP, WebkitMaskImage: LIVE_ACTIVITY_ARC_STRIP };
 const rememberedContextUsage = new Map<string, ReturnType<typeof resolveContextDisplayUsage>>();
 
 type ContextUsageMetrics = NonNullable<ReturnType<typeof resolveContextDisplayUsage>>;
@@ -217,48 +308,41 @@ export function commandShowsActivity(snapshot: Snapshot): boolean {
   return Boolean(command) && String(command?.mode || '') !== 'resuming';
 }
 
-function LiveActivityIcon({ gradientId }: { gradientId: string }) {
+/** The running mark. Every loop is a compositor animation on an HTML box:
+ *  the arcs' frame strip steps behind a 14px window that spins, and the star
+ *  breathes on its own <svg> box inside a box that carries its quarter turns
+ *  (an independent `rotate` on an <svg> itself cannot leave the main thread).
+ *  Memoized: the band re-renders on every lane frame and clock tick. */
+const LiveActivityIcon = memo(function LiveActivityIcon({ gradientId }: { gradientId: string }) {
   return (
     <span className="live-activity-icon" aria-hidden="true">
-      <svg
-        className="live-activity-logo live-activity-arcs"
-        viewBox="0 0 24 24"
-        width="14"
-        height="14"
-        aria-hidden="true"
-      >
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" />
-            <stop offset="1" />
-          </linearGradient>
-        </defs>
-        {/* Each arc is the same r=8.5 ring started 120deg apart, drawn as an
-            un-rotated path: a rotate() transform would also rotate the
-            gradient, so the arc taking over at the loop seam showed a
-            different colour and the mark flickered on every restart. */}
-        <g stroke={`url(#${gradientId})`}>
-          {LIVE_ACTIVITY_ARC_PATHS.map((d) => (
-            <path key={d} className="arc" d={d} pathLength="360" />
-          ))}
-        </g>
-      </svg>
-      <svg
-        className="live-activity-logo live-activity-star"
-        viewBox="0 0 24 24"
-        width="14"
-        height="14"
-        aria-hidden="true"
-      >
-        <path
-          className="star"
-          fill={`url(#${gradientId})`}
-          d="M12 8.4Q12.6 11.4 15.6 12 12.6 12.6 12 15.6 11.4 12.6 8.4 12 11.4 11.4 12 8.4Z"
-        />
-      </svg>
+      <span className="live-activity-logo live-activity-arcs">
+        <span className="live-activity-arc-strip" style={LIVE_ACTIVITY_ARC_STRIP_STYLE} />
+      </span>
+      <span className="live-activity-logo live-activity-star-turn">
+        <svg
+          className="live-activity-logo live-activity-star"
+          viewBox="0 0 24 24"
+          width="14"
+          height="14"
+          aria-hidden="true"
+        >
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" />
+              <stop offset="1" />
+            </linearGradient>
+          </defs>
+          <path
+            className="star"
+            fill={`url(#${gradientId})`}
+            d="M12 8.4Q12.6 11.4 15.6 12 12.6 12.6 12 15.6 11.4 12.6 8.4 12 11.4 11.4 12 8.4Z"
+          />
+        </svg>
+      </span>
     </span>
   );
-}
+});
 
 export function LiveActivity({
   snapshot,
@@ -273,7 +357,6 @@ export function LiveActivity({
   const command = snapshot.commandStatus && snapshot.commandStatus.active !== false ? snapshot.commandStatus : null;
   const activity = spinner || command;
   const optimisticActivity = !activity && optimisticStartedAt > 0;
-  const [, setNow] = useState(Date.now());
   // Re-render when the catalog finishes loading or the language switches.
   const language = useSyncExternalStore(subscribeUiLanguage, uiFormatLocale, uiFormatLocale);
   const activityStartedAt = Number(activity?.startedAt || 0);
@@ -307,12 +390,9 @@ export function LiveActivity({
   const pausedTotalRef = useRef(0);
   const pauseStartRef = useRef(0);
   const clockPaused = String(activity?.mode || '') === 'resuming';
-  useEffect(() => {
-    if (!startedAt || clockPaused) return undefined;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [clockPaused, startedAt]);
+  // The readout below reads Date.now() itself; the shared clock only
+  // re-renders the band once a second while the turn's clock runs.
+  useClock(Boolean(startedAt) && !clockPaused);
   const quiet = useLaneSpinnerQuiet(liveSessionId, asRecord(activity)?.quiet);
   if (!activity && !optimisticActivity && !snapshot.thinking && !startedAt) {
     anchorRef.current = 0;

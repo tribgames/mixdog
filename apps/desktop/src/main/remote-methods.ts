@@ -1422,7 +1422,6 @@ const REDACTED = '[redacted]';
 const SECRET_CAPABILITY_NAMES: ReadonlySet<string> = new Set([
   'saveProviderApiKey',
   'saveOpenAIUsageSessionKey',
-  'saveOpenCodeGoUsageAuth',
   'saveCustomProvider',
   'removeCustomProvider',
   'updateCustomProviderModel',

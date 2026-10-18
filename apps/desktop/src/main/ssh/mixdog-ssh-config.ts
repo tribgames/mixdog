@@ -76,7 +76,7 @@ export async function registerUserKnownHosts(files: readonly string[]): Promise<
     if (state.extra.size >= MAX_EXTRA_FILES) break;
     const home = state.home.replace(/\\\\/g, '/');
     if (!normalized || normalized === 'none' || DEFAULT_USER_FILES.includes(normalized)) continue;
-    if (DEFAULT_USER_FILES.some((file) => normalized === file.replace('~', home))) continue;
+    if (DEFAULT_USER_FILES.some((file) => normalized === file.replace('~', () => home))) continue;
     if (normalized === state.knownHostsFile.replace(/\\/g, '/')) continue;
     state.extra.add(file);
   }

@@ -58,7 +58,7 @@ export interface ServerNotifier {
   dispose(): void;
 }
 
-const named = (template: string, name: string): string => template.replace('{{name}}', name);
+const named = (template: string, name: string): string => template.replace('{{name}}', () => name);
 
 /** A server names its sessions and supplies their previews: the OS gets
  *  bounded text, one line for the title. */

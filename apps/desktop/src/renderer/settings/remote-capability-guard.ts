@@ -15,7 +15,6 @@ const LEGACY_HOST_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
   'discoverCustomProviderModels',
   'authenticateProvider',
   'saveOpenAIUsageSessionKey',
-  'saveOpenCodeGoUsageAuth',
   'loginOAuthProvider',
   'beginOAuthProviderLogin',
   'getOAuthProviderLoginStatus',

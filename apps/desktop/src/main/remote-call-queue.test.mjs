@@ -55,6 +55,49 @@ test('a slow model catalog read does not hold a snapshot read behind it', async 
   queue.close();
 });
 
+test('a slow model catalog read never fences a mutation, or the reads queued behind it', async () => {
+  const queue = createRemoteCallQueue();
+  const catalog = deferred();
+  const seen = [];
+  const models = queue.run('listProviderModels', async () => {
+    await catalog.promise;
+    seen.push('models');
+  });
+  await queue.run('getQuotaAutoResume', async () => seen.push('quota'));
+  await queue.run('setQuotaAutoResume', async () => seen.push('write'));
+  await queue.run('readSettings', async () => seen.push('settings'));
+  assert.deepEqual(seen, ['quota', 'write', 'settings']);
+  catalog.resolve();
+  await models;
+  queue.close();
+});
+
+test('file-name searches: the newest query under one scope wins, other scopes stand', async () => {
+  const queue = createRemoteCallQueue(4, 2, 2, 1);
+  const gate = deferred();
+  const seen = [];
+  const superseded = [];
+  const search = (scope, query, task = async () => seen.push(query)) =>
+    queue.run('searchProjectFiles', task, {
+      latest: scope,
+      superseded: async () => superseded.push(query),
+    });
+  // A cold index walk occupies the only slot.
+  const running = search('a', 'r', async () => {
+    seen.push('r');
+    await gate.promise;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const typed = ['re', 'rea', 'read'].map((query) => search('a', query));
+  const other = search('b', 'other');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(superseded, ['re', 'rea'], 'only the newest waiting query of a scope remains');
+  gate.resolve();
+  await Promise.all([running, ...typed, other]);
+  assert.deepEqual(seen, ['r', 'read', 'other']);
+  queue.close();
+});
+
 test('a slow turn review diff never fences the stat, read-mark or submit issued after it', async () => {
   const queue = createRemoteCallQueue();
   const review = deferred();
@@ -244,12 +287,13 @@ test('slow searches never delay a stat, capability read or submit issued after t
   await queue.run('submitNewTask', async () => {
     seen.push('new-task');
   });
-  // The slow lane is bounded on its own: two searches run, the rest wait.
+  // The slow and file-search lanes are bounded on their own: two calls run in
+  // each, the rest wait.
   assert.deepEqual(
     seen.filter((entry) => entry !== 'search'),
     ['stat', 'capabilities', 'submit', 'new-task']
   );
-  assert.equal(seen.filter((entry) => entry === 'search').length, 2);
+  assert.equal(seen.filter((entry) => entry === 'search').length, 4);
   gate.resolve();
   await Promise.all(searches);
   assert.equal(seen.filter((entry) => entry === 'search').length, 8);
@@ -296,11 +340,11 @@ test('disconnect rejects queued slow searches', async () => {
   const queue = createRemoteCallQueue(4, 1);
   const gate = deferred();
   let ran = 0;
-  const running = queue.run('searchProjectFiles', async () => {
+  const running = queue.run('searchWorkspaceText', async () => {
     ran += 1;
     await gate.promise;
   });
-  const queued = queue.run('searchProjectFiles', async () => {
+  const queued = queue.run('searchWorkspaceText', async () => {
     ran += 1;
   });
   const rejected = assert.rejects(queued, /disconnected/);

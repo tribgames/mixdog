@@ -102,6 +102,7 @@ test('selection survives rejected submission and scope switches, clears only aft
         textarea,
         draftRef,
         attachmentsRef,
+        pendingLoads: { current: 0 },
         transitioningRef: useRef(false),
         composingRef: useRef(false),
         submittingRef: useRef(false),

@@ -321,14 +321,30 @@ export const PaneConversation = memo(function PaneConversation({
   // A phone keeps its pane-sized cover (its skeleton draws its own composer
   // bar); a wide pane covers the transcript viewport only, so the composer
   // dock never disappears under a session switch.
-  const surfaceCover = (
-    <PaneSurfaceCover
-      ready={surfaceReady}
-      label={t('Loading conversation…')}
-      transitionKey={coverKey}
-      hold={transcriptHidden && !hidden}
-      skeleton={mobileSurface && Boolean(sessionId)}
-    />
+  // The cover, the Goal island and the assistant row renderer keep their
+  // identities between the conversation's own commits (a session switch is
+  // several), so the transcript and the memoised island skip those renders.
+  const coverHold = transcriptHidden && !hidden;
+  const coverSkeleton = mobileSurface && Boolean(sessionId);
+  const surfaceCover = useMemo(
+    () => (
+      <PaneSurfaceCover
+        ready={surfaceReady}
+        label={t('Loading conversation…')}
+        transitionKey={coverKey}
+        hold={coverHold}
+        skeleton={coverSkeleton}
+      />
+    ),
+    [surfaceReady, coverKey, coverHold, coverSkeleton]
+  );
+  const goalIsland = useMemo(
+    () => <PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />,
+    [presentedSessionId, hidden]
+  );
+  const renderAssistantRow = useCallback(
+    (row: TranscriptAssistantRowProps) => <PaneAssistantRow {...row} sessionId={sessionId} hidden={hidden} />,
+    [sessionId, hidden]
   );
   const unavailable = readUnavailable && lane === null && !hidden;
   return (
@@ -343,11 +359,11 @@ export const PaneConversation = memo(function PaneConversation({
         warmPaintHandoff={warmDraftHandoff}
         onEntryRevealed={onEntryRevealed}
         onTranscriptHiddenChange={setTranscriptHidden}
-        renderAssistantRow={(row) => <PaneAssistantRow {...row} sessionId={sessionId} hidden={hidden} />}
+        renderAssistantRow={renderAssistantRow}
         {...props}
         onInheritSession={onInheritSession}
         submit={submit}
-        goalIsland={<PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />}
+        goalIsland={goalIsland}
         contextIndicator={contextIndicator}
         transcriptCover={unavailable || mobileSurface ? undefined : surfaceCover}
       />

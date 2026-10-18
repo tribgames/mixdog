@@ -92,8 +92,9 @@ export function tabMenuAnchorAt(key: string, event: { clientX: number; clientY: 
 }
 
 /** Enter/exit motion bookkeeping for the run, derived during render from the
- *  previous tab list: a lost tab stays as a ghost for one beat and a gained
- *  tab is marked entering, so the neighbours glide instead of jumping. */
+ *  previous tab list: a lost tab stays as a ghost for one beat so the
+ *  neighbours glide instead of jumping; a gained tab is marked entering, and
+ *  the run lands at its new cells at once for that beat. */
 export function tabsWithClosingGhosts(
   tabs: WorkspaceTab[],
   previousTabs: { current: WorkspaceTab[] },

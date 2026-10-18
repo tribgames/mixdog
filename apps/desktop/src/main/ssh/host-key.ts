@@ -79,7 +79,7 @@ const KEY_LABELS: Array<[RegExp, string]> = [
   [/^sk-ecdsa-/, 'ECDSA-SK'],
   [/^ssh-dss$/, 'DSA'],
 ];
-export function keyTypeLabel(type: string): string {
+function keyTypeLabel(type: string): string {
   return KEY_LABELS.find(([pattern]) => pattern.test(type))?.[1] ?? type;
 }
 
@@ -92,7 +92,7 @@ const DEFAULT_ALGORITHM_ORDER = [
 ];
 
 /** HostKeyAlgorithms as key types: certificate and rsa-sha2 variants fold into their key type, order kept. */
-export function normalizeAlgorithms(list: readonly string[]): string[] {
+function normalizeAlgorithms(list: readonly string[]): string[] {
   const types: string[] = [];
   for (const algorithm of list) {
     const type = algorithm.replace(/-cert-v01@openssh\.com$/, '').replace(/^rsa-sha2-(?:256|512)$/, 'ssh-rsa');
@@ -164,7 +164,7 @@ export function parseSshConfigDump(stdout: string, context: Partial<ConfigContex
   const hasJump = proxyJump !== null;
   const hasCommand = Boolean(values.get('proxycommand')) && values.get('proxycommand') !== 'none';
   const global = files(values.get('globalknownhostsfile') ?? '').map((file) =>
-    file.replace(/^__PROGRAMDATA__/, env.ProgramData ?? env.ALLUSERSPROFILE ?? 'C:\\ProgramData')
+    file.replace(/^__PROGRAMDATA__/, () => env.ProgramData ?? env.ALLUSERSPROFILE ?? 'C:\\ProgramData')
   );
   return {
     hostname,
@@ -182,7 +182,7 @@ export function parseSshConfigDump(stdout: string, context: Partial<ConfigContex
   };
 }
 
-export const summarizeHost = (host: ResolvedHost): DesktopSshConfigSummary => ({
+const summarizeHost = (host: ResolvedHost): DesktopSshConfigSummary => ({
   hostName: host.hostname,
   user: host.user,
   port: host.port,

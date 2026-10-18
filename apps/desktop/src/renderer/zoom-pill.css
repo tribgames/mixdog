@@ -110,6 +110,18 @@
   color: var(--mx-text);
   background: var(--mx-hover);
 }
+.browser-zoom-separator {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--mx-border);
+}
+.browser-zoom-position {
+  min-width: 36px;
+  text-align: center;
+  font-size: var(--mx-font-minor);
+  font-variant-numeric: tabular-nums;
+}
 .browser-zoom-step:disabled {
   opacity: var(--mx-op-disabled);
   cursor: default;

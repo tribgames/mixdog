@@ -45,7 +45,7 @@ test('a document card shows the drawn sheet while converting, then the first pag
   const requests = [];
   const { dom, root, restore } = mount({
     statProjectFile: async () => ({ mtimeMs: 1, size: 1_468_006 }),
-    previewDocumentPages: (project, relPath, token, options) => {
+    previewDocumentPages: (project, relPath, _token, options) => {
       requests.push([project, relPath, options]);
       return new Promise((resolve) => {
         release = () =>
@@ -248,6 +248,7 @@ test('attachment cards draw content thumbnails over a name bar, with no gradient
     assert.equal(code.querySelector('.file-type-word.file-tone-code').textContent, 'TS');
     assert.ok(pasted.querySelector('.attachment-card-shot .file-minimap.paper .heading'));
     assert.equal(pasted.querySelector('.attachment-card-name').textContent, 'Paste · 3 lines');
+    assert.equal(pasted.dataset.tooltip, 'Paste · 3 lines');
     assert.equal(image.querySelector('.attachment-card-bar'), null);
     assert.equal(image.querySelector('img').getAttribute('alt'), 'a.png');
   } finally {

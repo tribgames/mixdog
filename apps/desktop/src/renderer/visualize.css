@@ -44,6 +44,15 @@
 .visualize-tabs .dock-header-chip .browser-tab-select {
   cursor: pointer;
 }
+/* Opened or updated behind the tab the user is viewing (the open policy). */
+.visualize-tabs .browser-tab-select > .visualize-tab-updated {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--mx-text-accent);
+}
 .visualize-body {
   flex: 1;
   min-height: 0;
@@ -56,12 +65,86 @@
   flex-direction: column;
 }
 .visualize-pane-cell {
+  position: relative;
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--mx-bg-base);
+}
+/* A split pane: a click shows it alone (visualize-solo-pane.ts). */
+.visualize-pane-cell.is-zoomable {
+  cursor: zoom-in;
+}
+/* Its file name fades in at the top-left on hover only: no strip, and none on
+   touch. A press on it shows the pane alone too (any pane kind). */
+.visualize-pane-chip {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  left: 8px;
+  max-width: calc(100% - 16px);
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  font: inherit;
+  font-size: var(--mx-font-minor);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  pointer-events: none;
+  cursor: zoom-in;
+  transition: opacity var(--mx-motion-chrome);
+}
+.visualize-pane-cell:hover > .visualize-pane-chip,
+.visualize-pane-chip:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: none) {
+  .visualize-pane-chip {
+    display: none;
+  }
+}
+html[data-mixdog-mobile-tabs] .visualize-pane-chip {
+  display: none;
+}
+/* Phone: taps go into the page or video, so each split cell gets an
+   always-visible silver enlarge button (44px target) at the top-right, clear
+   of the bottom video controls. Hidden everywhere else. */
+.visualize-pane-enlarge {
+  display: none;
+}
+html[data-mixdog-mobile-tabs] .visualize-pane-enlarge {
+  position: absolute;
+  z-index: 4;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+html[data-mixdog-mobile-tabs] .visualize-pane-enlarge > svg {
+  box-sizing: content-box;
+  padding: 7px;
+  border: 1px solid var(--mx-border-strong);
+  border-radius: var(--mx-radius-pill);
+  background: color-mix(in srgb, var(--mx-text) 6%, var(--mx-bg-base));
+  color: var(--mx-text-muted);
+  box-shadow: var(--mx-floating);
+}
+/* One pane shown alone: the others stay mounted, out of view. */
+.visualize-body.is-solo > .visualize-pane-cell:not(.is-solo) {
+  display: none;
 }
 .visualize-pane-content {
   flex: 1;

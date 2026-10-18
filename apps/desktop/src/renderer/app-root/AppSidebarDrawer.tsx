@@ -1,8 +1,10 @@
 import type React from 'react';
+import { memo, useMemo } from 'react';
 import { ActivityRail } from '../ActivityRail';
+import { useStableEvent } from '../use-stable-event';
 import { useEdgeSwipeDrawers } from '../use-edge-swipe-drawers';
 import { isMobileDeviceSurface, useMobileRemoteSurface } from '../mobile-surface';
-import { RemotePcCard } from '../RemotePcSwitcher';
+import { RemotePcCard, remotePcSurface } from '../RemotePcSwitcher';
 import {
   WorkbenchSidePanel,
   type WorkbenchSide,
@@ -20,7 +22,7 @@ import type { createAppSideViewDescriptors } from '../app-side-view-descriptors'
 import type { useSideViewReordering } from '../app-shell-side-views';
 import type { useAppSettingsRouter } from './use-app-settings-router';
 
-export interface AppSidebarDrawerProps {
+interface AppSidebarDrawerProps {
   sidebarOpen: boolean;
   sidebarMotion: ReturnType<typeof useAppShellPanels>['sidebarMotion'];
   openSidebar: () => void;
@@ -53,10 +55,10 @@ export interface AppSidebarDrawerProps {
 
 /** The desktop sidebar's footer guide. Phones never render it, so its chunk
  *  stays off their first screen; a desktop boot holds the cover until it is in. */
-function StarterGuide(props: React.ComponentProps<typeof StarterGuideComponent>) {
+const StarterGuide = memo(function StarterGuide(props: React.ComponentProps<typeof StarterGuideComponent>) {
   const module = useDeferredModule(starterGuideModule, { bootSurface: 'starter-guide' });
   return module ? <module.StarterGuide {...props} /> : null;
-}
+});
 
 export function AppSidebarDrawer({
   sidebarOpen,
@@ -82,29 +84,47 @@ export function AppSidebarDrawer({
 }: AppSidebarDrawerProps) {
   const phone = useMobileRemoteSurface();
   useEdgeSwipeDrawers({ sidebarOpen, openSidebar, applySidebarOpen });
+  // The rail and the starter guide are memoised; their handlers and items
+  // keep one identity across App commits (a session switch is several).
+  const openSettingsFromRail = useStableEvent((section?: Parameters<typeof openSettings>[0]) => {
+    closeSidebarForNavigation('instant');
+    openSettings(section);
+  });
+  const openRailSettings = useStableEvent(() => openSettingsFromRail());
+  const openRailProviders = useStableEvent(() => openSettingsFromRail('providers'));
+  const openUsageStats = useStableEvent(() => setCommandSurface('stats'));
+  const closeSettings = useStableEvent(() => setSettingsOpen(false));
+  const selectSideView = useStableEvent(selectWorkbenchSideView);
+  const leftLayout = workbenchSideLayout.layout.left;
+  const navigationItems = useMemo(
+    () =>
+      leftLayout.flat().flatMap((id) => {
+        const descriptor = sideViewDescriptors.get(id);
+        return descriptor ? [descriptor] : [];
+      }),
+    [leftLayout, sideViewDescriptors]
+  );
   return (
-    <div className="sidebar-drawer-frame" data-state={sidebarOpen ? 'open' : 'closed'} data-motion={sidebarMotion}>
+    <div
+      className="sidebar-drawer-frame"
+      data-state={sidebarOpen ? 'open' : 'closed'}
+      data-motion={sidebarMotion}
+      // The PC card's grid (07-mobile-chrome.css); RemotePcCard renders
+      // exactly when this holds.
+      data-remote-pc={phone && remotePcSurface() ? 'true' : undefined}
+    >
       {/* Phone drawer: the PC being driven sits above the rail and whichever
           side panel is active (renders nothing off a remote surface). */}
       {phone && <RemotePcCard />}
       <ActivityRail
         settingsOpen={settingsOpen}
-        onOpenSettings={() => {
-          closeSidebarForNavigation('instant');
-          openSettings();
-        }}
-        onOpenProviders={() => {
-          closeSidebarForNavigation('instant');
-          openSettings('providers');
-        }}
-        onOpenUsageStats={() => setCommandSurface('stats')}
+        onOpenSettings={openRailSettings}
+        onOpenProviders={openRailProviders}
+        onOpenUsageStats={openUsageStats}
         onPrefetchSettings={warmSettingsView}
-        navigationItems={workbenchSideLayout.layout.left.flat().flatMap((id) => {
-          const descriptor = sideViewDescriptors.get(id);
-          return descriptor ? [descriptor] : [];
-        })}
+        navigationItems={navigationItems}
         activeNavigationId={sidebarOpen ? activeSideViews.left : null}
-        onSelectNavigation={selectWorkbenchSideView}
+        onSelectNavigation={selectSideView}
       />
       <WorkbenchSidePanel
         side="left"
@@ -122,12 +142,9 @@ export function AppSidebarDrawer({
             <StarterGuide
               descriptors={sideViewDescriptors}
               onboardingActive={onboardingActive}
-              onOpenView={selectWorkbenchSideView}
-              onOpenSettings={(section) => {
-                closeSidebarForNavigation('instant');
-                openSettings(section);
-              }}
-              onCloseSettings={() => setSettingsOpen(false)}
+              onOpenView={selectSideView}
+              onOpenSettings={openSettingsFromRail}
+              onCloseSettings={closeSettings}
             />
           )
         }

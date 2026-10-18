@@ -7,6 +7,7 @@ import {
   type JobRow,
   type ShellStopState,
 } from './background-jobs-model';
+import { confirmText } from './confirm-text';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { formatWorkElapsed } from './transcript-primitives';
@@ -36,7 +37,7 @@ export function useShellStops(sessionId: string) {
         !window.confirm(
           t(
             'Release {{command}} anyway? Its processes may still be running; the folder will no longer be protected from them.',
-            { command: row.label }
+            { command: confirmText(row.label) }
           )
         )
       )

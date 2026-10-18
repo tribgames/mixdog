@@ -7,6 +7,9 @@ import {
 import type { TranscriptItem } from './desktop-types';
 import { asRecord } from './text-format';
 
+const NO_PENDING_PROMPTS: PendingPromptItem[] = [];
+const NO_PROMPT_IDS: string[] = [];
+
 /**
  * Cross-surface queue parity: ONE queue owns every prompt waiting behind an
  * active turn, whatever typed it. The moment the session runtime publishes a
@@ -42,16 +45,18 @@ export function useConversationQueue(
       ),
     [sessionQueuedIds, optimisticPrompts, settledItems]
   );
-  const transcriptPendingPromptItems = useMemo(
-    () => pendingPromptItems.filter((item) => !item.queuedBehindTurn),
-    [pendingPromptItems]
-  );
+  // Nothing pending is one shared empty list: a fresh `[]` on every settled
+  // change (each session switch) re-rendered the memoised composer.
+  const transcriptPendingPromptItems = useMemo(() => {
+    const items = pendingPromptItems.filter((item) => !item.queuedBehindTurn);
+    return items.length ? items : NO_PENDING_PROMPTS;
+  }, [pendingPromptItems]);
   const localQueuedPrompts = useMemo(
     () => pendingPromptItems.filter((item) => item.queuedBehindTurn),
     [pendingPromptItems]
   );
   const pendingPromptIds = useMemo(
-    () => transcriptPendingPromptItems.map((item) => item.id),
+    () => (transcriptPendingPromptItems.length ? transcriptPendingPromptItems.map((item) => item.id) : NO_PROMPT_IDS),
     [transcriptPendingPromptItems]
   );
   // The composer's reserved list = the session runtime queue plus the submits

@@ -21,7 +21,11 @@ import type {
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
+import { DESKTOP_READ_CAPABILITIES } from '../shared/contract';
 import { projectIdentity } from '../shared/project-identity';
+import { createBranchMenuCache } from './branch-menu-cache';
+import { createInFlightJoin, createProviderModelsCache } from './provider-models-cache';
+import { SLOW_READ_CAPABILITIES } from './remote-call-queue';
 import { isSessionMissingError } from './session-final-answer';
 import { reportTranscriptRead, transcriptReadTraceId } from '../shared/transcript-read-diagnostics';
 import { normalizeSessionTitle, promptTitle } from '../shared/session-title.mjs';
@@ -105,7 +109,17 @@ export interface SessionHostLifecycleOwner {
   publishCatalogs(): Promise<void>;
 }
 
+const READ_CAPABILITIES: ReadonlySet<string> = new Set(DESKTOP_READ_CAPABILITIES);
+/** Quota and usage sweeps (seconds each): the window and every phone ask for
+ *  them together at boot and on each refresh, and identical concurrent
+ *  requests join the one already running instead of sweeping again. */
+const SHARED_CONTROL_READS = SLOW_READ_CAPABILITIES;
+
 export class SessionHostLifecycle {
+  private readonly branchMenus = createBranchMenuCache();
+  private readonly providerModels = createProviderModelsCache<DesktopModelOption[]>();
+  private readonly controlReads = createInFlightJoin();
+
   constructor(private readonly owner: SessionHostLifecycleOwner) {}
 
   private blankSnapshot(cwd: string, projectPath: string | null): SessionSnapshot {
@@ -816,10 +830,22 @@ export class SessionHostLifecycle {
   }
 
   async listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
-    return normalizedProviderModels(await this.owner.invokeControl('listProviderModels', [options]));
+    const models = await this.providerModels.read(options, async () =>
+      normalizedProviderModels(await this.owner.invokeControl('listProviderModels', [options]))
+    );
+    return copyCapabilityValue(models) as DesktopModelOption[];
+  }
+
+  /** A provider, a setting or a route changed outside a capability call of
+   *  this host: no reused read answers for the state before it. */
+  invalidateReadCaches(): void {
+    this.providerModels.clear();
+    this.branchMenus.clear();
   }
 
   async setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot> {
+    // Catalog rows carry the saved parameters and context of each model.
+    this.providerModels.clear();
     const target = sessionId || (await this.owner.ensureControlSession());
     const { snapshot } = await this.owner.invokeSession(target, 'setRoute', [
       {
@@ -842,18 +868,47 @@ export class SessionHostLifecycle {
     sessionId?: string
   ): Promise<DesktopCapabilityResult<T>> {
     let result: { value: unknown; snapshot: SessionSnapshot };
+    const mutation = !READ_CAPABILITIES.has(capability);
+    // Whatever a mutation moves, no menu or catalog read before it answers
+    // after it: dropped before it starts and again once it settled.
+    if (mutation) this.invalidateReadCaches();
     try {
       const forwarded = await this.forwardedArgs(capability, args);
-      result = sessionId
-        ? await this.owner.invokeSession(sessionId, capability, forwarded)
-        : await this.owner.invokeControlResult(capability, forwarded);
+      const invoke = () =>
+        sessionId
+          ? this.owner.invokeSession(sessionId, capability, forwarded)
+          : this.owner.invokeControlResult(capability, forwarded);
+      if (capability === 'getBranchMenu' && sessionId) result = await this.sessionBranchMenu(sessionId, invoke);
+      else if (capability === 'getProjectBranchMenu' && !sessionId)
+        result = await this.branchMenus.read(`project:${JSON.stringify(forwarded)}`, '', invoke);
+      else if (!sessionId && SHARED_CONTROL_READS.has(capability))
+        result = await this.controlReads.run(`result:${capability}:${JSON.stringify(forwarded)}`, invoke);
+      else result = await invoke();
     } catch (error) {
       throw worktreeErrorWithCode(error);
+    } finally {
+      if (mutation) this.invalidateReadCaches();
     }
     return {
       value: copyCapabilityValue(result.value) as T,
       snapshot: result.snapshot,
     };
+  }
+
+  /** A session's branch menu, reused while its workspace revision and the
+   *  menu's git files hold still (branch-menu-cache.ts). A reused answer
+   *  carries the session's current projection, as an unchanged read does. */
+  private async sessionBranchMenu(
+    sessionId: string,
+    invoke: () => Promise<{ value: unknown; snapshot: SessionSnapshot }>
+  ): Promise<{ value: unknown; snapshot: SessionSnapshot }> {
+    const held = this.owner.publication.projections.get(sessionId)?.snapshot;
+    const workspace = held?.workspace;
+    // Without a projection this host cannot see the session move: never reuse.
+    const guard = held ? JSON.stringify([workspace?.revision ?? null, workspace?.cwd ?? null]) : null;
+    const result = await this.branchMenus.read(`session:${sessionId}`, guard, invoke);
+    const current = this.owner.publication.projections.get(sessionId)?.snapshot;
+    return current ? { value: result.value, snapshot: this.owner.snapshotWithRemoteSession(current) } : result;
   }
 
   /** Arguments as the daemon receives them. `skillsStatus({ projectPath })`
@@ -895,13 +950,14 @@ export class SessionHostLifecycle {
     return Promise.all(
       requests.map(async (request): Promise<DesktopCapabilityReadResult> => {
         try {
+          const forwarded = await this.forwardedArgs(request.capability, request.args || []);
+          const read = () => this.owner.invokeControl(request.capability, forwarded);
           return {
             ok: true,
             value: copyCapabilityValue(
-              await this.owner.invokeControl(
-                request.capability,
-                await this.forwardedArgs(request.capability, request.args || [])
-              )
+              SHARED_CONTROL_READS.has(request.capability)
+                ? await this.controlReads.run(`value:${request.capability}:${JSON.stringify(forwarded)}`, read)
+                : await read()
             ),
           };
         } catch (error) {

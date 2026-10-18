@@ -63,7 +63,7 @@ export type TranscriptRowModel =
       turnChanges?: TurnChangesRef;
     };
 
-export function isCompletionTranscriptItem(item: TranscriptItem | undefined): boolean {
+function isCompletionTranscriptItem(item: TranscriptItem | undefined): boolean {
   return item?.kind === 'statusdone' || item?.kind === 'turndone';
 }
 
@@ -521,10 +521,10 @@ export function appendLiveTranscriptRows({
   // A delayed lane can briefly publish a tail whose id has already settled.
   // Never create a second stable-key row for that stale publication.
   const liveItemAlreadySettled = liveItem?.id != null && settled.hasSettledItem(liveItem.id);
-  // A streaming reply with no word to paint yet (only an unfinished first
-  // word) opens no row: its row takes a line and moves the band below it, so
-  // the followed transcript moved up before any reply text painted. It opens
-  // with the arrival that completes a word, which it paints in that commit.
+  // A streaming reply with nothing to paint yet (only whitespace or markdown
+  // markers) opens no row: its row takes a line and moves the band below it,
+  // so the followed transcript moved up before any reply text painted. It
+  // opens with the first text that shows, which it paints in that commit.
   const liveItemPaintsNothing =
     liveItem?.kind === 'assistant' && Boolean(liveItem.streaming) && !streamingTextPaints(String(liveItem.text || ''));
   if (liveItem && !liveItemAlreadySettled && !liveItemPaintsNothing) {
