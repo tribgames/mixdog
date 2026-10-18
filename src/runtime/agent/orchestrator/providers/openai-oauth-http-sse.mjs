@@ -195,6 +195,7 @@ export async function sendViaHttpSse({
     body,
     onToolCall,
     onTextDelta,
+    onStreamItemStart: typeof opts?.onStreamItemStart === 'function' ? opts.onStreamItemStart : null,
     meaningful,
     onServerEvent: watchdogs.noteServerEvent,
     label,

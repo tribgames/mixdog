@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { setImmediate } from 'node:timers/promises';
 import test from 'node:test';
 import { routeFastKey } from '../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
-import { createProviderModels } from './provider-models.mjs';
+import { pendingProviderCatalogOps } from '../runtime/agent/orchestrator/providers/catalog-deadline.mjs';
+import { createProviderModels, PARTIAL_CATALOG_RETRY_MS } from './provider-models.mjs';
 
 // The catalog paths provider-cache-lifecycle.test.mjs leaves alone: row
 // hydration from saved model settings, the web-search catalog (quick rows →
@@ -14,6 +15,9 @@ const DEFAULT_ROW = { id: 'default', provider: 'default', display: 'Default' };
 function fixture({
   config = {},
   models = [{ id: 'chat-model', supportsWebSearch: true }, { id: 'plain-model' }],
+  extraProviders = [],
+  revision = 7,
+  providerCatalogTimeoutMs,
 } = {}) {
   const calls = { listModels: 0, refresh: 0, ready: 0 };
   const provider = {
@@ -27,8 +31,8 @@ function fixture({
     },
   };
   const registry = {
-    providerCatalogRevision: () => 7,
-    getAllProviders: () => new Map([['fixture', provider]]),
+    providerCatalogRevision: () => revision,
+    getAllProviders: () => new Map([['fixture', provider], ...extraProviders]),
     getProvider: () => provider,
   };
   const caches = {
@@ -65,6 +69,7 @@ function fixture({
         seen.add('default:default');
       },
     },
+    providerCatalogTimeoutMs,
   });
   return { api, caches, calls };
 }
@@ -183,4 +188,142 @@ test('only a quick read answered from the loaded catalog says it is complete', a
     warm.map((row) => [row.id, row.catalogComplete]),
     full.map((row) => [row.id, true])
   );
+});
+
+/** A provider whose model list stays pending until the test settles it. */
+function hangingProvider(models = [{ id: 'slow-model' }]) {
+  const slow = {
+    calls: 0,
+    signals: [],
+    pending: [],
+    hang: true,
+    listModels({ signal } = {}) {
+      slow.calls += 1;
+      slow.signals.push(signal);
+      if (!slow.hang) return Promise.resolve(models);
+      const request = Promise.withResolvers();
+      slow.pending.push(request);
+      return request.promise;
+    },
+    answer: () => {
+      for (const request of slow.pending.splice(0)) request.resolve(models);
+    },
+  };
+  return slow;
+}
+
+test('a hanging provider yields a timely partial catalog that is reused, then filled in by a later retry', async (t) => {
+  const slow = hangingProvider();
+  const { api, caches, calls } = fixture({
+    extraProviders: [['slow', slow]],
+    revision: 8101,
+    providerCatalogTimeoutMs: 50,
+  });
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+
+  const startedAt = performance.now();
+  const partial = await api.collectProviderModels();
+  assert.ok(performance.now() - startedAt < 2_000, 'the hanging provider is bounded by its timeout');
+  assert.deepEqual(
+    partial.map((row) => row.id),
+    ['chat-model', 'plain-model']
+  );
+  // The full answer says it is partial, which providers are missing and when
+  // to ask again.
+  assert.deepEqual(
+    partial.map((row) => [row.catalogPartial, row.catalogMissing, row.catalogRetryAt]),
+    partial.map(() => [true, ['slow'], 1_000_000 + PARTIAL_CATALOG_RETRY_MS])
+  );
+  assert.equal(caches.providerModelsCache.partial, true);
+  assert.deepEqual(caches.providerModelsCache.missing, ['slow']);
+  assert.equal(caches.providerModelsCache.retryAt, 1_000_000 + PARTIAL_CATALOG_RETRY_MS);
+
+  // Inside the retry window the partial catalog is served without a reload,
+  // and a quick read from it does not claim to be complete.
+  await api.collectProviderModels();
+  const quick = await api.collectProviderModels({ quick: true });
+  assert.equal(
+    quick.some((row) => row.catalogComplete),
+    false
+  );
+  assert.equal(
+    quick.every((row) => row.catalogPartial === true),
+    true
+  );
+  assert.equal(slow.calls, 1);
+  assert.equal(calls.listModels, 1);
+  assert.equal(caches.providerModelsPromise, null);
+
+  // After the window a read still answers from the partial rows at once and
+  // retries only the missing provider in the background. While its first,
+  // timed-out list is still pending the retry fails fast instead of starting
+  // a second list or waiting out another deadline.
+  t.mock.timers.tick(PARTIAL_CATALOG_RETRY_MS);
+  const stale = await api.collectProviderModels();
+  assert.deepEqual(
+    stale.map((row) => row.id),
+    ['chat-model', 'plain-model']
+  );
+  assert.ok(caches.providerModelsPromise, 'the retry runs in the background');
+  await caches.providerModelsPromise;
+  assert.equal(slow.calls, 1);
+  assert.equal(caches.providerModelsCache.partial, true);
+
+  // Once that list settles and the provider is back, the next retry fills it in.
+  slow.hang = false;
+  slow.answer();
+  await setImmediate();
+  t.mock.timers.tick(PARTIAL_CATALOG_RETRY_MS);
+  await api.collectProviderModels();
+  await caches.providerModelsPromise;
+  assert.equal(slow.calls, 2);
+  assert.equal(calls.listModels, 1, 'providers that answered are not asked again');
+  assert.equal(caches.providerModelsCache.partial, undefined);
+  const filled = await api.collectProviderModels();
+  assert.deepEqual(
+    filled.map((row) => row.id),
+    ['chat-model', 'plain-model', 'slow-model']
+  );
+  assert.equal(
+    filled.some((row) => 'catalogPartial' in row),
+    false
+  );
+});
+
+test('a forced read asks every healthy provider while a partial catalog is cached', async (t) => {
+  const slow = hangingProvider();
+  const { api, caches, calls } = fixture({
+    extraProviders: [['slow', slow]],
+    revision: 8102,
+    providerCatalogTimeoutMs: 50,
+  });
+  t.mock.timers.enable({ apis: ['Date'], now: 2_000_000 });
+  await api.collectProviderModels();
+  assert.equal(caches.providerModelsCache.partial, true);
+  const forced = await api.collectProviderModels({ force: true });
+  assert.deepEqual(
+    forced.map((row) => row.id),
+    ['chat-model', 'plain-model']
+  );
+  assert.equal(calls.listModels, 2);
+  assert.equal(caches.providerModelsCache.partial, true);
+  slow.answer();
+});
+
+test('repeated timed-out reads leave at most one pending list per provider, and the timeout aborts it', async () => {
+  const slow = hangingProvider();
+  const { api } = fixture({ extraProviders: [['slow', slow]], revision: 8103, providerCatalogTimeoutMs: 200 });
+  for (let i = 0; i < 4; i += 1) await api.collectProviderModels({ force: true });
+  assert.equal(slow.calls, 1, 'no second list starts while the first is pending');
+  // Later reads fail fast on the overdue list instead of each waiting it out.
+  const startedAt = performance.now();
+  await api.collectProviderModels({ force: true });
+  assert.ok(performance.now() - startedAt < 100, 'well under the 200ms deadline');
+  assert.equal(pendingProviderCatalogOps().filter((name) => name === 'slow').length, 1);
+  assert.equal(slow.signals[0]?.aborted, true, 'the deadline cancels a list that honors its signal');
+  slow.answer();
+  await setImmediate();
+  assert.equal(pendingProviderCatalogOps().includes('slow'), false);
+  await api.collectProviderModels({ force: true });
+  assert.equal(slow.calls, 2, 'a settled list frees the provider for the next read');
 });

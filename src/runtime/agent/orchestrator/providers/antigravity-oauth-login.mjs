@@ -36,8 +36,7 @@ import {
 
 const ONBOARD_INTERVAL_MS = 1_000;
 const CALLBACK_FAILURE_HTML = oauthErrorHtml(
-  'Antigravity sign-in was not completed.',
-  'Return to Mixdog for the error details and any account verification link.'
+  'Antigravity sign-in was not completed. Return to Mixdog for the error details and any account verification link.'
 );
 
 function extractProjectId(payload) {

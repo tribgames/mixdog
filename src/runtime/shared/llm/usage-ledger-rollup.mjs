@@ -292,20 +292,27 @@ function mergeLegacyDays(db, { days, hourly, hourlyDay, fromDay, toDay }) {
  * Compaction requests run under their own provider session id but are
  * recorded under the source session, so this is the whole conversation
  * across compactions. The same route choice as a rollup applies: a gateway
- * summary never doubles a detail record.
+ * summary never doubles a detail record. `ownerIds` adds every session
+ * recorded as run for one of them (a Lead's agents, theirs in turn).
  */
-export function readSessionUsage(db, sessionIds) {
+export function readSessionUsage(db, sessionIds, ownerIds = []) {
   const total = empty();
   const rows = db
     .prepare(`
-            WITH mine AS (
+            WITH RECURSIVE owned(id) AS (
+                SELECT o.session FROM usage_session_owners o JOIN usage_sessions s ON s.id=o.owner
+                WHERE s.value IN (SELECT value FROM json_each(?))
+                UNION
+                SELECT o.session FROM usage_session_owners o JOIN owned ON o.owner=owned.id
+            ), mine AS (
                 SELECT day,route,COUNT(*) AS turns,SUM(input) AS input,SUM(output) AS output,
                     SUM(cache_read) AS cache_read,SUM(cache_write) AS cache_write,
                     SUM(cost_usd) AS cost_usd,SUM(duration_ms) AS duration_ms,
                     SUM(CASE WHEN duration_ms>0 AND output>0 THEN output ELSE 0 END) AS speed_output,
                     SUM(CASE WHEN duration_ms>0 AND output>0 THEN duration_ms ELSE 0 END) AS speed_ms
                 FROM usage_events WHERE session IN (
-                    SELECT id FROM usage_sessions WHERE value IN (SELECT value FROM json_each(?)))
+                    SELECT id FROM usage_sessions WHERE value IN (SELECT value FROM json_each(?))
+                    UNION SELECT id FROM owned)
                 GROUP BY day,route
             ), attributed AS (
                 SELECT printf('%04d-%02d-%02d',m.day/10000,(m.day/100)%100,m.day%100) AS day,
@@ -320,7 +327,7 @@ export function readSessionUsage(db, sessionIds) {
             )
             SELECT a.* FROM attributed a JOIN (${best}) b USING(day,provider,model,rank)
         `)
-    .all(JSON.stringify(sessionIds), '0000-01-01', '9999-12-31');
+    .all(JSON.stringify(ownerIds), JSON.stringify(sessionIds), '0000-01-01', '9999-12-31');
   let speedOutput = 0;
   let speedMs = 0;
   for (const row of rows) {

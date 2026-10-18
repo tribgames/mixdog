@@ -186,7 +186,7 @@ export async function parseSSEStream(
   state,
   onTextDelta,
   knownToolNames,
-  { relayProgressUpdates = false, labels = OAUTH_STREAM_LABELS } = {}
+  { relayProgressUpdates = false, labels = OAUTH_STREAM_LABELS, onStreamItemStart = null } = {}
 ) {
   // Anthropic/Claude parity: every received SSE byte proves transport
   // activity, including comment and named ping keepalives. Content kinds
@@ -208,6 +208,7 @@ export async function parseSSEStream(
     knownToolNames,
     relayProgressUpdates,
     labels,
+    onStreamItemStart,
   });
   const watchdogs = createAnthropicSseWatchdogs({
     state,

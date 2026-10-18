@@ -379,7 +379,10 @@ test('a corrupt legacy rollup keeps other usage available and retries after repa
     assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, 3);
     assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM legacy_days').get().n, 0);
   }
-  assert.equal(warnings.some((line) => line.includes('warning') && line.includes(legacyPath)), true);
+  assert.equal(
+    warnings.some((line) => line.includes('warning') && line.includes(legacyPath)),
+    true
+  );
   assert.equal(readFileSync(legacyPath, 'utf8'), '{broken');
   writeFileSync(legacyPath, legacyRollup(2));
   const repaired = await api.getUsageStats({ days: null });
@@ -436,7 +439,10 @@ test('missing and valid empty legacy rollups complete the import without a warni
       const { ledger, warnings, api } = legacyStatsApi(t, dir);
       assert.equal((await api.getUsageStats({ days: null })).totals.turns, 0);
       assert.equal(ledger.get('importedThrough'), String(now));
-      assert.equal(warnings.some((line) => line.includes('usage-rollup.local.json')), false);
+      assert.equal(
+        warnings.some((line) => line.includes('usage-rollup.local.json')),
+        false
+      );
       assert.deepEqual(await importUsageHistory(ledger, dir, { now, readTrace: async () => [] }), { skipped: true });
     });
   }
@@ -453,7 +459,10 @@ test('legacy storage errors are not mistaken for an unreadable rollup', async (t
   });
   await assert.rejects(api.getUsageStats({ days: null }), (error) => error === failure);
   assert.equal(ledger.get('importedThrough'), null);
-  assert.equal(warnings.some((line) => line.includes('usage-rollup.local.json')), false);
+  assert.equal(
+    warnings.some((line) => line.includes('usage-rollup.local.json')),
+    false
+  );
 });
 
 test('import skips blank PG usage fields, deduplicates raw copies, preserves originals and source precedence', async (t) => {

@@ -869,7 +869,8 @@ async function measureUsage(provider, providerObj, routeInfo) {
       provider === 'cursor-api' ||
       provider === 'antigravity-oauth' ||
       provider === 'muse-code-oauth' ||
-      provider === 'command-code-oauth') &&
+      provider === 'command-code-oauth' ||
+      provider === 'opencode-go-oauth') &&
     typeof providerObj?.getUsageSnapshot === 'function'
   ) {
     return await providerObj.getUsageSnapshot();

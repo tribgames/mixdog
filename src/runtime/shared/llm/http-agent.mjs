@@ -75,8 +75,8 @@ function proxyConfigured() {
  * The shared singleton dispatcher for LLM API requests. Created on first use.
  *
  * keepAliveTimeout (~60s) keeps a socket warm across the typical idle gap
- * between agent turns; connections caps concurrent sockets per origin so a
- * burst of parallel calls can't open an unbounded number of handshakes.
+ * between agent turns; sockets per origin are unbounded unless
+ * MIXDOG_LLM_CONNECTIONS sets a cap.
  *
  * Returns `undefined` when a proxy / any custom (non-default) global dispatcher
  * is configured, so `fetch({ dispatcher: undefined })` falls back to that
@@ -93,7 +93,11 @@ export function getLlmDispatcher() {
     _agent = new (undici().Agent)({
       keepAliveTimeout: envInt('MIXDOG_LLM_KEEPALIVE_MS', 60_000),
       keepAliveMaxTimeout: envInt('MIXDOG_LLM_KEEPALIVE_MAX_MS', 90_000),
-      connections: envInt('MIXDOG_LLM_CONNECTIONS', 16),
+      // No per-origin socket cap by default: each streaming (SSE) response
+      // holds its HTTP/1.1 socket for the whole generation, so a cap of N
+      // queued the (N+1)th concurrent agent until another finished. Rate
+      // limiting is the server's call (429 → admission cooldown).
+      connections: envInt('MIXDOG_LLM_CONNECTIONS', null),
       // undici defaults both of these to 300s, which beheaded the Anthropic
       // NON-STREAMING stall fallback (2026-08-03 regex-chess probe:
       // UND_ERR_HEADERS_TIMEOUT at exactly 300s) — a non-streaming completion

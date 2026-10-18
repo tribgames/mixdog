@@ -9,13 +9,6 @@ export const OPENAI_COMPAT_PRESETS = {
     baseURL: 'https://api.x.ai/v1',
     defaultModel: 'grok-4.5',
   },
-  // OpenCode Go - low-cost coding-model subscription gateway.
-  'opencode-go': {
-    baseURL: 'https://opencode.ai/inference/go/v1',
-    defaultModel: 'glm-5.2',
-    // The gateway expects an application User-Agent (not the SDK default).
-    extraHeaders: { 'User-Agent': 'mixdog' },
-  },
   openrouter: {
     baseURL: 'https://openrouter.ai/api/v1',
     defaultModel: 'openrouter/auto',

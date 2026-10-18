@@ -5,8 +5,9 @@
  */
 import { createOutputItemEvents } from './response-events/output-items.mjs';
 import { createTerminalFrameEvents } from './response-events/terminal-frames.mjs';
+import { reportStreamItemStart, responsesItemStart } from '../lib/send-callbacks.mjs';
 
-export function createResponseEvents({ state, items, text, outcome, meaningful, onServerEvent }) {
+export function createResponseEvents({ state, items, text, outcome, meaningful, onServerEvent, onStreamItemStart }) {
   const output = createOutputItemEvents({ state, items, meaningful });
   const terminal = createTerminalFrameEvents({ state, items, text, outcome, meaningful });
 
@@ -34,6 +35,7 @@ export function createResponseEvents({ state, items, text, outcome, meaningful, 
         break;
       case 'response.output_item.added':
         output.onOutputItemAdded(event.item);
+        reportStreamItemStart(onStreamItemStart, responsesItemStart(event.item));
         break;
       case 'response.function_call_arguments.delta':
       case 'response.custom_tool_call_input.delta':
@@ -54,6 +56,8 @@ export function createResponseEvents({ state, items, text, outcome, meaningful, 
         break;
       case 'response.output_item.done':
         output.onOutputItemDone(event.item || {});
+        // A stream that names the phase only on the finished message.
+        if (event.item?.type === 'message') reportStreamItemStart(onStreamItemStart, responsesItemStart(event.item));
         break;
       case 'response.completed':
         terminal.onCompleted(event);

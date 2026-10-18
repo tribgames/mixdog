@@ -8,6 +8,7 @@
 import { theme } from '../theme.mjs';
 import { displayModelName, effortDisplayLabel } from '../../runtime/shared/model-display.mjs';
 import { isRollingModelAlias } from '../../runtime/shared/model-alias.mjs';
+import { describeError } from '../../runtime/shared/error-presentation.mjs';
 import { DAYBREAK_PROVIDER, daybreakBlueOn } from '../../runtime/shared/llm/openai-daybreak.mjs';
 
 export const parsedModelVersion = (id) => {
@@ -183,7 +184,7 @@ const PROVIDER_DISPLAY_NAMES = new Map([
   ['xai-api', 'xAI API'],
   ['deepseek', 'DeepSeek API'],
   ['deepseek-api', 'DeepSeek API'],
-  ['opencode-go', 'OpenCode Go API'],
+  ['opencode-go-oauth', 'OpenCode Go OAuth'],
   ['openrouter', 'OpenRouter'],
   ['mixdog-local', 'Local Provider'],
   ['default', 'Default'],
@@ -220,6 +221,42 @@ export const loadProviderDisplayNames = async (store) => {
   return names;
 };
 
+/** `{ id, text }` for each provider whose model list failed, with the reason
+ *  (the setup row's `catalogError`) and what to do about it. */
+export const loadProviderCatalogFailures = async (store) => {
+  let setup = null;
+  try {
+    setup = await store?.getProviderSetup?.();
+  } catch {
+    return [];
+  }
+  const failures = [];
+  for (const group of ['api', 'oauth', 'local']) {
+    for (const entry of Array.isArray(setup?.[group]) ? setup[group] : []) {
+      const failure = entry?.catalogError;
+      if (!failure?.message) continue;
+      const { summary, recovery } = describeError({ message: failure.message, errorKind: failure.errorKind });
+      failures.push({ id: String(entry.id || '').trim(), text: [summary, recovery].filter(Boolean).join(' ') });
+    }
+  }
+  return failures;
+};
+
+/** Provider-list rows for failed providers that have no model rows, so an
+ *  empty provider says why instead of being absent. */
+export const buildCatalogFailureItems = (failures, models, providerNames = null) =>
+  failures
+    .filter(({ id }) => id && !models.some((model) => model.provider === id))
+    .map(({ id, text }) => ({
+      value: `provider-failed:${id}`,
+      label: resolveProviderDisplayName(id, providerNames),
+      marker: '!',
+      markerColor: theme.error,
+      description: text,
+      _action: 'catalog-failed',
+      _failure: text,
+    }));
+
 const PROVIDER_DISPLAY_RANKS = {
   default: 0,
   'openai-oauth': 10,
@@ -230,7 +267,7 @@ const PROVIDER_DISPLAY_RANKS = {
   'mimo-oauth': 34,
   'antigravity-oauth': 31,
   'cursor-oauth': 32,
-  'opencode-go': 35,
+  'opencode-go-oauth': 34.5,
   openai: 40,
   'openai-api': 40,
   anthropic: 50,

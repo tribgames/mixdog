@@ -242,7 +242,7 @@ function providerDescription(id, group) {
       return 'MiMo Token Plan subscription quota';
     case 'antigravity-oauth':
       return 'Antigravity subscription quota';
-    case 'opencode-go':
+    case 'opencode-go-oauth':
       return 'OpenCode Go subscription quota';
     case 'openai':
       return 'OpenAI API billing';
@@ -349,7 +349,7 @@ const PROVIDER_RANKS = {
   'mimo-oauth': 34,
   'cursor-oauth': 35,
   'antigravity-oauth': 36,
-  'opencode-go': 40,
+  'opencode-go-oauth': 38,
   openai: 50,
   anthropic: 60,
   deepseek: 70,

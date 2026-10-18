@@ -24,11 +24,26 @@ test('autoEffortCapable: custom Chat/Responses with levels on, without levels or
 
 test('savedAutoEffort exposes the saved per-model Auto effort choice next to savedFast', () => {
   const saved = (setting) =>
-    hydrateProviderModelRow({ ...cfg, modelSettings: { 'openai/gpt-5.5': setting } }, { provider: 'openai', id: 'gpt-5.5' })
-      .savedAutoEffort;
+    hydrateProviderModelRow(
+      { ...cfg, modelSettings: { 'openai/gpt-5.5': setting } },
+      { provider: 'openai', id: 'gpt-5.5' }
+    ).savedAutoEffort;
   assert.equal(saved({ fast: true }), undefined);
   assert.equal(saved({ autoEffort: false }), false);
   assert.equal(saved({ autoEffort: true }), true);
+});
+
+test('model management state rides every row: explicit visibility and the favorite mark', () => {
+  const row = (setting) =>
+    hydrateProviderModelRow(
+      { ...cfg, modelSettings: { 'openai/gpt-5.5': setting } },
+      { provider: 'openai', id: 'gpt-5.5' }
+    );
+  assert.equal('savedHidden' in row({ effort: 'high' }), false);
+  assert.equal('favorite' in row({ effort: 'high' }), false);
+  assert.equal(row({ hidden: true }).savedHidden, true);
+  assert.equal(row({ hidden: false }).savedHidden, false);
+  assert.equal(row({ favorite: true }).favorite, true);
 });
 
 test('a hydrated custom row keeps its contract fields', () => {

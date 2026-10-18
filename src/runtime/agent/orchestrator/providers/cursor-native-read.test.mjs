@@ -37,7 +37,7 @@ test('native read decodes display envelopes without swallowing marker-looking so
 });
 
 test('native read keeps range metadata separate from source and rejects ambiguous views', () => {
-  const out = reply('[lines 2-3]\nsecond\nthird\n[lines 2-3 of 5; pass offset:4 to continue]', {
+  const out = reply('[lines 2-3]\nsecond\nthird\n[lines 2-3 of 5; offset:4 for more]', {
     path: 'source.txt',
     offset: 2,
     limit: 2,

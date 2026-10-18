@@ -10,6 +10,7 @@
 //   row-hydration      — saved model settings layered onto catalog rows
 //   web-search-catalog — the native web-search model list
 //   catalog-load       — one authoritative provider catalog load
+import { PROVIDER_CATALOG_RETRY_MS } from './provider-catalog-cache.mjs';
 import { createCatalogLoader } from './provider-models/catalog-load.mjs';
 import { createModelMetaIndex, modelMetaKey } from './provider-models/model-meta.mjs';
 import { createRowHydration } from './provider-models/row-hydration.mjs';
@@ -18,6 +19,25 @@ import { createWebSearchCatalog } from './provider-models/web-search-catalog.mjs
 const PROVIDER_MODELS_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(
   String(process.env.MIXDOG_PROVIDER_MODELS_PROFILE || process.env.MIXDOG_BOOT_PROFILE || '')
 );
+
+/** How long a partial catalog (some provider failed or timed out) is served
+ *  as-is before a read retries the missing providers in the background. The
+ *  backoff is process-wide (provider-catalog-cache.mjs), not per session. */
+export const PARTIAL_CATALOG_RETRY_MS = PROVIDER_CATALOG_RETRY_MS;
+
+/** Rows of a partial answer say so explicitly, on quick and full reads alike:
+ *  `catalogPartial`, the `catalogMissing` providers and `catalogRetryAt`
+ *  (epoch ms) after which a reader should ask again. Complete answers carry
+ *  none of these. */
+function withCatalogState(models, partial) {
+  if (!partial) return models;
+  return models.map((row) => ({
+    ...row,
+    catalogPartial: true,
+    catalogMissing: [...partial.missing],
+    catalogRetryAt: partial.retryAt,
+  }));
+}
 
 export function createProviderModels({
   caches,
@@ -37,6 +57,8 @@ export function createProviderModels({
   scheduleProviderModelWarmup,
   // Quick-row helpers wired in after createQuickModelRows resolves.
   quickHelpers,
+  // Per-provider model-list bound; defaults to PROVIDER_CATALOG_TIMEOUT_MS.
+  providerCatalogTimeoutMs,
 }) {
   const config = () => getConfig();
   const route = () => getRoute();
@@ -66,15 +88,54 @@ export function createProviderModels({
     collectProviderModels,
     ...readiness,
   });
-  const loadProviderModelsFresh = createCatalogLoader({ caches, config, reg, meta, rows, profile, ...readiness });
+  const loadProviderModelsFresh = createCatalogLoader({
+    caches,
+    config,
+    reg,
+    meta,
+    rows,
+    profile,
+    providerTimeoutMs: providerCatalogTimeoutMs,
+    ...readiness,
+  });
+
+  // Partial-catalog state of a loaded rows array, for readers that joined the
+  // shared load instead of reading the adopted cache.
+  const partialLoads = new WeakMap();
+  const partialOf = (request) => (request.partial ? { missing: request.missing, retryAt: request.retryAt } : null);
 
   function adoptProviderModelCache(models, request, loadSecrets = true) {
     const revision = meta.syncCatalogRevision();
-    // No-secrets and failed loads may be partial. Keep them retryable rather
-    // than turning a transient failure into an authoritative empty catalog.
-    if (request.seq === caches.providerModelsLoadSeq && loadSecrets && request.complete) {
-      caches.providerModelsCache = { models, at: Date.now(), revision };
+    const partial = partialOf(request);
+    if (partial) partialLoads.set(models, partial);
+    if (request.seq !== caches.providerModelsLoadSeq || !loadSecrets) return;
+    const at = Date.now();
+    if (request.complete) {
+      caches.providerModelsCache = { models, at, revision };
+    } else if (partial) {
+      // Some providers answered. Serving that answer beats reloading every
+      // provider on each read while one is down; it stays marked partial and
+      // its missing providers are retried once the shared backoff passes. A
+      // no-secrets, empty or all-failed load stays uncached and retryable
+      // rather than becoming an authoritative empty catalog.
+      caches.providerModelsCache = { models, at, revision, partial: true, ...partial };
     }
+  }
+
+  /** Background refill of a partial catalog: only its missing providers are
+   *  asked again (provider-catalog-cache keeps the ones that answered, and
+   *  holds back providers still inside the shared backoff), and readers keep
+   *  the partial rows until the refill lands. */
+  function refillPartialCatalog(cached) {
+    if (!cached.partial || Date.now() < cached.retryAt || caches.providerModelsPromise) return;
+    profile('partial:retry', { missing: cached.missing.join(',') });
+    startSharedLoad({
+      loadSecrets: true,
+      onFailed: (err) => {
+        profile('partial:retry-failed', { error: err instanceof Error ? err.message : String(err) });
+        return cached.models;
+      },
+    });
   }
 
   /** The shared in-flight load every concurrent reader joins. `onFailed`, when
@@ -97,13 +158,17 @@ export function createProviderModels({
 
   async function collectProviderModels({ force = false, quick = false } = {}) {
     meta.syncCatalogRevision();
-    if (!force && Array.isArray(caches.providerModelsCache.models)) {
-      const models = rows.providerModelsFromCacheRows(caches.providerModelsCache.models);
+    const cached = caches.providerModelsCache;
+    if (!force && Array.isArray(cached.models)) {
+      refillPartialCatalog(cached);
+      const models = rows.providerModelsFromCacheRows(cached.models);
       // A quick read answered from the loaded catalog already IS the full
       // catalog. Saying so lets a caller skip the full read it would otherwise
       // follow up with (a phone paid the whole catalog twice at boot). Only
       // this answer carries the mark: a full read is complete by definition,
-      // and an unmarked quick answer keeps meaning "follow up".
+      // and an unmarked quick answer keeps meaning "follow up". A partial
+      // catalog is never marked complete; it carries its partial state.
+      if (cached.partial) return withCatalogState(models, cached);
       return quick ? models.map((row) => ({ ...row, catalogComplete: true })) : models;
     }
     if (!force && quick) {
@@ -117,10 +182,11 @@ export function createProviderModels({
       const request = { seq: ++caches.providerModelsLoadSeq };
       const models = await loadProviderModelsFresh({ forceRefresh: true, loadSecrets: true, request });
       adoptProviderModelCache(models, request);
-      return rows.providerModelsFromCacheRows(models);
+      return withCatalogState(rows.providerModelsFromCacheRows(models), partialOf(request));
     }
     if (!caches.providerModelsPromise) startSharedLoad({ loadSecrets: true });
-    return rows.providerModelsFromCacheRows(await caches.providerModelsPromise);
+    const loaded = await caches.providerModelsPromise;
+    return withCatalogState(rows.providerModelsFromCacheRows(loaded), partialLoads.get(loaded));
   }
 
   function warmProviderModelCache({ loadSecrets = false } = {}) {

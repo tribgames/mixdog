@@ -11,7 +11,7 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
-import { OAUTH_PAGE_CONTENT_TYPE, oauthSuccessHtml } from './lib/oauth-page.mjs';
+import { OAUTH_PAGE_CONTENT_TYPE, oauthErrorHtml, oauthSuccessHtml } from './lib/oauth-page.mjs';
 import { openLoginUrl } from './lib/open-login-url.mjs';
 
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
@@ -44,7 +44,8 @@ function _scrubOAuthLoginBody(text) {
 export function createOpenAIOAuthLogin(deps) {
   const { clientId, originator, extractAccountId, identityFromTokens, expiryFromAccessToken, saveTokens } = deps;
 
-  async function exchangeAuthorizationCode({ pkce, code }) {
+  async function exchangeAuthorizationCode({ pkce, code, signal = null }) {
+    signal?.throwIfAborted();
     const cleanCode = String(code || '').trim();
     if (!cleanCode) throw new Error('[openai-oauth] authorization code is required');
     const tokenRes = await fetch(TOKEN_URL, {
@@ -58,7 +59,9 @@ export function createOpenAIOAuthLogin(deps) {
         code_verifier: pkce.verifier,
       }),
       redirect: 'error',
-      signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(TOKEN_TIMEOUT_MS)])
+        : AbortSignal.timeout(TOKEN_TIMEOUT_MS),
     });
     if (!tokenRes.ok) {
       const text = await tokenRes.text().catch(() => '');
@@ -78,6 +81,8 @@ export function createOpenAIOAuthLogin(deps) {
       account_id: extractAccountId(json.access_token),
       identity: identityFromTokens(json.id_token, json.access_token),
     };
+    // A cancelled login never stores the account it was exchanging.
+    signal?.throwIfAborted();
     saveTokens(tokens);
     return tokens;
   }
@@ -100,11 +105,30 @@ export function createOpenAIOAuthLogin(deps) {
     let server = null;
     let timeout = null;
     let finish = null;
+    let exchangePromise = null;
+    const controller = new AbortController();
+    // Browser and manual callbacks share one exchange: an authorization code is
+    // single-use, and a duplicate must not settle the login before the first.
+    const acceptCode = (code) => {
+      if (exchangePromise) return exchangePromise;
+      controller.signal.throwIfAborted();
+      // The browser deadline ends when a code arrives; the exchange has its own.
+      if (timeout) clearTimeout(timeout);
+      timeout = null;
+      exchangePromise = exchangeAuthorizationCode({ pkce, code, signal: controller.signal });
+      exchangePromise.then(
+        (tokens) => finish(tokens),
+        (err) => finish(null, err instanceof Error ? err : new Error(String(err)))
+      );
+      return exchangePromise;
+    };
     const waitForCallback = new Promise((resolve, reject) => {
       let settled = false;
       finish = (value, error = null) => {
         if (settled) return;
         settled = true;
+        // Work arriving after the login settled (or was cancelled) is rejected.
+        controller.abort();
         if (timeout) clearTimeout(timeout);
         try {
           server?.close();
@@ -122,19 +146,25 @@ export function createOpenAIOAuthLogin(deps) {
           return;
         }
         const code = u.searchParams.get('code');
-        if (!code || u.searchParams.get('state') !== state) {
-          res.writeHead(400);
-          res.end('Invalid');
-          finish(null);
+        const stateMatches = u.searchParams.get('state') === state;
+        if (!code || !stateMatches) {
+          res.writeHead(400, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
+          res.end(oauthErrorHtml('The sign-in callback was invalid or did not match this login.'));
+          // A request for another login is rejected alone; this login's
+          // legitimate callback may still arrive.
+          if (stateMatches && !exchangePromise) finish(null);
           return;
         }
-        res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
-        res.end(oauthSuccessHtml('OpenAI'));
         try {
-          const tokens = await exchangeAuthorizationCode({ pkce, code });
-          finish(tokens);
-        } catch (err) {
-          finish(null, err instanceof Error ? err : new Error(String(err)));
+          await acceptCode(code);
+          // The login settles (closing the server) before this response is
+          // written; do not leave a keep-alive connection bound to it.
+          res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE, Connection: 'close' });
+          res.end(oauthSuccessHtml('OpenAI'));
+        } catch {
+          // The shared exchange reports its error through waitForCallback.
+          res.writeHead(500, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE, Connection: 'close' });
+          res.end(oauthErrorHtml('OpenAI could not complete the token exchange.'));
         }
       });
       timeout = setTimeout(() => finish(null), LOGIN_TIMEOUT_MS);
@@ -161,9 +191,8 @@ export function createOpenAIOAuthLogin(deps) {
       completeCode: async (input) => {
         const parsed = parseOAuthCodeInput(input, { allowHashState: true });
         if (parsed.state && parsed.state !== state) throw new Error('[openai-oauth] OAuth state mismatch');
-        const tokens = await exchangeAuthorizationCode({ pkce, code: parsed.code });
-        finish?.(tokens);
-        return tokens;
+        if (!parsed.code) throw new Error('[openai-oauth] authorization code is required');
+        return await acceptCode(parsed.code);
       },
       cancel: () => {
         finish?.(null);

@@ -22,6 +22,7 @@ export function createCompatStreamState({
   onStreamDelta,
   onToolCall,
   onTextDelta,
+  onStreamItemStart,
 }) {
   const toolDedupe = createToolCallDedupe();
   return {
@@ -30,6 +31,7 @@ export function createCompatStreamState({
     onStreamDelta,
     onToolCall,
     onTextDelta,
+    onStreamItemStart,
     semanticIdleDeadlineAt: 0,
     sawFirstEvent: false,
     content: '',
@@ -86,7 +88,7 @@ export function isIncompleteFinishReason(finishReason) {
 
 /** Whether `finish_reason` confirms a normal end of the turn: present, not an
  *  incomplete outcome and not a gateway-reported failure (network_error/error). */
-export function isNormalFinishReason(finishReason) {
+function isNormalFinishReason(finishReason) {
   return (
     Boolean(finishReason) && !isIncompleteFinishReason(finishReason) && !failingFinishReasonError(finishReason, '')
   );

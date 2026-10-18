@@ -5,6 +5,7 @@
 // registry import and the provider-models factory resolve after this gate is
 // created, while ensureProvidersReady only reaches them on demand.
 import { bootProfile } from './boot-profile.mjs';
+import { invalidateSharedProviderCatalog } from './provider-catalog-cache.mjs';
 import { providerInitCacheKey } from './provider-init-key.mjs';
 
 const KEYCHAIN_PREWARM_WAIT_MS = 5000;
@@ -52,6 +53,9 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
   const providerInitPromises = new Map();
 
   function invalidateProviderCaches(options = {}) {
+    // Auth/account/config changes alter what providers list: the process-wide
+    // catalog (partial rows and retry backoffs included) starts a new epoch.
+    invalidateSharedProviderCatalog();
     Object.assign(providerModelCaches, emptyModelCaches());
     providerModelCaches.providerModelsLoadSeq += 1;
     Object.assign(providerUsageCaches, emptyUsageCaches());

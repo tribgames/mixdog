@@ -14,6 +14,7 @@ import { truncatedCompatStreamError, parseCompletedToolCallArgumentsJson } from 
 import { incompleteReasonFromEvent, isMaxOutputIncompleteReason } from './lib/responses-terminal-fields.mjs';
 import { responsesUsage } from './openai-compat-response-normalization.mjs';
 import { normalizeGatewayErrorDetail } from './provider-error-kind.mjs';
+import { reportStreamItemStart, responsesItemStart } from './lib/send-callbacks.mjs';
 
 // An incomplete response was still billed: carry its reported usage on the
 // error so the provider-boundary accounting records it.
@@ -194,6 +195,7 @@ function onOutputItemAdded(event, state, ctx) {
     state.toolTracker?.mark(event.item);
     state.toolInFlight = true;
   }
+  reportStreamItemStart(ctx.onStreamItemStart, responsesItemStart(event.item));
   signal(ctx, state.toolInFlight ? 'tool' : 'semantic');
 }
 
@@ -249,7 +251,11 @@ function onRefusalDone(event, state, ctx) {
 
 function onOutputItemDone(event, state, ctx) {
   const item = event.item || {};
-  if (item.type === 'message') refusalsOf(state).absorbMessage(item);
+  if (item.type === 'message') {
+    refusalsOf(state).absorbMessage(item);
+    // A stream that names the phase only on the finished item.
+    reportStreamItemStart(ctx.onStreamItemStart, responsesItemStart(item));
+  }
   if (item.type === 'function_call') {
     const itemId = reconcileCompatFunctionCallItem(state, item, ctx.label, ctx.onToolCall);
     // Drop the resolved function item from pendingCalls before

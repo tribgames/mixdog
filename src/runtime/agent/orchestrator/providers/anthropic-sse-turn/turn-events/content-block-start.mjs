@@ -8,6 +8,7 @@ import {
   NATIVE_SERVER_TOOL_RESULT_BLOCK_TYPES,
 } from '../../lib/anthropic-native-blocks.mjs';
 import { parseAnthropicFallbackBlock } from '../../anthropic-server-fallback.mjs';
+import { reportStreamItemStart } from '../../lib/send-callbacks.mjs';
 
 // Detach the provider payload from the parser's event object without altering
 // any field (opaque server-tool result payloads must round-trip byte-exact).
@@ -19,7 +20,7 @@ function cloneNativeBlock(block) {
   }
 }
 
-export function createContentBlockStart({ turn, blocks, state, progress, seedText }) {
+export function createContentBlockStart({ turn, blocks, state, progress, seedText, onStreamItemStart }) {
   const seedThinkingBlock = (index, block) => {
     if (block.type === 'redacted_thinking') {
       // Opaque redacted payload: real reasoning content, exposed as a block.
@@ -59,6 +60,8 @@ export function createContentBlockStart({ turn, blocks, state, progress, seedTex
         name: block.name || '',
         inputJson: '',
       });
+      // The call opened; its input still streams before onToolCall.
+      reportStreamItemStart(onStreamItemStart, { kind: 'tool' });
     }
     if (block?.type === 'text') {
       // Seed the ordered text slot. An empty block still needs its slot (it

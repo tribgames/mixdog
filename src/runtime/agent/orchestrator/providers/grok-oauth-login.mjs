@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
-import { OAUTH_PAGE_CONTENT_TYPE, oauthSuccessHtml } from './lib/oauth-page.mjs';
+import { OAUTH_PAGE_CONTENT_TYPE, oauthErrorHtml, oauthSuccessHtml } from './lib/oauth-page.mjs';
 import { emailFromJwts } from './lib/oauth-token-utils.mjs';
 import {
   CLIENT_ID,
@@ -26,7 +26,8 @@ export function generatePKCE() {
   return createOAuthPkce();
 }
 
-export async function exchangeAuthorizationCode({ discovery, pkce, code }) {
+export async function exchangeAuthorizationCode({ discovery, pkce, code, signal = null }) {
+  signal?.throwIfAborted();
   const cleanCode = String(code || '').trim();
   if (!cleanCode) throw new Error('[grok-oauth] authorization code is required');
   const tokenRes = await fetch(discovery.token_endpoint, {
@@ -47,7 +48,9 @@ export async function exchangeAuthorizationCode({ discovery, pkce, code }) {
     // Secret-bearing (authorization code + verifier): refuse
     // redirects so they can't be replayed to an untrusted host.
     redirect: 'error',
-    signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(TOKEN_TIMEOUT_MS)])
+      : AbortSignal.timeout(TOKEN_TIMEOUT_MS),
     dispatcher: getLlmDispatcher(),
   });
   if (!tokenRes.ok) {
@@ -72,6 +75,8 @@ export async function exchangeAuthorizationCode({ discovery, pkce, code }) {
       ? { email: emailFromJwts(json.id_token, json.access_token) }
       : {}),
   };
+  // A cancelled login never stores the account it was exchanging.
+  signal?.throwIfAborted();
   saveTokens(tokens);
   return tokens;
 }
@@ -96,11 +101,30 @@ export async function beginOAuthLogin({ openBrowser = true } = {}) {
   let server = null;
   let timeout = null;
   let finish = null;
+  let exchangePromise = null;
+  const controller = new AbortController();
+  // Browser and manual callbacks share one exchange: an authorization code is
+  // single-use, and a duplicate must not settle the login before the first.
+  const acceptCode = (code) => {
+    if (exchangePromise) return exchangePromise;
+    controller.signal.throwIfAborted();
+    // The browser deadline ends when a code arrives; the exchange has its own.
+    if (timeout) clearTimeout(timeout);
+    timeout = null;
+    exchangePromise = exchangeAuthorizationCode({ discovery, pkce, code, signal: controller.signal });
+    exchangePromise.then(
+      (tokens) => finish(tokens),
+      (err) => finish(null, err instanceof Error ? err : new Error(String(err)))
+    );
+    return exchangePromise;
+  };
   const waitForCallback = new Promise((resolve, reject) => {
     let settled = false;
     finish = (value, error = null) => {
       if (settled) return;
       settled = true;
+      // Work arriving after the login settled (or was cancelled) is rejected.
+      controller.abort();
       if (timeout) clearTimeout(timeout);
       try {
         server?.close();
@@ -120,17 +144,18 @@ export async function beginOAuthLogin({ openBrowser = true } = {}) {
       const code = u.searchParams.get('code');
       if (!code || u.searchParams.get('state') !== state) {
         // Reject this request only; the valid callback may still arrive.
-        res.writeHead(400);
-        res.end('Invalid');
+        res.writeHead(400, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
+        res.end(oauthErrorHtml('The sign-in callback was invalid or did not match this login.'));
         return;
       }
-      res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
-      res.end(oauthSuccessHtml('Grok'));
       try {
-        const tokens = await exchangeAuthorizationCode({ discovery, pkce, code });
-        finish(tokens);
-      } catch (err) {
-        finish(null, err instanceof Error ? err : new Error(String(err)));
+        await acceptCode(code);
+        res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
+        res.end(oauthSuccessHtml('Grok'));
+      } catch {
+        // The shared exchange reports its error through waitForCallback.
+        res.writeHead(500, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
+        res.end(oauthErrorHtml('Grok could not complete the token exchange.'));
       }
     });
     timeout = setTimeout(() => finish(null), LOGIN_TIMEOUT_MS);
@@ -161,9 +186,8 @@ export async function beginOAuthLogin({ openBrowser = true } = {}) {
     completeCode: async (input) => {
       const parsed = parseOAuthCodeInput(input, { allowHashState: true });
       if (parsed.state && parsed.state !== state) throw new Error('[grok-oauth] OAuth state mismatch');
-      const tokens = await exchangeAuthorizationCode({ discovery, pkce, code: parsed.code });
-      finish?.(tokens);
-      return tokens;
+      if (!parsed.code) throw new Error('[grok-oauth] authorization code is required');
+      return await acceptCode(parsed.code);
     },
     cancel: () => {
       finish?.(null);

@@ -243,6 +243,7 @@ async function streamCompatResponses({ provider, params, label, signal, opts, he
             onStreamDelta: opts.onStreamDelta,
             onToolCall: opts.onToolCall,
             onTextDelta: opts.onTextDelta,
+            onStreamItemStart: opts.onStreamItemStart,
             parseResponsesToolCalls,
             responseOutputText,
             knownToolNames: knownToolNamesFromResponsesTools(params.tools),

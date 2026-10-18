@@ -65,6 +65,15 @@ import {
   loginOAuth as loginCommandCodeOAuth,
 } from '../../runtime/agent/orchestrator/providers/command-code-oauth-login.mjs';
 import {
+  describeOpenCodeGoOAuthCredentials,
+  forgetOpenCodeGoOAuthCredentials,
+  hasOpenCodeGoOAuthCredentials,
+} from '../../runtime/agent/orchestrator/providers/opencode-go-oauth-tokens.mjs';
+import {
+  beginOAuthLogin as beginOpenCodeGoOAuthLogin,
+  loginOAuth as loginOpenCodeGoOAuth,
+} from '../../runtime/agent/orchestrator/providers/opencode-go-oauth-login.mjs';
+import {
   beginCursorOAuthLogin,
   describeCursorOAuthCredentials,
   forgetCursorOAuthCredentials,
@@ -101,7 +110,6 @@ import {
 } from '../../runtime/agent/orchestrator/providers/custom-provider-config.mjs';
 
 const API_PROVIDERS = Object.freeze([
-  Object.freeze({ id: 'opencode-go', name: 'OpenCode Go API', env: 'OPENCODE_API_KEY', url: 'https://opencode.ai' }),
   Object.freeze({ id: 'openrouter', name: 'OpenRouter', env: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys' }),
   Object.freeze({
     id: 'openai',
@@ -175,6 +183,16 @@ const OAUTH_PROVIDERS = Object.freeze([
     forget: forgetCommandCodeOAuthCredentials,
     begin: beginCommandCodeOAuthLogin,
     login: loginCommandCodeOAuth,
+  }),
+  Object.freeze({
+    id: 'opencode-go-oauth',
+    name: 'OpenCode Go OAuth',
+    desc: 'Sign in with your OpenCode account (OpenCode Go subscription)',
+    has: hasOpenCodeGoOAuthCredentials,
+    describe: describeOpenCodeGoOAuthCredentials,
+    forget: forgetOpenCodeGoOAuthCredentials,
+    begin: beginOpenCodeGoOAuthLogin,
+    login: loginOpenCodeGoOAuth,
   }),
   Object.freeze({
     id: 'mimo-oauth',
@@ -381,7 +399,7 @@ export function isCustomProviderConfig(entry) {
   return Boolean(entry) && typeof entry === 'object' && entry.type === 'custom';
 }
 
-export function isCustomProviderId(id) {
+function isCustomProviderId(id) {
   return CUSTOM_ID_RE.test(String(id || ''));
 }
 
@@ -552,7 +570,11 @@ async function modelProxyProviderSetup(options) {
         // Signed in but switched off on the desktop.
         else if (!enabled && authState === 'present') status = 'Off';
         return {
-          id, name, group, type, enabled,
+          id,
+          name,
+          group,
+          type,
+          enabled,
           authenticated,
           usable,
           ...(group === 'local' ? { detected: enabled } : {}),
@@ -847,6 +869,10 @@ export function listProviderAccounts(provider) {
       let identity = null;
       if (typeof auth.email === 'string' && auth.email.trim()) identity = auth.email.trim();
       else if (typeof auth.accountId === 'string' && auth.accountId.trim()) identity = auth.accountId.trim();
+      // An organization-scoped login names the organization it acts for.
+      if (typeof auth.orgName === 'string' && auth.orgName.trim()) {
+        identity = identity ? `${identity} · ${auth.orgName.trim()}` : auth.orgName.trim();
+      }
       return {
         id: row.id,
         label: row.label,
@@ -1128,6 +1154,69 @@ export async function updateCustomProviderModel(cfgMod, rawId, rawModelId, patch
   return customProviderRow(id, saved);
 }
 
+const MODEL_PREFERENCE_KEYS = new Set(['model', 'hidden', 'favorite']);
+export const MODEL_PREFERENCE_CHANGES_MAX = 5_000;
+
+function modelPreferenceChanges(raw) {
+  if (!Array.isArray(raw) || raw.length > MODEL_PREFERENCE_CHANGES_MAX) {
+    throw new TypeError('model preference changes are invalid');
+  }
+  return raw.map((change) => {
+    plainPatch(change, MODEL_PREFERENCE_KEYS, 'model preference change');
+    const model = typeof change.model === 'string' ? change.model.trim() : '';
+    if (!model) throw new TypeError('model id is required');
+    for (const key of ['hidden', 'favorite']) {
+      if (change[key] !== undefined && typeof change[key] !== 'boolean') {
+        throw new TypeError(`model preference ${key} is invalid`);
+      }
+    }
+    return { model, hidden: change.hidden, favorite: change.favorite };
+  });
+}
+
+/**
+ * The model management card's save for one provider: whether each model is
+ * listed in /model (`hidden`) and whether it is a favorite. Both live in the
+ * shared per-model store `modelSettings["provider/model"]` — except a custom
+ * provider's visibility, which stays its own `modelOverrides[id].hidden`, the
+ * store its edit dialog, the runtime catalog and SSH servers already honor.
+ * `hidden: false` is an explicit choice (it also lists a model the family
+ * limit would leave out); an absent field keeps the stored value.
+ */
+export function saveModelPreferences(cfgMod, rawProvider, rawChanges) {
+  const provider = String(rawProvider || '').trim();
+  const changes = modelPreferenceChanges(rawChanges);
+  const full = cfgMod.loadConfig();
+  if (!isKnownProvider(provider, full)) throw new TypeError(`unknown provider "${provider}"`);
+  const custom = isCustomProviderId(provider);
+  const modelSettings = { ...(full.modelSettings || {}) };
+  for (const { model, hidden, favorite } of changes) {
+    const key = `${provider}/${model}`;
+    const setting = { ...(modelSettings[key] || {}) };
+    if (hidden !== undefined && !custom) setting.hidden = hidden;
+    if (favorite === true) setting.favorite = true;
+    else if (favorite === false) delete setting.favorite;
+    if (Object.keys(setting).length) modelSettings[key] = setting;
+    else delete modelSettings[key];
+  }
+  const next = { ...full, modelSettings };
+  const customHidden = custom ? changes.filter((change) => change.hidden !== undefined) : [];
+  if (customHidden.length) {
+    requireLocalProviderManagement();
+    const entry = full.providers[provider];
+    const current = normalizeStoredCustomConfig(entry);
+    const overrides = new Map(Object.entries(current.modelOverrides || {}));
+    for (const { model, hidden } of customHidden) overrides.set(model, { ...overrides.get(model), hidden });
+    const config = normalizeStoredCustomConfig({ ...current, modelOverrides: Object.fromEntries(overrides) });
+    next.providers = {
+      ...full.providers,
+      [provider]: { ...config, type: 'custom', enabled: entry.enabled !== false },
+    };
+  }
+  cfgMod.saveConfig(next, { baseConfig: full });
+  return { provider, changed: changes.length, customCatalogChanged: customHidden.length > 0 };
+}
+
 // Drops every stored model setting and route that names the provider.
 function withoutProviderReferences(config, id) {
   const next = { ...config };
@@ -1233,23 +1322,6 @@ export async function saveOpenAIUsageSessionKey(cfgMod, secret) {
   await saveSecretAsync(SECRET_ACCOUNTS.openaiUsageSessionKey, value);
   updateConfigProvider(cfgMod, 'openai', { enabled: true });
   return { provider: 'openai', type: 'usage-auth', authenticated: true };
-}
-
-export async function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
-  requireLocalProviderManagement();
-  const secret = String(apiKey || '').trim();
-  if (!secret) throw new Error('OpenCode console API key is required for usage lookup');
-  // Subscription meters are read with a console service-account key holding the
-  // `all` permission. The console accepts no other credential for them, so
-  // rejecting anything else here keeps unusable auth out of the keychain.
-  if (!/^(?:oc_sk_|sk-)/.test(secret))
-    throw new Error('OpenCode usage auth must be a console API key (oc_sk_… or sk-…) with all permissions');
-  await saveSecretAsync(SECRET_ACCOUNTS.opencodeGoConsoleKey, secret);
-  // Usage auth may be a different key from the inference key. Only flip the
-  // model provider on when a model key actually exists; otherwise usage-only
-  // setups get routed to the provider with apiKey 'no-key' and fail with 401s.
-  if (getAgentApiKey('opencode-go')) updateConfigProvider(cfgMod, 'opencode-go', { enabled: true });
-  return { provider: 'opencode-go', type: 'usage-auth', authenticated: true };
 }
 
 export async function forgetProviderAuth(cfgModOrProvider, maybeProvider, requestedAccountId) {

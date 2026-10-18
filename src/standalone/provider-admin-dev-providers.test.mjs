@@ -11,10 +11,19 @@ process.env.MIXDOG_CONFIG_READ_TTL_MS = '0';
 process.env.MIXDOG_USER_DATA_BACKUP_ROOT = join(dir, 'backups');
 
 const { updateSection } = await import('../runtime/shared/config.mjs');
-const { providerSetup, providerStatus, isKnownProvider, listProviderAccounts } = await import('../session-runtime/services/provider-admin.mjs');
+const { providerSetup, providerStatus, isKnownProvider, listProviderAccounts } = await import(
+  '../session-runtime/services/provider-admin.mjs'
+);
 
 const DEV = ['mimo-oauth', 'cursor-oauth', 'antigravity-oauth'];
-const BASE = ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth'];
+const BASE = [
+  'openai-oauth',
+  'anthropic-oauth',
+  'grok-oauth',
+  'muse-code-oauth',
+  'command-code-oauth',
+  'opencode-go-oauth',
+];
 const setDeveloper = (developer) => updateSection('agent', (current) => ({ ...current, developer }));
 const oauthIds = async () =>
   (await providerSetup({}, { checkSecrets: false, detectLocal: false })).oauth.map((row) => row.id);

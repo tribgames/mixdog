@@ -71,6 +71,8 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       requestedModel: model,
       pricingModel: result.pricingModel,
       sessionId,
+      // The session this one runs for (an agent's Lead), kept with its spend.
+      ownerSessionId: opts.session?.ownerSessionId || opts.session?.parentSessionId,
       sourceType,
       inputTokens: usage.inputTokens,
       inputTokensKnown: usage.inputTokensKnown,

@@ -10,7 +10,6 @@
  * CLI route passed here.
  */
 import { readCachedOAuthUsageSnapshot } from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
-import { readCachedOpenCodeGoUsageSnapshot } from '../runtime/agent/orchestrator/providers/opencode-go-usage.mjs';
 import { buildGatewayLimits } from '../runtime/agent/orchestrator/providers/statusline-route-meta.mjs';
 import { formatGatewayLimitSegments, loadGatewayStatus } from '../vendor/statusline/bin/statusline-route.mjs';
 import { createSessionStats } from './session-stats.mjs';
@@ -614,14 +613,11 @@ function refreshFallbackQuotaStatus(cacheKey, normalizedProvider, model) {
 // the route reports nothing worth a segment.
 function fallbackQuotaValue(routeInfo, normalizedProvider) {
   let usageSnapshot = null;
-  if (normalizedProvider === 'opencode-go') {
-    usageSnapshot = readCachedOpenCodeGoUsageSnapshot();
-  } else if (normalizedProvider.includes('oauth')) {
+  if (normalizedProvider.includes('oauth')) {
     try {
       usageSnapshot = readCachedOAuthUsageSnapshot(routeInfo, { allowStale: true });
     } catch {}
   }
-  if (normalizedProvider === 'opencode-go' && !usageSnapshot) return null;
   // Boot guard: do not render previous-launch usage before the current
   // runtime has captured at least one snapshot. Once captured in this
   // process, keep it visible while idle even if refreshes are delayed.
@@ -647,7 +643,6 @@ function fallbackQuotaValue(routeInfo, normalizedProvider) {
 
 function providerKindForQuota(provider) {
   const p = String(provider || '').toLowerCase();
-  if (p === 'opencode-go') return 'quota-api';
   if (p.includes('oauth')) return 'oauth';
   if (p === 'mixdog-local') return 'local';
   return 'api';

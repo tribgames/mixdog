@@ -13,7 +13,6 @@ export const AGENT_PROVIDER_ENV = Object.freeze({
   gemini: 'GEMINI_API_KEY',
   deepseek: 'DEEPSEEK_API_KEY',
   xai: 'XAI_API_KEY',
-  'opencode-go': 'OPENCODE_API_KEY',
   openrouter: 'OPENROUTER_API_KEY',
 });
 

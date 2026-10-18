@@ -69,6 +69,10 @@ export function hydrateProviderModelRow(cfg, row) {
     savedModelParameters: saved.modelParameters || {},
     savedContextPercent: Number(saved.contextPercent) || undefined,
     savedContextTokens: Number(saved.contextTokens) || undefined,
+    // Model management: an explicit /model visibility choice and the favorite
+    // mark (absent = the picker's default listing, not a favorite).
+    ...(typeof saved.hidden === 'boolean' ? { savedHidden: saved.hidden } : {}),
+    ...(saved.favorite === true ? { favorite: true } : {}),
   };
 }
 

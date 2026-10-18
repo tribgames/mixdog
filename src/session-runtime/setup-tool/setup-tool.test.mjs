@@ -371,7 +371,7 @@ function catalogExecutor(rows) {
 }
 
 test('list_models: provider index, compact paged rows, and single-model detail', async () => {
-  const many = Array.from({ length: 30 }, (_, i) => catalogRow('opencode-go', `m${String(i).padStart(2, '0')}`));
+  const many = Array.from({ length: 30 }, (_, i) => catalogRow('deepseek', `m${String(i).padStart(2, '0')}`));
   const rows = [
     ...many,
     catalogRow('openai', 'gpt-x', {
@@ -391,23 +391,23 @@ test('list_models: provider index, compact paged rows, and single-model detail',
 
   const index = await run(executor, { action: 'list_models' });
   assert.deepEqual(index.providers, [
-    { provider: 'opencode-go', count: 30, defaultModel: 'glm-5.2' },
+    { provider: 'deepseek', count: 30, defaultModel: 'deepseek-v4-pro' },
     { provider: 'openai', count: 1 },
     { provider: 'other', count: 1 },
   ]);
   assert.deepEqual(calls[0], ['all', { refresh: false }]);
 
-  const first = await run(executor, { action: 'list_models', catalog: { provider: 'opencode-go' } });
+  const first = await run(executor, { action: 'list_models', catalog: { provider: 'deepseek' } });
   assert.equal(first.total, 30);
   assert.equal(first.page, 1);
   assert.equal(first.pages, 2);
   assert.equal(first.nextPage, 2);
   assert.equal(first.models.length, 25);
   assert.deepEqual(first.models[0], { id: 'm00', display: 'm00 display', context: 200000, efforts: ['low', 'high'] });
-  const second = await run(executor, { action: 'list_models', catalog: { provider: 'opencode-go', page: 2, limit: 25 } });
+  const second = await run(executor, { action: 'list_models', catalog: { provider: 'deepseek', page: 2, limit: 25 } });
   assert.deepEqual(second.models.map((row) => row.id), ['m25', 'm26', 'm27', 'm28', 'm29']);
   assert.equal(second.nextPage, undefined);
-  const small = await run(executor, { action: 'list_models', catalog: { provider: 'opencode-go', limit: 10, page: 3 } });
+  const small = await run(executor, { action: 'list_models', catalog: { provider: 'deepseek', limit: 10, page: 3 } });
   assert.equal(small.models.length, 10);
   assert.equal(small.models[0].id, 'm20');
 

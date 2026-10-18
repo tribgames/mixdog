@@ -70,8 +70,7 @@ export function answerOAuthCallback(req, res, { redirectUrl, state, finish, serv
     });
     res.end(html);
   };
-  const invalid = () =>
-    page(400, oauthErrorHtml('This sign-in link is invalid or has expired.', 'Start the sign-in again from Mixdog.'));
+  const invalid = () => page(400, oauthErrorHtml('This sign-in link is invalid or has expired.'));
   let target;
   try {
     target = new URL(req.url || '/', redirectUrl);
@@ -94,7 +93,7 @@ export function answerOAuthCallback(req, res, { redirectUrl, state, finish, serv
   const server = serverName || 'the MCP server';
   if (target.searchParams.has('error')) {
     // The authorization server's error text is never reflected.
-    page(400, oauthErrorHtml(`Sign-in to ${server} was not completed.`, 'Start the sign-in again from Mixdog.'));
+    page(400, oauthErrorHtml(`Sign-in to ${server} was not completed.`));
     finish(undefined);
     return;
   }

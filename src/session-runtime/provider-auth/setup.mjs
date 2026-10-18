@@ -4,6 +4,7 @@
 import { refreshKeychainStatus, retryKeychain } from '../../runtime/shared/config.mjs';
 import { keychainIssueFor } from '../services/provider-admin.mjs';
 import { modelProxyClientMode } from '../../runtime/shared/model-proxy-mode.mjs';
+import { providerCatalogFailure } from '../../runtime/agent/orchestrator/providers/catalog-failures.mjs';
 
 // The keyring alert must reflect the live state (it can lock or unlock while a
 // cached setup is served), so overlay it on every ready read.
@@ -12,6 +13,22 @@ function withLiveKeychain(setup) {
   const { keychain: _stale, ...rest } = setup;
   const keychain = keychainIssueFor(true);
   return keychain ? { ...rest, keychain } : rest;
+}
+
+// A provider whose model list failed says why on its row (`catalogError`), so a
+// view never shows its empty list as if nothing were wrong. Overlaid on every
+// read like the keyring alert: the cached setup predates the failure.
+export function withCatalogErrors(setup) {
+  if (!setup || typeof setup !== 'object') return setup;
+  const out = { ...setup };
+  for (const group of ['api', 'oauth', 'local']) {
+    if (!Array.isArray(setup[group])) continue;
+    out[group] = setup[group].map((row) => {
+      const { message, errorKind } = providerCatalogFailure(row?.id) ?? {};
+      return message ? { ...row, catalogError: { message, errorKind } } : row;
+    });
+  }
+  return out;
 }
 
 export function createSetupApi({
@@ -41,7 +58,7 @@ export function createSetupApi({
         void Promise.resolve(awaitKeychainPrewarm())
           .then(() => cachedProviderSetup({}))
           .catch(() => {});
-        return { ...quick, pendingSecrets: !isKeychainPrewarmReady() };
+        return withCatalogErrors({ ...quick, pendingSecrets: !isKeychainPrewarmReady() });
       }
       await awaitKeychainPrewarm();
       // A keyring the user has since unlocked: rebuild the setup that was cached
@@ -53,7 +70,7 @@ export function createSetupApi({
       // `recheckKeychain` (window focus) skips the snapshot TTL.
       const changed = await refreshKeychainStatus({ force: options?.recheckKeychain === true });
       if (changed) reloadFullConfig();
-      return withLiveKeychain(await cachedProviderSetup({ force: force || recovered || changed }));
+      return withCatalogErrors(withLiveKeychain(await cachedProviderSetup({ force: force || recovered || changed })));
     },
     async getUsageDashboard(options = {}) {
       return await getUsageDashboard(options);

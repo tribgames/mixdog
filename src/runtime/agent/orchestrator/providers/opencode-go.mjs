@@ -1,10 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { AnthropicProvider } from './anthropic.mjs';
-import { OpenAICompatProvider, OPENAI_COMPAT_PRESETS } from './openai-compat.mjs';
+import { OpenAICompatProvider } from './openai-compat.mjs';
 import { getModelMetadataSync, getModelsDevRowSync } from './model-catalog.mjs';
-import { toInclusiveUsage, withInclusiveUsage } from './lib/inclusive-usage.mjs';
+import { withInclusiveUsage } from './lib/inclusive-usage.mjs';
 import { providerOffersWire, resolveWireRoute, sendOnRoute } from './wire-route.mjs';
 import { gatewayMessagesOpts } from './wire-gateway.mjs';
+
+// The OpenCode Go gateway engines. Not a registered provider: the
+// `opencode-go-oauth` provider (opencode-go-oauth.mjs) runs its requests here
+// on the account's OAuth access token. `opencode-go` stays the engines' internal
+// wire/catalog id.
+const GO_GATEWAY_PRESET = Object.freeze({
+  baseURL: 'https://opencode.ai/inference/go/v1',
+  // The gateway expects an application User-Agent (not the SDK default).
+  extraHeaders: Object.freeze({ 'User-Agent': 'mixdog' }),
+});
 
 // The Go Anthropic route: the shared request builder gets the model's output
 // ceiling (models.dev limit) through the gateway options.
@@ -21,7 +31,7 @@ class OpenCodeGoMessagesEngine extends AnthropicProvider {
 // is the authoritative wire selector; wire-route.mjs holds the cold-catalog
 // prefix fallback. `@ai-sdk/google` names the Gemini generateContent wire
 // (opencode-go-gemini.mjs).
-const WIRE_API_BY_NPM = Object.freeze({
+export const WIRE_API_BY_NPM = Object.freeze({
   '@ai-sdk/openai': 'responses',
   '@ai-sdk/anthropic': 'messages',
   '@ai-sdk/openai-compatible': 'chat',
@@ -33,7 +43,7 @@ function openCodeGoCatalogWire(model) {
   return typeof npm === 'string' && Object.hasOwn(WIRE_API_BY_NPM, npm) ? WIRE_API_BY_NPM[npm] : null;
 }
 
-function resolveOpenCodeGoWireRoute(model, ctx = {}) {
+export function resolveOpenCodeGoWireRoute(model, ctx = {}) {
   const catalogWire = openCodeGoCatalogWire(model);
   // Each Go model answers on the one wire the catalog names: it narrows the
   // offered endpoints, so an override cannot pick a wire the model lacks.
@@ -51,8 +61,7 @@ export function isAnthropicGoModel(model) {
 }
 
 export function resolveOpenCodeGoBaseURLs(configuredBaseURL) {
-  const presetBase = OPENAI_COMPAT_PRESETS['opencode-go'].baseURL;
-  const openai = String(configuredBaseURL || presetBase).replace(/\/+$/, '');
+  const openai = String(configuredBaseURL || GO_GATEWAY_PRESET.baseURL).replace(/\/+$/, '');
   // Anthropic's SDK appends `/v1/messages` itself. Supplying the OpenAI base
   // (`.../v1`) would therefore produce the invalid `.../v1/v1/messages`.
   const anthropic = openai.replace(/\/v1$/i, '');
@@ -66,9 +75,6 @@ export function openCodeGoEndpointForModel(model, configuredBaseURL) {
   if (wire === 'responses') return `${bases.openai}/responses`;
   return `${bases.openai}/chat/completions`;
 }
-
-// The Messages route reports usage in the provider's inclusive convention.
-export const toInclusiveOpenCodeGoUsage = toInclusiveUsage;
 
 function opencodeGoContextWindow(modelId, current = 0) {
   const native = Number(current);
@@ -100,9 +106,12 @@ export class OpenCodeGoProvider {
     // lane. The delegated transports are intentionally not independently
     // wrapped, so all model-family routes share this one 64-wide account.
     this.config = config;
-    const preset = OPENAI_COMPAT_PRESETS['opencode-go'];
-    const bases = resolveOpenCodeGoBaseURLs(config.baseURL || preset.baseURL);
-    this.openai = new OpenAICompatProvider('opencode-go', { ...config, baseURL: bases.openai });
+    const bases = resolveOpenCodeGoBaseURLs(config.baseURL);
+    this.openai = new OpenAICompatProvider('opencode-go', {
+      ...config,
+      baseURL: bases.openai,
+      extraHeaders: { ...GO_GATEWAY_PRESET.extraHeaders, ...(config.extraHeaders || {}) },
+    });
     this.anthropic = new OpenCodeGoMessagesEngine({
       ...config,
       name: 'opencode-go',
@@ -110,7 +119,7 @@ export class OpenCodeGoProvider {
       disableBetaHeaders: true,
       // The preset's identifying headers (User-Agent) ride the Messages wire
       // too; the user's own headers win.
-      extraHeaders: { ...(preset.extraHeaders || {}), ...(config.extraHeaders || {}) },
+      extraHeaders: { ...GO_GATEWAY_PRESET.extraHeaders, ...(config.extraHeaders || {}) },
       modelMaxOutputTokens: (model) => this.getCachedModelInfo(model)?.outputTokens,
     });
     // The Anthropic route answers for this provider: PDFs lower to text.
@@ -163,7 +172,7 @@ export class OpenCodeGoProvider {
         ...this.config,
         baseURL: this.openai.baseURL,
         extraHeaders: {
-          ...(OPENAI_COMPAT_PRESETS['opencode-go'].extraHeaders || {}),
+          ...GO_GATEWAY_PRESET.extraHeaders,
           ...(this.config.extraHeaders || {}),
         },
       });

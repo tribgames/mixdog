@@ -21,12 +21,17 @@ const admin = {
   loginOAuthProvider: async (_cfg, providerId) => calls.push(['loginOAuth', providerId]) && 'logged-in',
   renderProviderStatus: (config) => ['status', config],
   saveOpenAIUsageSessionKey: (_cfg, secret) => calls.push(['saveUsageKey', secret]) && 'saved-usage',
-  saveOpenCodeGoUsageAuth: (_cfg, opts) => calls.push(['saveGoUsage', opts]) && 'saved-go',
   saveProviderApiKey: (_cfg, providerId, secret) => calls.push(['saveKey', providerId, secret]) && 'saved-key',
   saveCustomProvider: async (_cfg, input) => calls.push(['saveCustom', input]) && { id: 'custom-1' },
   removeCustomProvider: (_cfg, id) => calls.push(['removeCustom', id]) && { provider: id },
   updateCustomProviderModel: async (_cfg, id, modelId, patch) =>
     calls.push(['updateCustomModel', id, modelId, patch]) && { id },
+  saveModelPreferences: (_cfg, provider, changes) =>
+    calls.push(['modelPreferences', provider, changes]) && {
+      provider,
+      changed: changes.length,
+      customCatalogChanged: provider.startsWith('custom-'),
+    },
   testCustomProvider: async (_cfg, input) => calls.push(['testCustom', input]) && { ok: true },
   checkCustomProviderKeyEnv: (name) => ({ found: name === 'SET_VAR' }),
   discoverCustomProviderModels: async (_cfg, input) => calls.push(['discoverCustom', input]) && { models: [] },
@@ -131,6 +136,14 @@ test('custom provider save/remove refresh like credential changes; removal drops
   assert.deepEqual(await api.updateCustomProviderModel('custom-1', 'm', { hidden: null }), { id: 'custom-1' });
   assert.deepEqual(calls[0], ['updateCustomModel', 'custom-1', 'm', { hidden: null }]);
   calls.length = 0;
+  // Model management: built-in rows re-read modelSettings, so only the config
+  // reloads; a custom provider's hidden overrides refresh its catalog too.
+  api.setModelPreferences('openai', [{ model: 'm', favorite: true }]);
+  assert.deepEqual(calls, [['modelPreferences', 'openai', [{ model: 'm', favorite: true }]], ['reload']]);
+  calls.length = 0;
+  api.setModelPreferences('custom-1', [{ model: 'm', hidden: true }]);
+  assert.ok(calls.some(([name]) => name === 'invalidate'));
+  calls.length = 0;
   assert.deepEqual(await api.testCustomProvider({ a: 1 }), { ok: true });
   assert.deepEqual(api.checkCustomProviderKeyEnv('SET_VAR'), { found: true });
   assert.deepEqual(await api.discoverCustomProviderModels({ b: 2 }), { models: [] });
@@ -143,15 +156,7 @@ test('custom provider save/remove refresh like credential changes; removal drops
 test('usage-only credentials reload and invalidate without touching admission cooldowns', async () => {
   const api = fixture();
   assert.equal(await api.saveOpenAIUsageSessionKey('usage-1'), 'saved-usage');
-  assert.equal(await api.saveOpenCodeGoUsageAuth({ apiKey: 'oc_sk_test' }), 'saved-go');
-  assert.deepEqual(calls, [
-    ['saveUsageKey', 'usage-1'],
-    ['reload'],
-    ['invalidate'],
-    ['saveGoUsage', { apiKey: 'oc_sk_test' }],
-    ['reload'],
-    ['invalidate'],
-  ]);
+  assert.deepEqual(calls, [['saveUsageKey', 'usage-1'], ['reload'], ['invalidate']]);
 });
 
 test('beginOAuthProviderLogin wraps the callback wait and the code completion with the refresh chain', async () => {

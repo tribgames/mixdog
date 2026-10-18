@@ -96,6 +96,7 @@ export async function _streamResponse({
   onStreamDelta,
   onToolCall,
   onTextDelta,
+  onStreamItemStart = null,
   state,
   logSuppressedReasoningDeltas = true,
   traceProvider = 'openai-oauth',
@@ -236,6 +237,7 @@ export async function _streamResponse({
       progress,
       terminal,
       streamingStart,
+      onStreamItemStart,
     });
     handlers = createSocketHandlers({
       socket,

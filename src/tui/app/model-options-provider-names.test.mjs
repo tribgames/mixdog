@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildCatalogFailureItems,
   buildModelProviderItems,
+  loadProviderCatalogFailures,
   loadProviderDisplayNames,
   providerDisplayName,
   resolveProviderDisplayName,
@@ -30,6 +32,36 @@ test('resolveProviderDisplayName prefers setup names', () => {
   assert.equal(resolveProviderDisplayName(CUSTOM_ID, null), CUSTOM_ID);
   assert.equal(resolveProviderDisplayName('openai', {}), providerDisplayName('openai'));
   assert.equal(resolveProviderDisplayName('openai', { openai: 'Mine' }), providerDisplayName('openai'));
+});
+
+test('a provider whose model list failed gets a row that says why; one with models does not', async () => {
+  const setup = {
+    api: [
+      {
+        id: 'opencode-go',
+        catalogError: {
+          message: 'opencode-go models 401: This API key has expired.',
+          errorKind: { kind: 'auth', code: 'api_key_expired', status: 401 },
+        },
+      },
+      { id: 'openai', catalogError: { message: 'openai models 500', errorKind: { kind: 'transient', status: 500 } } },
+      { id: 'xai' },
+    ],
+    oauth: [],
+    local: [],
+  };
+  const failures = await loadProviderCatalogFailures({ getProviderSetup: async () => setup });
+  assert.deepEqual(
+    failures.map((failure) => failure.id),
+    ['opencode-go', 'openai']
+  );
+  assert.equal(failures[0].text, 'Provider authentication failed Check your sign-in or API key, then try again.');
+  const items = buildCatalogFailureItems(failures, models);
+  assert.deepEqual(
+    items.map((item) => [item.label, item._failure]),
+    [[providerDisplayName('opencode-go'), failures[0].text]]
+  );
+  assert.deepEqual(await loadProviderCatalogFailures({}), []);
 });
 
 test('loadProviderDisplayNames reads setup rows best-effort', async () => {

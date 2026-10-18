@@ -25,13 +25,22 @@ import { createResponseEvents } from './openai-http-sse-response-state/response-
  * @param {(text: string) => void} [deps.onTextDelta]
  * @param {(kind: string) => void} deps.meaningful  semantic progress (re-arms the idle watchdog)
  * @param {() => void} deps.onServerEvent  first-event → semantic-idle handover
+ * @param {(detail: object) => void} [deps.onStreamItemStart]  a tool call or phased message started
  */
-export function createHttpSseResponseState({ body, onToolCall, onTextDelta, meaningful, onServerEvent, label }) {
+export function createHttpSseResponseState({
+  body,
+  onToolCall,
+  onTextDelta,
+  onStreamItemStart = null,
+  meaningful,
+  onServerEvent,
+  label,
+}) {
   const state = createResponseState(label);
   const outcome = createResponseOutcome({ state });
   const items = createResponseItems({ state, onToolCall });
   const text = createTextRelay({ state, body, onTextDelta, meaningful, emitToolCall: items.emitToolCall });
-  const events = createResponseEvents({ state, items, text, outcome, meaningful, onServerEvent });
+  const events = createResponseEvents({ state, items, text, outcome, meaningful, onServerEvent, onStreamItemStart });
 
   return {
     handleEvent: events.handleEvent,

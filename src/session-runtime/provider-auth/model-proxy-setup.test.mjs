@@ -33,18 +33,24 @@ test('SSH setup uses PC availability through the session API and follows refresh
     openai: { enabled: false },
   };
   let requests = 0;
-  const attach = () => channel.attachPublisher((snapshot) => {
-    for (const { id } of snapshot.requests) {
-      const claim = channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id]);
-      if (!claim) continue;
-      requests++;
-      const payload = JSON.parse(claim.payload);
-      assert.equal(payload.method, 'providerConfig');
-      queueMicrotask(() => channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [
-        id, true, encodeModelProxyWire({ providers, ready: true }), null,
-      ]));
-    }
-  });
+  const attach = () =>
+    channel.attachPublisher((snapshot) => {
+      for (const { id } of snapshot.requests) {
+        const claim = channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id]);
+        if (!claim) continue;
+        requests++;
+        const payload = JSON.parse(claim.payload);
+        assert.equal(payload.method, 'providerConfig');
+        queueMicrotask(() =>
+          channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [
+            id,
+            true,
+            encodeModelProxyWire({ providers, ready: true }),
+            null,
+          ])
+        );
+      }
+    });
   let detach = attach();
   t.after(() => detach());
   const forbidden = () => assert.fail('SSH setup must not probe the server keychain or warm local credentials');
@@ -64,11 +70,14 @@ test('SSH setup uses PC availability through the session API and follows refresh
   assert.equal(first.managedByClient, true);
   assert.equal(first.keychain, undefined);
   assert.equal(first.pendingSecrets, undefined);
-  assert.deepEqual(first.oauth.map(({ id, authenticated, usable, status }) => ({ id, authenticated, usable, status })), [
-    { id: 'openai-oauth', authenticated: true, usable: true, status: 'Connected' },
-    { id: 'anthropic-oauth', authenticated: false, usable: false, status: 'Not connected' },
-    { id: 'cursor-oauth', authenticated: true, usable: true, status: 'Connected' },
-  ]);
+  assert.deepEqual(
+    first.oauth.map(({ id, authenticated, usable, status }) => ({ id, authenticated, usable, status })),
+    [
+      { id: 'openai-oauth', authenticated: true, usable: true, status: 'Connected' },
+      { id: 'anthropic-oauth', authenticated: false, usable: false, status: 'Not connected' },
+      { id: 'cursor-oauth', authenticated: true, usable: true, status: 'Connected' },
+    ]
+  );
   assert.equal(first.api[0].authenticated, false, 'server configuration cannot enable a PC provider');
   assert.doesNotMatch(JSON.stringify(first), /must-not-leak|private-account|access_token|accountId/);
   await api.getProviderSetup();
@@ -94,15 +103,22 @@ test('SSH setup uses PC availability through the session API and follows refresh
 
   detach();
   assert.deepEqual(await api.getProviderSetup(), {
-    managedByClient: true, unavailable: true, api: [], oauth: [], local: [],
+    managedByClient: true,
+    unavailable: true,
+    api: [],
+    oauth: [],
+    local: [],
   });
   providers = { 'cursor-oauth': { enabled: true } };
   detach = attach();
   const reconnected = await api.getProviderSetup();
-  assert.deepEqual(reconnected.oauth.map((row) => row.id), ['cursor-oauth'], 'respect the new PC/host allow-list');
+  assert.deepEqual(
+    reconnected.oauth.map((row) => row.id),
+    ['cursor-oauth'],
+    'respect the new PC/host allow-list'
+  );
   assert.equal(reconnected.unavailable, undefined);
 });
-
 
 test('SSH setup covers every built-in API, OAuth, local and custom provider, enabled and disabled', async (t) => {
   const prior = process.env.MIXDOG_MODEL_PROXY;
@@ -118,27 +134,51 @@ test('SSH setup covers every built-in API, OAuth, local and custom provider, ena
   const customProviders = ['openai-chat', 'openai-responses', 'anthropic'].flatMap((protocol, i) =>
     ['key', 'none'].map((auth, j) => ({
       id: `custom-00000000-0000-4000-8000-0000000000${i}${j}`,
-      type: 'custom', name: `${protocol} ${auth} gateway`, protocol, auth,
+      type: 'custom',
+      name: `${protocol} ${auth} gateway`,
+      protocol,
+      auth,
     }))
   );
   const groups = {
-    api: ['opencode-go', 'openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'xai', ...customProviders.map(({ id }) => id)],
-    oauth: ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth',
-      'mimo-oauth', 'cursor-oauth', 'antigravity-oauth'],
+    api: ['openrouter', 'openai', 'anthropic', 'gemini', 'deepseek', 'xai', ...customProviders.map(({ id }) => id)],
+    oauth: [
+      'openai-oauth',
+      'anthropic-oauth',
+      'grok-oauth',
+      'muse-code-oauth',
+      'command-code-oauth',
+      'mimo-oauth',
+      'cursor-oauth',
+      'antigravity-oauth',
+    ],
     local: ['mixdog-local'],
   };
   let enabled = true;
   const detach = channel.attachPublisher((snapshot) => {
     for (const { id } of snapshot.requests) {
       if (!channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id])) continue;
-      const providers = Object.fromEntries(Object.values(groups).flat().map((name) => [name, {
-        enabled,
-        ...(customProviders.find(({ id }) => id === name) || {}),
-        apiKey: 'secret-must-stay-on-desktop', accountId: 'private-identity',
-      }]));
-      queueMicrotask(() => channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [
-        id, true, encodeModelProxyWire({ providers, ready: true }), null,
-      ]));
+      const providers = Object.fromEntries(
+        Object.values(groups)
+          .flat()
+          .map((name) => [
+            name,
+            {
+              enabled,
+              ...(customProviders.find(({ id }) => id === name) || {}),
+              apiKey: 'secret-must-stay-on-desktop',
+              accountId: 'private-identity',
+            },
+          ])
+      );
+      queueMicrotask(() =>
+        channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [
+          id,
+          true,
+          encodeModelProxyWire({ providers, ready: true }),
+          null,
+        ])
+      );
     }
   });
   t.after(detach);
@@ -147,7 +187,10 @@ test('SSH setup covers every built-in API, OAuth, local and custom provider, ena
     const setup = await providerSetup({}, { force: true });
     assert.equal(setup.managedByClient, true);
     for (const [group, ids] of Object.entries(groups)) {
-      assert.deepEqual(setup[group].map((row) => row.id), ids);
+      assert.deepEqual(
+        setup[group].map((row) => row.id),
+        ids
+      );
       for (const row of setup[group]) {
         assert.equal(row.enabled, state, row.id);
         assert.equal(row.authenticated, state, row.id);
@@ -164,7 +207,6 @@ test('SSH setup covers every built-in API, OAuth, local and custom provider, ena
     assert.doesNotMatch(JSON.stringify(setup), /secret-must-stay|private-identity|apiKey|accountId/);
   }
 });
-
 
 test('SSH setup reads a desktop-disabled sign-in as Off and carries only hidden custom model ids', async (t) => {
   const prior = process.env.MIXDOG_MODEL_PROXY;
@@ -186,9 +228,14 @@ test('SSH setup reads a desktop-disabled sign-in as Off and carries only hidden 
   const detach = channel.attachPublisher((snapshot) => {
     for (const { id } of snapshot.requests) {
       if (!channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id])) continue;
-      queueMicrotask(() => channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [
-        id, true, encodeModelProxyWire({ providers, ready: true }), null,
-      ]));
+      queueMicrotask(() =>
+        channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [
+          id,
+          true,
+          encodeModelProxyWire({ providers, ready: true }),
+          null,
+        ])
+      );
     }
   });
   t.after(detach);
@@ -210,19 +257,33 @@ test('client mode reads an empty server account roster and rejects mutations bef
   const admin = await import('../services/provider-admin.mjs');
   // Read-only callers (setup status, the quota card, usage account emails) keep working.
   assert.deepEqual(admin.listProviderAccounts('openai-oauth'), {
-    provider: 'openai-oauth', auto: true, useCredits: false, selectedId: null, accounts: [],
+    provider: 'openai-oauth',
+    auto: true,
+    useCredits: false,
+    selectedId: null,
+    accounts: [],
   });
   // A provider this server's own settings keep off is still the desktop's to list.
   assert.deepEqual(admin.listProviderAccounts('mimo-oauth').accounts, []);
   assert.throws(() => admin.listProviderAccounts('not-a-provider'), TypeError);
-  for (const name of ['authenticateProvider', 'loginOAuthProvider', 'beginOAuthProviderLogin',
-    'materializeProviderAccounts', 'updateProviderAccounts', 'saveProviderApiKey', 'saveCustomProvider',
-    'updateCustomProviderModel', 'removeCustomProvider', 'testCustomProvider', 'discoverCustomProviderModels',
-    'saveOpenAIUsageSessionKey', 'saveOpenCodeGoUsageAuth', 'forgetProviderAuth']) {
+  for (const name of [
+    'authenticateProvider',
+    'loginOAuthProvider',
+    'beginOAuthProviderLogin',
+    'materializeProviderAccounts',
+    'updateProviderAccounts',
+    'saveProviderApiKey',
+    'saveCustomProvider',
+    'updateCustomProviderModel',
+    'removeCustomProvider',
+    'testCustomProvider',
+    'discoverCustomProviderModels',
+    'saveOpenAIUsageSessionKey',
+    'forgetProviderAuth',
+  ]) {
     await assert.rejects(admin[name](), { code: 'MODEL_CREDENTIALS_DISABLED' }, name);
   }
 });
-
 
 test('a forced remote model catalog refresh replaces cached PC configuration before rebuilding the registry', async (t) => {
   const prior = process.env.MIXDOG_MODEL_PROXY;
@@ -236,15 +297,24 @@ test('a forced remote model catalog refresh replaces cached PC configuration bef
   t.after(installModelProxyChannel(channel));
   _resetModelProxyProviderConfigForTest();
   let providers = {};
-  t.after(channel.attachPublisher((snapshot) => {
-    for (const { id } of snapshot.requests) {
-      if (!channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id])) continue;
-      queueMicrotask(() => channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [
-        id, true, encodeModelProxyWire({ providers, ready: true }), null,
-      ]));
-    }
-  }));
-  const { loadModelProxyProviderConfig } = await import('../../runtime/agent/orchestrator/providers/model-proxy-provider.mjs');
+  t.after(
+    channel.attachPublisher((snapshot) => {
+      for (const { id } of snapshot.requests) {
+        if (!channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id])) continue;
+        queueMicrotask(() =>
+          channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [
+            id,
+            true,
+            encodeModelProxyWire({ providers, ready: true }),
+            null,
+          ])
+        );
+      }
+    })
+  );
+  const { loadModelProxyProviderConfig } = await import(
+    '../../runtime/agent/orchestrator/providers/model-proxy-provider.mjs'
+  );
   assert.deepEqual(await loadModelProxyProviderConfig(), {});
   providers = { gemini: { enabled: true } };
   const live = new Map();
@@ -259,10 +329,15 @@ test('a forced remote model catalog refresh replaces cached PC configuration bef
   };
   const { createCatalogLoader } = await import('../provider-models/catalog-load.mjs');
   const load = createCatalogLoader({
-    caches: { providerModelsLoadSeq: 0 }, config: () => ({ providers: {} }), reg: () => registry,
+    caches: { providerModelsLoadSeq: 0 },
+    config: () => ({ providers: {} }),
+    reg: () => registry,
     meta: { syncCatalogRevision: () => 999, snapshotIsCurrent: () => false },
     rows: { providerModelCacheRow: (provider, row) => ({ ...row, provider }) },
-    profile() {}, ensureFullConfig() {}, awaitKeychainPrewarm: async () => {}, ensureProvidersReady: async () => {},
+    profile() {},
+    ensureFullConfig() {},
+    awaitKeychainPrewarm: async () => {},
+    ensureProvidersReady: async () => {},
   });
   assert.deepEqual(await load({ forceRefresh: true }), [{ id: 'gemini-test', provider: 'gemini' }]);
 });

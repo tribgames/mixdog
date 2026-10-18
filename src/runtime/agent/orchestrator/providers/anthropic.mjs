@@ -162,7 +162,8 @@ export class AnthropicProvider {
     });
     this.fastModeBetaHeaderLatched = fastModeLatched;
 
-    const { onStageChange, onStreamDelta, onToolCall, onTextDelta, onTextReset } = streamCallbacks(opts);
+    const { onStageChange, onStreamDelta, onToolCall, onTextDelta, onTextReset, onStreamItemStart } =
+      streamCallbacks(opts);
 
     // No absolute wall-clock cap on streaming generation: a stream still
     // emitting SSE deltas must not be killed by a fixed total-lifetime timer.
@@ -288,6 +289,7 @@ export class AnthropicProvider {
             {
               relayProgressUpdates: params.thinking?.display === 'updates',
               labels: { display: 'Anthropic', tag: this.name },
+              onStreamItemStart,
             }
           );
           try {

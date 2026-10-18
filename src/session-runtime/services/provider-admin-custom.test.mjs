@@ -573,3 +573,38 @@ test('discovery returns hidden rows with reasoning fields and a sanitized error 
   assert.equal(failed.error.kind, 'authentication');
   assert.equal(failed.error.message.includes(v2Input.apiKey), false);
 });
+
+test('model preferences: built-in visibility and favorites land in modelSettings beside saved tuning', async () => {
+  const cfg = makeCfg();
+  const full = cfg.loadConfig();
+  cfg.saveConfig({ ...full, modelSettings: { 'openai/gpt-5.4': { effort: 'high' } } });
+  admin.saveModelPreferences(cfg, 'openai', [
+    { model: 'gpt-5.4', hidden: true, favorite: true },
+    { model: 'gpt-4o', hidden: false },
+  ]);
+  assert.deepEqual(cfg.peek().modelSettings, {
+    'openai/gpt-5.4': { effort: 'high', hidden: true, favorite: true },
+    'openai/gpt-4o': { hidden: false },
+  });
+  admin.saveModelPreferences(cfg, 'openai', [{ model: 'gpt-5.4', favorite: false }]);
+  assert.deepEqual(cfg.peek().modelSettings['openai/gpt-5.4'], { effort: 'high', hidden: true });
+  assert.throws(() => admin.saveModelPreferences(cfg, 'nope', []), /unknown provider/);
+  assert.throws(() => admin.saveModelPreferences(cfg, 'openai', [{ model: 'm', bogus: 1 }]), /unsupported/);
+  assert.throws(() => admin.saveModelPreferences(cfg, 'openai', [{ model: 'm', hidden: 'yes' }]), /hidden/);
+});
+
+test("model preferences: a custom provider's visibility stays in its own hidden overrides", async () => {
+  const cfg = makeCfg();
+  const { id } = await admin.saveCustomProvider(cfg, v2Input);
+  const before = structuredClone(cfg.peek().providers[id].modelOverrides);
+  const result = admin.saveModelPreferences(cfg, id, [
+    { model: 'vendor/m', hidden: true, favorite: true },
+    { model: 'found', hidden: false },
+  ]);
+  assert.equal(result.customCatalogChanged, true);
+  const overrides = cfg.peek().providers[id].modelOverrides;
+  assert.deepEqual(overrides['vendor/m'], { ...before['vendor/m'], hidden: true });
+  assert.deepEqual(overrides.found, { hidden: false });
+  // The favorite is shared per-model state; visibility is not duplicated there.
+  assert.deepEqual(cfg.peek().modelSettings, { [`${id}/vendor/m`]: { favorite: true } });
+});

@@ -31,17 +31,61 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
-function renderPage({ heading, message, details }) {
-  const title = escapeHtml(heading);
+// The callback servers do not know the app language, so the default is
+// bilingual (Korean first). A known language picks one copy.
+const COPY = {
+  ko: {
+    successTitle: '로그인 완료',
+    successBody: (name) => `${name} 로그인이 완료되었습니다. 이 탭을 닫고 Mixdog로 돌아가 주세요.`,
+    failureTitle: '로그인 실패',
+    failureBody: 'Mixdog로 돌아가 다시 시도해 주세요.',
+    reason: '사유',
+    close: '닫기',
+  },
+  en: {
+    successTitle: 'Sign-in complete',
+    successBody: (name) => `You are signed in to ${name}. You can close this tab and return to Mixdog.`,
+    failureTitle: 'Sign-in failed',
+    failureBody: 'Return to Mixdog and try again.',
+    reason: 'Reason',
+    close: 'Close',
+  },
+};
+
+function renderPage({ kind, providerName, reason, lang }) {
+  const langs = lang === 'ko' || lang === 'en' ? [lang] : ['ko', 'en'];
+  const blocks = langs
+    .map((code, index) => {
+      const copy = COPY[code];
+      const title = kind === 'success' ? copy.successTitle : copy.failureTitle;
+      const body = kind === 'success' ? copy.successBody(providerName) : copy.failureBody;
+      const tag = index === 0 ? 'h1' : 'h2';
+      return `<section lang="${code}" class="${index === 0 ? 'primary' : 'secondary'}">
+      <${tag}>${escapeHtml(title)}</${tag}>
+      <p>${escapeHtml(body)}</p>
+    </section>`;
+    })
+    .join('\n    ');
+  const reasonBlock = reason
+    ? `<div class="reason"><span>${langs.map((code) => COPY[code].reason).join(' / ')}</span>${escapeHtml(reason)}</div>`
+    : '';
+  const close = langs.map((code) => COPY[code].close).join(' · ');
+  const documentTitle = escapeHtml(
+    `${langs.map((code) => COPY[code][kind === 'success' ? 'successTitle' : 'failureTitle']).join(' / ')} · Mixdog`
+  );
   return `<!doctype html>
-<html lang="en">
+<html lang="${langs[0]}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${title} · Mixdog</title>
+  <meta name="color-scheme" content="dark light" />
+  <title>${documentTitle}</title>
   <style>
+    :root { --bg: #f6f7f9; --fg: #0f172a; --muted: #475569; --card: #ffffff; --line: #d9dee6; --ok: #15803d; --bad: #b91c1c; --link: #1d4ed8; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #07080b; --fg: #f8fafc; --muted: #94a3b8; --card: #0f1116; --line: #232733; --ok: #4ade80; --bad: #f87171; --link: #93c5fd; }
+    }
     * { box-sizing: border-box; }
-    html { color-scheme: dark; }
     body {
       margin: 0;
       min-height: 100vh;
@@ -49,32 +93,65 @@ function renderPage({ heading, message, details }) {
       align-items: center;
       justify-content: center;
       padding: 24px;
-      background: #07080b;
-      color: #f8fafc;
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", Roboto, Arial, sans-serif;
       text-align: center;
     }
-    main { width: 100%; max-width: 560px; display: flex; flex-direction: column; align-items: center; }
-    .logo { width: 72px; height: 72px; margin-bottom: 24px; }
+    main {
+      width: 100%;
+      max-width: 520px;
+      padding: 40px 32px 32px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .logo { width: 72px; height: 72px; margin-bottom: 20px; }
     .logo svg { width: 100%; height: 100%; display: block; }
-    h1 { margin: 0 0 10px; font-size: 28px; line-height: 1.15; font-weight: 650; }
-    p { margin: 0; line-height: 1.7; color: #94a3b8; font-size: 15px; }
-    .details {
-      margin-top: 16px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    h1, h2 { margin: 0 0 6px; line-height: 1.2; font-weight: 650; }
+    h1 { font-size: 28px; color: ${kind === 'success' ? 'var(--ok)' : 'var(--bad)'}; }
+    h2 { font-size: 16px; color: var(--muted); font-weight: 600; }
+    p { margin: 0; line-height: 1.7; color: var(--muted); font-size: 15px; }
+    section.secondary { margin-top: 18px; }
+    .reason {
+      margin-top: 20px;
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      text-align: left;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 13px;
-      color: #94a3b8;
+      color: var(--fg);
       white-space: pre-wrap;
       word-break: break-word;
     }
+    .reason span { display: block; margin-bottom: 4px; color: var(--muted); font-family: inherit; font-size: 12px; }
+    button {
+      margin-top: 24px;
+      min-width: 120px;
+      height: 40px;
+      padding: 0 20px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: transparent;
+      color: var(--fg);
+      font: inherit;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--muted); }
   </style>
 </head>
 <body>
   <main>
     <div class="logo">${LOGO_SVG}</div>
-    <h1>${title}</h1>
-    <p>${escapeHtml(message)}</p>
-    ${details ? `<div class="details">${escapeHtml(details)}</div>` : ''}
+    ${blocks}
+    ${reasonBlock}
+    <button type="button" onclick="window.close()">${escapeHtml(close)}</button>
   </main>
 </body>
 </html>`;
@@ -82,13 +159,10 @@ function renderPage({ heading, message, details }) {
 
 export const OAUTH_PAGE_CONTENT_TYPE = 'text/html; charset=utf-8';
 
-export function oauthSuccessHtml(providerName) {
-  return renderPage({
-    heading: 'Authentication successful',
-    message: `Signed in to ${providerName}. You can close this tab and return to Mixdog.`,
-  });
+export function oauthSuccessHtml(providerName, { lang } = {}) {
+  return renderPage({ kind: 'success', providerName, lang });
 }
 
-export function oauthErrorHtml(message, details) {
-  return renderPage({ heading: 'Authentication failed', message, details });
+export function oauthErrorHtml(reason, { lang } = {}) {
+  return renderPage({ kind: 'failure', reason, lang });
 }

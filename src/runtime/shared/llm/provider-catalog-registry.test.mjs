@@ -207,7 +207,7 @@ test('the registry maps providers, endpoints and relays from one table', () => {
     assert.equal(entry.sameEndpoint, false, provider);
   }
   assert.equal(registry.providerCatalogEntry('gemini').modelsDev, 'google');
-  for (const relay of ['cursor-oauth', 'cursor-api', 'antigravity-oauth', 'opencode-go']) {
+  for (const relay of ['cursor-oauth', 'cursor-api', 'antigravity-oauth', 'opencode-go-oauth']) {
     assert.equal(registry.providerCatalogEntry(relay).relay, true, relay);
   }
   assert.deepEqual(registry.providerRosterFiles('mimo-oauth'), ['mimo-oauth-models.json']);
@@ -230,7 +230,7 @@ test('Muse OAuth exposes max and the 1M window from models.dev meta on both path
 });
 
 test('opencode-go serves its own ladder and never borrows meta’s max', async () => {
-  for (const [path, meta] of Object.entries(await bothPaths('opencode-go', 'muse-spark-1.3-contributor'))) {
+  for (const [path, meta] of Object.entries(await bothPaths('opencode-go-oauth', 'muse-spark-1.3-contributor'))) {
     assert.deepEqual(effortValues(meta), FIVE, path);
     assert.equal(meta.contextWindow, 262144, path);
     assert.equal(meta.inputCostPerM, 0.3, path);
@@ -239,7 +239,7 @@ test('opencode-go serves its own ladder and never borrows meta’s max', async (
 
 test('a relay model without its own row guesses vendor capabilities and ladder, never limits', async () => {
   for (const [provider, id, price, ladder] of [
-    ['opencode-go', 'muse-spark-1.3', 1.5, SIX],
+    ['opencode-go-oauth', 'muse-spark-1.3', 1.5, SIX],
     ['cursor-oauth', 'claude-registry-1', 3, ['low', 'high', 'max']],
     // Relays may spell Anthropic versions with dots.
     ['cursor-oauth', 'claude-registry-2.5', 5, ['low', 'medium', 'high', 'xhigh', 'max']],
@@ -397,14 +397,14 @@ test('a live roster false is a coerced unknown: catalogs and seeds still decide 
 test('a relay’s own row wins; the serving vendor fills only its undeclared ladder and capabilities', async () => {
   // Own row declares reasoning but no ladder: the vendor ladder fills it,
   // own pricing stays and no vendor limit is borrowed.
-  for (const [path, meta] of Object.entries(await bothPaths('opencode-go', 'kimi-registry-code'))) {
+  for (const [path, meta] of Object.entries(await bothPaths('opencode-go-oauth', 'kimi-registry-code'))) {
     assert.deepEqual(effortValues(meta), ['low', 'high'], path);
     assert.equal(meta.supportsFunctionCalling, true, path);
     assert.equal(meta.inputCostPerM, 0.5, path);
     assert.equal(meta.contextWindow, null, path);
   }
   // Own non-effort options stay; the vendor's effort entry joins them.
-  for (const [path, meta] of Object.entries(await bothPaths('opencode-go', 'qwen9.9-registry'))) {
+  for (const [path, meta] of Object.entries(await bothPaths('opencode-go-oauth', 'qwen9.9-registry'))) {
     assert.deepEqual(effortValues(meta), ['low', 'medium', 'high'], path);
     assert.ok(
       meta.reasoningOptions.some((o) => o.type === 'toggle'),
@@ -413,11 +413,11 @@ test('a relay’s own row wins; the serving vendor fills only its undeclared lad
     assert.equal(meta.contextWindow, 131072, path);
   }
   // No vendor ladder identifiable: none, and no blanket fallback.
-  for (const [path, meta] of Object.entries(await bothPaths('opencode-go', 'longcat-registry-2'))) {
+  for (const [path, meta] of Object.entries(await bothPaths('opencode-go-oauth', 'longcat-registry-2'))) {
     assert.deepEqual(effortValues(meta), [], path);
   }
   // Own explicit falses beat the vendor's trues.
-  for (const [path, meta] of Object.entries(await bothPaths('opencode-go', 'kimi-registry-lite'))) {
+  for (const [path, meta] of Object.entries(await bothPaths('opencode-go-oauth', 'kimi-registry-lite'))) {
     assert.equal(meta.supportsReasoning, false, path);
     assert.equal(meta.supportsVision, false, path);
     assert.equal(meta.supportsFunctionCalling, false, path);

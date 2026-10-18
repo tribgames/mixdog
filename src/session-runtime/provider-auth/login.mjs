@@ -6,11 +6,11 @@ import {
   forgetProviderAuth,
   loginOAuthProvider,
   saveOpenAIUsageSessionKey,
-  saveOpenCodeGoUsageAuth,
   saveProviderApiKey,
   saveCustomProvider,
   removeCustomProvider,
   updateCustomProviderModel,
+  saveModelPreferences,
   testCustomProvider,
   checkCustomProviderKeyEnv,
   discoverCustomProviderModels,
@@ -70,11 +70,6 @@ export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig,
       refresh.afterUsageAuthChange();
       return result;
     },
-    async saveOpenCodeGoUsageAuth(opts) {
-      const result = await saveOpenCodeGoUsageAuth(cfgMod, opts);
-      refresh.afterUsageAuthChange();
-      return result;
-    },
     async saveCustomProvider(input) {
       await awaitKeychainPrewarm();
       const result = await saveCustomProvider(cfgMod, input);
@@ -84,6 +79,15 @@ export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig,
     async updateCustomProviderModel(providerId, modelId, patch) {
       const result = await updateCustomProviderModel(cfgMod, providerId, modelId, patch);
       refresh.afterCredentialChange();
+      return result;
+    },
+    /** Model management: /model visibility and favorites of one provider.
+     *  Catalog rows read modelSettings on every answer, so only a custom
+     *  provider's catalog (its hidden overrides) needs the refresh chain. */
+    setModelPreferences(providerId, changes) {
+      const result = saveModelPreferences(cfgMod, providerId, changes);
+      if (result.customCatalogChanged) refresh.afterCredentialChange();
+      else reloadFullConfig();
       return result;
     },
     async removeCustomProvider(providerId) {

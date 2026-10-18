@@ -92,10 +92,8 @@ test('openrouter Responses rejects imported previous_response_id / store:true', 
   }
 });
 
-test('opencode-go preset uses /inference/go/v1 with an application User-Agent; overrides kept', () => {
-  const preset = OPENAI_COMPAT_PRESETS['opencode-go'];
-  assert.equal(preset.baseURL, 'https://opencode.ai/inference/go/v1');
-  assert.equal(preset.extraHeaders['User-Agent'], 'mixdog');
+test('opencode-go gateway uses /inference/go/v1; overrides kept', () => {
+  assert.equal(Object.hasOwn(OPENAI_COMPAT_PRESETS, 'opencode-go'), false);
   assert.deepEqual(resolveOpenCodeGoBaseURLs(undefined), {
     openai: 'https://opencode.ai/inference/go/v1',
     anthropic: 'https://opencode.ai/inference/go',

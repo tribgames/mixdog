@@ -448,7 +448,8 @@ export class AnthropicOAuthProvider {
     // a hard 400. Pairing here closes the gap regardless of caller.
     messages = sanitizeToolPairs(messages);
     const opts = sendOpts || {};
-    const { onStageChange, onStreamDelta, onToolCall, onTextDelta, onTextReset } = streamCallbacks(opts);
+    const { onStageChange, onStreamDelta, onToolCall, onTextDelta, onTextReset, onStreamItemStart } =
+      streamCallbacks(opts);
     const externalSignal = opts.signal || null;
     // Test seam: lets the retry harness drive stream outcomes without a
     // live OAuth session.
@@ -610,7 +611,7 @@ export class AnthropicOAuthProvider {
             midState,
             onTextDelta,
             knownToolNames,
-            { relayProgressUpdates: body.thinking?.display === 'updates' }
+            { relayProgressUpdates: body.thinking?.display === 'updates', onStreamItemStart }
           );
           try {
             controller?.abort?.('Anthropic SSE complete');

@@ -78,6 +78,13 @@ const COMPACT_SCHEMA = `
     -- One session's lifetime totals (the /context footer) read that session's
     -- records only instead of scanning every record ever written.
     CREATE INDEX IF NOT EXISTS usage_events_session ON usage_events(session);
+    -- The session each session ran for (an agent's Lead), so a Lead's agents
+    -- stay countable after their own session records are gone.
+    CREATE TABLE IF NOT EXISTS usage_session_owners (
+        session INTEGER PRIMARY KEY REFERENCES usage_sessions(id),
+        owner INTEGER NOT NULL REFERENCES usage_sessions(id)
+    );
+    CREATE INDEX IF NOT EXISTS usage_session_owners_owner ON usage_session_owners(owner);
 `;
 
 // Preserve the old read surface. Only storage changes: every field, including
@@ -109,6 +116,7 @@ function compactEventWriter(db) {
   const insertSession = db.prepare('INSERT OR IGNORE INTO usage_sessions(value) VALUES (?)');
   const findSession = db.prepare('SELECT id FROM usage_sessions WHERE value=?');
   const insert = db.prepare('INSERT INTO usage_events VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+  const insertOwner = db.prepare('INSERT OR IGNORE INTO usage_session_owners VALUES (?,?)');
   return (row) => {
     for (const key of ['id', 'provider', 'model', 'kind', 'source_type', 'cost_source', 'origin', 'session_id']) {
       if (row[key] == null) throw new Error(`Usage requires ${key}`);
@@ -133,6 +141,11 @@ function compactEventWriter(db) {
     const route = findRoute.get(signature).id;
     insertSession.run(String(row.session_id));
     const session = findSession.get(String(row.session_id)).id;
+    const owner = row.owner_session_id ? String(row.owner_session_id) : '';
+    if (owner && owner !== String(row.session_id)) {
+      insertSession.run(owner);
+      insertOwner.run(session, findSession.get(owner).id);
+    }
     insert.run(
       id,
       row.ts,
@@ -201,7 +214,6 @@ function migrateUsageLedger(db, path) {
 
 export function usageRouteKind(provider) {
   if (provider === 'mixdog-local') return 'local';
-  if (provider === 'opencode-go') return 'quota-api';
   return provider.endsWith('-oauth') ? 'oauth' : 'api';
 }
 
@@ -273,6 +285,7 @@ export function makeUsageRecord(args) {
     model,
     kind,
     sessionId: ['no-session', '(none)'].includes(args.sessionId) ? '' : text(args.sessionId),
+    ...(args.ownerSessionId ? { ownerSessionId: text(args.ownerSessionId) } : {}),
     sourceType: text(args.sourceType),
     input: priced.input,
     output: num(args.outputTokens),
@@ -453,6 +466,7 @@ export class UsageLedger {
           !this.insert({
             ...row,
             session_id: row.sessionId,
+            owner_session_id: row.ownerSessionId,
             source_type: row.sourceType,
             cache_read: row.cacheRead,
             cache_write: row.cacheWrite,
@@ -558,10 +572,11 @@ export class UsageLedger {
     return this.workerRequest('quotaWindows', { options });
   }
 
-  /** Every request one session made under any of its ids, compactions included, read on the ledger worker. */
-  sessionUsageAsync(sessionIds) {
-    if (this.path === ':memory:') return Promise.resolve().then(() => readSessionUsage(this.db, sessionIds));
-    return this.workerRequest('sessionUsage', { sessionIds });
+  /** Every request one session made under any of its ids, compactions included, read on the ledger worker.
+   *  `ownerIds` adds every session recorded as run for them, transitively. */
+  sessionUsageAsync(sessionIds, ownerIds = []) {
+    if (this.path === ':memory:') return Promise.resolve().then(() => readSessionUsage(this.db, sessionIds, ownerIds));
+    return this.workerRequest('sessionUsage', { sessionIds, ownerIds });
   }
 
   preserveLegacyDays(days) {

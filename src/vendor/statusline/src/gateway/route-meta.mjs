@@ -101,7 +101,6 @@ function cleanBool(value) {
 function providerKind(provider) {
   const p = String(provider || '').toLowerCase();
   if (!p) return 'unknown';
-  if (p === 'opencode-go') return 'quota-api';
   if (p.includes('oauth')) return 'oauth';
   if (p === 'mixdog-local') return 'local';
   return 'api';

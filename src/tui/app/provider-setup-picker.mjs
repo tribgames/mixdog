@@ -74,8 +74,7 @@ export function createProviderSetupPicker({
     setSettingsPrompt(null);
     // Close full-panel overlays too: they render ahead of providerPrompt in
     // the floating-panel chain, so a lingering usage/context panel would mask
-    // any text-entry prompt opened from the provider actions (e.g. the
-    // OpenCode Go cookie prompt appeared to do nothing).
+    // any text-entry prompt opened from the provider actions.
     own.context(null);
     closeUsagePanel();
     // Onboarding (and any caller) can pass a preloaded provider setup so we skip

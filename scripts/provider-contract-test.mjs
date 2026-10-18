@@ -538,16 +538,19 @@ test('provider setup refresh waits for keychain readiness and bypasses stale set
   assert.deepEqual(calls, ['prewarm', 'reload', ['setup', { force: true }]]);
 });
 
-test('provider setup lists every OAuth row in order and leads the API rows with OpenCode Go, without a separate Cursor API row', async () => {
+test('provider setup lists every OAuth row in order and leads the API rows with OpenRouter, with no OpenCode Go API row and no separate Cursor API row', async () => {
   const setup = await providerSetup({}, { detectLocal: false, checkSecrets: false });
   // mimo-oauth / cursor-oauth / antigravity-oauth are dev-only rows, each listed only while
   // its Settings → Developer option is on; this scratch data dir turns none on.
   assert.deepEqual(
     setup.oauth.map((provider) => provider.id),
-    ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth']
+    ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth', 'opencode-go-oauth']
   );
-  assert.equal(setup.api[0].id, 'opencode-go');
-  assert.equal(setup.api[1].id, 'openrouter');
+  assert.equal(setup.api[0].id, 'openrouter');
+  assert.equal(
+    setup.api.some((provider) => provider.id === 'opencode-go'),
+    false
+  );
   assert.equal(
     [...setup.oauth, ...setup.api].some((provider) => provider.id === 'cursor-api'),
     false
@@ -907,7 +910,7 @@ test('provider auth waits for keychain readiness before consuming a Codex reset'
 test('current vendor preset defaults and OpenCode Go protocol routes are pinned', () => {
   assert.equal(OPENAI_COMPAT_PRESETS.xai.defaultModel, 'grok-4.5');
   assert.equal(OPENAI_COMPAT_PRESETS.deepseek.defaultModel, 'deepseek-v4-pro');
-  assert.equal(OPENAI_COMPAT_PRESETS['opencode-go'].defaultModel, 'glm-5.2');
+  assert.equal(Object.hasOwn(OPENAI_COMPAT_PRESETS, 'opencode-go'), false);
   assert.equal(OPENAI_COMPAT_PRESETS.openrouter.baseURL, 'https://openrouter.ai/api/v1');
   assert.equal(OPENAI_COMPAT_PRESETS.openrouter.extraHeaders['X-OpenRouter-Title'], 'mixdog');
   for (const model of ['minimax-m3', 'minimax-m2.7', 'qwen3.7-max', 'qwen3.6-plus']) {

@@ -501,7 +501,11 @@ function expiringCooldown(t, policy, send, elapsedMs = 100) {
   }));
 }
 
-for (const [auto, elapsedMs] of [[false, 100], [false, 101], [true, 100]]) {
+for (const [auto, elapsedMs] of [
+  [false, 100],
+  [false, 101],
+  [true, 100],
+]) {
   test(`an expired short cooldown retries the eligible account with auto=${auto}, elapsed=${elapsedMs}`, async (t) => {
     const ids = await setup({ auto });
     // Manual mode must ignore available alternatives. Automatic mode needs
@@ -509,11 +513,16 @@ for (const [auto, elapsedMs] of [[false, 100], [false, 101], [true, 100]]) {
     if (auto) for (const id of ids.slice(1)) await removeProviderAccount(provider, id);
     const used = [];
     const stages = [];
-    const gateway = expiringCooldown(t, { waitForCooldownMs: 10_000 }, async () => {
-      used.push(currentProviderAccountId(provider));
-      if (used.length === 1) throw shortRateLimit();
-      return { content: 'ok' };
-    }, elapsedMs);
+    const gateway = expiringCooldown(
+      t,
+      { waitForCooldownMs: 10_000 },
+      async () => {
+        used.push(currentProviderAccountId(provider));
+        if (used.length === 1) throw shortRateLimit();
+        return { content: 'ok' };
+      },
+      elapsedMs
+    );
     const result = await gateway.send([], 'm', [], {
       onStageChange: (stage, detail) => stages.push([stage, detail]),
     });
@@ -528,9 +537,19 @@ for (const [name, policy, errorFactory, emit] of [
   ['absent wait policy', {}, shortRateLimit, false],
   ['disabled wait policy', { waitForCooldownMs: 0 }, shortRateLimit, false],
   ['quota refusal', { waitForCooldownMs: 10_000 }, () => quotaError(100), false],
-  ['authentication refusal', { waitForCooldownMs: 10_000 }, () => Object.assign(new Error('auth'), { status: 401 }), false],
+  [
+    'authentication refusal',
+    { waitForCooldownMs: 10_000 },
+    () => Object.assign(new Error('auth'), { status: 401 }),
+    false,
+  ],
   ['already emitted output', { waitForCooldownMs: 10_000 }, shortRateLimit, true],
-  ['unsafe retry', { waitForCooldownMs: 10_000 }, () => Object.assign(shortRateLimit(), { unsafeToRetry: true }), false],
+  [
+    'unsafe retry',
+    { waitForCooldownMs: 10_000 },
+    () => Object.assign(shortRateLimit(), { unsafeToRetry: true }),
+    false,
+  ],
 ]) {
   test(`an expired cooldown does not bypass ${name}`, async (t) => {
     await setup({ auto: false });
@@ -542,12 +561,15 @@ for (const [name, policy, errorFactory, emit] of [
       if (emit) options.onTextDelta('partial');
       throw error;
     });
-    await assert.rejects(gateway.send([], 'm', [], {
-      onTextDelta() {},
-      onStageChange: (_stage, detail) => {
-        if (detail?.waitMs != null) waits.push(detail.waitMs);
-      },
-    }), (thrown) => thrown === error);
+    await assert.rejects(
+      gateway.send([], 'm', [], {
+        onTextDelta() {},
+        onStageChange: (_stage, detail) => {
+          if (detail?.waitMs != null) waits.push(detail.waitMs);
+        },
+      }),
+      (thrown) => thrown === error
+    );
     assert.equal(calls, 1);
     assert.deepEqual(waits, []);
   });

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { setImmediate } from 'node:timers/promises';
 import test from 'node:test';
-import { createProviderModels } from './provider-models.mjs';
+import { boundedProviderCatalogOp } from '../runtime/agent/orchestrator/providers/catalog-deadline.mjs';
+import { createProviderModels, PARTIAL_CATALOG_RETRY_MS } from './provider-models.mjs';
 import { createProviderReadiness } from './provider-readiness.mjs';
 
 function deferred() {
@@ -88,11 +89,18 @@ for (const mode of ['foreground', 'forced', 'warmup']) {
   });
 }
 
-test('partial catalogs expose healthy providers without caching a failed provider as absent', async () => {
+test('partial catalogs expose healthy providers without caching a failed provider as absent', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 5_000_000 });
   const f = catalogFixture();
   const getProviders = f.registry.getAllProviders;
-  f.registry.getAllProviders = () =>
-    new Map([...getProviders(), ['healthy', { listModels: async () => [{ id: 'healthy-model' }] }]]);
+  let healthyCalls = 0;
+  const healthy = {
+    listModels: async () => {
+      healthyCalls += 1;
+      return [{ id: 'healthy-model' }];
+    },
+  };
+  f.registry.getAllProviders = () => new Map([...getProviders(), ['healthy', healthy]]);
   const api = f.consumer();
   const first = api.collectProviderModels();
   await setImmediate();
@@ -101,11 +109,117 @@ test('partial catalogs expose healthy providers without caching a failed provide
     (await first).map((row) => row.id),
     ['healthy-model']
   );
-  const next = api.collectProviderModels();
+  // The partial answer is reused briefly instead of reloading every provider.
+  assert.deepEqual(
+    (await api.collectProviderModels()).map((row) => row.id),
+    ['healthy-model']
+  );
+  assert.equal(f.requests.length, 1);
+  // After its retry window the failed provider alone is asked again.
+  t.mock.timers.tick(PARTIAL_CATALOG_RETRY_MS);
+  assert.deepEqual(
+    (await api.collectProviderModels()).map((row) => row.id),
+    ['healthy-model']
+  );
   await setImmediate();
   assert.equal(f.requests.length, 2);
   f.requests[1].resolve(model('recovered'));
+  await api.warmProviderModelCache();
+  assert.equal(healthyCalls, 1);
+  assert.deepEqual((await api.collectProviderModels()).map((row) => row.id).sort(), ['chat-model', 'healthy-model']);
+});
+
+function withHealthyProvider(f) {
+  const getProviders = f.registry.getAllProviders;
+  const healthy = {
+    calls: 0,
+    listModels: async () => {
+      healthy.calls += 1;
+      return [{ id: 'healthy-model' }];
+    },
+  };
+  f.registry.getAllProviders = () => new Map([...getProviders(), ['healthy', healthy]]);
+  return healthy;
+}
+
+test('the partial-catalog retry backoff is shared across sessions', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 6_000_000 });
+  const f = catalogFixture();
+  const healthy = withHealthyProvider(f);
+  const first = f.consumer().collectProviderModels();
+  await setImmediate();
+  f.requests[0].reject(new Error('provider offline'));
+  await first;
+  // Another session inside the backoff gets the partial rows without asking.
+  const other = f.consumer();
+  const rows = await other.collectProviderModels();
+  assert.deepEqual(
+    rows.map((row) => [row.id, row.catalogPartial]),
+    [['healthy-model', true]]
+  );
+  assert.equal(f.requests.length, 1);
+  assert.equal(healthy.calls, 1);
+  t.mock.timers.tick(PARTIAL_CATALOG_RETRY_MS);
+  const third = f.consumer().collectProviderModels();
+  await setImmediate();
+  assert.equal(f.requests.length, 2, 'the backoff expiry is honored by every session');
+  f.requests[1].resolve(model('back'));
+  assert.deepEqual((await third).map((row) => row.id).sort(), ['chat-model', 'healthy-model']);
+  assert.equal(healthy.calls, 1);
+});
+
+test('an account change drops shared partial rows, so the healthy provider is asked again', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 7_000_000 });
+  const f = catalogFixture();
+  const healthy = withHealthyProvider(f);
+  const readiness = createProviderReadiness({
+    rt: { config: { providers: {} }, closeRequested: false },
+    keychain: { prewarmSecrets: async () => {} },
+    getReg: () => f.registry,
+    getWarmProviderModelCache: () => () => {},
+  });
+  const first = f.consumer().collectProviderModels();
+  await setImmediate();
+  f.requests[0].reject(new Error('provider offline'));
+  await first;
+  assert.equal(healthy.calls, 1);
+  // updateProviderAccounts (provider-auth/accounts.mjs) runs this on selection.
+  readiness.invalidateProviderCaches();
+  const next = f.consumer().collectProviderModels();
+  await setImmediate();
+  assert.equal(healthy.calls, 2, 'rows listed under the previous account are not reused');
+  assert.equal(f.requests.length, 2, 'the failed provider is not held back by the old backoff');
+  f.requests[1].resolve(model('new account'));
   assert.deepEqual((await next).map((row) => row.id).sort(), ['chat-model', 'healthy-model']);
+});
+
+test("a hung refresh from before an account change never blocks the new account's model list", async () => {
+  const f = catalogFixture();
+  const provider = f.registry.getProvider();
+  const readiness = createProviderReadiness({
+    rt: { config: { providers: {} }, closeRequested: false },
+    keychain: { prewarmSecrets: async () => {} },
+    getReg: () => f.registry,
+    getWarmProviderModelCache: () => () => {},
+  });
+  const refresh = await boundedProviderCatalogOp({
+    name: 'fixture',
+    provider,
+    kind: 'refresh',
+    run: () => new Promise(() => {}),
+    timeoutMs: 10,
+  });
+  assert.equal(refresh.timedOut, true, 'the refresh overran its deadline and stays pending');
+  // Same generation: the overdue refresh still single-flights the provider.
+  assert.deepEqual(await f.consumer().collectProviderModels(), []);
+  assert.equal(f.requests.length, 0);
+
+  readiness.invalidateProviderCaches();
+  const next = f.consumer().collectProviderModels();
+  await setImmediate();
+  assert.equal(f.requests.length, 1, 'the new account lists models despite the old pending refresh');
+  f.requests[0].resolve(model('new account'));
+  assert.equal((await next)[0].display, 'new account');
 });
 
 test('a failed metadata lookup does not pin its fallback as authoritative', async () => {

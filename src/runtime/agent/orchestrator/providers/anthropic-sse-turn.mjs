@@ -24,6 +24,7 @@ import { OAUTH_STREAM_LABELS } from './lib/anthropic-stream-labels.mjs';
  * @param {Iterable<string>} [deps.knownToolNames]
  * @param {boolean} [deps.relayProgressUpdates]  request used thinking.display "updates"
  * @param {{ display: string, tag: string }} [deps.labels]  provider name for errors and stderr lines
+ * @param {(detail: object) => void} [deps.onStreamItemStart]  a client tool_use block opened
  */
 export function createAnthropicSseTurn({
   state,
@@ -33,6 +34,7 @@ export function createAnthropicSseTurn({
   knownToolNames,
   relayProgressUpdates = false,
   labels = OAUTH_STREAM_LABELS,
+  onStreamItemStart = null,
 }) {
   const progress = (kind) => {
     try {
@@ -64,6 +66,7 @@ export function createAnthropicSseTurn({
     onToolCall,
     relayProgressUpdates,
     labels,
+    onStreamItemStart,
   });
   const outcome = createTurnOutcome({ turn, blocks, state, labels });
 

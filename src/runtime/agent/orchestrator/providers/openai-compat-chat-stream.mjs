@@ -39,6 +39,7 @@ export async function consumeCompatChatCompletionStream(
     onStreamDelta,
     onToolCall,
     onTextDelta,
+    onStreamItemStart,
     parseToolCalls,
     knownToolNames,
     semanticIdleTimeoutMs,
@@ -55,6 +56,7 @@ export async function consumeCompatChatCompletionStream(
     onStreamDelta,
     onToolCall,
     onTextDelta,
+    onStreamItemStart,
   });
   reportTransport(state);
   const iterator = stream[Symbol.asyncIterator]();

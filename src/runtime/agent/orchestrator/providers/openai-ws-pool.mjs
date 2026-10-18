@@ -9,6 +9,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { attachHandshakeFailureHandlers, captureHandshakeUpgrade } from './openai-ws-handshake.mjs';
+import { createWsConnection, openHedged } from './openai-ws-connect.mjs';
 import { codexOriginator, codexUserAgent, codexVersionHeader } from './codex-client-meta.mjs';
 import {
   PROVIDER_WS_ACQUIRE_TIMEOUT_MS,
@@ -539,7 +540,26 @@ const WS_URL_BY_AUTH = { xai: XAI_WS_URL, 'openai-direct': OPENAI_WS_URL };
 /** The auth kind an error label names; anything but xAI/direct is the OAuth (Codex) path. */
 const _wsAuthKind = (auth) => (auth?.type === 'xai' || auth?.type === 'openai-direct' ? auth.type : 'openai-oauth');
 
-async function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codexHeaders }) {
+function _acquireTimeoutError(auth) {
+  return Object.assign(
+    new Error(`${_wsErrLabel(_wsAuthKind(auth))} acquire timed out before open (${WS_ACQUIRE_TIMEOUT_MS}ms)`),
+    { code: 'EWSACQUIRETIMEOUT', acquireTimeoutMs: WS_ACQUIRE_TIMEOUT_MS }
+  );
+}
+
+// One acquire = a hedged race of handshake legs under the acquire deadline
+// (openai-ws-connect.mjs): a stuck upgrade is replaced after the hedge window
+// instead of costing the whole timeout plus a retry.
+function _openSocket(args) {
+  return openHedged({
+    openLeg: ({ externalSignal }) => _openSocketLeg({ ...args, externalSignal }),
+    externalSignal: args.externalSignal,
+    deadlineMs: WS_ACQUIRE_TIMEOUT_MS,
+    deadlineError: () => _acquireTimeoutError(args.auth),
+  });
+}
+
+async function _openSocketLeg({ auth, sessionToken, externalSignal, cacheKey, codexHeaders }) {
   // `ws` loads on the first socket, not at runtime boot via provider-admin.
   const { default: WebSocket } = await import('ws');
   const headers = _buildHandshakeHeaders({ auth, sessionToken, cacheKey, codexHeaders });
@@ -586,6 +606,7 @@ async function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codex
       headers,
       handshakeTimeout: WS_HANDSHAKE_TIMEOUT_MS,
       maxPayload: WS_MAX_INCOMING_FRAME_BYTES,
+      createConnection: createWsConnection,
     });
     acquireTimer = setTimeout(() => {
       if (settled) return;
@@ -597,13 +618,7 @@ async function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codex
       try {
         socket.terminate();
       } catch {}
-      settle(
-        false,
-        Object.assign(
-          new Error(`${_wsErrLabel(_wsAuthKind(auth))} acquire timed out before open (${WS_ACQUIRE_TIMEOUT_MS}ms)`),
-          { code: 'EWSACQUIRETIMEOUT', acquireTimeoutMs: WS_ACQUIRE_TIMEOUT_MS }
-        )
-      );
+      settle(false, _acquireTimeoutError(auth));
     }, WS_ACQUIRE_TIMEOUT_MS);
     try {
       acquireTimer.unref?.();
@@ -764,6 +779,52 @@ function _onEntryClosed(poolKey, entry) {
   if (!entry.ephemeral) _removeFromPool(poolKey, entry);
 }
 
+// Sessionless sends (no poolKey) carry no turn state or response chain of
+// their own, so their connections are shared: one idle bucket per
+// credential + cache key, no owner claim (concurrent sessionless callers
+// each take a different idle socket or open one), and a reused socket starts
+// with an empty chain so no request ever deltas against another caller's
+// response. Without this every sessionless send paid a fresh handshake and
+// closed the socket on release.
+const SHARED_POOL_PREFIX = '\0shared:';
+
+function _resetChain(entry) {
+  entry.lastResponseId = null;
+  entry.lastRequestSansInput = null;
+  entry.lastRequestInput = null;
+  entry.lastResponseItems = null;
+  entry.lastInputLen = 0;
+  entry.lastInputPrefixHash = null;
+  entry.turnState = null;
+  entry.turnStateScope = null;
+  entry.turnStateTurnId = null;
+}
+
+async function _acquireShared({ auth, cacheKey, codexHeaders, externalSignal, acqStart }) {
+  const compatibility = _poolCompatibility(auth, cacheKey);
+  const sharedKey = `${SHARED_POOL_PREFIX}${compatibility.authIdentity}:${compatibility.cacheKeyIdentity}`;
+  const arr = _wsPool.get(sharedKey) || [];
+  _pruneStaleEntries(sharedKey, arr, compatibility);
+  const idle = await _takeIdleEntry(sharedKey, arr, compatibility, acqStart);
+  if (idle) {
+    _resetChain(idle);
+    return { entry: idle, reused: true, ownerWaitMs: 0 };
+  }
+  const entry = await _openPoolEntry({
+    auth,
+    cacheKey,
+    codexHeaders,
+    externalSignal,
+    compatibility,
+    ephemeral: false,
+    acqStart,
+  });
+  entry.sharedPoolKey = sharedKey;
+  _getPoolArr(sharedKey).push(entry);
+  entry.socket.on('close', () => _onEntryClosed(sharedKey, entry));
+  return { entry, reused: false, ownerWaitMs: 0 };
+}
+
 export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, forceFresh, externalSignal }) {
   const _acqStart = Date.now();
   _acquireTrace(
@@ -771,6 +832,9 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
   );
   if (externalSignal?.aborted) {
     throw _acquireAbortError(externalSignal);
+  }
+  if (!poolKey && !forceFresh) {
+    return _acquireShared({ auth, cacheKey, codexHeaders, externalSignal, acqStart: _acqStart });
   }
   const ownerClaim = await _claimPoolOwner(poolKey, externalSignal);
   const acquired = (entry, reused) => {
@@ -825,8 +889,9 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
   }
 }
 
-export function releaseWebSocket({ entry, poolKey, keep }) {
+export function releaseWebSocket({ entry, poolKey: callerPoolKey, keep }) {
   if (!entry) return;
+  const poolKey = callerPoolKey || entry.sharedPoolKey || null;
   entry.busy = false;
   if (!keep || !_isOpen(entry) || !poolKey || entry.ephemeral) {
     try {

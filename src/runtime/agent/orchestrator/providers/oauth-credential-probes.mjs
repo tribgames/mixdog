@@ -5,6 +5,7 @@ import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { cursorTokenExpiry } from './cursor-auth.mjs';
 import { isValidMuseCredentialDocument } from './muse-code-oauth-tokens.mjs';
+import { isValidOpenCodeGoCredentialDocument } from './opencode-go-oauth-tokens.mjs';
 import { developerOptionEnabled, developerOptionForProvider } from '../../../shared/developer-options.mjs';
 import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
 
@@ -198,6 +199,17 @@ function museCodeOAuthState() {
   );
 }
 
+function openCodeGoOAuthState() {
+  const paths = [
+    boundProviderAuthPath('opencode-go-oauth') ||
+      process.env.OPENCODE_GO_OAUTH_CREDENTIALS_PATH ||
+      join(resolvePluginData(), 'opencode-go-oauth.json'),
+  ];
+  return memoProbe('opencode-go-oauth', paths, () =>
+    resolveProbeState(paths, (docs) => docs.some(isValidOpenCodeGoCredentialDocument))
+  );
+}
+
 // Antigravity needs a resolved Cloud project alongside the tokens: without it
 // every request 400s, so a half-finished login must not enable the provider.
 function antigravityOAuthState() {
@@ -270,6 +282,7 @@ const OAUTH_PROBE_STATES = new Map([
   ['mimo-oauth', mimoOAuthState],
   ['cursor-oauth', cursorOAuthState],
   ['antigravity-oauth', antigravityOAuthState],
+  ['opencode-go-oauth', openCodeGoOAuthState],
 ]);
 
 // Dev-only OAuth providers (Antigravity, Cursor). Each is hidden and treated as

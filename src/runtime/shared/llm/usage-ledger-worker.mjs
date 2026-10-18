@@ -60,7 +60,7 @@ function recordBatch(ledger, rows) {
 const operations = {
   rollup: ({ path, options }) => read(path, (db) => rollupUsage(db, options)),
   rollupDelta: ({ path, options, known, now }) => read(path, (db) => rollupDelta(db, options, known, now)),
-  sessionUsage: ({ path, sessionIds }) => read(path, (db) => readSessionUsage(db, sessionIds)),
+  sessionUsage: ({ path, sessionIds, ownerIds }) => read(path, (db) => readSessionUsage(db, sessionIds, ownerIds)),
   record: ({ path, rows }) => write(path, (ledger) => recordBatch(ledger, rows)),
   recordQuota: ({ path, samples }) => write(path, (ledger) => ledger.recordQuota(samples)),
   quotaHistory: ({ path, options }) => read(path, (db) => readQuotaHistory(db, options)),

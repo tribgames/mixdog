@@ -104,7 +104,8 @@ async function isolated() {
     Date: Clock,
     Math: Object.assign(Object.create(Math), { random: () => 0 }),
     process: { env: s.env, stderr: { write: (text) => s.logs.push(text) } },
-    AbortSignal: { timeout: (ms) => ({ ms }) },
+    AbortController,
+    AbortSignal: { timeout: (ms) => ({ ms }), any: (signals) => ({ any: signals }) },
     setTimeout: (fn, ms) => {
       const timer = { fn, ms, cleared: false };
       s.timers.push(timer);
@@ -214,7 +215,9 @@ async function isolated() {
     './model-list-sanitize.mjs': { sanitizeModelList: (models) => models },
     // The real shared xAI rule, running against empty catalogs (cold start).
     './openai-compat-xai.mjs': { xaiModelSupportsReasoningEffort: realXaiRule },
-    './openai-compat-retry-profile.mjs': { XAI_COMPAT_RETRY_POLICY: Object.freeze({ recoveryCycles: false, inBandInvalidRequestRetryable: true }) },
+    './openai-compat-retry-profile.mjs': {
+      XAI_COMPAT_RETRY_POLICY: Object.freeze({ recoveryCycles: false, inBandInvalidRequestRetryable: true }),
+    },
     './lib/note-error-usage.mjs': { noteErrorUsage: () => {} },
     // No remembered client version: the sandbox never reads the operator's disk.
     './client-version-store.mjs': { readLastKnownVersion: () => null, rememberLastKnownVersion: () => {} },
@@ -658,7 +661,7 @@ function registerTests() {
           // A bad request is answered with an error and the login keeps waiting.
           await server.handler({ url: '/callback?code=code&state=wrong' }, res);
           assert.equal(res.status, 400);
-          assert.equal(res.body, 'Invalid');
+          assert.match(res.body, /로그인 실패/);
           await server.handler({ url: `/callback?state=${url.searchParams.get('state')}` }, res);
           assert.equal(res.status, 400);
           assert.equal(server.closed, 0);
@@ -670,8 +673,8 @@ function registerTests() {
         } else {
           await server.handler({ url: `/callback?code=code&state=${url.searchParams.get('state')}` }, res);
           assert.equal(res.status, 200);
-          assert.match(res.body, /Authentication successful/);
-          assert.match(res.body, /Signed in to Grok\./);
+          assert.match(res.body, /로그인 완료/);
+          assert.match(res.body, /Grok 로그인이 완료되었습니다\./);
         }
         assert.equal((await started.waitForCallback).access_token, 'access');
         assert.equal(s.writes.length, 1);
@@ -689,6 +692,71 @@ function registerTests() {
       assert.equal(s.timers[0].cleared, true);
     }
   });
+
+  {
+    async function pendingLogin() {
+      const { s, login } = await isolated();
+      s.replies.push(response({ authorization_endpoint: AUTH_URL, token_endpoint: TOKEN_URL }));
+      const started = await login.beginOAuthLogin();
+      const state = new URL(started.url).searchParams.get('state');
+      const tokenRequests = () => s.requests.filter((request) => request.url === TOKEN_URL).length;
+      const gate = Promise.withResolvers();
+      s.replies.push(() => gate.promise);
+      const res = {
+        writeHead(status) {
+          this.status = status;
+        },
+        end(body) {
+          this.body = body;
+        },
+      };
+      const callback = (code) => s.servers[0].handler({ url: `/callback?code=${code}&state=${state}` }, res);
+      return { s, started, state, gate, res, callback, tokenRequests };
+    }
+    const grant = () => response({ access_token: 'access', refresh_token: 'refresh', expires_at: NOW });
+
+    test('cancel during the exchange saves nothing', async () => {
+      const { s, started, gate, res, callback } = await pendingLogin();
+      const handled = callback('code');
+      started.cancel();
+      assert.equal(await started.waitForCallback, null);
+      gate.resolve(grant());
+      await handled;
+      assert.equal(res.status, 500);
+      assert.equal(s.writes.length, 0);
+    });
+
+    test('the callback plus the manual code run one exchange', async () => {
+      const { s, started, state, gate, callback, tokenRequests } = await pendingLogin();
+      const handled = callback('code');
+      const manual = started.completeCode(`other-code#${state}`);
+      gate.resolve(grant());
+      await handled;
+      assert.equal((await manual).access_token, 'access');
+      assert.equal((await started.waitForCallback).access_token, 'access');
+      assert.equal(tokenRequests(), 1);
+      assert.equal(s.writes.length, 1);
+    });
+
+    test('a duplicate cannot settle the login before the exchange finishes', async () => {
+      const { s, started, state, gate, callback } = await pendingLogin();
+      s.replies.push(response('invalid_grant', 400));
+      let settled = false;
+      started.waitForCallback.then(
+        () => (settled = true),
+        () => (settled = true)
+      );
+      const handled = callback('code');
+      const manual = started.completeCode(`other-code#${state}`);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(settled, false);
+      gate.resolve(grant());
+      await handled;
+      assert.equal((await manual).access_token, 'access');
+      assert.equal((await started.waitForCallback).access_token, 'access');
+      assert.equal(s.writes.length, 1);
+    });
+  }
 
   test('catalog display, reasoning and context survive cached and fresh normalization', async () => {
     const {
@@ -761,10 +829,7 @@ function registerTests() {
       ['low', 'medium', 'high'],
       [],
     ]);
-    assert.deepEqual(
-      plain(listed.map((model) => model.family)),
-      ['grok', 'grok', 'grok-static']
-    );
+    assert.deepEqual(plain(listed.map((model) => model.family)), ['grok', 'grok', 'grok-static']);
   });
 
   test('send keeps or strips the effort by the model roster row, not by its id', async () => {
@@ -783,10 +848,7 @@ function registerTests() {
     await provider.send([], 'grok-9-effort', [], { effort: 'high' });
     // Not on the roster yet: the shared rule passes the effort through.
     await provider.send([], 'grok-10-new', [], { effort: 'high' });
-    assert.deepEqual(
-      plain(s.sends.map((send) => send.args[3].effort)),
-      ['none', 'high', 'high']
-    );
+    assert.deepEqual(plain(s.sends.map((send) => send.args[3].effort)), ['none', 'high', 'high']);
   });
 
   test('catalog merging, default release date, proxy fallback and API failures', async () => {

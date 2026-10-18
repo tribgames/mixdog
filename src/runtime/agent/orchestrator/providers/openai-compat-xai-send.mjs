@@ -134,6 +134,7 @@ export async function sendXaiResponses(provider, messages, useModel, tools, opts
             onStreamDelta: opts.onStreamDelta,
             onToolCall: opts.onToolCall,
             onTextDelta: opts.onTextDelta,
+            onStreamItemStart: opts.onStreamItemStart,
             parseResponsesToolCalls,
             responseOutputText,
             knownToolNames: knownToolNamesFromResponsesTools(params.tools),

@@ -297,6 +297,7 @@ export async function sendViaWebSocket({
         onStreamDelta,
         onToolCall,
         onTextDelta,
+        onStreamItemStart: typeof sendOpts?.onStreamItemStart === 'function' ? sendOpts.onStreamItemStart : null,
         state: midState,
         logSuppressedReasoningDeltas,
         traceProvider,

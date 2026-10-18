@@ -4,6 +4,7 @@
  * reasoning aliases, tool_calls deltas, finish reason and usage.
  */
 import { mergeToolCallDelta } from './tool-call-acc.mjs';
+import { reportStreamItemStart } from '../lib/send-callbacks.mjs';
 import { appendText, drainLeakedCalls, relayText, reportProgress, reportTransport } from './stream-state.mjs';
 import { chatContentParts } from '../openai-compat-reasoning-field.mjs';
 
@@ -58,7 +59,10 @@ export function applyCompatChunk(state, chunk) {
   if (Array.isArray(delta?.tool_calls) && delta.tool_calls.length) {
     reportProgress(state, 'tool');
   }
+  const toolsBefore = state.toolAcc.byKey.size;
   mergeToolCallDelta(state.toolAcc, delta?.tool_calls);
+  // A tool call's first delta: its arguments are still streaming.
+  if (state.toolAcc.byKey.size > toolsBefore) reportStreamItemStart(state.onStreamItemStart, { kind: 'tool' });
   if (choice?.finish_reason) {
     state.stopReason = choice.finish_reason;
     drainLeakedCalls(state);

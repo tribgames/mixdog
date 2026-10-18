@@ -25,6 +25,7 @@ import {
   scrubOAuthSecrets,
 } from './lib/oauth-token-utils.mjs';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
+import { OAUTH_PAGE_CONTENT_TYPE, oauthErrorHtml, oauthSuccessHtml } from './lib/oauth-page.mjs';
 
 const SIGN_IN_EXPIRED_PREFIX = 'Anthropic sign-in expired. Sign in again from Providers.';
 
@@ -66,8 +67,6 @@ const OAUTH_CALLBACK_PATH = '/callback';
 const OAUTH_REDIRECT_URI = `http://${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}${OAUTH_CALLBACK_PATH}`;
 const OAUTH_MANUAL_REDIRECT_URI =
   process.env.ANTHROPIC_OAUTH_MANUAL_REDIRECT_URI || 'https://platform.claude.com/oauth/code/callback';
-const OAUTH_SUCCESS_REDIRECT_URL =
-  process.env.ANTHROPIC_OAUTH_SUCCESS_REDIRECT_URL || 'https://platform.claude.com/oauth/code/success?app=claude-code';
 const OAUTH_LOGIN_TIMEOUT_MS = 5 * 60_000;
 const OAUTH_TOKEN_TIMEOUT_MS = 30_000;
 
@@ -110,7 +109,7 @@ function _loadCredentialsFile(path) {
 }
 
 // The token endpoint names the signed-in account next to the tokens.
-export function identityFromTokenResponse(json) {
+function identityFromTokenResponse(json) {
   return normalizeAccountIdentity({
     id: json?.account?.uuid,
     email: json?.account?.email_address,
@@ -570,9 +569,11 @@ function _parseOAuthCodeInput(input) {
   return parseOAuthCodeInput(input, { allowHashState: true });
 }
 
-async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
+async function exchangeAuthorizationCode({ pkce, code, state, redirectUri, signal = null }) {
+  signal?.throwIfAborted();
   const cleanCode = String(code || '').trim();
   if (!cleanCode) throw new Error('[anthropic-oauth] authorization code is required');
+  const timeoutSignal = AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS);
   const tokenRes = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: tokenEndpointHeaders(),
@@ -585,7 +586,7 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
       state,
     }),
     redirect: 'error',
-    signal: AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS),
+    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
     dispatcher: getLlmDispatcher(),
   });
   if (!tokenRes.ok) {
@@ -605,6 +606,8 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
   const expiresAt = expiresAtFromTokenResponse(json);
   const scopes = _oauthParseScopeField(json?.scope);
   const identity = identityFromTokenResponse(json);
+  // A cancelled login never stores the account it was exchanging.
+  signal?.throwIfAborted();
   const credPath = _oauthCredentialsWritePath();
   const raw = _updateCredentialsFile(credPath, (current) => {
     const base = current && typeof current === 'object' ? current : {};
@@ -664,14 +667,33 @@ export async function beginOAuthLogin({ openBrowserFn = null, openBrowser = true
     }
   };
 
+  const controller = new AbortController();
   let server = null;
   let timeout = null;
   let finish = null;
+  let exchangePromise = null;
+  // Browser and manual callbacks share one exchange: an authorization code is
+  // spent once, and a duplicate joins the first instead of failing the login.
+  const acceptCode = (code, redirectUri) => {
+    if (exchangePromise) return exchangePromise;
+    controller.signal.throwIfAborted();
+    // The browser deadline ends when a code arrives; the exchange has its own.
+    if (timeout) clearTimeout(timeout);
+    timeout = null;
+    exchangePromise = exchangeAuthorizationCode({ pkce, code, state, redirectUri, signal: controller.signal });
+    exchangePromise.then(
+      (tokens) => finish(tokens),
+      (error) => finish(null, error instanceof Error ? error : new Error(String(error)))
+    );
+    return exchangePromise;
+  };
   const waitForCallback = new Promise((resolve, reject) => {
     let settled = false;
     finish = (value, error = null) => {
       if (settled) return;
       settled = true;
+      // Work arriving after the login settled (or was cancelled) is rejected.
+      controller.abort();
       if (timeout) clearTimeout(timeout);
       try {
         server?.close();
@@ -691,20 +713,20 @@ export async function beginOAuthLogin({ openBrowserFn = null, openBrowser = true
       const code = u.searchParams.get('code');
       if (!code || u.searchParams.get('state') !== state) {
         // Reject this request only; the valid callback may still arrive.
-        res.writeHead(400);
-        res.end('Invalid');
+        res.writeHead(400, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
+        res.end(oauthErrorHtml('The sign-in callback was invalid or did not match this login.'));
         return;
       }
+      // The login settles (and its server closes) before this answer is sent,
+      // so the connection must not stay open to the closed login's handler.
       try {
-        const tokens = await exchangeAuthorizationCode({ pkce, code, state, redirectUri: OAUTH_REDIRECT_URI });
-        res.writeHead(302, { Location: OAUTH_SUCCESS_REDIRECT_URL });
-        res.end();
-        finish(tokens);
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end(`Claude login failed: ${error.message}`);
-        finish(null, error);
+        await acceptCode(code, OAUTH_REDIRECT_URI);
+        res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE, Connection: 'close' });
+        res.end(oauthSuccessHtml('Claude'));
+      } catch {
+        // The shared exchange reports its error through waitForCallback.
+        res.writeHead(500, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE, Connection: 'close' });
+        res.end(oauthErrorHtml('Claude could not complete the token exchange.'));
       }
     });
     timeout = setTimeout(() => finish(null), OAUTH_LOGIN_TIMEOUT_MS);
@@ -730,10 +752,9 @@ export async function beginOAuthLogin({ openBrowserFn = null, openBrowser = true
     completeCode: async (input) => {
       const parsed = _parseOAuthCodeInput(input);
       if (parsed.state && parsed.state !== state) throw new Error('[anthropic-oauth] OAuth state mismatch');
+      if (!String(parsed.code || '').trim()) throw new Error('[anthropic-oauth] authorization code is required');
       const redirectUri = parsed.redirectUri || (parsed.state ? OAUTH_MANUAL_REDIRECT_URI : OAUTH_REDIRECT_URI);
-      const tokens = await exchangeAuthorizationCode({ pkce, code: parsed.code, state, redirectUri });
-      finish?.(tokens);
-      return tokens;
+      return await acceptCode(parsed.code, redirectUri);
     },
     cancel: () => {
       finish?.(null);

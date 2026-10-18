@@ -13,6 +13,7 @@ export const ACCOUNT_PROVIDERS = Object.freeze([
   'mimo-oauth',
   'cursor-oauth',
   'antigravity-oauth',
+  'opencode-go-oauth',
 ]);
 const MAX_ACCOUNTS = 20;
 // `dataDir` defaults to this process's data dir; an isolated runtime passes
@@ -79,7 +80,7 @@ function normalizeLabels(pool) {
 // only; `limit` keeps the selected account until it reaches a limit and then
 // moves to the account with the most headroom; `headroom` starts every new
 // session on the account with the most headroom and keeps it for that session.
-export const ACCOUNT_POLICIES = Object.freeze(['manual', 'limit', 'headroom']);
+const ACCOUNT_POLICIES = Object.freeze(['manual', 'limit', 'headroom']);
 
 // `auto` predates `policy` and is still written beside it, so a build that
 // knows only `auto` reads the same switching on/off. Whenever the two

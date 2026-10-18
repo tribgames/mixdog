@@ -187,6 +187,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
                 onStreamDelta: opts.onStreamDelta,
                 onToolCall: opts.onToolCall,
                 onTextDelta: opts.onTextDelta,
+                onStreamItemStart: opts.onStreamItemStart,
                 parseToolCalls,
                 // Known tool names for the leaked-tool-call guard:
                 // recovered leaked calls only synthesize when they name

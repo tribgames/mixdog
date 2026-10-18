@@ -8,13 +8,14 @@ import test from 'node:test';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
-function runIsolatedConfigTest(prefix, source) {
+function runIsolatedConfigTest(prefix, source, extraEnv = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), prefix));
   try {
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
       cwd: repoRoot,
       env: {
         ...process.env,
+        ...extraEnv,
         MIXDOG_DATA_DIR: dataDir,
         MIXDOG_CONFIG_READ_TTL_MS: '0',
         MIXDOG_USER_DATA_BACKUP_ROOT: join(dataDir, 'backups'),
@@ -50,6 +51,28 @@ test('a profile with no stored config starts fresh: built-ins uninstalled, agent
     assert.ok(reloaded.disabledAgents.includes('maintainer'));
     assert.equal(reloaded.profile.title, 'New');
     `
+  );
+});
+
+test('a profile with a stored API key and no config section loads that provider enabled', () => {
+  // A copied auth (dev --copy-auth) brings the keychain secret but no config:
+  // Settings lists the provider as connected, so the registry must load it.
+  runIsolatedConfigTest(
+    'mixdog-config-key-only-',
+    `
+    import assert from 'node:assert/strict';
+    import { loadConfig } from './src/runtime/agent/orchestrator/config.mjs';
+
+    const keyed = loadConfig();
+    assert.equal(keyed.providers.openrouter.enabled, true);
+    assert.equal(keyed.providers.openrouter.apiKey, 'stored-test-key');
+    assert.equal(keyed.providers.openai.enabled, false);
+    const presence = loadConfig({ secrets: 'presence' });
+    assert.equal(presence.providers.openrouter.enabled, true);
+    assert.equal(presence.providers.openrouter.apiKey, undefined);
+    assert.equal(loadConfig({ secrets: false }).providers.openrouter.enabled, false);
+    `,
+    { MIXDOG_AGENT_OPENROUTER_APIKEY: 'stored-test-key' }
   );
 });
 

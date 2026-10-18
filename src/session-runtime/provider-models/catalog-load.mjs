@@ -17,6 +17,7 @@ export function createCatalogLoader({
   ensureFullConfig,
   awaitKeychainPrewarm,
   ensureProvidersReady,
+  providerTimeoutMs,
 }) {
   function rowsForEntry({ name, models, error, ms }) {
     const out = [];
@@ -76,7 +77,10 @@ export function createCatalogLoader({
   }
 
   /** `request` ({ seq }) identifies the caller's load; `request.complete`
-   *  reports whether every provider answered. */
+   *  reports whether every provider answered, `request.missing` names the
+   *  providers that failed or timed out, `request.partial` marks a load
+   *  where some but not all providers answered, and `request.retryAt` is when
+   *  the first missing provider may be asked again. */
   return async function loadProviderModelsFresh({ forceRefresh = false, loadSecrets = true, request = null } = {}) {
     const startedAt = performance.now();
     profile('load:start', { forceRefresh, loadSecrets });
@@ -93,8 +97,15 @@ export function createCatalogLoader({
     // forward only for the still-current request, never for a superseded load.
     if (ownsLoad) request.seq = caches.providerModelsLoadSeq;
     const seq = request?.seq ?? caches.providerModelsLoadSeq;
-    const catalogEntries = await sharedProviderCatalog(reg());
-    if (request) request.complete = catalogEntries.every((entry) => !Object.hasOwn(entry, 'error'));
+    const catalogEntries = await sharedProviderCatalog(reg(), { force: forceRefresh, timeoutMs: providerTimeoutMs });
+    if (request) {
+      const failed = catalogEntries.filter((entry) => Object.hasOwn(entry, 'error'));
+      request.missing = failed.map((entry) => entry.name);
+      request.complete = failed.length === 0;
+      request.partial = !request.complete && failed.length < catalogEntries.length;
+      // The shared, process-wide backoff of the soonest missing provider.
+      request.retryAt = request.partial ? Math.min(...failed.map((entry) => entry.retryAt)) : null;
+    }
     const results = [];
     const seen = new Set();
     for (const row of catalogEntries.flatMap(rowsForEntry)) {

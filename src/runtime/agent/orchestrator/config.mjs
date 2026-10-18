@@ -114,6 +114,8 @@ export function buildDefaultConfig(options = {}) {
   providers['muse-code-oauth'] = oauthEntry('muse-code-oauth');
   // Command Code Provider API, enabled from its stored Studio API key.
   providers['command-code-oauth'] = oauthEntry('command-code-oauth');
+  // OpenCode Go through an OpenCode Console login, enabled from its stored tokens.
+  providers['opencode-go-oauth'] = oauthEntry('opencode-go-oauth');
   // Dev-only providers (Settings → Developer → Providers, one option each):
   // omitted entirely from the default config while their option is off so
   // they never surface in settings.
@@ -307,6 +309,10 @@ export function loadConfig(options = {}) {
   const defaults = buildDefaultConfig({ detectCredentials: includeSecrets });
   return {
     ...defaults,
+    // A stored keychain key enables its provider with or without a stored
+    // config section: Settings lists such a provider as connected, so a
+    // profile that carries only credentials (a copied auth) must load it too.
+    providers: mergeStoredProviders({ raw: {}, defaults, includeSecrets, presenceOnly }),
     mcpServers: {},
     pluginMcp: {},
     presets: DEFAULT_PRESETS.map((p) => ({ ...p })),

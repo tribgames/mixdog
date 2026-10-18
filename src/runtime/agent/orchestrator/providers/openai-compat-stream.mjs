@@ -51,6 +51,7 @@ export async function consumeCompatResponsesStream(
     onStreamDelta,
     onToolCall,
     onTextDelta,
+    onStreamItemStart,
     parseResponsesToolCalls,
     responseOutputText,
     knownToolNames,
@@ -89,6 +90,7 @@ export async function consumeCompatResponsesStream(
     onStreamDelta: reportProgress,
     onToolCall,
     onTextDelta,
+    onStreamItemStart,
     relayLeakText,
   };
   const stampOutcome = createResponsesOutcomeStamper(state, leakedCalls);

@@ -1,9 +1,19 @@
 import { performance } from 'node:perf_hooks';
+import { reportStreamItemStart, responsesItemStart } from '../lib/send-callbacks.mjs';
 
 // The per-event fold: text/reasoning/tool deltas and item lifecycle feed the
 // response state, the text relay and the semantic watchdog; terminal frames
 // route to the terminal-frame handlers.
-export function createWsEventSwitch({ response, textRelay, watchdogs, midState, progress, terminal, streamingStart }) {
+export function createWsEventSwitch({
+  response,
+  textRelay,
+  watchdogs,
+  midState,
+  progress,
+  terminal,
+  streamingStart,
+  onStreamItemStart = null,
+}) {
   let firstDeltaEmitted = false;
 
   function onResponseCreated(event) {
@@ -73,6 +83,7 @@ export function createWsEventSwitch({ response, textRelay, watchdogs, midState, 
         break;
       case 'response.output_item.added':
         response.noteItemAdded(event.item);
+        reportStreamItemStart(onStreamItemStart, responsesItemStart(event.item));
         // Item lifecycle is genuine progress: reset the semantic-idle timer so
         // long server-side tool latency after item-added (before any arg
         // delta) is not mistaken for a silent stall.
@@ -102,6 +113,8 @@ export function createWsEventSwitch({ response, textRelay, watchdogs, midState, 
         break;
       case 'response.output_item.done': {
         const kind = response.completeOutputItem(event.item);
+        // A stream that names the phase only on the finished message.
+        if (event.item?.type === 'message') reportStreamItemStart(onStreamItemStart, responsesItemStart(event.item));
         // Item-done is genuine lifecycle progress — reset semantic idle so
         // latency before the next item/args does not stall.
         watchdogs.resetSemantic();

@@ -608,7 +608,6 @@ export function updateSectionAsync(section, updater) {
 export const SECRET_ACCOUNTS = Object.freeze({
   agentApiKey: (provider) => `agent.${provider}.apiKey`,
   openaiUsageSessionKey: 'agent.openai.usageSessionKey',
-  opencodeGoConsoleKey: 'agent.opencode-go.consoleKey',
 });
 
 // ── Secret-aware getters ─────────────────────────────────────────────────────
@@ -636,15 +635,6 @@ export function getOpenAIUsageSessionKey() {
     process.env.OPENAI_SESSION_KEY ||
     process.env.MIXDOG_OPENAI_USAGE_SESSION_KEY ||
     _readSecret(SECRET_ACCOUNTS.openaiUsageSessionKey)
-  );
-}
-
-export function getOpenCodeGoConsoleKey() {
-  return (
-    process.env.OPENCODE_CONSOLE_API_KEY ||
-    process.env.OPENCODE_GO_CONSOLE_API_KEY ||
-    process.env.MIXDOG_OPENCODE_CONSOLE_API_KEY ||
-    _readSecret(SECRET_ACCOUNTS.opencodeGoConsoleKey)
   );
 }
 

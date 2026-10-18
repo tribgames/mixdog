@@ -3,11 +3,6 @@ import {
   readCachedOAuthUsageSnapshot,
 } from '../../runtime/agent/orchestrator/providers/oauth-usage.mjs';
 import {
-  fetchOpenCodeGoUsageSnapshot,
-  openCodeGoUsageConfigStatus,
-  readCachedOpenCodeGoUsageSnapshot,
-} from '../../runtime/agent/orchestrator/providers/opencode-go-usage.mjs';
-import {
   fetchApiUsageSnapshot,
   readCachedApiUsageSnapshot,
 } from '../../runtime/agent/orchestrator/providers/api-usage.mjs';
@@ -118,69 +113,32 @@ async function apiProviderRow(item, { config, providers, preview, refreshFor, sn
   if (row.authenticated) {
     let hasQuota = false;
     let apiUsageSnapshot = null;
-    if (item.id === 'opencode-go') {
-      const usageStatus = openCodeGoUsageConfigStatus(config);
-      try {
-        let snapshot = null;
-        if (refreshFor(item.id)) snapshot = await fetchOpenCodeGoUsageSnapshot(config, { force: true });
-        else snapshot = readCachedOpenCodeGoUsageSnapshot();
-        if (!snapshot && !refreshFor(item.id) && usageStatus.ready) {
-          snapshot = await fetchOpenCodeGoUsageSnapshot(config);
-        }
-        if (snapshot) {
-          hasQuota = applyWindowQuota(row, snapshot?.quotaWindows, {
-            source: 'opencode-go-console',
-            detail: 'subscription quota',
-          });
-          row.updatedAt = num(snapshot?.cachedAt, null);
-        } else {
-          row.status = 'missing';
-          row.source = 'usage-auth-missing';
-          row.sourceLabel = 'usage auth';
-          row.primary = '';
-          row.detail = usageStatus.ready
-            ? 'OpenCode Go usage not found'
-            : 'Set an OpenCode console API key (all permissions) for usage';
-        }
-      } catch (err) {
-        if (String(err?.code || '').startsWith('OPENCODE_GO_USAGE_')) {
-          row.status = 'missing';
-          row.source = 'usage-auth-missing';
-          row.sourceLabel = 'usage auth';
-          row.primary = '';
-          row.detail = usageStatus.ready
-            ? 'OpenCode Go usage not found'
-            : 'Set an OpenCode console API key (all permissions) for usage';
-        }
-      }
-    } else {
-      const snapshot = await apiSnapshot(item.id, snapshotOptions(item.id));
-      apiUsageSnapshot = snapshot;
-      const known = snapshotRemaining(snapshot);
-      const usage = snapshotUsage(snapshot);
-      const tokenUsage = snapshotTokenUsage(snapshot);
-      const windows = normaliseWindows(snapshot?.quotaWindows, clean(snapshot?.source) || 'provider-api');
-      const estimated = localBudget(providerCfg);
-      row.updatedAt = num(snapshot?.cachedAt, null);
-      if (known) {
-        applyKnownRemaining(row, known, { estimated: false });
-        row.sourceLabel = 'API';
-        hasQuota = true;
-      } else if (windows.length) {
-        hasQuota = applyWindowQuota(row, windows, {
-          source: clean(snapshot?.source) || 'provider-api',
-          detail: 'provider quota',
-        });
-      } else if (estimated) {
-        applyKnownRemaining(row, estimated, { estimated: true });
-        hasQuota = true;
-      } else if (usage) {
-        applyKnownUsage(row, usage);
-        hasQuota = true;
-      } else if (tokenUsage) {
-        applyTokenUsage(row, tokenUsage);
-        hasQuota = true;
-      }
+    const snapshot = await apiSnapshot(item.id, snapshotOptions(item.id));
+    apiUsageSnapshot = snapshot;
+    const known = snapshotRemaining(snapshot);
+    const usage = snapshotUsage(snapshot);
+    const tokenUsage = snapshotTokenUsage(snapshot);
+    const windows = normaliseWindows(snapshot?.quotaWindows, clean(snapshot?.source) || 'provider-api');
+    const estimated = localBudget(providerCfg);
+    row.updatedAt = num(snapshot?.cachedAt, null);
+    if (known) {
+      applyKnownRemaining(row, known, { estimated: false });
+      row.sourceLabel = 'API';
+      hasQuota = true;
+    } else if (windows.length) {
+      hasQuota = applyWindowQuota(row, windows, {
+        source: clean(snapshot?.source) || 'provider-api',
+        detail: 'provider quota',
+      });
+    } else if (estimated) {
+      applyKnownRemaining(row, estimated, { estimated: true });
+      hasQuota = true;
+    } else if (usage) {
+      applyKnownUsage(row, usage);
+      hasQuota = true;
+    } else if (tokenUsage) {
+      applyTokenUsage(row, tokenUsage);
+      hasQuota = true;
     }
     if (!row.includeInTotal && !hasQuota) {
       const estimated = localBudget(providerCfg);
@@ -189,7 +147,7 @@ async function apiProviderRow(item, { config, providers, preview, refreshFor, sn
         hasQuota = true;
       }
     }
-    if (item.id !== 'opencode-go' && !row.includeInTotal && !hasQuota) {
+    if (!row.includeInTotal && !hasQuota) {
       applyApiUnavailable(row, item.id, apiUsageSnapshot);
     }
   }

@@ -121,7 +121,10 @@ const createMcpTransport = (options) =>
     oauthOptions: { credentialStore: memoryStore(), interactive: true, ...options.oauthOptions },
   });
 
-async function fixture(t, { type = 'http', header = null, rotate = false, failTools = false, resetRetry = false } = {}) {
+async function fixture(
+  t,
+  { type = 'http', header = null, rotate = false, failTools = false, resetRetry = false } = {}
+) {
   let origin;
   let metadata;
   let authorization;
@@ -379,7 +382,7 @@ test('callback rejects missing/mismatched/duplicate state and wrong method/path 
       const invalid = await fetch(callback);
       assert.equal(invalid.status, 400);
       assertCallbackPage(invalid);
-      assert.match(await invalid.text(), /Authentication failed/);
+      assert.match(await invalid.text(), /로그인 실패[\s\S]*Sign-in failed/);
       assert.equal(server.exchanges(), 0);
       await server.approve(href);
     },
@@ -419,8 +422,9 @@ test('callback pages: success names the MCP server; a denied sign-in gets the er
   assert.equal(page.status, 200);
   assertCallbackPage(page);
   const html = await page.text();
-  assert.match(html, /Authentication successful/);
-  assert.match(html, /Signed in to Fixture &lt;Docs&gt;\./);
+  assert.match(html, /로그인 완료/);
+  assert.match(html, /Fixture &lt;Docs&gt; 로그인이 완료되었습니다\./);
+  assert.match(html, /signed in to Fixture &lt;Docs&gt;\. You can close this tab/);
 
   const denied = await fixture(t);
   let deniedPage;
@@ -1232,7 +1236,8 @@ test('auth probe: OAuth discovery, plain servers, configured auth and unreachabl
 test("a pasted callback must be exactly the pending login's redirect; every refusal is a fixed message", () => {
   const redirectUrl = 'http://127.0.0.1:4567/oauth/callback';
   const state = 'pending-state-value';
-  const parse = (pasted, redirect = redirectUrl) => parsePastedMcpOAuthCallback(pasted, { redirectUrl: redirect, state });
+  const parse = (pasted, redirect = redirectUrl) =>
+    parsePastedMcpOAuthCallback(pasted, { redirectUrl: redirect, state });
   const ok = `${redirectUrl}?code=the-code&state=${state}`;
   assert.deepEqual(parse(ok), { code: 'the-code' });
   assert.deepEqual(parse(`  ${ok}&iss=https%3A%2F%2Fauth.example\n`), { code: 'the-code' });

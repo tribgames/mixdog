@@ -47,23 +47,68 @@ export function extractCompatReasoningEffort(model) {
   return null;
 }
 
+const ERROR_BODY_LIMIT = 4096;
+// An echoed key prefix this long (or the whole key, if shorter) is redacted.
+const ECHOED_KEY_PREFIX_MIN = 8;
+
+// Replaces the request key, and any run of its first ECHOED_KEY_PREFIX_MIN or
+// more characters ("Incorrect API key provided: xai-abcd****"), in `value`.
+function redactRequestKey(value, key) {
+  if (!key) return value;
+  const min = Math.min(ECHOED_KEY_PREFIX_MIN, key.length);
+  let out = '';
+  for (let i = 0; i < value.length; ) {
+    let n = 0;
+    while (n < key.length && value[i + n] === key[n]) n += 1;
+    if (n >= min) {
+      out += '[redacted]';
+      i += n;
+    } else {
+      out += value[i];
+      i += 1;
+    }
+  }
+  return out;
+}
+
+// A refused /models request keeps the provider's own reason (status plus the
+// body's code/type/message) so the UI can say why the list is empty. The
+// message stays `<name> models <status>`; the body rides on `providerError`,
+// with the request key (`apiKey`) redacted from it.
+async function compatModelsError(name, res, apiKey = '') {
+  const error = Object.assign(new Error(`${name} models ${res.status}`), { status: res.status });
+  try {
+    const body = JSON.parse((await res.text()).slice(0, ERROR_BODY_LIMIT));
+    const nested = body?.error && typeof body.error === 'object' ? body.error : null;
+    const text = (value) => (typeof value === 'string' && value ? redactRequestKey(value, apiKey) : undefined);
+    const providerError = {
+      message: text(body?.error) ?? text(nested?.message) ?? text(body?.message),
+      code: text(nested?.code) ?? text(body?.code),
+      type: text(nested?.type) ?? text(body?.type),
+    };
+    if (providerError.message || providerError.code || providerError.type) error.providerError = providerError;
+  } catch {
+    // A body that is not JSON adds no detail.
+  }
+  return error;
+}
+
 // `keyless` omits the Authorization header entirely (keyless endpoints);
 // `signal` aborts the request together with the list timeout.
 export async function fetchCompatModelItems(provider, { signal = null, keyless = false } = {}) {
   const name = provider.name;
   const timeout = createTimeoutSignal(signal, MODEL_LIST_TIMEOUT_MS, `${name} model list`);
   try {
+    const apiKey = keyless ? '' : resolveProviderApiKey(name, provider.config || provider);
     const res = await fetch(`${String(provider.baseURL || '').replace(/\/+$/, '')}/models`, {
       method: 'GET',
       headers: {
-        ...(keyless
-          ? {}
-          : { Authorization: `Bearer ${resolveProviderApiKey(name, provider.config || provider) || 'no-key'}` }),
+        ...(keyless ? {} : { Authorization: `Bearer ${apiKey || 'no-key'}` }),
         ...(provider.defaultHeaders || {}),
       },
       signal: timeout.signal,
     });
-    if (!res.ok) throw Object.assign(new Error(`${provider.name} models ${res.status}`), { status: res.status });
+    if (!res.ok) throw await compatModelsError(provider.name, res, apiKey);
     const data = await res.json();
     if (Array.isArray(data?.data)) return data.data;
     if (Array.isArray(data)) return data;

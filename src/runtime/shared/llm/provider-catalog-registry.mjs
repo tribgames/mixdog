@@ -93,7 +93,17 @@ const PROVIDER_CATALOGS = Object.freeze({
   },
   'cursor-oauth': { relay: true },
   'cursor-api': { relay: true },
+  // The models.dev listing id of the Go gateway: a relay catalog, not a
+  // selectable provider (the model lookup needs it flagged as a relay).
   'opencode-go': { relay: true },
+  // The Go gateway through an OpenCode Console login; the organization
+  // config's catalog is the live roster.
+  'opencode-go-oauth': {
+    modelsDev: 'opencode-go',
+    relay: true,
+    rosterFiles: ['opencode-go-oauth-models.json'],
+    rosterLimitsAuthoritative: true,
+  },
 });
 
 // Confirmed upstream catalog gaps, keyed provider → model. Each entry patches

@@ -237,7 +237,8 @@ export function createUsageStatsApi({
     /**
      * This runtime's session from its first request, compactions included; null before it has one.
      * `sessionIds` adds the same totals for each named session (the agents it spawned) under
-     * `sessions`, each read by its own id only.
+     * `sessions`, each read by its own id only. `agents: true` adds `agents`: one total of every
+     * session ever run for this one (closed and replaced agents included) and the named sessions.
      */
     async getSessionUsage(options = {}) {
       const sessionId = getSessionId();
@@ -249,6 +250,10 @@ export function createUsageStatsApi({
       const usage = await store.sessionUsageAsync(sessionUsageIdsFor(scopes, sessionId));
       const result = { sessionId, ...sessionUsageSnapshot(usage) };
       const others = otherSessionIds(options, sessionId);
+      if (options?.agents === true) {
+        const named = others.flatMap((id) => sessionUsageIdsFor(scopes, id));
+        result.agents = sessionUsageSnapshot(await store.sessionUsageAsync(named, [sessionId]));
+      }
       if (!others.length) return result;
       const totals = await Promise.all(
         others.map(async (id) => [
