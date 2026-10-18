@@ -88,6 +88,39 @@ interface TranscriptFollow {
   markProgrammaticScroll(top: number, intended?: number): void;
 }
 
+/** A touch keeps targeting the element it started on after that element
+ *  leaves the document, and its moves and end then never bubble to the
+ *  viewport. A streamed word's fade wrapper is unwrapped the moment its fade
+ *  ends: a drag that began on the newest words of a live reply went unseen,
+ *  follow was never released, and the end pin wrote the tail back under the
+ *  finger every frame (phone: scrolling up stopped at once). The target's own
+ *  listeners hand such events to the viewport's handlers; while the target is
+ *  still in the document they bubble there themselves. */
+function followDetachedTouch(
+  event: TouchLike,
+  onMove: (event: TouchLike) => void,
+  onEnd: () => void
+): (() => void) | null {
+  const target = event.target as (EventTarget & { isConnected?: boolean }) | null;
+  const root = event.currentTarget;
+  if (!target || target === root || typeof target.addEventListener !== 'function') return null;
+  const move = (native: Event) => {
+    if (target.isConnected !== false) return;
+    onMove({ target, currentTarget: root, touches: (native as TouchEvent).touches });
+  };
+  const end = () => {
+    if (target.isConnected === false) onEnd();
+  };
+  target.addEventListener('touchmove', move, { passive: true });
+  target.addEventListener('touchend', end, { passive: true });
+  target.addEventListener('touchcancel', end, { passive: true });
+  return () => {
+    target.removeEventListener('touchmove', move);
+    target.removeEventListener('touchend', end);
+    target.removeEventListener('touchcancel', end);
+  };
+}
+
 export function useTranscriptFollow({
   viewport,
   content,
@@ -129,6 +162,9 @@ export function useTranscriptFollow({
   // A detached target ends the finger's ownership; the scroll-idle fallback
   // still owns the fling.
   const touchTarget = useRef<{ isConnected?: boolean } | null>(null);
+  // The moves and end of a touch whose target left the document (see
+  // followDetachedTouch); removes the target's listeners.
+  const releaseTouchTarget = useRef<(() => void) | null>(null);
   const fingerOnGlass = useCallback(() => {
     if (!touchDown.current) return false;
     if (touchTarget.current?.isConnected === false) {
@@ -512,13 +548,6 @@ export function useTranscriptFollow({
     [markGesture, stop]
   );
 
-  const handleTouchStart = useCallback((event: TouchLike) => {
-    touchGesture.current = event.touches[0]?.clientY;
-    touchDown.current = true;
-    touchTarget.current = event.target as { isConnected?: boolean } | null;
-    touchScrollAt.current = Date.now();
-  }, []);
-
   const handleTouchMove = useCallback(
     (event: TouchLike) => {
       const next = event.touches[0]?.clientY;
@@ -548,12 +577,33 @@ export function useTranscriptFollow({
   );
 
   const handleTouchEnd = useCallback(() => {
+    releaseTouchTarget.current?.();
+    releaseTouchTarget.current = null;
     touchGesture.current = undefined;
     touchDown.current = false;
     // The fling outlives the finger. The latch stays open; scrollend or the
     // idle fallback is what closes it.
     touchScrollAt.current = Date.now();
   }, []);
+
+  const handleTouchStart = useCallback(
+    (event: TouchLike) => {
+      touchGesture.current = event.touches[0]?.clientY;
+      touchDown.current = true;
+      touchTarget.current = event.target as { isConnected?: boolean } | null;
+      touchScrollAt.current = Date.now();
+      releaseTouchTarget.current?.();
+      releaseTouchTarget.current = followDetachedTouch(event, handleTouchMove, handleTouchEnd);
+    },
+    [handleTouchEnd, handleTouchMove]
+  );
+  useEffect(
+    () => () => {
+      releaseTouchTarget.current?.();
+      releaseTouchTarget.current = null;
+    },
+    []
+  );
 
   // Chromium — Android included — reports the true end of a touch scroll,
   // momentum and all, with scrollend. It is the only precise "native motion is

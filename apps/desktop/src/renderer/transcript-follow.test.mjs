@@ -386,6 +386,66 @@ test('a touch whose row is virtualized away stops owning the transcript once its
   }
 });
 
+// A streamed word's fade wrapper is unwrapped when its fade ends. A finger
+// that pressed it keeps targeting the removed element, so its moves never
+// bubble to the viewport: follow stayed on and the end pin wrote the tail back
+// under the finger every frame (phone: scrolling up stopped at once).
+test('a drag whose pressed word left the document still releases follow and owns the scroll', async () => {
+  const [React, { createRoot }, { useTranscriptFollow, registerTranscriptScrollGeometry }] = await Promise.all([
+    import('react'),
+    import('react-dom/client'),
+    import('./use-transcript-follow.ts'),
+  ]);
+  const { restore } = installTestDom(null, {
+    html: "<div id='root'></div>",
+    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
+    expose: ['Element'],
+  });
+  const root = createRoot(document.getElementById('root'));
+  let follow = null;
+  function Harness() {
+    const viewport = React.useRef(null);
+    const content = React.useRef(null);
+    follow = useTranscriptFollow({ viewport, content, sessionKey: 'touch-detached' });
+    return React.createElement(
+      'div',
+      { ref: viewport },
+      React.createElement('div', { ref: content }, React.createElement('mx-fade', { id: 'word' }, 'word'))
+    );
+  }
+  const touchEvent = (type, clientY) => {
+    const event = new window.Event(type, { bubbles: true });
+    Object.defineProperty(event, 'touches', { value: clientY === undefined ? [] : [{ clientY }] });
+    return event;
+  };
+  try {
+    await React.act(async () => root.render(React.createElement(Harness)));
+    const word = document.getElementById('word');
+    const viewport = word.parentElement.parentElement;
+    Object.defineProperty(viewport, 'scrollTop', { configurable: true, get: () => 2000, set: () => {} });
+    const release = registerTranscriptScrollGeometry(viewport, {
+      viewportHeight: () => 400,
+      contentHeight: () => 2400,
+      scrollTop: () => 2000,
+      deviation: () => 0,
+    });
+    await React.act(async () => follow.handleScroll());
+    assert.equal(follow.followingRef.current, true, 'the reader starts at the followed tail');
+    follow.handleTouchStart({ target: word, currentTarget: viewport, touches: [{ clientY: 100 }] });
+    word.remove();
+    await React.act(async () => word.dispatchEvent(touchEvent('touchmove', 140)));
+    assert.equal(follow.followingRef.current, false, 'the drag toward older rows releases follow');
+    assert.equal(follow.hasTouchScroll(), true, 'and owns the transcript');
+    word.dispatchEvent(touchEvent('touchend'));
+    viewport.dispatchEvent(new window.Event('scrollend'));
+    assert.equal(follow.hasTouchScroll(), false, 'its lift and scrollend end the touch scroll');
+    release();
+  } finally {
+    await React.act(async () => root.unmount());
+    restore();
+  }
+});
+
 // A correction the timeline holds during a touch scroll moves the LOGICAL
 // offset while the reader's finger keeps climbing: direction is the native
 // displacement, never the held amount growing between two scroll events.
