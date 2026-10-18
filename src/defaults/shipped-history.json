@@ -2,6 +2,7 @@
   "agents": {
     "advisor": [
       "6bd0318995f70547c162efda92795e79",
+      "895c5f4311dcbebc0c8756c9ec61a02a",
       "d3b4a7926c9484833fe8ddba70260f9d"
     ],
     "debugger": [
@@ -28,6 +29,7 @@
     "reviewer": [
       "07643b62440d3eba29b7360b8a33f09f",
       "0d45f8d9a2a67373462840e8bf930694",
+      "1593af04edd24cdd5f05fe89a7386407",
       "25b44b46269490e26ca31c1852925171",
       "a60ea68f9287d55489e92e5450432f62",
       "a61cb4557def4e7ed647d4bdacbb72e4",
@@ -62,6 +64,7 @@
       "08d03484742e51d90961bcc3efe0acfa",
       "0afe17998c52bf57dcb8f3e8ebcec26f",
       "33205f4956124396b7e80882fbbedd18",
+      "37872608fe389a263c384298271aecfc",
       "4aaa7fa1f071c092733fda61380822c9",
       "4e133eaf5f209ea9c5eda74fe8d810e9",
       "56355187d05762ef50579d6285636c71",
@@ -105,6 +108,7 @@
   "outputStyles": {
     "common.md": [
       "2abd510eaeb6c83702b97a0ce215d348",
+      "3f5915d27c7659ad82cdbda064acfbfa",
       "4e6134d60ee5c54c2888e874653bcdad",
       "4ecd89b0c07ad8a81aa1f84882cf1b00",
       "899529696b7d6d3373ae83a76976ab48",
@@ -123,6 +127,7 @@
       "822498e7a6f11fa724fbf56a3498b21d",
       "9b6b57fa5fc86b445b47b743d5249335",
       "cf4dc49981a68a7b34990e6ba740e35b",
+      "d95e65d47329a3408fc009104c286036",
       "f768eba35712c51ed741782cc91f23f3",
       "f7ec059f73568252528a6a343f4e14d9"
     ],
@@ -142,6 +147,7 @@
       "05778bbf2481be70d4501543af6a7f44",
       "0beee3927bc1b4c7ccf3f2cbea50d1c4",
       "0c11f14731376cc80b0fd63a9dc4d4bf",
+      "101171a29ab8f16c465f6a3421ddc6ab",
       "10827dae8146a8e924e85f88a57d1e22",
       "68ab17dda19d69ddba3cb3d4f2c319fa",
       "6b102ba38f0fc9907a8e6a85b7bdc817",
@@ -151,6 +157,7 @@
       "eccd0524091bed441229a75c5eb803ff"
     ],
     "simple.md": [
+      "07c197ff8f20e24c65d844cd91711216",
       "16d8b5e7757001c614dae62f18f63aa1",
       "56b61d99f3179018f65b530d9b1491d7",
       "6e1749aa66d4416cadad4bcd26eb807a",
@@ -168,6 +175,7 @@
     "browser-use": [
       "00085086a7649ec6631f5cf0a3bbbf60",
       "08eee52328524eb032fd14f342742c41",
+      "43eeb0b9c5792f08f2223c76846926cb",
       "4ab5316454013712cedb25d9b75f4e43",
       "646365a3f7041a3da3d7d7d896a0c3b6",
       "8766650e61891e910b44bb2591c88f48",
@@ -204,6 +212,7 @@
       "398b50b687206544149feeb0a5b02c09",
       "3f8b7b4cd798dba866eccd7d09c76248",
       "733d30c3ca6745c96a69f7e237f3d8c0",
+      "75bdf20949f1e125f82b51ebca6a2ab4",
       "7b9ce58540ed4609f290dc981a7e1719",
       "8236330f56f27dd283bda6da1239285d",
       "8bc93c9320b83de81baa8cf242af5c0b",
@@ -379,6 +388,7 @@
       "fe0512acbb2fc8f80c5961b9f44aa5e2"
     ],
     "visualize": [
+      "8320fedd9dd745a332621c325a8bf355",
       "aa3531bfc4fd6ec3820493d0c190cc75",
       "f65924f0691284ad31000469a9855b62"
     ],
