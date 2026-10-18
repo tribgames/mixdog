@@ -8,7 +8,7 @@ import {
 // eval), so the static cycle through session/manager.mjs is safe — same
 // pattern as loop/tool-exec.mjs.
 import { enqueuePendingMessage, markCompletionEntry } from '../../session/manager.mjs';
-import { completeBackgroundTask } from '../../../../shared/background-tasks.mjs';
+import { completeBackgroundTask, getBackgroundTask } from '../../../../shared/background-tasks.mjs';
 import {
   cancelNativeTask,
   getNativeTask,
@@ -35,29 +35,45 @@ import {
   retireShellJobRecord,
   takeReleaseRequest,
 } from './lib/shell-job-records.mjs';
-import { createProcessTreeTracker, killAfterSnapshot, watchTermination } from '../lib/shell-descendants.mjs';
+import {
+  createProcessTreeTracker,
+  killAfterSnapshot,
+  PROCESS_TABLE_READ_BOUND_MS,
+  watchTermination,
+  withinBound,
+} from '../lib/shell-descendants.mjs';
 import {
   flushPendingOwnerCancels,
+  prepareOwnedShellTreeKills,
   registerOwnedShellTree,
   unregisterOwnedShellTree,
 } from '../lib/owned-shell-trees.mjs';
 
-// Pre-kill snapshot of a tracked background job: the promotion baseline, or a
-// fresh read when that did not complete. Marks the job killed, so its settle
-// relies on this snapshot instead of an after-exit observation.
+// Bound on how long a runtime/session shutdown waits for the sweep of what a
+// cancelled job started outside its process group.
+const SHUTDOWN_TREE_CONFIRM_MS = 3_000;
+// Lead of the pre-deadline snapshot over a native timeout kill: one table
+// read's bound plus margin.
+const PRE_DEADLINE_CAPTURE_MS = PROCESS_TABLE_READ_BOUND_MS + 1_000;
+
+// Pre-kill snapshot of a tracked background job: always a fresh read, since
+// the promotion baseline predates whatever the job started since (a server,
+// an npm child); the baseline still stands when the fresh read fails. Marks
+// the job killed, so its settle relies on this snapshot instead of an
+// after-exit observation.
 function prepareTrackedKill(entry) {
   entry.killed = true;
-  if (entry.tracker.complete) return true;
-  return (entry.baseline || Promise.resolve(false)).then(
-    (complete) => complete || entry.tracker.capture().catch(() => false)
+  return (entry.baseline || Promise.resolve(false)).then(() =>
+    entry.tracker.capture().catch(() => entry.tracker.complete)
   );
 }
 import { isPidAlive } from '../../../../shared/pid-liveness.mjs';
 import {
   renderShellCompletionEnvelope,
-  renderShellCompletionNotice,
   shellCompletionInstruction,
 } from '../../../../shared/task-notification-envelope.mjs';
+import { formatDuration } from '../../../../shared/shell-output-summary.mjs';
+import { readShellTaskOutput } from './lib/shell-task-output.mjs';
 
 export { shellJobPublicTaskResult } from './lib/shell-job-insights.mjs';
 
@@ -105,7 +121,17 @@ function trackShellJobRecord(task, options) {
     adoptShellWorkspaceAdmission(jobId, hold);
   }
   const tracker = task?.cwd ? createProcessTreeTracker({ pid: task.pid }) : null;
-  const entry = { tracker, killed: false, baseline: null };
+  let resolveTerminated = null;
+  const entry = {
+    tracker,
+    killed: false,
+    baseline: null,
+    // Settles once every process of the job is confirmed gone (or the user
+    // force-released it): what `task cancel` waits on before it reports.
+    terminated: new Promise((resolve) => {
+      resolveTerminated = resolve;
+    }),
+  };
   if (tracker) {
     backgroundTrackers.set(jobId, entry);
     // Baseline identities while the promoted root is known to run, so a later
@@ -117,9 +143,24 @@ function trackShellJobRecord(task, options) {
   }
   let unsubscribe = null;
   let settled = false;
+  // The native runner enforces the job's deadline itself, with no snapshot
+  // from here: one is taken shortly before it, so the timeout kill has the
+  // identities of what the job started since its promotion.
+  const deadlineMs = Math.floor(Number(options?.timeoutMs) || 0);
+  const deadlineCapture =
+    tracker && deadlineMs > 0
+      ? setTimeout(
+          () => {
+            if (!settled) void tracker.capture().catch(() => false);
+          },
+          Math.max(0, deadlineMs - PRE_DEADLINE_CAPTURE_MS)
+        )
+      : null;
+  deadlineCapture?.unref?.();
   const settle = (detail) => {
     if (settled || !detail || detail.status === 'running') return;
     settled = true;
+    clearTimeout(deadlineCapture);
     try {
       unsubscribe?.();
     } catch {}
@@ -144,10 +185,13 @@ function trackShellJobRecord(task, options) {
       stop();
       clearTerminationHold(jobId);
       if (backgroundTrackers.get(jobId) === entry) backgroundTrackers.delete(jobId);
+      resolveTerminated(true);
       return completeShellJobRecord(jobId, normalized);
     };
     const stop = watchTermination({
       tracker,
+      // A killed job is not over while processes it started still run.
+      sweep: killed,
       onTerminated: finish,
       releaseRequested: () => takeReleaseRequest(jobId),
       onUnconfirmed: () => {
@@ -226,7 +270,18 @@ function shellJobFailureCause(detail) {
   return `exited with code ${exitCode}`;
 }
 
-export function buildShellCompletion(jobId, detail) {
+function completionStreams(detail) {
+  return {
+    stdout_path: detail?.stdoutPath || null,
+    stderr_path: detail?.mergeStderr === true ? null : detail?.stderrPath || null,
+    stdout_preview: detail?.stdoutPreview || '',
+    stderr_preview: detail?.mergeStderr === true ? '' : detail?.stderrPreview || '',
+  };
+}
+
+/** `output`: the unseen output to deliver (the task cursor's remainder). By
+ *  default the whole capture is read with a fresh cursor, consuming nothing. */
+export function buildShellCompletion(jobId, detail, { output } = {}) {
   const exitCode = typeof detail?.exitCode === 'number' ? detail.exitCode : null;
   const status = detail?.status || 'unknown';
   const taskStatus = shellJobTaskStatus(detail);
@@ -234,29 +289,36 @@ export function buildShellCompletion(jobId, detail) {
   // native task has no `error` of its own.
   const failureCause = taskStatus === 'failed' ? shellJobFailureCause(detail) : null;
   const reported = failureCause && !detail?.error ? { ...detail, error: failureCause } : detail;
+  const startedMs = Date.parse(detail?.startedAt || '');
+  const finishedMs = Date.parse(detail?.finishedAt || '');
+  // The completion carries the result itself — exit code, duration and the
+  // output (whole when short, else a summary with the log path) — so the
+  // agent never needs a follow-up read for it.
   const body = renderShellCompletionEnvelope({
     jobId,
     status: taskStatus,
     exitCode,
     command: detail?.command,
-    summary: detail?.summary || failureCause || null,
-    stdoutPreview: detail?.stdoutPreview,
-    stderrPreview: detail?.stderrPreview,
-    mergeStderr: detail?.mergeStderr,
     outputFile: detail?.stdoutPath,
     error: failureCause,
+    result: [
+      [
+        exitCode !== null ? `exit code: ${exitCode}` : null,
+        Number.isFinite(startedMs) && Number.isFinite(finishedMs)
+          ? `duration: ${formatDuration(finishedMs - startedMs)}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(', ') || null,
+      output ?? readShellTaskOutput({ status: 'completed' }, completionStreams(detail), { terminal: true }),
+    ]
+      .filter(Boolean)
+      .join('\n'),
   });
   return {
     taskStatus,
     body,
-    notification: renderShellCompletionNotice({
-      jobId,
-      status: taskStatus,
-      exitCode,
-      command: detail?.command,
-      outputFile: detail?.stdoutPath,
-      error: failureCause,
-    }),
+    notification: body,
     instruction: shellCompletionInstruction({ jobId, status, exitCode }),
     result: shellJobPublicTaskResult(reported),
     error: failureCause,
@@ -343,6 +405,15 @@ export function killShellJob(jobId) {
   return { ...attachJobInsights(normalizeShellJobDetail(detail)), killed: wasRunning };
 }
 
+/** True once every process of a tracked background job is confirmed gone,
+ *  false while any is still alive when `timeoutMs` passes. A job without a
+ *  process tracker (or one already finished) has nothing left to confirm. */
+export async function waitShellJobTerminated(jobId, timeoutMs) {
+  const entry = backgroundTrackers.get(String(jobId || ''));
+  if (!entry) return true;
+  return withinBound(entry.terminated, timeoutMs, false);
+}
+
 export function clearShellJobNotifyCtx(jobId) {
   jobNotifyCtxByJobId.delete(jobId);
 }
@@ -383,7 +454,14 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
     backgroundShellJobWatchers.delete(jobId);
     jobNotifyCtxByJobId.delete(jobId);
     const enriched = attachJobInsights(normalizeShellJobDetail(detail));
-    const completion = buildShellCompletion(jobId, enriched);
+    // The notice carries only what the agent has not seen yet: the task's
+    // cursor remainder. Kept on the task so a wait/read that reaches the
+    // finished task first returns that same remainder (and suppresses the
+    // notice) instead of an empty read.
+    const task = getBackgroundTask(jobId);
+    const output = task ? readShellTaskOutput(task, completionStreams(enriched), { terminal: true }) : undefined;
+    if (task) task.completionOutput = output;
+    const completion = buildShellCompletion(jobId, enriched, { output });
     const completedTask = completeBackgroundTask(jobId, {
       status: completion.taskStatus,
       result: completion.result,
@@ -471,7 +549,7 @@ export async function promoteForegroundShellJob({
   }
   // Added before tracking: the record's settlement removes it again.
   promotedJobIds.add(native.jobId);
-  trackShellJobRecord(native, { ownerSessionId, clientHostPid, startedAtMs: started });
+  trackShellJobRecord(native, { ownerSessionId, clientHostPid, startedAtMs: started, timeoutMs });
   return native;
 }
 
@@ -593,18 +671,26 @@ export async function shutdownShellJobs(_reason = 'runtime-close', { scope = nul
     (task) => task.status === 'running' && (!scoped || String(task.ownerSessionId || '') === ownerSessionId)
   );
   let cancelledWatchers = 0;
-  for (const task of jobs) {
-    if (cancelBackgroundShellJobWatch(task.jobId)) cancelledWatchers += 1;
-    try {
-      cancelNativeTask(task.jobId);
-    } catch {}
-    jobNotifyCtxByJobId.delete(task.jobId);
-  }
+  // Identities first, as every other kill does: once a root dies, what it
+  // started outside its process group is reparented and can no longer be
+  // found. The cancel is sent at the snapshot bound regardless.
+  await killAfterSnapshot(Promise.all(prepareOwnedShellTreeKills(scoped ? ownerSessionId : null)), () => {
+    for (const task of jobs) {
+      if (cancelBackgroundShellJobWatch(task.jobId)) cancelledWatchers += 1;
+      try {
+        cancelNativeTask(task.jobId);
+      } catch {}
+      jobNotifyCtxByJobId.delete(task.jobId);
+    }
+  });
   const settled = await Promise.all(jobs.map((task) => waitNativeTask(task.jobId, 1_200).catch(() => null)));
   // A process still running after the wait is not forgotten: it keeps being
   // stopped until its exit is confirmed.
   const unconfirmed = jobs.filter((_, index) => settled[index]?.status === 'running').map((task) => task.jobId);
   for (const jobId of unconfirmed) retryShutdownSurvivor(jobId, 1);
+  // The roots are gone; what they started outside their group is swept by
+  // each job's termination watch. Shutdown waits for that, bounded.
+  const treesGone = await Promise.all(jobs.map((task) => waitShellJobTerminated(task.jobId, SHUTDOWN_TREE_CONFIRM_MS)));
   if (scoped) {
     // The owning session is gone: nothing can query its tasks again, so
     // drop ALL of its retained state — not only the ones that happened to
@@ -624,6 +710,7 @@ export async function shutdownShellJobs(_reason = 'runtime-close', { scope = nul
     cancelledJobs: jobs.length,
     confirmedJobs: settled.filter((task) => task && task.status !== 'running').length,
     unconfirmedJobs: unconfirmed,
+    treeUnconfirmedJobs: jobs.filter((_, index) => !treesGone[index]).map((task) => task.jobId),
     cancelledWatchers,
   };
 }

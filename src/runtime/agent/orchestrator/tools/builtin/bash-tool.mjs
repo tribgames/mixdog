@@ -14,6 +14,7 @@ import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { formatShellToolFailure } from './bash-tool/result-format.mjs';
 import { cleanupArtifactOnTaskSettled, removeTransportFileNow } from './bash-tool/transport-artifacts.mjs';
 import { combineAbortSignals, sessionAbortSignal } from './bash-tool/abort-signals.mjs';
+import { beginInterruptibleTaskWait } from '../../session/task-wait-control.mjs';
 import { prepareShellCommand } from './bash-tool/command-preflight.mjs';
 import { hoistInlineScript } from './bash-tool/inline-hoist.mjs';
 import { planShellDeadlines } from './bash-tool/deadline-plan.mjs';
@@ -84,6 +85,8 @@ export async function executeBashTool(args, workDir, options = {}) {
   const deadlines = planShellDeadlines({ args, wmicRewrite, backgroundOnTimeout });
 
   let combinedAbort = null;
+  // New user input ends the hold early, the same wake `task wait` uses.
+  const inputWake = backgroundOnTimeout ? beginInterruptibleTaskWait(options?.sessionId) : null;
   let backgrounded = false;
   let backgroundJobId = null;
   let queuedSettled = null;
@@ -104,6 +107,8 @@ export async function executeBashTool(args, workDir, options = {}) {
       cwd: bashWorkDir,
       timeoutMs: deadlines.timeout,
       abortSignal: combinedAbort.signal,
+      wakeSignal: inputWake?.signal || null,
+      autoBackgroundReason: args.background === true ? 'background' : 'threshold',
       autoBackgroundMs: deadlines.autoBackgroundMs,
       // On a foreground timeout, promote the still-running child to a tracked
       // background job (task_id + notify) instead of tree-killing it.
@@ -144,6 +149,7 @@ export async function executeBashTool(args, workDir, options = {}) {
       rewriteNote: [wmicRewrite?.note, bashismRewrite?.note].filter(Boolean).join('\n'),
     });
   } finally {
+    inputWake?.dispose();
     combinedAbort?.cleanup?.();
     if (hoisted.hoistPath) {
       // A promoted or queued command still runs from the hoisted file; a

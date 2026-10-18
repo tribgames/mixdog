@@ -32,7 +32,24 @@ test('grep rendered output is capped at 5 KiB', async () => {
       root
     );
     assert.ok(Buffer.byteLength(out, 'utf8') <= 5 * 1024);
-    assert.match(out, /\[grep output capped at 5120 bytes;/);
+    assert.match(out, /\[output capped at 5 KB; 0 match row\(s\) shown; narrow: one match row exceeds the cap/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a grep cut by the byte cap shows how many rows survived and the offset to resume at', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-grep-cap-offset-'));
+  try {
+    for (let i = 0; i < 300; i++)
+      await writeFile(join(root, `file-${String(i).padStart(3, '0')}-${'n'.repeat(40)}.txt`), 'needle');
+    const args = { pattern: 'needle', path: root, mode: 'files_with_matches', limit: 1000 };
+    const first = await executeBuiltinTool('grep', { ...args }, root);
+    // files mode is ordered before it is sliced, so the kept rows are an offset prefix.
+    const marker = /\[output capped at 5 KB; (\d+) match row\(s\) shown; offset:(\d+) for more\]$/.exec(first);
+    assert.ok(marker, first.slice(-200));
+    assert.equal(first.split('\n').filter((line) => /file-\d+-n+\.txt$/.test(line)).length, Number(marker[1]));
+    assert.equal(marker[2], marker[1]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

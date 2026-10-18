@@ -86,6 +86,7 @@ export function createAskCallbacks({ transcript, notifyFnForSession, scheduleSea
       },
       onUsageDelta: options.onUsageDelta,
       onAssistantToolCallObserved: options.onAssistantToolCallObserved,
+      onStreamItemStart: options.onStreamItemStart,
       onToolResult: (message) => options.onToolResult?.(message),
       onToolApproval: options.onToolApproval,
       onCompactEvent: options.onCompactEvent,

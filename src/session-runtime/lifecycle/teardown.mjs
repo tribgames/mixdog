@@ -226,13 +226,16 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
     };
     if (outstandingCloses.size > 0) void finish();
     else await finish();
-    const { ok, stops } = await inOwnLoopTurn(() => {
+    const { ownClose, stops } = await inOwnLoopTurn(() => {
       const runtimeStops = startRuntimeStops(deps, reason, scope);
       const closed = closeOwnSession(deps, closeSurfaceSession, reason);
-      return { ok: closed, stops: { channelStop, ...runtimeStops, ...startWorkStops(deps, reason, scope) } };
+      return { ownClose: closed, stops: { channelStop, ...runtimeStops, ...startWorkStops(deps, reason, scope) } };
     });
     if (scope.detach) await settleDetached(withTeardownDeadline, stops);
     else await settleAll(withTeardownDeadline, stops);
+    // Reported closed only once the barrier is on disk (closeSessionAsync),
+    // and its write control is released only after that.
+    const ok = await ownClose;
     // The session went away (idle eviction included): free its save baselines.
     if (scope.closingSessionId) forgetSessionSaveBaseline(scope.closingSessionId, { releaseWriteControl: true });
     // Self-update stages in the background and swaps on the next clean launch

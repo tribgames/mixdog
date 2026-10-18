@@ -9,10 +9,13 @@ import {
   shellJobPublicTaskResult,
   shellJobTaskStatus,
   waitForShellJob,
+  waitShellJobTerminated,
 } from './shell-jobs.mjs';
+import { beginSessionTaskWait } from '../../session/manager/runtime-liveness.mjs';
 import { TASK_WAIT_TIMEOUT_DEFAULT_MS, TASK_WAIT_TIMEOUT_MAX_MS, TASK_WAIT_TIMEOUT_MIN_MS } from './builtin-tools.mjs';
+import { AGENT_TASK_WAIT_DEFAULT_MS } from './wait-budgets.mjs';
 import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
-import { beginInterruptibleTaskWait } from '../../session/task-wait-control.mjs';
+import { TASK_WAIT_WAKE_NOTIFICATION, beginInterruptibleTaskWait } from '../../session/task-wait-control.mjs';
 import {
   acknowledgeBackgroundTaskCompletion,
   cancelBackgroundTask,
@@ -31,6 +34,18 @@ import { readShellTaskOutput } from './lib/shell-task-output.mjs';
 // wait returns the moment the native task settles, so this only bounds a
 // process that ignores the kill.
 const TASK_CANCEL_CONFIRM_MS = 5_000;
+// Ceiling for confirming that every process the task started is gone once its
+// root exited: a sweep is a table read, the kill and a second read (each read
+// ~1-2 s on Windows).
+const TASK_CANCEL_TREE_CONFIRM_MS = 15_000;
+
+function cancelPendingText(taskId) {
+  return [
+    'status: cancel-pending',
+    `task_id: ${taskId}`,
+    'the kill was sent and the command itself exited, but processes it started are still alive. They keep being terminated and stay tracked (the folder stays held) until they are gone; re-run task cancel or task read to check again.',
+  ].join('\n');
+}
 
 function recoveredTaskMatches(record, options = {}) {
   const context =
@@ -84,10 +99,20 @@ function renderTaskCancelSuccess(taskId, task) {
 
 // Clamp lives next to the caller; the bounds themselves are published by the
 // tool schema, so an out-of-range request is corrected rather than rejected.
-function resolveTaskWaitTimeoutMs(value) {
+function resolveTaskWaitTimeoutMs(value, defaultMs = TASK_WAIT_TIMEOUT_DEFAULT_MS) {
   const raw = Number(value);
-  if (!Number.isFinite(raw) || raw <= 0) return TASK_WAIT_TIMEOUT_DEFAULT_MS;
+  if (!Number.isFinite(raw) || raw <= 0) return defaultMs;
   return Math.min(TASK_WAIT_TIMEOUT_MAX_MS, Math.max(TASK_WAIT_TIMEOUT_MIN_MS, Math.floor(raw)));
+}
+
+// Agents run on the 5 m prompt cache, so their default wakes before it lapses;
+// the Lead keeps the 1 h cache and the longer default.
+async function defaultTaskWaitMs(sessionId) {
+  if (!sessionId) return TASK_WAIT_TIMEOUT_DEFAULT_MS;
+  const { getSession } = await import('../../session/manager.mjs');
+  const session = getSession(String(sessionId));
+  const agentOwned = session?.owner === 'agent' || session?.visibility === 'agent-only';
+  return agentOwned ? AGENT_TASK_WAIT_DEFAULT_MS : TASK_WAIT_TIMEOUT_DEFAULT_MS;
 }
 
 // Read-only counts of this runtime's shell work owned by OTHER sessions.
@@ -128,8 +153,15 @@ async function listTasks(options) {
   return sections.join('\n');
 }
 
-// Blocks until the shell task settles, the timeout elapses, or the turn/user
-// interrupts; returns whether new user input cut the wait short.
+// Ceiling hits per still-running task, so a wait that keeps timing out on the
+// same job can suggest a different move. Keyed by the task object, so the count
+// goes with the task however it settles or is removed.
+const waitCeilingHits = new WeakMap();
+
+// Blocks until the shell task settles, the timeout elapses, the turn is
+// cancelled, or anything deliverable is queued for this session (user input,
+// steering, or any task notification: an agent or another shell job
+// finishing). Returns what cut the wait short.
 async function waitForShellTask(task, taskId, args, options) {
   // The turn's abort signal must cut the wait short; a cancelled turn
   // cannot sit out the remaining ceiling.
@@ -140,9 +172,12 @@ async function waitForShellTask(task, taskId, args, options) {
     turnSignal = null;
   }
   const waitControl = beginInterruptibleTaskWait(options?.sessionId, turnSignal);
+  const releaseWaitState = beginSessionTaskWait(options?.sessionId);
   const waitSignal = waitControl.signal;
-  const waitTimeoutMs = resolveTaskWaitTimeoutMs(args.timeout_ms);
+  const waitTimeoutMs = resolveTaskWaitTimeoutMs(args.timeout_ms, await defaultTaskWaitMs(options?.sessionId));
   let interruptedByUser = false;
+  let notified = false;
+  let notifiedTaskId = null;
   try {
     // A shell task whose descendants outlived the shell process has no
     // native job to subscribe to — the process it belonged to is gone.
@@ -175,9 +210,12 @@ async function waitForShellTask(task, taskId, args, options) {
     }
   } finally {
     interruptedByUser = waitControl.interruptedByUser;
+    notified = waitControl.wakeReason === TASK_WAIT_WAKE_NOTIFICATION;
+    notifiedTaskId = waitControl.wakeDetail;
     waitControl.dispose();
+    releaseWaitState();
   }
-  return interruptedByUser;
+  return { interruptedByUser, notified, notifiedTaskId };
 }
 
 // Outcome of a shell cancel: `outcome` is 'cancelled' only when the process is
@@ -208,6 +246,11 @@ async function cancelShellTaskOutcome(task, taskId, options) {
         ].join('\n'),
       };
     }
+    // The root exited; what it started outside its process group is swept
+    // by the job's termination watch. Cancelled means all of it is gone.
+    if (confirmed && !(await waitShellJobTerminated(taskId, TASK_CANCEL_TREE_CONFIRM_MS))) {
+      return { outcome: 'unconfirmed', text: cancelPendingText(taskId) };
+    }
     if (!confirmed) {
       // No terminal event and no observable task: absence of
       // state is not proof of termination. Stop tracking it so it
@@ -228,6 +271,10 @@ async function cancelShellTaskOutcome(task, taskId, options) {
   cancelBackgroundShellJobWatch(taskId);
   clearShellJobNotifyCtx(taskId);
   cancelBackgroundTask(taskId, 'cancelled by task control');
+  // A task whose own cancel hook kills (what a finished command left running)
+  // reports what that kill confirmed.
+  const hookKill = job ? null : await task.cancelOutcome;
+  if (hookKill && hookKill.terminated !== true) return { outcome: 'unconfirmed', text: cancelPendingText(taskId) };
   return job || wasRunning
     ? {
         outcome: 'cancelled',
@@ -323,27 +370,59 @@ export async function executeTaskTool(args, options = {}) {
 
   if (action === 'read' || action === 'wait') {
     let waitInterruptedByUser = false;
+    let waitNotified = false;
+    let notifiedTaskId = null;
     if (action === 'wait') {
       if (!isShellTask) return `Error: task wait is only available for shell tasks: ${taskId}`;
-      waitInterruptedByUser = await waitForShellTask(task, taskId, args, options);
+      ({
+        interruptedByUser: waitInterruptedByUser,
+        notified: waitNotified,
+        notifiedTaskId,
+      } = await waitForShellTask(task, taskId, args, options));
     }
     if (isShellTask) refreshShellTask(taskId, { includeRunning: true });
     const latest = getBackgroundTask(taskId, { context: options }) || task;
+    // A finished task whose completion notice is still unconsumed returns that
+    // notice's output (the unseen remainder) once; everything else reads the
+    // cursor. A wait that leaves the job running carries the progress digest.
+    const pendingCompletionOutput =
+      isShellTask &&
+      latest.status !== 'running' &&
+      latest.completionAcknowledged !== true &&
+      args.output !== 'tail' &&
+      typeof latest.completionOutput === 'string'
+        ? latest.completionOutput
+        : null;
     const visible =
       isShellTask && latest.result && typeof latest.result === 'object'
-        ? { ...latest, resultText: readShellTaskOutput(latest, latest.result, { output: args.output }) }
+        ? {
+            ...latest,
+            resultText:
+              pendingCompletionOutput ??
+              readShellTaskOutput(latest, latest.result, {
+                output: args.output,
+                digest: action === 'wait' && latest.status === 'running',
+              }),
+          }
         : latest;
     let rendered = renderBackgroundTask(visible, { includeResult: true });
     if (action === 'wait' && latest.status === 'running') {
       if (waitInterruptedByUser) {
         rendered +=
-          '\n\nWait interrupted by new user input; task still running. Handle the new message now and reply to it before waiting on this task again.';
+          '\n\nWait ended by new user input; task still running in the background. Handle the new message first.';
+      } else if (waitNotified) {
+        const from = notifiedTaskId && notifiedTaskId !== taskId ? ` (task_id: ${notifiedTaskId})` : '';
+        rendered += `\n\nWait ended because a notification arrived${from}; it is delivered to you now. This task (${taskId}) is still running in the background.`;
       } else {
+        const hits = (waitCeilingHits.get(latest) || 0) + 1;
+        waitCeilingHits.set(latest, hits);
         // In-band report cue: the static "periodic reports" rule does not
         // survive a long tool loop, so a ceiling-hit wait carries the
         // protocol reminder itself.
         rendered +=
-          '\n\nWait ceiling reached; task still running. If periodic reports were requested, write the user-facing report now, then call task wait for the next interval; otherwise continue independent work or end the turn.';
+          hits > 1
+            ? `\n\nWait ceiling reached again (${hits} times); task still running. Check whether it is progressing (task read output:tail, or the log file) and cancel it if it is stuck; otherwise continue other work — its result is delivered automatically.`
+            : '\n\nWait ceiling reached; task still running and its result is delivered automatically. If periodic reports were requested, write the user-facing report now; otherwise continue independent work or end the turn.';
       }
     }
     if (acknowledgeBackgroundTaskCompletion(taskId, { context: options })) {

@@ -16,8 +16,8 @@ test('channel inbound submits directly to its pinned session without a UI client
 
   assert.equal(
     route('notifications/claude/channel', {
-      content: 'discord inbound',
-      meta: { instruction: 'answer discord inbound' },
+      content: 'channel inbound',
+      meta: { instruction: 'answer channel inbound' },
     }),
     true
   );
@@ -25,7 +25,7 @@ test('channel inbound submits directly to its pinned session without a UI client
   assert.deepEqual(calls, [
     {
       sessionId: 'sess_linked',
-      prompt: 'answer discord inbound',
+      prompt: 'answer channel inbound',
       options: { source: 'channel', mode: 'task-notification' },
     },
   ]);

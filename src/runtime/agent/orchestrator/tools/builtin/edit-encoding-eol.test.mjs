@@ -329,7 +329,7 @@ test('an inserted line adopts the convention of the line it replaces, not the fi
 });
 
 test('a coalesced slice past the returned window never fabricates a footer', () => {
-  const body = ['1→a', '2→b', '3→c', '[lines 1-3 of 100; output truncated at 64 KB]'].join('\n');
+  const body = ['1→a', '2→b', '3→c', '[lines 1-3 of 100; output capped at 64 KB]'].join('\n');
 
   const past = sliceReadBodyByLines(body, 10, 5);
   assert.doesNotMatch(past, /\[lines \d+-\d+ of/);

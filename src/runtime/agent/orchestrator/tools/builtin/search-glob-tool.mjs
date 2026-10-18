@@ -1,4 +1,5 @@
 import { statSync } from 'node:fs';
+import { capMarker, windowMarker } from './tool-output-limit.mjs';
 import { isAbsolute, resolve } from 'node:path';
 import { expandAbsoluteGlobs } from './lib/absolute-glob-expand.mjs';
 import { buildGlobPatternGroups } from './lib/glob-static-prefix.mjs';
@@ -407,17 +408,22 @@ async function orderGlobPaths(unique, { nativeMtimeTotal, groupCount, sortMode, 
 
 function globIntegritySuffix({ accumTruncated, rgStdoutTruncated, rgStdoutPartial, rgErrors }) {
   let truncSuffix = '';
-  if (accumTruncated) truncSuffix = `\n... [truncated at accumulation cap (${GLOB_ACCUM_CAP})]`;
-  if (rgStdoutTruncated) truncSuffix += '\n... [truncated at rg stdout cap (20MB); results incomplete]';
+  const narrow = 'narrow the pattern or path';
+  if (accumTruncated) {
+    truncSuffix = `\n${capMarker({ limit: `${GLOB_ACCUM_CAP} matches`, shown: 'results incomplete', narrow })}`;
+  }
+  if (rgStdoutTruncated) {
+    truncSuffix += `\n${capMarker({ limit: '20 MB of rg stdout', shown: 'results incomplete', narrow })}`;
+  }
   if (rgStdoutPartial) truncSuffix += '\n... [warning] rg exit 2 (partial results); listing may be incomplete';
   const errorSuffix = rgErrors.length > 0 ? `\n... [warning] ${rgErrors.join(' | ')}` : '';
   return errorSuffix + truncSuffix;
 }
 
-function globMoreSuffix({ rgWindowIncomplete, remaining, totalBeforeOffset, nextOffset }) {
-  if (rgWindowIncomplete) return `\n... [more entries available — pass offset:${nextOffset} to continue]`;
+function globMoreSuffix({ rgWindowIncomplete, remaining, totalBeforeOffset, from, nextOffset }) {
+  if (rgWindowIncomplete) return `\n${windowMarker({ unit: 'entries', from, to: nextOffset, nextOffset })}`;
   if (remaining > 0) {
-    return `\n... [${remaining} more entries of ${totalBeforeOffset} total — pass offset:${nextOffset} to continue]`;
+    return `\n${windowMarker({ unit: 'entries', from, to: nextOffset, total: totalBeforeOffset, nextOffset })}`;
   }
   return '';
 }
@@ -489,6 +495,7 @@ async function renderGlobPage(scan, merged, { capped, remaining, totalBeforeOffs
     rgWindowIncomplete: merged.rgWindowIncomplete,
     remaining,
     totalBeforeOffset,
+    from: offset + 1,
     nextOffset: offset + capped.length,
   });
   if (capped.length > 0) return `${capped.join('\n')}${moreSuffix}${errSuffix}`;

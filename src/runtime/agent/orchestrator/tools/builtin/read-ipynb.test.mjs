@@ -49,6 +49,6 @@ test('text past the output budget is cut and marked', async (t) => {
   const file = notebook(t, [{ cell_type: 'markdown', source: 'abcdefghijklmnop' }]);
   assert.equal(
     await extractIpynbText(file, { maxOutputBytes: 10 }),
-    'abcdefghij\n\n\n\n... [notebook output truncated at 0 KB]'
+    'abcdefghij\n\n\n\n[output capped at 10 bytes; notebook cells cut; narrow: grep the notebook for the cell text you need]'
   );
 });

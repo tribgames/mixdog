@@ -20,13 +20,13 @@ test('offload commits exact bytes before replacing provider-visible output', asy
   process.env.MIXDOG_DATA_DIR = dataDir;
   try {
     const raw = `head\n${'payload\n'.repeat(8_000)}tail\n`;
-    const result = await maybeOffloadToolResult('session-lossless-output', 'call-lossless-output', 'shell', raw);
+    const result = await maybeOffloadToolResult('session-lossless-output', 'call-lossless-output', 'bash_session', raw);
     const path = result.match(/→ (.+?) \(/)?.[1];
     const sha256 = createHash('sha256').update(raw).digest('hex');
     assert.ok(path);
     assert.equal(readFileSync(path, 'utf8'), raw);
     assert.match(path, new RegExp(`${sha256}\\.txt$`));
-    assert.equal(result.split('\n')[0], `[tool output offloaded: shell → ${path} (63 KB, 8003 lines)]`);
+    assert.equal(result.split('\n')[0], `[tool output offloaded: bash_session → ${path} (63 KB, 8003 lines)]`);
     assert.doesNotMatch(result, /sha256 /);
     assert.match(result, /\n\.\.\. \[preview middle omitted — \d+ KB\] \.\.\.\n/);
     assert.ok(result.endsWith('\n[preview truncated; full output preserved at the artifact path above]'));
@@ -47,8 +47,18 @@ test('identical bytes share one session content-addressed artifact', async () =>
   process.env.MIXDOG_DATA_DIR = dataDir;
   try {
     const raw = `same\n${'content\n'.repeat(5_000)}`;
-    const first = await maybeOffloadToolResult('session-content-addressed', 'call-content-addressed-1', 'shell', raw);
-    const second = await maybeOffloadToolResult('session-content-addressed', 'call-content-addressed-2', 'shell', raw);
+    const first = await maybeOffloadToolResult(
+      'session-content-addressed',
+      'call-content-addressed-1',
+      'bash_session',
+      raw
+    );
+    const second = await maybeOffloadToolResult(
+      'session-content-addressed',
+      'call-content-addressed-2',
+      'bash_session',
+      raw
+    );
     const firstPath = first.match(/→ (.+?) \(/)?.[1];
     const secondPath = second.match(/→ (.+?) \(/)?.[1];
     const sha256 = createHash('sha256').update(raw).digest('hex');

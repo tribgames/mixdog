@@ -107,7 +107,8 @@ export async function addWorksheet(zip, name) {
     relsPath,
     rels.replace(
       '</Relationships>',
-      `<Relationship Id="${relationshipId}" Type="${WORKSHEET_RELATIONSHIP}" Target="worksheets/sheet${ordinal}.xml"/></Relationships>`
+      () =>
+        `<Relationship Id="${relationshipId}" Type="${WORKSHEET_RELATIONSHIP}" Target="worksheets/sheet${ordinal}.xml"/></Relationships>`
     )
   );
   const sheetIds = [...workbook.matchAll(/<sheet\b[^>]*\bsheetId="(\d+)"/g)].map((match) => Number(match[1]));
@@ -117,7 +118,7 @@ export async function addWorksheet(zip, name) {
   if (!sheetsSection) throw new Error('Workbook is missing its sheet list');
   const next = sheetsSection[0].endsWith('/>')
     ? `<sheets>${entry}</sheets>`
-    : sheetsSection[0].replace('</sheets>', `${entry}</sheets>`);
+    : sheetsSection[0].replace('</sheets>', () => `${entry}</sheets>`);
   zip.file(
     workbookPath,
     `${workbook.slice(0, sheetsSection.index)}${next}${workbook.slice(sheetsSection.index + sheetsSection[0].length)}`
@@ -126,7 +127,7 @@ export async function addWorksheet(zip, name) {
   if (!types.includes(`PartName="/${part}"`)) {
     zip.file(
       '[Content_Types].xml',
-      types.replace('</Types>', `<Override PartName="/${part}" ContentType="${WORKSHEET_CONTENT_TYPE}"/></Types>`)
+      types.replace('</Types>', () => `<Override PartName="/${part}" ContentType="${WORKSHEET_CONTENT_TYPE}"/></Types>`)
     );
   }
   return { name: label, path: part, sheetId };
@@ -142,7 +143,7 @@ export async function renameWorksheet(zip, sheet, name, sheets) {
   const rewritten = await renameSheetReferences(zip, sheets, sheet, label, 'rename_sheet');
   const workbook = await zipText(zip, workbookPath);
   const match = pattern.exec(workbook);
-  const replaced = match[0].replace(/\bname="[^"]*"/, `name="${xmlEncode(label)}"`);
+  const replaced = match[0].replace(/\bname="[^"]*"/, () => `name="${xmlEncode(label)}"`);
   zip.file(
     workbookPath,
     `${workbook.slice(0, match.index)}${replaced}${workbook.slice(match.index + match[0].length)}`
@@ -171,7 +172,9 @@ export async function deleteWorksheet(zip, sheets, sheet) {
   workbook = upsertDefinedName(workbook, '', (item) => localSheetId(item) === index);
   workbook = workbook.replace(/<definedName\b[^>]*?(?:\/>|>[\s\S]*?<\/definedName>)/g, (item) => {
     const local = localSheetId(item);
-    return local !== null && local > index ? item.replace(/\blocalSheetId="\d+"/, `localSheetId="${local - 1}"`) : item;
+    return local !== null && local > index
+      ? item.replace(/\blocalSheetId="\d+"/, () => `localSheetId="${local - 1}"`)
+      : item;
   });
   zip.file(workbookPath, workbook);
   const relsPath = 'xl/_rels/workbook.xml.rels';

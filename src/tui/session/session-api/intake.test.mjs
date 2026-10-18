@@ -198,7 +198,6 @@ test('an idle submit starts auto-clear first and enqueues at once with a minted 
     ['enqueue', 'hello world', 'auto-1', 'prompt', false],
     'cancelGoalContinuations',
     'archiveCompletedGoal',
-    ['interruptTaskWait', 'user-message'],
   ]);
   assert.equal(h.api.submit('   '), false);
 });
@@ -206,10 +205,7 @@ test('an idle submit starts auto-clear first and enqueues at once with a minted 
 test('a submit during a busy turn or a session command is queued immediately', () => {
   const busy = createHarness({ state: { busy: true } });
   assert.equal(busy.api.submit('steer', { id: 'given', mode: 'steer' }), true);
-  assert.deepEqual(busy.calls, [
-    ['enqueue', 'steer', 'given', 'steer', false],
-    ['interruptTaskWait', 'user-message'],
-  ]);
+  assert.deepEqual(busy.calls, [['enqueue', 'steer', 'given', 'steer', false]]);
 
   const command = createHarness({ state: { commandBusy: true } });
   assert.equal(command.api.submit('after command'), true);
@@ -223,7 +219,6 @@ test('a submit during auto-clear is queued immediately', () => {
     ['enqueue', 'after auto-clear', 'auto-1', 'prompt', false],
     'cancelGoalContinuations',
     'archiveCompletedGoal',
-    ['interruptTaskWait', 'user-message'],
   ]);
   assert.equal(h.flags.autoClearRunning, true);
 });

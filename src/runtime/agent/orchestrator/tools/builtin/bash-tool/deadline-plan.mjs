@@ -1,12 +1,14 @@
-// Commands start in the foreground. Only work still running after the
-// 10 s coordination budget is promoted to a tracked background task.
-// Short commands therefore complete in the original tool turn, while longer
-// work returns partial output plus task_id and finishes by notification.
-// A per-call wait_ms may stretch the window for a command whose result should
-// return in the same call, never past 30 s, so the conversation is never held
-// open long; anything longer finishes by notification.
-export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 10_000;
-export const MAX_SHELL_WAIT_MS = 30_000;
+// Commands start in the foreground and hold the call for the shell hold
+// (wait-budgets.mjs). Only work still running when the hold ends — or when new
+// user input ends it early — moves to a tracked background task, returning
+// partial output plus task_id and finishing by notification. A per-call
+// wait_ms picks a different hold, clamped to the published range.
+import { SHELL_HOLD_DEFAULT_MS, SHELL_HOLD_MAX_MS, SHELL_HOLD_MIN_MS } from '../wait-budgets.mjs';
+
+export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = SHELL_HOLD_DEFAULT_MS;
+// The hold of an explicit background start: long enough for the child to be
+// spawned and promoted, short enough to return at once.
+const BACKGROUND_START_HOLD_MS = 1;
 
 // JS timers (setTimeout) and PS WaitForExit(ms) are 32-bit: a delay above
 // 2^31-1 wraps to a tiny/negative value and fires immediately. Clamp the
@@ -15,26 +17,25 @@ export const MAX_SHELL_WAIT_MS = 30_000;
 // per-site guards.
 const TIMER_MAX_MS = 2_147_483_647;
 
-// Main-agent blocking budget. A timeout is the command's total deadline, not
-// permission to hold the conversation open for that whole duration: after
-// 10 s a still-running command becomes a tracked background task and
-// completion is pushed to the owner. MIXDOG_SHELL_AUTO_BACKGROUND_MS
-// overrides; an explicit 0 disables. Gated on backgroundOnTimeout so
-// disabled background tasks remain foreground.
-// A per-call wait_ms extends that default for the call, capped by
-// MAX_SHELL_WAIT_MS and the foreground maximum; it never shortens it. A
-// shorter window promotes a command that would have returned its result in
-// the starting call and spends a whole follow-up request on `task wait`.
-function autoBackgroundBudget(backgroundOnTimeout, timeout, waitMs, maxForegroundMs) {
+// The shell hold. A timeout is the command's total deadline, not permission to
+// hold the conversation open for that whole duration: when the hold ends a
+// still-running command becomes a tracked background task and completion is
+// pushed to the owner. MIXDOG_SHELL_AUTO_BACKGROUND_MS overrides the default;
+// an explicit 0 disables it. A per-call wait_ms replaces the hold for that
+// call, clamped to SHELL_HOLD_MIN_MS..SHELL_HOLD_MAX_MS. Gated on
+// backgroundOnTimeout so disabled background tasks remain foreground.
+function shellHoldMs(waitMs) {
+  if (waitMs > 0) return Math.min(SHELL_HOLD_MAX_MS, Math.max(SHELL_HOLD_MIN_MS, Math.floor(waitMs)));
   const raw = process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
   const parsed = Number(raw);
-  let defaultMs =
-    raw != null && String(raw).trim() !== '' && Number.isFinite(parsed) && parsed >= 0
-      ? Math.floor(parsed)
-      : DEFAULT_SHELL_AUTO_BACKGROUND_MS;
-  if (waitMs > 0) defaultMs = Math.max(defaultMs, Math.min(waitMs, MAX_SHELL_WAIT_MS, maxForegroundMs));
-  if (!backgroundOnTimeout || defaultMs <= 0) return 0;
-  return timeout > 0 ? Math.min(defaultMs, timeout) : defaultMs;
+  return raw != null && String(raw).trim() !== '' && Number.isFinite(parsed) && parsed >= 0
+    ? Math.floor(parsed)
+    : SHELL_HOLD_DEFAULT_MS;
+}
+
+function autoBackgroundBudget(backgroundOnTimeout, timeout, holdMs) {
+  if (!backgroundOnTimeout || holdMs <= 0) return 0;
+  return timeout > 0 ? Math.min(holdMs, timeout) : holdMs;
 }
 
 // Background safety net. An omitted timeout_ms means "no caller deadline",
@@ -55,7 +56,14 @@ function backgroundMaxBudget() {
 // timeout becomes the background deadline.
 export function planShellDeadlines({ args, wmicRewrite, backgroundOnTimeout }) {
   const envMaxTimeout = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
-  const maxForegroundMs = envMaxTimeout > 0 ? envMaxTimeout : 120_000;
+  // background:true (servers, watchers) skips the hold: the command moves to
+  // the background as soon as it is running.
+  const holdMs =
+    args.background === true
+      ? BACKGROUND_START_HOLD_MS
+      : shellHoldMs(typeof args.wait_ms === 'number' ? args.wait_ms : 0);
+  // The foreground cap never cuts the requested hold short.
+  const maxForegroundMs = Math.max(envMaxTimeout > 0 ? envMaxTimeout : 120_000, holdMs);
   const hasExplicitTimeout = typeof args.timeout_ms === 'number' && args.timeout_ms > 0;
   const timeoutMs = hasExplicitTimeout ? args.timeout_ms : 0;
   // A rewrite-supplied cap (wmic → Get-CimInstance, 30 s) is a HARD deadline
@@ -79,11 +87,6 @@ export function planShellDeadlines({ args, wmicRewrite, backgroundOnTimeout }) {
     // Soft/interrupt promotion happens before the foreground cap; an explicit
     // total deadline is preserved separately.
     backgroundDeadlineMs: hasHardDeadline ? totalTimeout : backgroundMaxBudget(),
-    autoBackgroundMs: autoBackgroundBudget(
-      backgroundOnTimeout,
-      timeout,
-      typeof args.wait_ms === 'number' ? args.wait_ms : 0,
-      maxForegroundMs
-    ),
+    autoBackgroundMs: autoBackgroundBudget(backgroundOnTimeout, timeout, holdMs),
   };
 }

@@ -27,7 +27,9 @@ const bodyTextFor = (value) => {
     .join('\n');
 };
 
-const TRUNCATED_MARKER = /\[TRUNCATED (?:—|-) (\d+) lines \/ (\d+) KB;/;
+// The smart-read cap marker (read-formatting.mjs buildSmartReadTruncationMarker):
+// `[output capped at X; lines a-b of N omitted (K KB file); offset:a for more]`.
+const TRUNCATED_MARKER = /\[output capped at [^;\]]+; lines \d+-\d+ of (\d+) omitted \((\d+) KB file\);/;
 // When `read` emitted a smart-cap marker, surface the truncation state in the
 // header so downstream skimming spots it without parsing the body.
 const truncatedSuffix = (textBody) => {

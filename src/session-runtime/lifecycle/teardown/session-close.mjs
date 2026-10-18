@@ -47,6 +47,8 @@ export function closeOwnSession(deps, closeSurfaceSession, reason) {
     clearRuntimeNotifications,
     notificationListeners,
   } = deps;
+  // The close's answer: a boolean, or the promise of one when the closer
+  // retries a refused barrier rename on timers (callers await it).
   let ok = false;
   const session = getSession();
   if (session?.id) {

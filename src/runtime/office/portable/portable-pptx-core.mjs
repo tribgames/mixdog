@@ -264,11 +264,11 @@ function setTableCellText(cell, text) {
     `<a:t${/^\s|\s$/.test(value) ? ' xml:space="preserve"' : ''}>${xmlEncode(value)}</a:t></a:r>`;
   const paragraph = /<a:p(?:\s[^>]*)?>[\s\S]*?<\/a:p>/.exec(cell);
   if (paragraph) {
-    const replaced = paragraph[0].replace(/<\/a:p>$/, `${run}</a:p>`);
+    const replaced = paragraph[0].replace(/<\/a:p>$/, () => `${run}</a:p>`);
     return `${cell.slice(0, paragraph.index)}${replaced}${cell.slice(paragraph.index + paragraph[0].length)}`;
   }
   if (!/<\/a:txBody>/.test(cell)) throw new Error('PPTX table cell has no text body');
-  return cell.replace('</a:txBody>', `<a:p>${run}</a:p></a:txBody>`);
+  return cell.replace('</a:txBody>', () => `<a:p>${run}</a:p></a:txBody>`);
 }
 
 export function setTableValues(shapeXml, values) {
@@ -399,7 +399,7 @@ export function writeShapeTree(slideXml, tree, shapes) {
 
 export function appendSlideShape(xml, shape) {
   if (!/<\/p:spTree>/.test(xml)) throw new Error('PPTX slide shape tree is missing');
-  return xml.replace('</p:spTree>', `${shape}</p:spTree>`);
+  return xml.replace('</p:spTree>', () => `${shape}</p:spTree>`);
 }
 
 export function setSlideBackground(xml, color) {
@@ -444,8 +444,8 @@ export function updateShapeGeometry(shape, properties) {
       `<a:ext cx="${properties.width != null ? toEmu(properties.width) : Number(extent?.[1] || 1)}"` +
       ` cy="${properties.height != null ? toEmu(properties.height) : Number(extent?.[2] || 1)}"/></${frameTag}>`;
     if (current) next = `${next.slice(0, current.index)}${frame}${next.slice(current.index + current[0].length)}`;
-    else if (frameTag === 'p:xfrm') next = next.replace('</p:nvGraphicFramePr>', `$&${frame}`);
-    else next = next.replace(/<p:spPr(?:\s[^>]*)?>/, `$&${frame}`);
+    else if (frameTag === 'p:xfrm') next = next.replace('</p:nvGraphicFramePr>', (__m) => `${__m}${frame}`);
+    else next = next.replace(/<p:spPr(?:\s[^>]*)?>/, (__m) => `${__m}${frame}`);
   }
   // A transparency alone keeps the fill's colour, as the Office backend's Fill.Transparency does; it was dropped here.
   const fillColor =

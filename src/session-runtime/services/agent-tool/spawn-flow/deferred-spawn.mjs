@@ -5,6 +5,7 @@
  * flip to running, and the cancellation checks around the turn.
  */
 import { nonNegativeInt, clearAgentStatuslineRoute } from '../helpers.mjs';
+import { closeManagedSession } from '../../../lifecycle/shared.mjs';
 
 export function createDeferredSpawn({
   mgr,
@@ -22,7 +23,7 @@ export function createDeferredSpawn({
   function closePreparedSpawn(prepared, reason = 'agent-task-cancel') {
     if (!prepared?.session?.id) return;
     try {
-      Promise.resolve(mgr.closeSession(prepared.session.id, reason)).catch(() => {});
+      Promise.resolve(closeManagedSession(mgr, prepared.session.id, reason)).catch(() => {});
     } catch {}
     try {
       clearAgentStatuslineRoute(prepared.session.id);

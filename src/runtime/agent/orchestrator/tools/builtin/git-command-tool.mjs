@@ -6,8 +6,11 @@ import { tokenizeDirectArgv } from './shell-direct-exe.mjs';
 import { GIT_DIFF_EXIT_SIGNAL_FLAGS } from './bash-tool/benign-exit.mjs';
 import { withBuiltinPathLocks } from './path-locks.mjs';
 import { withAdvisoryLocks } from './advisory-lock.mjs';
-import { gitRepoLockKey, withGitRepoReadLock, withGitRepoWriteLock } from './git-repo-rw-lock.mjs';
+import { gitRepoLockKey, withGitWorktreeWriteLock } from './git-repo-rw-lock.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
+import { runAbortable } from '../../../../shared/abort-race.mjs';
+import { sleep } from '../../../../shared/sleep.mjs';
+import { capMarker } from '../../../../shared/tool-output-marker.mjs';
 import { drainCodeGraphCache } from '../code-graph-state.mjs';
 import { ensureNativeSpawnServer, tryNativeSpawn } from '../lib/native-spawn-client.mjs';
 import {
@@ -26,7 +29,14 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_CAPTURE_BYTES = 128 * 1024 * 1024;
-const GIT_OUTPUT_LIMIT_MAX = 200;
+// Sized from 3 days of real calls (2.9k diff/show/log/status results): diff and
+// show p50 ~125 lines / 6K chars, p90 ~460-510 lines / 21-23K chars, p95 ~700
+// lines / 30-36K chars. 500 lines / 40K chars fits ~91% of them (was ~65% at
+// 50 lines / 12K) and 1000 covers the p97 tail; 1981 of 2010 calls that set
+// output_limit asked for the old max of 200.
+const GIT_OUTPUT_LIMIT_MAX = 1000;
+const GIT_OUTPUT_LINES_DEFAULT = 500;
+const GIT_LOG_LINES_DEFAULT = 100;
 // Matches the other batch tools' 10-entry fan-out; a 6-command survey used to
 // be refused outright, costing the model a round trip.
 const GIT_COMMAND_ARRAY_LIMIT = 10;
@@ -95,7 +105,8 @@ export const GIT_TOOL_DEF = {
         type: 'integer',
         minimum: 1,
         maximum: GIT_OUTPUT_LIMIT_MAX,
-        description: 'Body line cap; staging IDs are not capped. Default 50; git log defaults to 10.',
+        description:
+          'Body line cap, max 1000; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue.',
       },
       include_stage_ids: {
         type: 'boolean',
@@ -145,10 +156,10 @@ function outputLines(value) {
 // A line cap alone lets a few very long lines (minified files, lockfiles)
 // through, so each command also gets a character budget, and a command array
 // shares one. A cut always states what was omitted and how to page.
-const COMMAND_CHAR_BUDGET = 12_000;
-const ARRAY_CHAR_BUDGET = 24_000;
+const COMMAND_CHAR_BUDGET = 40_000;
+const ARRAY_CHAR_BUDGET = 60_000;
 const MIN_COMMAND_CHARS = 1_000;
-const LARGE_DIFF_LINES = 200;
+const LARGE_DIFF_LINES = GIT_OUTPUT_LINES_DEFAULT;
 const LARGE_DIFF_HINT =
   'hint: large diff - run with --stat first for per-file sizes, add -U1 for less context, and page by file with -- <path>';
 
@@ -185,7 +196,11 @@ function capOutput(text, cap) {
       text: lineCut
         ? appendText(
             kept,
-            `... [${lines.length - cap.lines} more lines omitted; raise output_limit or narrow the command]`
+            capMarker({
+              limit: `${cap.lines} lines`,
+              shown: `${lines.length - cap.lines} more lines omitted`,
+              narrow: `raise output_limit (max ${GIT_OUTPUT_LIMIT_MAX}) or narrow the command (-- <path>, -n/--skip)`,
+            })
           )
         : text,
       truncated: lineCut,
@@ -198,7 +213,11 @@ function capOutput(text, cap) {
   return {
     text: appendText(
       kept.slice(0, cut),
-      `... [${lines.length - shown} more lines (${text.length - cut} chars) omitted; output limited to ${cap.chars} chars - narrow the command (-- <path>, -n/--skip) to page]`
+      capMarker({
+        limit: `${cap.chars} chars`,
+        shown: `${lines.length - shown} more lines (${text.length - cut} chars) omitted`,
+        narrow: 'narrow the command (-- <path>, -n/--skip) to page',
+      })
     ),
     truncated: true,
     totalLines: lines.length,
@@ -355,7 +374,7 @@ function parseCommand(rawCommand, workDir) {
   return { command: String(command), cwd, globalArgs, operation, args };
 }
 
-async function runProcess(program, argv, { cwd, signal, maxBytes = MAX_CAPTURE_BYTES } = {}) {
+async function runProcess(program, argv, { cwd, signal, maxBytes = MAX_CAPTURE_BYTES, optionalLocks = true } = {}) {
   let child;
   try {
     await ensureNativeSpawnServer();
@@ -371,6 +390,12 @@ async function runProcess(program, argv, { cwd, signal, maxBytes = MAX_CAPTURE_B
           GIT_EDITOR: 'true',
           GIT_SEQUENCE_EDITOR: 'true',
           LC_ALL: 'C',
+          // Reads run beside writes without a lock (git-repo-rw-lock.mjs).
+          // With optional locks off `git status` never takes index.lock to
+          // write back a refreshed index, so it cannot fail a concurrent
+          // write on that lock. (`git diff` ignores the setting and may still
+          // refresh the index briefly; the write retry absorbs that.)
+          ...(optionalLocks ? {} : { GIT_OPTIONAL_LOCKS: '0' }),
         },
         outputLimit: maxBytes,
       },
@@ -477,12 +502,48 @@ function gitFailureReason(plan, result) {
   return `git ${plan.operation} exited ${result.exitCode}`;
 }
 
-function commandFailure(plan, result, limit = 50) {
+function commandFailure(plan, result, limit = GIT_OUTPUT_LINES_DEFAULT) {
   return commandResult(plan, result, limit).text;
 }
 
 function runGit(plan, argv, options = {}) {
-  return runProcess('git', [...plan.globalArgs, ...argv], { cwd: plan.cwd, signal: options.signal });
+  return runProcess('git', [...plan.globalArgs, ...argv], {
+    cwd: plan.cwd,
+    signal: options.signal,
+    optionalLocks: !options.readOnly,
+  });
+}
+
+// Another process (an editor, a terminal, an IDE) holding one of git's lock
+// files makes git refuse a write: index.lock, a ref or packed-refs lock,
+// config.lock. Commands take that lock before changing anything, so a brief
+// retry with backoff turns the collision into a short wait; a command that had
+// already done part of its work reports its own state on the retry.
+const GIT_LOCK_CONTENTION_RE =
+  /Unable to create '[^'\n]*\.lock': File exists|could not lock config file [^\n]*: File exists/;
+const GIT_LOCK_RETRY_DELAYS_MS = [100, 200, 400, 800, 1600];
+
+async function runGitWrite(plan, argv, { signal } = {}) {
+  let retryMs = 0;
+  for (let retries = 0; ; retries += 1) {
+    const result = Object.assign(await runGit(plan, argv, { signal }), { retries, retryMs });
+    const delay = GIT_LOCK_RETRY_DELAYS_MS[retries];
+    if (succeeded(result) || delay === undefined || !GIT_LOCK_CONTENTION_RE.test(String(result.stderr))) return result;
+    await runAbortable(signal, () => sleep(delay)).catch(() => {});
+    if (signal?.aborted) return result;
+    retryMs += delay;
+  }
+}
+
+const LOCK_WAIT_REPORT_MS = 1000;
+
+// Waiting is reported once it exceeds a second, so a slow answer is never
+// mistaken for slow git work.
+function lockWaitNote(waitedMs, result = null) {
+  const total = waitedMs + (result?.retryMs || 0);
+  if (total <= LOCK_WAIT_REPORT_MS) return '';
+  const retried = result?.retries ? ` (git lock file busy; retried ${result.retries}x)` : '';
+  return `note: waited ${(total / 1000).toFixed(1)}s for concurrent git writes${retried}`;
 }
 
 function prepare(plan) {
@@ -501,7 +562,7 @@ function prepare(plan) {
 }
 
 async function runStageableDiff(plan, argv, repo, signal) {
-  const result = await runGit(plan, argv, { signal });
+  const result = await runGit(plan, argv, { signal, readOnly: true });
   if (!succeeded(result)) return result;
   result.stdout = String(result.stdout);
   result.stderr = String(result.stderr);
@@ -509,7 +570,7 @@ async function runStageableDiff(plan, argv, repo, signal) {
   const untracked = await runGit(
     plan,
     ['ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--', ...paths],
-    { signal }
+    { signal, readOnly: true }
   );
   if (!succeeded(untracked)) return untracked;
   for (const path of String(untracked.stdout).split('\0').filter(Boolean)) {
@@ -528,7 +589,7 @@ async function runStageableDiff(plan, argv, repo, signal) {
         '/dev/null',
         path,
       ],
-      { signal }
+      { signal, readOnly: true }
     );
     // --no-index uses exit 1 for a successfully produced patch.
     if (!succeeded({ ...added, exitCode: added.exitCode === 1 ? 0 : added.exitCode })) return added;
@@ -589,8 +650,8 @@ function rememberRepoRoot(key, hit) {
 
 // `lockKey` is the repository's canonical common git dir: the main checkout
 // and its linked worktrees share one object store and ref namespace, so their
-// git calls serialize on one repository lock (managed worktree mutations take
-// the same key).
+// writes share one repository lock state, scoped per worktree (managed
+// worktree mutations take the same key for the whole repository).
 async function resolveRepo(plan, signal) {
   const key = repoRootCacheKey(plan);
   const hit = cachedRepoRoot(key, plan);
@@ -619,6 +680,8 @@ async function resolveRepo(plan, signal) {
   return { root: null, lockKey: null, probe: result };
 }
 
+const CONFIG_SUBCOMMANDS = new Set(['get', 'set', 'unset', 'list', 'rename-section', 'remove-section', 'edit']);
+
 function localizeConfigPlan(plan) {
   if (plan.operation !== 'config') return plan;
   const external = plan.args.find(
@@ -629,6 +692,11 @@ function localizeConfigPlan(plan) {
   );
   if (external) throw new Error(`git config ${external} is outside the local repository scope`);
   if (plan.args.some((value) => value === '--local' || value === '--worktree')) return plan;
+  // `git config get|set|list …` takes its scope option after the subcommand
+  // (`--local get k` reads `get` as a key name); the legacy form takes it first.
+  if (CONFIG_SUBCOMMANDS.has(plan.args[0])) {
+    return { ...plan, args: [plan.args[0], '--local', ...plan.args.slice(1)] };
+  }
   return { ...plan, args: ['--local', ...plan.args] };
 }
 
@@ -660,7 +728,7 @@ const CREATION_VALUE_FLAGS = new Set([
   '--initial-branch',
 ]);
 
-function optionFreePositionals(args) {
+function optionFreePositionals(args, valueFlags = CREATION_VALUE_FLAGS) {
   const out = [];
   for (let index = 0; index < args.length; index++) {
     const value = args[index];
@@ -668,7 +736,7 @@ function optionFreePositionals(args) {
       out.push(...args.slice(index + 1));
       break;
     }
-    if (CREATION_VALUE_FLAGS.has(value)) {
+    if (valueFlags.has(value)) {
       index++;
       continue;
     }
@@ -690,10 +758,50 @@ function creationTarget(plan) {
   return resolve(plan.cwd, leaf);
 }
 
+// Pruning or repacking deletes unreachable objects, including ones a write in
+// any worktree has just created and not yet referenced (git gc documents
+// --prune=now as unsafe beside a concurrent writer), so these hold the whole
+// repository.
+const REPO_WIDE_OPERATIONS = new Set(['gc', 'maintenance', 'prune', 'prune-packed', 'repack']);
+const WORKTREE_VALUE_FLAGS = new Set(['-b', '-B', '--reason']);
+
+// The worktrees a mutating plan touches; null holds the whole repository. A
+// write changes its cwd's worktree, except that `git worktree add/remove/move`
+// change the target worktree (plus the shared admin dir, which git itself
+// guards), so writes on different worktrees never wait for each other.
+function writeScopes(plan, root) {
+  if (REPO_WIDE_OPERATIONS.has(plan.operation)) return null;
+  if (plan.operation !== 'worktree') return [root];
+  const [action, ...paths] = optionFreePositionals(plan.args, WORKTREE_VALUE_FLAGS);
+  const target = (path) => resolve(plan.cwd, path);
+  // git also names a worktree by a unique path suffix, which no cwd-relative
+  // path resolves; an argument that is not a worktree here holds the whole
+  // repository instead of guessing (so do prune and an argument-less repair).
+  const existing = (path) => (existsSync(join(target(path), '.git')) ? target(path) : null);
+  let scopes = null;
+  if (action === 'add') scopes = paths.slice(0, 1).map(target);
+  else if (action === 'move' && paths.length === 2) scopes = [existing(paths[0]), target(paths[1])];
+  else if (['remove', 'lock', 'unlock', 'repair'].includes(action)) scopes = paths.map(existing);
+  return scopes?.length && scopes.every(Boolean) ? scopes : null;
+}
+
 // A mutating git call holds the in-process and cross-process locks on its
-// path, and drops the result caches it may have invalidated.
-function withGitMutationLocks(path, callback) {
-  return withBuiltinPathLocks([path], () => withAdvisoryLocks([path], callback));
+// paths, and drops the result caches it may have invalidated.
+function withGitMutationLocks(paths, callback) {
+  return withBuiltinPathLocks(paths, () => withAdvisoryLocks(paths, callback));
+}
+
+// A write holds Mixdog's repository lock on the worktrees it touches (the
+// whole repository when `scopes` is null), then the path and cross-process
+// locks on the same paths; `callback` learns how long acquiring them took.
+function withGitWriteLocks(lockKey, scopes, root, signal, callback) {
+  const started = Date.now();
+  return withGitWorktreeWriteLock(
+    lockKey,
+    scopes,
+    () => withGitMutationLocks(scopes || [root], () => callback(Date.now() - started)),
+    { signal }
+  );
 }
 
 function invalidateAfterGitMutation() {
@@ -707,14 +815,6 @@ function outputLimit(value, fallback) {
 
 function abortSignalOf(options) {
   return options?.signal || options?.abortSignal || null;
-}
-
-async function executeCreation(plan, target, limit, signal) {
-  return withGitMutationLocks(target, async () => {
-    const result = await runGit(plan, [plan.operation, ...plan.args], { signal });
-    invalidateAfterGitMutation();
-    return commandResult(plan, result, limit);
-  });
 }
 
 function stageRequest(value) {
@@ -759,46 +859,48 @@ async function executeGitStage(input, workDir, options = {}) {
       hint: 'Run git diff with include_stage_ids:true in the current Project and use its diff_id/change_ids.',
     });
   }
-  const limit = outputLimit(input?.output_limit, 50);
+  const limit = outputLimit(input?.output_limit, GIT_OUTPUT_LINES_DEFAULT);
   const signal = abortSignalOf(options);
   const repo = snapshot.repo;
   const { lockKey } = await resolveRepo({ ...snapshot.plan, cwd: repo }, signal);
-  return withGitRepoWriteLock(
-    lockKey || repo,
-    () =>
-      withGitMutationLocks(repo, async () => {
-        const current = await runStageableDiff(snapshot.plan, snapshot.argv, repo, signal);
-        if (!succeeded(current)) return commandFailure(snapshot.plan, current, limit);
-        const raw = current.stdout;
-        if (!diffSnapshotMatches(snapshot, raw)) {
-          return ok({
-            staged: false,
-            reason: 'stale_diff',
-            hint: 'The working diff changed. Run git diff with include_stage_ids:true again and select current change_ids.',
-          });
-        }
-        const built = buildSelectedStagePatch(raw, request.changeIds);
-        if (built.missing.length || !built.patch) {
-          return fail(
-            `git stage change_ids are not present in the diff: ${built.missing.join(', ') || '(none selected)'}`
-          );
-        }
-        return withStagePatchFile(built.patch, async (patchPath) => {
-          const applyArgs = ['apply', '--cached', '--unidiff-zero', patchPath];
-          const applyPlan = { ...snapshot.plan, cwd: repo, operation: 'apply', args: applyArgs.slice(1) };
-          const check = await runGit(applyPlan, ['apply', '--cached', '--check', '--unidiff-zero', patchPath], {
-            signal,
-          });
-          if (!succeeded(check)) return commandFailure(applyPlan, check, limit);
-          const applied = await runGit(applyPlan, applyArgs, { signal });
-          if (!succeeded(applied)) return commandFailure(applyPlan, applied, limit);
-          deleteDiffSnapshot(request.diffId);
-          invalidateAfterGitMutation();
-          return ok({ staged: true, ...stagedSummary(built.changes) });
-        });
-      }),
-    { signal }
-  );
+  // The diff check and the index apply form one transaction on this
+  // worktree's index, so the stage holds its worktree for both.
+  return withGitWriteLocks(lockKey || repo, [repo], repo, signal, async (waitedMs) => {
+    const noted = (text, result) => appendText(text, lockWaitNote(waitedMs, result));
+    const answer = (data, result) => {
+      const note = lockWaitNote(waitedMs, result);
+      return ok(note ? { ...data, note } : data);
+    };
+    const current = await runStageableDiff(snapshot.plan, snapshot.argv, repo, signal);
+    if (!succeeded(current)) return noted(commandFailure(snapshot.plan, current, limit));
+    const raw = current.stdout;
+    if (!diffSnapshotMatches(snapshot, raw)) {
+      return answer({
+        staged: false,
+        reason: 'stale_diff',
+        hint: 'The working diff changed. Run git diff with include_stage_ids:true again and select current change_ids.',
+      });
+    }
+    const built = buildSelectedStagePatch(raw, request.changeIds);
+    if (built.missing.length || !built.patch) {
+      return noted(
+        fail(`git stage change_ids are not present in the diff: ${built.missing.join(', ') || '(none selected)'}`)
+      );
+    }
+    return withStagePatchFile(built.patch, async (patchPath) => {
+      const applyArgs = ['apply', '--cached', '--unidiff-zero', patchPath];
+      const applyPlan = { ...snapshot.plan, cwd: repo, operation: 'apply', args: applyArgs.slice(1) };
+      const check = await runGit(applyPlan, ['apply', '--cached', '--check', '--unidiff-zero', patchPath], {
+        signal,
+      });
+      if (!succeeded(check)) return noted(commandFailure(applyPlan, check, limit));
+      const applied = await runGitWrite(applyPlan, applyArgs, { signal });
+      if (!succeeded(applied)) return noted(commandFailure(applyPlan, applied, limit), applied);
+      deleteDiffSnapshot(request.diffId);
+      invalidateAfterGitMutation();
+      return answer({ staged: true, ...stagedSummary(built.changes) }, applied);
+    });
+  });
 }
 
 async function executeSingleGitTool(input, workDir, options = {}) {
@@ -823,7 +925,7 @@ async function executeSingleGitTool(input, workDir, options = {}) {
   ) {
     return rejected('git archive requires -o/--output; binary stdout is not returned');
   }
-  const limitDefault = plan.operation === 'log' ? 10 : 50;
+  const limitDefault = plan.operation === 'log' ? GIT_LOG_LINES_DEFAULT : GIT_OUTPUT_LINES_DEFAULT;
   const limit = {
     lines: outputLimit(input.output_limit, limitDefault),
     chars: options.charBudget ?? COMMAND_CHAR_BUDGET,
@@ -831,7 +933,13 @@ async function executeSingleGitTool(input, workDir, options = {}) {
   const signal = abortSignalOf(options);
   if (plan.operation === 'init' || plan.operation === 'clone') {
     const target = creationTarget(plan);
-    return withGitRepoWriteLock(target, () => executeCreation(plan, target, limit, signal), { signal });
+    return withGitWriteLocks(target, null, target, signal, async (waitedMs) => {
+      const result = await runGit(plan, [plan.operation, ...plan.args], { signal });
+      invalidateAfterGitMutation();
+      const rendered = commandResult(plan, result, limit);
+      rendered.text = appendText(rendered.text, lockWaitNote(waitedMs));
+      return rendered;
+    });
   }
   if (REPO_FREE_OPERATIONS.has(plan.operation)) {
     const result = await runGit(plan, [plan.operation, ...plan.args], { signal });
@@ -849,39 +957,32 @@ async function executeSingleGitTool(input, workDir, options = {}) {
   const prepared = prepare(plan);
   const stageableRequest = plan.operation === 'diff' && (plan.args.length === 0 || plan.args[0] === '--');
   if (stageableRequest) prepared.argv.splice(1, 0, '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/');
+  // A read takes no lock, so it never waits behind another read, a long
+  // `git log -S`, or a write (git-repo-rw-lock.mjs explains why that is safe).
   if (isReadOnly(plan)) {
-    return withGitRepoReadLock(
-      lockKey,
-      async () => {
-        const result = stageableRequest
-          ? await runStageableDiff(plan, prepared.argv, repo, signal)
-          : await runGit(plan, prepared.argv, { signal });
-        if (!succeeded(result)) return commandResult(plan, result, limit);
-        if (stageableRequest && input.include_stage_ids === true) {
-          const snapshot = createDiffSnapshot({
-            repo,
-            scope: resolve(workDir || process.cwd()),
-            plan,
-            argv: prepared.argv,
-            raw: result.stdout,
-          });
-          return stageableDiffResult(plan, result, snapshot, limit);
-        }
-        return commandResult(plan, result, limit);
-      },
-      { signal }
-    );
+    const result = stageableRequest
+      ? await runStageableDiff(plan, prepared.argv, repo, signal)
+      : await runGit(plan, prepared.argv, { signal, readOnly: true });
+    if (!succeeded(result)) return commandResult(plan, result, limit);
+    if (stageableRequest && input.include_stage_ids === true) {
+      const snapshot = createDiffSnapshot({
+        repo,
+        scope: resolve(workDir || process.cwd()),
+        plan,
+        argv: prepared.argv,
+        raw: result.stdout,
+      });
+      return stageableDiffResult(plan, result, snapshot, limit);
+    }
+    return commandResult(plan, result, limit);
   }
-  return withGitRepoWriteLock(
-    lockKey,
-    () =>
-      withGitMutationLocks(repo, async () => {
-        const result = await runGit(plan, prepared.argv, { signal });
-        invalidateAfterGitMutation();
-        return commandResult(plan, result, limit);
-      }),
-    { signal }
-  );
+  return withGitWriteLocks(lockKey, writeScopes(plan, repo), repo, signal, async (waitedMs) => {
+    const result = await runGitWrite(plan, prepared.argv, { signal });
+    invalidateAfterGitMutation();
+    const rendered = commandResult(plan, result, limit);
+    rendered.text = appendText(rendered.text, lockWaitNote(waitedMs, result));
+    return rendered;
+  });
 }
 
 // `git a && git b` written as one string means exactly what the command array
@@ -996,8 +1097,8 @@ export async function executeGitTool(rawInput, workDir, options = {}) {
   // Ordered execution with fail-fast: a mutation sequence (`reflog expire`
   // then `gc`) must not run its later steps on a state the earlier step did
   // not produce. Every command is parsed above before any runs, so a typo in
-  // command 3 never leaves commands 1-2 half applied. Each command still
-  // acquires its own repository lock inside executeSingleGitTool.
+  // command 3 never leaves commands 1-2 half applied. Each write still
+  // acquires its own worktree lock inside executeSingleGitTool.
   // Headers name the position and subcommand only: echoing the argument list
   // (a 22-path `add`) cost more than the result it labelled.
   const results = [];
@@ -1027,4 +1128,5 @@ export const _gitCommandInternals = {
   parseCommand,
   prepare,
   resolveRepo,
+  writeScopes,
 };

@@ -56,6 +56,8 @@ export function releaseAdmissionOnConfirmedTermination(run, { markNow = true } =
   run.stopTerminationWatch = watchTermination({
     tracker: run.terminationTracker,
     rootExited: () => child.exitCode != null || child.signalCode != null,
+    // A killed run is not over while processes it started still run.
+    sweep: run.killed === true,
     onTerminated: release,
     onUnconfirmed: markNow ? null : () => keepTerminationUnconfirmedRecord(run),
     releaseRequested: () => takeReleaseRequest(run.foregroundRecordId),

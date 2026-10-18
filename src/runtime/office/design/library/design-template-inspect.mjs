@@ -82,7 +82,10 @@ export async function pptxSlideEntries(zip) {
 
 function xmlSetAttribute(source, name, value) {
   const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return String(source).replace(new RegExp(`(\\b${escaped}=")[^"]*(")`, 'i'), `$1${String(value)}$2`);
+  return String(source).replace(
+    new RegExp(`(\\b${escaped}=")[^"]*(")`, 'i'),
+    (__m, __1, __2) => `${__1}${String(value)}${__2}`
+  );
 }
 
 function relationshipType(block, suffix) {
@@ -93,7 +96,7 @@ function ensureContentTypeOverride(xml, partName, contentType) {
   if (!xml || new RegExp(`\\bPartName="${String(partName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'i').test(xml)) {
     return xml;
   }
-  return xml.replace(/<\/Types>/i, `<Override PartName="${partName}" ContentType="${contentType}"/></Types>`);
+  return xml.replace(/<\/Types>/i, () => `<Override PartName="${partName}" ContentType="${contentType}"/></Types>`);
 }
 
 const RELATIONSHIP_BLOCK = /<(?:\w+:)?Relationship\b[^>]*\/?>/gi;
@@ -150,7 +153,7 @@ function presentationWithSlideList(presentationXml, relationshipIds) {
   if (!slideListMatch) throw new Error('PPTX presentation slide list is missing');
   const prefix = slideListMatch[1] || '';
   const slideIds = relationshipIds.map((id, index) => `<${prefix}sldId id="${256 + index}" r:id="${id}"/>`).join('');
-  return presentationXml.replace(slideListPattern, `<${prefix}sldIdLst>${slideIds}</${prefix}sldIdLst>`);
+  return presentationXml.replace(slideListPattern, () => `<${prefix}sldIdLst>${slideIds}</${prefix}sldIdLst>`);
 }
 
 function presentationRelationshipsWithSlides(relationshipsXml, relationshipIds) {
@@ -162,7 +165,7 @@ function presentationRelationshipsWithSlides(relationshipsXml, relationshipIds) 
     .join('');
   return relationshipsXml
     .replace(RELATIONSHIP_BLOCK, (block) => (relationshipType(block, 'slide') ? '' : block))
-    .replace(/<\/Relationships>/i, `${slideRelationships}</Relationships>`);
+    .replace(/<\/Relationships>/i, () => `${slideRelationships}</Relationships>`);
 }
 
 // Writes one selected slide (and its notes) under its new ordinal, retargeting

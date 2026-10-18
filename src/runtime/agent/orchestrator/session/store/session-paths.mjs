@@ -34,9 +34,21 @@ function _memoFilePath(dir, id, extension) {
   }
   return path;
 }
+// Every session path lookup ensured the store dir with a synchronous
+// existsSync: the agent-status pulse resolves hundreds of paths per beat, and
+// those probes alone held the daemon loop for seconds per minute. The check is
+// re-run at most once per interval; a dir removed in between is recreated by
+// the next check.
+const STORE_DIR_RECHECK_MS = 1000;
+let _ensuredStoreDir = null;
+let _ensuredStoreDirAt = 0;
 export function getStoreDir() {
   const dir = _storeDirPath();
+  const now = Date.now();
+  if (dir === _ensuredStoreDir && now - _ensuredStoreDirAt < STORE_DIR_RECHECK_MS) return dir;
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  _ensuredStoreDir = dir;
+  _ensuredStoreDirAt = now;
   return dir;
 }
 function _sessionFileName(id, extension) {

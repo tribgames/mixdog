@@ -35,7 +35,6 @@ const FAILED_NOTICE_ACTIONS = new Map([
   ['oauth login', 'start OAuth login'],
   ['output style switch', 'switch output style'],
   ['openai usage auth save', 'save OpenAI usage auth'],
-  ['opencode go usage auth save', 'save OpenCode Go usage auth'],
   ['plugin add', 'add plugin'],
   ['plugin mcp enable', 'enable plugin MCP'],
   ['plugin uninstall', 'uninstall plugin'],

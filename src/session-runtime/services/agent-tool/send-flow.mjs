@@ -98,6 +98,8 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     registry.upsertWorkerSessionDeferred(session, tag, {
       status: 'running',
       stage: 'running',
+      // The send's own task: a restart that ends this turn reports it by id.
+      task_id: job?.taskId,
       turnStartedAt: new Date().toISOString(),
     });
     let handoffMsgStart = 0;
@@ -224,5 +226,26 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     return renderResult({ ...extras, ...views.renderJob(job, false) });
   }
 
-  return { prepareSend, dispatchToExistingSession };
+  // A background-task completion was queued for this worker. A busy worker
+  // takes it at its next tool boundary; an idle one runs a follow-up turn on
+  // an empty prompt, which drains the queued completion (never an empty user
+  // turn). Its answer reaches the owner like any send result.
+  function wakeIdleWorker(sessionId) {
+    const id = clean(sessionId);
+    if (!id || views.isSessionBusy(id)) return false;
+    const session = mgr.getSession(id);
+    if (!session || session.closed) return false;
+    const owner = clean(session.ownerSessionId || session.parentSessionId);
+    const notifyContext = owner
+      ? { callerSessionId: owner, ownerSessionId: owner, clientHostPid: session.clientHostPid || null }
+      : null;
+    void dispatchToExistingSession({ args: {}, session, sessionId: id, prompt: '' }, notifyContext).catch((error) => {
+      try {
+        process.stderr.write(`[agent] completion wake failed session=${id}: ${error?.message || error}\n`);
+      } catch {}
+    });
+    return true;
+  }
+
+  return { prepareSend, dispatchToExistingSession, wakeIdleWorker };
 }

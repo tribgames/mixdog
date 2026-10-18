@@ -17,7 +17,7 @@ import {
 import { flushUsageState, loadUsageState, updateProviderState } from './lib/state.mjs';
 import { closeScrapeBrowserPool, getScrapeCapabilities, scrapeUrls } from './lib/web-tools.mjs';
 import { fetchLoopbackText, fetchPublicImage } from './lib/http-fetch.mjs';
-import { applyFetchPagination, formatResponse } from './lib/formatter.mjs';
+import { applyFetchPagination, fetchContinuation, formatResponse } from './lib/formatter.mjs';
 import { PACKAGE_VERSION } from './lib/package-version.mjs';
 import { TOOL_DEFS as toolDefinitions } from './tool-defs.mjs';
 
@@ -54,14 +54,14 @@ const urlArgsSchema = z.object({
     .min(0)
     .optional()
     .describe(
-      "Character offset to start the slice from (default 0). For chunked reading of large pages, pass the previous response's nextStartIndex."
+      "Character offset to start the slice from (default 0). For chunked reading of large pages, pass the startIndex from the previous response's continuation marker."
     ),
   maxLength: z
     .number()
     .int()
     .min(0)
     .optional()
-    .describe('Max characters to return per call (default 50000). Pass 0 for unlimited.'),
+    .describe('Max characters to return per call (default 20000). Pass 0 for unlimited.'),
   cwd: z.string().optional(),
 });
 
@@ -553,10 +553,8 @@ async function fetchLocalOrImage(name, urlArgs, { signal, timeoutMs }) {
     if (name === 'local_fetch') {
       for (const url of urls) {
         const text = await fetchLoopbackText(url, { signal: fetchSignal });
-        const start = urlArgs.startIndex || 0;
-        const max = urlArgs.maxLength == null ? 50_000 : urlArgs.maxLength;
-        const body = max === 0 ? text.slice(start) : text.slice(start, start + max);
-        parts.push({ type: 'text', text: `${url}\n\n${body}` });
+        const page = applyFetchPagination({ content: text }, urlArgs);
+        parts.push({ type: 'text', text: `${url}\n\n${page.content}${fetchContinuation(page)}` });
       }
       return { content: parts };
     }

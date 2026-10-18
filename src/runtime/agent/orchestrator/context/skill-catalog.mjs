@@ -495,7 +495,7 @@ export function buildSkillResultEnvelope(name, content, skillDir) {
   body = body.replace(/\$\{MIXDOG_SKILL_NODE\}/g, SKILL_LAUNCHER_COMMAND);
   if (skillDir) {
     const normDir = String(skillDir).replace(/\\/g, '/');
-    body = body.replace(/\$\{MIXDOG_SKILL_DIR\}/g, normDir);
+    body = body.replace(/\$\{MIXDOG_SKILL_DIR\}/g, () => normDir);
     const escapedDir = escapeSkillXmlText(normDir);
     dirLine = `<base-dir>${escapedDir}</base-dir>\n`;
   }

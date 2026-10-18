@@ -103,9 +103,9 @@ function accentOnLastPoint(series, count) {
   if (count !== previousCount && accents.length === 1 && pointAt(accents[0]) === previousCount - 1) {
     // The accent and the point now last trade places; one past the new end is dropped by the caller.
     const displaced = points.find((point) => pointAt(point) === count - 1);
-    const moved = (point, to) => point.replace(/<c:idx val="\d+"\/>/, `<c:idx val="${to}"/>`);
-    block = block.replace(accents[0], moved(accents[0], count - 1));
-    if (displaced) block = block.replace(displaced, moved(displaced, previousCount - 1));
+    const moved = (point, to) => point.replace(/<c:idx val="\d+"\/>/, () => `<c:idx val="${to}"/>`);
+    block = block.replace(accents[0], () => moved(accents[0], count - 1));
+    if (displaced) block = block.replace(displaced, () => moved(displaced, previousCount - 1));
   }
   return block;
 }
@@ -132,7 +132,7 @@ function refreshChartDataInPlace(xml, categories, series, op) {
       block = /<c:tx>\s*<c:v>/.test(block)
         ? block.replace(
             /<c:tx>\s*<c:v>[\s\S]*?<\/c:v>\s*<\/c:tx>/,
-            `<c:tx><c:v>${xmlEncode(String(entry.name))}</c:v></c:tx>`
+            () => `<c:tx><c:v>${xmlEncode(String(entry.name))}</c:v></c:tx>`
           )
         : block.replace(
             /(<c:tx>\s*<c:strRef>[\s\S]*?<c:strCache>)[\s\S]*?(<\/c:strCache>)/,
@@ -251,20 +251,20 @@ function withCategoryOrientation(xml, orientation) {
   const element = `<c:orientation val="${orientation}"/>`;
   let oriented;
   if (/<c:orientation val="[^"]*"\/>/.test(categoryAxis)) {
-    oriented = categoryAxis.replace(/<c:orientation val="[^"]*"\/>/, element);
+    oriented = categoryAxis.replace(/<c:orientation val="[^"]*"\/>/, () => element);
   } else if (categoryAxis.includes('<c:scaling/>')) {
-    oriented = categoryAxis.replace('<c:scaling/>', `<c:scaling>${element}</c:scaling>`);
+    oriented = categoryAxis.replace('<c:scaling/>', () => `<c:scaling>${element}</c:scaling>`);
   } else {
-    oriented = categoryAxis.replace('<c:scaling>', `<c:scaling>${element}`);
+    oriented = categoryAxis.replace('<c:scaling>', () => `<c:scaling>${element}`);
   }
   const crosses = orientation === 'maxMin' ? 'max' : 'autoZero';
   let crossed = valueAxis;
   if (/<c:crosses val="[^"]*"\/>/.test(valueAxis)) {
-    crossed = valueAxis.replace(/<c:crosses val="[^"]*"\/>/, `<c:crosses val="${crosses}"/>`);
+    crossed = valueAxis.replace(/<c:crosses val="[^"]*"\/>/, () => `<c:crosses val="${crosses}"/>`);
   } else if (!/<c:crossesAt\b/.test(valueAxis)) {
-    crossed = valueAxis.replace(/(<c:crossAx val="[^"]*"\/>)/, `$1<c:crosses val="${crosses}"/>`);
+    crossed = valueAxis.replace(/(<c:crossAx val="[^"]*"\/>)/, (__m, __1) => `${__1}<c:crosses val="${crosses}"/>`);
   }
-  return xml.replace(categoryAxis, oriented).replace(valueAxis, crossed);
+  return xml.replace(categoryAxis, () => oriented).replace(valueAxis, () => crossed);
 }
 
 // The new series carrying the colours the chart already had.
@@ -420,7 +420,7 @@ export async function handleSetChartAxis(context, op) {
       const bounds =
         `${op.maximum != null ? `<c:max val="${Number(op.maximum)}"/>` : ''}` +
         `${op.minimum != null ? `<c:min val="${Number(op.minimum)}"/>` : ''}`;
-      return cleaned.replace('</c:scaling>', `${bounds}</c:scaling>`);
+      return cleaned.replace('</c:scaling>', () => `${bounds}</c:scaling>`);
     });
   }
   if (op.numberFormat != null) {
@@ -471,7 +471,7 @@ export async function handleSetChartSeries(context, op) {
     if (op.name != null) {
       updated = updated.replace(
         /(<c:tx>[\s\S]*?<c:strCache>[\s\S]*?<c:pt idx="0"><c:v>)[\s\S]*?(<\/c:v>)/,
-        `$1${xmlEncode(String(op.name))}$2`
+        (__m, __1, __2) => `${__1}${xmlEncode(String(op.name))}${__2}`
       );
     }
     if (Array.isArray(op.categories) && op.categories.length) {
@@ -482,9 +482,12 @@ export async function handleSetChartSeries(context, op) {
         block
           .replace(
             /<c:strCache>[\s\S]*?<\/c:strCache>/,
-            `<c:strCache><c:ptCount val="${op.categories.length}"/>${points}</c:strCache>`
+            () => `<c:strCache><c:ptCount val="${op.categories.length}"/>${points}</c:strCache>`
           )
-          .replace(/(<c:f>[^<]*\$[A-Z]+\$\d+:\$[A-Z]+\$)\d+(<\/c:f>)/, `$1${op.categories.length + 1}$2`)
+          .replace(
+            /(<c:f>[^<]*\$[A-Z]+\$\d+:\$[A-Z]+\$)\d+(<\/c:f>)/,
+            (__m, __1, __2) => `${__1}${op.categories.length + 1}${__2}`
+          )
       );
     }
     if (Array.isArray(op.values) && op.values.length) {
@@ -499,10 +502,13 @@ export async function handleSetChartSeries(context, op) {
           .replace(/<c:numCache>[\s\S]*?<\/c:numCache>/, (cache) =>
             cache.replace(
               /<c:ptCount val="\d+"\/>[\s\S]*?(?=<\/c:numCache>)/,
-              `<c:ptCount val="${op.values.length}"/>${points}`
+              () => `<c:ptCount val="${op.values.length}"/>${points}`
             )
           )
-          .replace(/(<c:f>[^<]*\$[A-Z]+\$\d+:\$[A-Z]+\$)\d+(<\/c:f>)/, `$1${op.values.length + 1}$2`)
+          .replace(
+            /(<c:f>[^<]*\$[A-Z]+\$\d+:\$[A-Z]+\$)\d+(<\/c:f>)/,
+            (__m, __1, __2) => `${__1}${op.values.length + 1}${__2}`
+          )
       );
     }
     return updated;
@@ -575,7 +581,7 @@ export async function handleSetChartTrendlineOrSetChartErrorBars(context, op) {
     const anchor = /<c:cat>/.exec(cleaned) || /<c:val>/.exec(cleaned);
     return anchor
       ? `${cleaned.slice(0, anchor.index)}${element}${cleaned.slice(anchor.index)}`
-      : cleaned.replace('</c:ser>', `${element}</c:ser>`);
+      : cleaned.replace('</c:ser>', () => `${element}</c:ser>`);
   });
   if (!changed) throw new Error(`Chart has no series ${op.series ?? ''}`.trim());
   zip.file(chart.part, next);
@@ -610,7 +616,7 @@ export async function handleSetChartDataLabels(context, op) {
     const anchor = /<c:cat>/.exec(cleaned);
     return anchor
       ? `${cleaned.slice(0, anchor.index)}${labels}${cleaned.slice(anchor.index)}`
-      : cleaned.replace('</c:ser>', `${labels}</c:ser>`);
+      : cleaned.replace('</c:ser>', () => `${labels}</c:ser>`);
   });
   if (!changed) throw new Error(`Chart has no series ${op.series ?? ''}`.trim());
   zip.file(chart.part, next);

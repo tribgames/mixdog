@@ -19,11 +19,12 @@ import { getPluginData } from '../config.mjs';
 import { countSplitLines, normalizeOutputPath } from '../tools/builtin/path-utils.mjs';
 import { classifyResultKind } from './result-classification.mjs';
 import { registerSessionPurgeHook } from './store.mjs';
-import { SETUP_OUTPUT_MAX_BYTES } from '../../../shared/tool-output-limit.mjs';
+import { SETUP_OUTPUT_MAX_BYTES, capMarker } from '../../../shared/tool-output-limit.mjs';
 
 const TOOL_RESULT_OFFLOAD_THRESHOLD_CHARS = 50_000;
 const TOOL_RESULT_SETUP_THRESHOLD_CHARS = SETUP_OUTPUT_MAX_BYTES;
 const TOOL_RESULT_PREVIEW_CHARS = 512;
+const TOOL_RESULT_GIT_PREVIEW_CHARS = 8_000;
 const TOOL_RESULT_SHELL_THRESHOLD_CHARS = 30_000;
 const TOOL_RESULT_SEARCH_THRESHOLD_CHARS = 50_000;
 const TOOL_RESULT_GREP_THRESHOLD_CHARS = 20_000;
@@ -38,7 +39,8 @@ const ARTIFACT_READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (
 // Per-tool persistence limits are per-tool maxResultSizeChars values rather
 // than a single global value: grep persists at 20k, glob and list/find_* at
 // the 50k system default (deliberately tighter than the common 100k), and
-// shell/bash_session/task at 30k. Read/head/tail/diff stay inline
+// bash_session/terminal at 30k. shell/task stay inline: the shell delivery
+// helper already capped them, with the full log on disk. Read/head/tail/diff stay inline
 // (Infinity) — they are self-bound by FileRead semantics and the upstream
 // READ_MAX_SIZE_BYTES cap, so persisting to a sidecar to be re-read would be
 // circular. These values keep context-rich IO tools from turning into "read
@@ -59,10 +61,13 @@ const INLINE_THRESHOLD_BY_TOOL = new Map([
   ['tree', TOOL_RESULT_SEARCH_THRESHOLD_CHARS],
   ['find_files', TOOL_RESULT_SEARCH_THRESHOLD_CHARS],
   ['code_graph', TOOL_RESULT_SEARCH_THRESHOLD_CHARS],
-  ['shell', TOOL_RESULT_SHELL_THRESHOLD_CHARS],
+  // shell and task results are already capped by the shared shell delivery
+  // (tools/builtin/lib/shell-delivery.mjs) and name their full log on disk;
+  // offloading them again would cut a capped result down to a preview.
+  ['shell', Infinity],
   ['bash_session', TOOL_RESULT_SHELL_THRESHOLD_CHARS],
   ['terminal', TOOL_RESULT_SHELL_THRESHOLD_CHARS],
-  ['task', TOOL_RESULT_SHELL_THRESHOLD_CHARS],
+  ['task', Infinity],
   ['setup', TOOL_RESULT_SETUP_THRESHOLD_CHARS],
 ]);
 
@@ -110,6 +115,8 @@ function offloadableTextLength(result) {
 }
 
 const AGGREGATE_OFFLOAD_EXCLUDED_TOOLS = new Set([
+  'shell',
+  'task',
   'read',
   'head',
   'tail',
@@ -321,11 +328,21 @@ async function offloadText(sessionId, toolCallId, toolName, text, channel) {
   });
   if (!artifact) return text;
 
-  const { preview, truncated } = buildPreview(text);
+  // git offloads were fetched 95% of the time from a 512-char preview, so git
+  // keeps a head+tail large enough to answer from directly.
+  const previewChars = String(toolName || '').toLowerCase() === 'git' ? TOOL_RESULT_GIT_PREVIEW_CHARS : undefined;
+  const { preview, truncated } = buildPreview(text, previewChars);
   const sizeKb = Math.max(1, Math.round(text.length / 1024));
   const displayPath = normalizeOutputPath(artifact.path);
   const header = `${TOOL_RESULT_OFFLOAD_PREFIX} ${toolName} → ${displayPath} (${sizeKb} KB, ${artifact.lines} lines)]`;
-  const suffix = truncated ? '\n[preview truncated; full output preserved at the artifact path above]' : '';
+  // The header already names the path; git repeats it after its long preview,
+  // where the header is far above the cut.
+  let suffix = '';
+  if (truncated) {
+    suffix = previewChars
+      ? `\n${capMarker({ limit: `${previewChars} chars`, narrow: 'read it with offset/limit', fullPath: displayPath })}`
+      : '\n[preview truncated; full output preserved at the artifact path above]';
+  }
   return `${header}\n\n${preview}${suffix}`;
 }
 

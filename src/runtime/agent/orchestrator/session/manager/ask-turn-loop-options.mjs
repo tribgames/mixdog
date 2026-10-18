@@ -130,6 +130,9 @@ export function buildAgentLoopOptions({
       checkpoint.schedule(true);
       relay(askOpts?.onAssistantToolCallObserved, call, detail);
     },
+    // A provider output item started (a tool call, a phased message): display
+    // only, so it bypasses the interruption journal.
+    onStreamItemStart: optionalFn(askOpts?.onStreamItemStart),
     onProviderSendStarted: () => {
       interruption.markProviderSendStarted();
       checkpoint.schedule(true);

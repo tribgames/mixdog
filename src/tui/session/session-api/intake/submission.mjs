@@ -4,7 +4,7 @@
 import { promptDisplayText } from '../../queue-helpers.mjs';
 
 export function createSubmissionIntake(bag) {
-  const { runtime, nextId, flags, getState, enqueue, autoClearBeforeSubmit } = bag;
+  const { nextId, flags, getState, enqueue, autoClearBeforeSubmit } = bag;
 
   const submission = (text, options = {}) => {
     const displayText = promptDisplayText(text, options);
@@ -25,19 +25,13 @@ export function createSubmissionIntake(bag) {
   };
 
   const enqueueSubmission = (intake) => {
+    // The queue itself wakes a passive `task wait` or shell hold for typed
+    // input (not for slash commands, which run after the turn); see enqueue.
     const accepted = enqueue(intake.text, intake.queueOptions);
-    // User input wakes a passive `task wait` without cancelling either the
-    // turn or the background task. The returned running snapshot creates the
-    // normal post-tool boundary, where this queued prompt is injected.
-    if (accepted !== false) {
-      if ((intake.queueOptions.mode || 'prompt') === 'prompt') {
-        bag.cancelQuotaResumeOnUserInput?.();
-        bag.cancelQueuedGoalContinuations?.();
-        bag.archiveCompletedGoalOnUserInput?.();
-      }
-      try {
-        runtime.interruptTaskWait?.('user-message');
-      } catch {}
+    if (accepted !== false && (intake.queueOptions.mode || 'prompt') === 'prompt') {
+      bag.cancelQuotaResumeOnUserInput?.();
+      bag.cancelQueuedGoalContinuations?.();
+      bag.archiveCompletedGoalOnUserInput?.();
     }
     return accepted;
   };

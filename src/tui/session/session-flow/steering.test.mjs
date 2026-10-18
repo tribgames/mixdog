@@ -84,6 +84,51 @@ test('a prompt submitted before task wait releases it and drains exactly once', 
   }
 });
 
+test('a queued completion or typed input ends a wait or shell hold; typed input wins', () => {
+  const sessionId = 'user-input-only';
+  const pending = [];
+  const state = { busy: true, commandBusy: false, queued: [] };
+  let nextId = 0;
+  const bag = {
+    runtime: { id: sessionId, interruptTaskWait: (reason) => interruptTaskWaitForSession(sessionId, reason) },
+    flags: {},
+    pending,
+    pendingNotificationKeys: new Set(),
+    getState: () => state,
+    set: (patch) => Object.assign(state, patch),
+    nextId: () => `uio-${++nextId}`,
+    autoClearBeforeSubmit: async () => {},
+  };
+  const queue = createQueueOps(bag, { kickDrain() {} });
+  const steering = createSteeringOps(bag, { queue, submissions: createSubmissionMemory() });
+  const stop = registerTaskWaitSteeringCheck((id) => id === sessionId && steering.pendingTaskWaitWake());
+  const waits = [];
+  try {
+    pending.push(
+      queue.makeQueueEntry('<task-notification>…</task-notification>', {
+        mode: 'task-notification',
+        execution: { surface: 'shell', id: 'job_uio', status: 'completed' },
+        priority: 'next',
+      })
+    );
+    assert.equal(steering.hasPendingSteering(), true, 'the completion is delivered mid-turn');
+    assert.equal(steering.hasPendingUserInput(), false);
+    waits.push(beginInterruptibleTaskWait(sessionId));
+    assert.equal(waits[0].signal.aborted, true, 'a queued completion ends the hold');
+    assert.equal(waits[0].wakeReason, 'notification');
+    assert.equal(waits[0].interruptedByUser, false);
+    pending.push(queue.makeQueueEntry('please also check X', { mode: 'prompt' }));
+    assert.equal(steering.hasPendingUserInput(), true);
+    waits.push(beginInterruptibleTaskWait(sessionId));
+    assert.equal(waits[1].signal.aborted, true, 'typed input queued before the hold ends it at once');
+    assert.equal(waits[1].interruptedByUser, true);
+    assert.equal(waits[1].wakeReason, 'user-message');
+  } finally {
+    stop();
+    for (const wait of waits) wait.dispose();
+  }
+});
+
 for (const status of ['done', 'failed', 'cancelled']) {
   test(`a steered submitAndWait receives its owning turn's ${status} result exactly once`, async () => {
     const pending = [];

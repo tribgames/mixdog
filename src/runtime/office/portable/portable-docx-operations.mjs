@@ -82,15 +82,15 @@ const PARAGRAPH_MARK_ID_OFFSET = 900;
 // place ahead of the deletion that rejects it.
 function withParagraphMarkRevision(paragraphXml, mark) {
   if (!/<w:pPr(?:\s[^>]*)?>/.test(paragraphXml)) {
-    return paragraphXml.replace(/^(<w:p(?:\s[^>]*)?>)/, `$1<w:pPr><w:rPr>${mark}</w:rPr></w:pPr>`);
+    return paragraphXml.replace(/^(<w:p(?:\s[^>]*)?>)/, (__m, __1) => `${__1}<w:pPr><w:rPr>${mark}</w:rPr></w:pPr>`);
   }
   if (/<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>\s*<\/w:pPr>/.test(paragraphXml)) {
     return paragraphXml.replace(
       /(<w:rPr(?:\s[^>]*)?>)((?:<w:ins\b[^>]*\/>|<w:ins\b[^>]*>[\s\S]*?<\/w:ins>)?)/,
-      `$1$2${mark}`
+      (__m, __1, __2) => `${__1}${__2}${mark}`
     );
   }
-  return paragraphXml.replace(/<\/w:pPr>/, `<w:rPr>${mark}</w:rPr></w:pPr>`);
+  return paragraphXml.replace(/<\/w:pPr>/, () => `<w:rPr>${mark}</w:rPr></w:pPr>`);
 }
 
 export function docxTocEntries(documentXml, lower, upper, headingLevels = new Map()) {
@@ -328,7 +328,10 @@ export async function addDocxNote(zip, op) {
     `<w:r><w:rPr><w:rStyle w:val="${definition.style}"/>${faces}<w:vertAlign w:val="superscript"/></w:rPr>` +
     `<w:${definition.reference === 'w:footnoteReference' ? 'footnoteRef' : 'endnoteRef'}/></w:r>` +
     `<w:r>${noteRun}<w:t xml:space="preserve"> ${xmlEncode(text)}</w:t></w:r></w:p></${definition.tag}>`;
-  zip.file(definition.part, definition.xml.replace(`</${definition.root}>`, `${entry}</${definition.root}>`));
+  zip.file(
+    definition.part,
+    definition.xml.replace(`</${definition.root}>`, () => `${entry}</${definition.root}>`)
+  );
   // The mark belongs right after the phrase it cites; a phrase split across
   // a tab, field, or drawing falls back to the end of its paragraph.
   const mark =
@@ -336,7 +339,7 @@ export async function addDocxNote(zip, op) {
     `<${definition.reference} w:id="${id}"/></w:r>`;
   const cited = find ? wholeWordPhrase(paragraphTexts(paragraph.xml, 'w:t').join(''), find) : '';
   const phrase = cited ? anchorPhraseInParagraph(paragraph.xml, cited, id, { start: '', end: mark }) : null;
-  const anchored = phrase || paragraph.xml.replace(/<\/w:p>$/, `${mark}</w:p>`);
+  const anchored = phrase || paragraph.xml.replace(/<\/w:p>$/, () => `${mark}</w:p>`);
   const nextInner = `${model.body.inner.slice(0, paragraph.start)}${anchored}${model.body.inner.slice(paragraph.end)}`;
   current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
   zip.file('word/document.xml', current);
@@ -388,7 +391,7 @@ export async function setDocxDocumentFont(zip, op) {
 }
 
 // The fields one style takes in define_styles: its face, size, weight, ink, and its paragraph's flow.
-export const DOCX_STYLE_FIELDS = Object.freeze([
+const DOCX_STYLE_FIELDS = Object.freeze([
   'name',
   'nameEastAsia',
   'size',
@@ -608,7 +611,7 @@ export async function fitDocxTable(zip, op) {
   let nextTable = grid
     ? table[0].replace(
         grid[0],
-        `<w:tblGrid>${widths.map((width) => `<w:gridCol w:w="${width}"/>`).join('')}</w:tblGrid>`
+        () => `<w:tblGrid>${widths.map((width) => `<w:gridCol w:w="${width}"/>`).join('')}</w:tblGrid>`
       )
     : table[0];
   const declared = `<w:tblW w:w="${usable}" w:type="dxa"/>`;
@@ -616,9 +619,9 @@ export async function fitDocxTable(zip, op) {
     ? wordTableProperties(op.properties)
     : /<w:tblPr>([\s\S]*?)<\/w:tblPr>/.exec(nextTable)?.[1] || '';
   if (/<w:tblW\b[^>]*\/>/.test(tableProperties)) {
-    tableProperties = tableProperties.replace(/<w:tblW\b[^>]*\/>/, declared);
+    tableProperties = tableProperties.replace(/<w:tblW\b[^>]*\/>/, () => declared);
   } else if (/<w:tblStyle\b[^>]*\/>/.test(tableProperties)) {
-    tableProperties = tableProperties.replace(/(<w:tblStyle\b[^>]*\/>)/, `$1${declared}`);
+    tableProperties = tableProperties.replace(/(<w:tblStyle\b[^>]*\/>)/, (__m, __1) => `${__1}${declared}`);
   } else {
     tableProperties = `${declared}${tableProperties}`;
   }
@@ -640,7 +643,10 @@ function controlFilledWith(control, contentInner, text) {
     ? `${/^<w:p(?:\s[^>]*)?>(?:<w:pPr(?:\s[^>]*)?>[\s\S]*?<\/w:pPr>)?/.exec(firstParagraph)?.[0] || '<w:p>'}${run}</w:p>`
     : run;
   const cleaned = control.replace(/<w:showingPlcHdr\b[^>]*\/>/g, '');
-  return cleaned.replace(/<w:sdtContent\b[^>]*>[\s\S]*?<\/w:sdtContent>/, `<w:sdtContent>${paragraph}</w:sdtContent>`);
+  return cleaned.replace(
+    /<w:sdtContent\b[^>]*>[\s\S]*?<\/w:sdtContent>/,
+    () => `<w:sdtContent>${paragraph}</w:sdtContent>`
+  );
 }
 
 /** Fills one named or numbered content control, in the body, a header, or a footer. */
@@ -712,8 +718,8 @@ function paragraphWithText(paragraph, op) {
   if (!nodes.length) {
     if (op.op === 'set_run_text') throw new Error(`DOCX paragraph ${op.paragraph} has no editable text`);
     const run = `<w:r>${wordTextContent(op.text, { preserve: true })}</w:r>`;
-    if (/<\/w:p>\s*$/.test(paragraph.xml)) return paragraph.xml.replace(/<\/w:p>\s*$/, `${run}</w:p>`);
-    if (/\/>\s*$/.test(paragraph.xml)) return paragraph.xml.replace(/\/>\s*$/, `>${run}</w:p>`);
+    if (/<\/w:p>\s*$/.test(paragraph.xml)) return paragraph.xml.replace(/<\/w:p>\s*$/, () => `${run}</w:p>`);
+    if (/\/>\s*$/.test(paragraph.xml)) return paragraph.xml.replace(/\/>\s*$/, () => `>${run}</w:p>`);
     throw new Error(`DOCX paragraph ${op.paragraph} is malformed`);
   }
   if (op.op === 'set_run_text') {
@@ -852,8 +858,7 @@ function mergedDocxTable({ table, rows, row, cells }, op) {
     );
     return `${rowXml.slice(0, joined[0].index)}${merged}${rowXml.slice(end)}`;
   };
-  let nextTable = table[0].replace(
-    row[0],
+  let nextTable = table[0].replace(row[0], () =>
     mergeRow(row[0], cells, `${gridSpan}${rowSpan > 1 ? '<w:vMerge w:val="restart"/>' : ''}`)
   );
   if (rowSpan > 1) {
@@ -862,8 +867,7 @@ function mergedDocxTable({ table, rows, row, cells }, op) {
       if (!continuationRow) break;
       const continuationCells = rowCellMatches(continuationRow[0]);
       if (!continuationCells[first]) continue;
-      nextTable = nextTable.replace(
-        continuationRow[0],
+      nextTable = nextTable.replace(continuationRow[0], () =>
         mergeRow(continuationRow[0], continuationCells, `${gridSpan}<w:vMerge/>`)
       );
     }
@@ -883,7 +887,7 @@ export async function styleOrMergeDocxTableCell(zip, op) {
   if (!cell) throw missingDocxCellError(op, cells);
   const nextTable =
     op.op === 'set_table_cell_style'
-      ? table[0].replace(cell[0], styledDocxCell(cell[0], op))
+      ? table[0].replace(cell[0], () => styledDocxCell(cell[0], op))
       : mergedDocxTable({ table, rows, row, cells }, op);
   current = replaceDocxTable(current, table, nextTable);
   zip.file('word/document.xml', current);

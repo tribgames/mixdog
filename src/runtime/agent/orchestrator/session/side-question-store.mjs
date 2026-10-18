@@ -1,6 +1,6 @@
 // side-question-store.mjs — the in-memory state behind /btw side questions:
 // per session, the latest provider request the main loop sent (the request a
-// side question forks) and the side question in flight. It holds live
+// side question or a compaction summary forks) and the side question in flight. It holds live
 // provider/tool objects, so it never reaches the session record or disk.
 import { isAgentOwner } from '../agent-owner.mjs';
 
@@ -63,6 +63,21 @@ export function captureSideQuestionRequest({ sessionId, sessionRef, provider, mo
 
 export function sideQuestionRequest(sessionId) {
   return (sessionId && requests.get(sessionId)) || null;
+}
+
+/** The saved request a compaction summary may fork: one whose reply settled
+ *  and whose transcript no compaction has rewritten since it was sent. */
+export function compactionForkRequest(sessionId) {
+  const request = sideQuestionRequest(sessionId);
+  return request?.response && !request.compacted ? request : null;
+}
+
+/** A compaction rewrote the transcript: the saved request no longer holds the
+ *  history a later compaction must summarize. A side question still forks it
+ *  until the next request replaces it. */
+export function retireCompactionFork(sessionId) {
+  const request = sideQuestionRequest(sessionId);
+  if (request) request.compacted = true;
 }
 
 /** Start the session's side question, aborting the one still in flight. */

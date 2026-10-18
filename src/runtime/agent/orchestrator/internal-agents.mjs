@@ -121,16 +121,26 @@ function _loadHiddenAgents() {
  * by an agents.json modification (tracked via maxMtimeRecursive in
  * collect.mjs) consume fresh metadata in the same process.
  */
+// The agent-status pulse resolves a watchdog policy per worker row, and each
+// lookup re-stat'ed every dependency file synchronously. The mtime probe runs
+// at most once per interval; an edit is picked up by the next probe.
+const HIDDEN_AGENTS_RECHECK_MS = 1000;
+let _hiddenAgentsCheckedAt = 0;
+
 function _getHiddenAgents() {
+  const now = Date.now();
+  if (_hiddenAgentsCache && now - _hiddenAgentsCheckedAt < HIDDEN_AGENTS_RECHECK_MS) return _hiddenAgentsCache.map;
   // The mtime probe never throws; a load failure surfaces with the message
   // _loadHiddenAgents already gave it, and the stale cache is not reused.
   if (_hiddenAgentsCache && _maxMtime(_hiddenAgentsCache.files) <= _hiddenAgentsCache.mtime) {
+    _hiddenAgentsCheckedAt = now;
     return _hiddenAgentsCache.map;
   }
   const files = _hiddenAgentsDependencyFiles();
   const mtime = _maxMtime(files);
   const map = _loadHiddenAgents();
   _hiddenAgentsCache = { mtime, files, map };
+  _hiddenAgentsCheckedAt = now;
   return map;
 }
 

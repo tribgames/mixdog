@@ -172,9 +172,10 @@ async function _validateDiskCodeGraphHit({
   return { graph, manifest, signature };
 }
 
-// Owns a pre-acquired slot until a validated miss hands it to spawnWorker.
-// Keeping this seam dependency-injectable makes slot/abort behavior testable
-// without spawning native processes or Worker threads.
+// Validates the disk graph under a read-only query slot; a miss releases it
+// and spawnWorker queues for a build slot, so queries never wait behind
+// builds. Keeping this seam dependency-injectable makes slot/abort behavior
+// testable without spawning native processes or Worker threads.
 export async function _runDiskCodeGraphFastPath({
   graphCwd,
   diskProbe,
@@ -182,36 +183,31 @@ export async function _runDiskCodeGraphFastPath({
   signal = null,
   loadDiskEntry,
   consumeDirty = () => {},
-  // Long-lived code-graph lane so a cold graph build never blocks short rg
-  // processes in the independent search lane.
-  acquireSlot = (signal) => acquireChildSpawnSlot(signal, 'code-graph'),
+  acquireSlot = (signal) => acquireChildSpawnSlot(signal, 'code-graph-query'),
   validateDiskHit = _validateDiskCodeGraphHit,
   spawnWorker,
   maxFiles = CODE_GRAPH_MAX_FILES,
 }) {
   if (!diskProbe?.isFastPathEligible || diskProbe.maxFiles !== maxFiles) {
-    return spawnWorker(null, null, null);
+    return spawnWorker(null, null);
   }
   const diskEntry = loadDiskEntry();
   if (!_isCompatibleDiskCodeGraphEntry(diskEntry, maxFiles)) {
-    return spawnWorker(null, null, null);
+    return spawnWorker(null, null);
   }
   consumeDirty();
   const release = await acquireSlot(signal || null);
-  let handedToWorker = false;
+  let hit;
   try {
     _throwIfAborted(signal);
-    const hit = await validateDiskHit({ graphCwd, diskEntry, genAtStart, signal });
-    _throwIfAborted(signal);
-    if (hit?.invalidated) throw codeGraphBuildInvalidatedError(hit.graph);
-    if (hit?.graph) return hit.graph;
-    _throwIfAborted(signal);
-    const workerPromise = spawnWorker(release, hit?.manifest || null, hit?.signature || null);
-    handedToWorker = true;
-    return workerPromise;
+    hit = await validateDiskHit({ graphCwd, diskEntry, genAtStart, signal });
   } finally {
-    if (!handedToWorker) release();
+    release();
   }
+  _throwIfAborted(signal);
+  if (hit?.invalidated) throw codeGraphBuildInvalidatedError(hit.graph);
+  if (hit?.graph) return hit.graph;
+  return spawnWorker(hit?.manifest || null, hit?.signature || null);
 }
 
 function _prepareDiskCodeGraphFastPath({
@@ -306,8 +302,10 @@ export async function buildCodeGraphAsync(
   const existing = _inflightAsyncBuilds.get(inflightKey);
   if (existing) return raceAbort(existing, signal);
   // Non-competing prewarm: the signature-validation manifest also needs a
-  // child-spawn slot, so warmers skip before either it or a Worker can queue.
-  if (bestEffort && !childSpawnHasSpareCapacity('code-graph')) return null;
+  // query slot and a miss a build slot, so warmers skip before either queues.
+  if (bestEffort && !(childSpawnHasSpareCapacity('code-graph-query') && childSpawnHasSpareCapacity('code-graph'))) {
+    return null;
+  }
   const promise = _retryCodeGraphBuildAfterInvalidation(
     async () => {
       const genAtStart = _getCodeGraphGen(graphCwd);
@@ -315,7 +313,7 @@ export async function buildCodeGraphAsync(
       // bounded I/O. Do not run a manifest at all when no disk candidate exists:
       // cold/dirty misses remain entirely on the existing Worker path.
       if (scoped) {
-        return _spawnCodeGraphWorker(cwd, graphCwd, genAtStart, signal, null, null, null, {
+        return _spawnCodeGraphWorker(cwd, graphCwd, genAtStart, signal, null, null, {
           buildOptions: scopeOptions,
           cacheResult: false,
         });
@@ -330,8 +328,8 @@ export async function buildCodeGraphAsync(
             signal,
             loadDiskEntry: () => getDiskCodeGraphEntry(graphCwd),
             consumeDirty: () => _consumeCodeGraphDirtyPaths(graphCwd),
-            spawnWorker: (preAcquiredRelease, manifest, signature) =>
-              _spawnCodeGraphWorker(cwd, graphCwd, genAtStart, signal, preAcquiredRelease, manifest, signature),
+            spawnWorker: (manifest, signature) =>
+              _spawnCodeGraphWorker(cwd, graphCwd, genAtStart, signal, manifest, signature),
           }),
       });
     },
@@ -350,7 +348,6 @@ export function _spawnCodeGraphWorker(
   graphCwd,
   genAtStart,
   signal,
-  preAcquiredRelease = null,
   manifest = null,
   signature = null,
   {
@@ -416,10 +413,7 @@ export function _spawnCodeGraphWorker(
         /* best-effort */
       }
     };
-    (preAcquiredRelease
-      ? Promise.resolve(preAcquiredRelease)
-      : acquireChildSpawnSlot(signal || null, 'code-graph')
-    ).then((release) => {
+    acquireChildSpawnSlot(signal || null, 'code-graph').then((release) => {
       _releaseSlot = release;
       if (settled) {
         release();

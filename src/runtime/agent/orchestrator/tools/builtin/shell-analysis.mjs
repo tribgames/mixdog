@@ -4,7 +4,9 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { isBuiltin } from 'node:module';
+import { Script } from 'node:vm';
 import { cwdRelativePath, normalizeInputPath, normalizeOutputPath, resolveAgainstCwd } from './path-utils.mjs';
+import { codeMask } from './bash-tool/bashism-rewrite.mjs';
 
 // Hard-block patterns live exclusively in ../shell-policy.mjs (BLOCKED_PATTERNS /
 // isBlockedCommand). This lighter detector only classifies cache invalidation
@@ -35,6 +37,14 @@ const SHELL_GLOBAL_MUTATORS = new Set([
   'dd',
 ]);
 
+// Whether a backslash escapes the character after it: anything outside quotes,
+// only `"` or `\` inside double quotes, never inside single quotes (`'C:\'` is
+// a closed string, not an escaped quote).
+function startsEscape(quote, next) {
+  if (quote === "'") return false;
+  return quote === '"' ? next === '"' || next === '\\' : true;
+}
+
 export function shellSplitSegments(command) {
   const parts = [];
   let current = '';
@@ -47,7 +57,7 @@ export function shellSplitSegments(command) {
       escaped = false;
       continue;
     }
-    if (ch === '\\') {
+    if (ch === '\\' && startsEscape(quote, command[i + 1])) {
       current += ch;
       escaped = true;
       continue;
@@ -83,20 +93,24 @@ export function shellTokenize(segment) {
   const tokens = [];
   let current = '';
   let quote = null;
-  let escaped = false;
   const push = () => {
     if (current !== '') tokens.push(current);
     current = '';
   };
   for (let i = 0; i < segment.length; i++) {
     const ch = segment[i];
-    if (escaped) {
-      current += ch;
-      escaped = false;
-      continue;
-    }
-    if (ch === '\\') {
-      escaped = true;
+    if (ch === '\\' && quote !== "'") {
+      // A backslash escapes only what a shell would need it for. Before an
+      // ordinary character it is a path separator (`C:\Users\x`, `\\server\s`),
+      // which dropping would turn into a different, nonexistent path.
+      const next = segment[i + 1];
+      const escapes = quote === '"' ? next === '"' : next !== undefined && /[\s"'$`;&|<>()*?]/.test(next);
+      if (!escapes) {
+        current += ch;
+        continue;
+      }
+      current += next;
+      i++;
       continue;
     }
     if (quote) {
@@ -228,7 +242,7 @@ export function shellSplitPipelineSegments(segment) {
       escaped = false;
       continue;
     }
-    if (ch === '\\') {
+    if (ch === '\\' && startsEscape(quote, segment[i + 1])) {
       current += ch;
       escaped = true;
       continue;
@@ -518,6 +532,17 @@ const MSYS_ABS_PATH_RE = /(^|[\s"'=,(])\/([A-Za-z])\/([^\s"'`|&;<>()]*)/g;
 // the drive-rewrite and bash-ism regexes against the mask so quoted literals /
 // regex patterns are never treated as real path tokens or connectors.
 function maskQuotedRegions(command) {
+  // The full PowerShell tokeniser first: it knows here-strings, comments and
+  // doubled quotes, which a bare quote-pair scan reads wrongly (an apostrophe
+  // inside `@'…'@` or a `# don't` comment flips every region after it). It
+  // declines on text it cannot tokenise with confidence; the pair scan below
+  // then keeps the previous behaviour.
+  const codeOnly = codeMask(command);
+  if (codeOnly) {
+    let masked = '';
+    for (let i = 0; i < command.length; i++) masked += codeOnly[i] ? command[i] : '\0';
+    return masked;
+  }
   const FILL = '\0';
   let out = '';
   let quote = null;
@@ -655,6 +680,12 @@ export function hasPowerShellOnlySyntax(command) {
 const INLINE_SCRIPT_RE =
   /\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+"((?:[^"\\]|\\.)*)"/;
 const INLINE_UNSAFE_BODY = /[$`\\]/;
+// What may follow the closing quote for the run to be the same as a file run:
+// end of command or a shell operator/newline. Anything else is either more
+// argument text (`""` is an escaped quote in PowerShell, and adjacent quoted
+// strings concatenate in bash, so the body did not end at that quote) or script
+// arguments, which `-e` and a file run number differently in process.argv.
+const INLINE_TRAILING_OK = /^[ \t]*(?:$|[\r\n|;&)<>]|\d+>)/;
 const INLINE_FILE_RELATIVE =
   /(?:require|import)\s*\(\s*['"]\.{1,2}\/|from\s+['"]\.{1,2}\/|import\.meta|__dirname|__filename|__file__|require\.main|module\.(?:filename|parent)|sys\.argv\s*\[\s*0\s*\]|sys\.path\s*\[\s*0\s*\]|argv\s*\[\s*1\s*\]/;
 const WINDOWS_INLINE_COMMAND_FILE_THRESHOLD = 24_000;
@@ -695,21 +726,143 @@ function inlineScriptFileShape(exe, rawFlags) {
   return { extension, keptFlags: flags.replace(/\s+--input-type=\w+/g, '') };
 }
 
-export function planInlineScriptHoist(command) {
+// `python -c` puts the working directory first on sys.path; a script file puts
+// its own (temp) directory there. Only a body whose every import is a standard
+// library module resolves identically from both, so any other import — a
+// project-local module, a relative import, a dynamic import — keeps `-c`.
+const PYTHON_STDLIB = new Set(
+  `__future__ abc argparse array ast asyncio atexit base64 bdb binascii bisect builtins bz2 cProfile calendar cmath cmd code codecs codeop collections colorsys compileall concurrent configparser contextlib contextvars copy copyreg csv ctypes curses dataclasses datetime dbm decimal difflib dis doctest email encodings ensurepip enum errno faulthandler fcntl filecmp fileinput fnmatch fractions ftplib functools gc genericpath getopt getpass gettext glob graphlib grp gzip hashlib heapq hmac html http imaplib inspect io ipaddress itertools json keyword linecache locale logging lzma mailbox marshal math mimetypes mmap modulefinder msvcrt multiprocessing netrc nt ntpath numbers opcode operator optparse os pathlib pdb pickle pickletools pkgutil platform plistlib poplib posix posixpath pprint profile pstats pty pwd py_compile pyclbr pydoc pyexpat queue quopri random re readline reprlib resource rlcompleter runpy sched secrets select selectors shelve shlex shutil signal site smtplib socket socketserver sqlite3 ssl stat statistics string stringprep struct subprocess symtable sys sysconfig syslog tabnanny tarfile tempfile termios textwrap threading time timeit tkinter token tokenize tomllib trace traceback tracemalloc tty turtle types typing unicodedata unittest urllib uuid venv warnings wave weakref webbrowser winreg winsound wsgiref xml xmlrpc zipapp zipfile zipimport zlib zoneinfo`.split(
+    ' '
+  )
+);
+const PYTHON_DYNAMIC_IMPORT = /\b(?:__import__|importlib|exec|eval|compile|runpy)\b/;
+function pythonImportsOutsideStdlib(body) {
+  if (PYTHON_DYNAMIC_IMPORT.test(body)) return true;
+  for (const [, module] of body.matchAll(/(?:^|[;:\n])[ \t]*from[ \t]+([.\w]+)[ \t]+import\b/g)) {
+    if (module.startsWith('.') || !PYTHON_STDLIB.has(module.split('.')[0])) return true;
+  }
+  for (const [, list] of body.matchAll(/(?:^|[;:\n])[ \t]*import[ \t]+([^;\n]+)/g)) {
+    for (const part of list.split(',')) {
+      const name = part
+        .trim()
+        .split(/\s+as\s+/)[0]
+        .trim()
+        .split('.')[0];
+      if (name && !PYTHON_STDLIB.has(name)) return true;
+    }
+  }
+  return false;
+}
+
+// `node -e` accepts ESM syntax and top-level `await` (Node's syntax detection);
+// the `.cjs` file a hoist writes does not, so a body using either stays inline.
+// An `await` is top-level exactly when the body no longer compiles as CommonJS.
+const NODE_ESM_SYNTAX = /(?:^|[;{}\n])[ \t]*(?:import[ \t]*[\w$*{'"]|export[ \t])/;
+function nodeBodyNeedsModuleSyntax(body) {
+  if (NODE_ESM_SYNTAX.test(body)) return true;
+  if (!/\bawait\b/.test(body)) return false;
+  try {
+    new Script(`(function (exports, require, module, __filename, __dirname) {${body}\n})`);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+// PowerShell ends a double-quoted string at any typographic double quote and a
+// single-quoted one at any typographic single quote.
+const POWERSHELL_SMART_DOUBLE = /[\u201C\u201D\u201E\u201F]/;
+const POWERSHELL_SMART_SINGLE = /[\u2018\u2019\u201A\u201B]/;
+
+function defaultInlineShellType() {
+  return process.platform === 'win32' ? 'powershell' : 'posix';
+}
+
+// True when `index` is in live shell code of a POSIX shell: not inside a
+// quote, `$'…'`, comment, or a heredoc body (any heredoc earlier in the text
+// declines, since its body cannot be bounded here).
+function posixLiveAt(text, index) {
+  let i = 0;
+  const skipTo = (end) => {
+    if (end < 0 || end >= index) return false;
+    i = end + 1;
+    return true;
+  };
+  // The quote that closes a region whose backslashes escape (`"…"`, `$'…'`).
+  const closer = (from, quote) => {
+    let j = from;
+    while (j < text.length && text[j] !== quote) j += text[j] === '\\' ? 2 : 1;
+    return j < text.length ? j : -1;
+  };
+  while (i < index) {
+    const ch = text[i];
+    if (ch === '\\') i += 2;
+    else if (ch === "'") {
+      if (!skipTo(text.indexOf("'", i + 1))) return false;
+    } else if (ch === '$' && text[i + 1] === "'") {
+      if (!skipTo(closer(i + 2, "'"))) return false;
+    } else if (ch === '"') {
+      if (!skipTo(closer(i + 1, '"'))) return false;
+    } else if (ch === '#' && (i === 0 || /[\s;&|(]/.test(text[i - 1]))) {
+      const nl = text.indexOf('\n', i);
+      if (nl < 0 || nl >= index) return false;
+      i = nl;
+    } else if (ch === '<' && text[i + 1] === '<' && text[i + 2] !== '<') return false;
+    else i++;
+  }
+  return true;
+}
+
+// A node/python invocation may be turned into a file run only when the shell
+// itself runs it: live code (not text inside a string, here-string, comment or
+// heredoc) at command position (not an argument of docker/ssh/wsl/ts-node/…,
+// which would run the file somewhere that cannot see it).
+function isShellInvocationAt(text, index, shellType) {
+  if (shellType === 'powershell') {
+    if (!codeMask(text)?.[index]) return false;
+  } else if (!posixLiveAt(text, index)) {
+    return false;
+  }
+  let start = index;
+  while (start > 0 && /[^\s;|&(){}<>'"]/.test(text[start - 1])) start--;
+  if (start < index && !/[\\/]$/.test(text.slice(start, index))) return false;
+  const before = text.slice(0, start);
+  const assignments = /(?:^|[\s;|&(){}])[A-Za-z_]\w*=[^\s;|&(){}]*[ \t]+$/;
+  let head = before;
+  while (assignments.test(head)) head = head.replace(assignments, (m) => m.match(/^[\s;|&(){}]?/)[0]);
+  const trimmed = head.replace(/[ \t]+$/, '');
+  if (trimmed === '') return true;
+  const last = trimmed.at(-1);
+  if (!';|&({\n'.includes(last)) return false;
+  // A line continuation joins the next line onto this command's arguments.
+  return !(last === '\n' && /[\\`]\r?\n$/.test(trimmed));
+}
+
+export function planInlineScriptHoist(command, { shellType = defaultInlineShellType() } = {}) {
   const text = String(command || '');
   if (!text.trim()) return null;
   const match = text.match(INLINE_SCRIPT_RE);
   if (!match) return null;
   const [whole, exe, rawFlags, , body] = match;
   if (INLINE_UNSAFE_BODY.test(body)) return null;
+  if (!INLINE_TRAILING_OK.test(text.slice(match.index + whole.length))) return null;
   if (INLINE_FILE_RELATIVE.test(body)) return null;
-  if (/^node/i.test(exe) && importsPackage(body)) return null;
+  if (shellType === 'powershell' && POWERSHELL_SMART_DOUBLE.test(body)) return null;
+  const isNode = /^node/i.test(exe);
+  if (isNode && importsPackage(body)) return null;
+  if (isNode && !/--input-type=module/.test(rawFlags) && nodeBodyNeedsModuleSyntax(body)) return null;
+  if (!isNode && pythonImportsOutsideStdlib(body)) return null;
+  if (!isShellInvocationAt(text, match.index, shellType)) return null;
   const { extension, keptFlags } = inlineScriptFileShape(exe, rawFlags);
   return {
     exe,
     extension,
     body,
-    replace: (filePath) => text.replace(whole, `${exe}${keptFlags} "${filePath}"`),
+    // Spliced at the match offset, not by searching for its text: an earlier
+    // look-alike (`xnode -e "…"`) must not be the one rewritten. Plain
+    // concatenation also keeps a path holding `$&` / `$1` from being expanded.
+    replace: (filePath) =>
+      `${text.slice(0, match.index)}${exe}${keptFlags} "${filePath}"${text.slice(match.index + whole.length)}`,
   };
 }
 
@@ -727,11 +880,26 @@ export function planLongInlineScriptFileTransport(
   const match = text.match(LONG_INLINE_SCRIPT_RE);
   if (!match) return null;
   const [whole, exe, rawFlags, , doubleBody, singleBody] = match;
+  const powershell = String(shellType || '').toLowerCase() === 'powershell';
+  // The same refusals as the short hoist: text after the closing quote means
+  // the body did not end there (or the script has arguments), and the match
+  // must be a command the shell itself runs.
+  if (!INLINE_TRAILING_OK.test(text.slice(match.index + whole.length))) return null;
+  if (!isShellInvocationAt(text, match.index, powershell ? 'powershell' : 'posix')) return null;
   const { extension, keptFlags } = inlineScriptFileShape(exe, rawFlags);
   let body = doubleBody;
   if (body === undefined) {
     body = String(singleBody || '');
-    body = String(shellType || '').toLowerCase() === 'powershell' ? body.replace(/''/g, "'") : body.replace(/''/g, '');
+    if (powershell && POWERSHELL_SMART_SINGLE.test(body)) return null;
+    body = powershell ? body.replace(/''/g, "'") : body.replace(/''/g, '');
+  } else if (
+    // Inside double quotes the shell rewrites `$…`, backtick and backslash
+    // escapes (and PowerShell ends the string at a typographic quote) before
+    // the child sees them, so the verbatim body would be a different script.
+    /[$`]|\\"/.test(body) ||
+    (powershell ? POWERSHELL_SMART_DOUBLE.test(body) : body.includes('\\\\'))
+  ) {
+    return null;
   }
   return {
     command: text,
@@ -739,7 +907,7 @@ export function planLongInlineScriptFileTransport(
     body,
     replace(filePath) {
       const normalized = String(filePath || '').replace(/\\/g, '/');
-      return text.replace(whole, `${exe}${keptFlags} "${normalized}"`);
+      return `${text.slice(0, match.index)}${exe}${keptFlags} "${normalized}"${text.slice(match.index + whole.length)}`;
     },
   };
 }
@@ -769,7 +937,11 @@ export function planLongShellScriptFileTransport(
       const escaped = String(filePath || '')
         .replace(/\\/g, '/')
         .replace(/'/g, "''");
-      return `& '${escaped}'`;
+      // Evaluated in the host's own scope, not called as a script: `& file.ps1`
+      // turns `exit N` into exit code 1 and a failing last command into 0,
+      // where the command itself would have ended with N and 1. The trailing
+      // statement reads the last command's `$?` the way -Command does.
+      return `Invoke-Expression ([System.IO.File]::ReadAllText('${escaped}', [System.Text.Encoding]::UTF8) + "\`n" + '$global:__mixdogLastOk = $?'); if ($global:__mixdogLastOk -eq $false) { exit 1 }`;
     },
   };
 }
@@ -937,9 +1109,8 @@ export async function analyzeShellCommandEffects(command, cwd) {
         const sub = String(tokens[1] || '').toLowerCase();
         if (['status', 'diff', 'show', 'log', 'rev-parse', 'branch', 'remote', 'ls-files'].includes(sub)) continue;
       }
-      if (cmd === 'python' || cmd === 'python3') {
-        if (!(tokens[1] === '-m' && tokens[2] === 'pip' && /^install$/i.test(tokens[3] || ''))) continue;
-      }
+      // A python run can write anywhere (alone it already classifies as global
+      // below the read-only check), so it never narrows a chain's effects.
       global = true;
       continue;
     }
@@ -1054,6 +1225,9 @@ export function buildPowerShellFilterTeePlan(command) {
   const trimmed = cmd.trimEnd();
   if (!trimmed.endsWith(last)) return null;
   if (!_groupingBalanced(last) || !_groupingBalanced(trimmed.slice(0, trimmed.length - last.length))) return null;
+  // Behind `&&` / `||` the rewrite's leading assignment is not a pipeline (a
+  // parse error), and it would run the producer even when `||` skips it.
+  if (/(?:&&|\|\|)\s*$/.test(trimmed.slice(0, trimmed.length - last.length))) return null;
   const stages = shellSplitPipelineSegments(last);
   if (stages.length < 2) return null;
   const tokenized = [];

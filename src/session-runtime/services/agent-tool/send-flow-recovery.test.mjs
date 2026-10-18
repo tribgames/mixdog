@@ -66,6 +66,37 @@ test('a cancelled send ends its worker row as cancelled, not error', async () =>
   assert.equal(upserts.at(-1).status, 'cancelled');
 });
 
+test('a send records its own task id on the worker row while it runs', async () => {
+  const upserts = [];
+  let run;
+  const session = { id: 'child', agent: 'worker' };
+  const api = createSendFlow({
+    mgr: { getSession: () => session, askSession: async () => ({ content: 'done' }) },
+    canUseSessionSurface: () => false,
+    registry: {
+      tagForSession: () => 'worker',
+      upsertWorkerSessionDeferred: (_s, _t, row) => upserts.push(row),
+      scheduleReap() {},
+    },
+    views: { isSessionBusy: () => false, renderJob: () => ({ status: 'running' }) },
+    spawnFlow: {
+      agentWatchdogOverrides: () => ({}),
+      startProgressIdleWatchdog: () => ({ stop() {} }),
+      turnStartStamper: () => () => {},
+      progressStamper: () => () => {},
+      workerNotifyFn: () => () => {},
+      startJob: (_kind, _meta, fn) => {
+        run = fn;
+        return {};
+      },
+    },
+  });
+  await api.dispatchToExistingSession({ session, sessionId: 'child', prompt: 'p', args: {} });
+  await run({ taskId: 'task_agent_send_1p' }, null);
+  assert.equal(upserts[0].status, 'running');
+  assert.equal(upserts[0].task_id, 'task_agent_send_1p');
+});
+
 test('a send arms the watchdog with the agent definition and provider first-byte window', async () => {
   const requested = [];
   const policies = [];

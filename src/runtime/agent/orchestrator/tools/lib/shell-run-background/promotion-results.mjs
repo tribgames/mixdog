@@ -13,7 +13,18 @@ import {
 } from '../shell-run-state.mjs';
 
 const BACKGROUND_GUIDANCE =
-  'Completion arrives automatically; call task wait (not task read polling) when the result is due.';
+  'Its result is delivered automatically when it finishes; use task wait only if you need it now.';
+
+function backgroundVerb(reason, secs) {
+  if (reason === 'timeout') return `moved to background at timeout after ${secs}s`;
+  if (reason === 'input') return `moved to background on new user input after ${secs}s`;
+  if (reason === 'notification') {
+    return `moved to background after ${secs}s because a notification arrived (delivered to you now)`;
+  }
+  if (reason === 'interrupt') return `moved to background on interrupt after ${secs}s`;
+  if (reason === 'background') return 'started in the background';
+  return `moved to background after the ${secs}s hold`;
+}
 
 export function promotedSpillPaths(taskOutput) {
   return {
@@ -89,8 +100,7 @@ export function resolveBackgrounded(run, { jobId, reason, remainingBackgroundTim
   // frame alive and could later kill an unrelated, already-returned job.
   detachAbortHandler(run);
   const secs = Math.max(0, Math.round(elapsedSinceStart(run) / 1000));
-  const verb =
-    reason === 'timeout' ? `moved to background at timeout after ${secs}s` : `auto-backgrounded after ${secs}s`;
+  const verb = backgroundVerb(reason, secs);
   run.resolveResult(
     new ExecResult({
       ...capturedFields(run, capture),

@@ -76,13 +76,21 @@ export function createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntr
   return function list({ scanSessions = false, context = {}, includeTerminal = false } = {}) {
     refreshTagsFromSessions({ scanSessions, context });
     const now = Date.now();
-    const rows = agentSessionEntries({ scanSessions, context }).map(({ tag, session, indexRow }) =>
+    const rows = agentSessionEntries({ scanSessions, context }).map(({ tag, session, indexRow, loaded }) =>
       agentRow({
         tag,
         session,
         indexRow,
         runtime: mgr.getSessionRuntime?.(session.id),
-        progress: progress.sessionProgressExtras(session.id, session.agent || null, now),
+        // A tag-bound entry is the getSession answer itself; an index row or
+        // a scanned summary is only a projection and still reads the session.
+        progress: progress.sessionProgressExtras(
+          session.id,
+          session.agent || null,
+          now,
+          null,
+          loaded ? { loaded: session } : {}
+        ),
         now,
       })
     );

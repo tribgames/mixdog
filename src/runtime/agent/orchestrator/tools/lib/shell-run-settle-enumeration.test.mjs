@@ -1,27 +1,25 @@
 import './isolated-test-env.mjs';
 import assert from 'node:assert/strict';
-import * as realChildProcess from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import test, { after, mock } from 'node:test';
 import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 
-// The real process-table reader runs; only the OS enumerator it spawns is
-// replaced, by one that never answers until it is killed.
+// The real process-table reader runs; only the OS enumerator it starts on the
+// process-runner worker is replaced, by one that never answers until the
+// runner kills it at its deadline (ETIMEDOUT, as run-child.mjs does).
 const enumerators = [];
-mock.module('node:child_process', {
+mock.module('../../../../shared/process-runner.mjs', {
   namedExports: {
-    ...realChildProcess,
-    spawn: () => {
-      const child = Object.assign(new EventEmitter(), { alive: true, killedWith: null });
-      child.stdout = Object.assign(new EventEmitter(), { destroy() {} });
-      child.kill = (signal) => {
-        child.killedWith = signal;
-        child.alive = false;
-        return true;
-      };
+    runProcessOffThread: (_command, _args, { timeoutMs }) => {
+      const child = { alive: true, timeoutMs };
       enumerators.push(child);
-      return child;
+      return new Promise((_resolve, reject) => {
+        setTimeout(() => {
+          child.alive = false;
+          reject(Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }));
+        }, timeoutMs);
+      });
     },
   },
 });
@@ -92,7 +90,8 @@ test('a hung enumerator is killed at the deadline and the finished command still
   await settled;
   assert.ok(result, 'the command returns once the deadline passes');
   assert.equal(result.stdout, 'done');
-  assert.equal(enumerators[0].killedWith, 'SIGKILL', 'the hung enumerator is killed');
+  assert.equal(enumerators[0].timeoutMs, ENUMERATION_DEADLINE_MS, 'the runner kills the hung enumerator');
+  assert.equal(enumerators[0].alive, false);
   assert.equal(isHeld(repo), true, 'unverified descendants keep the folder held');
   assert.equal(records.published.at(-1)?.terminationUnconfirmed, true);
   // The termination watch's own pass is bounded the same way.

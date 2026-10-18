@@ -23,6 +23,8 @@ mock.module('./lib/shell-descendants.mjs', {
       };
     },
     killAfterSnapshot: () => assert.fail('No kill was issued'),
+    withinBound: (promise) => promise,
+    PROCESS_TABLE_READ_BOUND_MS: 2_000,
   },
 });
 const watches = [];

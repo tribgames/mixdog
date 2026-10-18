@@ -90,7 +90,7 @@ export function upsertWorksheetSection(xml, name, element) {
     const found = worksheetSection(base, candidate);
     if (found) return `${base.slice(0, found.index)}${element}${base.slice(found.index)}`;
   }
-  return base.replace(/<\/worksheet>\s*$/, `${element}</worksheet>`);
+  return base.replace(/<\/worksheet>\s*$/, () => `${element}</worksheet>`);
 }
 
 export function mergedRanges(xml) {
@@ -158,7 +158,7 @@ export function shiftWorksheetColumns(xml, from, count) {
       if (count < 0 && column >= from && column < from - count) continue;
       const next = column >= from ? column + count : column;
       if (next < 1) continue;
-      kept.push(cell.xml.replace(/(\br=")[A-Za-z]+(\d+")/, `$1${columnLabel(next)}$2`));
+      kept.push(cell.xml.replace(/(\br=")[A-Za-z]+(\d+")/, (__m, __1, __2) => `${__1}${columnLabel(next)}${__2}`));
     }
     return `<row${open[1]}>${kept.join('')}</row>`;
   });
@@ -217,13 +217,13 @@ export function appendDifferentialFormat(stylesXml, { color = '', fillColor = ''
   if (found >= 0) return { xml: stylesXml, id: found };
   items.push(dxf);
   const element = `<dxfs count="${items.length}">${items.join('')}</dxfs>`;
-  if (section) return { xml: stylesXml.replace(section[0], element), id: items.length - 1 };
+  if (section) return { xml: stylesXml.replace(section[0], () => element), id: items.length - 1 };
   const styles = /<cellStyles\b[^>]*?(?:\/>|>[\s\S]*?<\/cellStyles>)/.exec(stylesXml);
   if (styles) {
     const position = styles.index + styles[0].length;
     return { xml: `${stylesXml.slice(0, position)}${element}${stylesXml.slice(position)}`, id: items.length - 1 };
   }
-  return { xml: stylesXml.replace('</styleSheet>', `${element}</styleSheet>`), id: items.length - 1 };
+  return { xml: stylesXml.replace('</styleSheet>', () => `${element}</styleSheet>`), id: items.length - 1 };
 }
 
 export function mergedCellAnchor(xml, reference) {
@@ -629,5 +629,5 @@ export function upsertDefinedName(xml, entry, matches) {
   if (!element) return xml;
   const calculation = /<calcPr\b[^>]*?(?:\/>|>[\s\S]*?<\/calcPr>)/.exec(xml);
   if (calculation) return `${xml.slice(0, calculation.index)}${element}${xml.slice(calculation.index)}`;
-  return xml.replace(/<\/workbook>\s*$/, `${element}</workbook>`);
+  return xml.replace(/<\/workbook>\s*$/, () => `${element}</workbook>`);
 }

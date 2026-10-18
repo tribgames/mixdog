@@ -200,7 +200,10 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /An open\s+shell is never a routing reason/i);
   // Git routing lives in the shell tool description, not the shared rules.
   assert.doesNotMatch(full, /Git→`git`/i);
-  assert.match(full, /no read\/list\/diff to confirm your own\s+writes/i);
+  assert.match(
+    full,
+    /reuse still-valid passing results and\s+rerun failed or invalidated checks; never read back your own writes/i
+  );
   assert.doesNotMatch(full, /Verify once after all edits/i);
   assert.match(full, /Generated data is not evidence/i);
   assert.match(
@@ -223,10 +226,10 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.doesNotMatch(full, /UI\/edit sites/i);
   assert.match(
     full,
-    /After all edits, cover each required check once: one runner per runtime,\s+independent checks in parallel/i
+    /Verify once, at the end, before reporting: each required check once,\s+independent checks in parallel/i
   );
   assert.match(full, /no\s+stricter flags or unrequested suites/i);
-  assert.match(full, /rerun only failed or invalidated checks/i);
+  assert.match(full, /reuse still-valid passing results/i);
   assert.doesNotMatch(full, /Collect failures, finish fixes/i);
   // Goal lifecycle and completion policy live in the goal tool description and skill.
   assert.doesNotMatch(full, /Completion means the verified objective/i);

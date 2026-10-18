@@ -63,3 +63,13 @@ export function readTextFile(path) {
     return { state, text: '', code };
   }
 }
+
+/** `readTextFile` with the raw bytes (`bytes`, a Buffer) instead of text. */
+export function readBytesFile(path) {
+  try {
+    return { state: PROBE_PRESENT, bytes: readFileSync(path), code: null };
+  } catch (err) {
+    const { state, code } = _failureVerdict(err);
+    return { state, bytes: Buffer.alloc(0), code };
+  }
+}

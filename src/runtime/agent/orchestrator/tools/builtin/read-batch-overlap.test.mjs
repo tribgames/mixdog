@@ -43,7 +43,11 @@ test('a batch entry carrying the real smart-read marker shows the truncation suf
   const ctx = { classifyResultKind: () => 'ok', normalizeOutputPath: (p) => p };
   const out = renderBatchResults(
     [
-      { path: 'big.txt', mode: 'full', body: `L1 x\n${buildSmartReadTruncationMarker(6000, 300 * 1024)}\nL6000 x` },
+      {
+        path: 'big.txt',
+        mode: 'full',
+        body: `L1 x\n${buildSmartReadTruncationMarker(6000, 300 * 1024, { from: 1201, to: 5600 })}\nL6000 x`,
+      },
       { path: 'small.txt', mode: 'full', body: 'L1 x' },
     ],
     {},

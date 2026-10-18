@@ -279,19 +279,36 @@ function tableCells(line) {
 // time. Until the delimiter is complete (and has the header's cell count) the
 // rows are a paragraph of raw pipes, which then re-laid out as a table of a
 // different height — the reply grew and shrank under a followed transcript.
-// Hold both rows back until the table can form in one step.
+// Hold both rows back until the table can form in one step. The head may end
+// a block under paragraph lines (a table directly below its caption line),
+// and a header row needs no leading pipe: such a row is held while it is the
+// block's last line, and with a partial delimiter row below it.
 function trimPendingTableHead(text) {
   let offset = 0;
   for (const blank of text.matchAll(/\n[ \t]*\r?\n/g)) offset = blank.index + blank[0].length;
   const block = text.slice(offset);
   const lines = block.split('\n').map((line) => line.replace(/\r$/, ''));
-  if (lines.length === 0 || lines.length > 2 || !PIPE_ROW.test(lines[0])) return text;
-  if (lines.length === 2) {
-    const delimiter = lines[1];
-    if (!PARTIAL_DELIMITER_ROW.test(delimiter)) return text;
-    if (DELIMITER_ROW.test(delimiter) && tableCells(delimiter) === tableCells(lines[0])) return text;
+  // A row that ended with its newline is still the block's last row: the
+  // empty line after it is not a (partial) delimiter row.
+  let last = lines.length - 1;
+  if (last >= 1 && !lines[last].trim()) last -= 1;
+  let head = last;
+  if (last >= 1 && PARTIAL_DELIMITER_ROW.test(lines[last]) && hasCellPipe(lines[last - 1])) {
+    const delimiter = lines[last];
+    if (DELIMITER_ROW.test(delimiter) && tableCells(delimiter) === tableCells(lines[last - 1])) return text;
+    head = last - 1;
   }
-  return text.slice(0, offset);
+  if (!(PIPE_ROW.test(lines[head]) || hasCellPipe(lines[head]))) return text;
+  // Rows below a delimiter belong to a table that already formed.
+  if (lines.slice(0, head).some((line) => DELIMITER_ROW.test(line))) return text;
+  let start = offset;
+  for (let index = 0; index < head; index += 1) start += lines[index].length + 1;
+  return text.slice(0, start);
+}
+
+// A cell separator outside inline code: the line can head a table.
+function hasCellPipe(line) {
+  return /(?<!\\)\|/.test(line.replace(INLINE_CODE_SPAN, ''));
 }
 
 export function healStreamingMarkdownTail(text, isPendingLocalPath) {

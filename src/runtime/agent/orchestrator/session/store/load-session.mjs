@@ -9,6 +9,7 @@ import { _savePending } from './pending-saves.mjs';
 import { _liveSessions, _droppedSaveIds, getFailedSaveSnapshot } from './live-state.mjs';
 import { _readStoredSessionCached } from './load-cache.mjs';
 import { _ensureLifecycleFields } from './serialize.mjs';
+import { isSettledSessionStamp, sameSessionStamp, statSessionStamp } from './canonical-reader.mjs';
 
 export function loadSession(id) {
   const path = sessionPath(id);
@@ -57,4 +58,43 @@ export function loadSession(id) {
   if (inMemory) return _ensureLifecycleFields(inMemory);
   if (live?.id === id) _liveSessions.delete(id);
   return disk.session ? _ensureLifecycleFields(disk.session) : null;
+}
+
+// `status` of loadSession(id), for the agent-status pulse: it reads every
+// worker's status every two seconds, and an idle worker's whole transcript
+// (released from the load cache's small document budget) was re-read and
+// strictly re-parsed on every beat. The answer loadSession gave is reused only
+// while the file keeps the exact settled full stamp it was read under and no
+// in-memory copy (pending save, live snapshot, failed-save evidence) can speak
+// for the id instead; anything else asks loadSession again.
+const STATUS_CACHE_LIMIT = 4096;
+const _statusByPath = new Map(); // path -> { stamp, status }
+
+function _observeStamp(path) {
+  try {
+    return statSessionStamp(path);
+  } catch {
+    return null;
+  }
+}
+
+export function loadSessionStatus(id) {
+  const path = sessionPath(id);
+  const inMemory = _savePending.has(id) || _liveSessions.has(id) || getFailedSaveSnapshot(id);
+  const before = inMemory ? null : _observeStamp(path);
+  const cached = before ? _statusByPath.get(path) : null;
+  if (cached && sameSessionStamp(cached.stamp, before)) return cached.status;
+  _statusByPath.delete(path);
+  const status = loadSession(id)?.status ?? null;
+  if (
+    before &&
+    isSettledSessionStamp(before) &&
+    !_savePending.has(id) &&
+    !_liveSessions.has(id) &&
+    sameSessionStamp(before, _observeStamp(path))
+  ) {
+    if (_statusByPath.size >= STATUS_CACHE_LIMIT) _statusByPath.delete(_statusByPath.keys().next().value);
+    _statusByPath.set(path, { stamp: before, status });
+  }
+  return status;
 }

@@ -131,6 +131,47 @@ export function createSteeringOps(bag, { queue, submissions }) {
     );
   }
 
+  // Queued input the user typed (editable prompts), not runtime notices.
+  function hasPendingUserInput() {
+    if (!admissionOpen()) return false;
+    return pending.some((entry) => isQueuedEntryEditable(entry) && !isSlashQueuedEntry(entry));
+  }
+
+  // A notification the next boundary will deliver: a task notification (one
+  // the agent already received through task wait/read is not deliverable) or
+  // the Goal closeout. `later` entries (scheduled and channel injects) wait
+  // for the turn to end, so they are not deliverable mid-turn.
+  function isDeliverableNotification(entry) {
+    const mode = entry?.mode;
+    return (
+      admissionOpen() &&
+      (mode === 'task-notification' || mode === 'goal-closeout') &&
+      queuePriorityValue(entry.priority) <= queuePriorityValue('next') &&
+      canDeliverSteeringEntry(entry) &&
+      steeringMessageFromEntry(entry) !== null
+    );
+  }
+
+  function hasPendingNotification() {
+    return pending.some(isDeliverableNotification);
+  }
+
+  // What one queued entry should wake a passive wait or shell hold for: typed
+  // input, a deliverable notification, or nothing (slash commands and
+  // informational meta prompts run or ride along without ending a wait).
+  function taskWaitWakeForEntry(entry) {
+    if (!admissionOpen()) return false;
+    if (isQueuedEntryEditable(entry) && !isSlashQueuedEntry(entry)) return 'user-message';
+    return isDeliverableNotification(entry) ? 'notification' : false;
+  }
+
+  // What a passive wait or shell hold should wake for right now: user input
+  // first, else a deliverable notification.
+  function pendingTaskWaitWake() {
+    if (hasPendingUserInput()) return 'user-message';
+    return hasPendingNotification() ? 'notification' : false;
+  }
+
   // `later` notifications (scheduled tasks) are skipped unless the runtime
   // explicitly asks for a later flush.
   function drainPendingSteering(_sessionIdOrOptions = null, maybeOptions = null) {
@@ -219,6 +260,11 @@ export function createSteeringOps(bag, { queue, submissions }) {
     commitSteeringQueueEntries,
     settleSteeredSubmissions,
     hasPendingSteering,
+    hasPendingUserInput,
+    isDeliverableNotification,
+    hasPendingNotification,
+    taskWaitWakeForEntry,
+    pendingTaskWaitWake,
     drainPendingSteering,
     restoreLeadSteeringFromDisk,
   };

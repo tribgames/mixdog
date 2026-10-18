@@ -12,6 +12,7 @@
 import { coerceReadFamilyPathArg, coerceShapeFlex, hasGlobMagic, normalizeGrepArgs } from './path-utils.mjs';
 import { hasOwn } from '../../../../shared/object.mjs';
 import { CODE_GRAPH_FILE_MODES, CODE_GRAPH_MODES } from '../code-graph-tool-defs.mjs';
+import { SHELL_HOLD_MAX_MS, SHELL_HOLD_MIN_MS } from './wait-budgets.mjs';
 
 const MAX_INT = 100000;
 export const PUBLIC_PATH_BATCH_LIMIT = 10;
@@ -737,7 +738,7 @@ function guardRead(a) {
       if (err) return err;
       for (const ek of ['offset', 'limit']) {
         const eErr = checkIntInRange(entry, ek, 0, ek === 'offset' ? READ_OFFSET_MAX : MAX_INT);
-        if (eErr) return eErr.replace(`"${ek}"`, `"path[${i}].${ek}"`);
+        if (eErr) return eErr.replace(`"${ek}"`, () => `"path[${i}].${ek}"`);
       }
     }
   }
@@ -779,16 +780,21 @@ function guardRead(a) {
 }
 
 function guardShell(a) {
-  const allowed = new Set(['command', 'timeout_ms', 'wait_ms']);
+  const allowed = new Set(['command', 'timeout_ms', 'wait_ms', 'background']);
   const unsupported = Object.keys(a).find((key) => !allowed.has(key));
   if (unsupported) {
-    return `Error: shell arg "${unsupported}" is unsupported; use only command, timeout_ms, and wait_ms`;
+    return `Error: shell arg "${unsupported}" is unsupported; use only command, timeout_ms, wait_ms, and background`;
+  }
+  if (hasOwn(a, 'background') && typeof a.background !== 'boolean') {
+    return `Error: shell arg "background" must be a boolean (got ${describeType(a.background)})`;
   }
   // Over-max is an unambiguous "wait as long as allowed"; clamp like the other
   // saturating integer args instead of failing the call.
-  if (hasOwn(a, 'wait_ms') && Number.isInteger(a.wait_ms) && a.wait_ms > 30000) a.wait_ms = 30000;
-  if (hasOwn(a, 'wait_ms') && (!Number.isInteger(a.wait_ms) || a.wait_ms < 1000)) {
-    return `Error: shell arg "wait_ms" must be an integer from 10000 to 30000, e.g. wait_ms:20000 (got ${JSON.stringify(a.wait_ms)})`;
+  if (hasOwn(a, 'wait_ms') && Number.isInteger(a.wait_ms) && a.wait_ms > SHELL_HOLD_MAX_MS) {
+    a.wait_ms = SHELL_HOLD_MAX_MS;
+  }
+  if (hasOwn(a, 'wait_ms') && (!Number.isInteger(a.wait_ms) || a.wait_ms < SHELL_HOLD_MIN_MS)) {
+    return `Error: shell arg "wait_ms" must be an integer from ${SHELL_HOLD_MIN_MS} to ${SHELL_HOLD_MAX_MS}, e.g. wait_ms:120000 (got ${JSON.stringify(a.wait_ms)})`;
   }
   if (!hasOwn(a, 'command')) {
     return 'Error: shell requires "command"';

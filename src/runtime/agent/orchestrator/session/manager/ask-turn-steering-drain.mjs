@@ -3,7 +3,12 @@
 // prompts at every continuation boundary, plus — at the TERMINAL boundary only
 // — the manager's pending-message entries, grouped into one steering item per
 // mode and adopted by this turn (so their delivery/ack/release rides it).
-import { _groupPendingMessageEntries, drainPendingMessages, releasePendingMessages } from './pending-messages.mjs';
+import {
+  _groupPendingMessageEntries,
+  drainPendingMessages,
+  pendingQueueHoldsOnlyNotifications,
+  releasePendingMessages,
+} from './pending-messages.mjs';
 
 /**
  * @param {object} input
@@ -26,9 +31,12 @@ export function createAskSteeringDrain({ sessionId, turn, askOpts }) {
         /* best-effort steering drain */
       }
     }
-    // Manager/pending-messages entries carry no mode/priority/slash
-    // metadata, so they stay OUT of the mid-chain (post-tool-batch) drain —
-    // that would bypass the queued-command filters. At the TERMINAL boundary
+    // Manager/pending-messages prompts carry no priority/slash metadata, so
+    // they stay OUT of the mid-chain (post-tool-batch) drain — that would
+    // bypass the queued-command filters. A queue holding only task
+    // notifications (agent/shell completions, which also end a passive wait)
+    // is taken at every boundary, so a completion reaches the very next model
+    // request instead of waiting for the model to stop. At the TERMINAL boundary
     // they are exactly pending input: an `agent type=send` queued while the
     // terminal sample was in flight must be folded into THIS turn before any
     // stop hook runs, instead of losing its slot to a synthetic continuation
@@ -36,7 +44,7 @@ export function createAskSteeringDrain({ sessionId, turn, askOpts }) {
     // nothing. Entries consumed here join the turn's pending entries: their
     // delivery/ack (and release on failure) rides this turn, and the
     // post-loop drain can no longer see them.
-    if (drainOptions?.stage === 'terminal') {
+    if (drainOptions?.stage === 'terminal' || pendingQueueHoldsOnlyNotifications(sessionId)) {
       const pendingNow = drainPendingMessages(sessionId);
       if (pendingNow.length > 0) {
         // One steering entry per mode group: the merged prompt (if any) and

@@ -14,7 +14,7 @@ import { resolve as pathResolve, isAbsolute, relative as pathRelative, dirname a
 import { normalizeInputPath } from '../builtin/path-utils.mjs';
 import { markScopedCacheIncomplete, recordScopedCacheDependency } from '../../session/cache/scoped-cache-outcome.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../code-graph-tool-defs.mjs';
-import { CODE_GRAPH_OUTPUT_MAX_BYTES, capLineOrientedToolOutput } from '../builtin/tool-output-limit.mjs';
+import { CODE_GRAPH_OUTPUT_MAX_BYTES, capLineOrientedToolOutput, capMarker } from '../builtin/tool-output-limit.mjs';
 import { _graphRel, _appendSameBasenameHint, _isExistingFile } from './source-access.mjs';
 import {
   _capGraphList,
@@ -375,7 +375,6 @@ async function executeCodeGraphToolRaw(name, rawArgs, cwd, signal = null, option
 
 function _codeGraphBudgetFooter(args, keptLines) {
   const rawMode = String(args?.mode || '').trim();
-  const capKb = Math.round(CODE_GRAPH_OUTPUT_MAX_BYTES / 1024);
   const targets = collectGraphSymbolList(args);
   const files = _collectGraphFileList(args);
   const batchTargets = targets.length ? targets : files;
@@ -389,13 +388,18 @@ function _codeGraphBudgetFooter(args, keptLines) {
       const index = batchTargets.indexOf(match[1]);
       if (index >= 0) currentIndex = index;
     }
-    return `... [code_graph output capped at ${capKb} KB; not fully shown: ${label}=${JSON.stringify(batchTargets.slice(currentIndex))}]`;
+    return capMarker({
+      limit: CODE_GRAPH_OUTPUT_MAX_BYTES,
+      shown: `${label} from index ${currentIndex} not fully shown`,
+      narrow: `re-query ${label}=${JSON.stringify(batchTargets.slice(currentIndex))} separately`,
+    });
   }
   const target = batchTargets[0];
-  const targetTail = target
-    ? `; remainder for ${label.slice(0, -1)}=${JSON.stringify(target)} omitted`
-    : '; remainder omitted';
-  return `... [code_graph output capped at ${capKb} KB${targetTail}]`;
+  return capMarker({
+    limit: CODE_GRAPH_OUTPUT_MAX_BYTES,
+    shown: target ? `remainder for ${label.slice(0, -1)}=${JSON.stringify(target)} omitted` : 'remainder omitted',
+    narrow: 'add file/path scope, a narrower mode, or a smaller depth/limit',
+  });
 }
 
 export async function executeCodeGraphTool(name, args, cwd, signal = null, options = {}) {

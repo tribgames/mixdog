@@ -236,7 +236,7 @@ export async function applyTabularBatch(path, format, operations) {
           const before = String(row[column]);
           if (!find || !before.includes(find)) continue;
           count += before.split(find).length - 1;
-          row[column] = before.replaceAll(find, String(operation.replace ?? ''));
+          row[column] = before.replaceAll(find, () => String(operation.replace ?? ''));
         }
       }
       results.push({ op, changed: count > 0, count });

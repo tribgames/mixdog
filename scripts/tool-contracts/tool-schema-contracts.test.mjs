@@ -43,8 +43,11 @@ test('shell, edit, and task keep their execution contracts', () => {
     !/^Run programs, builds, tests and computation/i.test(shellDescription) ||
     !/Never use shell commands or scripts for work covered by dedicated tools/i.test(shellDescription) ||
     !/Tool names are not shell commands/i.test(shellDescription) ||
-    !/10s foreground window.*not a timeout/i.test(shellDescription) ||
-    !/use task wait, not read polling/i.test(shellDescription)
+    !/Holds up to 60s for the result/i.test(shellDescription) ||
+    !/new user input or a task notification arrives: it moves to the background \(never killed\)/i.test(
+      shellDescription
+    ) ||
+    !/Completion is delivered automatically/i.test(shellDescription)
   ) {
     throw new Error(
       `shell description must keep its execution-routing and async-completion phrases: ${shellDescription}`
@@ -71,11 +74,11 @@ test('shell, edit, and task keep their execution contracts', () => {
   }
   const shellProps = shellTool?.inputSchema?.properties || {};
   if (
-    JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms', 'wait_ms']) ||
+    JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms', 'wait_ms', 'background']) ||
     shellProps.command?.minLength !== undefined
   ) {
     throw new Error(
-      `shell schema must expose only command, optional timeout_ms and wait_ms: ${JSON.stringify(shellProps)}`
+      `shell schema must expose only command, optional timeout_ms, wait_ms and background: ${JSON.stringify(shellProps)}`
     );
   }
   // timeout_ms is DECLARED in the model-facing schema (the schema states the
@@ -94,8 +97,8 @@ test('shell, edit, and task keep their execution contracts', () => {
   const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
   const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
   if (
-    !/Completion notifications are automatic/i.test(publicTaskTool?.description || '') ||
-    !/Wait instead of polling/i.test(publicTaskTool?.description || '')
+    !/Completion is delivered automatically/i.test(publicTaskTool?.description || '') ||
+    !/never poll with read/i.test(publicTaskTool?.description || '')
   ) {
     throw new Error(`task description must prohibit unsolicited progress checks: ${publicTaskTool?.description || ''}`);
   }
@@ -561,7 +564,7 @@ test('web_search and web_fetch schemas keep sync fan-out contracts', () => {
     !/default 0/i.test(webFetchProps.startIndex?.description || '') ||
     webFetchProps.maxLength?.type !== 'integer' ||
     webFetchProps.maxLength?.minimum !== 0 ||
-    !/default 50000/i.test(webFetchProps.maxLength?.description || '') ||
+    !/default 20000/i.test(webFetchProps.maxLength?.description || '') ||
     !/0 unlimited/i.test(webFetchProps.maxLength?.description || '')
   ) {
     throw new Error('web_fetch schema must describe paging window fields');

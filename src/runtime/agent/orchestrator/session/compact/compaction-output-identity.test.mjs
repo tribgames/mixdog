@@ -211,15 +211,23 @@ const sha = (value) => createHash('sha256').update(value).digest('hex');
 const normalize = (text) =>
   text.split(JSON.stringify(dataDir).slice(1, -1)).join('<DATA>').split(dataDir).join('<DATA>');
 
+// Every archive file (dumps and the large messages they store once), pinned
+// by count, total size and a digest of the sorted name/size/sha listing.
 function archiveFiles(sessionId) {
   const dir = join(dataDir, 'tool-results', sessionId);
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .sort()
-    .map((file) => {
-      const bytes = readFileSync(join(dir, file));
-      return { file, bytes: bytes.length, sha256: sha(bytes) };
-    });
+  const files = existsSync(dir)
+    ? readdirSync(dir)
+        .sort()
+        .map((file) => {
+          const bytes = readFileSync(join(dir, file));
+          return { file, bytes: bytes.length, sha256: sha(bytes) };
+        })
+    : [];
+  return {
+    files: files.length,
+    bytes: files.reduce((total, file) => total + file.bytes, 0),
+    listingSha: sha(JSON.stringify(files)),
+  };
 }
 
 async function lastCompactTrace() {
@@ -318,8 +326,7 @@ const numbersFor = (handoffSource, window, target, values) => ({
   handoffSource,
   ...(handoffSource === 'rules' ? { usage: null } : {}),
 });
-const archive = (sha256, bytes) => ({ file: `${sha256}.txt`, bytes, sha256 });
-const RULES_ARCHIVE = archive('58f93144f35b7b3c601e15c792d3b8ee2de67839fc96cd5b4786124f9a488c34', 1_277_537);
+const archives = (files, bytes, listingSha) => ({ files, bytes, listingSha });
 
 const EXPECTED = {
   rules: {
@@ -327,72 +334,72 @@ const EXPECTED = {
       beforeMessages: 357,
       afterMessages: 181,
       beforeTokens: 480_145,
-      afterTokens: 43_061,
+      afterTokens: 43_072,
       beforeMessageTokens: 342_923,
-      afterMessageTokens: 30_720,
+      afterMessageTokens: 30_728,
       pressureTokens: 480_145,
     }),
     messages: 181,
-    messagesSha: '7aba7abf7e04219aa50bbc17b55441f71e54a8977b8f2dece2e840c070db62ad',
-    recordSha: '2ed6ed475f6eb135b5e6eec4134fc946cea6ca3e8abff259279538b785f4fe82',
+    messagesSha: 'cf51a17106ada17f73078d97bfdfae546cb371f4932294acaeebfd611ddfaf1d',
+    recordSha: '9af03accb136319983b290a461281ce54bb69d92e8013876b3b5e416d4422904',
     sends: 0,
     promptsSha: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
-    archives: [RULES_ARCHIVE],
-    traceBytes: [1_203_122, 105_750],
+    archives: archives(37, 1_210_506, '64055b96698722b5663e1ff09a204d4b8b3d77854916106ea37048420cf95c09'),
+    traceBytes: [1_203_122, 105_892],
   },
   repeat: {
     numbers: numbersFor('rules', 200_000, 35_714, {
       beforeMessages: 225,
-      afterMessages: 217,
-      beforeTokens: 80_483,
-      afterTokens: 46_089,
-      beforeMessageTokens: 57_450,
-      afterMessageTokens: 32_883,
-      pressureTokens: 80_483,
+      afterMessages: 216,
+      beforeTokens: 80_494,
+      afterTokens: 46_003,
+      beforeMessageTokens: 57_458,
+      afterMessageTokens: 32_821,
+      pressureTokens: 80_494,
     }),
-    messages: 217,
-    messagesSha: 'bf1795ce522c313ff517ad5d4688314f732ab1df9b55a0cd7f490697be06cbc3',
-    recordSha: '93c5811224a83b08d82663d1c5146f0b5e84e144c94d761b619281a507eb45bf',
+    messages: 216,
+    messagesSha: '677212f528ee1b5decbf205c4b402215c2e9a20fb0ce3fbf6505c9b8cecc9a9f',
+    recordSha: '459d7b38ae81793bf6ef10f2dd75fea2149c55e2f0d633029b33cc47ce02aa4a',
     sends: 0,
     promptsSha: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
-    archives: [RULES_ARCHIVE, archive('cd92bdd7aeae02c9f69976e2d3cdad0cd5155f0289cad01f39cbd63b9577bf32', 218_569)],
-    traceBytes: [201_803, 115_191],
+    archives: archives(40, 1_388_186, '64ef5e37d45d64d5e85d1604b80a57e0fb41d76ee1badc5d9f21cbfe2a832a76'),
+    traceBytes: [201_945, 114_919],
   },
   summary: {
     numbers: numbersFor('session-local', 60_000, 10_714, {
       beforeMessages: 572,
       afterMessages: 18,
       beforeTokens: 266_587,
-      afterTokens: 4_588,
+      afterTokens: 4_600,
       beforeMessageTokens: 190_381,
-      afterMessageTokens: 3_239,
+      afterMessageTokens: 3_248,
       pressureTokens: 266_587,
     }),
     messages: 18,
-    messagesSha: 'd89583696c55212f4f7664679831f5c30286bd93ce950174657f19d6f320754b',
-    recordSha: '3a9873f764d37644d91eb75f3a318957968a45a171193f0323d9068b7e322139',
+    messagesSha: '7a3fd462b4dbd1e400b82903313f1576255c3878a012a0f455798f73ca458849',
+    recordSha: '5ab36533b09e563dc54dadc23243f1944f55625e138b37dcfbd4966732dd07b5',
     sends: 2,
     promptsSha: 'f47b552495036c5098cf3aaf74e3ccabda7a60424d8157e0783f225364d8e098',
-    archives: [archive('bd4fed4e389f3f965b81f7d8b2bc43e178edc95943686e245c8592e161da93ae', 835_274)],
-    traceBytes: [714_283, 12_552],
+    archives: archives(1, 712_408, '464b1d3a86d92f8da4a5ed4f643649b6affc8d52b86702c48bf9950288c28a02'),
+    traceBytes: [714_283, 12_694],
   },
   large: {
     numbers: numbersFor('session-local', 400_000, 71_428, {
       beforeMessages: 945,
       afterMessages: 36,
       beforeTokens: 1_351_475,
-      afterTokens: 28_774,
+      afterTokens: 28_785,
       beforeMessageTokens: 965_301,
-      afterMessageTokens: 20_515,
+      afterMessageTokens: 20_523,
       pressureTokens: 1_351_475,
     }),
     messages: 36,
-    messagesSha: '9452534a958a7631ce70b44b4e6f93b2d24c7cda67940fba8d38c3edcaef70a3',
-    recordSha: '1000350f3cc26878a2902ea5d3bc8b1765b65fdbcbd43737517c11903a54b3f9',
+    messagesSha: '20fbb536eb69b0eb7a4170e191c42fbec9657a6dba1e6904fac49fcad461c0ea',
+    recordSha: '8ff0ce2f0652109ae6f9a443c3ff9e9738c0f54d24270fdd65c7633cc15f3181',
     sends: 1,
     promptsSha: '48d26a7766c196e3365f6209046c1dc9a6b7b1b6451e76c2fb54f6d106ec9d59',
-    archives: [archive('a2430042581139bf089a8b606009bc5ede869e4cec25d543f4053bb515c12312', 3_577_119)],
-    traceBytes: [3_380_664, 72_517],
+    archives: archives(102, 3_402_411, '60bebec70ec783c2861c64afbd14a3f4dc03af2b38497aab7e7c221074c7e809'),
+    traceBytes: [3_380_664, 72_692],
   },
 };
 

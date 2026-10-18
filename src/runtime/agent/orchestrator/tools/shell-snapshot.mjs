@@ -126,11 +126,15 @@ function getSnapshotScript(shellPath, snapshotFilePath, configFileExists) {
         declare -f "$func" >> "$SNAPSHOT_FILE" 2>/dev/null
       done
     `;
+  // Options are matched on their state column: a name containing "on"
+  // (monitor, onecmd) must not turn an OFF option on. Job control (monitor)
+  // is never restored: it gives every pipeline its own process group, which
+  // the runner's group kill then cannot reach.
   const optDump = isZsh
-    ? `setopt 2>/dev/null | sed 's/^/setopt /' | head -n 1000 >> "$SNAPSHOT_FILE"`
+    ? `setopt 2>/dev/null | grep -vxE '(no)?monitor' | sed 's/^/setopt /' | head -n 1000 >> "$SNAPSHOT_FILE"`
     : `
       shopt -p 2>/dev/null | head -n 1000 >> "$SNAPSHOT_FILE"
-      set -o 2>/dev/null | grep "on" | awk '{print "set -o " $1}' | head -n 1000 >> "$SNAPSHOT_FILE"
+      set -o 2>/dev/null | awk '$2 == "on" && $1 != "monitor" {print "set -o " $1}' | head -n 1000 >> "$SNAPSHOT_FILE"
       echo "shopt -s expand_aliases" >> "$SNAPSHOT_FILE"
     `;
   const aliasDump = `

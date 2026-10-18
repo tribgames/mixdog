@@ -4,6 +4,7 @@ import { normalizeErrorMessage } from '../path-diagnostics.mjs';
 import { isBinaryBuffer } from '../binary-file.mjs';
 import { isUncPath, isWindowsDevicePath, hasUnsafeWin32Component } from '../device-paths.mjs';
 import { normalizeOutputPath, resolveAgainstCwd } from '../path-utils.mjs';
+import { windowMarker } from '../tool-output-limit.mjs';
 
 /** Report the requested path's result; suggestions never retarget the operation. */
 export async function readFamilyPathEnoentOrError(workDir, fullPath, inputPath, err) {
@@ -52,8 +53,23 @@ export function guardedWalkRoot(inputPath, workDir) {
   return { fullPath };
 }
 
+// Code-unit path order: the tiebreak that makes a size/mtime sort total, so
+// equal keys cannot reorder with the walk (and shift across offset pages).
+export function comparePathsStable(a, b) {
+  const x = String(a);
+  const y = String(b);
+  if (x === y) return 0;
+  return x < y ? -1 : 1;
+}
+
 export function pageContinuationLine(offset, shown, total) {
-  return `... [entries ${offset + 1}-${offset + shown} of ${total}; pass offset:${offset + shown} to continue]`;
+  return windowMarker({
+    unit: 'entries',
+    from: offset + 1,
+    to: offset + shown,
+    total,
+    nextOffset: offset + shown,
+  });
 }
 
 const LINE_COUNT_MAX_BYTES = 2 * 1024 * 1024;

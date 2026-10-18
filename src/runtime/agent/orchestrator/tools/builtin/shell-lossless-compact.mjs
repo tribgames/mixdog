@@ -213,6 +213,11 @@ function buildSuccessSummary(command, stdout) {
   return null;
 }
 
+// A line redrawn with `\r` shows only its last non-empty frame.
+function lastVisibleFrame(frames) {
+  return [...frames].reverse().find((frame) => frame !== '') ?? '';
+}
+
 export function foldCarriageReturnFrames(value) {
   const text = String(value ?? '');
   if (!/\r(?!\n)/.test(text)) return null;
@@ -223,10 +228,30 @@ export function foldCarriageReturnFrames(value) {
     const frames = line.split('\r');
     if (frames.length === 1) return line;
     omitted += frames.length - 1;
-    return [...frames].reverse().find((frame) => frame !== '') ?? '';
+    return lastVisibleFrame(frames);
   });
   if (!omitted) return null;
   return `${out.join('\n')}\n... [${omitted} overwritten progress frames omitted]`;
+}
+
+/** The same `\r` folding for output that arrives in chunks: the line still
+ *  open at a chunk's end keeps its state, so a progress bar redrawn across
+ *  deliveries shows its latest frame once, while plain continuation text of
+ *  that line is passed through as is. */
+export function createCarriageReturnFolder() {
+  let open = '';
+  return function fold(chunk) {
+    const lines = String(chunk ?? '')
+      .replace(/\r\n/g, '\n')
+      .split('\n');
+    const out = lines.map((line, index) => {
+      const redraw = line.includes('\r');
+      const visible = redraw ? lastVisibleFrame((index === 0 ? open + line : line).split('\r')) : line;
+      if (index === lines.length - 1) open = index === 0 && !redraw ? open + line : visible;
+      return visible;
+    });
+    return out.join('\n');
+  };
 }
 
 function hasDiagnosticHazard(value) {

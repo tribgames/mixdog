@@ -99,7 +99,7 @@ async function formatPivotValues(zip, xml, area, destination, anchor, layout) {
     if (!id) return;
     table = table.replace(
       new RegExp(`(<dataField\\b[^>]*\\bfld="${field}")([^>]*?)(\\/?>)`),
-      `$1$2 numFmtId="${id}"$3`
+      (__m, __1, __2, __3) => `${__1}${__2} numFmtId="${id}"${__3}`
     );
   });
   zip.file(layout.tablePart, table);

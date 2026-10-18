@@ -75,8 +75,8 @@ export function killAfterFailedPromotion(run, reason, promotionFailure) {
 }
 
 /**
- * The promoted job leaves foreground admission: its lease is RELEASED, which
- * also restores the parent's high-load share. A long-lived server must never
+ * The promoted job leaves foreground admission: its lease is RELEASED. A
+ * long-lived server must never
  * hold a foreground slot for its whole life; background jobs are not counted
  * against any cap (session/runtime close stops them via shutdownShellJobs).
  */

@@ -23,6 +23,7 @@ const POWERSHELL_RESERVED_HEADS = new Set([
   'dir',
   'echo',
   'erase',
+  'fc',
   'foreach',
   'help',
   'history',
@@ -110,12 +111,19 @@ function _disabledByEnv(env) {
 
 // Quote-aware argv split for native CreateProcess. Unlike shellTokenize this
 // keeps Windows backslashes literal so `C:\foo\bar.exe` is one path token.
-export function tokenizeDirectArgv(command) {
+// `strict` is for callers that must reproduce PowerShell's own parse (the
+// direct spawn): a form where PowerShell and this splitter could disagree —
+// a `\"` that PowerShell does not treat as an escape, or text glued to the
+// closing quote of a string that opened its argument (PowerShell starts a new
+// argument there) — returns null so the command runs through the shell
+// unchanged.
+export function tokenizeDirectArgv(command, { strict = false } = {}) {
   const text = String(command || '');
   const tokens = [];
   let current = '';
   let quote = null;
   let started = false;
+  let leading = false;
   const push = () => {
     if (started) tokens.push(current);
     current = '';
@@ -125,12 +133,20 @@ export function tokenizeDirectArgv(command) {
     const ch = text[i];
     if (quote === '"') {
       if (ch === '\\' && text[i + 1] === '"') {
+        if (strict) return null;
         current += '"';
         i += 1;
         continue;
       }
       if (ch === '"') {
+        // PowerShell: a doubled quote inside a double-quoted string is a literal quote.
+        if (text[i + 1] === '"') {
+          current += '"';
+          i += 1;
+          continue;
+        }
         quote = null;
+        if (strict && leading && i + 1 < text.length && !/\s/.test(text[i + 1])) return null;
         continue;
       }
       current += ch;
@@ -138,13 +154,24 @@ export function tokenizeDirectArgv(command) {
     }
     if (quote === "'") {
       if (ch === "'") {
+        // PowerShell: a doubled quote inside a single-quoted string is a literal quote.
+        if (text[i + 1] === "'") {
+          current += "'";
+          i += 1;
+          continue;
+        }
         quote = null;
+        if (strict && leading && i + 1 < text.length && !/\s/.test(text[i + 1])) return null;
         continue;
       }
       current += ch;
       continue;
     }
     if (ch === "'" || ch === '"') {
+      // A string that opens an argument ends it: PowerShell starts a NEW
+      // argument at whatever is glued behind the closing quote. A string
+      // opened mid-argument (`a"b c"d`) joins its neighbours.
+      leading = !started;
       quote = ch;
       started = true;
       continue;
@@ -185,11 +212,22 @@ export function commandNeedsShell(command) {
       continue;
     }
     if ('|&;<>()\n\r{}'.includes(ch) || ch === '`') return true;
+    // A bare `~` expands to the home directory and `@name` splats, both before
+    // the native program sees the argument.
+    if ((ch === '~' || ch === '@') && (i === 0 || /\s/.test(text[i - 1]))) return true;
     if ('*?[]'.includes(ch)) return true;
     if (ch === '$') return true;
     if (ch === '#' && (i === 0 || /\s/.test(text[i - 1]))) return true;
   }
   return quote != null;
+}
+
+function _isFile(file) {
+  try {
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function _isUsableExe(file) {
@@ -215,17 +253,29 @@ export function resolveDirectExe(
     const resolved = isAbsolute(name) || /^[A-Za-z]:[\\/]/.test(name) ? name : pathResolve(baseCwd, name);
     return _isUsableExe(resolved) ? resolved : null;
   }
-  const fileName = /\.exe$/i.test(name) ? name : `${name}.exe`;
+  const explicitExe = /\.exe$/i.test(name);
   const seen = new Set();
-  const dirs = [baseCwd, ...String(pathValue || '').split(pathDelimiter)];
-  for (const dir of dirs) {
+  // PowerShell never looks in the current directory for a bare command name,
+  // so neither may this resolver: a project-local `tool.exe` is not `tool`.
+  for (const dir of String(pathValue || '').split(pathDelimiter)) {
     if (!dir) continue;
     const key = dir.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    if (seen.size > maxDirectories + 1) break;
-    const candidate = pathJoin(dir, fileName);
+    if (seen.size > maxDirectories) break;
+    if (explicitExe) {
+      const candidate = pathJoin(dir, name);
+      if (_isUsableExe(candidate)) return candidate;
+      continue;
+    }
+    // PowerShell takes the first directory holding ANY runnable form of the
+    // name, and a `.com`/`.ps1` there outranks the `.exe` while a `.cmd`/`.bat`
+    // shim in an earlier directory shadows a later `.exe`: all stay with the shell.
+    const has = (ext) => _isFile(pathJoin(dir, `${name}${ext}`));
+    if (has('.com') || has('.ps1')) return null;
+    const candidate = pathJoin(dir, `${name}.exe`);
     if (_isUsableExe(candidate)) return candidate;
+    if (has('.bat') || has('.cmd')) return null;
   }
   return null;
 }
@@ -244,7 +294,7 @@ export function planDirectExeSpawn(
   if (_disabledByEnv(env)) return null;
   const text = String(command || '').trim();
   if (!text || commandNeedsShell(text) || hasPowerShellOnlySyntax(text)) return null;
-  const tokens = tokenizeDirectArgv(text);
+  const tokens = tokenizeDirectArgv(text, { strict: true });
   if (!tokens || tokens.length === 0) return null;
   if (tokens.includes('--%')) return null;
   const head = tokens[0];

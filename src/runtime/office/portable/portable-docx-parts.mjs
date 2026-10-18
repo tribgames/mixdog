@@ -121,7 +121,7 @@ const sectionChildRank = (tag) => SECTION_CHILD_ORDER.indexOf(tag === 'footerRef
 /** Replaces the section's own tag element, or writes it ahead of the first child the schema places after it. */
 export function upsertSectionChild(sectionXml, tag, element) {
   const pattern = new RegExp(`<w:${tag}\\b[^>]*\\/>`);
-  if (pattern.test(sectionXml)) return sectionXml.replace(pattern, element);
+  if (pattern.test(sectionXml)) return sectionXml.replace(pattern, () => element);
   const rank = sectionChildRank(tag);
   const children = /<w:(\w+)\b/g;
   children.lastIndex = sectionXml.indexOf('>') + 1;
@@ -257,7 +257,11 @@ async function ensureNoteStyles(zip, definition) {
       : `<w:style w:type="character" w:styleId="${definition.style}"><w:name w:val="${markName}"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/>` +
         '<w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style>',
   ].join('');
-  if (additions) zip.file(part, styles.replace('</w:styles>', `${additions}</w:styles>`));
+  if (additions)
+    zip.file(
+      part,
+      styles.replace('</w:styles>', () => `${additions}</w:styles>`)
+    );
 }
 
 // Word reads the separator notes (ids -1 and 0) before any real note: without
@@ -313,8 +317,8 @@ export async function registerCommentThread(zip, { commentId, parentId = 0, done
     `${parentId ? ` w15:paraIdParent="${commentParagraphId(parentId)}"` : ''}` +
     ` w15:done="${done ? 1 : 0}"/>`;
   const next = pattern.test(extended.xml)
-    ? extended.xml.replace(pattern, entry)
-    : extended.xml.replace('</w15:commentsEx>', `${entry}</w15:commentsEx>`);
+    ? extended.xml.replace(pattern, () => entry)
+    : extended.xml.replace('</w15:commentsEx>', () => `${entry}</w15:commentsEx>`);
   zip.file(extended.part, next);
   return paraId;
 }
@@ -381,7 +385,8 @@ export async function registerCommentIdentity(zip, { commentId, date }) {
       ids.part,
       ids.xml.replace(
         `</${COMMENT_SIDECARS.ids.root}>`,
-        `<w16cid:commentId w16cid:paraId="${paraId}" w16cid:durableId="${durableId}"/></${COMMENT_SIDECARS.ids.root}>`
+        () =>
+          `<w16cid:commentId w16cid:paraId="${paraId}" w16cid:durableId="${durableId}"/></${COMMENT_SIDECARS.ids.root}>`
       )
     );
   }
@@ -391,7 +396,8 @@ export async function registerCommentIdentity(zip, { commentId, date }) {
       extensible.part,
       extensible.xml.replace(
         `</${COMMENT_SIDECARS.extensible.root}>`,
-        `<w16cex:commentExtensible w16cex:durableId="${durableId}" w16cex:dateUtc="${xmlEncode(date)}"/></${COMMENT_SIDECARS.extensible.root}>`
+        () =>
+          `<w16cex:commentExtensible w16cex:durableId="${durableId}" w16cex:dateUtc="${xmlEncode(date)}"/></${COMMENT_SIDECARS.extensible.root}>`
       )
     );
   }
@@ -435,7 +441,7 @@ export function anchorDocxComment(paragraphXml, id) {
   const body = paragraphXml.slice(opening.length);
   return `${opening}<w:commentRangeStart w:id="${id}"/>${body}`.replace(
     /<\/w:p>$/,
-    `<w:commentRangeEnd w:id="${id}"/><w:r><w:commentReference w:id="${id}"/></w:r></w:p>`
+    () => `<w:commentRangeEnd w:id="${id}"/><w:r><w:commentReference w:id="${id}"/></w:r></w:p>`
   );
 }
 
@@ -511,7 +517,7 @@ export async function ensureDocxUpdateFields(zip) {
 export function upsertSectionReference(sectionXml, tag, kind, relationshipId) {
   const element = `<w:${tag} w:type="${kind}" r:id="${relationshipId}"/>`;
   const pattern = new RegExp(`<w:${tag}\\b[^>]*\\bw:type="${kind}"[^>]*\\/>`);
-  if (pattern.test(sectionXml)) return sectionXml.replace(pattern, element);
+  if (pattern.test(sectionXml)) return sectionXml.replace(pattern, () => element);
   const position = sectionXml.indexOf('>') + 1;
   return `${sectionXml.slice(0, position)}${element}${sectionXml.slice(position)}`;
 }
@@ -704,7 +710,7 @@ export async function ensureNumbering(zip, kind, { restart = false } = {}) {
       : xml.indexOf('>', xml.indexOf('<w:numbering')) + 1;
     next = `${xml.slice(0, position)}${numberingDefinition(abstractId, kind)}${xml.slice(position)}`;
   }
-  next = next.replace('</w:numbering>', `${definition}</w:numbering>`);
+  next = next.replace('</w:numbering>', () => `${definition}</w:numbering>`);
   zip.file(part, next);
   return { xml: next, numId, created: true };
 }

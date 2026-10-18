@@ -139,6 +139,7 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       (result) => `custom provider saved: ${result.id}`
     ),
     updateCustomProviderModel: (id, modelId, patch) => runtime.updateCustomProviderModel(id, modelId, patch),
+    setModelPreferences: (provider, changes) => runtime.setModelPreferences(provider, changes),
     removeCustomProvider: async (id) => {
       const result = await runtime.removeCustomProvider(id);
       refreshRouteStats();
@@ -148,11 +149,6 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
     testCustomProvider: (input) => runtime.testCustomProvider(input),
     checkCustomProviderKeyEnv: (name) => runtime.checkCustomProviderKeyEnv(name),
     discoverCustomProviderModels: (input) => runtime.discoverCustomProviderModels(input),
-    saveOpenCodeGoUsageAuth: async (opts) => {
-      await runtime.saveOpenCodeGoUsageAuth(opts);
-      pushNotice('OpenCode Go usage auth saved', 'info');
-      return true;
-    },
     saveOpenAIUsageSessionKey: async (secret) => {
       await runtime.saveOpenAIUsageSessionKey(secret);
       pushNotice('OpenAI usage auth saved', 'info');

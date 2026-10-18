@@ -2,7 +2,7 @@
  * session-switch/context-switch.mjs — leaving the open conversation for a
  * new desktop context (cwd + desktop session) or a fresh session.
  */
-import { isScratchSession } from '../shared.mjs';
+import { closeOutgoingSession, isScratchSession } from '../shared.mjs';
 import { replacementSessionCwd } from '../../workspace/workspace-state.mjs';
 
 export function createContextSwitch(deps, { ingestSessionIntoMemory, closeSurfaceSession, releaseSessionWork }) {
@@ -28,11 +28,12 @@ export function createContextSwitch(deps, { ingestSessionIntoMemory, closeSurfac
     const session = getSession();
     if (session?.id) {
       const cleanupReason = 'desktop-context-switch';
+      // A failed close throws here, before anything else was released.
+      await closeOutgoingSession(closeSurfaceSession, session, cleanupReason, { tombstone: isScratchSession(session) });
       // Fire-and-forget: context switch is user-facing latency; the memory
       // runtime outlives the closed session so the write completes safely.
       void ingestSessionIntoMemory(session);
       releaseSessionWork(session.id, cleanupReason);
-      closeSurfaceSession(session, cleanupReason, { tombstone: isScratchSession(session) });
       setSession(null);
     }
     setDesktopSession(nextDesktopSession && typeof nextDesktopSession === 'object' ? nextDesktopSession : null);
@@ -64,8 +65,8 @@ export function createContextSwitch(deps, { ingestSessionIntoMemory, closeSurfac
     // folder, never in the worktree the old session retains.
     const projectFolder = replacementSessionCwd(session);
     if (session?.id) {
+      await closeOutgoingSession(closeSurfaceSession, session, 'cli-new', { tombstone: isScratchSession(session) });
       void ingestSessionIntoMemory(session);
-      closeSurfaceSession(session, 'cli-new', { tombstone: isScratchSession(session) });
       setSession(null);
     }
     if (projectFolder) await applyResolvedCwd(projectFolder);

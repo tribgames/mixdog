@@ -320,8 +320,8 @@ function movedSheetRanges(xml, move, refused) {
     const count = (kept.match(/<brk\b/g) || []).length;
     if (!count) return '';
     const manual = (kept.match(/<brk\b[^>]*\bman="(?:1|true)"/g) || []).length;
-    let breakAttributes = attributes.replace(/\bcount="\d+"/, `count="${count}"`);
-    breakAttributes = breakAttributes.replace(/\bmanualBreakCount="\d+"/, `manualBreakCount="${manual}"`);
+    let breakAttributes = attributes.replace(/\bcount="\d+"/, () => `count="${count}"`);
+    breakAttributes = breakAttributes.replace(/\bmanualBreakCount="\d+"/, () => `manualBreakCount="${manual}"`);
     return `<${breaks}${breakAttributes}>${kept}</${breaks}>`;
   });
   return next;
@@ -340,8 +340,8 @@ function movedAnchors(drawing, move) {
     return { index, next: moved ? moved - 1 : move.from - 1, reset: !moved };
   };
   const written = (block, index, reset) => {
-    const moved = block.replace(indexPattern, `<xdr:${tag}>${index}</xdr:${tag}>`);
-    return reset ? moved.replace(offsetPattern, `<xdr:${tag}Off>0</xdr:${tag}Off>`) : moved;
+    const moved = block.replace(indexPattern, () => `<xdr:${tag}>${index}</xdr:${tag}>`);
+    return reset ? moved.replace(offsetPattern, () => `<xdr:${tag}Off>0</xdr:${tag}Off>`) : moved;
   };
   return drawing.replace(
     /<xdr:(oneCellAnchor|twoCellAnchor)\b([^>]*)>([\s\S]*?)<\/xdr:\1>/g,
@@ -379,7 +379,7 @@ function movedNoteShape(shape, move) {
   if (moved === null) return '';
   const delta = moved - 1 - index;
   return shape
-    .replace(pattern, `<x:${tag}>${moved - 1}</x:${tag}>`)
+    .replace(pattern, () => `<x:${tag}>${moved - 1}</x:${tag}>`)
     .replace(/<x:Anchor>([^<]*)<\/x:Anchor>/, (_whole, anchor) => {
       const corners = anchor.split(',').map((value) => value.trim());
       for (const position of move.rows ? [2, 6] : [0, 4]) corners[position] = String(Number(corners[position]) + delta);
@@ -598,7 +598,7 @@ async function duplicateOwnedPart(zip, part, rewriteChart) {
   if (override)
     zip.file(
       '[Content_Types].xml',
-      types.replace('</Types>', `<Override PartName="/${copy}" ContentType="${override[1]}"/></Types>`)
+      types.replace('</Types>', () => `<Override PartName="/${copy}" ContentType="${override[1]}"/></Types>`)
     );
   await duplicateOwnedRelationships(zip, part, copy, rewriteChart);
   return copy;
@@ -661,7 +661,11 @@ export async function copySheetParts(zip, sheets, source, copy) {
       `<definedName${setXmlAttribute(attributes, 'localSheetId', sheets.length)}>${xmlEncode(repointed)}</definedName>`
     );
   }
-  if (added.length) zip.file(workbookPath, workbook.replace('</definedNames>', `${added.join('')}</definedNames>`));
+  if (added.length)
+    zip.file(
+      workbookPath,
+      workbook.replace('</definedNames>', () => `${added.join('')}</definedNames>`)
+    );
 }
 
 // Excel's record of the order it last calculated formula cells in, by address. Cells that moved leave it naming

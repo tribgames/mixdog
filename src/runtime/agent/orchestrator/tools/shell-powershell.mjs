@@ -8,6 +8,8 @@
 // `powershell -Command "<inline>"` / `pwsh -Command "<inline>"` to
 // `-EncodedCommand <utf16le-base64>` so the payload stays opaque to the
 // outer shell. Other shells / non-Windows are no-op pass-through.
+import { codeMask } from './builtin/bash-tool/bashism-rewrite.mjs';
+
 // Match -Command "<body>" where the body may contain escaped quotes
 // (`\"` or `""`). Stops at the first unescaped closing quote so nested
 // patterns like `"... \"inner\" ..."` survive intact. Common PowerShell
@@ -16,49 +18,63 @@
 // Single-quoted -Command '<body>' is also covered.
 const _POWERSHELL_FLAGS_RE =
   /\s+-(?:NoProfile|NonInteractive|WindowStyle\s+\S+|ExecutionPolicy\s+\S+|Sta|Mta|NoLogo|NoExit)/.source;
+// What may follow the closing quote: the end of the command or a shell
+// operator. Anything else (`pwsh -Command "a" "b"`) is more arguments, which
+// PowerShell appends to the command text and an -EncodedCommand would drop.
+const _POWERSHELL_TRAILING = '(?=[ \\t]*(?:$|[\\r\\n;|&<>]|\\d+>))';
 const _POWERSHELL_DOUBLE_RE = new RegExp(
   '\\b(powershell(?:\\.exe)?|pwsh(?:\\.exe)?)((?:' +
     _POWERSHELL_FLAGS_RE +
-    ')*)\\s+(?:-Command|-c)\\s+"((?:[^"\\\\]|\\\\.|"")+?)"(?=\\s|$|;|&&|\\|\\|)',
+    ')*)\\s+(?:-Command|-c)\\s+"((?:[^"\\\\]|\\\\.|"")+?)"' +
+    _POWERSHELL_TRAILING,
   'gi'
 );
 const _POWERSHELL_SINGLE_RE = new RegExp(
   '\\b(powershell(?:\\.exe)?|pwsh(?:\\.exe)?)((?:' +
     _POWERSHELL_FLAGS_RE +
-    ")*)\\s+(?:-Command|-c)\\s+'((?:[^'\\\\]|\\\\.|'')+?)'(?=\\s|$|;|&&|\\|\\|)",
+    ")*)\\s+(?:-Command|-c)\\s+'((?:[^'\\\\]|\\\\.|'')+?)'" +
+    _POWERSHELL_TRAILING,
   'gi'
 );
 
-export function _maybeEncodePowerShellCommand(command) {
-  if (process.platform !== 'win32') return command;
-  if (typeof command !== 'string' || command.length === 0) return command;
-  const replaceFn = (match, exe, flags, body) => {
+// One pass of one quote style. Only an invocation the outer shell itself runs
+// is rewritten: the same text inside a string, here-string or comment (a
+// README being written, a commit message) is data, not a command.
+function _encodePass(command, pattern, quote) {
+  const live = codeMask(command);
+  if (!live) return command;
+  return command.replace(pattern, (match, exe, flags, body, offset) => {
+    if (!live[offset]) return match;
     try {
-      // Unescape doubled-up quotes the caller used to embed " / ' inside
-      // the -Command literal. We're handing the body to powershell as
-      // base64 so the outer-shell escaping is no longer needed.
-      // Unescape both PowerShell-style doubled quotes (`""` / `''`) AND
-      // bash-style backslash-escaped quotes (`\"` / `\'`) since POSIX
-      // outer-shell wrappers commonly use backslash form. Without
-      // backslash unescape, `pwsh -Command "Get-Process \"foo\""` would
-      // base64-encode the literal backslash, breaking inside PowerShell.
-      const unescaped = _unescapePowerShellCommandBody(body);
+      // Unescape the quote the caller used to embed the body: the PowerShell
+      // doubled form (`""` / `''`) AND the bash-style backslash form (`\"` /
+      // `\'`) POSIX outer-shell wrappers commonly use. Without the backslash
+      // unescape, `pwsh -Command "Get-Process \"foo\""` would base64-encode the
+      // literal backslash. The OTHER quote is the body's own syntax and stays.
+      const unescaped = _unescapePowerShellCommandBody(body, quote);
       const encoded = Buffer.from(unescaped, 'utf16le').toString('base64');
       const trimmedFlags = (flags || '').replace(/\s+/g, ' ').trim();
       return `${exe}${trimmedFlags ? ` ${trimmedFlags}` : ''} -EncodedCommand ${encoded}`;
     } catch {
       return match;
     }
-  };
-  return command.replace(_POWERSHELL_DOUBLE_RE, replaceFn).replace(_POWERSHELL_SINGLE_RE, replaceFn);
+  });
 }
 
-function _unescapePowerShellCommandBody(body) {
-  return String(body || '')
-    .replace(/""/g, '"')
-    .replace(/''/g, "'")
-    .replace(/\\"/g, '"')
-    .replace(/\\'/g, "'");
+export function _maybeEncodePowerShellCommand(command) {
+  if (process.platform !== 'win32') return command;
+  if (typeof command !== 'string' || command.length === 0) return command;
+  return _encodePass(_encodePass(command, _POWERSHELL_DOUBLE_RE, '"'), _POWERSHELL_SINGLE_RE, "'");
+}
+
+// `quote` names the delimiter that wrapped the body, so only its own escapes
+// are removed. Without it (policy scanning, which wants every reading of the
+// body) both styles are removed.
+function _unescapePowerShellCommandBody(body, quote) {
+  let text = String(body || '');
+  if (quote !== "'") text = text.replace(/""/g, '"').replace(/\\"/g, '"');
+  if (quote !== '"') text = text.replace(/''/g, "'").replace(/\\'/g, "'");
+  return text;
 }
 
 // Extract inline `powershell -Command "…"` bodies for policy scan parity

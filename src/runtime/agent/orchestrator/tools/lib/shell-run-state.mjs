@@ -30,7 +30,9 @@ export function registerForegroundOwnedTree(run, ownerSessionId) {
       run.killed = true;
       run.ownerCancelled = true;
       run.killCause = run.killCause || 'session-close';
-      return run.terminationTracker?.complete === true || capturePreKill(run);
+      // Always a fresh read: an earlier one predates what the run started
+      // since. Pending, the kill is sent at the snapshot bound regardless.
+      return capturePreKill(run);
     },
   };
   registerOwnedShellTree(run.foregroundRecordId, run.ownedTree);

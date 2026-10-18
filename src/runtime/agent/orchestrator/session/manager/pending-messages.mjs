@@ -29,6 +29,12 @@ import {
   pruneEmptyPendingIdSet,
 } from './pending-claim-ledger.mjs';
 import { legacyPendingMessagesPath } from './pending-spool-path.mjs';
+import {
+  TASK_WAIT_WAKE_NOTIFICATION,
+  TASK_WAIT_WAKE_USER,
+  interruptTaskWaitForSession,
+  registerTaskWaitSteeringCheck,
+} from '../task-wait-control.mjs';
 import { pruneCleanupConfirmedLedger } from './pending-delivered-ledger.mjs';
 // The durable delivered-id ledger on the session record lives in
 // pending-delivered-ledger.mjs; re-exported so prior importers stay unchanged.
@@ -51,6 +57,8 @@ import {
   PENDING_MODE_TASK_NOTIFICATION,
   _groupPendingMessageEntries,
   _mergePendingMessageEntries,
+  completionExecutionId,
+  completionIsDelivered,
   completionWasDelivered,
   entryLifecycleToken,
   isCompletionNotificationEntry,
@@ -447,7 +455,50 @@ export function enqueuePendingMessage(sessionId, message) {
   }
   q.push(entry);
   const bufferedDepth = schedulePendingMessagePersist(sessionId, entry);
+  const wake = pendingEntryWake(entry);
+  if (wake) {
+    interruptTaskWaitForSession(
+      sessionId,
+      wake,
+      wake === TASK_WAIT_WAKE_NOTIFICATION ? completionExecutionId(entry) : null
+    );
+  }
   return Math.max(q.length, bufferedDepth || 0);
+}
+
+// What one queued entry wakes a passive task wait or shell hold for, so it
+// reaches the loop now: steering (a Lead message to its agent) as user input,
+// and an undelivered task completion (agent/shell, any status). A plain
+// channel notice (scheduled or event-rule inject) waits for the turn, as it
+// does in the Lead's queue.
+function pendingEntryWake(entry) {
+  if (pendingEntryMode(entry) === PENDING_MODE_PROMPT) return TASK_WAIT_WAKE_USER;
+  if (isCompletionNotificationEntry(entry) && !completionIsDelivered(entry)) return TASK_WAIT_WAKE_NOTIFICATION;
+  return false;
+}
+
+// Anything already queued when a wait or hold begins ends it at once, exactly
+// like what arrives during it. A completion the agent already received is no
+// longer deliverable and never wakes.
+registerTaskWaitSteeringCheck((sessionId) => {
+  let wake = false;
+  for (const entry of _sessionPendingMessages.get(sessionId) || []) {
+    const found = pendingEntryWake(entry);
+    if (found === TASK_WAIT_WAKE_USER) return found;
+    wake = wake || found;
+  }
+  return wake;
+});
+
+// True when this session's queue holds task notifications and nothing else:
+// the mid-chain boundary may then take the whole queue without bypassing the
+// prompt filters that keep queued prompts for the terminal boundary.
+export function pendingQueueHoldsOnlyNotifications(sessionId) {
+  const queued = [
+    ...(_sessionPendingMessages.get(sessionId) || []),
+    ...(_hydratedPendingMessages.get(sessionId) || []),
+  ];
+  return queued.length > 0 && queued.every((entry) => pendingEntryMode(entry) === PENDING_MODE_TASK_NOTIFICATION);
 }
 
 // Drain order: enqueue time, then source (hydrated < buffered < memory), then
@@ -468,19 +519,13 @@ export function drainPendingMessages(sessionId) {
   // This path is deliberately memory-only: no file lock, stat, parse, or
   // atomic rename can run in the agent-completion tick.
   const buffered = takeBufferedPendingMessages(sessionId);
-  // Deferred completion/task notifications are dropped ONLY from the persisted
-  // (disk/buffer) path. Those are the entries a later session resume/restart
-  // would replay out-of-order into a future turn, once the in-memory queue is
-  // gone — discarding them there is the deliberate owner decision.
-  // Live in-memory completions (fallback/headless enqueues delivered within
-  // THIS process, e.g. the idle-resume kick that surfaces the model-visible
-  // body) are the intended payload and MUST survive the drain — filtering
-  // them here dropped the notification entirely. On a genuine resume the
-  // in-memory queue is empty, so keeping it only ever delivers live entries.
-  // Genuine user/steering messages carry no marker and are kept in order in
-  // both paths.
-  // Drain-time belt: drop MARKED in-memory completion entries whose text hash
-  // was already delivered+ACKed (TUI execution-ui) this process — those would
+  // A completion that reached the spool and was never acknowledged was never
+  // delivered to the model (delivery acknowledges and removes it), so it
+  // survives a restart: the hydrated disk entries drain like live in-memory
+  // ones. Dropping them on resume lost a finished (or failed) task's only
+  // notification.
+  // Drain-time belt: drop MARKED completion entries whose text hash was
+  // already delivered+ACKed (TUI execution-ui) this process — those would
   // double-inject next turn. Only marked completion entries are eligible;
   // genuine user/steering entries carry no marker and are always kept.
   const deliveredIds = new Set();
@@ -494,10 +539,11 @@ export function drainPendingMessages(sessionId) {
     deliveredEntries.push(entry);
     return false;
   };
+  const hydratedKept = hydrated.filter(keepUndelivered);
   const memoryKept = memory.filter(keepUndelivered);
   const bufferedKept = buffered.filter(keepUndelivered);
   const tagged = [
-    ...hydrated.map((entry, index) => ({ entry, source: 0, index })),
+    ...hydratedKept.map((entry, index) => ({ entry, source: 0, index })),
     ...bufferedKept.map((entry, index) => ({ entry, source: 1, index })),
     ...memoryKept.map((entry, index) => ({ entry, source: 2, index })),
   ];
@@ -512,14 +558,8 @@ export function drainPendingMessages(sessionId) {
     if (!prior || item.source > prior.source) byId.set(normalized.id, { ...item, entry: normalized });
   }
   const ordered = [...byId.values()].sort(byEnqueueOrder);
-  const dropped = ordered
-    .filter(({ entry, source }) => source === 0 && isCompletionNotificationEntry(entry))
-    .map(({ entry }) => entry);
-  const acknowledged = [...deliveredEntries, ...dropped];
-  if (acknowledged.length > 0) acknowledgePendingMessages(sessionId, acknowledged);
-  const visible = modelVisiblePendingMessages(
-    ordered.filter(({ entry }) => !dropped.includes(entry)).map(({ entry }) => entry)
-  );
+  if (deliveredEntries.length > 0) acknowledgePendingMessages(sessionId, deliveredEntries);
+  const visible = modelVisiblePendingMessages(ordered.map(({ entry }) => entry));
   // Epoch gate. Normalization above rebuilds every entry, but each copy
   // inherits the IMMUTABLE token the entry was accepted under. An entry from
   // an older epoch (a cross-process close/detach moved the generation while

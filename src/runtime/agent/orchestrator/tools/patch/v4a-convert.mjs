@@ -829,7 +829,7 @@ function unifiedUpdateHunks(sourceLines, section, displayPath, { fuzzy, rejectPa
     const loc = resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, { fuzzy });
     if (loc.skip) continue;
     if (loc.error) {
-      const msg = `${loc.error.replace(/^V4A hunk /, `V4A hunk ${section.path}: `)}`;
+      const msg = `${loc.error.replace(/^V4A hunk /, () => `V4A hunk ${section.path}: `)}`;
       if (rejectPartial) throw new Error(msg);
       if (rejectedHunks) rejectedHunks.push({ file: section.path, hunk, reason: msg });
       continue;

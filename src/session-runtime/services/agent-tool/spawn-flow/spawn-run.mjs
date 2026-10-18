@@ -39,9 +39,13 @@ export function createSpawnRunner({
   emitSubagentEvent,
   sessionSurface = null,
   createTurnReviewCollector,
+  onWorkerCompletionQueued = null,
 }) {
   // Owner/worker completion notification lives in ../notify.mjs.
-  const { workerNotifyFn, notifyOwnerAgentCompletionEarly } = createNotify(mgr, { notifySessionCompletion });
+  const { workerNotifyFn, notifyOwnerAgentCompletionEarly } = createNotify(mgr, {
+    notifySessionCompletion,
+    onWorkerCompletionQueued,
+  });
 
   // Idle-progress watchdogs (shared sweep timer) live in
   // agent-watchdog-registry.mjs.

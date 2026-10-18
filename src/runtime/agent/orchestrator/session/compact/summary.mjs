@@ -61,6 +61,22 @@ Rules:
 - Use the same language as the active user thread when it is clear.
 - Do not mention the summary process or that context was compacted.`;
 
+// The final user turn of a summary forked from the session's own cached
+// request: the conversation itself is the history, so the instruction carries
+// what COMPACTION_SYSTEM_PROMPT says for the isolated request.
+export function forkedCompactionPrompt() {
+  return [
+    '<compaction-request>',
+    'Pause the task for this one response. No tools are available here: do not call any.',
+    'Write the anchored handoff summary this work continues from. The latest user request and the recent tool calls and results are kept verbatim after it, so focus on the older context that still matters.',
+    'If the conversation holds an earlier summary, update it: preserve still-true details, remove stale details, and merge in the new facts.',
+    'Do not answer the conversation itself. Do not mention that you are summarizing, compacting, or merging context. Respond in the same language as the conversation.',
+    '',
+    SUMMARY_TEMPLATE,
+    '</compaction-request>',
+  ].join('\n');
+}
+
 // The index-independent part of one transcript line. A batch fit rebuilds the
 // prompt for many overlapping slices of the same head; `lineCache` (scoped to
 // one fit sequence at a fixed perMessageChars) keeps each message's rendering

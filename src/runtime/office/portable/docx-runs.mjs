@@ -205,7 +205,7 @@ function resolveDocxRowMarks(documentXml, { resolution = 'accept', author = '' }
       continue;
     }
     const clearedProperties = properties.replace(marker('del', author), '').replace(marker('ins', author), '');
-    xml = `${xml.slice(0, row.start)}${rowXml.replace(properties, clearedProperties)}${xml.slice(row.end)}`;
+    xml = `${xml.slice(0, row.start)}${rowXml.replace(properties, () => clearedProperties)}${xml.slice(row.end)}`;
     cleared += 1;
   }
   xml = xml.replace(

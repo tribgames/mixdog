@@ -6,7 +6,25 @@ import { applyFetchPagination, formatResponse } from './formatter.mjs';
 
 const url = 'https://example.com/document.md';
 const options = () => ({ timeoutMs: 3000, hostPacer: new HostPacer({ intervalMs: 0 }) });
-const outputBody = (text) => text.slice(text.indexOf('\n\n') + 2);
+const outputBody = (text) =>
+  text.slice(text.indexOf('\n\n') + 2).replace(/\n\n\[(?:chars|output capped)[^\]]*startIndex:\d+ for more\]$/, '');
+
+test('fetch marks a requested window and a default-length cap differently, both with startIndex', () => {
+  const page = { content: 'x'.repeat(30000) };
+  const windowed = applyFetchPagination(page, { startIndex: 0, maxLength: 10 });
+  assert.match(
+    formatResponse('fetch', { results: [{ ...windowed, status: 'success', url }] }),
+    /\n\n\[chars 0-10 of 30000; startIndex:10 for more\]$/
+  );
+  const capped = applyFetchPagination(page, {});
+  assert.equal(capped.range.endIndex, 20000);
+  assert.match(
+    formatResponse('fetch', { results: [{ ...capped, status: 'success', url }] }),
+    /\n\n\[output capped at 20000 chars; chars 0-20000 of 30000; startIndex:20000 for more\]$/
+  );
+  const whole = applyFetchPagination({ content: 'short' }, {});
+  assert.doesNotMatch(formatResponse('fetch', { results: [{ ...whole, status: 'success', url }] }), /for more/);
+});
 
 test('empty searches retain warnings and crawls retain the actual failure cause', () => {
   assert.equal(

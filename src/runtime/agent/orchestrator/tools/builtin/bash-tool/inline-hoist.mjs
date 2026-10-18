@@ -19,7 +19,7 @@ import {
 export function hoistInlineScript(command, shellType) {
   const transport = { platform: process.platform, shellType };
   const hoist =
-    planInlineScriptHoist(command) ||
+    planInlineScriptHoist(command, { shellType }) ||
     planLongInlineScriptFileTransport(command, transport) ||
     planLongShellScriptFileTransport(command, transport);
   if (!hoist) return { command, hoistPath: null };

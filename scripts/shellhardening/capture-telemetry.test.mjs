@@ -6,7 +6,6 @@ import {
   buildShellOutputTelemetryPayload,
   TaskOutput,
   normalizeToolEnvelope,
-  BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES,
   recordShellCaptureTelemetry,
   renderBackgroundPartialOutput,
 } from './_shared.mjs';
@@ -37,11 +36,11 @@ test('shell capture preserves raw UTF-16LE text instead of killing it as binary'
   assert.doesNotMatch(result.result, /binary output detected/);
 });
 
-test('auto-background partial output shares one strict UTF-8 byte budget', () => {
-  const rendered = renderBackgroundPartialOutput('가'.repeat(6_000), 'fatal: 끝');
-  assert.ok(Buffer.byteLength(rendered, 'utf8') <= BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES);
+test('auto-background partial output uses the shared delivery shape', () => {
+  const rendered = renderBackgroundPartialOutput(`${'가'.repeat(80)}\n`.repeat(100), 'fatal: 끝');
+  assert.ok(rendered.length < 4_000);
   assert.match(rendered, /^\[partial stdout\]\n/);
-  assert.match(rendered, /partial output truncated; head and tail shown/);
+  assert.match(rendered, /\[… \d+ lines, [\d.]+ KB omitted — read with offset\/limit or grep, full log: [^\]]+\]/);
   assert.match(rendered, /\[partial stderr\]\nfatal: 끝$/);
   assert.equal(rendered.includes('\uFFFD'), false);
 });

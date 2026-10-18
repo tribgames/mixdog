@@ -4,6 +4,13 @@ import test, { after, mock } from 'node:test';
 import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from '../../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../../shared/worktrees/test-support.mjs';
 import { processTable, scriptedChildTree } from '../../lib/process-table-fixture.mjs';
+import {
+  completeBackgroundTask,
+  hasActiveBackgroundTasks,
+  registerBackgroundTask,
+} from '../../../../../shared/background-tasks.mjs';
+import { withTurnProgress } from '../../../session/agent-pool-progress.mjs';
+import { isTurnInFlight } from '../../../session/manager/runtime-state.mjs';
 
 const tree = scriptedChildTree();
 mock.module('../../../mcp/child-tree.mjs', { namedExports: tree.namedExports });
@@ -63,4 +70,59 @@ test('the folder reservation handed to survivors is released once they are gone'
   await flush();
   await flush();
   assert.equal(isHeld(repo), false);
+});
+
+// An app the command launched on purpose (Start-Process 'Docker Desktop.exe')
+// stays tracked for `task cancel`, but the idle agent is not waiting on it: its
+// Agents row must not read "waiting" for as long as the app lives, and the
+// task still settles when the last process is gone.
+test('survivors a finished command left running do not hold the idle agent row waiting', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const owner = 'sess_survivor_pool';
+  const survivor = { pid: process.pid, ppid: 1, token: 'survivor' };
+  tree.state.next = () => processTable([survivor]);
+  renderCompletedResult({
+    result: {
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      descendants: {
+        taskId: 'job_survivor_pool',
+        rootPid: 7200,
+        groupPid: null,
+        killPids: [process.pid],
+        watchPids: [process.pid],
+        watch: [{ pid: process.pid, token: 'survivor', name: 'Docker Desktop.exe' }],
+        reachable: true,
+      },
+    },
+    command: "Start-Process 'Docker Desktop.exe'",
+    analysisCommand: "Start-Process 'Docker Desktop.exe'",
+    cwd: process.cwd(),
+    options: { sessionId: owner },
+    startedAtMs: Date.now(),
+    stdout: '',
+    stderr: '',
+    timeout: 0,
+  });
+  await flush();
+  const scope = { callerSessionId: owner, surface: 'shell' };
+  const idleRow = (hasRunningTasks) =>
+    withTurnProgress(
+      [{ sessionId: owner, agent: 'worker', status: 'idle' }],
+      () => undefined,
+      isTurnInFlight,
+      hasRunningTasks
+    )[0];
+  assert.equal(hasActiveBackgroundTasks(scope), true, 'the survivor task is live and cancellable');
+  const awaited = (sid) => hasActiveBackgroundTasks({ ...scope, callerSessionId: sid, awaitedOnly: true });
+  assert.equal(idleRow(awaited).awaitingTask, undefined);
+  const handedOff = registerBackgroundTask({ surface: 'shell', context: { callerSessionId: owner } });
+  assert.equal(idleRow(awaited).awaitingTask, 'background', 'a handed-off job still reads waiting');
+  completeBackgroundTask(handedOff.taskId, { status: 'completed', notify: false });
+  tree.state.next = () => processTable([]);
+  t.mock.timers.tick(5_000);
+  await flush();
+  await flush();
+  assert.equal(hasActiveBackgroundTasks(scope), false, 'the task settled once the survivors were gone');
 });

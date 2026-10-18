@@ -9,7 +9,9 @@ import { createLeadWorkerIndex } from '../../../../session-runtime/services/agen
 import { createTagRegistry } from '../../../../session-runtime/services/agent-tool/tag-registry.mjs';
 import { listStoredAgentWorkers } from './store-summary-reader.mjs';
 
-test('a pool larger than any fixed cache bound still serves every unchanged header from the cache', () => {
+// Cache retention past any fixed bound is asserted in
+// store-agent-worker-churn.test.mjs (settled records, read counter).
+test('a pool larger than any fixed cache bound sees every same-size, same-mtime rewrite', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-header-many-'));
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
@@ -41,9 +43,12 @@ test('a pool larger than any fixed cache bound still serves every unchanged head
     const first = titles();
     assert.equal(first.length, ids.length);
     assert.ok(first.every((title) => title.startsWith('Title A ')));
-    // Same size, same mtime: only a header the cache still holds keeps 'A'.
+    // Same size, same mtime: the full file stamp (change time) still differs.
     for (const id of ids) writeSession(id, 'B');
-    assert.deepEqual(titles(), first);
+    assert.deepEqual(
+      titles(),
+      first.map((title) => title.replace('Title A ', 'Title B '))
+    );
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;

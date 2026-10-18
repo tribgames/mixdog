@@ -310,7 +310,10 @@ export async function addWorksheetChart(zip, sheet, xml, op, sheets) {
   const anchorCount = countDrawingAnchors(drawingXml);
   const width = spannedWidth(xml, op, await workbookDigitWidth(zip)) ?? op.width;
   const anchor = chartFrameAnchor({ ...op, width }, anchorCount, chartRelationshipId);
-  zip.file(drawingPart, drawingXml.replace('</xdr:wsDr>', `${anchor}</xdr:wsDr>`));
+  zip.file(
+    drawingPart,
+    drawingXml.replace('</xdr:wsDr>', () => `${anchor}</xdr:wsDr>`)
+  );
   return {
     op: op.op,
     changed: true,

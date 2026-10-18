@@ -45,7 +45,13 @@ function _stripShellComment(text) {
       out += ch;
       continue;
     }
-    if (ch === '#' && (i === 0 || /\s/.test(text[i - 1]))) break;
+    if (ch === '#' && (i === 0 || /[\s;&|(]/.test(text[i - 1]))) {
+      // A comment ends at the newline; later lines are still live commands.
+      const nl = text.indexOf('\n', i);
+      if (nl < 0) break;
+      i = nl - 1;
+      continue;
+    }
     out += ch;
   }
   return out;

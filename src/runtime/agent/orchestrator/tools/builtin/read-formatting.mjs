@@ -1,6 +1,6 @@
 import { READ_LINE_NO_SEP } from '../../../../shared/read-row-numbers.mjs';
 import { mergeReadRanges } from './read-ranges.mjs';
-import { TOOL_OUTPUT_MAX_BYTES, positiveEnvInt } from './tool-output-limit.mjs';
+import { TOOL_OUTPUT_MAX_BYTES, capMarker, positiveEnvInt } from './tool-output-limit.mjs';
 
 // Smart-truncate cap: a no-window read returns the file until this cap, past
 // which head+tail are shown and the model pages the rest with offset (footer
@@ -18,9 +18,23 @@ const READ_MAX_RENDERED_LINE_CHARS = 2_000;
 // (runtime/shared/read-row-numbers.mjs).
 export const LINE_NO_SEP = READ_LINE_NO_SEP;
 
-export function buildSmartReadTruncationMarker(totalLines, fileBytes) {
+// Cap marker for the elided middle of a no-window read. With the omitted
+// line span it names the continuation offset; without, narrowing advice.
+export function buildSmartReadTruncationMarker(totalLines, fileBytes, omitted = null) {
   const kb = Math.max(1, Math.round((Number(fileBytes) || 0) / 1024));
-  return `... [TRUNCATED - ${totalLines} lines / ${kb} KB; read located windows with {file_path, offset, limit}] ...`;
+  const limit = fileBytes > SMART_READ_MAX_BYTES ? SMART_READ_MAX_BYTES : `${SMART_READ_MAX_LINES} lines`;
+  if (!omitted) {
+    return capMarker({
+      limit,
+      shown: `${totalLines} lines / ${kb} KB`,
+      narrow: 'read located windows with {file_path, offset, limit}',
+    });
+  }
+  return capMarker({
+    limit,
+    shown: `lines ${omitted.from}-${omitted.to} of ${totalLines} omitted (${kb} KB file)`,
+    nextOffset: omitted.from,
+  });
 }
 
 function rangeFromRenderedReadRows(rows, fallbackStartLine = 1) {
@@ -56,9 +70,10 @@ export function smartReadTruncate(renderedWithLineNos, totalLines, fileBytes) {
   const tailRows = rows.slice(tailStart);
   const head = headRows.join('\n');
   const tail = tailRows.join('\n');
-  const marker = buildSmartReadTruncationMarker(totalLines, fileBytes);
+  const marker = buildSmartReadTruncationMarker(totalLines, fileBytes, { from: headCount + 1, to: tailStart });
   return {
     text: `${head}\n${marker}\n${tail}`,
+    marker,
     truncated: true,
     totalLines,
     ranges: mergeReadRanges(

@@ -38,7 +38,7 @@ function fixture(text = 'LINE_1\nLINE_2\nLINE_3\nLINE_4\nLINE_5\n') {
   return { cwd, file, sessionId: `cache-test-${randomUUID()}` };
 }
 function nextOffset(output) {
-  const match = /(?:pass offset:|next offset:\s*)(\d+)/.exec(output);
+  const match = /offset:(\d+) for more/.exec(output);
   assert.ok(match, output);
   return Number(match[1]);
 }

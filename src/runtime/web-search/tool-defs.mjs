@@ -52,7 +52,12 @@ export const TOOL_DEFS = [
             'Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.',
         },
         startIndex: { type: 'integer', minimum: 0, description: 'Character offset; default 0.' },
-        maxLength: { type: 'integer', minimum: 0, description: 'Maximum characters; default 50000; 0 unlimited.' },
+        maxLength: {
+          type: 'integer',
+          minimum: 0,
+          description:
+            'Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].',
+        },
       },
       required: ['url'],
       additionalProperties: false,

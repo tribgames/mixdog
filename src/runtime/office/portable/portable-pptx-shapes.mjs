@@ -427,7 +427,10 @@ async function frameInsideSlide(context, shapeXml, extent) {
   const width = Math.min(Number(extent[1]), Math.max(1, room(slide.width, offset[1])));
   const height = Math.min(Number(extent[2]), Math.max(1, room(slide.height, offset[2])));
   if (width === Number(extent[1]) && height === Number(extent[2])) return { xml: shapeXml, extent, clamped: false };
-  const xml = shapeXml.replace(/(<a:ext\b[^>]*\bcx=")\d+("[^>]*\bcy=")\d+(")/, `$1${width}$2${height}$3`);
+  const xml = shapeXml.replace(
+    /(<a:ext\b[^>]*\bcx=")\d+("[^>]*\bcy=")\d+(")/,
+    (__m, __1, __2, __3) => `${__1}${width}${__2}${height}${__3}`
+  );
   return { xml, extent: [extent[0], String(width), String(height)], clamped: true };
 }
 
@@ -475,7 +478,10 @@ async function replacedPicture(zip, path, shape, op) {
   const previous = /<a:blip\b[^>]*\br:embed="([^"]*)"/.exec(shape.xml)?.[1];
   if (!previous) throw new Error(`PPTX picture ${op.shape} on slide ${op.slide} has no image reference`);
   const media = await addSlideImage(zip, path, op.path);
-  let updated = shape.xml.replace(/(<a:blip\b[^>]*\br:embed=")[^"]*(")/, `$1${media.relationshipId}$2`);
+  let updated = shape.xml.replace(
+    /(<a:blip\b[^>]*\br:embed=")[^"]*(")/,
+    (__m, __1, __2) => `${__1}${media.relationshipId}${__2}`
+  );
   const detail = { image: media.part, replaced: previous };
   // The frame is the page's design and the new picture rarely shares its
   // ratio: stretched into it the photograph comes out squeezed (the audit's
@@ -499,7 +505,7 @@ async function replacedPicture(zip, path, shape, op) {
       : '';
     updated = updated
       .replace(/<a:srcRect\b[^>]*\/>/, '')
-      .replace(/(<a:blip\b[^>]*?(?:\/>|>[\s\S]*?<\/a:blip>))/, `$1${rect}`);
+      .replace(/(<a:blip\b[^>]*?(?:\/>|>[\s\S]*?<\/a:blip>))/, (__m, __1) => `${__1}${rect}`);
     detail.cropped = cropped;
   }
   // The frame keeps the description of the picture that used to be in it, so
@@ -508,8 +514,8 @@ async function replacedPicture(zip, path, shape, op) {
   if (altText) {
     const encoded = xmlEncode(altText);
     updated = /<p:cNvPr\b[^>]*\bdescr="/.test(updated)
-      ? updated.replace(/(<p:cNvPr\b[^>]*\bdescr=")[^"]*(")/, `$1${encoded}$2`)
-      : updated.replace(/(<p:cNvPr\b[^>]*?)(\/?>)/, `$1 descr="${encoded}"$2`);
+      ? updated.replace(/(<p:cNvPr\b[^>]*\bdescr=")[^"]*(")/, (__m, __1, __2) => `${__1}${encoded}${__2}`)
+      : updated.replace(/(<p:cNvPr\b[^>]*?)(\/?>)/, (__m, __1, __2) => `${__1} descr="${encoded}"${__2}`);
     detail.altText = altText;
   }
   return { updated, detail };
@@ -524,7 +530,7 @@ function filledCellProperties(tcPr, fill, anchor) {
   let attributes = open[1];
   if (anchor)
     attributes = /\banchor="/.test(attributes)
-      ? attributes.replace(/\banchor="[^"]*"/, `anchor="${anchor}"`)
+      ? attributes.replace(/\banchor="[^"]*"/, () => `anchor="${anchor}"`)
       : `${attributes} anchor="${anchor}"`;
   let children = open[2] ? '' : tcPr.slice(open[0].length, tcPr.lastIndexOf('</a:tcPr>'));
   if (fill) {
@@ -568,7 +574,7 @@ export async function handleSetTableCellStyle(context, op) {
   else if (properties.fillColor) fill = solidFillXml(properties.fillColor);
   const anchor = textAnchor(properties.verticalAlignment);
   // The cell's own text frame may name an anchor too (this writer's add_table sets one); it follows the cell's.
-  if (anchor) styled = styled.replace(/(<a:bodyPr\b[^>]*?\banchor=")[^"]*"/, `$1${anchor}"`);
+  if (anchor) styled = styled.replace(/(<a:bodyPr\b[^>]*?\banchor=")[^"]*"/, (__m, __1) => `${__1}${anchor}"`);
   if (fill || anchor) {
     if (!/<a:tcPr\b/.test(styled)) styled = styled.replace('</a:tc>', '<a:tcPr/></a:tc>');
     styled = styled.replace(/<a:tcPr\b[^>]*?(?:\/>|>[\s\S]*?<\/a:tcPr>)/, (tcPr) =>
@@ -758,7 +764,7 @@ export async function handleCropImage(context, op) {
   const rect = `<a:srcRect l="${edge(op.left)}" t="${edge(op.top)}" r="${edge(op.right)}" b="${edge(op.bottom)}"/>`;
   const updated = shape.xml
     .replace(/<a:srcRect\b[^>]*\/>/, '')
-    .replace(/(<a:blip\b[^>]*?(?:\/>|>[\s\S]*?<\/a:blip>))/, `$1${rect}`);
+    .replace(/(<a:blip\b[^>]*?(?:\/>|>[\s\S]*?<\/a:blip>))/, (__m, __1) => `${__1}${rect}`);
   writeShape(context, slide, shape, updated);
   return { op: op.op, changed: true, slide: Number(op.slide), shape: Number(op.shape) };
 }
@@ -871,7 +877,10 @@ export async function handleAddAnimation(context, op) {
   const id = () => nextId++;
   const timing = timingWithAnimation(existing, animationNodes(shapeId, request, id), request.trigger, id);
   const stripped = current.replace(/<p:timing>[\s\S]*?<\/p:timing>/, '');
-  zip.file(path, stripped.replace('</p:sld>', `${timing}</p:sld>`));
+  zip.file(
+    path,
+    stripped.replace('</p:sld>', () => `${timing}</p:sld>`)
+  );
   return {
     op: op.op,
     changed: true,

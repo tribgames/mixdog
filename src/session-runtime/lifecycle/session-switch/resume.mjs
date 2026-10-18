@@ -9,7 +9,7 @@ import {
   toolSpecForMode,
   deferredSurfaceModeForLead,
 } from '../../../runtime/agent/orchestrator/runtime-core/effort.mjs';
-import { isScratchConversation } from '../shared.mjs';
+import { closeOutgoingSession, isScratchConversation } from '../shared.mjs';
 import { compactionArchiveRange } from '../../../runtime/agent/orchestrator/session/compaction-archive.mjs';
 import { stampCompactionMessageIds } from '../../../runtime/agent/orchestrator/session/compaction-archive-capture.mjs';
 import { boundWorkspaceCwd, restoreWorkspaceAfterResume } from '../../workspace/workspace-state.mjs';
@@ -91,12 +91,15 @@ export function createSessionResume(deps, { ingestSessionIntoMemory, closeSurfac
   }
 
   /** Hand the previous conversation off before the resumed one takes over. */
-  function retirePrevious(previous, resumed) {
+  async function retirePrevious(previous, resumed) {
     const { session: prev, id: previousId, messages, liveTurnMessages } = previous;
     if (!previousId || previousId === resumed.id) return;
+    // A failed close throws here and the previous session stays current.
+    await closeOutgoingSession(closeSurfaceSession, prev, 'cli-resume', {
+      tombstone: isScratchConversation(messages, liveTurnMessages),
+    });
     statusRoutes?.clearGatewaySessionRoute?.(previousId);
     void ingestSessionIntoMemory(prev);
-    closeSurfaceSession(prev, 'cli-resume', { tombstone: isScratchConversation(messages, liveTurnMessages) });
   }
 
   function routePreparation(resumed, resumedRoute) {
@@ -145,7 +148,7 @@ export function createSessionResume(deps, { ingestSessionIntoMemory, closeSurfac
     // stamped here and persisted), so a live compaction can grey exactly the
     // rows of what it drops.
     stampCompactionMessageIds(resumed.messages, resumed.id || id);
-    retirePrevious(previous, resumed);
+    await retirePrevious(previous, resumed);
     setSession(resumed);
     // Resume is not work: the Lead pool row is written only by turn
     // start/settle, so opening an old conversation never re-lists it in the

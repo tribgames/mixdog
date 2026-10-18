@@ -59,8 +59,42 @@ test('setup results offload at the setup output budget, not the 50k default', as
   }
 });
 
+test('git offloads keep a large head+tail preview and name the full output path', async () => {
+  const originalDataDir = process.env.MIXDOG_DATA_DIR;
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-offload-git-'));
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  try {
+    const raw = `HEAD-MARK\n${'diff line\n'.repeat(8_000)}TAIL-MARK\n`;
+    const git = await maybeOffloadToolResult('session-git', 'call-git', 'git', raw);
+    const other = await maybeOffloadToolResult('session-git', 'call-glob', 'glob', raw);
+    assert.match(git, /^\[tool output offloaded: git → /);
+    assert.match(git, /HEAD-MARK/);
+    assert.match(git, /TAIL-MARK/);
+    assert.match(git, /\n\[output capped at 8000 chars; narrow: read it with offset\/limit; full output: [^\]]+\]$/);
+    assert.ok(git.length > 8_000 && git.length < 8_800, String(git.length));
+    assert.ok(other.length < 1_000, 'non-git tools keep the 512-char preview');
+  } finally {
+    if (originalDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = originalDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('terminal results offload at the shell threshold', async () => {
   const { _internals } = await import('./tool-result-offload.mjs');
   assert.equal(_internals.getOffloadThreshold('terminal'), _internals.TOOL_RESULT_SHELL_THRESHOLD_CHARS);
-  assert.equal(_internals.getOffloadThreshold('terminal'), _internals.getOffloadThreshold('shell'));
+});
+
+test('shell and task results are never offloaded: the shell delivery already capped them', async () => {
+  const { _internals, maybeOffloadToolResult, maybeOffloadToolResultBatch } = await import('./tool-result-offload.mjs');
+  assert.equal(_internals.getOffloadThreshold('shell'), Infinity);
+  assert.equal(_internals.getOffloadThreshold('task'), Infinity);
+  const big = 'x'.repeat(_internals.TOOL_RESULT_MESSAGE_MAX_CHARS + 10);
+  assert.equal(await maybeOffloadToolResult('sess-shell-inline', 'c1', 'shell', big), big);
+  assert.equal(await maybeOffloadToolResult('sess-shell-inline', 'c2', 'task', big), big);
+  const states = await maybeOffloadToolResultBatch('sess-shell-inline', [
+    { toolCallId: 'c3', toolName: 'shell', result: big },
+    { toolCallId: 'c4', toolName: 'task', result: big },
+  ]);
+  assert.ok(states.every((state) => state.result === big && !state.error));
 });

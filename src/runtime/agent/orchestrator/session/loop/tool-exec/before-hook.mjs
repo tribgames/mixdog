@@ -9,7 +9,7 @@ import { beginSessionApprovalWait } from '../../manager/runtime-liveness.mjs';
 
 const isArgsObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 
-async function askApproval(call, { callerSessionId, executeOpts, toolApprovalHook, decision, keepArgs = false }) {
+async function askApproval(call, { callerSessionId, executeOpts, toolApprovalHook, decision }) {
   const askReason = String(decision?.reason || 'approval requested by hook').trim();
   // While the user decides, the session is waiting on them, not working.
   const releaseApprovalWait = beginSessionApprovalWait(callerSessionId);
@@ -31,33 +31,23 @@ async function askApproval(call, { callerSessionId, executeOpts, toolApprovalHoo
   }
   if (askOutcome.denial) return { denial: askOutcome.denial };
   const approval = askOutcome.approval;
-  if (!keepArgs && approval && typeof approval === 'object' && isArgsObject(approval.args)) call.args = approval.args;
+  if (approval && typeof approval === 'object' && isArgsObject(approval.args)) call.args = approval.args;
   return null;
 }
 
 /**
- * Approval gate for a shell call (or a terminal `run`) whose exec policy
- * decision is 'ask' (elevated launch). Runs after the final call is known. The
- * approval is granted for the exact command being asked about: an approval
- * reply cannot rewrite the args.
- * @returns {Promise<{ denial: string } | { elevationApproved: boolean }>}
+ * Elevation pass for a shell call (or a terminal `run`) whose exec policy
+ * decision is 'ask' (elevated launch). Runs after the final call is known.
+ * Mixdog does not prompt first: the OS elevation prompt (Windows UAC) is the
+ * user's confirmation. A deny is never lifted.
+ * @returns {{ elevationApproved: boolean }}
  */
-export async function applyShellElevationGate(call, { callerSessionId, executeOpts, toolApprovalHook }) {
+export function applyShellElevationGate(call) {
   const gated = call.name === 'shell' || (call.name === 'terminal' && call.args?.action === 'run');
   if (!gated || !isArgsObject(call.args) || call.args.command == null) {
     return { elevationApproved: false };
   }
-  const decision = evaluateExecPolicy(String(call.args.command));
-  if (decision.decision !== 'ask') return { elevationApproved: false };
-  const denied = await askApproval(call, {
-    callerSessionId,
-    executeOpts,
-    toolApprovalHook,
-    decision,
-    keepArgs: true,
-  });
-  if (denied) return denied;
-  return { elevationApproved: true };
+  return { elevationApproved: evaluateExecPolicy(String(call.args.command)).decision === 'ask' };
 }
 
 /**

@@ -5,6 +5,7 @@
 import { READ_MAX_LINE_COLLECT_BYTES } from './read-constants.mjs';
 import { renderReadLine } from './read-formatting.mjs';
 import { maybeRecordReadRangeAnchor } from './read-range-index.mjs';
+import { capMarker, windowMarker } from './tool-output-limit.mjs';
 
 export function createReadLineCollector({ offset, limit, bodyOutputBytes, rangeIndex, startLine, fileSize = 0 }) {
   const collected = [];
@@ -148,10 +149,11 @@ export function createReadLineCollector({ offset, limit, bodyOutputBytes, rangeI
       let out = collected.join('\n');
       if (truncated) {
         const nextOffset = (lastEmitted || offset) + readOffsetBase;
-        const ofFile = fileSize > 0 ? ` of a ${Math.max(1, Math.round(fileSize / 1024))} KB file` : '';
-        out += `\n\n... [output truncated at ${Math.max(1, Math.round(maxOutputBytes / 1024))} KB${ofFile}; pass offset:${nextOffset} to continue] ...`;
+        const ofFile = fileSize > 0 ? `${Math.max(1, Math.round(fileSize / 1024))} KB file` : '';
+        out += `\n\n${capMarker({ limit: maxOutputBytes, shown: ofFile, nextOffset })}`;
       } else if (stoppedAtLimit) {
-        out += `${out ? '\n' : ''}... [range limit reached; next offset: ${offset + collected.length + readOffsetBase}]`;
+        const nextOffset = offset + collected.length + readOffsetBase;
+        out += `${out ? '\n' : ''}${windowMarker({ from: offset + 1, to: offset + collected.length, nextOffset })}`;
       } else if (!out && offset >= lineIdx) {
         out = `(no lines in range; file has ${lineIdx} lines)`;
       }

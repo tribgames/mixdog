@@ -185,9 +185,9 @@ export async function writePresentationChart(zip, { chartPart, embeddingPart, ch
   const id = /\bId="([^"]+)"/.exec(previous)?.[1] || `rId${Math.max(0, ...taken) + 1}`;
   const relationship = `<Relationship Id="${id}" Type="${OFFICE_RELATIONSHIP_BASE}/package" Target="${target}"/>`;
   let relationships = `${XML_HEADER}<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}">${relationship}</Relationships>`;
-  if (previous) relationships = existing.replace(previous, relationship);
+  if (previous) relationships = existing.replace(previous, () => relationship);
   else if (existing.includes('</Relationships>'))
-    relationships = existing.replace('</Relationships>', `${relationship}</Relationships>`);
+    relationships = existing.replace('</Relationships>', () => `${relationship}</Relationships>`);
   zip.file(relationshipsPath, relationships);
   zip.file(chartPart, citeChartWorkbook(chart, id));
   await ensureContentTypeOverride(zip, `/${chartPart}`, CHART_CONTENT_TYPE);
@@ -197,7 +197,7 @@ export async function writePresentationChart(zip, { chartPart, embeddingPart, ch
 function citeChartWorkbook(chart, id) {
   const text = String(chart);
   if (/<c:externalData\b[^>]*\br:id="/.test(text)) {
-    return text.replace(/(<c:externalData\b[^>]*\br:id=")[^"]*(")/, `$1${id}$2`);
+    return text.replace(/(<c:externalData\b[^>]*\br:id=")[^"]*(")/, (__m, __1, __2) => `${__1}${id}${__2}`);
   }
   const cited = `<c:externalData r:id="${id}"><c:autoUpdate val="0"/></c:externalData>`;
   const before = /<c:(?:printSettings|userShapes|extLst)\b|<\/c:chartSpace>/.exec(text);

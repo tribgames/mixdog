@@ -53,7 +53,12 @@ test('generic oversized PowerShell commands use a safe whole-script transport', 
   assert.ok(plan);
   assert.equal(plan.extension, '.ps1');
   assert.equal(plan.body, command);
-  assert.equal(plan.replace("C:\\Temp\\it's-long.ps1"), "& 'C:/Temp/it''s-long.ps1'");
+  // Evaluated in the host scope rather than called as `& file.ps1`, which would turn
+  // `exit N` into 1 and a failing last command into 0; exit codes are pinned by
+  // shell-rewrite-audit.test.mjs. The path is one quoted literal ('' escaped).
+  const replaced = plan.replace("C:\\Temp\\it's-long.ps1");
+  assert.ok(replaced.startsWith("Invoke-Expression ([System.IO.File]::ReadAllText('C:/Temp/it''s-long.ps1',"));
+  assert.ok(!replaced.startsWith('&'));
   assert.equal(
     planLongShellScriptFileTransport(`${command}\nWrite-Output $PSScriptRoot`, {
       platform: 'win32',
@@ -128,7 +133,8 @@ test('Windows fresh pwsh spawn reports parse errors in UTF-8 and keeps exit code
 test('Windows runs a grouped PowerShell pipeline as written', {
   skip: process.platform !== 'win32' && 'Windows only',
 }, async () => {
-  const command = "$t = 'private int Alpha; internal void Beta('; ([regex]::Matches($t,'(\\w+)\\s*(?:\\(|;)') | % { $_.Groups[1].Value }) -join ','";
+  const command =
+    "$t = 'private int Alpha; internal void Beta('; ([regex]::Matches($t,'(\\w+)\\s*(?:\\(|;)') | % { $_.Groups[1].Value }) -join ','";
   const result = normalizeToolEnvelope(await executeBashTool({ command, timeout_ms: 10_000 }, process.cwd()));
   assert.equal(result.explicitSuccess, true, result.result);
   assert.match(result.result, /Alpha,Beta/);

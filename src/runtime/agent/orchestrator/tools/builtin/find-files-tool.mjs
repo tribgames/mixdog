@@ -15,7 +15,7 @@ import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outc
 import { cacheGet, cacheSet, statPathsForMtime } from './cache-layers.mjs';
 import { formatListSize, formatMtime } from './list-formatting.mjs';
 import { compileSimpleGlob } from './glob-walk.mjs';
-import { capLineOrientedToolOutput, LOCATOR_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
+import { capLineOrientedToolOutput, capMarker, LOCATOR_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
 import { runRg } from './native-search-runner.mjs';
 import { tryServeFuzzySearch } from './native-search-client.mjs';
 import {
@@ -23,7 +23,12 @@ import {
   recordLocalSearchCacheHit,
   recordNativeSearchTiming,
 } from './local-search-telemetry.mjs';
-import { guardedWalkRoot, normalizeListHeadLimit, pageContinuationLine } from './lib/list-helpers.mjs';
+import {
+  comparePathsStable,
+  guardedWalkRoot,
+  normalizeListHeadLimit,
+  pageContinuationLine,
+} from './lib/list-helpers.mjs';
 import { reportToolProgress } from './lib/tool-progress.mjs';
 import { displayRelPath, statWalkRoot, toolErrorText } from './list-tool-shared.mjs';
 
@@ -198,11 +203,16 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
   const { query, fullPath, headLimit } = request;
   const cacheKey = fuzzyFindCacheKey(request);
   const capFindResult = (value) =>
-    capLineOrientedToolOutput(
-      value,
-      _findOutputBudgetBytes(options),
-      () => `... [find result budget reached for query=${JSON.stringify(query)}; narrow path/limit]`
-    );
+    capLineOrientedToolOutput(value, _findOutputBudgetBytes(options), (kept) => {
+      const rows = kept.filter((line) => line && !/^(?:#|\.\.\.|\[|\()/.test(line)).length;
+      return capMarker({
+        limit: _findOutputBudgetBytes(options),
+        shown: `${rows} match row(s) shown for query=${JSON.stringify(query)}`,
+        // Fuzzy find ranks by score and has no offset: a continuation offset
+        // would be ignored, so the cut gets narrowing advice instead.
+        narrow: rows > 0 ? 'use a more specific query or add path' : 'narrow path/limit',
+      });
+    });
   const cached = cacheGet(cacheKey);
   if (cached !== null) {
     recordLocalSearchCacheHit('result');
@@ -444,9 +454,12 @@ async function collectFindMatches(request, relPaths, nameMatches, workDir) {
 }
 
 function findComparator(sortMode) {
-  if (sortMode === 'name') return (a, b) => normalizeOutputPath(a.path).localeCompare(normalizeOutputPath(b.path));
-  if (sortMode === 'size') return (a, b) => b.size - a.size;
-  return (a, b) => b.mtimeMs - a.mtimeMs;
+  const byPath = (a, b) => comparePathsStable(normalizeOutputPath(a.path), normalizeOutputPath(b.path));
+  if (sortMode === 'name') {
+    return (a, b) => normalizeOutputPath(a.path).localeCompare(normalizeOutputPath(b.path)) || byPath(a, b);
+  }
+  if (sortMode === 'size') return (a, b) => b.size - a.size || byPath(a, b);
+  return (a, b) => b.mtimeMs - a.mtimeMs || byPath(a, b);
 }
 
 function findResultLine(match, fullPath) {
@@ -467,7 +480,11 @@ function renderFindResult(
   if (paged) lines.push(pageContinuationLine(offset, sliced.length, matches.length));
   if (truncatedByCap) {
     lines.push(
-      `... walk truncated at ${FIND_ABSOLUTE_CAP} matches; narrow the scope (path/name/modified_after) for accurate global sort`
+      capMarker({
+        limit: `${FIND_ABSOLUTE_CAP} matches`,
+        shown: 'walk cut, global sort inexact',
+        narrow: 'narrow the scope (path/name/modified_after)',
+      })
     );
   }
   if (walkIncomplete) {

@@ -18,7 +18,7 @@ test('missing path is reported once across patterns, distinct errors stay distin
 
 test('read continuation retains exact range and next coordinate without advice', () => {
   const output = sliceReadBodyByLines('1→a\n2→b\n3→c\n[lines 1-3 of 10]', 0, 2);
-  assert.equal(output, '1→a\n2→b\n[lines 1-2 of 10; pass offset:3 to continue]');
+  assert.equal(output, '1→a\n2→b\n[lines 1-2 of 10; offset:3 for more]');
 });
 
 test('mixed pattern failures retain their attribution and order without repeated missing-path text', () => {

@@ -189,6 +189,15 @@ export function readTopLevelLifecycleRecord(raw) {
   // — for EVERY top-level key, since consumers reserialize and act on the
   // whole record, not only on the lifecycle three.
   if (!hasUniqueTopLevelKeys(raw)) return LIFECYCLE_SCAN_CONFLICT;
+  return lifecycleRecordOf(doc);
+}
+
+/**
+ * Step 3 alone, for a reader that has already proven `doc` is the complete,
+ * well-formed, duplicate-free top-level object of its document (see
+ * store-record-strict-scan.mjs): the record, or LIFECYCLE_SCAN_CONFLICT.
+ */
+export function lifecycleRecordOf(doc) {
   const has = (key) => Object.hasOwn(doc, key);
   const record = { doc, id: undefined, closed: undefined, generation: undefined };
   if (has('id')) {

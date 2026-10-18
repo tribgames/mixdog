@@ -1,6 +1,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { MAX_PDF_BYTES, MAX_PDF_PAGES, isPdfBuffer } from '../../../../attachments/limits.mjs';
 import { READ_MAX_SIZE_BYTES } from './read-constants.mjs';
+import { capMarker } from './tool-output-limit.mjs';
 import { imageBlocksFromBuffer } from './read-image-resize.mjs';
 import { inspectPdfBuffer } from '../../../../attachments/pdf-extract.mjs';
 
@@ -190,7 +191,7 @@ function capNotebookText(blocks, maxOutputBytes) {
   if (truncated) {
     capped.push({
       type: 'text',
-      text: `\n\n... [notebook output truncated at ${Math.round(maxOutputBytes / 1024)} KB]`,
+      text: `\n\n${capMarker({ limit: maxOutputBytes, shown: 'notebook cells cut', narrow: 'grep the notebook for the cell text you need' })}`,
     });
   }
   return capped;

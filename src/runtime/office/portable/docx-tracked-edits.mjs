@@ -12,8 +12,8 @@ export function trackedParagraphRewrite(paragraphXml, text, id, author) {
   const properties = /<w:r(?:\s[^>]*)?>\s*(<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>)/.exec(paragraphXml)?.[1] || '';
   const deleted = markRunsDeleted(paragraphXml, id, author);
   const inserted = `<w:ins ${revisionAttributes(id + runCount, author)}><w:r>${properties}${wordTextContent(text, { preserve: true })}</w:r></w:ins>`;
-  if (/<\/w:p>\s*$/.test(deleted)) return deleted.replace(/<\/w:p>\s*$/, `${inserted}</w:p>`);
-  if (/\/>\s*$/.test(deleted)) return deleted.replace(/\/>\s*$/, `>${inserted}</w:p>`);
+  if (/<\/w:p>\s*$/.test(deleted)) return deleted.replace(/<\/w:p>\s*$/, () => `${inserted}</w:p>`);
+  if (/\/>\s*$/.test(deleted)) return deleted.replace(/\/>\s*$/, () => `>${inserted}</w:p>`);
   throw new Error('DOCX paragraph is malformed');
 }
 

@@ -21,76 +21,50 @@ class FakeWorker extends EventEmitter {
   }
 }
 
-test('successful code-graph build terminates its worker and releases the spawn slot', async () => {
+test('successful code-graph build terminates its worker', async () => {
   let worker = null;
-  let releases = 0;
-  const pending = _spawnCodeGraphWorker(
-    process.cwd(),
-    process.cwd(),
-    0,
-    null,
-    () => {
-      releases += 1;
+  const pending = _spawnCodeGraphWorker(process.cwd(), process.cwd(), 0, null, null, null, {
+    createWorker() {
+      worker = new FakeWorker();
+      return worker;
     },
-    null,
-    null,
-    {
-      createWorker() {
-        worker = new FakeWorker();
-        return worker;
-      },
-      getGeneration: () => 0,
-      setMemoryCache: () => {},
-      setDiskCache: () => {},
-    }
-  );
+    getGeneration: () => 0,
+    setMemoryCache: () => {},
+    setDiskCache: () => {},
+  });
   await new Promise((resolve) => setImmediate(resolve));
   worker.emit('message', { ok: true, graph: { files: [] }, signature: 'sig' });
 
   assert.deepEqual(await pending, { files: [] });
   assert.equal(worker.terminations, 1);
-  assert.equal(releases, 1);
 });
 
 test('code-graph retries one stale worker result with the latest generation', async () => {
   const workers = [];
   let starts = 0;
-  let releases = 0;
   const graph = await _retryCodeGraphBuildAfterInvalidation(async () => {
     const attempt = starts++;
-    return _spawnCodeGraphWorker(
-      process.cwd(),
-      process.cwd(),
-      attempt,
-      null,
-      () => {
-        releases += 1;
+    return _spawnCodeGraphWorker(process.cwd(), process.cwd(), attempt, null, null, null, {
+      createWorker() {
+        const worker = new FakeWorker();
+        workers.push(worker);
+        queueMicrotask(() =>
+          worker.emit('message', {
+            ok: true,
+            graph: { attempt },
+            signature: `sig-${attempt}`,
+          })
+        );
+        return worker;
       },
-      null,
-      null,
-      {
-        createWorker() {
-          const worker = new FakeWorker();
-          workers.push(worker);
-          queueMicrotask(() =>
-            worker.emit('message', {
-              ok: true,
-              graph: { attempt },
-              signature: `sig-${attempt}`,
-            })
-          );
-          return worker;
-        },
-        getGeneration: () => (attempt === 0 ? 1 : attempt),
-        setMemoryCache: () => {},
-        setDiskCache: () => {},
-      }
-    );
+      getGeneration: () => (attempt === 0 ? 1 : attempt),
+      setMemoryCache: () => {},
+      setDiskCache: () => {},
+    });
   });
 
   assert.deepEqual(graph, { attempt: 1 });
   assert.equal(starts, 2);
-  assert.equal(releases, 2);
   assert.deepEqual(
     workers.map((worker) => worker.terminations),
     [1, 1]
@@ -132,7 +106,7 @@ test('code-graph answers from the last finished graph when files keep changing, 
   let cacheWrites = 0;
   const graph = await _retryCodeGraphBuildAfterInvalidation(async () => {
     const attempt = starts++;
-    return _spawnCodeGraphWorker(process.cwd(), process.cwd(), attempt, null, () => {}, null, null, {
+    return _spawnCodeGraphWorker(process.cwd(), process.cwd(), attempt, null, null, null, {
       createWorker() {
         const worker = new FakeWorker();
         queueMicrotask(() => worker.emit('message', { ok: true, graph: { attempt }, signature: `sig-${attempt}` }));

@@ -103,12 +103,15 @@ function completionEntryFields(entry) {
   };
 }
 
-export function completionWasDelivered(entry, site) {
+/** True when this completion entry already reached the model (no log). */
+export function completionIsDelivered(entry) {
   if (!isCompletionNotificationEntry(entry)) return false;
-  const executionId = completionExecutionId(entry);
-  const text = pendingMessageText(entry);
-  if (!isDeliveredCompletion({ executionId, text })) return false;
-  logDuplicateSkip(site, { executionId, text });
+  return isDeliveredCompletion({ executionId: completionExecutionId(entry), text: pendingMessageText(entry) });
+}
+
+export function completionWasDelivered(entry, site) {
+  if (!completionIsDelivered(entry)) return false;
+  logDuplicateSkip(site, { executionId: completionExecutionId(entry), text: pendingMessageText(entry) });
   return true;
 }
 
@@ -166,7 +169,7 @@ function explicitModeField(entry) {
   return entry?.mode === PENDING_MODE_TASK_NOTIFICATION ? { mode: PENDING_MODE_TASK_NOTIFICATION } : {};
 }
 
-export function normalizePendingMessageEntry(entry) {
+function normalizePendingMessageEntry(entry) {
   if (typeof entry === 'string') {
     const text = entry.trim();
     return text ? { content: text, text } : null;
@@ -211,7 +214,7 @@ export function normalizePendingMessageEntry(entry) {
   return carryLifecycleToken(marker ? { ...out, ...identity, ...marker } : { ...out, ...identity }, entry);
 }
 
-export function pendingMessageText(entry) {
+function pendingMessageText(entry) {
   const normalized = normalizePendingMessageEntry(entry);
   return normalized ? String(normalized.text || promptContentText(normalized.content) || '').trim() : '';
 }

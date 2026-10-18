@@ -108,6 +108,11 @@ function gitActionOf(operation, args) {
   return first || DEFAULT_GIT_ACTIONS.get(operation) || 'list';
 }
 
+const GIT_BRANCH_WRITE_FLAGS =
+  /^(?:-[dDmMcCfu]|--(?:delete|move|copy|force|set-upstream-to(?:=.*)?|unset-upstream|edit-description|track|no-track|create-reflog))$/;
+const GIT_TAG_WRITE_FLAGS =
+  /^(?:-[adfsumFe]|--(?:annotate|delete|force|sign|local-user(?:=.*)?|message(?:=.*)?|file(?:=.*)?|edit))$/;
+
 const GIT_CONFIG_MUTATION_FLAGS = new Set([
   '--add',
   '--edit',
@@ -140,9 +145,13 @@ export function gitPlanIsReadOnly(plan) {
   }
   if (operation === 'hash-object') return !args.includes('-w') && !args.includes('--stdin-paths');
   if (operation === 'branch' || operation === 'tag') {
-    return (
-      args.length === 0 || args.some((value) => ['--list', '-l', '-a', '--all', '-r', '--remotes'].includes(value))
-    );
+    // A listing flag does not make the call read-only when another flag writes:
+    // `branch -a -D x` deletes and `tag -a v1` creates (there `-a` is
+    // --annotate, not --all).
+    const writes = operation === 'tag' ? GIT_TAG_WRITE_FLAGS : GIT_BRANCH_WRITE_FLAGS;
+    if (args.some((value) => writes.test(value))) return false;
+    const listFlags = operation === 'tag' ? ['--list', '-l'] : ['--list', '-l', '-a', '--all', '-r', '--remotes'];
+    return args.length === 0 || args.some((value) => listFlags.includes(value));
   }
   if (operation === 'config') {
     if (args.some((value) => GIT_CONFIG_MUTATION_FLAGS.has(value))) return false;

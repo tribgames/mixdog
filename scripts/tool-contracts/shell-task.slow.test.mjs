@@ -57,7 +57,7 @@ async function withAutoBackgroundMs(ms, run) {
 
 test('shell names its supported args for an unsupported one and absorbs timeout edge values', () => {
   const unsupportedErr = validateBuiltinArgs('shell', { command: 'node --version', verbose: true });
-  if (!/unsupported.*command, timeout_ms, and wait_ms/i.test(unsupportedErr || '')) {
+  if (!/unsupported.*command, timeout_ms, wait_ms, and background/i.test(unsupportedErr || '')) {
     throw new Error(`shell must reject an unsupported arg with the supported list: ${unsupportedErr}`);
   }
   const shellZeroTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: 0 });
@@ -348,8 +348,8 @@ test('auto-promotion returns a tracked task with completion guidance', async () 
     )
   );
   if (
-    !/auto-backgrounded/i.test(String(shellAutoPromoteOut)) ||
-    !/Completion arrives automatically/i.test(String(shellAutoPromoteOut))
+    !/moved to background after the \d+s hold/i.test(String(shellAutoPromoteOut)) ||
+    !/delivered automatically/i.test(String(shellAutoPromoteOut))
   ) {
     throw new Error(
       `shell auto-promotion must return a tracked task with automatic-completion guidance:\n${shellAutoPromoteOut}`

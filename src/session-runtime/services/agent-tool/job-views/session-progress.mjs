@@ -58,9 +58,16 @@ export function liveAgentStatusRow(row) {
 }
 
 export function createSessionProgress({ mgr }) {
-  function sessionProgressExtras(sessionId, role, now = Date.now(), taskStatus = null) {
+  /** `loaded`: the caller's own getSession(sessionId) answer from this same
+   *  read, so the session is not loaded a second time. */
+  function sessionProgressExtras(sessionId, role, now = Date.now(), taskStatus = null, { loaded } = {}) {
     if (!sessionId) return {};
-    const session = mgr.getSession(sessionId);
+    // Only the session's status is read here: the manager's stamp-validated
+    // status lookup spares a whole-transcript read per idle worker per pulse.
+    let sessionStatus;
+    if (loaded !== undefined) sessionStatus = loaded?.status || null;
+    else if (typeof mgr.loadSessionStatus === 'function') sessionStatus = mgr.loadSessionStatus(sessionId) || null;
+    else sessionStatus = mgr.getSession(sessionId)?.status || null;
     const runtime = mgr.getSessionRuntime?.(sessionId) || null;
     const snapshot =
       typeof mgr.getSessionProgressSnapshot === 'function' ? mgr.getSessionProgressSnapshot(sessionId) : null;
@@ -72,8 +79,8 @@ export function createSessionProgress({ mgr }) {
       typeof mgr.getSessionPendingMessageDepth === 'function' ? mgr.getSessionPendingMessageDepth(sessionId) : null;
     return buildAgentTaskProgressFields({
       now,
-      sessionStatus: session?.status || null,
-      runtimeStage: runtime?.stage || snapshot?.stage || session?.status || null,
+      sessionStatus,
+      runtimeStage: runtime?.stage || snapshot?.stage || sessionStatus,
       snapshot,
       runtime,
       policy,
@@ -96,6 +103,8 @@ export function createSessionProgress({ mgr }) {
       stage: progress.worker_stage || runtime?.stage || status,
       // Additive: present only while the worker's turn waits on a user approval.
       ...(runtime?.awaitingUser ? { awaitingUser: runtime.awaitingUser } : {}),
+      // Additive: present only while the worker's turn sits in `task wait`.
+      ...(runtime?.taskWaits > 0 ? { awaitingTask: 'wait' } : {}),
       clientHostPid: session.clientHostPid || null,
       lastStreamDeltaAt: runtime?.lastStreamDeltaAt ? new Date(runtime.lastStreamDeltaAt).toISOString() : null,
       ...progress,

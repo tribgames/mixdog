@@ -141,7 +141,7 @@ export async function writeWorksheetNote(zip, sheet, worksheetXml, { cell, text,
     authorId = authors.length - 1;
     comments = comments.replace(
       /<authors>[\s\S]*?<\/authors>/,
-      `<authors>${authors.map((entry) => `<author>${xmlEncode(entry)}</author>`).join('')}</authors>`
+      () => `<authors>${authors.map((entry) => `<author>${xmlEncode(entry)}</author>`).join('')}</authors>`
     );
   }
   const pattern = new RegExp(`<comment\\b[^>]*\\bref="${parsed.ref}"[^>]*>[\\s\\S]*?<\\/comment>`);
@@ -155,11 +155,17 @@ export async function writeWorksheetNote(zip, sheet, worksheetXml, { cell, text,
   const entry =
     `<comment ref="${parsed.ref}" authorId="${authorId}">` +
     `<text><r><t xml:space="preserve">${xmlEncode(body)}</t></r></text></comment>`;
-  zip.file(context.commentsPart, comments.replace('</commentList>', `${entry}</commentList>`));
+  zip.file(
+    context.commentsPart,
+    comments.replace('</commentList>', () => `${entry}</commentList>`)
+  );
   if (!existing) {
     const vml = await zipText(zip, context.vmlPart);
     const shapeId = 1025 + (vml.match(/<v:shape\b/g) || []).length;
-    zip.file(context.vmlPart, vml.replace('</xml>', `${vmlNoteShape(shapeId, parsed)}</xml>`));
+    zip.file(
+      context.vmlPart,
+      vml.replace('</xml>', () => `${vmlNoteShape(shapeId, parsed)}</xml>`)
+    );
   }
   return { worksheet: context.worksheet, changed: true, cell: parsed.ref };
 }

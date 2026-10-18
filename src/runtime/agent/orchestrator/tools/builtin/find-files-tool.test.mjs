@@ -52,7 +52,7 @@ test('find_files treats a paged complete result as complete and reuses it', asyn
     const args = { path: root, name: 'entry', head_limit: 1 };
     const first = { complete: true, cacheSafe: true };
     const out = await executeFindFilesTool({ ...args }, process.cwd(), { scopedCacheOutcome: first });
-    assert.match(out, /pass offset:1 to continue/);
+    assert.match(out, /offset:1 for more/);
     assert.equal(first.complete, true);
     assert.equal(await executeFindFilesTool({ ...args }, process.cwd()), out);
   });

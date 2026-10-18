@@ -39,6 +39,8 @@ export function createSessionFlow(bag) {
     enqueue: loop.enqueue,
     settleClosedQueue: loop.settleClosedQueue,
     hasPendingSteering: steering.hasPendingSteering,
+    hasPendingUserInput: steering.hasPendingUserInput,
+    pendingTaskWaitWake: steering.pendingTaskWaitWake,
     drainPendingSteering: steering.drainPendingSteering,
     restoreLeadSteeringFromDisk: steering.restoreLeadSteeringFromDisk,
     autoClearBeforeSubmit: autoClear.autoClearBeforeSubmit,

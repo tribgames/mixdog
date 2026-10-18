@@ -73,7 +73,7 @@ export function patchParagraphFormat(xml, properties, numbering = null) {
 // opened in its place first, so the patch lands inside the schema's order rather than ahead of the style's name.
 function openStyleProperties(styleXml, tag) {
   if (new RegExp(`<w:${tag}(?:\\s[^>]*)?(?:/>|>)`).test(styleXml)) {
-    return styleXml.replace(new RegExp(`<w:${tag}(?:\\s[^>]*)?/>`), `<w:${tag}></w:${tag}>`);
+    return styleXml.replace(new RegExp(`<w:${tag}(?:\\s[^>]*)?/>`), () => `<w:${tag}></w:${tag}>`);
   }
   const before = tag === 'pPr' ? /<w:(?:rPr|tblPr|trPr|tcPr|tblStylePr)\b/ : /<w:(?:tblPr|trPr|tcPr|tblStylePr)\b/;
   const at = before.exec(styleXml)?.index ?? styleXml.lastIndexOf('</w:style>');

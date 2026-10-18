@@ -3,7 +3,16 @@
 // when tombstone=false), aborts the in-flight controller, tears down
 // runtime/bash/dedup/offload/pending state, and defers the runtime-map clear.
 // abortSessionTurn cancels the current turn without tombstoning.
-import { markSessionClosed, bumpSessionGeneration, getSessionLifecycleCommitError } from '../store.mjs';
+import {
+  markSessionClosed,
+  markSessionClosedAsync,
+  markSessionClosedAttempt,
+  bumpSessionGeneration,
+  bumpSessionGenerationAttempt,
+  isLifecycleRetry,
+  getSessionLifecycleCommitError,
+} from '../store.mjs';
+import { sleep } from '../../../../shared/sleep.mjs';
 import { clearReadDedupSession } from '../read-dedup.mjs';
 import { SessionClosedError } from './session-errors.mjs';
 import { _dropPendingMessageState } from './pending-messages.mjs';
@@ -36,44 +45,79 @@ import { forgetSideQuestion } from '../side-question-store.mjs';
  * TOMBSTONE_MAX_AGE_MS (1h — vastly longer than the microsecond in-flight race).
  */
 export function closeSession(id, reason = 'manual', opts = {}) {
-  // tombstone=false: detach runtime resources (heartbeat, bash shells,
-  // controller abort, runtime-map clear) WITHOUT planting the disk
-  // tombstone. Used for non-empty sessions on /resume-away, /new, and
-  // TUI exit: a tombstone would drop the session from the Resume list
-  // immediately and let sweepTombstones() hard-delete it even though it
-  // has real conversation content worth resuming. Only truly-empty
-  // scratch sessions should still tombstone.
-  const tombstone = opts.tombstone !== false;
   if (!id) return false;
+  const tombstone = opts.tombstone !== false;
   const entry = _getRuntimeEntry(id);
-  // askSession owns the interruption tracker that can merge committed
-  // iterations, the current partial response, and observed tool results into
-  // one canonical transcript. Stage that in-memory snapshot synchronously
-  // BEFORE the lifecycle generation changes; once generation is bumped, the
-  // normal cancellation cleanup save is intentionally rejected as stale. It
-  // is only staged: a refused barrier rolls it back so the turn keeps running
-  // and checkpointing as if no close had been attempted.
-  let closeSnapshot = null;
-  try {
-    closeSnapshot = entry?.prepareCloseSnapshot?.tentative?.(reason) ?? null;
-  } catch {
-    /* best-effort */
-  }
-  // 1. Tombstone first — this wins the race against saveSession().
-  //    Skipped when tombstone=false: no closed:true marker is planted, so
-  //    the session file stays intact and resumeSession() will accept it.
-  //    We still bump the on-disk generation via bumpSessionGeneration() —
-  //    that alone is what protects the session from a late save race: any
-  //    saveSession() still in flight from this detached turn (e.g. the
-  //    cancel-cleanup save below) carries the OLD generation as its
-  //    expectedGeneration, so _shouldDrop()'s ownership-counter rule drops
-  //    it once disk generation moves past that. Without this bump the late
-  //    write could silently overwrite the session after the user resumes
-  //    it back (BL: burned-session late-save clobber).
+  const closeSnapshot = stageCloseSnapshot(entry, reason);
   const outcome = { absent: false };
   const newGen = tombstone
     ? markSessionClosed(id, reason, { outcome })
     : bumpSessionGeneration(id, reason, { outcome });
+  return finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outcome });
+}
+
+/**
+ * closeSession that never blocks the event loop. Each barrier attempt runs
+ * synchronously exactly as closeSession's barrier does (the first one before
+ * this function first yields), but a rename the OS refuses with retries left
+ * is waited out with a timer instead of sleepSync. Between attempts the staged
+ * close snapshot is rolled back, so the turn keeps running untouched, and it
+ * is re-staged from the then-current turn right before the next attempt: the
+ * barrier that lands always carries the latest transcript. The session is
+ * torn down — and reported closed — only after its barrier is on disk.
+ */
+export async function closeSessionAsync(id, reason = 'manual', opts = {}) {
+  if (!id) return false;
+  const tombstone = opts.tombstone !== false;
+  const entry = _getRuntimeEntry(id);
+  for (let attempt = 0; ; attempt++) {
+    const closeSnapshot = stageCloseSnapshot(entry, reason);
+    const outcome = { absent: false };
+    const newGen = tombstone
+      ? markSessionClosedAttempt(id, reason, { outcome }, attempt)
+      : bumpSessionGenerationAttempt(id, reason, { outcome }, attempt);
+    if (!isLifecycleRetry(newGen)) {
+      return finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outcome });
+    }
+    closeSnapshot?.rollback();
+    await sleep(newGen.retryInMs);
+  }
+}
+
+// askSession owns the interruption tracker that can merge committed
+// iterations, the current partial response, and observed tool results into
+// one canonical transcript. Stage that in-memory snapshot synchronously
+// BEFORE the lifecycle generation changes; once generation is bumped, the
+// normal cancellation cleanup save is intentionally rejected as stale. It
+// is only staged: a refused barrier rolls it back so the turn keeps running
+// and checkpointing as if no close had been attempted.
+function stageCloseSnapshot(entry, reason) {
+  try {
+    return entry?.prepareCloseSnapshot?.tentative?.(reason) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// tombstone=false: detach runtime resources (heartbeat, bash shells,
+// controller abort, runtime-map clear) WITHOUT planting the disk
+// tombstone. Used for non-empty sessions on /resume-away, /new, and
+// TUI exit: a tombstone would drop the session from the Resume list
+// immediately and let sweepTombstones() hard-delete it even though it
+// has real conversation content worth resuming. Only truly-empty
+// scratch sessions should still tombstone.
+//
+// The barrier (`newGen`) came first — it wins the race against saveSession().
+// tombstone=false plants no closed:true marker, so the session file stays
+// intact and resumeSession() will accept it, but the on-disk generation is
+// still bumped (bumpSessionGeneration): that alone protects the session from
+// a late save race. Any saveSession() still in flight from this detached turn
+// (e.g. the cancel-cleanup save below) carries the OLD generation as its
+// expectedGeneration, so _shouldDrop()'s ownership-counter rule drops it once
+// disk generation moves past that. Without this bump the late write could
+// silently overwrite the session after the user resumes it back (BL:
+// burned-session late-save clobber).
+function finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outcome }) {
   // Durable lifecycle barrier check. ANY nonnumeric result means the barrier
   // is not on disk — a write failure, a liveness/ownership veto, a contended
   // commit lock, or a missing record. Only a failed write publishes a
@@ -154,7 +198,10 @@ function reportCloseBarrierFailure({ id, reason, tombstone, entry }) {
  */
 function cancelOwnedShellProcesses({ id, reason, tombstone }) {
   const record = (result) => {
-    if (tombstone && result?.confirmed === false) markSessionClosed(id, reason, { cancelStatus: 'cancel-unconfirmed' });
+    // Off the event loop's critical path: a refused rename retries on timers.
+    if (tombstone && result?.confirmed === false) {
+      markSessionClosedAsync(id, reason, { cancelStatus: 'cancel-unconfirmed' }).catch(() => {});
+    }
   };
   // A cancel that threw proved nothing either.
   const unconfirmed = () => record({ confirmed: false });

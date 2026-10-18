@@ -498,10 +498,7 @@ async function runLegacyContextGrep(scope, rgArgs) {
 async function runPlainGrep(scope, rgArgs, effectiveHeadLimit) {
   const { options, outputMode, headLimit, offset, cacheKey, grepResolvedPath } = scope;
   const window = await collectGrepWindow(scope, rgArgs, effectiveHeadLimit);
-  let { windowed } = window;
-  if (outputMode === 'files_with_matches' && windowed.length > 1) {
-    windowed = await sortNewestFirst(windowed, scope.rgSpawnCwd);
-  }
+  const { windowed } = window;
   let body = formatGrepOutput({
     windowed,
     totalWindowed: window.totalWindowed,
@@ -542,7 +539,12 @@ async function runPlainGrep(scope, rgArgs, effectiveHeadLimit) {
 // complete.
 async function collectGrepWindow(scope, rgArgs, effectiveHeadLimit) {
   const { outputMode, offset, searchExecOptions } = scope;
-  if (effectiveHeadLimit !== Infinity) {
+  // The native scan emits content matches in inventory path order (stable, so
+  // the streamed content window pages directly). File lists are presented
+  // newest-first, so they are pageable only once the WHOLE set is re-ordered;
+  // `offset` slices after the sort.
+  const fileList = outputMode === 'files_with_matches' || outputMode === 'count';
+  if (effectiveHeadLimit !== Infinity && !fileList) {
     const streamed = await runRgWindowedLines(rgArgs, searchExecOptions, {
       offset,
       limit: effectiveHeadLimit,
@@ -556,7 +558,8 @@ async function collectGrepWindow(scope, rgArgs, effectiveHeadLimit) {
     };
   }
   const stdout = await runRg(rgArgs, searchExecOptions);
-  const allLines = String(stdout).split('\n').filter(Boolean);
+  let allLines = String(stdout).split('\n').filter(Boolean);
+  if (fileList) allLines = await orderFileListLines(allLines, outputMode, scope.rgSpawnCwd);
   const windowed = offset > 0 ? allLines.slice(offset) : allLines;
   const boxed = typeof stdout === 'object' ? stdout : {};
   return {
@@ -568,25 +571,31 @@ async function collectGrepWindow(scope, rgArgs, effectiveHeadLimit) {
   };
 }
 
-// files_with_matches: newest-first (mtime desc, path tiebreak) so recently
-// edited files surface first. Statting is bounded (64 workers, 5s
-// deadline); stat-failed entries keep rg traversal order after the statted
-// ones. Sort covers the shown window — with the default head limit the
-// common case is the complete result set.
-async function sortNewestFirst(windowed, rgSpawnCwd) {
-  const withStat = await statPathsForMtime(windowed, rgSpawnCwd, 64, { deadlineMs: 5000 });
+function compareCodeUnits(a, b) {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+// Total order over the complete file list, applied BEFORE offset/limit slice:
+// files_with_matches is newest-first (mtime desc, path tiebreak) so recently
+// edited files surface first; stat-failed entries follow in path order
+// (statting is bounded: 64 workers, 5s deadline). count lines sort by path.
+async function orderFileListLines(lines, outputMode, rgSpawnCwd) {
+  if (lines.length < 2) return lines;
+  if (outputMode === 'count') {
+    const pathOf = (line) => parseGrepCountLine(line)?.path ?? line;
+    return [...lines].sort((a, b) => compareCodeUnits(pathOf(a), pathOf(b)) || compareCodeUnits(a, b));
+  }
+  const withStat = await statPathsForMtime(lines, rgSpawnCwd, 64, { deadlineMs: 5000 });
   const statted = [];
   const unstatted = [];
-  for (let i = 0; i < windowed.length; i++) {
+  for (let i = 0; i < lines.length; i++) {
     const entry = withStat[i];
-    if (entry?.stat) statted.push({ line: windowed[i], mtimeMs: entry.mtimeMs });
-    else unstatted.push(windowed[i]);
+    if (entry?.stat) statted.push({ line: lines[i], mtimeMs: entry.mtimeMs });
+    else unstatted.push(lines[i]);
   }
-  statted.sort((a, b) => {
-    const dm = b.mtimeMs - a.mtimeMs;
-    if (dm !== 0) return dm;
-    return a.line.localeCompare(b.line);
-  });
+  statted.sort((a, b) => b.mtimeMs - a.mtimeMs || compareCodeUnits(a.line, b.line));
+  unstatted.sort(compareCodeUnits);
   return [...statted.map((e) => e.line), ...unstatted];
 }
 

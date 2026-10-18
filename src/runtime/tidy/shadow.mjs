@@ -20,7 +20,8 @@ const VERSION_PROBE_TIMEOUT_MS = 5000;
 // both the scan and the report stay bounded regardless of how full it is.
 const NPX_CACHE_DIRS_MAX = 40;
 const SHADOW_CAP = 8;
-const PROBE_CONCURRENCY = 4;
+// At most SHADOW_CAP short `--version` probes; run them all at once.
+const PROBE_CONCURRENCY = SHADOW_CAP;
 
 function samePath(left, right) {
   const a = String(left || '').replaceAll('\\', '/');

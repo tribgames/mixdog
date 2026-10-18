@@ -27,14 +27,14 @@ export function unregisterOwnedShellTree(jobId, entry) {
   if (ownedTrees.get(key) === entry) ownedTrees.delete(key);
 }
 
-/** Cancel every shell tree of one owner session. Synchronous (the native
- *  cancel's own result) when every snapshot is already complete; otherwise a
- *  promise that sends the cancel once the snapshots land or the bound passes. */
-export function cancelOwnedShellTrees(ownerSessionId) {
-  const owner = String(ownerSessionId || '').trim();
+/** Prepare the kill of every registered tree — of one owner, or of all when
+ *  `ownerSessionId` is null (runtime shutdown) — and unregister them. Returns
+ *  the snapshots still pending (empty when all were complete). */
+export function prepareOwnedShellTreeKills(ownerSessionId = null) {
+  const owner = ownerSessionId == null ? null : String(ownerSessionId).trim();
   const pending = [];
   for (const [jobId, entry] of [...ownedTrees]) {
-    if (String(entry.ownerSessionId || '') !== owner) continue;
+    if (owner !== null && String(entry.ownerSessionId || '') !== owner) continue;
     let ready;
     try {
       ready = entry.prepareKill();
@@ -44,6 +44,15 @@ export function cancelOwnedShellTrees(ownerSessionId) {
     if (ready !== true) pending.push(Promise.resolve(ready).catch(() => false));
     unregisterOwnedShellTree(jobId, entry);
   }
+  return pending;
+}
+
+/** Cancel every shell tree of one owner session. Synchronous (the native
+ *  cancel's own result) when every snapshot is already complete; otherwise a
+ *  promise that sends the cancel once the snapshots land or the bound passes. */
+export function cancelOwnedShellTrees(ownerSessionId) {
+  const owner = String(ownerSessionId || '').trim();
+  const pending = prepareOwnedShellTreeKills(owner);
   if (pending.length === 0) return cancelNativeTasks({ ownerSessionId: owner });
   let result = null;
   const send = () => {

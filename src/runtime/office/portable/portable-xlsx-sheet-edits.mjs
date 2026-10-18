@@ -393,7 +393,7 @@ export async function setWorksheetVisibility(zip, sheet, _xml, op) {
   const attrs =
     state === 'visible'
       ? match[0].replace(/\s*\bstate="[^"]*"/, '')
-      : match[0].replace(/\s*\bstate="[^"]*"/, '').replace(/\/>$/, ` state="${state}"/>`);
+      : match[0].replace(/\s*\bstate="[^"]*"/, '').replace(/\/>$/, () => ` state="${state}"/>`);
   zip.file(WORKBOOK_PATH, `${workbook.slice(0, match.index)}${attrs}${workbook.slice(match.index + match[0].length)}`);
   return { op: op.op, changed: true, sheet: sheet.name, visibility };
 }
@@ -460,7 +460,7 @@ export async function setRowHeightOrColumnWidth(zip, sheet, xml, op) {
         (tag) =>
           tag
             .replace(/\s*\b(?:ht|customHeight)="[^"]*"/g, '')
-            .replace(/(\/?>)$/, ` ht="${Math.round(size * 100) / 100}" customHeight="1"$1`),
+            .replace(/(\/?>)$/, (__m, __1) => ` ht="${Math.round(size * 100) / 100}" customHeight="1"${__1}`),
         true
       );
     }
@@ -606,7 +606,10 @@ export async function copyWorksheet(zip, sheet, xml, op, sheets) {
   const workbook = await zipText(zip, WORKBOOK_PATH);
   const sheetIds = [...workbook.matchAll(/<sheet\b[^>]*\bsheetId="(\d+)"/g)].map((match) => Number(match[1]));
   const entry = `<sheet name="${xmlEncode(label)}" sheetId="${Math.max(0, ...sheetIds) + 1}" r:id="${relationshipId}"/>`;
-  zip.file(WORKBOOK_PATH, workbook.replace('</sheets>', `${entry}</sheets>`));
+  zip.file(
+    WORKBOOK_PATH,
+    workbook.replace('</sheets>', () => `${entry}</sheets>`)
+  );
   await copySheetParts(zip, sheets, sheet, { name: label, path: copyPart });
   return { op: op.op, changed: true, sheet: label };
 }

@@ -23,7 +23,7 @@ const HEREDOC_OPENER = /^<<-?[ \t]*(?:'([A-Za-z_]\w*)'|"([A-Za-z_]\w*)"|([A-Za-z
 /** Marks each character 1 when it is live PowerShell code and 0 when it sits in a
  *  string, here-string, comment or after a backtick. null when the text cannot be
  *  tokenised with confidence (unterminated string, `$(` inside a double quote). */
-function codeMask(text) {
+export function codeMask(text) {
   const mask = new Uint8Array(text.length);
   // Bash heredoc bodies start on the line after their `<<DELIM` opener and are
   // opaque text (quotes inside them must not be tokenised).

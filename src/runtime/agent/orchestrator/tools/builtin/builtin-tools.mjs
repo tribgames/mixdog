@@ -9,25 +9,24 @@ import { GIT_TOOL_DEF } from './git-command-tool.mjs';
 import { PUBLIC_PATH_BATCH_LIMIT, PUBLIC_READ_WINDOW_MAX } from './arg-guard.mjs';
 import { GITHUB_TOOL_DEF } from '../../../../github/tool.mjs';
 import { envFlag } from '../../../../shared/env.mjs';
-// action=wait ceiling, colocated with the schema that publishes it so the
-// documented bounds and the runtime clamp cannot drift. The wait returns the
-// instant the task settles, so the ceiling only bounds how long a STILL-running
-// task may hold the call. The floor is the load-bearing part: measured runs
-// show a caller with no wait primitive re-reading the same task every 2-3 s
-// (177 reads in one trial), and a caller that can pass a timeout occasionally
-// asks for 1 s. Both collapse into a busy loop without a floor.
-//
-// The ceiling is bounded at 10 min for the mirror-image failure: a single wait
-// holding the ONLY decision point for longer than the caller's whole remaining
-// budget. Measured run: one `wait` with timeout_ms 2_400_000 blocked 1_611 s of
-// an 1_800 s budget and the caller never got another turn — no partial result,
-// no alternative path. A still-running task returns its current output at the
-// ceiling, so the caller re-decides and may wait again; nothing is lost except
-// the unbounded block. 10 min also matches the reference agent's equivalent
-// wait primitive, which caps at 600_000 ms.
-export const TASK_WAIT_TIMEOUT_DEFAULT_MS = 60_000;
-export const TASK_WAIT_TIMEOUT_MIN_MS = 10_000;
-export const TASK_WAIT_TIMEOUT_MAX_MS = 600_000;
+import {
+  SHELL_HOLD_DEFAULT_MS,
+  SHELL_HOLD_MAX_MS,
+  SHELL_HOLD_MIN_MS,
+  AGENT_TASK_WAIT_DEFAULT_MS,
+  TASK_WAIT_DEFAULT_MS,
+  TASK_WAIT_MAX_MS,
+  TASK_WAIT_MIN_MS,
+  budgetSeconds,
+} from './wait-budgets.mjs';
+// action=wait bounds, published by the schema below and clamped by the task
+// tool; the values live in wait-budgets.mjs. The wait returns the instant the
+// task settles or new user input or a task notification arrives, so the ceiling only bounds a
+// still-running task; the floor keeps wait from collapsing into a busy poll.
+export const TASK_WAIT_TIMEOUT_DEFAULT_MS = TASK_WAIT_DEFAULT_MS;
+export const TASK_WAIT_TIMEOUT_MIN_MS = TASK_WAIT_MIN_MS;
+export const TASK_WAIT_TIMEOUT_MAX_MS = TASK_WAIT_MAX_MS;
+const _holdS = budgetSeconds(SHELL_HOLD_DEFAULT_MS);
 const _shellSyntaxCheat =
   process.platform === 'win32'
     ? " PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no heredoc, </dev/null or | head/tail/wc (Select-Object -First/-Last); multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\; $PID is reserved."
@@ -146,7 +145,7 @@ export const BUILTIN_TOOLS = [
       openWorldHint: true,
       compressible: true,
     },
-    description: `Run programs, builds, tests and computation. Never use shell commands or scripts for work covered by dedicated tools: cat/head/tail→read, ls→list, find→glob, filename lookup→find, grep/rg→grep, code structure→code_graph, file edits/writes (sed/awk/redirection)→edit/apply_patch, Git→git when that tool is on the surface. Tool names are not shell commands. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 10s foreground window (not a timeout; omit wait_ms by default, set it up to 30s only for a command you expect to finish in 10–30s, e.g. one test file), unfinished work continues under task_id; use task wait, not read polling. If no execution slot frees within the admission wait, the command is queued as a background task with a task_id. Dev servers/watchers: pass timeout_ms or stop them with task cancel when done.'}`,
+    description: `Run programs, builds, tests and computation. Never use shell commands or scripts for work covered by dedicated tools: cat/head/tail→read, ls→list, find→glob, filename lookup→find, grep/rg→grep, code structure→code_graph, file edits/writes (sed/awk/redirection)→edit/apply_patch, Git→git when that tool is on the surface. Tool names are not shell commands. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : `Holds up to ${_holdS}s for the result. Still running at ${_holdS}s, or new user input or a task notification arrives: it moves to the background (never killed) and returns task_id plus output so far. Completion is delivered automatically; task wait only when you need the result now. If no execution slot frees, the command is queued as a background task. Dev servers/watchers: background:true, and stop them with task cancel when done.`}`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -154,15 +153,18 @@ export const BUILTIN_TOOLS = [
         timeout_ms: {
           type: 'integer',
           minimum: 0,
-          description:
-            'Hard kill deadline in ms (omit or 0 = none), separate from the 10s foreground window; set one for throwaway probes so a slow check fails fast.',
+          description: `Hard kill deadline in ms (omit or 0 = none), separate from the ${_holdS}s hold; set one for throwaway probes so a slow check fails fast.`,
         },
         wait_ms: {
           type: 'integer',
-          minimum: 10000,
-          maximum: 30000,
+          minimum: SHELL_HOLD_MIN_MS,
+          maximum: SHELL_HOLD_MAX_MS,
+          description: `Hold in ms before a still-running command moves to the background (default ${SHELL_HOLD_DEFAULT_MS}). Usually omit.`,
+        },
+        background: {
+          type: 'boolean',
           description:
-            'Foreground wait in ms before unfinished work continues as a background task (default 10000). Omit it by default. Set it only when you expect the command to finish within 10–30s (e.g. one test file or a small build step); never for work expected to take longer, which finishes by notification.',
+            'Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away.',
         },
       },
       required: ['command'],
@@ -188,7 +190,7 @@ export const BUILTIN_TOOLS = [
       openWorldHint: false,
     },
     description:
-      'Manage shell tasks. read/wait return new output, prioritizing the tail on completion. output:tail re-reads recent output without advancing the cursor; use read on the log path for omitted content. Wait instead of polling; completion notifications are automatic.',
+      'Manage shell tasks. Completion is delivered automatically; wait only when you need the result now, never poll with read. wait returns when the task finishes, or when new user input or any task notification arrives (the task keeps running). read/wait return new output, prioritizing the tail on completion. output:tail re-reads recent output without advancing the cursor; use read on the log path for omitted content.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -201,7 +203,7 @@ export const BUILTIN_TOOLS = [
         timeout_ms: {
           type: 'integer',
           minimum: 0,
-          description: `Wait ceiling in ms; returns on completion, else current output at the ceiling. Default ${TASK_WAIT_TIMEOUT_DEFAULT_MS}; clamped to ${TASK_WAIT_TIMEOUT_MIN_MS}-${TASK_WAIT_TIMEOUT_MAX_MS}.`,
+          description: `Wait ceiling in ms; returns on completion, new user input or a task notification, else current output at the ceiling. Default ${TASK_WAIT_TIMEOUT_DEFAULT_MS} (agents ${AGENT_TASK_WAIT_DEFAULT_MS}); clamped to ${TASK_WAIT_TIMEOUT_MIN_MS}-${TASK_WAIT_TIMEOUT_MAX_MS}.`,
         },
         output: {
           type: 'string',

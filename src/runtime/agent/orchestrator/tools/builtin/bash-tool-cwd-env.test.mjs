@@ -7,13 +7,7 @@ import { delimiter, join } from 'node:path';
 
 import { buildShellSpawnEnv } from './bash-tool.mjs';
 import { scrubRuntimeRootVars } from '../env-scrub.mjs';
-import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
 import { skillLauncherDir, skillScriptRuntime } from '../../../../shared/skill-script-runtime.mjs';
-
-test('shell child receives the resource-admission shell cap', () => {
-  const env = buildShellSpawnEnv('C:\\x', { PATH: '', MIXDOG_SHELL_CONCURRENCY_CAP: '99' });
-  assert.equal(env.MIXDOG_SHELL_CONCURRENCY_CAP, String(resourceAdmission.limits.maxShells));
-});
 
 test('shell child receives the caller session cwd without mutating the daemon env', () => {
   const base = {

@@ -112,7 +112,10 @@ export async function handleAddCommentOrDeleteComment(context, op) {
     `<p:cm authorId="${authorId}" dt="${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}" idx="${index}">` +
     `<p:pos x="${Math.max(0, toEmu(op.left ?? 12))}" y="${Math.max(0, toEmu(op.top ?? 12))}"/>` +
     `<p:text>${xmlEncode(text)}</p:text></p:cm>`;
-  zip.file(part, xml.replace('</p:cmLst>', `${entry}</p:cmLst>`));
+  zip.file(
+    part,
+    xml.replace('</p:cmLst>', () => `${entry}</p:cmLst>`)
+  );
   return { op: op.op, changed: true, slide: Number(op.slide), comment: index };
 }
 
@@ -338,10 +341,11 @@ export async function handleSetLayout(context, op) {
   const target = posix.relative('ppt/slides', layout.path);
   const pattern = /<Relationship\b[^>]*\bType="[^"]*\/slideLayout"[^>]*\/>/;
   const next = pattern.test(rels)
-    ? rels.replace(pattern, (block) => block.replace(/\bTarget="[^"]*"/, `Target="${xmlEncode(target)}"`))
+    ? rels.replace(pattern, (block) => block.replace(/\bTarget="[^"]*"/, () => `Target="${xmlEncode(target)}"`))
     : rels.replace(
         '</Relationships>',
-        `<Relationship Id="${nextRelationshipId(rels)}" Type="${OFFICE_RELATIONSHIP_BASE}/slideLayout" Target="${xmlEncode(target)}"/></Relationships>`
+        () =>
+          `<Relationship Id="${nextRelationshipId(rels)}" Type="${OFFICE_RELATIONSHIP_BASE}/slideLayout" Target="${xmlEncode(target)}"/></Relationships>`
       );
   zip.file(relationships, next);
   return { op: op.op, changed: true, slide: Number(op.slide), layout: layout.name || layout.type };
@@ -398,7 +402,7 @@ export async function handleSetTransition(context, op) {
     const anchorEnd = anchor.index + anchor[0].length;
     next = `${stripped.slice(0, anchorEnd)}${element}${stripped.slice(anchorEnd)}`;
   } else if (element) {
-    next = stripped.replace('</p:sld>', `${element}</p:sld>`);
+    next = stripped.replace('</p:sld>', () => `${element}</p:sld>`);
   }
   zip.file(path, next);
   return { op: op.op, changed: true, slide: Number(op.slide), effect: requested };

@@ -1,4 +1,5 @@
 import { READ_BATCH_RANGE_COALESCE_GAP_LINES } from './read-constants.mjs';
+import { windowMarker } from './tool-output-limit.mjs';
 
 // Slices a `read` body (full mode) to the line window [origOffset+1,
 // origOffset+origLimit] (1-based line numbers in the body). Lines whose
@@ -81,15 +82,15 @@ export function sliceReadBodyByLines(body, origOffset, origLimit, readOffsetBase
   else if (finiteLast) requestedLast = lastLine;
   const emittedStart = keptFirst ?? firstLine;
   const emittedLast = keptLast !== null ? Math.min(requestedLast, keptLast) : requestedLast;
-  const totalPart = haveTotal ? ` of ${totalNum}` : '';
   const moreToRead = haveTotal ? emittedLast < totalNum : finiteLast;
   // Report the next caller coordinate without prescribing another read;
   // whatever remains fits one wider read, not a walk window by window.
-  let continuationPart = '';
-  if (moreToRead && Number.isFinite(emittedLast)) {
-    continuationPart = `; pass offset:${emittedLast + readOffsetBase} to continue`;
-  }
-  const newFooter = `[lines ${emittedStart}-${emittedLast}${totalPart}${continuationPart}]`;
+  const newFooter = windowMarker({
+    from: emittedStart,
+    to: emittedLast,
+    total: haveTotal ? totalNum : null,
+    nextOffset: moreToRead && Number.isFinite(emittedLast) ? emittedLast + readOffsetBase : null,
+  });
   return kept.join('\n') + (kept.length ? '\n' : '') + newFooter;
 }
 

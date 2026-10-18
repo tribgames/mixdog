@@ -20,7 +20,7 @@ test('a large file in a batch of small files is returned whole when the sum fits
     );
     assert.match(out, /\bB480 /);
     assert.match(out, /\bC170 /);
-    assert.doesNotMatch(out, /output truncated/);
+    assert.doesNotMatch(out, /output capped/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -50,9 +50,12 @@ test('nearby windows of one large file both come back from the shared union read
 });
 
 test('a window past a truncated union read says it was not returned instead of claiming a range', () => {
-  const body = ['160→a', '161→b', '', '... [output truncated at 1 KB of a 50 KB file; pass offset:162 to continue] ...'].join(
-    '\n'
-  );
+  const body = [
+    '160→a',
+    '161→b',
+    '',
+    '[output capped at 1 KB; 2 of 900 lines shown (50 KB file); offset:162 for more]',
+  ].join('\n');
   const past = sliceReadBodyByLines(body, 375, 5, 1);
   assert.match(past, /lines 376-380 were NOT returned/);
   assert.doesNotMatch(past, /\[lines 376-380/);
@@ -63,12 +66,8 @@ test('a batch exceeding the budget still truncates and the marker shows the file
   try {
     const names = ['a', 'b', 'c', 'd'];
     for (const n of names) await writeFile(join(root, `${n}.txt`), lines(1000, n.toUpperCase())); // ~28 KB each
-    const out = await executeBuiltinTool(
-      'read',
-      { file_path: names.map((n) => ({ file_path: `${n}.txt` })) },
-      root
-    );
-    assert.match(out, /output truncated at \d+ KB of a \d+ KB file; pass offset:\d+ to continue/);
+    const out = await executeBuiltinTool('read', { file_path: names.map((n) => ({ file_path: `${n}.txt` })) }, root);
+    assert.match(out, /\[output capped at \d+ KB; \d+ KB file; offset:\d+ for more\]/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

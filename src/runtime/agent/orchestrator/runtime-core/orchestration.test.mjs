@@ -36,9 +36,9 @@ test('all modes share Default while only active modes inject instructions and ag
   );
   const body = helpers.loadWorkflowPack(dataDir, 'default').body;
   assert.doesNotMatch(body, /Delegate every independent|Dispatch all ready/);
-  assert.match(body, /user approves the latest plan/);
-  // Reviewer fallback rides with the delegating orchestration instructions, never the pack body.
-  assert.doesNotMatch(body, /Lead alone reviews/);
+  assert.match(body, /An explicit request is the approval within its scope/);
+  // The missing-role fallback rides with the delegating orchestration instructions, never the pack body.
+  assert.doesNotMatch(body, /Lead does that work itself/);
   const expected = {
     focused: /Lead executes the main scope directly/,
     balanced: /coherent feature or module/,
@@ -54,13 +54,13 @@ test('all modes share Default while only active modes inject instructions and ag
     if (mode === 'none') {
       assert.match(orchestrationInstructions(mode), /# Orchestration Mode: Solo/);
       assert.match(result.context, /Only when the user explicitly asks for delegation/);
-      assert.doesNotMatch(result.context, /Lead alone reviews|Dispatch all ready/);
+      assert.doesNotMatch(result.context, /Lead does that work itself|Dispatch all ready/);
     } else {
       assert.match(result.context, expected[mode]);
       // The size gate rides with every active mode so swarm cannot split trivial edits across agents.
       assert.match(result.context, /Lead makes them directly in every mode/);
       assert.match(result.context, /Dispatch all ready independent scopes in one turn/);
-      assert.match(result.context, /Lead alone reviews/);
+      assert.match(result.context, /when none fits a role, Lead does that work itself/);
     }
   }
 });

@@ -161,14 +161,19 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     });
   }
 
-  // Startup recovery: stale active rows settle — as failed when the process
-  // that ran their turn is gone (the turn never finished), otherwise to idle —
-  // and an approval wait left behind by a runtime that is gone (daemon
-  // restart) is cleared.
-  function recoverStaleWorkerRows() {
+  // Startup recovery: stale active rows settle — as failed when another
+  // process ran their turn (it is gone, or is the predecessor still shutting
+  // down: either way the turn never finished), otherwise to idle — and an
+  // approval wait left behind by a runtime that is gone (daemon restart) is
+  // cleared. `deadOnly` (later sweeps) settles only rows whose runtime is
+  // provably dead, never a live process's quiet turn.
+  function recoverStaleWorkerRows({ deadOnly = false } = {}) {
     const now = Date.now();
     const rows = store.readAll();
-    const staleActive = rows.filter((row) => liveness.isStaleActive(row, now));
+    const isStale = deadOnly
+      ? (row) => isActiveWorkerRow(row) && runtimeDied(row)
+      : (row) => liveness.isStaleActive(row, now);
+    const staleActive = rows.filter(isStale);
     const staleWaits = rows.some(isStaleApprovalWait);
     if (!staleActive.length && !staleWaits) return false;
     if (staleActive.length) {
@@ -176,18 +181,45 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
         for (const row of staleActive) {
           const key = workerRowKey(row);
           const current = byKey.get(key);
-          if (!current || !liveness.isStaleActive(current, now)) continue;
+          if (!current || !isStale(current)) continue;
+          const ranElsewhere = positiveInt(current.runtimePid) && positiveInt(current.runtimePid) !== process.pid;
           byKey.set(
             key,
-            runtimeDied(current)
-              ? liveness.failedRow(current, now, PROCESS_RESTART_FAILURE)
-              : liveness.idleRow(current, now)
+            ranElsewhere ? liveness.failedRow(current, now, PROCESS_RESTART_FAILURE) : liveness.idleRow(current, now)
           );
         }
       });
     }
     if (staleWaits) store.update((byKey) => clearAwaitingUser(byKey, isStaleApprovalWait));
     return true;
+  }
+
+  const isUnnotifiedRestartFailure = (row) =>
+    row.status === 'failed' &&
+    row.failureReason === PROCESS_RESTART_FAILURE &&
+    Boolean(clean(row.ownerSessionId)) &&
+    !row.restartNotified;
+
+  /** Rows whose turn a process restart ended and whose owner has not been told
+   *  yet — whoever settled the row (this process at startup, or the
+   *  predecessor's exit flush). Read-only: the caller enqueues the owner's
+   *  notification durably, THEN calls `markRestartNotified`, so a crash in
+   *  between retries (the notification's stable id makes the retry exactly-once). */
+  function pendingRestartFailures() {
+    return store.readAll().filter(isUnnotifiedRestartFailure);
+  }
+
+  /** Stamp these rows as told, once their notification is durably queued. */
+  function markRestartNotified(rows) {
+    const stamp = new Date().toISOString();
+    store.write((byKey) => {
+      for (const row of rows) {
+        const key = workerRowKey(row);
+        const current = byKey.get(key);
+        if (!current || !isUnnotifiedRestartFailure(current)) continue;
+        byKey.set(key, { ...current, restartNotified: stamp });
+      }
+    });
   }
 
   function flushWorkerIndexOnExit() {
@@ -285,5 +317,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     flushActiveWorkerRows,
     flushWorkerIndexOnExit,
     recoverStaleWorkerRows,
+    pendingRestartFailures,
+    markRestartNotified,
   };
 }

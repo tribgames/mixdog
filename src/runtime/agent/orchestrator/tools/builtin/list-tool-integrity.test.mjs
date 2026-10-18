@@ -38,10 +38,10 @@ test('list defaults to a 100-entry page with an offset continuation', async () =
     );
     const out = await executeListTool({ path: root, hidden: true }, process.cwd());
     assert.equal(out.split('\n').filter((line) => line.endsWith('\tfile')).length, 100);
-    assert.match(out, /\[entries 1-100 of 101; pass offset:100 to continue\]/);
+    assert.match(out, /\[entries 1-100 of 101; offset:100 for more\]/);
     const oversized = await executeListTool({ path: root, hidden: true, head_limit: 200 }, process.cwd());
     assert.equal(oversized.split('\n').filter((line) => line.endsWith('\tfile')).length, 100);
-    assert.match(oversized, /\[entries 1-100 of 101; pass offset:100 to continue\]/);
+    assert.match(oversized, /\[entries 1-100 of 101; offset:100 for more\]/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -133,7 +133,7 @@ test('a paginated complete find page stays complete and is reused', async () => 
     const scopedCacheOutcome = { complete: true, cacheSafe: true };
     const args = { path: join(root, '*.txt'), head_limit: 1 };
     const out = await executeListTool({ ...args }, process.cwd(), { scopedCacheOutcome });
-    assert.match(out, /pass offset:1 to continue/);
+    assert.match(out, /offset:1 for more/);
     assert.equal(scopedCacheOutcome.complete, true);
     const hitOutcome = { complete: true, cacheSafe: true };
     assert.equal(await executeListTool({ ...args }, process.cwd(), { scopedCacheOutcome: hitOutcome }), out);
@@ -197,10 +197,10 @@ test('a list walk truncated by the walk deadline is incomplete and never cached'
       },
     });
     mock.mock.restore();
-    assert.match(out, /walk truncated/);
+    assert.match(out, /output capped at .*listing incomplete/);
     assert.equal(outcome.complete, false);
     const fresh = await executeListTool({ path: root, hidden: true }, process.cwd());
-    assert.doesNotMatch(fresh, /walk truncated/);
+    assert.doesNotMatch(fresh, /listing incomplete/);
     assert.match(fresh, /a\.txt\tfile/);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -221,7 +221,10 @@ test('native deep list rows that are not cache-safe are marked unsafe and not ca
     };
     const outcome = { complete: true, cacheSafe: true };
     const args = { path: root, depth: 2, hidden: true };
-    assert.match(await executeListTool({ ...args }, process.cwd(), { ...options, scopedCacheOutcome: outcome }), /a\.txt/);
+    assert.match(
+      await executeListTool({ ...args }, process.cwd(), { ...options, scopedCacheOutcome: outcome }),
+      /a\.txt/
+    );
     assert.equal(outcome.cacheSafe, false);
     await executeListTool({ ...args }, process.cwd(), options);
     assert.equal(runs, 2);
@@ -237,7 +240,7 @@ test('a paged tree is a complete page and is reused', async () => {
     const args = { path: root, hidden: true, head_limit: 1 };
     const outcome = { complete: true, cacheSafe: true };
     const out = await executeTreeTool({ ...args }, process.cwd(), { scopedCacheOutcome: outcome });
-    assert.match(out, /to continue/);
+    assert.match(out, /offset:\d+ for more/);
     assert.equal(outcome.complete, true);
     const hit = { complete: true, cacheSafe: true };
     let walked = 0;
@@ -260,7 +263,7 @@ test('a paged list cache hit retains completeness', async () => {
     const args = { path: root, hidden: true, head_limit: 1 };
     const first = { complete: true, cacheSafe: true };
     const out = await executeListTool({ ...args }, process.cwd(), { scopedCacheOutcome: first });
-    assert.match(out, /to continue/);
+    assert.match(out, /offset:\d+ for more/);
     const hit = { complete: true, cacheSafe: true };
     assert.equal(await executeListTool({ ...args }, process.cwd(), { scopedCacheOutcome: hit }), out);
     assert.equal(first.complete, true);
@@ -284,7 +287,7 @@ test('a byte-truncated tree render is incomplete, not persisted, and re-walks', 
     };
     const outcome = { complete: true, cacheSafe: true };
     const out = await executeTreeTool({ ...args }, process.cwd(), { scopedCacheOutcome: outcome, readdirImpl });
-    assert.match(out, /output truncated at/);
+    assert.match(out, /\[output capped at [^\]]*narrow: narrow path or lower depth\]/);
     assert.equal(outcome.complete, false);
     assert.equal(walked, 1);
     await executeTreeTool({ ...args }, process.cwd(), { readdirImpl });
@@ -373,7 +376,10 @@ for (const [label, args, native] of [
       assert.match(second, /b\.txt/);
       if (args.sort === 'size') assert.ok(second.indexOf('b.txt') < second.indexOf('a.txt'), 'largest first');
       const hit = { complete: true, cacheSafe: true };
-      assert.equal(await executeListTool({ ...request }, process.cwd(), { ...options, scopedCacheOutcome: hit }), second);
+      assert.equal(
+        await executeListTool({ ...request }, process.cwd(), { ...options, scopedCacheOutcome: hit }),
+        second
+      );
       assert.equal(hit.complete, true);
     } finally {
       await rm(root, { recursive: true, force: true });

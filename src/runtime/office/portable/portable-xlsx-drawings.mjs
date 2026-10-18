@@ -122,7 +122,10 @@ export async function addWorksheetImage(zip, sheet, xml, op) {
     ...imagePlacementSize(op, data),
     altText: op.altText,
   });
-  zip.file(drawing.part, drawingXml.replace('</xdr:wsDr>', `${anchor}</xdr:wsDr>`));
+  zip.file(
+    drawing.part,
+    drawingXml.replace('</xdr:wsDr>', () => `${anchor}</xdr:wsDr>`)
+  );
   zip.file(sheet.path, xml);
   return {
     op: op.op,
@@ -266,15 +269,15 @@ export async function setWorksheetDrawing(zip, sheet, xml, op) {
     const width = op.width !== undefined ? Number(op.width) : Math.max(1, to.x - from.x);
     const height = op.height !== undefined ? Number(op.height) : Math.max(1, to.y - from.y);
     body = body
-      .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, write('from', at(left, top)))
-      .replace(/<xdr:to>[\s\S]*?<\/xdr:to>/, write('to', at(left + width, top + height)));
+      .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, () => write('from', at(left, top)))
+      .replace(/<xdr:to>[\s\S]*?<\/xdr:to>/, () => write('to', at(left + width, top + height)));
   }
   if (target.kind !== 'twoCellAnchor' && (op.left !== undefined || op.top !== undefined)) {
     if (target.kind === 'absoluteAnchor') {
       const current = /<xdr:pos\b([^>]*)\/>/.exec(body)?.[1] || '';
       const x = op.left !== undefined ? emu(op.left) : Number(xmlAttribute(current, 'x')) || 0;
       const y = op.top !== undefined ? emu(op.top) : Number(xmlAttribute(current, 'y')) || 0;
-      body = body.replace(/<xdr:pos\b[^>]*\/>/, `<xdr:pos x="${x}" y="${y}"/>`);
+      body = body.replace(/<xdr:pos\b[^>]*\/>/, () => `<xdr:pos x="${x}" y="${y}"/>`);
     } else {
       if (op.left === undefined || op.top === undefined) {
         throw new Error(`Drawing "${label}" hangs off a cell; set_drawing needs left and top together to move it.`);
@@ -282,7 +285,8 @@ export async function setWorksheetDrawing(zip, sheet, xml, op) {
       // Measuring the offset from A1 makes the point given the point drawn.
       body = body.replace(
         /<xdr:from>[\s\S]*?<\/xdr:from>/,
-        `<xdr:from><xdr:col>0</xdr:col><xdr:colOff>${emu(op.left)}</xdr:colOff>` +
+        () =>
+          `<xdr:from><xdr:col>0</xdr:col><xdr:colOff>${emu(op.left)}</xdr:colOff>` +
           `<xdr:row>0</xdr:row><xdr:rowOff>${emu(op.top)}</xdr:rowOff></xdr:from>`
       );
     }
@@ -291,7 +295,7 @@ export async function setWorksheetDrawing(zip, sheet, xml, op) {
     const current = /<xdr:ext\b([^>]*)\/>/.exec(body)?.[1] || '';
     const cx = op.width !== undefined ? emu(op.width) : Number(xmlAttribute(current, 'cx')) || 0;
     const cy = op.height !== undefined ? emu(op.height) : Number(xmlAttribute(current, 'cy')) || 0;
-    body = body.replace(/<xdr:ext\b[^>]*\/>/, `<xdr:ext cx="${cx}" cy="${cy}"/>`);
+    body = body.replace(/<xdr:ext\b[^>]*\/>/, () => `<xdr:ext cx="${cx}" cy="${cy}"/>`);
   }
   if (body === target.body) throw new Error(`XLSX ${op.op} needs left, top, width, or height`);
   zip.file(part, `${drawingXml.slice(0, target.start)}${body}${drawingXml.slice(target.end)}`);

@@ -708,7 +708,7 @@ async function applyEditNative(edit, oldStr, newStr, editPlan, replaceAll) {
     if (/old_string (?:not found|found \d+ times)/i.test(message)) {
       const latest = readEditTextForDisplay(fullPath, fileEnc) ?? content;
       const hinted = /found \d+ times/i.test(message)
-        ? message.replace(/(found \d+ times)/i, `$1${matchLineHint(latest, oldStr)}`)
+        ? message.replace(/(found \d+ times)/i, (__m, __1) => `${__1}${matchLineHint(latest, oldStr)}`)
         : message;
       return `Error: edit failed (${hinted})${formatEditFailureExcerpt(latest, oldStr, message)}`;
     }

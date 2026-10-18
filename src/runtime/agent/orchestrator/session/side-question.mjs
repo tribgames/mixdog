@@ -5,8 +5,7 @@
 // the provider's prompt cache serves the prefix. Only the reply that request
 // produced and one question are appended. One provider call, no tool loop;
 // the answer is returned to the caller and never enters the transcript.
-import { collectAssistantToolCallIds } from './context-tool-pairs.mjs';
-import { buildIntermediateAssistantMessage, buildToolCallAssistantMessage } from './loop/assistant-commit.mjs';
+import { buildForkedRequest } from './request-fork.mjs';
 import { logSessionLlmUsage } from './manager/ask-turn-commit.mjs';
 import { disposeTransportScope, forkTransportScope } from '../providers/transport-scope.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
@@ -48,47 +47,10 @@ function sideQuestionPrompt(question) {
   ].join('\n');
 }
 
-// The assistant turn the saved request produced, built the way the loop
-// commits it (without the turn's one-shot transcript metadata), plus a stub
-// result per tool call.
-function replyMessages(response) {
-  if (!response) return [];
-  const reply = response.toolCalls?.length
-    ? buildToolCallAssistantMessage(response, { calls: response.toolCalls, opts: {} })
-    : buildIntermediateAssistantMessage(response, {});
-  if (!reply) return [];
-  const stubs = collectAssistantToolCallIds(reply).map((id) => ({
-    role: 'tool',
-    toolCallId: id,
-    content: SIDE_QUESTION_TOOL_STUB,
-  }));
-  return [reply, ...stubs];
-}
-
-/**
- * The fork of a saved request: its messages unchanged, then the reply and
- * the question. The send options are the saved ones; the provider
- * continuation state follows the reply when it is appended, exactly as the
- * main loop's next request would carry it. `sharedCachePrefixCount` (the
- * shared prefix's message count, which survives model-proxy serialization)
- * keeps an Anthropic message breakpoint on the shared prefix, so the fork reads the
- * saved request's cache entry and writes none for its suffix.
- */
-export function buildSideQuestionRequest(request, question) {
-  const reply = replyMessages(request.response);
-  const opts = { ...request.opts };
-  if (reply.length && Object.hasOwn(request.response, 'providerState')) {
-    opts.providerState = request.response.providerState;
-  }
-  if (request.messages.length) opts.sharedCachePrefixCount = request.messages.length;
-  const messages = [
-    ...request.messages,
-    ...reply,
-    // A user interjection keeps its own turn (never folded into a preceding
-    // tool result), so the prefix's last block reaches the provider unchanged.
-    { role: 'user', content: sideQuestionPrompt(question), meta: { source: 'steering' } },
-  ];
-  return { messages, opts };
+/** The fork of a saved request: its messages unchanged, then the reply and
+ *  the question (request-fork.mjs). */
+function buildSideQuestionRequest(request, question) {
+  return buildForkedRequest(request, sideQuestionPrompt(question), SIDE_QUESTION_TOOL_STUB);
 }
 
 /**

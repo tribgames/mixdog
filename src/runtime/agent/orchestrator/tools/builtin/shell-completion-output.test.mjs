@@ -3,7 +3,7 @@ import test from 'node:test';
 import { buildShellCompletion } from './shell-jobs.mjs';
 import { renderBackgroundTask, renderBackgroundTaskNotification } from '../../../../shared/background-tasks.mjs';
 
-test('completion notice omits logs while task read retains full output', () => {
+test('the completion notice carries the output itself, and task read keeps it too', () => {
   const detail = { status: 'completed', exitCode: 0, stdoutPreview: 'old\nnew\n', stderrPreview: 'warning\nlater\n' };
   const completion = buildShellCompletion('job_output', detail);
   const task = {
@@ -15,8 +15,9 @@ test('completion notice omits logs while task read retains full output', () => {
     resultText: completion.body,
   };
   for (const notice of [completion.notification, renderBackgroundTaskNotification(task)]) {
-    assert.doesNotMatch(notice, /old|warning|later/);
-    assert.match(notice, /task read/);
+    assert.match(notice, /old\nnew/);
+    assert.match(notice, /warning\nlater/);
+    assert.doesNotMatch(notice, /task read/);
     assert.match(notice, /<exit-code>0/);
   }
   const output = renderBackgroundTask(task, { includeResult: true });

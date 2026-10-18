@@ -1,6 +1,5 @@
-export const ASK_USER_MAX_QUESTIONS = 4;
+const ASK_USER_MAX_QUESTIONS = 4;
 export const ASK_USER_MAX_TEXT = 4000;
-export const ASK_USER_MAX_LABEL = 80;
 
 export const ASK_USER_TOOL_DEFS = Object.freeze([
   {
@@ -9,7 +8,7 @@ export const ASK_USER_TOOL_DEFS = Object.freeze([
     trigger:
       'Ask the user 1–4 multiple-choice questions and wait; when a plan needs the user to pick between clear options, instead of listing them in chat.',
     description:
-      'Ask the user multiple-choice questions and wait. Only while planning, for a decision only the user can make with clear options; open questions, minor choices and plan approval go in chat. Do not repeat the options in your message.',
+      'Ask the user multiple-choice questions and wait. Only for a decision only the user can make, with clear options; never for minor choices or approval of requested work, and open questions go in chat. Do not repeat the options in your message.',
     annotations: {
       title: 'Ask User',
       readOnlyHint: true,

@@ -28,7 +28,7 @@ test('the path cap does not hide errors from later groups or partial-result warn
         },
       }
     );
-    assert.match(result, /accumulation cap \(50000\)/);
+    assert.match(result, /output capped at 50000 matches; results incomplete; narrow:/);
     assert.match(result, /rg exit 2 \(partial results\)/);
     assert.match(result, /permission denied in second group/);
     assert.match(result, /file-0\.mjs/);

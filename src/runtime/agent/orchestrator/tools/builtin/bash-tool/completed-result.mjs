@@ -4,6 +4,8 @@ import { releaseShellJobWorkspace } from '../lib/shell-job-records.mjs';
 import { consumeFilterTeeCapture } from '../shell-analysis.mjs';
 import { compactShellOutputLosslessly, renderShellOutputBody } from '../shell-lossless-compact.mjs';
 import { removeTransportFileNow } from './transport-artifacts.mjs';
+import { DELIVERY_FULL_CHARS, EMPTY_PIECE, fitPieces, shellTextPiece } from '../lib/shell-delivery.mjs';
+import { shellLogPiece } from '../lib/shell-task-output.mjs';
 import { shellTaskIdentity } from './backgrounded-result.mjs';
 import { _isBenignSearchExitOne } from './benign-exit.mjs';
 import {
@@ -24,7 +26,7 @@ import {
 function trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs } = {}) {
   if (!handle?.taskId) return null;
   try {
-    return startBackgroundTask({
+    const task = startBackgroundTask({
       taskId: handle.taskId,
       startedAtMs: startedAtMs || Date.now(),
       surface: 'shell',
@@ -44,10 +46,15 @@ function trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs 
           detail: 'every process the command left running has exited',
         };
       },
+      // The kill's own re-observation is what `task cancel` reports.
       cancel: () => {
-        void killShellDescendants(handle);
+        task.cancelOutcome = killShellDescendants(handle);
       },
     });
+    // The command already returned its result; these processes are a side
+    // effect it left running, not work the agent is waiting on.
+    task.detached = true;
+    return task;
   } catch {
     return null;
   }
@@ -110,6 +117,20 @@ function classifyCompletion(result, timeout, analysisCommand) {
   };
 }
 
+// A spilled capture is rendered from its log (the in-memory string is already
+// a head+tail cut); an inline one from the captured text.
+function foregroundPiece(text, path, label) {
+  if (!text) return EMPTY_PIECE;
+  if (path) {
+    try {
+      return shellLogPiece(path);
+    } catch {
+      /* unreadable log: deliver the captured text */
+    }
+  }
+  return shellTextPiece(text, { label });
+}
+
 export function renderCompletedResult({
   result,
   command,
@@ -151,11 +172,23 @@ export function renderCompletedResult({
   // Without a boundary a stdout tail with no trailing newline glued itself
   // onto the first stderr line and corrupted both. No spill-path block: a
   // truncated stream already carries its own "full output at <path>" marker.
-  const payload = `${renderShellOutputBody(
-    losslessCompaction?.stdout ?? stdout,
-    losslessCompaction?.stderr ?? stderr,
-    losslessCompaction
-  )}${rescueNote}`;
+  // Each stream in the shared delivery shape: whole when short, else head,
+  // marker and tail, the marker naming the spill log (or a saved copy).
+  // A compacted stream goes through the same cap, its marker naming the
+  // stream's preserved full capture.
+  const streamPiece = (stream, text, logPath) => {
+    const compacted = losslessCompaction?.[stream];
+    if (compacted == null) return foregroundPiece(text, logPath, stream);
+    const archived = losslessCompaction.recovery?.find((item) => item.stream === stream)?.path;
+    return compacted ? shellTextPiece(compacted, { path: archived || null, label: stream }) : EMPTY_PIECE;
+  };
+  // Both streams share one delivery budget; the line break between them is
+  // taken off it.
+  const [outBody, errBody] = fitPieces(
+    [streamPiece('stdout', stdout, result.stdoutPath), streamPiece('stderr', stderr, result.stderrPath)],
+    DELIVERY_FULL_CHARS - 1
+  );
+  const payload = `${renderShellOutputBody(outBody, errBody, losslessCompaction)}${rescueNote}`;
   if (outcome.statusMarker) {
     const bashismHint = commandExitedNonzero || isReallyErrored ? _powershellBashismHint(analysisCommand, stderr) : '';
     const failure = _composeShellFailure(

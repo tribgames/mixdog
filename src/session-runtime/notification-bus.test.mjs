@@ -111,11 +111,11 @@ test('runtime notifications stay live before session materialization and bind on
     return true;
   });
 
-  assert.equal(bus.emitRuntimeNotification('discord-before-first-chat').handled, true);
-  assert.deepEqual(received, ['discord-before-first-chat']);
+  assert.equal(bus.emitRuntimeNotification('channel-before-first-chat').handled, true);
+  assert.deepEqual(received, ['channel-before-first-chat']);
 
   assert.equal(bus.bindRuntimeNotificationSession('lead-reserved'), true);
-  assert.equal(bus.notifySession('lead-reserved', 'discord-targeted'), true);
+  assert.equal(bus.notifySession('lead-reserved', 'channel-targeted'), true);
   assert.equal(
     bus.notifySessionCompletion('lead-reserved', completionText, {
       ...completionMeta,

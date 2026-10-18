@@ -9,6 +9,7 @@ import { liveAgentStatusRow } from './agent-tool/job-views/session-progress.mjs'
 import { createSpawnFlow } from './agent-tool/spawn-flow.mjs';
 import { createSendFlow } from './agent-tool/send-flow.mjs';
 import { createCloseFlow } from './agent-tool/close-flow.mjs';
+import { createRestartFailureNotifier } from './agent-tool/restart-notify.mjs';
 import { createTerminalTrace } from './agent-tool/terminal-trace.mjs';
 import { createAgentExecute } from './agent-tool/execute.mjs';
 import { createTurnReviewCollector } from './agent-tool/turn-review.mjs';
@@ -70,8 +71,24 @@ export function createStandaloneAgent({
   }
 
   const registry = createTagRegistry({ dataDir, cfgMod, mgr });
+  // Tasks the previous process was running died with it: tell their owners.
+  // Later sweeps also catch rows the predecessor settled as it shut down.
+  const notifyRestartFailures = createRestartFailureNotifier({
+    pendingRestartFailures: registry.pendingRestartFailures,
+    markRestartNotified: registry.markRestartNotified,
+    mgr,
+    notifySessionCompletion,
+  });
+  const sweepRestartFailures = () => {
+    registry.recoverStaleWorkerRows({ deadOnly: true });
+    notifyRestartFailures();
+  };
+  notifyRestartFailures();
   const views = createJobViews({ ...registry, mgr, reg, cfgMod, DEFAULT_SPAWN_PREP_TIMEOUT_MS });
+  // Late-bound: the send flow that wakes an idle worker is built after spawn.
+  let wakeIdleWorker = null;
   const spawnFlow = createSpawnFlow({
+    onWorkerCompletionQueued: (sessionId) => wakeIdleWorker?.(sessionId),
     ...registry,
     ...views,
     mgr,
@@ -96,6 +113,7 @@ export function createStandaloneAgent({
     views,
     spawnFlow,
   });
+  wakeIdleWorker = sendFlow.wakeIdleWorker;
   const closeFlow = createCloseFlow({ mgr, registry, views });
   const terminalTrace = createTerminalTrace({ registry });
   const execute = createAgentExecute({
@@ -116,6 +134,7 @@ export function createStandaloneAgent({
       void awaitKeychainPrewarm();
       return { workers: [], jobs: [], scope: null };
     }
+    sweepRestartFailures();
     const scopedContext = agentScope({}, context);
     const ownerSession = callerSessionForContext(scopedContext);
     const pid = terminalPidForContext(scopedContext);
@@ -134,6 +153,7 @@ export function createStandaloneAgent({
       void awaitKeychainPrewarm();
       return [];
     }
+    sweepRestartFailures();
     const scopedContext = agentScope({ recover: true }, context);
     registry.refreshTagsFromSessions({ scanSessions: true, context: scopedContext });
     return views.list({ scanSessions: false, context: scopedContext });

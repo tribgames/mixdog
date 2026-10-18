@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { evictIdleLiveSessions, loadSession } from '../store.mjs';
+import { evictIdleLiveSessions, loadSession, loadSessionStatus } from '../store.mjs';
 import { forgetSessionLoadCache, sessionLoadCacheStats } from './load-cache.mjs';
 import {
   _clearSessionSaveState,
@@ -240,6 +240,39 @@ test('more than eight live sessions keep their validation headers and are not re
   }
   assert.equal(reads, 0, 'every file is validated by its header without reading it');
   assert.ok(sessionLoadCacheStats().documents <= 8);
+});
+
+test('loadSessionStatus reuses a settled file answer and never outranks a rewrite or a live copy', (t) => {
+  const f = fixture(t);
+  f.write({ ...f.saved, status: 'error' });
+  // Past the racy-stamp window, so the answer may be kept under the stamp.
+  const realNow = Date.now;
+  Date.now = () => realNow() + 10_000;
+  let reads = 0;
+  const original = fs.readFileSync;
+  fs.readFileSync = function (file, ...rest) {
+    if (String(file).includes(f.id)) reads++;
+    return original.call(this, file, ...rest);
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    Date.now = realNow;
+    fs.readFileSync = original;
+    syncBuiltinESMExports();
+  });
+  forgetSessionLoadCache(f.id);
+  assert.equal(loadSessionStatus(f.id), 'error');
+  const first = reads;
+  forgetSessionLoadCache(f.id);
+  assert.equal(loadSessionStatus(f.id), 'error');
+  assert.equal(reads, first, 'an unchanged settled file is not read again');
+  f.write({ ...f.saved, status: 'idle' });
+  assert.equal(loadSessionStatus(f.id), 'idle');
+  setLiveSession({ ...f.saved, status: 'running' });
+  assert.equal(loadSessionStatus(f.id), 'running');
+  _liveSessions.delete(f.id);
+  f.write('{"id":');
+  assert.equal(loadSessionStatus(f.id), null, 'an unreadable file speaks for no status');
 });
 
 test('a genuinely absent disk record does not discard an unsaved live conversation', (t) => {

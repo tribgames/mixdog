@@ -9,12 +9,111 @@
 import { SHELL_NAMES as _SHELL_NAMES, WRAPPER_NAMES as _WRAPPER_NAMES } from './shell-policy.mjs';
 import { extractPowerShellCommandInner } from './shell-powershell.mjs';
 
+// A `#` (or PowerShell `<#`) starts a comment only at the start of a word:
+// line start, after whitespace, or after a command operator. Inside a word or
+// URL (`a#b`, `http://x/#y`, `$#`, `${#v}`) it is an ordinary character.
+function _isCommentStart(text, i) {
+  return i === 0 || /[\s;&|(]/.test(text[i - 1]);
+}
+
+const _PS_HERE_SQ = /@'[ \t]*\r?\n[\s\S]*?\r?\n'@/y;
+const _PS_HERE_DQ = /@"[ \t]*\r?\n[\s\S]*?\r?\n"@/y;
+const _HEREDOC_START = /<<-?\s*['"]?(\w+)['"]?/y;
+
+function _closingQuote(text, from, quote, escapes) {
+  let j = from;
+  while (j < text.length && text[j] !== quote) j += escapes && text[j] === '\\' ? 2 : 1;
+  return j < text.length ? j : -1;
+}
+
+// Single left-to-right scan so each construct is recognised by what the shell
+// would see at that position (a `'` inside a comment, a `#` inside a word or a
+// quote inside a here-string never mis-pair later delimiters). Any construct
+// that cannot be closed (unterminated quote, `<#` without `#>`, heredoc without
+// terminator) is left in the output verbatim, so uncertain text stays visible
+// to the policy checks instead of being dropped.
 export function stripQuotedAndHeredoc(s) {
-  return String(s || '')
-    .replace(/<<-?\s*['"]?(\w+)['"]?[\s\S]*?\n\1\b/g, '<<HEREDOC>>')
-    .replace(/'[^']*'/g, "''")
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
-    .replace(/#[^\n]*/g, '');
+  const text = String(s || '');
+  const n = text.length;
+  const pendingHeredocs = [];
+  let out = '';
+  let i = 0;
+  while (i < n) {
+    const ch = text[i];
+    if (ch === '\\') {
+      out += text.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
+    if (ch === '@' && (text[i + 1] === "'" || text[i + 1] === '"')) {
+      const re = text[i + 1] === "'" ? _PS_HERE_SQ : _PS_HERE_DQ;
+      re.lastIndex = i;
+      const m = re.exec(text);
+      if (m) {
+        out += text[i + 1] === "'" ? "''" : '""';
+        i += m[0].length;
+        continue;
+      }
+    }
+    if (ch === '<' && text[i + 1] === '<' && text[i - 1] !== '<') {
+      _HEREDOC_START.lastIndex = i;
+      const m = _HEREDOC_START.exec(text);
+      if (m && new RegExp(`\\n${m[1]}\\b`).test(text.slice(i + m[0].length))) {
+        // The rest of the opening line stays visible; the body is skipped at
+        // the next newline.
+        pendingHeredocs.push(m[1]);
+        out += '<<HEREDOC>>';
+        i += m[0].length;
+        continue;
+      }
+    }
+    if (ch === '<' && text[i + 1] === '#' && _isCommentStart(text, i)) {
+      const end = text.indexOf('#>', i + 2);
+      if (end >= 0) {
+        out += ' ';
+        i = end + 2;
+        continue;
+      }
+    }
+    if (ch === '#' && _isCommentStart(text, i)) {
+      const nl = text.indexOf('\n', i);
+      i = nl < 0 ? n : nl;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || (ch === '$' && text[i + 1] === "'")) {
+      const ansiC = ch === '$';
+      const quote = ansiC ? "'" : ch;
+      const open = ansiC ? i + 2 : i + 1;
+      const close = _closingQuote(text, open, quote, ch !== "'");
+      if (close >= 0) {
+        out += (ansiC ? '$' : '') + quote + quote;
+        i = close + 1;
+        continue;
+      }
+    }
+    if (ch === '\n' && pendingHeredocs.length) {
+      let at = i;
+      let found = true;
+      for (const delimiter of pendingHeredocs) {
+        const re = new RegExp(`\\n${delimiter}\\b`, 'g');
+        re.lastIndex = at;
+        const m = re.exec(text);
+        if (!m) {
+          found = false;
+          break;
+        }
+        at = m.index + m[0].length;
+      }
+      pendingHeredocs.length = 0;
+      if (found) {
+        i = at;
+        continue;
+      }
+    }
+    out += ch;
+    i++;
+  }
+  return out;
 }
 
 // Heredoc bodies (shell-exec contexts route the body through scanning).
@@ -37,8 +136,11 @@ function _tokenize(s) {
     if (c === "'") {
       const e = src.indexOf("'", i + 1);
       if (e === -1) {
-        cur += src.slice(i);
-        break;
+        // Unterminated: an apostrophe inside a PowerShell word is literal, so
+        // keep tokenizing instead of swallowing the rest of the command.
+        cur += c;
+        i++;
+        continue;
       }
       cur += src.slice(i, e + 1);
       i = e + 1;
@@ -55,8 +157,9 @@ function _tokenize(s) {
         j++;
       }
       if (j >= src.length) {
-        cur += src.slice(i);
-        break;
+        cur += c;
+        i++;
+        continue;
       }
       cur += src.slice(i, j + 1);
       i = j + 1;
@@ -66,6 +169,20 @@ function _tokenize(s) {
       cur += src[i] + src[i + 1];
       i += 2;
       continue;
+    }
+    // `cur` is empty exactly at a word start (after whitespace or an operator),
+    // the only place `#` / PowerShell `<#` begins a comment.
+    if (!cur && c === '#') {
+      const nl = src.indexOf('\n', i);
+      i = nl < 0 ? src.length : nl;
+      continue;
+    }
+    if (!cur && c === '<' && src[i + 1] === '#') {
+      const end = src.indexOf('#>', i + 2);
+      if (end >= 0) {
+        i = end + 2;
+        continue;
+      }
     }
     if (c === ' ' || c === '\t') {
       if (cur) {

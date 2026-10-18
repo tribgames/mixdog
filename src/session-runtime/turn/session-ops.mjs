@@ -105,9 +105,9 @@ export function createSessionOps(deps) {
     return mode;
   }
 
-  function interruptTaskWait(reason = 'user-message') {
+  function interruptTaskWait(reason = 'user-message', detail = null) {
     const sessionId = getSession()?.id || getReservedSessionId?.() || '';
-    return interruptTaskWaitForSession(sessionId, reason);
+    return interruptTaskWaitForSession(sessionId, reason, detail);
   }
 
   // Raw model-message read for LIVE transcript consumers (remote agent

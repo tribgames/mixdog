@@ -58,6 +58,7 @@ import {
   GREP_OUTPUT_MAX_BYTES,
   LOCATOR_OUTPUT_MAX_BYTES,
   capLineOrientedToolOutput,
+  capMarker,
 } from './builtin/tool-output-limit.mjs';
 import {
   isBlockedDevicePath,
@@ -340,6 +341,46 @@ function _locatorTargets(toolName, args) {
   return [toolName === 'find' ? '' : '.'];
 }
 
+const _GREP_MATCH_ROW_RE = /^(?:\d+|.+?:\d+):/;
+
+// Match rows the byte cap left visible, in the units grep's `offset` counts.
+function _grepShownEntries(keptLines, mode) {
+  // A context block counts only when its header and every source line survived.
+  let blocks = 0;
+  let sawHeader = false;
+  keptLines.forEach((line, index) => {
+    const header = /^# .+:\d+ \[lines (\d+)-(\d+)\]$/.exec(line);
+    if (!header) return;
+    sawHeader = true;
+    if (index + Number(header[2]) - Number(header[1]) + 1 < keptLines.length) blocks += 1;
+  });
+  if (sawHeader) return blocks;
+  const rows = keptLines.filter((line) => line && !/^(?:#|--$|\[|\.\.\.|…|\()/.test(line));
+  return mode === 'content' ? rows.filter((line) => _GREP_MATCH_ROW_RE.test(line)).length : rows.length;
+}
+
+// Byte-cap marker for grep: the continuation is the offset of the first match
+// row not shown. A pattern/path fan-out has per-target offsets, so it gets
+// narrowing advice instead of a misleading global offset.
+function _grepBudgetFooter(args, keptLines, capBytes) {
+  const fanout = keptLines.some((line) => line.startsWith('# grep '));
+  const baseOffset =
+    Number.isFinite(Number(args?.offset)) && Number(args.offset) > 0 ? Math.floor(Number(args.offset)) : 0;
+  const shown = _grepShownEntries(keptLines, args?.mode);
+  // Every mode orders the whole result set before `offset` slices it (files
+  // and count pages are sorted first, then cut), so the rows kept here are a
+  // prefix of the offset order and offset resumes right after them.
+  let narrow = '';
+  if (fanout) narrow = 'run one pattern/path per call, or add path/glob/type to cut the match set';
+  else if (shown === 0) narrow = 'one match row exceeds the cap; read that file window or use a tighter pattern';
+  return capMarker({
+    limit: capBytes,
+    shown: `${shown} match row(s) shown`,
+    nextOffset: fanout || shown === 0 ? null : baseOffset + shown,
+    narrow,
+  });
+}
+
 function _locatorBudgetFooter(toolName, args, keptLines, capBytes) {
   const targets = _locatorTargets(toolName, args);
   const header = new RegExp(`^# ${toolName} (.+)$`);
@@ -358,17 +399,24 @@ function _locatorBudgetFooter(toolName, args, keptLines, capBytes) {
   }
   const target = targets[targetIndex] || targets[0] || '';
   const remaining = targets.length - targetIndex - 1;
-  const capKb = Math.round((Number(capBytes) > 0 ? Number(capBytes) : LOCATOR_OUTPUT_MAX_BYTES) / 1024);
-  // Factual continuation only — no retry imperatives: the marker states
-  // what was cut, never instructs another call.
+  const limit = Number(capBytes) > 0 ? Number(capBytes) : LOCATOR_OUTPUT_MAX_BYTES;
   const nextTarget =
     remaining > 0 ? `; ${remaining} target(s) not shown, next=${JSON.stringify(targets[targetIndex + 1])}` : '';
   if (toolName === 'find') {
-    return `... [find output capped at ${capKb} KB; remaining matches for query=${JSON.stringify(target)} omitted${nextTarget}]`;
+    // find has no offset: the rest of the ranked matches needs a tighter query.
+    return capMarker({
+      limit,
+      shown: `matches for query=${JSON.stringify(target)} cut${nextTarget}`,
+      narrow: 'use a more specific query or add path',
+    });
   }
   const baseOffset =
     Number.isFinite(Number(args?.offset)) && Number(args.offset) > 0 ? Math.floor(Number(args.offset)) : 0;
-  return `... [${toolName} output capped at ${capKb} KB; rows above are complete; continue path=${JSON.stringify(target)} offset:${baseOffset + visibleEntries}${nextTarget}]`;
+  return capMarker({
+    limit,
+    shown: `${visibleEntries} complete row(s) shown for path=${JSON.stringify(target)}${nextTarget}`,
+    nextOffset: baseOffset + visibleEntries,
+  });
 }
 
 export async function executeBuiltinTool(name, args, cwd, options = {}) {
@@ -489,11 +537,7 @@ function _budgetBuiltinOutput(toolName, args, result, options) {
   const explicitCap = Number(options?.toolOutputMaxBytes) > 0 ? Math.trunc(Number(options.toolOutputMaxBytes)) : null;
   if (toolName === 'grep') {
     const grepCap = explicitCap ? Math.min(explicitCap, GREP_OUTPUT_MAX_BYTES) : GREP_OUTPUT_MAX_BYTES;
-    return capLineOrientedToolOutput(
-      result,
-      grepCap,
-      (kept) => `[grep output capped at ${grepCap} bytes; ${kept.length} line(s) shown, remainder omitted]`
-    );
+    return capLineOrientedToolOutput(result, grepCap, (kept) => _grepBudgetFooter(args, kept, grepCap));
   }
   if (_LOCATOR_BUDGET_TOOLS.has(toolName)) {
     const locatorCap = explicitCap ? Math.min(explicitCap, LOCATOR_OUTPUT_MAX_BYTES) : LOCATOR_OUTPUT_MAX_BYTES;

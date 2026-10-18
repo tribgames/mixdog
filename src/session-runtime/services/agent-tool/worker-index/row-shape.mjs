@@ -55,6 +55,9 @@ export function normalizeWorkerRows(value) {
       // Why a `failed` row failed (row-liveness, a watchdog stop). Always
       // present, so a later whole-row write clears a stale reason.
       failureReason: clean(row.failureReason) || null,
+      // When the owner was told this row's turn died with a process restart;
+      // always present, so new work on the row starts unnotified.
+      restartNotified: clean(row.restartNotified) || null,
       permission: clean(row.permission) || null,
       toolPermission: clean(row.toolPermission) || null,
       messages: positiveInt(row.messages) || 0,
@@ -112,6 +115,7 @@ export function workerRowFromSession(session, fallbackTag = '', extra = {}, getS
     task_id: clean(extra.task_id || extra.taskId) || null,
     error: clean(extra.error) || null,
     failureReason: clean(extra.failureReason) || null,
+    restartNotified: clean(extra.restartNotified) || null,
     permission: clean(session?.permission) || null,
     toolPermission: clean(session?.toolPermission) || null,
     messages: Array.isArray(session?.messages) ? session.messages.length : 0,

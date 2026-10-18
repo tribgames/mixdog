@@ -188,8 +188,8 @@ export function justifyWordParagraphs(cellXml, justification) {
   return cellXml.replace(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g, (paragraph) => {
     const stripped = paragraph.replace(/<w:jc\b[^>]*\/>/g, '');
     return /<w:pPr(?:\s[^>]*)?>/.test(stripped)
-      ? stripped.replace(/<\/w:pPr>/, `<w:jc w:val="${justification}"/></w:pPr>`)
-      : stripped.replace(/^(<w:p(?:\s[^>]*)?>)/, `$1<w:pPr><w:jc w:val="${justification}"/></w:pPr>`);
+      ? stripped.replace(/<\/w:pPr>/, () => `<w:jc w:val="${justification}"/></w:pPr>`)
+      : stripped.replace(/^(<w:p(?:\s[^>]*)?>)/, (__m, __1) => `${__1}<w:pPr><w:jc w:val="${justification}"/></w:pPr>`);
   });
 }
 
@@ -202,9 +202,9 @@ export function alignWordTableColumns(tableXml, columnAlignments = []) {
     let nextRow = row[0];
     rowCellMatches(row[0]).forEach((cell, column) => {
       if (!justifications[column]) return;
-      nextRow = nextRow.replace(cell[0], justifyWordParagraphs(cell[0], justifications[column]));
+      nextRow = nextRow.replace(cell[0], () => justifyWordParagraphs(cell[0], justifications[column]));
     });
-    next = next.replace(row[0], nextRow);
+    next = next.replace(row[0], () => nextRow);
   }
   return next;
 }
@@ -302,7 +302,7 @@ function tableRowStyle(properties, row) {
 // The last row is the total when totalRow is set: bold over a rule, so it reads as the sum of the rows above it and
 // not as one more of them.
 const isTotalRow = (properties, row, rows) => properties?.totalRow === true && rows > 1 && row === rows - 1;
-export const TOTAL_ROW_RULE = Object.freeze({ size: 8, color: '374151' });
+const TOTAL_ROW_RULE = Object.freeze({ size: 8, color: '374151' });
 
 // A row's weight: its own rowStyles bold when given, else the header's or the total's.
 function rowBold(properties, row, rows, header) {
@@ -520,9 +520,9 @@ export function applyWordRunFormat(xml, runFormat) {
     const opened = /<w:rPr(?:\s[^>]*)?>([\s\S]*?)<\/w:rPr>/.exec(run);
     if (opened) {
       const merged = mergeWordPropertyElements(opened[1], runFormat, RUN_PROPERTY_ORDER);
-      return run.replace(opened[0], `<w:rPr>${merged}</w:rPr>`);
+      return run.replace(opened[0], () => `<w:rPr>${merged}</w:rPr>`);
     }
-    if (selfClosed) return run.replace(selfClosed[0], `<w:rPr>${runFormat}</w:rPr>`);
+    if (selfClosed) return run.replace(selfClosed[0], () => `<w:rPr>${runFormat}</w:rPr>`);
     return run.replace(/<w:r(?:\s[^>]*)?>/, (open) => `${open}<w:rPr>${runFormat}</w:rPr>`);
   });
 }
@@ -598,7 +598,7 @@ export function rewriteTableColumns(tableXml, columnIndex, mode) {
     } else {
       columns.splice(columnIndex - 1, 0, columns[columnIndex - 1] || columns.at(-1) || '<w:gridCol/>');
     }
-    next = next.replace(grid[0], `<w:tblGrid>${columns.join('')}</w:tblGrid>`);
+    next = next.replace(grid[0], () => `<w:tblGrid>${columns.join('')}</w:tblGrid>`);
   }
   return mapTableRows(next, (row) => {
     const cells = tableRowCells(row);
@@ -749,7 +749,7 @@ export function replaceDocxTable(current, table, nextTable) {
 
 export function replaceWordProperties(xml, owner, propertyTag, value) {
   const pattern = new RegExp(`<w:${propertyTag}(?:\\s[^>]*)?>[\\s\\S]*?<\\/w:${propertyTag}>`);
-  if (pattern.test(xml)) return xml.replace(pattern, `<w:${propertyTag}>${value}</w:${propertyTag}>`);
+  if (pattern.test(xml)) return xml.replace(pattern, () => `<w:${propertyTag}>${value}</w:${propertyTag}>`);
   return xml.replace(
     new RegExp(`<w:${owner}(?:\\s[^>]*)?>`),
     (open) => `${open}<w:${propertyTag}>${value}</w:${propertyTag}>`

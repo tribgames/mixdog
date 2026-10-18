@@ -32,6 +32,9 @@ export const TERMINATION_RECHECK_MS = 5_000;
 // read is not abandoned — a snapshot that lands later is still absorbed.
 export const PROCESS_TABLE_READ_BOUND_MS = 2_000;
 
+// Kill-and-observe rounds of a survivor kill before it reports what is left.
+const KILL_ROUNDS = 3;
+
 /** Resolve `promise`'s value, or `onTimeout` once `ms` elapse first. The
  *  bound's timer is cleared whichever side wins. */
 export function withinBound(promise, ms, onTimeout) {
@@ -169,13 +172,30 @@ export function createProcessTreeTracker({ pid, members = [], exitObserved = fal
   };
 }
 
+/** Terminate every identity the last observation found alive (console hosts
+ *  excepted: they are witnesses, never workers). These are processes of a tree
+ *  that was KILLED — they escaped its process group (setsid, job control, a
+ *  double fork that kept its parent link) or outlived the root on Windows —
+ *  so the kill is not finished while they run. Windows: taskkill /T /F;
+ *  POSIX: SIGTERM, then SIGKILL after a short grace. */
+function sweepLiveIdentities(tracker) {
+  const targets = tracker.live
+    .filter((entry) => entry.token != null && !CONSOLE_HOST.test(entry.name))
+    .map((entry) => entry.pid);
+  return targets.length > 0 ? killProcessTrees(targets) : Promise.resolve();
+}
+
 /** One observation loop: observe now, then every `intervalMs` until the tree
  *  is confirmed gone, then run `onTerminated` once. 'running', 'unknown', a
  *  failed or unanswered (by the next cadence tick) observation and a failing
  *  `onTerminated` all re-check on the same cadence; the first pass that is not
  *  'gone' calls `onUnconfirmed` once. The returned stop() clears the pending
  *  timer; nothing else (listener, timer) outlives the loop. Nothing in it ever
- *  releases on time alone. */
+ *  releases on time alone.
+ *
+ *  `sweep` (a killed tree): a pass that finds captured identities alive
+ *  terminates them and observes again in the same pass, so a cancellation
+ *  ends with the tree gone instead of a held folder over live processes. */
 export function watchTermination({
   tracker,
   rootExited = () => true,
@@ -183,6 +203,7 @@ export function watchTermination({
   onUnconfirmed = null,
   releaseRequested = null,
   intervalMs = TERMINATION_RECHECK_MS,
+  sweep = false,
 }) {
   let timer = null;
   let stopped = false;
@@ -206,6 +227,17 @@ export function watchTermination({
         observation.catch(() => {});
         // A pass that has not answered by the next cadence tick is unknown.
         state = await withinBound(observation, intervalMs, 'unknown');
+        if (state === 'running' && sweep && !stopped) {
+          await withinBound(
+            sweepLiveIdentities(tracker).catch(() => {}),
+            intervalMs,
+            null
+          );
+          await observation.catch(() => {});
+          observation = tracker.observe({ rootExited: rootExited() });
+          observation.catch(() => {});
+          state = await withinBound(observation, intervalMs, 'unknown');
+        }
       } catch {
         state = 'unknown';
       }
@@ -365,7 +397,13 @@ export async function killShellDescendants(handle) {
       .map((entry) => entry.pid);
     await killProcessTrees(targets).catch(() => {});
     const tracker = trackerFor(handle);
-    const state = await tracker.observe({ rootExited: true });
+    let state = await tracker.observe({ rootExited: true });
+    // What the first kill missed (a child forked meanwhile, a slow exit) is
+    // found by the re-observation itself and killed in the next round.
+    for (let round = 1; state === 'running' && round < KILL_ROUNDS; round += 1) {
+      await sweepLiveIdentities(tracker).catch(() => {});
+      state = await tracker.observe({ rootExited: true });
+    }
     return { terminated: state === 'gone', survivors: tracker.live.map((entry) => entry.pid) };
   } catch {
     return { terminated: false, survivors: [...handle.watchPids] };

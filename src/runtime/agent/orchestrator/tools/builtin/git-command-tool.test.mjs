@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _gitCommandInternals } from './git-command-tool.mjs';
@@ -29,18 +29,14 @@ const shownPatch = patch.replace(/^index .*\n/m, '');
 const HINT =
   'hint: large diff - run with --stat first for per-file sizes, add -U1 for less context, and page by file with -- <path>';
 const HINT_RE = new RegExp(`\\n${HINT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+const LINE_CAP = (cap, more) =>
+  `[output capped at ${cap} lines; ${more} more lines omitted; narrow: raise output_limit (max 1000) or narrow the command (-- <path>, -n/--skip)]`;
 
 test('git line caps include blank lines, retain headers, and count all omissions', () => {
   const { commandResult } = _gitCommandInternals;
-  assert.equal(
-    commandResult(plan, result('a\n\nb\nc\n'), 2).text,
-    'a\n\n... [2 more lines omitted; raise output_limit or narrow the command]'
-  );
+  assert.equal(commandResult(plan, result('a\n\nb\nc\n'), 2).text, `a\n\n${LINE_CAP(2, 2)}`);
   const capped = commandResult(plan, result(patch), 4).text;
-  assert.equal(
-    capped.replace(HINT_RE, ''),
-    `${shownPatch.split('\n').slice(0, 4).join('\n')}\n... [5 more lines omitted; raise output_limit or narrow the command]`
-  );
+  assert.equal(capped.replace(HINT_RE, ''), `${shownPatch.split('\n').slice(0, 4).join('\n')}\n${LINE_CAP(4, 5)}`);
   assert.match(capped, HINT_RE);
   assert.equal(commandResult(plan, result('a\nb\n'), 2).text, 'a\nb\n');
 });
@@ -61,10 +57,7 @@ test('stage discovery lists one id range per file independently of the body cap 
   const manifest = `diff_id: ${snapshot.diffId} (${NOTE})\na.txt: c1-c2`;
   assert.equal(text, `${shownPatch}${manifest}`);
   const capped = _gitCommandInternals.stageableDiffResult(plan, result(patch), snapshot, 4).text;
-  assert.equal(
-    capped,
-    `${shownPatch.split('\n').slice(0, 4).join('\n')}\n... [5 more lines omitted; raise output_limit or narrow the command]\n${HINT}\n${manifest}`
-  );
+  assert.equal(capped, `${shownPatch.split('\n').slice(0, 4).join('\n')}\n${LINE_CAP(4, 5)}\n${HINT}\n${manifest}`);
 });
 
 test('index lines and line-ending warnings are dropped; content that merely looks like them is kept', () => {
@@ -102,8 +95,9 @@ test('large diffs get a one-line paging hint; stat-style and small output do not
     { length: 300 },
     (_, index) => `+line ${index}`
   ).join('\n')}\n`;
-  // Over ~200 lines even when the caller's cap lets all of it through.
-  const whole = commandResult(plan, result(bigPatch), 500).text;
+  // Over the 500-line default even when the caller's cap lets all of it through.
+  const hugePatch = `${bigPatch.replace(/\n$/, '')}\n${Array.from({ length: 300 }, (_, i) => `+more ${i}`).join('\n')}\n`;
+  const whole = commandResult(plan, result(hugePatch), 1000).text;
   assert.equal([...whole.matchAll(/^hint: /gm)].length, 1);
   assert.match(whole, HINT_RE);
   assert.doesNotMatch(commandResult(plan, result(shownPatch), 50).text, /hint:/);
@@ -115,25 +109,26 @@ test('output is also capped by characters per command and says what was cut and 
   const { commandResult } = _gitCommandInternals;
   const lines = Array.from({ length: 400 }, (_, index) => `${String(index).padStart(3, '0')} ${'x'.repeat(96)}`);
   const text = `${lines.join('\n')}\n`;
-  const defaultCap = commandResult({ operation: 'log' }, result(text), 500).text;
-  assert.ok(defaultCap.length < 12_500, String(defaultCap.length));
+  const bigText = `${Array.from({ length: 900 }, (_, index) => `${String(index).padStart(3, '0')} ${'x'.repeat(96)}`).join('\n')}\n`;
+  const defaultCap = commandResult({ operation: 'log' }, result(bigText), 1000).text;
+  assert.ok(defaultCap.length < 40_500, String(defaultCap.length));
   assert.match(
     defaultCap,
-    /\n\.\.\. \[\d+ more lines \(\d+ chars\) omitted; output limited to 12000 chars - narrow the command \(-- <path>, -n\/--skip\) to page\]$/
+    /\n\[output capped at 40000 chars; \d+ more lines \(\d+ chars\) omitted; narrow: narrow the command \(-- <path>, -n\/--skip\) to page\]$/
   );
   // Cut on a line boundary: the last shown line is whole.
   const shown = defaultCap.split('\n').slice(0, -1);
   assert.ok(shown.every((line) => line.length === 100));
-  const omitted = Number(/\[(\d+) more lines/.exec(defaultCap)[1]);
-  assert.equal(shown.length + omitted, 400);
+  const omitted = Number(/; (\d+) more lines/.exec(defaultCap)[1]);
+  assert.equal(shown.length + omitted, 900);
   // The array-wide share arrives as a smaller per-command budget.
   const share = commandResult({ operation: 'log' }, result(text), { lines: 500, chars: 2000 }).text;
-  assert.match(share, /output limited to 2000 chars/);
+  assert.match(share, /output capped at 2000 chars/);
   assert.ok(share.length < 2300);
   // A single over-long line is still cut.
   assert.match(
     commandResult({ operation: 'log' }, result('y'.repeat(30_000)), { lines: 50, chars: 1000 }).text,
-    /^y{1000}\n\.\.\. \[0 more lines \(29000 chars\) omitted;/
+    /^y{1000}\n\[output capped at 1000 chars; 0 more lines \(29000 chars\) omitted;/
   );
   // Under both caps the text is untouched.
   assert.equal(commandResult({ operation: 'log' }, result(text.slice(0, 5000)), 500).text, text.slice(0, 5000));
@@ -225,6 +220,31 @@ test('the repository lock key is the common git dir shared by the main checkout 
     assert.equal(main.lockKey, gitRepoLockKey(join(repo, '.git')));
     // A cache hit answers with the same key.
     assert.equal((await resolveFrom(linked)).lockKey, side.lockKey);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a write holds the worktrees it touches: its cwd, or the target of worktree add/remove/move', () => {
+  const { parseCommand, writeScopes } = _gitCommandInternals;
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-scopes-'));
+  try {
+    const repo = join(root, 'repo');
+    const existing = join(root, 'wt');
+    mkdirSync(repo);
+    mkdirSync(existing);
+    writeFileSync(join(existing, '.git'), 'gitdir: elsewhere\n');
+    const scopes = (command) => writeScopes(parseCommand(command, repo), repo);
+    assert.deepEqual(scopes('git commit -m x'), [repo]);
+    assert.deepEqual(scopes('git worktree add -b feature ../next HEAD'), [join(root, 'next')]);
+    assert.deepEqual(scopes('git worktree remove --force ../wt'), [existing]);
+    assert.deepEqual(scopes('git worktree lock --reason busy ../wt'), [existing]);
+    assert.deepEqual(scopes('git worktree move ../wt ../moved'), [existing, join(root, 'moved')]);
+    // A name git may resolve as a unique suffix elsewhere, prune and pruning
+    // object maintenance hold the whole repository.
+    assert.equal(scopes('git worktree remove wt'), null);
+    assert.equal(scopes('git worktree prune'), null);
+    assert.equal(scopes('git gc --prune=now'), null);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

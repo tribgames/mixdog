@@ -33,6 +33,12 @@ export function createTurnStream(deps) {
     // segment out of the provider's final content individually: the combined
     // prefix no longer matches when the provider omits an earlier segment.
     committedSegments: [],
+    // The open segment was settled when the provider streamed a tool call
+    // (turn.mjs); cleared when that response's tool calls open.
+    settledBeforeToolCall: false,
+    // The phase the provider named for the message this segment streams
+    // (`commentary` / `final_answer`), or null; the desktop row carries it.
+    phase: null,
     thinkingText: '',
     thinkingStartedAt: 0,
     thinkingSegmentStartedAt: 0,
@@ -113,6 +119,7 @@ function ensureAssistant(stream, initialText = '') {
       text: String(initialText || ''),
       at,
       messageId,
+      ...phaseField(stream),
       ...stream.routeMeta,
     });
   }
@@ -149,9 +156,15 @@ function partialNow(stream) {
       streaming: true,
       at: identity.at,
       messageId: identity.messageId,
+      ...phaseField(stream),
       ...stream.routeMeta,
     },
   };
+}
+
+// The row's `phase` field; absent when the provider named none.
+function phaseField(stream) {
+  return stream.phase ? { phase: stream.phase } : {};
 }
 
 function samePartial(left, right) {
@@ -208,6 +221,7 @@ function resetLineScan(stream) {
 function closeAssistantSegment(stream) {
   stream.currentAssistantId = null;
   stream.currentAssistantText = '';
+  stream.phase = null;
   stream.claimPersistedAssistant = false;
   stream.assistantIdentity = null;
   resetLineScan(stream);
@@ -296,6 +310,7 @@ function flushTextBatch(stream) {
         text: visibleText,
         streaming: true,
         at: current?.at || Date.now(),
+        phase: stream.phase || undefined,
         ...stream.routeMeta,
       };
     }
@@ -447,6 +462,24 @@ export function appendAssistantText(stream, full, { committed = false } = {}) {
     stream.transcriptMeta.persistedAssistant = null;
   }
   flushStreamBatch(stream);
+}
+
+// The provider named the phase of the message it is streaming. A message of
+// another phase than the open segment's text is its own row: that segment
+// settles first. A segment whose phase was not known yet (the provider named
+// it only on the finished message) takes it.
+export function noteAssistantPhase(stream, phase) {
+  if (phase !== 'commentary' && phase !== 'final_answer') return;
+  if (stream.phase === phase) return;
+  if (stream.phase && stream.currentAssistantText.trim()) {
+    flushStreamBatch(stream);
+    commitAssistantSegment(stream);
+  }
+  stream.phase = phase;
+  const tail = stream.getState().streamingTail;
+  if (stream.currentAssistantId != null && tail?.id === stream.currentAssistantId) {
+    stream.updateStreamingTail(tail.id, { phase });
+  }
 }
 
 // Reasoning is not a commit boundary: a turn interrupted while it is still

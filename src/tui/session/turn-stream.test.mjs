@@ -15,9 +15,144 @@ import {
 } from './turn-stream.mjs';
 import { createProjection } from '../../standalone/session-proxy/projection.mjs';
 import { diffSessionState } from '../../standalone/session-state-patch.mjs';
-import { failTurn } from './turn.mjs';
+import { failTurn, streamHandlers, toolHandlers } from './turn.mjs';
 import { createAskCallbacks } from '../../session-runtime/turn/turn-run/ask-callbacks.mjs';
 import { createAskTranscriptMeta } from '../../runtime/agent/orchestrator/session/manager/ask-session.mjs';
+
+test('a preamble settles as soon as the provider streams a tool call, not after the whole response', () => {
+  const settled = [];
+  let sealed = 0;
+  let committed = 0;
+  let state = {};
+  let sequence = 0;
+  const stream = createTurnStream({
+    getState: () => state,
+    set: (patch) => {
+      state = { ...state, ...patch };
+    },
+    nextId: () => `row_${++sequence}`,
+    isCurrentTurn: () => true,
+    transcriptMeta: {},
+    routeMeta: {},
+    updateStreamingTail: () => {},
+    settleStreamingTail: (id, patch) => settled.push({ id, ...patch }),
+    clearStreamingTail: () => {},
+    sealToolBlock: () => {
+      sealed += 1;
+    },
+  });
+  const handlers = toolHandlers({
+    stream,
+    isCurrentTurn: () => true,
+    markPromptCommitted: () => {
+      committed += 1;
+    },
+  });
+  appendTextDelta(stream, 'Let me look at the layout first');
+  handlers.onAssistantToolCallObserved({ id: 'call_1', name: 'list' });
+  assert.deepEqual(
+    settled.map((row) => row.text),
+    ['Let me look at the layout first']
+  );
+  assert.equal(sealed, 1);
+  assert.equal(committed, 1);
+  assert.deepEqual(stream.committedSegments, ['Let me look at the layout first']);
+  // A second call of the same response finds nothing left to settle.
+  handlers.onAssistantToolCallObserved({ id: 'call_2', name: 'list' });
+  assert.equal(settled.length, 1);
+  // The response's content, surfaced before its tool calls open, is the same
+  // text: it opens no second row.
+  streamHandlers({ stream, isCurrentTurn: () => true, markPromptCommitted: () => {} }).onAssistantText(
+    'Let me look at the layout first'
+  );
+  assert.equal(stream.currentAssistantText, '');
+  assert.equal(stream.currentAssistantId, null);
+  flushStreamBatch(stream);
+});
+
+function liveStream() {
+  const settled = [];
+  let state = {};
+  let sequence = 0;
+  const stream = createTurnStream({
+    getState: () => state,
+    set: (patch) => {
+      state = { ...state, ...patch };
+    },
+    nextId: () => `row_${++sequence}`,
+    isCurrentTurn: () => true,
+    transcriptMeta: {},
+    routeMeta: {},
+    updateStreamingTail: (id, patch) => {
+      const current = state.streamingTail?.id === id ? state.streamingTail : {};
+      state = { ...state, streamingTail: { ...current, ...patch, kind: 'assistant', id, streaming: true } };
+    },
+    settleStreamingTail: (id, patch) => settled.push({ id, ...patch }),
+    clearStreamingTail: () => {},
+    sealToolBlock: () => {},
+  });
+  const handlers = streamHandlers({ stream, isCurrentTurn: () => true, markPromptCommitted: () => {} });
+  return { stream, settled, handlers, state: () => state };
+}
+
+test("a tool call's start settles the preamble before its arguments stream", () => {
+  const { stream, settled, handlers } = liveStream();
+  appendTextDelta(stream, 'Let me check the layout');
+  handlers.onStreamItemStart({ kind: 'tool' });
+  assert.deepEqual(
+    settled.map((row) => row.text),
+    ['Let me check the layout']
+  );
+  // The response's own content, surfaced before its tool calls open, opens no
+  // second row.
+  handlers.onAssistantText('Let me check the layout');
+  assert.equal(stream.currentAssistantText, '');
+  assert.equal(stream.currentAssistantId, null);
+});
+
+test('a phased message marks its live row; a message of another phase opens its own row', () => {
+  const { stream, settled, handlers, state } = liveStream();
+  handlers.onStreamItemStart({ kind: 'text', phase: 'commentary' });
+  appendTextDelta(stream, 'Checking');
+  flushStreamBatch(stream);
+  assert.equal(state().streamingPartial.tail.phase, 'commentary', 'the row the partial line opens');
+  appendTextDelta(stream, ' the config\n');
+  flushStreamBatch(stream);
+  assert.equal(state().streamingTail.phase, 'commentary');
+  handlers.onStreamItemStart({ kind: 'text', phase: 'final_answer' });
+  assert.deepEqual(
+    settled.map((row) => row.text),
+    ['Checking the config\n']
+  );
+  appendTextDelta(stream, 'The answer\n');
+  flushStreamBatch(stream);
+  assert.equal(state().streamingTail.phase, 'final_answer');
+  assert.notEqual(state().streamingTail.id, settled[0].id);
+});
+
+test('a phase named only on the finished message tags the open row without splitting it', () => {
+  const { stream, settled, handlers, state } = liveStream();
+  appendTextDelta(stream, 'Looking around\n');
+  flushStreamBatch(stream);
+  assert.equal(state().streamingTail.phase, undefined);
+  handlers.onStreamItemStart({ kind: 'text', phase: 'commentary' });
+  assert.equal(settled.length, 0);
+  assert.equal(state().streamingTail.phase, 'commentary');
+  handlers.onStreamItemStart({ kind: 'text', phase: 'unknown' });
+  assert.equal(stream.phase, 'commentary', 'an unknown phase is ignored');
+});
+
+test('the turn hands the provider item-start hook to the ask loop', () => {
+  const onStreamItemStart = () => {};
+  const { askCallbacks } = createAskCallbacks({
+    transcript: { appendAssistantText() {} },
+    notifyFnForSession: () => null,
+    scheduleSearchRuntimeWarmup: null,
+    hooks: { emit() {} },
+  });
+  const callbacks = askCallbacks({ snapshot: {}, timing: {}, signal: null }, { id: 's1' }, { onStreamItemStart });
+  assert.equal(callbacks.onStreamItemStart, onStreamItemStart);
+});
 
 test('a non-streaming continuation row carries the persisted message id, so live and restart classify alike', () => {
   const raw = { sender: 'me' };

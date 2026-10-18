@@ -7,7 +7,7 @@ import { cleanupArtifactOnTaskSettled, consumeTeeArtifact } from './transport-ar
 import { _backgroundResultLines, _prependDestructiveWarning } from './result-format.mjs';
 
 const DEFAULT_BACKGROUND_MESSAGE =
-  'auto-backgrounded; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.';
+  'moved to background; still running. Its result is delivered automatically when it finishes.';
 
 // The label and owner context every task registered for a shell command
 // carries, whether promoted or tracking survivors.
@@ -73,13 +73,19 @@ export function renderBackgroundedResult({ result, command, cwd, options, starte
   let taskBlock = null;
   if (task) taskBlock = renderBackgroundTask(task, { ownerTool: true });
   else if (result.jobId) taskBlock = `[task_id: ${result.jobId}]`;
+  // The output so far in the shared delivery shape, with the progress digest;
+  // the task cursor then starts after it, so nothing here is sent again.
   const partialOutput = task
-    ? readShellTaskOutput(task, {
-        stdout_path: result.stdoutPath,
-        stderr_path: result.stderrPath,
-        stdout_preview: stdout,
-        stderr_preview: stderr,
-      })
+    ? readShellTaskOutput(
+        task,
+        {
+          stdout_path: result.stdoutPath,
+          stderr_path: result.stderrPath,
+          stdout_preview: stdout,
+          stderr_preview: stderr,
+        },
+        { digest: true }
+      )
     : renderBackgroundPartialOutput(stdout, stderr);
   const lines = _backgroundResultLines({
     taskBlock,

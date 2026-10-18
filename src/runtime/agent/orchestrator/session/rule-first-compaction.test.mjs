@@ -14,6 +14,7 @@ import { runPreSendCompactPass } from './pre-send-compact.mjs';
 import { runSessionCompaction } from './manager/compaction-runner.mjs';
 import { agentLoop } from './agent-loop.mjs';
 import { conversationCompactionInput, SUMMARY_PREFIX } from './compact.mjs';
+import { parseExecutionArchive } from './compact/execution-tail.mjs';
 import { withoutStampedIds } from './message-ids.test-support.mjs';
 
 const summary = [
@@ -211,7 +212,7 @@ test('tool pressure alone uses rules and preserves an exact recoverable archive,
   assert.ok(result.messages.some((m) => m.content?.includes?.('COMPLETE_SKILL_BODY')));
   const recovery = result.messages.find((m) => m.meta?.source === 'compact-execution-recovery');
   const path = recovery.content.match(/available at (.+?) \(sha256:/)[1];
-  const archived = JSON.parse(readFileSync(path, 'utf8'));
+  const archived = { messages: parseExecutionArchive(readFileSync(path, 'utf8')) };
   assert.equal(archived.messages.find((m) => m.toolCallId === 'read-1').content, output);
   assert.deepEqual(session.messages, before);
   assert.deepEqual(

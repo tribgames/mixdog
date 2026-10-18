@@ -1,5 +1,6 @@
 import { countSplitLines } from './path-utils.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
+import { DELIVERY_FULL_CHARS, fitPieces, shellTextPiece } from './lib/shell-delivery.mjs';
 
 const SHELL_OUTPUT_MAX_BYTES = TOOL_OUTPUT_MAX_BYTES;
 
@@ -7,11 +8,6 @@ export const SMART_BASH_MAX_LINES = 400;
 export const SMART_BASH_MAX_BYTES = TOOL_OUTPUT_MAX_BYTES;
 export const SMART_BASH_HEAD_LINES = 80;
 export const SMART_BASH_TAIL_LINES = 80;
-export const BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES = 10 * 1024;
-const BACKGROUND_PARTIAL_OUTPUT_HEAD_BYTES = 2 * 1024;
-
-const BACKGROUND_PARTIAL_TRUNCATION_MARKER = '\n\n... [partial output truncated; head and tail shown] ...\n\n';
-
 function utf8Prefix(value, maxBytes) {
   const buffer = Buffer.from(String(value ?? ''), 'utf8');
   if (buffer.length <= maxBytes) return buffer.toString('utf8');
@@ -20,31 +16,20 @@ function utf8Prefix(value, maxBytes) {
   return buffer.subarray(0, end).toString('utf8');
 }
 
-function utf8Suffix(value, maxBytes) {
-  const buffer = Buffer.from(String(value ?? ''), 'utf8');
-  if (buffer.length <= maxBytes) return buffer.toString('utf8');
-  let start = buffer.length - maxBytes;
-  while (start < buffer.length && (buffer[start] & 0xc0) === 0x80) start += 1;
-  return buffer.subarray(start).toString('utf8');
-}
-
+// Partial output of a promoted command that has no task record, in the shared
+// delivery shape (lib/shell-delivery.mjs).
 export function renderBackgroundPartialOutput(stdout, stderr) {
-  const sections = [];
-  const out = String(stdout ?? '');
-  const err = String(stderr ?? '');
-  if (out) sections.push(`[partial stdout]\n${out}`);
-  if (err) sections.push(`[partial stderr]\n${err}`);
-  const merged = sections.join('\n\n');
-  if (!merged) return '';
-  if (Buffer.byteLength(merged, 'utf8') <= BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES) return merged;
-
-  const markerBytes = Buffer.byteLength(BACKGROUND_PARTIAL_TRUNCATION_MARKER, 'utf8');
-  const tailBytes = BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES - BACKGROUND_PARTIAL_OUTPUT_HEAD_BYTES - markerBytes;
-  return (
-    utf8Prefix(merged, BACKGROUND_PARTIAL_OUTPUT_HEAD_BYTES) +
-    BACKGROUND_PARTIAL_TRUNCATION_MARKER +
-    utf8Suffix(merged, tailBytes)
+  const streams = [
+    ['stdout', String(stdout ?? '')],
+    ['stderr', String(stderr ?? '')],
+  ].filter(([, text]) => text);
+  const headings = streams.map(([label]) => `[partial ${label}]\n`);
+  const fixed = headings.reduce((sum, heading) => sum + heading.length, 2 * Math.max(0, streams.length - 1));
+  const bodies = fitPieces(
+    streams.map(([label, text]) => shellTextPiece(text, { label })),
+    DELIVERY_FULL_CHARS - fixed
   );
+  return streams.map((_, index) => `${headings[index]}${bodies[index]}`).join('\n\n');
 }
 
 export function smartMiddleTruncate(content) {

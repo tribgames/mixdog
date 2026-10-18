@@ -15,8 +15,9 @@ import { join } from 'node:path';
 // Leaf helpers only: the three-way present/absent/unreadable classification
 // and the strict record parser the authoritative store uses, so the catalog
 // cannot disagree with it.
-import { probePath, readTextFile, PROBE_PRESENT, PROBE_ABSENT } from './store/fs-probe.mjs';
-import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
+import { probePath, readBytesFile, readTextFile, PROBE_PRESENT, PROBE_ABSENT } from './store/fs-probe.mjs';
+import { isLifecycleUnreadable } from './lifecycle-scan.mjs';
+import { readStrictRecordFields } from './store-record-strict-scan.mjs';
 import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './store-summary-visibility.mjs';
 import { applySummaryLogText, summaryLogPath } from './store-summary-log.mjs';
 import { dataDir } from './store-summary-locations.mjs';
@@ -43,7 +44,7 @@ export const STAMP_ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
 /** The one catalog order of every listing path (JSON and DB): newest
  *  conversation activity first (see normalizedRow's lastUsedAt note), ties by
  *  id, so a fallback and the DB never disagree on equal activity times. */
-export const byCatalogOrder = byActivityThenId;
+const byCatalogOrder = byActivityThenId;
 
 // ── Stamp-keyed strict derivations ──────────────────────────────────────────
 // Session metadata and catalog rows are small values derived from a strict
@@ -52,8 +53,20 @@ export const byCatalogOrder = byActivityThenId;
 // proven to come from (stat → read → stat) and that stamp is past the racy
 // window. Any other file — changed, replaced by another writer, unreadable —
 // is read and strictly parsed again.
+// Bounded by count and by serialized size: nothing tells this map a session
+// file went away, so a churning host fills it with dead paths until LRU
+// eviction (`delete` + `set` on a hit keeps Map order least recent first).
 const STAMPED_DERIVATION_LIMIT = 2048;
-const stampedDerivations = new Map(); // `${kind}|${path}` → { stamp, value }
+const STAMPED_DERIVATION_MAX_BYTES = 8 * 1024 * 1024;
+const stampedDerivations = new Map(); // `${kind}|${path}` → { stamp, value, bytes }
+let stampedDerivationBytes = 0;
+
+function dropStampedDerivation(key) {
+  const entry = stampedDerivations.get(key);
+  if (!entry) return;
+  stampedDerivations.delete(key);
+  stampedDerivationBytes -= entry.bytes;
+}
 
 export function observeStamp(path) {
   try {
@@ -64,24 +77,35 @@ export function observeStamp(path) {
 }
 
 /** `{ state, value }`: `derive(text)` for the record at `path`, or its cached
- *  result while the file is provably unchanged. */
-export function stampedDerivation(kind, path, derive) {
+ *  result while the file is provably unchanged. `bytes`: `derive` gets the
+ *  raw Buffer instead of text. `stamp`: the caller's own stat of `path`,
+ *  taken just before, stands for the pre-read stat (one stat fewer). */
+export function stampedDerivation(kind, path, derive, { bytes = false, stamp } = {}) {
   const key = `${kind}|${path}`;
-  const before = observeStamp(path);
+  const before = stamp === undefined ? observeStamp(path) : stamp;
   const cached = stampedDerivations.get(key);
   if (before && cached && sameSessionStamp(cached.stamp, before)) {
     stampedDerivations.delete(key);
     stampedDerivations.set(key, cached);
     return { state: PROBE_PRESENT, value: cached.value };
   }
-  stampedDerivations.delete(key);
-  const read = readTextFile(path);
+  dropStampedDerivation(key);
+  const read = bytes ? readBytesFile(path) : readTextFile(path);
   if (read.state !== PROBE_PRESENT) return { state: read.state, value: null };
-  const value = derive(read.text);
+  const value = derive(bytes ? read.bytes : read.text);
   if (isSettledSessionStamp(before) && sameSessionStamp(before, observeStamp(path))) {
-    stampedDerivations.set(key, { stamp: before, value });
-    if (stampedDerivations.size > STAMPED_DERIVATION_LIMIT) {
-      stampedDerivations.delete(stampedDerivations.keys().next().value);
+    // UTF-16 code units of the key and the serialized value approximate the
+    // retained bytes; the strict parse just above dwarfs this stringify.
+    const size = 2 * (key.length + (JSON.stringify(value)?.length ?? 0));
+    if (size <= STAMPED_DERIVATION_MAX_BYTES) {
+      stampedDerivations.set(key, { stamp: before, value, bytes: size });
+      stampedDerivationBytes += size;
+      while (
+        stampedDerivations.size > STAMPED_DERIVATION_LIMIT ||
+        stampedDerivationBytes > STAMPED_DERIVATION_MAX_BYTES
+      ) {
+        dropStampedDerivation(stampedDerivations.keys().next().value);
+      }
     }
   }
   return { state: PROBE_PRESENT, value };
@@ -199,6 +223,24 @@ function leadRows(rows) {
   return rows.filter((row) => row && isLeadVisibleRow(row));
 }
 
+// What a row derivation decodes of a record (store-record-strict-scan.mjs):
+// rowFromSession reads its user messages whole and only the role of the rest,
+// and never these top-level fields — together ~10% of a record, mostly tool
+// catalogs. Every other top-level field is decoded, so a field a row starts
+// to read is there without touching this list.
+const CATALOG_RECORD_READ = {
+  skip: new Set([
+    'tools',
+    'deferredToolCatalog',
+    'deferredLateToolCatalog',
+    'bp3CoreContext',
+    'bp3EnvironmentContext',
+    'compaction',
+    'pendingDeferredToolDelta',
+  ]),
+  fullMessageRoles: new Set(['user']),
+};
+
 function rowFromSession(session) {
   const messages = Array.isArray(session?.messages) ? session.messages : [];
   const preview =
@@ -259,14 +301,21 @@ function reconcileSessionFile(directory, storageId, retained, forceRead) {
     return { kind: 'indexed', ...fingerprint };
   }
   // A file the index does not describe (never saved by the store, or
-  // saved after the index was written) is parsed once per full stamp.
-  const read = stampedDerivation('row', path, (text) => {
-    // Same strict authority as the store: a duplicate/ambiguous top-level
-    // record or a foreign identity is not this file's session.
-    const record = readTopLevelLifecycleRecord(text);
-    if (isLifecycleUnreadable(record) || record.id !== storageId) return null;
-    return rowFromSession(record.doc);
-  });
+  // saved after the index was written) is read once per full stamp; the
+  // stat above is the read's pre-read stat.
+  const read = stampedDerivation(
+    'row',
+    path,
+    (bytes) => {
+      // Same strict authority as the store: a duplicate/ambiguous top-level
+      // record or a foreign identity is not this file's session. Only what a
+      // row is made of is decoded (see CATALOG_RECORD_READ).
+      const record = readStrictRecordFields(bytes, CATALOG_RECORD_READ);
+      if (isLifecycleUnreadable(record) || record.id !== storageId) return null;
+      return rowFromSession(record.doc);
+    },
+    { bytes: true, stamp }
+  );
   if (read.state === PROBE_ABSENT) return null;
   // Exists and could not be read (EACCES/EIO): retain the last known row
   // rather than let a transient IO error delete it from view.

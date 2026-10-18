@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync, rmSync } from 'node:fs';
 import test from 'node:test';
 
+import { executeBashTool } from '../bash-tool.mjs';
+import { tokenizeDirectArgv } from '../shell-direct-exe.mjs';
+import { planInlineScriptHoist } from '../shell-analysis.mjs';
 import { hoistInlineScript } from './inline-hoist.mjs';
 
 test('inline scripts hoisted in the same millisecond keep separate files', (t) => {
@@ -15,6 +18,69 @@ test('inline scripts hoisted in the same millisecond keep separate files', (t) =
   assert.notEqual(first.hoistPath, second.hoistPath);
   assert.equal(readFileSync(first.hoistPath, 'utf8'), 'process.exit(5)');
   assert.equal(readFileSync(second.hoistPath, 'utf8'), "console.log('second')");
+});
+
+test('an inline script whose quote the shell would not end there stays inline', (t) => {
+  for (const command of [
+    // PowerShell `""` is an escaped quote inside a double-quoted string.
+    `node -e "console.log('a', ""q"")"`,
+    `node -e "console.log(""a"" + ""b"")"`,
+    // The closing quote is glued to more argument text.
+    `node -e "console.log(1)"suffix`,
+    // Trailing arguments: process.argv differs between -e and a file run.
+    `node -e "console.log(process.argv.slice(1))" a b`,
+    `node -e "console.log(process.argv.length)" -- x`,
+  ]) {
+    const result = hoistInlineScript(command, 'powershell');
+    t.after(() => result.hoistPath && rmSync(result.hoistPath, { force: true }));
+    assert.equal(result.hoistPath, null, command);
+    assert.equal(result.command, command);
+  }
+  for (const command of [
+    `node -e "console.log(1)" | Out-String`,
+    `node -e "console.log(1)"; node -e "console.log(2)"`,
+    `node -e "console.log(1)" 2>&1`,
+    `node -e "console.log(1)"\nGet-Date`,
+    `node -e "console.log(1)"`,
+  ]) {
+    const result = hoistInlineScript(command, 'powershell');
+    t.after(() => result.hoistPath && rmSync(result.hoistPath, { force: true }));
+    assert.ok(result.hoistPath, command);
+  }
+});
+
+test('direct argv keeps a PowerShell doubled quote as a literal quote', () => {
+  assert.deepEqual(tokenizeDirectArgv(`node -e "console.log('a', ""q"")"`), ['node', '-e', `console.log('a', "q")`]);
+  assert.deepEqual(tokenizeDirectArgv('node -e ""'), ['node', '-e', '']);
+});
+
+test('a replacement path containing `$` patterns is inserted verbatim', () => {
+  const plan = planInlineScriptHoist(`node -e "console.log(1)"`);
+  assert.equal(plan.replace('C:/tmp/$&-$1.cjs'), 'node "C:/tmp/$&-$1.cjs"');
+});
+
+test('node -e / --eval / -p run correctly through the shell tool', { skip: process.platform !== 'win32' }, async () => {
+  const run = async (command) => {
+    const out = await executeBashTool({ command }, process.cwd(), {});
+    return String(out?.result ?? out);
+  };
+  const cases = [
+    [`node -e "console.log(1 + 1)"`, '2'],
+    [`node --eval "console.log('한글 테스트')"`, '한글 테스트'],
+    [`node -p "6 * 7"`, '42'],
+    [`node -e "console.log('a', ""q"")"`, 'a q'],
+    [`node -e "console.log(1);\nconsole.log('two')"`, 'two'],
+    [`node -e "console.log(process.argv.slice(1).join('|'))" a b`, 'a|b'],
+    [`node -e 'console.log("$HOME-\`tick\`")'`, '$HOME-`tick`'],
+    // PowerShell: a backtick escapes `$` inside double quotes.
+    [`node -e "console.log('\`$x')"`, '$x'],
+  ];
+  for (const [command, expected] of cases) {
+    const text = await run(command);
+    assert.ok(!text.includes('MODULE_NOT_FOUND'), `${command}\n${text}`);
+    assert.ok(text.includes('[exit code: 0]'), `${command}\n${text}`);
+    assert.ok(text.includes(expected), `${command}\n${text}`);
+  }
 });
 
 test('a script that loads a package stays inline, where the working directory resolves it', (t) => {

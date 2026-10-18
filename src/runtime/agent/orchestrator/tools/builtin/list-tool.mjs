@@ -6,10 +6,16 @@ import { markScopedCacheIncomplete, markScopedCacheUnsafe } from '../../session/
 import { cacheGet, cacheSet, lstatPathsForMtime } from './cache-layers.mjs';
 import { runScopedSearchInFlight } from './lib/scoped-search-flight.mjs';
 import { NOISE_DIR_NAMES, walkDir } from './glob-walk.mjs';
-import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
+import { TOOL_OUTPUT_MAX_BYTES, capMarker } from './tool-output-limit.mjs';
 import { runRgWindowedLines } from './native-search-runner.mjs';
 import { tryServeListMetadata } from './native-search-client.mjs';
-import { countTextFileLines, guardedWalkRoot, normalizeListHeadLimit, pageContinuationLine } from './lib/list-helpers.mjs';
+import {
+  countTextFileLines,
+  guardedWalkRoot,
+  comparePathsStable,
+  normalizeListHeadLimit,
+  pageContinuationLine,
+} from './lib/list-helpers.mjs';
 import { reportToolProgress } from './lib/tool-progress.mjs';
 import { displayRelPath, statWalkRoot } from './list-tool-shared.mjs';
 import { executeFindFilesTool } from './find-files-tool.mjs';
@@ -338,9 +344,9 @@ async function fillRowMetadata(rows, workDir, options) {
 }
 
 function sortListRows(rows, sort) {
-  if (sort === 'mtime') rows.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  else if (sort === 'size') rows.sort((a, b) => b.size - a.size);
-  else rows.sort((a, b) => a.path.localeCompare(b.path));
+  if (sort === 'mtime') rows.sort((a, b) => b.mtimeMs - a.mtimeMs || comparePathsStable(a.path, b.path));
+  else if (sort === 'size') rows.sort((a, b) => b.size - a.size || comparePathsStable(a.path, b.path));
+  else rows.sort((a, b) => a.path.localeCompare(b.path) || comparePathsStable(a.path, b.path));
 }
 
 // What an empty page means: offset past the end is a windowing condition,
@@ -390,15 +396,17 @@ async function scanList(request, cacheKey, workDir, options) {
   if (root.error) return root.error;
   if (!root.stat.isDirectory()) {
     if (!root.stat.isFile()) return `Error: not a directory — ${normalizeOutputPath(fullPath)}`;
-    const out = listFileLine(fullPath, root.stat, meta, meta ? await countTextFileLines(fullPath, root.stat.size) : null);
+    const out = listFileLine(
+      fullPath,
+      root.stat,
+      meta,
+      meta ? await countTextFileLines(fullPath, root.stat.size) : null
+    );
     cacheSet(cacheKey, out, { scopes: [fullPath] });
     return out;
   }
-  const { rows, walkResult, walkWarnings, truncatedByCap, nativeDeep, cacheSafe, nativeMetaMissing } = await collectListRows(
-    request,
-    workDir,
-    options
-  );
+  const { rows, walkResult, walkWarnings, truncatedByCap, nativeDeep, cacheSafe, nativeMetaMissing } =
+    await collectListRows(request, workDir, options);
   const rootFailure = walkRootFailureLine(options, walkResult, walkWarnings, 'list walk');
   if (rootFailure) return rootFailure;
   if (!nativeDeep && needsGlobalStat) await fillRowMetadata(rows, workDir, options);
@@ -439,7 +447,11 @@ async function renderListPage({ request, rows, walkWarnings, truncatedByCap, nat
   if (paged) lines.push(pageContinuationLine(offset, sliced.length, rows.length));
   if (truncatedByCap) {
     lines.push(
-      `... walk truncated at ${LIST_ABSOLUTE_CAP} rows or ${LIST_WALK_TIMEOUT_MS}ms timeout; narrow the path or lower depth for a complete listing`
+      capMarker({
+        limit: `${LIST_ABSOLUTE_CAP} rows or ${LIST_WALK_TIMEOUT_MS}ms`,
+        shown: 'listing incomplete',
+        narrow: 'narrow the path or lower depth',
+      })
     );
   }
   for (const warning of walkWarnings) lines.push(directoryReadFailureLine(warning, true));
@@ -516,7 +528,7 @@ function renderTreeOutput(lines, walkWarnings, { headLimit, offset }) {
     outputCharTruncated = true;
     out =
       out.slice(0, TOOL_OUTPUT_MAX_BYTES) +
-      `\n... [output truncated at ${Math.round(TOOL_OUTPUT_MAX_BYTES / 1024)} KB; narrow path or lower depth]`;
+      `\n${capMarker({ limit: TOOL_OUTPUT_MAX_BYTES, narrow: 'narrow path or lower depth' })}`;
   }
   return { out, outputCharTruncated };
 }

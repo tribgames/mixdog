@@ -23,6 +23,7 @@
 // }
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { emitSessionApprovalWaitChange } from '../../../../shared/session-approval-wait.mjs';
+import { emitSessionActivityChange } from '../../../../shared/session-activity-signal.mjs';
 import { DEFAULT_ACTIVITY_HEARTBEAT_MS } from '../../stall-policy.mjs';
 import { MODEL_THINKING_STAGE, awaitingModelResponse, lastProgressAt } from '../../../../shared/quiet-progress.mjs';
 import { finishBrowserTurn } from '../../../../browser-bridge/client.mjs';
@@ -177,12 +178,14 @@ export function markSessionAskStart(id) {
   entry.modelRequestStartedAt = null;
   entry.lastProgressAt = now;
   entry.updatedAt = now;
+  entry.taskWaits = 0;
+  emitSessionActivityChange(id);
 }
 /** The provider put the request on the wire; its response headers are
  *  pending. The turn stays `requesting` (every stage set and the watchdog
  *  clock are unchanged); the send time lets surfaces show "model thinking"
  *  until transport arrives. Not progress: lastProgressAt is untouched. */
-export function markSessionRequestSent(id) {
+function markSessionRequestSent(id) {
   if (!id) return;
   const entry = _runtimeState.get(id);
   if (!entry || entry.closed || entry.controller?.signal?.aborted || entry.stage !== 'requesting') return;
@@ -321,6 +324,23 @@ export function beginSessionApprovalWait(id) {
     emitSessionApprovalWaitChange(id, null, meta);
   };
 }
+// A turn parked on a background task (`task wait`): published as
+// `awaitingTask` so status surfaces show the session waiting, not working.
+// Counted like approval waits; never creates an entry. Returns the idempotent
+// release.
+export function beginSessionTaskWait(id) {
+  const entry = id ? _runtimeState.get(id) : null;
+  if (!entry) return () => {};
+  entry.taskWaits = (entry.taskWaits || 0) + 1;
+  if (entry.taskWaits === 1) emitSessionActivityChange(id);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    entry.taskWaits = Math.max(0, (entry.taskWaits || 0) - 1);
+    if (entry.taskWaits === 0) emitSessionActivityChange(id);
+  };
+}
 // Parent AbortSignal listeners are dropped on askSession unwind (finally /
 // terminal return) and on error/cancel/close — not in markSessionDone, which
 // also runs between queued follow-up turns within one ask.
@@ -335,6 +355,8 @@ function _settleTerminalEntry(entry, stage, lastError) {
   entry.doneAt = settledAt;
   entry.lastProgressAt = settledAt;
   entry.updatedAt = settledAt;
+  entry.taskWaits = 0;
+  emitSessionActivityChange(entry.session?.id || '');
 }
 export function markSessionDone(id, { empty = false } = {}) {
   if (!id) return;

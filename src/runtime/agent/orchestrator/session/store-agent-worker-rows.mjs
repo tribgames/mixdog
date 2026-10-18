@@ -16,10 +16,17 @@
  * field name and row key is a consumed contract and is used verbatim.
  */
 import { readFileSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { probePath, PROBE_PRESENT } from './store/fs-probe.mjs';
+import {
+  isSettledSessionStamp,
+  sameSessionStamp,
+  sessionStampOf,
+  statSessionStamp,
+} from './store/canonical-reader.mjs';
 import { readJsonProjection } from '../../../shared/pending-json-projection.mjs';
 import { listStoredAgentWorkers as assembleStoredAgentWorkers } from './store-agent-worker-pool.mjs';
+import { readTopLevelFields } from './store-agent-worker-header.mjs';
 import {
   TAG_TOMBSTONE_TTL_MS,
   agentPaneVisible,
@@ -166,16 +173,83 @@ function cancelStage(cancel, declaredStage) {
   return /^cancel/i.test(declaredStage) || CANCELLED_AGENT_STATUS.test(declaredStage) ? declaredStage : cancel.status;
 }
 
-function storedAgentWorkerIndex() {
-  const path = storedAgentWorkerIndexPath();
+// The worker indexes were re-parsed in full on every pool listing and ancestry
+// lookup, changed or not. Each keeps its last parse beside the bytes it came
+// from: the file is still read every time (a few hundred KB), but an
+// unchanged one — byte for byte, so no timestamp collision can serve a stale
+// document — reuses that parse.
+// Before the read, the full file stamp is checked under the same canonical
+// policy the session headers use: a file that still has the exact settled
+// { dev, ino, size, mtimeNs, ctimeNs } its bytes were proven to come from is
+// not read again (each pool listing re-read the whole index synchronously).
+const workerIndexCache = new Map(); // path -> { bytes, doc, stamp|null }
+// The index documents an asynchronous listing read before its (synchronous)
+// assembly; live only during that assembly.
+let passIndexes = null; // path -> doc | null
+
+function readWorkerIndexFile(path) {
+  if (passIndexes?.has(path)) return passIndexes.get(path);
   // This process's own queued (not yet persisted) writes win over the file.
   const projected = readJsonProjection(path);
   if (projected) return projected;
+  const before = observeStamp(path);
+  const cached = workerIndexCache.get(path);
+  if (before && cached?.stamp && sameSessionStamp(cached.stamp, before)) return cached.doc;
+  let bytes;
   try {
-    return JSON.parse(readFileSync(path, 'utf8'));
+    bytes = readFileSync(path);
   } catch {
+    workerIndexCache.delete(path);
     return null;
   }
+  const stamp = before && isSettledSessionStamp(before) && sameSessionStamp(before, observeStamp(path)) ? before : null;
+  if (cached?.bytes.equals(bytes)) {
+    cached.stamp = stamp;
+    return cached.doc;
+  }
+  let doc = null;
+  try {
+    doc = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    /* malformed: no rows */
+  }
+  workerIndexCache.set(path, { bytes, doc, stamp });
+  return doc;
+}
+
+/** readWorkerIndexFile with every stat and read awaited, under the same
+ *  stamp and byte-equality cache. */
+async function readWorkerIndexFileAsync(path) {
+  const projected = readJsonProjection(path);
+  if (projected) return projected;
+  const before = await observeStampAsync(path);
+  const cached = workerIndexCache.get(path);
+  if (before && cached?.stamp && sameSessionStamp(cached.stamp, before)) return cached.doc;
+  let bytes;
+  try {
+    bytes = await readFile(path);
+  } catch {
+    workerIndexCache.delete(path);
+    return null;
+  }
+  const settled = before && isSettledSessionStamp(before);
+  const stamp = settled && sameSessionStamp(before, await observeStampAsync(path)) ? before : null;
+  if (cached?.bytes.equals(bytes)) {
+    cached.stamp = stamp;
+    return cached.doc;
+  }
+  let doc = null;
+  try {
+    doc = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    /* malformed: no rows */
+  }
+  workerIndexCache.set(path, { bytes, doc, stamp });
+  return doc;
+}
+
+function storedAgentWorkerIndex() {
+  return readWorkerIndexFile(storedAgentWorkerIndexPath());
 }
 
 function storedAgentWorkerIndexRows() {
@@ -211,7 +285,8 @@ export function listStoredAgentWorkerLinks() {
 
 // The agent pool only reads top-level session fields, yet each refresh used to
 // JSON.parse every active worker's whole transcript (megabytes per worker,
-// every catalog publish). Cache the header per file fingerprint instead.
+// every catalog publish). Cache the header per full file stamp instead (see
+// probeWorkerSessionHeader).
 // The cache holds exactly the headers the latest pool assembly read: a fixed
 // LRU cap below the index size (263 headers against 256 slots) evicted every
 // entry just before its reuse, so each refresh re-parsed every worker
@@ -250,28 +325,118 @@ const WORKER_HEADER_FIELDS = [
   ...SESSION_CANCEL_FIELDS,
 ];
 
+// One assembly reads a session's header up to three times (reap check, row
+// projection, orphan prune); each read used to stat the file again. Within an
+// assembly the first answer stands, absent or unreadable included.
+let passHeaders = null; // path -> header | null, live only during an assembly
+
+function workerSessionHeaderPath(sessionId) {
+  return join(dataDir(), 'sessions', `${sessionId}.json`);
+}
+
 function readWorkerSessionHeader(sessionId) {
-  const path = join(dataDir(), 'sessions', `${sessionId}.json`);
-  const probe = probePath(path);
-  if (probe.state !== PROBE_PRESENT) return null;
-  const cached = workerSessionHeaderCache.get(path);
-  if (cached && cached.mtimeMs === probe.mtimeMs && cached.size === probe.size) {
-    cached.pass = headerPass;
-    return cached.header;
-  }
-  let session = null;
+  const path = workerSessionHeaderPath(sessionId);
+  if (passHeaders?.has(path)) return passHeaders.get(path);
+  const header = probeWorkerSessionHeader(path);
+  passHeaders?.set(path, header);
+  return header;
+}
+
+let workerHeaderReads = 0;
+
+function observeStamp(path) {
   try {
-    session = JSON.parse(readFileSync(path, 'utf8'));
+    return statSessionStamp(path);
   } catch {
     return null;
   }
-  if (!session || typeof session !== 'object') return null;
-  const header = {};
-  for (const field of WORKER_HEADER_FIELDS) {
-    if (Object.hasOwn(session, field)) header[field] = session[field];
+}
+
+// A header is reused only under the canonical full-stamp policy: the file
+// still has the exact { dev, ino, size, mtimeNs, ctimeNs } its bytes were
+// proven to come from (stat → read → stat), and that stamp was past the racy
+// window when read. Size + mtime alone let an equal-length rewrite that kept
+// its mtime serve stale ownership, status and cancel fields.
+function probeWorkerSessionHeader(path) {
+  // Absent and unreadable alike: no header.
+  const before = observeStamp(path);
+  if (!before) return null;
+  const cached = workerSessionHeaderCache.get(path);
+  if (cached && sameSessionStamp(cached.stamp, before)) {
+    cached.pass = headerPass;
+    return cached.header;
   }
-  workerSessionHeaderCache.set(path, { mtimeMs: probe.mtimeMs, size: probe.size, header, pass: headerPass });
+  workerSessionHeaderCache.delete(path);
+  // A rewrite re-reads only this record, and only its top-level fields are
+  // decoded: the transcript bytes are validated, never materialized.
+  let header = null;
+  try {
+    header = readTopLevelFields(readFileSync(path), WORKER_HEADER_FIELDS);
+  } catch {
+    return null;
+  }
+  if (!header) return null;
+  workerHeaderReads += 1;
+  if (isSettledSessionStamp(before) && sameSessionStamp(before, observeStamp(path))) {
+    workerSessionHeaderCache.set(path, { stamp: before, header, pass: headerPass });
+  }
   return header;
+}
+
+async function observeStampAsync(path) {
+  try {
+    return sessionStampOf(await stat(path, { bigint: true }));
+  } catch {
+    return null;
+  }
+}
+
+/** probeWorkerSessionHeader with every stat and read awaited, under the
+ *  same full-stamp cache policy. */
+async function probeWorkerSessionHeaderAsync(path) {
+  const before = await observeStampAsync(path);
+  if (!before) return null;
+  const cached = workerSessionHeaderCache.get(path);
+  if (cached && sameSessionStamp(cached.stamp, before)) return cached.header;
+  workerSessionHeaderCache.delete(path);
+  let header = null;
+  try {
+    header = readTopLevelFields(await readFile(path), WORKER_HEADER_FIELDS);
+  } catch {
+    return null;
+  }
+  if (!header) return null;
+  workerHeaderReads += 1;
+  if (isSettledSessionStamp(before) && sameSessionStamp(before, await observeStampAsync(path))) {
+    workerSessionHeaderCache.set(path, { stamp: before, header, pass: headerPass });
+  }
+  return header;
+}
+
+// Header reads in flight at once: each is a stat (and a read only when the
+// file changed) on the shared libuv pool, which other file I/O also needs.
+const HEADER_READ_CONCURRENCY = 4;
+
+async function prefetchWorkerHeaders(sessionIds, headers) {
+  const paths = [...new Set([...sessionIds].map(workerSessionHeaderPath))].filter((path) => !headers.has(path));
+  let next = 0;
+  const drain = async () => {
+    while (next < paths.length) {
+      const path = paths[next++];
+      headers.set(path, await probeWorkerSessionHeaderAsync(path));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(HEADER_READ_CONCURRENCY, paths.length) }, drain));
+}
+
+/** Test/diagnostic seam: cached headers and the records this process read. */
+export function storedAgentWorkerHeaderStats() {
+  return {
+    entries: workerSessionHeaderCache.size,
+    reads: workerHeaderReads,
+    stickyIdle: stickyIdleSince.size,
+    indexes: workerIndexCache.size,
+  };
 }
 
 /** Owner record of a child row that is a Lead CONVERSATION. Only such an owner
@@ -377,16 +542,8 @@ function projectChildWorkerRow(row, context) {
 }
 
 function storedLeadWorkerRows() {
-  const path = storedLeadWorkerIndexPath();
-  let parsed = readJsonProjection(path);
-  if (!parsed) {
-    try {
-      parsed = JSON.parse(readFileSync(path, 'utf8'));
-    } catch {
-      /* no resident Lead pool */
-    }
-  }
-  return workerRows(parsed);
+  // Absent or unreadable: no resident Lead pool.
+  return workerRows(readWorkerIndexFile(storedLeadWorkerIndexPath()));
 }
 
 /** A Lead-index row whose durable session turned out to be an agent's.
@@ -464,6 +621,72 @@ function pruneOrphanChildRows(bySessionId, { liveLeadSessionIds }) {
  * never projected into either pool. `runningSessionIds` is the daemon's set of
  * sessions whose turn is in flight; omitted, no row is shown as running. */
 export function listStoredAgentWorkers({ runningSessionIds = null } = {}) {
+  headerPass += 1;
+  passHeaders = new Map();
+  try {
+    return assembleListedWorkers(runningSessionIds);
+  } finally {
+    passHeaders = null;
+    forgetUnreadHeaders();
+  }
+}
+
+// Keep what the latest assembly read, whatever the index size; forget the rest.
+function forgetUnreadHeaders() {
+  for (const [path, entry] of workerSessionHeaderCache) {
+    if (entry.pass !== headerPass) workerSessionHeaderCache.delete(path);
+  }
+}
+
+/** listStoredAgentWorkers without blocking the event loop on the store: both
+ *  indexes and every header the assembly can consult (each row's session,
+ *  each Lead row's, and each child's owner) are read first with awaited
+ *  stats and reads; the assembly then runs over what was read, with no file
+ *  access left in it (any header it still asks for falls back to a read).
+ *  `runningSessionIds` may be a function, asked once the reads are done. */
+export async function listStoredAgentWorkersAsync({ runningSessionIds = null } = {}) {
+  const agentIndexPath = storedAgentWorkerIndexPath();
+  const leadIndexPath = storedLeadWorkerIndexPath();
+  const [agentIndex, leadIndex] = await Promise.all([
+    readWorkerIndexFileAsync(agentIndexPath),
+    readWorkerIndexFileAsync(leadIndexPath),
+  ]);
+  const headers = new Map();
+  const childRows = workerRows(agentIndex);
+  const sessionIds = new Set(childRows.map((row) => cleanValue(row?.sessionId)));
+  for (const row of workerRows(leadIndex)) {
+    const sessionId = cleanValue(row?.sessionId);
+    if (sessionId && isStoredSessionId(sessionId)) sessionIds.add(sessionId);
+  }
+  await prefetchWorkerHeaders(sessionIds, headers);
+  const owners = new Set();
+  for (const row of childRows) {
+    const header = headers.get(workerSessionHeaderPath(cleanValue(row?.sessionId)));
+    const owner = row && typeof row === 'object' ? workerOwnerSessionId(row, header) : null;
+    if (owner) owners.add(owner);
+  }
+  await prefetchWorkerHeaders(owners, headers);
+  const running = typeof runningSessionIds === 'function' ? runningSessionIds() : runningSessionIds;
+  headerPass += 1;
+  for (const path of headers.keys()) {
+    const entry = workerSessionHeaderCache.get(path);
+    if (entry) entry.pass = headerPass;
+  }
+  passHeaders = headers;
+  passIndexes = new Map([
+    [agentIndexPath, agentIndex],
+    [leadIndexPath, leadIndex],
+  ]);
+  try {
+    return assembleListedWorkers(running);
+  } finally {
+    passHeaders = null;
+    passIndexes = null;
+    forgetUnreadHeaders();
+  }
+}
+
+function assembleListedWorkers(runningSessionIds) {
   const now = Date.now();
   const index = storedAgentWorkerIndex();
   const rows = workerRows(index);
@@ -487,21 +710,13 @@ export function listStoredAgentWorkers({ runningSessionIds = null } = {}) {
     };
     return tombstoneBlocksWork(work, findTagTombstone(work, tombstones));
   };
-  headerPass += 1;
-  try {
-    return assembleStoredAgentWorkers({
-      now,
-      runningSessionIds,
-      storedAgentWorkerIndexRows: () => rows.filter((row) => !isReaped(cleanValue(row.sessionId))),
-      projectChildWorkerRow,
-      storedLeadWorkerRows,
-      projectLeadWorkerRow,
-      pruneOrphanChildRows,
-    });
-  } finally {
-    // Keep what this assembly read, whatever the index size; forget the rest.
-    for (const [path, entry] of workerSessionHeaderCache) {
-      if (entry.pass !== headerPass) workerSessionHeaderCache.delete(path);
-    }
-  }
+  return assembleStoredAgentWorkers({
+    now,
+    runningSessionIds,
+    storedAgentWorkerIndexRows: () => rows.filter((row) => !isReaped(cleanValue(row.sessionId))),
+    projectChildWorkerRow,
+    storedLeadWorkerRows,
+    projectLeadWorkerRow,
+    pruneOrphanChildRows,
+  });
 }

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gitRepoLockKey, withGitRepoReadLock, withGitRepoWriteLock } from './git-repo-rw-lock.mjs';
+import { gitRepoLockKey, withGitRepoWriteLock, withGitWorktreeWriteLock } from './git-repo-rw-lock.mjs';
 
 test('git repo lock keys are canonical: real path, trailing separators, Windows casing', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-rw-key-'));
@@ -33,44 +33,116 @@ function gate() {
   };
 }
 
-test('git repo lock shares reads, excludes writes, and does not starve a queued writer', async () => {
-  const repo = `repo-${Date.now()}-${Math.random()}`;
-  const firstReads = gate();
-  const writerGate = gate();
-  const events = [];
-  const read = (name, wait) =>
-    withGitRepoReadLock(repo, async () => {
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+function holder(events, name) {
+  const hold = gate();
+  return {
+    release: hold.release,
+    run: async () => {
       events.push(`${name}:start`);
-      await wait.promise;
+      await hold.promise;
       events.push(`${name}:end`);
-    });
-  const r1 = read('r1', firstReads);
-  const r2 = read('r2', firstReads);
-  await Promise.resolve();
-  assert.deepEqual(events, ['r1:start', 'r2:start']);
+    },
+  };
+}
 
-  const writer = withGitRepoWriteLock(repo, async () => {
-    events.push('w:start');
-    await writerGate.promise;
-    events.push('w:end');
-  });
-  const lateRead = withGitRepoReadLock(repo, async () => {
-    events.push('r3:start');
-    events.push('r3:end');
-  });
-  await Promise.resolve();
-  assert.deepEqual(events, ['r1:start', 'r2:start']);
+test('writes on different worktrees run together; writes on one worktree run one at a time in order', async () => {
+  const repo = `repo-scope-${Date.now()}-${Math.random()}`;
+  const events = [];
+  const a1 = holder(events, 'a1');
+  const a2 = holder(events, 'a2');
+  const b = holder(events, 'b');
+  const first = withGitWorktreeWriteLock(repo, ['wt-a'], a1.run);
+  const second = withGitWorktreeWriteLock(repo, ['wt-a'], a2.run);
+  const other = withGitWorktreeWriteLock(repo, ['wt-b'], b.run);
+  await settle();
+  assert.deepEqual(events, ['a1:start', 'b:start']);
+  a1.release();
+  await first;
+  await settle();
+  assert.deepEqual(events, ['a1:start', 'b:start', 'a1:end', 'a2:start']);
+  a2.release();
+  b.release();
+  await Promise.all([second, other]);
+});
 
-  firstReads.release();
-  await Promise.all([r1, r2]);
-  await Promise.resolve();
-  assert.equal(events.at(-1), 'w:start');
-  assert.ok(!events.includes('r3:start'));
+test('a write naming several worktrees conflicts with a write on any of them', async () => {
+  const repo = `repo-multi-${Date.now()}-${Math.random()}`;
+  const events = [];
+  const move = holder(events, 'move');
+  const moving = withGitWorktreeWriteLock(repo, ['wt-a', 'wt-new'], move.run);
+  const onA = withGitWorktreeWriteLock(repo, ['wt-a'], () => events.push('a'));
+  const onNew = withGitWorktreeWriteLock(repo, ['wt-new'], () => events.push('new'));
+  const onB = withGitWorktreeWriteLock(repo, ['wt-b'], () => events.push('b'));
+  await onB;
+  await settle();
+  assert.deepEqual(events, ['move:start', 'b']);
+  move.release();
+  await Promise.all([moving, onA, onNew]);
+  assert.deepEqual(events, ['move:start', 'b', 'move:end', 'a', 'new']);
+});
 
-  writerGate.release();
-  await writer;
-  await lateRead;
-  assert.deepEqual(events.slice(-3), ['w:end', 'r3:start', 'r3:end']);
+test('a waiting whole-repository write is never starved by later worktree writes', async () => {
+  const repo = `repo-starve-${Date.now()}-${Math.random()}`;
+  const events = [];
+  const a = holder(events, 'a');
+  const whole = holder(events, 'repo');
+  const running = withGitWorktreeWriteLock(repo, ['wt-a'], a.run);
+  const repoWrite = withGitRepoWriteLock(repo, whole.run);
+  // wt-b conflicts with nothing running, but it would overtake the waiting
+  // whole-repository write, so it queues behind it.
+  const later = [
+    withGitWorktreeWriteLock(repo, ['wt-b'], () => events.push('b')),
+    withGitWorktreeWriteLock(repo, ['wt-a'], () => events.push('a2')),
+  ];
+  await settle();
+  assert.deepEqual(events, ['a:start']);
+  a.release();
+  await running;
+  await settle();
+  assert.deepEqual(events, ['a:start', 'a:end', 'repo:start']);
+  whole.release();
+  await Promise.all([repoWrite, ...later]);
+  assert.deepEqual(events, ['a:start', 'a:end', 'repo:start', 'repo:end', 'b', 'a2']);
+});
+
+test('a later write that conflicts with nothing ahead of it is not held back by a queue', async () => {
+  const repo = `repo-convoy-${Date.now()}-${Math.random()}`;
+  const events = [];
+  const a = holder(events, 'a');
+  const running = withGitWorktreeWriteLock(repo, ['wt-a'], a.run);
+  const queued = withGitWorktreeWriteLock(repo, ['wt-a'], () => events.push('a2'));
+  await withGitWorktreeWriteLock(repo, ['wt-b'], () => events.push('b'));
+  assert.deepEqual(events, ['a:start', 'b']);
+  a.release();
+  await Promise.all([running, queued]);
+  assert.deepEqual(events, ['a:start', 'b', 'a:end', 'a2']);
+});
+
+test('worktree scopes are canonical paths; an empty scope holds the whole repository', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-rw-scope-'));
+  try {
+    const worktree = join(root, 'Worktree');
+    mkdirSync(worktree);
+    const repo = join(root, '.git');
+    const events = [];
+    const hold = holder(events, 'held');
+    const held = withGitWorktreeWriteLock(repo, [worktree], hold.run);
+    const spelled = withGitWorktreeWriteLock(
+      repo,
+      [process.platform === 'win32' ? `${worktree.toUpperCase()}\\` : `${worktree}/`],
+      () => events.push('same')
+    );
+    const whole = withGitWorktreeWriteLock(repo, [], () => events.push('whole'));
+    await settle();
+    assert.deepEqual(events, ['held:start']);
+    hold.release();
+    await Promise.all([held, spelled, whole]);
+    assert.deepEqual(events, ['held:start', 'held:end', 'same', 'whole']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('git repo writers on different repositories run in parallel', async () => {
@@ -93,25 +165,28 @@ test('git repo writers on different repositories run in parallel', async () => {
 test('a queued git repo lock aborts without running or blocking later work', async () => {
   const repo = `repo-abort-${Date.now()}-${Math.random()}`;
   const hold = gate();
-  const writer = withGitRepoWriteLock(repo, () => hold.promise);
+  const writer = withGitWorktreeWriteLock(repo, ['wt-a'], () => hold.promise);
   await Promise.resolve();
 
   const controller = new AbortController();
   let ran = false;
-  const queued = withGitRepoReadLock(
+  const queued = withGitRepoWriteLock(
     repo,
     async () => {
       ran = true;
     },
     { signal: controller.signal }
   );
+  // Queued behind the waiting whole-repository write until that one aborts.
+  const behind = withGitWorktreeWriteLock(repo, ['wt-b'], () => 'b');
   controller.abort();
   await assert.rejects(queued, /abort/i);
   assert.equal(ran, false);
+  assert.equal(await behind, 'b');
 
   hold.release();
   await writer;
-  await withGitRepoReadLock(repo, async () => {
+  await withGitRepoWriteLock(repo, async () => {
     ran = true;
   });
   assert.equal(ran, true);

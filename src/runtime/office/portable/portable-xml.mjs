@@ -306,7 +306,7 @@ export function containerInner(xml, tag, from = 0) {
 export function setXmlAttribute(attributes, name, value) {
   const pattern = new RegExp(`\\b${name}="[^"]*"`, 'i');
   return pattern.test(attributes)
-    ? attributes.replace(pattern, `${name}="${value}"`)
+    ? attributes.replace(pattern, () => `${name}="${value}"`)
     : `${attributes} ${name}="${value}"`;
 }
 

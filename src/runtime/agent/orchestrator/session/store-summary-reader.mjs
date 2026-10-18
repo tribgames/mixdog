@@ -24,6 +24,7 @@ import {
 } from './store-summary-catalog.mjs';
 import { createStoredTranscriptCache, nextProjectionStamp } from './store-transcript-cache.mjs';
 import {
+  forgetStoredTranscriptOffThread,
   OFFLOAD_MIN_CHARS,
   projectStoredTranscriptOffThread,
   storedTranscriptWorkerRunning,
@@ -35,6 +36,7 @@ import { readArchivedAgentResult } from './store-summary-archived-agent.mjs';
 import { compactionArchivePath, readCompactionArchivePage } from './compaction-archive.mjs';
 import { currentSessionCatalogDb, onSessionCatalogDbChange, sessionCatalogDb } from './catalog-db/index.mjs';
 import { decodeCatalogCursor, encodeCatalogCursor, isAfterCursor } from './catalog-db/schema.mjs';
+import { onSessionActivityChange } from '../../../shared/session-activity-signal.mjs';
 import {
   readCanonicalSessionRecord as readCanonicalLifecycle,
   offerStrictSessionRecord,
@@ -45,7 +47,11 @@ import {
 // Worker-pool row projection (child + Lead indexes, live-work evidence) lives
 // in store-agent-worker-rows.mjs; re-exported so prior importers of this
 // module stay unchanged.
-export { listStoredAgentWorkerLinks, listStoredAgentWorkers } from './store-agent-worker-rows.mjs';
+export {
+  listStoredAgentWorkerLinks,
+  listStoredAgentWorkers,
+  listStoredAgentWorkersAsync,
+} from './store-agent-worker-rows.mjs';
 export { storedAgentWorkerIndexPath } from './store-summary-locations.mjs';
 
 // One cache per process: the daemon serves every cold pane read from it, and
@@ -59,7 +65,9 @@ export function clearStoredTranscriptCache() {
 
 /** Drop one session's cold projections: it went live, or its last view left. */
 export function forgetStoredSessionTranscript(sessionId) {
-  storedTranscriptCache.forget(`${String(sessionId || '').trim()}|`);
+  const id = String(sessionId || '').trim();
+  storedTranscriptCache.forget(`${id}|`);
+  if (id) forgetStoredTranscriptOffThread(id);
 }
 
 /** Its last view left: keep the cold projections for a revisit, within the
@@ -82,18 +90,22 @@ export function storedTranscriptCacheStats() {
 const ordinaryCatalog = createOrdinaryCatalog();
 const catalogListeners = new Set();
 
-function notifyCatalogListeners() {
+function notifyCatalogListeners(kind = 'catalog') {
   for (const listener of catalogListeners) {
     try {
-      listener();
+      listener(kind);
     } catch {
       /* a listener's failure is its own */
     }
   }
 }
 
-ordinaryCatalog.subscribe(notifyCatalogListeners);
-onSessionCatalogDbChange(notifyCatalogListeners);
+ordinaryCatalog.subscribe(() => notifyCatalogListeners());
+onSessionCatalogDbChange(() => notifyCatalogListeners());
+// Runtime activity transitions (turn start/settle, task wait, background
+// hand-off/finish) change only the Agents pool projection: `agent-activity`
+// lets the reader refresh just that, at once.
+onSessionActivityChange(() => notifyCatalogListeners('agent-activity'));
 
 /** `listener()` runs when a background pass finds a session file that changed
  *  without a directory or index change, i.e. when an ordinary listing would
@@ -292,29 +304,32 @@ export function storedSessionTranscriptStamp(id) {
   return archive ? `${record}|${checkpoint}|${archive}` : null;
 }
 
+/** A large record with no checkpoint sidecar is read, digested, parsed and
+ *  projected on a worker thread: the same pipeline, off the daemon event
+ *  loop. It hands no parse to the load cache (a later resume reads the file
+ *  itself). The answer is the cache's `project` contract; a worker failure
+ *  rejects and the cache runs the in-process pipeline instead. */
+async function projectStoredTranscriptElsewhere(known, context) {
+  const { sessionId, recordPath, itemLimit, timing } = context;
+  timing.worker = storedTranscriptWorkerRunning(sessionId) ? 'warm' : 'cold';
+  const workerStartedAt = performance.now();
+  const answer = await projectStoredTranscriptOffThread({ sessionId, recordPath, itemLimit, known });
+  timing.workerMs = performance.now() - workerStartedAt;
+  Object.assign(timing, answer.timing);
+  context.readState = answer.state;
+  if (answer.state !== PROBE_PRESENT) return null;
+  if (answer.same) return answer;
+  if (answer.unreadable) return { ...answer, value: null };
+  if (answer.stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, answer.stamp, answer.lifecycle);
+  // Stamps are process-unique per module realm; re-issue in this one.
+  answer.value.projectionStamp = nextProjectionStamp();
+  return answer;
+}
+
 /** Projects the strictly parsed record `text` (read at full stamp `stamp`, or
  *  null when not provably stable) into the cached transcript value. */
 async function produceStoredTranscript(text, stamp, context) {
-  const { sessionId, recordPath, itemLimit, includeMessages, mode, offloadable, checkpointAbsent, timing } = context;
-  // A large record with no checkpoint sidecar parses and projects on a
-  // worker thread: the same pipeline, off the daemon event loop. It hands
-  // no parse to the load cache (a later resume reads the file itself).
-  if (offloadable && text.length >= OFFLOAD_MIN_CHARS) {
-    try {
-      timing.worker = storedTranscriptWorkerRunning() ? 'warm' : 'cold';
-      const workerStartedAt = performance.now();
-      const answer = await projectStoredTranscriptOffThread({ sessionId, text, itemLimit });
-      timing.workerMs = performance.now() - workerStartedAt;
-      Object.assign(timing, answer.timing);
-      if (answer.unreadable) return null;
-      if (stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, stamp, answer.lifecycle);
-      // Stamps are process-unique per module realm; re-issue in this one.
-      answer.value.projectionStamp = nextProjectionStamp();
-      return answer.value;
-    } catch {
-      // Worker unavailable: fall through to the in-process pipeline.
-    }
-  }
+  const { sessionId, recordPath, itemLimit, includeMessages, mode, checkpointAbsent, timing } = context;
   const parseStartedAt = performance.now();
   const record = readTopLevelLifecycleRecord(text);
   timing.parseMs = performance.now() - parseStartedAt;
@@ -388,7 +403,6 @@ export async function readStoredSessionTranscript(id, options = {}) {
   const archive = probePath(archivePath);
   const requestedLimit = Number(options.transcriptItemLimit);
   const itemLimit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : Number.POSITIVE_INFINITY;
-  let readState = PROBE_PRESENT;
   // Full stamp the loaded text provably came from (unchanged around the
   // read), or null. Only such a parse may serve other readers.
   let readStamp = null;
@@ -405,9 +419,10 @@ export async function readStoredSessionTranscript(id, options = {}) {
     itemLimit,
     includeMessages,
     mode,
-    offloadable,
     checkpointAbsent,
     timing,
+    // How the record read went (the worker's read or loadText below).
+    readState: PROBE_PRESENT,
   };
   const { value, hit, read } = await storedTranscriptCache.read({
     key: `${sessionId}|${itemLimit}|${mode}`,
@@ -425,6 +440,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
       archive.size,
     ].join(':'),
     fileStat: recordStat,
+    project: offloadable ? (known) => projectStoredTranscriptElsewhere(known, produceContext) : null,
     loadText: async () => {
       const readStartedAt = performance.now();
       const before = observeStamp(recordPath);
@@ -440,7 +456,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
       }
       body ||= readTextFile(recordPath);
       timing.readMs = performance.now() - readStartedAt;
-      readState = body.state;
+      produceContext.readState = body.state;
       if (body.state !== PROBE_PRESENT) return null;
       readStamp = before && sameSessionStamp(before, observeStamp(recordPath)) ? before : null;
       return body.text;
@@ -448,7 +464,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
     produce: (text) => produceStoredTranscript(text, readStamp, produceContext),
   });
   // The record vanished between stat and read: same answer as an absent probe.
-  if (readState === PROBE_ABSENT) return readVanishedSessionTranscript(sessionId);
+  if (produceContext.readState === PROBE_ABSENT) return readVanishedSessionTranscript(sessionId);
   if (typeof options.trace === 'function') {
     options.trace({
       sessionId,

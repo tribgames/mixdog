@@ -32,7 +32,7 @@ function fixture(text = `${Array.from({ length: 20 }, (_, i) => `LINE_${i + 1}`)
 }
 
 function nextOffset(output) {
-  const match = /(?:pass offset:|next offset:\s*)(\d+)/.exec(output);
+  const match = /offset:(\d+) for more/.exec(output);
   assert.ok(match, `Missing continuation:\n${output}`);
   return Number(match[1]);
 }
@@ -120,7 +120,7 @@ for (const base of [0, 1]) {
       [5, 'LINE_5'],
       [6, 'LINE_6'],
     ]);
-    const hints = [...output.matchAll(/pass offset:(\d+)/g)].map((match) => Number(match[1]));
+    const hints = [...output.matchAll(/offset:(\d+) for more/g)].map((match) => Number(match[1]));
     assert.deepEqual(hints, [2 + base, 6 + base]);
     const withheld = sliceReadBodyByLines('1→LINE_1\n2→LINE_2\n[lines 1-2 of 20]', 4, 2, base);
     assert.match(withheld, /NOT returned/);
@@ -195,10 +195,10 @@ for (const budgets of [
           rows(outputs[i]),
           lines.map((line, j) => [j + 1, line])
         );
-        assert.doesNotMatch(outputs[i], /output truncated/);
+        assert.doesNotMatch(outputs[i], /output capped/);
       } else {
         assert.ok(rows(outputs[i]).length < lines.length, outputs[i]);
-        assert.match(outputs[i], /output truncated/);
+        assert.match(outputs[i], /output capped/);
       }
     }
   });

@@ -23,9 +23,26 @@ export function isScratchSession(session) {
   return isScratchConversation(session?.messages, session?.liveTurnMessages);
 }
 
-export function createSurfaceSessionCloser(mgr) {
+/** `nonBlocking`: the closer returns the manager's closeSessionAsync promise
+ *  (when it has one), whose barrier never sleeps the event loop. */
+export function createSurfaceSessionCloser(mgr, nonBlocking = false) {
   return function closeSurfaceSession(session, reason, options) {
     if (!session?.id) return false;
-    return mgr.closeSession(session.id, reason, options);
+    return closeManagedSession(mgr, session.id, reason, options, nonBlocking);
   };
+}
+
+/** Await a switch path's close of the outgoing session. A close whose durable
+ *  barrier failed leaves the session open, so the switch must not proceed. */
+export async function closeOutgoingSession(closeSurfaceSession, session, reason, options) {
+  if ((await closeSurfaceSession(session, reason, options)) === false) {
+    throw new Error(`session close failed (reason=${reason}); the current session is kept`);
+  }
+}
+
+/** The manager's close: closeSessionAsync when asked for and available,
+ *  else its closeSession, unchanged. */
+export function closeManagedSession(mgr, id, reason, options, nonBlocking = true) {
+  if (nonBlocking && typeof mgr.closeSessionAsync === 'function') return mgr.closeSessionAsync(id, reason, options);
+  return mgr.closeSession(id, reason, options);
 }

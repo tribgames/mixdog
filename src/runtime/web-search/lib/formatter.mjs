@@ -1,6 +1,7 @@
 /**
  * Response formatter — strips metadata, returns human-readable text.
  */
+import { capMarker, windowMarker } from '../../shared/tool-output-marker.mjs';
 
 // Whether `text` names exactly this URL: an occurrence that runs on into a
 // longer URL (`…/docs` inside `…/docs/guide`) is a different page.
@@ -92,7 +93,19 @@ function formatCrawl(data) {
     .join('\n\n---\n\n');
 }
 
-const DEFAULT_FETCH_MAX_LENGTH = 50000;
+// 3-day logs: first-page sizes p50 5K / p75 11K / p90 14K / p95 19K chars, so
+// 20K lets ~93% of pages arrive whole (50K only saved the other ~5%).
+const DEFAULT_FETCH_MAX_LENGTH = 20000;
+
+// A cut between the halves of a surrogate pair would hand each page a lone
+// surrogate; back the end off one unit (or take the whole pair when the page is
+// a single unit) so every page holds whole characters.
+function wholeCharacterEnd(text, startIndex, endIndex) {
+  const high = text.charCodeAt(endIndex - 1);
+  const low = text.charCodeAt(endIndex);
+  if (!(high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff)) return endIndex;
+  return endIndex - 1 > startIndex ? endIndex - 1 : endIndex + 1;
+}
 
 export function applyFetchPagination(payload, args) {
   const fullContent = String(payload?.content ?? '');
@@ -114,7 +127,8 @@ export function applyFetchPagination(payload, args) {
       truncated: false,
     };
   }
-  const endIndex = Math.min(totalLength, startIndex + (Number.isFinite(limit) ? limit : totalLength - startIndex));
+  const rawEnd = Math.min(totalLength, startIndex + (Number.isFinite(limit) ? limit : totalLength - startIndex));
+  const endIndex = rawEnd < totalLength ? wholeCharacterEnd(fullContent, startIndex, rawEnd) : rawEnd;
   const slice = fullContent.slice(startIndex, endIndex);
   const hasMore = endIndex < totalLength;
   return {
@@ -125,6 +139,8 @@ export function applyFetchPagination(payload, args) {
     range: { startIndex, endIndex },
     hasMore,
     nextStartIndex: hasMore ? endIndex : null,
+    // The default length cut the page (the caller did not ask for this window).
+    capped: hasMore && rawLimit == null,
     truncated: hasMore || startIndex > 0,
   };
 }
@@ -156,6 +172,29 @@ function fetchDiagnostics(item) {
   return lines;
 }
 
+// Footer for a page cut short: capped by the default length, or the window the
+// caller asked for. Both name the startIndex that continues.
+export function fetchContinuation(item) {
+  if (!item.hasMore || item.nextStartIndex == null || !item.range) return '';
+  const { startIndex, endIndex } = item.range;
+  const marker = item.capped
+    ? capMarker({
+        limit: `${endIndex - startIndex} chars`,
+        shown: `chars ${startIndex}-${endIndex} of ${item.totalLength}`,
+        nextOffset: item.nextStartIndex,
+        offsetKey: 'startIndex',
+      })
+    : windowMarker({
+        unit: 'chars',
+        from: startIndex,
+        to: endIndex,
+        total: item.totalLength,
+        nextOffset: item.nextStartIndex,
+        offsetKey: 'startIndex',
+      });
+  return `\n\n${marker}`;
+}
+
 function formatFetch(data) {
   const results = data.results || [];
   if (!results.length) return '(no fetch results)';
@@ -177,9 +216,6 @@ function formatFetch(data) {
         if (Number.isFinite(item.totalLength) && item.range) {
           meta.push(`range=${item.range.startIndex}..${item.range.endIndex}/${item.totalLength}`);
         }
-        if (item.hasMore && item.nextStartIndex != null) {
-          meta.push(`next startIndex=${item.nextStartIndex}`);
-        }
         if (Number.isFinite(item.durationMs)) meta.push(`${item.durationMs}ms`);
         const header = `${url}${meta.length ? ` (${meta.join(', ')})` : ''}`;
         const titleRaw = String(item.title || '')
@@ -187,7 +223,7 @@ function formatFetch(data) {
           .trim();
         const titleLine = titleRaw ? `title: ${titleRaw}` : '';
         const body = item.content == null ? '(no content)' : String(item.content);
-        return `${[header, titleLine, ...diagnostics].filter(Boolean).join('\n')}\n\n${body}`;
+        return `${[header, titleLine, ...diagnostics].filter(Boolean).join('\n')}\n\n${body}${fetchContinuation(item)}`;
       })
       .join('\n\n---\n\n')
   );

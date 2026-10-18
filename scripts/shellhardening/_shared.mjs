@@ -87,7 +87,6 @@ import {
   _brokerTargetsForTest,
 } from '../../src/runtime/shared/child-guardian.mjs';
 import {
-  BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES,
   recordShellCaptureTelemetry,
   renderBackgroundPartialOutput,
 } from '../../src/runtime/agent/orchestrator/tools/builtin/shell-output.mjs';
@@ -356,7 +355,6 @@ export {
   startChildGuardian,
   _sharedBrokerPidForTest,
   _brokerTargetsForTest,
-  BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES,
   recordShellCaptureTelemetry,
   renderBackgroundPartialOutput,
   compactShellOutputLosslessly,

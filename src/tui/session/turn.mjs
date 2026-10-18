@@ -34,6 +34,7 @@ import {
   appendTextDelta,
   appendAssistantText,
   appendReasoningDelta,
+  noteAssistantPhase,
   resetStreamedText,
   applyStageChange,
   settleFinalText,
@@ -241,9 +242,21 @@ function injectSteerMessage({ stream, cards, pushUserOrSyntheticItem }, text, st
   pushUserOrSyntheticItem(value, steeringIds[0], 'injected', steeringItemExtras(steeringMeta));
 }
 
+function settleSegmentBeforeToolCall(ctx) {
+  const { stream } = ctx;
+  if (!stream.currentAssistantText.trim()) return;
+  ctx.markPromptCommitted();
+  flushStreamBatch(stream);
+  commitAssistantSegment(stream, { sealToolBlock: true });
+  // The response's own content (onAssistantText, before its tool calls open)
+  // is this streamed text again: it must not reopen as a second row.
+  stream.settledBeforeToolCall = true;
+}
+
 async function openToolCalls(ctx, calls) {
   const { stream, cards, runtime } = ctx;
   ctx.markPromptCommitted();
+  stream.settledBeforeToolCall = false;
   // Flush buffered mid-turn assistant text before the tool card appears;
   // otherwise, with neither a thinking panel nor a spinner active, the
   // message above the tool card vanished.
@@ -372,9 +385,14 @@ function turnHandlers(ctx) {
   };
 }
 
-function toolHandlers(ctx) {
+export function toolHandlers(ctx) {
   const { isCurrentTurn, cards, getState, set, options } = ctx;
   return {
+    // The provider streamed a tool call: the text before it is complete (a
+    // preamble), so it settles now instead of after the whole response.
+    onAssistantToolCallObserved: () => {
+      if (isCurrentTurn()) settleSegmentBeforeToolCall(ctx);
+    },
     onToolCall: async (_iter, calls) => {
       if (isCurrentTurn()) await openToolCalls(ctx, calls);
     },
@@ -431,12 +449,21 @@ export function streamHandlers(ctx) {
       // The streaming path owns this segment when it already produced text.
       // Do not check turn-global assistantText: earlier closed preambles stay
       // there across tool calls.
-      if (stream.currentAssistantText.trim()) return;
+      if (stream.currentAssistantText.trim() || stream.settledBeforeToolCall) return;
       ctx.markPromptCommitted();
       appendAssistantText(stream, full, { committed: detail?.committed === true });
     },
     onReasoningDelta: (chunk) => {
       if (isCurrentTurn()) appendReasoningDelta(stream, String(chunk ?? ''));
+    },
+    // A provider output item started. A tool call ends the text before it
+    // (a preamble settles at the call's start, not after its arguments or
+    // the whole response); a message naming its phase marks its row as
+    // commentary or final answer.
+    onStreamItemStart: (detail) => {
+      if (!isCurrentTurn()) return;
+      if (detail?.kind === 'tool') settleSegmentBeforeToolCall(ctx);
+      else if (detail?.kind === 'text') noteAssistantPhase(stream, detail.phase);
     },
   };
 }
@@ -693,7 +720,7 @@ export function createRunTurn(bag) {
       markPromptCommitted: () => commitPromptRestore(flags, turn),
     };
     const stopTaskWaitSteeringCheck = registerTaskWaitSteeringCheck(
-      (sessionId) => isCurrentTurn() && runtime.id === sessionId && bag.hasPendingSteering()
+      (sessionId) => isCurrentTurn() && runtime.id === sessionId && bag.pendingTaskWaitWake()
     );
     try {
       const { result, session } = await runtime.ask(userText, {

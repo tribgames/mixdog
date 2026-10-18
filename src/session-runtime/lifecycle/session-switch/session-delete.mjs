@@ -11,7 +11,7 @@ import {
   STORED_SESSION_UNREADABLE,
   _storedSessionFromFile,
 } from '../../../runtime/agent/orchestrator/session/store/serialize.mjs';
-import { SESSION_ID_PATTERN } from '../shared.mjs';
+import { SESSION_ID_PATTERN, closeManagedSession } from '../shared.mjs';
 import { replacementSessionCwd } from '../../workspace/workspace-state.mjs';
 import { isHistoricalAutomaticClosure } from '../../../runtime/agent/orchestrator/session/historical-session-closure.mjs';
 
@@ -64,7 +64,7 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
       // Stop its runtime first (controller abort, shells, generation bump) and
       // release its worker row and its own background tasks, so nothing can
       // write it back. Sessions it delegated to are independent and keep running.
-      if (mgr.closeSession(sessionId, cleanupReason, { tombstone: false }) !== true) return false;
+      if ((await closeManagedSession(mgr, sessionId, cleanupReason, { tombstone: false })) !== true) return false;
       agentTool?.forgetLeadSession?.(sessionId);
       releaseSessionWork(sessionId, cleanupReason);
       const deleted = mgr.deleteSession(sessionId, { fenceWrites: true }) === true;
@@ -80,7 +80,7 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
     // Active sessions retain a tombstone until the normal sweep. Unlinking
     // immediately would let a late provider/save continuation resurrect the
     // deleted conversation after the user has moved to its replacement.
-    if (mgr.closeSession(sessionId, cleanupReason, { tombstone: true }) !== true) return false;
+    if ((await closeManagedSession(mgr, sessionId, cleanupReason, { tombstone: true })) !== true) return false;
     // The unwinding turn's late saves and its idle lead-row upsert must not
     // touch the deleted conversation (an unguarded save would pass the tombstone).
     mgr.fenceSessionWrites?.(sessionId);

@@ -12,7 +12,9 @@ import {
   buildExecutionTail,
   executionTokens,
   toolHistoryBudget,
+  parseExecutionArchive,
   EXECUTION_RECOVERY_SOURCE,
+  TOOL_HISTORY_MAX_TOKENS,
 } from './execution-tail.mjs';
 import { isActualUserInstructionMessage } from './messages.mjs';
 import { renderAgentCompletionEnvelope } from '../../../../shared/task-notification-envelope.mjs';
@@ -53,16 +55,165 @@ function pair(id, result, args = { file_path: `${id}.js`, old_string: 'before', 
   ];
 }
 
-test('tool history scales with 5% of the context window up to a 20k-token ceiling', () => {
+test('tool history scales with 5% of the context window up to a 40k-token ceiling', () => {
+  assert.equal(TOOL_HISTORY_MAX_TOKENS, 40_000);
   for (const [contextWindow, expected] of [
     [20_000, 1_000],
     [100_000, 5_000],
     [400_000, 20_000],
-    [500_000, 20_000],
-    [1_000_000, 20_000],
+    [500_000, 25_000],
+    [800_000, 40_000],
+    [1_000_000, 40_000],
+    [2_000_000, 40_000],
   ]) {
     assert.equal(toolHistoryBudget(contextWindow), expected);
   }
+  const messages = [{ role: 'user', content: 'go' }, ...pair('only', 'Updated only.js')];
+  assert.equal(buildExecutionTail(messages, { contextWindow: 1_000_000 }).toolBudget, 40_000);
+});
+
+test('three consecutive Compacts leave one recovery reminder pointing at the newest dump', (t) => {
+  sandbox(t);
+  const sessionId = 'stacked-recovery';
+  let messages = [{ role: 'system', content: 'rules' }];
+  const dumps = [];
+  for (let round = 1; round <= 3; round += 1) {
+    messages.push({ role: 'user', content: `request ${round}` });
+    messages.push(...pair(`big-${round}`, `OUTPUT_${round}\n`.repeat(3_000)));
+    messages.push(...pair(`recent-${round}`, `Updated recent-${round}.js`));
+    const result = freshContextCompactMessages(messages, 10_000, { force: true, contextWindow: 40_000, sessionId });
+    messages = result.messages;
+    const reminders = messages.filter((m) => m.meta?.source === EXECUTION_RECOVERY_SOURCE);
+    assert.equal(reminders.length, 1, `round ${round}`);
+    const newest = reminders[0].content.match(/available at (.+?) \(sha256:/)[1];
+    dumps.push(newest);
+    const archived = parseExecutionArchive(readFileSync(newest, 'utf8'));
+    assert.ok(archived.some((m) => m.toolCallId === `big-${round}`));
+    // The newest dump holds the reminder it replaced, so the chain stays walkable.
+    if (round > 1) {
+      assert.ok(
+        archived.some((m) => m.meta?.source === EXECUTION_RECOVERY_SOURCE && m.content.includes(dumps[round - 2]))
+      );
+    }
+  }
+  assert.equal(new Set(dumps).size, 3);
+  const [reminder] = messages.filter((m) => m.meta?.source === EXECUTION_RECOVERY_SOURCE);
+  assert.ok(reminder.content.includes(`Earlier dumps (older first): ${dumps[0]} | ${dumps[1]}`));
+  for (const path of dumps) assert.ok(existsSync(path));
+  // The protection that keeps a reminder out of the user-instruction path stays.
+  assert.equal(isActualUserInstructionMessage(reminder), false);
+});
+
+test('a legacy session with stacked recovery reminders collapses to one', (t) => {
+  sandbox(t);
+  const stale = (n) => ({
+    role: 'user',
+    meta: { source: EXECUTION_RECOVERY_SOURCE, synthetic: true },
+    content: `<system-reminder>\nOmitted; available at /old/dump-${n}.txt (sha256:${n}). Read.\n</system-reminder>`,
+  });
+  const messages = [
+    { role: 'system', content: 'rules' },
+    stale(1),
+    stale(2),
+    stale(3),
+    { role: 'user', content: 'again' },
+    ...pair('big', 'OUTPUT\n'.repeat(3_000)),
+    ...pair('recent', 'Updated recent.js'),
+  ];
+  const result = freshContextCompactMessages(messages, 10_000, {
+    force: true,
+    contextWindow: 40_000,
+    sessionId: 'legacy-stack',
+  });
+  const reminders = result.messages.filter((m) => m.meta?.source === EXECUTION_RECOVERY_SOURCE);
+  assert.equal(reminders.length, 1);
+  assert.ok(
+    reminders[0].content.includes('Earlier dumps (older first): /old/dump-1.txt | /old/dump-2.txt | /old/dump-3.txt')
+  );
+});
+
+test('the compact dump is one JSON message per line, so grep returns whole messages', (t) => {
+  sandbox(t);
+  const messages = [
+    { role: 'user', content: 'inspect' },
+    ...pair('huge', 'NEEDLE_LINE\n'.repeat(15_000)),
+    ...pair('recent', 'ok'),
+  ];
+  const result = buildExecutionTail(messages, { contextWindow: 40_000, sessionId: 'jsonl-dump' });
+  const recovery = result.messages.find((m) => m.meta?.source === EXECUTION_RECOVERY_SOURCE);
+  const dumpPath = recovery.content.match(/available at (.+?) \(sha256:/)[1];
+  const text = readFileSync(dumpPath, 'utf8');
+  const lines = text.split('\n');
+  assert.equal(lines.at(-1), '');
+  assert.equal(lines.length - 1, messages.length);
+  assert.deepEqual(JSON.parse(lines[1]), messages[1]);
+  // Line N+1 still holds message N: the large result's line points at the
+  // one-line file that stores it, in the dump's directory.
+  const { archivedMessage } = JSON.parse(lines[2]);
+  assert.equal(archivedMessage.toolCallId, 'huge');
+  assert.equal(dirname(archivedMessage.path), dirname(dumpPath));
+  const blob = readFileSync(archivedMessage.path, 'utf8');
+  assert.equal(blob.split('\n').length, 2);
+  assert.deepEqual(JSON.parse(blob), messages[2]);
+  assert.equal(lines.filter((line) => line.includes('NEEDLE_LINE')).length, 0);
+  assert.ok(blob.includes('NEEDLE_LINE'));
+  assert.ok(recovery.content.includes('line N+1 is message index N'));
+  // The shortened copy in context names the dump line that leads to it.
+  assert.ok(result.messages.find((m) => m.toolCallId === 'huge').content.includes('message index 2 (line 3)'));
+  assert.deepEqual(parseExecutionArchive(text), messages);
+});
+
+test('consecutive dumps store a retained large result once and still read back exactly', async (t) => {
+  sandbox(t);
+  const sessionId = 'dump-dedup';
+  const large = `LARGE_RESULT\n${'retained body line\n'.repeat(2_000)}`;
+  let messages = [
+    { role: 'system', content: 'rules' },
+    { role: 'user', content: 'request 1' },
+    ...pair('kept-large', large),
+  ];
+  const dumps = [];
+  const snapshots = [];
+  for (let round = 1; round <= 3; round += 1) {
+    // Each round's newest result exceeds the tool-history budget, so every
+    // Compact writes a dump while the older large result stays retained.
+    if (round > 1) messages.push({ role: 'user', content: `request ${round}` });
+    messages.push(...pair(`huge-${round}`, `HUGE_${round}\n`.repeat(40_000)));
+    snapshots.push(messages.filter((m) => m.role !== 'system'));
+    const result = freshContextCompactMessages(messages, 100_000, { force: true, contextWindow: 800_000, sessionId });
+    messages = result.messages;
+    const reminder = messages.find((m) => m.meta?.source === EXECUTION_RECOVERY_SOURCE);
+    dumps.push(reminder.content.match(/available at (.+?) \(sha256:/)[1]);
+    assert.ok(
+      messages.some((m) => m.toolCallId === 'kept-large' && m.content === large),
+      `round ${round}`
+    );
+  }
+  const blobPaths = dumps.map(
+    (path) =>
+      readFileSync(path, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line).archivedMessage)
+        .find((ref) => ref?.toolCallId === 'kept-large')?.path
+  );
+  // Every dump references the same stored body instead of repeating it.
+  assert.equal(new Set(blobPaths).size, 1);
+  assert.ok(blobPaths[0]);
+  for (const path of dumps) assert.equal(readFileSync(path, 'utf8').includes('retained body line'), false);
+  // Lossless: each dump reads back as the transcript it archived.
+  dumps.forEach((path, index) => {
+    assert.deepEqual(parseExecutionArchive(readFileSync(path, 'utf8')), snapshots[index]);
+  });
+  // Retention: the newest reminder keeps the dumps and their stored bodies
+  // reachable; nothing the transcript can reach is pruned.
+  const old = new Date(Date.now() - 3_600_000);
+  for (const path of [...dumps, blobPaths[0]]) utimesSync(path, old, old);
+  await pruneOffloadSession(sessionId, () => [messages]);
+  for (const path of [...dumps, blobPaths[0]]) assert.ok(existsSync(path), path);
+  // Once nothing references them, dumps and stored bodies are pruned alike.
+  await pruneOffloadSession(sessionId, () => [[{ role: 'user', content: 'cleared' }]]);
+  for (const path of [...dumps, blobPaths[0]]) assert.equal(existsSync(path), false, path);
 });
 
 test('rule-only compaction preserves seven completed edits and the original request before steering', async () => {
@@ -102,7 +253,7 @@ test('rule-only compaction preserves seven completed edits and the original requ
   );
   assert.equal(compacted.messages.filter((m) => m.content === original.content).length, 1);
   assert.equal(compacted.messages.filter((m) => m.content === steering.content).length, 1);
-  assert.equal(compacted.diagnostics.toolHistoryBudget, 20_000);
+  assert.equal(compacted.diagnostics.toolHistoryBudget, 25_000);
   const again = freshContextCompactMessages(compacted.messages, 250_000, {
     force: true,
     contextWindow: 500_000,
@@ -270,8 +421,7 @@ test('large tool results are archived exactly and retained calls remain paired u
   assert.ok(result.toolTokens <= result.toolBudget);
   const recovery = result.messages.find((m) => m.meta?.source === EXECUTION_RECOVERY_SOURCE);
   const path = recovery.content.match(/available at (.+?) \(sha256:/)[1];
-  const archive = JSON.parse(readFileSync(path, 'utf8'));
-  assert.deepEqual(archive.messages, messages);
+  assert.deepEqual(parseExecutionArchive(readFileSync(path, 'utf8')), messages);
   assert.equal(result.messages.find((m) => m.toolCallId === 'recent').content, 'Updated recent.js');
   const ids = result.messages.flatMap((m) => (m.toolCalls || []).map((c) => c.id));
   assert.deepEqual(
@@ -336,7 +486,7 @@ test('large arguments and opaque provider replay cannot bypass the tool-history 
 function archivedMessages(result) {
   const recovery = result.messages.find((m) => m.meta?.source === EXECUTION_RECOVERY_SOURCE);
   const path = recovery.content.match(/available at (.+?) \(sha256:/)[1];
-  return JSON.parse(readFileSync(path, 'utf8')).messages;
+  return parseExecutionArchive(readFileSync(path, 'utf8'));
 }
 
 function assertPaired(messages) {

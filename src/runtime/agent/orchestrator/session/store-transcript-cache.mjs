@@ -49,6 +49,17 @@ function sameFileStat(left, right) {
   );
 }
 
+// The file at `fileStat` provably still holds the bytes read under `known`.
+const settledSameFile = (known, fileStat, now) =>
+  sameFileStat(known, fileStat) && now - Math.max(fileStat.mtimeMs, fileStat.ctimeMs) > SETTLED_FILE_AGE_MS;
+
+/** Content identity of a record's text. UTF-16 preserves exact JavaScript
+ *  code units, including lone surrogates that UTF-8 would collapse into the
+ *  same replacement character. */
+export function transcriptTextHash(text) {
+  return createHash('sha256').update(text, 'utf16le').digest('hex');
+}
+
 let stampSequence = 0;
 const stampEpoch = `${process.pid}:${Date.now().toString(36)}`;
 
@@ -72,6 +83,9 @@ export function createStoredTranscriptCache({
   const entries = new Map();
   /** key -> { text, fingerprint, promise } for reads still parsing. */
   const inFlight = new Map();
+  /** key -> { fingerprint, fileStat, promise } for reads not yet answered,
+   *  from before their body is loaded. */
+  const reading = new Map();
   /** Keys evicted for space (insertion order = age), bounded. */
   const ghosts = new Set();
   let retainedBytes = 0;
@@ -143,59 +157,135 @@ export function createStoredTranscriptCache({
     }
   };
 
+  // The cached entry, when it still holds content identified by `digest`.
+  const entryWithContent = (key, fingerprint, digest) => {
+    const entry = entries.get(key);
+    return entry &&
+      entry.fingerprint === fingerprint &&
+      entry.textChars === digest.textChars &&
+      entry.textHash === digest.textHash
+      ? entry
+      : null;
+  };
+
+  // `project(known)` reads, digests and projects the record elsewhere (a
+  // worker thread) in one step: `{ textChars, textHash, value }`, or
+  // `{ textChars, textHash, same: true }` without a projection when the
+  // content is the `known` digest of the cached entry; null when the record
+  // cannot be read. Undefined when it could not answer at all.
+  async function readProjected({ key, group, fingerprint, fileStat, project, now }) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const cached = entries.get(key);
+      const known =
+        attempt === 0 && cached?.fingerprint === fingerprint
+          ? { textChars: cached.textChars, textHash: cached.textHash }
+          : null;
+      // A newer read of this key, clear or forget replaces or drops the
+      // record; only a still-current answer may then be remembered.
+      const record = { text: null, fingerprint, promise: null };
+      inFlight.set(key, record);
+      let answer;
+      try {
+        answer = await project(known);
+      } catch {
+        answer = undefined;
+      }
+      const current = inFlight.get(key) === record;
+      if (current) inFlight.delete(key);
+      if (answer === undefined) return undefined;
+      if (answer === null || typeof answer !== 'object') return { value: null, hit: false, read: true };
+      if (answer.same === true) {
+        const entry = entryWithContent(key, fingerprint, answer);
+        // Evicted meanwhile: project it after all.
+        if (!entry) continue;
+        entry.fileStat = fileStat;
+        touch(key, entry, now);
+        return { value: entry.value, hit: true, read: true };
+      }
+      const value = answer.value ?? null;
+      if (current && value && typeof value === 'object') {
+        remember(key, group, answer.textChars, answer.textHash, fingerprint, fileStat, value, now);
+      }
+      return { value, hit: false, read: true };
+    }
+    return undefined;
+  }
+
+  async function readFresh({ key, group, fingerprint, fileStat, loadText, produce, project, now }) {
+    if (typeof project === 'function') {
+      const answered = await readProjected({ key, group, fingerprint, fileStat, project, now });
+      if (answered !== undefined) return answered;
+      // It could not answer (worker unavailable): load and produce here.
+    }
+    const cached = entries.get(key);
+    // `loadText` may answer asynchronously (a large record is read without
+    // blocking the loop); a plain string is unchanged.
+    let text = loadText();
+    if (typeof text?.then === 'function') text = await text;
+    if (typeof text !== 'string') return { value: null, hit: false, read: true };
+    const textHash = transcriptTextHash(text);
+    if (cached && entryWithContent(key, fingerprint, { textChars: text.length, textHash }) === cached) {
+      cached.fileStat = fileStat;
+      touch(key, cached, now);
+      return { value: cached.value, hit: true, read: true };
+    }
+    const pending = inFlight.get(key);
+    if (pending && pending.fingerprint === fingerprint && pending.text === text) {
+      return { value: await pending.promise, hit: true, read: true };
+    }
+    const record = { text, fingerprint, promise: null };
+    const promise = (async () => {
+      const value = await produce(text);
+      if (inFlight.get(key) === record && value && typeof value === 'object') {
+        remember(key, group, text.length, textHash, fingerprint, fileStat, value, now);
+      }
+      return value;
+    })();
+    record.promise = promise;
+    inFlight.set(key, record);
+    try {
+      return { value: await promise, hit: false, read: true };
+    } finally {
+      if (inFlight.get(key) === record) inFlight.delete(key);
+    }
+  }
+
   return {
     /** The cached projection for this exact content, or a fresh one from
-     *  `produce`. `loadText` runs only when stat alone cannot vouch for
-     *  the entry. Concurrent callers with the same content share one parse.
+     *  `project` (when given and able to answer) or `produce`. `loadText` /
+     *  `project` run only when stat alone cannot vouch for the entry.
+     *  Concurrent callers with the same content share one parse; callers of
+     *  one unchanged, settled file share one read before it is even loaded.
      *  Entries naming the same `group` replace each other. */
-    async read({ key, group = null, fingerprint, fileStat = null, loadText, produce, now = Date.now() }) {
+    async read({
+      key,
+      group = null,
+      fingerprint,
+      fileStat = null,
+      loadText,
+      produce,
+      project = null,
+      now = Date.now(),
+    }) {
       trimIdle(now);
       const cached = entries.get(key);
-      if (
-        cached &&
-        cached.fingerprint === fingerprint &&
-        sameFileStat(cached.fileStat, fileStat) &&
-        now - Math.max(fileStat.mtimeMs, fileStat.ctimeMs) > SETTLED_FILE_AGE_MS
-      ) {
+      if (cached && cached.fingerprint === fingerprint && settledSameFile(cached.fileStat, fileStat, now)) {
         touch(key, cached, now);
         return { value: cached.value, hit: true, read: false };
       }
-      // `loadText` may answer asynchronously (a large record is read without
-      // blocking the loop); a plain string is unchanged.
-      let text = loadText();
-      if (typeof text?.then === 'function') text = await text;
-      if (typeof text !== 'string') return { value: null, hit: false, read: true };
-      // UTF-16 preserves exact JavaScript code units, including lone surrogates
-      // that UTF-8 would collapse into the same replacement character.
-      const textHash = createHash('sha256').update(text, 'utf16le').digest('hex');
-      if (
-        cached &&
-        cached.fingerprint === fingerprint &&
-        cached.textChars === text.length &&
-        cached.textHash === textHash
-      ) {
-        cached.fileStat = fileStat;
-        touch(key, cached, now);
-        return { value: cached.value, hit: true, read: true };
+      const joined = reading.get(key);
+      if (joined && joined.fingerprint === fingerprint && settledSameFile(joined.fileStat, fileStat, now)) {
+        const { value } = await joined.promise;
+        // A read that found nothing is not shared: this caller learns why itself.
+        if (value) return { value, hit: true, read: false };
       }
-      const pending = inFlight.get(key);
-      if (pending && pending.fingerprint === fingerprint && pending.text === text) {
-        return { value: await pending.promise, hit: true, read: true };
-      }
-      const record = { text, fingerprint, promise: null };
-      const promise = (async () => {
-        const value = await produce(text);
-        if (inFlight.get(key) === record && value && typeof value === 'object') {
-          remember(key, group, text.length, textHash, fingerprint, fileStat, value, now);
-        }
-        return value;
-      })();
-      record.promise = promise;
-      inFlight.set(key, record);
+      const record = { fingerprint, fileStat, promise: null };
+      record.promise = readFresh({ key, group, fingerprint, fileStat, loadText, produce, project, now });
+      reading.set(key, record);
       try {
-        return { value: await promise, hit: false, read: true };
+        return await record.promise;
       } finally {
-        if (inFlight.get(key) === record) inFlight.delete(key);
+        if (reading.get(key) === record) reading.delete(key);
       }
     },
     /** The last view of these projections left: they turn idle now and stay
@@ -207,8 +297,10 @@ export function createStoredTranscriptCache({
       trimIdle(now);
     },
     forget(keyPrefix) {
-      for (const key of inFlight.keys()) {
-        if (key.startsWith(keyPrefix)) inFlight.delete(key);
+      for (const pending of [inFlight, reading]) {
+        for (const key of pending.keys()) {
+          if (key.startsWith(keyPrefix)) pending.delete(key);
+        }
       }
       for (const key of [...entries.keys()]) {
         if (key.startsWith(keyPrefix)) drop(key);
@@ -220,11 +312,18 @@ export function createStoredTranscriptCache({
     clear() {
       entries.clear();
       inFlight.clear();
+      reading.clear();
       ghosts.clear();
       retainedBytes = 0;
     },
     stats() {
-      return { entries: entries.size, retainedBytes, inFlight: inFlight.size };
+      return {
+        entries: entries.size,
+        retainedBytes,
+        inFlight: inFlight.size,
+        reading: reading.size,
+        ghosts: ghosts.size,
+      };
     },
   };
 }

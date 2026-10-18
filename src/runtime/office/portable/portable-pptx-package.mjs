@@ -138,7 +138,7 @@ export function writeSlideIdList(presentation, entries) {
   }
   const size = /<p:sldSz\b/.exec(presentation);
   if (size) return `${presentation.slice(0, size.index)}${element}${presentation.slice(size.index)}`;
-  return presentation.replace('</p:presentation>', `${element}</p:presentation>`);
+  return presentation.replace('</p:presentation>', () => `${element}</p:presentation>`);
 }
 
 export function slideIdEntries(presentation) {
@@ -355,7 +355,7 @@ async function ensureNotesMaster(zip) {
       presentationPath,
       anchor
         ? `${presentation.slice(0, anchor.index)}${element}${presentation.slice(anchor.index)}`
-        : presentation.replace('</p:presentation>', `${element}</p:presentation>`)
+        : presentation.replace('</p:presentation>', () => `${element}</p:presentation>`)
     );
   }
   return part;
@@ -387,7 +387,10 @@ export async function ensureCommentAuthor(zip, author, initials) {
   const entry =
     `<p:cmAuthor id="${id}" name="${xmlEncode(author)}" initials="${xmlEncode(initials)}"` +
     ` lastIdx="1" clrIdx="${id}"/>`;
-  zip.file(part, xml.replace('</p:cmAuthorLst>', `${entry}</p:cmAuthorLst>`));
+  zip.file(
+    part,
+    xml.replace('</p:cmAuthorLst>', () => `${entry}</p:cmAuthorLst>`)
+  );
   return id;
 }
 
@@ -438,7 +441,7 @@ export async function copySlideNotes(zip, sourcePath, targetPath) {
     zip.file(
       partRelationshipPath(notes),
       relationships.replace(/<Relationship\b[^>]*\/>/g, (entry) =>
-        /\bType="[^"]*\/slide"/.test(entry) ? entry.replace(/\bTarget="[^"]*"/, `Target="${target}"`) : entry
+        /\bType="[^"]*\/slide"/.test(entry) ? entry.replace(/\bTarget="[^"]*"/, () => `Target="${target}"`) : entry
       )
     );
   }

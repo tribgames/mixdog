@@ -15,6 +15,8 @@ import {
   SUMMARY_OUTPUT_TOKENS,
   COMPACT_TARGET_MIN_TOKENS,
 } from '../compact.mjs';
+import { summarizeOnSharedPrefix } from '../compact/forked-summary.mjs';
+import { retireCompactionFork } from '../side-question-store.mjs';
 
 // Conversation summarization triggers independently of the post-compact target:
 // at 5% of the window, capped so a large window does not carry tens of
@@ -110,6 +112,39 @@ function summarizeConversation(target, ctx) {
   );
 }
 
+function sumUsage(a, b) {
+  if (!a || !b) return a || b || null;
+  return Object.fromEntries(Object.keys(a).map((key) => [key, (a[key] || 0) + (Number(b[key]) || 0)]));
+}
+
+// Summary policy. On the session's own provider and model the summary forks
+// the latest cached request (compact/forked-summary.mjs): the context is
+// already in the prompt cache, so reading it costs a tenth to a twentieth of
+// sending the text-only transcript uncached, and the summary sees the full
+// execution context. A different summary route (the maintenance model)
+// cannot share that cache; there the isolated text-only request runs: on
+// the usage ledger it cost a median $0.16 and 24.5 s against a projected
+// $0.19 and 27 s for a cache-read fork of the main model's median 500k-token
+// context (the fork is cheaper than a same-model isolated request, $0.20).
+// A fork that cannot run or fails falls back to the isolated request.
+async function summarizeOnRoute(route, ctx) {
+  const shared = await summarizeOnSharedPrefix({
+    sessionId: ctx.sessionId,
+    route,
+    conversationInput: ctx.conversationInput,
+    signal: ctx.signal,
+    timeoutMs: ctx.compactPolicy.handoffTimeoutMs,
+  });
+  if (shared.generated) return shared.generated;
+  ctx.signal?.throwIfAborted();
+  const generated = await summarizeConversation(route, ctx);
+  return {
+    ...generated,
+    usage: sumUsage(generated.usage, shared.usage),
+    diagnostics: { ...generated.diagnostics, mode: 'isolated', sharedPrefixFallback: shared.fallback },
+  };
+}
+
 // A maintenance summary model that is out of quota must not take the whole
 // turn down: the conversation's own model still has budget and can
 // summarize. Only exhaustion reroutes — every other compaction failure
@@ -118,7 +153,7 @@ function summarizeConversation(target, ctx) {
 async function summarizeWithQuotaFallback(ctx, routeInput) {
   const route = await resolveCompactionRoute(routeInput);
   try {
-    return { route, generated: await summarizeConversation(route, ctx) };
+    return { route, generated: await summarizeOnRoute(route, ctx) };
   } catch (error) {
     ctx.signal?.throwIfAborted();
     const status = Number(error?.status || error?.httpStatus || error?.response?.status || 0);
@@ -132,7 +167,7 @@ async function summarizeWithQuotaFallback(ctx, routeInput) {
       throw error;
     }
     try {
-      return { route: fallback, generated: await summarizeConversation(fallback, ctx) };
+      return { route: fallback, generated: await summarizeOnRoute(fallback, ctx) };
     } catch (fallbackError) {
       fallbackError.compactRoute = { provider: fallback.providerName, model: fallback.model };
       throw fallbackError;
@@ -236,6 +271,8 @@ export async function runFreshContextCompact({
         diagnostics: { ...result.diagnostics, noOp: true, reason: 'no_token_reduction' },
       };
     }
+    // The rewritten transcript is no longer what the saved request carried.
+    if (result.freshContext) retireCompactionFork(sessionId);
     return result;
   };
   const pipeline = {

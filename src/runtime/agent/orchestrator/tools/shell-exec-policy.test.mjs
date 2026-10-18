@@ -105,99 +105,25 @@ test('model args cannot inject approval', async () => {
   assert.match(String(out), /requires user approval for elevation/);
 });
 
-test('approval gate: hook approves, denies, or is absent', async () => {
-  const executeOpts = { signal: undefined, toolCallId: 't1' };
-  const mk = () => ({ name: 'shell', args: { command: 'sudo ls' }, cwd: process.cwd() });
-  let seen = null;
-  const ok = await applyShellElevationGate(mk(), {
-    callerSessionId: 's',
-    executeOpts,
-    toolApprovalHook: async (req) => {
-      seen = req;
-      return { approved: true, args: { command: 'rm -rf /tmp/x' } };
-    },
-  });
-  assert.deepEqual(ok, { elevationApproved: true });
-  assert.equal(seen.reason, REASON);
-
-  // approval reply cannot rewrite the command
-  const call = mk();
-  await applyShellElevationGate(call, {
-    callerSessionId: 's',
-    executeOpts,
-    toolApprovalHook: async () => ({ approved: true, args: { command: 'echo other' } }),
-  });
-  assert.equal(call.args.command, 'sudo ls');
-
-  const denied = await applyShellElevationGate(mk(), {
-    callerSessionId: 's',
-    executeOpts,
-    toolApprovalHook: async () => ({ approved: false, reason: 'no' }),
-  });
-  assert.match(denied.denial, /denied by hook/);
-
-  const noHook = await applyShellElevationGate(mk(), { callerSessionId: 's', executeOpts });
-  assert.match(noHook.denial, /no approval UI is available/);
-
-  let asked = false;
-  const plain = await applyShellElevationGate(
-    { name: 'shell', args: { command: 'echo hi' }, cwd: '.' },
-    {
-      callerSessionId: 's',
-      executeOpts,
-      toolApprovalHook: async () => {
-        asked = true;
-        return true;
-      },
-    }
-  );
-  assert.deepEqual(plain, { elevationApproved: false });
-  assert.equal(asked, false);
-});
-
-test('approval gate covers terminal run only', async () => {
-  const executeOpts = { signal: undefined, toolCallId: 't1' };
-  const mk = (args) => ({ name: 'terminal', args, cwd: process.cwd() });
-  let seen = null;
-  const call = mk({ action: 'run', command: 'sudo ls' });
-  const ok = await applyShellElevationGate(call, {
-    callerSessionId: 's',
-    executeOpts,
-    toolApprovalHook: async (req) => {
-      seen = req;
-      return { approved: true, args: { action: 'run', command: 'echo other' } };
-    },
-  });
-  assert.deepEqual(ok, { elevationApproved: true });
-  assert.equal(seen.name, 'terminal');
-  assert.equal(seen.reason, REASON);
-  assert.equal(call.args.command, 'sudo ls');
-
-  const denied = await applyShellElevationGate(mk({ action: 'run', command: 'sudo ls' }), {
-    callerSessionId: 's',
-    executeOpts,
-    toolApprovalHook: async () => ({ approved: false, reason: 'no' }),
-  });
-  assert.match(denied.denial, /denied by hook/);
-
-  const noHook = await applyShellElevationGate(mk({ action: 'run', command: 'sudo ls' }), {
-    callerSessionId: 's',
-    executeOpts,
-  });
-  assert.match(noHook.denial, /no approval UI is available/);
-
-  let asked = false;
-  const hook = async () => {
-    asked = true;
-    return true;
-  };
-  for (const args of [
-    { action: 'read', command: 'sudo ls' },
-    { action: 'list' },
-    { action: 'run', command: 'echo hi' },
+test('elevated shell and terminal run pass without a Mixdog prompt; other calls are not elevated', () => {
+  for (const call of [
+    { name: 'shell', args: { command: 'sudo ls' } },
+    { name: 'shell', args: { command: 'Start-Process notepad -Verb RunAs' } },
+    { name: 'terminal', args: { action: 'run', command: 'sudo ls' } },
   ]) {
-    const out = await applyShellElevationGate(mk(args), { callerSessionId: 's', executeOpts, toolApprovalHook: hook });
-    assert.deepEqual(out, { elevationApproved: false });
+    assert.deepEqual(applyShellElevationGate(call), { elevationApproved: true });
   }
-  assert.equal(asked, false);
+  for (const call of [
+    { name: 'shell', args: { command: 'echo hi' } },
+    { name: 'terminal', args: { action: 'read', command: 'sudo ls' } },
+    { name: 'terminal', args: { action: 'list' } },
+    { name: 'terminal', args: { action: 'run', command: 'echo hi' } },
+    { name: 'read', args: { command: 'sudo ls' } },
+  ]) {
+    assert.deepEqual(applyShellElevationGate(call), { elevationApproved: false });
+  }
+  // A deny is never lifted by the elevation pass.
+  const deny = { name: 'shell', args: { command: 'sudo shutdown now' } };
+  const { elevationApproved } = applyShellElevationGate(deny);
+  assert.match(String(prepareShellCommand(deny.args, { elevationApproved }).failure), /blocked by exec policy/);
 });

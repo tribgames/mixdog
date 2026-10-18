@@ -165,6 +165,7 @@ const PROVIDER_CACHE_CAPABILITY = Object.freeze({
   gemini: 'managed-explicit',
   deepseek: 'implicit-observed',
   'opencode-go': 'implicit-observed',
+  'opencode-go-oauth': 'implicit-observed',
 });
 
 export function cacheCapabilityForProvider(provider) {
@@ -475,7 +476,7 @@ export function resolveProviderPromptCacheLane(provider, opts = {}, config = {})
  * server-side lane per call. `promptCacheScope: 'shared'` tells every
  * key-prefix provider to key the cache on the prefix instead.
  */
-export function oneShotPromptCacheOpts(agent) {
+function oneShotPromptCacheOpts(agent) {
   return isOneShotMaintenanceAgent(agent) ? { promptCacheScope: 'shared' } : null;
 }
 

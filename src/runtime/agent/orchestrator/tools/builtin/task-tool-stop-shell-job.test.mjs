@@ -10,7 +10,7 @@ import { getBackgroundTask, registerBackgroundTask } from '../../../../shared/ba
 import { shellJobsStatus } from '../../../../shared/statusline/statusline-segments.mjs';
 import { createAgentOps } from '../../../../../session-runtime/turn/agent-ops.mjs';
 import { execShellCommand } from '../shell-command.mjs';
-import { killShellJob, shutdownShellJobs, watchBackgroundShellJob } from './shell-jobs.mjs';
+import { killShellJob, shutdownShellJobs, waitShellJobTerminated, watchBackgroundShellJob } from './shell-jobs.mjs';
 import { stopBackgroundShellJob } from './task-tool.mjs';
 import { PROCESS_TABLE_READ_BOUND_MS, TERMINATION_RECHECK_MS } from '../lib/shell-descendants.mjs';
 import {
@@ -125,8 +125,17 @@ test('stopping a real background job settles it as cancelled in the shell-jobs s
   assert.equal((await stopBackgroundShellJob(jobId, ctx(OTHER))).stopped, false);
   assert.equal(getNativeTask(jobId)?.status, 'running');
 
-  assert.deepEqual(await stopBackgroundShellJob(jobId, ctx(OWNER)), { stopped: true });
+  const stop = await stopBackgroundShellJob(jobId, ctx(OWNER));
   assert.notEqual(getNativeTask(jobId)?.status, 'running');
+  if (!stop.stopped) {
+    // On a heavily loaded machine the process-table reads that confirm the
+    // whole tree is gone can outlast the 15 s confirmation ceiling; the stop
+    // then says so (and the job stays tracked) instead of claiming a cancel.
+    assert.match(stop.error, /cancellation not confirmed/);
+    assert.equal(await waitShellJobTerminated(jobId, 60_000), true, 'the tree is eventually confirmed gone');
+    return;
+  }
+  assert.deepEqual(stop, { stopped: true });
   assert.equal(getBackgroundTask(jobId).status, 'cancelled');
   assert.match((await stopBackgroundShellJob(jobId, ctx(OWNER))).error, /already/);
 

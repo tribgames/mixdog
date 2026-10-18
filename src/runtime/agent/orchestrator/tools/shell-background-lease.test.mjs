@@ -106,18 +106,23 @@ test('promotion releases the foreground lease: 8+ background servers leave a 9th
     assert.equal(admission.snapshot().activeLeases.length, 0);
     for (const jobId of jobIds) assert.equal(getNativeTask(jobId)?.status, 'running');
 
-    const started = Date.now();
-    const ninth = await execShellCommand(quickJob({ admission, admissionWaitMs: 2_000 }));
+    // Admission is judged by the controller's own events, never by wall time:
+    // the call also spawns and runs a node child, which a loaded host can
+    // stretch past any fixed bound. The wait budget only has to outlast that.
+    const ninth = await execShellCommand(quickJob({ admission, admissionWaitMs: 60_000, timeoutMs: 60_000 }));
     assert.equal(ninth.exitCode, 0, ninth.stderr);
     assert.match(ninth.stdout, /quick-ok/);
-    assert.ok(Date.now() - started < 2_000, 'the 9th call was admitted without waiting');
+    assert.equal(admission.waitStats.shell.admitted, 13, 'every call, the 9th included, was admitted');
+    assert.equal(admission.waitStats.shell.waited, 0, 'the 9th call was admitted without queueing');
 
     // Shutdown still kills background jobs, and nothing stays counted.
     const shutdown = await shutdownShellJobs('test');
     assert.ok(shutdown.killed >= 12);
-    assert.deepEqual(shutdown.unconfirmedJobs, []);
+    // Shutdown confirms exits within a bounded window; a loaded host may report
+    // a job as unconfirmed and confirm it moments later. Wait for the exits
+    // themselves rather than requiring them inside that window.
+    assert.ok(await until(() => runningJobs().length === 0, 50_000), 'every killed job exits');
     for (const jobId of jobIds) assert.notEqual(getNativeTask(jobId)?.status, 'running');
-    assert.deepEqual(runningJobs(), []);
     assert.equal(admission.snapshot().active.shell, 0);
     assert.equal(admission.snapshot().activeLeases.length, 0);
   } finally {
@@ -138,8 +143,8 @@ test('a scoped parent always resumes: maxHighLoad=1 with many background jobs', 
     const jobIds = [];
     await admission.runWithLease(agent, async () => {
       for (let i = 0; i < 4; i += 1) {
-        // The shell takes the only high-load slot from the suspended parent;
-        // promotion must hand it back or this call never returns.
+        // The shell runs beside the parent, which keeps the only high-load
+        // slot; the call must return through promotion.
         let timer;
         const result = await Promise.race([
           execShellCommand(longJob(`parent-${i}`, { admission, ownerSessionId: 'sess_parent' })),

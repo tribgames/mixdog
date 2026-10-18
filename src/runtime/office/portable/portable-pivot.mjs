@@ -321,12 +321,12 @@ export async function writePivotTable(
   const cacheId = (workbook.match(/<pivotCache\b/g) || []).length + 1;
   const entry = `<pivotCache cacheId="${cacheId}" r:id="${workbookRelationshipId}"/>`;
   if (/<pivotCaches>/.test(workbook)) {
-    workbook = workbook.replace('</pivotCaches>', `${entry}</pivotCaches>`);
+    workbook = workbook.replace('</pivotCaches>', () => `${entry}</pivotCaches>`);
   } else {
     const block = `<pivotCaches>${entry}</pivotCaches>`;
     workbook = /<calcPr\b[^>]*\/>/.test(workbook)
-      ? workbook.replace(/(<calcPr\b[^>]*\/>)/, `$1${block}`)
-      : workbook.replace('</sheets>', `</sheets>${block}`);
+      ? workbook.replace(/(<calcPr\b[^>]*\/>)/, (__m, __1) => `${__1}${block}`)
+      : workbook.replace('</sheets>', () => `</sheets>${block}`);
   }
   zip.file('xl/workbook.xml', workbook);
 

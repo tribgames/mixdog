@@ -74,9 +74,8 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     const unavailable = bridgeTargetUnavailable(sessionRef, finalCall.schemaName || finalCall.name);
     if (unavailable) return unavailable;
   }
-  // Elevated launches ask the user first; denied / no approval UI refuses the call.
-  const elevation = await applyShellElevationGate(call, { callerSessionId, executeOpts, toolApprovalHook });
-  if (elevation.denial) return elevation.denial;
+  // Elevated launches skip Mixdog's own prompt; the OS elevation prompt confirms them.
+  const elevation = applyShellElevationGate(call);
   throwIfAborted(executeOpts.signal);
   const result = await runReadOnlyIoWithDeadline(call.name, executeOpts.signal || null, async (deadlineSignal) => {
     let callOpts = executeOpts;

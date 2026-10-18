@@ -134,7 +134,7 @@ test('git command tool preserves native text, shell syntax, and destructive comm
   const diffBody = diff.split('\ndiff_id:')[0];
   assert.equal(
     diffBody.split('\nhint: ')[0],
-    `${rawLines.slice(0, 5).join('\n')}\n... [${rawLines.length - 5} more lines omitted; raise output_limit or narrow the command]`
+    `${rawLines.slice(0, 5).join('\n')}\n[output capped at 5 lines; ${rawLines.length - 5} more lines omitted; narrow: raise output_limit (max 1000) or narrow the command (-- <path>, -n/--skip)]`
   );
   assert.doesNotMatch(diffBody, /^index /m);
   assert.match(diffBody, /\nhint: large diff - run with --stat first.*-U1.*-- <path>$/);
@@ -172,7 +172,12 @@ test('git command tool preserves native text, shell syntax, and destructive comm
     const extra = spawnSync('git', ['-C', repo, 'commit', '--allow-empty', '-m', `extra-${i}`], { encoding: 'utf8' });
     assert.equal(extra.status, 0, extra.stderr);
   }
-  assert.match(parseOk(await git(repo, 'log')), /\.\.\. \[\d+ more lines omitted;/);
+  // The default log cap (100 lines) holds a dozen commits; an explicit cap still cuts.
+  assert.doesNotMatch(parseOk(await git(repo, 'log')), /output capped/);
+  assert.match(
+    parseOk(await git(repo, 'log', { output_limit: 10 })),
+    /\[output capped at 10 lines; \d+ more lines omitted;/
+  );
   assert.ok(
     parseOk(await git(repo, 'log --all --oneline', { output_limit: 20 }))
       .trim()
@@ -182,7 +187,7 @@ test('git command tool preserves native text, shell syntax, and destructive comm
   for (const name of ['one.tmp', 'two.tmp', 'three.tmp']) writeFileSync(join(repo, name), name);
   const cappedStatus = parseOk(await git(repo, 'status', { output_limit: 2 }));
   assert.equal(cappedStatus.split('\n').length, 3);
-  assert.match(cappedStatus, /\.\.\. \[2 more lines omitted;/);
+  assert.match(cappedStatus, /\[output capped at 2 lines; 2 more lines omitted;/);
   for (const name of ['one.tmp', 'two.tmp', 'three.tmp']) rmSync(join(repo, name));
 
   const worktree = join(root, 'worktree');
@@ -405,7 +410,8 @@ test('git exposes command and selected staging in one compact contract', () => {
   );
   assert.equal(properties.command.anyOf[1].minItems, 1);
   assert.equal(properties.command.anyOf[1].maxItems, 10);
-  assert.equal(properties.output_limit.maximum, 200);
+  assert.equal(properties.output_limit.maximum, 1000);
+  assert.match(properties.output_limit.description, /Default 500; git log defaults to 100/);
   assert.equal(properties.change_ids.anyOf[1].maxItems, 50);
   assert.equal(GIT_TOOL_DEF.annotations.destructiveHint, true);
   // Advisory wording anchors; update when the public description changes.
@@ -540,19 +546,24 @@ test('git command arrays run in order, allow mutations, and stop at the first fa
   assert.equal(parseOk(await git(repo, 'diff --cached --quiet')), '');
 });
 
-test('git clamps oversized output requests to 200 lines', async (t) => {
+test('git defaults to 500 lines and clamps oversized output requests to 1000 lines', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-output-cap-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const repo = join(root, 'repo');
   parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
   parseOk(await git(repo, 'config user.name "Mixdog Test"'));
   parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-  writeFileSync(join(repo, 'large.txt'), `${Array.from({ length: 250 }, (_, index) => `line-${index}`).join('\n')}\n`);
+  writeFileSync(join(repo, 'large.txt'), `${Array.from({ length: 1250 }, (_, index) => `line-${index}`).join('\n')}\n`);
   parseOk(await git(repo, 'add -- large.txt'));
   parseOk(await git(repo, 'commit -m large'));
-  const shown = parseOk(await git(repo, 'show HEAD:large.txt', { output_limit: 500 }));
-  assert.equal(shown.split('\n').length, 201);
-  assert.ok(shown.endsWith('... [50 more lines omitted; raise output_limit or narrow the command]'));
+  const tail = (cap, more) =>
+    `[output capped at ${cap} lines; ${more} more lines omitted; narrow: raise output_limit (max 1000) or narrow the command (-- <path>, -n/--skip)]`;
+  const byDefault = parseOk(await git(repo, 'show HEAD:large.txt'));
+  assert.equal(byDefault.split('\n').length, 501);
+  assert.ok(byDefault.endsWith(tail(500, 750)));
+  const shown = parseOk(await git(repo, 'show HEAD:large.txt', { output_limit: 5000 }));
+  assert.equal(shown.split('\n').length, 1001);
+  assert.ok(shown.endsWith(tail(1000, 250)));
 });
 
 // `git --version` is how a caller checks whether git exists at all; rejecting

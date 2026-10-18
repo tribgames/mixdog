@@ -17,10 +17,15 @@ import { validateGoalToolCall } from '../../runtime-core/goal-tool-defs.mjs';
 import { closeNativePatchServerForTests } from '../patch/native-server.mjs';
 
 test('shell wait_ms above the ceiling clamps; the message states the schema range', () => {
-  const clamped = { command: 'echo x', wait_ms: 500000 };
+  const clamped = { command: 'echo x', wait_ms: 5_000_000 };
   assert.equal(validateBuiltinArgs('shell', clamped), null);
-  assert.equal(clamped.wait_ms, 30000);
-  assert.match(validateBuiltinArgs('shell', { command: 'echo x', wait_ms: 5 }), /10000 to 30000/);
+  assert.equal(clamped.wait_ms, 600000);
+  assert.match(validateBuiltinArgs('shell', { command: 'echo x', wait_ms: 5 }), /1000 to 600000/);
+  assert.match(
+    validateBuiltinArgs('shell', { command: 'echo x', background: 'yes' }),
+    /"background" must be a boolean/
+  );
+  assert.equal(validateBuiltinArgs('shell', { command: 'echo x', background: true }), null);
 });
 
 test('read limit:0 reads the default window instead of failing', () => {

@@ -384,7 +384,7 @@ test('stored paging windows report older history, replace each other and are for
   assert.equal(storedTranscriptCacheStats().entries, 1, 'growing windows of one session do not accumulate');
   assert.equal(storedTranscriptCacheStats().retainedBytes, Buffer.byteLength(JSON.stringify(whole)));
   forgetStoredSessionTranscript(id);
-  assert.deepEqual(storedTranscriptCacheStats(), { entries: 0, retainedBytes: 0, inFlight: 0 });
+  assert.deepEqual(storedTranscriptCacheStats(), { entries: 0, retainedBytes: 0, inFlight: 0, reading: 0, ghosts: 0 });
 });
 
 test('projection stamps are unique within a process', () => {
@@ -541,5 +541,5 @@ test('a large record is parsed and projected on a worker thread with an identica
   assert.match(String(gotStamp), /^\d+:[a-z0-9]+:\d+$/);
   assert.notEqual(gotStamp, expectedStamp);
   assert.ok(loopTicks.length > 0, 'event loop kept running while the worker projected');
-  assert.equal((await readStoredSessionTranscript(id, { transcriptItemLimit: 16 })), got);
+  assert.equal(await readStoredSessionTranscript(id, { transcriptItemLimit: 16 }), got);
 });

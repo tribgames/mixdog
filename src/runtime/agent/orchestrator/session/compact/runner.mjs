@@ -18,7 +18,7 @@ import {
   splitProtectedContext,
 } from './messages.mjs';
 import { activeTurnContinuationMessage } from './continuation.mjs';
-import { buildExecutionTail } from './execution-tail.mjs';
+import { EXECUTION_RECOVERY_SOURCE, buildExecutionTail } from './execution-tail.mjs';
 import { latestSkillBodies } from '../../context/skill-state.mjs';
 import { effectiveBudget } from './budget.mjs';
 import { stripRuntimeUserContext, withRuntimeUserContext } from '../runtime-user-context.mjs';
@@ -48,7 +48,13 @@ function combinedSignal(parent, timeoutMs) {
 
 function splitFreshSource(messages) {
   const sanitized = redactToolCallSecretsInMessages(reconcileDedupStubs(sanitizeToolPairs(messages)));
-  const { protectedPrefix, conversation } = splitProtectedContext(sanitized);
+  const split = splitProtectedContext(sanitized);
+  // A recovery reminder right after the system prompt reads as protected
+  // prefix and would outlive every pass. It belongs to the conversation, where
+  // buildExecutionTail replaces it with the newest compaction's reminder.
+  const isRecovery = (message) => message?.meta?.source === EXECUTION_RECOVERY_SOURCE;
+  const protectedPrefix = split.protectedPrefix.filter((message) => !isRecovery(message));
+  const conversation = [...split.protectedPrefix.filter(isRecovery), ...split.conversation];
   let previousSummaryMessage = null;
   let previousAck = null;
   for (let index = conversation.length - 1; index >= 0; index -= 1) {

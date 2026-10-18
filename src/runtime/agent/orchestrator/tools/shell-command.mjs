@@ -313,7 +313,9 @@ function queueSaturatedAsTask(run, saturation, spec) {
           jobId: taskId,
           abortSignal: queuedAbort.signal,
           admissionWaitMs: 0,
-          // The call already returned: nobody renders live progress.
+          // The call already returned: nobody renders live progress, and no
+          // hold remains for user input to end.
+          wakeSignal: null,
           onProgress: null,
           onOutputTail: null,
         });
@@ -465,7 +467,27 @@ const promotable = (run, backgroundOnTimeout) =>
   run.child?.exitCode == null &&
   run.child?.signalCode == null;
 
-function armDeadlines(run, { timeoutMs, autoBackgroundMs, backgroundOnTimeout, abortSignal }, fireAutoBackground) {
+// New user input or a queued task notification during the hold moves a
+// still-running command to the background at once (never a kill): the call
+// returns to the agent loop, which delivers it at the next boundary.
+function armInputWake(run, wakeSignal, fireAutoBackground) {
+  if (!wakeSignal) return;
+  const onWake = () => {
+    const reason = wakeSignal.reason === 'notification' ? 'notification' : 'input';
+    if (promotable(run, true)) fireAutoBackground({ reason });
+  };
+  if (wakeSignal.aborted) {
+    onWake();
+    return;
+  }
+  wakeSignal.addEventListener('abort', onWake, { once: true });
+}
+
+function armDeadlines(
+  run,
+  { timeoutMs, autoBackgroundMs, autoBackgroundReason, backgroundOnTimeout, abortSignal },
+  fireAutoBackground
+) {
   if (timeoutMs > 0) {
     run.timer = setTimeout(() => {
       // Promote-on-timeout: if the caller allows backgrounding and the child
@@ -490,7 +512,7 @@ function armDeadlines(run, { timeoutMs, autoBackgroundMs, backgroundOnTimeout, a
     (timeoutMs <= 0 || autoBackgroundMs < timeoutMs)
   ) {
     run.autoBgTimer = setTimeout(() => {
-      fireAutoBackground();
+      fireAutoBackground({ reason: autoBackgroundReason || 'threshold' });
     }, autoBackgroundMs);
     if (run.autoBgTimer.unref) run.autoBgTimer.unref();
   }
@@ -525,7 +547,11 @@ export function execShellCommand(options) {
     cwd,
     timeoutMs,
     abortSignal,
+    // Aborted when new user input should end the hold (task-wait-control).
+    wakeSignal = null,
     autoBackgroundMs,
+    // 'background' for an explicit background start; the hold otherwise.
+    autoBackgroundReason = 'threshold',
     onProgress,
     onOutputTail,
     clientHostPid,
@@ -597,7 +623,12 @@ export function execShellCommand(options) {
         promotedTimeoutMs,
         backgroundDeadlineMs,
       });
-      armDeadlines(run, { timeoutMs, autoBackgroundMs, backgroundOnTimeout, abortSignal }, fireAutoBackground);
+      armDeadlines(
+        run,
+        { timeoutMs, autoBackgroundMs, autoBackgroundReason, backgroundOnTimeout, abortSignal },
+        fireAutoBackground
+      );
+      armInputWake(run, wakeSignal, fireAutoBackground);
       armProgressTimers(run, { onProgress, onOutputTail });
     } catch (err) {
       settleSetupFailure(run, err);

@@ -273,6 +273,8 @@ export function isBlockedCommand(command) {
   return decoded !== null && _blockedText(decoded);
 }
 
+const WMIC_PROCESS_COMMAND_RE = /^\s*(?:&\s*)?(?:cmd(?:\.exe)?\s+\/c\s+["']?)?(?:\S*[\\/])?wmic(?:\.exe)?\s+process\b/i;
+
 const WMIC_PROCESS_DEFAULT_FIELDS = Object.freeze([
   'ProcessId',
   'Name',
@@ -336,8 +338,11 @@ export function maybeRewriteWmicProcessCommand(command) {
   // silently drop surrounding `cd`, pipes, `&&`/`;` segments. For composite
   // commands containing wmic, return null so the caller falls back to other
   // policy handling instead of dropping context.
-  if (/[|&;]|\$\(|`/.test(text) && /\bwmic(?:\.exe)?\s+process\b/i.test(text)) return null;
-  if (!/\bwmic(?:\.exe)?\s+process\b/i.test(text)) return null;
+  // Only a command that IS a wmic call is rewritten. The words `wmic process`
+  // inside a search pattern, a commit message or a file being written are text:
+  // replacing that whole command would discard it.
+  if (!WMIC_PROCESS_COMMAND_RE.test(text)) return null;
+  if (/[|&;]|\$\(|`/.test(text)) return null;
   if (!/\bget\b/i.test(text)) {
     return {
       error:

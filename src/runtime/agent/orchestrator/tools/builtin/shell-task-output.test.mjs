@@ -75,20 +75,17 @@ test('shell promotion and task reads share a cursor without hiding failures or o
   assert.match(await executeTaskTool({ action: 'read', task_id: jobId }, { sessionId: 'other' }), /task not found/);
 });
 
-test('paged output preserves every UTF-8 byte and does not consume an omitted middle', (t) => {
+test('a capped delivery never splits a UTF-8 character and consumes the whole range', (t) => {
   const paths = fixture(t);
-  const source = `${'a'.repeat(8191)}한글🙂${'b'.repeat(17000)}\n`;
+  const source = `${'한글🙂 '.repeat(4000)}\n${'b'.repeat(70_000)}\nend\n`;
   writeFileSync(paths.stdout_path, source);
   const task = { status: 'running' };
-  let reconstructed = '';
-  for (let page = 0; page < 4; page++) {
-    const text = readShellTaskOutput(task, paths);
-    const body = text.split('[stdout]\n')[1]?.split('\n\n[stdout:')[0];
-    if (body) reconstructed += body;
-    if (page < 3) assert.match(text, /unread bytes/);
-  }
-  assert.equal(reconstructed, source);
-  assert.equal(readShellTaskOutput(task, paths), '(no new output)');
+  const text = readShellTaskOutput(task, paths);
+  assert.equal(text.includes('\uFFFD'), false);
+  assert.match(text, /KB omitted — read with offset\/limit or grep, full log: /);
+  assert.match(text, /\nend\n$/);
+  assert.equal(readShellTaskOutput(task, paths), '(no new output)', 'omitted bytes are not re-sent');
+  assert.match(readShellTaskOutput(task, paths, { output: 'tail' }), /end/, 'the log stays the way back');
 });
 
 test('preview-only jobs preserve changed previews, and disk errors stay visible and retryable', (t) => {
@@ -137,8 +134,8 @@ test('completed large output prioritizes final diagnostics within a bounded resp
   const result = readShellTaskOutput(task, paths);
   assert.match(result, /FATAL: final failure evidence/);
   assert.match(result, /final stderr diagnosis/);
-  assert.match(result, /earlier bytes omitted/);
-  assert.ok(Buffer.byteLength(result) < 26 * 1024);
+  assert.match(result, /lines, [\d.]+ KB omitted — read with offset\/limit or grep, full log: /);
+  assert.ok(Buffer.byteLength(result) < 10 * 1024);
   assert.equal(readShellTaskOutput(task, paths), '(no new output)');
   assert.match(readShellTaskOutput(task, paths, { output: 'tail' }), /FATAL: final failure evidence/);
   assert.equal(readFileSync(paths.stdout_path, 'utf8'), source);
@@ -160,18 +157,21 @@ test('replay does not consume unread bytes and recovers output after response or
 test('model output strips split ANSI controls without changing original log bytes', (t) => {
   const paths = fixture(t);
   const task = { status: 'running' };
-  const source = 'a'.repeat(8191) + '\x1b[31mcolored warning\x1b[0m\n\x1b]0;private title\x07visible\n';
+  const source = 'a'.repeat(1000) + '\n\x1b[31mcolored warning\x1b[0m\n\x1b]0;private title\x07visible\n';
   writeFileSync(paths.stdout_path, source);
   const first = readShellTaskOutput(task, paths);
   const second = readShellTaskOutput(task, paths);
   assert.equal(/\x1b|private title|\[31m/.test(first + second), false, 'terminal controls must not leak');
-  assert.match(second, /colored warning/);
-  assert.match(second, /visible/);
+  assert.match(first, /colored warning/);
+  assert.match(first, /visible/);
+  assert.equal(second, '(no new output)');
   assert.equal(readFileSync(paths.stdout_path, 'utf8'), source);
-  writeFileSync(paths.stdout_path, 'b'.repeat(8185) + '\x1b]0;' + 'title'.repeat(3000) + '\x1b\\after title\n');
+  // The OSC sequence is split across two deliveries.
+  writeFileSync(paths.stdout_path, `${'b'.repeat(100)}\n\x1b]0;${'title'.repeat(1500)}`);
   const oscTask = { status: 'running' };
-  let output = '';
-  for (let i = 0; i < 3; i++) output += readShellTaskOutput(oscTask, paths);
+  let output = readShellTaskOutput(oscTask, paths);
+  appendFileSync(paths.stdout_path, `${'title'.repeat(1500)}\x1b\\after title\n`);
+  for (let i = 0; i < 2; i++) output += readShellTaskOutput(oscTask, paths);
   assert.equal(/\x1b|titletitle/.test(output), false, 'split OSC payload must not leak');
   assert.match(output, /after title/);
 });
@@ -207,7 +207,7 @@ test('interrupted waits keep the job alive and leave explicit output replay avai
   const timer = setTimeout(() => interruptTaskWaitForSession(sessionId), 20);
   try {
     const result = await executeTaskTool({ action: 'wait', task_id: jobId }, { sessionId });
-    assert.match(result, /Wait interrupted by new user input/);
+    assert.match(result, /Wait ended by new user input/);
     assert.equal(task.status, 'running');
     assert.match(
       await executeTaskTool({ action: 'read', task_id: jobId, output: 'tail' }, { sessionId }),

@@ -332,6 +332,14 @@ export function createDrainLoop(
     }
     submissions.remember(submissionId);
     pending.push(entry);
+    // Typed input or a deliverable notification ends a passive task wait or
+    // shell hold so the next boundary hands it to the model now.
+    const wake = steering.taskWaitWakeForEntry(entry);
+    if (wake) {
+      try {
+        bag.runtime?.interruptTaskWait?.(wake, wake === 'notification' ? entry.execution?.id || null : null);
+      } catch {}
+    }
     const needsDurableSteering =
       (getState().busy || getState().commandBusy || flags.autoClearRunning || flags.quotaResumePending) &&
       steering.shouldMirrorSteeringEntry(entry);

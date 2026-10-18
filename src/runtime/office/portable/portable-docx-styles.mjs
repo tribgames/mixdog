@@ -62,6 +62,9 @@ export async function documentStyleId(zip, requested, type = 'paragraph') {
       return local ? `${open}${local.id}${close}` : whole;
     }
   );
-  zip.file(STYLES_PART, styles.replace('</w:styles>', `${definition}</w:styles>`));
+  zip.file(
+    STYLES_PART,
+    styles.replace('</w:styles>', () => `${definition}</w:styles>`)
+  );
   return { id: borrowed.id, found: true };
 }

@@ -180,7 +180,7 @@ async function appendComment(zip, comments, op, text, thread = {}) {
   const stamps = commentStamps();
   zip.file(
     comments.part,
-    comments.xml.replace('</w:comments>', `${commentEntryXml(id, op, text, stamps.local)}</w:comments>`)
+    comments.xml.replace('</w:comments>', () => `${commentEntryXml(id, op, text, stamps.local)}</w:comments>`)
   );
   await registerCommentThread(zip, { commentId: id, ...thread });
   await registerCommentIdentity(zip, { commentId: id, date: stamps.utc });
@@ -363,7 +363,7 @@ export async function setDocxParagraphStyle(zip, op) {
   let nextParagraph = paragraph.xml;
   if (/<w:pPr(?:\s[^>]*)?>/.test(nextParagraph)) {
     if (/<w:pStyle\b[^>]*\/>/.test(nextParagraph)) {
-      nextParagraph = nextParagraph.replace(/<w:pStyle\b[^>]*\/>/, `<w:pStyle w:val="${style}"/>`);
+      nextParagraph = nextParagraph.replace(/<w:pStyle\b[^>]*\/>/, () => `<w:pStyle w:val="${style}"/>`);
     } else {
       nextParagraph = nextParagraph.replace(/<w:pPr(?:\s[^>]*)?>/, (open) => `${open}<w:pStyle w:val="${style}"/>`);
     }
@@ -412,17 +412,18 @@ export async function setDocxTableCell(zip, op, { tracking }) {
     if (first) {
       nextCell = cell[0].replace(
         '</w:tc>',
-        `<w:p><w:ins ${revisionAttributes(id, op.author)}><w:r>` +
+        () =>
+          `<w:p><w:ins ${revisionAttributes(id, op.author)}><w:r>` +
           `${wordTextContent(op.text, { preserve: true })}</w:r></w:ins></w:p></w:tc>`
       );
     }
   } else if (textNodes(cell[0], 'w:t').length) {
     nextCell = withFirstRunText(cell[0], op.text);
   } else {
-    nextCell = cell[0].replace('</w:tc>', `<w:p><w:r>${wordTextContent(op.text)}</w:r></w:p></w:tc>`);
+    nextCell = cell[0].replace('</w:tc>', () => `<w:p><w:r>${wordTextContent(op.text)}</w:r></w:p></w:tc>`);
   }
-  const nextRow = row[0].replace(cell[0], nextCell);
-  const nextTable = table[0].replace(row[0], nextRow);
+  const nextRow = row[0].replace(cell[0], () => nextCell);
+  const nextTable = table[0].replace(row[0], () => nextRow);
   zip.file(
     DOCUMENT_PART,
     `${current.slice(0, table.index)}${nextTable}${current.slice(table.index + table[0].length)}`
@@ -548,7 +549,7 @@ export async function editDocxTableRowsOrColumns(zip, op) {
       const blank = blankTableCells(template[0]);
       nextTable =
         position > rows.length
-          ? table[0].replace(/<\/w:tbl>$/, `${blank}</w:tbl>`)
+          ? table[0].replace(/<\/w:tbl>$/, () => `${blank}</w:tbl>`)
           : `${table[0].slice(0, template.index)}${blank}${table[0].slice(template.index)}`;
     }
   } else {
@@ -633,7 +634,7 @@ export async function addDocxHyperlink(zip, op) {
   } else if (op.paragraph) {
     const model = docxBodyModel(current);
     const paragraph = bodyParagraphAt(model, op.paragraph);
-    const nextParagraph = paragraph.xml.replace(/<\/w:p>$/, `${link}</w:p>`);
+    const nextParagraph = paragraph.xml.replace(/<\/w:p>$/, () => `${link}</w:p>`);
     current = replaceBodyParagraph(current, model, paragraph, nextParagraph);
     anchor = 'paragraph';
   } else {
@@ -788,7 +789,7 @@ export async function addDocxBookmark(zip, op) {
   const opening = /^<w:p(?:\s[^>]*)?>(?:<w:pPr(?:\s[^>]*)?>[\s\S]*?<\/w:pPr>)?/.exec(paragraph.xml)?.[0] || '<w:p>';
   const marked =
     `${opening}<w:bookmarkStart w:id="${id}" w:name="${xmlEncode(name)}"/>` +
-    `${paragraph.xml.slice(opening.length)}`.replace(/<\/w:p>$/, `<w:bookmarkEnd w:id="${id}"/></w:p>`);
+    `${paragraph.xml.slice(opening.length)}`.replace(/<\/w:p>$/, () => `<w:bookmarkEnd w:id="${id}"/></w:p>`);
   zip.file(DOCUMENT_PART, replaceBodyParagraph(current, model, paragraph, marked));
   return { op: op.op, changed: true, name, bookmark: id };
 }
@@ -837,7 +838,7 @@ export async function setDocxHeaderFooter(zip, op) {
 
 // A separator says the number stands against the total ("3 / 12"): asked for with separator:' / ' and no
 // includeTotal, the footer printed "3" alone. includeTotal:false still keeps the number alone.
-export function pageNumbersIncludeTotal(op) {
+function pageNumbersIncludeTotal(op) {
   return op.includeTotal === true || (op.includeTotal !== false && Boolean(String(op.separator ?? '').trim()));
 }
 

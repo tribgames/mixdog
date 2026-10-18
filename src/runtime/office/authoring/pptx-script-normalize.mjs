@@ -135,7 +135,9 @@ async function giveNotesMasterOwnTheme(zip) {
   await ensureContentTypeOverride(zip, `/${own}`, THEME_TYPE);
   zip.file(
     relsPath,
-    rels.replace(theme.tag, theme.tag.replace(/\bTarget="[^"]+"/, `Target="../theme/${posix.basename(own)}"`))
+    rels.replace(theme.tag, () =>
+      theme.tag.replace(/\bTarget="[^"]+"/, () => `Target="../theme/${posix.basename(own)}"`)
+    )
   );
   return true;
 }
@@ -269,8 +271,8 @@ export function normalizeChartFonts(xml) {
     const txPr = `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr><a:latin typeface="${face}"/><a:ea typeface="${face}"/><a:cs typeface="${face}"/></a:defRPr></a:pPr><a:endParaRPr lang="en-US"/></a:p></c:txPr>`;
     // Schema order after </c:chart>: c:spPr?, c:txPr?, c:externalData?, …
     if (/<\/c:chart>\s*<c:spPr>[\s\S]*?<\/c:spPr>/.test(output))
-      output = output.replace(/(<\/c:chart>\s*<c:spPr>[\s\S]*?<\/c:spPr>)/, `$1${txPr}`);
-    else output = output.replace('</c:chart>', `</c:chart>${txPr}`);
+      output = output.replace(/(<\/c:chart>\s*<c:spPr>[\s\S]*?<\/c:spPr>)/, (__m, __1) => `${__1}${txPr}`);
+    else output = output.replace('</c:chart>', () => `</c:chart>${txPr}`);
     changed += 1;
   }
   return { xml: output, changed, face };
@@ -323,11 +325,11 @@ export function nativeGradients(xml) {
         // Schema order inside spPr: xfrm, geometry, fill, ln, effects — the fill is swapped in place and the
         // outline becomes none, so a gradient never shows a solid rim of its first stop.
         let inner = SHAPE_FILL.test(properties)
-          ? properties.replace(SHAPE_FILL, fill)
-          : properties.replace(/(<\/a:prstGeom>|<a:prstGeom\b[^>]*\/>|<\/a:custGeom>)/, `$1${fill}`);
+          ? properties.replace(SHAPE_FILL, () => fill)
+          : properties.replace(/(<\/a:prstGeom>|<a:prstGeom\b[^>]*\/>|<\/a:custGeom>)/, (__m, __1) => `${__1}${fill}`);
         inner = SHAPE_LINE.test(inner)
           ? inner.replace(SHAPE_LINE, '<a:ln><a:noFill/></a:ln>')
-          : inner.replace(fill, `${fill}<a:ln><a:noFill/></a:ln>`);
+          : inner.replace(fill, () => `${fill}<a:ln><a:noFill/></a:ln>`);
         return inner;
       });
   });
@@ -380,12 +382,13 @@ async function attachSvgIcons(zip, slidePart, xml) {
     const id = nextRelationshipId(relationships);
     relationships = relationships.replace(
       '</Relationships>',
-      `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${mediaName.split('/').pop()}"/></Relationships>`
+      () =>
+        `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${mediaName.split('/').pop()}"/></Relationships>`
     );
     const extension = `<a:extLst><a:ext uri="${SVG_EXTENSION_URI}"><asvg:svgBlip xmlns:asvg="${SVG_NAMESPACE}" r:embed="${id}"/></a:ext></a:extLst>`;
     const withSvg = blip.endsWith('/>')
       ? `${blip.slice(0, -2)}>${extension}</a:blip>`
-      : blip.replace('</a:blip>', `${extension}</a:blip>`);
+      : blip.replace('</a:blip>', () => `${extension}</a:blip>`);
     output = output.replace(picture, () =>
       picture.replace(blip, () => withSvg).replace(/(<p:cNvPr\b[^>]*\bname=)"[^"]*"/, '$1"Icon"')
     );

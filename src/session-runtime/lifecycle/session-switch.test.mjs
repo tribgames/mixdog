@@ -212,10 +212,10 @@ test('switchContext closes the open session, retargets cwd and returns to the co
   assert.equal(await api.switchContext({ cwd: 'C:\\two', desktopSession: { classification: 'project' } }), true);
   assert.deepEqual(calls, [
     ['clearPrep'],
+    ['closeSurface', 'scratch', 'desktop-context-switch', { tombstone: true }],
     ['ingest', 'scratch'],
     ['cancelTasks', { reason: 'desktop-context-switch', notify: false, executionSessionId: 'scratch' }],
     ['clearRoute', 'scratch'],
-    ['closeSurface', 'scratch', 'desktop-context-switch', { tombstone: true }],
     ['cwd', 'C:\\two'],
     ['setRoute', { provider: 'lead-p', model: 'lead-m' }],
     ['refreshEffort'],
@@ -241,8 +241,8 @@ test('newSession ingests and closes the open conversation, then returns the fres
   const { api, calls } = fixture({ current: { id: 'talked', messages: [{ role: 'user', content: 'x' }] } });
   assert.equal(await api.newSession(), 'fresh');
   assert.deepEqual(calls, [
-    ['ingest', 'talked'],
     ['closeSurface', 'talked', 'cli-new', { tombstone: false }],
+    ['ingest', 'talked'],
     ['invalidateContext'],
     ['create'],
   ]);

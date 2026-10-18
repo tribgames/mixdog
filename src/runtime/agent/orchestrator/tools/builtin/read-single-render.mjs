@@ -9,6 +9,7 @@ import { readFile } from 'node:fs/promises';
 import { sameFileVersion } from './file-version.mjs';
 import { canCacheReadFile, READ_PREFIX_HASH_BYTES } from './read-cache-policy.mjs';
 import { decodeUtf16Body, isUtf16Encoding } from './snapshot-helpers.mjs';
+import { capMarker, windowMarker } from './tool-output-limit.mjs';
 
 /**
  * Encoding-aware decode (fresh read AND raw-content cache hit both flow
@@ -51,17 +52,27 @@ function rangeFooter(ctx, render, rendered) {
   const emittedStart = offset + 1;
   if (byteCapTruncated) {
     const emittedEnd = offset + renderedLineCount;
-    const capKb = Math.round(readMaxOutputBytes / 1024);
-    const more = emittedEnd < lineCount ? `; pass offset:${emittedEnd + readOffsetBase} to continue` : '';
-    return { footer: `[lines ${emittedStart}-${emittedEnd} of ${lineCount}; output truncated at ${capKb} KB${more}]` };
+    return {
+      footer: windowMarker({
+        from: emittedStart,
+        to: emittedEnd,
+        total: lineCount,
+        capBytes: readMaxOutputBytes,
+        nextOffset: emittedEnd < lineCount ? emittedEnd + readOffsetBase : null,
+      }),
+    };
   }
   if (Buffer.byteLength(rendered, 'utf8') > readMaxOutputBytes) return {};
   const emittedEnd = offset + sliced.length;
   // Continuation uses the originating caller's coordinate base. Remaining
   // content is not automatically required evidence; when it is, it fits one
   // wider read, not a walk window by window.
-  const more = emittedEnd < lineCount ? `; pass offset:${emittedEnd + readOffsetBase} to continue` : '';
-  const footer = `[lines ${emittedStart}-${emittedEnd} of ${lineCount}${more}]`;
+  const footer = windowMarker({
+    from: emittedStart,
+    to: emittedEnd,
+    total: lineCount,
+    nextOffset: emittedEnd < lineCount ? emittedEnd + readOffsetBase : null,
+  });
   return { footer: widenNote ? `${footer}\n${widenNote}` : footer };
 }
 
@@ -110,8 +121,15 @@ function renderReadWindow(content, ctx, helpers) {
     const slice = byteCapSlice(rendered, readMaxOutputBytes);
     render.renderedLineCount = Math.max(0, slice.split('\n').length - 1);
     render.byteCapTruncated = true;
-    const ofFile = st?.size > 0 ? ` of a ${Math.max(1, Math.round(st.size / 1024))} KB file` : '';
-    out = `${slice}\n\n... [output truncated at ${Math.round(readMaxOutputBytes / 1024)} KB${ofFile}] ...`;
+    const ofFile = st?.size > 0 ? `${Math.max(1, Math.round(st.size / 1024))} KB file` : '';
+    // A windowed read's footer already carries the cap and continuation.
+    out = hasRangeArgs
+      ? slice
+      : `${slice}\n\n${capMarker({
+          limit: readMaxOutputBytes,
+          shown: ofFile ? `${render.renderedLineCount} of ${lineCount} lines shown (${ofFile})` : '',
+          nextOffset: offset + render.renderedLineCount + ctx.readOffsetBase,
+        })}`;
   } else {
     out = rendered;
   }

@@ -94,7 +94,7 @@ test('task wait immediately returns for input queued before wait entry without c
       { sessionId, callerSessionId: sessionId, routingSessionId: sessionId }
     );
     assert.ok(Date.now() - startedAt < 1_000, 'prequeued input should release wait immediately');
-    assert.match(result, /Wait interrupted by new user input/);
+    assert.match(result, /Wait ended by new user input/);
     assert.equal(getBackgroundTask(taskId)?.status, 'running');
     assert.equal(activeTaskWaitCountForSession(sessionId), 0);
   } finally {
@@ -127,7 +127,7 @@ test('task wait returns on user input without cancelling the background task', a
     );
 
     assert.ok(Date.now() - startedAt < 1_000, 'wait should return before its ceiling');
-    assert.match(result, /Wait interrupted by new user input/);
+    assert.match(result, /Wait ended by new user input/);
     assert.equal(getBackgroundTask(taskId)?.status, 'running');
   } finally {
     clearTimeout(interruptTimer);

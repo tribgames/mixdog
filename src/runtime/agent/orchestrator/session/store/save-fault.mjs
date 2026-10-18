@@ -21,6 +21,7 @@
  *     another process's ACTIVE commit, which no registry here can see.
  */
 import { unlinkSync } from 'node:fs';
+import { renameAttempt } from '../../../../shared/atomic-file.mjs';
 import { basename } from 'node:path';
 import { _renameWithRetrySync } from './serialize.mjs';
 
@@ -317,4 +318,18 @@ export function _commitSessionWrite(tmp, target, id) {
   const injected = _takeInjectedCommitFault(id);
   if (injected) throw injected;
   return _renameWithRetrySync(tmp, target);
+}
+
+/**
+ * One attempt of _commitSessionWrite's rename schedule (renameAttempt): null
+ * when the scratch file landed, else the delay before attempt + 1; throws the
+ * final error. The injected fault is taken once per commit, on attempt 0,
+ * exactly as _commitSessionWrite takes it.
+ */
+export function _commitSessionWriteAttempt(tmp, target, id, attempt) {
+  if (attempt === 0) {
+    const injected = _takeInjectedCommitFault(id);
+    if (injected) throw injected;
+  }
+  return renameAttempt(tmp, target, attempt);
 }

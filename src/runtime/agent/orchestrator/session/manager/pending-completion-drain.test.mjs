@@ -25,6 +25,7 @@ const {
   drainPendingMessages,
   enqueuePendingMessage,
   finalizePendingMessageDelivery,
+  hydratePendingMessages,
   markCompletionEntry,
   settlePendingMessageWrites,
 } = await import('./pending-messages.mjs');
@@ -41,8 +42,18 @@ async function cleanup(sessionId) {
 
 test('queued canonical agent and shell completion envelopes drain exactly once', async () => {
   const sessionId = `sess_completion_drain_${process.pid}`;
-  const agent = renderAgentCompletionEnvelope({ id: 'task_agent_drain', tag: 'review', status: 'completed', result: 'ok' });
-  const shell = renderShellCompletionEnvelope({ jobId: 'job_shell_drain', status: 'completed', exitCode: 0, result: 'done' });
+  const agent = renderAgentCompletionEnvelope({
+    id: 'task_agent_drain',
+    tag: 'review',
+    status: 'completed',
+    result: 'ok',
+  });
+  const shell = renderShellCompletionEnvelope({
+    jobId: 'job_shell_drain',
+    status: 'completed',
+    exitCode: 0,
+    result: 'done',
+  });
   assert.equal(isInternalRuntimeNotificationText(agent), true, 'precondition: the display predicate matches');
   assert.equal(isInternalRuntimeNotificationText(shell), true, 'precondition: the display predicate matches');
   try {
@@ -62,9 +73,44 @@ test('queued canonical agent and shell completion envelopes drain exactly once',
   }
 });
 
+test('an undelivered completion survives a restart and is delivered once', async () => {
+  const sessionId = `sess_completion_restart_${process.pid}`;
+  const failed = renderAgentCompletionEnvelope({
+    id: 'task_agent_restart',
+    tag: 'mockup',
+    status: 'failed',
+    result: 'process restart',
+  });
+  try {
+    assert.ok(enqueuePendingMessage(sessionId, markCompletionEntry(failed, { executionId: 'task_agent_restart' })) > 0);
+    await settlePendingMessageWrites({ timeoutMs: 4000 });
+    // The process dies: memory is gone, the spool row stays.
+    _dropPendingMessageState(sessionId, { clearPersisted: false });
+    await settlePendingMessageWrites({ timeoutMs: 4000 });
+
+    assert.equal(await hydratePendingMessages(sessionId), 1);
+    const drained = drainPendingMessages(sessionId);
+    assert.deepEqual(
+      drained.map((entry) => entry.text),
+      [failed]
+    );
+    await finalizePendingMessageDelivery({ id: sessionId }, drained, Promise.resolve(), () => {});
+    await settlePendingMessageWrites({ timeoutMs: 4000 });
+    assert.equal(await hydratePendingMessages(sessionId), 0, 'an acked completion is gone for good');
+    assert.deepEqual(drainPendingMessages(sessionId), []);
+  } finally {
+    await cleanup(sessionId);
+  }
+});
+
 test('a Subagent background shell completion reaches the worker session drain', async () => {
   const workerId = `sess_worker_completion_${process.pid}`;
-  const shell = renderShellCompletionEnvelope({ jobId: 'job_worker_shell', status: 'completed', exitCode: 0, result: 'built' });
+  const shell = renderShellCompletionEnvelope({
+    jobId: 'job_worker_shell',
+    status: 'completed',
+    exitCode: 0,
+    result: 'built',
+  });
   const { workerNotifyFn } = createNotify({ enqueuePendingMessage }, { notifySessionCompletion: () => true });
   try {
     const delivered = workerNotifyFn(workerId)(shell, {

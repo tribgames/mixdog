@@ -32,14 +32,16 @@ export function createTagLookup({ tags, mgr, readWorkerRows, reaper, getLiveSess
     const rows = [];
     const seen = new Set();
     const tombstones = reaper.tagTombstoneIndex();
-    const add = (session, fallbackTag = '') => {
+    // `loaded`: `session` is getLiveSession's own answer (not a catalog
+    // summary), so consumers may reuse it instead of loading it again.
+    const add = (session, fallbackTag = '', loaded = false) => {
       const tag = agentTagOf(session) || clean(fallbackTag);
       if (!tag || !session?.id || session.closed === true) return;
       if (isLeadPoolAgent(session.agent)) return;
       if (!sessionMatchesContext(session, context)) return;
       if (seen.has(session.id)) return;
       seen.add(session.id);
-      rows.push({ tag, session });
+      rows.push(loaded ? { tag, session, loaded: true } : { tag, session });
     };
     const addIndexRow = (row) => {
       const tag = clean(row?.tag);
@@ -70,9 +72,12 @@ export function createTagLookup({ tags, mgr, readWorkerRows, reaper, getLiveSess
       }
     }
     for (const [tag, sessionId] of tags.entries()) {
+      // add() drops an id already listed; loading it first (a whole-session
+      // read for an idle worker) was pure cost on every status pulse.
+      if (seen.has(sessionId)) continue;
       const session = getLiveSession(sessionId);
       if (session && reaper.tombstoneBlocksScan(session, tag, tombstones)) continue;
-      add(session, tag);
+      add(session, tag, true);
     }
     return rows;
   }

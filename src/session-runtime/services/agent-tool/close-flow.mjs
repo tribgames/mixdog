@@ -8,6 +8,7 @@ import {
 import { agentScope, clean, clearAgentStatuslineRoute } from './helpers.mjs';
 import { isLeadPoolAgent } from './worker-rows.mjs';
 import { createCloseAll } from './close-flow/close-all.mjs';
+import { closeManagedSession } from '../../lifecycle/shared.mjs';
 
 const CLOSE_REASON = 'cancelled by agent close';
 
@@ -68,7 +69,7 @@ export function createCloseFlow({ mgr, registry, views }) {
     // below is an idempotent no-op fallback once terminal.
     // Closing a runtime cancels its work; only explicit session deletion
     // may tombstone the conversation.
-    const ok = await mgr.closeSession(sessionId, 'cli-agent-close', { tombstone: false });
+    const ok = await closeManagedSession(mgr, sessionId, 'cli-agent-close', { tombstone: false });
     if (task?.taskId) cancelBackgroundTask(task.taskId, CLOSE_REASON);
     // Drop the row only once the cancellation is DURABLY recorded: a failed
     // close that still forgot the row would leave no cancelled state behind.

@@ -701,9 +701,16 @@ async function _doSave(payload) {
 // Durable lifecycle barriers (tombstone plant + detach generation bump) live
 // in store/lifecycle-barriers.mjs; re-exported so prior importers of
 // store.mjs stay unchanged.
-export { markSessionClosed, bumpSessionGeneration } from './store/lifecycle-barriers.mjs';
+export {
+  markSessionClosed,
+  bumpSessionGeneration,
+  markSessionClosedAsync,
+  markSessionClosedAttempt,
+  bumpSessionGenerationAttempt,
+  isLifecycleRetry,
+} from './store/lifecycle-barriers.mjs';
 // Session reads live in store/load-session.mjs, same facade contract.
-export { loadSession } from './store/load-session.mjs';
+export { loadSession, loadSessionStatus } from './store/load-session.mjs';
 
 // Hard delete + owned-agent enumeration live in store/session-delete.mjs;
 // re-exported here so prior importers of store.mjs stay unchanged.

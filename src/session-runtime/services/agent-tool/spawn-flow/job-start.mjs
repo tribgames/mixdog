@@ -7,6 +7,7 @@ import { sanitizeTaskMeta, startBackgroundTask } from '../../../../runtime/share
 import { resourceAdmission } from '../../../../runtime/shared/resource-admission.mjs';
 import { clean, terminalPidForContext } from '../helpers.mjs';
 import { renderResult } from '../render.mjs';
+import { closeManagedSession } from '../../../lifecycle/shared.mjs';
 
 /** The completion callback that hands a worker's result back to its caller session; null without a handoff. */
 function handoffNotifier(handoffSessionId, notifySessionCompletion) {
@@ -53,9 +54,9 @@ export function createJobStarter({ mgr, notifyStatusChange, notifySessionComplet
         const currentMeta = task?.meta || jobMeta;
         if (currentMeta?.sessionId) {
           try {
-            Promise.resolve(mgr.closeSession(currentMeta.sessionId, 'agent-task-cancel', { tombstone: false })).catch(
-              () => {}
-            );
+            Promise.resolve(
+              closeManagedSession(mgr, currentMeta.sessionId, 'agent-task-cancel', { tombstone: false })
+            ).catch(() => {});
           } catch {}
         }
         setImmediate(notifyStatusChange);

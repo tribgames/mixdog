@@ -29,8 +29,7 @@ ${BATCHING[mode]}
 The mode sets how work splits; an agent's description sets its role and when
 it runs. Splitting applies to every role alike — implementation, review,
 investigation, writing — by file, module, commit range or risk area.
-If the plan has only one implementation scope, Lead executes it directly; a
-role tied to a point in the work, such as the final check, still runs then.
+If the plan has only one implementation scope, Lead executes it directly.
 
 Delegation is for work whose size justifies a brief. When the brief would have
 to spell out the edits themselves — a few localized changes whose sites Lead
@@ -41,11 +40,7 @@ Dispatch all ready independent scopes in one turn. Only a scope that requires
 another's output waits. Brief each agent as the Lead rules describe.
 A running agent receives only changes within its own scope; a new independent
 need goes to a new agent. When scopes touch the same file, name one owner for
-that file in each brief. Agents run only the checks covering their own change;
-Lead runs the full suite once after integration.
+that file in each brief.
 Use only available agents; when none fits a role, Lead does that work itself
-and never changes settings to enable one. If the reviewer is disabled or
-unavailable, Lead alone reviews the result against the approved scope and
-performs the required verification, without a substitute agent; never skip
-review or describe Lead's own review as independent.`;
+and never changes settings to enable one.`;
 }
