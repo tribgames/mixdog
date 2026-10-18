@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import { executeBuiltinTool } from '../builtin.mjs';
+import { relativePathPrefix } from './search-path-diagnostics.mjs';
 
 const FILES = 90;
 const PAGE = 20;
@@ -65,6 +66,33 @@ test('grep files_with_matches: newest first, path tiebreak, across pages', async
     return gb - ga || (a < b ? -1 : 1);
   });
   assert.deepEqual(paged.map(name), expected);
+});
+
+// A root reached through a symlink (macOS /var -> /private/var) or junction is
+// walked under its realpath: results must still be relative to the root the
+// caller gave, and a file reported under both spellings must page once.
+test('grep through a symlinked root prints root-relative rows and pages each file once', async (t) => {
+  const real = await seed('mixdog-grep-page-real-');
+  const link = `${real}-link`;
+  await symlink(real, link, 'junction');
+  t.after(async () => {
+    await rm(link, { recursive: true, force: true });
+    await rm(real, { recursive: true, force: true });
+  });
+  const whole = rowsOf(
+    await executeBuiltinTool('grep', { pattern: 'needle', path: link, mode: 'files_with_matches', limit: 0 }, link),
+    'files_with_matches'
+  );
+  assert.equal(whole.length, FILES);
+  assert.ok(
+    whole.every((row) => /^f-\d{3}\.txt$/.test(row)),
+    whole.find((row) => !/^f-\d{3}\.txt$/.test(row))
+  );
+  const spellings = [
+    relativePathPrefix(join(await realpath(real), 'f-000.txt'), link),
+    relativePathPrefix(join(link, 'f-000.txt'), link),
+  ];
+  assert.deepEqual(spellings, ['f-000.txt', 'f-000.txt']);
 });
 
 test('grep byte-capped files_with_matches page offers a real offset continuation', async (t) => {

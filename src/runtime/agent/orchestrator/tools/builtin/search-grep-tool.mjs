@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, resolve as resolvePath, sep as pathSep } from 'node:path';
 import {
   coerceReadFamilyPathArg,
   GREP_AUTO_CONTEXT_LINES,
@@ -12,6 +12,7 @@ import {
   appendNotFoundCwdNote,
   buildNotFoundHintBody,
   finalizeReadFamilyEnoentTail,
+  realRootOf,
 } from './search-path-diagnostics.mjs';
 import { buildGrepCacheKey, buildGrepRgArgs } from './search-builders.mjs';
 import { runRg, runRgWindowedLines } from './native-search-runner.mjs';
@@ -559,7 +560,7 @@ async function collectGrepWindow(scope, rgArgs, effectiveHeadLimit) {
   }
   const stdout = await runRg(rgArgs, searchExecOptions);
   let allLines = String(stdout).split('\n').filter(Boolean);
-  if (fileList) allLines = await orderFileListLines(allLines, outputMode, scope.rgSpawnCwd);
+  if (fileList) allLines = await orderFileListLines(unifyRootSpelling(allLines, scope), outputMode, scope.rgSpawnCwd);
   const windowed = offset > 0 ? allLines.slice(offset) : allLines;
   const boxed = typeof stdout === 'object' ? stdout : {};
   return {
@@ -569,6 +570,35 @@ async function collectGrepWindow(scope, rgArgs, effectiveHeadLimit) {
     cacheSafe: boxed.cacheSafe !== false,
     partialSuffix: boxed.partial ? grepPartialWarning(stdout) : '',
   };
+}
+
+// A search root reached through a symlink or junction (macOS /var ->
+// /private/var) can come back from the walker under either spelling: rows that
+// the inventory repaired after a filesystem event carry the realpath while the
+// rest carry the given root. Left alone they sort apart, page twice and print
+// as absolute paths. Rewrite realpath rows to the given spelling, then drop the
+// repeats, so ordering, offset paging and relativization see one spelling.
+function unifyRootSpelling(lines, scope) {
+  const given = scope.searchPath;
+  const absGiven = resolvePath(scope.rgSpawnCwd, given);
+  const real = realRootOf(absGiven);
+  if (real === absGiven) return lines;
+  const fold = (text) => (process.platform === 'win32' ? text.toLocaleLowerCase() : text);
+  const realPrefix = fold(`${real.replace(/\\/g, '/').replace(/\/+$/, '')}/`);
+  const sep = given.includes('/') && !given.includes('\\') ? '/' : pathSep;
+  const givenPrefix = `${given.replace(/[\\/]+$/, '')}${sep}`;
+  const seen = new Set();
+  const unified = [];
+  for (const line of lines) {
+    const fwd = line.replace(/\\/g, '/');
+    const row = fold(fwd).startsWith(realPrefix)
+      ? givenPrefix + fwd.slice(realPrefix.length).replace(/\//g, sep)
+      : line;
+    if (seen.has(row)) continue;
+    seen.add(row);
+    unified.push(row);
+  }
+  return unified;
 }
 
 function compareCodeUnits(a, b) {

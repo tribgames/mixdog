@@ -3,7 +3,7 @@
  * grep/glob in search-tool.mjs. search-tool.mjs re-exports these for unchanged
  * importers so it can stay a thin executor.
  */
-import { statSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { findDirectoryByBasename, findFileByBasename, listSiblings } from './path-diagnostics.mjs';
 import { normalizeOutputPath, resolveAgainstCwd } from './path-utils.mjs';
@@ -233,16 +233,40 @@ export async function buildNotFoundHintBody(workDir, missingPath, actionVerb, er
   return elsewhere.exhaustive === true ? ENOENT_ABSENT : '';
 }
 
+// The realpath of a working directory, memoized: a search root reached through
+// a symlink or junction (macOS /var -> /private/var) is reported by the walker
+// under its realpath, so results must be relativized against both spellings.
+const realRootCache = new Map();
+const REAL_ROOT_CACHE_MAX = 64;
+export function realRootOf(root) {
+  if (realRootCache.has(root)) return realRootCache.get(root);
+  let real;
+  try {
+    real = realpathSync.native(root);
+  } catch {
+    return root;
+  }
+  if (realRootCache.size >= REAL_ROOT_CACHE_MAX) realRootCache.clear();
+  realRootCache.set(root, real);
+  return real;
+}
+
+function relativeUnderRoot(absFwd, root) {
+  const rootFwd = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  const haystack = process.platform === 'win32' ? absFwd.toLocaleLowerCase() : absFwd;
+  const needle = process.platform === 'win32' ? rootFwd.toLocaleLowerCase() : rootFwd;
+  if (haystack.startsWith(`${needle}/`) || haystack === needle) return absFwd.slice(rootFwd.length + 1) || '.';
+  return null;
+}
+
 export function relativePathPrefix(pathPrefix, workDir) {
   if (!workDir) return pathPrefix;
-  const cwdFwd = workDir.replace(/\\/g, '/').replace(/\/+$/, '');
   const absFwd = String(pathPrefix || '').replace(/\\/g, '/');
-  const haystack = process.platform === 'win32' ? absFwd.toLocaleLowerCase() : absFwd;
-  const needle = process.platform === 'win32' ? cwdFwd.toLocaleLowerCase() : cwdFwd;
-  if (haystack.startsWith(`${needle}/`) || haystack === needle) {
-    return absFwd.slice(cwdFwd.length + 1) || '.';
-  }
-  return pathPrefix;
+  const given = relativeUnderRoot(absFwd, workDir);
+  if (given !== null) return given;
+  const real = realRootOf(workDir);
+  if (real === workDir) return pathPrefix;
+  return relativeUnderRoot(absFwd, real) ?? pathPrefix;
 }
 
 export function relativeSearchResultPath(path, workDir) {

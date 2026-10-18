@@ -572,13 +572,24 @@ test('adding an archive reference cannot silently displace the only retained exe
     ...latest,
   ];
   const before = structuredClone(messages);
+  // The budget sits one token under the group's verbatim size, so the group
+  // must shed its arguments for the archive reference. It is sized from the
+  // group, never from the reference text: that embeds the archive path, whose
+  // length follows the host's temp directory (/private/var/folders/... on
+  // macOS) and would make a tight margin pass on one platform only.
+  const verbatim = executionTokens(latest);
   const result = buildExecutionTail(messages, {
-    contextWindow: executionTokens(latest) * 10,
+    contextWindow: (verbatim - 1) * 20 + 1,
     sessionId: 'archive-reference-displacement',
   });
   assert.deepEqual(messages, before);
+  assert.equal(result.toolBudget, verbatim - 1);
   assert.ok(result.toolTokens <= result.toolBudget);
   assert.equal(result.retainedGroups, 1);
+  assert.match(
+    result.messages.find((m) => m.toolCalls?.some((c) => c.id === 'latest')).toolCalls[0].arguments.archived,
+    /Tool call arguments archived/
+  );
   assert.equal(
     result.messages.find((m) => m.toolCallId === 'latest').content,
     'Verification skipped; the preceding edit failed.'
